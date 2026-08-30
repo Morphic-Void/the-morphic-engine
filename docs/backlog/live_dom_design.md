@@ -89,6 +89,64 @@ values are embedded in the slot.  Array and object nodes embed their child-list
 header in the same payload footprint.  This avoids per-kind heap object
 models, vtables, allocation chasing, and separate structural sidecars.
 
+## Numeric semantic and lexical intent
+
+Integer nodes retain both their value and the intent needed to reproduce a
+Morphic JSON numeric spelling. The node flags encode signedness, the smallest
+valid integer width (8, 16, 32, or 64 bits), notation (decimal, hexadecimal,
+or binary), and prefix selection. Width is not an independently editable
+hint: it is derived from the value and the selected signedness, and integrity
+validation rejects a wider or narrower encoding.
+
+Unsigned integers have no sign character. Signed integers use `-` for a
+negative value and `+` for a non-negative value, so `127` is an unsigned 8-bit
+integer while `+127` is a signed 8-bit integer.
+Floating-point nodes always carry signed numeric status. Their lexical
+spelling details are outside the initial integer-intent scope.
+
+Decimal is the default notation. Hexadecimal preserves either `0x` or `#`;
+an imported `0X` is normalised to `0x`. Binary uses `0b`; an imported `0B` is
+normalised to `0b`. No alternate binary prefix is presently defined. Thus a
+future writer can preserve examples such as `+#7f` without retaining source
+text as a separate string.
+
+The existing one-byte node flag field is deliberately sufficient for this
+metadata, so live slots remain 64 bytes and baked node records remain 32 bytes.
+
+### Deferred numeric reader and writer policy
+
+JSON itself defines one abstract number grammar; it does not define signed and
+unsigned integer types or a floating-point storage type. Morphic JSON uses its
+additional spelling rules to make the data-model intent deterministic:
+
+- an unsigned integer has no sign character, for example `127`;
+- a signed integer always has a sign character, for example `+127` or `-127`;
+- a floating-point number is always signed and contains either a decimal point
+  or an exponent, so an integral-valued double remains distinguishable from an
+  integer when written.
+
+The Morphic-preserving writer should retain integer notation and prefix choice
+and emit the explicit sign required by the numeric domain. A separate strict
+JSON mode may deliberately normalise this representation by dropping a leading
+`+` and converting hexadecimal or binary integers to decimal. Such an export
+is for interoperability rather than Morphic round trip, so loss of signedness
+or lexical style is acceptable, but the writer should return observable result
+flags or statistics describing transformations it actually performed.
+
+Strict JSON output must still emit the exact decimal value of every supported
+unsigned integer, including the full `uint64_t` range. It should not warn or
+alter output merely to accommodate consumers whose numeric implementation is
+less complete than the JSON grammar permits.
+
+For finite IEEE-754 binary64 values, the writer need only preserve the stored
+`double` state, not the author's original decimal spelling. A correctly rounded
+shortest-round-trip conversion is preferred; emitting `max_digits10` decimal
+digits is also sufficient. Negative zero requires deliberate preservation.
+There is no need for an exponentiated-integer node representation or additional
+floating metadata to provide this guarantee. Policies and any Morphic spellings
+for NaN and infinities belong to the reader/writer boundary; the DOM does not
+attach metadata to those states.
+
 An illustrative shape is:
 
 ```cpp
@@ -278,6 +336,31 @@ should use natural alignment, fixed-width fields, and a deliberate power-of-two
 size, normally 32 or 64 bytes as the actual binary payload and query profile
 require.  Loading binary creates a baked document; editing requires explicit
 promotion into a new live document.
+
+Baked artifacts derive header flags from reachable nodes. In addition to the
+recovered-duplicate-array flag, one flag records whether any numeric node
+requires Morphic JSON syntax, whether because it is a non-negative signed
+integer or uses non-decimal notation. A document is canonical only when neither
+condition is present. Numeric metadata is copied through bake and promotion and
+checked against the stored value at every boundary.
+
+When the signed floating-point spelling policy is implemented, this derived
+extension state must also cover non-negative floating-point values whose
+Morphic-preserving form begins with `+`.
+
+The header remains 64 bytes and baked node records remain 32 bytes, but the
+numeric flag contract requires baked format version 2. Version-1 artifacts are
+rejected rather than inferred: their zero numeric flags cannot faithfully
+describe previously stored negative or wide integer values.
+
+The version-2 header groups the node table layout and the two repeated string
+table layouts (property names and string values) into trivial standard-layout
+substructures. This is a source-level decomposition only: field offsets and the
+64-byte wire representation remain unchanged. Version 2 has one precise
+payload layout—aligned nodes, aligned property-name references, property-name
+bytes, aligned string-value references, then string-value bytes. A checked
+view recomputes these offsets and the total size rather than accepting alternate
+or overlapping section arrangements.
 
 ## Interface boundaries
 

@@ -74,6 +74,34 @@ bool CLiveDocument::is_valid() const noexcept
 
 bool CLiveDocument::is_ready() const noexcept { return m_nodes.is_ready(); }
 
+bool CLiveDocument::contains_recovered_duplicate_arrays() const noexcept
+{
+    for (std::int32_t index = m_nodes.first_live(); index >= 0; index = m_nodes.next_live(index))
+    {
+        const CJsonSlot* const slot = m_nodes.get_slot(index);
+        if ((slot != nullptr) && (slot->type == EJsonNodeType::recovered_duplicate_array)) return true;
+    }
+    return false;
+}
+
+bool CLiveDocument::requires_morphic_json_extensions() const noexcept
+{
+    for (std::int32_t index = m_nodes.first_live(); index >= 0; index = m_nodes.next_live(index))
+    {
+        const CJsonSlot* const slot = m_nodes.get_slot(index);
+        CJsonIntegerMetadata metadata;
+        if ((slot != nullptr) && (slot->type == EJsonNodeType::integer) &&
+            json_integer_metadata_from_flags(slot->flags, metadata) &&
+            json_integer_requires_morphic_extensions(slot->payload.unsigned_bits, metadata)) return true;
+    }
+    return false;
+}
+
+bool CLiveDocument::is_canonical() const noexcept
+{
+    return !contains_recovered_duplicate_arrays() && !requires_morphic_json_extensions();
+}
+
 bool CLiveDocument::set_root(const CNodeKey node) noexcept
 {
     CJsonSlot* const slot = node_slot(node);
@@ -109,15 +137,47 @@ CNodeKey CLiveDocument::create_boolean(const bool value) noexcept
 
 CNodeKey CLiveDocument::create_integer(const std::int64_t value) noexcept
 {
+    const CJsonIntegerMetadata metadata{
+        (value < 0) ? EJsonIntegerSign::signed_value : EJsonIntegerSign::unsigned_value,
+        (value < 0) ? json_signed_integer_smallest_width(value) :
+            json_unsigned_integer_smallest_width(static_cast<std::uint64_t>(value)),
+        EJsonIntegerNotation::decimal,
+        EJsonIntegerPrefix::standard };
+    return create_integer(value, metadata);
+}
+
+CNodeKey CLiveDocument::create_integer(const std::int64_t value, const CJsonIntegerMetadata& metadata) noexcept
+{
+    if (!json_integer_metadata_matches_signed_value(value, metadata)) return CNodeKey{};
     const CNodeKey key = create_node(EJsonNodeType::integer);
-    if (CJsonSlot* const slot = node_slot(key)) slot->payload.integer_value = value;
+    if (CJsonSlot* const slot = node_slot(key))
+    {
+        slot->payload.unsigned_bits = json_integer_bits(value);
+        slot->flags = json_integer_flags(metadata);
+    }
+    return key;
+}
+
+CNodeKey CLiveDocument::create_unsigned_integer(const std::uint64_t value, const CJsonIntegerMetadata& metadata) noexcept
+{
+    if (!json_integer_metadata_matches_unsigned_value(value, metadata)) return CNodeKey{};
+    const CNodeKey key = create_node(EJsonNodeType::integer);
+    if (CJsonSlot* const slot = node_slot(key))
+    {
+        slot->payload.unsigned_bits = value;
+        slot->flags = json_integer_flags(metadata);
+    }
     return key;
 }
 
 CNodeKey CLiveDocument::create_floating_point(const double value) noexcept
 {
     const CNodeKey key = create_node(EJsonNodeType::floating_point);
-    if (CJsonSlot* const slot = node_slot(key)) slot->payload.floating_value = value;
+    if (CJsonSlot* const slot = node_slot(key))
+    {
+        slot->payload.floating_value = value;
+        slot->flags = k_json_floating_point_flags;
+    }
     return key;
 }
 
@@ -153,9 +213,22 @@ bool CLiveDocument::can_attach(const CNodeKey parent_key, const CNodeKey child_k
 {
     const CJsonSlot* const parent_slot = node_slot(parent_key);
     const CJsonSlot* const child_slot = node_slot(child_key);
-    return (parent_slot != nullptr) && is_container_type(parent_slot->type) && (child_slot != nullptr) && (child_key != m_root) &&
-        !child_slot->parent.is_valid() && !child_slot->previous_sibling.is_valid() && !child_slot->next_sibling.is_valid() &&
-        (parent_slot->payload.children.count != std::numeric_limits<std::uint32_t>::max());
+    if ((parent_slot == nullptr) || !is_container_type(parent_slot->type) || (child_slot == nullptr) ||
+        (child_key == m_root) || child_slot->parent.is_valid() || child_slot->previous_sibling.is_valid() ||
+        child_slot->next_sibling.is_valid() ||
+        (parent_slot->payload.children.count == std::numeric_limits<std::uint32_t>::max()))
+    {
+        return false;
+    }
+    CNodeKey ancestor = parent_key;
+    for (std::uint32_t depth = 0u; ancestor.is_valid(); ++depth)
+    {
+        if ((ancestor == child_key) || (depth >= m_nodes.occupied_count())) return false;
+        const CJsonSlot* const ancestor_slot = node_slot(ancestor);
+        if (ancestor_slot == nullptr) return false;
+        ancestor = ancestor_slot->parent;
+    }
+    return true;
 }
 
 bool CLiveDocument::attach_before(
@@ -273,12 +346,31 @@ bool CLiveDocument::boolean_value(const CNodeKey node, bool& value) const noexce
 bool CLiveDocument::integer_value(const CNodeKey node, std::int64_t& value) const noexcept
 {
     const CJsonSlot* const slot = node_slot(node);
-    if ((slot == nullptr) || (slot->type != EJsonNodeType::integer))
+    CJsonIntegerMetadata metadata;
+    if ((slot == nullptr) || (slot->type != EJsonNodeType::integer) || !json_integer_metadata_from_flags(slot->flags, metadata) ||
+        ((metadata.sign == EJsonIntegerSign::unsigned_value) && (slot->payload.unsigned_bits > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()))))
     {
         return false;
     }
-    value = slot->payload.integer_value;
+    value = (metadata.sign == EJsonIntegerSign::signed_value) ?
+        json_signed_integer_value(slot->payload.unsigned_bits) : static_cast<std::int64_t>(slot->payload.unsigned_bits);
     return true;
+}
+
+bool CLiveDocument::unsigned_integer_value(const CNodeKey node, std::uint64_t& value) const noexcept
+{
+    const CJsonSlot* const slot = node_slot(node);
+    CJsonIntegerMetadata metadata;
+    if ((slot == nullptr) || (slot->type != EJsonNodeType::integer) || !json_integer_metadata_from_flags(slot->flags, metadata) ||
+        (metadata.sign == EJsonIntegerSign::signed_value)) return false;
+    value = slot->payload.unsigned_bits;
+    return true;
+}
+
+bool CLiveDocument::integer_metadata(const CNodeKey node, CJsonIntegerMetadata& metadata) const noexcept
+{
+    const CJsonSlot* const slot = node_slot(node);
+    return (slot != nullptr) && (slot->type == EJsonNodeType::integer) && json_integer_metadata_from_flags(slot->flags, metadata);
 }
 
 bool CLiveDocument::floating_point_value(const CNodeKey node, double& value) const noexcept
@@ -446,10 +538,19 @@ bool CLiveDocument::check_integrity() const noexcept
         const CJsonSlot* const slot = m_nodes.get_slot(index);
         if ((slot == nullptr) || !slot->self.is_valid() || (node_slot(slot->self) != slot)) return false;
         if ((slot->type == EJsonNodeType::invalid) || (slot->type > EJsonNodeType::recovered_duplicate_array)) return false;
+        if (!json_numeric_flags_are_valid(slot->type, slot->flags, slot->payload.unsigned_bits)) return false;
         if (slot->parent.is_valid())
         {
             const CJsonSlot* const parent_slot = node_slot(slot->parent);
             if ((parent_slot == nullptr) || !is_container_type(parent_slot->type)) return false;
+            CNodeKey ancestor = slot->parent;
+            for (std::uint32_t depth = 0u; ancestor.is_valid(); ++depth)
+            {
+                if ((ancestor == slot->self) || (depth >= m_nodes.occupied_count())) return false;
+                const CJsonSlot* const ancestor_slot = node_slot(ancestor);
+                if (ancestor_slot == nullptr) return false;
+                ancestor = ancestor_slot->parent;
+            }
         }
         else if (slot->previous_sibling.is_valid() || slot->next_sibling.is_valid() || slot->name_in_parent.is_valid()) return false;
         if (slot->previous_sibling.is_valid())
@@ -493,9 +594,20 @@ CNodeKey CLiveDocument::append_from_baked(const CBakedDocument& source, const CB
         }
         case EJsonNodeType::integer:
         {
-            std::int64_t value = 0;
-            if (!source.integer_value(source_node, value)) return CNodeKey{};
-            destination_node = create_integer(value);
+            CJsonIntegerMetadata metadata;
+            if (!source.integer_metadata(source_node, metadata)) return CNodeKey{};
+            if (metadata.sign == EJsonIntegerSign::unsigned_value)
+            {
+                std::uint64_t value = 0u;
+                if (!source.unsigned_integer_value(source_node, value)) return CNodeKey{};
+                destination_node = create_unsigned_integer(value, metadata);
+            }
+            else
+            {
+                std::int64_t value = 0;
+                if (!source.integer_value(source_node, value)) return CNodeKey{};
+                destination_node = create_integer(value, metadata);
+            }
             break;
         }
         case EJsonNodeType::floating_point:

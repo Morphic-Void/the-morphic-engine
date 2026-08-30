@@ -17,6 +17,7 @@
 #include <cstdint>
 #include <cstring>
 #include <limits>
+#include <type_traits>
 
 #include "containers/ByteBuffers.hpp"
 #include "data_model/baked_document_builder.hpp"
@@ -25,6 +26,20 @@ struct CBakedStringRef
 {
     std::uint32_t offset;
     std::uint32_t length;
+};
+
+struct CBakedRecordTableLayout
+{
+    std::uint32_t offset;
+    std::uint32_t count;
+};
+
+struct CBakedStringTableLayout
+{
+    std::uint32_t references_offset;
+    std::uint32_t reference_count;
+    std::uint32_t bytes_offset;
+    std::uint32_t bytes_size;
 };
 
 // Exactly sixteen uint32 fields: stable 64-byte in-memory wire header.
@@ -36,47 +51,78 @@ struct CBakedDocumentHeader
     std::uint32_t flags;
     std::uint32_t total_size;
     std::uint32_t root_index;
-    std::uint32_t nodes_offset;
-    std::uint32_t node_count;
-    std::uint32_t name_refs_offset;
-    std::uint32_t name_ref_count;
-    std::uint32_t name_bytes_offset;
-    std::uint32_t name_bytes_size;
-    std::uint32_t value_refs_offset;
-    std::uint32_t value_ref_count;
-    std::uint32_t value_bytes_offset;
-    std::uint32_t value_bytes_size;
+    CBakedRecordTableLayout nodes;
+    CBakedStringTableLayout property_names;
+    CBakedStringTableLayout string_values;
     std::uint32_t payload_crc;
 };
 
+static_assert(std::is_trivially_copyable_v<CBakedStringRef>);
+static_assert(std::is_standard_layout_v<CBakedStringRef>);
+static_assert(std::is_trivially_copyable_v<CBakedRecordTableLayout>);
+static_assert(std::is_standard_layout_v<CBakedRecordTableLayout>);
+static_assert(std::is_trivially_copyable_v<CBakedStringTableLayout>);
+static_assert(std::is_standard_layout_v<CBakedStringTableLayout>);
+static_assert(std::is_trivially_copyable_v<CBakedDocumentHeader>);
+static_assert(std::is_standard_layout_v<CBakedDocumentHeader>);
 static_assert(sizeof(CBakedDocumentHeader) == 64u);
 static_assert(sizeof(CBakedStringRef) == 8u);
+static_assert(sizeof(CBakedRecordTableLayout) == 8u);
+static_assert(sizeof(CBakedStringTableLayout) == 16u);
+static_assert(alignof(CBakedDocumentHeader) == alignof(std::uint32_t));
+static_assert(offsetof(CBakedRecordTableLayout, count) == 4u);
+static_assert(offsetof(CBakedStringTableLayout, reference_count) == 4u);
+static_assert(offsetof(CBakedStringTableLayout, bytes_offset) == 8u);
+static_assert(offsetof(CBakedStringTableLayout, bytes_size) == 12u);
+static_assert(offsetof(CBakedDocumentHeader, nodes) == 20u);
+static_assert(offsetof(CBakedDocumentHeader, property_names) == 28u);
+static_assert(offsetof(CBakedDocumentHeader, string_values) == 44u);
+static_assert(offsetof(CBakedDocumentHeader, payload_crc) == 60u);
 
 class CBakedDocument
 {
 public:
+    //  Constants
     static constexpr std::uint32_t k_magic = 0x4B44424Du; // "MBDK"
-    static constexpr std::uint16_t k_version = 1u;
+    static constexpr std::uint16_t k_version = 2u;
     static constexpr std::uint32_t k_flag_recovered_duplicate_arrays = 1u;
+    static constexpr std::uint32_t k_flag_requires_morphic_json_extensions = 2u;
+    static constexpr std::uint32_t k_known_flags = k_flag_recovered_duplicate_arrays | k_flag_requires_morphic_json_extensions;
 
+    //  Construction
     CBakedDocument() noexcept = default;
     CBakedDocument(const void* const bytes, const std::size_t size) noexcept;
+
+    //  Reset
     [[nodiscard]] bool reset(const void* const bytes, const std::size_t size) noexcept;
+
+    //  Status
     [[nodiscard]] bool is_ready() const noexcept;
     [[nodiscard]] bool is_valid() const noexcept;
     [[nodiscard]] bool is_canonical() const noexcept;
     [[nodiscard]] bool contains_recovered_duplicate_arrays() const noexcept;
+    [[nodiscard]] bool requires_morphic_json_extensions() const noexcept;
+
+    //  Root
     [[nodiscard]] CBakedNodeIndex root() const noexcept;
+
+    //  Queries
     [[nodiscard]] std::uint32_t node_count() const noexcept;
     [[nodiscard]] std::uint32_t property_name_count() const noexcept;
     [[nodiscard]] std::uint32_t string_value_count() const noexcept;
+
+    //  Value accessors
     [[nodiscard]] EJsonNodeType node_type(const CBakedNodeIndex node) const noexcept;
     [[nodiscard]] bool boolean_value(const CBakedNodeIndex node, bool& value) const noexcept;
     [[nodiscard]] bool integer_value(const CBakedNodeIndex node, std::int64_t& value) const noexcept;
+    [[nodiscard]] bool unsigned_integer_value(const CBakedNodeIndex node, std::uint64_t& value) const noexcept;
+    [[nodiscard]] bool integer_metadata(const CBakedNodeIndex node, CJsonIntegerMetadata& metadata) const noexcept;
     [[nodiscard]] bool floating_point_value(const CBakedNodeIndex node, double& value) const noexcept;
     [[nodiscard]] CStringView string_value(const CBakedNodeIndex node) const noexcept;
     [[nodiscard]] CStringView string_value(const CStringValueId value) const noexcept;
     [[nodiscard]] CStringView property_name(const CPropertyNameId name) const noexcept;
+
+    //  Relationship accessors
     [[nodiscard]] CBakedNodeIndex parent(const CBakedNodeIndex node) const noexcept;
     [[nodiscard]] CPropertyNameId name_in_parent(const CBakedNodeIndex node) const noexcept;
     [[nodiscard]] CBakedNodeIndex previous_sibling(const CBakedNodeIndex node) const noexcept;
@@ -87,13 +133,15 @@ public:
     [[nodiscard]] CBakedNodeIndex array_at(const CBakedNodeIndex array, const std::uint32_t index) const noexcept;
     [[nodiscard]] CBakedNodeIndex object_child(const CBakedNodeIndex object, const CPropertyNameId name) const noexcept;
     [[nodiscard]] CBakedNodeIndex object_child(const CBakedNodeIndex object, const CStringView& name) const noexcept;
+
+    //  Integrity checking
     [[nodiscard]] bool check_integrity() const noexcept;
 
 private:
     [[nodiscard]] static bool is_array(const EJsonNodeType type) noexcept;
     [[nodiscard]] static bool is_container(const EJsonNodeType type) noexcept;
+    [[nodiscard]] static std::uint64_t align_up(const std::uint64_t value, const std::uint64_t alignment) noexcept;
     [[nodiscard]] static std::uint32_t crc(const std::uint8_t* bytes, std::size_t byte_count) noexcept;
-    [[nodiscard]] static bool range(const std::uint32_t offset, const std::uint64_t byte_count, const std::uint32_t total_size) noexcept;
     [[nodiscard]] static bool validate(const std::uint8_t* const bytes, const std::size_t byte_count) noexcept;
     [[nodiscard]] const CBakedNode* node_slot(const CBakedNodeIndex node) const noexcept;
     [[nodiscard]] CStringView string_from(
@@ -112,21 +160,35 @@ private:
 class CBakedDocumentBlock
 {
 public:
+
+    //  Lifetime
     CBakedDocumentBlock() noexcept = default;
     CBakedDocumentBlock(CBakedDocumentBlock&&) noexcept = default;
     CBakedDocumentBlock& operator=(CBakedDocumentBlock&&) noexcept = default;
     CBakedDocumentBlock(const CBakedDocumentBlock&) = delete;
     CBakedDocumentBlock& operator=(const CBakedDocumentBlock&) = delete;
+    ~CBakedDocumentBlock() noexcept = default;
+
+    //  Construction
     [[nodiscard]] bool build_from(const CBakedDocumentBuilder& source) noexcept;
+
+    //  Deallocate
     void deallocate() noexcept;
+
+    //  Status
     [[nodiscard]] bool is_ready() const noexcept;
+
+    //  Queries
     [[nodiscard]] const CBakedDocument& document() const noexcept;
     [[nodiscard]] const CByteBuffer& bytes() const noexcept;
 
 private:
-    [[nodiscard]] static std::uint64_t align_up(const std::uint64_t value, const std::uint64_t alignment) noexcept;
-    static void copy_strings(CByteBuffer& destination, const CStableStrings& source, const std::uint32_t references_offset,
-        const std::uint32_t bytes_offset, const std::uint32_t string_count) noexcept;
+    static void copy_strings(
+        CByteBuffer& destination,
+        const CStableStrings& source,
+        const std::uint32_t references_offset,
+        const std::uint32_t bytes_offset,
+        const std::uint32_t string_count) noexcept;
 
     CByteBuffer m_bytes;
     CBakedDocument m_document;
@@ -157,12 +219,13 @@ inline bool CBakedDocument::reset(const void* const bytes, const std::size_t siz
 
 inline bool CBakedDocument::is_ready() const noexcept { return m_header != nullptr; }
 inline bool CBakedDocument::is_valid() const noexcept { return is_ready() && validate(m_bytes, m_size); }
-inline bool CBakedDocument::is_canonical() const noexcept { return is_ready() && ((m_header->flags & k_flag_recovered_duplicate_arrays) == 0u); }
-inline bool CBakedDocument::contains_recovered_duplicate_arrays() const noexcept { return is_ready() && !is_canonical(); }
+inline bool CBakedDocument::is_canonical() const noexcept { return is_ready() && (m_header->flags == 0u); }
+inline bool CBakedDocument::contains_recovered_duplicate_arrays() const noexcept { return is_ready() && ((m_header->flags & k_flag_recovered_duplicate_arrays) != 0u); }
+inline bool CBakedDocument::requires_morphic_json_extensions() const noexcept { return is_ready() && ((m_header->flags & k_flag_requires_morphic_json_extensions) != 0u); }
 inline CBakedNodeIndex CBakedDocument::root() const noexcept { return is_ready() ? CBakedNodeIndex{ m_header->root_index } : CBakedNodeIndex{}; }
-inline std::uint32_t CBakedDocument::node_count() const noexcept { return is_ready() ? (m_header->node_count - 1u) : 0u; }
-inline std::uint32_t CBakedDocument::property_name_count() const noexcept { return is_ready() ? (m_header->name_ref_count - 1u) : 0u; }
-inline std::uint32_t CBakedDocument::string_value_count() const noexcept { return is_ready() ? (m_header->value_ref_count - 1u) : 0u; }
+inline std::uint32_t CBakedDocument::node_count() const noexcept { return is_ready() ? (m_header->nodes.count - 1u) : 0u; }
+inline std::uint32_t CBakedDocument::property_name_count() const noexcept { return is_ready() ? (m_header->property_names.reference_count - 1u) : 0u; }
+inline std::uint32_t CBakedDocument::string_value_count() const noexcept { return is_ready() ? (m_header->string_values.reference_count - 1u) : 0u; }
 
 inline EJsonNodeType CBakedDocument::node_type(const CBakedNodeIndex node) const noexcept
 {
@@ -184,12 +247,35 @@ inline bool CBakedDocument::boolean_value(const CBakedNodeIndex node, bool& valu
 inline bool CBakedDocument::integer_value(const CBakedNodeIndex node, std::int64_t& value) const noexcept
 {
     const CBakedNode* const node_record = node_slot(node);
-    if (!node_record || (node_record->type != EJsonNodeType::integer))
+    CJsonIntegerMetadata metadata;
+    if (!node_record || (node_record->type != EJsonNodeType::integer) || !json_integer_metadata_from_flags(node_record->flags, metadata) ||
+        ((metadata.sign == EJsonIntegerSign::unsigned_value) && (node_record->payload.unsigned_bits > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()))))
     {
         return false;
     }
-    value = node_record->payload.integer_value;
+    value = (metadata.sign == EJsonIntegerSign::signed_value) ?
+        json_signed_integer_value(node_record->payload.unsigned_bits) :
+        static_cast<std::int64_t>(node_record->payload.unsigned_bits);
     return true;
+}
+
+inline bool CBakedDocument::unsigned_integer_value(const CBakedNodeIndex node, std::uint64_t& value) const noexcept
+{
+    const CBakedNode* const node_record = node_slot(node);
+    CJsonIntegerMetadata metadata;
+    if (!node_record || (node_record->type != EJsonNodeType::integer) || !json_integer_metadata_from_flags(node_record->flags, metadata) ||
+        (metadata.sign == EJsonIntegerSign::signed_value))
+    {
+        return false;
+    }
+    value = node_record->payload.unsigned_bits;
+    return true;
+}
+
+inline bool CBakedDocument::integer_metadata(const CBakedNodeIndex node, CJsonIntegerMetadata& metadata) const noexcept
+{
+    const CBakedNode* const node_record = node_slot(node);
+    return node_record && (node_record->type == EJsonNodeType::integer) && json_integer_metadata_from_flags(node_record->flags, metadata);
 }
 
 inline bool CBakedDocument::floating_point_value(const CBakedNodeIndex node, double& value) const noexcept
@@ -216,10 +302,10 @@ inline CStringView CBakedDocument::string_value(const CStringValueId value) cons
         return string_from(0u, 0u, 0u, 0u, value.query_value());
     }
     return string_from(
-        m_header->value_refs_offset,
-        m_header->value_ref_count,
-        m_header->value_bytes_offset,
-        m_header->value_bytes_size,
+        m_header->string_values.references_offset,
+        m_header->string_values.reference_count,
+        m_header->string_values.bytes_offset,
+        m_header->string_values.bytes_size,
         value.query_value());
 }
 
@@ -230,10 +316,10 @@ inline CStringView CBakedDocument::property_name(const CPropertyNameId name) con
         return string_from(0u, 0u, 0u, 0u, name.query_value());
     }
     return string_from(
-        m_header->name_refs_offset,
-        m_header->name_ref_count,
-        m_header->name_bytes_offset,
-        m_header->name_bytes_size,
+        m_header->property_names.references_offset,
+        m_header->property_names.reference_count,
+        m_header->property_names.bytes_offset,
+        m_header->property_names.bytes_size,
         name.query_value());
 }
 
@@ -307,6 +393,11 @@ inline bool CBakedDocument::is_array(const EJsonNodeType type) noexcept
 
 inline bool CBakedDocument::is_container(const EJsonNodeType type) noexcept { return is_array(type) || (type == EJsonNodeType::object); }
 
+inline std::uint64_t CBakedDocument::align_up(const std::uint64_t value, const std::uint64_t alignment) noexcept
+{
+    return (value + alignment - 1u) & ~(alignment - 1u);
+}
+
 inline CBakedNodeIndex CBakedDocument::object_child(const CBakedNodeIndex object, const CPropertyNameId name) const noexcept
 {
     const CBakedNode* const object_record = node_slot(object);
@@ -357,18 +448,13 @@ inline std::uint32_t CBakedDocument::crc(const std::uint8_t* bytes, std::size_t 
     return ~value;
 }
 
-inline bool CBakedDocument::range(const std::uint32_t offset, const std::uint64_t byte_count, const std::uint32_t total_size) noexcept
-{
-    return (offset <= total_size) && (byte_count <= static_cast<std::uint64_t>(total_size - offset));
-}
-
 inline const CBakedNode* CBakedDocument::node_slot(const CBakedNodeIndex node) const noexcept
 {
-    if (!m_header || !node.is_valid() || (node.query_value() >= m_header->node_count))
+    if (!m_header || !node.is_valid() || (node.query_value() >= m_header->nodes.count))
     {
         return nullptr;
     }
-    return reinterpret_cast<const CBakedNode*>(m_bytes + m_header->nodes_offset) + node.query_value();
+    return reinterpret_cast<const CBakedNode*>(m_bytes + m_header->nodes.offset) + node.query_value();
 }
 
 inline CStringView CBakedDocument::string_from(
@@ -396,53 +482,63 @@ inline bool CBakedDocument::validate(const std::uint8_t* const bytes, const std:
     {
         return false;
     }
+    if ((reinterpret_cast<std::uintptr_t>(bytes) % alignof(CBakedNode)) != 0u) return false;
     const CBakedDocumentHeader& header = *reinterpret_cast<const CBakedDocumentHeader*>(bytes);
     if ((header.magic != k_magic) || (header.version != k_version) || (header.header_size != sizeof(header)) ||
-        (header.total_size != byte_count) || (header.node_count < 2u) || (header.root_index == 0u) ||
-        (header.root_index >= header.node_count))
+        (header.total_size != byte_count) || ((header.flags & ~k_known_flags) != 0u) ||
+        (header.nodes.count < 2u) || (header.root_index != 1u) ||
+        (header.property_names.reference_count == 0u) || (header.string_values.reference_count == 0u))
     {
         return false;
     }
-    if ((reinterpret_cast<std::uintptr_t>(bytes) % alignof(CBakedNode)) != 0u ||
-        (header.nodes_offset % alignof(CBakedNode)) != 0u ||
-        (header.name_refs_offset % alignof(CBakedStringRef)) != 0u ||
-        (header.value_refs_offset % alignof(CBakedStringRef)) != 0u)
+
+    std::uint64_t expected_size = sizeof(CBakedDocumentHeader);
+    const std::uint64_t expected_nodes_offset = align_up(expected_size, alignof(CBakedNode));
+    expected_size = expected_nodes_offset + (static_cast<std::uint64_t>(header.nodes.count) * sizeof(CBakedNode));
+    const std::uint64_t expected_property_name_references_offset = align_up(expected_size, alignof(CBakedStringRef));
+    expected_size = expected_property_name_references_offset + (static_cast<std::uint64_t>(header.property_names.reference_count) * sizeof(CBakedStringRef));
+    const std::uint64_t expected_property_name_bytes_offset = expected_size;
+    expected_size += header.property_names.bytes_size;
+    const std::uint64_t expected_string_value_references_offset = align_up(expected_size, alignof(CBakedStringRef));
+    expected_size = expected_string_value_references_offset + (static_cast<std::uint64_t>(header.string_values.reference_count) * sizeof(CBakedStringRef));
+    const std::uint64_t expected_string_value_bytes_offset = expected_size;
+    expected_size += header.string_values.bytes_size;
+    if ((header.nodes.offset != expected_nodes_offset) ||
+        (header.property_names.references_offset != expected_property_name_references_offset) ||
+        (header.property_names.bytes_offset != expected_property_name_bytes_offset) ||
+        (header.string_values.references_offset != expected_string_value_references_offset) ||
+        (header.string_values.bytes_offset != expected_string_value_bytes_offset) ||
+        (expected_size != header.total_size))
     {
         return false;
     }
-    if (!range(header.nodes_offset, std::uint64_t(header.node_count) * sizeof(CBakedNode), header.total_size) ||
-        !range(header.name_refs_offset, std::uint64_t(header.name_ref_count) * sizeof(CBakedStringRef), header.total_size) ||
-        !range(header.value_refs_offset, std::uint64_t(header.value_ref_count) * sizeof(CBakedStringRef), header.total_size) ||
-        !range(header.name_bytes_offset, header.name_bytes_size, header.total_size) ||
-        !range(header.value_bytes_offset, header.value_bytes_size, header.total_size) ||
-        (header.name_ref_count == 0u) || (header.value_ref_count == 0u))
-    {
-        return false;
-    }
+
     if (crc(bytes + header.header_size, byte_count - header.header_size) != header.payload_crc)
     {
         return false;
     }
-    const CBakedNode* const nodes = reinterpret_cast<const CBakedNode*>(bytes + header.nodes_offset);
-    const CBakedStringRef* const property_name_references = reinterpret_cast<const CBakedStringRef*>(bytes + header.name_refs_offset);
-    const CBakedStringRef* const string_value_references = reinterpret_cast<const CBakedStringRef*>(bytes + header.value_refs_offset);
+    const CBakedNode* const nodes = reinterpret_cast<const CBakedNode*>(bytes + header.nodes.offset);
+    const CBakedStringRef* const property_name_references = reinterpret_cast<const CBakedStringRef*>(bytes + header.property_names.references_offset);
+    const CBakedStringRef* const string_value_references = reinterpret_cast<const CBakedStringRef*>(bytes + header.string_values.references_offset);
     if ((property_name_references[0].offset != 0u) || (property_name_references[0].length != 0u) ||
         (string_value_references[0].offset != 0u) || (string_value_references[0].length != 0u))
     {
         return false;
     }
-    for (std::uint32_t reference_index = 1u; reference_index < header.name_ref_count; ++reference_index)
+    for (std::uint32_t reference_index = 1u; reference_index < header.property_names.reference_count; ++reference_index)
     {
         const CBakedStringRef& reference = property_name_references[reference_index];
-        if ((reference.offset > header.name_bytes_size) || (reference.length > (header.name_bytes_size - reference.offset)))
+        if ((reference.offset > header.property_names.bytes_size) ||
+            (reference.length > (header.property_names.bytes_size - reference.offset)))
         {
             return false;
         }
     }
-    for (std::uint32_t reference_index = 1u; reference_index < header.value_ref_count; ++reference_index)
+    for (std::uint32_t reference_index = 1u; reference_index < header.string_values.reference_count; ++reference_index)
     {
         const CBakedStringRef& reference = string_value_references[reference_index];
-        if ((reference.offset > header.value_bytes_size) || (reference.length > (header.value_bytes_size - reference.offset)))
+        if ((reference.offset > header.string_values.bytes_size) ||
+            (reference.length > (header.string_values.bytes_size - reference.offset)))
         {
             return false;
         }
@@ -451,17 +547,32 @@ inline bool CBakedDocument::validate(const std::uint8_t* const bytes, const std:
     {
         return false;
     }
-    for (std::uint32_t node_index = 1u; node_index < header.node_count; ++node_index)
+    for (std::uint32_t node_index = 1u; node_index < header.nodes.count; ++node_index)
     {
         const CBakedNode& node = nodes[node_index];
         if ((node.type <= EJsonNodeType::invalid) || (node.type > EJsonNodeType::recovered_duplicate_array) ||
-            (node.parent.query_value() >= header.node_count) || (node.name_in_parent.query_value() >= header.name_ref_count))
+            !json_numeric_flags_are_valid(node.type, node.flags, node.payload.unsigned_bits) ||
+            (node.parent.query_value() >= header.nodes.count) ||
+            (node.name_in_parent.query_value() >= header.property_names.reference_count))
         {
             return false;
         }
-        if ((node.type == EJsonNodeType::string) && (node.payload.string_value.query_value() >= header.value_ref_count))
+        if ((node.type == EJsonNodeType::string) &&
+            (node.payload.string_value.query_value() >= header.string_values.reference_count))
         {
             return false;
+        }
+        if (node_index == header.root_index)
+        {
+            if (node.parent.is_valid() || node.name_in_parent.is_valid()) return false;
+        }
+        else
+        {
+            const std::uint32_t parent_index = node.parent.query_value();
+            if ((parent_index == 0u) || (parent_index >= node_index) || !is_container(nodes[parent_index].type)) return false;
+            const CBakedNode& parent = nodes[parent_index];
+            const std::uint64_t parent_end = static_cast<std::uint64_t>(parent.first_child_index) + parent.child_count;
+            if ((node_index < parent.first_child_index) || (node_index >= parent_end)) return false;
         }
         if (!is_container(node.type))
         {
@@ -471,8 +582,8 @@ inline bool CBakedDocument::validate(const std::uint8_t* const bytes, const std:
             }
             continue;
         }
-        if (node.child_count && ((node.first_child_index == 0u) || (node.first_child_index >= header.node_count) ||
-            (node.child_count > (header.node_count - node.first_child_index))))
+        if (node.child_count && ((node.first_child_index == 0u) || (node.first_child_index >= header.nodes.count) ||
+            (node.child_count > (header.nodes.count - node.first_child_index))))
         {
             return false;
         }
@@ -482,14 +593,38 @@ inline bool CBakedDocument::validate(const std::uint8_t* const bytes, const std:
             {
                 return false;
             }
+            const CBakedNode& child = nodes[node.first_child_index + child_offset];
+            if ((node.type == EJsonNodeType::object) && !child.name_in_parent.is_valid()) return false;
+            if (is_array(node.type) && child.name_in_parent.is_valid()) return false;
+            if (node.type == EJsonNodeType::object)
+            {
+                for (std::uint32_t earlier_offset = 0u; earlier_offset < child_offset; ++earlier_offset)
+                {
+                    if (nodes[node.first_child_index + earlier_offset].name_in_parent == child.name_in_parent) return false;
+                }
+            }
         }
     }
+    std::uint32_t derived_flags = 0u;
+    for (std::uint32_t node_index = 1u; node_index < header.nodes.count; ++node_index)
+    {
+        const CBakedNode& node = nodes[node_index];
+        if (node.type == EJsonNodeType::recovered_duplicate_array) derived_flags |= k_flag_recovered_duplicate_arrays;
+        if (node.type == EJsonNodeType::integer)
+        {
+            CJsonIntegerMetadata metadata;
+            if (!json_integer_metadata_from_flags(node.flags, metadata))
+            {
+                return false;
+            }
+            if (json_integer_requires_morphic_extensions(node.payload.unsigned_bits, metadata))
+            {
+                derived_flags |= k_flag_requires_morphic_json_extensions;
+            }
+        }
+    }
+    if (header.flags != derived_flags) return false;
     return nodes[header.root_index].parent == CBakedNodeIndex{};
-}
-
-inline std::uint64_t CBakedDocumentBlock::align_up(const std::uint64_t value, const std::uint64_t alignment) noexcept
-{
-    return (value + alignment - 1u) & ~(alignment - 1u);
 }
 
 inline void CBakedDocumentBlock::copy_strings(
@@ -547,19 +682,37 @@ inline bool CBakedDocumentBlock::build_from(const CBakedDocumentBuilder& source)
     }
 
     std::uint64_t total_size = sizeof(CBakedDocumentHeader);
-    const std::uint32_t nodes_offset = static_cast<std::uint32_t>(align_up(total_size, alignof(CBakedNode)));
-    total_size = std::uint64_t(nodes_offset) + (std::uint64_t(baked_node_count) * sizeof(CBakedNode));
-    const std::uint32_t property_name_references_offset = static_cast<std::uint32_t>(align_up(total_size, alignof(CBakedStringRef)));
-    total_size = std::uint64_t(property_name_references_offset) + (std::uint64_t(property_name_reference_count) * sizeof(CBakedStringRef));
-    const std::uint32_t property_name_bytes_offset = static_cast<std::uint32_t>(total_size);
+    const std::uint64_t nodes_offset = CBakedDocument::align_up(total_size, alignof(CBakedNode));
+    total_size = nodes_offset + (static_cast<std::uint64_t>(baked_node_count) * sizeof(CBakedNode));
+    const std::uint64_t property_name_references_offset = CBakedDocument::align_up(total_size, alignof(CBakedStringRef));
+    total_size = property_name_references_offset + (static_cast<std::uint64_t>(property_name_reference_count) * sizeof(CBakedStringRef));
+    const std::uint64_t property_name_bytes_offset = total_size;
     total_size += property_name_bytes_size;
-    const std::uint32_t string_value_references_offset = static_cast<std::uint32_t>(align_up(total_size, alignof(CBakedStringRef)));
-    total_size = std::uint64_t(string_value_references_offset) + (std::uint64_t(string_value_reference_count) * sizeof(CBakedStringRef));
-    const std::uint32_t string_value_bytes_offset = static_cast<std::uint32_t>(total_size);
+    const std::uint64_t string_value_references_offset = CBakedDocument::align_up(total_size, alignof(CBakedStringRef));
+    total_size = string_value_references_offset + (static_cast<std::uint64_t>(string_value_reference_count) * sizeof(CBakedStringRef));
+    const std::uint64_t string_value_bytes_offset = total_size;
     total_size += string_value_bytes_size;
     if (total_size > std::numeric_limits<std::uint32_t>::max())
     {
         return false;
+    }
+
+    const CBakedRecordTableLayout nodes{ static_cast<std::uint32_t>(nodes_offset), baked_node_count };
+    const CBakedStringTableLayout property_names{
+        static_cast<std::uint32_t>(property_name_references_offset), property_name_reference_count,
+        static_cast<std::uint32_t>(property_name_bytes_offset), static_cast<std::uint32_t>(property_name_bytes_size) };
+    const CBakedStringTableLayout string_values{
+        static_cast<std::uint32_t>(string_value_references_offset), string_value_reference_count,
+        static_cast<std::uint32_t>(string_value_bytes_offset), static_cast<std::uint32_t>(string_value_bytes_size) };
+
+    std::uint32_t flags = 0u;
+    if (source.m_contains_recovered_duplicate_arrays)
+    {
+        flags |= CBakedDocument::k_flag_recovered_duplicate_arrays;
+    }
+    if (source.m_requires_morphic_json_extensions)
+    {
+        flags |= CBakedDocument::k_flag_requires_morphic_json_extensions;
     }
 
     CByteBuffer staged_bytes;
@@ -568,31 +721,25 @@ inline bool CBakedDocumentBlock::build_from(const CBakedDocumentBuilder& source)
         return false;
     }
     std::memset(staged_bytes.data(), 0, staged_bytes.size());
+    std::memcpy(staged_bytes.data() + nodes.offset, source.m_nodes.data(), static_cast<std::size_t>(baked_node_count) * sizeof(CBakedNode));
+    copy_strings(staged_bytes, source.m_property_names, property_names.references_offset, property_names.bytes_offset, property_names.reference_count);
+    copy_strings(staged_bytes, source.m_string_values, string_values.references_offset, string_values.bytes_offset, string_values.reference_count);
 
-    CBakedDocumentHeader* const header = reinterpret_cast<CBakedDocumentHeader*>(staged_bytes.data());
-    *header = CBakedDocumentHeader{
+    const std::uint32_t payload_crc = CBakedDocument::crc(staged_bytes.data() + sizeof(CBakedDocumentHeader), staged_bytes.size() - sizeof(CBakedDocumentHeader));
+
+    const CBakedDocumentHeader header{
         CBakedDocument::k_magic,
         CBakedDocument::k_version,
         static_cast<std::uint16_t>(sizeof(CBakedDocumentHeader)),
-        source.m_contains_recovered_duplicate_arrays ? CBakedDocument::k_flag_recovered_duplicate_arrays : 0u,
+        flags,
         static_cast<std::uint32_t>(total_size),
         source.m_root.query_value(),
-        nodes_offset,
-        baked_node_count,
-        property_name_references_offset,
-        property_name_reference_count,
-        property_name_bytes_offset,
-        static_cast<std::uint32_t>(property_name_bytes_size),
-        string_value_references_offset,
-        string_value_reference_count,
-        string_value_bytes_offset,
-        static_cast<std::uint32_t>(string_value_bytes_size),
-        0u };
+        nodes,
+        property_names,
+        string_values,
+        payload_crc };
 
-    std::memcpy(staged_bytes.data() + nodes_offset, source.m_nodes.data(), std::size_t(baked_node_count) * sizeof(CBakedNode));
-    copy_strings(staged_bytes, source.m_property_names, property_name_references_offset, property_name_bytes_offset, property_name_reference_count);
-    copy_strings(staged_bytes, source.m_string_values, string_value_references_offset, string_value_bytes_offset, string_value_reference_count);
-    header->payload_crc = CBakedDocument::crc(staged_bytes.data() + sizeof(*header), staged_bytes.size() - sizeof(*header));
+    std::memcpy(staged_bytes.data(), &header, sizeof(header));
 
     const CBakedDocument checked_document{ staged_bytes.data(), staged_bytes.size() };
     if (!checked_document.is_ready()) return false;

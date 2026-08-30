@@ -23,14 +23,13 @@ class CLiveDocument
 {
 public:
 
-    //  Default and deleted lifetime
+    //  Lifetime
     CLiveDocument() noexcept = default;
     CLiveDocument(const CLiveDocument&) = delete;
     CLiveDocument& operator=(const CLiveDocument&) = delete;
     CLiveDocument(CLiveDocument&&) = delete;
     CLiveDocument& operator=(CLiveDocument&&) = delete;
 
-    //  Destructor
     ~CLiveDocument() noexcept = default;
 
     //  A document is accessed by one thread at a time. Reading is permitted
@@ -40,6 +39,9 @@ public:
     [[nodiscard]] bool is_valid() const noexcept;
     [[nodiscard]] bool is_empty() const noexcept;
     [[nodiscard]] bool is_ready() const noexcept;
+    [[nodiscard]] bool is_canonical() const noexcept;
+    [[nodiscard]] bool contains_recovered_duplicate_arrays() const noexcept;
+    [[nodiscard]] bool requires_morphic_json_extensions() const noexcept;
 
     //  Root
     [[nodiscard]] CNodeKey root() const noexcept;
@@ -48,6 +50,8 @@ public:
     [[nodiscard]] EJsonNodeType node_type(const CNodeKey node) const noexcept;
     [[nodiscard]] bool boolean_value(const CNodeKey node, bool& value) const noexcept;
     [[nodiscard]] bool integer_value(const CNodeKey node, std::int64_t& value) const noexcept;
+    [[nodiscard]] bool unsigned_integer_value(const CNodeKey node, std::uint64_t& value) const noexcept;
+    [[nodiscard]] bool integer_metadata(const CNodeKey node, CJsonIntegerMetadata& metadata) const noexcept;
     [[nodiscard]] bool floating_point_value(const CNodeKey node, double& value) const noexcept;
     [[nodiscard]] CStringView string_value(const CNodeKey node) const noexcept;
     [[nodiscard]] CStringView string_value(const CStringValueId value) const noexcept;
@@ -72,6 +76,8 @@ public:
     [[nodiscard]] CNodeKey create_null() noexcept;
     [[nodiscard]] CNodeKey create_boolean(const bool value) noexcept;
     [[nodiscard]] CNodeKey create_integer(const std::int64_t value) noexcept;
+    [[nodiscard]] CNodeKey create_integer(const std::int64_t value, const CJsonIntegerMetadata& metadata) noexcept;
+    [[nodiscard]] CNodeKey create_unsigned_integer(const std::uint64_t value, const CJsonIntegerMetadata& metadata) noexcept;
     [[nodiscard]] CNodeKey create_floating_point(const double value) noexcept;
     [[nodiscard]] CNodeKey create_string(const CStringView& value) noexcept;
     [[nodiscard]] CNodeKey create_array() noexcept;
@@ -83,13 +89,15 @@ public:
     [[nodiscard]] bool detach(const CNodeKey child) noexcept;
     [[nodiscard]] bool erase_detached(const CNodeKey node) noexcept;
 
-    //  Initialisation, promotion, and deallocation
+    //  Initialisation and promotion
     [[nodiscard]] bool initialise(const std::size_t initial_slot_count = 0u) noexcept;
     //  The destination is changed only after a complete successful promotion.
     [[nodiscard]] bool build_from(const CBakedDocument& source) noexcept;
+
+    //  Deallocate
     void deallocate() noexcept;
 
-    //  Integrity audit
+    //  Integrity checking
     [[nodiscard]] bool check_integrity() const noexcept;
 
 private:

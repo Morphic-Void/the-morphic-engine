@@ -3,6 +3,7 @@
 
 #include <cstring>
 #include <iostream>
+#include <limits>
 #include <type_traits>
 
 #include "data_model/live_document.hpp"
@@ -43,6 +44,49 @@ void test_layout_and_scalars(TTestContext& ctx)
     TEST_EXPECT(ctx, document.floating_point_value(float_node, float_value) && (float_value == 2.5));
     TEST_EXPECT(ctx, document.string_value(string_node).length() == 5u);
     TEST_EXPECT(ctx, std::memcmp(document.string_value(string_node).string(), "value", 5u) == 0);
+    TEST_EXPECT(ctx, document.check_integrity());
+}
+
+void test_numeric_intent_and_widths(TTestContext& ctx)
+{
+    CLiveDocument document;
+    TEST_EXPECT(ctx, document.initialise());
+    const CJsonIntegerMetadata explicit_hex{
+        EJsonIntegerSign::signed_value, EJsonIntegerWidth::bits_8,
+        EJsonIntegerNotation::hexadecimal, EJsonIntegerPrefix::alternate };
+    const CJsonIntegerMetadata unsigned_binary{
+        EJsonIntegerSign::unsigned_value, EJsonIntegerWidth::bits_64,
+        EJsonIntegerNotation::binary, EJsonIntegerPrefix::standard };
+    const CNodeKey signed_hex = document.create_integer(127, explicit_hex);
+    const CNodeKey maximum = document.create_unsigned_integer(std::numeric_limits<std::uint64_t>::max(), unsigned_binary);
+    const CNodeKey negative = document.create_integer(-128);
+    const CNodeKey minimum = document.create_integer(std::numeric_limits<std::int64_t>::min());
+    CJsonIntegerMetadata metadata;
+    std::int64_t signed_value = 0;
+    std::uint64_t unsigned_value = 0u;
+    TEST_EXPECT(ctx, document.integer_metadata(signed_hex, metadata));
+    TEST_EXPECT(ctx, metadata.sign == EJsonIntegerSign::signed_value);
+    TEST_EXPECT(ctx, metadata.width == EJsonIntegerWidth::bits_8);
+    TEST_EXPECT(ctx, metadata.notation == EJsonIntegerNotation::hexadecimal);
+    TEST_EXPECT(ctx, metadata.prefix == EJsonIntegerPrefix::alternate);
+    TEST_EXPECT(ctx, document.integer_value(signed_hex, signed_value) && (signed_value == 127));
+    TEST_EXPECT(ctx, document.unsigned_integer_value(maximum, unsigned_value) &&
+        (unsigned_value == std::numeric_limits<std::uint64_t>::max()));
+    TEST_EXPECT(ctx, !document.integer_value(maximum, signed_value));
+    TEST_EXPECT(ctx, document.integer_metadata(negative, metadata));
+    TEST_EXPECT(ctx, metadata.sign == EJsonIntegerSign::signed_value);
+    TEST_EXPECT(ctx, metadata.width == EJsonIntegerWidth::bits_8);
+    TEST_EXPECT(ctx, document.integer_value(minimum, signed_value) &&
+        (signed_value == std::numeric_limits<std::int64_t>::min()));
+    TEST_EXPECT(ctx, document.integer_metadata(minimum, metadata));
+    TEST_EXPECT(ctx, metadata.sign == EJsonIntegerSign::signed_value);
+    TEST_EXPECT(ctx, metadata.width == EJsonIntegerWidth::bits_64);
+    TEST_EXPECT(ctx, !document.is_canonical());
+    TEST_EXPECT(ctx, document.requires_morphic_json_extensions());
+    const CJsonIntegerMetadata wrong_width{
+        EJsonIntegerSign::unsigned_value, EJsonIntegerWidth::bits_16,
+        EJsonIntegerNotation::decimal, EJsonIntegerPrefix::standard };
+    TEST_EXPECT(ctx, !document.create_integer(127, wrong_width).is_valid());
     TEST_EXPECT(ctx, document.check_integrity());
 }
 
@@ -98,6 +142,20 @@ void test_object_names_and_rejected_moves(TTestContext& ctx)
     TEST_EXPECT(ctx, document.check_integrity());
 }
 
+void test_attachment_rejects_cycles(TTestContext& ctx)
+{
+    CLiveDocument document;
+    TEST_EXPECT(ctx, document.initialise());
+    const CNodeKey root = document.create_null();
+    const CNodeKey outer = document.create_array();
+    const CNodeKey inner = document.create_array();
+    TEST_EXPECT(ctx, document.set_root(root));
+    TEST_EXPECT(ctx, !document.append_array_child(outer, outer));
+    TEST_EXPECT(ctx, document.append_array_child(outer, inner));
+    TEST_EXPECT(ctx, !document.append_array_child(inner, outer));
+    TEST_EXPECT(ctx, document.check_integrity());
+}
+
 void test_stale_key_rejection(TTestContext& ctx)
 {
     CLiveDocument document;
@@ -118,8 +176,10 @@ int run_live_document_tests()
 {
     TTestContext ctx;
     test_layout_and_scalars(ctx);
+    test_numeric_intent_and_widths(ctx);
     test_array_mutation_and_cursor(ctx);
     test_object_names_and_rejected_moves(ctx);
+    test_attachment_rejects_cycles(ctx);
     test_stale_key_rejection(ctx);
     std::cout << "LiveDocument: " << ctx.passed << " passed, " << ctx.failed << " failed\n";
     return ctx.failed;

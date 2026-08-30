@@ -4,6 +4,7 @@
 #include <cstring>
 #include <iostream>
 #include <type_traits>
+#include <vector>
 
 #include "data_model/baked_document_builder.hpp"
 #include "data_model/baked_document.hpp"
@@ -15,10 +16,38 @@ using TTestContext = tests::TTestContext;
 
 CStringView text(const char* const value) noexcept { return CStringView{ value }; }
 
+std::uint32_t payload_crc(const std::uint8_t* bytes, std::size_t byte_count) noexcept
+{
+    std::uint32_t value = 0xFFFFFFFFu;
+    for (; byte_count--; ++bytes)
+    {
+        value ^= *bytes;
+        for (std::uint32_t bit = 0u; bit < 8u; ++bit)
+        {
+            value = (value >> 1u) ^ ((value & 1u) ? 0xEDB88320u : 0u);
+        }
+    }
+    return ~value;
+}
+
+std::vector<std::uint8_t> copy_bytes(const CBakedDocumentBlock& block)
+{
+    const CByteBuffer& bytes = block.bytes();
+    return std::vector<std::uint8_t>{ bytes.data(), bytes.data() + bytes.size() };
+}
+
+void refresh_payload_crc(std::vector<std::uint8_t>& bytes) noexcept
+{
+    CBakedDocumentHeader* const header = reinterpret_cast<CBakedDocumentHeader*>(bytes.data());
+    header->payload_crc = payload_crc(bytes.data() + header->header_size, bytes.size() - header->header_size);
+}
+
 void test_bake_preserves_reachable_semantics(TTestContext& ctx)
 {
     static_assert(sizeof(CBakedNode) == 32u);
     static_assert(std::is_trivially_copyable_v<CBakedNode>);
+    static_assert(sizeof(CBakedDocumentHeader) == 64u);
+    static_assert(std::is_trivially_copyable_v<CBakedDocumentHeader>);
 
     CLiveDocument live;
     TEST_EXPECT(ctx, live.initialise());
@@ -113,6 +142,69 @@ void test_final_baked_block(TTestContext& ctx)
     TEST_EXPECT(ctx, !invalid.is_ready());
 }
 
+void test_baked_validation_rejects_malformed_layout_and_structure(TTestContext& ctx)
+{
+    CLiveDocument live;
+    TEST_EXPECT(ctx, live.initialise());
+    const CNodeKey root = live.create_object();
+    const CNodeKey first = live.create_integer(1);
+    const CNodeKey second = live.create_integer(2);
+    TEST_EXPECT(ctx, live.set_root(root));
+    TEST_EXPECT(ctx, live.add_object_child(root, text("first"), first));
+    TEST_EXPECT(ctx, live.add_object_child(root, text("second"), second));
+
+    CBakedDocumentBuilder builder;
+    TEST_EXPECT(ctx, builder.build_from(live));
+    CBakedDocumentBlock block;
+    TEST_EXPECT(ctx, block.build_from(builder));
+
+    std::vector<std::uint8_t> unaligned(block.bytes().size() + 1u);
+    std::memcpy(unaligned.data() + 1u, block.bytes().data(), block.bytes().size());
+    const CBakedDocument unaligned_document{ unaligned.data() + 1u, block.bytes().size() };
+    TEST_EXPECT(ctx, !unaligned_document.is_ready());
+
+    std::vector<std::uint8_t> wrong_layout = copy_bytes(block);
+    CBakedDocumentHeader* header = reinterpret_cast<CBakedDocumentHeader*>(wrong_layout.data());
+    ++header->property_names.references_offset;
+    const CBakedDocument wrong_layout_document{ wrong_layout.data(), wrong_layout.size() };
+    TEST_EXPECT(ctx, !wrong_layout_document.is_ready());
+
+    std::vector<std::uint8_t> orphan = copy_bytes(block);
+    header = reinterpret_cast<CBakedDocumentHeader*>(orphan.data());
+    CBakedNode* nodes = reinterpret_cast<CBakedNode*>(orphan.data() + header->nodes.offset);
+    nodes[3].parent = CBakedNodeIndex{};
+    refresh_payload_crc(orphan);
+    const CBakedDocument orphan_document{ orphan.data(), orphan.size() };
+    TEST_EXPECT(ctx, !orphan_document.is_ready());
+
+    std::vector<std::uint8_t> reverse_containment = copy_bytes(block);
+    header = reinterpret_cast<CBakedDocumentHeader*>(reverse_containment.data());
+    nodes = reinterpret_cast<CBakedNode*>(reverse_containment.data() + header->nodes.offset);
+    nodes[1].child_count = 1u;
+    refresh_payload_crc(reverse_containment);
+    const CBakedDocument reverse_containment_document{
+        reverse_containment.data(), reverse_containment.size() };
+    TEST_EXPECT(ctx, !reverse_containment_document.is_ready());
+
+    std::vector<std::uint8_t> unnamed_object_child = copy_bytes(block);
+    header = reinterpret_cast<CBakedDocumentHeader*>(unnamed_object_child.data());
+    nodes = reinterpret_cast<CBakedNode*>(unnamed_object_child.data() + header->nodes.offset);
+    nodes[2].name_in_parent = CPropertyNameId{};
+    refresh_payload_crc(unnamed_object_child);
+    const CBakedDocument unnamed_object_child_document{
+        unnamed_object_child.data(), unnamed_object_child.size() };
+    TEST_EXPECT(ctx, !unnamed_object_child_document.is_ready());
+
+    std::vector<std::uint8_t> duplicate_object_name = copy_bytes(block);
+    header = reinterpret_cast<CBakedDocumentHeader*>(duplicate_object_name.data());
+    nodes = reinterpret_cast<CBakedNode*>(duplicate_object_name.data() + header->nodes.offset);
+    nodes[3].name_in_parent = nodes[2].name_in_parent;
+    refresh_payload_crc(duplicate_object_name);
+    const CBakedDocument duplicate_object_name_document{
+        duplicate_object_name.data(), duplicate_object_name.size() };
+    TEST_EXPECT(ctx, !duplicate_object_name_document.is_ready());
+}
+
 void test_baked_document_promotion(TTestContext& ctx)
 {
     CLiveDocument source;
@@ -154,6 +246,49 @@ void test_baked_document_promotion(TTestContext& ctx)
     TEST_EXPECT(ctx, promoted.root() == old_root);
     TEST_EXPECT(ctx, promoted.check_integrity());
 }
+
+void test_numeric_intent_survives_bake_and_promotion(TTestContext& ctx)
+{
+    CLiveDocument source;
+    TEST_EXPECT(ctx, source.initialise());
+    const CNodeKey root = source.create_array();
+    const CJsonIntegerMetadata explicit_hex{
+        EJsonIntegerSign::signed_value, EJsonIntegerWidth::bits_8,
+        EJsonIntegerNotation::hexadecimal, EJsonIntegerPrefix::alternate };
+    const CJsonIntegerMetadata binary{
+        EJsonIntegerSign::unsigned_value, EJsonIntegerWidth::bits_16,
+        EJsonIntegerNotation::binary, EJsonIntegerPrefix::standard };
+    const CNodeKey first = source.create_integer(127, explicit_hex);
+    const CNodeKey second = source.create_unsigned_integer(256u, binary);
+    TEST_EXPECT(ctx, source.set_root(root));
+    TEST_EXPECT(ctx, source.append_array_child(root, first));
+    TEST_EXPECT(ctx, source.append_array_child(root, second));
+
+    CBakedDocumentBuilder builder;
+    TEST_EXPECT(ctx, builder.build_from(source));
+    TEST_EXPECT(ctx, !builder.is_canonical());
+    CBakedDocumentBlock block;
+    TEST_EXPECT(ctx, block.build_from(builder));
+    const CBakedDocument& baked = block.document();
+    TEST_EXPECT(ctx, baked.check_integrity());
+    TEST_EXPECT(ctx, baked.requires_morphic_json_extensions());
+    CJsonIntegerMetadata metadata;
+    TEST_EXPECT(ctx, baked.integer_metadata(baked.array_at(baked.root(), 0u), metadata));
+    TEST_EXPECT(ctx, metadata.sign == EJsonIntegerSign::signed_value);
+    TEST_EXPECT(ctx, metadata.notation == EJsonIntegerNotation::hexadecimal);
+    TEST_EXPECT(ctx, metadata.prefix == EJsonIntegerPrefix::alternate);
+    TEST_EXPECT(ctx, baked.integer_metadata(baked.array_at(baked.root(), 1u), metadata));
+    TEST_EXPECT(ctx, metadata.width == EJsonIntegerWidth::bits_16);
+    TEST_EXPECT(ctx, metadata.notation == EJsonIntegerNotation::binary);
+
+    CLiveDocument promoted;
+    TEST_EXPECT(ctx, promoted.build_from(baked));
+    TEST_EXPECT(ctx, promoted.integer_metadata(promoted.array_at(promoted.root(), 0u), metadata));
+    TEST_EXPECT(ctx, metadata.sign == EJsonIntegerSign::signed_value);
+    TEST_EXPECT(ctx, metadata.notation == EJsonIntegerNotation::hexadecimal);
+    TEST_EXPECT(ctx, metadata.prefix == EJsonIntegerPrefix::alternate);
+    TEST_EXPECT(ctx, promoted.check_integrity());
+}
 }
 
 int run_baked_document_builder_tests()
@@ -162,7 +297,9 @@ int run_baked_document_builder_tests()
     test_bake_preserves_reachable_semantics(ctx);
     test_bake_is_atomic_and_rejects_invalid_source(ctx);
     test_final_baked_block(ctx);
+    test_baked_validation_rejects_malformed_layout_and_structure(ctx);
     test_baked_document_promotion(ctx);
+    test_numeric_intent_survives_bake_and_promotion(ctx);
     std::cout << "BakedDocumentBuilder: " << ctx.passed << " passed, " << ctx.failed << " failed\n";
     return ctx.failed;
 }

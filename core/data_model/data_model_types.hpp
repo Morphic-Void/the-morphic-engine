@@ -14,6 +14,7 @@
 #define DATA_MODEL_TYPES_HPP_INCLUDED
 
 #include <cstdint>
+#include <cstring>
 #include <type_traits>
 
 class CLiveDocument;
@@ -118,6 +119,157 @@ enum class EJsonNodeType : std::uint8_t
     recovered_duplicate_array,
 };
 
+//  Numeric intent is stored in the existing node flags byte.  Integer width is
+//  semantic information: it is always the smallest width which holds the
+//  value under the selected signedness.
+enum class EJsonIntegerSign : std::uint8_t
+{
+    unsigned_value = 0u,
+    signed_value = 1u,          //  '-' for negative values and '+' for non-negative values.
+};
+
+enum class EJsonIntegerWidth : std::uint8_t
+{
+    bits_8 = 0u,
+    bits_16 = 1u,
+    bits_32 = 2u,
+    bits_64 = 3u,
+};
+
+enum class EJsonIntegerNotation : std::uint8_t
+{
+    decimal = 0u,
+    hexadecimal = 1u,
+    binary = 2u,
+};
+
+enum class EJsonIntegerPrefix : std::uint8_t
+{
+    standard = 0u,              //  0x for hexadecimal; 0b for binary.
+    alternate = 1u,             //  # for hexadecimal only.
+};
+
+struct CJsonIntegerMetadata
+{
+    EJsonIntegerSign sign{ EJsonIntegerSign::unsigned_value };
+    EJsonIntegerWidth width{ EJsonIntegerWidth::bits_8 };
+    EJsonIntegerNotation notation{ EJsonIntegerNotation::decimal };
+    EJsonIntegerPrefix prefix{ EJsonIntegerPrefix::standard };
+};
+
+constexpr std::uint8_t k_json_numeric_sign_mask = 0x01u;
+constexpr std::uint8_t k_json_numeric_width_mask = 0x06u;
+constexpr std::uint8_t k_json_numeric_width_shift = 1u;
+constexpr std::uint8_t k_json_numeric_notation_mask = 0x18u;
+constexpr std::uint8_t k_json_numeric_notation_shift = 3u;
+constexpr std::uint8_t k_json_numeric_alternate_prefix = 0x20u;
+constexpr std::uint8_t k_json_numeric_reserved_mask = 0xC0u;
+constexpr std::uint8_t k_json_floating_point_flags = static_cast<std::uint8_t>(EJsonIntegerSign::signed_value);
+
+[[nodiscard]] constexpr bool json_integer_metadata_is_valid(const CJsonIntegerMetadata& metadata) noexcept
+{
+    return (static_cast<std::uint8_t>(metadata.sign) <= static_cast<std::uint8_t>(EJsonIntegerSign::signed_value)) &&
+        (static_cast<std::uint8_t>(metadata.width) <= static_cast<std::uint8_t>(EJsonIntegerWidth::bits_64)) &&
+        (static_cast<std::uint8_t>(metadata.notation) <= static_cast<std::uint8_t>(EJsonIntegerNotation::binary)) &&
+        (static_cast<std::uint8_t>(metadata.prefix) <= static_cast<std::uint8_t>(EJsonIntegerPrefix::alternate)) &&
+        (metadata.notation != EJsonIntegerNotation::decimal || metadata.prefix == EJsonIntegerPrefix::standard) &&
+        (metadata.notation != EJsonIntegerNotation::binary || metadata.prefix == EJsonIntegerPrefix::standard);
+}
+
+[[nodiscard]] constexpr std::uint8_t json_integer_flags(const CJsonIntegerMetadata& metadata) noexcept
+{
+    return static_cast<std::uint8_t>(static_cast<std::uint8_t>(metadata.sign) |
+        (static_cast<std::uint8_t>(metadata.width) << k_json_numeric_width_shift) |
+        (static_cast<std::uint8_t>(metadata.notation) << k_json_numeric_notation_shift) |
+        (metadata.prefix == EJsonIntegerPrefix::alternate ? k_json_numeric_alternate_prefix : 0u));
+}
+
+[[nodiscard]] constexpr bool json_integer_metadata_from_flags(const std::uint8_t flags, CJsonIntegerMetadata& metadata) noexcept
+{
+    if ((flags & k_json_numeric_reserved_mask) != 0u ||
+        ((flags & k_json_numeric_notation_mask) >> k_json_numeric_notation_shift) == 3u)
+    {
+        return false;
+    }
+    metadata = CJsonIntegerMetadata{
+        static_cast<EJsonIntegerSign>(flags & k_json_numeric_sign_mask),
+        static_cast<EJsonIntegerWidth>((flags & k_json_numeric_width_mask) >> k_json_numeric_width_shift),
+        static_cast<EJsonIntegerNotation>((flags & k_json_numeric_notation_mask) >> k_json_numeric_notation_shift),
+        (flags & k_json_numeric_alternate_prefix) ? EJsonIntegerPrefix::alternate : EJsonIntegerPrefix::standard };
+    return json_integer_metadata_is_valid(metadata);
+}
+
+[[nodiscard]] constexpr EJsonIntegerWidth json_unsigned_integer_smallest_width(const std::uint64_t value) noexcept
+{
+    return
+        (value <= 0xFFu) ? EJsonIntegerWidth::bits_8 :
+        (value <= 0xFFFFu) ? EJsonIntegerWidth::bits_16 :
+        (value <= 0xFFFFFFFFu) ? EJsonIntegerWidth::bits_32 : EJsonIntegerWidth::bits_64;
+}
+
+[[nodiscard]] constexpr EJsonIntegerWidth json_signed_integer_smallest_width(const std::int64_t value) noexcept
+{
+    return
+        (value >= -128 && value <= 127) ? EJsonIntegerWidth::bits_8 :
+        (value >= -32768 && value <= 32767) ? EJsonIntegerWidth::bits_16 :
+        (value >= (-2147483647 - 1) && value <= 2147483647) ? EJsonIntegerWidth::bits_32 : EJsonIntegerWidth::bits_64;
+}
+
+[[nodiscard]] constexpr bool json_integer_metadata_matches_signed_value(const std::int64_t value, const CJsonIntegerMetadata& metadata) noexcept
+{
+    if (!json_integer_metadata_is_valid(metadata)) return false;
+    if (metadata.sign == EJsonIntegerSign::signed_value)
+    {
+        return metadata.width == json_signed_integer_smallest_width(value);
+    }
+    return (value >= 0) &&
+        (metadata.width == json_unsigned_integer_smallest_width(static_cast<std::uint64_t>(value)));
+}
+
+[[nodiscard]] constexpr bool json_integer_metadata_matches_unsigned_value(const std::uint64_t value, const CJsonIntegerMetadata& metadata) noexcept
+{
+    return json_integer_metadata_is_valid(metadata) &&
+        (metadata.sign == EJsonIntegerSign::unsigned_value) &&
+        (metadata.width == json_unsigned_integer_smallest_width(value));
+}
+
+[[nodiscard]] inline std::uint64_t json_integer_bits(const std::int64_t value) noexcept
+{
+    std::uint64_t bits = 0u;
+    std::memcpy(&bits, &value, sizeof(bits));
+    return bits;
+}
+
+[[nodiscard]] inline std::int64_t json_signed_integer_value(const std::uint64_t bits) noexcept
+{
+    std::int64_t value = 0;
+    std::memcpy(&value, &bits, sizeof(value));
+    return value;
+}
+
+[[nodiscard]] inline bool json_integer_requires_morphic_extensions(const std::uint64_t bits, const CJsonIntegerMetadata& metadata) noexcept
+{
+    return (metadata.notation != EJsonIntegerNotation::decimal) ||
+        ((metadata.sign == EJsonIntegerSign::signed_value) && (json_signed_integer_value(bits) >= 0));
+}
+
+[[nodiscard]] inline bool json_numeric_flags_are_valid(const EJsonNodeType type, const std::uint8_t flags, const std::uint64_t bits) noexcept
+{
+    if (type == EJsonNodeType::floating_point)
+    {
+        return flags == k_json_floating_point_flags;
+    }
+    if (type != EJsonNodeType::integer)
+    {
+        return flags == 0u;
+    }
+    CJsonIntegerMetadata metadata;
+    if (!json_integer_metadata_from_flags(flags, metadata)) return false;
+    return (metadata.sign == EJsonIntegerSign::signed_value) ?
+        json_integer_metadata_matches_signed_value(json_signed_integer_value(bits), metadata) :
+        json_integer_metadata_matches_unsigned_value(bits, metadata);
+}
+
 struct CChildList
 {
     CNodeKey first;
@@ -131,7 +283,6 @@ union CJsonPayload
     constexpr CJsonPayload() noexcept : unsigned_bits(0u) {}
 
     std::uint64_t unsigned_bits;
-    std::int64_t integer_value;
     double floating_value;
     CStringValueId string_value;
     CChildList children;
@@ -164,7 +315,6 @@ union CBakedPayload
     constexpr CBakedPayload() noexcept : unsigned_bits(0u) {}
 
     std::uint64_t unsigned_bits;
-    std::int64_t integer_value;
     double floating_value;
     CStringValueId string_value;
 };
@@ -192,6 +342,7 @@ constexpr CNodeKey::CNodeKey(const std::uint64_t value) noexcept : m_value(value
 constexpr bool CNodeKey::is_valid() const noexcept { return m_value != 0u; }
 constexpr CNodeKey::operator bool() const noexcept { return is_valid(); }
 constexpr std::uint64_t CNodeKey::query_value() const noexcept { return m_value; }
+
 constexpr std::int32_t CNodeKey::relationship(const CNodeKey& other) const noexcept
 {
     return (m_value < other.m_value) ? -1 : ((m_value > other.m_value) ? 1 : 0);
