@@ -468,6 +468,9 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)core\text\text_linter.hpp">
       <Filter>Core\include\text</Filter>
     </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)core\text\utf8_string.hpp">
+      <Filter>Core\include\text</Filter>
+    </ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)core\types\atomic_types.hpp">
       <Filter>Core\include\types</Filter>
     </ClInclude>
@@ -594,6 +597,9 @@
       <Filter>Core\src\threading\messages</Filter>
     </ClCompile>
     <ClCompile Include="$(MSBuildThisFileDirectory)core\text\text_linter.cpp">
+      <Filter>Core\src\text</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)core\text\utf8_string.cpp">
       <Filter>Core\src\text</Filter>
     </ClCompile>
     <ClCompile Include="$(MSBuildThisFileDirectory)core\types\fp16data_t.cpp">

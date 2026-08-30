@@ -2,9 +2,9 @@
 //  Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited
 //  License: MIT (see LICENSE file in repository root)
 //
-//  File:   data_model_types.hpp
-//  Author: Ritchie Brannan
-//  Date:   20 August 2026
+//  File:    data_model_types.hpp
+//  Authors: Ritchie Brannan / OpenAI Codex
+//  Date:    20 Aug 26
 //
 //  Fundamental POD types for the mutable structured-data model.
 
@@ -15,6 +15,7 @@
 
 #include <cstdint>
 #include <cstring>
+#include <limits>
 #include <type_traits>
 
 class CLiveDocument;
@@ -164,11 +165,11 @@ constexpr std::uint8_t k_json_numeric_notation_mask = 0x18u;
 constexpr std::uint8_t k_json_numeric_notation_shift = 3u;
 constexpr std::uint8_t k_json_numeric_alternate_prefix = 0x20u;
 constexpr std::uint8_t k_json_numeric_reserved_mask = 0xC0u;
-constexpr std::uint8_t k_json_floating_point_flags = static_cast<std::uint8_t>(EJsonIntegerSign::signed_value);
 
 [[nodiscard]] constexpr bool json_integer_metadata_is_valid(const CJsonIntegerMetadata& metadata) noexcept
 {
-    return (static_cast<std::uint8_t>(metadata.sign) <= static_cast<std::uint8_t>(EJsonIntegerSign::signed_value)) &&
+    return
+        (static_cast<std::uint8_t>(metadata.sign) <= static_cast<std::uint8_t>(EJsonIntegerSign::signed_value)) &&
         (static_cast<std::uint8_t>(metadata.width) <= static_cast<std::uint8_t>(EJsonIntegerWidth::bits_64)) &&
         (static_cast<std::uint8_t>(metadata.notation) <= static_cast<std::uint8_t>(EJsonIntegerNotation::binary)) &&
         (static_cast<std::uint8_t>(metadata.prefix) <= static_cast<std::uint8_t>(EJsonIntegerPrefix::alternate)) &&
@@ -222,8 +223,7 @@ constexpr std::uint8_t k_json_floating_point_flags = static_cast<std::uint8_t>(E
     {
         return metadata.width == json_signed_integer_smallest_width(value);
     }
-    return (value >= 0) &&
-        (metadata.width == json_unsigned_integer_smallest_width(static_cast<std::uint64_t>(value)));
+    return (value >= 0) && (metadata.width == json_unsigned_integer_smallest_width(static_cast<std::uint64_t>(value)));
 }
 
 [[nodiscard]] constexpr bool json_integer_metadata_matches_unsigned_value(const std::uint64_t value, const CJsonIntegerMetadata& metadata) noexcept
@@ -247,6 +247,18 @@ constexpr std::uint8_t k_json_floating_point_flags = static_cast<std::uint8_t>(E
     return value;
 }
 
+[[nodiscard]] inline std::uint64_t json_floating_point_bits(const double value) noexcept
+{
+    std::uint64_t bits = 0u;
+    std::memcpy(&bits, &value, sizeof(bits));
+    return bits;
+}
+
+[[nodiscard]] inline bool json_floating_point_is_finite(const double value) noexcept
+{
+    return (json_floating_point_bits(value) & 0x7ff0000000000000ull) != 0x7ff0000000000000ull;
+}
+
 [[nodiscard]] inline bool json_integer_requires_morphic_extensions(const std::uint64_t bits, const CJsonIntegerMetadata& metadata) noexcept
 {
     return (metadata.notation != EJsonIntegerNotation::decimal) ||
@@ -257,7 +269,7 @@ constexpr std::uint8_t k_json_floating_point_flags = static_cast<std::uint8_t>(E
 {
     if (type == EJsonNodeType::floating_point)
     {
-        return flags == k_json_floating_point_flags;
+        return flags == 0u;
     }
     if (type != EJsonNodeType::integer)
     {
@@ -384,6 +396,7 @@ static_assert(std::is_trivially_copyable_v<CNodeKey>);
 static_assert(std::is_standard_layout_v<CNodeKey>);
 static_assert(sizeof(CNodeKey) == sizeof(std::uint64_t));
 static_assert(std::is_trivially_copyable_v<CJsonPayload>);
+static_assert((sizeof(double) == sizeof(std::uint64_t) && std::numeric_limits<double>::is_iec559), "Document floating payloads require IEEE binary64.");
 static_assert(std::is_trivially_copyable_v<CJsonSlot>);
 static_assert(std::is_standard_layout_v<CJsonSlot>);
 static_assert(sizeof(CJsonSlot) == 64u);

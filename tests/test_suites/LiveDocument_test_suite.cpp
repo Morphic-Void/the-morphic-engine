@@ -47,6 +47,22 @@ void test_layout_and_scalars(TTestContext& ctx)
     TEST_EXPECT(ctx, document.check_integrity());
 }
 
+void test_live_floating_workspace_accepts_non_finite_values(TTestContext& ctx)
+{
+    CLiveDocument document;
+    TEST_EXPECT(ctx, document.initialise());
+    const CNodeKey nan = document.create_floating_point(std::numeric_limits<double>::quiet_NaN());
+    const CNodeKey positive_infinity = document.create_floating_point(std::numeric_limits<double>::infinity());
+    const CNodeKey negative_infinity = document.create_floating_point(-std::numeric_limits<double>::infinity());
+    double value = 0.0;
+    TEST_EXPECT(ctx, document.floating_point_value(nan, value) && (value != value));
+    TEST_EXPECT(ctx, document.floating_point_value(positive_infinity, value) &&
+        (value == std::numeric_limits<double>::infinity()));
+    TEST_EXPECT(ctx, document.floating_point_value(negative_infinity, value) &&
+        (value == -std::numeric_limits<double>::infinity()));
+    TEST_EXPECT(ctx, document.check_integrity());
+}
+
 void test_numeric_intent_and_widths(TTestContext& ctx)
 {
     CLiveDocument document;
@@ -176,6 +192,7 @@ int run_live_document_tests()
 {
     TTestContext ctx;
     test_layout_and_scalars(ctx);
+    test_live_floating_workspace_accepts_non_finite_values(ctx);
     test_numeric_intent_and_widths(ctx);
     test_array_mutation_and_cursor(ctx);
     test_object_names_and_rejected_moves(ctx);

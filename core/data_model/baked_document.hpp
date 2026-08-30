@@ -2,9 +2,9 @@
 //  Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited
 //  License: MIT (see LICENSE file in repository root)
 //
-//  File:   baked_document.hpp
-//  Author: Ritchie Brannan
-//  Date:   21 August 2026
+//  File:    baked_document.hpp
+//  Authors: Ritchie Brannan / OpenAI Codex
+//  Date:    21 Aug 26
 //
 //  One-allocation immutable baked document artifact and checked view.
 
@@ -21,6 +21,7 @@
 
 #include "containers/ByteBuffers.hpp"
 #include "data_model/baked_document_builder.hpp"
+#include "text/utf8_string.hpp"
 
 struct CBakedStringRef
 {
@@ -84,7 +85,7 @@ class CBakedDocument
 public:
     //  Constants
     static constexpr std::uint32_t k_magic = 0x4B44424Du; // "MBDK"
-    static constexpr std::uint16_t k_version = 2u;
+    static constexpr std::uint16_t k_version = 3u;
     static constexpr std::uint32_t k_flag_recovered_duplicate_arrays = 1u;
     static constexpr std::uint32_t k_flag_requires_morphic_json_extensions = 2u;
     static constexpr std::uint32_t k_known_flags = k_flag_recovered_duplicate_arrays | k_flag_requires_morphic_json_extensions;
@@ -143,6 +144,7 @@ private:
     [[nodiscard]] static std::uint64_t align_up(const std::uint64_t value, const std::uint64_t alignment) noexcept;
     [[nodiscard]] static std::uint32_t crc(const std::uint8_t* bytes, std::size_t byte_count) noexcept;
     [[nodiscard]] static bool validate(const std::uint8_t* const bytes, const std::size_t byte_count) noexcept;
+    [[nodiscard]] static bool validate_strings(const std::uint8_t* bytes, const CBakedStringTableLayout& layout) noexcept;
     [[nodiscard]] const CBakedNode* node_slot(const CBakedNodeIndex node) const noexcept;
     [[nodiscard]] CStringView string_from(
         const std::uint32_t references_offset,
@@ -469,11 +471,47 @@ inline CStringView CBakedDocument::string_from(
         return CStringView{};
     }
     const CBakedStringRef& reference = reinterpret_cast<const CBakedStringRef*>(m_bytes + references_offset)[string_id];
-    if ((reference.offset > bytes_size) || (reference.length > (bytes_size - reference.offset)))
+    if ((reference.offset >= bytes_size) || (reference.length >= (bytes_size - reference.offset)) ||
+        (m_bytes[bytes_offset + reference.offset + reference.length] != 0u))
     {
         return CStringView{};
     }
     return CStringView{ reinterpret_cast<const char*>(m_bytes + bytes_offset + reference.offset), reference.length };
+}
+
+inline bool CBakedDocument::validate_strings(const std::uint8_t* const bytes, const CBakedStringTableLayout& layout) noexcept
+{
+    const CBakedStringRef* const references = reinterpret_cast<const CBakedStringRef*>(bytes + layout.references_offset);
+    if ((references[0].offset != 0u) || (references[0].length != 0u)) return false;
+
+    std::uint64_t expected_offset = 0u;
+    for (std::uint32_t reference_index = 1u; reference_index < layout.reference_count; ++reference_index)
+    {
+        const CBakedStringRef& reference = references[reference_index];
+        if ((reference.offset != expected_offset) || (reference.offset >= layout.bytes_size) ||
+            (reference.length >= (layout.bytes_size - reference.offset)) ||
+            (bytes[layout.bytes_offset + reference.offset + reference.length] != 0u))
+        {
+            return false;
+        }
+        const std::uint8_t* const string = bytes + layout.bytes_offset + reference.offset;
+        std::size_t normalized_size = 0u;
+        if (!utf8_string::validate_and_measure(string, reference.length, utf8_string::ELiteralNulPolicy::reject, normalized_size) ||
+            (normalized_size != reference.length))
+        {
+            return false;
+        }
+        for (std::uint32_t earlier_index = 1u; earlier_index < reference_index; ++earlier_index)
+        {
+            const CBakedStringRef& earlier = references[earlier_index];
+            if ((earlier.length == reference.length) && (std::memcmp(bytes + layout.bytes_offset + earlier.offset, string, reference.length) == 0))
+            {
+                return false;
+            }
+        }
+        expected_offset += static_cast<std::uint64_t>(reference.length) + 1u;
+    }
+    return expected_offset == layout.bytes_size;
 }
 
 inline bool CBakedDocument::validate(const std::uint8_t* const bytes, const std::size_t byte_count) noexcept
@@ -482,7 +520,10 @@ inline bool CBakedDocument::validate(const std::uint8_t* const bytes, const std:
     {
         return false;
     }
-    if ((reinterpret_cast<std::uintptr_t>(bytes) % alignof(CBakedNode)) != 0u) return false;
+    if ((reinterpret_cast<std::uintptr_t>(bytes) % alignof(CBakedNode)) != 0u)
+    {
+        return false;
+    }
     const CBakedDocumentHeader& header = *reinterpret_cast<const CBakedDocumentHeader*>(bytes);
     if ((header.magic != k_magic) || (header.version != k_version) || (header.header_size != sizeof(header)) ||
         (header.total_size != byte_count) || ((header.flags & ~k_known_flags) != 0u) ||
@@ -518,32 +559,11 @@ inline bool CBakedDocument::validate(const std::uint8_t* const bytes, const std:
         return false;
     }
     const CBakedNode* const nodes = reinterpret_cast<const CBakedNode*>(bytes + header.nodes.offset);
-    const CBakedStringRef* const property_name_references = reinterpret_cast<const CBakedStringRef*>(bytes + header.property_names.references_offset);
-    const CBakedStringRef* const string_value_references = reinterpret_cast<const CBakedStringRef*>(bytes + header.string_values.references_offset);
-    if ((property_name_references[0].offset != 0u) || (property_name_references[0].length != 0u) ||
-        (string_value_references[0].offset != 0u) || (string_value_references[0].length != 0u))
+    if (!validate_strings(bytes, header.property_names) || !validate_strings(bytes, header.string_values))
     {
         return false;
     }
-    for (std::uint32_t reference_index = 1u; reference_index < header.property_names.reference_count; ++reference_index)
-    {
-        const CBakedStringRef& reference = property_name_references[reference_index];
-        if ((reference.offset > header.property_names.bytes_size) ||
-            (reference.length > (header.property_names.bytes_size - reference.offset)))
-        {
-            return false;
-        }
-    }
-    for (std::uint32_t reference_index = 1u; reference_index < header.string_values.reference_count; ++reference_index)
-    {
-        const CBakedStringRef& reference = string_value_references[reference_index];
-        if ((reference.offset > header.string_values.bytes_size) ||
-            (reference.length > (header.string_values.bytes_size - reference.offset)))
-        {
-            return false;
-        }
-    }
-    if (nodes[0].type != EJsonNodeType::invalid)
+    if ((nodes[0].type != EJsonNodeType::invalid) || (nodes[0].reserved != 0u))
     {
         return false;
     }
@@ -551,29 +571,38 @@ inline bool CBakedDocument::validate(const std::uint8_t* const bytes, const std:
     {
         const CBakedNode& node = nodes[node_index];
         if ((node.type <= EJsonNodeType::invalid) || (node.type > EJsonNodeType::recovered_duplicate_array) ||
-            !json_numeric_flags_are_valid(node.type, node.flags) ||
+            (node.reserved != 0u) || !json_numeric_flags_are_valid(node.type, node.flags) ||
             ((node.type == EJsonNodeType::integer) && !json_integer_value_matches_flags(node.flags, node.payload.unsigned_bits)) ||
+            ((node.type == EJsonNodeType::floating_point) && !json_floating_point_is_finite(node.payload.floating_value)) ||
             (node.parent.query_value() >= header.nodes.count) ||
             (node.name_in_parent.query_value() >= header.property_names.reference_count))
         {
             return false;
         }
-        if ((node.type == EJsonNodeType::string) &&
-            (node.payload.string_value.query_value() >= header.string_values.reference_count))
+        if ((node.type == EJsonNodeType::string) && (node.payload.string_value.query_value() >= header.string_values.reference_count))
         {
             return false;
         }
         if (node_index == header.root_index)
         {
-            if (node.parent.is_valid() || node.name_in_parent.is_valid()) return false;
+            if (node.parent.is_valid() || node.name_in_parent.is_valid())
+            {
+                return false;
+            }
         }
         else
         {
             const std::uint32_t parent_index = node.parent.query_value();
-            if ((parent_index == 0u) || (parent_index >= node_index) || !is_container(nodes[parent_index].type)) return false;
+            if ((parent_index == 0u) || (parent_index >= node_index) || !is_container(nodes[parent_index].type))
+            {
+                return false;
+            }
             const CBakedNode& parent = nodes[parent_index];
             const std::uint64_t parent_end = static_cast<std::uint64_t>(parent.first_child_index) + parent.child_count;
-            if ((node_index < parent.first_child_index) || (node_index >= parent_end)) return false;
+            if ((node_index < parent.first_child_index) || (node_index >= parent_end))
+            {
+                return false;
+            }
         }
         if (!is_container(node.type))
         {
@@ -595,13 +624,22 @@ inline bool CBakedDocument::validate(const std::uint8_t* const bytes, const std:
                 return false;
             }
             const CBakedNode& child = nodes[node.first_child_index + child_offset];
-            if ((node.type == EJsonNodeType::object) && !child.name_in_parent.is_valid()) return false;
-            if (is_array(node.type) && child.name_in_parent.is_valid()) return false;
+            if ((node.type == EJsonNodeType::object) && !child.name_in_parent.is_valid())
+            {
+                return false;
+            }
+            if (is_array(node.type) && child.name_in_parent.is_valid())
+            {
+                return false;
+            }
             if (node.type == EJsonNodeType::object)
             {
                 for (std::uint32_t earlier_offset = 0u; earlier_offset < child_offset; ++earlier_offset)
                 {
-                    if (nodes[node.first_child_index + earlier_offset].name_in_parent == child.name_in_parent) return false;
+                    if (nodes[node.first_child_index + earlier_offset].name_in_parent == child.name_in_parent)
+                    {
+                        return false;
+                    }
                 }
             }
         }
@@ -642,7 +680,8 @@ inline void CBakedDocumentBlock::copy_strings(
         const CStringView string = source.view(string_index);
         references[string_index] = CBakedStringRef{ current_bytes_offset, static_cast<std::uint32_t>(string.length()) };
         std::memcpy(destination.data() + bytes_offset + current_bytes_offset, string.string(), string.length());
-        current_bytes_offset += static_cast<std::uint32_t>(string.length());
+        destination.data()[bytes_offset + current_bytes_offset + string.length()] = 0u;
+        current_bytes_offset += static_cast<std::uint32_t>(string.length() + 1u);
     }
 }
 
@@ -666,7 +705,7 @@ inline bool CBakedDocumentBlock::build_from(const CBakedDocumentBuilder& source)
     {
         const CStringView string = source.m_property_names.view(string_index);
         if ((string.string() == nullptr) || (string.length() > std::numeric_limits<std::uint32_t>::max()) ||
-            ((property_name_bytes_size += string.length()) > std::numeric_limits<std::uint32_t>::max()))
+            ((property_name_bytes_size += (string.length() + 1u)) > std::numeric_limits<std::uint32_t>::max()))
         {
             return false;
         }
@@ -676,7 +715,7 @@ inline bool CBakedDocumentBlock::build_from(const CBakedDocumentBuilder& source)
     {
         const CStringView string = source.m_string_values.view(string_index);
         if ((string.string() == nullptr) || (string.length() > std::numeric_limits<std::uint32_t>::max()) ||
-            ((string_value_bytes_size += string.length()) > std::numeric_limits<std::uint32_t>::max()))
+            ((string_value_bytes_size += (string.length() + 1u)) > std::numeric_limits<std::uint32_t>::max()))
         {
             return false;
         }

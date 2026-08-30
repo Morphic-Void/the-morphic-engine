@@ -2,9 +2,10 @@
 //  Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited
 //  License: MIT (see LICENSE file in repository root)
 //
-//  File:   live_document.cpp
-//  Author: Ritchie Brannan
-//  Date:   21 August 2026
+//  File:    live_document.cpp
+//  Authors: Ritchie Brannan / OpenAI Codex
+//  Date:    21 Aug 26
+//
 //  Mutable document implementation and baked-document promotion.
 
 #include <limits>
@@ -176,7 +177,6 @@ CNodeKey CLiveDocument::create_floating_point(const double value) noexcept
     if (CJsonSlot* const slot = node_slot(key))
     {
         slot->payload.floating_value = value;
-        slot->flags = k_json_floating_point_flags;
     }
     return key;
 }
@@ -536,7 +536,7 @@ bool CLiveDocument::check_integrity() const noexcept
     for (std::int32_t index = m_nodes.first_live(); index >= 0; index = m_nodes.next_live(index))
     {
         const CJsonSlot* const slot = m_nodes.get_slot(index);
-        if ((slot == nullptr) || !slot->self.is_valid() || (node_slot(slot->self) != slot))
+        if ((slot == nullptr) || !slot->self.is_valid() || (node_slot(slot->self) != slot) || (slot->reserved != 0u))
         {
             return false;
         }

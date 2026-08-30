@@ -100,9 +100,9 @@ validation rejects a wider or narrower encoding.
 
 Unsigned integers have no sign character. Signed integers use `-` for a
 negative value and `+` for a non-negative value, so `127` is an unsigned 8-bit
-integer while `+127` is a signed 8-bit integer.
-Floating-point nodes always carry signed numeric status. Their lexical
-spelling details are outside the initial integer-intent scope.
+integer while `+127` is a signed 8-bit integer. Floating-point nodes carry no
+signedness metadata: IEEE binary64 already contains its sign, including the
+sign of negative zero, and floating node flags are always zero.
 
 Decimal is the default notation. Hexadecimal preserves either `0x` or `#`;
 an imported `0X` is normalised to `0x`. Binary uses `0b`; an imported `0B` is
@@ -142,10 +142,13 @@ For finite IEEE-754 binary64 values, the writer need only preserve the stored
 `double` state, not the author's original decimal spelling. A correctly rounded
 shortest-round-trip conversion is preferred; emitting `max_digits10` decimal
 digits is also sufficient. Negative zero requires deliberate preservation.
-There is no need for an exponentiated-integer node representation or additional
-floating metadata to provide this guarantee. Policies and any Morphic spellings
-for NaN and infinities belong to the reader/writer boundary; the DOM does not
-attach metadata to those states.
+Finite floating-point values use the same spelling in Morphic-preserving and
+strict modes; non-negative values do not receive a leading `+`. There is no
+need for an exponentiated-integer node representation or additional floating
+metadata to provide this guarantee. The live document may temporarily hold
+NaN and infinities as a construction workspace, but baking rejects them
+atomically. Builder integrity and baked validation independently require every
+floating payload to be finite.
 
 An illustrative shape is:
 
@@ -251,6 +254,23 @@ During baking, only live entries are copied into compact baked tables and
 rewritten through live-to-baked string/name maps.  A structural audit verifies
 that recorded use counts match actual graph use.
 
+Live string storage is length-aware and physically zero-terminated. It may
+contain literal zero bytes or the exact Java-style modified-UTF-8 encoding
+`C0 80` for U+0000. The live-to-baked boundary validates all reachable names
+and string values, promotes each embedded literal zero byte to `C0 80`, and
+otherwise requires strict UTF-8. Every other malformed, overlong, surrogate,
+extended, or truncated form is rejected. Normalisation precedes interning, so
+raw spellings which become equal after promotion collide as the same name.
+
+Baked strings use strict UTF-8 with one deliberate exception: logical U+0000
+is canonically stored as `C0 80`. Literal zero is forbidden within the payload.
+Each baked string is followed physically by one literal zero terminator, while
+its reference length counts payload bytes only. Thus `string[length]` is zero,
+but the terminator is not part of comparison, interning, or JSON output. String
+table byte sizes and the baked payload CRC include these physical terminators.
+Baked validation independently verifies encoding, terminators, dense reference
+layout, and byte-wise uniqueness of interned entries.
+
 ## Navigation and references
 
 Navigation has two forms.
@@ -344,23 +364,26 @@ integer or uses non-decimal notation. A document is canonical only when neither
 condition is present. Numeric metadata is copied through bake and promotion and
 checked against the stored value at every boundary.
 
-When the signed floating-point spelling policy is implemented, this derived
-extension state must also cover non-negative floating-point values whose
-Morphic-preserving form begins with `+`.
+The extension flag is integer-only. Floating-point values never contribute to
+it. Embedded logical NULs are valid canonical content and do not require a
+persistent header flag; a writer necessarily observes them while sizing and
+escaping strings.
 
-The header remains 64 bytes and baked node records remain 32 bytes, but the
-numeric flag contract requires baked format version 2. Version-1 artifacts are
-rejected rather than inferred: their zero numeric flags cannot faithfully
-describe previously stored negative or wide integer values.
+The header remains 64 bytes and baked node records remain 32 bytes. Baked
+format version 3 records zero floating flags, finite floating payloads, the
+modified-NUL string encoding, and physical per-string terminators. Older
+artifacts are rejected rather than inferred or migrated.
 
-The version-2 header groups the node table layout and the two repeated string
+The header groups the node table layout and the two repeated string
 table layouts (property names and string values) into trivial standard-layout
 substructures. This is a source-level decomposition only: field offsets and the
-64-byte wire representation remain unchanged. Version 2 has one precise
+64-byte wire representation remain unchanged. Version 3 has one precise
 payload layout—aligned nodes, aligned property-name references, property-name
 bytes, aligned string-value references, then string-value bytes. A checked
 view recomputes these offsets and the total size rather than accepting alternate
-or overlapping section arrangements.
+or overlapping section arrangements. The existing reserved node field remains
+zero and is not repurposed; live integrity, builder integrity, and baked
+validation reject nonzero values.
 
 ## Interface boundaries
 
@@ -379,6 +402,11 @@ document exists.  This permits one writer implementation to be verified
 against both native representations.  The parser will also depend on the
 planned low-level UTF ingester and normalisation layer; JSON IO must consume
 that layer rather than becoming an accidental substitute for it.
+
+The parser promotes an escaped or decoded embedded U+0000 to `C0 80` in its
+live string payload. The writer recognizes that exact sequence as logical
+U+0000 and always emits it as the JSON hexadecimal escape `\u0000`; it never
+emits a baked string's final physical terminator.
 
 ## Deferred layers
 

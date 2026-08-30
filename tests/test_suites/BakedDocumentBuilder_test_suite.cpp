@@ -3,6 +3,7 @@
 
 #include <cstring>
 #include <iostream>
+#include <limits>
 #include <type_traits>
 #include <vector>
 
@@ -15,6 +16,13 @@ namespace
 using TTestContext = tests::TTestContext;
 
 CStringView text(const char* const value) noexcept { return CStringView{ value }; }
+
+std::uint64_t double_bits(const double value) noexcept
+{
+    std::uint64_t bits = 0u;
+    std::memcpy(&bits, &value, sizeof(bits));
+    return bits;
+}
 
 std::uint32_t payload_crc(const std::uint8_t* bytes, std::size_t byte_count) noexcept
 {
@@ -138,6 +146,9 @@ void test_final_baked_block(TTestContext& ctx)
     TEST_EXPECT(ctx, child.is_valid());
     TEST_EXPECT(ctx, doc.string_value(child).length()==5u);
     TEST_EXPECT(ctx, std::memcmp(doc.string_value(child).string(),"value",5u)==0);
+    const CStringView child_name = doc.property_name(doc.name_in_parent(child));
+    TEST_EXPECT(ctx, child_name.length() == 3u);
+    TEST_EXPECT(ctx, child_name.string()[child_name.length()] == 0u);
     CBakedDocument invalid{block.bytes().data(),block.bytes().size()-1u};
     TEST_EXPECT(ctx, !invalid.is_ready());
 }
@@ -289,6 +300,238 @@ void test_numeric_intent_survives_bake_and_promotion(TTestContext& ctx)
     TEST_EXPECT(ctx, metadata.prefix == EJsonIntegerPrefix::alternate);
     TEST_EXPECT(ctx, promoted.check_integrity());
 }
+
+void test_floating_boundary_and_payload_preservation(TTestContext& ctx)
+{
+    CLiveDocument source;
+    TEST_EXPECT(ctx, source.initialise());
+    const CNodeKey root = source.create_array();
+    TEST_EXPECT(ctx, source.set_root(root));
+    TEST_EXPECT(ctx, source.append_array_child(root, source.create_floating_point(3.5)));
+    TEST_EXPECT(ctx, source.append_array_child(root, source.create_floating_point(-2.25)));
+    TEST_EXPECT(ctx, source.append_array_child(root, source.create_floating_point(-0.0)));
+
+    CBakedDocumentBuilder builder;
+    TEST_EXPECT(ctx, builder.build_from(source));
+    TEST_EXPECT(ctx, builder.is_canonical());
+    TEST_EXPECT(ctx, !builder.requires_morphic_json_extensions());
+    double value = 0.0;
+    TEST_EXPECT(ctx, builder.floating_point_value(builder.array_at(builder.root(), 2u), value));
+    TEST_EXPECT(ctx, double_bits(value) == double_bits(-0.0));
+
+    CBakedDocumentBlock block;
+    TEST_EXPECT(ctx, block.build_from(builder));
+    const CBakedDocumentHeader* const header = reinterpret_cast<const CBakedDocumentHeader*>(block.bytes().data());
+    const CBakedNode* const nodes = reinterpret_cast<const CBakedNode*>(block.bytes().data() + header->nodes.offset);
+    TEST_EXPECT(ctx, header->version == 3u);
+    TEST_EXPECT(ctx, nodes[2].flags == 0u);
+    TEST_EXPECT(ctx, nodes[3].flags == 0u);
+    TEST_EXPECT(ctx, nodes[4].flags == 0u);
+    TEST_EXPECT(ctx, block.document().floating_point_value(block.document().array_at(block.document().root(), 2u), value));
+    TEST_EXPECT(ctx, double_bits(value) == double_bits(-0.0));
+
+    CLiveDocument promoted;
+    TEST_EXPECT(ctx, promoted.build_from(block.document()));
+    TEST_EXPECT(ctx, promoted.floating_point_value(promoted.array_at(promoted.root(), 2u), value));
+    TEST_EXPECT(ctx, double_bits(value) == double_bits(-0.0));
+}
+
+void test_non_finite_bake_rejection_is_atomic(TTestContext& ctx)
+{
+    CLiveDocument valid;
+    TEST_EXPECT(ctx, valid.initialise());
+    const CNodeKey valid_root = valid.create_integer(9);
+    TEST_EXPECT(ctx, valid.set_root(valid_root));
+    CBakedDocumentBuilder destination;
+    TEST_EXPECT(ctx, destination.build_from(valid));
+    const CBakedNodeIndex old_root = destination.root();
+    const std::uint32_t old_count = destination.node_count();
+
+    const double rejected[]{
+        std::numeric_limits<double>::quiet_NaN(),
+        std::numeric_limits<double>::infinity(),
+        -std::numeric_limits<double>::infinity() };
+    for (const double value : rejected)
+    {
+        CLiveDocument source;
+        TEST_EXPECT(ctx, source.initialise());
+        const CNodeKey root = source.create_floating_point(value);
+        TEST_EXPECT(ctx, source.set_root(root));
+        TEST_EXPECT(ctx, source.check_integrity());
+        TEST_EXPECT(ctx, !destination.build_from(source));
+        TEST_EXPECT(ctx, destination.root() == old_root);
+        TEST_EXPECT(ctx, destination.node_count() == old_count);
+        TEST_EXPECT(ctx, destination.check_integrity());
+    }
+}
+
+bool bake_single_string(CBakedDocumentBuilder& destination, const std::uint8_t* bytes, const std::size_t length)
+{
+    CLiveDocument source;
+    if (!source.initialise()) return false;
+    const CNodeKey root = source.create_string(CStringView{ bytes, length });
+    return root.is_valid() && source.set_root(root) && destination.build_from(source);
+}
+
+void test_modified_utf8_and_terminated_baked_strings(TTestContext& ctx)
+{
+    const std::uint8_t literal_nul[]{ 'a', 0u, 'b' };
+    const std::uint8_t modified_nul[]{ 'a', 0xc0u, 0x80u, 'b' };
+    CBakedDocumentBuilder builder;
+    TEST_EXPECT(ctx, bake_single_string(builder, literal_nul, sizeof(literal_nul)));
+    const CStringView normalized = builder.string_value(builder.root());
+    TEST_EXPECT(ctx, normalized.length() == sizeof(modified_nul));
+    TEST_EXPECT(ctx, std::memcmp(normalized.string(), modified_nul, sizeof(modified_nul)) == 0);
+
+    CBakedDocumentBlock block;
+    TEST_EXPECT(ctx, block.build_from(builder));
+    const CStringView baked = block.document().string_value(block.document().root());
+    TEST_EXPECT(ctx, baked.length() == sizeof(modified_nul));
+    TEST_EXPECT(ctx, std::memcmp(baked.string(), modified_nul, sizeof(modified_nul)) == 0);
+    TEST_EXPECT(ctx, baked.string()[baked.length()] == 0u);
+
+    const CBakedDocumentHeader* const header = reinterpret_cast<const CBakedDocumentHeader*>(block.bytes().data());
+    TEST_EXPECT(ctx, header->string_values.bytes_size == (sizeof(modified_nul) + 1u));
+    const CBakedStringRef* const references = reinterpret_cast<const CBakedStringRef*>(
+        block.bytes().data() + header->string_values.references_offset);
+    TEST_EXPECT(ctx, references[1].length == sizeof(modified_nul));
+
+    CBakedDocumentBuilder already_modified;
+    TEST_EXPECT(ctx, bake_single_string(already_modified, modified_nul, sizeof(modified_nul)));
+    TEST_EXPECT(ctx, already_modified.string_value(already_modified.root()) == normalized);
+
+    const std::uint8_t strict_multibyte[]{
+        'x', 0xc2u, 0xa2u, 0xe2u, 0x82u, 0xacu, 0xf0u, 0x9fu, 0x98u, 0x80u };
+    CBakedDocumentBuilder strict_builder;
+    TEST_EXPECT(ctx, bake_single_string(strict_builder, strict_multibyte, sizeof(strict_multibyte)));
+    CBakedDocumentBlock strict_block;
+    TEST_EXPECT(ctx, strict_block.build_from(strict_builder));
+    const CStringView strict_baked = strict_block.document().string_value(strict_block.document().root());
+    TEST_EXPECT(ctx, strict_baked.length() == sizeof(strict_multibyte));
+    TEST_EXPECT(ctx, std::memcmp(strict_baked.string(), strict_multibyte, sizeof(strict_multibyte)) == 0);
+    TEST_EXPECT(ctx, strict_baked.string()[strict_baked.length()] == 0u);
+}
+
+void test_utf8_rejection_and_normalized_name_collision_are_atomic(TTestContext& ctx)
+{
+    CBakedDocumentBuilder destination;
+    const std::uint8_t seed[]{ 'o', 'k' };
+    TEST_EXPECT(ctx, bake_single_string(destination, seed, sizeof(seed)));
+    const CBakedNodeIndex old_root = destination.root();
+
+    const std::uint8_t lone_continuation[]{ 0x80u };
+    const std::uint8_t overlong[]{ 0xc1u, 0x81u };
+    const std::uint8_t surrogate[]{ 0xedu, 0xa0u, 0x80u };
+    const std::uint8_t extended[]{ 0xf5u, 0x80u, 0x80u, 0x80u };
+    const std::uint8_t truncated[]{ 0xe2u, 0x82u };
+    const struct { const std::uint8_t* bytes; std::size_t size; } malformed[]{
+        { lone_continuation, sizeof(lone_continuation) }, { overlong, sizeof(overlong) },
+        { surrogate, sizeof(surrogate) }, { extended, sizeof(extended) },
+        { truncated, sizeof(truncated) } };
+    for (const auto& value : malformed)
+    {
+        TEST_EXPECT(ctx, !bake_single_string(destination, value.bytes, value.size));
+        TEST_EXPECT(ctx, destination.root() == old_root);
+        TEST_EXPECT(ctx, destination.check_integrity());
+    }
+
+    const std::uint8_t literal_name[]{ 'a', 0u, 'b' };
+    const std::uint8_t modified_name[]{ 'a', 0xc0u, 0x80u, 'b' };
+    CLiveDocument collision;
+    TEST_EXPECT(ctx, collision.initialise());
+    const CNodeKey object = collision.create_object();
+    TEST_EXPECT(ctx, collision.set_root(object));
+    TEST_EXPECT(ctx, collision.add_object_child(object, CStringView{ literal_name, sizeof(literal_name) }, collision.create_null()));
+    TEST_EXPECT(ctx, collision.add_object_child(object, CStringView{ modified_name, sizeof(modified_name) }, collision.create_null()));
+    TEST_EXPECT(ctx, collision.check_integrity());
+    TEST_EXPECT(ctx, !destination.build_from(collision));
+    TEST_EXPECT(ctx, destination.root() == old_root);
+}
+
+void test_baked_v3_rejects_forged_boundary_violations(TTestContext& ctx)
+{
+    const std::uint8_t content[]{ 'v', 'a', 'l' };
+    CBakedDocumentBuilder builder;
+    TEST_EXPECT(ctx, bake_single_string(builder, content, sizeof(content)));
+    CBakedDocumentBlock block;
+    TEST_EXPECT(ctx, block.build_from(builder));
+
+    std::vector<std::uint8_t> wrong_version = copy_bytes(block);
+    reinterpret_cast<CBakedDocumentHeader*>(wrong_version.data())->version = 2u;
+    TEST_EXPECT(ctx, (!CBakedDocument{ wrong_version.data(), wrong_version.size() }.is_ready()));
+    reinterpret_cast<CBakedDocumentHeader*>(wrong_version.data())->version = 4u;
+    TEST_EXPECT(ctx, (!CBakedDocument{ wrong_version.data(), wrong_version.size() }.is_ready()));
+
+    std::vector<std::uint8_t> nonzero_reserved = copy_bytes(block);
+    CBakedDocumentHeader* header = reinterpret_cast<CBakedDocumentHeader*>(nonzero_reserved.data());
+    CBakedNode* nodes = reinterpret_cast<CBakedNode*>(nonzero_reserved.data() + header->nodes.offset);
+    nodes[1].reserved = 1u;
+    refresh_payload_crc(nonzero_reserved);
+    TEST_EXPECT(ctx, (!CBakedDocument{ nonzero_reserved.data(), nonzero_reserved.size() }.is_ready()));
+
+    std::vector<std::uint8_t> missing_terminator = copy_bytes(block);
+    header = reinterpret_cast<CBakedDocumentHeader*>(missing_terminator.data());
+    CBakedStringRef* references = reinterpret_cast<CBakedStringRef*>(
+        missing_terminator.data() + header->string_values.references_offset);
+    missing_terminator[header->string_values.bytes_offset + references[1].offset + references[1].length] = 'x';
+    refresh_payload_crc(missing_terminator);
+    TEST_EXPECT(ctx, (!CBakedDocument{ missing_terminator.data(), missing_terminator.size() }.is_ready()));
+
+    std::vector<std::uint8_t> malformed_utf8 = copy_bytes(block);
+    header = reinterpret_cast<CBakedDocumentHeader*>(malformed_utf8.data());
+    references = reinterpret_cast<CBakedStringRef*>(malformed_utf8.data() + header->string_values.references_offset);
+    malformed_utf8[header->string_values.bytes_offset + references[1].offset] = 0x80u;
+    refresh_payload_crc(malformed_utf8);
+    TEST_EXPECT(ctx, (!CBakedDocument{ malformed_utf8.data(), malformed_utf8.size() }.is_ready()));
+
+    CLiveDocument two_strings_source;
+    TEST_EXPECT(ctx, two_strings_source.initialise());
+    const CNodeKey array = two_strings_source.create_array();
+    TEST_EXPECT(ctx, two_strings_source.set_root(array));
+    TEST_EXPECT(ctx, two_strings_source.append_array_child(array, two_strings_source.create_string(text("a"))));
+    TEST_EXPECT(ctx, two_strings_source.append_array_child(array, two_strings_source.create_string(text("b"))));
+    CBakedDocumentBuilder two_strings_builder;
+    TEST_EXPECT(ctx, two_strings_builder.build_from(two_strings_source));
+    CBakedDocumentBlock two_strings_block;
+    TEST_EXPECT(ctx, two_strings_block.build_from(two_strings_builder));
+
+    std::vector<std::uint8_t> non_dense = copy_bytes(two_strings_block);
+    header = reinterpret_cast<CBakedDocumentHeader*>(non_dense.data());
+    references = reinterpret_cast<CBakedStringRef*>(non_dense.data() + header->string_values.references_offset);
+    references[2].offset = references[1].offset;
+    refresh_payload_crc(non_dense);
+    TEST_EXPECT(ctx, (!CBakedDocument{ non_dense.data(), non_dense.size() }.is_ready()));
+
+    std::vector<std::uint8_t> duplicate_string = copy_bytes(two_strings_block);
+    header = reinterpret_cast<CBakedDocumentHeader*>(duplicate_string.data());
+    references = reinterpret_cast<CBakedStringRef*>(duplicate_string.data() + header->string_values.references_offset);
+    duplicate_string[header->string_values.bytes_offset + references[2].offset] = 'a';
+    refresh_payload_crc(duplicate_string);
+    TEST_EXPECT(ctx, (!CBakedDocument{ duplicate_string.data(), duplicate_string.size() }.is_ready()));
+
+    CLiveDocument float_source;
+    TEST_EXPECT(ctx, float_source.initialise());
+    const CNodeKey float_root = float_source.create_floating_point(1.0);
+    TEST_EXPECT(ctx, float_source.set_root(float_root));
+    CBakedDocumentBuilder float_builder;
+    TEST_EXPECT(ctx, float_builder.build_from(float_source));
+    CBakedDocumentBlock float_block;
+    TEST_EXPECT(ctx, float_block.build_from(float_builder));
+
+    std::vector<std::uint8_t> non_finite = copy_bytes(float_block);
+    header = reinterpret_cast<CBakedDocumentHeader*>(non_finite.data());
+    nodes = reinterpret_cast<CBakedNode*>(non_finite.data() + header->nodes.offset);
+    nodes[1].payload.floating_value = std::numeric_limits<double>::infinity();
+    refresh_payload_crc(non_finite);
+    TEST_EXPECT(ctx, (!CBakedDocument{ non_finite.data(), non_finite.size() }.is_ready()));
+
+    std::vector<std::uint8_t> floating_flags = copy_bytes(float_block);
+    header = reinterpret_cast<CBakedDocumentHeader*>(floating_flags.data());
+    nodes = reinterpret_cast<CBakedNode*>(floating_flags.data() + header->nodes.offset);
+    nodes[1].flags = 1u;
+    refresh_payload_crc(floating_flags);
+    TEST_EXPECT(ctx, (!CBakedDocument{ floating_flags.data(), floating_flags.size() }.is_ready()));
+}
 }
 
 int run_baked_document_builder_tests()
@@ -300,6 +543,11 @@ int run_baked_document_builder_tests()
     test_baked_validation_rejects_malformed_layout_and_structure(ctx);
     test_baked_document_promotion(ctx);
     test_numeric_intent_survives_bake_and_promotion(ctx);
+    test_floating_boundary_and_payload_preservation(ctx);
+    test_non_finite_bake_rejection_is_atomic(ctx);
+    test_modified_utf8_and_terminated_baked_strings(ctx);
+    test_utf8_rejection_and_normalized_name_collision_are_atomic(ctx);
+    test_baked_v3_rejects_forged_boundary_violations(ctx);
     std::cout << "BakedDocumentBuilder: " << ctx.passed << " passed, " << ctx.failed << " failed\n";
     return ctx.failed;
 }

@@ -2,9 +2,10 @@
 //  Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited
 //  License: MIT (see LICENSE file in repository root)
 //
-//  File:   live_document.hpp
-//  Author: Ritchie Brannan
-//  Date:   20 August 2026
+//  File:    live_document.hpp
+//  Authors: Ritchie Brannan / OpenAI Codex
+//  Date:    20 Aug 26
+//
 //  Mutable, JSON-shaped, single-threaded document construction model.
 
 #pragma once

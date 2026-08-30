@@ -2,9 +2,10 @@
 //  Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited
 //  License: MIT (see LICENSE file in repository root)
 //
-//  File:   baked_document_builder.hpp
-//  Author: Ritchie Brannan
-//  Date:   20 August 2026
+//  File:    baked_document_builder.hpp
+//  Authors: Ritchie Brannan / OpenAI Codex
+//  Date:    20 Aug 26
+//
 //  Owned dense document composition and live-to-baked conversion.
 
 #pragma once
@@ -20,6 +21,7 @@
 #include "containers/StringBuffers.hpp"
 #include "containers/TPodVector.hpp"
 #include "data_model/live_document.hpp"
+#include "text/utf8_string.hpp"
 
 class CBakedDocumentBuilder
 {
@@ -87,6 +89,7 @@ private:
     [[nodiscard]] static bool is_array_type(const EJsonNodeType type) noexcept;
     [[nodiscard]] static bool is_container_type(const EJsonNodeType type) noexcept;
     [[nodiscard]] static bool check_stable_strings(const CStableStrings& strings) noexcept;
+    [[nodiscard]] static bool check_baked_strings(const CStableStrings& strings, std::uint32_t count) noexcept;
     [[nodiscard]] const CBakedNode* node_slot(const CBakedNodeIndex node) const noexcept;
     [[nodiscard]] CBakedNode* node_slot(const CBakedNodeIndex node) noexcept;
     [[nodiscard]] CBakedNodeIndex append_node(
@@ -181,10 +184,30 @@ inline bool CBakedDocumentBuilder::check_stable_strings(const CStableStrings& st
     return (strings.memory_allocation_count() == 0u) || strings.check_integrity();
 }
 
+inline bool CBakedDocumentBuilder::check_baked_strings(
+    const CStableStrings& strings, const std::uint32_t count) noexcept
+{
+    if (!check_stable_strings(strings) || strings.is_valid_id(static_cast<std::size_t>(count) + 1u))
+    {
+        return false;
+    }
+    for (std::size_t id = 1u; id <= static_cast<std::size_t>(count); ++id)
+    {
+        const CStringView value = strings.view(id);
+        std::size_t normalized_size = 0u;
+        if ((value.string() == nullptr) ||
+            !utf8_string::validate_and_measure(value.string(), value.length(), utf8_string::ELiteralNulPolicy::reject, normalized_size) ||
+            (normalized_size != value.length()))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
 inline bool CBakedDocumentBuilder::is_valid() const noexcept
 {
-    return m_nodes.is_valid() &&
-        check_stable_strings(m_property_names) && check_stable_strings(m_string_values);
+    return m_nodes.is_valid() && check_stable_strings(m_property_names) && check_stable_strings(m_string_values);
 }
 
 inline bool CBakedDocumentBuilder::is_ready() const noexcept
@@ -215,8 +238,24 @@ inline CPropertyNameId CBakedDocumentBuilder::copy_property_name(const CLiveDocu
     {
         return CPropertyNameId{};
     }
-    const bool exists = m_property_names.find_id(value.string(), value.length()) != CStableStrings::k_invalid_id;
-    const std::size_t id = m_property_names.append(value.string(), value.length());
+    std::size_t normalized_size = 0u;
+    if (!utf8_string::validate_and_measure(value.string(), value.length(), utf8_string::ELiteralNulPolicy::promote_to_modified_utf8, normalized_size))
+    {
+        return CPropertyNameId{};
+    }
+    CByteBuffer normalized;
+    const std::uint8_t* normalized_string = value.string();
+    if (normalized_size != value.length())
+    {
+        if (!normalized.resize(normalized_size) ||
+            !utf8_string::normalize_literal_nuls(value.string(), value.length(), normalized.data(), normalized.size()))
+        {
+            return CPropertyNameId{};
+        }
+        normalized_string = normalized.data();
+    }
+    const bool exists = m_property_names.find_id(normalized_string, normalized_size) != CStableStrings::k_invalid_id;
+    const std::size_t id = m_property_names.append(normalized_string, normalized_size);
     if (!exists && (id != CStableStrings::k_invalid_id))
     {
         ++m_property_name_count;
@@ -234,8 +273,24 @@ inline CStringValueId CBakedDocumentBuilder::copy_string_value(const CStringView
     {
         return CStringValueId{};
     }
-    const bool exists = m_string_values.find_id(value.string(), value.length()) != CStableStrings::k_invalid_id;
-    const std::size_t id = m_string_values.append(value.string(), value.length());
+    std::size_t normalized_size = 0u;
+    if (!utf8_string::validate_and_measure(value.string(), value.length(), utf8_string::ELiteralNulPolicy::promote_to_modified_utf8, normalized_size))
+    {
+        return CStringValueId{};
+    }
+    CByteBuffer normalized;
+    const std::uint8_t* normalized_string = value.string();
+    if (normalized_size != value.length())
+    {
+        if (!normalized.resize(normalized_size) ||
+            !utf8_string::normalize_literal_nuls(value.string(), value.length(), normalized.data(), normalized.size()))
+        {
+            return CStringValueId{};
+        }
+        normalized_string = normalized.data();
+    }
+    const bool exists = m_string_values.find_id(normalized_string, normalized_size) != CStableStrings::k_invalid_id;
+    const std::size_t id = m_string_values.append(normalized_string, normalized_size);
     if (!exists && (id != CStableStrings::k_invalid_id)) ++m_string_value_count;
     if ((id == CStableStrings::k_invalid_id) || (id > std::numeric_limits<std::uint32_t>::max()))
     {
@@ -246,8 +301,7 @@ inline CStringValueId CBakedDocumentBuilder::copy_string_value(const CStringView
 
 inline CBakedNodeIndex CBakedDocumentBuilder::append_node(const CLiveDocument& source, const CNodeKey live_node, const CBakedNodeIndex parent_index, const CPropertyNameId name) noexcept
 {
-    if ((m_nodes.size() >= std::numeric_limits<std::uint32_t>::max()) ||
-        (source.node_type(live_node) == EJsonNodeType::invalid))
+    if ((m_nodes.size() >= std::numeric_limits<std::uint32_t>::max()) || (source.node_type(live_node) == EJsonNodeType::invalid))
     {
         return CBakedNodeIndex{};
     }
@@ -294,12 +348,11 @@ inline CBakedNodeIndex CBakedDocumentBuilder::append_node(const CLiveDocument& s
         case EJsonNodeType::floating_point:
         {
             double value = 0.0;
-            if (!source.floating_point_value(live_node, value))
+            if (!source.floating_point_value(live_node, value) || !json_floating_point_is_finite(value))
             {
                 return CBakedNodeIndex{};
             }
             node.payload.floating_value = value;
-            node.flags = k_json_floating_point_flags;
             break;
         }
         case EJsonNodeType::string:
@@ -328,7 +381,10 @@ inline CBakedNodeIndex CBakedDocumentBuilder::append_node(const CLiveDocument& s
     {
         return CBakedNodeIndex{};
     }
-    if (node.type == EJsonNodeType::recovered_duplicate_array) m_contains_recovered_duplicate_arrays = true;
+    if (node.type == EJsonNodeType::recovered_duplicate_array)
+    {
+        m_contains_recovered_duplicate_arrays = true;
+    }
     if (node.type == EJsonNodeType::integer)
     {
         CJsonIntegerMetadata metadata;
@@ -670,7 +726,10 @@ inline bool CBakedDocumentBuilder::check_container_integrity(const CBakedNodeInd
 
 inline bool CBakedDocumentBuilder::check_integrity() const noexcept
 {
-    if (!is_valid() || !m_root.is_valid() || (m_nodes.size() <= m_root.query_value()))
+    if (!is_valid() || !m_root.is_valid() || (m_nodes.size() <= m_root.query_value()) ||
+        (m_nodes[0].reserved != 0u) ||
+        !check_baked_strings(m_property_names, m_property_name_count) ||
+        !check_baked_strings(m_string_values, m_string_value_count))
     {
         return false;
     }
@@ -680,7 +739,8 @@ inline bool CBakedDocumentBuilder::check_integrity() const noexcept
     {
         const CBakedNodeIndex node_index{ static_cast<std::uint32_t>(index) };
         const CBakedNode& node = m_nodes[index];
-        if ((node.type == EJsonNodeType::invalid) || (node.type > EJsonNodeType::recovered_duplicate_array))
+        if ((node.type == EJsonNodeType::invalid) || (node.type > EJsonNodeType::recovered_duplicate_array) ||
+            (node.reserved != 0u) || ((node.type == EJsonNodeType::floating_point) && !json_floating_point_is_finite(node.payload.floating_value)))
         {
             return false;
         }
