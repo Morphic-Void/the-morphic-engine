@@ -536,9 +536,19 @@ bool CLiveDocument::check_integrity() const noexcept
     for (std::int32_t index = m_nodes.first_live(); index >= 0; index = m_nodes.next_live(index))
     {
         const CJsonSlot* const slot = m_nodes.get_slot(index);
-        if ((slot == nullptr) || !slot->self.is_valid() || (node_slot(slot->self) != slot)) return false;
-        if ((slot->type == EJsonNodeType::invalid) || (slot->type > EJsonNodeType::recovered_duplicate_array)) return false;
-        if (!json_numeric_flags_are_valid(slot->type, slot->flags, slot->payload.unsigned_bits)) return false;
+        if ((slot == nullptr) || !slot->self.is_valid() || (node_slot(slot->self) != slot))
+        {
+            return false;
+        }
+        if ((slot->type == EJsonNodeType::invalid) || (slot->type > EJsonNodeType::recovered_duplicate_array))
+        {
+            return false;
+        }
+        if (!json_numeric_flags_are_valid(slot->type, slot->flags) ||
+            ((slot->type == EJsonNodeType::integer) && !json_integer_value_matches_flags(slot->flags, slot->payload.unsigned_bits)))
+        {
+            return false;
+        }
         if (slot->parent.is_valid())
         {
             const CJsonSlot* const parent_slot = node_slot(slot->parent);

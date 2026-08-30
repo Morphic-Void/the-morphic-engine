@@ -551,7 +551,8 @@ inline bool CBakedDocument::validate(const std::uint8_t* const bytes, const std:
     {
         const CBakedNode& node = nodes[node_index];
         if ((node.type <= EJsonNodeType::invalid) || (node.type > EJsonNodeType::recovered_duplicate_array) ||
-            !json_numeric_flags_are_valid(node.type, node.flags, node.payload.unsigned_bits) ||
+            !json_numeric_flags_are_valid(node.type, node.flags) ||
+            ((node.type == EJsonNodeType::integer) && !json_integer_value_matches_flags(node.flags, node.payload.unsigned_bits)) ||
             (node.parent.query_value() >= header.nodes.count) ||
             (node.name_in_parent.query_value() >= header.property_names.reference_count))
         {

@@ -88,7 +88,8 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 if ($RunTests) {
-    $testExecutable = Join-Path $repositoryRoot "build\bin\$Platform\$Configuration\MorphicTests.exe"
+    $outputPlatform = if ($Platform -eq "x86") { "Win32" } else { $Platform }
+    $testExecutable = Join-Path $repositoryRoot "build\bin\$outputPlatform\$Configuration\MorphicTests.exe"
     if (![System.IO.File]::Exists($testExecutable)) {
         throw "The test executable was not produced at '$testExecutable'."
     }

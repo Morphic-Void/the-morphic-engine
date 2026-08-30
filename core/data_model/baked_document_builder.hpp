@@ -685,7 +685,8 @@ inline bool CBakedDocumentBuilder::check_integrity() const noexcept
             return false;
         }
         contains_recovered_duplicate_arrays = contains_recovered_duplicate_arrays || (node.type == EJsonNodeType::recovered_duplicate_array);
-        if (!json_numeric_flags_are_valid(node.type, node.flags, node.payload.unsigned_bits))
+        if (!json_numeric_flags_are_valid(node.type, node.flags) ||
+            ((node.type == EJsonNodeType::integer) && !json_integer_value_matches_flags(node.flags, node.payload.unsigned_bits)))
         {
             return false;
         }

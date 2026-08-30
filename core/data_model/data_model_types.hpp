@@ -253,7 +253,7 @@ constexpr std::uint8_t k_json_floating_point_flags = static_cast<std::uint8_t>(E
         ((metadata.sign == EJsonIntegerSign::signed_value) && (json_signed_integer_value(bits) >= 0));
 }
 
-[[nodiscard]] inline bool json_numeric_flags_are_valid(const EJsonNodeType type, const std::uint8_t flags, const std::uint64_t bits) noexcept
+[[nodiscard]] constexpr bool json_numeric_flags_are_valid(const EJsonNodeType type, const std::uint8_t flags) noexcept
 {
     if (type == EJsonNodeType::floating_point)
     {
@@ -263,6 +263,12 @@ constexpr std::uint8_t k_json_floating_point_flags = static_cast<std::uint8_t>(E
     {
         return flags == 0u;
     }
+    CJsonIntegerMetadata metadata;
+    return json_integer_metadata_from_flags(flags, metadata);
+}
+
+[[nodiscard]] inline bool json_integer_value_matches_flags(const std::uint8_t flags, const std::uint64_t bits) noexcept
+{
     CJsonIntegerMetadata metadata;
     if (!json_integer_metadata_from_flags(flags, metadata)) return false;
     return (metadata.sign == EJsonIntegerSign::signed_value) ?
