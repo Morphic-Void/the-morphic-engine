@@ -23,6 +23,25 @@ Test output defaults to `tests/data/output`. Pass
 `--output-directory=<path>` to use another location; logs are written beneath
 that directory's `logs` child.
 
+### Sandboxed Windows builds
+
+Windows sandboxing can prevent MSBuild's SDK locator and native file tracker
+from inspecting per-user directories. It can also expose both `PATH` and `Path`,
+which .NET Framework build tasks reject when launching the compiler. Use the
+repository helper to select an installed Windows SDK explicitly, disable file
+tracking, normalise the child-process environment, and keep test logs beneath
+the writable build tree:
+
+```powershell
+.\tools\invoke_sandbox_build.ps1 -RunTests -TestMode 1
+```
+
+The helper defaults to `Debug|x64`, discovers the newest installed Windows SDK,
+and writes test logs under `build/sandbox-test-output`. Configuration, platform,
+SDK version, MSBuild path, test mode, and log tag can all be overridden through
+the script parameters. Because sandbox-safe file tracking is disabled, a build
+invocation recompiles sources rather than relying on MSBuild's tracked inputs.
+
 The Executive-driven TGA load/decode/encode/save path remains a Host integration
 exercise. The separate direct TGA round-trip helper is compiled into
 `MorphicTests` as a manual test but is intentionally not registered or invoked.
