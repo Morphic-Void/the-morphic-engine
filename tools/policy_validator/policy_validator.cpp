@@ -743,6 +743,19 @@ void check_macro_token(
     }
 }
 
+void check_library_token(
+    const fs::path& relative_path,
+    const SToken& token,
+    std::vector<SDiagnostic>& diagnostics)
+{
+    if (token.text == "stable_sort")
+    {
+        add_diagnostic(diagnostics, relative_path, token.line, token.column,
+            ESeverity::error, "LIB001",
+            "stable_sort is prohibited: temporary-allocation failure behaviour requires an engine-compatible alternative");
+    }
+}
+
 void check_memory_tokens(
     const fs::path& relative_path,
     const SPolicy& policy,
@@ -830,7 +843,7 @@ void apply_decorations(
 {
     static const std::unordered_set<std::string> suppressible_rules = {
         "MEM001", "MEM002", "MEM003", "GID001", "GID002", "GID003",
-        "INC001", "INC002", "INC003", "INC004", "INC005", "INC101", "INC102"
+        "INC001", "INC002", "INC003", "INC004", "INC005", "INC101", "INC102", "LIB001"
     };
 
     for (const SDecoration& decoration : lexed.decorations)
@@ -894,10 +907,27 @@ void scan_source_file(
         {
             check_macro_token(relative_path, policy, token, diagnostics);
         }
+        // Reuse the lexer for macro definitions so comments and literals are ignored.
+        std::string definition = directive.text;
+        definition[0] = ' ';
+        const SLexedFile directive_lexed = lex_source(definition);
+        if (!directive_lexed.tokens.empty() && directive_lexed.tokens.front().text == "define")
+        {
+            for (SToken token : directive_lexed.tokens)
+            {
+                if (token.line == 1u)
+                {
+                    token.column += directive.column - 1u;
+                }
+                token.line += directive.line - 1u;
+                check_library_token(relative_path, token, diagnostics);
+            }
+        }
     }
     for (const SToken& token : lexed.tokens)
     {
         check_macro_token(relative_path, policy, token, diagnostics);
+        check_library_token(relative_path, token, diagnostics);
     }
     check_memory_tokens(relative_path, policy, lexed.tokens, diagnostics);
     if (includes_new && !new_include_has_supporting_symbol(lexed.tokens))

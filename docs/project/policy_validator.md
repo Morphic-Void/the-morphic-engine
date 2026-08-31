@@ -50,6 +50,32 @@ It contains:
 Routine permissions belong in this file. Existing usage is reviewed input to
 the allowlist, not automatic grandfathering.
 
+### Standard library permissions
+
+The engine-wide foundations include `<charconv>`, `<cmath>`, `<climits>`,
+`<cfloat>`, `<ratio>`, `<initializer_list>`, and `<tuple>`. These headers need
+no local annotation. Permission to include a header is not a guarantee that
+every operation or template instantiation is non-throwing.
+
+`<charconv>` provides caller-buffer numeric conversions with explicit error
+results. `<climits>`, `<cfloat>`, and `<ratio>` provide arithmetic properties
+and compile-time facilities. Initializer-list backing storage must remain
+alive while referenced; tuple elements and invoked operations remain subject
+to the engine's normal allocation and exception restrictions.
+
+Ordinary `<cmath>` use is permitted. C++17 mathematical special functions
+need an implementation review if introduced, because their non-throwing
+behaviour is not universally guaranteed across standard libraries.
+
+`<array>` and `<string_view>` retain their existing limited permissions;
+prefer the codebase's alternatives for new engine use. `<numeric>` remains
+unapproved pending further review. Self-managed temporary library allocations
+are not, by themselves, grounds for exclusion, but their failure behaviour
+must remain compatible with disabled exceptions. `<algorithm>` retains its
+existing permission, but `stable_sort` is prohibited by `LIB001`; use an
+engine-compatible alternative with an explicit failure policy.
+These decisions do not relax the naked-new or allocation-infrastructure rules.
+
 ## Narrow source suppressions
 
 An exceptional diagnostic may be suppressed on exactly the following source
@@ -69,6 +95,7 @@ silently accumulate.
 The principal conclusive rules are:
 
 - `MEM001`: ordinary naked `new` expression;
+- `LIB001`: prohibited `stable_sort` identifier in source or a macro definition;
 - `GID001` and `GID002`: catalogue or registration macro outside its permitted
   surface;
 - `INC001`: direct non-project include outside the reviewed allowlist;
@@ -106,3 +133,20 @@ macros. Placement classification is lexical, and project-file evaluation is
 limited to the conditions and options needed by the current projects. These
 boundaries should yield explicit warnings where feasible rather than imply a
 stronger guarantee.
+
+`LIB001` matches the exact identifier, not a resolved C++ function. It catches
+qualified and unqualified uses, using-declarations, function references, and
+literal macro definitions, including code in inactive branches. Comments,
+string/character literals, and longer identifiers are ignored. An unrelated
+declaration named `stable_sort` also matches; prefer a different name or use a
+justified narrow suppression on an ordinary source line. Macro expansion and
+token-pasting are not evaluated. A header permission is not an exemption from
+this symbol check; tooling outside the configured scan roots remains exempt.
+
+## Focused regression tests
+
+After building the validator, run
+`tools/policy_validator/test_stable_sort.ps1` in PowerShell. It defaults to the
+Debug x64 executable; `-ValidatorPath` selects another build. The script creates
+and removes an isolated temporary fixture checkout, checks `LIB001` diagnostics
+and suppressions, and does not modify production sources or write reports.
