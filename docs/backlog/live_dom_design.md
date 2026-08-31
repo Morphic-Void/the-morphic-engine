@@ -121,9 +121,10 @@ additional spelling rules to make the data-model intent deterministic:
 
 - an unsigned integer has no sign character, for example `127`;
 - a signed integer always has a sign character, for example `+127` or `-127`;
-- a floating-point number is always signed and contains either a decimal point
-  or an exponent, so an integral-valued double remains distinguishable from an
-  integer when written.
+- a floating-point number contains either a decimal point or an exponent, so
+  an integral-valued double remains distinguishable from an integer when
+  written; its sign is encoded by binary64, with no separate signedness metadata
+  and no leading `+` for non-negative values.
 
 The Morphic-preserving writer should retain integer notation and prefix choice
 and emit the explicit sign required by the numeric domain. A separate strict
@@ -392,21 +393,101 @@ not use virtual functions for DOM access.  They expose compatible read method
 signatures so common traversal and validation logic can use static dispatch or
 parallel implementations without confusion.
 
-The JSON parser targets the live document only.  The JSON writer may write
-from either representation through a small virtual read-only write-source
-adapter.  This virtual adapter is confined to boundary IO and does not shape
-either DOM's native access model.
-
-JSON parsing and writing are deliberately deferred until after the baked
-document exists.  This permits one writer implementation to be verified
-against both native representations.  The parser will also depend on the
-planned low-level UTF ingester and normalisation layer; JSON IO must consume
-that layer rather than becoming an accidental substitute for it.
+The Stage 1 JSON writer consumes `CBakedDocument` only, with no live-document
+overload or virtual write-source adapter. The JSON parser targets the live
+document only and will consume the text-ingestion/normalisation layer. Writing
+does not use the text linter or an input prepass.
 
 The parser promotes an escaped or decoded embedded U+0000 to `C0 80` in its
 live string payload. The writer recognizes that exact sequence as logical
 U+0000 and always emits it as the JSON hexadecimal escape `\u0000`; it never
 emits a baked string's final physical terminator.
+
+## Stage 1 writer contract
+
+`core/text/json_writer.hpp` exposes `json_writer::write`, a synchronous,
+`noexcept`, memory-only operation. The source view must already be validated
+and its bytes must remain alive and immutable throughout the call. Entry checks
+readiness and root presence, not `is_canonical()`. Construction/reset has
+already checked CRC, layout, structure, finite floating values, and string
+encoding; the writer does not repeat `is_valid()`/`check_integrity()` (which
+revalidate the entire artifact). It is not a validator for bytes changed after
+view construction, nor can it diagnose dangling storage.
+
+`CJsonWriteOptions` has independent `strict_json` and `escape_non_ascii`
+booleans, both defaulting to false. Default Morphic integer output preserves
+sign intent, notation and prefix choice, using lowercase prefixes/digits and
+no width padding. Negative hexadecimal/binary integers use a sign followed by
+the magnitude, not two's-complement digits. Strict output converts non-decimal
+integers to exact decimal and drops signed-positive `+`; it never narrows an
+unsigned integer to binary64. Finite floating output uses locale-independent
+`std::to_chars` shortest-round-trip general formatting, appending `.0` when
+there is no decimal point or exponent. Positive zero is `0.0`, negative zero
+is `-0.0`, and floats have identical spelling in both modes.
+
+All string values and object names are double-quoted. Quote/backslash and
+control characters are escaped; backspace, form feed, LF, CR and tab use their
+short JSON escapes, while other controls use lowercase `\u00xx`. Logical NUL
+(`C0 80` in the baked payload) always becomes `\u0000`. Slash is not escaped.
+Normally other valid UTF-8 is copied unchanged. With `escape_non_ascii`, every
+scalar above U+007F uses lowercase `\uXXXX`, or a UTF-16 surrogate pair for a
+supplementary scalar. No Unicode normalization or additional validity pass is
+performed during writing.
+
+Formatting defaults to `pretty_print = true`, `indent_width = 2` spaces,
+`line_ending = EJsonWriteLineEnding::lf`, and `trailing_line_ending = true`.
+Pretty output places each member/element on its own line, with one space after
+an object colon; empty containers remain `{}` and `[]`. CRLF is selectable.
+Compact mode omits optional whitespace but independently honors the trailing
+line-ending setting. Indentation width zero is valid. All these choices
+preserve baked child order and produce deterministic bytes.
+
+Recovery handling is automatic from the baked recovery flag. Ordinary input
+writes its root directly; recovered input writes the following envelope, whose
+fixed property order is shown here in compact notation:
+
+```text
+{"$morphic.recovery":{"format":"diagnostic-document","version":1,"document":<root>}}
+```
+
+Each recovered duplicate array is represented by:
+
+```text
+{"$morphic.recovery":{"kind":"duplicate-member-array","values":[<children>]}}
+```
+
+The original colliding property name stays in its original object position;
+`values` is a fixed recovery field holding the competing values in order.
+Nested recovery uses the same rule. There are no duplicate output property
+names, no fabricated source-location metadata, and no option to suppress
+recovery markers. Numeric/ASCII/formatting options apply inside the envelope.
+This is diagnostic output, not an engine document specification. An ordinary
+parser assigns no special meaning to the marker; the label is not a schema
+restriction on arbitrary user objects that happen to have the same shape.
+
+The move-only result owns a `CByteBuffer` with one final zero included in its
+`size()`. `report.logical_text_byte_size` excludes that zero but includes a
+requested trailing line ending. Failure returns no output allocation and all
+output counters zero. Status distinguishes unready input, observed source
+contract violations, engine size limits, allocation failure, and internal
+errors. Invalid line-ending enum values return `internal_error`.
+
+The report counts actual emitted occurrences: non-decimal integer conversions,
+omitted integer positive signs, non-ASCII scalar escapes, logical NUL escapes,
+and recovery nodes, plus whether the diagnostic envelope was written. Shared
+interned strings are counted once per output occurrence. A surrogate pair is
+one escaped scalar. These counters describe completed output, not attempted
+work. No warnings are invented for strict JSON consumers with limited integer
+precision.
+
+Traversal is iterative using baked parent/sibling links, so writing does not
+consume a call-stack frame per nesting level. A measurement pass uses checked
+size arithmetic and the same formatting path as emission; a single ambient
+engine-buffer allocation follows. There is no scratch allocation, file I/O,
+logging, host/executive work, or ownership transfer of the source. Stage 2
+must recognize the agreed numeric grammar and normalize decoded U+0000 to
+`C0 80` before interning; Stage 3 must write only the reported logical text
+extent, not the output buffer's final zero.
 
 ## Deferred layers
 
@@ -436,8 +517,8 @@ renderer, or execution-object design.
 7. Design baking from the proven live-DOM behaviour, then add pure-document
    validation, dense index construction, compaction, binary streaming, and
    promotion.
-8. Add JSON write adapters for both live and baked documents, including
-   explicit diagnostic recovery output.
+8. Add the baked-document-only JSON writer, including strict/ASCII options,
+   configurable formatting, and automatic diagnostic recovery output.
 9. After the low-level UTF ingester and normalisation layer is available, add
    the JSON parser targeting the live document.
 

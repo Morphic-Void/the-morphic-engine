@@ -27,6 +27,7 @@
 #include "tests/test_suites/TOrderedSlots_test_harness.hpp"
 #include "tests/test_suites/TUnorderedSlots_test_harness.hpp"
 #include "tests/test_suites/TextLinter_test_suite.hpp"
+#include "tests/test_suites/JsonWriter_test_suite.hpp"
 #include "tests/test_suites/TQueueTransport_test_suite.hpp"
 #include "tests/test_suites/TMpmcTransport_test_suite.hpp"
 #include "tests/test_suites/TRingTransport_test_suite.hpp"
@@ -237,6 +238,7 @@ int run_tests(ETestRunMode mode)
     cumulative_result += run_isolated_suite("TPodVector", &run_pod_vector_tests);
     cumulative_result += run_isolated_suite("ByteBuffers", &run_byte_buffer_tests);
     cumulative_result += run_isolated_suite("TextLinter", &run_text_linter_tests);
+    cumulative_result += run_isolated_suite("JsonWriter", &run_json_writer_tests);
     cumulative_result += run_isolated_suite("TInstance", &run_instance_tests);
     cumulative_result += run_isolated_suite("LiveDocument", &run_live_document_tests);
     cumulative_result += run_isolated_suite("DebugService", &run_debug_service_tests);

@@ -121,6 +121,7 @@
     <ClCompile Include="tests\test_suites\TRingTransport_test_suite.cpp" />
     <ClCompile Include="tests\test_suites\TUnorderedCollection_test_suite.cpp" />
     <ClCompile Include="tests\test_suites\TUnorderedSlots_test_harness.cpp" />
+    <ClCompile Include="tests\test_suites\JsonWriter_test_suite.cpp" />
     <ClCompile Include="tests\test_suites\TextLinter_test_suite.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -158,6 +159,7 @@
     <ClInclude Include="tests\test_suites\TRingTransport_test_suite.hpp" />
     <ClInclude Include="tests\test_suites\TUnorderedCollection_test_suite.hpp" />
     <ClInclude Include="tests\test_suites\TUnorderedSlots_test_harness.hpp" />
+    <ClInclude Include="tests\test_suites\JsonWriter_test_suite.hpp" />
     <ClInclude Include="tests\test_suites\TextLinter_test_suite.hpp" />
   </ItemGroup>
   <ItemGroup>

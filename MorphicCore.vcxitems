@@ -90,6 +90,7 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)core\threading\transports\TQueueTransport.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)core\threading\transports\transports.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)core\threading\transports\TRingTransport.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)core\text\json_writer.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)core\text\text_linter.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)core\text\utf8_string.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)core\types\atomic_types.hpp" />
@@ -117,6 +118,7 @@
     <ClCompile Include="$(MSBuildThisFileDirectory)core\threading\CWaitPredicate.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)core\threading\messages\CErasedOwnerMsgTransport.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)core\threading\messages\CErasedPodMsgTransport.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)core\text\json_writer.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)core\text\text_linter.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)core\text\utf8_string.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)core\types\fp16data_t.cpp" />

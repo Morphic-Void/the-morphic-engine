@@ -465,6 +465,9 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)core\threading\transports\TRingTransport.hpp">
       <Filter>Core\include\threading\transports</Filter>
     </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)core\text\json_writer.hpp">
+      <Filter>Core\include\text</Filter>
+    </ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)core\text\text_linter.hpp">
       <Filter>Core\include\text</Filter>
     </ClInclude>
@@ -595,6 +598,9 @@
     </ClCompile>
     <ClCompile Include="$(MSBuildThisFileDirectory)core\threading\messages\CErasedPodMsgTransport.cpp">
       <Filter>Core\src\threading\messages</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)core\text\json_writer.cpp">
+      <Filter>Core\src\text</Filter>
     </ClCompile>
     <ClCompile Include="$(MSBuildThisFileDirectory)core\text\text_linter.cpp">
       <Filter>Core\src\text</Filter>
