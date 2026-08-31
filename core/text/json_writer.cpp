@@ -10,8 +10,10 @@
 
 #include <charconv>
 #include <cstring>
+#include <utility>
 
 #include "data_model/baked_document.hpp"
+#include "debug/macros.hpp"
 #include "memory/memory_policies.hpp"
 
 namespace json_writer
@@ -48,42 +50,86 @@ namespace writer_util
 class CWriter
 {
 public:
-    CWriter(const CBakedDocument& source, const CJsonWriteOptions& options, std::uint8_t* output = nullptr, std::size_t capacity = 0u) noexcept
-        : m_source(source), m_options(options), m_output(output), m_capacity(capacity)
-    {
-        report.status = EJsonWriteStatus::success;
-    }
+    //  Bound inputs must outlive the writer; output and progress belong to each run.
+    CWriter(const CBakedDocument& source, const CJsonWriteOptions& options) noexcept : m_source(source), m_options(options) {}
 
-    [[nodiscard]] bool run() noexcept;
-    CJsonWriteReport report;
+    //  Start fresh, emit once, then transfer complete output or discard partial work.
+    [[nodiscard]] CJsonWriteResult run() noexcept;
 
 private:
-    [[nodiscard]] bool good() const noexcept { return report.succeeded(); }
-    void fail(const EJsonWriteStatus status) noexcept { if (good()) report.status = status; }
+    //  Status and byte storage: retain the first failure and bound every extension.
+    [[nodiscard]] bool good() const noexcept { return m_report.succeeded(); }
+    void fail(const EJsonWriteStatus status) noexcept { if (good()) m_report.status = status; }
     [[nodiscard]] bool grow(const std::size_t count) noexcept;
     void append(const char* const bytes, const std::size_t count) noexcept;
     template<std::size_t N> void literal(const char (&bytes)[N]) noexcept { append(bytes, (N - 1u)); }
     void character(const char value) noexcept { append(&value, 1u); }
+
+    //  Layout: separators, line endings and indentation at the current nesting depth.
     void newline() noexcept;
     void indentation() noexcept;
     void item(const bool follows_item) noexcept;
     void begin(const char bracket) noexcept;
     void end(const char bracket, const bool nonempty) noexcept;
+
+    //  Scalar spelling: quoting/escaping and the selected numeric output grammar.
     void quoted(const CStringView& value) noexcept;
     void key(const CStringView& value) noexcept;
     void hex_escape(std::uint32_t unit) noexcept;
     void integer(CBakedNodeIndex node) noexcept;
     void floating(CBakedNodeIndex node) noexcept;
+
+    //  Iterative traversal, including automatic recovery wrappers and the envelope.
     void enter(CBakedNodeIndex node) noexcept;
     void leave(CBakedNodeIndex node) noexcept;
+    void traverse() noexcept;
 
+    //  Bound configuration; run() does not change or take ownership of either input.
     const CBakedDocument& m_source;
     const CJsonWriteOptions& m_options;
-    std::uint8_t* m_output;
-    std::size_t m_capacity;
+
+    //  Per-run ownership, reporting and formatting state.
+    CByteBuffer m_output;
+    CJsonWriteReport m_report;
     std::size_t m_depth{ 0u };
 };
 
+//  Run lifecycle: only a completed result may retain output or occurrence counts.
+CJsonWriteResult CWriter::run() noexcept
+{
+    m_output.deallocate();
+    m_report = {};
+    m_report.status = EJsonWriteStatus::success;
+    m_depth = 0u;
+
+    traverse();
+    if (good())
+    {
+        MV_ASSERT(m_depth == 0u);
+        MV_ASSERT(m_output.size() == m_report.logical_text_byte_size);
+        if (!m_output.append(1u))
+        {
+            fail(EJsonWriteStatus::allocation_failed);
+        }
+    }
+
+    CJsonWriteResult result;
+    if (good())
+    {
+        MV_ASSERT(m_output.size() == (m_report.logical_text_byte_size + 1u));
+        MV_ASSERT((m_output.size() > m_report.logical_text_byte_size) && (m_output.data()[m_report.logical_text_byte_size] == 0u));
+        result.output = std::move(m_output);
+        result.report = m_report;
+    }
+    else
+    {
+        m_output.deallocate();
+        result.report.status = m_report.status;
+    }
+    return result;
+}
+
+//  Byte storage: use the buffer's default growth policy, without a sizing pass.
 bool CWriter::grow(const std::size_t count) noexcept
 {
     if (!good())
@@ -91,17 +137,20 @@ bool CWriter::grow(const std::size_t count) noexcept
         return false;
     }
 
-    //  Always reserve room for the final physical zero.
-    if (count > (memory::k_byte_size_ceiling - 1u - report.logical_text_byte_size))
+    //  Leave room within the size limit for the final physical zero.
+    MV_ASSERT(m_output.size() == m_report.logical_text_byte_size);
+    MV_ASSERT(m_report.logical_text_byte_size <= (memory::k_byte_size_ceiling - 1u));
+    if (count > (memory::k_byte_size_ceiling - 1u - m_report.logical_text_byte_size))
     {
         fail(EJsonWriteStatus::output_exceeds_engine_size_limit);
         return false;
     }
-    if (m_output && (count > (m_capacity - report.logical_text_byte_size)))
+    if (!m_output.append(count, false))
     {
-        fail(EJsonWriteStatus::internal_error);
+        fail(EJsonWriteStatus::allocation_failed);
         return false;
     }
+    MV_ASSERT(m_output.size() == (m_report.logical_text_byte_size + count));
     return true;
 }
 
@@ -109,14 +158,15 @@ void CWriter::append(const char* const bytes, const std::size_t count) noexcept
 {
     if (grow(count))
     {
-        if (m_output && count)
+        if (count)
         {
-            std::memcpy(m_output + report.logical_text_byte_size, bytes, count);
+            std::memcpy(m_output.data() + m_report.logical_text_byte_size, bytes, count);
         }
-        report.logical_text_byte_size += count;
+        m_report.logical_text_byte_size += count;
     }
 }
 
+//  Layout helpers share the same byte path as scalar and container output.
 void CWriter::newline() noexcept
 {
     if (m_options.line_ending == EJsonWriteLineEnding::crlf)
@@ -139,11 +189,11 @@ void CWriter::indentation() noexcept
     const std::size_t count = m_depth * m_options.indent_width;
     if (grow(count))
     {
-        if (m_output && count)
+        if (count)
         {
-            std::memset(m_output + report.logical_text_byte_size, ' ', count);
+            std::memset(m_output.data() + m_report.logical_text_byte_size, ' ', count);
         }
-        report.logical_text_byte_size += count;
+        m_report.logical_text_byte_size += count;
     }
 }
 
@@ -182,6 +232,7 @@ void CWriter::end(const char bracket, const bool nonempty) noexcept
     character(bracket);
 }
 
+//  Scalar emission assumes the baked representation has already been validated.
 void CWriter::hex_escape(const std::uint32_t unit) noexcept
 {
     constexpr char digits[] = "0123456789abcdef";
@@ -247,7 +298,7 @@ void CWriter::quoted(const CStringView& value) noexcept
                     hex_escape(point);
                     if (point == 0u)
                     {
-                        ++report.embedded_nuls_escaped;
+                        ++m_report.embedded_nuls_escaped;
                     }
                 }
                 else if (m_options.escape_non_ascii && (point > 0x7fu))
@@ -262,7 +313,7 @@ void CWriter::quoted(const CStringView& value) noexcept
                         hex_escape(0xd800u + (supplementary >> 10u));
                         hex_escape(0xdc00u + (supplementary & 0x3ffu));
                     }
-                    ++report.non_ascii_code_points_escaped;
+                    ++m_report.non_ascii_code_points_escaped;
                 }
                 else
                 {
@@ -322,7 +373,7 @@ void CWriter::integer(const CBakedNodeIndex node) noexcept
     {
         if (m_options.strict_json)
         {
-            ++report.explicit_positive_signs_omitted;
+            ++m_report.explicit_positive_signs_omitted;
         }
         else
         {
@@ -334,7 +385,7 @@ void CWriter::integer(const CBakedNodeIndex node) noexcept
     {
         if (m_options.strict_json)
         {
-            ++report.non_decimal_integers_normalised;
+            ++m_report.non_decimal_integers_normalised;
         }
         else if (metadata.notation == EJsonIntegerNotation::hexadecimal)
         {
@@ -403,6 +454,7 @@ void CWriter::floating(const CBakedNodeIndex node) noexcept
     }
 }
 
+//  Traversal follows baked links; synthetic recovery containers affect layout only.
 void CWriter::enter(const CBakedNodeIndex node) noexcept
 {
     switch (m_source.node_type(node))
@@ -457,7 +509,7 @@ void CWriter::enter(const CBakedNodeIndex node) noexcept
         }
         case (EJsonNodeType::recovered_duplicate_array):
         {
-            ++report.recovery_nodes_written;
+            ++m_report.recovery_nodes_written;
             begin('{'); item(false); key(CStringView{ "$morphic.recovery" });
             begin('{'); item(false); key(CStringView{ "kind" }); quoted(CStringView{ "duplicate-member-array" });
             item(true); key(CStringView{ "values" }); begin('[');
@@ -485,12 +537,12 @@ void CWriter::leave(const CBakedNodeIndex node) noexcept
     }
 }
 
-bool CWriter::run() noexcept
+void CWriter::traverse() noexcept
 {
     const bool recovery = m_source.contains_recovered_duplicate_arrays();
     if (recovery)
     {
-        report.diagnostic_envelope_written = true;
+        m_report.diagnostic_envelope_written = true;
         begin('{'); item(false); key(CStringView{ "$morphic.recovery" });
         begin('{'); item(false); key(CStringView{ "format" }); quoted(CStringView{ "diagnostic-document" });
         item(true); key(CStringView{ "version" }); character('1');
@@ -556,10 +608,9 @@ bool CWriter::run() noexcept
     {
         newline();
     }
-    return good();
 }
 
-} // namespace writer_util
+}   //  namespace writer_util
 
 CJsonWriteResult write(const CBakedDocument& source, const CJsonWriteOptions& options) noexcept
 {
@@ -579,28 +630,8 @@ CJsonWriteResult write(const CBakedDocument& source, const CJsonWriteOptions& op
         return result;
     }
 
-    writer_util::CWriter measure(source, options);
-    if (!measure.run())
-    {
-        result.report.status = measure.report.status;
-        return result;
-    }
-    const std::size_t text_size = measure.report.logical_text_byte_size;
-    if (!result.output.resize(text_size + 1u))
-    {
-        result.report.status = EJsonWriteStatus::allocation_failed;
-        return result;
-    }
-    writer_util::CWriter emit(source, options, result.output.data(), text_size);
-    if (!emit.run() || (emit.report.logical_text_byte_size != text_size))
-    {
-        result.output.deallocate();
-        result.report.status = emit.report.succeeded() ? EJsonWriteStatus::internal_error : emit.report.status;
-        return result;
-    }
-    result.output.data()[text_size] = 0u;
-    result.report = emit.report;
-    return result;
+    writer_util::CWriter writer(source, options);
+    return writer.run();
 }
 
-} // namespace json_writer
+}   //  namespace json_writer

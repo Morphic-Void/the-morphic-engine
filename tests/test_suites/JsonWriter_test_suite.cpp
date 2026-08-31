@@ -361,6 +361,164 @@ static void test_deep_traversal_and_allocation_failure(TTestContext& ctx)
     TEST_EXPECT(ctx, block.document().check_integrity());
 }
 
+struct TAllocationBudget
+{
+    std::size_t allowed{ std::numeric_limits<std::size_t>::max() };
+    std::size_t attempted{ 0u };
+};
+
+[[nodiscard]] static void* MV_STD_ABI_CALL allocate_with_budget(
+    void* const state, const std::size_t alignment, const std::size_t bytes) noexcept
+{
+    auto& budget = *static_cast<TAllocationBudget*>(state);
+    if (budget.attempted++ >= budget.allowed)
+    {
+        return nullptr;
+    }
+    return tests::allocate_test_memory(nullptr, alignment, bytes);
+}
+
+static void test_growth_allocation_failures(TTestContext& ctx)
+{
+    //  Populate every occurrence counter before enough trailing text to grow again.
+    CLiveDocument live;
+    TEST_EXPECT(ctx, live.initialise());
+    const auto root = live.create_array();
+    TEST_EXPECT(ctx, live.set_root(root));
+    const CJsonIntegerMetadata hex{ EJsonIntegerSign::signed_value, EJsonIntegerWidth::bits_8,
+        EJsonIntegerNotation::hexadecimal, EJsonIntegerPrefix::alternate };
+    TEST_EXPECT(ctx, live.append_array_child(root, live.create_integer(127, hex)));
+    const std::uint8_t special[]{ 0u, 0xc3u, 0xa9u };
+    TEST_EXPECT(ctx, live.append_array_child(root, live.create_string(CStringView{ special, sizeof(special) })));
+    const std::string padding(16384u, 'x');
+    TEST_EXPECT(ctx, live.append_array_child(root, live.create_string(CStringView{ padding.c_str() })));
+    CBakedDocumentBlock block;
+    TEST_EXPECT(ctx, bake(live, block));
+    std::vector<std::uint8_t> bytes(block.bytes().data(), block.bytes().data() + block.bytes().size());
+    auto* header = reinterpret_cast<CBakedDocumentHeader*>(bytes.data());
+    auto* nodes = reinterpret_cast<CBakedNode*>(bytes.data() + header->nodes.offset);
+    nodes[header->root_index].type = EJsonNodeType::recovered_duplicate_array;
+    header->flags |= CBakedDocument::k_flag_recovered_duplicate_arrays;
+    refresh_crc(bytes);
+    const CBakedDocument recovered(bytes.data(), bytes.size());
+    TEST_EXPECT(ctx, recovered.is_ready());
+
+    for (const bool pretty : { false, true })
+    {
+        CJsonWriteOptions options;
+        options.strict_json = true;
+        options.escape_non_ascii = true;
+        options.pretty_print = pretty;
+        TAllocationBudget budget;
+        memory::CMemoryAllocator allocator(&budget, allocate_with_budget, tests::deallocate_test_memory, system_ids::host);
+        memory::CMemoryContext context(allocator, system_ids::host);
+        std::string expected;
+        {
+            const tests::TModuleIdScope module(module_ids::executable);
+            const tests::TMemoryContextScope memory_scope(&context);
+            const auto result = json_writer::write(recovered, options);
+            TEST_EXPECT(ctx, result.report.succeeded());
+            if (!result.report.succeeded())
+            {
+                return;
+            }
+            expected.assign(reinterpret_cast<const char*>(result.output.data()), result.report.logical_text_byte_size);
+            expect_text(ctx, result, expected);
+            TEST_EXPECT(ctx, expected.find(padding) != std::string::npos);
+            TEST_EXPECT(ctx, result.report.non_decimal_integers_normalised == 1u);
+            TEST_EXPECT(ctx, result.report.explicit_positive_signs_omitted == 1u);
+            TEST_EXPECT(ctx, result.report.non_ascii_code_points_escaped == 1u);
+            TEST_EXPECT(ctx, result.report.embedded_nuls_escaped == 1u);
+            TEST_EXPECT(ctx, result.report.recovery_nodes_written == 1u);
+            TEST_EXPECT(ctx, result.report.diagnostic_envelope_written);
+        }
+        TEST_EXPECT(ctx, context.is_attribution_empty());
+        const std::size_t allocation_count = budget.attempted;
+        TEST_EXPECT(ctx, allocation_count > 1u);
+
+        //  Reject the initial allocation, then each later growth allocation in turn.
+        for (std::size_t allowed = 0u; allowed < allocation_count; ++allowed)
+        {
+            budget.allowed = allowed;
+            budget.attempted = 0u;
+            {
+                const tests::TModuleIdScope module(module_ids::executable);
+                const tests::TMemoryContextScope memory_scope(&context);
+                expect_failure(ctx, json_writer::write(recovered, options), EJsonWriteStatus::allocation_failed);
+            }
+            TEST_EXPECT(ctx, budget.attempted == allowed + 1u);
+            TEST_EXPECT(ctx, context.is_attribution_empty());
+        }
+
+        budget.allowed = allocation_count;
+        budget.attempted = 0u;
+        {
+            const tests::TModuleIdScope module(module_ids::executable);
+            const tests::TMemoryContextScope memory_scope(&context);
+            expect_text(ctx, json_writer::write(recovered, options), expected);
+        }
+        TEST_EXPECT(ctx, budget.attempted == allocation_count);
+        TEST_EXPECT(ctx, context.is_attribution_empty());
+    }
+    TEST_EXPECT(ctx, recovered.check_integrity());
+}
+
+static void test_terminal_zero_allocation_failure(TTestContext& ctx)
+{
+    //  Find the first bytewise growth boundary without fixing a capacity policy here.
+    CByteBuffer probe;
+    TEST_EXPECT(ctx, probe.append(1u));
+    const std::size_t initial_capacity = probe.capacity();
+    while (probe.capacity() == initial_capacity)
+    {
+        const bool appended = probe.append(1u);
+        TEST_EXPECT(ctx, appended);
+        if (!appended)
+        {
+            return;
+        }
+    }
+    const std::size_t text_size = probe.size() - 1u;
+    TEST_EXPECT(ctx, text_size >= 3u);
+    if (text_size < 3u)
+    {
+        return;
+    }
+    probe.deallocate();
+
+    for (const bool trailing_line_ending : { false, true })
+    {
+        CLiveDocument live;
+        TEST_EXPECT(ctx, live.initialise());
+        const std::string payload(text_size - 2u - (trailing_line_ending ? 1u : 0u), 'x');
+        TEST_EXPECT(ctx, live.set_root(live.create_string(CStringView{ payload.c_str() })));
+        CBakedDocumentBlock block;
+        TEST_EXPECT(ctx, bake(live, block));
+        auto options = compact();
+        options.trailing_line_ending = trailing_line_ending;
+        TAllocationBudget budget;
+        budget.allowed = 1u;
+        memory::CMemoryAllocator allocator(&budget, allocate_with_budget, tests::deallocate_test_memory, system_ids::host);
+        memory::CMemoryContext context(allocator, system_ids::host);
+        {
+            const tests::TModuleIdScope module(module_ids::executable);
+            const tests::TMemoryContextScope memory_scope(&context);
+            expect_failure(ctx, json_writer::write(block.document(), options), EJsonWriteStatus::allocation_failed);
+        }
+        TEST_EXPECT(ctx, budget.attempted == 2u);
+        TEST_EXPECT(ctx, context.is_attribution_empty());
+        budget.allowed = 2u;
+        budget.attempted = 0u;
+        {
+            const tests::TModuleIdScope module(module_ids::executable);
+            const tests::TMemoryContextScope memory_scope(&context);
+            expect_text(ctx, json_writer::write(block.document(), options), "\"" + payload + "\"" + (trailing_line_ending ? "\n" : ""));
+        }
+        TEST_EXPECT(ctx, budget.attempted == 2u);
+        TEST_EXPECT(ctx, context.is_attribution_empty());
+    }
+}
+
 static void test_recovered_root_options_and_ordinary_marker(TTestContext& ctx)
 {
     CLiveDocument live;
@@ -418,6 +576,8 @@ int run_json_writer_tests()
     json_writer_tests::test_floating_round_trips(ctx);
     json_writer_tests::test_recovery_and_rejected_views(ctx);
     json_writer_tests::test_deep_traversal_and_allocation_failure(ctx);
+    json_writer_tests::test_growth_allocation_failures(ctx);
+    json_writer_tests::test_terminal_zero_allocation_failure(ctx);
     json_writer_tests::test_recovered_root_options_and_ordinary_marker(ctx);
     std::cout << "JsonWriter: " << ctx.passed << " passed, " << ctx.failed << " failed\n";
     return ctx.exit_code();

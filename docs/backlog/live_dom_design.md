@@ -481,10 +481,14 @@ work. No warnings are invented for strict JSON consumers with limited integer
 precision.
 
 Traversal is iterative using baked parent/sibling links, so writing does not
-consume a call-stack frame per nesting level. A measurement pass uses checked
-size arithmetic and the same formatting path as emission; a single ambient
-engine-buffer allocation follows. There is no scratch allocation, file I/O,
-logging, host/executive work, or ownership transfer of the source. Stage 2
+consume a call-stack frame per nesting level. A single traversal emits into an
+ambient engine buffer using checked size arithmetic and its default growth
+policy. Each run resets its output, counters, status and depth; completed output
+is transferred to the result with one physical terminal zero. Spare capacity
+is retained rather than requiring a shrink allocation. Any allocation failure,
+including later growth or final termination, discards partial output and all
+output counters. There is no scratch allocation, file I/O, logging,
+host/executive work, or ownership transfer of the source. Stage 2
 must recognize the agreed numeric grammar and normalize decoded U+0000 to
 `C0 80` before interning; Stage 3 must write only the reported logical text
 extent, not the output buffer's final zero.
