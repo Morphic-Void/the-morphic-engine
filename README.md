@@ -42,6 +42,11 @@ SDK version, MSBuild path, test mode, and log tag can all be overridden through
 the script parameters. Because sandbox-safe file tracking is disabled, a build
 invocation recompiles sources rather than relying on MSBuild's tracked inputs.
 
+The helper first runs `tools/check_line_endings.ps1`. This verifies the effective
+Git attributes, rejects mixed or incorrectly checked-out line endings, and
+requires a final newline in every non-empty tracked text file. It can also be
+run directly from PowerShell when checking a working tree without building.
+
 The Executive-driven TGA load/decode/encode/save path remains a Host integration
 exercise. The separate direct TGA round-trip helper is compiled into
 `MorphicTests` as a manual test but is intentionally not registered or invoked.

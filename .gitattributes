@@ -1,5 +1,6 @@
-# Normalize text files by default.
-* text=auto
+# Normalize text files to LF by default. Explicit Windows command scripts are
+# the only text exception.
+* text=auto eol=lf
 
 # Keep ordinary project text files on LF.
 *.c text eol=lf
@@ -23,5 +24,9 @@
 .gitignore text eol=lf
 .gitmodules text eol=lf
 
-# Visual Studio solution files are happier as CRLF.
-*.sln text eol=crlf
+*.sln text eol=lf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Known binary formats must never undergo text normalization.
+*.tga -text

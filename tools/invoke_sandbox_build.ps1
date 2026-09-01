@@ -24,6 +24,12 @@ $ErrorActionPreference = "Stop"
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
 $solutionPath = Join-Path $repositoryRoot "MorphicEngine.sln"
 $sdkRoot = Join-Path ${env:ProgramFiles(x86)} "Windows Kits\10"
+$lineEndingCheck = Join-Path $PSScriptRoot "check_line_endings.ps1"
+
+& $lineEndingCheck -RepositoryRoot $repositoryRoot
+if ($LASTEXITCODE -ne 0) {
+    exit $LASTEXITCODE
+}
 
 if ([string]::IsNullOrWhiteSpace($WindowsSdkVersion)) {
     $installedSdks = @()
