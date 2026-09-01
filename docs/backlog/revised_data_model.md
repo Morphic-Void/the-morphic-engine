@@ -75,6 +75,12 @@ The live representation uses the same physical node structure and key domain
 for value and aggregate nodes. Role and type validation determine which fields
 are meaningful.
 
+Aggregate nodes remain internal implementation payloads despite sharing that
+key domain. Public document operations expose and accept keys for value nodes
+only. A key lookup or relationship query which fails, is inapplicable to the
+node's role or would otherwise expose an aggregate as a value returns an invalid
+key or the corresponding invalid result.
+
 The baked representation may retain explicit aggregate records in its node
 index domain or fold an aggregate's immutable metadata into its owning value
 record. That physical choice is deferred. Either encoding must preserve the
@@ -103,7 +109,11 @@ The following invariants are normative:
 - A scalar value terminates its branch and owns no aggregate.
 - Every array or object value owns exactly one aggregate created atomically
   with it.
-- Every aggregate has exactly one value owner and is never shared or reused.
+- Every aggregate has exactly one value owner at a time and is never shared or
+  independently user-addressed. Its complete payload may be reattributed
+  atomically between compatible value owners when a structural operation
+  requires it; the owner relationship, duplicated name and accounting must all
+  move consistently.
 - Every non-root value has either exactly one parent aggregate or is detached.
 - Value siblings share the same parent aggregate.
 - An aggregate is never an array element, object member, root value or
@@ -122,6 +132,20 @@ The structure is a tree rather than a directed acyclic graph. Aggregate
 payloads are composition-owned, and attaching a value cannot introduce shared
 ownership or a cycle.
 
+Live node keys are allocated monotonically and are never reused during a
+document lifecycle. The physical slots which hold nodes may be reused after
+erasure, so key order, slot order and slot adjacency have no structural
+meaning. Live navigation uses the stored parent, previous-sibling,
+next-sibling, owner, first-child and last-child relationships. Gaps caused by
+creation and erasure are ordinary and must not affect traversal.
+
+The initial live implementation keeps the shared role-dependent relationships
+in one 64-byte node record. Role, value type, aggregate kind and object-entry
+state form one common usage substructure. Role-specific accessors decode the
+shared relationship fields and return an invalid key when an accessor is
+inapplicable, making their contextual meaning explicit without expanding the
+record beyond that boundary.
+
 ## Root contract
 
 `CLiveDocument` initialization creates an implicit anonymous object value as
@@ -139,9 +163,10 @@ The root name is the canonical empty name. Its object-entry flag is clear.
 
 Every value and aggregate node has a name reference. There is no absent-name
 state. Index zero in a baked name table is the canonical empty string: a
-zero-length, physically NUL-terminated entry. The live representation may map
-that entry through a different internal stable ID, but the logical meaning is
-the same.
+zero-length, physically NUL-terminated entry. Live property-name and
+string-value ID zero is likewise the valid canonical empty entry. Invalid IDs
+remain distinct from empty and represent failed or inapplicable queries, not a
+string-table entry.
 
 Creation accepts an optional name:
 
@@ -231,6 +256,10 @@ do not contribute to these counts.
 
 An entry whose count reaches zero remains in the live table. Reference counts
 are accounting information, not permission to remove or renumber live entries.
+The live document also maintains the number of distinct non-empty property-name
+and string-value entries whose reference count is nonzero. The canonical empty
+entry is excluded from both these totals.
+
 Attachment increments references throughout the attached subtree. Detachment
 decrements them throughout the detached subtree. Detached creation contributes
 no references, and destruction of an already detached subtree does not
@@ -248,10 +277,11 @@ live-to-baked ID maps before walking the node tree.
 Live compaction is deliberately bake followed by promotion. It is not in-place
 removal or renumbering of zero-reference entries.
 
-The live implementation may reserve ID zero and use ID one for the empty
-entry, or may use zero directly. This is internal and must not leak into the
-baked representation, where empty is always valid index zero in both string
-tables.
+Live property-name and string-value IDs are stable and are never reused. The
+parallel reference-count vectors define the allocated ID extent; the live
+document does not maintain or expose redundant totals for all interned entries.
+Its public bulk totals concern only distinct non-empty entries currently
+referenced by root-reachable nodes.
 
 ## Numeric semantics and admission
 
@@ -297,6 +327,13 @@ Creation and attachment are separate operations. Creation returns a detached
 value or detached subtree. Array-valued and object-valued creation atomically
 creates both the owner value and its aggregate payload. Allocation or
 validation failure must not expose either half.
+
+This paired creation is implemented by a bounded live-document helper which
+creates the records one at a time and rolls back the first if the second fails.
+It does not require an atomic multi-insert operation or any extension to the
+ordered-slot container. `TPodOrderedSlots`, `CStableStrings`, `TPodVector` and
+the other generic storage architecture are complete infrastructure and are not
+modified for this data-model work.
 
 The optional creation name establishes the value's intrinsic named or
 anonymous form. Creation does not pre-validate whether that form will be
@@ -439,6 +476,14 @@ parentage, sibling order, counts, first/last references, aggregate-kind and
 owner-type agreement, duplicate names, owner/aggregate name agreement, string
 references and counts, numeric metadata and finite floats.
 
+The live document maintains exact totals for root-reachable value nodes and
+root-reachable aggregate payloads. The aggregate total includes object,
+ordinary-array and recovered-array aggregates. Detached nodes and payloads do
+not contribute. Attach, detach, recovery, repair, recursive erasure, reset and
+promotion update or establish both totals with the structural change, and an
+integrity audit independently recomputes them from the root. The separately
+maintained recovered-aggregate total is a subset used for canonicality.
+
 For user-facing information, a document is **canonical** exactly when no
 recovered-array aggregate is reachable from the root. Detached recovery
 subtrees do not affect this answer. Integer notation and signedness do not
@@ -480,6 +525,15 @@ References to the source document object do not follow its contents. Move
 support does not authorize cross-thread transfer of a live document or of a
 builder-like working representation.
 
+`CLiveDocument` does not support memory-accounting reattribution. Its directly
+owned allocations retain their original accounting contexts for their complete
+lifetime, including across moves. Moving a live document while a different
+context is ambient must not retag its storage. A document which must cross an
+accounting-context boundary is baked in its current context and promoted into a
+fresh live document whose allocations are made in the destination context.
+That bake-and-promote boundary is the only supported accounting-context
+transfer path for live content.
+
 ## Baked documents
 
 `CBakedDocumentBlock` owns one transferable immutable byte block.
@@ -520,6 +574,10 @@ representation: callers and debuggers can inspect them as sequential value
 records, and ordinal object-member access is O(1). This requirement does not
 itself require O(1) object lookup by name; a later layout may add a separate
 lookup accelerator without changing the ordered value range.
+
+Baked child ranges therefore require an explicit first/count range boundary,
+which also determines the last element, but no stored previous- or next-sibling
+links. Dense range position supplies their linear addressing.
 
 Nested aggregate metadata and descendants lie outside the containing
 aggregate's direct-child range. If the baked layout retains explicit aggregate
@@ -713,9 +771,7 @@ inferred from examples or from the superseded implementation:
   and numeric intent;
 - canonical values for role-inapplicable fields and how much aggregate
   machinery can be eliminated physically;
-- live node registry, key generation, sibling linkage, cursor and revision
-  representation;
-- whether the live empty-string entry uses internal stable ID zero or one;
+- cursor and revision representation;
 - concrete create, attach, insert, convert, repair and diagnostic-import API
   names, signatures and result types;
 - the safe construction API for an imported completed recovery list;

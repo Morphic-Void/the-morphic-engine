@@ -33,6 +33,8 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)core\containers\TPodUnorderedSlots.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)core\containers\TPodVector.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)core\containers\TUnorderedCollection.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)core\data_model\data_model_types.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)core\data_model\live_document.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)core\debug\event_arguments.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)core\debug\log_path.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)core\debug\macros.hpp" />
@@ -92,6 +94,7 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)core\types\fp16data_t.hpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="$(MSBuildThisFileDirectory)core\data_model\live_document.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)core\debug\event_arguments.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)core\debug\log_path.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)core\debug\service.cpp" />

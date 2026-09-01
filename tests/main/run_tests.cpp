@@ -14,6 +14,7 @@
 #include "tests/test_suites/CMemoryView_test_suite.hpp"
 #include "tests/test_suites/DebugService_test_suite.hpp"
 #include "tests/test_suites/ErasedPod_test_suite.hpp"
+#include "tests/test_suites/LiveDocument_test_suite.hpp"
 #include "tests/test_suites/ErasedOwner_test_suite.hpp"
 #include "tests/test_suites/StringBuffers_test_suite.hpp"
 #include "tests/test_suites/SystemTypeIdentity_test_suite.hpp"
@@ -231,6 +232,7 @@ int run_tests(ETestRunMode mode)
     cumulative_result += run_isolated_suite("CMemoryView", &run_memory_view_tests);
     cumulative_result += run_isolated_suite("ErasedOwner", &run_erased_owner_tests);
     cumulative_result += run_isolated_suite("ErasedPod", &run_erased_pod_tests);
+    cumulative_result += run_isolated_suite("LiveDocument", &run_live_document_tests);
     cumulative_result += run_isolated_suite("TPodVector", &run_pod_vector_tests);
     cumulative_result += run_isolated_suite("ByteBuffers", &run_byte_buffer_tests);
     cumulative_result += run_isolated_suite("TextLinter", &run_text_linter_tests);

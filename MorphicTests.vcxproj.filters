@@ -31,6 +31,7 @@
     <ClCompile Include="tests\test_suites\DebugService_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
     <ClCompile Include="tests\test_suites\ErasedOwner_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
     <ClCompile Include="tests\test_suites\ErasedPod_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
+    <ClCompile Include="tests\test_suites\LiveDocument_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
     <ClCompile Include="tests\main\run_tests.cpp"><Filter>Tests\main</Filter></ClCompile>
     <ClCompile Include="tests\test_suites\StringBuffers_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
     <ClCompile Include="tests\test_suites\SystemTypeIdentity_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
@@ -66,6 +67,7 @@
     <ClInclude Include="tests\test_suites\DebugService_test_suite.hpp"><Filter>Tests\test_suites</Filter></ClInclude>
     <ClInclude Include="tests\test_suites\ErasedOwner_test_suite.hpp"><Filter>Tests\test_suites</Filter></ClInclude>
     <ClInclude Include="tests\test_suites\ErasedPod_test_suite.hpp"><Filter>Tests\test_suites</Filter></ClInclude>
+    <ClInclude Include="tests\test_suites\LiveDocument_test_suite.hpp"><Filter>Tests\test_suites</Filter></ClInclude>
     <ClInclude Include="tests\main\run_tests.hpp"><Filter>Tests\main</Filter></ClInclude>
     <ClInclude Include="tests\test_suites\StringBuffers_test_suite.hpp"><Filter>Tests\test_suites</Filter></ClInclude>
     <ClInclude Include="tests\test_suites\SystemTypeIdentity_test_suite.hpp"><Filter>Tests\test_suites</Filter></ClInclude>

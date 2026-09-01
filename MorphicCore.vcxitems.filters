@@ -22,6 +22,9 @@
     <Filter Include="Core\include\containers\slots">
       <UniqueIdentifier>{ed689644-ed46-0d45-476d-81d715ad6fb0}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Core\include\data_model">
+      <UniqueIdentifier>{834a4147-6f18-43e1-aa74-3a8ad0daed25}</UniqueIdentifier>
+    </Filter>
     <Filter Include="Core\include\debug">
       <UniqueIdentifier>{d581e920-1518-fd05-9ce8-a1c03b2524c9}</UniqueIdentifier>
     </Filter>
@@ -81,6 +84,9 @@
     </Filter>
     <Filter Include="Core\src\debug">
       <UniqueIdentifier>{f7add353-7037-1907-3fe9-78cda87ff7e6}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Core\src\data_model">
+      <UniqueIdentifier>{77ec940a-6393-49c4-8cb9-36fd907cf65e}</UniqueIdentifier>
     </Filter>
     <Filter Include="Core\src\image">
       <UniqueIdentifier>{820fbd0f-1f89-4472-b601-bb355730b034}</UniqueIdentifier>
@@ -224,6 +230,12 @@
     </ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)core\containers\TUnorderedCollection.hpp">
       <Filter>Core\include\containers</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)core\data_model\data_model_types.hpp">
+      <Filter>Core\include\data_model</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)core\data_model\live_document.hpp">
+      <Filter>Core\include\data_model</Filter>
     </ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)core\debug\event_arguments.hpp">
       <Filter>Core\include\debug</Filter>
@@ -461,6 +473,9 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="$(MSBuildThisFileDirectory)core\data_model\live_document.cpp">
+      <Filter>Core\src\data_model</Filter>
+    </ClCompile>
     <ClCompile Include="$(MSBuildThisFileDirectory)core\debug\event_arguments.cpp">
       <Filter>Core\src\debug</Filter>
     </ClCompile>

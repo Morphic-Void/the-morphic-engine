@@ -105,6 +105,7 @@
     <ClCompile Include="tests\test_suites\DebugService_test_suite.cpp" />
     <ClCompile Include="tests\test_suites\ErasedOwner_test_suite.cpp" />
     <ClCompile Include="tests\test_suites\ErasedPod_test_suite.cpp" />
+    <ClCompile Include="tests\test_suites\LiveDocument_test_suite.cpp" />
     <ClCompile Include="tests\main\run_tests.cpp" />
     <ClCompile Include="tests\test_suites\StringBuffers_test_suite.cpp" />
     <ClCompile Include="tests\test_suites\SystemTypeIdentity_test_suite.cpp" />
@@ -140,6 +141,7 @@
     <ClInclude Include="tests\test_suites\DebugService_test_suite.hpp" />
     <ClInclude Include="tests\test_suites\ErasedOwner_test_suite.hpp" />
     <ClInclude Include="tests\test_suites\ErasedPod_test_suite.hpp" />
+    <ClInclude Include="tests\test_suites\LiveDocument_test_suite.hpp" />
     <ClInclude Include="tests\main\run_tests.hpp" />
     <ClInclude Include="tests\test_suites\StringBuffers_test_suite.hpp" />
     <ClInclude Include="tests\test_suites\SystemTypeIdentity_test_suite.hpp" />
