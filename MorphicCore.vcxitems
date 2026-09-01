@@ -33,10 +33,6 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)core\containers\TPodUnorderedSlots.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)core\containers\TPodVector.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)core\containers\TUnorderedCollection.hpp" />
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\data_model\data_model_types.hpp" />
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\data_model\baked_document_builder.hpp" />
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\data_model\baked_document.hpp" />
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\data_model\live_document.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)core\debug\event_arguments.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)core\debug\log_path.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)core\debug\macros.hpp" />
@@ -90,14 +86,12 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)core\threading\transports\TQueueTransport.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)core\threading\transports\transports.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)core\threading\transports\TRingTransport.hpp" />
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\text\json_writer.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)core\text\text_linter.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)core\text\utf8_string.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)core\types\atomic_types.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)core\types\fp16data_t.hpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="$(MSBuildThisFileDirectory)core\data_model\live_document.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)core\debug\event_arguments.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)core\debug\log_path.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)core\debug\service.cpp" />
@@ -118,7 +112,6 @@
     <ClCompile Include="$(MSBuildThisFileDirectory)core\threading\CWaitPredicate.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)core\threading\messages\CErasedOwnerMsgTransport.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)core\threading\messages\CErasedPodMsgTransport.cpp" />
-    <ClCompile Include="$(MSBuildThisFileDirectory)core\text\json_writer.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)core\text\text_linter.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)core\text\utf8_string.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)core\types\fp16data_t.cpp" />
@@ -168,7 +161,6 @@
     <None Include="$(MSBuildThisFileDirectory).gitignore" />
     <None Include="$(MSBuildThisFileDirectory)docs\architecture\architectural-principles.md" />
     <None Include="$(MSBuildThisFileDirectory)docs\backlog\current_scope_backlog.md" />
-    <None Include="$(MSBuildThisFileDirectory)docs\backlog\live_dom_design.md" />
     <None Include="$(MSBuildThisFileDirectory)docs\backlog\morphic_engine_interim_backlog.md" />
     <None Include="$(MSBuildThisFileDirectory)docs\architecture\codebase-ethos-primer.md" />
     <None Include="$(MSBuildThisFileDirectory)docs\architecture\codebase-model.md" />

@@ -22,9 +22,6 @@
     <Filter Include="Core\include\containers\slots">
       <UniqueIdentifier>{ed689644-ed46-0d45-476d-81d715ad6fb0}</UniqueIdentifier>
     </Filter>
-    <Filter Include="Core\include\data_model">
-      <UniqueIdentifier>{b378e1c1-21a4-43de-91ee-729343310f54}</UniqueIdentifier>
-    </Filter>
     <Filter Include="Core\include\debug">
       <UniqueIdentifier>{d581e920-1518-fd05-9ce8-a1c03b2524c9}</UniqueIdentifier>
     </Filter>
@@ -81,9 +78,6 @@
     </Filter>
     <Filter Include="Core\src">
       <UniqueIdentifier>{07f791e4-bcbb-46aa-b229-8f303450a089}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="Core\src\data_model">
-      <UniqueIdentifier>{ca199de1-cd60-4ff0-8d80-bf275cfd0c77}</UniqueIdentifier>
     </Filter>
     <Filter Include="Core\src\debug">
       <UniqueIdentifier>{f7add353-7037-1907-3fe9-78cda87ff7e6}</UniqueIdentifier>
@@ -230,18 +224,6 @@
     </ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)core\containers\TUnorderedCollection.hpp">
       <Filter>Core\include\containers</Filter>
-    </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\data_model\data_model_types.hpp">
-      <Filter>Core\include\data_model</Filter>
-    </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\data_model\baked_document_builder.hpp">
-      <Filter>Core\include\data_model</Filter>
-    </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\data_model\baked_document.hpp">
-      <Filter>Core\include\data_model</Filter>
-    </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\data_model\live_document.hpp">
-      <Filter>Core\include\data_model</Filter>
     </ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)core\debug\event_arguments.hpp">
       <Filter>Core\include\debug</Filter>
@@ -465,9 +447,6 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)core\threading\transports\TRingTransport.hpp">
       <Filter>Core\include\threading\transports</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\text\json_writer.hpp">
-      <Filter>Core\include\text</Filter>
-    </ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)core\text\text_linter.hpp">
       <Filter>Core\include\text</Filter>
     </ClInclude>
@@ -482,9 +461,6 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="$(MSBuildThisFileDirectory)core\data_model\live_document.cpp">
-      <Filter>Core\src\data_model</Filter>
-    </ClCompile>
     <ClCompile Include="$(MSBuildThisFileDirectory)core\debug\event_arguments.cpp">
       <Filter>Core\src\debug</Filter>
     </ClCompile>
@@ -599,9 +575,6 @@
     <ClCompile Include="$(MSBuildThisFileDirectory)core\threading\messages\CErasedPodMsgTransport.cpp">
       <Filter>Core\src\threading\messages</Filter>
     </ClCompile>
-    <ClCompile Include="$(MSBuildThisFileDirectory)core\text\json_writer.cpp">
-      <Filter>Core\src\text</Filter>
-    </ClCompile>
     <ClCompile Include="$(MSBuildThisFileDirectory)core\text\text_linter.cpp">
       <Filter>Core\src\text</Filter>
     </ClCompile>
@@ -714,9 +687,6 @@
     </None>
     <None Include="$(MSBuildThisFileDirectory)README.md">
       <Filter>Docs</Filter>
-    </None>
-    <None Include="$(MSBuildThisFileDirectory)docs\backlog\live_dom_design.md">
-      <Filter>Docs\backlog</Filter>
     </None>
   </ItemGroup>
   <ItemGroup>

@@ -9,7 +9,6 @@
 #include "tests/main/run_tests.hpp"
 #include "tests/test_suites/AssetRepository_test_suite.hpp"
 #include "tests/test_suites/AsyncState_test_suite.hpp"
-#include "tests/test_suites/BakedDocumentBuilder_test_suite.hpp"
 #include "tests/test_suites/ByteBuffers_test_suite.hpp"
 #include "tests/test_suites/CMemoryToken_test_suite.hpp"
 #include "tests/test_suites/CMemoryView_test_suite.hpp"
@@ -19,7 +18,6 @@
 #include "tests/test_suites/StringBuffers_test_suite.hpp"
 #include "tests/test_suites/SystemTypeIdentity_test_suite.hpp"
 #include "tests/test_suites/TInstance_test_suite.hpp"
-#include "tests/test_suites/LiveDocument_test_suite.hpp"
 #include "tests/test_suites/TOrderedCollection_test_suite.hpp"
 #include "tests/test_suites/TPodFifo_test_suite.hpp"
 #include "tests/test_suites/TPodVector_test_suite.hpp"
@@ -27,7 +25,6 @@
 #include "tests/test_suites/TOrderedSlots_test_harness.hpp"
 #include "tests/test_suites/TUnorderedSlots_test_harness.hpp"
 #include "tests/test_suites/TextLinter_test_suite.hpp"
-#include "tests/test_suites/JsonWriter_test_suite.hpp"
 #include "tests/test_suites/TQueueTransport_test_suite.hpp"
 #include "tests/test_suites/TMpmcTransport_test_suite.hpp"
 #include "tests/test_suites/TRingTransport_test_suite.hpp"
@@ -230,7 +227,6 @@ int run_tests(ETestRunMode mode)
 
     cumulative_result += run_isolated_suite("AssetRepository", &run_asset_repository_tests);
     cumulative_result += run_isolated_suite("AsyncState", &run_async_state_tests);
-    cumulative_result += run_isolated_suite("BakedDocumentBuilder", &run_baked_document_builder_tests);
     cumulative_result += run_isolated_suite("CMemoryToken", &run_memory_token_tests);
     cumulative_result += run_isolated_suite("CMemoryView", &run_memory_view_tests);
     cumulative_result += run_isolated_suite("ErasedOwner", &run_erased_owner_tests);
@@ -238,9 +234,7 @@ int run_tests(ETestRunMode mode)
     cumulative_result += run_isolated_suite("TPodVector", &run_pod_vector_tests);
     cumulative_result += run_isolated_suite("ByteBuffers", &run_byte_buffer_tests);
     cumulative_result += run_isolated_suite("TextLinter", &run_text_linter_tests);
-    cumulative_result += run_isolated_suite("JsonWriter", &run_json_writer_tests);
     cumulative_result += run_isolated_suite("TInstance", &run_instance_tests);
-    cumulative_result += run_isolated_suite("LiveDocument", &run_live_document_tests);
     cumulative_result += run_isolated_suite("DebugService", &run_debug_service_tests);
     cumulative_result += run_isolated_suite("SystemTypeIdentity", &run_system_type_identity_tests);
     cumulative_result += run_isolated_suite("TPodFifo", &run_pod_fifo_tests);

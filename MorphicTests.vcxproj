@@ -99,14 +99,12 @@
     <ClCompile Include="tests\support\test_allocator.cpp" />
     <ClCompile Include="tests\test_suites\AssetRepository_test_suite.cpp" />
     <ClCompile Include="tests\test_suites\AsyncState_test_suite.cpp" />
-    <ClCompile Include="tests\test_suites\BakedDocumentBuilder_test_suite.cpp" />
     <ClCompile Include="tests\test_suites\ByteBuffers_test_suite.cpp" />
     <ClCompile Include="tests\test_suites\CMemoryToken_test_suite.cpp" />
     <ClCompile Include="tests\test_suites\CMemoryView_test_suite.cpp" />
     <ClCompile Include="tests\test_suites\DebugService_test_suite.cpp" />
     <ClCompile Include="tests\test_suites\ErasedOwner_test_suite.cpp" />
     <ClCompile Include="tests\test_suites\ErasedPod_test_suite.cpp" />
-    <ClCompile Include="tests\test_suites\LiveDocument_test_suite.cpp" />
     <ClCompile Include="tests\main\run_tests.cpp" />
     <ClCompile Include="tests\test_suites\StringBuffers_test_suite.cpp" />
     <ClCompile Include="tests\test_suites\SystemTypeIdentity_test_suite.cpp" />
@@ -121,7 +119,6 @@
     <ClCompile Include="tests\test_suites\TRingTransport_test_suite.cpp" />
     <ClCompile Include="tests\test_suites\TUnorderedCollection_test_suite.cpp" />
     <ClCompile Include="tests\test_suites\TUnorderedSlots_test_harness.cpp" />
-    <ClCompile Include="tests\test_suites\JsonWriter_test_suite.cpp" />
     <ClCompile Include="tests\test_suites\TextLinter_test_suite.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -137,14 +134,12 @@
     <ClInclude Include="tests\support\test_scopes.hpp" />
     <ClInclude Include="tests\test_suites\AssetRepository_test_suite.hpp" />
     <ClInclude Include="tests\test_suites\AsyncState_test_suite.hpp" />
-    <ClInclude Include="tests\test_suites\BakedDocumentBuilder_test_suite.hpp" />
     <ClInclude Include="tests\test_suites\ByteBuffers_test_suite.hpp" />
     <ClInclude Include="tests\test_suites\CMemoryToken_test_suite.hpp" />
     <ClInclude Include="tests\test_suites\CMemoryView_test_suite.hpp" />
     <ClInclude Include="tests\test_suites\DebugService_test_suite.hpp" />
     <ClInclude Include="tests\test_suites\ErasedOwner_test_suite.hpp" />
     <ClInclude Include="tests\test_suites\ErasedPod_test_suite.hpp" />
-    <ClInclude Include="tests\test_suites\LiveDocument_test_suite.hpp" />
     <ClInclude Include="tests\main\run_tests.hpp" />
     <ClInclude Include="tests\test_suites\StringBuffers_test_suite.hpp" />
     <ClInclude Include="tests\test_suites\SystemTypeIdentity_test_suite.hpp" />
@@ -159,7 +154,6 @@
     <ClInclude Include="tests\test_suites\TRingTransport_test_suite.hpp" />
     <ClInclude Include="tests\test_suites\TUnorderedCollection_test_suite.hpp" />
     <ClInclude Include="tests\test_suites\TUnorderedSlots_test_harness.hpp" />
-    <ClInclude Include="tests\test_suites\JsonWriter_test_suite.hpp" />
     <ClInclude Include="tests\test_suites\TextLinter_test_suite.hpp" />
   </ItemGroup>
   <ItemGroup>

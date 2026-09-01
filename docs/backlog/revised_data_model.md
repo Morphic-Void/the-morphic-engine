@@ -15,8 +15,10 @@ replacement of TheMorphicEngine's first live and baked document model. It
 defines the abstract data model, the integrity invariants at its boundaries and
 the ownership rules which later implementations must preserve.
 
-Where this document conflicts with `live_dom_design.md`, this document takes
-precedence. In particular, the replacement does not retain the old model's
+Where this document conflicts with the archived v1 design at
+`graveyard/data_model_v1_2026-09-01/docs/backlog/live_dom_design.md`, this
+document takes precedence. In particular, the replacement does not retain the
+old model's
 publicly creatable recovered value kind, replaceable root, absent-name sentinel,
 live acceptance of non-finite floating-point values, separate public baked
 builder, or settled version-3 byte layout. Useful decisions from that work are
