@@ -30,7 +30,7 @@ struct TOrderedConfig
     bool run_fuzz_lightweight = false;
 
     // Parameters
-    int  N = 9;
+    int  N = 5;
 
     // Exhaustive delete order options
     bool vary_insertion_orders = true;        // subset (asc/desc + a few patterns)

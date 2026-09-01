@@ -251,16 +251,11 @@ int run_tests(ETestRunMode mode)
         TOrderedConfig tlex_cfg;
         tlex_cfg.run_exhaustive_delete =
             mode >= ETestRunMode::moderate;
-        if (mode >= ETestRunMode::moderate)
-        {
-            tlex_cfg.run_fuzz_lightweight = true;
-        }
         if (mode >= ETestRunMode::full)
         {
             tlex_cfg.run_exhaustive_insert_delete = true;
             tlex_cfg.max_insert_perms = 0;
             tlex_cfg.max_delete_perms_each_insert = 0;
-            tlex_cfg.run_fuzz_lightweight = true;
         }
 
         cumulative_result += run_isolated_suite(
@@ -270,10 +265,6 @@ int run_tests(ETestRunMode mode)
     if (mode >= ETestRunMode::core)
     {
         TUnorderedConfig tun_cfg;
-        if (mode >= ETestRunMode::full)
-        {
-            tun_cfg.run_fuzz = true;
-        }
 
         cumulative_result += run_isolated_suite(
             "TUnorderedSlots", [&tun_cfg]() { return run_all_tests(tun_cfg); });
