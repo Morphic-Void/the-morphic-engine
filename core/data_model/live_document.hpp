@@ -28,13 +28,18 @@ public:
     CLiveDocument() noexcept = default;
     CLiveDocument(const CLiveDocument&) = delete;
     CLiveDocument& operator=(const CLiveDocument&) = delete;
-    CLiveDocument(CLiveDocument&&) = delete;
-    CLiveDocument& operator=(CLiveDocument&&) = delete;
+    CLiveDocument(CLiveDocument&& source) noexcept;
+    CLiveDocument& operator=(CLiveDocument&& source) noexcept;
 
     ~CLiveDocument() noexcept = default;
 
     //  A document is accessed by one thread at a time. Reading is permitted
     //  only while mutation is prohibited and the document is quiescent.
+    //  Moves preserve storage, keys, IDs, cursors and string views, with the
+    //  destination owning the contents. References to the source object do not
+    //  follow them. Assignment releases the destination's previous contents;
+    //  self-move is a no-op. The empty source can be initialised again.
+    //  Moves retain allocation attribution and do not permit thread transfer.
 
     //  Status
     [[nodiscard]] bool is_valid() const noexcept;
@@ -87,11 +92,21 @@ public:
     [[nodiscard]] bool append_array_child(const CNodeKey array, const CNodeKey child) noexcept;
     [[nodiscard]] bool insert_array_child_before(const CNodeKey array, const CNodeKey before, const CNodeKey child) noexcept;
     [[nodiscard]] bool add_object_child(const CNodeKey object, const CStringView& name, const CNodeKey child) noexcept;
+    //  Append all donor children, preserving their keys, names and subtrees.
+    //  Both nodes must belong to this document and be objects, or array kinds.
+    //  Self-transfer, cycles, name collisions and count overflow are rejected
+    //  without mutation. No allocation is needed. An empty donor is a no-op;
+    //  otherwise both child-list cursors are invalidated and the donor is empty.
+    [[nodiscard]] bool transfer_children(const CNodeKey donor, const CNodeKey recipient) noexcept;
     [[nodiscard]] bool detach(const CNodeKey child) noexcept;
     [[nodiscard]] bool erase_detached(const CNodeKey node) noexcept;
 
+    //  Recovery-node construction; populate through the ordinary array APIs.
+    [[nodiscard]] CNodeKey create_duplicate_array() noexcept;
+
     //  Initialisation and promotion
     [[nodiscard]] bool initialise(const std::size_t initial_slot_count = 0u) noexcept;
+
     //  The destination is changed only after a complete successful promotion.
     [[nodiscard]] bool build_from(const CBakedDocument& source) noexcept;
 

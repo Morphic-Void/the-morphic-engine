@@ -36,6 +36,16 @@ single-threaded mutation contract, or must be built before the document is
 published for quiescent access.  The baked representation is immutable after
 construction and likewise has no need for internal write synchronization.
 
+Live documents and baked-document builders are transitory working spaces and
+do not transfer between threads. Live-document move construction and assignment
+transfer the existing storage, root and next-key state without allocation or
+reattribution. Keys, string IDs, string views and array cursors survive the
+move; caller-held references to the source document object do not follow its
+contents. Assignment releases the destination's previous contents, while
+self-move is a no-op. The source becomes empty with an invalid root and a reset
+key sequence, and can be initialised again. A parser can construct privately
+and publish a complete document by move only after successful parsing.
+
 ## Representation lifecycle
 
 The same durable document meaning has three deliberately different forms:
@@ -200,6 +210,20 @@ containing the parent, current child, and current index; the next element is
 then reached directly through `next_sibling`.  A parent child-list revision
 invalidates such cursors after structural mutation.
 
+`transfer_children(donor, recipient)` appends all immediate donor children to
+the recipient, carrying their subtrees, keys, order and object names unchanged.
+Both nodes belong to the same live document and must be objects, or array kinds
+(ordinary or recovered). Self-transfer, cycles, incompatible kinds, object-name
+collisions and count overflow are rejected before mutation. Transfer allocates
+nothing and leaves the donor empty without detaching or erasing it. Nonempty
+transfer changes both child-list revisions; cursors within transferred subtrees
+are unaffected. An empty donor leaves both lists unchanged.
+
+For root replacement, the caller creates and selects the new root, transfers
+the old root's children, then erases the empty detached old root. Existing
+duplicate-name rejection remains unchanged. There is no specialized replacement
+API or recursive subtree erasure in this first pass.
+
 ## Live keys and slots
 
 The live node registry is expected to use `TPodOrderedSlots` with an
@@ -318,28 +342,38 @@ operation and requires an existing member.
 
 ## Diagnostics and malformed JSON recovery
 
-Document diagnostics are metadata held by the document instance, not semantic
-JSON nodes.  They record status, failure code, severity, relevant property
-name, and source locations where available.
+`create_duplicate_array()` publicly creates a `recovered_duplicate_array` node.
+It uses ordinary array attachment, population and traversal operations, keeping
+each competitor as one child even when that competitor is itself an array or
+recovered node. Recovery construction is not restricted to a special importer.
+Ordinary object mutation still rejects duplicate member names.
 
-Normal JSON import rejects duplicate object members and reports both source
-locations.  An explicit diagnostic recovery importer may instead construct a
-distinct `RecoveredDuplicateArray` node.  It has ordinary array traversal
-mechanics but is a separate node variant that records collision metadata.  It
-is created only by recovery import and cannot be created by ordinary mutation.
+The agreed parser direction is to recover duplicate object members into one
+member containing competing values in source order, reporting both name
+locations. The supported writer diagnostic envelope will be recognized
+automatically and reconstructed as native recovery nodes. Parser recognition
+and malformed/unsupported-envelope policy remain separate parser work.
 
-Recovered documents are non-standard.  They exist solely to inspect and
-repair malformed input.  Their recovery node variants may propagate into a
-diagnostic baked artifact, which carries an explicit non-canonical header flag.
-The normal runtime loading path rejects such an artifact.  A diagnostic JSON
-writer may serialize it with an explicit named recovery object, for example
-under `$morphic.recovery`; this is not a valid engine document specification
-and normal parsing does not assign it special meaning.
+The first live-document prerequisite adds no diagnostic storage. Diagnostic
+metadata, recovery counters and further live admission checks are deferred.
+Live recovery presence is derived by scanning all live slots, including
+detached subtrees; erasing the last recovered node clears that presence.
+Baked recovery flags derive only from root-reachable nodes. An imported
+envelope without recovered nodes produces only an import-report observation,
+not persistent document recovery state. Source locations are not serialized
+into the baked format or reconstructed when absent from imported content.
+
+Recovered nodes support inspection and correction in the live document and
+survive baking and promotion. The writer automatically emits its diagnostic
+recovery envelope when the baked recovery flag is present. Recovery-free
+content may still require Morphic integer syntax; recovery presence and numeric
+extensions are independent conditions.
 
 ## Purity and baking
 
-Canonical baking requires a pure live document.  A pure document contains only
-standard node kinds and has no blocking diagnostics or recovery state.
+Canonical baked output contains neither recovered nodes nor integers requiring
+Morphic JSON extensions. The builder validates reachable content at the bake
+boundary; the live workspace has no separate blocking-diagnostic state.
 
 ```text
 pure live document                 -> canonical bake permitted
@@ -461,9 +495,10 @@ The original colliding property name stays in its original object position;
 Nested recovery uses the same rule. There are no duplicate output property
 names, no fabricated source-location metadata, and no option to suppress
 recovery markers. Numeric/ASCII/formatting options apply inside the envelope.
-This is diagnostic output, not an engine document specification. An ordinary
-parser assigns no special meaning to the marker; the label is not a schema
-restriction on arbitrary user objects that happen to have the same shape.
+This is diagnostic output, not an engine document specification. The agreed
+Morphic parser will recognize the supported diagnostic envelope automatically;
+other JSON consumers may treat its markers as ordinary objects. Envelope
+recognition adds no independent persistent recovery flag.
 
 The move-only result owns a `CByteBuffer` with one final zero included in its
 `size()`. `report.logical_text_byte_size` excludes that zero but includes a

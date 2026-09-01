@@ -564,6 +564,105 @@ static void test_recovered_root_options_and_ordinary_marker(TTestContext& ctx)
     TEST_EXPECT(ctx, ordinary_result.report.recovery_nodes_written == 0u);
 }
 
+static void test_public_recovery_round_trip_and_transfer(TTestContext& ctx)
+{
+    CLiveDocument live;
+    TEST_EXPECT(ctx, live.initialise());
+    const CNodeKey root = live.create_duplicate_array();
+    const CNodeKey array_value = live.create_array();
+    const CNodeKey nested = live.create_duplicate_array();
+    TEST_EXPECT(ctx, live.set_root(root));
+    TEST_EXPECT(ctx, live.append_array_child(array_value, live.create_integer(1)));
+    TEST_EXPECT(ctx, live.append_array_child(nested, live.create_string(CStringView{ "left" })));
+    TEST_EXPECT(ctx, live.append_array_child(nested, live.create_string(CStringView{ "right" })));
+    TEST_EXPECT(ctx, live.append_array_child(root, array_value));
+    TEST_EXPECT(ctx, live.append_array_child(root, nested));
+    CBakedDocumentBlock block;
+    TEST_EXPECT(ctx, bake(live, block));
+    TEST_EXPECT(ctx, block.document().contains_recovered_duplicate_arrays());
+    const std::string envelope =
+        "{\"$morphic.recovery\":{\"format\":\"diagnostic-document\",\"version\":1,\"document\":";
+    const std::string duplicate = "{\"$morphic.recovery\":{\"kind\":\"duplicate-member-array\",\"values\":";
+    const std::string expected = envelope + duplicate + "[[1]," + duplicate + "[\"left\",\"right\"]}}]}}}}";
+    const auto original = json_writer::write(block.document(), compact());
+    expect_text(ctx, original, expected);
+    TEST_EXPECT(ctx, original.report.recovery_nodes_written == 2u);
+
+    //  Exhaust each promotion allocation in turn: the old destination survives.
+    TAllocationBudget budget;
+    const tests::TModuleIdScope module(module_ids::executable);
+    memory::CMemoryAllocator allocator(&budget, allocate_with_budget, tests::deallocate_test_memory, system_ids::host);
+    memory::CMemoryContext context(allocator, system_ids::host);
+    {
+        const tests::TMemoryContextScope scope(&context);
+        CLiveDocument probe;
+        TEST_EXPECT(ctx, probe.build_from(block.document()));
+        TEST_EXPECT(ctx, probe.check_integrity());
+    }
+    const std::size_t allocations = budget.attempted;
+    TEST_EXPECT(ctx, allocations > 0u && context.is_attribution_empty());
+    CLiveDocument promoted;
+    TEST_EXPECT(ctx, promoted.initialise());
+    const CNodeKey old_root = promoted.create_string(CStringView{ "unchanged" });
+    TEST_EXPECT(ctx, promoted.set_root(old_root));
+    const CStringView old_view = promoted.string_value(old_root);
+    for (std::size_t allowed = 0u; allowed < allocations; ++allowed)
+    {
+        budget.allowed = allowed;
+        budget.attempted = 0u;
+        {
+            const tests::TMemoryContextScope scope(&context);
+            TEST_EXPECT(ctx, !promoted.build_from(block.document()));
+        }
+        TEST_EXPECT(ctx, context.is_attribution_empty());
+        TEST_EXPECT(ctx, promoted.root() == old_root);
+        TEST_EXPECT(ctx, promoted.string_value(old_root).string() == old_view.string());
+        TEST_EXPECT(ctx, promoted.string_value(old_root) == CStringView{ "unchanged" });
+        TEST_EXPECT(ctx, promoted.check_integrity());
+    }
+    TEST_EXPECT(ctx, promoted.build_from(block.document()));
+    TEST_EXPECT(ctx, promoted.node_type(promoted.root()) == EJsonNodeType::recovered_duplicate_array);
+    TEST_EXPECT(ctx, promoted.node_type(promoted.array_at(promoted.root(), 0u)) == EJsonNodeType::array);
+    CBakedDocumentBlock round_trip;
+    TEST_EXPECT(ctx, bake(promoted, round_trip));
+    expect_text(ctx, json_writer::write(round_trip.document(), compact()), expected);
+
+    //  Explicitly retain the competitors as ordinary arrays, preserving nesting.
+    const CNodeKey donor = promoted.root();
+    const CNodeKey recovered_child = promoted.array_at(donor, 1u);
+    const CNodeKey replacement = promoted.create_array();
+    TEST_EXPECT(ctx, promoted.set_root(replacement));
+    TEST_EXPECT(ctx, promoted.transfer_children(donor, replacement));
+    TEST_EXPECT(ctx, promoted.erase_detached(donor));
+    TEST_EXPECT(ctx, bake(promoted, round_trip));
+    const auto partially_repaired = json_writer::write(round_trip.document(), compact());
+    TEST_EXPECT(ctx, partially_repaired.report.recovery_nodes_written == 1u);
+    expect_text(ctx, partially_repaired, envelope + "[[1]," + duplicate + "[\"left\",\"right\"]}}]}}");
+    const CNodeKey ordinary_child = promoted.create_array();
+    TEST_EXPECT(ctx, promoted.insert_array_child_before(replacement, recovered_child, ordinary_child));
+    TEST_EXPECT(ctx, promoted.transfer_children(recovered_child, ordinary_child));
+    TEST_EXPECT(ctx, promoted.detach(recovered_child));
+    //  Detached recovery is still workspace state, but it is absent from the bake.
+    TEST_EXPECT(ctx, promoted.contains_recovered_duplicate_arrays());
+    TEST_EXPECT(ctx, bake(promoted, round_trip));
+    TEST_EXPECT(ctx, !round_trip.document().contains_recovered_duplicate_arrays());
+    const auto repaired = json_writer::write(round_trip.document(), compact());
+    expect_text(ctx, repaired, "[[1],[\"left\",\"right\"]]");
+    TEST_EXPECT(ctx, !repaired.report.diagnostic_envelope_written && repaired.report.recovery_nodes_written == 0u);
+    TEST_EXPECT(ctx, promoted.erase_detached(recovered_child));
+    TEST_EXPECT(ctx, !promoted.contains_recovered_duplicate_arrays() && promoted.is_canonical());
+
+    const CJsonIntegerMetadata hex{ EJsonIntegerSign::unsigned_value, EJsonIntegerWidth::bits_8,
+        EJsonIntegerNotation::hexadecimal, EJsonIntegerPrefix::standard };
+    TEST_EXPECT(ctx, promoted.append_array_child(replacement, promoted.create_unsigned_integer(15u, hex)));
+    TEST_EXPECT(ctx, !promoted.contains_recovered_duplicate_arrays() && !promoted.is_canonical());
+    TEST_EXPECT(ctx, bake(promoted, round_trip));
+    TEST_EXPECT(ctx, !round_trip.document().contains_recovered_duplicate_arrays());
+    TEST_EXPECT(ctx, round_trip.document().requires_morphic_json_extensions());
+    expect_text(ctx, json_writer::write(round_trip.document(), compact()), "[[1],[\"left\",\"right\"],0xf]");
+    TEST_EXPECT(ctx, live.check_integrity() && promoted.check_integrity());
+}
+
 } // namespace json_writer_tests
 
 int run_json_writer_tests()
@@ -579,6 +678,7 @@ int run_json_writer_tests()
     json_writer_tests::test_growth_allocation_failures(ctx);
     json_writer_tests::test_terminal_zero_allocation_failure(ctx);
     json_writer_tests::test_recovered_root_options_and_ordinary_marker(ctx);
+    json_writer_tests::test_public_recovery_round_trip_and_transfer(ctx);
     std::cout << "JsonWriter: " << ctx.passed << " passed, " << ctx.failed << " failed\n";
     return ctx.exit_code();
 }

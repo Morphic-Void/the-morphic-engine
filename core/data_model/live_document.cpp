@@ -18,6 +18,17 @@
 //  CLiveDocument function bodies
 //==============================================================================
 
+CLiveDocument::CLiveDocument(CLiveDocument&& source) noexcept
+{
+    replace_with(source);
+}
+
+CLiveDocument& CLiveDocument::operator=(CLiveDocument&& source) noexcept
+{
+    replace_with(source);
+    return *this;
+}
+
 bool CLiveDocument::is_empty() const noexcept
 {
     return m_nodes.is_empty();
@@ -127,6 +138,7 @@ CNodeKey CLiveDocument::create_node(const EJsonNodeType type) noexcept
 
 CNodeKey CLiveDocument::create_null() noexcept { return create_node(EJsonNodeType::null_value); }
 CNodeKey CLiveDocument::create_array() noexcept { return create_node(EJsonNodeType::array); }
+CNodeKey CLiveDocument::create_duplicate_array() noexcept { return create_node(EJsonNodeType::recovered_duplicate_array); }
 CNodeKey CLiveDocument::create_object() noexcept { return create_node(EJsonNodeType::object); }
 
 CNodeKey CLiveDocument::create_boolean(const bool value) noexcept
@@ -290,6 +302,56 @@ bool CLiveDocument::add_object_child(const CNodeKey object, const CStringView& n
     if ((slot == nullptr) || (slot->type != EJsonNodeType::object)) return false;
     const CPropertyNameId name_id = intern_property_name(name);
     return name_id.is_valid() && !object_has_name(object, name_id) && attach_before(object, CNodeKey{}, child, name_id);
+}
+
+bool CLiveDocument::transfer_children(const CNodeKey donor, const CNodeKey recipient) noexcept
+{
+    CJsonSlot* const donor_slot = node_slot(donor);
+    CJsonSlot* const recipient_slot = node_slot(recipient);
+    if ((donor == recipient) || (donor_slot == nullptr) || (recipient_slot == nullptr) ||
+        !((donor_slot->type == EJsonNodeType::object && recipient_slot->type == EJsonNodeType::object) ||
+            (is_array_type(donor_slot->type) && is_array_type(recipient_slot->type)))) return false;
+
+    CChildList& source = donor_slot->payload.children;
+    CChildList& target = recipient_slot->payload.children;
+    if (source.count > std::numeric_limits<std::uint32_t>::max() - target.count) return false;
+
+    //  A recipient inside the donor subtree would become its own ancestor.
+    CNodeKey ancestor = recipient;
+    for (std::uint32_t depth = 0u; ancestor.is_valid(); ++depth)
+    {
+        if ((ancestor == donor) || (depth >= m_nodes.occupied_count())) return false;
+        const CJsonSlot* const slot = node_slot(ancestor);
+        if (slot == nullptr) return false;
+        ancestor = slot->parent;
+    }
+    if (!check_container_integrity(*donor_slot) || !check_container_integrity(*recipient_slot)) return false;
+    if (source.count == 0u) return true;
+
+    if (donor_slot->type == EJsonNodeType::object)
+    {
+        for (CNodeKey child = source.first; child.is_valid(); child = next_sibling(child))
+        {
+            if (object_has_name(recipient, name_in_parent(child))) return false;
+        }
+    }
+
+    //  All checks precede the allocation-free list splice.
+    for (CNodeKey child = source.first; child.is_valid(); child = next_sibling(child))
+    {
+        node_slot(child)->parent = recipient;
+    }
+    node_slot(source.first)->previous_sibling = target.last;
+    if (target.last.is_valid()) node_slot(target.last)->next_sibling = source.first;
+    else target.first = source.first;
+    target.last = source.last;
+    target.count += source.count;
+    ++target.revision;
+    source.first = CNodeKey{};
+    source.last = CNodeKey{};
+    source.count = 0u;
+    ++source.revision;
+    return true;
 }
 
 bool CLiveDocument::detach(const CNodeKey child_key) noexcept
@@ -644,7 +706,7 @@ CNodeKey CLiveDocument::append_from_baked(const CBakedDocument& source, const CB
         }
         case EJsonNodeType::recovered_duplicate_array:
         {
-            destination_node = create_node(EJsonNodeType::recovered_duplicate_array);
+            destination_node = create_duplicate_array();
             break;
         }
         default:
@@ -671,6 +733,7 @@ CNodeKey CLiveDocument::append_from_baked(const CBakedDocument& source, const CB
 
 void CLiveDocument::replace_with(CLiveDocument& source) noexcept
 {
+    if (this == &source) return;
     m_nodes = std::move(source.m_nodes);
     m_property_names = std::move(source.m_property_names);
     m_string_values = std::move(source.m_string_values);
