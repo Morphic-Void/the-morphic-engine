@@ -71,10 +71,15 @@ reference.
 
 ## Abstract node model
 
-Value and aggregate nodes use the same physical node structure and the same
-key or index domain. Role and type validation determine which fields are
-meaningful. The common physical representation does not weaken the logical
-distinction between the roles.
+The live representation uses the same physical node structure and key domain
+for value and aggregate nodes. Role and type validation determine which fields
+are meaningful.
+
+The baked representation may retain explicit aggregate records in its node
+index domain or fold an aggregate's immutable metadata into its owning value
+record. That physical choice is deferred. Either encoding must preserve the
+same logical value/aggregate distinction and strict alternation for validation,
+promotion and traversal.
 
 The hierarchy strictly alternates:
 
@@ -504,9 +509,25 @@ and sort those entries, then establish both live-to-baked string maps before
 node emission. The later node traversal still validates and emits structure;
 it is not needed to discover which strings are live.
 
-The root value is the first logical node in the baked node table. Aggregate
-payloads remain explicit nodes in the same index domain and retain the strict
-value/aggregate alternation.
+The root value is the first logical value record in the baked node table.
+
+The direct value children of every object, ordinary array and recovered array
+must occupy one contiguous fixed-stride record range in semantic order. No
+aggregate record may be interleaved with that range. The range representation
+must make ordinal access a checked index calculation from its first record and
+count, so array access by ordinal is O(1). Object members use the same linear
+representation: callers and debuggers can inspect them as sequential value
+records, and ordinal object-member access is O(1). This requirement does not
+itself require O(1) object lookup by name; a later layout may add a separate
+lookup accelerator without changing the ordered value range.
+
+Nested aggregate metadata and descendants lie outside the containing
+aggregate's direct-child range. If the baked layout retains explicit aggregate
+records, each aggregate record precedes its associated direct-child range and
+refers to that value-only range; whether it is immediately adjacent is a
+physical-layout choice. If aggregate metadata is folded into the owning value,
+the owner refers directly to the range. Empty aggregates use a canonical empty
+range in either encoding.
 
 ### Implementation direction: staged live construction
 
@@ -566,11 +587,14 @@ and validate, at minimum:
 
 - header identity, supported format version and all known flags;
 - section bounds, alignment, non-overlap and complete block size;
-- node roles and strict value/aggregate alternation;
+- node roles and strict semantic value/aggregate alternation under the selected
+  explicit or folded aggregate encoding;
 - root position and root invariants;
 - single ownership and parent/child relationships;
-- child counts and ordering links or ranges;
-- aggregate-kind and owner-type/name agreement;
+- direct-child range bounds, value-only membership, single-parent ownership,
+  non-overlap and semantic order;
+- aggregate-kind and owner-type/name agreement, including the placement and
+  range reference of explicit aggregate records when that encoding is used;
 - valid placement and minimum cardinality of recovered aggregates;
 - name and string indices, sorting, uniqueness, terminators and UTF-8/`C0 80`;
 - finite binary64 payloads and valid integer metadata; and
@@ -583,7 +607,8 @@ which requires trusted structure must explicitly request the audit and observe
 its result.
 
 The exact header fields, header and node sizes, alignment, offset widths,
-traversal indices, packed flags and new format version are not settled here.
+required-range index encoding, optional lookup indices, packed flags and new
+format version are not settled here.
 The replacement format is intentionally incompatible. Old formats must be
 rejected by version rather than inferred or silently migrated.
 
@@ -695,8 +720,10 @@ inferred from examples or from the superseded implementation:
   names, signatures and result types;
 - the safe construction API for an imported completed recovery list;
 - internal bake staging and live-to-baked mappings;
-- baked traversal indices and whether relationships use links, ranges or other
-  validated encodings;
+- whether baked aggregates use explicit records or metadata folded into their
+  owning value records;
+- the exact first-child/count encoding for the required contiguous value ranges
+  and any supplemental object-name lookup structure;
 - baked header fields, flags, record sizes, alignment, section order, offset
   widths, checksum and format version;
 - the concrete option and report types for logical-U+0000 escape, rejection and

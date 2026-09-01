@@ -688,6 +688,9 @@
     <None Include="$(MSBuildThisFileDirectory)README.md">
       <Filter>Docs</Filter>
     </None>
+    <None Include="$(MSBuildThisFileDirectory)docs\backlog\revised_data_model.md">
+      <Filter>Docs\backlog</Filter>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <Text Include="LICENSE.txt">
