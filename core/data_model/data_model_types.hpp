@@ -18,6 +18,10 @@
 #include <limits>
 #include <type_traits>
 
+//==============================================================================
+//  Node identity
+//==============================================================================
+
 class CLiveDocument;
 
 class CNodeKey
@@ -48,12 +52,23 @@ private:
     return !(lhs == rhs);
 }
 
-class CPropertyNameId
+//==============================================================================
+//  Interned-string identities
+//==============================================================================
+
+namespace data_model_string_id
+{
+
+struct SPropertyNameIdTag;
+struct SStringValueIdTag;
+
+template<typename TDomainTag>
+class TStringId
 {
 public:
     //  The canonical empty ID is valid. Default construction produces the
     //  distinct invalid result used by failed or inapplicable queries.
-    constexpr CPropertyNameId() noexcept = default;
+    constexpr TStringId() noexcept = default;
     [[nodiscard]] constexpr bool is_valid() const noexcept { return m_value != k_invalid_value; }
     [[nodiscard]] constexpr bool is_empty() const noexcept { return m_value == k_empty_value; }
     [[nodiscard]] explicit constexpr operator bool() const noexcept { return is_valid(); }
@@ -63,50 +78,31 @@ public:
     static constexpr std::uint32_t k_invalid_value = std::numeric_limits<std::uint32_t>::max();
 
 private:
-    explicit constexpr CPropertyNameId(const std::uint32_t value) noexcept : m_value(value) {}
+    explicit constexpr TStringId(const std::uint32_t value) noexcept : m_value(value) {}
     std::uint32_t m_value{ k_invalid_value };
-    friend class CLiveDocument;
+    friend class ::CLiveDocument;
 };
 
-class CStringValueId
-{
-public:
-    //  The canonical empty ID is valid. Default construction produces the
-    //  distinct invalid result used by failed or inapplicable queries.
-    constexpr CStringValueId() noexcept = default;
-    [[nodiscard]] constexpr bool is_valid() const noexcept { return m_value != k_invalid_value; }
-    [[nodiscard]] constexpr bool is_empty() const noexcept { return m_value == k_empty_value; }
-    [[nodiscard]] explicit constexpr operator bool() const noexcept { return is_valid(); }
-    [[nodiscard]] constexpr std::uint32_t query_value() const noexcept { return m_value; }
-
-    static constexpr std::uint32_t k_empty_value = 0u;
-    static constexpr std::uint32_t k_invalid_value = std::numeric_limits<std::uint32_t>::max();
-
-private:
-    explicit constexpr CStringValueId(const std::uint32_t value) noexcept : m_value(value) {}
-    std::uint32_t m_value{ k_invalid_value };
-    friend class CLiveDocument;
-};
-
-[[nodiscard]] constexpr bool operator==(const CPropertyNameId lhs, const CPropertyNameId rhs) noexcept
+template<typename TDomainTag>
+[[nodiscard]] constexpr bool operator==(const TStringId<TDomainTag> lhs, const TStringId<TDomainTag> rhs) noexcept
 {
     return lhs.query_value() == rhs.query_value();
 }
 
-[[nodiscard]] constexpr bool operator!=(const CPropertyNameId lhs, const CPropertyNameId rhs) noexcept
+template<typename TDomainTag>
+[[nodiscard]] constexpr bool operator!=(const TStringId<TDomainTag> lhs, const TStringId<TDomainTag> rhs) noexcept
 {
     return !(lhs == rhs);
 }
 
-[[nodiscard]] constexpr bool operator==(const CStringValueId lhs, const CStringValueId rhs) noexcept
-{
-    return lhs.query_value() == rhs.query_value();
-}
+}   //  namespace data_model_string_id
 
-[[nodiscard]] constexpr bool operator!=(const CStringValueId lhs, const CStringValueId rhs) noexcept
-{
-    return !(lhs == rhs);
-}
+using CPropertyNameId = data_model_string_id::TStringId<data_model_string_id::SPropertyNameIdTag>;
+using CStringValueId = data_model_string_id::TStringId<data_model_string_id::SStringValueIdTag>;
+
+//==============================================================================
+//  Live node roles and value kinds
+//==============================================================================
 
 enum class ELiveNodeRole : std::uint8_t
 {
@@ -134,6 +130,57 @@ enum class ELiveAggregateKind : std::uint8_t
     object,
     recovered_array,
 };
+
+//==============================================================================
+//  Attachment results
+//==============================================================================
+
+enum class ELiveAttachmentOutcome : std::uint8_t
+{
+    rejected = 0u,
+    inserted,
+    recovery_created,
+    recovery_extended,
+    allocation_failed,
+};
+
+enum class ELiveAttachmentRejection : std::uint8_t
+{
+    none = 0u,
+    document_not_ready,
+    destination_not_found,
+    candidate_not_found,
+    destination_not_container,
+    candidate_is_root,
+    candidate_not_detached,
+    unsupported_destination_kind,
+    object_entry_required,
+    duplicate_object_name,
+    insert_before_not_child,
+    index_out_of_range,
+    cycle,
+    relationship_limit,
+    accounting_limit,
+    corrupt_structure,
+};
+
+struct CLiveAttachmentResult
+{
+    ELiveAttachmentOutcome outcome{ ELiveAttachmentOutcome::rejected };
+    ELiveAttachmentRejection rejection{ ELiveAttachmentRejection::none };
+
+    [[nodiscard]] constexpr bool succeeded() const noexcept
+    {
+        return
+            (outcome == ELiveAttachmentOutcome::inserted) ||
+            (outcome == ELiveAttachmentOutcome::recovery_created) ||
+            (outcome == ELiveAttachmentOutcome::recovery_extended);
+    }
+};
+
+//==============================================================================
+//  Integer intent and metadata
+//==============================================================================
 
 enum class EIntegerDomain : std::uint8_t
 {
@@ -207,21 +254,23 @@ struct CIntegerMetadata
         (value <= 0xffffffffu) ? EIntegerWidth::bits_32 : EIntegerWidth::bits_64;
 }
 
-[[nodiscard]] constexpr bool live_integer_metadata_matches_signed(
-    const std::int64_t value, const CIntegerMetadata metadata) noexcept
+[[nodiscard]] constexpr bool live_integer_metadata_matches_signed(const std::int64_t value, const CIntegerMetadata metadata) noexcept
 {
     return live_integer_metadata_is_valid(metadata) &&
         (metadata.domain == EIntegerDomain::signed_value) &&
         (metadata.width == live_signed_integer_smallest_width(value));
 }
 
-[[nodiscard]] constexpr bool live_integer_metadata_matches_unsigned(
-    const std::uint64_t value, const CIntegerMetadata metadata) noexcept
+[[nodiscard]] constexpr bool live_integer_metadata_matches_unsigned(const std::uint64_t value, const CIntegerMetadata metadata) noexcept
 {
     return live_integer_metadata_is_valid(metadata) &&
         (metadata.domain == EIntegerDomain::unsigned_value) &&
         (metadata.width == live_unsigned_integer_smallest_width(value));
 }
+
+//==============================================================================
+//  Numeric payload representation
+//==============================================================================
 
 [[nodiscard]] inline std::uint64_t live_signed_integer_bits(const std::int64_t value) noexcept
 {
@@ -256,14 +305,23 @@ struct CIntegerMetadata
     return (live_floating_point_bits(value) & 0x7ff0000000000000ull) != 0x7ff0000000000000ull;
 }
 
+//==============================================================================
+//  Representation guarantees
+//==============================================================================
+
 static_assert(std::is_trivially_copyable_v<CNodeKey>);
 static_assert(std::is_standard_layout_v<CNodeKey>);
 static_assert(sizeof(CNodeKey) == sizeof(std::uint64_t));
 static_assert(std::is_trivially_copyable_v<CPropertyNameId>);
 static_assert(std::is_trivially_copyable_v<CStringValueId>);
+static_assert(!std::is_same_v<CPropertyNameId, CStringValueId>);
+static_assert(sizeof(CPropertyNameId) == sizeof(std::uint32_t));
+static_assert(sizeof(CStringValueId) == sizeof(std::uint32_t));
 static_assert(std::is_trivially_copyable_v<CIntegerMetadata>);
 static_assert(sizeof(CIntegerMetadata) == 4u);
-static_assert((sizeof(double) == sizeof(std::uint64_t)) && std::numeric_limits<double>::is_iec559,
+static_assert(std::is_trivially_copyable_v<CLiveAttachmentResult>);
+static_assert(sizeof(CLiveAttachmentResult) == 2u);
+static_assert(((sizeof(double) == sizeof(std::uint64_t)) && std::numeric_limits<double>::is_iec559),
     "Live floating payloads require IEEE-754 binary64.");
 
 #endif // DATA_MODEL_TYPES_HPP_INCLUDED

@@ -48,7 +48,11 @@ foreach ($record in $records) {
     $absolutePath = Join-Path $resolvedRoot $relativePath
     if (Test-Path -LiteralPath $absolutePath -PathType Leaf) {
         $bytes = [IO.File]::ReadAllBytes($absolutePath)
-        if (($bytes.Length -ne 0) -and ($bytes[$bytes.Length - 1] -ne 10)) {
+        $allowsMissingFinalNewline =
+            $relativePath.EndsWith(".vcxitems", [StringComparison]::OrdinalIgnoreCase) -or
+            $relativePath.EndsWith(".filters", [StringComparison]::OrdinalIgnoreCase)
+        if (!$allowsMissingFinalNewline -and
+            ($bytes.Length -ne 0) -and ($bytes[$bytes.Length - 1] -ne 10)) {
             $failures += "$relativePath`: missing final newline"
         }
     }

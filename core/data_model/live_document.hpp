@@ -15,18 +15,21 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <type_traits>
+#include <limits>
 
 #include "containers/StringBuffers.hpp"
 #include "containers/TPodOrderedSlots.hpp"
 #include "containers/TPodVector.hpp"
 #include "data_model/data_model_types.hpp"
+#include "data_model/live_document_node.hpp"
 
 struct SLiveDocumentTestAccess;
 
 class CLiveDocument
 {
 public:
+
+    //  Lifetime and ownership
     CLiveDocument() noexcept = default;
     CLiveDocument(const CLiveDocument&) = delete;
     CLiveDocument& operator=(const CLiveDocument&) = delete;
@@ -34,16 +37,19 @@ public:
     CLiveDocument& operator=(CLiveDocument&& source) noexcept;
     ~CLiveDocument() noexcept = default;
 
+    //  Initialization and readiness
     //  A live document cannot be reattributed. Moves retain the allocation
     //  contexts already carried by its storage.
     [[nodiscard]] bool initialise(const std::size_t initial_node_capacity = 0u) noexcept;
     [[nodiscard]] bool reset(const std::size_t initial_node_capacity = 0u) noexcept;
     void deallocate() noexcept;
 
+    //  Status
     [[nodiscard]] bool is_ready() const noexcept;
     [[nodiscard]] bool is_canonical() const noexcept;
     [[nodiscard]] bool check_integrity() const noexcept;
 
+    //  Root and reachable structure
     [[nodiscard]] CNodeKey root() const noexcept;
 
     //  Root-reachable structure only. Detached storage is excluded.
@@ -51,6 +57,7 @@ public:
     [[nodiscard]] std::uint32_t aggregate_payload_count() const noexcept;
     [[nodiscard]] bool contains(const CNodeKey value) const noexcept;
 
+    //  Value classification and interned text
     [[nodiscard]] ELiveValueType value_type(const CNodeKey value) const noexcept;
     [[nodiscard]] bool is_object_entry(const CNodeKey value) const noexcept;
     [[nodiscard]] bool is_detached(const CNodeKey value) const noexcept;
@@ -60,6 +67,7 @@ public:
     [[nodiscard]] CStringView property_name(const CPropertyNameId id) const noexcept;
     [[nodiscard]] CStringView string_value(const CStringValueId id) const noexcept;
 
+    //  Tree relationships
     [[nodiscard]] CNodeKey parent(const CNodeKey value) const noexcept;
     [[nodiscard]] CNodeKey previous_sibling(const CNodeKey value) const noexcept;
     [[nodiscard]] CNodeKey next_sibling(const CNodeKey value) const noexcept;
@@ -67,6 +75,7 @@ public:
     [[nodiscard]] CNodeKey first_child(const CNodeKey container_value) const noexcept;
     [[nodiscard]] CNodeKey last_child(const CNodeKey container_value) const noexcept;
 
+    //  Typed payload access
     [[nodiscard]] bool boolean_value(const CNodeKey node, bool& value) const noexcept;
     [[nodiscard]] bool signed_integer_value(const CNodeKey node, std::int64_t& value) const noexcept;
     [[nodiscard]] bool unsigned_integer_value(const CNodeKey node, std::uint64_t& value) const noexcept;
@@ -75,10 +84,12 @@ public:
     [[nodiscard]] CStringValueId string_value_id(const CNodeKey node) const noexcept;
     [[nodiscard]] CStringView string_value(const CNodeKey node) const noexcept;
 
+    //  Referenced string-domain totals
     //  Distinct non-empty entries referenced from the root-reachable structure.
     [[nodiscard]] std::uint32_t referenced_property_name_count() const noexcept;
     [[nodiscard]] std::uint32_t referenced_string_value_count() const noexcept;
 
+    //  Detached value creation
     [[nodiscard]] CNodeKey create_null(const CStringView& name = {}) noexcept;
     [[nodiscard]] CNodeKey create_boolean(const bool value, const CStringView& name = {}) noexcept;
     [[nodiscard]] CNodeKey create_signed_integer(const std::int64_t value, const CStringView& name = {}) noexcept;
@@ -90,6 +101,29 @@ public:
     [[nodiscard]] CNodeKey create_array(const CStringView& name = {}) noexcept;
     [[nodiscard]] CNodeKey create_object(const CStringView& name = {}) noexcept;
 
+    //  Structural mutation
+    [[nodiscard]] CLiveAttachmentResult append_child(
+        const CNodeKey destination,
+        const CNodeKey candidate,
+        CNodeKey& surviving_value) noexcept;
+    [[nodiscard]] CLiveAttachmentResult insert_child_before(
+        const CNodeKey destination,
+        const CNodeKey candidate,
+        const CNodeKey before,
+        CNodeKey& surviving_value) noexcept;
+    [[nodiscard]] CLiveAttachmentResult insert_child_at(
+        const CNodeKey destination,
+        const CNodeKey candidate,
+        const std::uint32_t index,
+        CNodeKey& surviving_value) noexcept;
+
+    [[nodiscard]] bool detach(const CNodeKey value) noexcept;
+
+    //  Erasing the root preserves the implicit root pair and recursively
+    //  erases all root-reachable content below it.
+    [[nodiscard]] bool erase(const CNodeKey value) noexcept;
+
+    //  Direct storage attribution
     //  Complete direct ownership accounting. There is intentionally no
     //  reattribution surface.
     [[nodiscard]] std::uint32_t memory_token_count() const noexcept;
@@ -97,38 +131,11 @@ public:
     [[nodiscard]] std::uint64_t memory_allocation_size() const noexcept;
 
 private:
+
+    //  Test access
     friend struct SLiveDocumentTestAccess;
 
-    struct SLiveNodeUsage
-    {
-        ELiveNodeRole role{ ELiveNodeRole::invalid };
-        ELiveValueType value_type{ ELiveValueType::invalid };
-        ELiveAggregateKind aggregate_kind{ ELiveAggregateKind::invalid };
-        std::uint8_t object_entry{ 0u };
-    };
-
-    struct SLiveNode
-    {
-        CNodeKey self;
-        CNodeKey relation_0; // value parent aggregate; aggregate owner value
-        CNodeKey relation_1; // value previous sibling; aggregate first child
-        CNodeKey relation_2; // value next sibling; aggregate last child
-        CNodeKey relation_3; // value owned aggregate; aggregate canonical invalid
-        std::uint64_t payload_bits{ 0u };
-        CPropertyNameId name;
-        std::uint32_t child_count{ 0u };
-        SLiveNodeUsage usage;
-        CIntegerMetadata integer_metadata;
-
-        [[nodiscard]] CNodeKey value_parent_aggregate_key() const noexcept;
-        [[nodiscard]] CNodeKey value_previous_sibling_key() const noexcept;
-        [[nodiscard]] CNodeKey value_next_sibling_key() const noexcept;
-        [[nodiscard]] CNodeKey value_owned_aggregate_key() const noexcept;
-        [[nodiscard]] CNodeKey aggregate_owner_value_key() const noexcept;
-        [[nodiscard]] CNodeKey aggregate_first_child_key() const noexcept;
-        [[nodiscard]] CNodeKey aggregate_last_child_key() const noexcept;
-    };
-
+    //  Internal operation state
     struct SPreparedString
     {
         const std::uint8_t* bytes{ nullptr };
@@ -136,22 +143,49 @@ private:
         CByteBuffer normalized;
     };
 
-    struct SPreparedDomainEntry
+    struct SSubtreeTotals
     {
-        std::uint32_t id{ 0u };
-        bool append{ false };
+        std::uint64_t value_count{ 0u };
+        std::uint64_t aggregate_count{ 0u };
+        std::uint64_t recovered_aggregate_count{ 0u };
     };
 
-    [[nodiscard]] static bool is_container_type(const ELiveValueType type) noexcept;
-    [[nodiscard]] static ELiveAggregateKind aggregate_kind_for(const ELiveValueType type) noexcept;
+    enum class EReferenceAdjustment : std::uint8_t
+    {
+        add,
+        remove
+    };
+
+    struct SAttachmentPosition
+    {
+        CNodeKey previous;
+        CNodeKey next;
+    };
+
+    //  Framework representation limits
+    static constexpr std::uint64_t k_max_uint32 = std::numeric_limits<std::uint32_t>::max();
+
+    //  String admission, stabilization and interning
     [[nodiscard]] static bool prepare_string(const CStringView& source, SPreparedString& prepared) noexcept;
+    [[nodiscard]] static bool stabilise_intern_source(
+        const SPreparedString& value,
+        const CStableStrings& domain,
+        const std::size_t domain_extent,
+        CByteBuffer& storage,
+        const std::uint8_t*& bytes) noexcept;
+    [[nodiscard]] bool intern_string_domain(
+        const SPreparedString& value,
+        CStableStrings& strings,
+        TPodVector<std::uint32_t>& reference_counts,
+        bool& strings_ready,
+        std::uint32_t& id) noexcept;
 
+    //  Identity allocation and string interning
     [[nodiscard]] bool allocate_key(CNodeKey& key) noexcept;
-    [[nodiscard]] bool prepare_property_name(const SPreparedString& value, SPreparedDomainEntry& prepared) noexcept;
-    [[nodiscard]] bool prepare_string_value(const SPreparedString& value, SPreparedDomainEntry& prepared) noexcept;
-    [[nodiscard]] bool commit_property_name(const SPreparedString& value, const SPreparedDomainEntry& prepared) noexcept;
-    [[nodiscard]] bool commit_string_value(const SPreparedString& value, const SPreparedDomainEntry& prepared) noexcept;
+    [[nodiscard]] bool intern_property_name(const SPreparedString& value, CPropertyNameId& id) noexcept;
+    [[nodiscard]] bool intern_string_value(const SPreparedString& value, CStringValueId& id) noexcept;
 
+    //  Node creation
     [[nodiscard]] CNodeKey create_scalar(
         const ELiveValueType type,
         const std::uint64_t payload_bits,
@@ -160,27 +194,55 @@ private:
     [[nodiscard]] CNodeKey create_container(const ELiveValueType type, const SPreparedString& prepared_name) noexcept;
     [[nodiscard]] bool insert_root_pair() noexcept;
 
-    [[nodiscard]] SLiveNode* node(const CNodeKey key) noexcept;
-    [[nodiscard]] const SLiveNode* node(const CNodeKey key) const noexcept;
-    [[nodiscard]] SLiveNode* value_node(const CNodeKey key) noexcept;
-    [[nodiscard]] const SLiveNode* value_node(const CNodeKey key) const noexcept;
-    [[nodiscard]] const SLiveNode* aggregate_for_value(const CNodeKey value) const noexcept;
+    //  Node lookup
+    [[nodiscard]] CLiveNode* node(const CNodeKey key) noexcept;
+    [[nodiscard]] const CLiveNode* node(const CNodeKey key) const noexcept;
+    [[nodiscard]] CLiveNode* value_node(const CNodeKey key) noexcept;
+    [[nodiscard]] const CLiveNode* value_node(const CNodeKey key) const noexcept;
+    [[nodiscard]] const CLiveNode* aggregate_for_value(const CNodeKey value) const noexcept;
 
+    //  Results and document-domain validation
+    [[nodiscard]] static CLiveAttachmentResult attachment_rejection(const ELiveAttachmentRejection rejection) noexcept;
+    [[nodiscard]] bool value_payload_is_in_document_domain(const CLiveNode& value) const noexcept;
+    [[nodiscard]] bool aggregate_payload_is_in_document_domain(const CLiveNode& aggregate) const noexcept;
+
+    //  Subtree traversal and accounting
+    [[nodiscard]] bool subtree_next(const CNodeKey subtree_root, CNodeKey current, CNodeKey& next) const noexcept;
+    [[nodiscard]] bool subtree_first_postorder(const CNodeKey subtree_root, CNodeKey& first) const noexcept;
+    [[nodiscard]] bool subtree_next_postorder(const CNodeKey subtree_root, const CNodeKey current, CNodeKey& next) const noexcept;
+    [[nodiscard]] bool measure_subtree(const CNodeKey subtree_root, SSubtreeTotals& totals) const noexcept;
+    [[nodiscard]] bool audit_subtree(const CNodeKey subtree_root, SSubtreeTotals& totals) const noexcept;
+    [[nodiscard]] bool adjust_subtree_references(const CNodeKey subtree_root, const EReferenceAdjustment adjustment) noexcept;
+    [[nodiscard]] bool adjust_property_name_reference(const CPropertyNameId id, const EReferenceAdjustment adjustment) noexcept;
+    [[nodiscard]] bool adjust_string_value_reference(const CStringValueId id, const EReferenceAdjustment adjustment) noexcept;
+    [[nodiscard]] bool count_subtree_reference(const CNodeKey subtree_root, const std::uint32_t id, const bool string_domain, std::uint64_t& count) const noexcept;
+    [[nodiscard]] bool query_ancestry(const CNodeKey value, const CNodeKey sought, bool& reachable, bool& found) const noexcept;
+
+    //  Structural mutation and failure state
+    [[nodiscard]] CLiveAttachmentResult attach_child(
+        const CNodeKey destination,
+        const CNodeKey candidate,
+        const SAttachmentPosition& position,
+        CNodeKey& surviving_value) noexcept;
+    [[nodiscard]] bool detach_value(const CNodeKey value, bool& was_reachable) noexcept;
+    [[nodiscard]] bool erase_subtree(const CNodeKey value) noexcept;
+    void mark_integrity_bad() noexcept;
+
+    //  Integrity and move support
     [[nodiscard]] bool check_string_domain(
         const CStableStrings& strings,
         const TPodVector<std::uint32_t>& counts,
         const bool stable_ready) const noexcept;
     void replace_with(CLiveDocument& source) noexcept;
 
-    static_assert(std::is_trivially_copyable_v<SLiveNode>);
-    static_assert(std::is_standard_layout_v<SLiveNode>);
-    static_assert(sizeof(SLiveNode) == 64u);
-
-    TPodOrderedSlots<SLiveNode, CNodeKey> m_nodes;
+    //  Owned storage
+    TPodOrderedSlots<CLiveNode, CNodeKey> m_nodes;
     CStableStrings m_property_names;
     CStableStrings m_string_values;
     TPodVector<std::uint32_t> m_property_name_counts;
     TPodVector<std::uint32_t> m_string_value_counts;
+
+    //  Document state
     CNodeKey m_root;
     std::uint64_t m_next_monotonic_node_key{ 1u };
     std::uint32_t m_value_count{ 0u };
@@ -190,6 +252,7 @@ private:
     std::uint32_t m_recovered_aggregate_count{ 0u };
     bool m_property_names_ready{ false };
     bool m_string_values_ready{ false };
+    bool m_integrity_known_bad{ false };
 };
 
 #endif // LIVE_DOCUMENT_HPP_INCLUDED

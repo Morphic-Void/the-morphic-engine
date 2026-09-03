@@ -230,7 +230,8 @@ object-entry value, but attachment must not perform that conversion implicitly.
 
 Live property names and string values occupy separate stable-string-style
 containers. Equal bytes in the two roles do not merge their identity or
-accounting.
+accounting. Their IDs remain distinct strong types even where the live
+implementation shares their compact representation and common behaviour.
 
 Admission is length-aware. Before interning or comparison, it must:
 
@@ -240,9 +241,16 @@ Admission is length-aware. Before interning or comparison, it must:
 3. otherwise require strict UTF-8.
 
 All other overlong forms, malformed or truncated sequences, isolated
-surrogates and scalars beyond the Unicode range must be rejected. Validation,
-normalization and interning are atomic: failure must not add an entry, change
-a reference count or partially mutate a node.
+surrogates and scalars beyond the Unicode range must be rejected. Admission
+first scans and validates the supplied bytes. Canonical input is interned
+directly; temporary normalized storage is allocated only when literal zeroes
+actually require promotion to `C0 80`.
+
+Validation failure adds no entry. A later creation or allocation failure may
+leave a completely formed zero-reference intern entry, because live IDs are
+stable and such entries are already valid inventory. It must not leave a
+partial string entry, a partial owner/aggregate pair or an incorrect reachable
+reference count.
 
 Normalization precedes equality and uniqueness checks. A literal zero and an
 already modified `C0 80` therefore denote the same interned content and the
@@ -263,9 +271,9 @@ entry is excluded from both these totals.
 Attachment increments references throughout the attached subtree. Detachment
 decrements them throughout the detached subtree. Detached creation contributes
 no references, and destruction of an already detached subtree does not
-decrement them again. These updates are atomic with the structural operation.
-An integrity audit independently traverses from the root and verifies the
-recorded counts.
+decrement them again. Ordinary mutation assumes the document's established
+invariants and updates these counts directly. An explicit integrity audit
+independently traverses from the root and verifies the recorded counts.
 
 This makes attachment and detachment proportional to subtree size unless a
 future storage design provides suitable summaries. That cost is accepted in
@@ -344,21 +352,29 @@ acceptable to a future destination.
 Attachment accepts a detached value and validates it at the destination. It
 must validate, before structural mutation:
 
-- that the value belongs to the same document;
+- that every supplied numeric key resolves locally in the target document to
+  the required value role and state. Callers must supply keys from that live
+  document lifecycle; a key from another document which numerically collides
+  with a local key is indistinguishable and is outside the API contract;
 - that it is detached;
 - that roles and aggregate kinds are compatible;
 - the destination's naming and uniqueness requirements;
 - absence of cycles;
 - membership of an optional insert-before position in that destination;
 - child-count and relationship limits; and
-- all allocations or capacity reservations needed for the operation.
+- the reachable accounting limits affected by the operation.
+
+Ordinary attachment, insertion, detachment and erasure require no scratch
+allocation. Cycle prevention is a bounded ascent through the established parent
+chain. These mutation paths do not perform a general integrity audit of the
+document or candidate subtree.
 
 Attachment is where structural validity is decided. Creation does not promise
 that every destination will accept the result.
 
-An attachment failure must leave both the destination tree and detached
-candidate unchanged. Successful attachment preserves the candidate's entire
-subtree and intrinsic name/object-entry state.
+Rejection caused by caller input or an applicable accounting limit leaves both
+the destination tree and detached candidate unchanged. Successful attachment
+preserves the candidate's entire subtree and intrinsic name/object-entry state.
 
 ### Detachment, movement and erasure
 
@@ -375,10 +391,16 @@ operation if one is provided.
 Erasure is distinct from detachment and is recursive. Erasing an attached
 non-root value first detaches it, then destroys its aggregate and all
 descendants. Root-reachable reference counts have already been removed by
-detachment and must not be decremented again during destruction. Root
-destruction belongs to reset or deallocation.
+detachment and must not be decremented again during destruction. Erasing the
+root is synonymous with erasing all content below it: the root value and its
+aggregate remain as the empty initialized document. Reset and deallocation own
+the root pair's lifecycle.
 
 ## Duplicate-member recovery during attachment
+
+The current live-document stage implements strict duplicate rejection only.
+Non-strict recovery construction remains deferred, and the requirements below
+must be revisited when that path is implemented.
 
 Duplicate recovery applies only when a named value collides with an existing
 name in an object aggregate. The colliding payloads may be of any base kind.
@@ -395,6 +417,14 @@ Recovery state is expressed solely by a recovered-array aggregate. The one
 existing named entry value remains the surviving object member and becomes an
 array-valued object-entry owner of that aggregate. The aggregate duplicates the
 collision name. Its competitors are anonymous values in source order.
+
+Competitor anonymity is an open implementation-review point. Before recovery
+is implemented, establish whether prohibiting retained names and object-entry
+state provides a necessary semantic or structural guarantee. If it does not,
+prefer avoiding the corresponding candidate mutations and revise the recovery
+integrity, reference-accounting, baking, writer and repair rules together. The
+present live integrity audit continues to enforce anonymity until that decision
+is made.
 
 ### Second occurrence
 
@@ -413,14 +443,17 @@ If moving a container payload changes the owner/name pairing of its aggregate,
 the duplicated aggregate name and all affected reference counts must be
 updated.
 
-Every allocation and capacity requirement must be reserved before mutation.
-Failure leaves the original object and incoming candidate unchanged.
+Capacity needed by recovery should be acquired before mutation where this is a
+small, direct preparation step. A pre-mutation failure leaves the original
+object and incoming candidate unchanged. If a later unexpected failure cannot
+be handled by a small local rollback, the live document enters its known-bad
+state rather than carrying a general transaction mechanism.
 
 ### Later occurrences
 
 A later occurrence with the same name appends the converted anonymous
 candidate to the existing recovered aggregate in source order. It is subject
-to the same atomicity and structural validation requirements.
+to the same validation and failure-state requirements.
 
 An insert-before position applies only when inserting a previously absent
 name. A collision always retains the original member's position.
@@ -476,6 +509,20 @@ parentage, sibling order, counts, first/last references, aggregate-kind and
 owner-type agreement, duplicate names, owner/aggregate name agreement, string
 references and counts, numeric metadata and finite floats.
 
+Routine access and mutation guard against invalid, stale and role-inappropriate
+keys, including checking that the record's stored self key matches the lookup
+key. They otherwise operate on the assumption that an initialized document's
+established structure is valid. Comprehensive traversal belongs to the
+explicit integrity check rather than every mutation path.
+
+If a mutation encounters an internal contradiction, or if a failure after
+mutation begins cannot be recovered by a small local rollback, the live
+document is marked as having known-bad integrity. It is then not ready for
+further use and fails integrity checking. Reset or deallocation is the recovery
+boundary. This state is for unexpected corruption and severe internal failure;
+ordinary input rejection and pre-mutation allocation failure do not poison the
+document.
+
 The live document maintains exact totals for root-reachable value nodes and
 root-reachable aggregate payloads. The aggregate total includes object,
 ordinary-array and recovered-array aggregates. Detached nodes and payloads do
@@ -492,10 +539,9 @@ affect canonicality.
 The live document maintains the exact number of recovered-array aggregates
 currently reachable from the root. Canonicality is therefore equivalent to
 that count being zero. Attachment, detachment, recovery creation, repair,
-recursive erasure, reset and promotion must update or establish the count
-atomically with the corresponding structural change. Integrity checking must
-independently recompute it from the root and compare the result with the stored
-count.
+recursive erasure, reset and promotion update or establish the count with the
+corresponding structural change. Integrity checking must independently
+recompute it from the root and compare the result with the stored count.
 
 Detached subtrees do not cache a recovery count. Attachment and detachment
 already traverse the subtree to update root-reachable name and string reference
@@ -789,8 +835,8 @@ inferred from examples or from the superseded implementation:
 - the exact parser behavior for malformed or unsupported diagnostic envelopes.
 
 These choices may be settled only by later design and implementation evidence.
-They must preserve the normative semantic and failure-atomicity requirements
-above.
+They must preserve the normative semantics and operation-specific failure
+contracts above.
 
 ## Subsequent work and migration boundary
 

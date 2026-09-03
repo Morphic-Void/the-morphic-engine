@@ -471,6 +471,9 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)core\types\fp16data_t.hpp">
       <Filter>Core\include\types</Filter>
     </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)core\data_model\live_document_node.hpp">
+      <Filter>Core\include\data_model</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="$(MSBuildThisFileDirectory)core\data_model\live_document.cpp">
