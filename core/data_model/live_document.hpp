@@ -47,6 +47,7 @@ public:
     //  Status
     [[nodiscard]] bool is_ready() const noexcept;
     [[nodiscard]] bool is_canonical() const noexcept;
+    [[nodiscard]] bool is_complete() const noexcept;
     [[nodiscard]] bool check_integrity() const noexcept;
 
     //  Root and reachable structure
@@ -90,6 +91,7 @@ public:
     [[nodiscard]] std::uint32_t referenced_string_value_count() const noexcept;
 
     //  Detached value creation
+    [[nodiscard]] CNodeKey create_empty(const CStringView& name = {}) noexcept;
     [[nodiscard]] CNodeKey create_null(const CStringView& name = {}) noexcept;
     [[nodiscard]] CNodeKey create_boolean(const bool value, const CStringView& name = {}) noexcept;
     [[nodiscard]] CNodeKey create_signed_integer(const std::int64_t value, const CStringView& name = {}) noexcept;
@@ -118,6 +120,13 @@ public:
         CNodeKey& surviving_value) noexcept;
 
     [[nodiscard]] bool detach(const CNodeKey value) noexcept;
+
+    //  Payload extraction and replacement. Extraction preserves the source
+    //  key as the detached anonymous payload and installs a newly allocated
+    //  empty value in its former topology. Attachment performs the inverse,
+    //  preserving the payload key and consuming the empty target.
+    [[nodiscard]] CNodeKey detach_payload(const CNodeKey source) noexcept;
+    [[nodiscard]] CNodeKey attach_payload(const CNodeKey empty_target, const CNodeKey detached_payload) noexcept;
 
     //  Erasing the root preserves the implicit root pair and recursively
     //  erases all root-reachable content below it.
@@ -148,6 +157,7 @@ private:
         std::uint64_t value_count{ 0u };
         std::uint64_t aggregate_count{ 0u };
         std::uint64_t recovered_aggregate_count{ 0u };
+        std::uint64_t empty_value_count{ 0u };
     };
 
     enum class EReferenceAdjustment : std::uint8_t
@@ -185,6 +195,7 @@ private:
         const std::uint64_t payload_bits,
         const CIntegerMetadata metadata,
         const SPreparedString& prepared_name) noexcept;
+    [[nodiscard]] CNodeKey create_empty_node(const CPropertyNameId name) noexcept;
     [[nodiscard]] CNodeKey create_container(const ELiveValueType type, const SPreparedString& prepared_name) noexcept;
     [[nodiscard]] bool insert_root_pair() noexcept;
 
@@ -197,6 +208,7 @@ private:
 
     //  Results and document-domain validation
     [[nodiscard]] static CLiveAttachmentResult attachment_rejection(const ELiveAttachmentRejection rejection) noexcept;
+    [[nodiscard]] CNodeKey node_key_integrity_failure() noexcept;
     [[nodiscard]] bool value_payload_is_in_document_domain(const CLiveNode& value) const noexcept;
     [[nodiscard]] bool aggregate_payload_is_in_document_domain(const CLiveNode& aggregate) const noexcept;
 
@@ -217,7 +229,8 @@ private:
         const CNodeKey destination,
         const CNodeKey candidate,
         const SAttachmentPosition& position,
-        CNodeKey& surviving_value) noexcept;
+        CNodeKey& surviving_value,
+        const bool allow_recovered_destination = false) noexcept;
     [[nodiscard]] bool detach_value(const CNodeKey value, bool& was_reachable) noexcept;
     [[nodiscard]] bool erase_subtree(const CNodeKey value) noexcept;
     void mark_integrity_bad() noexcept;
@@ -244,6 +257,7 @@ private:
     std::uint32_t m_referenced_property_name_count{ 0u };
     std::uint32_t m_referenced_string_value_count{ 0u };
     std::uint32_t m_recovered_aggregate_count{ 0u };
+    std::uint32_t m_empty_value_count{ 0u };
     bool m_property_names_ready{ false };
     bool m_string_values_ready{ false };
     bool m_integrity_known_bad{ false };

@@ -50,6 +50,11 @@ contracts those later layers must consume, but does not design those layers.
 A **value node** represents one JSON-shaped value. Its base payload kind is
 null, Boolean, integer, floating point, string, array or object.
 
+An **empty value** is a live-only construction placeholder which temporarily
+has no payload. It is distinct from JSON null while live. Baking maps a
+root-reachable empty value to `null_value`, so that distinction is deliberately
+not preserved by a bake-and-promote round trip.
+
 An **aggregate node** is the composition-owned payload of an array-valued or
 object-valued node. It provides ordered child storage and explicitly identifies
 its aggregation kind as object, array or recovered array. It is not an
@@ -105,7 +110,7 @@ value: array or object
 
 The following invariants are normative:
 
-- Every value has a payload.
+- Every non-empty value has a payload. An empty live value has no payload.
 - A scalar value terminates its branch and owns no aggregate.
 - Every array or object value owns exactly one aggregate created atomically
   with it.
@@ -114,7 +119,8 @@ The following invariants are normative:
   atomically between compatible value owners when a structural operation
   requires it; the owner relationship, duplicated name and accounting must all
   move consistently.
-- Every non-root value has either exactly one parent aggregate or is detached.
+- Every non-root value, including an empty value, has either exactly one parent
+  aggregate or is detached.
 - Value siblings share the same parent aggregate.
 - An aggregate is never an array element, object member, root value or
   independently detachable subtree.
@@ -178,6 +184,12 @@ Creation accepts an optional name:
 Empty JSON property names are deliberately unsupported. An object entry must
 have a non-empty name, so an empty name always means anonymous rather than an
 empty-named member.
+
+Empty values use the same name and object-entry envelope as payload-bearing
+values. A named empty value can be an object member; an anonymous empty value
+can be an array element. A reachable empty value contributes to the reachable
+value total and property-name references. Empty values own no aggregate and no
+scalar or string-value payload.
 
 An aggregate duplicates its owner's name, including the canonical empty name.
 Owner and aggregate name agreement is an integrity invariant. Any explicit
@@ -349,6 +361,9 @@ The optional creation name establishes the value's intrinsic named or
 anonymous form. Creation does not pre-validate whether that form will be
 acceptable to a future destination.
 
+`create_empty` creates the corresponding named or anonymous detached empty
+value. Empty creation is not null creation.
+
 ### Attachment and insertion
 
 Attachment accepts a detached value and validates it at the destination. It
@@ -397,6 +412,40 @@ detachment and must not be decremented again during destruction. Erasing the
 root is synonymous with erasing all content below it: the root value and its
 aggregate remain as the empty initialized document. Reset and deallocation own
 the root pair's lifecycle.
+
+### Payload extraction and attachment
+
+Payload extraction is distinct from ordinary detachment. `detach_payload`
+accepts a non-root, non-empty value. It first creates a new empty value carrying
+the source value's name and object-entry state. It then replaces the source in
+its exact parent and sibling position with that empty value. The original
+source value retains its key and complete payload or aggregate subtree, becomes
+anonymous and detached, and is the transferable payload. If it owns an
+aggregate, the aggregate remains owned by it and its duplicated name becomes
+the canonical empty name. A source which was already detached produces both a
+detached empty replacement and the detached anonymous payload. The operation
+returns the new replacement key on success and an invalid key on failure; the
+supplied source key is the detached payload key.
+
+The replacement empty value and all storage needed for it must be allocated
+before the source topology, name or payload is changed. Allocation failure
+leaves the source structure unchanged, apart from an unobservable monotonic-key
+gap permitted by the live identity rules.
+
+`attach_payload` accepts an empty target and a distinct, detached, non-empty,
+anonymous payload value. It gives the payload value the target's name and
+object-entry state, replaces the target in its exact parent and sibling
+position with the payload value, and erases the consumed empty target. It
+returns the surviving payload key on success and an invalid key on failure. The
+payload value's key and subtree keys survive. An owned aggregate remains owned
+by the payload value and adopts its new duplicated name.
+
+Payload attachment performs no allocation. It rejects a target inside the
+payload subtree, an attached or named payload and a non-empty target.
+Caller-input and cycle rejection leaves both values unchanged. Every aggregate
+kind adopts the target's name and object-entry envelope without an additional
+compatibility category. A contradiction in the directly touched payload,
+aggregate or parent topology marks the document known-bad until reset.
 
 ## Duplicate-member recovery during attachment
 
@@ -552,6 +601,18 @@ document-level total. Recovery creation or repair within an attached subtree
 can update the total directly. No additional node or per-subtree field is
 reserved for recovery accounting.
 
+The live document separately maintains the exact number of root-reachable
+empty values. A document is **complete** exactly when that count is zero.
+Detached empty values and empty values within detached payload subtrees do not
+affect completeness. Creation, ordinary attachment and detachment, payload
+extraction and attachment, recursive erasure, reset and move must maintain the
+count, and integrity checking independently recomputes it.
+
+Completeness is descriptive rather than a substitute for integrity. In
+particular, an incomplete live document remains bakeable. Baking emits each
+root-reachable empty value as `null_value`; promotion therefore reconstructs
+an ordinary null value rather than the former live-only empty state.
+
 Canonicality is descriptive only. It does not prohibit mutation, baking,
 promotion, writing or other functional operations. Those operations apply
 their own explicit validity requirements and must not use canonicality as a
@@ -604,6 +665,10 @@ Only root-reachable nodes are baked. Detached values and other unreachable
 storage are omitted. Only strings referenced by emitted nodes are retained,
 apart from the mandatory empty entry in each table. Live keys and stable IDs
 are rewritten into the baked artifact's own dense index domains.
+
+The live-only empty kind has no baked counterpart. Each emitted empty live
+value is encoded as an ordinary baked `null_value`, preserving its name and
+position.
 
 The nonzero live reference counts identify the complete source entries for the
 two baked string tables without a preliminary node-tree walk. Baking may select
@@ -820,8 +885,9 @@ inferred from examples or from the superseded implementation:
 - canonical values for role-inapplicable fields and how much aggregate
   machinery can be eliminated physically;
 - cursor and revision representation;
-- concrete create, attach, insert, convert, repair and diagnostic-import API
-  names, signatures and result types;
+- concrete create, ordinary attach, insert, convert, repair and
+  diagnostic-import API names, signatures and result types beyond the settled
+  payload-transfer surface;
 - the safe construction API for an imported completed recovery list;
 - internal bake staging and live-to-baked mappings;
 - whether baked aggregates use explicit records or metadata folded into their

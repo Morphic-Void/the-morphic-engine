@@ -70,6 +70,7 @@ public:
     void set_aggregate_owner_value_key(const CNodeKey key) noexcept;
     void set_aggregate_first_child_key(const CNodeKey key) noexcept;
     void set_aggregate_last_child_key(const CNodeKey key) noexcept;
+    void set_name_id(const CPropertyNameId name) noexcept;
     void set_value_attachment(const CNodeKey parent, const CNodeKey previous, const CNodeKey next) noexcept;
     void clear_value_attachment() noexcept;
     void clear_aggregate_children() noexcept;
@@ -276,6 +277,15 @@ inline void CLiveNode::set_aggregate_last_child_key(const CNodeKey key) noexcept
     m_relation_2 = key;
 }
 
+inline void CLiveNode::set_name_id(const CPropertyNameId name) noexcept
+{
+    m_name = name;
+    if (is_value_record())
+    {
+        m_usage.object_entry = (name.query_value() != 0u) ? 1u : 0u;
+    }
+}
+
 inline void CLiveNode::set_value_attachment(const CNodeKey parent, const CNodeKey previous, const CNodeKey next) noexcept
 {
     set_value_parent_aggregate_key(parent);
@@ -333,6 +343,7 @@ inline bool CLiveNode::value_payload_is_valid() const noexcept
 
     switch (value_type())
     {
+        case ELiveValueType::empty:
         case ELiveValueType::null_value:
         {
             return (payload_bits() == 0u) && (integer_metadata() == CIntegerMetadata{});
@@ -393,7 +404,7 @@ inline bool CLiveNode::forms_container_pair_with(const CLiveNode& aggregate) con
         return aggregate.aggregate_kind() == ELiveAggregateKind::object;
     }
     return (aggregate.aggregate_kind() == ELiveAggregateKind::array) ||
-        ((aggregate.aggregate_kind() == ELiveAggregateKind::recovered_array) && is_object_entry());
+        (aggregate.aggregate_kind() == ELiveAggregateKind::recovered_array);
 }
 
 inline bool CLiveNode::aggregate_accepts_child(const CLiveNode& value) const noexcept

@@ -114,6 +114,7 @@ enum class ELiveNodeRole : std::uint8_t
 enum class ELiveValueType : std::uint8_t
 {
     invalid = 0u,
+    empty,
     null_value,
     boolean,
     integer,
