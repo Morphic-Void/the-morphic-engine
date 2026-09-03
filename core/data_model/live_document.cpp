@@ -747,11 +747,11 @@ std::uint64_t CLiveDocument::memory_allocation_size() const noexcept
         m_string_value_counts.memory_allocation_size();
 }
 
-bool CLiveDocument::prepare_string(const CStringView& source, SPreparedString& prepared) noexcept
+bool CLiveDocument::prepare_string(const CStringView& source, SPreparedString& prepared) const noexcept
 {
     prepared.bytes = source.string();
     prepared.size = source.length();
-    prepared.normalized.deallocate();
+    prepared.storage.deallocate();
 
     if (prepared.size == 0u)
     {
@@ -774,51 +774,34 @@ bool CLiveDocument::prepare_string(const CStringView& source, SPreparedString& p
 
     if (normalized_size != prepared.size)
     {
-        if (!prepared.normalized.resize(normalized_size))
+        if (!prepared.storage.resize(normalized_size))
         {
             return false;
         }
         if (!utf8_string::normalize_literal_nuls(
             prepared.bytes,
             prepared.size,
-            prepared.normalized.data(),
+            prepared.storage.data(),
             normalized_size))
         {
             return false;
         }
-        prepared.bytes = prepared.normalized.data();
+        prepared.bytes = prepared.storage.data();
         prepared.size = normalized_size;
     }
-    return true;
-}
-
-bool CLiveDocument::stabilise_intern_source(
-    const SPreparedString& value,
-    const CStableStrings& domain,
-    const std::size_t domain_extent,
-    CByteBuffer& storage,
-    const std::uint8_t*& bytes) noexcept
-{
-    bytes = value.bytes;
-    const std::uintptr_t source_address = reinterpret_cast<std::uintptr_t>(value.bytes);
-    for (std::size_t id = 1u; id < domain_extent; ++id)
+    else if (
+        m_property_names.storage_overlaps(prepared.bytes, prepared.size) ||
+        m_string_values.storage_overlaps(prepared.bytes, prepared.size))
     {
-        const CStringView existing = domain.view(id);
-        const std::uintptr_t existing_address = reinterpret_cast<std::uintptr_t>(existing.string());
-        if ((source_address >= existing_address) &&
-            ((source_address - existing_address) < existing.length()))
+        if (!prepared.storage.resize(prepared.size))
         {
-            if (!storage.resize(value.size))
-            {
-                return false;
-            }
-            for (std::size_t index = 0u; index < value.size; ++index)
-            {
-                storage.data()[index] = value.bytes[index];
-            }
-            bytes = storage.data();
-            break;
+            return false;
         }
+        for (std::size_t index = 0u; index < prepared.size; ++index)
+        {
+            prepared.storage.data()[index] = prepared.bytes[index];
+        }
+        prepared.bytes = prepared.storage.data();
     }
     return true;
 }
@@ -853,10 +836,7 @@ bool CLiveDocument::intern_string_domain(
         return false;
     }
 
-    CByteBuffer stable_source;
-    const std::uint8_t* bytes = nullptr;
-    if (!stabilise_intern_source(value, strings, next_id, stable_source, bytes) ||
-        !reference_counts.ensure_free(1u))
+    if (!reference_counts.ensure_free(1u))
     {
         return false;
     }
@@ -874,7 +854,7 @@ bool CLiveDocument::intern_string_domain(
         return false;
     }
 
-    const std::size_t appended = strings.append(bytes, value.size);
+    const std::size_t appended = strings.append(value.bytes, value.size);
     if ((appended != next_id) || !reference_counts.push_back(0u))
     {
         mark_integrity_bad();

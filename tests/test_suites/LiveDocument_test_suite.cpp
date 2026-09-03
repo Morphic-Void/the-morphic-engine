@@ -114,6 +114,33 @@ struct SFailingAllocator
     bool reject_all{ false };
 };
 
+struct SRetiringAllocator
+{
+    struct SAllocation
+    {
+        void* pointer{ nullptr };
+        std::size_t alignment{ 0u };
+        std::size_t size{ 0u };
+        bool retired{ false };
+    };
+
+    static constexpr std::size_t k_max_allocations = 128u;
+    SAllocation allocations[k_max_allocations]{};
+
+    void release() noexcept
+    {
+        for (SAllocation& allocation : allocations)
+        {
+            if (allocation.pointer != nullptr)
+            {
+                (void)tests::deallocate_test_memory(
+                    nullptr, allocation.alignment, allocation.pointer);
+                allocation = SAllocation{};
+            }
+        }
+    }
+};
+
 void* MV_STD_ABI_CALL allocate_with_failure(
     void* const state, const std::size_t alignment, const std::size_t bytes) noexcept
 {
@@ -130,6 +157,42 @@ bool MV_STD_ABI_CALL deallocate_with_failure(
     void* const, const std::size_t alignment, void* const pointer) noexcept
 {
     return tests::deallocate_test_memory(nullptr, alignment, pointer);
+}
+
+void* MV_STD_ABI_CALL allocate_with_retirement(
+    void* const state, const std::size_t alignment, const std::size_t bytes) noexcept
+{
+    SRetiringAllocator& fixture = *static_cast<SRetiringAllocator*>(state);
+    for (SRetiringAllocator::SAllocation& allocation : fixture.allocations)
+    {
+        if (allocation.pointer == nullptr)
+        {
+            allocation.pointer = tests::allocate_test_memory(nullptr, alignment, bytes);
+            if (allocation.pointer != nullptr)
+            {
+                allocation.alignment = alignment;
+                allocation.size = bytes;
+            }
+            return allocation.pointer;
+        }
+    }
+    return nullptr;
+}
+
+bool MV_STD_ABI_CALL deallocate_with_retirement(
+    void* const state, const std::size_t, void* const pointer) noexcept
+{
+    SRetiringAllocator& fixture = *static_cast<SRetiringAllocator*>(state);
+    for (SRetiringAllocator::SAllocation& allocation : fixture.allocations)
+    {
+        if ((allocation.pointer == pointer) && !allocation.retired)
+        {
+            std::memset(allocation.pointer, 0xa5, allocation.size);
+            allocation.retired = true;
+            return true;
+        }
+    }
+    return false;
 }
 
 CStringView bytes_view(const std::uint8_t* const bytes, const std::size_t size) noexcept
@@ -353,6 +416,37 @@ void test_aliased_string_admission(TTestContext& ctx)
     TEST_EXPECT(ctx, substring_string.is_valid());
     TEST_EXPECT(ctx, document.string_value(substring_string) == expected_substring);
     TEST_EXPECT(ctx, document.check_integrity());
+}
+
+void test_cross_domain_alias_survives_property_relocation(TTestContext& ctx)
+{
+    SRetiringAllocator fixture;
+    memory::CMemoryAllocator allocator{
+        &fixture, &allocate_with_retirement, &deallocate_with_retirement };
+    memory::CMemoryContext context{ allocator };
+    {
+        tests::TMemoryContextScope scope{ &context };
+        CLiveDocument document;
+        TEST_EXPECT(ctx, document.initialise());
+
+        const CStringView source{
+            reinterpret_cast<const std::uint8_t*>("property-source"), 15u };
+        const CNodeKey named = document.create_null(source);
+        TEST_EXPECT(ctx, named.is_valid());
+
+        const CStringView aliased_value = document.name(named);
+        std::uint8_t growing_name_bytes[8192u];
+        std::memset(growing_name_bytes, 'n', sizeof(growing_name_bytes));
+        const CStringView growing_name{ growing_name_bytes, sizeof(growing_name_bytes) };
+        const CNodeKey string = document.create_string(aliased_value, growing_name);
+        TEST_EXPECT(ctx, string.is_valid());
+        TEST_EXPECT(ctx, document.string_value(string) == source);
+        TEST_EXPECT(ctx, document.name(string) == growing_name);
+        TEST_EXPECT(ctx, document.check_integrity());
+        document.deallocate();
+    }
+    TEST_EXPECT(ctx, context.is_attribution_empty());
+    fixture.release();
 }
 
 void test_integrity_rejects_orphan_strings_and_key_corruption(TTestContext& ctx)
@@ -1025,6 +1119,7 @@ int run_live_document_tests()
     test_utf8_normalisation_and_rejection(ctx);
     test_canonical_string_admission_avoids_normalisation_allocation(ctx);
     test_aliased_string_admission(ctx);
+    test_cross_domain_alias_survives_property_relocation(ctx);
     test_integrity_rejects_orphan_strings_and_key_corruption(ctx);
     test_numeric_boundaries_metadata_and_negative_zero(ctx);
     test_container_pair_failure_atomicity_and_key_gaps(ctx);

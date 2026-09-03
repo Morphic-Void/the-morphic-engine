@@ -140,7 +140,7 @@ private:
     {
         const std::uint8_t* bytes{ nullptr };
         std::size_t size{ 0u };
-        CByteBuffer normalized;
+        CByteBuffer storage;
     };
 
     struct SSubtreeTotals
@@ -166,13 +166,7 @@ private:
     static constexpr std::uint64_t k_max_uint32 = std::numeric_limits<std::uint32_t>::max();
 
     //  String admission, stabilization and interning
-    [[nodiscard]] static bool prepare_string(const CStringView& source, SPreparedString& prepared) noexcept;
-    [[nodiscard]] static bool stabilise_intern_source(
-        const SPreparedString& value,
-        const CStableStrings& domain,
-        const std::size_t domain_extent,
-        CByteBuffer& storage,
-        const std::uint8_t*& bytes) noexcept;
+    [[nodiscard]] bool prepare_string(const CStringView& source, SPreparedString& prepared) const noexcept;
     [[nodiscard]] bool intern_string_domain(
         const SPreparedString& value,
         CStableStrings& strings,

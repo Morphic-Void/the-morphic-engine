@@ -243,8 +243,10 @@ Admission is length-aware. Before interning or comparison, it must:
 All other overlong forms, malformed or truncated sequences, isolated
 surrogates and scalars beyond the Unicode range must be rejected. Admission
 first scans and validates the supplied bytes. Canonical input is interned
-directly; temporary normalized storage is allocated only when literal zeroes
-actually require promotion to `C0 80`.
+directly when it is external to the document. Temporary owned storage is used
+when literal zeroes require promotion to `C0 80`, or when the supplied range
+overlaps either live string store and could otherwise be invalidated by a
+subsequent mutation during the operation.
 
 Validation failure adds no entry. A later creation or allocation failure may
 leave a completely formed zero-reference intern entry, because live IDs are
