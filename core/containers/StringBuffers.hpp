@@ -272,6 +272,7 @@ public:
     [[nodiscard]] std::size_t capacity() const noexcept { return m_buffer.capacity(); }
     [[nodiscard]] std::size_t available() const noexcept { return m_buffer.available(); }
     [[nodiscard]] bool empty() const noexcept { return m_buffer.size() == 0u; }
+    [[nodiscard]] bool storage_overlaps(const std::uint8_t* bytes, const std::size_t size) const noexcept;
 
     //  String accessors
     [[nodiscard]] CStringView view(const std::size_t offset) const noexcept { return CStringView(string(offset)); }
@@ -357,6 +358,7 @@ public:
     //  Accessors
     [[nodiscard]] CStringView view(const std::size_t id) const noexcept;
     [[nodiscard]] bool is_valid_id(const std::size_t id) const noexcept;
+    [[nodiscard]] bool storage_overlaps(const std::uint8_t* bytes, const std::size_t size) const noexcept;
 
     //  Index conversions
     //
@@ -612,6 +614,22 @@ inline bool CSimpleString::private_allocate(const std::uint8_t* const string, co
     return (base != nullptr) && (offset > 0u) && (offset < m_buffer.size()) && (base[offset - 1u] == 0u);
 }
 
+[[nodiscard]] inline bool CStringBuffer::storage_overlaps(const std::uint8_t* const bytes, const std::size_t length) const noexcept
+{
+    const std::uint8_t* const storage = m_buffer.data();
+    const std::size_t storage_size = m_buffer.size();
+    if ((bytes == nullptr) || (length == 0u) || (storage == nullptr) || (storage_size == 0u))
+    {
+        return false;
+    }
+
+    const std::uintptr_t bytes_address = reinterpret_cast<std::uintptr_t>(bytes);
+    const std::uintptr_t storage_address = reinterpret_cast<std::uintptr_t>(storage);
+    return (bytes_address >= storage_address) ?
+        ((bytes_address - storage_address) < storage_size) :
+        ((storage_address - bytes_address) < length);
+}
+
 [[nodiscard]] inline std::size_t CStringBuffer::append(const std::uint8_t* const string) noexcept
 {
     return (string != nullptr) ? private_append(string, strz_length(string)) : k_invalid_offset;
@@ -775,6 +793,11 @@ inline CStringView CStableStrings::view(const std::size_t id) const noexcept
 [[nodiscard]] inline bool CStableStrings::is_valid_id(const std::size_t id) const noexcept
 {
     return (id != k_invalid_id) && (id < m_id_to_ref_index.size());
+}
+
+[[nodiscard]] inline bool CStableStrings::storage_overlaps(const std::uint8_t* const bytes, const std::size_t size) const noexcept
+{
+    return m_string_buffer.storage_overlaps(bytes, size);
 }
 
 [[nodiscard]] inline std::size_t CStableStrings::id_to_ref_index(const std::size_t id) const noexcept

@@ -84,6 +84,11 @@ Invalid lookup operations return:
 
 check_integrity() validates compound stable-string state.
 
+CStringBuffer and CStableStrings expose `storage_overlaps()` as a constant-time
+storage-identity query. It reports whether a non-empty supplied byte range
+overlaps used packed storage. It does not validate string heads, terminators,
+substrings, encoding or any other string semantics.
+
 ## Comparison model
 
 String comparison is:

@@ -139,6 +139,12 @@ void test_string_buffer_offsets_and_storage(TTestContext& ctx)
     TEST_EXPECT(ctx, buffer.is_valid_offset(first_offset));
     TEST_EXPECT(ctx, std::memcmp(buffer.string(first_offset), "cat", 3u) == 0);
     TEST_EXPECT(ctx, buffer.view(first_offset).length() == 3u);
+    TEST_EXPECT(ctx, buffer.storage_overlaps(buffer.string(first_offset), 3u));
+    TEST_EXPECT(ctx, buffer.storage_overlaps(buffer.string(first_offset) + 1u, 1u));
+    TEST_EXPECT(ctx, !buffer.storage_overlaps(buffer.string(first_offset), 0u));
+    TEST_EXPECT(ctx, !buffer.storage_overlaps(nullptr, 3u));
+    TEST_EXPECT(ctx, !buffer.storage_overlaps(
+        reinterpret_cast<const std::uint8_t*>("external"), 8u));
 
     const std::uint8_t embedded[]{ 'a', 0u, 'b' };
     const std::size_t embedded_offset = buffer.append(embedded, 3u);
@@ -196,6 +202,12 @@ void test_stable_strings_lookup_duplicates_and_sort(TTestContext& ctx)
     TEST_EXPECT(ctx, !table.view(empty_id).empty());
     TEST_EXPECT(ctx, table.view(pear_id).length() == 4u);
     TEST_EXPECT(ctx, std::memcmp(table.view(apple_id).string(), "apple", 5u) == 0);
+    TEST_EXPECT(ctx, table.storage_overlaps(table.view(pear_id).string(), 4u));
+    TEST_EXPECT(ctx, table.storage_overlaps(table.view(apple_id).string() + 2u, 2u));
+    TEST_EXPECT(ctx, !table.storage_overlaps(table.view(pear_id).string(), 0u));
+    TEST_EXPECT(ctx, !table.storage_overlaps(nullptr, 4u));
+    TEST_EXPECT(ctx, !table.storage_overlaps(
+        reinterpret_cast<const std::uint8_t*>("external"), 8u));
 
     const std::size_t pear_ref_before = table.id_to_ref_index(pear_id);
     const std::size_t empty_ref_before = table.id_to_ref_index(empty_id);
@@ -302,4 +314,3 @@ int run_string_buffer_tests()
     std::cout << "StringBuffers: " << ctx.passed << " passed, " << ctx.failed << " failed\n";
     return (ctx.failed == 0) ? 0 : 1;
 }
-
