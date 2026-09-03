@@ -26,8 +26,7 @@ Accessors are fail-safe.
 - Requires C++17 or later.
 - No exceptions are used.
 - Strings are stored and manipulated as byte sequences.
-- No wchar_t, char16_t, char32_t, or platform-specific wide encodings
-  are used.
+- No wchar_t, char16_t, char32_t, or platform-specific wide encodings are used.
 - Zero-terminated and explicit-length forms are supported.
 
 Scope:
