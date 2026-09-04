@@ -51,10 +51,9 @@ struct SLiveDocumentTestAccess
         document.m_next_monotonic_node_key = key;
     }
 
-    [[nodiscard]] static CNodeKey make_stale_key(CLiveDocument& document) noexcept
+    static void set_reachable_empty_count(CLiveDocument& document, const std::uint32_t count) noexcept
     {
-        CNodeKey key;
-        return document.allocate_key(key) ? key : CNodeKey{};
+        document.m_empty_value_count = count;
     }
 
     static void set_reachable_value_count(CLiveDocument& document, const std::uint32_t count) noexcept
@@ -62,18 +61,46 @@ struct SLiveDocumentTestAccess
         document.m_value_count = count;
     }
 
-    static void set_reachable_empty_count(CLiveDocument& document, const std::uint32_t count) noexcept
-    {
-        document.m_empty_value_count = count;
-    }
-
     static void set_property_reference_count(
-        CLiveDocument& document, const CPropertyNameId id, const std::uint32_t count) noexcept
+        CLiveDocument& document,
+        const CPropertyNameId id,
+        const std::uint32_t count) noexcept
     {
         if (id.is_valid() && (id.query_value() < document.m_property_name_counts.size()))
         {
             document.m_property_name_counts[id.query_value()] = count;
         }
+    }
+
+    static void set_string_reference_count(
+        CLiveDocument& document,
+        const CStringValueId id,
+        const std::uint32_t count) noexcept
+    {
+        if (id.is_valid() && (id.query_value() < document.m_string_value_counts.size()))
+        {
+            document.m_string_value_counts[id.query_value()] = count;
+        }
+    }
+
+    [[nodiscard]] static std::uint32_t occupied_node_count(const CLiveDocument& document) noexcept
+    {
+        return document.m_nodes.occupied_count();
+    }
+
+    [[nodiscard]] static std::uint64_t node_storage_allocation_size(
+        const CLiveDocument& document) noexcept
+    {
+        return document.m_nodes.memory_allocation_size();
+    }
+
+    [[nodiscard]] static CPropertyNameId aggregate_name_id(
+        const CLiveDocument& document, const CNodeKey owner) noexcept
+    {
+        const CLiveNode* const owner_record = document.value_node(owner);
+        const CLiveNode* const aggregate = (owner_record != nullptr) ?
+            document.node(owner_record->value_owned_aggregate_key()) : nullptr;
+        return (aggregate != nullptr) ? aggregate->name_id() : CPropertyNameId{};
     }
 
     static void set_next_sibling(
@@ -83,16 +110,6 @@ struct SLiveDocumentTestAccess
         if (record != nullptr)
         {
             record->m_relation_2 = next;
-        }
-    }
-
-    static void set_parent_aggregate(
-        CLiveDocument& document, const CNodeKey value, const CNodeKey parent) noexcept
-    {
-        CLiveNode* const record = document.value_node(value);
-        if (record != nullptr)
-        {
-            record->m_relation_0 = parent;
         }
     }
 
@@ -471,7 +488,7 @@ void test_cross_domain_alias_survives_property_relocation(TTestContext& ctx)
     fixture.release();
 }
 
-void test_integrity_rejects_orphan_strings_and_key_corruption(TTestContext& ctx)
+void test_integrity_rejects_string_key_and_reference_corruption(TTestContext& ctx)
 {
     const CStringView property_name{
         reinterpret_cast<const std::uint8_t*>("property"), 8u };
@@ -509,6 +526,17 @@ void test_integrity_rejects_orphan_strings_and_key_corruption(TTestContext& ctx)
     SLiveDocumentTestAccess::set_next_monotonic_node_key(
         monotonic_document, highest.query_value());
     TEST_EXPECT(ctx, !monotonic_document.check_integrity());
+
+    CLiveDocument reference_document;
+    TEST_EXPECT(ctx, reference_document.initialise());
+    const CNodeKey named = reference_document.create_null(property_name);
+    CNodeKey surviving;
+    TEST_EXPECT(ctx, reference_document.append_child(
+        reference_document.root(), named, surviving).succeeded());
+    TEST_EXPECT(ctx, reference_document.check_integrity());
+    SLiveDocumentTestAccess::set_property_reference_count(
+        reference_document, reference_document.name_id(named), 0u);
+    TEST_EXPECT(ctx, !reference_document.check_integrity());
 }
 
 void test_numeric_boundaries_metadata_and_negative_zero(TTestContext& ctx)
@@ -805,7 +833,7 @@ void test_deep_iterative_topology_and_root_clear(TTestContext& ctx)
     TEST_EXPECT(ctx, document.check_integrity());
 }
 
-void test_attachment_rejections_cycles_and_accounting_limits(TTestContext& ctx)
+void test_attachment_rejections_and_cycles(TTestContext& ctx)
 {
     CLiveDocument document;
     TEST_EXPECT(ctx, document.initialise());
@@ -833,51 +861,8 @@ void test_attachment_rejections_cycles_and_accounting_limits(TTestContext& ctx)
     TEST_EXPECT(ctx, result.rejection == ELiveAttachmentRejection::cycle);
     TEST_EXPECT(ctx, document.is_detached(array));
 
-    SLiveDocumentTestAccess::set_reachable_value_count(
-        document, (std::numeric_limits<std::uint32_t>::max)());
-    result = document.append_child(document.root(), named, surviving);
-    TEST_EXPECT(ctx, result.rejection == ELiveAttachmentRejection::accounting_limit);
-    TEST_EXPECT(ctx, document.is_detached(named));
-    SLiveDocumentTestAccess::set_reachable_value_count(document, 1u);
-
     TEST_EXPECT(ctx, document.append_child(document.root(), named, surviving).succeeded());
     TEST_EXPECT(ctx, document.check_integrity());
-}
-
-void test_known_bad_state_and_reset(TTestContext& ctx)
-{
-    const CStringView member_name{ reinterpret_cast<const std::uint8_t*>("member"), 6u };
-    CNodeKey surviving;
-
-    CLiveDocument overflow_document;
-    TEST_EXPECT(ctx, overflow_document.initialise());
-    const CNodeKey overflow_member = overflow_document.create_null(member_name);
-    const CPropertyNameId overflow_id = overflow_document.name_id(overflow_member);
-    SLiveDocumentTestAccess::set_property_reference_count(
-        overflow_document, overflow_id, (std::numeric_limits<std::uint32_t>::max)());
-    const CLiveAttachmentResult overflow = overflow_document.append_child(
-        overflow_document.root(), overflow_member, surviving);
-    TEST_EXPECT(ctx, overflow.rejection == ELiveAttachmentRejection::corrupt_structure);
-    TEST_EXPECT(ctx, !overflow_document.is_ready());
-    TEST_EXPECT(ctx, !overflow_document.check_integrity());
-    TEST_EXPECT(ctx, overflow_document.reset());
-    TEST_EXPECT(ctx, overflow_document.is_ready());
-    TEST_EXPECT(ctx, overflow_document.check_integrity());
-
-    CLiveDocument underflow_document;
-    TEST_EXPECT(ctx, underflow_document.initialise());
-    const CNodeKey underflow_member = underflow_document.create_null(member_name);
-    const CPropertyNameId underflow_id = underflow_document.name_id(underflow_member);
-    TEST_EXPECT(ctx, underflow_document.append_child(
-        underflow_document.root(), underflow_member, surviving).succeeded());
-    SLiveDocumentTestAccess::set_property_reference_count(
-        underflow_document, underflow_id, 0u);
-    TEST_EXPECT(ctx, !underflow_document.detach(underflow_member));
-    TEST_EXPECT(ctx, !underflow_document.is_ready());
-    TEST_EXPECT(ctx, !underflow_document.check_integrity());
-    TEST_EXPECT(ctx, underflow_document.reset());
-    TEST_EXPECT(ctx, underflow_document.is_ready());
-    TEST_EXPECT(ctx, underflow_document.check_integrity());
 }
 
 void test_topology_operations_do_not_allocate(TTestContext& ctx)
@@ -1080,6 +1065,7 @@ void test_empty_completeness_and_payload_round_trip(TTestContext& ctx)
     TEST_EXPECT(ctx, document.append_child(document.root(), payload, surviving).succeeded());
     TEST_EXPECT(ctx, document.append_child(document.root(), after, surviving).succeeded());
     TEST_EXPECT(ctx, document.is_complete());
+    TEST_EXPECT(ctx, document.child_count(document.root()) == 3u);
     TEST_EXPECT(ctx, document.value_count() == 5u);
     TEST_EXPECT(ctx, document.aggregate_payload_count() == 2u);
     TEST_EXPECT(ctx, document.referenced_string_value_count() == 1u);
@@ -1091,6 +1077,7 @@ void test_empty_completeness_and_payload_round_trip(TTestContext& ctx)
     TEST_EXPECT(ctx, document.parent(replacement) == document.root());
     TEST_EXPECT(ctx, document.previous_sibling(replacement) == before);
     TEST_EXPECT(ctx, document.next_sibling(replacement) == after);
+    TEST_EXPECT(ctx, document.child_count(document.root()) == 3u);
     TEST_EXPECT(ctx, document.is_detached(payload));
     TEST_EXPECT(ctx, document.name(payload).length() == 0u);
     TEST_EXPECT(ctx, document.value_type(payload) == ELiveValueType::array);
@@ -1107,6 +1094,7 @@ void test_empty_completeness_and_payload_round_trip(TTestContext& ctx)
     TEST_EXPECT(ctx, document.name(payload) == slot_name);
     TEST_EXPECT(ctx, document.previous_sibling(payload) == before);
     TEST_EXPECT(ctx, document.next_sibling(payload) == after);
+    TEST_EXPECT(ctx, document.child_count(document.root()) == 3u);
     TEST_EXPECT(ctx, document.first_child(payload) == child);
     TEST_EXPECT(ctx, document.is_complete());
     TEST_EXPECT(ctx, document.value_count() == 5u);
@@ -1203,6 +1191,135 @@ void test_scalar_and_detached_payload_transfer(TTestContext& ctx)
     TEST_EXPECT(ctx, document.check_integrity());
 }
 
+void test_payload_detach_reacquires_container_after_node_growth(TTestContext& ctx)
+{
+    CLiveDocument document;
+    TEST_EXPECT(ctx, document.initialise());
+    const CStringView before_name{ reinterpret_cast<const std::uint8_t*>("before"), 6u };
+    const CStringView source_name{ reinterpret_cast<const std::uint8_t*>("source"), 6u };
+    const CStringView after_name{ reinterpret_cast<const std::uint8_t*>("after"), 5u };
+    const CStringView text{ reinterpret_cast<const std::uint8_t*>("text"), 4u };
+    const CNodeKey before = document.create_null(before_name);
+    const CNodeKey source = document.create_array(source_name);
+    const CNodeKey child = document.create_string(text);
+    const CNodeKey after = document.create_null(after_name);
+    CNodeKey surviving;
+    TEST_EXPECT(ctx, document.append_child(source, child, surviving).succeeded());
+    TEST_EXPECT(ctx, document.append_child(document.root(), before, surviving).succeeded());
+    TEST_EXPECT(ctx, document.append_child(document.root(), source, surviving).succeeded());
+    TEST_EXPECT(ctx, document.append_child(document.root(), after, surviving).succeeded());
+
+    while (SLiveDocumentTestAccess::occupied_node_count(document) < 32u)
+    {
+        TEST_EXPECT(ctx, document.create_null().is_valid());
+    }
+    TEST_EXPECT(ctx, SLiveDocumentTestAccess::occupied_node_count(document) == 32u);
+    const std::uint64_t allocation_size_before =
+        SLiveDocumentTestAccess::node_storage_allocation_size(document);
+    const CNodeKey replacement = document.detach_payload(source);
+    TEST_EXPECT(ctx, replacement.is_valid());
+    TEST_EXPECT(ctx,
+        SLiveDocumentTestAccess::node_storage_allocation_size(document) > allocation_size_before);
+    TEST_EXPECT(ctx, document.name(replacement) == source_name);
+    TEST_EXPECT(ctx, document.name(source).length() == 0u);
+    TEST_EXPECT(ctx,
+        SLiveDocumentTestAccess::aggregate_name_id(document, source).query_value() ==
+            CPropertyNameId::k_empty_value);
+    TEST_EXPECT(ctx, document.is_detached(source));
+    TEST_EXPECT(ctx, document.first_child(source) == child);
+    TEST_EXPECT(ctx, document.parent(replacement) == document.root());
+    TEST_EXPECT(ctx, document.previous_sibling(replacement) == before);
+    TEST_EXPECT(ctx, document.next_sibling(replacement) == after);
+    TEST_EXPECT(ctx, document.child_count(document.root()) == 3u);
+    TEST_EXPECT(ctx, document.value_count() == 4u);
+    TEST_EXPECT(ctx, document.aggregate_payload_count() == 1u);
+    TEST_EXPECT(ctx, document.referenced_property_name_count() == 3u);
+    TEST_EXPECT(ctx, document.referenced_string_value_count() == 0u);
+    TEST_EXPECT(ctx, !document.is_complete());
+    TEST_EXPECT(ctx, document.check_integrity());
+}
+
+void test_internal_accounting_failure_marks_document_known_bad(TTestContext& ctx)
+{
+#if MV_DEVELOPMENT_BUILD
+    (void)ctx;
+#else
+    CLiveDocument document;
+    TEST_EXPECT(ctx, document.initialise());
+    const CStringView source_name{ reinterpret_cast<const std::uint8_t*>("source"), 6u };
+    const CStringView text{ reinterpret_cast<const std::uint8_t*>("text"), 4u };
+    const CNodeKey source = document.create_array(source_name);
+    const CNodeKey child = document.create_string(text);
+    CNodeKey surviving;
+    TEST_EXPECT(ctx, document.append_child(source, child, surviving).succeeded());
+    TEST_EXPECT(ctx, document.append_child(document.root(), source, surviving).succeeded());
+    const CStringValueId string_id = document.string_value_id(child);
+    SLiveDocumentTestAccess::set_string_reference_count(document, string_id, 0u);
+
+    TEST_EXPECT(ctx, !document.detach(source));
+    TEST_EXPECT(ctx, !document.is_ready());
+    TEST_EXPECT(ctx, !document.check_integrity());
+    TEST_EXPECT(ctx, !document.create_null().is_valid());
+    TEST_EXPECT(ctx, document.reset());
+    TEST_EXPECT(ctx, document.is_ready());
+    TEST_EXPECT(ctx, document.check_integrity());
+#endif
+}
+
+void test_reachable_total_underflow_marks_document_known_bad(TTestContext& ctx)
+{
+#if MV_DEVELOPMENT_BUILD
+    (void)ctx;
+#else
+    CLiveDocument document;
+    TEST_EXPECT(ctx, document.initialise());
+    const CStringView source_name{ reinterpret_cast<const std::uint8_t*>("source"), 6u };
+    const CNodeKey source = document.create_array(source_name);
+    const CNodeKey child = document.create_null();
+    CNodeKey surviving;
+    TEST_EXPECT(ctx, document.append_child(source, child, surviving).succeeded());
+    TEST_EXPECT(ctx, document.append_child(document.root(), source, surviving).succeeded());
+    SLiveDocumentTestAccess::set_reachable_value_count(document, 1u);
+
+    TEST_EXPECT(ctx, !document.detach(source));
+    TEST_EXPECT(ctx, !document.is_ready());
+    TEST_EXPECT(ctx, !document.check_integrity());
+    TEST_EXPECT(ctx, !document.create_null().is_valid());
+    TEST_EXPECT(ctx, document.reset());
+    TEST_EXPECT(ctx, document.is_ready());
+    TEST_EXPECT(ctx, document.check_integrity());
+#endif
+}
+
+void test_lateral_reachability_cycle_marks_document_known_bad(TTestContext& ctx)
+{
+#if MV_DEVELOPMENT_BUILD
+    (void)ctx;
+#else
+    CLiveDocument document;
+    TEST_EXPECT(ctx, document.initialise());
+    const CStringView source_name{ reinterpret_cast<const std::uint8_t*>("source"), 6u };
+    const CNodeKey source = document.create_array(source_name);
+    const CNodeKey first = document.create_null();
+    const CNodeKey last = document.create_null();
+    CNodeKey surviving;
+    TEST_EXPECT(ctx, document.append_child(source, first, surviving).succeeded());
+    TEST_EXPECT(ctx, document.append_child(source, last, surviving).succeeded());
+    SLiveDocumentTestAccess::set_next_sibling(document, last, first);
+
+    const CLiveAttachmentResult result =
+        document.append_child(document.root(), source, surviving);
+    TEST_EXPECT(ctx, !result.succeeded());
+    TEST_EXPECT(ctx, !surviving.is_valid());
+    TEST_EXPECT(ctx, !document.is_ready());
+    TEST_EXPECT(ctx, !document.check_integrity());
+    TEST_EXPECT(ctx, !document.create_null().is_valid());
+    TEST_EXPECT(ctx, document.reset());
+    TEST_EXPECT(ctx, document.is_ready());
+    TEST_EXPECT(ctx, document.check_integrity());
+#endif
+}
+
 void test_payload_transfer_rejections_cycles_and_recovery(TTestContext& ctx)
 {
     CLiveDocument document;
@@ -1292,38 +1409,6 @@ void test_payload_transfer_rejections_cycles_and_recovery(TTestContext& ctx)
     SLiveDocumentTestAccess::set_next_monotonic_node_key(identity_limit, 0u);
     TEST_EXPECT(ctx, !identity_limit.detach_payload(identity_source).is_valid());
     TEST_EXPECT(ctx, identity_limit.contains(identity_source));
-}
-
-void test_payload_transfer_corruption_boundary(TTestContext& ctx)
-{
-    auto expect_known_bad_and_reset = [&ctx](CLiveDocument& document)
-    {
-        TEST_EXPECT(ctx, !document.is_ready());
-        TEST_EXPECT(ctx, !document.check_integrity());
-        TEST_EXPECT(ctx, document.reset());
-        TEST_EXPECT(ctx, document.is_ready());
-        TEST_EXPECT(ctx, document.check_integrity());
-    };
-
-    CLiveDocument document;
-    TEST_EXPECT(ctx, document.initialise());
-    CNodeKey surviving;
-    const CStringView name{ reinterpret_cast<const std::uint8_t*>("value"), 5u };
-
-    const CNodeKey source = document.create_null(name);
-    TEST_EXPECT(ctx, document.append_child(document.root(), source, surviving).succeeded());
-    const CNodeKey stale = SLiveDocumentTestAccess::make_stale_key(document);
-    SLiveDocumentTestAccess::set_parent_aggregate(document, source, stale);
-    TEST_EXPECT(ctx, !document.detach_payload(source).is_valid());
-    expect_known_bad_and_reset(document);
-
-    const CNodeKey target = document.create_empty(name);
-    const CNodeKey payload = document.create_null();
-    TEST_EXPECT(ctx, document.append_child(document.root(), target, surviving).succeeded());
-    SLiveDocumentTestAccess::set_next_sibling(
-        document, target, SLiveDocumentTestAccess::make_stale_key(document));
-    TEST_EXPECT(ctx, !document.attach_payload(target, payload).is_valid());
-    expect_known_bad_and_reset(document);
 }
 
 void test_payload_transfer_allocation_limits_depth_move_and_attribution(TTestContext& ctx)
@@ -1484,23 +1569,25 @@ int run_live_document_tests()
     test_canonical_string_admission_avoids_normalisation_allocation(ctx);
     test_aliased_string_admission(ctx);
     test_cross_domain_alias_survives_property_relocation(ctx);
-    test_integrity_rejects_orphan_strings_and_key_corruption(ctx);
+    test_integrity_rejects_string_key_and_reference_corruption(ctx);
     test_numeric_boundaries_metadata_and_negative_zero(ctx);
     test_container_pair_failure_atomicity_and_key_gaps(ctx);
     test_initialisation_failure_sweep(ctx);
     test_string_creation_failure_sweep(ctx);
     test_ordinary_topology_accounting_detachment_and_erasure(ctx);
     test_deep_iterative_topology_and_root_clear(ctx);
-    test_attachment_rejections_cycles_and_accounting_limits(ctx);
-    test_known_bad_state_and_reset(ctx);
+    test_attachment_rejections_and_cycles(ctx);
     test_topology_operations_do_not_allocate(ctx);
     test_integrity_rejects_topology_corruption(ctx);
     test_ordinary_aggregate_value_kind_matrix_and_normalized_duplicates(ctx);
     test_recovered_aggregate_generic_reachability_accounting(ctx);
     test_empty_completeness_and_payload_round_trip(ctx);
     test_scalar_and_detached_payload_transfer(ctx);
+    test_payload_detach_reacquires_container_after_node_growth(ctx);
+    test_internal_accounting_failure_marks_document_known_bad(ctx);
+    test_reachable_total_underflow_marks_document_known_bad(ctx);
+    test_lateral_reachability_cycle_marks_document_known_bad(ctx);
     test_payload_transfer_rejections_cycles_and_recovery(ctx);
-    test_payload_transfer_corruption_boundary(ctx);
     test_payload_transfer_allocation_limits_depth_move_and_attribution(ctx);
     test_move_reset_and_retained_attribution(ctx);
 

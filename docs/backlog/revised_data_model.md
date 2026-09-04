@@ -286,8 +286,9 @@ Attachment increments references throughout the attached subtree. Detachment
 decrements them throughout the detached subtree. Detached creation contributes
 no references, and destruction of an already detached subtree does not
 decrement them again. Ordinary mutation assumes the document's established
-invariants and updates these counts directly. An explicit integrity audit
-independently traverses from the root and verifies the recorded counts.
+private invariants and updates these counts directly in the same traversal that
+measures the affected subtree. An explicit integrity audit uses a separate,
+bounded checked traversal from the root and verifies the recorded counts.
 
 This makes attachment and detachment proportional to subtree size unless a
 future storage design provides suitable summaries. That cost is accepted in
@@ -377,20 +378,29 @@ must validate, before structural mutation:
 - that roles and aggregate kinds are compatible;
 - the destination's naming and uniqueness requirements;
 - absence of cycles;
-- membership of an optional insert-before position in that destination;
-- child-count and relationship limits; and
-- the reachable accounting limits affected by the operation.
+- membership of an optional insert-before position in that destination; and
+- the reachable accounting affected by the operation.
 
 Ordinary attachment, insertion, detachment and erasure require no scratch
-allocation. Cycle prevention is a bounded ascent through the established parent
-chain. These mutation paths do not perform a general integrity audit of the
-document or candidate subtree.
+allocation. Cycle prevention ascends the established parent chain. These
+mutation paths use iterative traversal and do not perform a general integrity
+audit of the document or candidate subtree. Cheap occupied-record bounds remain
+as termination safeguards on ordinary traversal. Comprehensive checked
+traversal belongs to explicit integrity checking and untrusted import
+boundaries.
+
+The shared allocation framework limits every allocation to `0x80000000` bytes.
+The live node and reference-count representations therefore cannot approach
+their `uint32_t` numeric limits. Mutation does not expose artificial
+relationship or accounting-limit outcomes for states which cannot be produced
+by the storage framework. Allocation and capacity failure remain ordinary,
+recoverable operation failures.
 
 Attachment is where structural validity is decided. Creation does not promise
 that every destination will accept the result.
 
-Rejection caused by caller input or an applicable accounting limit leaves both
-the destination tree and detached candidate unchanged. Successful attachment
+Rejection caused by caller input leaves both the destination tree and detached
+candidate unchanged. Successful attachment
 preserves the candidate's entire subtree and intrinsic name/object-entry state.
 
 ### Detachment, movement and erasure
@@ -444,8 +454,11 @@ Payload attachment performs no allocation. It rejects a target inside the
 payload subtree, an attached or named payload and a non-empty target.
 Caller-input and cycle rejection leaves both values unchanged. Every aggregate
 kind adopts the target's name and object-entry envelope without an additional
-compatibility category. A contradiction in the directly touched payload,
-aggregate or parent topology marks the document known-bad until reset.
+compatibility category. Extraction and attachment use a direct same-position
+topology substitution primitive rather than composing ordinary detachment and
+attachment policy. Contradictions in the directly touched payload, aggregate
+or parent topology are programming defects reported by development diagnostics;
+the mutation fails and leaves the document in the reset-only known-bad state.
 
 ## Duplicate-member recovery during attachment
 
@@ -496,15 +509,15 @@ updated.
 
 Capacity needed by recovery should be acquired before mutation where this is a
 small, direct preparation step. A pre-mutation failure leaves the original
-object and incoming candidate unchanged. If a later unexpected failure cannot
-be handled by a small local rollback, the live document enters its known-bad
-state rather than carrying a general transaction mechanism.
+object and incoming candidate unchanged. Once mutation begins, the prepared
+private rewiring is trusted and non-failing; an internal contradiction is a
+programming defect which leaves the document in the reset-only known-bad state.
 
 ### Later occurrences
 
 A later occurrence with the same name appends the converted anonymous
 candidate to the existing recovered aggregate in source order. It is subject
-to the same validation and failure-state requirements.
+to the same validation and preparation requirements.
 
 An insert-before position applies only when inserting a previously absent
 name. A collision always retains the original member's position.
@@ -566,13 +579,18 @@ key. They otherwise operate on the assumption that an initialized document's
 established structure is valid. Comprehensive traversal belongs to the
 explicit integrity check rather than every mutation path.
 
-If a mutation encounters an internal contradiction, or if a failure after
-mutation begins cannot be recovered by a small local rollback, the live
-document is marked as having known-bad integrity. It is then not ready for
-further use and fails integrity checking. Reset or deallocation is the recovery
-boundary. This state is for unexpected corruption and severe internal failure;
-ordinary input rejection and pre-mutation allocation failure do not poison the
-document.
+Private structural mutation is encapsulated and single-threaded. Once public
+arguments and genuine allocation or capacity failures have been handled, its
+local topology and accounting operations are trusted and non-failing. An
+internal contradiction is therefore a programming defect: development builds
+assert with a brief cause at the point of contradiction. If a private
+contradiction or trusted helper failure is detected during incremental
+mutation, the document records a durable known-bad state, returns a neutral
+failure result and is no longer ready until reset. This is a narrow containment
+mechanism, not broad mutation prevalidation or recovery. `check_integrity()`
+remains the explicit comprehensive diagnostic. Public input rejection and
+ordinary allocation or capacity failure do not set the known-bad state and
+return neutral failure results without changing the established document.
 
 The live document maintains exact totals for root-reachable value nodes and
 root-reachable aggregate payloads. The aggregate total includes object,

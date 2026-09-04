@@ -15,7 +15,6 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <limits>
 
 #include "containers/StringBuffers.hpp"
 #include "containers/TPodOrderedSlots.hpp"
@@ -154,15 +153,15 @@ private:
 
     struct SSubtreeTotals
     {
-        std::uint64_t value_count{ 0u };
-        std::uint64_t aggregate_count{ 0u };
-        std::uint64_t recovered_aggregate_count{ 0u };
-        std::uint64_t empty_value_count{ 0u };
+        std::uint32_t value_count{ 0u };
+        std::uint32_t aggregate_count{ 0u };
+        std::uint32_t recovered_aggregate_count{ 0u };
+        std::uint32_t empty_value_count{ 0u };
     };
 
     enum class EReferenceAdjustment : std::uint8_t
     {
-        add,
+        add = 0u,
         remove
     };
 
@@ -171,9 +170,6 @@ private:
         CNodeKey previous;
         CNodeKey next;
     };
-
-    //  Framework representation limits
-    static constexpr std::uint64_t k_max_uint32 = std::numeric_limits<std::uint32_t>::max();
 
     //  String admission, stabilization and interning
     [[nodiscard]] bool prepare_string(const CStringView& source, SPreparedString& prepared) const noexcept;
@@ -208,30 +204,35 @@ private:
 
     //  Results and document-domain validation
     [[nodiscard]] static CLiveAttachmentResult attachment_rejection(const ELiveAttachmentRejection rejection) noexcept;
-    [[nodiscard]] CNodeKey node_key_integrity_failure() noexcept;
     [[nodiscard]] bool value_payload_is_in_document_domain(const CLiveNode& value) const noexcept;
     [[nodiscard]] bool aggregate_payload_is_in_document_domain(const CLiveNode& aggregate) const noexcept;
 
-    //  Subtree traversal and accounting
-    [[nodiscard]] bool subtree_next(const CNodeKey subtree_root, CNodeKey current, CNodeKey& next) const noexcept;
-    [[nodiscard]] bool subtree_first_postorder(const CNodeKey subtree_root, CNodeKey& first) const noexcept;
-    [[nodiscard]] bool subtree_next_postorder(const CNodeKey subtree_root, const CNodeKey current, CNodeKey& next) const noexcept;
-    [[nodiscard]] bool measure_subtree(const CNodeKey subtree_root, SSubtreeTotals& totals) const noexcept;
-    [[nodiscard]] bool audit_subtree(const CNodeKey subtree_root, SSubtreeTotals& totals) const noexcept;
-    [[nodiscard]] bool adjust_subtree_references(const CNodeKey subtree_root, const EReferenceAdjustment adjustment) noexcept;
+    //  Trusted mutation traversal and accounting
+    [[nodiscard]] CNodeKey subtree_next(const CNodeKey subtree_root, CNodeKey current) noexcept;
+    [[nodiscard]] CNodeKey subtree_first_postorder(const CNodeKey subtree_root) noexcept;
+    [[nodiscard]] CNodeKey subtree_next_postorder(const CNodeKey subtree_root, const CNodeKey current) noexcept;
+    [[nodiscard]] bool apply_subtree_reachability(const CNodeKey subtree_root, const EReferenceAdjustment adjustment, SSubtreeTotals& totals) noexcept;
+    [[nodiscard]] bool commit_reachable_totals(const SSubtreeTotals& removed, const SSubtreeTotals& added) noexcept;
     [[nodiscard]] bool adjust_property_name_reference(const CPropertyNameId id, const EReferenceAdjustment adjustment) noexcept;
     [[nodiscard]] bool adjust_string_value_reference(const CStringValueId id, const EReferenceAdjustment adjustment) noexcept;
-    [[nodiscard]] bool count_subtree_reference(const CNodeKey subtree_root, const std::uint32_t id, const bool string_domain, std::uint64_t& count) const noexcept;
-    [[nodiscard]] bool query_ancestry(const CNodeKey value, const CNodeKey sought, bool& reachable, bool& found) const noexcept;
+    [[nodiscard]] bool query_ancestry(const CNodeKey value, const CNodeKey sought, bool& reachable, bool& found) noexcept;
 
-    //  Structural mutation and failure state
+    //  Bounded checked audit traversal
+    [[nodiscard]] bool audit_subtree_checked(const CNodeKey subtree_root, SSubtreeTotals& totals) const noexcept;
+    [[nodiscard]] bool count_subtree_reference_checked(
+        const CNodeKey subtree_root,
+        const std::uint32_t id,
+        const bool string_domain,
+        std::uint32_t& count) const noexcept;
+
+    //  Structural mutation
     [[nodiscard]] CLiveAttachmentResult attach_child(
         const CNodeKey destination,
         const CNodeKey candidate,
         const SAttachmentPosition& position,
-        CNodeKey& surviving_value,
-        const bool allow_recovered_destination = false) noexcept;
+        CNodeKey& surviving_value) noexcept;
     [[nodiscard]] bool detach_value(const CNodeKey value, bool& was_reachable) noexcept;
+    [[nodiscard]] bool substitute_value_position(const CNodeKey displaced, const CNodeKey replacement) noexcept;
     [[nodiscard]] bool erase_subtree(const CNodeKey value) noexcept;
     void mark_integrity_bad() noexcept;
 

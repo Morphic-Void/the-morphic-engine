@@ -160,8 +160,6 @@ enum class ELiveAttachmentRejection : std::uint8_t
     insert_before_not_child,
     index_out_of_range,
     cycle,
-    relationship_limit,
-    accounting_limit,
     corrupt_structure,
 };
 
