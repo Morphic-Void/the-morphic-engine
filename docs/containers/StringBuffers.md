@@ -75,6 +75,11 @@ ID value 0 is reserved as an invalid sentinel.
 
 Accessors are fail-safe.
 
+`CStableStrings::string_count()` returns the number of valid stable string IDs.
+The internal index-zero sentinel is excluded. The count is zero for an
+uninitialized, initialized-empty or deallocated table and is unchanged by
+duplicate appends or sorting.
+
 Invalid lookup operations return:
 
 - empty views

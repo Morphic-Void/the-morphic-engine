@@ -177,7 +177,9 @@ void test_string_buffer_offsets_and_storage(TTestContext& ctx)
 void test_stable_strings_lookup_duplicates_and_sort(TTestContext& ctx)
 {
     CStableStrings table;
+    TEST_EXPECT(ctx, table.string_count() == 0u);
     TEST_EXPECT(ctx, table.initialise(8u, 32u));
+    TEST_EXPECT(ctx, table.string_count() == 0u);
     TEST_EXPECT(ctx, table.check_integrity());
 
     const std::uint8_t zero_only[]{ 0u };
@@ -192,6 +194,7 @@ void test_stable_strings_lookup_duplicates_and_sort(TTestContext& ctx)
     TEST_EXPECT(ctx, apple_id != CStableStrings::k_invalid_id);
     TEST_EXPECT(ctx, banana_id != CStableStrings::k_invalid_id);
     TEST_EXPECT(ctx, apple_dup_id == apple_id);
+    TEST_EXPECT(ctx, table.string_count() == 4u);
 
     TEST_EXPECT(ctx, table.find_id(reinterpret_cast<const std::uint8_t*>("pear")) == pear_id);
     TEST_EXPECT(ctx, table.find_id(zero_only, 0u) == empty_id);
@@ -217,6 +220,7 @@ void test_stable_strings_lookup_duplicates_and_sort(TTestContext& ctx)
     TEST_EXPECT(ctx, table.ref_index_to_rank(empty_ref_before) == 1u);
 
     TEST_EXPECT(ctx, table.sort());
+    TEST_EXPECT(ctx, table.string_count() == 4u);
     TEST_EXPECT(ctx, table.check_integrity());
     TEST_EXPECT(ctx, table.find_id(reinterpret_cast<const std::uint8_t*>("pear")) == pear_id);
     TEST_EXPECT(ctx, table.id_to_ref_index(empty_id) == 1u);
@@ -247,6 +251,7 @@ void test_stable_strings_reserve_shrink_and_invariants(TTestContext& ctx)
         table.view(table.find_id(reinterpret_cast<const std::uint8_t*>("beta"))));
 
     table.deallocate();
+    TEST_EXPECT(ctx, table.string_count() == 0u);
     TEST_EXPECT(ctx, table.view(1u).empty());
     TEST_EXPECT(ctx, !table.is_valid_id(1u));
 }

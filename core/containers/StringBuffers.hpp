@@ -356,6 +356,7 @@ public:
     [[nodiscard]] std::size_t operator+=(const std::uint8_t* const string) noexcept { return append(string); }
 
     //  Accessors
+    [[nodiscard]] std::size_t string_count() const noexcept;
     [[nodiscard]] CStringView view(const std::size_t id) const noexcept;
     [[nodiscard]] bool is_valid_id(const std::size_t id) const noexcept;
     [[nodiscard]] bool storage_overlaps(const std::uint8_t* bytes, const std::size_t size) const noexcept;
@@ -778,6 +779,12 @@ inline void CStringBuffer::unsafe_replace_memory_context_without_accounting(
 //==============================================================================
 //  CStableStrings out of class function bodies
 //==============================================================================
+
+[[nodiscard]] inline std::size_t CStableStrings::string_count() const noexcept
+{
+    const std::size_t stored_count = m_id_to_ref_index.size();
+    return (stored_count != 0u) ? (stored_count - 1u) : 0u;
+}
 
 inline CStringView CStableStrings::view(const std::size_t id) const noexcept
 {
