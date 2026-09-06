@@ -72,22 +72,21 @@ Status: complete.
 
 ## Stage 1: container observation prerequisites
 
-Expose the valid string-entry count already held by `CStableStrings`, excluding
-its internal sentinel. Add proportionate infrastructure tests if the existing
-container tests do not cover the contract.
+Implemented and committed as separate infrastructure changes:
 
-Separately consider an O(1) `TPodOrderedSlots::key_at_slot()` accessor so the
-live document can convert an internal slot relationship back to a public key
-without another ordered search or a duplicated self key. `TOrderedSlots` does
-not own concrete keys, so this belongs at the keyed façade rather than the
-generic slot layer. Do not broaden the change to other façades without a
-separate demonstrated use.
+- `CStableStrings::string_count()` exposes the valid entry count while
+  excluding its internal sentinel.
+- `TPodOrderedSlots::key_at_slot()` provides O(1) conversion from a live keyed
+  slot to its paired key.
+- `TOrderedCollection::key_at_slot()` provides the corresponding observation
+  for constructed non-POD slots.
 
-The stable-string accessor is approved in principle. The slot-key accessor
-remains a separately reviewed infrastructure proposal. Each accepted change
-must have its own infrastructure commit, separate from data-model changes. Do
-not add another ordering or sorting facility; use existing lexical-rank and
-rank-map support.
+The accessors have proportionate container tests, including behavior across
+sorting and packing. No ordering or sorting facility was added; existing
+lexical-rank and rank-map support remains the intended basis for baking and any
+later live-document packing.
+
+Status: complete.
 
 ## Stage 2: remove persistent reachability accounting
 

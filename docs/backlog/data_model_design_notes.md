@@ -39,20 +39,22 @@ Infrastructure outside the data model must be reviewed as a separate contextual
 change and committed independently. A data-model stage may depend on such a
 change only after it is expressly approved.
 
-One prerequisite has been approved in principle: expose the valid string count
-already held by `CStableStrings`, excluding its internal sentinel. This appears
-to be a missing observation rather than new behaviour. It supports correctly
-sized bake-analysis storage without teaching the data model about the
-container's internals.
+The approved observation prerequisites are now implemented:
 
-A second prospective prerequisite is an O(1) `key_at_slot()` observation on
-`TPodOrderedSlots`. The concrete key array belongs to that façade;
-`TOrderedSlots` knows only slot metadata and delegates comparison to its backing,
-so the generic slot layer cannot naturally return a key. `TPodOrderedSlots` can
-validate the slot and return its parallel key directly. A matching
-`TOrderedCollection` observation may be useful for interface symmetry, but is
-not required by the data model and should not be bundled without its own use
-case. Container implementation remains a separately reviewed change.
+- `CStableStrings::string_count()` exposes the number of valid string IDs while
+  excluding the internal sentinel. This supports correctly sized bake-analysis
+  storage without teaching the data model about container internals.
+- `TPodOrderedSlots::key_at_slot()` returns the key paired with a live keyed
+  slot in O(1). The concrete key array belongs to that façade;
+  `TOrderedSlots` knows only slot metadata and delegates comparison to its
+  backing, so the generic slot layer cannot naturally provide the observation.
+- `TOrderedCollection::key_at_slot()` provides the same O(1) observation for
+  constructed slots in the non-POD keyed façade, keeping the two keyed
+  container interfaces consistent.
+
+Each prerequisite was implemented and committed independently of the data
+model. They add observations over existing state rather than new container
+state or ordering machinery.
 
 `CStableStrings` already maintains lexical rank information and exposes ID/rank
 conversion. The initial baking implementation should use that facility rather
@@ -101,7 +103,8 @@ as another key repeats that search throughout traversal.
 Internal parent, sibling, owned-aggregate, owner and child links should instead
 be evaluated as `std::int32_t` slot indices with `-1` invalid. Once an incoming
 key has resolved to a slot, each structural hop is then O(1). Returning a public
-key for a reached node is also O(1) with the proposed `key_at_slot()` accessor.
+key for a reached node is also O(1) with the implemented `key_at_slot()`
+accessor.
 A height-`h` traversal changes from approximately O(h log n) key lookup to one
 O(log n) boundary lookup followed by O(h) direct traversal.
 
