@@ -164,6 +164,7 @@
   <ItemGroup>
     <None Include="$(MSBuildThisFileDirectory).gitignore" />
     <None Include="$(MSBuildThisFileDirectory)docs\architecture\architectural-principles.md" />
+    <None Include="$(MSBuildThisFileDirectory)docs\backlog\baked_document_format.md" />
     <None Include="$(MSBuildThisFileDirectory)docs\backlog\current_scope_backlog.md" />
     <None Include="$(MSBuildThisFileDirectory)docs\backlog\morphic_engine_interim_backlog.md" />
     <None Include="$(MSBuildThisFileDirectory)docs\architecture\codebase-ethos-primer.md" />
