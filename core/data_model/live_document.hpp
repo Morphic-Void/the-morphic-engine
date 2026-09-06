@@ -24,6 +24,26 @@
 
 struct SLiveDocumentTestAccess;
 
+//  Results describe one requested crawl; they are not maintained by mutation.
+struct SLiveDocumentAnalysis
+{
+    std::uint32_t value_count{ 0u };
+    std::uint32_t aggregate_payload_count{ 0u };
+    std::uint32_t recovered_aggregate_count{ 0u };
+    std::uint32_t empty_value_count{ 0u };
+};
+
+//  Optional caller-owned scratch. References are indexed by live domain ID.
+//  Names are counted once per value; aggregate name duplication is excluded.
+//  ID zero is counted but excluded from the distinct non-empty totals.
+struct SLiveDocumentStringAnalysis
+{
+    TPodVector<std::uint32_t> property_name_references;
+    TPodVector<std::uint32_t> string_value_references;
+    std::uint32_t referenced_property_name_count{ 0u };
+    std::uint32_t referenced_string_value_count{ 0u };
+};
+
 class CLiveDocument
 {
 public:
@@ -48,6 +68,15 @@ public:
     [[nodiscard]] bool is_canonical() const noexcept;
     [[nodiscard]] bool is_complete() const noexcept;
     [[nodiscard]] bool check_integrity() const noexcept;
+
+    //  Root-reachable observations. Without string scratch this allocates nothing.
+    //  Returns false for an unavailable or failed crawl. Output is usable only
+    //  after success; scratch may retain capacity after failure. Recompute after
+    //  mutation. Analysis trusts established structure; use check_integrity()
+    //  for the explicit whole-document audit.
+    [[nodiscard]] bool analyse(
+        SLiveDocumentAnalysis& result,
+        SLiveDocumentStringAnalysis* strings = nullptr) const noexcept;
 
     //  Root and reachable structure
     [[nodiscard]] CNodeKey root() const noexcept;
@@ -83,11 +112,6 @@ public:
     [[nodiscard]] bool floating_point_value(const CNodeKey node, double& value) const noexcept;
     [[nodiscard]] CStringValueId string_value_id(const CNodeKey node) const noexcept;
     [[nodiscard]] CStringView string_value(const CNodeKey node) const noexcept;
-
-    //  Referenced string-domain totals
-    //  Distinct non-empty entries referenced from the root-reachable structure.
-    [[nodiscard]] std::uint32_t referenced_property_name_count() const noexcept;
-    [[nodiscard]] std::uint32_t referenced_string_value_count() const noexcept;
 
     //  Detached value creation
     [[nodiscard]] CNodeKey create_empty(const CStringView& name = {}) noexcept;
@@ -151,20 +175,6 @@ private:
         CByteBuffer storage;
     };
 
-    struct SSubtreeTotals
-    {
-        std::uint32_t value_count{ 0u };
-        std::uint32_t aggregate_count{ 0u };
-        std::uint32_t recovered_aggregate_count{ 0u };
-        std::uint32_t empty_value_count{ 0u };
-    };
-
-    enum class EReferenceAdjustment : std::uint8_t
-    {
-        add = 0u,
-        remove
-    };
-
     struct SAttachmentPosition
     {
         CNodeKey previous;
@@ -176,7 +186,6 @@ private:
     [[nodiscard]] bool intern_string_domain(
         const SPreparedString& value,
         CStableStrings& strings,
-        TPodVector<std::uint32_t>& reference_counts,
         bool& strings_ready,
         std::uint32_t& id) noexcept;
 
@@ -207,23 +216,16 @@ private:
     [[nodiscard]] bool value_payload_is_in_document_domain(const CLiveNode& value) const noexcept;
     [[nodiscard]] bool aggregate_payload_is_in_document_domain(const CLiveNode& aggregate) const noexcept;
 
-    //  Trusted mutation traversal and accounting
-    [[nodiscard]] CNodeKey subtree_next(const CNodeKey subtree_root, CNodeKey current) noexcept;
+    //  Iterative observation and checked audit share const preorder navigation.
+    template<typename TVisitor>
+    [[nodiscard]] bool visit_subtree(const CNodeKey subtree_root, TVisitor&& visitor) const noexcept;
+    [[nodiscard]] bool subtree_next(const CNodeKey subtree_root, CNodeKey current, CNodeKey& next) const noexcept;
+    [[nodiscard]] bool audit_subtree_checked(const CNodeKey subtree_root, std::uint64_t& records) const noexcept;
+
+    //  Trusted mutation traversal
     [[nodiscard]] CNodeKey subtree_first_postorder(const CNodeKey subtree_root) noexcept;
     [[nodiscard]] CNodeKey subtree_next_postorder(const CNodeKey subtree_root, const CNodeKey current) noexcept;
-    [[nodiscard]] bool apply_subtree_reachability(const CNodeKey subtree_root, const EReferenceAdjustment adjustment, SSubtreeTotals& totals) noexcept;
-    [[nodiscard]] bool commit_reachable_totals(const SSubtreeTotals& removed, const SSubtreeTotals& added) noexcept;
-    [[nodiscard]] bool adjust_property_name_reference(const CPropertyNameId id, const EReferenceAdjustment adjustment) noexcept;
-    [[nodiscard]] bool adjust_string_value_reference(const CStringValueId id, const EReferenceAdjustment adjustment) noexcept;
-    [[nodiscard]] bool query_ancestry(const CNodeKey value, const CNodeKey sought, bool& reachable, bool& found) noexcept;
-
-    //  Bounded checked audit traversal
-    [[nodiscard]] bool audit_subtree_checked(const CNodeKey subtree_root, SSubtreeTotals& totals) const noexcept;
-    [[nodiscard]] bool count_subtree_reference_checked(
-        const CNodeKey subtree_root,
-        const std::uint32_t id,
-        const bool string_domain,
-        std::uint32_t& count) const noexcept;
+    [[nodiscard]] bool query_ancestry(const CNodeKey value, const CNodeKey sought, bool& found) noexcept;
 
     //  Structural mutation
     [[nodiscard]] CLiveAttachmentResult attach_child(
@@ -231,7 +233,7 @@ private:
         const CNodeKey candidate,
         const SAttachmentPosition& position,
         CNodeKey& surviving_value) noexcept;
-    [[nodiscard]] bool detach_value(const CNodeKey value, bool& was_reachable) noexcept;
+    [[nodiscard]] bool detach_value(const CNodeKey value) noexcept;
     [[nodiscard]] bool substitute_value_position(const CNodeKey displaced, const CNodeKey replacement) noexcept;
     [[nodiscard]] bool erase_subtree(const CNodeKey value) noexcept;
     void mark_integrity_bad() noexcept;
@@ -239,7 +241,6 @@ private:
     //  Integrity and move support
     [[nodiscard]] bool check_string_domain(
         const CStableStrings& strings,
-        const TPodVector<std::uint32_t>& counts,
         const bool stable_ready) const noexcept;
     void replace_with(CLiveDocument& source) noexcept;
 
@@ -247,18 +248,10 @@ private:
     TPodOrderedSlots<CLiveNode, CNodeKey> m_nodes;
     CStableStrings m_property_names;
     CStableStrings m_string_values;
-    TPodVector<std::uint32_t> m_property_name_counts;
-    TPodVector<std::uint32_t> m_string_value_counts;
 
     //  Document state
     CNodeKey m_root;
     std::uint64_t m_next_monotonic_node_key{ 1u };
-    std::uint32_t m_value_count{ 0u };
-    std::uint32_t m_aggregate_payload_count{ 0u };
-    std::uint32_t m_referenced_property_name_count{ 0u };
-    std::uint32_t m_referenced_string_value_count{ 0u };
-    std::uint32_t m_recovered_aggregate_count{ 0u };
-    std::uint32_t m_empty_value_count{ 0u };
     bool m_property_names_ready{ false };
     bool m_string_values_ready{ false };
     bool m_integrity_known_bad{ false };

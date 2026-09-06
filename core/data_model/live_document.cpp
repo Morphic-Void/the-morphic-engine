@@ -36,15 +36,10 @@ bool CLiveDocument::initialise(const std::size_t initial_node_capacity) noexcept
     }
 
     CLiveDocument staged;
-    if (!staged.m_nodes.initialise((initial_node_capacity < 2u) ? 2u : initial_node_capacity) ||
-        !staged.m_property_name_counts.resize(1u) ||
-        !staged.m_string_value_counts.resize(1u))
+    if (!staged.m_nodes.initialise((initial_node_capacity < 2u) ? 2u : initial_node_capacity))
     {
         return false;
     }
-
-    staged.m_property_name_counts[0u] = 0u;
-    staged.m_string_value_counts[0u] = 0u;
 
     if (!staged.insert_root_pair())
     {
@@ -66,16 +61,8 @@ void CLiveDocument::deallocate() noexcept
     m_nodes.deallocate();
     m_property_names.deallocate();
     m_string_values.deallocate();
-    m_property_name_counts.deallocate();
-    m_string_value_counts.deallocate();
     m_root = CNodeKey{};
     m_next_monotonic_node_key = 1u;
-    m_value_count = 0u;
-    m_aggregate_payload_count = 0u;
-    m_referenced_property_name_count = 0u;
-    m_referenced_string_value_count = 0u;
-    m_recovered_aggregate_count = 0u;
-    m_empty_value_count = 0u;
     m_property_names_ready = false;
     m_string_values_ready = false;
     m_integrity_known_bad = false;
@@ -83,26 +70,140 @@ void CLiveDocument::deallocate() noexcept
 
 bool CLiveDocument::is_ready() const noexcept
 {
-    return
-        m_nodes.is_ready() && m_property_name_counts.is_ready() &&
-        m_string_value_counts.is_ready() && m_root.is_valid() && !m_integrity_known_bad;
+    return m_nodes.is_ready() && m_root.is_valid() && !m_integrity_known_bad;
 }
 
 bool CLiveDocument::is_canonical() const noexcept
 {
-    return is_ready() && (m_recovered_aggregate_count == 0u);
+    SLiveDocumentAnalysis result;
+    return analyse(result) && (result.recovered_aggregate_count == 0u);
 }
 
 bool CLiveDocument::is_complete() const noexcept
 {
-    return is_ready() && (m_empty_value_count == 0u);
+    SLiveDocumentAnalysis result;
+    return analyse(result) && (result.empty_value_count == 0u);
+}
+
+template<typename TVisitor>
+bool CLiveDocument::visit_subtree(const CNodeKey subtree_root, TVisitor&& visitor) const noexcept
+{
+    CNodeKey current = subtree_root;
+    std::uint32_t visited = 0u;
+    while (current.is_valid())
+    {
+        if (visited >= m_nodes.occupied_count())
+        {
+            return false;
+        }
+        ++visited;
+        const CLiveNode* const value = value_node(current);
+        if ((value == nullptr) || !value_payload_is_in_document_domain(*value))
+        {
+            return false;
+        }
+        const CLiveNode* const aggregate = live_value_type_is_container(value->value_type()) ?
+            node(value->value_owned_aggregate_key()) : nullptr;
+        if (live_value_type_is_container(value->value_type()) &&
+            ((aggregate == nullptr) || !aggregate_payload_is_in_document_domain(*aggregate)))
+        {
+            return false;
+        }
+        if (!visitor(*value, aggregate) || !subtree_next(subtree_root, current, current))
+        {
+            return false;
+        }
+    }
+    return visited != 0u;
+}
+
+bool CLiveDocument::analyse(
+    SLiveDocumentAnalysis& result,
+    SLiveDocumentStringAnalysis* const strings) const noexcept
+{
+    result = SLiveDocumentAnalysis{};
+    if (strings != nullptr)
+    {
+        strings->referenced_property_name_count = 0u;
+        strings->referenced_string_value_count = 0u;
+    }
+    if (!is_ready())
+    {
+        return false;
+    }
+    if (strings != nullptr)
+    {
+        const std::size_t names = m_property_names.string_count();
+        const std::size_t values = m_string_values.string_count();
+        if ((names >= CPropertyNameId::k_invalid_value) ||
+            (values >= CStringValueId::k_invalid_value) ||
+            !strings->property_name_references.resize(names + 1u) ||
+            !strings->string_value_references.resize(values + 1u))
+        {
+            return false;
+        }
+        for (std::size_t id = 0u; id <= names; ++id)
+        {
+            strings->property_name_references[id] = 0u;
+        }
+        for (std::size_t id = 0u; id <= values; ++id)
+        {
+            strings->string_value_references[id] = 0u;
+        }
+    }
+
+    SLiveDocumentAnalysis measured;
+    const bool success = visit_subtree(m_root,
+        [&measured, strings](const CLiveNode& value, const CLiveNode* const aggregate) noexcept
+        {
+            ++measured.value_count;
+            if (value.value_type() == ELiveValueType::empty)
+            {
+                ++measured.empty_value_count;
+            }
+            if (aggregate != nullptr)
+            {
+                ++measured.aggregate_payload_count;
+                if (aggregate->aggregate_kind() == ELiveAggregateKind::recovered_array)
+                {
+                    ++measured.recovered_aggregate_count;
+                }
+            }
+            if (strings != nullptr)
+            {
+                const std::uint32_t name_id = value.name_id().query_value();
+                std::uint32_t& name_references = strings->property_name_references[name_id];
+                if ((name_id != 0u) && (name_references == 0u))
+                {
+                    ++strings->referenced_property_name_count;
+                }
+                ++name_references;
+                if (value.value_type() == ELiveValueType::string)
+                {
+                    const std::uint32_t string_id = static_cast<std::uint32_t>(value.payload_bits());
+                    std::uint32_t& value_references = strings->string_value_references[string_id];
+                    if ((string_id != 0u) && (value_references == 0u))
+                    {
+                        ++strings->referenced_string_value_count;
+                    }
+                    ++value_references;
+                }
+            }
+            return true;
+        });
+    if (!success)
+    {
+        return false;
+    }
+    result = measured;
+    return true;
 }
 
 bool CLiveDocument::check_integrity() const noexcept
 {
     if (!is_ready() || !m_nodes.check_integrity() ||
-        !check_string_domain(m_property_names, m_property_name_counts, m_property_names_ready) ||
-        !check_string_domain(m_string_values, m_string_value_counts, m_string_values_ready) ||
+        !check_string_domain(m_property_names, m_property_names_ready) ||
+        !check_string_domain(m_string_values, m_string_values_ready) ||
         (m_root.query_value() != 1u))
     {
         return false;
@@ -129,7 +230,7 @@ bool CLiveDocument::check_integrity() const noexcept
             (m_nodes.get_slot(current->key()) != current) ||
             (previous_key.is_valid() && (previous_key.relationship(current->key()) >= 0)) ||
             !current->name_id().is_valid() ||
-            (current->name_id().query_value() >= m_property_name_counts.size()))
+            (!current->name_id().is_empty() && !m_property_names.is_valid_id(current->name_id().query_value())))
         {
             return false;
         }
@@ -190,29 +291,24 @@ bool CLiveDocument::check_integrity() const noexcept
         return false;
     }
 
-    SSubtreeTotals reachable;
-    if (!audit_subtree_checked(m_root, reachable) ||
-        (reachable.value_count != m_value_count) ||
-        (reachable.aggregate_count != m_aggregate_payload_count) ||
-        (reachable.recovered_aggregate_count != m_recovered_aggregate_count) ||
-        (reachable.empty_value_count != m_empty_value_count))
+    std::uint64_t forest_records = 0u;
+    if (!audit_subtree_checked(m_root, forest_records))
     {
         return false;
     }
 
-    std::uint64_t forest_records = reachable.value_count + reachable.aggregate_count;
     for (std::int32_t index = m_nodes.first_live(); index >= 0; index = m_nodes.next_live(index))
     {
         const CLiveNode* const current = m_nodes.get_slot(index);
         if ((current != nullptr) && current->is_value_record() &&
             (current->key() != m_root) && !current->value_parent_aggregate_key().is_valid())
         {
-            SSubtreeTotals detached;
-            if (!audit_subtree_checked(current->key(), detached))
+            std::uint64_t detached_records = 0u;
+            if (!audit_subtree_checked(current->key(), detached_records))
             {
                 return false;
             }
-            forest_records += detached.value_count + detached.aggregate_count;
+            forest_records += detached_records;
             if (forest_records > m_nodes.occupied_count())
             {
                 return false;
@@ -224,37 +320,7 @@ bool CLiveDocument::check_integrity() const noexcept
         return false;
     }
 
-    std::uint32_t referenced_property_names = 0u;
-    for (std::size_t id = 0u; id < m_property_name_counts.size(); ++id)
-    {
-        std::uint32_t expected = 0u;
-        if (!count_subtree_reference_checked(m_root, static_cast<std::uint32_t>(id), false, expected) ||
-            (m_property_name_counts[id] != expected))
-        {
-            return false;
-        }
-        if ((id != 0u) && (expected != 0u))
-        {
-            ++referenced_property_names;
-        }
-    }
-    std::uint32_t referenced_string_values = 0u;
-    for (std::size_t id = 0u; id < m_string_value_counts.size(); ++id)
-    {
-        std::uint32_t expected = 0u;
-        if (!count_subtree_reference_checked(m_root, static_cast<std::uint32_t>(id), true, expected) ||
-            (m_string_value_counts[id] != expected))
-        {
-            return false;
-        }
-        if ((id != 0u) && (expected != 0u))
-        {
-            ++referenced_string_values;
-        }
-    }
-    return
-        (referenced_property_names == m_referenced_property_name_count) &&
-        (referenced_string_values == m_referenced_string_value_count);
+    return true;
 }
 
 CNodeKey CLiveDocument::root() const noexcept
@@ -264,12 +330,14 @@ CNodeKey CLiveDocument::root() const noexcept
 
 std::uint32_t CLiveDocument::value_count() const noexcept
 {
-    return is_ready() ? m_value_count : 0u;
+    SLiveDocumentAnalysis result;
+    return analyse(result) ? result.value_count : 0u;
 }
 
 std::uint32_t CLiveDocument::aggregate_payload_count() const noexcept
 {
-    return is_ready() ? m_aggregate_payload_count : 0u;
+    SLiveDocumentAnalysis result;
+    return analyse(result) ? result.aggregate_payload_count : 0u;
 }
 
 bool CLiveDocument::contains(const CNodeKey value) const noexcept
@@ -308,7 +376,7 @@ CStringView CLiveDocument::name(const CNodeKey value) const noexcept
 
 CStringView CLiveDocument::property_name(const CPropertyNameId id) const noexcept
 {
-    if (!id.is_valid() || (id.query_value() >= m_property_name_counts.size()))
+    if (!id.is_valid() || (!id.is_empty() && !m_property_names.is_valid_id(id.query_value())))
     {
         return CStringView{};
     }
@@ -317,7 +385,7 @@ CStringView CLiveDocument::property_name(const CPropertyNameId id) const noexcep
 
 CStringView CLiveDocument::string_value(const CStringValueId id) const noexcept
 {
-    if (!id.is_valid() || (id.query_value() >= m_string_value_counts.size()))
+    if (!id.is_valid() || (!id.is_empty() && !m_string_values.is_valid_id(id.query_value())))
     {
         return CStringView{};
     }
@@ -434,16 +502,6 @@ CStringValueId CLiveDocument::string_value_id(const CNodeKey key) const noexcept
 CStringView CLiveDocument::string_value(const CNodeKey key) const noexcept
 {
     return string_value(string_value_id(key));
-}
-
-std::uint32_t CLiveDocument::referenced_property_name_count() const noexcept
-{
-    return is_ready() ? m_referenced_property_name_count : 0u;
-}
-
-std::uint32_t CLiveDocument::referenced_string_value_count() const noexcept
-{
-    return is_ready() ? m_referenced_string_value_count : 0u;
 }
 
 CNodeKey CLiveDocument::create_empty(const CStringView& name_value) noexcept
@@ -666,8 +724,7 @@ bool CLiveDocument::detach(const CNodeKey value) noexcept
     {
         return false;
     }
-    bool was_reachable = false;
-    return detach_value(value, was_reachable);
+    return detach_value(value);
 }
 
 CNodeKey CLiveDocument::detach_payload(const CNodeKey source) noexcept
@@ -694,37 +751,15 @@ CNodeKey CLiveDocument::detach_payload(const CNodeKey source) noexcept
         return CNodeKey{};
     }
 
-    bool source_reachable = false;
-    bool ignored = false;
-    if (!query_ancestry(source, CNodeKey{}, source_reachable, ignored))
-    {
-        return CNodeKey{};
-    }
-
     const CNodeKey empty_key = create_empty_node(former_name);
     if (!empty_key.is_valid())
     {
         return CNodeKey{};
     }
 
-    SSubtreeTotals removed, added;
-    if (source_reachable &&
-        (!apply_subtree_reachability(source, EReferenceAdjustment::remove, removed) ||
-            !apply_subtree_reachability(empty_key, EReferenceAdjustment::add, added)))
-    {
-        (void)m_nodes.erase(empty_key);
-        return CNodeKey{};
-    }
     if (!substitute_value_position(source, empty_key))
     {
         return CNodeKey{};
-    }
-    if (source_reachable)
-    {
-        if (!commit_reachable_totals(removed, added))
-        {
-            return CNodeKey{};
-        }
     }
     value_node(source)->set_name_id(CPropertyNameId{ CPropertyNameId::k_empty_value });
     CLiveNode* const aggregate = aggregate_key.is_valid() ? node(aggregate_key) : nullptr;
@@ -770,9 +805,8 @@ CNodeKey CLiveDocument::attach_payload(const CNodeKey empty_target, const CNodeK
         return CNodeKey{};
     }
 
-    bool target_reachable = false;
     bool cycle = false;
-    if (!query_ancestry(empty_target, detached_payload, target_reachable, cycle))
+    if (!query_ancestry(empty_target, detached_payload, cycle))
     {
         return CNodeKey{};
     }
@@ -790,19 +824,6 @@ CNodeKey CLiveDocument::attach_payload(const CNodeKey empty_target, const CNodeK
     if (payload_aggregate != nullptr)
     {
         payload_aggregate->set_name_id(target_name);
-    }
-    if (target_reachable)
-    {
-        SSubtreeTotals removed, added;
-        if (!apply_subtree_reachability(empty_target, EReferenceAdjustment::remove, removed) ||
-            !apply_subtree_reachability(detached_payload, EReferenceAdjustment::add, added))
-        {
-            return CNodeKey{};
-        }
-        if (!commit_reachable_totals(removed, added))
-        {
-            return CNodeKey{};
-        }
     }
     if (!erase_subtree(empty_target))
     {
@@ -839,15 +860,6 @@ bool CLiveDocument::erase(const CNodeKey value) noexcept
                 return false;
             }
             const CNodeKey next = child_value->value_next_sibling_key();
-            SSubtreeTotals totals;
-            if (!apply_subtree_reachability(child, EReferenceAdjustment::remove, totals))
-            {
-                return false;
-            }
-            if (!commit_reachable_totals(totals, SSubtreeTotals{}))
-            {
-                return false;
-            }
             if (!erase_subtree(child))
             {
                 return false;
@@ -865,8 +877,7 @@ bool CLiveDocument::erase(const CNodeKey value) noexcept
     }
     if (value_record->value_parent_aggregate_key().is_valid())
     {
-        bool was_reachable = false;
-        if (!detach_value(value, was_reachable))
+        if (!detach_value(value))
         {
             return false;
         }
@@ -887,22 +898,19 @@ bool CLiveDocument::erase(const CNodeKey value) noexcept
 std::uint32_t CLiveDocument::memory_token_count() const noexcept
 {
     return m_nodes.memory_token_count() + m_property_names.memory_token_count() +
-        m_string_values.memory_token_count() + m_property_name_counts.memory_token_count() +
-        m_string_value_counts.memory_token_count();
+        m_string_values.memory_token_count();
 }
 
 std::uint32_t CLiveDocument::memory_allocation_count() const noexcept
 {
     return m_nodes.memory_allocation_count() + m_property_names.memory_allocation_count() +
-        m_string_values.memory_allocation_count() + m_property_name_counts.memory_allocation_count() +
-        m_string_value_counts.memory_allocation_count();
+        m_string_values.memory_allocation_count();
 }
 
 std::uint64_t CLiveDocument::memory_allocation_size() const noexcept
 {
     return m_nodes.memory_allocation_size() + m_property_names.memory_allocation_size() +
-        m_string_values.memory_allocation_size() + m_property_name_counts.memory_allocation_size() +
-        m_string_value_counts.memory_allocation_size();
+        m_string_values.memory_allocation_size();
 }
 
 bool CLiveDocument::prepare_string(const CStringView& source, SPreparedString& prepared) const noexcept
@@ -967,7 +975,6 @@ bool CLiveDocument::prepare_string(const CStringView& source, SPreparedString& p
 bool CLiveDocument::intern_string_domain(
     const SPreparedString& value,
     CStableStrings& strings,
-    TPodVector<std::uint32_t>& reference_counts,
     bool& strings_ready,
     std::uint32_t& id) noexcept
 {
@@ -988,16 +995,12 @@ bool CLiveDocument::intern_string_domain(
         return true;
     }
 
-    const std::size_t next_id = reference_counts.size();
+    const std::size_t next_id = strings.string_count() + 1u;
     if (next_id >= CPropertyNameId::k_invalid_value)
     {
         return false;
     }
 
-    if (!reference_counts.ensure_free(1u))
-    {
-        return false;
-    }
     if (!strings_ready)
     {
         const std::size_t storage_size = value.size + 2u;
@@ -1013,7 +1016,7 @@ bool CLiveDocument::intern_string_domain(
     }
 
     const std::size_t appended = strings.append(value.bytes, value.size);
-    if ((appended != next_id) || !reference_counts.push_back(0u))
+    if (appended != next_id)
     {
         mark_integrity_bad();
         MV_ASSERT_MSG(false, "String intern commit failed.");
@@ -1043,7 +1046,6 @@ bool CLiveDocument::intern_property_name(const SPreparedString& value, CProperty
     if (!intern_string_domain(
         value,
         m_property_names,
-        m_property_name_counts,
         m_property_names_ready,
         raw_id))
     {
@@ -1059,7 +1061,6 @@ bool CLiveDocument::intern_string_value(const SPreparedString& value, CStringVal
     if (!intern_string_domain(
         value,
         m_string_values,
-        m_string_value_counts,
         m_string_values_ready,
         raw_id))
     {
@@ -1183,9 +1184,6 @@ bool CLiveDocument::insert_root_pair() noexcept
     }
 
     m_root = root_key;
-    m_value_count = 1u;
-    m_aggregate_payload_count = 1u;
-    m_property_name_counts[0u] = 2u;
     return true;
 }
 
@@ -1237,70 +1235,62 @@ void CLiveDocument::mark_integrity_bad() noexcept
 bool CLiveDocument::value_payload_is_in_document_domain(const CLiveNode& value) const noexcept
 {
     return value.value_payload_is_valid() &&
-        (value.name_id().query_value() < m_property_name_counts.size()) &&
-        ((value.value_type() != ELiveValueType::string) || (value.payload_bits() < m_string_value_counts.size()));
+        (value.name_id().is_empty() || m_property_names.is_valid_id(value.name_id().query_value())) &&
+        ((value.value_type() != ELiveValueType::string) || (value.payload_bits() == 0u) ||
+            m_string_values.is_valid_id(static_cast<std::size_t>(value.payload_bits())));
 }
 
 bool CLiveDocument::aggregate_payload_is_in_document_domain(const CLiveNode& aggregate) const noexcept
 {
     return aggregate.aggregate_payload_is_valid() &&
-        (aggregate.name_id().query_value() < m_property_name_counts.size());
+        (aggregate.name_id().is_empty() || m_property_names.is_valid_id(aggregate.name_id().query_value()));
 }
 
-CNodeKey CLiveDocument::subtree_next(const CNodeKey subtree_root, CNodeKey current) noexcept
+bool CLiveDocument::subtree_next(const CNodeKey subtree_root, CNodeKey current, CNodeKey& next) const noexcept
 {
+    next = CNodeKey{};
     const CLiveNode* value = value_node(current);
     if (value == nullptr)
     {
-        mark_integrity_bad();
-        MV_ASSERT_MSG(false, "Subtree traversal encountered an invalid value.");
-        return CNodeKey{};
+        return false;
     }
-
     if (live_value_type_is_container(value->value_type()))
     {
         const CLiveNode* const aggregate = node(value->value_owned_aggregate_key());
-        if (aggregate == nullptr)
+        if ((aggregate == nullptr) || !aggregate->is_aggregate_record())
         {
-            mark_integrity_bad();
-            MV_ASSERT_MSG(false, "Subtree traversal encountered an invalid aggregate.");
-            return CNodeKey{};
+            return false;
         }
         if (aggregate->aggregate_first_child_key().is_valid())
         {
-            return aggregate->aggregate_first_child_key();
+            next = aggregate->aggregate_first_child_key();
+            return true;
         }
     }
-
     for (std::uint32_t ascent = 0u; ascent <= m_nodes.occupied_count(); ++ascent)
     {
         if (current == subtree_root)
         {
-            return CNodeKey{};
+            return true;
         }
         value = value_node(current);
         if (value == nullptr)
         {
-            mark_integrity_bad();
-            MV_ASSERT_MSG(false, "Subtree traversal encountered an invalid value.");
-            return CNodeKey{};
+            return false;
         }
         if (value->value_next_sibling_key().is_valid())
         {
-            return value->value_next_sibling_key();
+            next = value->value_next_sibling_key();
+            return true;
         }
         const CLiveNode* const parent = node(value->value_parent_aggregate_key());
-        if (parent == nullptr)
+        if ((parent == nullptr) || !parent->is_aggregate_record())
         {
-            mark_integrity_bad();
-            MV_ASSERT_MSG(false, "Subtree traversal encountered an invalid parent aggregate.");
-            return CNodeKey{};
+            return false;
         }
         current = parent->aggregate_owner_value_key();
     }
-    mark_integrity_bad();
-    MV_ASSERT_MSG(false, "Subtree traversal did not terminate.");
-    return CNodeKey{};
+    return false;
 }
 
 CNodeKey CLiveDocument::subtree_first_postorder(const CNodeKey subtree_root) noexcept
@@ -1364,49 +1354,26 @@ CNodeKey CLiveDocument::subtree_next_postorder(const CNodeKey subtree_root, cons
     return parent->aggregate_owner_value_key();
 }
 
-bool CLiveDocument::audit_subtree_checked(const CNodeKey subtree_root, SSubtreeTotals& totals) const noexcept
+bool CLiveDocument::audit_subtree_checked(const CNodeKey subtree_root, std::uint64_t& records) const noexcept
 {
-    totals = SSubtreeTotals{};
-
-    if (value_node(subtree_root) == nullptr)
+    records = 0u;
+    return visit_subtree(subtree_root, [this, &records](const CLiveNode& value_record, const CLiveNode* const aggregate) noexcept
     {
-        return false;
-    }
-
-    CNodeKey current = subtree_root;
-    while (current.is_valid())
-    {
-        const CLiveNode* const value = value_node(current);
-        if ((value == nullptr) || (value->key() != current) || !value_payload_is_in_document_domain(*value))
-        {
-            return false;
-        }
-        ++totals.value_count;
-        if (value->value_type() == ELiveValueType::empty)
-        {
-            ++totals.empty_value_count;
-        }
-        if ((totals.value_count + totals.aggregate_count) > m_nodes.occupied_count())
+        const CLiveNode* const value = &value_record;
+        ++records;
+        if (records > m_nodes.occupied_count())
         {
             return false;
         }
 
-        const CLiveNode* aggregate = nullptr;
-        if (live_value_type_is_container(value->value_type()))
+        if (aggregate != nullptr)
         {
-            aggregate = node(value->value_owned_aggregate_key());
-            if ((aggregate == nullptr) ||
-                !aggregate_payload_is_in_document_domain(*aggregate) ||
-                !value->forms_container_pair_with(*aggregate))
+            if (!value->forms_container_pair_with(*aggregate))
             {
                 return false;
             }
-            ++totals.aggregate_count;
-            if (aggregate->aggregate_kind() == ELiveAggregateKind::recovered_array)
-            {
-                ++totals.recovered_aggregate_count;
-            }
-            if ((totals.value_count + totals.aggregate_count) > m_nodes.occupied_count())
+            ++records;
+            if (records > m_nodes.occupied_count())
             {
                 return false;
             }
@@ -1469,282 +1436,12 @@ bool CLiveDocument::audit_subtree_checked(const CNodeKey subtree_root, SSubtreeT
             }
         }
 
-        if ((aggregate != nullptr) && aggregate->aggregate_first_child_key().is_valid())
-        {
-            current = aggregate->aggregate_first_child_key();
-            continue;
-        }
-
-        while (current != subtree_root)
-        {
-            const CLiveNode* const completed = value_node(current);
-            if (completed == nullptr)
-            {
-                return false;
-            }
-            if (completed->value_next_sibling_key().is_valid())
-            {
-                current = completed->value_next_sibling_key();
-                break;
-            }
-            const CLiveNode* const parent_aggregate = node(completed->value_parent_aggregate_key());
-            if ((parent_aggregate == nullptr) || !aggregate_payload_is_in_document_domain(*parent_aggregate))
-            {
-                return false;
-            }
-            current = parent_aggregate->aggregate_owner_value_key();
-        }
-        if (current == subtree_root)
-        {
-            current = CNodeKey{};
-        }
-    }
-
-    return true;
-}
-
-bool CLiveDocument::apply_subtree_reachability(const CNodeKey subtree_root, const EReferenceAdjustment adjustment, SSubtreeTotals& totals) noexcept
-{
-    totals = SSubtreeTotals{};
-    CNodeKey current = subtree_root;
-    std::uint32_t visited_values = 0u;
-    while (current.is_valid())
-    {
-        if (visited_values >= m_nodes.occupied_count())
-        {
-            mark_integrity_bad();
-            MV_ASSERT_MSG(false, "Reachability traversal did not terminate.");
-            return false;
-        }
-        ++visited_values;
-        const CLiveNode* const value = value_node(current);
-        if (value == nullptr)
-        {
-            mark_integrity_bad();
-            MV_ASSERT_MSG(false, "Reachability traversal encountered an invalid value.");
-            return false;
-        }
-        if (!adjust_property_name_reference(value->name_id(), adjustment))
-        {
-            return false;
-        }
-        ++totals.value_count;
-        if (value->value_type() == ELiveValueType::empty)
-        {
-            ++totals.empty_value_count;
-        }
-        if ((value->value_type() == ELiveValueType::string) &&
-            !adjust_string_value_reference(CStringValueId{ static_cast<std::uint32_t>(value->payload_bits()) }, adjustment))
-        {
-            return false;
-        }
-        if (live_value_type_is_container(value->value_type()))
-        {
-            const CLiveNode* const aggregate = node(value->value_owned_aggregate_key());
-            if (aggregate == nullptr)
-            {
-                mark_integrity_bad();
-                MV_ASSERT_MSG(false, "Reachability traversal encountered an invalid aggregate.");
-                return false;
-            }
-            if (!adjust_property_name_reference(aggregate->name_id(), adjustment))
-            {
-                return false;
-            }
-            ++totals.aggregate_count;
-            if (aggregate->aggregate_kind() == ELiveAggregateKind::recovered_array)
-            {
-                ++totals.recovered_aggregate_count;
-            }
-        }
-        current = subtree_next(subtree_root, current);
-        if (m_integrity_known_bad)
-        {
-            return false;
-        }
-    }
-    return totals.value_count != 0u;
-}
-
-bool CLiveDocument::commit_reachable_totals(const SSubtreeTotals& removed, const SSubtreeTotals& added) noexcept
-{
-    if ((m_value_count < removed.value_count) ||
-        (m_aggregate_payload_count < removed.aggregate_count) ||
-        (m_recovered_aggregate_count < removed.recovered_aggregate_count) ||
-        (m_empty_value_count < removed.empty_value_count))
-    {
-        mark_integrity_bad();
-        MV_ASSERT_MSG(false, "Reachable document totals would underflow.");
-        return false;
-    }
-
-    m_value_count = m_value_count - removed.value_count + added.value_count;
-    m_aggregate_payload_count = m_aggregate_payload_count - removed.aggregate_count + added.aggregate_count;
-    m_recovered_aggregate_count = m_recovered_aggregate_count - removed.recovered_aggregate_count + added.recovered_aggregate_count;
-    m_empty_value_count = m_empty_value_count - removed.empty_value_count + added.empty_value_count;
-    return true;
-}
-
-bool CLiveDocument::adjust_property_name_reference(const CPropertyNameId id, const EReferenceAdjustment adjustment) noexcept
-{
-    if (!id.is_valid() || (id.query_value() >= m_property_name_counts.size()))
-    {
-        mark_integrity_bad();
-        MV_ASSERT_MSG(false, "Property-name reference identifier is invalid.");
-        return false;
-    }
-    std::uint32_t& count = m_property_name_counts[id.query_value()];
-    if (adjustment == EReferenceAdjustment::add)
-    {
-        if ((id.query_value() != 0u) && (count == 0u))
-        {
-            ++m_referenced_property_name_count;
-        }
-        ++count;
         return true;
-    }
-    if (count == 0u)
-    {
-        mark_integrity_bad();
-        MV_ASSERT_MSG(false, "Property-name reference count underflowed.");
-        return false;
-    }
-    --count;
-    if ((id.query_value() != 0u) && (count == 0u))
-    {
-        if (m_referenced_property_name_count == 0u)
-        {
-            mark_integrity_bad();
-            MV_ASSERT_MSG(false, "Referenced property-name total underflowed.");
-            return false;
-        }
-        --m_referenced_property_name_count;
-    }
-    return true;
+    });
 }
 
-bool CLiveDocument::adjust_string_value_reference(const CStringValueId id, const EReferenceAdjustment adjustment) noexcept
+bool CLiveDocument::query_ancestry(const CNodeKey value, const CNodeKey sought, bool& found) noexcept
 {
-    if (!id.is_valid() || (id.query_value() >= m_string_value_counts.size()))
-    {
-        mark_integrity_bad();
-        MV_ASSERT_MSG(false, "String-value reference identifier is invalid.");
-        return false;
-    }
-    std::uint32_t& count = m_string_value_counts[id.query_value()];
-    if (adjustment == EReferenceAdjustment::add)
-    {
-        if ((id.query_value() != 0u) && (count == 0u))
-        {
-            ++m_referenced_string_value_count;
-        }
-        ++count;
-        return true;
-    }
-    if (count == 0u)
-    {
-        mark_integrity_bad();
-        MV_ASSERT_MSG(false, "String-value reference count underflowed.");
-        return false;
-    }
-    --count;
-    if ((id.query_value() != 0u) && (count == 0u))
-    {
-        if (m_referenced_string_value_count == 0u)
-        {
-            mark_integrity_bad();
-            MV_ASSERT_MSG(false, "Referenced string-value total underflowed.");
-            return false;
-        }
-        --m_referenced_string_value_count;
-    }
-    return true;
-}
-
-bool CLiveDocument::count_subtree_reference_checked(
-    const CNodeKey subtree_root,
-    const std::uint32_t id,
-    const bool string_domain,
-    std::uint32_t& count) const noexcept
-{
-    count = 0u;
-    CNodeKey current = subtree_root;
-    std::uint64_t visited = 0u;
-    while (current.is_valid())
-    {
-        const CLiveNode* const value = value_node(current);
-        if (value == nullptr)
-        {
-            return false;
-        }
-        ++visited;
-        if (visited > m_nodes.occupied_count())
-        {
-            return false;
-        }
-        if (string_domain)
-        {
-            if ((value->value_type() == ELiveValueType::string) && (value->payload_bits() == id))
-            {
-                ++count;
-            }
-        }
-        else
-        {
-            if (value->name_id().query_value() == id)
-            {
-                ++count;
-            }
-        }
-
-        const CLiveNode* aggregate = nullptr;
-        if (live_value_type_is_container(value->value_type()))
-        {
-            aggregate = node(value->value_owned_aggregate_key());
-            if (aggregate == nullptr)
-            {
-                return false;
-            }
-            if (!string_domain && (aggregate->name_id().query_value() == id))
-            {
-                ++count;
-            }
-        }
-        if ((aggregate != nullptr) && aggregate->aggregate_first_child_key().is_valid())
-        {
-            current = aggregate->aggregate_first_child_key();
-            continue;
-        }
-        while (current != subtree_root)
-        {
-            const CLiveNode* const completed = value_node(current);
-            if (completed == nullptr)
-            {
-                return false;
-            }
-            if (completed->value_next_sibling_key().is_valid())
-            {
-                current = completed->value_next_sibling_key();
-                break;
-            }
-            const CLiveNode* const parent_aggregate = node(completed->value_parent_aggregate_key());
-            if (parent_aggregate == nullptr)
-            {
-                return false;
-            }
-            current = parent_aggregate->aggregate_owner_value_key();
-        }
-        if (current == subtree_root)
-        {
-            current = CNodeKey{};
-        }
-    }
-    return true;
-}
-
-bool CLiveDocument::query_ancestry(const CNodeKey value, const CNodeKey sought, bool& reachable, bool& found) noexcept
-{
-    reachable = false;
     found = false;
     CNodeKey current = value;
     for (std::uint32_t hops = 0u; hops <= m_nodes.occupied_count(); ++hops)
@@ -1762,7 +1459,6 @@ bool CLiveDocument::query_ancestry(const CNodeKey value, const CNodeKey sought, 
         }
         if (current == m_root)
         {
-            reachable = true;
             return true;
         }
         const CNodeKey parent_key = current_value->value_parent_aggregate_key();
@@ -1911,24 +1607,14 @@ CLiveAttachmentResult CLiveDocument::attach_child(
         }
     }
 
-    bool destination_reachable = false;
     bool cycle = false;
-    if (!query_ancestry(destination, candidate, destination_reachable, cycle))
+    if (!query_ancestry(destination, candidate, cycle))
     {
         return attachment_rejection(ELiveAttachmentRejection::corrupt_structure);
     }
     if (cycle)
     {
         return attachment_rejection(ELiveAttachmentRejection::cycle);
-    }
-
-    SSubtreeTotals totals;
-    if (destination_reachable)
-    {
-        if (!apply_subtree_reachability(candidate, EReferenceAdjustment::add, totals))
-        {
-            return attachment_rejection(ELiveAttachmentRejection::corrupt_structure);
-        }
     }
 
     candidate_node->set_value_attachment(aggregate->key(), position.previous, position.next);
@@ -1950,20 +1636,12 @@ CLiveAttachmentResult CLiveDocument::attach_child(
     }
     aggregate->increment_child_count();
 
-    if (destination_reachable)
-    {
-        m_value_count += totals.value_count;
-        m_aggregate_payload_count += totals.aggregate_count;
-        m_recovered_aggregate_count += totals.recovered_aggregate_count;
-        m_empty_value_count += totals.empty_value_count;
-    }
     surviving_value = candidate;
     return CLiveAttachmentResult{ ELiveAttachmentOutcome::inserted, ELiveAttachmentRejection::none };
 }
 
-bool CLiveDocument::detach_value(const CNodeKey value, bool& was_reachable) noexcept
+bool CLiveDocument::detach_value(const CNodeKey value) noexcept
 {
-    was_reachable = false;
     CLiveNode* const value_record = value_node(value);
     if ((value_record == nullptr) || (value == m_root) ||
         !value_record->value_parent_aggregate_key().is_valid())
@@ -2022,18 +1700,6 @@ bool CLiveDocument::detach_value(const CNodeKey value, bool& was_reachable) noex
         return false;
     }
 
-    bool ignored = false;
-    if (!query_ancestry(value, CNodeKey{}, was_reachable, ignored))
-    {
-        return false;
-    }
-
-    SSubtreeTotals totals;
-    if (was_reachable && !apply_subtree_reachability(value, EReferenceAdjustment::remove, totals))
-    {
-        return false;
-    }
-
     if (previous != nullptr)
     {
         previous->set_value_next_sibling_key(value_record->value_next_sibling_key());
@@ -2053,13 +1719,6 @@ bool CLiveDocument::detach_value(const CNodeKey value, bool& was_reachable) noex
     aggregate->decrement_child_count();
     value_record->clear_value_attachment();
 
-    if (was_reachable)
-    {
-        if (!commit_reachable_totals(totals, SSubtreeTotals{}))
-        {
-            return false;
-        }
-    }
     return true;
 }
 
@@ -2175,29 +1834,17 @@ bool CLiveDocument::erase_subtree(const CNodeKey value) noexcept
 
 bool CLiveDocument::check_string_domain(
     const CStableStrings& strings,
-    const TPodVector<std::uint32_t>& counts,
     const bool stable_ready) const noexcept
 {
-    if (!counts.is_ready() || (counts.size() == 0u) ||
-        (counts.size() > CPropertyNameId::k_invalid_value))
-    {
-        return false;
-    }
     if (!stable_ready)
     {
-        return (counts.size() == 1u) && (strings.memory_allocation_count() == 0u);
+        return (strings.string_count() == 0u) && (strings.memory_allocation_count() == 0u);
     }
-    if (!strings.check_integrity())
+    if (!strings.check_integrity() || (strings.string_count() >= CPropertyNameId::k_invalid_value))
     {
         return false;
     }
-    if (strings.is_valid_id(counts.size()) ||
-        ((counts.size() > 1u) && !strings.is_valid_id(counts.size() - 1u)))
-    {
-        return false;
-    }
-
-    for (std::size_t id = 1u; id < counts.size(); ++id)
+    for (std::size_t id = 1u; id <= strings.string_count(); ++id)
     {
         const CStringView value = strings.view(id);
         std::size_t normalized_size = 0u;
@@ -2221,28 +1868,14 @@ void CLiveDocument::replace_with(CLiveDocument& source) noexcept
     m_nodes = std::move(source.m_nodes);
     m_property_names = std::move(source.m_property_names);
     m_string_values = std::move(source.m_string_values);
-    m_property_name_counts = std::move(source.m_property_name_counts);
-    m_string_value_counts = std::move(source.m_string_value_counts);
     m_root = source.m_root;
     m_next_monotonic_node_key = source.m_next_monotonic_node_key;
-    m_value_count = source.m_value_count;
-    m_aggregate_payload_count = source.m_aggregate_payload_count;
-    m_referenced_property_name_count = source.m_referenced_property_name_count;
-    m_referenced_string_value_count = source.m_referenced_string_value_count;
-    m_recovered_aggregate_count = source.m_recovered_aggregate_count;
-    m_empty_value_count = source.m_empty_value_count;
     m_property_names_ready = source.m_property_names_ready;
     m_string_values_ready = source.m_string_values_ready;
     m_integrity_known_bad = source.m_integrity_known_bad;
 
     source.m_root = CNodeKey{};
     source.m_next_monotonic_node_key = 1u;
-    source.m_value_count = 0u;
-    source.m_aggregate_payload_count = 0u;
-    source.m_referenced_property_name_count = 0u;
-    source.m_referenced_string_value_count = 0u;
-    source.m_recovered_aggregate_count = 0u;
-    source.m_empty_value_count = 0u;
     source.m_property_names_ready = false;
     source.m_string_values_ready = false;
     source.m_integrity_known_bad = false;

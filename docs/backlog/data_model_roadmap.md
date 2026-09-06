@@ -31,13 +31,13 @@ The live implementation currently provides:
 - numeric intent and finite-float validation;
 - strict append and insertion, detachment and recursive erasure;
 - explicit integrity, canonicality and completeness observation;
+- on-demand root-reachable analysis with optional caller-owned string references;
 - a reset-only known-bad state; and
 - preliminary payload extraction and attachment operations.
 
-It also retains root-reachable node/category counts, string reference counts,
-duplicated aggregate owner names, independent object-entry state and provisional
-recovery result categories. These are simplification targets, not settled
-requirements.
+It also retains duplicated aggregate owner names, independent object-entry state
+and provisional recovery result categories. These are simplification targets,
+not settled requirements.
 
 There is no replacement baked implementation in `core/data_model`. The v1
 baked model, writer and tests under `graveyard/data_model_v1_2026-09-01` are
@@ -103,6 +103,12 @@ deleted bookkeeping implementation.
 
 Root-reachable observations exclude detached subtrees; integrity checking still
 covers all document-owned nodes.
+
+Status: complete. Live semantic totals and reference vectors have been removed.
+The shared iterative crawl supports allocation-free structural observations and
+optional caller-owned string-reference analysis. Distinct referenced-string
+totals are available through the explicitly fallible analysis operation.
+Framework memory accounting remains composed from the document's owned storage.
 
 ## Stage 3: simplify node semantics
 
