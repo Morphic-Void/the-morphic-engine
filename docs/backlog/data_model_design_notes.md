@@ -1,0 +1,245 @@
+Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited
+License: MIT (see LICENSE file in repository root)
+
+File:   data_model_design_notes.md
+Author: Ritchie Brannan
+Drafting and editorial assistance: OpenAI Codex
+Date:   6 Sep 2026
+
+# Data-model design notes
+
+## Purpose
+
+These notes record the reasoning behind the normative requirements in
+`docs/backlog/revised_data_model.md` and the likely implementation direction.
+They are not requirements. Keeping rationale here prevents implementation
+history, rejected alternatives and provisional mechanics from obscuring the
+semantic contract.
+
+## Simplicity discipline
+
+New behaviour should normally be pursued in this order:
+
+1. compose existing public operations;
+2. reuse an existing private mechanism;
+3. make a small general extension useful to several operations;
+4. add one narrow primitive which enables composition; and
+5. add specialised machinery only when the smaller approaches are demonstrably
+   insufficient.
+
+Code volume is continuing audit, maintenance and cognitive cost. Avoiding one
+allocation or preserving an incidental key does not justify substantially more
+states, rollback paths or duplicated traversal. Caller-controlled bad input
+still warrants validation; impossible states created only by an implementation
+defect belong primarily to integrity checks and known-bad containment.
+
+## Infrastructure boundary
+
+Infrastructure outside the data model must be reviewed as a separate contextual
+change and committed independently. A data-model stage may depend on such a
+change only after it is expressly approved.
+
+One prerequisite has been approved in principle: expose the valid string count
+already held by `CStableStrings`, excluding its internal sentinel. This appears
+to be a missing observation rather than new behaviour. It supports correctly
+sized bake-analysis storage without teaching the data model about the
+container's internals.
+
+A second prospective prerequisite is an O(1) `key_at_slot()` observation on
+`TPodOrderedSlots`. The concrete key array belongs to that façade;
+`TOrderedSlots` knows only slot metadata and delegates comparison to its backing,
+so the generic slot layer cannot naturally return a key. `TPodOrderedSlots` can
+validate the slot and return its parallel key directly. A matching
+`TOrderedCollection` observation may be useful for interface symmetry, but is
+not required by the data model and should not be bundled without its own use
+case. Container implementation remains a separately reviewed change.
+
+`CStableStrings` already maintains lexical rank information and exposes ID/rank
+conversion. The initial baking implementation should use that facility rather
+than introduce a new sorting framework. Any further container or memory-system
+change needs its own justification and approval.
+
+## Live representation
+
+### Explicit aggregate nodes
+
+Keeping explicit aggregate nodes in the mutable document still has value. They
+isolate an owner's payload from changing child links and let the same value-node
+operations serve scalar and aggregate values. This does not require the baked
+format to retain them: immutable aggregate metadata may fit more simply in its
+owner.
+
+### Aggregate names
+
+Duplicating an owner's name on its aggregate added an invariant, reference
+accounting and update work without supplying useful independent information.
+The canonical empty aggregate name removes those costs while retaining a
+uniform physical field if the current node layout benefits from one.
+
+### Object-entry state
+
+An independent object-entry flag duplicates the fact already represented by a
+non-empty name and creates states which must be cross-validated. Deriving the
+state makes malformed combinations unrepresentable at the semantic level.
+
+### Integer width
+
+The smallest integer width is derivable, but repeated writer and schema queries
+make derivation needless recurring work. It remains directly stored in both
+live and baked values. A baked flags field can normally carry the four width
+states in two bits, so direct access is expected to have negligible layout
+cost. Integrity validation still checks the stored width against value and
+domain.
+
+### External keys and internal slots
+
+The public `CNodeKey` remains a monotonic stable identity. It need not also be
+the live node's internal address. Resolving a caller-supplied key through the
+ordered container is an O(log n) boundary operation; following every tree link
+as another key repeats that search throughout traversal.
+
+Internal parent, sibling, owned-aggregate, owner and child links should instead
+be evaluated as `std::int32_t` slot indices with `-1` invalid. Once an incoming
+key has resolved to a slot, each structural hop is then O(1). Returning a public
+key for a reached node is also O(1) with the proposed `key_at_slot()` accessor.
+A height-`h` traversal changes from approximately O(h log n) key lookup to one
+O(log n) boundary lookup followed by O(h) direct traversal.
+
+The self key currently duplicates the parallel key held by `TPodOrderedSlots`.
+Its extra stale-slot check is useful diagnostics but does not justify permanent
+duplication if link mutation and container integrity are correct. With four
+64-bit key links and the self key, links consume 40 bytes of the current
+64-byte record. Four 32-bit slot links without the self key consume 16 bytes,
+making a roughly 40-byte node possible before any more aggressive packing.
+
+Role-specific link storage should use explicitly named value and aggregate
+structures in a union rather than opaque `relation_0` through `relation_3`
+members. This improves debugger and audit clarity without storing both roles'
+inactive fields or adding new semantic state.
+
+Slot reuse means a dangling internal index could later name another node. The
+model should prevent this through the existing unlink-before-erase invariant
+and verify reciprocal topology during integrity checks. Adding generations or
+another internal handle layer would reproduce the defensive machinery this
+simplification is intended to remove.
+
+Future packing requires relationship remapping because slot indices are not
+stable across `sort_and_pack()`. `TPodOrderedSlots::build_rank_map()` already
+provides the old-slot-to-rank mapping. A document-level pack can allocate that
+map before mutation, rewrite each valid link, then perform the non-failing pack.
+Packing is not currently required, so this need should not burden ordinary live
+mutation.
+
+## Replace persistent reachability accounting with analysis
+
+The live implementation currently pays on every attachment, detachment,
+payload change and erasure to maintain counts intended mainly for later baking.
+This couples unrelated mutation paths to recursive traversal and makes simple
+operations fail or invalidate through accounting machinery.
+
+A better division of responsibility is:
+
+```text
+coherent live tree
+  -> one iterative analysis crawl
+  -> externally owned bake analysis
+  -> measured baked layout and mappings
+  -> one owning baked allocation
+```
+
+The analysis structure can hold exactly what a bake needs: category counts,
+recovered-content presence, per-name and per-string reference counts, final
+string ranks or maps, byte totals and emission offsets. It is single-use,
+single-threaded and allocated through the framework. It should not become a
+second mutable document.
+
+Queries such as `is_complete`, `is_canonical`, category counts or "contains
+recovered content" may use the same traversal components on demand. Reusable
+visitation and accumulation helpers are preferable to a persistent cache,
+revision system or several near-identical walks.
+
+Memory accounting is different: it describes owned framework resources rather
+than semantic reachability and remains continuously available.
+
+## Payload operations as the compositional primitive
+
+`detach` and `detach_payload` serve different purposes:
+
+- `detach` moves an existing value identity and allocates nothing.
+- `detach_payload` preserves the original value's identity and position while
+  creating an anonymous carrier for everything beneath its name envelope.
+
+`attach_payload` completes the transfer in the opposite direction. Requiring
+the source to be anonymous and detached makes the operation unambiguous: the
+target's name and topology survive, while only the payload moves. Erasing the
+source shell avoids a public half-consumed object.
+
+`erase_payload` is the other small primitive. It generalises the existing
+nested-erasure behaviour by preserving the selected top value as an empty
+placeholder. Together these operations express recovery repair without a
+special tree-rewrite implementation.
+
+## Public recovered arrays
+
+Making recovered arrays public simplifies both parser construction and baked
+promotion. The useful invariant is structural: their children are anonymous.
+Minimum cardinality and collision-only construction do not protect tree
+coherence, but would require special construction modes and awkward transient
+states.
+
+A first object-member collision can be assembled from ordinary operations:
+
+1. extract the existing member's payload into an anonymous carrier;
+2. extract the candidate's payload into another anonymous carrier;
+3. create a recovered array and append both carriers in encounter order;
+4. attach that aggregate payload to the now-empty existing member; and
+5. erase the now-empty candidate shell.
+
+For a later collision, extract the candidate payload, append the carrier to the
+existing recovered array and erase the candidate shell. A pre-existing public
+recovered array can also be promoted by creating it and appending its anonymous
+children normally.
+
+This composition suggests that the current reserved recovery attachment
+outcomes, relaxed destination checks and specialised construction paths should
+be removed unless implementation evidence reveals a missing semantic result.
+The precise attachment result type should be simplified only alongside the
+production change so its remaining callers are known.
+
+## Mutation failure policy
+
+Full operation atomicity is not a goal. Cheap validation should precede
+mutation, especially key, role, detached-state, naming, duplicate-name and
+cycle checks. Allocation should also occur before destructive steps when the
+sequence naturally permits it.
+
+If a later step fails, the operation reports failure. A result which cannot be
+proven coherent is visibly invalid, and an internally contradictory live
+document becomes reset-only known-bad. This gives callers a reliable signal
+without a general transaction layer.
+
+## Baking direction
+
+Only the final baked artifact must be one allocation. Scratch allocations are
+appropriate for analysis and mapping when they reduce copying or complex
+in-place algorithms. The target is low churn, not allocation-count heroics.
+
+Useful first-layout properties are dense value indices, contiguous ordered
+direct-child ranges and two directly sorted string tables. O(1) ordinal array
+access follows naturally. An object-name accelerator should be added only if
+real consumers justify its footprint and construction cost.
+
+Whether baked aggregate metadata deserves separate records should be decided
+with concrete record sketches. Unlike the live representation, immutable
+children do not benefit from an extra indirection merely to isolate changing
+links.
+
+## Preserved future concerns
+
+The model deliberately retains numeric lexical intent, iterative traversal,
+separate string domains, explicit untrusted baked validation and ordered
+recovery competitors because writers, parsers and promotion consume them.
+
+Modified UTF-8 `C0 80` for logical U+0000 is retained for continuity while the
+replacement document pipeline stabilises. Its long-term value should be judged
+separately rather than entangled with removal of reachability accounting.

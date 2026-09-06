@@ -706,6 +706,12 @@
     <None Include="$(MSBuildThisFileDirectory)README.md">
       <Filter>Docs</Filter>
     </None>
+    <None Include="$(MSBuildThisFileDirectory)docs\backlog\data_model_design_notes.md">
+      <Filter>Docs\backlog</Filter>
+    </None>
+    <None Include="$(MSBuildThisFileDirectory)docs\backlog\data_model_roadmap.md">
+      <Filter>Docs\backlog</Filter>
+    </None>
     <None Include="$(MSBuildThisFileDirectory)docs\backlog\revised_data_model.md">
       <Filter>Docs\backlog</Filter>
     </None>
