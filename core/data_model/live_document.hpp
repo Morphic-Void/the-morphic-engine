@@ -34,7 +34,7 @@ struct SLiveDocumentAnalysis
 };
 
 //  Optional caller-owned scratch. References are indexed by live domain ID.
-//  Names are counted once per value; aggregate name duplication is excluded.
+//  Names are counted once per value; aggregates are canonically unnamed.
 //  ID zero is counted but excluded from the distinct non-empty totals.
 struct SLiveDocumentStringAnalysis
 {
@@ -177,8 +177,8 @@ private:
 
     struct SAttachmentPosition
     {
-        CNodeKey previous;
-        CNodeKey next;
+        TLiveNodeSlot previous{ k_invalid_live_node_slot };
+        TLiveNodeSlot next{ k_invalid_live_node_slot };
     };
 
     //  String admission, stabilization and interning
@@ -205,10 +205,16 @@ private:
     [[nodiscard]] bool insert_root_pair() noexcept;
 
     //  Node lookup
+    [[nodiscard]] TLiveNodeSlot node_slot(const CNodeKey key) const noexcept;
+    [[nodiscard]] CNodeKey node_key(const TLiveNodeSlot slot) const noexcept;
     [[nodiscard]] CLiveNode* node(const CNodeKey key) noexcept;
     [[nodiscard]] const CLiveNode* node(const CNodeKey key) const noexcept;
+    [[nodiscard]] CLiveNode* node(const TLiveNodeSlot slot) noexcept;
+    [[nodiscard]] const CLiveNode* node(const TLiveNodeSlot slot) const noexcept;
     [[nodiscard]] CLiveNode* value_node(const CNodeKey key) noexcept;
     [[nodiscard]] const CLiveNode* value_node(const CNodeKey key) const noexcept;
+    [[nodiscard]] CLiveNode* value_node(const TLiveNodeSlot slot) noexcept;
+    [[nodiscard]] const CLiveNode* value_node(const TLiveNodeSlot slot) const noexcept;
     [[nodiscard]] const CLiveNode* aggregate_for_value(const CNodeKey value) const noexcept;
 
     //  Results and document-domain validation
@@ -218,14 +224,22 @@ private:
 
     //  Iterative observation and checked audit share const preorder navigation.
     template<typename TVisitor>
-    [[nodiscard]] bool visit_subtree(const CNodeKey subtree_root, TVisitor&& visitor) const noexcept;
-    [[nodiscard]] bool subtree_next(const CNodeKey subtree_root, CNodeKey current, CNodeKey& next) const noexcept;
-    [[nodiscard]] bool audit_subtree_checked(const CNodeKey subtree_root, std::uint64_t& records) const noexcept;
+    [[nodiscard]] bool visit_subtree(const TLiveNodeSlot subtree_root, TVisitor&& visitor) const noexcept;
+    [[nodiscard]] bool subtree_next(
+        const TLiveNodeSlot subtree_root,
+        TLiveNodeSlot current,
+        TLiveNodeSlot& next) const noexcept;
+    [[nodiscard]] bool audit_subtree_checked(const TLiveNodeSlot subtree_root, std::uint64_t& records) const noexcept;
 
     //  Trusted mutation traversal
-    [[nodiscard]] CNodeKey subtree_first_postorder(const CNodeKey subtree_root) noexcept;
-    [[nodiscard]] CNodeKey subtree_next_postorder(const CNodeKey subtree_root, const CNodeKey current) noexcept;
-    [[nodiscard]] bool query_ancestry(const CNodeKey value, const CNodeKey sought, bool& found) noexcept;
+    [[nodiscard]] TLiveNodeSlot subtree_first_postorder(const TLiveNodeSlot subtree_root) noexcept;
+    [[nodiscard]] TLiveNodeSlot subtree_next_postorder(
+        const TLiveNodeSlot subtree_root,
+        const TLiveNodeSlot current) noexcept;
+    [[nodiscard]] bool query_ancestry(
+        const TLiveNodeSlot value,
+        const TLiveNodeSlot sought,
+        bool& found) noexcept;
 
     //  Structural mutation
     [[nodiscard]] CLiveAttachmentResult attach_child(
@@ -233,9 +247,11 @@ private:
         const CNodeKey candidate,
         const SAttachmentPosition& position,
         CNodeKey& surviving_value) noexcept;
-    [[nodiscard]] bool detach_value(const CNodeKey value) noexcept;
-    [[nodiscard]] bool substitute_value_position(const CNodeKey displaced, const CNodeKey replacement) noexcept;
-    [[nodiscard]] bool erase_subtree(const CNodeKey value) noexcept;
+    [[nodiscard]] bool detach_value(const TLiveNodeSlot value) noexcept;
+    [[nodiscard]] bool substitute_value_position(
+        const TLiveNodeSlot displaced,
+        const TLiveNodeSlot replacement) noexcept;
+    [[nodiscard]] bool erase_subtree(const TLiveNodeSlot value) noexcept;
     void mark_integrity_bad() noexcept;
 
     //  Integrity and move support

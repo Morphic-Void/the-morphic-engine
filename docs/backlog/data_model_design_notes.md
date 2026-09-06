@@ -100,25 +100,24 @@ the live node's internal address. Resolving a caller-supplied key through the
 ordered container is an O(log n) boundary operation; following every tree link
 as another key repeats that search throughout traversal.
 
-Internal parent, sibling, owned-aggregate, owner and child links should instead
-be evaluated as `std::int32_t` slot indices with `-1` invalid. Once an incoming
+Internal parent, sibling, owned-aggregate, owner and child links are represented
+as `std::int32_t` slot indices with `-1` invalid. Once an incoming
 key has resolved to a slot, each structural hop is then O(1). Returning a public
 key for a reached node is also O(1) with the implemented `key_at_slot()`
 accessor.
 A height-`h` traversal changes from approximately O(h log n) key lookup to one
 O(log n) boundary lookup followed by O(h) direct traversal.
 
-The self key currently duplicates the parallel key held by `TPodOrderedSlots`.
-Its extra stale-slot check is useful diagnostics but does not justify permanent
-duplication if link mutation and container integrity are correct. With four
-64-bit key links and the self key, links consume 40 bytes of the current
-64-byte record. Four 32-bit slot links without the self key consume 16 bytes,
-making a roughly 40-byte node possible before any more aggressive packing.
+The former self key duplicated the parallel key held by `TPodOrderedSlots`.
+Its extra stale-slot check supplied useful diagnostics but did not justify
+permanent duplication when link mutation and container integrity are already
+checked. Replacing four 64-bit key links and the self key with four 32-bit slot
+links reduced the live node from 64 to 40 bytes without more aggressive packing.
 
-Role-specific link storage should use explicitly named value and aggregate
-structures in a union rather than opaque `relation_0` through `relation_3`
-members. This improves debugger and audit clarity without storing both roles'
-inactive fields or adding new semantic state.
+Role-specific link storage uses explicitly named value and aggregate structures
+in a union rather than opaque `relation_0` through `relation_3` members. This
+improves debugger and audit clarity without storing both roles' inactive fields
+or adding new semantic state.
 
 Slot reuse means a dangling internal index could later name another node. The
 model should prevent this through the existing unlink-before-erase invariant
@@ -203,11 +202,10 @@ existing recovered array and erase the candidate shell. A pre-existing public
 recovered array can also be promoted by creating it and appending its anonymous
 children normally.
 
-This composition suggests that the current reserved recovery attachment
-outcomes, relaxed destination checks and specialised construction paths should
-be removed unless implementation evidence reveals a missing semantic result.
-The precise attachment result type should be simplified only alongside the
-production change so its remaining callers are known.
+This composition made the reserved recovery attachment outcomes unnecessary;
+they were removed with the live-node simplification. Attachment now reports
+only insertion or rejection, while rejection reasons remain available to
+callers.
 
 ## Mutation failure policy
 

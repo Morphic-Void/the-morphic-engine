@@ -37,15 +37,6 @@ struct SLiveDocumentTestAccess
         return document.m_string_values.append(value.string(), value.length()) != CStableStrings::k_invalid_id;
     }
 
-    static void replace_self_with_root(CLiveDocument& document, const CNodeKey key) noexcept
-    {
-        CLiveNode* const node = document.m_nodes.get_slot(key);
-        if (node != nullptr)
-        {
-            node->m_self = document.m_root;
-        }
-    }
-
     static void set_next_monotonic_node_key(CLiveDocument& document, const std::uint64_t key) noexcept
     {
         document.m_next_monotonic_node_key = key;
@@ -64,18 +55,23 @@ struct SLiveDocumentTestAccess
     static void link_as_only_child_without_validation(
         CLiveDocument& document, const CNodeKey owner, const CNodeKey child) noexcept
     {
-        CLiveNode* const aggregate = document.node(document.value_node(owner)->value_owned_aggregate_key());
-        aggregate->set_aggregate_first_child_key(child);
-        aggregate->set_aggregate_last_child_key(child);
+        const TLiveNodeSlot aggregate_slot = document.value_node(owner)->value_owned_aggregate_slot();
+        const TLiveNodeSlot child_slot = document.node_slot(child);
+        CLiveNode* const aggregate = document.node(aggregate_slot);
+        aggregate->set_aggregate_first_child_slot(child_slot);
+        aggregate->set_aggregate_last_child_slot(child_slot);
         aggregate->increment_child_count();
-        document.value_node(child)->set_value_attachment(aggregate->key(), CNodeKey{}, CNodeKey{});
+        document.value_node(child)->set_value_attachment(
+            aggregate_slot,
+            k_invalid_live_node_slot,
+            k_invalid_live_node_slot);
     }
 
     static void share_aggregate(
         CLiveDocument& document, const CNodeKey owner, const CNodeKey other_owner) noexcept
     {
-        document.value_node(other_owner)->set_value_owned_aggregate_key(
-            document.value_node(owner)->value_owned_aggregate_key());
+        document.value_node(other_owner)->set_value_owned_aggregate_slot(
+            document.value_node(owner)->value_owned_aggregate_slot());
     }
 
     [[nodiscard]] static std::uint32_t occupied_node_count(const CLiveDocument& document) noexcept
@@ -94,7 +90,7 @@ struct SLiveDocumentTestAccess
     {
         const CLiveNode* const owner_record = document.value_node(owner);
         const CLiveNode* const aggregate = (owner_record != nullptr) ?
-            document.node(owner_record->value_owned_aggregate_key()) : nullptr;
+            document.node(owner_record->value_owned_aggregate_slot()) : nullptr;
         return (aggregate != nullptr) ? aggregate->name_id() : CPropertyNameId{};
     }
 
@@ -104,7 +100,7 @@ struct SLiveDocumentTestAccess
         CLiveNode* const record = document.value_node(value);
         if (record != nullptr)
         {
-            record->m_relation_2 = next;
+            record->m_links.value.next_sibling = document.node_slot(next);
         }
     }
 
@@ -126,7 +122,7 @@ struct SLiveDocumentTestAccess
         if (owner_record != nullptr)
         {
             CLiveNode* const aggregate =
-                document.node(owner_record->value_owned_aggregate_key());
+                document.node(owner_record->value_owned_aggregate_slot());
             if (aggregate != nullptr)
             {
                 aggregate->m_usage.aggregate_kind = kind;
@@ -266,6 +262,7 @@ void test_initialisation_root_and_empty_domains(TTestContext& ctx)
     TEST_EXPECT(ctx, root_name.is_valid());
     TEST_EXPECT(ctx, root_name.is_empty());
     TEST_EXPECT(ctx, root_name.query_value() == 0u);
+    TEST_EXPECT(ctx, SLiveDocumentTestAccess::aggregate_name_id(document, document.root()).is_empty());
     TEST_EXPECT(ctx, string_analysis(ctx, document).referenced_property_name_count == 0u);
     TEST_EXPECT(ctx, string_analysis(ctx, document).referenced_string_value_count == 0u);
     TEST_EXPECT(ctx, document.name(document.root()).string() == nullptr);
@@ -332,6 +329,8 @@ void test_detached_creation_and_accessors(TTestContext& ctx)
     TEST_EXPECT(ctx, document.is_object_entry(boolean));
     TEST_EXPECT(ctx, document.is_object_entry(object));
     TEST_EXPECT(ctx, !document.is_object_entry(array));
+    TEST_EXPECT(ctx, SLiveDocumentTestAccess::aggregate_name_id(document, array).is_empty());
+    TEST_EXPECT(ctx, SLiveDocumentTestAccess::aggregate_name_id(document, object).is_empty());
     TEST_EXPECT(ctx, document.is_detached(null_value));
     TEST_EXPECT(ctx, document.is_detached(array));
     TEST_EXPECT(ctx, !document.parent(array).is_valid());
@@ -515,14 +514,6 @@ void test_integrity_checks_string_domains_and_keys(TTestContext& ctx)
         orphan_string_document, orphan));
     TEST_EXPECT(ctx, orphan_string_document.check_integrity());
     TEST_EXPECT(ctx, string_analysis(ctx, orphan_string_document).referenced_string_value_count == 0u);
-
-    CLiveDocument self_document;
-    TEST_EXPECT(ctx, self_document.initialise());
-    const CNodeKey detached = self_document.create_null();
-    TEST_EXPECT(ctx, detached.is_valid());
-    SLiveDocumentTestAccess::replace_self_with_root(self_document, detached);
-    TEST_EXPECT(ctx, !self_document.contains(detached));
-    TEST_EXPECT(ctx, !self_document.check_integrity());
 
     CLiveDocument monotonic_document;
     TEST_EXPECT(ctx, monotonic_document.initialise());
@@ -869,6 +860,12 @@ void test_attachment_rejections_and_cycles(TTestContext& ctx)
     TEST_EXPECT(ctx, result.rejection == ELiveAttachmentRejection::insert_before_not_child);
     TEST_EXPECT(ctx, document.is_detached(named));
 
+    const CNodeKey absent_before = document.create_null();
+    TEST_EXPECT(ctx, document.erase(absent_before));
+    result = document.insert_child_before(document.root(), named, absent_before, surviving);
+    TEST_EXPECT(ctx, result.rejection == ELiveAttachmentRejection::insert_before_not_child);
+    TEST_EXPECT(ctx, document.is_detached(named));
+
     result = document.insert_child_at(document.root(), named, 1u, surviving);
     TEST_EXPECT(ctx, result.rejection == ELiveAttachmentRejection::index_out_of_range);
     TEST_EXPECT(ctx, document.is_detached(named));
@@ -1171,10 +1168,13 @@ void test_scalar_and_detached_payload_transfer(TTestContext& ctx)
     TEST_EXPECT(ctx, document.string_value_id(string) == value_id);
     TEST_EXPECT(ctx, document.string_value(string) == value);
     TEST_EXPECT(ctx, document.name(string).length() == 0u);
+    TEST_EXPECT(ctx, !document.is_object_entry(string));
+    TEST_EXPECT(ctx, document.is_object_entry(replacement));
     TEST_EXPECT(ctx, string_analysis(ctx, document).referenced_property_name_count == 1u);
     TEST_EXPECT(ctx, string_analysis(ctx, document).referenced_string_value_count == 0u);
     TEST_EXPECT(ctx, document.attach_payload(replacement, string) == string);
     TEST_EXPECT(ctx, document.name(string) == name);
+    TEST_EXPECT(ctx, document.is_object_entry(string));
     TEST_EXPECT(ctx, document.string_value_id(string) == value_id);
     TEST_EXPECT(ctx, string_analysis(ctx, document).referenced_string_value_count == 1u);
 

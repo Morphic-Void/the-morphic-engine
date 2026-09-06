@@ -35,10 +35,6 @@ The live implementation currently provides:
 - a reset-only known-bad state; and
 - preliminary payload extraction and attachment operations.
 
-It also retains duplicated aggregate owner names, independent object-entry state
-and provisional recovery result categories. These are simplification targets,
-not settled requirements.
-
 There is no replacement baked implementation in `core/data_model`. The v1
 baked model, writer and tests under `graveyard/data_model_v1_2026-09-01` are
 reference material only.
@@ -124,6 +120,14 @@ any later document packing.
 
 Reassess the current attachment result categories once their recovery-specific
 uses are removed. Keep only outcomes which callers can act on.
+
+Status: complete. Aggregate names are canonically empty and object-entry state
+is derived directly from value names. Internal relationships use explicit
+role-specific `std::int32_t` slot links while public identity remains a
+monotonic `CNodeKey`; conversion back to public keys is O(1). The duplicated
+self key and reserved recovery attachment outcomes have been removed. The live
+node has reduced from 64 to 40 bytes. Packing remains deferred and would require
+the documented rank-map remapping pass.
 
 ## Stage 4: complete payload composition
 

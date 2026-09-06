@@ -86,11 +86,11 @@ bool CLiveDocument::is_complete() const noexcept
 }
 
 template<typename TVisitor>
-bool CLiveDocument::visit_subtree(const CNodeKey subtree_root, TVisitor&& visitor) const noexcept
+bool CLiveDocument::visit_subtree(const TLiveNodeSlot subtree_root, TVisitor&& visitor) const noexcept
 {
-    CNodeKey current = subtree_root;
+    TLiveNodeSlot current = subtree_root;
     std::uint32_t visited = 0u;
-    while (current.is_valid())
+    while (current >= 0)
     {
         if (visited >= m_nodes.occupied_count())
         {
@@ -103,13 +103,13 @@ bool CLiveDocument::visit_subtree(const CNodeKey subtree_root, TVisitor&& visito
             return false;
         }
         const CLiveNode* const aggregate = live_value_type_is_container(value->value_type()) ?
-            node(value->value_owned_aggregate_key()) : nullptr;
+            node(value->value_owned_aggregate_slot()) : nullptr;
         if (live_value_type_is_container(value->value_type()) &&
             ((aggregate == nullptr) || !aggregate_payload_is_in_document_domain(*aggregate)))
         {
             return false;
         }
-        if (!visitor(*value, aggregate) || !subtree_next(subtree_root, current, current))
+        if (!visitor(current, *value, aggregate) || !subtree_next(subtree_root, current, current))
         {
             return false;
         }
@@ -153,8 +153,8 @@ bool CLiveDocument::analyse(
     }
 
     SLiveDocumentAnalysis measured;
-    const bool success = visit_subtree(m_root,
-        [&measured, strings](const CLiveNode& value, const CLiveNode* const aggregate) noexcept
+    const bool success = visit_subtree(node_slot(m_root),
+        [&measured, strings](const TLiveNodeSlot, const CLiveNode& value, const CLiveNode* const aggregate) noexcept
         {
             ++measured.value_count;
             if (value.value_type() == ELiveValueType::empty)
@@ -211,9 +211,9 @@ bool CLiveDocument::check_integrity() const noexcept
 
     const CLiveNode* const root_node = value_node(m_root);
     if ((root_node == nullptr) || (root_node->value_type() != ELiveValueType::object) ||
-        (root_node->name_id().query_value() != 0u) || root_node->is_object_entry() ||
+        (root_node->name_id().query_value() != 0u) ||
         !root_node->value_is_unattached() ||
-        (root_node->value_owned_aggregate_key().query_value() != 2u))
+        (node_key(root_node->value_owned_aggregate_slot()).query_value() != 2u))
     {
         return false;
     }
@@ -226,15 +226,15 @@ bool CLiveDocument::check_integrity() const noexcept
     for (std::int32_t index = m_nodes.first_live(); index >= 0; index = m_nodes.next_live(index))
     {
         const CLiveNode* const current = m_nodes.get_slot(index);
-        if ((current == nullptr) || !current->key().is_valid() ||
-            (m_nodes.get_slot(current->key()) != current) ||
-            (previous_key.is_valid() && (previous_key.relationship(current->key()) >= 0)) ||
+        const CNodeKey* const current_key = m_nodes.key_at_slot(index);
+        if ((current == nullptr) || (current_key == nullptr) || !current_key->is_valid() ||
+            (previous_key.is_valid() && (previous_key.relationship(*current_key) >= 0)) ||
             !current->name_id().is_valid() ||
             (!current->name_id().is_empty() && !m_property_names.is_valid_id(current->name_id().query_value())))
         {
             return false;
         }
-        previous_key = current->key();
+        previous_key = *current_key;
 
         if (current->is_value_record())
         {
@@ -248,9 +248,9 @@ bool CLiveDocument::check_integrity() const noexcept
             {
                 return false;
             }
-            if (current->value_parent_aggregate_key().is_valid())
+            if (current->value_parent_aggregate_slot() >= 0)
             {
-                const CLiveNode* const parent_aggregate = node(current->value_parent_aggregate_key());
+                const CLiveNode* const parent_aggregate = node(current->value_parent_aggregate_slot());
                 if ((parent_aggregate == nullptr) || !aggregate_payload_is_in_document_domain(*parent_aggregate))
                 {
                     return false;
@@ -260,10 +260,11 @@ bool CLiveDocument::check_integrity() const noexcept
             if (live_value_type_is_container(current->value_type()))
             {
                 ++containers;
-                const CLiveNode* const aggregate = node(current->value_owned_aggregate_key());
+                const TLiveNodeSlot aggregate_slot = current->value_owned_aggregate_slot();
+                const CLiveNode* const aggregate = node(aggregate_slot);
                 if ((aggregate == nullptr) ||
                     !aggregate_payload_is_in_document_domain(*aggregate) ||
-                    !current->forms_container_pair_with(*aggregate))
+                    !current->forms_container_pair_with(*aggregate, index, aggregate_slot))
                 {
                     return false;
                 }
@@ -272,9 +273,10 @@ bool CLiveDocument::check_integrity() const noexcept
         else if (current->is_aggregate_record())
         {
             ++aggregates;
-            const CLiveNode* const owner = value_node(current->aggregate_owner_value_key());
+            const TLiveNodeSlot owner_slot = current->aggregate_owner_value_slot();
+            const CLiveNode* const owner = value_node(owner_slot);
             if (!aggregate_payload_is_in_document_domain(*current) ||
-                (owner == nullptr) || !owner->forms_container_pair_with(*current))
+                (owner == nullptr) || !owner->forms_container_pair_with(*current, owner_slot, index))
             {
                 return false;
             }
@@ -292,7 +294,7 @@ bool CLiveDocument::check_integrity() const noexcept
     }
 
     std::uint64_t forest_records = 0u;
-    if (!audit_subtree_checked(m_root, forest_records))
+    if (!audit_subtree_checked(node_slot(m_root), forest_records))
     {
         return false;
     }
@@ -301,10 +303,10 @@ bool CLiveDocument::check_integrity() const noexcept
     {
         const CLiveNode* const current = m_nodes.get_slot(index);
         if ((current != nullptr) && current->is_value_record() &&
-            (current->key() != m_root) && !current->value_parent_aggregate_key().is_valid())
+            (node_key(index) != m_root) && (current->value_parent_aggregate_slot() < 0))
         {
             std::uint64_t detached_records = 0u;
-            if (!audit_subtree_checked(current->key(), detached_records))
+            if (!audit_subtree_checked(index, detached_records))
             {
                 return false;
             }
@@ -395,24 +397,24 @@ CStringView CLiveDocument::string_value(const CStringValueId id) const noexcept
 CNodeKey CLiveDocument::parent(const CNodeKey value) const noexcept
 {
     const CLiveNode* const found = value_node(value);
-    if ((found == nullptr) || !found->value_parent_aggregate_key().is_valid())
+    if ((found == nullptr) || (found->value_parent_aggregate_slot() < 0))
     {
         return CNodeKey{};
     }
-    const CLiveNode* const aggregate = node(found->value_parent_aggregate_key());
-    return (aggregate != nullptr) ? aggregate->aggregate_owner_value_key() : CNodeKey{};
+    const CLiveNode* const aggregate = node(found->value_parent_aggregate_slot());
+    return (aggregate != nullptr) ? node_key(aggregate->aggregate_owner_value_slot()) : CNodeKey{};
 }
 
 CNodeKey CLiveDocument::previous_sibling(const CNodeKey value) const noexcept
 {
     const CLiveNode* const found = value_node(value);
-    return (found != nullptr) ? found->value_previous_sibling_key() : CNodeKey{};
+    return (found != nullptr) ? node_key(found->value_previous_sibling_slot()) : CNodeKey{};
 }
 
 CNodeKey CLiveDocument::next_sibling(const CNodeKey value) const noexcept
 {
     const CLiveNode* const found = value_node(value);
-    return (found != nullptr) ? found->value_next_sibling_key() : CNodeKey{};
+    return (found != nullptr) ? node_key(found->value_next_sibling_slot()) : CNodeKey{};
 }
 
 std::uint32_t CLiveDocument::child_count(const CNodeKey container_value) const noexcept
@@ -424,13 +426,13 @@ std::uint32_t CLiveDocument::child_count(const CNodeKey container_value) const n
 CNodeKey CLiveDocument::first_child(const CNodeKey container_value) const noexcept
 {
     const CLiveNode* const aggregate = aggregate_for_value(container_value);
-    return (aggregate != nullptr) ? aggregate->aggregate_first_child_key() : CNodeKey{};
+    return (aggregate != nullptr) ? node_key(aggregate->aggregate_first_child_slot()) : CNodeKey{};
 }
 
 CNodeKey CLiveDocument::last_child(const CNodeKey container_value) const noexcept
 {
     const CLiveNode* const aggregate = aggregate_for_value(container_value);
-    return (aggregate != nullptr) ? aggregate->aggregate_last_child_key() : CNodeKey{};
+    return (aggregate != nullptr) ? node_key(aggregate->aggregate_last_child_slot()) : CNodeKey{};
 }
 
 bool CLiveDocument::boolean_value(const CNodeKey key, bool& value) const noexcept
@@ -603,7 +605,7 @@ CNodeKey CLiveDocument::create_string(const CStringView& value, const CStringVie
     }
 
     CLiveNode new_node{};
-    new_node.initialise_value(key, ELiveValueType::string, value_id.query_value(), name_id, CIntegerMetadata{});
+    new_node.initialise_value(ELiveValueType::string, value_id.query_value(), name_id, CIntegerMetadata{});
 
     if (m_nodes.insert(key, new_node) < 0)
     {
@@ -636,7 +638,7 @@ CLiveAttachmentResult CLiveDocument::append_child(
     const CLiveNode* const aggregate = aggregate_for_value(destination);
     if (aggregate != nullptr)
     {
-        position.previous = aggregate->aggregate_last_child_key();
+        position.previous = aggregate->aggregate_last_child_slot();
     }
     return attach_child(destination, candidate, position, surviving_value);
 }
@@ -653,12 +655,14 @@ CLiveAttachmentResult CLiveDocument::insert_child_before(
         return attachment_rejection(ELiveAttachmentRejection::insert_before_not_child);
     }
     SAttachmentPosition position;
-    position.next = before;
     const CLiveNode* const before_node = value_node(before);
-    if (before_node != nullptr)
+    if (before_node == nullptr)
     {
-        position.previous = before_node->value_previous_sibling_key();
+        surviving_value = CNodeKey{};
+        return attachment_rejection(ELiveAttachmentRejection::insert_before_not_child);
     }
+    position.next = node_slot(before);
+    position.previous = before_node->value_previous_sibling_slot();
     return attach_child(destination, candidate, position, surviving_value);
 }
 
@@ -697,7 +701,7 @@ CLiveAttachmentResult CLiveDocument::insert_child_at(
         return append_child(destination, candidate, surviving_value);
     }
 
-    CNodeKey before = aggregate->aggregate_first_child_key();
+    TLiveNodeSlot before = aggregate->aggregate_first_child_slot();
     for (std::uint32_t ordinal = 0u; ordinal < index; ++ordinal)
     {
         const CLiveNode* const before_node = value_node(before);
@@ -707,15 +711,22 @@ CLiveAttachmentResult CLiveDocument::insert_child_at(
             MV_ASSERT_MSG(false, "Indexed child traversal encountered an invalid value.");
             return attachment_rejection(ELiveAttachmentRejection::corrupt_structure);
         }
-        before = before_node->value_next_sibling_key();
+        before = before_node->value_next_sibling_slot();
     }
-    if (!before.is_valid())
+    if (before < 0)
     {
         mark_integrity_bad();
         MV_ASSERT_MSG(false, "Indexed child traversal ended early.");
         return attachment_rejection(ELiveAttachmentRejection::corrupt_structure);
     }
-    return insert_child_before(destination, candidate, before, surviving_value);
+    SAttachmentPosition position;
+    position.next = before;
+    const CLiveNode* const before_node = value_node(before);
+    if (before_node != nullptr)
+    {
+        position.previous = before_node->value_previous_sibling_slot();
+    }
+    return attach_child(destination, candidate, position, surviving_value);
 }
 
 bool CLiveDocument::detach(const CNodeKey value) noexcept
@@ -724,7 +735,7 @@ bool CLiveDocument::detach(const CNodeKey value) noexcept
     {
         return false;
     }
-    return detach_value(value);
+    return detach_value(node_slot(value));
 }
 
 CNodeKey CLiveDocument::detach_payload(const CNodeKey source) noexcept
@@ -734,17 +745,19 @@ CNodeKey CLiveDocument::detach_payload(const CNodeKey source) noexcept
         return CNodeKey{};
     }
 
-    const CLiveNode* source_node = value_node(source);
+    const TLiveNodeSlot source_slot = node_slot(source);
+    const CLiveNode* source_node = value_node(source_slot);
     if ((source_node == nullptr) || (source_node->value_type() == ELiveValueType::empty))
     {
         return CNodeKey{};
     }
     const CPropertyNameId former_name = source_node->name_id();
-    const CNodeKey aggregate_key = source_node->value_owned_aggregate_key();
+    const TLiveNodeSlot aggregate_slot = source_node->value_owned_aggregate_slot();
     const bool aggregate_is_expected = live_value_type_is_container(source_node->value_type());
-    const CLiveNode* const aggregate_before_allocation = aggregate_key.is_valid() ? node(aggregate_key) : nullptr;
-    if ((aggregate_key.is_valid() != aggregate_is_expected) ||
-        (aggregate_is_expected && ((aggregate_before_allocation == nullptr) || !source_node->forms_container_pair_with(*aggregate_before_allocation))))
+    const CLiveNode* const aggregate_before_allocation = node(aggregate_slot);
+    if (((aggregate_slot >= 0) != aggregate_is_expected) ||
+        (aggregate_is_expected && ((aggregate_before_allocation == nullptr) ||
+            !source_node->forms_container_pair_with(*aggregate_before_allocation, source_slot, aggregate_slot))))
     {
         mark_integrity_bad();
         MV_ASSERT_MSG(false, "Payload source has an invalid aggregate pair.");
@@ -757,21 +770,17 @@ CNodeKey CLiveDocument::detach_payload(const CNodeKey source) noexcept
         return CNodeKey{};
     }
 
-    if (!substitute_value_position(source, empty_key))
+    const TLiveNodeSlot empty_slot = node_slot(empty_key);
+    if (!substitute_value_position(source_slot, empty_slot))
     {
         return CNodeKey{};
     }
-    value_node(source)->set_name_id(CPropertyNameId{ CPropertyNameId::k_empty_value });
-    CLiveNode* const aggregate = aggregate_key.is_valid() ? node(aggregate_key) : nullptr;
-    if (aggregate_key.is_valid() && (aggregate == nullptr))
+    value_node(source_slot)->set_name_id(CPropertyNameId{ CPropertyNameId::k_empty_value });
+    if ((aggregate_slot >= 0) && (node(aggregate_slot) == nullptr))
     {
         mark_integrity_bad();
         MV_ASSERT_MSG(false, "Payload aggregate disappeared during detachment.");
         return CNodeKey{};
-    }
-    if (aggregate != nullptr)
-    {
-        aggregate->set_name_id(CPropertyNameId{ CPropertyNameId::k_empty_value });
     }
     return empty_key;
 }
@@ -782,8 +791,10 @@ CNodeKey CLiveDocument::attach_payload(const CNodeKey empty_target, const CNodeK
     {
         return CNodeKey{};
     }
-    CLiveNode* target = value_node(empty_target);
-    CLiveNode* payload = value_node(detached_payload);
+    const TLiveNodeSlot target_slot = node_slot(empty_target);
+    const TLiveNodeSlot payload_slot = node_slot(detached_payload);
+    CLiveNode* target = value_node(target_slot);
+    CLiveNode* payload = value_node(payload_slot);
     if ((target == nullptr) || (target->value_type() != ELiveValueType::empty) || (empty_target == detached_payload))
     {
         return CNodeKey{};
@@ -795,10 +806,12 @@ CNodeKey CLiveDocument::attach_payload(const CNodeKey empty_target, const CNodeK
     {
         return CNodeKey{};
     }
+    const TLiveNodeSlot payload_aggregate_slot = payload->value_owned_aggregate_slot();
     CLiveNode* const payload_aggregate = live_value_type_is_container(payload->value_type()) ?
-        node(payload->value_owned_aggregate_key()) : nullptr;
+        node(payload_aggregate_slot) : nullptr;
     if (live_value_type_is_container(payload->value_type()) &&
-        ((payload_aggregate == nullptr) || !payload->forms_container_pair_with(*payload_aggregate)))
+        ((payload_aggregate == nullptr) ||
+            !payload->forms_container_pair_with(*payload_aggregate, payload_slot, payload_aggregate_slot)))
     {
         mark_integrity_bad();
         MV_ASSERT_MSG(false, "Payload has an invalid aggregate pair.");
@@ -806,7 +819,7 @@ CNodeKey CLiveDocument::attach_payload(const CNodeKey empty_target, const CNodeK
     }
 
     bool cycle = false;
-    if (!query_ancestry(empty_target, detached_payload, cycle))
+    if (!query_ancestry(target_slot, payload_slot, cycle))
     {
         return CNodeKey{};
     }
@@ -816,16 +829,12 @@ CNodeKey CLiveDocument::attach_payload(const CNodeKey empty_target, const CNodeK
     }
 
     const CPropertyNameId target_name = target->name_id();
-    if (!substitute_value_position(empty_target, detached_payload))
+    if (!substitute_value_position(target_slot, payload_slot))
     {
         return CNodeKey{};
     }
     payload->set_name_id(target_name);
-    if (payload_aggregate != nullptr)
-    {
-        payload_aggregate->set_name_id(target_name);
-    }
-    if (!erase_subtree(empty_target))
+    if (!erase_subtree(target_slot))
     {
         return CNodeKey{};
     }
@@ -840,8 +849,9 @@ bool CLiveDocument::erase(const CNodeKey value) noexcept
     }
     if (value == m_root)
     {
-        CLiveNode* const root_value = value_node(m_root);
-        CLiveNode* const root_aggregate = (root_value != nullptr) ? node(root_value->value_owned_aggregate_key()) : nullptr;
+        const TLiveNodeSlot root_slot = node_slot(m_root);
+        CLiveNode* const root_value = value_node(root_slot);
+        CLiveNode* const root_aggregate = (root_value != nullptr) ? node(root_value->value_owned_aggregate_slot()) : nullptr;
         if ((root_value == nullptr) || (root_aggregate == nullptr))
         {
             mark_integrity_bad();
@@ -849,8 +859,8 @@ bool CLiveDocument::erase(const CNodeKey value) noexcept
             return false;
         }
 
-        CNodeKey child = root_aggregate->aggregate_first_child_key();
-        while (child.is_valid())
+        TLiveNodeSlot child = root_aggregate->aggregate_first_child_slot();
+        while (child >= 0)
         {
             const CLiveNode* const child_value = value_node(child);
             if (child_value == nullptr)
@@ -859,7 +869,7 @@ bool CLiveDocument::erase(const CNodeKey value) noexcept
                 MV_ASSERT_MSG(false, "Root child traversal encountered an invalid value.");
                 return false;
             }
-            const CNodeKey next = child_value->value_next_sibling_key();
+            const TLiveNodeSlot next = child_value->value_next_sibling_slot();
             if (!erase_subtree(child))
             {
                 return false;
@@ -870,14 +880,15 @@ bool CLiveDocument::erase(const CNodeKey value) noexcept
         return true;
     }
 
-    CLiveNode* const value_record = value_node(value);
+    const TLiveNodeSlot value_slot = node_slot(value);
+    CLiveNode* const value_record = value_node(value_slot);
     if (value_record == nullptr)
     {
         return false;
     }
-    if (value_record->value_parent_aggregate_key().is_valid())
+    if (value_record->value_parent_aggregate_slot() >= 0)
     {
-        if (!detach_value(value))
+        if (!detach_value(value_slot))
         {
             return false;
         }
@@ -888,7 +899,7 @@ bool CLiveDocument::erase(const CNodeKey value) noexcept
         MV_ASSERT_MSG(false, "Unattached value has inconsistent topology.");
         return false;
     }
-    if (!erase_subtree(value))
+    if (!erase_subtree(value_slot))
     {
         return false;
     }
@@ -1095,7 +1106,7 @@ CNodeKey CLiveDocument::create_scalar(
     }
 
     CLiveNode new_node{};
-    new_node.initialise_value(key, type, payload_bits, name_id, metadata);
+    new_node.initialise_value(type, payload_bits, name_id, metadata);
 
     if (m_nodes.insert(key, new_node) < 0)
     {
@@ -1114,7 +1125,7 @@ CNodeKey CLiveDocument::create_empty_node(const CPropertyNameId name) noexcept
     }
 
     CLiveNode value{};
-    value.initialise_value(key, ELiveValueType::empty, 0u, name, CIntegerMetadata{});
+    value.initialise_value(ELiveValueType::empty, 0u, name, CIntegerMetadata{});
     return (m_nodes.insert(key, value) >= 0) ? key : CNodeKey{};
 }
 
@@ -1139,21 +1150,25 @@ CNodeKey CLiveDocument::create_container(const ELiveValueType type, const SPrepa
     }
 
     CLiveNode value{};
-    value.initialise_value(value_key, type, 0u, name_id, CIntegerMetadata{});
-    value.set_value_owned_aggregate_key(aggregate_key);
+    value.initialise_value(type, 0u, name_id, CIntegerMetadata{});
+    const TLiveNodeSlot value_slot = m_nodes.insert(value_key, value);
+    if (value_slot < 0)
+    {
+        return CNodeKey{};
+    }
 
     CLiveNode aggregate{};
-    aggregate.initialise_aggregate(aggregate_key, value_key, live_aggregate_kind_for_value_type(type), name_id);
-
-    if (m_nodes.insert(value_key, value) < 0)
+    aggregate.initialise_aggregate(
+        value_slot,
+        live_aggregate_kind_for_value_type(type),
+        CPropertyNameId{ CPropertyNameId::k_empty_value });
+    const TLiveNodeSlot aggregate_slot = m_nodes.insert(aggregate_key, aggregate);
+    if (aggregate_slot < 0)
     {
+        (void)m_nodes.erase(value_slot);
         return CNodeKey{};
     }
-    if (m_nodes.insert(aggregate_key, aggregate) < 0)
-    {
-        (void)m_nodes.erase(value_key);
-        return CNodeKey{};
-    }
+    value_node(value_slot)->set_value_owned_aggregate_slot(aggregate_slot);
     return value_key;
 }
 
@@ -1167,36 +1182,63 @@ bool CLiveDocument::insert_root_pair() noexcept
     }
 
     CLiveNode root_node{};
-    root_node.initialise_value(root_key, ELiveValueType::object, 0u, CPropertyNameId{ CPropertyNameId::k_empty_value }, CIntegerMetadata{});
-    root_node.set_value_owned_aggregate_key(aggregate_key);
+    root_node.initialise_value(
+        ELiveValueType::object,
+        0u,
+        CPropertyNameId{ CPropertyNameId::k_empty_value },
+        CIntegerMetadata{});
+    const TLiveNodeSlot root_slot = m_nodes.insert(root_key, root_node);
+    if (root_slot < 0)
+    {
+        return false;
+    }
 
     CLiveNode aggregate{};
-    aggregate.initialise_aggregate(aggregate_key, root_key, ELiveAggregateKind::object, CPropertyNameId{ CPropertyNameId::k_empty_value });
-
-    if (m_nodes.insert(root_key, root_node) < 0)
+    aggregate.initialise_aggregate(
+        root_slot,
+        ELiveAggregateKind::object,
+        CPropertyNameId{ CPropertyNameId::k_empty_value });
+    const TLiveNodeSlot aggregate_slot = m_nodes.insert(aggregate_key, aggregate);
+    if (aggregate_slot < 0)
     {
+        (void)m_nodes.erase(root_slot);
         return false;
     }
-    if (m_nodes.insert(aggregate_key, aggregate) < 0)
-    {
-        (void)m_nodes.erase(root_key);
-        return false;
-    }
+    value_node(root_slot)->set_value_owned_aggregate_slot(aggregate_slot);
 
     m_root = root_key;
     return true;
 }
 
+TLiveNodeSlot CLiveDocument::node_slot(const CNodeKey key) const noexcept
+{
+    return key.is_valid() ? m_nodes.find_index(key) : k_invalid_live_node_slot;
+}
+
+CNodeKey CLiveDocument::node_key(const TLiveNodeSlot slot) const noexcept
+{
+    const CNodeKey* const key = m_nodes.key_at_slot(slot);
+    return (key != nullptr) ? *key : CNodeKey{};
+}
+
 CLiveNode* CLiveDocument::node(const CNodeKey key) noexcept
 {
-    CLiveNode* const found = key.is_valid() ? m_nodes.get_slot(key) : nullptr;
-    return ((found != nullptr) && (found->key() == key)) ? found : nullptr;
+    return node(node_slot(key));
 }
 
 const CLiveNode* CLiveDocument::node(const CNodeKey key) const noexcept
 {
-    const CLiveNode* const found = key.is_valid() ? m_nodes.get_slot(key) : nullptr;
-    return ((found != nullptr) && (found->key() == key)) ? found : nullptr;
+    return node(node_slot(key));
+}
+
+CLiveNode* CLiveDocument::node(const TLiveNodeSlot slot) noexcept
+{
+    return m_nodes.get_slot(slot);
+}
+
+const CLiveNode* CLiveDocument::node(const TLiveNodeSlot slot) const noexcept
+{
+    return m_nodes.get_slot(slot);
 }
 
 CLiveNode* CLiveDocument::value_node(const CNodeKey key) noexcept
@@ -1211,6 +1253,18 @@ const CLiveNode* CLiveDocument::value_node(const CNodeKey key) const noexcept
     return ((found != nullptr) && found->is_value_record()) ? found : nullptr;
 }
 
+CLiveNode* CLiveDocument::value_node(const TLiveNodeSlot slot) noexcept
+{
+    CLiveNode* const found = node(slot);
+    return ((found != nullptr) && found->is_value_record()) ? found : nullptr;
+}
+
+const CLiveNode* CLiveDocument::value_node(const TLiveNodeSlot slot) const noexcept
+{
+    const CLiveNode* const found = node(slot);
+    return ((found != nullptr) && found->is_value_record()) ? found : nullptr;
+}
+
 const CLiveNode* CLiveDocument::aggregate_for_value(const CNodeKey value) const noexcept
 {
     const CLiveNode* const owner = value_node(value);
@@ -1218,7 +1272,7 @@ const CLiveNode* CLiveDocument::aggregate_for_value(const CNodeKey value) const 
     {
         return nullptr;
     }
-    const CLiveNode* const aggregate = node(owner->value_owned_aggregate_key());
+    const CLiveNode* const aggregate = node(owner->value_owned_aggregate_slot());
     return ((aggregate != nullptr) && aggregate->is_aggregate_record()) ? aggregate : nullptr;
 }
 
@@ -1242,13 +1296,15 @@ bool CLiveDocument::value_payload_is_in_document_domain(const CLiveNode& value) 
 
 bool CLiveDocument::aggregate_payload_is_in_document_domain(const CLiveNode& aggregate) const noexcept
 {
-    return aggregate.aggregate_payload_is_valid() &&
-        (aggregate.name_id().is_empty() || m_property_names.is_valid_id(aggregate.name_id().query_value()));
+    return aggregate.aggregate_payload_is_valid();
 }
 
-bool CLiveDocument::subtree_next(const CNodeKey subtree_root, CNodeKey current, CNodeKey& next) const noexcept
+bool CLiveDocument::subtree_next(
+    const TLiveNodeSlot subtree_root,
+    TLiveNodeSlot current,
+    TLiveNodeSlot& next) const noexcept
 {
-    next = CNodeKey{};
+    next = k_invalid_live_node_slot;
     const CLiveNode* value = value_node(current);
     if (value == nullptr)
     {
@@ -1256,14 +1312,14 @@ bool CLiveDocument::subtree_next(const CNodeKey subtree_root, CNodeKey current, 
     }
     if (live_value_type_is_container(value->value_type()))
     {
-        const CLiveNode* const aggregate = node(value->value_owned_aggregate_key());
+        const CLiveNode* const aggregate = node(value->value_owned_aggregate_slot());
         if ((aggregate == nullptr) || !aggregate->is_aggregate_record())
         {
             return false;
         }
-        if (aggregate->aggregate_first_child_key().is_valid())
+        if (aggregate->aggregate_first_child_slot() >= 0)
         {
-            next = aggregate->aggregate_first_child_key();
+            next = aggregate->aggregate_first_child_slot();
             return true;
         }
     }
@@ -1278,24 +1334,24 @@ bool CLiveDocument::subtree_next(const CNodeKey subtree_root, CNodeKey current, 
         {
             return false;
         }
-        if (value->value_next_sibling_key().is_valid())
+        if (value->value_next_sibling_slot() >= 0)
         {
-            next = value->value_next_sibling_key();
+            next = value->value_next_sibling_slot();
             return true;
         }
-        const CLiveNode* const parent = node(value->value_parent_aggregate_key());
+        const CLiveNode* const parent = node(value->value_parent_aggregate_slot());
         if ((parent == nullptr) || !parent->is_aggregate_record())
         {
             return false;
         }
-        current = parent->aggregate_owner_value_key();
+        current = parent->aggregate_owner_value_slot();
     }
     return false;
 }
 
-CNodeKey CLiveDocument::subtree_first_postorder(const CNodeKey subtree_root) noexcept
+TLiveNodeSlot CLiveDocument::subtree_first_postorder(const TLiveNodeSlot subtree_root) noexcept
 {
-    CNodeKey first = subtree_root;
+    TLiveNodeSlot first = subtree_root;
     for (std::uint32_t descent = 0u; descent <= m_nodes.occupied_count(); ++descent)
     {
         const CLiveNode* const value = value_node(first);
@@ -1303,61 +1359,66 @@ CNodeKey CLiveDocument::subtree_first_postorder(const CNodeKey subtree_root) noe
         {
             mark_integrity_bad();
             MV_ASSERT_MSG(false, "Postorder traversal encountered an invalid value.");
-            return CNodeKey{};
+            return k_invalid_live_node_slot;
         }
         if (!live_value_type_is_container(value->value_type()))
         {
             return first;
         }
-        const CLiveNode* const aggregate = node(value->value_owned_aggregate_key());
+        const CLiveNode* const aggregate = node(value->value_owned_aggregate_slot());
         if (aggregate == nullptr)
         {
             mark_integrity_bad();
             MV_ASSERT_MSG(false, "Postorder traversal encountered an invalid aggregate.");
-            return CNodeKey{};
+            return k_invalid_live_node_slot;
         }
-        if (!aggregate->aggregate_first_child_key().is_valid())
+        if (aggregate->aggregate_first_child_slot() < 0)
         {
             return first;
         }
-        first = aggregate->aggregate_first_child_key();
+        first = aggregate->aggregate_first_child_slot();
     }
     mark_integrity_bad();
     MV_ASSERT_MSG(false, "Postorder traversal did not terminate.");
-    return CNodeKey{};
+    return k_invalid_live_node_slot;
 }
 
-CNodeKey CLiveDocument::subtree_next_postorder(const CNodeKey subtree_root, const CNodeKey current) noexcept
+TLiveNodeSlot CLiveDocument::subtree_next_postorder(
+    const TLiveNodeSlot subtree_root,
+    const TLiveNodeSlot current) noexcept
 {
     if (current == subtree_root)
     {
-        return CNodeKey{};
+        return k_invalid_live_node_slot;
     }
     const CLiveNode* const value = value_node(current);
     if (value == nullptr)
     {
         mark_integrity_bad();
         MV_ASSERT_MSG(false, "Postorder traversal encountered an invalid value.");
-        return CNodeKey{};
+        return k_invalid_live_node_slot;
     }
-    if (value->value_next_sibling_key().is_valid())
+    if (value->value_next_sibling_slot() >= 0)
     {
-        return subtree_first_postorder(value->value_next_sibling_key());
+        return subtree_first_postorder(value->value_next_sibling_slot());
     }
-    const CLiveNode* const parent = node(value->value_parent_aggregate_key());
+    const CLiveNode* const parent = node(value->value_parent_aggregate_slot());
     if (parent == nullptr)
     {
         mark_integrity_bad();
         MV_ASSERT_MSG(false, "Postorder traversal encountered an invalid parent aggregate.");
-        return CNodeKey{};
+        return k_invalid_live_node_slot;
     }
-    return parent->aggregate_owner_value_key();
+    return parent->aggregate_owner_value_slot();
 }
 
-bool CLiveDocument::audit_subtree_checked(const CNodeKey subtree_root, std::uint64_t& records) const noexcept
+bool CLiveDocument::audit_subtree_checked(const TLiveNodeSlot subtree_root, std::uint64_t& records) const noexcept
 {
     records = 0u;
-    return visit_subtree(subtree_root, [this, &records](const CLiveNode& value_record, const CLiveNode* const aggregate) noexcept
+    return visit_subtree(subtree_root, [this, &records](
+        const TLiveNodeSlot value_slot,
+        const CLiveNode& value_record,
+        const CLiveNode* const aggregate) noexcept
     {
         const CLiveNode* const value = &value_record;
         ++records;
@@ -1368,7 +1429,8 @@ bool CLiveDocument::audit_subtree_checked(const CNodeKey subtree_root, std::uint
 
         if (aggregate != nullptr)
         {
-            if (!value->forms_container_pair_with(*aggregate))
+            const TLiveNodeSlot aggregate_slot = value->value_owned_aggregate_slot();
+            if (!value->forms_container_pair_with(*aggregate, value_slot, aggregate_slot))
             {
                 return false;
             }
@@ -1378,25 +1440,26 @@ bool CLiveDocument::audit_subtree_checked(const CNodeKey subtree_root, std::uint
                 return false;
             }
 
-            CNodeKey previous;
-            CNodeKey child = aggregate->aggregate_first_child_key();
+            TLiveNodeSlot previous = k_invalid_live_node_slot;
+            TLiveNodeSlot child = aggregate->aggregate_first_child_slot();
             std::uint64_t children = 0u;
-            while (child.is_valid())
+            while (child >= 0)
             {
                 const CLiveNode* const child_node = value_node(child);
                 if (child_node == nullptr)
                 {
                     return false;
                 }
-                if (previous.is_valid())
+                if (previous >= 0)
                 {
                     const CLiveNode* const previous_node = value_node(previous);
-                    if ((previous_node == nullptr) || !previous_node->value_is_previous_sibling_of(*child_node))
+                    if ((previous_node == nullptr) ||
+                        !previous_node->value_is_previous_sibling_of(*child_node, previous, child))
                     {
                         return false;
                     }
                 }
-                else if (!aggregate->aggregate_has_first_child(*child_node))
+                else if (!aggregate->aggregate_has_first_child(*child_node, aggregate_slot, child))
                 {
                     return false;
                 }
@@ -1407,7 +1470,8 @@ bool CLiveDocument::audit_subtree_checked(const CNodeKey subtree_root, std::uint
                 if (aggregate->aggregate_kind() == ELiveAggregateKind::object)
                 {
                     std::uint64_t earlier_count = 0u;
-                    for (CNodeKey earlier = aggregate->aggregate_first_child_key(); earlier.is_valid() && (earlier != child); earlier = next_sibling(earlier))
+                    for (TLiveNodeSlot earlier = aggregate->aggregate_first_child_slot();
+                        (earlier >= 0) && (earlier != child);)
                     {
                         const CLiveNode* const earlier_node = value_node(earlier);
                         ++earlier_count;
@@ -1417,10 +1481,11 @@ bool CLiveDocument::audit_subtree_checked(const CNodeKey subtree_root, std::uint
                         {
                             return false;
                         }
+                        earlier = earlier_node->value_next_sibling_slot();
                     }
                 }
                 previous = child;
-                child = child_node->value_next_sibling_key();
+                child = child_node->value_next_sibling_slot();
                 ++children;
                 if (children > m_nodes.occupied_count())
                 {
@@ -1429,7 +1494,8 @@ bool CLiveDocument::audit_subtree_checked(const CNodeKey subtree_root, std::uint
             }
             const CLiveNode* const last_child = value_node(previous);
             if ((children != aggregate->child_count()) ||
-                ((children != 0u) && ((last_child == nullptr) || !aggregate->aggregate_has_last_child(*last_child))) ||
+                ((children != 0u) && ((last_child == nullptr) ||
+                    !aggregate->aggregate_has_last_child(*last_child, aggregate_slot, previous))) ||
                 ((aggregate->aggregate_kind() == ELiveAggregateKind::recovered_array) && (children < 2u)))
             {
                 return false;
@@ -1440,10 +1506,14 @@ bool CLiveDocument::audit_subtree_checked(const CNodeKey subtree_root, std::uint
     });
 }
 
-bool CLiveDocument::query_ancestry(const CNodeKey value, const CNodeKey sought, bool& found) noexcept
+bool CLiveDocument::query_ancestry(
+    const TLiveNodeSlot value,
+    const TLiveNodeSlot sought,
+    bool& found) noexcept
 {
     found = false;
-    CNodeKey current = value;
+    TLiveNodeSlot current = value;
+    const TLiveNodeSlot root_slot = node_slot(m_root);
     for (std::uint32_t hops = 0u; hops <= m_nodes.occupied_count(); ++hops)
     {
         const CLiveNode* const current_value = value_node(current);
@@ -1457,23 +1527,23 @@ bool CLiveDocument::query_ancestry(const CNodeKey value, const CNodeKey sought, 
         {
             found = true;
         }
-        if (current == m_root)
+        if (current == root_slot)
         {
             return true;
         }
-        const CNodeKey parent_key = current_value->value_parent_aggregate_key();
-        if (!parent_key.is_valid())
+        const TLiveNodeSlot parent_slot = current_value->value_parent_aggregate_slot();
+        if (parent_slot < 0)
         {
             return current_value->value_is_unattached();
         }
-        const CLiveNode* const aggregate = node(parent_key);
+        const CLiveNode* const aggregate = node(parent_slot);
         if (aggregate == nullptr)
         {
             mark_integrity_bad();
             MV_ASSERT_MSG(false, "Ancestry traversal encountered an invalid aggregate.");
             return false;
         }
-        current = aggregate->aggregate_owner_value_key();
+        current = aggregate->aggregate_owner_value_slot();
     }
     mark_integrity_bad();
     MV_ASSERT_MSG(false, "Ancestry traversal did not terminate.");
@@ -1491,12 +1561,14 @@ CLiveAttachmentResult CLiveDocument::attach_child(
     {
         return attachment_rejection(ELiveAttachmentRejection::document_not_ready);
     }
-    CLiveNode* const destination_node = value_node(destination);
+    const TLiveNodeSlot destination_slot = node_slot(destination);
+    CLiveNode* const destination_node = value_node(destination_slot);
     if (destination_node == nullptr)
     {
         return attachment_rejection(ELiveAttachmentRejection::destination_not_found);
     }
-    CLiveNode* const candidate_node = value_node(candidate);
+    const TLiveNodeSlot candidate_slot = node_slot(candidate);
+    CLiveNode* const candidate_node = value_node(candidate_slot);
     if (candidate_node == nullptr)
     {
         return attachment_rejection(ELiveAttachmentRejection::candidate_not_found);
@@ -1514,11 +1586,11 @@ CLiveAttachmentResult CLiveDocument::attach_child(
         return attachment_rejection(ELiveAttachmentRejection::candidate_not_detached);
     }
 
-    CLiveNode* const aggregate = node(destination_node->value_owned_aggregate_key());
+    const TLiveNodeSlot aggregate_slot = destination_node->value_owned_aggregate_slot();
+    CLiveNode* const aggregate = node(aggregate_slot);
     if ((aggregate == nullptr) ||
         !aggregate_payload_is_in_document_domain(*aggregate) ||
-        (aggregate->aggregate_owner_value_key() != destination) ||
-        (aggregate->name_id() != destination_node->name_id()))
+        (aggregate->aggregate_owner_value_slot() != destination_slot))
     {
         mark_integrity_bad();
         MV_ASSERT_MSG(false, "Destination container pair is invalid.");
@@ -1529,8 +1601,7 @@ CLiveAttachmentResult CLiveDocument::attach_child(
     {
         return attachment_rejection(ELiveAttachmentRejection::unsupported_destination_kind);
     }
-    if ((destination_node->key() != destination) ||
-        !destination_node->forms_container_pair_with(*aggregate))
+    if (!destination_node->forms_container_pair_with(*aggregate, destination_slot, aggregate_slot))
     {
         mark_integrity_bad();
         MV_ASSERT_MSG(false, "Destination value and aggregate disagree.");
@@ -1539,7 +1610,7 @@ CLiveAttachmentResult CLiveDocument::attach_child(
 
     CLiveNode* next_node = nullptr;
     CLiveNode* previous_node = nullptr;
-    if (position.next.is_valid())
+    if (position.next >= 0)
     {
         next_node = value_node(position.next);
         if (next_node == nullptr)
@@ -1547,11 +1618,11 @@ CLiveAttachmentResult CLiveDocument::attach_child(
             return attachment_rejection(ELiveAttachmentRejection::insert_before_not_child);
         }
     }
-    else if (position.previous != aggregate->aggregate_last_child_key())
+    else if (position.previous != aggregate->aggregate_last_child_slot())
     {
         return attachment_rejection(ELiveAttachmentRejection::insert_before_not_child);
     }
-    if (position.previous.is_valid())
+    if (position.previous >= 0)
     {
         previous_node = value_node(position.previous);
         if (previous_node == nullptr)
@@ -1561,36 +1632,41 @@ CLiveAttachmentResult CLiveDocument::attach_child(
             return attachment_rejection(ELiveAttachmentRejection::corrupt_structure);
         }
     }
-    else if (position.next != aggregate->aggregate_first_child_key())
+    else if (position.next != aggregate->aggregate_first_child_slot())
     {
         return attachment_rejection(ELiveAttachmentRejection::insert_before_not_child);
     }
     if ((previous_node != nullptr) && (next_node != nullptr) &&
-        !aggregate->aggregate_has_adjacent_children(*previous_node, *next_node))
+        !aggregate->aggregate_has_adjacent_children(
+            *previous_node,
+            *next_node,
+            aggregate_slot,
+            position.previous,
+            position.next))
     {
         mark_integrity_bad();
         MV_ASSERT_MSG(false, "Insertion siblings are not adjacent.");
         return attachment_rejection(ELiveAttachmentRejection::corrupt_structure);
     }
     if ((previous_node == nullptr) && (next_node != nullptr) &&
-        !aggregate->aggregate_has_first_child(*next_node))
+        !aggregate->aggregate_has_first_child(*next_node, aggregate_slot, position.next))
     {
         return attachment_rejection(ELiveAttachmentRejection::insert_before_not_child);
     }
     if ((previous_node != nullptr) && (next_node == nullptr) &&
-        !aggregate->aggregate_has_last_child(*previous_node))
+        !aggregate->aggregate_has_last_child(*previous_node, aggregate_slot, position.previous))
     {
         return attachment_rejection(ELiveAttachmentRejection::insert_before_not_child);
     }
 
     if (aggregate->aggregate_kind() == ELiveAggregateKind::object)
     {
-        if (!candidate_node->is_object_entry() || (candidate_node->name_id().query_value() == 0u))
+        if (!candidate_node->is_object_entry())
         {
             return attachment_rejection(ELiveAttachmentRejection::object_entry_required);
         }
-        CNodeKey existing = aggregate->aggregate_first_child_key();
-        for (std::uint32_t visited = 0u; existing.is_valid(); ++visited)
+        TLiveNodeSlot existing = aggregate->aggregate_first_child_slot();
+        for (std::uint32_t visited = 0u; existing >= 0; ++visited)
         {
             const CLiveNode* const existing_node = value_node(existing);
             if ((existing_node == nullptr) || (visited >= m_nodes.occupied_count()))
@@ -1603,12 +1679,12 @@ CLiveAttachmentResult CLiveDocument::attach_child(
             {
                 return attachment_rejection(ELiveAttachmentRejection::duplicate_object_name);
             }
-            existing = existing_node->value_next_sibling_key();
+            existing = existing_node->value_next_sibling_slot();
         }
     }
 
     bool cycle = false;
-    if (!query_ancestry(destination, candidate, cycle))
+    if (!query_ancestry(destination_slot, candidate_slot, cycle))
     {
         return attachment_rejection(ELiveAttachmentRejection::corrupt_structure);
     }
@@ -1617,22 +1693,22 @@ CLiveAttachmentResult CLiveDocument::attach_child(
         return attachment_rejection(ELiveAttachmentRejection::cycle);
     }
 
-    candidate_node->set_value_attachment(aggregate->key(), position.previous, position.next);
+    candidate_node->set_value_attachment(aggregate_slot, position.previous, position.next);
     if (previous_node != nullptr)
     {
-        previous_node->set_value_next_sibling_key(candidate);
+        previous_node->set_value_next_sibling_slot(candidate_slot);
     }
     else
     {
-        aggregate->set_aggregate_first_child_key(candidate);
+        aggregate->set_aggregate_first_child_slot(candidate_slot);
     }
     if (next_node != nullptr)
     {
-        next_node->set_value_previous_sibling_key(candidate);
+        next_node->set_value_previous_sibling_slot(candidate_slot);
     }
     else
     {
-        aggregate->set_aggregate_last_child_key(candidate);
+        aggregate->set_aggregate_last_child_slot(candidate_slot);
     }
     aggregate->increment_child_count();
 
@@ -1640,17 +1716,18 @@ CLiveAttachmentResult CLiveDocument::attach_child(
     return CLiveAttachmentResult{ ELiveAttachmentOutcome::inserted, ELiveAttachmentRejection::none };
 }
 
-bool CLiveDocument::detach_value(const CNodeKey value) noexcept
+bool CLiveDocument::detach_value(const TLiveNodeSlot value) noexcept
 {
     CLiveNode* const value_record = value_node(value);
-    if ((value_record == nullptr) || (value == m_root) ||
-        !value_record->value_parent_aggregate_key().is_valid())
+    if ((value_record == nullptr) || (node_key(value) == m_root) ||
+        (value_record->value_parent_aggregate_slot() < 0))
     {
         return false;
     }
-    CLiveNode* const aggregate = node(value_record->value_parent_aggregate_key());
-    const CNodeKey previous_key = value_record->value_previous_sibling_key();
-    const CNodeKey next_key = value_record->value_next_sibling_key();
+    const TLiveNodeSlot aggregate_slot = value_record->value_parent_aggregate_slot();
+    CLiveNode* const aggregate = node(aggregate_slot);
+    const TLiveNodeSlot previous_slot = value_record->value_previous_sibling_slot();
+    const TLiveNodeSlot next_slot = value_record->value_next_sibling_slot();
     if ((aggregate == nullptr) || !aggregate_payload_is_in_document_domain(*aggregate))
     {
         mark_integrity_bad();
@@ -1665,17 +1742,18 @@ bool CLiveDocument::detach_value(const CNodeKey value) noexcept
     }
 
     CLiveNode* previous = nullptr;
-    if (previous_key.is_valid())
+    if (previous_slot >= 0)
     {
-        previous = value_node(previous_key);
-        if ((previous == nullptr) || !previous->value_is_previous_sibling_of(*value_record))
+        previous = value_node(previous_slot);
+        if ((previous == nullptr) ||
+            !previous->value_is_previous_sibling_of(*value_record, previous_slot, value))
         {
             mark_integrity_bad();
             MV_ASSERT_MSG(false, "Detached value has an invalid previous sibling.");
             return false;
         }
     }
-    else if (!aggregate->aggregate_has_first_child(*value_record))
+    else if (!aggregate->aggregate_has_first_child(*value_record, aggregate_slot, value))
     {
         mark_integrity_bad();
         MV_ASSERT_MSG(false, "Detached value is not its parent's first child.");
@@ -1683,17 +1761,18 @@ bool CLiveDocument::detach_value(const CNodeKey value) noexcept
     }
 
     CLiveNode* next = nullptr;
-    if (next_key.is_valid())
+    if (next_slot >= 0)
     {
-        next = value_node(next_key);
-        if ((next == nullptr) || !next->value_is_next_sibling_of(*value_record))
+        next = value_node(next_slot);
+        if ((next == nullptr) ||
+            !next->value_is_next_sibling_of(*value_record, next_slot, value))
         {
             mark_integrity_bad();
             MV_ASSERT_MSG(false, "Detached value has an invalid next sibling.");
             return false;
         }
     }
-    else if (!aggregate->aggregate_has_last_child(*value_record))
+    else if (!aggregate->aggregate_has_last_child(*value_record, aggregate_slot, value))
     {
         mark_integrity_bad();
         MV_ASSERT_MSG(false, "Detached value is not its parent's last child.");
@@ -1702,19 +1781,19 @@ bool CLiveDocument::detach_value(const CNodeKey value) noexcept
 
     if (previous != nullptr)
     {
-        previous->set_value_next_sibling_key(value_record->value_next_sibling_key());
+        previous->set_value_next_sibling_slot(value_record->value_next_sibling_slot());
     }
     else
     {
-        aggregate->set_aggregate_first_child_key(value_record->value_next_sibling_key());
+        aggregate->set_aggregate_first_child_slot(value_record->value_next_sibling_slot());
     }
     if (next != nullptr)
     {
-        next->set_value_previous_sibling_key(value_record->value_previous_sibling_key());
+        next->set_value_previous_sibling_slot(value_record->value_previous_sibling_slot());
     }
     else
     {
-        aggregate->set_aggregate_last_child_key(value_record->value_previous_sibling_key());
+        aggregate->set_aggregate_last_child_slot(value_record->value_previous_sibling_slot());
     }
     aggregate->decrement_child_count();
     value_record->clear_value_attachment();
@@ -1722,7 +1801,9 @@ bool CLiveDocument::detach_value(const CNodeKey value) noexcept
     return true;
 }
 
-bool CLiveDocument::substitute_value_position(const CNodeKey displaced, const CNodeKey replacement) noexcept
+bool CLiveDocument::substitute_value_position(
+    const TLiveNodeSlot displaced,
+    const TLiveNodeSlot replacement) noexcept
 {
     CLiveNode* const displaced_value = value_node(displaced);
     CLiveNode* const replacement_value = value_node(replacement);
@@ -1734,8 +1815,8 @@ bool CLiveDocument::substitute_value_position(const CNodeKey displaced, const CN
         return false;
     }
 
-    const CNodeKey parent_key = displaced_value->value_parent_aggregate_key();
-    if (!parent_key.is_valid())
+    const TLiveNodeSlot parent_slot = displaced_value->value_parent_aggregate_slot();
+    if (parent_slot < 0)
     {
         if (!displaced_value->value_is_unattached())
         {
@@ -1746,54 +1827,56 @@ bool CLiveDocument::substitute_value_position(const CNodeKey displaced, const CN
         return true;
     }
 
-    CLiveNode* const parent = node(parent_key);
-    const CNodeKey previous_key = displaced_value->value_previous_sibling_key();
-    const CNodeKey next_key = displaced_value->value_next_sibling_key();
-    CLiveNode* const previous = previous_key.is_valid() ? value_node(previous_key) : nullptr;
-    CLiveNode* const next = next_key.is_valid() ? value_node(next_key) : nullptr;
+    CLiveNode* const parent = node(parent_slot);
+    const TLiveNodeSlot previous_slot = displaced_value->value_previous_sibling_slot();
+    const TLiveNodeSlot next_slot = displaced_value->value_next_sibling_slot();
+    CLiveNode* const previous = value_node(previous_slot);
+    CLiveNode* const next = value_node(next_slot);
     if ((parent == nullptr) || !aggregate_payload_is_in_document_domain(*parent) ||
         (parent->child_count() == 0u) ||
-        (previous_key.is_valid() && ((previous == nullptr) || !previous->value_is_previous_sibling_of(*displaced_value))) ||
-        (!previous_key.is_valid() && !parent->aggregate_has_first_child(*displaced_value)) ||
-        (next_key.is_valid() && ((next == nullptr) || !next->value_is_next_sibling_of(*displaced_value))) ||
-        (!next_key.is_valid() && !parent->aggregate_has_last_child(*displaced_value)))
+        ((previous_slot >= 0) && ((previous == nullptr) ||
+            !previous->value_is_previous_sibling_of(*displaced_value, previous_slot, displaced))) ||
+        ((previous_slot < 0) && !parent->aggregate_has_first_child(*displaced_value, parent_slot, displaced)) ||
+        ((next_slot >= 0) && ((next == nullptr) ||
+            !next->value_is_next_sibling_of(*displaced_value, next_slot, displaced))) ||
+        ((next_slot < 0) && !parent->aggregate_has_last_child(*displaced_value, parent_slot, displaced)))
     {
         mark_integrity_bad();
         MV_ASSERT_MSG(false, "Displaced value has inconsistent parent topology.");
         return false;
     }
 
-    replacement_value->set_value_attachment(parent_key, previous_key, next_key);
+    replacement_value->set_value_attachment(parent_slot, previous_slot, next_slot);
     if (previous != nullptr)
     {
-        previous->set_value_next_sibling_key(replacement);
+        previous->set_value_next_sibling_slot(replacement);
     }
     else
     {
-        parent->set_aggregate_first_child_key(replacement);
+        parent->set_aggregate_first_child_slot(replacement);
     }
     if (next != nullptr)
     {
-        next->set_value_previous_sibling_key(replacement);
+        next->set_value_previous_sibling_slot(replacement);
     }
     else
     {
-        parent->set_aggregate_last_child_key(replacement);
+        parent->set_aggregate_last_child_slot(replacement);
     }
     displaced_value->clear_value_attachment();
     return true;
 }
 
-bool CLiveDocument::erase_subtree(const CNodeKey value) noexcept
+bool CLiveDocument::erase_subtree(const TLiveNodeSlot value) noexcept
 {
-    CNodeKey current = subtree_first_postorder(value);
-    if (!current.is_valid() || m_integrity_known_bad)
+    TLiveNodeSlot current = subtree_first_postorder(value);
+    if ((current < 0) || m_integrity_known_bad)
     {
         return false;
     }
     const std::uint32_t traversal_limit = m_nodes.occupied_count();
     std::uint32_t erased_values = 0u;
-    while (current.is_valid())
+    while (current >= 0)
     {
         const CLiveNode* const current_value = value_node(current);
         if (current_value == nullptr)
@@ -1802,13 +1885,13 @@ bool CLiveDocument::erase_subtree(const CNodeKey value) noexcept
             MV_ASSERT_MSG(false, "Subtree erase encountered an invalid value.");
             return false;
         }
-        const CNodeKey aggregate = current_value->value_owned_aggregate_key();
-        const CNodeKey next = subtree_next_postorder(value, current);
+        const TLiveNodeSlot aggregate = current_value->value_owned_aggregate_slot();
+        const TLiveNodeSlot next = subtree_next_postorder(value, current);
         if (m_integrity_known_bad)
         {
             return false;
         }
-        if (aggregate.is_valid() && !m_nodes.erase(aggregate))
+        if ((aggregate >= 0) && !m_nodes.erase(aggregate))
         {
             mark_integrity_bad();
             MV_ASSERT_MSG(false, "Subtree aggregate erase failed.");

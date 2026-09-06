@@ -140,9 +140,6 @@ enum class ELiveAttachmentOutcome : std::uint8_t
 {
     rejected = 0u,
     inserted,
-    recovery_created,
-    recovery_extended,
-    allocation_failed,
 };
 
 enum class ELiveAttachmentRejection : std::uint8_t
@@ -170,10 +167,7 @@ struct CLiveAttachmentResult
 
     [[nodiscard]] constexpr bool succeeded() const noexcept
     {
-        return
-            (outcome == ELiveAttachmentOutcome::inserted) ||
-            (outcome == ELiveAttachmentOutcome::recovery_created) ||
-            (outcome == ELiveAttachmentOutcome::recovery_extended);
+        return outcome == ELiveAttachmentOutcome::inserted;
     }
 };
 
