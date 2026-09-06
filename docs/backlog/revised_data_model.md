@@ -21,9 +21,12 @@ Implementation rationale and proposals belong in
 belong in `docs/backlog/data_model_roadmap.md`. Neither document overrides this
 specification.
 
+The normative physical baked layout is defined separately in
+`docs/backlog/baked_document_format.md`.
+
 The archived v1 design and implementation are reference material only. C++
-signatures, record packing and the baked byte layout remain implementation
-choices unless explicitly settled here.
+signatures and live-record packing remain implementation choices unless
+explicitly settled here.
 
 ## Terminology
 
@@ -325,8 +328,9 @@ straightforward. Nested descendants need not be adjacent to their ancestors.
 Empty is a live-only state. Baking encodes every reachable empty value as an
 ordinary null value while preserving its name and position.
 
-The baked representation may use explicit aggregate records or fold immutable
-aggregate metadata into owning value records. The byte layout remains deferred.
+The baked representation folds immutable aggregate metadata into each owning
+value record. It contains no aggregate records. The fixed header, value record,
+section layout and encodings are defined in `baked_document_format.md`.
 
 ### Baked string tables
 
@@ -344,16 +348,15 @@ order. There is no secondary ordering table.
 User-controlled full validation of potentially untrusted baked bytes must
 independently check the selected layout's:
 
-- identity, version, flags, total size, alignment and section bounds;
+- identity, version, total size, alignment and section bounds;
 - root and value/aggregate semantics;
 - ownership and direct-child ranges;
 - recovered-array anonymity rule;
 - names, strings, ordering, uniqueness, bounds, terminators and encoding;
-- payload/type agreement and numeric metadata; and
-- checksum or other integrity fields, if present.
+- payload/type agreement and numeric metadata.
 
-Binding a view does not imply that full validation has run. The concrete checked
-view interface is deferred.
+Public binding of arbitrary bytes performs full validation. A baked view is
+ready only after that validation succeeds; there is no public unchecked view.
 
 The replacement byte format is intentionally incompatible with archived
 formats. Once its version is selected, validators must reject unsupported
@@ -402,8 +405,6 @@ The following are not yet normative:
 
 - exact public C++ names, signatures and result types;
 - live record packing and role-inapplicable field values;
-- whether aggregate metadata is explicit or folded in baked records;
-- baked header, sections, offsets, alignment, checksum and format version;
 - lookup accelerators, including O(1) object lookup by name;
 - diagnostic recovery serialization and malformed-input policy;
 - whether modified UTF-8 U+0000 remains the long-term encoding policy;

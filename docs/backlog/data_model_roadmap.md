@@ -20,7 +20,7 @@ the data model require separate approval and a separate commit.
 
 ## Current baseline
 
-The current checkpoint follows completion of Stages 0 through 5. Stage 6 is
+The current checkpoint follows completion of Stages 0 through 6. Stage 7 is
 next; no baked-document replacement has begun.
 
 The live implementation currently provides:
@@ -190,6 +190,16 @@ baked artifact:
 
 Use measured live-analysis needs to choose scratch mappings. Do not design O(1)
 object lookup or a public mutable baked builder without demonstrated demand.
+
+Status: complete. The normative physical format is recorded in
+`baked_document_format.md`. Immutable aggregate metadata is folded into a
+32-byte value record with parent and contiguous child-range fields. A 32-byte
+header and fixed section order derive all offsets. The root is dense index zero;
+separate lexical string tables physically include empty index zero. The format
+uses magic `MBD2`, version 1, no checksum and no semantic-summary flags.
+Arbitrary bytes enter through one fully validating checked view. Existing live
+analysis plus reusable string maps and one breadth-first slot vector is
+sufficient, so this checkpoint adds no live or infrastructure prerequisite.
 
 ## Stage 7: baked block, view and baking
 

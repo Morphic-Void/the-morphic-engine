@@ -236,10 +236,42 @@ direct-child ranges and two directly sorted string tables. O(1) ordinal array
 access follows naturally. An object-name accelerator should be added only if
 real consumers justify its footprint and construction cost.
 
-Whether baked aggregate metadata deserves separate records should be decided
-with concrete record sketches. Unlike the live representation, immutable
-children do not benefit from an extra indirection merely to isolate changing
-links.
+The Stage 6 record sketch confirmed that a separate baked aggregate supplies no
+useful isolation in immutable data. Aggregate kind is already the owning
+value's type, and its only remaining state is a first-child index and count.
+Those fields are folded into one 32-byte value record.
+
+Keeping the parent index makes parent and sibling queries O(1) and provides a
+cheap reciprocal structural check. Removing it would reduce the record to 24
+bytes, but would turn a useful established query into a scan. The eight-byte
+cost is proportionate for the direct-user and later schema interfaces.
+
+The replacement header stores counts and byte sizes, not five redundant
+section offsets. A fixed section order derives every address and removes layout
+combinations from both emission and validation. Root index zero also removes
+the archived sentinel value record. Explicit reserved fields avoid unmanaged
+structure padding in the byte format.
+
+The format omits v1's checksum and derived semantic flags. A checksum detects
+some accidental changes but is not authentication, requires another whole
+block pass and is better supplied by a persistence envelope when one exists.
+Recovered content is immutable and cheap to discover by scanning value types.
+
+The checked view is the only public raw-byte boundary. This keeps one view type
+and gives readiness a useful meaning: arbitrary bytes cannot become ready
+without full validation. Internally produced bytes may use a private trusted
+binding only after successful emission.
+
+Full validation can remain linear with one transient framework vector. Reusing
+it first for referenced-name marks, then object-local name stamps and finally
+referenced-string marks verifies compact string coverage and object uniqueness
+without persistent state or quadratic scans.
+
+Existing live analysis is sufficient for baking. Its two reference-count
+vectors can become string-ID maps after byte measurement, and one
+baked-index-to-live-slot vector drives breadth-first direct emission. The
+stable string stores already supply lexical rank order. No live public API or
+container extension is needed.
 
 ## Preserved future concerns
 
