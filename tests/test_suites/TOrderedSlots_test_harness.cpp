@@ -1389,6 +1389,11 @@ static bool test_pod_ordered_slots_wrapper(TestLogger& log)
         log.fail("TPodOrderedSlots failed initial integrity");
         return false;
     }
+    if ((slots.key_at_slot(-1) != nullptr) || (slots.key_at_slot(0) != nullptr))
+    {
+        log.fail("TPodOrderedSlots exposed a key for an invalid or empty slot");
+        return false;
+    }
     if ((slots.memory_token_count() != 3u) ||
         (slots.memory_allocation_count() == 0u) ||
         (slots.memory_allocation_size() == 0u) ||
@@ -1413,6 +1418,17 @@ static bool test_pod_ordered_slots_wrapper(TestLogger& log)
         return false;
     }
 
+    const OrderedSlotsTestKey* const key_a = slots.key_at_slot(slot_a);
+    const OrderedSlotsTestKey* const key_b = slots.key_at_slot(slot_b);
+    const OrderedSlotsTestKey* const key_c = slots.key_at_slot(slot_c);
+    if ((key_a == nullptr) || (key_a->relationship(OrderedSlotsTestKey{ 3 }) != 0) ||
+        (key_b == nullptr) || (key_b->relationship(OrderedSlotsTestKey{ 1 }) != 0) ||
+        (key_c == nullptr) || (key_c->relationship(OrderedSlotsTestKey{ 2 }) != 0))
+    {
+        log.fail("TPodOrderedSlots slot-to-key lookup mismatch");
+        return false;
+    }
+
     const std::int32_t* const found = slots.get_slot(OrderedSlotsTestKey{ 2 });
     if ((found == nullptr) || (*found != 20))
     {
@@ -1429,13 +1445,20 @@ static bool test_pod_ordered_slots_wrapper(TestLogger& log)
 
     const std::int32_t* const first_live = slots.get_slot(slots.first_live());
     const std::int32_t* const last_live = slots.get_slot(slots.last_live());
-    if ((first_live == nullptr) || (*first_live != 10) || (last_live == nullptr) || (*last_live != 30))
+    const OrderedSlotsTestKey* const first_key = slots.key_at_slot(slots.first_live());
+    const OrderedSlotsTestKey* const last_key = slots.key_at_slot(slots.last_live());
+    if ((first_live == nullptr) || (*first_live != 10) ||
+        (last_live == nullptr) || (*last_live != 30) ||
+        (first_key == nullptr) || (first_key->relationship(OrderedSlotsTestKey{ 1 }) != 0) ||
+        (last_key == nullptr) || (last_key->relationship(OrderedSlotsTestKey{ 3 }) != 0))
     {
         log.fail("TPodOrderedSlots traversal order mismatch");
         return false;
     }
 
-    if (!slots.erase(OrderedSlotsTestKey{ 2 }) || !slots.check_integrity())
+    const std::int32_t erased_slot = slots.find_index(OrderedSlotsTestKey{ 2 });
+    if ((erased_slot < 0) || !slots.erase(erased_slot) ||
+        (slots.key_at_slot(erased_slot) != nullptr) || !slots.check_integrity())
     {
         log.fail("TPodOrderedSlots erase failed");
         return false;
