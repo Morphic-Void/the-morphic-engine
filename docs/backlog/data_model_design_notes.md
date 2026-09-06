@@ -181,6 +181,12 @@ nested-erasure behaviour by preserving the selected top value as an empty
 placeholder. Together these operations express recovery repair without a
 special tree-rewrite implementation.
 
+The implementation uses one private payload-field move for extraction and
+attachment. It leaves both nodes' names and structural links untouched and
+retargets an owned aggregate directly when present. Payload erasure and root
+clearing share the same aggregate-child erasure path. This removed the former
+whole-node topology substitution rather than expanding it.
+
 ## Public recovered arrays
 
 Making recovered arrays public simplifies both parser construction and baked

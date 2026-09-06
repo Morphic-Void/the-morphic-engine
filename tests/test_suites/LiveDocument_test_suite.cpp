@@ -1090,26 +1090,26 @@ void test_empty_completeness_and_payload_round_trip(TTestContext& ctx)
     TEST_EXPECT(ctx, document.aggregate_payload_count() == 2u);
     TEST_EXPECT(ctx, string_analysis(ctx, document).referenced_string_value_count == 1u);
 
-    const CNodeKey replacement = document.detach_payload(payload);
-    TEST_EXPECT(ctx, replacement.is_valid() && (replacement != payload));
-    TEST_EXPECT(ctx, document.value_type(replacement) == ELiveValueType::empty);
-    TEST_EXPECT(ctx, document.name(replacement) == slot_name);
-    TEST_EXPECT(ctx, document.parent(replacement) == document.root());
-    TEST_EXPECT(ctx, document.previous_sibling(replacement) == before);
-    TEST_EXPECT(ctx, document.next_sibling(replacement) == after);
+    const CNodeKey detached_payload = document.detach_payload(payload);
+    TEST_EXPECT(ctx, detached_payload.is_valid() && (detached_payload != payload));
+    TEST_EXPECT(ctx, document.value_type(payload) == ELiveValueType::empty);
+    TEST_EXPECT(ctx, document.name(payload) == slot_name);
+    TEST_EXPECT(ctx, document.parent(payload) == document.root());
+    TEST_EXPECT(ctx, document.previous_sibling(payload) == before);
+    TEST_EXPECT(ctx, document.next_sibling(payload) == after);
     TEST_EXPECT(ctx, document.child_count(document.root()) == 3u);
-    TEST_EXPECT(ctx, document.is_detached(payload));
-    TEST_EXPECT(ctx, document.name(payload).length() == 0u);
-    TEST_EXPECT(ctx, document.value_type(payload) == ELiveValueType::array);
-    TEST_EXPECT(ctx, document.first_child(payload) == child);
+    TEST_EXPECT(ctx, document.is_detached(detached_payload));
+    TEST_EXPECT(ctx, document.name(detached_payload).length() == 0u);
+    TEST_EXPECT(ctx, document.value_type(detached_payload) == ELiveValueType::array);
+    TEST_EXPECT(ctx, document.first_child(detached_payload) == child);
     TEST_EXPECT(ctx, !document.is_complete());
     TEST_EXPECT(ctx, document.value_count() == 4u);
     TEST_EXPECT(ctx, document.aggregate_payload_count() == 1u);
     TEST_EXPECT(ctx, string_analysis(ctx, document).referenced_string_value_count == 0u);
     TEST_EXPECT(ctx, document.check_integrity());
 
-    TEST_EXPECT(ctx, document.attach_payload(replacement, payload) == payload);
-    TEST_EXPECT(ctx, !document.contains(replacement));
+    TEST_EXPECT(ctx, document.attach_payload(payload, detached_payload) == payload);
+    TEST_EXPECT(ctx, !document.contains(detached_payload));
     TEST_EXPECT(ctx, document.parent(payload) == document.root());
     TEST_EXPECT(ctx, document.name(payload) == slot_name);
     TEST_EXPECT(ctx, document.previous_sibling(payload) == before);
@@ -1132,9 +1132,10 @@ void test_empty_completeness_and_payload_round_trip(TTestContext& ctx)
     TEST_EXPECT(ctx, document.append_child(payload, nested_empty, surviving).succeeded());
     TEST_EXPECT(ctx, !document.is_complete());
     const CNodeKey null_payload = document.create_null();
-    TEST_EXPECT(ctx, document.attach_payload(nested_empty, null_payload) == null_payload);
-    TEST_EXPECT(ctx, !document.contains(nested_empty));
-    TEST_EXPECT(ctx, document.parent(null_payload) == payload);
+    TEST_EXPECT(ctx, document.attach_payload(nested_empty, null_payload) == nested_empty);
+    TEST_EXPECT(ctx, !document.contains(null_payload));
+    TEST_EXPECT(ctx, document.parent(nested_empty) == payload);
+    TEST_EXPECT(ctx, document.value_type(nested_empty) == ELiveValueType::null_value);
     TEST_EXPECT(ctx, document.is_complete());
     TEST_EXPECT(ctx, document.check_integrity());
 
@@ -1164,15 +1165,18 @@ void test_scalar_and_detached_payload_transfer(TTestContext& ctx)
     TEST_EXPECT(ctx, string_analysis(ctx, document).referenced_property_name_count == 1u);
     TEST_EXPECT(ctx, string_analysis(ctx, document).referenced_string_value_count == 1u);
 
-    const CNodeKey replacement = document.detach_payload(string);
-    TEST_EXPECT(ctx, document.string_value_id(string) == value_id);
-    TEST_EXPECT(ctx, document.string_value(string) == value);
-    TEST_EXPECT(ctx, document.name(string).length() == 0u);
-    TEST_EXPECT(ctx, !document.is_object_entry(string));
-    TEST_EXPECT(ctx, document.is_object_entry(replacement));
+    const CNodeKey detached_payload = document.detach_payload(string);
+    TEST_EXPECT(ctx, document.value_type(string) == ELiveValueType::empty);
+    TEST_EXPECT(ctx, document.name(string) == name);
+    TEST_EXPECT(ctx, document.is_object_entry(string));
+    TEST_EXPECT(ctx, document.string_value_id(detached_payload) == value_id);
+    TEST_EXPECT(ctx, document.string_value(detached_payload) == value);
+    TEST_EXPECT(ctx, document.name(detached_payload).length() == 0u);
+    TEST_EXPECT(ctx, !document.is_object_entry(detached_payload));
     TEST_EXPECT(ctx, string_analysis(ctx, document).referenced_property_name_count == 1u);
     TEST_EXPECT(ctx, string_analysis(ctx, document).referenced_string_value_count == 0u);
-    TEST_EXPECT(ctx, document.attach_payload(replacement, string) == string);
+    TEST_EXPECT(ctx, document.attach_payload(string, detached_payload) == string);
+    TEST_EXPECT(ctx, !document.contains(detached_payload));
     TEST_EXPECT(ctx, document.name(string) == name);
     TEST_EXPECT(ctx, document.is_object_entry(string));
     TEST_EXPECT(ctx, document.string_value_id(string) == value_id);
@@ -1181,26 +1185,31 @@ void test_scalar_and_detached_payload_transfer(TTestContext& ctx)
     const CStringView detached_name{
         reinterpret_cast<const std::uint8_t*>("detached"), 8u };
     const CNodeKey detached = document.create_boolean(true, detached_name);
-    const CNodeKey detached_empty = document.detach_payload(detached);
+    const CNodeKey detached_boolean = document.detach_payload(detached);
     TEST_EXPECT(ctx, document.is_detached(detached));
-    TEST_EXPECT(ctx, document.is_detached(detached_empty));
-    TEST_EXPECT(ctx, document.name(detached).length() == 0u);
-    TEST_EXPECT(ctx, document.name(detached_empty) == detached_name);
-    TEST_EXPECT(ctx, document.attach_payload(detached_empty, detached) == detached);
+    TEST_EXPECT(ctx, document.is_detached(detached_boolean));
+    TEST_EXPECT(ctx, document.name(detached) == detached_name);
+    TEST_EXPECT(ctx, document.value_type(detached) == ELiveValueType::empty);
+    TEST_EXPECT(ctx, document.name(detached_boolean).length() == 0u);
+    TEST_EXPECT(ctx, document.attach_payload(detached, detached_boolean) == detached);
     bool boolean = false;
     TEST_EXPECT(ctx, document.boolean_value(detached, boolean) && boolean);
     TEST_EXPECT(ctx, document.name(detached) == detached_name);
-    TEST_EXPECT(ctx, !document.contains(detached_empty));
+    TEST_EXPECT(ctx, !document.contains(detached_boolean));
 
     const CNodeKey signed_value = document.create_signed_integer(-17);
     const CNodeKey unsigned_value = document.create_unsigned_integer(42u);
     const CNodeKey floating_value = document.create_floating_point(3.5);
+    CIntegerMetadata signed_metadata;
+    CIntegerMetadata unsigned_metadata;
+    TEST_EXPECT(ctx, document.integer_metadata(signed_value, signed_metadata));
+    TEST_EXPECT(ctx, document.integer_metadata(unsigned_value, unsigned_metadata));
     const CNodeKey scalar_values[]{ signed_value, unsigned_value, floating_value };
     for (const CNodeKey scalar : scalar_values)
     {
-        const CNodeKey scalar_empty = document.detach_payload(scalar);
-        TEST_EXPECT(ctx, scalar_empty.is_valid());
-        TEST_EXPECT(ctx, document.attach_payload(scalar_empty, scalar) == scalar);
+        const CNodeKey scalar_payload = document.detach_payload(scalar);
+        TEST_EXPECT(ctx, scalar_payload.is_valid());
+        TEST_EXPECT(ctx, document.attach_payload(scalar, scalar_payload) == scalar);
     }
     std::int64_t signed_result = 0;
     std::uint64_t unsigned_result = 0u;
@@ -1211,6 +1220,82 @@ void test_scalar_and_detached_payload_transfer(TTestContext& ctx)
         (unsigned_result == 42u));
     TEST_EXPECT(ctx, document.floating_point_value(floating_value, floating_result) &&
         (floating_result == 3.5));
+    CIntegerMetadata transferred_metadata;
+    TEST_EXPECT(ctx, document.integer_metadata(signed_value, transferred_metadata) &&
+        (transferred_metadata == signed_metadata));
+    TEST_EXPECT(ctx, document.integer_metadata(unsigned_value, transferred_metadata) &&
+        (transferred_metadata == unsigned_metadata));
+    TEST_EXPECT(ctx, document.check_integrity());
+}
+
+void test_payload_erasure_preserves_value_identity(TTestContext& ctx)
+{
+    CLiveDocument uninitialised;
+    TEST_EXPECT(ctx, !uninitialised.erase_payload(CNodeKey{}));
+
+    CLiveDocument document;
+    TEST_EXPECT(ctx, document.initialise());
+    TEST_EXPECT(ctx, document.erase_payload(document.root()));
+    TEST_EXPECT(ctx, document.value_type(document.root()) == ELiveValueType::object);
+
+    const CStringView before_name{ reinterpret_cast<const std::uint8_t*>("before"), 6u };
+    const CStringView payload_name{ reinterpret_cast<const std::uint8_t*>("payload"), 7u };
+    const CStringView after_name{ reinterpret_cast<const std::uint8_t*>("after"), 5u };
+    const CStringView text{ reinterpret_cast<const std::uint8_t*>("text"), 4u };
+    const CNodeKey before = document.create_null(before_name);
+    const CNodeKey payload = document.create_array(payload_name);
+    const CNodeKey nested = document.create_array();
+    const CNodeKey leaf = document.create_string(text);
+    const CNodeKey after = document.create_null(after_name);
+    CNodeKey surviving;
+    TEST_EXPECT(ctx, document.append_child(nested, leaf, surviving).succeeded());
+    TEST_EXPECT(ctx, document.append_child(payload, nested, surviving).succeeded());
+    TEST_EXPECT(ctx, document.append_child(document.root(), before, surviving).succeeded());
+    TEST_EXPECT(ctx, document.append_child(document.root(), payload, surviving).succeeded());
+    TEST_EXPECT(ctx, document.append_child(document.root(), after, surviving).succeeded());
+    TEST_EXPECT(ctx, document.value_count() == 6u);
+    TEST_EXPECT(ctx, document.aggregate_payload_count() == 3u);
+    TEST_EXPECT(ctx, string_analysis(ctx, document).referenced_string_value_count == 1u);
+
+    TEST_EXPECT(ctx, document.erase_payload(payload));
+    TEST_EXPECT(ctx, document.contains(payload));
+    TEST_EXPECT(ctx, document.value_type(payload) == ELiveValueType::empty);
+    TEST_EXPECT(ctx, document.name(payload) == payload_name);
+    TEST_EXPECT(ctx, document.parent(payload) == document.root());
+    TEST_EXPECT(ctx, document.previous_sibling(payload) == before);
+    TEST_EXPECT(ctx, document.next_sibling(payload) == after);
+    TEST_EXPECT(ctx, !document.contains(nested));
+    TEST_EXPECT(ctx, !document.contains(leaf));
+    TEST_EXPECT(ctx, document.child_count(document.root()) == 3u);
+    TEST_EXPECT(ctx, document.value_count() == 4u);
+    TEST_EXPECT(ctx, document.aggregate_payload_count() == 1u);
+    TEST_EXPECT(ctx, string_analysis(ctx, document).referenced_string_value_count == 0u);
+    TEST_EXPECT(ctx, !document.is_complete());
+    TEST_EXPECT(ctx, document.check_integrity());
+    TEST_EXPECT(ctx, document.erase_payload(payload));
+
+    const CStringView detached_name{
+        reinterpret_cast<const std::uint8_t*>("detached"), 8u };
+    const CNodeKey detached = document.create_boolean(true, detached_name);
+    TEST_EXPECT(ctx, document.erase_payload(detached));
+    TEST_EXPECT(ctx, document.contains(detached));
+    TEST_EXPECT(ctx, document.is_detached(detached));
+    TEST_EXPECT(ctx, document.name(detached) == detached_name);
+    TEST_EXPECT(ctx, document.value_type(detached) == ELiveValueType::empty);
+
+    const CNodeKey stale = document.create_null();
+    TEST_EXPECT(ctx, document.erase(stale));
+    TEST_EXPECT(ctx, !document.erase_payload(stale));
+
+    TEST_EXPECT(ctx, document.erase_payload(document.root()));
+    TEST_EXPECT(ctx, document.value_type(document.root()) == ELiveValueType::object);
+    TEST_EXPECT(ctx, document.child_count(document.root()) == 0u);
+    TEST_EXPECT(ctx, !document.contains(before));
+    TEST_EXPECT(ctx, !document.contains(payload));
+    TEST_EXPECT(ctx, !document.contains(after));
+    TEST_EXPECT(ctx, document.contains(detached));
+    TEST_EXPECT(ctx, document.value_count() == 1u);
+    TEST_EXPECT(ctx, document.aggregate_payload_count() == 1u);
     TEST_EXPECT(ctx, document.check_integrity());
 }
 
@@ -1239,20 +1324,21 @@ void test_payload_detach_reacquires_container_after_node_growth(TTestContext& ct
     TEST_EXPECT(ctx, SLiveDocumentTestAccess::occupied_node_count(document) == 32u);
     const std::uint64_t allocation_size_before =
         SLiveDocumentTestAccess::node_storage_allocation_size(document);
-    const CNodeKey replacement = document.detach_payload(source);
-    TEST_EXPECT(ctx, replacement.is_valid());
+    const CNodeKey detached_payload = document.detach_payload(source);
+    TEST_EXPECT(ctx, detached_payload.is_valid());
     TEST_EXPECT(ctx,
         SLiveDocumentTestAccess::node_storage_allocation_size(document) > allocation_size_before);
-    TEST_EXPECT(ctx, document.name(replacement) == source_name);
-    TEST_EXPECT(ctx, document.name(source).length() == 0u);
+    TEST_EXPECT(ctx, document.name(source) == source_name);
+    TEST_EXPECT(ctx, document.value_type(source) == ELiveValueType::empty);
+    TEST_EXPECT(ctx, document.name(detached_payload).length() == 0u);
     TEST_EXPECT(ctx,
-        SLiveDocumentTestAccess::aggregate_name_id(document, source).query_value() ==
+        SLiveDocumentTestAccess::aggregate_name_id(document, detached_payload).query_value() ==
             CPropertyNameId::k_empty_value);
-    TEST_EXPECT(ctx, document.is_detached(source));
-    TEST_EXPECT(ctx, document.first_child(source) == child);
-    TEST_EXPECT(ctx, document.parent(replacement) == document.root());
-    TEST_EXPECT(ctx, document.previous_sibling(replacement) == before);
-    TEST_EXPECT(ctx, document.next_sibling(replacement) == after);
+    TEST_EXPECT(ctx, document.is_detached(detached_payload));
+    TEST_EXPECT(ctx, document.first_child(detached_payload) == child);
+    TEST_EXPECT(ctx, document.parent(source) == document.root());
+    TEST_EXPECT(ctx, document.previous_sibling(source) == before);
+    TEST_EXPECT(ctx, document.next_sibling(source) == after);
     TEST_EXPECT(ctx, document.child_count(document.root()) == 3u);
     TEST_EXPECT(ctx, document.value_count() == 4u);
     TEST_EXPECT(ctx, document.aggregate_payload_count() == 1u);
@@ -1377,26 +1463,31 @@ void test_payload_transfer_rejections_cycles_and_recovery(TTestContext& ctx)
     SLiveDocumentTestAccess::set_aggregate_kind(
         document, recovered, ELiveAggregateKind::recovered_array);
     TEST_EXPECT(ctx, document.append_child(document.root(), recovered, surviving).succeeded());
-    const CNodeKey recovered_empty = document.detach_payload(recovered);
-    TEST_EXPECT(ctx, recovered_empty.is_valid());
-    TEST_EXPECT(ctx, document.name(recovered).length() == 0u);
+    const CNodeKey recovered_payload = document.detach_payload(recovered);
+    TEST_EXPECT(ctx, recovered_payload.is_valid());
+    TEST_EXPECT(ctx, document.name(recovered) == recovery_name);
+    TEST_EXPECT(ctx, document.value_type(recovered) == ELiveValueType::empty);
+    TEST_EXPECT(ctx, document.name(recovered_payload).length() == 0u);
     TEST_EXPECT(ctx, document.check_integrity());
 
-    TEST_EXPECT(ctx, document.attach_payload(recovered_empty, recovered) == recovered);
+    TEST_EXPECT(ctx, document.attach_payload(recovered, recovered_payload) == recovered);
     TEST_EXPECT(ctx, !document.is_canonical());
     TEST_EXPECT(ctx, document.check_integrity());
 
-    const CNodeKey second_recovered_empty = document.detach_payload(recovered);
-    TEST_EXPECT(ctx, second_recovered_empty.is_valid());
+    const CNodeKey second_recovered_payload = document.detach_payload(recovered);
+    TEST_EXPECT(ctx, second_recovered_payload.is_valid());
     const CStringView holder_name{
         reinterpret_cast<const std::uint8_t*>("holder"), 6u };
     const CNodeKey holder = document.create_array(holder_name);
     const CNodeKey anonymous_target = document.create_empty();
     TEST_EXPECT(ctx, document.append_child(holder, anonymous_target, surviving).succeeded());
     TEST_EXPECT(ctx, document.append_child(document.root(), holder, surviving).succeeded());
-    TEST_EXPECT(ctx, document.attach_payload(anonymous_target, recovered) == recovered);
-    TEST_EXPECT(ctx, document.name(recovered).length() == 0u);
-    TEST_EXPECT(ctx, document.parent(recovered) == holder);
+    TEST_EXPECT(ctx,
+        document.attach_payload(anonymous_target, second_recovered_payload) == anonymous_target);
+    TEST_EXPECT(ctx, !document.contains(second_recovered_payload));
+    TEST_EXPECT(ctx, document.name(anonymous_target).length() == 0u);
+    TEST_EXPECT(ctx, document.parent(anonymous_target) == holder);
+    TEST_EXPECT(ctx, document.value_type(anonymous_target) == ELiveValueType::array);
     TEST_EXPECT(ctx, !document.is_canonical());
     TEST_EXPECT(ctx, document.check_integrity());
 
@@ -1444,14 +1535,19 @@ void test_payload_transfer_allocation_limits_depth_move_and_attribution(TTestCon
         }
         TEST_EXPECT(ctx, reached_capacity);
         fixture.reject_all = true;
-        const CNodeKey replacement = document.detach_payload(source);
-        TEST_EXPECT(ctx, !replacement.is_valid());
+        const CNodeKey detached_payload = document.detach_payload(source);
+        TEST_EXPECT(ctx, !detached_payload.is_valid());
         TEST_EXPECT(ctx, document.name(source) == name);
         TEST_EXPECT(ctx, document.is_detached(source));
         const std::size_t attempts_before_attach = fixture.attempt;
         TEST_EXPECT(ctx,
-            document.attach_payload(no_allocate_target, no_allocate_payload) == no_allocate_payload);
+            document.attach_payload(no_allocate_target, no_allocate_payload) == no_allocate_target);
+        TEST_EXPECT(ctx, !document.contains(no_allocate_payload));
         TEST_EXPECT(ctx, fixture.attempt == attempts_before_attach);
+        const std::size_t attempts_before_erase = fixture.attempt;
+        TEST_EXPECT(ctx, document.erase_payload(no_allocate_target));
+        TEST_EXPECT(ctx, document.value_type(no_allocate_target) == ELiveValueType::empty);
+        TEST_EXPECT(ctx, fixture.attempt == attempts_before_erase);
         fixture.reject_all = false;
         TEST_EXPECT(ctx, document.check_integrity());
         document.deallocate();
@@ -1475,11 +1571,11 @@ void test_payload_transfer_allocation_limits_depth_move_and_attribution(TTestCon
     TEST_EXPECT(ctx, deep.append_child(parent, leaf, surviving).succeeded());
     TEST_EXPECT(ctx, deep.append_child(deep.root(), outer, surviving).succeeded());
     TEST_EXPECT(ctx, !deep.is_complete());
-    const CNodeKey outer_empty = deep.detach_payload(outer);
-    TEST_EXPECT(ctx, outer_empty.is_valid());
+    const CNodeKey outer_payload = deep.detach_payload(outer);
+    TEST_EXPECT(ctx, outer_payload.is_valid());
     TEST_EXPECT(ctx, !deep.is_complete());
     TEST_EXPECT(ctx, deep.value_count() == 2u);
-    TEST_EXPECT(ctx, deep.attach_payload(outer_empty, outer) == outer);
+    TEST_EXPECT(ctx, deep.attach_payload(outer, outer_payload) == outer);
     TEST_EXPECT(ctx, !deep.is_complete());
     TEST_EXPECT(ctx, deep.value_count() == (depth + 2u));
     TEST_EXPECT(ctx, deep.check_integrity());
@@ -1767,6 +1863,7 @@ int run_live_document_tests()
     test_recovered_aggregate_observations(ctx);
     test_empty_completeness_and_payload_round_trip(ctx);
     test_scalar_and_detached_payload_transfer(ctx);
+    test_payload_erasure_preserves_value_identity(ctx);
     test_payload_detach_reacquires_container_after_node_growth(ctx);
     test_local_topology_failure_marks_document_known_bad(ctx);
     test_cyclic_subtree_audit_and_analysis_terminate(ctx);

@@ -20,7 +20,7 @@ the data model require separate approval and a separate commit.
 
 ## Current baseline
 
-The current checkpoint follows completion of Stages 0 through 3. Stage 4 is
+The current checkpoint follows completion of Stages 0 through 4. Stage 5 is
 next; no baked-document replacement has begun.
 
 The live implementation currently provides:
@@ -37,8 +37,8 @@ The live implementation currently provides:
 - explicit integrity, canonicality and completeness observation;
 - on-demand root-reachable analysis with optional caller-owned string references;
 - a reset-only known-bad state; and
-- allocation-free detachment and preliminary payload extraction and attachment
-  operations whose identity semantics remain to be corrected in Stage 4.
+- allocation-free detachment, identity-preserving payload extraction and
+  attachment, and payload erasure.
 
 There is no replacement baked implementation in `core/data_model`. The v1
 baked model, writer and tests under `graveyard/data_model_v1_2026-09-01` are
@@ -143,15 +143,19 @@ Audit the existing operations against the settled public contracts and complete:
 - allocation-free `attach_payload`, preserving the target value identity; and
 - payload-preserving-top-node `erase_payload`.
 
-The current preliminary payload operations preserve the payload carrier instead:
-`detach_payload` inserts a new empty replacement and detaches the original
-value, while `attach_payload` substitutes the source into the target's position
-and erases the target. Their traversal and substitution mechanisms remain
-potentially reusable, but these observable identity semantics do not satisfy
-the normative contract. `erase_payload` is not yet implemented.
-
 Prefer existing detach, nested erase, subtree traversal and slot-release
 mechanisms. Test the operation boundaries, ownership and failure signalling.
+
+Status: complete. `detach_payload` now leaves the original value empty in its
+existing topology and returns a newly allocated anonymous detached carrier.
+`attach_payload` moves that carrier's payload into an empty target without
+allocation, preserves the target key and topology, and erases the consumed
+carrier. `erase_payload` preserves an ordinary value as an empty node while
+erasing its payload and descendants; for the root it performs the same clear as
+`erase(root)`. A shared payload-field move replaces the former whole-node
+substitution, and both root entry points use the shared root-clear handler.
+The live document's duplicate string-table readiness flags have also been
+removed; `CStableStrings` owns lazy initialization and allocation failure.
 
 ## Stage 5: public recovered arrays
 

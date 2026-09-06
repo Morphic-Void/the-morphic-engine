@@ -94,8 +94,9 @@ The root is not selected, replaced, detached or erased by ordinary callers.
 Reset owns its lifecycle. Initialization must establish the complete root or
 leave the document uninitialized.
 
-Erasing the root clears its descendants and restores the initial root object;
-it does not leave an empty root value.
+Erasing the root through either `erase` or `erase_payload` clears its
+descendants and restores the initial root object; it does not leave an empty
+root value.
 
 ## Names and strings
 
@@ -191,18 +192,18 @@ allocating. The detached value retains its key, name, payload and descendants.
 It remains owned by the document and available for reuse. If abandoned, it may
 be erased explicitly and is reclaimed by document reset or destruction.
 
-`detach_payload(value)` allocates a new anonymous detached value containing the
-complete payload and descendants of `value`. The original value retains its
-key, name, parent and sibling position and becomes empty. The operation is
-invalid for the root.
+`detach_payload(value)` requires a non-root, non-empty value. It allocates a new
+anonymous detached value containing the complete payload and descendants of
+`value`. The original value retains its key, name, parent and sibling position
+and becomes empty.
 
 `erase(value)` recursively destroys a non-root value and its payload. If it is
 attached, it is first unlinked. Erasing the root has the special clear
 semantics described above.
 
-`erase_payload(value)` recursively destroys the payload and descendants of a
-non-root value while retaining that value's key, name, parent and sibling
-position. The retained value becomes empty.
+`erase_payload(value)` recursively destroys the payload and descendants while
+retaining that value's key, name, parent and sibling position. A non-root value
+becomes empty. For the root it has the same clear semantics as `erase(root)`.
 
 ### Payload attachment
 

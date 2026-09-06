@@ -63,8 +63,6 @@ void CLiveDocument::deallocate() noexcept
     m_string_values.deallocate();
     m_root = CNodeKey{};
     m_next_monotonic_node_key = 1u;
-    m_property_names_ready = false;
-    m_string_values_ready = false;
     m_integrity_known_bad = false;
 }
 
@@ -202,8 +200,8 @@ bool CLiveDocument::analyse(
 bool CLiveDocument::check_integrity() const noexcept
 {
     if (!is_ready() || !m_nodes.check_integrity() ||
-        !check_string_domain(m_property_names, m_property_names_ready) ||
-        !check_string_domain(m_string_values, m_string_values_ready) ||
+        !check_string_domain(m_property_names) ||
+        !check_string_domain(m_string_values) ||
         (m_root.query_value() != 1u))
     {
         return false;
@@ -751,7 +749,6 @@ CNodeKey CLiveDocument::detach_payload(const CNodeKey source) noexcept
     {
         return CNodeKey{};
     }
-    const CPropertyNameId former_name = source_node->name_id();
     const TLiveNodeSlot aggregate_slot = source_node->value_owned_aggregate_slot();
     const bool aggregate_is_expected = live_value_type_is_container(source_node->value_type());
     const CLiveNode* const aggregate_before_allocation = node(aggregate_slot);
@@ -764,25 +761,20 @@ CNodeKey CLiveDocument::detach_payload(const CNodeKey source) noexcept
         return CNodeKey{};
     }
 
-    const CNodeKey empty_key = create_empty_node(former_name);
-    if (!empty_key.is_valid())
+    const CNodeKey payload_key = create_empty_node(
+        CPropertyNameId{ CPropertyNameId::k_empty_value });
+    if (!payload_key.is_valid())
     {
         return CNodeKey{};
     }
 
-    const TLiveNodeSlot empty_slot = node_slot(empty_key);
-    if (!substitute_value_position(source_slot, empty_slot))
+    const TLiveNodeSlot payload_slot = node_slot(payload_key);
+    if (!move_value_payload(payload_slot, source_slot))
     {
+        (void)m_nodes.erase(payload_slot);
         return CNodeKey{};
     }
-    value_node(source_slot)->set_name_id(CPropertyNameId{ CPropertyNameId::k_empty_value });
-    if ((aggregate_slot >= 0) && (node(aggregate_slot) == nullptr))
-    {
-        mark_integrity_bad();
-        MV_ASSERT_MSG(false, "Payload aggregate disappeared during detachment.");
-        return CNodeKey{};
-    }
-    return empty_key;
+    return payload_key;
 }
 
 CNodeKey CLiveDocument::attach_payload(const CNodeKey empty_target, const CNodeKey detached_payload) noexcept
@@ -828,17 +820,76 @@ CNodeKey CLiveDocument::attach_payload(const CNodeKey empty_target, const CNodeK
         return CNodeKey{};
     }
 
-    const CPropertyNameId target_name = target->name_id();
-    if (!substitute_value_position(target_slot, payload_slot))
+    if (!move_value_payload(target_slot, payload_slot))
     {
         return CNodeKey{};
     }
-    payload->set_name_id(target_name);
-    if (!erase_subtree(target_slot))
+    if (!m_nodes.erase(payload_slot))
     {
+        mark_integrity_bad();
+        MV_ASSERT_MSG(false, "Consumed payload shell could not be erased.");
         return CNodeKey{};
     }
-    return detached_payload;
+    return empty_target;
+}
+
+bool CLiveDocument::erase_payload(const CNodeKey value) noexcept
+{
+    if (!is_ready())
+    {
+        return false;
+    }
+    if (value == m_root)
+    {
+        return clear_root();
+    }
+
+    const TLiveNodeSlot value_slot = node_slot(value);
+    CLiveNode* value_record = value_node(value_slot);
+    if (value_record == nullptr)
+    {
+        return false;
+    }
+    if (!value_payload_is_in_document_domain(*value_record))
+    {
+        mark_integrity_bad();
+        MV_ASSERT_MSG(false, "Erased value has an invalid payload.");
+        return false;
+    }
+    if (value_record->value_type() == ELiveValueType::empty)
+    {
+        return true;
+    }
+
+    if (live_value_type_is_container(value_record->value_type()))
+    {
+        const TLiveNodeSlot aggregate_slot = value_record->value_owned_aggregate_slot();
+        CLiveNode* const aggregate = node(aggregate_slot);
+        if ((aggregate == nullptr) ||
+            !aggregate_payload_is_in_document_domain(*aggregate) ||
+            !value_record->forms_container_pair_with(*aggregate, value_slot, aggregate_slot))
+        {
+            mark_integrity_bad();
+            MV_ASSERT_MSG(false, "Erased value has an invalid aggregate pair.");
+            return false;
+        }
+        if (!erase_aggregate_children(aggregate_slot) || !m_nodes.erase(aggregate_slot))
+        {
+            mark_integrity_bad();
+            MV_ASSERT_MSG(false, "Erased value aggregate could not be removed.");
+            return false;
+        }
+        value_record = value_node(value_slot);
+        if (value_record == nullptr)
+        {
+            mark_integrity_bad();
+            MV_ASSERT_MSG(false, "Value disappeared while erasing its payload.");
+            return false;
+        }
+    }
+
+    value_record->clear_value_payload();
+    return true;
 }
 
 bool CLiveDocument::erase(const CNodeKey value) noexcept
@@ -849,35 +900,7 @@ bool CLiveDocument::erase(const CNodeKey value) noexcept
     }
     if (value == m_root)
     {
-        const TLiveNodeSlot root_slot = node_slot(m_root);
-        CLiveNode* const root_value = value_node(root_slot);
-        CLiveNode* const root_aggregate = (root_value != nullptr) ? node(root_value->value_owned_aggregate_slot()) : nullptr;
-        if ((root_value == nullptr) || (root_aggregate == nullptr))
-        {
-            mark_integrity_bad();
-            MV_ASSERT_MSG(false, "Root container pair is invalid.");
-            return false;
-        }
-
-        TLiveNodeSlot child = root_aggregate->aggregate_first_child_slot();
-        while (child >= 0)
-        {
-            const CLiveNode* const child_value = value_node(child);
-            if (child_value == nullptr)
-            {
-                mark_integrity_bad();
-                MV_ASSERT_MSG(false, "Root child traversal encountered an invalid value.");
-                return false;
-            }
-            const TLiveNodeSlot next = child_value->value_next_sibling_slot();
-            if (!erase_subtree(child))
-            {
-                return false;
-            }
-            child = next;
-        }
-        root_aggregate->clear_aggregate_children();
-        return true;
+        return clear_root();
     }
 
     const TLiveNodeSlot value_slot = node_slot(value);
@@ -986,7 +1009,6 @@ bool CLiveDocument::prepare_string(const CStringView& source, SPreparedString& p
 bool CLiveDocument::intern_string_domain(
     const SPreparedString& value,
     CStableStrings& strings,
-    bool& strings_ready,
     std::uint32_t& id) noexcept
 {
     id = 0u;
@@ -1012,21 +1034,11 @@ bool CLiveDocument::intern_string_domain(
         return false;
     }
 
-    if (!strings_ready)
-    {
-        const std::size_t storage_size = value.size + 2u;
-        if ((storage_size < value.size) || !strings.initialise(4u, storage_size))
-        {
-            return false;
-        }
-        strings_ready = true;
-    }
-    else if (!strings.ensure_free(value.size))
+    const std::size_t appended = strings.append(value.bytes, value.size);
+    if (appended == CStableStrings::k_invalid_id)
     {
         return false;
     }
-
-    const std::size_t appended = strings.append(value.bytes, value.size);
     if (appended != next_id)
     {
         mark_integrity_bad();
@@ -1057,7 +1069,6 @@ bool CLiveDocument::intern_property_name(const SPreparedString& value, CProperty
     if (!intern_string_domain(
         value,
         m_property_names,
-        m_property_names_ready,
         raw_id))
     {
         return false;
@@ -1072,7 +1083,6 @@ bool CLiveDocument::intern_string_value(const SPreparedString& value, CStringVal
     if (!intern_string_domain(
         value,
         m_string_values,
-        m_string_values_ready,
         raw_id))
     {
         return false;
@@ -1801,69 +1811,96 @@ bool CLiveDocument::detach_value(const TLiveNodeSlot value) noexcept
     return true;
 }
 
-bool CLiveDocument::substitute_value_position(
-    const TLiveNodeSlot displaced,
-    const TLiveNodeSlot replacement) noexcept
+bool CLiveDocument::clear_root() noexcept
 {
-    CLiveNode* const displaced_value = value_node(displaced);
-    CLiveNode* const replacement_value = value_node(replacement);
-    if ((displaced_value == nullptr) || (replacement_value == nullptr) ||
-        (displaced == replacement) || !replacement_value->value_is_unattached())
+    const TLiveNodeSlot root_slot = node_slot(m_root);
+    CLiveNode* const root_value = value_node(root_slot);
+    const TLiveNodeSlot root_aggregate_slot = (root_value != nullptr) ?
+        root_value->value_owned_aggregate_slot() : k_invalid_live_node_slot;
+    CLiveNode* const root_aggregate = node(root_aggregate_slot);
+    if ((root_value == nullptr) || (root_aggregate == nullptr))
     {
         mark_integrity_bad();
-        MV_ASSERT_MSG(false, "Value substitution arguments are inconsistent.");
+        MV_ASSERT_MSG(false, "Root container pair is invalid.");
         return false;
     }
 
-    const TLiveNodeSlot parent_slot = displaced_value->value_parent_aggregate_slot();
-    if (parent_slot < 0)
+    return erase_aggregate_children(root_aggregate_slot);
+}
+
+bool CLiveDocument::move_value_payload(
+    const TLiveNodeSlot target,
+    const TLiveNodeSlot source) noexcept
+{
+    CLiveNode* const target_value = value_node(target);
+    CLiveNode* const source_value = value_node(source);
+    if ((target_value == nullptr) || (source_value == nullptr) || (target == source) ||
+        (target_value->value_type() != ELiveValueType::empty) ||
+        (source_value->value_type() == ELiveValueType::empty) ||
+        !value_payload_is_in_document_domain(*target_value) ||
+        !value_payload_is_in_document_domain(*source_value))
     {
-        if (!displaced_value->value_is_unattached())
+        mark_integrity_bad();
+        MV_ASSERT_MSG(false, "Payload move arguments are inconsistent.");
+        return false;
+    }
+
+    const TLiveNodeSlot aggregate_slot = source_value->value_owned_aggregate_slot();
+    CLiveNode* const aggregate = node(aggregate_slot);
+    if (live_value_type_is_container(source_value->value_type()) &&
+        ((aggregate == nullptr) ||
+            !aggregate_payload_is_in_document_domain(*aggregate) ||
+            !source_value->forms_container_pair_with(*aggregate, source, aggregate_slot)))
+    {
+        mark_integrity_bad();
+        MV_ASSERT_MSG(false, "Payload source has an invalid aggregate pair.");
+        return false;
+    }
+
+    target_value->move_value_payload_from(*source_value);
+    if (aggregate != nullptr)
+    {
+        aggregate->set_aggregate_owner_value_slot(target);
+    }
+    return true;
+}
+
+bool CLiveDocument::erase_aggregate_children(const TLiveNodeSlot aggregate_slot) noexcept
+{
+    CLiveNode* aggregate = node(aggregate_slot);
+    if ((aggregate == nullptr) || !aggregate_payload_is_in_document_domain(*aggregate))
+    {
+        mark_integrity_bad();
+        MV_ASSERT_MSG(false, "Child erase encountered an invalid aggregate.");
+        return false;
+    }
+
+    TLiveNodeSlot child = aggregate->aggregate_first_child_slot();
+    while (child >= 0)
+    {
+        const CLiveNode* const child_value = value_node(child);
+        if (child_value == nullptr)
         {
             mark_integrity_bad();
-            MV_ASSERT_MSG(false, "Unattached displaced value has inconsistent topology.");
+            MV_ASSERT_MSG(false, "Child erase encountered an invalid value.");
             return false;
         }
-        return true;
+        const TLiveNodeSlot next = child_value->value_next_sibling_slot();
+        if (!erase_subtree(child))
+        {
+            return false;
+        }
+        child = next;
     }
 
-    CLiveNode* const parent = node(parent_slot);
-    const TLiveNodeSlot previous_slot = displaced_value->value_previous_sibling_slot();
-    const TLiveNodeSlot next_slot = displaced_value->value_next_sibling_slot();
-    CLiveNode* const previous = value_node(previous_slot);
-    CLiveNode* const next = value_node(next_slot);
-    if ((parent == nullptr) || !aggregate_payload_is_in_document_domain(*parent) ||
-        (parent->child_count() == 0u) ||
-        ((previous_slot >= 0) && ((previous == nullptr) ||
-            !previous->value_is_previous_sibling_of(*displaced_value, previous_slot, displaced))) ||
-        ((previous_slot < 0) && !parent->aggregate_has_first_child(*displaced_value, parent_slot, displaced)) ||
-        ((next_slot >= 0) && ((next == nullptr) ||
-            !next->value_is_next_sibling_of(*displaced_value, next_slot, displaced))) ||
-        ((next_slot < 0) && !parent->aggregate_has_last_child(*displaced_value, parent_slot, displaced)))
+    aggregate = node(aggregate_slot);
+    if (aggregate == nullptr)
     {
         mark_integrity_bad();
-        MV_ASSERT_MSG(false, "Displaced value has inconsistent parent topology.");
+        MV_ASSERT_MSG(false, "Aggregate disappeared while erasing its children.");
         return false;
     }
-
-    replacement_value->set_value_attachment(parent_slot, previous_slot, next_slot);
-    if (previous != nullptr)
-    {
-        previous->set_value_next_sibling_slot(replacement);
-    }
-    else
-    {
-        parent->set_aggregate_first_child_slot(replacement);
-    }
-    if (next != nullptr)
-    {
-        next->set_value_previous_sibling_slot(replacement);
-    }
-    else
-    {
-        parent->set_aggregate_last_child_slot(replacement);
-    }
-    displaced_value->clear_value_attachment();
+    aggregate->clear_aggregate_children();
     return true;
 }
 
@@ -1915,13 +1952,11 @@ bool CLiveDocument::erase_subtree(const TLiveNodeSlot value) noexcept
     return erased_values != 0u;
 }
 
-bool CLiveDocument::check_string_domain(
-    const CStableStrings& strings,
-    const bool stable_ready) const noexcept
+bool CLiveDocument::check_string_domain(const CStableStrings& strings) const noexcept
 {
-    if (!stable_ready)
+    if (strings.memory_allocation_count() == 0u)
     {
-        return (strings.string_count() == 0u) && (strings.memory_allocation_count() == 0u);
+        return strings.string_count() == 0u;
     }
     if (!strings.check_integrity() || (strings.string_count() >= CPropertyNameId::k_invalid_value))
     {
@@ -1953,13 +1988,9 @@ void CLiveDocument::replace_with(CLiveDocument& source) noexcept
     m_string_values = std::move(source.m_string_values);
     m_root = source.m_root;
     m_next_monotonic_node_key = source.m_next_monotonic_node_key;
-    m_property_names_ready = source.m_property_names_ready;
-    m_string_values_ready = source.m_string_values_ready;
     m_integrity_known_bad = source.m_integrity_known_bad;
 
     source.m_root = CNodeKey{};
     source.m_next_monotonic_node_key = 1u;
-    source.m_property_names_ready = false;
-    source.m_string_values_ready = false;
     source.m_integrity_known_bad = false;
 }

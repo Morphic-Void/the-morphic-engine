@@ -94,6 +94,7 @@ public:
     void set_value_previous_sibling_slot(const TLiveNodeSlot slot) noexcept;
     void set_value_next_sibling_slot(const TLiveNodeSlot slot) noexcept;
     void set_value_owned_aggregate_slot(const TLiveNodeSlot slot) noexcept;
+    void set_aggregate_owner_value_slot(const TLiveNodeSlot slot) noexcept;
     void set_aggregate_first_child_slot(const TLiveNodeSlot slot) noexcept;
     void set_aggregate_last_child_slot(const TLiveNodeSlot slot) noexcept;
     void set_name_id(const CPropertyNameId name) noexcept;
@@ -102,6 +103,10 @@ public:
     void clear_aggregate_children() noexcept;
     void increment_child_count() noexcept;
     void decrement_child_count() noexcept;
+
+    //  Value payload mutation preserves the name and tree attachment.
+    void clear_value_payload() noexcept;
+    void move_value_payload_from(CLiveNode& source) noexcept;
 
     //  Node-local validity
     [[nodiscard]] bool value_payload_is_valid() const noexcept;
@@ -291,6 +296,11 @@ inline void CLiveNode::set_value_owned_aggregate_slot(const TLiveNodeSlot slot) 
     m_links.value.owned_aggregate = slot;
 }
 
+inline void CLiveNode::set_aggregate_owner_value_slot(const TLiveNodeSlot slot) noexcept
+{
+    m_links.aggregate.owner_value = slot;
+}
+
 inline void CLiveNode::set_aggregate_first_child_slot(const TLiveNodeSlot slot) noexcept
 {
     m_links.aggregate.first_child = slot;
@@ -336,6 +346,23 @@ inline void CLiveNode::increment_child_count() noexcept
 inline void CLiveNode::decrement_child_count() noexcept
 {
     --m_child_count;
+}
+
+inline void CLiveNode::clear_value_payload() noexcept
+{
+    m_links.value.owned_aggregate = k_invalid_live_node_slot;
+    m_payload_bits = 0u;
+    m_usage.value_type = ELiveValueType::empty;
+    m_integer_metadata = CIntegerMetadata{};
+}
+
+inline void CLiveNode::move_value_payload_from(CLiveNode& source) noexcept
+{
+    m_links.value.owned_aggregate = source.m_links.value.owned_aggregate;
+    m_payload_bits = source.m_payload_bits;
+    m_usage.value_type = source.m_usage.value_type;
+    m_integer_metadata = source.m_integer_metadata;
+    source.clear_value_payload();
 }
 
 //==============================================================================

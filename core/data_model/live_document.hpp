@@ -144,12 +144,17 @@ public:
 
     [[nodiscard]] bool detach(const CNodeKey value) noexcept;
 
-    //  Payload extraction and replacement. Extraction preserves the source
-    //  key as the detached anonymous payload and installs a newly allocated
-    //  empty value in its former topology. Attachment performs the inverse,
-    //  preserving the payload key and consuming the empty target.
+    //  Payload extraction preserves the source key and topology as an empty
+    //  value, returning a newly allocated anonymous detached payload.
+    //  Attachment preserves the empty target key and topology, consuming the
+    //  anonymous detached source without allocating.
     [[nodiscard]] CNodeKey detach_payload(const CNodeKey source) noexcept;
     [[nodiscard]] CNodeKey attach_payload(const CNodeKey empty_target, const CNodeKey detached_payload) noexcept;
+
+    //  Erases a value's payload and descendants while preserving its key,
+    //  name and topology as an empty value. The root retains its initial
+    //  object payload and is cleared in the same way as erase(root).
+    [[nodiscard]] bool erase_payload(const CNodeKey value) noexcept;
 
     //  Erasing the root preserves the implicit root pair and recursively
     //  erases all root-reachable content below it.
@@ -186,7 +191,6 @@ private:
     [[nodiscard]] bool intern_string_domain(
         const SPreparedString& value,
         CStableStrings& strings,
-        bool& strings_ready,
         std::uint32_t& id) noexcept;
 
     //  Identity allocation and string interning
@@ -248,16 +252,16 @@ private:
         const SAttachmentPosition& position,
         CNodeKey& surviving_value) noexcept;
     [[nodiscard]] bool detach_value(const TLiveNodeSlot value) noexcept;
-    [[nodiscard]] bool substitute_value_position(
-        const TLiveNodeSlot displaced,
-        const TLiveNodeSlot replacement) noexcept;
+    [[nodiscard]] bool clear_root() noexcept;
+    [[nodiscard]] bool move_value_payload(
+        const TLiveNodeSlot target,
+        const TLiveNodeSlot source) noexcept;
+    [[nodiscard]] bool erase_aggregate_children(const TLiveNodeSlot aggregate) noexcept;
     [[nodiscard]] bool erase_subtree(const TLiveNodeSlot value) noexcept;
     void mark_integrity_bad() noexcept;
 
     //  Integrity and move support
-    [[nodiscard]] bool check_string_domain(
-        const CStableStrings& strings,
-        const bool stable_ready) const noexcept;
+    [[nodiscard]] bool check_string_domain(const CStableStrings& strings) const noexcept;
     void replace_with(CLiveDocument& source) noexcept;
 
     //  Owned storage
@@ -268,8 +272,6 @@ private:
     //  Document state
     CNodeKey m_root;
     std::uint64_t m_next_monotonic_node_key{ 1u };
-    bool m_property_names_ready{ false };
-    bool m_string_values_ready{ false };
     bool m_integrity_known_bad{ false };
 };
 
