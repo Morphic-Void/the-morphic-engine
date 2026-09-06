@@ -101,6 +101,9 @@ existing memory-accounting totals.
 Tests should assert public semantics and analysis results, not reproduce the
 deleted bookkeeping implementation.
 
+Root-reachable observations exclude detached subtrees; integrity checking still
+covers all document-owned nodes.
+
 ## Stage 3: simplify node semantics
 
 Make aggregate names canonically empty and derive object-entry state from value
