@@ -316,9 +316,12 @@ template<typename T, typename TKey>
 [[nodiscard]] inline const TKey* TPodOrderedSlots<T, TKey>::key_at_slot(const std::int32_t slot_index) const noexcept
 {
     const std::size_t element_index = static_cast<std::size_t>(slot_index);
-    if ((element_index < this->m_keys.size()) && slot_meta_class::is_lexed_slot(slot_index))
+    if (element_index < this->m_keys.size())
     {
-        return &this->m_keys[element_index];
+        if (slot_meta_class::is_lexed_slot(slot_index))
+        {
+            return &this->m_keys[element_index];
+        }
     }
     return nullptr;
 }
