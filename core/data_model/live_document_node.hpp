@@ -175,13 +175,16 @@ static_assert(sizeof(CLiveNode) == 40u);
 
 [[nodiscard]] constexpr bool live_value_type_is_container(const ELiveValueType type) noexcept
 {
-    return (type == ELiveValueType::array) || (type == ELiveValueType::object);
+    return (type == ELiveValueType::array) || (type == ELiveValueType::object) ||
+        (type == ELiveValueType::recovered_array);
 }
 
 [[nodiscard]] constexpr ELiveAggregateKind live_aggregate_kind_for_value_type(const ELiveValueType type) noexcept
 {
     return (type == ELiveValueType::array) ? ELiveAggregateKind::array :
-        ((type == ELiveValueType::object) ? ELiveAggregateKind::object : ELiveAggregateKind::invalid);
+        ((type == ELiveValueType::object) ? ELiveAggregateKind::object :
+            ((type == ELiveValueType::recovered_array) ?
+                ELiveAggregateKind::recovered_array : ELiveAggregateKind::invalid));
 }
 
 //==============================================================================
@@ -447,12 +450,7 @@ inline bool CLiveNode::forms_container_pair_with(
         return false;
     }
 
-    if (value_type() == ELiveValueType::object)
-    {
-        return aggregate.aggregate_kind() == ELiveAggregateKind::object;
-    }
-    return (aggregate.aggregate_kind() == ELiveAggregateKind::array) ||
-        (aggregate.aggregate_kind() == ELiveAggregateKind::recovered_array);
+    return aggregate.aggregate_kind() == live_aggregate_kind_for_value_type(value_type());
 }
 
 inline bool CLiveNode::aggregate_accepts_child(const CLiveNode& value) const noexcept

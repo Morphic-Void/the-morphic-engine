@@ -122,6 +122,7 @@ enum class ELiveValueType : std::uint8_t
     string,
     array,
     object,
+    recovered_array,
 };
 
 enum class ELiveAggregateKind : std::uint8_t
@@ -151,8 +152,8 @@ enum class ELiveAttachmentRejection : std::uint8_t
     destination_not_container,
     candidate_is_root,
     candidate_not_detached,
-    unsupported_destination_kind,
     object_entry_required,
+    anonymous_value_required,
     duplicate_object_name,
     insert_before_not_child,
     index_out_of_range,

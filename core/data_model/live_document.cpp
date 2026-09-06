@@ -627,6 +627,13 @@ CNodeKey CLiveDocument::create_object(const CStringView& name_value) noexcept
         create_container(ELiveValueType::object, prepared_name) : CNodeKey{};
 }
 
+CNodeKey CLiveDocument::create_recovered_array(const CStringView& name_value) noexcept
+{
+    SPreparedString prepared_name;
+    return prepare_string(name_value, prepared_name) ?
+        create_container(ELiveValueType::recovered_array, prepared_name) : CNodeKey{};
+}
+
 CLiveAttachmentResult CLiveDocument::append_child(
     const CNodeKey destination,
     const CNodeKey candidate,
@@ -1505,8 +1512,7 @@ bool CLiveDocument::audit_subtree_checked(const TLiveNodeSlot subtree_root, std:
             const CLiveNode* const last_child = value_node(previous);
             if ((children != aggregate->child_count()) ||
                 ((children != 0u) && ((last_child == nullptr) ||
-                    !aggregate->aggregate_has_last_child(*last_child, aggregate_slot, previous))) ||
-                ((aggregate->aggregate_kind() == ELiveAggregateKind::recovered_array) && (children < 2u)))
+                    !aggregate->aggregate_has_last_child(*last_child, aggregate_slot, previous))))
             {
                 return false;
             }
@@ -1606,11 +1612,6 @@ CLiveAttachmentResult CLiveDocument::attach_child(
         MV_ASSERT_MSG(false, "Destination container pair is invalid.");
         return attachment_rejection(ELiveAttachmentRejection::corrupt_structure);
     }
-    if ((aggregate->aggregate_kind() != ELiveAggregateKind::object) &&
-        (aggregate->aggregate_kind() != ELiveAggregateKind::array))
-    {
-        return attachment_rejection(ELiveAttachmentRejection::unsupported_destination_kind);
-    }
     if (!destination_node->forms_container_pair_with(*aggregate, destination_slot, aggregate_slot))
     {
         mark_integrity_bad();
@@ -1669,12 +1670,15 @@ CLiveAttachmentResult CLiveDocument::attach_child(
         return attachment_rejection(ELiveAttachmentRejection::insert_before_not_child);
     }
 
+    if (!aggregate->aggregate_accepts_child(*candidate_node))
+    {
+        return attachment_rejection(
+            (aggregate->aggregate_kind() == ELiveAggregateKind::object) ?
+                ELiveAttachmentRejection::object_entry_required :
+                ELiveAttachmentRejection::anonymous_value_required);
+    }
     if (aggregate->aggregate_kind() == ELiveAggregateKind::object)
     {
-        if (!candidate_node->is_object_entry())
-        {
-            return attachment_rejection(ELiveAttachmentRejection::object_entry_required);
-        }
         TLiveNodeSlot existing = aggregate->aggregate_first_child_slot();
         for (std::uint32_t visited = 0u; existing >= 0; ++visited)
         {
@@ -1692,7 +1696,6 @@ CLiveAttachmentResult CLiveDocument::attach_child(
             existing = existing_node->value_next_sibling_slot();
         }
     }
-
     bool cycle = false;
     if (!query_ancestry(destination_slot, candidate_slot, cycle))
     {

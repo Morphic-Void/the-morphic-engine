@@ -20,7 +20,7 @@ the data model require separate approval and a separate commit.
 
 ## Current baseline
 
-The current checkpoint follows completion of Stages 0 through 4. Stage 5 is
+The current checkpoint follows completion of Stages 0 through 5. Stage 6 is
 next; no baked-document replacement has begun.
 
 The live implementation currently provides:
@@ -166,6 +166,15 @@ collision-origin and relaxed-attachment machinery.
 Exercise parser-style first and later collision composition, recovery repair,
 nested recovered arrays and empty/single-child recovered arrays. Add specialised
 production helpers only if composition proves materially insufficient.
+
+Status: complete. Recovered arrays are an explicit public value type created
+through the shared container path. Ordinary append and insertion accept only
+anonymous children for this type and report a specific rejection for a named
+candidate. Empty and single-child forms are coherent, nested recovered arrays
+are permitted, and the former minimum-cardinality and test-only kind mutation
+have been removed. First and later collision handling and repair compose from
+the general payload and topology operations, so no specialised recovery helper
+was added.
 
 ## Stage 6: baked-format checkpoint
 

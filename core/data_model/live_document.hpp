@@ -125,6 +125,7 @@ public:
     [[nodiscard]] CNodeKey create_string(const CStringView& value, const CStringView& name = {}) noexcept;
     [[nodiscard]] CNodeKey create_array(const CStringView& name = {}) noexcept;
     [[nodiscard]] CNodeKey create_object(const CStringView& name = {}) noexcept;
+    [[nodiscard]] CNodeKey create_recovered_array(const CStringView& name = {}) noexcept;
 
     //  Structural mutation
     [[nodiscard]] CLiveAttachmentResult append_child(
