@@ -67,6 +67,10 @@ slot_index:
 
 - public identity during mutation
 - not stable across sort_and_pack()
+- provides O(1) const access to the paired key through key_at_slot()
+
+key_at_slot() returns null unless the supplied index identifies a constructed
+slot. It does not imply that adjacent physical slots are adjacent in key order.
 
 storage_index:
 

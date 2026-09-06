@@ -127,6 +127,9 @@ public:
     const T* get_object(const TKey& key) const noexcept;
     const T* get_object(const std::int32_t slot_index) const noexcept;
 
+    //  O(1) access to the key paired with a constructed slot.
+    [[nodiscard]] const TKey* key_at_slot(const std::int32_t slot_index) const noexcept;
+
     //  Traversal
     [[nodiscard]] std::int32_t first_live() const noexcept;
     [[nodiscard]] std::int32_t last_live() const noexcept;
@@ -353,6 +356,21 @@ inline const T* TOrderedCollection<T, TKey>::get_object(const std::int32_t slot_
             const T* const element = storage_index_ptr(slot.storage_index);
             MV_ASSERT(element != nullptr);
             return element;
+        }
+    }
+    return nullptr;
+}
+
+template<typename T, typename TKey>
+[[nodiscard]] inline const TKey* TOrderedCollection<T, TKey>::key_at_slot(const std::int32_t slot_index) const noexcept
+{
+    const std::size_t element_index = static_cast<std::size_t>(slot_index);
+    if (element_index < this->m_keys.size())
+    {
+        const SlotData& slot = this->m_slots[element_index];
+        if (slot.state == SlotState::Constructed)
+        {
+            return &this->m_keys[element_index];
         }
     }
     return nullptr;

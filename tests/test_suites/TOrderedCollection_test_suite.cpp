@@ -80,6 +80,7 @@ void test_default_state_and_initialise(TTestContext& ctx)
     TEST_EXPECT(ctx, collection.is_empty());
     TEST_EXPECT(ctx, !collection.is_ready());
     TEST_EXPECT(ctx, collection.get_object(std::int32_t{ 0 }) == nullptr);
+    TEST_EXPECT(ctx, collection.key_at_slot(std::int32_t{ 0 }) == nullptr);
     TEST_EXPECT(ctx, collection.find_slot(TTrackedKey{ 5 }) == -1);
     TEST_EXPECT(ctx, !collection.erase(std::int32_t{ 0 }));
 
@@ -90,6 +91,7 @@ void test_default_state_and_initialise(TTestContext& ctx)
     TEST_EXPECT(ctx, collection.check_integrity());
     TEST_EXPECT(ctx, collection.first_live() == -1);
     TEST_EXPECT(ctx, collection.last_live() == -1);
+    TEST_EXPECT(ctx, collection.key_at_slot(std::int32_t{ 0 }) == nullptr);
 }
 
 void test_ordered_insert_find_and_traversal(TTestContext& ctx)
@@ -119,6 +121,12 @@ void test_ordered_insert_find_and_traversal(TTestContext& ctx)
     TEST_EXPECT(ctx, collection.find_slot(TTrackedKey{ 20 }) == slot20);
     TEST_EXPECT(ctx, collection.find_slot(TTrackedKey{ 25 }) == -1);
     TEST_EXPECT(ctx, collection.reverse_lookup_slot_index_scan(value20) == slot20);
+    const TTrackedKey* const key10 = collection.key_at_slot(slot10);
+    const TTrackedKey* const key20 = collection.key_at_slot(slot20);
+    const TTrackedKey* const key30 = collection.key_at_slot(slot30);
+    TEST_EXPECT(ctx, (key10 != nullptr) && (key10->value == 10));
+    TEST_EXPECT(ctx, (key20 != nullptr) && (key20->value == 20));
+    TEST_EXPECT(ctx, (key30 != nullptr) && (key30->value == 30));
 
     TEST_EXPECT(ctx, collection.first_live() == slot10);
     TEST_EXPECT(ctx, collection.next_live(slot10) == slot20);
@@ -207,6 +215,7 @@ void test_erase_sort_pack_and_stable_addresses(TTestContext& ctx)
     TEST_EXPECT(ctx, collection.erase(slot30));
     TEST_EXPECT(ctx, !collection.erase(slot30));
     TEST_EXPECT(ctx, collection.get_object(TTrackedKey{ 30 }) == nullptr);
+    TEST_EXPECT(ctx, collection.key_at_slot(slot30) == nullptr);
     TEST_EXPECT(ctx, TTrackedValue::live_count == 3);
     TEST_EXPECT(ctx, TTrackedValue::construction_count == 4);
     TEST_EXPECT(ctx, TTrackedValue::destruction_count == 1);
@@ -219,6 +228,12 @@ void test_erase_sort_pack_and_stable_addresses(TTestContext& ctx)
     TEST_EXPECT(ctx, collection.find_slot(TTrackedKey{ 10 }) == 0);
     TEST_EXPECT(ctx, collection.find_slot(TTrackedKey{ 20 }) == 1);
     TEST_EXPECT(ctx, collection.find_slot(TTrackedKey{ 40 }) == 2);
+    const TTrackedKey* const packed_key10 = collection.key_at_slot(0);
+    const TTrackedKey* const packed_key20 = collection.key_at_slot(1);
+    const TTrackedKey* const packed_key40 = collection.key_at_slot(2);
+    TEST_EXPECT(ctx, (packed_key10 != nullptr) && (packed_key10->value == 10));
+    TEST_EXPECT(ctx, (packed_key20 != nullptr) && (packed_key20->value == 20));
+    TEST_EXPECT(ctx, (packed_key40 != nullptr) && (packed_key40->value == 40));
     TEST_EXPECT(ctx, collection.first_live() == 0);
     TEST_EXPECT(ctx, collection.next_live(0) == 1);
     TEST_EXPECT(ctx, collection.next_live(1) == 2);
@@ -279,6 +294,8 @@ void test_failure_and_bounds_behaviour(TTestContext& ctx)
     TEST_EXPECT(ctx, collection.initialise(2u, 2u));
     TEST_EXPECT(ctx, collection.get_object(-1) == nullptr);
     TEST_EXPECT(ctx, collection.get_object(99) == nullptr);
+    TEST_EXPECT(ctx, collection.key_at_slot(-1) == nullptr);
+    TEST_EXPECT(ctx, collection.key_at_slot(99) == nullptr);
     TEST_EXPECT(ctx, !collection.erase(-1));
     TEST_EXPECT(ctx, !collection.erase(99));
     TEST_EXPECT(ctx, collection.find_slot(TTrackedKey{ 123 }) == -1);
@@ -306,4 +323,3 @@ int run_ordered_collection_tests()
     std::cout << "TOrderedCollection: " << ctx.passed << " passed, " << ctx.failed << " failed\n";
     return (ctx.failed == 0) ? 0 : 1;
 }
-
