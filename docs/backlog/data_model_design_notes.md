@@ -209,9 +209,8 @@ recovered array can also be promoted by creating it and appending its anonymous
 children normally.
 
 This composition made the reserved recovery attachment outcomes unnecessary;
-they were removed with the live-node simplification. Attachment now reports
-only insertion or rejection, while rejection reasons remain available to
-callers.
+they were removed with the live-node simplification. Attachment now reports a
+rejection reason; `none` means that insertion succeeded.
 
 ## Mutation failure policy
 

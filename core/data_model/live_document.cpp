@@ -161,7 +161,6 @@ bool CLiveDocument::analyse(
             }
             if (aggregate != nullptr)
             {
-                ++measured.aggregate_payload_count;
                 if (aggregate->aggregate_kind() == ELiveAggregateKind::recovered_array)
                 {
                     ++measured.recovered_aggregate_count;
@@ -332,12 +331,6 @@ std::uint32_t CLiveDocument::value_count() const noexcept
 {
     SLiveDocumentAnalysis result;
     return analyse(result) ? result.value_count : 0u;
-}
-
-std::uint32_t CLiveDocument::aggregate_payload_count() const noexcept
-{
-    SLiveDocumentAnalysis result;
-    return analyse(result) ? result.aggregate_payload_count : 0u;
 }
 
 bool CLiveDocument::contains(const CNodeKey value) const noexcept
@@ -636,8 +629,7 @@ CNodeKey CLiveDocument::create_recovered_array(const CStringView& name_value) no
 
 CLiveAttachmentResult CLiveDocument::append_child(
     const CNodeKey destination,
-    const CNodeKey candidate,
-    CNodeKey& surviving_value) noexcept
+    const CNodeKey candidate) noexcept
 {
     SAttachmentPosition position;
     const CLiveNode* const aggregate = aggregate_for_value(destination);
@@ -645,39 +637,34 @@ CLiveAttachmentResult CLiveDocument::append_child(
     {
         position.previous = aggregate->aggregate_last_child_slot();
     }
-    return attach_child(destination, candidate, position, surviving_value);
+    return attach_child(destination, candidate, position);
 }
 
 CLiveAttachmentResult CLiveDocument::insert_child_before(
     const CNodeKey destination,
     const CNodeKey candidate,
-    const CNodeKey before,
-    CNodeKey& surviving_value) noexcept
+    const CNodeKey before) noexcept
 {
     if (!before.is_valid())
     {
-        surviving_value = CNodeKey{};
         return attachment_rejection(ELiveAttachmentRejection::insert_before_not_child);
     }
     SAttachmentPosition position;
     const CLiveNode* const before_node = value_node(before);
     if (before_node == nullptr)
     {
-        surviving_value = CNodeKey{};
         return attachment_rejection(ELiveAttachmentRejection::insert_before_not_child);
     }
     position.next = node_slot(before);
     position.previous = before_node->value_previous_sibling_slot();
-    return attach_child(destination, candidate, position, surviving_value);
+    return attach_child(destination, candidate, position);
 }
 
 CLiveAttachmentResult CLiveDocument::insert_child_at(
     const CNodeKey destination,
     const CNodeKey candidate,
-    const std::uint32_t index,
-    CNodeKey& surviving_value) noexcept
+    const std::uint32_t index) noexcept
 {
-    surviving_value = CNodeKey{};
     const CLiveNode* const destination_node = value_node(destination);
     if (destination_node == nullptr)
     {
@@ -703,7 +690,7 @@ CLiveAttachmentResult CLiveDocument::insert_child_at(
     }
     if (index == aggregate->child_count())
     {
-        return append_child(destination, candidate, surviving_value);
+        return append_child(destination, candidate);
     }
 
     TLiveNodeSlot before = aggregate->aggregate_first_child_slot();
@@ -731,7 +718,7 @@ CLiveAttachmentResult CLiveDocument::insert_child_at(
     {
         position.previous = before_node->value_previous_sibling_slot();
     }
-    return attach_child(destination, candidate, position, surviving_value);
+    return attach_child(destination, candidate, position);
 }
 
 bool CLiveDocument::detach(const CNodeKey value) noexcept
@@ -1238,16 +1225,6 @@ CNodeKey CLiveDocument::node_key(const TLiveNodeSlot slot) const noexcept
     return (key != nullptr) ? *key : CNodeKey{};
 }
 
-CLiveNode* CLiveDocument::node(const CNodeKey key) noexcept
-{
-    return node(node_slot(key));
-}
-
-const CLiveNode* CLiveDocument::node(const CNodeKey key) const noexcept
-{
-    return node(node_slot(key));
-}
-
 CLiveNode* CLiveDocument::node(const TLiveNodeSlot slot) noexcept
 {
     return m_nodes.get_slot(slot);
@@ -1260,13 +1237,13 @@ const CLiveNode* CLiveDocument::node(const TLiveNodeSlot slot) const noexcept
 
 CLiveNode* CLiveDocument::value_node(const CNodeKey key) noexcept
 {
-    CLiveNode* const found = node(key);
+    CLiveNode* const found = node(node_slot(key));
     return ((found != nullptr) && found->is_value_record()) ? found : nullptr;
 }
 
 const CLiveNode* CLiveDocument::value_node(const CNodeKey key) const noexcept
 {
-    const CLiveNode* const found = node(key);
+    const CLiveNode* const found = node(node_slot(key));
     return ((found != nullptr) && found->is_value_record()) ? found : nullptr;
 }
 
@@ -1295,7 +1272,7 @@ const CLiveNode* CLiveDocument::aggregate_for_value(const CNodeKey value) const 
 
 CLiveAttachmentResult CLiveDocument::attachment_rejection(const ELiveAttachmentRejection rejection) noexcept
 {
-    return CLiveAttachmentResult{ ELiveAttachmentOutcome::rejected, rejection };
+    return CLiveAttachmentResult{ rejection };
 }
 
 void CLiveDocument::mark_integrity_bad() noexcept
@@ -1569,10 +1546,8 @@ bool CLiveDocument::query_ancestry(
 CLiveAttachmentResult CLiveDocument::attach_child(
     const CNodeKey destination,
     const CNodeKey candidate,
-    const SAttachmentPosition& position,
-    CNodeKey& surviving_value) noexcept
+    const SAttachmentPosition& position) noexcept
 {
-    surviving_value = CNodeKey{};
     if (!is_ready())
     {
         return attachment_rejection(ELiveAttachmentRejection::document_not_ready);
@@ -1725,8 +1700,7 @@ CLiveAttachmentResult CLiveDocument::attach_child(
     }
     aggregate->increment_child_count();
 
-    surviving_value = candidate;
-    return CLiveAttachmentResult{ ELiveAttachmentOutcome::inserted, ELiveAttachmentRejection::none };
+    return CLiveAttachmentResult{};
 }
 
 bool CLiveDocument::detach_value(const TLiveNodeSlot value) noexcept

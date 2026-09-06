@@ -26,7 +26,6 @@ struct SLiveDocumentTestAccess;
 
 struct SLiveNodeUsage
 {
-    ELiveNodeRole role{ ELiveNodeRole::invalid };
     ELiveValueType value_type{ ELiveValueType::invalid };
     ELiveAggregateKind aggregate_kind{ ELiveAggregateKind::invalid };
 };
@@ -97,7 +96,6 @@ public:
     void set_aggregate_owner_value_slot(const TLiveNodeSlot slot) noexcept;
     void set_aggregate_first_child_slot(const TLiveNodeSlot slot) noexcept;
     void set_aggregate_last_child_slot(const TLiveNodeSlot slot) noexcept;
-    void set_name_id(const CPropertyNameId name) noexcept;
     void set_value_attachment(const TLiveNodeSlot parent, const TLiveNodeSlot previous, const TLiveNodeSlot next) noexcept;
     void clear_value_attachment() noexcept;
     void clear_aggregate_children() noexcept;
@@ -161,8 +159,8 @@ private:
     std::uint64_t m_payload_bits{ 0u };
     CPropertyNameId m_name;
     std::uint32_t m_child_count{ 0u };
-    SLiveNodeUsage m_usage;
     CIntegerMetadata m_integer_metadata;
+    SLiveNodeUsage m_usage;
 };
 
 static_assert(std::is_trivially_copyable_v<CLiveNode>);
@@ -193,12 +191,14 @@ static_assert(sizeof(CLiveNode) == 40u);
 
 inline bool CLiveNode::is_value_record() const noexcept
 {
-    return m_usage.role == ELiveNodeRole::value;
+    return (m_usage.value_type != ELiveValueType::invalid) &&
+        (m_usage.aggregate_kind == ELiveAggregateKind::invalid);
 }
 
 inline bool CLiveNode::is_aggregate_record() const noexcept
 {
-    return m_usage.role == ELiveNodeRole::aggregate;
+    return (m_usage.value_type == ELiveValueType::invalid) &&
+        (m_usage.aggregate_kind != ELiveAggregateKind::invalid);
 }
 
 inline std::uint64_t CLiveNode::payload_bits() const noexcept
@@ -312,11 +312,6 @@ inline void CLiveNode::set_aggregate_first_child_slot(const TLiveNodeSlot slot) 
 inline void CLiveNode::set_aggregate_last_child_slot(const TLiveNodeSlot slot) noexcept
 {
     m_links.aggregate.last_child = slot;
-}
-
-inline void CLiveNode::set_name_id(const CPropertyNameId name) noexcept
-{
-    m_name = name;
 }
 
 inline void CLiveNode::set_value_attachment(
@@ -573,7 +568,6 @@ inline void CLiveNode::initialise_value(
     *this = CLiveNode{};
     m_payload_bits = payload_bits;
     m_name = name;
-    m_usage.role = ELiveNodeRole::value;
     m_usage.value_type = type;
     m_integer_metadata = metadata;
 }
@@ -589,7 +583,6 @@ inline void CLiveNode::initialise_aggregate(
         k_invalid_live_node_slot,
         k_invalid_live_node_slot };
     m_name = empty_name;
-    m_usage.role = ELiveNodeRole::aggregate;
     m_usage.aggregate_kind = kind;
 }
 

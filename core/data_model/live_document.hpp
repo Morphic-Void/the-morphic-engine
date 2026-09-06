@@ -28,7 +28,6 @@ struct SLiveDocumentTestAccess;
 struct SLiveDocumentAnalysis
 {
     std::uint32_t value_count{ 0u };
-    std::uint32_t aggregate_payload_count{ 0u };
     std::uint32_t recovered_aggregate_count{ 0u };
     std::uint32_t empty_value_count{ 0u };
 };
@@ -81,9 +80,10 @@ public:
     //  Root and reachable structure
     [[nodiscard]] CNodeKey root() const noexcept;
 
-    //  Root-reachable structure only. Detached storage is excluded.
+    //  Root-reachable count only. Detached storage is excluded.
     [[nodiscard]] std::uint32_t value_count() const noexcept;
-    [[nodiscard]] std::uint32_t aggregate_payload_count() const noexcept;
+
+    //  Document-owned values, including detached values.
     [[nodiscard]] bool contains(const CNodeKey value) const noexcept;
 
     //  Value classification and interned text
@@ -130,18 +130,15 @@ public:
     //  Structural mutation
     [[nodiscard]] CLiveAttachmentResult append_child(
         const CNodeKey destination,
-        const CNodeKey candidate,
-        CNodeKey& surviving_value) noexcept;
+        const CNodeKey candidate) noexcept;
     [[nodiscard]] CLiveAttachmentResult insert_child_before(
         const CNodeKey destination,
         const CNodeKey candidate,
-        const CNodeKey before,
-        CNodeKey& surviving_value) noexcept;
+        const CNodeKey before) noexcept;
     [[nodiscard]] CLiveAttachmentResult insert_child_at(
         const CNodeKey destination,
         const CNodeKey candidate,
-        const std::uint32_t index,
-        CNodeKey& surviving_value) noexcept;
+        const std::uint32_t index) noexcept;
 
     [[nodiscard]] bool detach(const CNodeKey value) noexcept;
 
@@ -212,8 +209,6 @@ private:
     //  Node lookup
     [[nodiscard]] TLiveNodeSlot node_slot(const CNodeKey key) const noexcept;
     [[nodiscard]] CNodeKey node_key(const TLiveNodeSlot slot) const noexcept;
-    [[nodiscard]] CLiveNode* node(const CNodeKey key) noexcept;
-    [[nodiscard]] const CLiveNode* node(const CNodeKey key) const noexcept;
     [[nodiscard]] CLiveNode* node(const TLiveNodeSlot slot) noexcept;
     [[nodiscard]] const CLiveNode* node(const TLiveNodeSlot slot) const noexcept;
     [[nodiscard]] CLiveNode* value_node(const CNodeKey key) noexcept;
@@ -250,8 +245,7 @@ private:
     [[nodiscard]] CLiveAttachmentResult attach_child(
         const CNodeKey destination,
         const CNodeKey candidate,
-        const SAttachmentPosition& position,
-        CNodeKey& surviving_value) noexcept;
+        const SAttachmentPosition& position) noexcept;
     [[nodiscard]] bool detach_value(const TLiveNodeSlot value) noexcept;
     [[nodiscard]] bool clear_root() noexcept;
     [[nodiscard]] bool move_value_payload(

@@ -130,9 +130,10 @@ Status: complete. Aggregate names are canonically empty and object-entry state
 is derived directly from value names. Internal relationships use explicit
 role-specific `std::int32_t` slot links while public identity remains a
 monotonic `CNodeKey`; conversion back to public keys is O(1). The duplicated
-self key and reserved recovery attachment outcomes have been removed. The live
-node has reduced from 64 to 40 bytes. Packing remains deferred and would require
-the documented rank-map remapping pass.
+self key and attachment outcome category have been removed; attachment success
+is derived from the reported rejection reason. The live node has reduced from
+64 to 40 bytes. Packing remains deferred and would require the documented
+rank-map remapping pass.
 
 ## Stage 4: complete payload composition
 
@@ -200,6 +201,11 @@ uses magic `MBD2`, version 1, no checksum and no semantic-summary flags.
 Arbitrary bytes enter through one fully validating checked view. Existing live
 analysis plus reusable string maps and one breadth-first slot vector is
 sufficient, so this checkpoint adds no live or infrastructure prerequisite.
+
+A subsequent unused-path audit removed the unneeded live aggregate total,
+duplicated node-role state, redundant attachment survivor output and dead
+key/name forwarding helpers. Defensive topology validation and explicit
+failure signalling remain unchanged.
 
 ## Stage 7: baked block, view and baking
 

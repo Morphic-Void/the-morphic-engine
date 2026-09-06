@@ -104,13 +104,6 @@ using CStringValueId = data_model_string_id::TStringId<data_model_string_id::SSt
 //  Live node roles and value kinds
 //==============================================================================
 
-enum class ELiveNodeRole : std::uint8_t
-{
-    invalid = 0u,
-    value,
-    aggregate,
-};
-
 enum class ELiveValueType : std::uint8_t
 {
     invalid = 0u,
@@ -137,12 +130,6 @@ enum class ELiveAggregateKind : std::uint8_t
 //  Attachment results
 //==============================================================================
 
-enum class ELiveAttachmentOutcome : std::uint8_t
-{
-    rejected = 0u,
-    inserted,
-};
-
 enum class ELiveAttachmentRejection : std::uint8_t
 {
     none = 0u,
@@ -163,12 +150,11 @@ enum class ELiveAttachmentRejection : std::uint8_t
 
 struct CLiveAttachmentResult
 {
-    ELiveAttachmentOutcome outcome{ ELiveAttachmentOutcome::rejected };
     ELiveAttachmentRejection rejection{ ELiveAttachmentRejection::none };
 
     [[nodiscard]] constexpr bool succeeded() const noexcept
     {
-        return outcome == ELiveAttachmentOutcome::inserted;
+        return rejection == ELiveAttachmentRejection::none;
     }
 };
 
@@ -314,7 +300,7 @@ static_assert(sizeof(CStringValueId) == sizeof(std::uint32_t));
 static_assert(std::is_trivially_copyable_v<CIntegerMetadata>);
 static_assert(sizeof(CIntegerMetadata) == 4u);
 static_assert(std::is_trivially_copyable_v<CLiveAttachmentResult>);
-static_assert(sizeof(CLiveAttachmentResult) == 2u);
+static_assert(sizeof(CLiveAttachmentResult) == 1u);
 static_assert(((sizeof(double) == sizeof(std::uint64_t)) && std::numeric_limits<double>::is_iec559),
     "Live floating payloads require IEEE-754 binary64.");
 

@@ -316,9 +316,9 @@ no public mutable baked document or public baked builder.
 
 Before emission, a live-tree crawl may build an externally owned analysis
 structure using framework allocation. That analysis may contain reachable
-value counts, aggregate counts, recovered-content presence, per-string
-reference counts, mappings, section sizes and other prerequisites. It is not
-persistent live-document state.
+value counts, recovered-content presence, per-string reference counts,
+mappings, section sizes and other prerequisites. It is not persistent
+live-document state.
 
 The baked artifact contains only root-reachable content. Its indices are dense
 and artifact-local. Direct children of each aggregate occupy a contiguous range

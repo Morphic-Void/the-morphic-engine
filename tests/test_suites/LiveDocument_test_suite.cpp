@@ -235,7 +235,6 @@ void test_initialisation_root_and_empty_domains(TTestContext& ctx)
     TEST_EXPECT(ctx, document.is_complete());
     TEST_EXPECT(ctx, document.root().query_value() == 1u);
     TEST_EXPECT(ctx, document.value_count() == 1u);
-    TEST_EXPECT(ctx, document.aggregate_payload_count() == 1u);
     TEST_EXPECT(ctx, document.value_type(document.root()) == ELiveValueType::object);
     TEST_EXPECT(ctx, !document.is_object_entry(document.root()));
     TEST_EXPECT(ctx, !document.is_detached(document.root()));
@@ -272,7 +271,6 @@ void test_initialisation_root_and_empty_domains(TTestContext& ctx)
     TEST_EXPECT(ctx, document.string_value(empty_string).string() == nullptr);
     TEST_EXPECT(ctx, document.string_value(empty_string).length() == 0u);
     TEST_EXPECT(ctx, document.value_count() == 1u);
-    TEST_EXPECT(ctx, document.aggregate_payload_count() == 1u);
     TEST_EXPECT(ctx, string_analysis(ctx, document).referenced_string_value_count == 0u);
     TEST_EXPECT(ctx, document.check_integrity());
 }
@@ -301,7 +299,6 @@ void test_detached_creation_and_accessors(TTestContext& ctx)
     TEST_EXPECT(ctx, array.query_value() == 9u);
     TEST_EXPECT(ctx, object.query_value() == 11u);
     TEST_EXPECT(ctx, document.value_count() == 1u);
-    TEST_EXPECT(ctx, document.aggregate_payload_count() == 1u);
     TEST_EXPECT(ctx, string_analysis(ctx, document).referenced_property_name_count == 0u);
     TEST_EXPECT(ctx, string_analysis(ctx, document).referenced_string_value_count == 0u);
 
@@ -518,8 +515,7 @@ void test_integrity_checks_string_domains_and_keys(TTestContext& ctx)
     CLiveDocument value_document;
     TEST_EXPECT(ctx, value_document.initialise());
     const CNodeKey string = value_document.create_string(string_value, property_name);
-    CNodeKey surviving;
-    TEST_EXPECT(ctx, value_document.append_child(value_document.root(), string, surviving).succeeded());
+    TEST_EXPECT(ctx, value_document.append_child(value_document.root(), string).succeeded());
     SLiveDocumentTestAccess::set_string_payload(value_document, string, 2u);
     TEST_EXPECT(ctx, !value_document.check_integrity());
     SLiveDocumentAnalysis summary;
@@ -609,20 +605,17 @@ void test_container_pair_failure_atomicity_and_key_gaps(TTestContext& ctx)
     }
     TEST_EXPECT(ctx, last.query_value() == 31u);
     TEST_EXPECT(ctx, document.value_count() == 1u);
-    TEST_EXPECT(ctx, document.aggregate_payload_count() == 1u);
 
     fixture.reject_all = true;
     const CNodeKey failed = document.create_array();
     fixture.reject_all = false;
     TEST_EXPECT(ctx, !failed.is_valid());
     TEST_EXPECT(ctx, document.value_count() == 1u);
-    TEST_EXPECT(ctx, document.aggregate_payload_count() == 1u);
     TEST_EXPECT(ctx, document.check_integrity());
 
     const CNodeKey successful = document.create_array();
     TEST_EXPECT(ctx, successful.query_value() == 34u);
     TEST_EXPECT(ctx, document.value_count() == 1u);
-    TEST_EXPECT(ctx, document.aggregate_payload_count() == 1u);
     TEST_EXPECT(ctx, document.check_integrity());
     document.deallocate();
     TEST_EXPECT(ctx, context.is_attribution_empty());
@@ -728,18 +721,15 @@ void test_ordinary_topology_observations_detachment_and_erasure(TTestContext& ct
     const CNodeKey third = document.create_string(payload, third_name);
     const CNodeKey anonymous = document.create_boolean(true);
     const CNodeKey named_array_child = document.create_null(nested_name);
-    CNodeKey surviving;
 
-    TEST_EXPECT(ctx, document.append_child(second, anonymous, surviving).succeeded());
-    TEST_EXPECT(ctx, surviving == anonymous);
-    TEST_EXPECT(ctx, document.append_child(second, named_array_child, surviving).succeeded());
+    TEST_EXPECT(ctx, document.append_child(second, anonymous).succeeded());
+    TEST_EXPECT(ctx, document.append_child(second, named_array_child).succeeded());
     TEST_EXPECT(ctx, document.value_count() == 1u);
-    TEST_EXPECT(ctx, document.aggregate_payload_count() == 1u);
     TEST_EXPECT(ctx, string_analysis(ctx, document).referenced_property_name_count == 0u);
 
-    TEST_EXPECT(ctx, document.append_child(document.root(), first, surviving).succeeded());
-    TEST_EXPECT(ctx, document.append_child(document.root(), third, surviving).succeeded());
-    TEST_EXPECT(ctx, document.insert_child_at(document.root(), second, 1u, surviving).succeeded());
+    TEST_EXPECT(ctx, document.append_child(document.root(), first).succeeded());
+    TEST_EXPECT(ctx, document.append_child(document.root(), third).succeeded());
+    TEST_EXPECT(ctx, document.insert_child_at(document.root(), second, 1u).succeeded());
     TEST_EXPECT(ctx, document.first_child(document.root()) == first);
     TEST_EXPECT(ctx, document.next_sibling(first) == second);
     TEST_EXPECT(ctx, document.next_sibling(second) == third);
@@ -748,7 +738,6 @@ void test_ordinary_topology_observations_detachment_and_erasure(TTestContext& ct
     TEST_EXPECT(ctx, document.child_count(document.root()) == 3u);
     TEST_EXPECT(ctx, document.child_count(second) == 2u);
     TEST_EXPECT(ctx, document.value_count() == 6u);
-    TEST_EXPECT(ctx, document.aggregate_payload_count() == 2u);
     TEST_EXPECT(ctx, string_analysis(ctx, document).referenced_property_name_count == 4u);
     TEST_EXPECT(ctx, string_analysis(ctx, document).referenced_string_value_count == 1u);
     TEST_EXPECT(ctx, document.check_integrity());
@@ -756,23 +745,20 @@ void test_ordinary_topology_observations_detachment_and_erasure(TTestContext& ct
     TEST_EXPECT(ctx, document.detach(second));
     TEST_EXPECT(ctx, document.is_detached(second));
     TEST_EXPECT(ctx, document.value_count() == 3u);
-    TEST_EXPECT(ctx, document.aggregate_payload_count() == 1u);
     TEST_EXPECT(ctx, string_analysis(ctx, document).referenced_property_name_count == 2u);
     TEST_EXPECT(ctx, string_analysis(ctx, document).referenced_string_value_count == 1u);
     TEST_EXPECT(ctx, document.check_integrity());
 
     TEST_EXPECT(ctx, document.insert_child_before(
-        document.root(), second, third, surviving).succeeded());
+        document.root(), second, third).succeeded());
     TEST_EXPECT(ctx, document.next_sibling(first) == second);
     TEST_EXPECT(ctx, document.next_sibling(second) == third);
     TEST_EXPECT(ctx, document.check_integrity());
 
     const CNodeKey duplicate = document.create_null(first_name);
     const CLiveAttachmentResult duplicate_result =
-        document.append_child(document.root(), duplicate, surviving);
-    TEST_EXPECT(ctx, duplicate_result.outcome == ELiveAttachmentOutcome::rejected);
+        document.append_child(document.root(), duplicate);
     TEST_EXPECT(ctx, duplicate_result.rejection == ELiveAttachmentRejection::duplicate_object_name);
-    TEST_EXPECT(ctx, !surviving.is_valid());
     TEST_EXPECT(ctx, document.is_detached(duplicate));
     TEST_EXPECT(ctx, document.check_integrity());
 
@@ -781,14 +767,12 @@ void test_ordinary_topology_observations_detachment_and_erasure(TTestContext& ct
     TEST_EXPECT(ctx, !document.contains(anonymous));
     TEST_EXPECT(ctx, !document.contains(named_array_child));
     TEST_EXPECT(ctx, document.value_count() == 3u);
-    TEST_EXPECT(ctx, document.aggregate_payload_count() == 1u);
     TEST_EXPECT(ctx, document.check_integrity());
 
     TEST_EXPECT(ctx, document.erase(document.root()));
     TEST_EXPECT(ctx, document.root().is_valid());
     TEST_EXPECT(ctx, document.child_count(document.root()) == 0u);
     TEST_EXPECT(ctx, document.value_count() == 1u);
-    TEST_EXPECT(ctx, document.aggregate_payload_count() == 1u);
     TEST_EXPECT(ctx, string_analysis(ctx, document).referenced_property_name_count == 0u);
     TEST_EXPECT(ctx, string_analysis(ctx, document).referenced_string_value_count == 0u);
     TEST_EXPECT(ctx, document.contains(duplicate));
@@ -802,26 +786,23 @@ void test_deep_iterative_topology_and_root_clear(TTestContext& ctx)
     const CStringView outer_name{ reinterpret_cast<const std::uint8_t*>("outer"), 5u };
     const CNodeKey outer = document.create_array(outer_name);
     CNodeKey parent = outer;
-    CNodeKey surviving;
     constexpr std::uint32_t depth = 1000u;
     for (std::uint32_t index = 1u; index < depth; ++index)
     {
         const CNodeKey child = document.create_array();
         TEST_EXPECT(ctx, child.is_valid());
-        TEST_EXPECT(ctx, document.append_child(parent, child, surviving).succeeded());
+        TEST_EXPECT(ctx, document.append_child(parent, child).succeeded());
         parent = child;
     }
     const CNodeKey leaf = document.create_string(
         CStringView{ reinterpret_cast<const std::uint8_t*>("leaf"), 4u });
-    TEST_EXPECT(ctx, document.append_child(parent, leaf, surviving).succeeded());
-    TEST_EXPECT(ctx, document.append_child(document.root(), outer, surviving).succeeded());
+    TEST_EXPECT(ctx, document.append_child(parent, leaf).succeeded());
+    TEST_EXPECT(ctx, document.append_child(document.root(), outer).succeeded());
     TEST_EXPECT(ctx, document.value_count() == (depth + 2u));
-    TEST_EXPECT(ctx, document.aggregate_payload_count() == (depth + 1u));
     TEST_EXPECT(ctx, string_analysis(ctx, document).referenced_string_value_count == 1u);
     TEST_EXPECT(ctx, document.check_integrity());
     TEST_EXPECT(ctx, document.erase(document.root()));
     TEST_EXPECT(ctx, document.value_count() == 1u);
-    TEST_EXPECT(ctx, document.aggregate_payload_count() == 1u);
     TEST_EXPECT(ctx, !document.contains(outer));
     TEST_EXPECT(ctx, !document.contains(leaf));
     TEST_EXPECT(ctx, document.check_integrity());
@@ -836,32 +817,31 @@ void test_attachment_rejections_and_cycles(TTestContext& ctx)
     const CNodeKey named = document.create_null(member_name);
     const CNodeKey array = document.create_array();
     const CNodeKey nested = document.create_array();
-    CNodeKey surviving;
 
-    CLiveAttachmentResult result = document.append_child(document.root(), anonymous, surviving);
+    CLiveAttachmentResult result = document.append_child(document.root(), anonymous);
     TEST_EXPECT(ctx, result.rejection == ELiveAttachmentRejection::object_entry_required);
-    TEST_EXPECT(ctx, !surviving.is_valid() && document.is_detached(anonymous));
+    TEST_EXPECT(ctx, document.is_detached(anonymous));
 
-    result = document.insert_child_before(document.root(), named, CNodeKey{}, surviving);
+    result = document.insert_child_before(document.root(), named, CNodeKey{});
     TEST_EXPECT(ctx, result.rejection == ELiveAttachmentRejection::insert_before_not_child);
     TEST_EXPECT(ctx, document.is_detached(named));
 
     const CNodeKey absent_before = document.create_null();
     TEST_EXPECT(ctx, document.erase(absent_before));
-    result = document.insert_child_before(document.root(), named, absent_before, surviving);
+    result = document.insert_child_before(document.root(), named, absent_before);
     TEST_EXPECT(ctx, result.rejection == ELiveAttachmentRejection::insert_before_not_child);
     TEST_EXPECT(ctx, document.is_detached(named));
 
-    result = document.insert_child_at(document.root(), named, 1u, surviving);
+    result = document.insert_child_at(document.root(), named, 1u);
     TEST_EXPECT(ctx, result.rejection == ELiveAttachmentRejection::index_out_of_range);
     TEST_EXPECT(ctx, document.is_detached(named));
 
-    TEST_EXPECT(ctx, document.append_child(array, nested, surviving).succeeded());
-    result = document.append_child(nested, array, surviving);
+    TEST_EXPECT(ctx, document.append_child(array, nested).succeeded());
+    result = document.append_child(nested, array);
     TEST_EXPECT(ctx, result.rejection == ELiveAttachmentRejection::cycle);
     TEST_EXPECT(ctx, document.is_detached(array));
 
-    TEST_EXPECT(ctx, document.append_child(document.root(), named, surviving).succeeded());
+    TEST_EXPECT(ctx, document.append_child(document.root(), named).succeeded());
     TEST_EXPECT(ctx, document.check_integrity());
 }
 
@@ -878,16 +858,14 @@ void test_topology_operations_do_not_allocate(TTestContext& ctx)
         const CNodeKey candidate = document.create_array(member_name);
         const CNodeKey child = document.create_string(
             CStringView{ reinterpret_cast<const std::uint8_t*>("payload"), 7u });
-        CNodeKey surviving;
-        TEST_EXPECT(ctx, document.append_child(candidate, child, surviving).succeeded());
+        TEST_EXPECT(ctx, document.append_child(candidate, child).succeeded());
 
         const std::size_t allocation_attempts = fixture.attempt;
         fixture.reject_all = true;
-        CLiveAttachmentResult result = document.append_child(document.root(), candidate, surviving);
+        CLiveAttachmentResult result = document.append_child(document.root(), candidate);
         TEST_EXPECT(ctx, result.succeeded());
-        TEST_EXPECT(ctx, surviving == candidate);
         TEST_EXPECT(ctx, document.detach(candidate));
-        TEST_EXPECT(ctx, document.append_child(document.root(), candidate, surviving).succeeded());
+        TEST_EXPECT(ctx, document.append_child(document.root(), candidate).succeeded());
         TEST_EXPECT(ctx, document.erase(document.root()));
         fixture.reject_all = false;
         TEST_EXPECT(ctx, fixture.attempt == allocation_attempts);
@@ -909,11 +887,10 @@ void test_integrity_rejects_topology_corruption(TTestContext& ctx)
     TEST_EXPECT(ctx, sibling_document.initialise());
     const CNodeKey sibling_first = sibling_document.create_null(first_name);
     const CNodeKey sibling_second = sibling_document.create_null(second_name);
-    CNodeKey surviving;
     TEST_EXPECT(ctx, sibling_document.append_child(
-        sibling_document.root(), sibling_first, surviving).succeeded());
+        sibling_document.root(), sibling_first).succeeded());
     TEST_EXPECT(ctx, sibling_document.append_child(
-        sibling_document.root(), sibling_second, surviving).succeeded());
+        sibling_document.root(), sibling_second).succeeded());
     SLiveDocumentTestAccess::set_next_sibling(
         sibling_document, sibling_first, CNodeKey{});
     TEST_EXPECT(ctx, !sibling_document.check_integrity());
@@ -923,9 +900,9 @@ void test_integrity_rejects_topology_corruption(TTestContext& ctx)
     const CNodeKey duplicate_first = duplicate_document.create_null(first_name);
     const CNodeKey duplicate_second = duplicate_document.create_null(second_name);
     TEST_EXPECT(ctx, duplicate_document.append_child(
-        duplicate_document.root(), duplicate_first, surviving).succeeded());
+        duplicate_document.root(), duplicate_first).succeeded());
     TEST_EXPECT(ctx, duplicate_document.append_child(
-        duplicate_document.root(), duplicate_second, surviving).succeeded());
+        duplicate_document.root(), duplicate_second).succeeded());
     SLiveDocumentTestAccess::copy_value_name(
         duplicate_document, duplicate_first, duplicate_second);
     TEST_EXPECT(ctx, !duplicate_document.check_integrity());
@@ -950,17 +927,16 @@ void test_ordinary_aggregate_value_kind_matrix_and_normalized_duplicates(TTestCo
         document.create_array(),
         document.create_object(entry_name),
     };
-    CNodeKey surviving;
     for (const CNodeKey value : values)
     {
         TEST_EXPECT(ctx, value.is_valid());
-        TEST_EXPECT(ctx, document.append_child(array, value, surviving).succeeded());
+        TEST_EXPECT(ctx, document.append_child(array, value).succeeded());
     }
     TEST_EXPECT(ctx, document.is_object_entry(values[1u]));
     TEST_EXPECT(ctx, document.is_object_entry(values[3u]));
     TEST_EXPECT(ctx, document.is_object_entry(values[5u]));
     TEST_EXPECT(ctx, document.is_object_entry(values[7u]));
-    TEST_EXPECT(ctx, document.append_child(document.root(), array, surviving).succeeded());
+    TEST_EXPECT(ctx, document.append_child(document.root(), array).succeeded());
     TEST_EXPECT(ctx, document.child_count(array) == 8u);
     TEST_EXPECT(ctx, document.check_integrity());
 
@@ -987,7 +963,7 @@ void test_ordinary_aggregate_value_kind_matrix_and_normalized_duplicates(TTestCo
     for (const CNodeKey value : object_values)
     {
         TEST_EXPECT(ctx, object_document.append_child(
-            object_document.root(), value, surviving).succeeded());
+            object_document.root(), value).succeeded());
     }
     TEST_EXPECT(ctx, object_document.child_count(object_document.root()) == 7u);
     TEST_EXPECT(ctx, object_document.check_integrity());
@@ -1001,9 +977,9 @@ void test_ordinary_aggregate_value_kind_matrix_and_normalized_duplicates(TTestCo
     const CNodeKey modified = normalized_document.create_null(
         bytes_view(modified_nul, sizeof(modified_nul)));
     TEST_EXPECT(ctx, normalized_document.append_child(
-        normalized_document.root(), literal, surviving).succeeded());
+        normalized_document.root(), literal).succeeded());
     const CLiveAttachmentResult duplicate = normalized_document.append_child(
-        normalized_document.root(), modified, surviving);
+        normalized_document.root(), modified);
     TEST_EXPECT(ctx, duplicate.rejection == ELiveAttachmentRejection::duplicate_object_name);
     TEST_EXPECT(ctx, normalized_document.is_detached(modified));
     TEST_EXPECT(ctx, normalized_document.check_integrity());
@@ -1026,16 +1002,15 @@ void test_recovered_aggregate_observations(TTestContext& ctx)
     const CNodeKey nested = document.create_recovered_array();
     const CNodeKey nested_child = document.create_null();
     const CNodeKey named_child = document.create_null(recovered_name);
-    CNodeKey surviving;
-    TEST_EXPECT(ctx, document.append_child(recovered_owner, first, surviving).succeeded());
+    TEST_EXPECT(ctx, document.append_child(recovered_owner, first).succeeded());
     TEST_EXPECT(ctx, document.child_count(recovered_owner) == 1u);
     TEST_EXPECT(ctx, document.check_integrity());
-    TEST_EXPECT(ctx, document.append_child(nested, nested_child, surviving).succeeded());
-    TEST_EXPECT(ctx, document.append_child(recovered_owner, nested, surviving).succeeded());
+    TEST_EXPECT(ctx, document.append_child(nested, nested_child).succeeded());
+    TEST_EXPECT(ctx, document.append_child(recovered_owner, nested).succeeded());
     TEST_EXPECT(ctx, document.insert_child_before(
-        recovered_owner, second, nested, surviving).succeeded());
+        recovered_owner, second, nested).succeeded());
     const CLiveAttachmentResult named_result =
-        document.append_child(recovered_owner, named_child, surviving);
+        document.append_child(recovered_owner, named_child);
     TEST_EXPECT(ctx,
         named_result.rejection == ELiveAttachmentRejection::anonymous_value_required);
     TEST_EXPECT(ctx, document.is_detached(named_child));
@@ -1047,7 +1022,7 @@ void test_recovered_aggregate_observations(TTestContext& ctx)
     TEST_EXPECT(ctx, document.is_canonical());
 
     TEST_EXPECT(ctx, document.append_child(
-        document.root(), recovered_owner, surviving).succeeded());
+        document.root(), recovered_owner).succeeded());
     TEST_EXPECT(ctx, !document.is_canonical());
     SLiveDocumentAnalysis summary;
     TEST_EXPECT(ctx, document.analyse(summary));
@@ -1074,9 +1049,8 @@ void test_collision_recovery_composition_and_repair(TTestContext& ctx)
 
     const CNodeKey retained = document.create_boolean(true, duplicate_name);
     const CNodeKey first_candidate = document.create_string(candidate_text, duplicate_name);
-    CNodeKey surviving;
-    TEST_EXPECT(ctx, document.append_child(document.root(), retained, surviving).succeeded());
-    TEST_EXPECT(ctx, document.append_child(document.root(), first_candidate, surviving).rejection ==
+    TEST_EXPECT(ctx, document.append_child(document.root(), retained).succeeded());
+    TEST_EXPECT(ctx, document.append_child(document.root(), first_candidate).rejection ==
         ELiveAttachmentRejection::duplicate_object_name);
 
     const CNodeKey retained_payload = document.detach_payload(retained);
@@ -1086,9 +1060,9 @@ void test_collision_recovery_composition_and_repair(TTestContext& ctx)
     TEST_EXPECT(ctx, candidate_payload.is_valid());
     TEST_EXPECT(ctx, recovered_payload.is_valid());
     TEST_EXPECT(ctx, document.append_child(
-        recovered_payload, retained_payload, surviving).succeeded());
+        recovered_payload, retained_payload).succeeded());
     TEST_EXPECT(ctx, document.append_child(
-        recovered_payload, candidate_payload, surviving).succeeded());
+        recovered_payload, candidate_payload).succeeded());
     TEST_EXPECT(ctx, document.attach_payload(retained, recovered_payload) == retained);
     TEST_EXPECT(ctx, document.erase(first_candidate));
     TEST_EXPECT(ctx, document.value_type(retained) == ELiveValueType::recovered_array);
@@ -1097,11 +1071,11 @@ void test_collision_recovery_composition_and_repair(TTestContext& ctx)
     TEST_EXPECT(ctx, document.check_integrity());
 
     const CNodeKey later_candidate = document.create_unsigned_integer(7u, duplicate_name);
-    TEST_EXPECT(ctx, document.append_child(document.root(), later_candidate, surviving).rejection ==
+    TEST_EXPECT(ctx, document.append_child(document.root(), later_candidate).rejection ==
         ELiveAttachmentRejection::duplicate_object_name);
     const CNodeKey later_payload = document.detach_payload(later_candidate);
     TEST_EXPECT(ctx, later_payload.is_valid());
-    TEST_EXPECT(ctx, document.append_child(retained, later_payload, surviving).succeeded());
+    TEST_EXPECT(ctx, document.append_child(retained, later_payload).succeeded());
     TEST_EXPECT(ctx, document.erase(later_candidate));
     TEST_EXPECT(ctx, document.child_count(retained) == 3u);
     TEST_EXPECT(ctx, document.last_child(retained) == later_payload);
@@ -1131,15 +1105,13 @@ void test_empty_completeness_and_payload_round_trip(TTestContext& ctx)
     const CNodeKey payload = document.create_array(slot_name);
     const CNodeKey child = document.create_string(text);
     const CNodeKey after = document.create_null(after_name);
-    CNodeKey surviving;
-    TEST_EXPECT(ctx, document.append_child(payload, child, surviving).succeeded());
-    TEST_EXPECT(ctx, document.append_child(document.root(), before, surviving).succeeded());
-    TEST_EXPECT(ctx, document.append_child(document.root(), payload, surviving).succeeded());
-    TEST_EXPECT(ctx, document.append_child(document.root(), after, surviving).succeeded());
+    TEST_EXPECT(ctx, document.append_child(payload, child).succeeded());
+    TEST_EXPECT(ctx, document.append_child(document.root(), before).succeeded());
+    TEST_EXPECT(ctx, document.append_child(document.root(), payload).succeeded());
+    TEST_EXPECT(ctx, document.append_child(document.root(), after).succeeded());
     TEST_EXPECT(ctx, document.is_complete());
     TEST_EXPECT(ctx, document.child_count(document.root()) == 3u);
     TEST_EXPECT(ctx, document.value_count() == 5u);
-    TEST_EXPECT(ctx, document.aggregate_payload_count() == 2u);
     TEST_EXPECT(ctx, string_analysis(ctx, document).referenced_string_value_count == 1u);
 
     const CNodeKey detached_payload = document.detach_payload(payload);
@@ -1156,7 +1128,6 @@ void test_empty_completeness_and_payload_round_trip(TTestContext& ctx)
     TEST_EXPECT(ctx, document.first_child(detached_payload) == child);
     TEST_EXPECT(ctx, !document.is_complete());
     TEST_EXPECT(ctx, document.value_count() == 4u);
-    TEST_EXPECT(ctx, document.aggregate_payload_count() == 1u);
     TEST_EXPECT(ctx, string_analysis(ctx, document).referenced_string_value_count == 0u);
     TEST_EXPECT(ctx, document.check_integrity());
 
@@ -1170,18 +1141,17 @@ void test_empty_completeness_and_payload_round_trip(TTestContext& ctx)
     TEST_EXPECT(ctx, document.first_child(payload) == child);
     TEST_EXPECT(ctx, document.is_complete());
     TEST_EXPECT(ctx, document.value_count() == 5u);
-    TEST_EXPECT(ctx, document.aggregate_payload_count() == 2u);
     TEST_EXPECT(ctx, string_analysis(ctx, document).referenced_string_value_count == 1u);
     TEST_EXPECT(ctx, document.check_integrity());
 
     const CNodeKey nested_empty = document.create_empty();
     TEST_EXPECT(ctx, document.value_type(nested_empty) == ELiveValueType::empty);
     TEST_EXPECT(ctx, document.is_complete());
-    TEST_EXPECT(ctx, document.append_child(payload, nested_empty, surviving).succeeded());
+    TEST_EXPECT(ctx, document.append_child(payload, nested_empty).succeeded());
     TEST_EXPECT(ctx, !document.is_complete());
     TEST_EXPECT(ctx, document.detach(nested_empty));
     TEST_EXPECT(ctx, document.is_complete());
-    TEST_EXPECT(ctx, document.append_child(payload, nested_empty, surviving).succeeded());
+    TEST_EXPECT(ctx, document.append_child(payload, nested_empty).succeeded());
     TEST_EXPECT(ctx, !document.is_complete());
     const CNodeKey null_payload = document.create_null();
     TEST_EXPECT(ctx, document.attach_payload(nested_empty, null_payload) == nested_empty);
@@ -1195,12 +1165,11 @@ void test_empty_completeness_and_payload_round_trip(TTestContext& ctx)
         reinterpret_cast<const std::uint8_t*>("final-empty"), 11u };
     const CNodeKey final_empty = document.create_empty(final_empty_name);
     TEST_EXPECT(ctx, document.append_child(
-        document.root(), final_empty, surviving).succeeded());
+        document.root(), final_empty).succeeded());
     TEST_EXPECT(ctx, !document.is_complete());
     TEST_EXPECT(ctx, document.erase(document.root()));
     TEST_EXPECT(ctx, document.is_complete());
     TEST_EXPECT(ctx, document.value_count() == 1u);
-    TEST_EXPECT(ctx, document.aggregate_payload_count() == 1u);
     TEST_EXPECT(ctx, document.check_integrity());
 }
 
@@ -1211,8 +1180,7 @@ void test_scalar_and_detached_payload_transfer(TTestContext& ctx)
     const CStringView name{ reinterpret_cast<const std::uint8_t*>("text"), 4u };
     const CStringView value{ reinterpret_cast<const std::uint8_t*>("value"), 5u };
     const CNodeKey string = document.create_string(value, name);
-    CNodeKey surviving;
-    TEST_EXPECT(ctx, document.append_child(document.root(), string, surviving).succeeded());
+    TEST_EXPECT(ctx, document.append_child(document.root(), string).succeeded());
     const CStringValueId value_id = document.string_value_id(string);
     TEST_EXPECT(ctx, string_analysis(ctx, document).referenced_property_name_count == 1u);
     TEST_EXPECT(ctx, string_analysis(ctx, document).referenced_string_value_count == 1u);
@@ -1299,14 +1267,12 @@ void test_payload_erasure_preserves_value_identity(TTestContext& ctx)
     const CNodeKey nested = document.create_array();
     const CNodeKey leaf = document.create_string(text);
     const CNodeKey after = document.create_null(after_name);
-    CNodeKey surviving;
-    TEST_EXPECT(ctx, document.append_child(nested, leaf, surviving).succeeded());
-    TEST_EXPECT(ctx, document.append_child(payload, nested, surviving).succeeded());
-    TEST_EXPECT(ctx, document.append_child(document.root(), before, surviving).succeeded());
-    TEST_EXPECT(ctx, document.append_child(document.root(), payload, surviving).succeeded());
-    TEST_EXPECT(ctx, document.append_child(document.root(), after, surviving).succeeded());
+    TEST_EXPECT(ctx, document.append_child(nested, leaf).succeeded());
+    TEST_EXPECT(ctx, document.append_child(payload, nested).succeeded());
+    TEST_EXPECT(ctx, document.append_child(document.root(), before).succeeded());
+    TEST_EXPECT(ctx, document.append_child(document.root(), payload).succeeded());
+    TEST_EXPECT(ctx, document.append_child(document.root(), after).succeeded());
     TEST_EXPECT(ctx, document.value_count() == 6u);
-    TEST_EXPECT(ctx, document.aggregate_payload_count() == 3u);
     TEST_EXPECT(ctx, string_analysis(ctx, document).referenced_string_value_count == 1u);
 
     TEST_EXPECT(ctx, document.erase_payload(payload));
@@ -1320,7 +1286,6 @@ void test_payload_erasure_preserves_value_identity(TTestContext& ctx)
     TEST_EXPECT(ctx, !document.contains(leaf));
     TEST_EXPECT(ctx, document.child_count(document.root()) == 3u);
     TEST_EXPECT(ctx, document.value_count() == 4u);
-    TEST_EXPECT(ctx, document.aggregate_payload_count() == 1u);
     TEST_EXPECT(ctx, string_analysis(ctx, document).referenced_string_value_count == 0u);
     TEST_EXPECT(ctx, !document.is_complete());
     TEST_EXPECT(ctx, document.check_integrity());
@@ -1347,7 +1312,6 @@ void test_payload_erasure_preserves_value_identity(TTestContext& ctx)
     TEST_EXPECT(ctx, !document.contains(after));
     TEST_EXPECT(ctx, document.contains(detached));
     TEST_EXPECT(ctx, document.value_count() == 1u);
-    TEST_EXPECT(ctx, document.aggregate_payload_count() == 1u);
     TEST_EXPECT(ctx, document.check_integrity());
 }
 
@@ -1363,11 +1327,10 @@ void test_payload_detach_reacquires_container_after_node_growth(TTestContext& ct
     const CNodeKey source = document.create_array(source_name);
     const CNodeKey child = document.create_string(text);
     const CNodeKey after = document.create_null(after_name);
-    CNodeKey surviving;
-    TEST_EXPECT(ctx, document.append_child(source, child, surviving).succeeded());
-    TEST_EXPECT(ctx, document.append_child(document.root(), before, surviving).succeeded());
-    TEST_EXPECT(ctx, document.append_child(document.root(), source, surviving).succeeded());
-    TEST_EXPECT(ctx, document.append_child(document.root(), after, surviving).succeeded());
+    TEST_EXPECT(ctx, document.append_child(source, child).succeeded());
+    TEST_EXPECT(ctx, document.append_child(document.root(), before).succeeded());
+    TEST_EXPECT(ctx, document.append_child(document.root(), source).succeeded());
+    TEST_EXPECT(ctx, document.append_child(document.root(), after).succeeded());
 
     while (SLiveDocumentTestAccess::occupied_node_count(document) < 32u)
     {
@@ -1393,7 +1356,6 @@ void test_payload_detach_reacquires_container_after_node_growth(TTestContext& ct
     TEST_EXPECT(ctx, document.next_sibling(source) == after);
     TEST_EXPECT(ctx, document.child_count(document.root()) == 3u);
     TEST_EXPECT(ctx, document.value_count() == 4u);
-    TEST_EXPECT(ctx, document.aggregate_payload_count() == 1u);
     TEST_EXPECT(ctx, string_analysis(ctx, document).referenced_property_name_count == 3u);
     TEST_EXPECT(ctx, string_analysis(ctx, document).referenced_string_value_count == 0u);
     TEST_EXPECT(ctx, !document.is_complete());
@@ -1410,9 +1372,8 @@ void test_local_topology_failure_marks_document_known_bad(TTestContext& ctx)
     const CNodeKey array = document.create_array();
     const CNodeKey first = document.create_null();
     const CNodeKey last = document.create_null();
-    CNodeKey surviving;
-    TEST_EXPECT(ctx, document.append_child(array, first, surviving).succeeded());
-    TEST_EXPECT(ctx, document.append_child(array, last, surviving).succeeded());
+    TEST_EXPECT(ctx, document.append_child(array, first).succeeded());
+    TEST_EXPECT(ctx, document.append_child(array, last).succeeded());
     SLiveDocumentTestAccess::set_next_sibling(document, first, CNodeKey{});
 
     TEST_EXPECT(ctx, !document.detach(first));
@@ -1433,9 +1394,8 @@ void test_cyclic_subtree_audit_and_analysis_terminate(TTestContext& ctx)
     const CNodeKey array = document.create_array(name);
     const CNodeKey first = document.create_null();
     const CNodeKey last = document.create_null();
-    CNodeKey surviving;
-    TEST_EXPECT(ctx, document.append_child(array, first, surviving).succeeded());
-    TEST_EXPECT(ctx, document.append_child(array, last, surviving).succeeded());
+    TEST_EXPECT(ctx, document.append_child(array, first).succeeded());
+    TEST_EXPECT(ctx, document.append_child(array, last).succeeded());
     SLiveDocumentTestAccess::set_next_sibling(document, last, first);
     TEST_EXPECT(ctx, !document.check_integrity());
 
@@ -1443,7 +1403,7 @@ void test_cyclic_subtree_audit_and_analysis_terminate(TTestContext& ctx)
     TEST_EXPECT(ctx, document.analyse(summary));
     TEST_EXPECT(ctx, summary.value_count == 1u);
     // Attachment trusts the candidate's established private descendants.
-    TEST_EXPECT(ctx, document.append_child(document.root(), array, surviving).succeeded());
+    TEST_EXPECT(ctx, document.append_child(document.root(), array).succeeded());
     TEST_EXPECT(ctx, !document.analyse(summary));
     TEST_EXPECT(ctx, summary.value_count == 0u);
     TEST_EXPECT(ctx, !document.is_canonical());
@@ -1459,8 +1419,7 @@ void test_integrity_rejects_unrooted_cycles_and_shared_aggregates(TTestContext& 
     TEST_EXPECT(ctx, cyclic.initialise());
     const CNodeKey outer = cyclic.create_array();
     const CNodeKey inner = cyclic.create_array();
-    CNodeKey surviving;
-    TEST_EXPECT(ctx, cyclic.append_child(outer, inner, surviving).succeeded());
+    TEST_EXPECT(ctx, cyclic.append_child(outer, inner).succeeded());
     SLiveDocumentTestAccess::link_as_only_child_without_validation(cyclic, inner, outer);
     // This component has no detached top value from which to start an audit.
     TEST_EXPECT(ctx, !cyclic.check_integrity());
@@ -1494,13 +1453,12 @@ void test_payload_transfer_rejections_cycles_and_recovery(TTestContext& ctx)
     TEST_EXPECT(ctx, !document.attach_payload(empty, named_payload).is_valid());
 
     const CNodeKey attached_payload = document.create_null(named_value);
-    CNodeKey surviving;
-    TEST_EXPECT(ctx, document.append_child(document.root(), attached_payload, surviving).succeeded());
+    TEST_EXPECT(ctx, document.append_child(document.root(), attached_payload).succeeded());
     TEST_EXPECT(ctx, !document.attach_payload(empty, attached_payload).is_valid());
 
     const CNodeKey cycle_payload = document.create_array();
     const CNodeKey cycle_target = document.create_empty();
-    TEST_EXPECT(ctx, document.append_child(cycle_payload, cycle_target, surviving).succeeded());
+    TEST_EXPECT(ctx, document.append_child(cycle_payload, cycle_target).succeeded());
     TEST_EXPECT(ctx, !document.attach_payload(cycle_target, cycle_payload).is_valid());
     TEST_EXPECT(ctx, document.parent(cycle_target) == cycle_payload);
     TEST_EXPECT(ctx, document.is_detached(cycle_payload));
@@ -1510,9 +1468,9 @@ void test_payload_transfer_rejections_cycles_and_recovery(TTestContext& ctx)
     const CNodeKey recovered = document.create_recovered_array(recovery_name);
     const CNodeKey first = document.create_null();
     const CNodeKey second = document.create_null();
-    TEST_EXPECT(ctx, document.append_child(recovered, first, surviving).succeeded());
-    TEST_EXPECT(ctx, document.append_child(recovered, second, surviving).succeeded());
-    TEST_EXPECT(ctx, document.append_child(document.root(), recovered, surviving).succeeded());
+    TEST_EXPECT(ctx, document.append_child(recovered, first).succeeded());
+    TEST_EXPECT(ctx, document.append_child(recovered, second).succeeded());
+    TEST_EXPECT(ctx, document.append_child(document.root(), recovered).succeeded());
     const CNodeKey recovered_payload = document.detach_payload(recovered);
     TEST_EXPECT(ctx, recovered_payload.is_valid());
     TEST_EXPECT(ctx, document.name(recovered) == recovery_name);
@@ -1530,8 +1488,8 @@ void test_payload_transfer_rejections_cycles_and_recovery(TTestContext& ctx)
         reinterpret_cast<const std::uint8_t*>("holder"), 6u };
     const CNodeKey holder = document.create_array(holder_name);
     const CNodeKey anonymous_target = document.create_empty();
-    TEST_EXPECT(ctx, document.append_child(holder, anonymous_target, surviving).succeeded());
-    TEST_EXPECT(ctx, document.append_child(document.root(), holder, surviving).succeeded());
+    TEST_EXPECT(ctx, document.append_child(holder, anonymous_target).succeeded());
+    TEST_EXPECT(ctx, document.append_child(document.root(), holder).succeeded());
     TEST_EXPECT(ctx,
         document.attach_payload(anonymous_target, second_recovered_payload) == anonymous_target);
     TEST_EXPECT(ctx, !document.contains(second_recovered_payload));
@@ -1609,17 +1567,16 @@ void test_payload_transfer_allocation_limits_depth_move_and_attribution(TTestCon
     const CStringView outer_name{ reinterpret_cast<const std::uint8_t*>("outer"), 5u };
     const CNodeKey outer = deep.create_array(outer_name);
     CNodeKey parent = outer;
-    CNodeKey surviving;
     constexpr std::uint32_t depth = 1000u;
     for (std::uint32_t index = 1u; index < depth; ++index)
     {
         const CNodeKey child = deep.create_array();
-        TEST_EXPECT(ctx, deep.append_child(parent, child, surviving).succeeded());
+        TEST_EXPECT(ctx, deep.append_child(parent, child).succeeded());
         parent = child;
     }
     const CNodeKey leaf = deep.create_empty();
-    TEST_EXPECT(ctx, deep.append_child(parent, leaf, surviving).succeeded());
-    TEST_EXPECT(ctx, deep.append_child(deep.root(), outer, surviving).succeeded());
+    TEST_EXPECT(ctx, deep.append_child(parent, leaf).succeeded());
+    TEST_EXPECT(ctx, deep.append_child(deep.root(), outer).succeeded());
     TEST_EXPECT(ctx, !deep.is_complete());
     const CNodeKey outer_payload = deep.detach_payload(outer);
     TEST_EXPECT(ctx, outer_payload.is_valid());
@@ -1649,7 +1606,6 @@ void test_analysis_summary_and_string_references(TTestContext& ctx)
     TEST_EXPECT(ctx, document.initialise());
     TEST_EXPECT(ctx, document.analyse(summary, &strings));
     TEST_EXPECT(ctx, summary.value_count == 1u);
-    TEST_EXPECT(ctx, summary.aggregate_payload_count == 1u);
     TEST_EXPECT(ctx, summary.empty_value_count == 0u);
     TEST_EXPECT(ctx, summary.recovered_aggregate_count == 0u);
     TEST_EXPECT(ctx, strings.property_name_references.size() == 1u);
@@ -1673,25 +1629,22 @@ void test_analysis_summary_and_string_references(TTestContext& ctx)
     TEST_EXPECT(ctx, document.name_id(second) == shared_name_id);
     TEST_EXPECT(ctx, document.string_value_id(second) == shared_value_id);
     TEST_EXPECT(ctx, document.erase(abandoned));
-    CNodeKey surviving;
-    TEST_EXPECT(ctx, document.append_child(group, first, surviving).succeeded());
-    TEST_EXPECT(ctx, document.append_child(group, second, surviving).succeeded());
-    TEST_EXPECT(ctx, document.append_child(group, empty_string, surviving).succeeded());
-    TEST_EXPECT(ctx, document.append_child(group, placeholder, surviving).succeeded());
+    TEST_EXPECT(ctx, document.append_child(group, first).succeeded());
+    TEST_EXPECT(ctx, document.append_child(group, second).succeeded());
+    TEST_EXPECT(ctx, document.append_child(group, empty_string).succeeded());
+    TEST_EXPECT(ctx, document.append_child(group, placeholder).succeeded());
     TEST_EXPECT(ctx, document.analyse(summary, &strings));
     TEST_EXPECT(ctx, summary.value_count == 1u);
     TEST_EXPECT(ctx, summary.empty_value_count == 0u);
     TEST_EXPECT(ctx, strings.referenced_property_name_count == 0u);
     TEST_EXPECT(ctx, strings.referenced_string_value_count == 0u);
 
-    TEST_EXPECT(ctx, document.append_child(document.root(), group, surviving).succeeded());
+    TEST_EXPECT(ctx, document.append_child(document.root(), group).succeeded());
     TEST_EXPECT(ctx, document.analyse(summary, &strings));
     TEST_EXPECT(ctx, summary.value_count == 6u);
-    TEST_EXPECT(ctx, summary.aggregate_payload_count == 2u);
     TEST_EXPECT(ctx, summary.empty_value_count == 1u);
     TEST_EXPECT(ctx, summary.recovered_aggregate_count == 0u);
     TEST_EXPECT(ctx, document.value_count() == summary.value_count);
-    TEST_EXPECT(ctx, document.aggregate_payload_count() == summary.aggregate_payload_count);
     TEST_EXPECT(ctx, !document.is_complete());
     TEST_EXPECT(ctx, document.is_canonical());
     TEST_EXPECT(ctx, strings.referenced_property_name_count == 2u);
@@ -1716,7 +1669,7 @@ void test_analysis_summary_and_string_references(TTestContext& ctx)
     TEST_EXPECT(ctx, strings.referenced_property_name_count == 0u);
     TEST_EXPECT(ctx, strings.referenced_string_value_count == 0u);
     TEST_EXPECT(ctx, strings.string_value_references[shared_value_id.query_value()] == 0u);
-    TEST_EXPECT(ctx, document.append_child(document.root(), group, surviving).succeeded());
+    TEST_EXPECT(ctx, document.append_child(document.root(), group).succeeded());
     TEST_EXPECT(ctx, document.erase(first));
     TEST_EXPECT(ctx, document.analyse(summary, &strings));
     TEST_EXPECT(ctx, strings.property_name_references[shared_name_id.query_value()] == 1u);
@@ -1724,7 +1677,6 @@ void test_analysis_summary_and_string_references(TTestContext& ctx)
     TEST_EXPECT(ctx, document.erase(document.root()));
     TEST_EXPECT(ctx, document.analyse(summary, &strings));
     TEST_EXPECT(ctx, summary.value_count == 1u);
-    TEST_EXPECT(ctx, summary.aggregate_payload_count == 1u);
     TEST_EXPECT(ctx, summary.empty_value_count == 0u);
     TEST_EXPECT(ctx, strings.referenced_property_name_count == 0u);
     TEST_EXPECT(ctx, strings.referenced_string_value_count == 0u);
@@ -1749,8 +1701,7 @@ void test_analysis_allocation_failure_and_attribution(TTestContext& ctx)
         TEST_EXPECT(ctx, document.initialise());
         const CStringView text{ reinterpret_cast<const std::uint8_t*>("text"), 4u };
         const CNodeKey string = document.create_string(text, text);
-        CNodeKey surviving;
-        TEST_EXPECT(ctx, document.append_child(document.root(), string, surviving).succeeded());
+        TEST_EXPECT(ctx, document.append_child(document.root(), string).succeeded());
     }
     const std::uint32_t allocations = document.memory_allocation_count();
     const std::uint64_t bytes = document.memory_allocation_size();
@@ -1765,7 +1716,6 @@ void test_analysis_allocation_failure_and_attribution(TTestContext& ctx)
         TEST_EXPECT(ctx, document.analyse(summary));
         TEST_EXPECT(ctx, summary.value_count == 2u);
         TEST_EXPECT(ctx, document.value_count() == 2u);
-        TEST_EXPECT(ctx, document.aggregate_payload_count() == 1u);
         TEST_EXPECT(ctx, document.is_canonical());
         TEST_EXPECT(ctx, document.is_complete());
         TEST_EXPECT(ctx, document.check_integrity());
