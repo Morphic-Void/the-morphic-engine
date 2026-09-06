@@ -132,14 +132,14 @@ map before mutation, rewrite each valid link, then perform the non-failing pack.
 Packing is not currently required, so this need should not burden ordinary live
 mutation.
 
-## Replace persistent reachability accounting with analysis
+## Replaced persistent reachability accounting with analysis
 
-The live implementation currently pays on every attachment, detachment,
-payload change and erasure to maintain counts intended mainly for later baking.
-This couples unrelated mutation paths to recursive traversal and makes simple
+The former live implementation paid on every attachment, detachment, payload
+change and erasure to maintain counts intended mainly for later baking. This
+coupled unrelated mutation paths to recursive traversal and made simple
 operations fail or invalidate through accounting machinery.
 
-A better division of responsibility is:
+The implemented division of responsibility is:
 
 ```text
 coherent live tree
@@ -155,10 +155,10 @@ string ranks or maps, byte totals and emission offsets. It is single-use,
 single-threaded and allocated through the framework. It should not become a
 second mutable document.
 
-Queries such as `is_complete`, `is_canonical`, category counts or "contains
-recovered content" may use the same traversal components on demand. Reusable
-visitation and accumulation helpers are preferable to a persistent cache,
-revision system or several near-identical walks.
+Queries such as `is_complete`, `is_canonical`, category counts and "contains
+recovered content" use the same traversal components on demand. Reusable
+visitation and accumulation helpers avoid a persistent cache, revision system
+or several near-identical walks.
 
 Memory accounting is different: it describes owned framework resources rather
 than semantic reachability and remains continuously available.

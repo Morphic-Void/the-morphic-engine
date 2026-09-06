@@ -20,9 +20,13 @@ the data model require separate approval and a separate commit.
 
 ## Current baseline
 
+The current checkpoint follows completion of Stages 0 through 3. Stage 4 is
+next; no baked-document replacement has begun.
+
 The live implementation currently provides:
 
-- a common role-dependent live node representation and monotonic keys;
+- a 40-byte role-dependent live node representation, monotonic public keys and
+  direct internal slot links;
 - the implicit root object;
 - framework memory accounting;
 - separate stable property-name and string-value domains;
@@ -33,7 +37,8 @@ The live implementation currently provides:
 - explicit integrity, canonicality and completeness observation;
 - on-demand root-reachable analysis with optional caller-owned string references;
 - a reset-only known-bad state; and
-- preliminary payload extraction and attachment operations.
+- allocation-free detachment and preliminary payload extraction and attachment
+  operations whose identity semantics remain to be corrected in Stage 4.
 
 There is no replacement baked implementation in `core/data_model`. The v1
 baked model, writer and tests under `graveyard/data_model_v1_2026-09-01` are
@@ -131,12 +136,19 @@ the documented rank-map remapping pass.
 
 ## Stage 4: complete payload composition
 
-Settle and implement the public contracts for:
+Audit the existing operations against the settled public contracts and complete:
 
-- allocation-free `detach`;
-- allocating `detach_payload`;
-- allocation-free `attach_payload`; and
+- allocation-free `detach`, which already has the intended identity semantics;
+- allocating `detach_payload`, preserving the original value identity;
+- allocation-free `attach_payload`, preserving the target value identity; and
 - payload-preserving-top-node `erase_payload`.
+
+The current preliminary payload operations preserve the payload carrier instead:
+`detach_payload` inserts a new empty replacement and detaches the original
+value, while `attach_payload` substitutes the source into the target's position
+and erases the target. Their traversal and substitution mechanisms remain
+potentially reusable, but these observable identity semantics do not satisfy
+the normative contract. `erase_payload` is not yet implemented.
 
 Prefer existing detach, nested erase, subtree traversal and slot-release
 mechanisms. Test the operation boundaries, ownership and failure signalling.
