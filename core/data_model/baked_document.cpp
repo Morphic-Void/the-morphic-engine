@@ -157,6 +157,38 @@ bool CBakedDocument::derive_layout(const SBakedDocumentHeader& candidate_header,
     return offset == candidate_header.total_size;
 }
 
+bool CBakedDocument::validate_record_encoding(const SBakedValueRecord& value, const std::uint32_t string_value_count) noexcept
+{
+    const std::uint8_t type = static_cast<std::uint8_t>(value.value_type);
+    if ((type < static_cast<std::uint8_t>(EBakedValueType::null_value)) ||
+        (type > static_cast<std::uint8_t>(EBakedValueType::recovered_array)) ||
+        (value.reserved_16 != 0u) ||
+        (value.reserved_32 != 0u))
+    {
+        return false;
+    }
+
+    const std::uint8_t type_flags = value.value_flags & static_cast<std::uint8_t>(~baked_document_format::k_sibling_position_flags);
+    if (value_type_is_container(value.value_type))
+    {
+        return (value.payload_bits == 0u) && (type_flags == 0u) &&
+            ((value.child_count == 0u) ?
+                (value.first_child_index == baked_document_format::k_invalid_index) :
+                (value.first_child_index != baked_document_format::k_invalid_index));
+    }
+
+    return
+        (value.first_child_index == baked_document_format::k_invalid_index) &&
+        (value.child_count == 0u) &&
+        ((value.value_type != EBakedValueType::null_value) || ((value.payload_bits == 0u) && (type_flags == 0u))) &&
+        ((value.value_type != EBakedValueType::boolean) || ((value.payload_bits <= 1u) && (type_flags == 0u))) &&
+        ((value.value_type != EBakedValueType::integer) || validate_integer(value)) &&
+        ((value.value_type != EBakedValueType::floating_point) ||
+            ((type_flags == 0u) && live_floating_point_is_finite(live_floating_point_from_bits(value.payload_bits)))) &&
+        ((value.value_type != EBakedValueType::string) ||
+            ((type_flags == 0u) && ((value.payload_bits >> 32u) == 0u) && (static_cast<std::uint32_t>(value.payload_bits) < string_value_count)));
+}
+
 bool CBakedDocument::validate(const std::uint8_t* const bytes, const std::size_t byte_count) noexcept
 {
     if ((bytes == nullptr) ||
@@ -211,12 +243,7 @@ bool CBakedDocument::validate(const std::uint8_t* const bytes, const std::size_t
     for (std::uint32_t index = 0u; index < value_count; ++index)
     {
         const SBakedValueRecord& value = records[index];
-        const std::uint8_t type = static_cast<std::uint8_t>(value.value_type);
-        const std::uint8_t type_flags = value.value_flags & static_cast<std::uint8_t>(~baked_document_format::k_sibling_position_flags);
-        if ((type < static_cast<std::uint8_t>(EBakedValueType::null_value)) ||
-            (type > static_cast<std::uint8_t>(EBakedValueType::recovered_array)) ||
-            (value.reserved_16 != 0u) ||
-            (value.reserved_32 != 0u) ||
+        if (!validate_record_encoding(value, string_value_count) ||
             (value.property_name_index >= property_name_count) ||
             ((index == 0u) &&
                 ((value.value_type != EBakedValueType::object) ||
@@ -228,29 +255,6 @@ bool CBakedDocument::validate(const std::uint8_t* const bytes, const std::size_t
             return false;
         }
         marks[value.property_name_index] = 1u;
-
-        const bool container = value_type_is_container(value.value_type);
-        if (container)
-        {
-            if ((value.payload_bits != 0u) || (type_flags != 0u) ||
-                ((value.child_count == 0u) && (value.first_child_index != baked_document_format::k_invalid_index)) ||
-                ((value.child_count != 0u) && (value.first_child_index == baked_document_format::k_invalid_index)))
-            {
-                return false;
-            }
-        }
-        else if ((value.first_child_index != baked_document_format::k_invalid_index) ||
-            (value.child_count != 0u) ||
-            ((value.value_type == EBakedValueType::null_value) && ((value.payload_bits != 0u) || (type_flags != 0u))) ||
-            ((value.value_type == EBakedValueType::boolean) && ((value.payload_bits > 1u) || (type_flags != 0u))) ||
-            ((value.value_type == EBakedValueType::integer) && !validate_integer(value)) ||
-            ((value.value_type == EBakedValueType::floating_point) &&
-                ((type_flags != 0u) || !live_floating_point_is_finite(live_floating_point_from_bits(value.payload_bits)))) ||
-            ((value.value_type == EBakedValueType::string) &&
-                ((type_flags != 0u) || ((value.payload_bits >> 32u) != 0u) || (static_cast<std::uint32_t>(value.payload_bits) >= string_value_count))))
-        {
-            return false;
-        }
     }
 
     for (std::uint32_t index = 1u; index < property_name_count; ++index)
@@ -280,9 +284,7 @@ bool CBakedDocument::validate(const std::uint8_t* const bytes, const std::size_t
             return false;
         }
         const std::uint32_t object_stamp = index + 1u;
-        for (std::uint32_t child_index = container.first_child_index;
-            child_index < static_cast<std::uint32_t>(range_end);
-            ++child_index)
+        for (std::uint32_t child_index = container.first_child_index; child_index < static_cast<std::uint32_t>(range_end); ++child_index)
         {
             const SBakedValueRecord& child = records[child_index];
             const std::uint8_t expected_position_flags =

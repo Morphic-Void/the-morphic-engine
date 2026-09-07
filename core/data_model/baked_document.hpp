@@ -128,6 +128,7 @@ private:
     [[nodiscard]] static bool value_type_is_array(const EBakedValueType type) noexcept;
     [[nodiscard]] static bool value_type_is_container(const EBakedValueType type) noexcept;
     [[nodiscard]] static bool decode_integer_metadata(const std::uint8_t flags, CIntegerMetadata& metadata) noexcept;
+    [[nodiscard]] static bool validate_record_encoding(const SBakedValueRecord& value, const std::uint32_t string_value_count) noexcept;
     [[nodiscard]] static bool validate_integer(const SBakedValueRecord& value) noexcept;
     [[nodiscard]] const SBakedDocumentHeader* header() const noexcept;
     [[nodiscard]] const SBakedValueRecord* values(const SLayout& layout) const noexcept;
