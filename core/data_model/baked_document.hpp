@@ -20,20 +20,8 @@
 
 #include "containers/ByteBuffers.hpp"
 #include "containers/StringBuffers.hpp"
+#include "data_model/baked_document_format.hpp"
 #include "data_model/data_model_types.hpp"
-
-enum class EBakedValueType : std::uint8_t
-{
-    invalid = 0u,
-    null_value,
-    boolean,
-    integer,
-    floating_point,
-    string,
-    array,
-    object,
-    recovered_array,
-};
 
 class CBakedValueIndex
 {
@@ -66,8 +54,6 @@ static_assert(std::is_trivially_copyable_v<CBakedValueIndex>);
 static_assert(std::is_standard_layout_v<CBakedValueIndex>);
 static_assert(sizeof(CBakedValueIndex) == sizeof(std::uint32_t));
 
-struct SBakedDocumentHeader;
-struct SBakedValueRecord;
 class CBakedDocumentBaker;
 
 class CBakedDocument
@@ -201,5 +187,318 @@ static_assert(std::is_nothrow_move_constructible_v<CBakedDocumentBlock>);
 static_assert(std::is_nothrow_move_assignable_v<CBakedDocumentBlock>);
 static_assert(!std::is_copy_constructible_v<CBakedDocumentBlock>);
 static_assert(!std::is_copy_assignable_v<CBakedDocumentBlock>);
+
+//==============================================================================
+//  CBakedDocument: state and counts
+//==============================================================================
+
+inline void CBakedDocument::clear() noexcept
+{
+    m_bytes = nullptr;
+    m_byte_count = 0u;
+}
+
+inline bool CBakedDocument::is_ready() const noexcept
+{
+    return m_bytes != nullptr;
+}
+
+inline std::size_t CBakedDocument::byte_count() const noexcept
+{
+    return is_ready() ? m_byte_count : 0u;
+}
+
+inline CBakedValueIndex CBakedDocument::root() const noexcept
+{
+    return is_ready() ? CBakedValueIndex{ 0u } : CBakedValueIndex{};
+}
+
+inline std::uint32_t CBakedDocument::value_count() const noexcept
+{
+    return is_ready() ? header()->value_count : 0u;
+}
+
+inline std::uint32_t CBakedDocument::property_name_count() const noexcept
+{
+    return is_ready() ? (header()->property_name_reference_count - 1u) : 0u;
+}
+
+inline std::uint32_t CBakedDocument::string_value_count() const noexcept
+{
+    return is_ready() ? (header()->string_value_reference_count - 1u) : 0u;
+}
+
+//==============================================================================
+//  CBakedDocument: value classification and interned identifiers
+//==============================================================================
+
+inline bool CBakedDocument::contains(const CBakedValueIndex value) const noexcept
+{
+    return value_record(value) != nullptr;
+}
+
+inline EBakedValueType CBakedDocument::value_type(const CBakedValueIndex value) const noexcept
+{
+    const SBakedValueRecord* const record = value_record(value);
+    return (record != nullptr) ? record->value_type : EBakedValueType::invalid;
+}
+
+inline bool CBakedDocument::is_object_entry(const CBakedValueIndex value) const noexcept
+{
+    const SBakedValueRecord* const record = value_record(value);
+    return (record != nullptr) && (record->property_name_index != 0u);
+}
+
+inline CPropertyNameId CBakedDocument::name_id(const CBakedValueIndex value) const noexcept
+{
+    const SBakedValueRecord* const record = value_record(value);
+    return (record != nullptr) ? CPropertyNameId{ record->property_name_index } : CPropertyNameId{};
+}
+
+inline CStringView CBakedDocument::name(const CBakedValueIndex value) const noexcept
+{
+    return property_name(name_id(value));
+}
+
+inline CPropertyNameId CBakedDocument::property_name_id_at_rank(const std::uint32_t rank) const noexcept
+{
+    return (is_ready() && (rank < header()->property_name_reference_count)) ?
+        CPropertyNameId{ rank } : CPropertyNameId{};
+}
+
+inline CStringValueId CBakedDocument::string_value_id_at_rank(const std::uint32_t rank) const noexcept
+{
+    return (is_ready() && (rank < header()->string_value_reference_count)) ?
+        CStringValueId{ rank } : CStringValueId{};
+}
+
+//==============================================================================
+//  CBakedDocument: tree relationships
+//==============================================================================
+
+inline CBakedValueIndex CBakedDocument::parent(const CBakedValueIndex value) const noexcept
+{
+    const SBakedValueRecord* const record = value_record(value);
+    return ((record != nullptr) && (record->parent_index != baked_document_format::k_invalid_index)) ?
+        CBakedValueIndex{ record->parent_index } : CBakedValueIndex{};
+}
+
+inline CBakedValueIndex CBakedDocument::previous_sibling(const CBakedValueIndex value) const noexcept
+{
+    const SBakedValueRecord* const record = value_record(value);
+    return ((record != nullptr) &&
+        (record->parent_index != baked_document_format::k_invalid_index) &&
+        ((record->value_flags & baked_document_format::k_first_sibling_flag) == 0u)) ?
+        CBakedValueIndex{ value.query_value() - 1u } : CBakedValueIndex{};
+}
+
+inline CBakedValueIndex CBakedDocument::next_sibling(const CBakedValueIndex value) const noexcept
+{
+    const SBakedValueRecord* const record = value_record(value);
+    return ((record != nullptr) &&
+        (record->parent_index != baked_document_format::k_invalid_index) &&
+        ((record->value_flags & baked_document_format::k_last_sibling_flag) == 0u)) ?
+        CBakedValueIndex{ value.query_value() + 1u } : CBakedValueIndex{};
+}
+
+inline std::uint32_t CBakedDocument::child_count(const CBakedValueIndex container_value) const noexcept
+{
+    const SBakedValueRecord* const record = value_record(container_value);
+    return ((record != nullptr) && value_type_is_container(record->value_type)) ? record->child_count : 0u;
+}
+
+inline CBakedValueIndex CBakedDocument::first_child(const CBakedValueIndex container_value) const noexcept
+{
+    const SBakedValueRecord* const record = value_record(container_value);
+    return ((record != nullptr) && value_type_is_container(record->value_type) && (record->child_count != 0u)) ?
+        CBakedValueIndex{ record->first_child_index } : CBakedValueIndex{};
+}
+
+inline CBakedValueIndex CBakedDocument::last_child(const CBakedValueIndex container_value) const noexcept
+{
+    const SBakedValueRecord* const record = value_record(container_value);
+    return ((record != nullptr) && value_type_is_container(record->value_type) && (record->child_count != 0u)) ?
+        CBakedValueIndex{ record->first_child_index + record->child_count - 1u } : CBakedValueIndex{};
+}
+
+inline CBakedValueIndex CBakedDocument::array_at(
+    const CBakedValueIndex array,
+    const std::uint32_t index) const noexcept
+{
+    const SBakedValueRecord* const record = value_record(array);
+    return ((record != nullptr) && value_type_is_array(record->value_type) && (index < record->child_count)) ?
+        CBakedValueIndex{ record->first_child_index + index } : CBakedValueIndex{};
+}
+
+//==============================================================================
+//  CBakedDocument: typed payload access
+//==============================================================================
+
+inline bool CBakedDocument::boolean_value(const CBakedValueIndex value, bool& result) const noexcept
+{
+    const SBakedValueRecord* const record = value_record(value);
+    if ((record == nullptr) || (record->value_type != EBakedValueType::boolean))
+    {
+        return false;
+    }
+    result = record->payload_bits != 0u;
+    return true;
+}
+
+inline bool CBakedDocument::signed_integer_value(const CBakedValueIndex value, std::int64_t& result) const noexcept
+{
+    const SBakedValueRecord* const record = value_record(value);
+    CIntegerMetadata metadata;
+    if ((record == nullptr) || (record->value_type != EBakedValueType::integer) ||
+        !decode_integer_metadata(
+            record->value_flags & baked_document_format::k_integer_metadata_flags,
+            metadata) ||
+        (metadata.domain != EIntegerDomain::signed_value))
+    {
+        return false;
+    }
+    result = live_signed_integer_from_bits(record->payload_bits);
+    return true;
+}
+
+inline bool CBakedDocument::unsigned_integer_value(const CBakedValueIndex value, std::uint64_t& result) const noexcept
+{
+    const SBakedValueRecord* const record = value_record(value);
+    CIntegerMetadata metadata;
+    if ((record == nullptr) || (record->value_type != EBakedValueType::integer) ||
+        !decode_integer_metadata(
+            record->value_flags & baked_document_format::k_integer_metadata_flags,
+            metadata) ||
+        (metadata.domain != EIntegerDomain::unsigned_value))
+    {
+        return false;
+    }
+    result = record->payload_bits;
+    return true;
+}
+
+inline bool CBakedDocument::integer_metadata(
+    const CBakedValueIndex value,
+    CIntegerMetadata& result) const noexcept
+{
+    const SBakedValueRecord* const record = value_record(value);
+    return (record != nullptr) && (record->value_type == EBakedValueType::integer) &&
+        decode_integer_metadata(
+            record->value_flags & baked_document_format::k_integer_metadata_flags,
+            result);
+}
+
+inline bool CBakedDocument::floating_point_value(const CBakedValueIndex value, double& result) const noexcept
+{
+    const SBakedValueRecord* const record = value_record(value);
+    if ((record == nullptr) || (record->value_type != EBakedValueType::floating_point))
+    {
+        return false;
+    }
+    result = live_floating_point_from_bits(record->payload_bits);
+    return true;
+}
+
+inline CStringValueId CBakedDocument::string_value_id(const CBakedValueIndex value) const noexcept
+{
+    const SBakedValueRecord* const record = value_record(value);
+    return ((record != nullptr) && (record->value_type == EBakedValueType::string)) ?
+        CStringValueId{ static_cast<std::uint32_t>(record->payload_bits) } : CStringValueId{};
+}
+
+inline CStringView CBakedDocument::string_value(const CBakedValueIndex value) const noexcept
+{
+    return string_value(string_value_id(value));
+}
+
+//==============================================================================
+//  CBakedDocument: direct record helpers
+//==============================================================================
+
+inline bool CBakedDocument::value_type_is_array(const EBakedValueType type) noexcept
+{
+    return (type == EBakedValueType::array) || (type == EBakedValueType::recovered_array);
+}
+
+inline bool CBakedDocument::value_type_is_container(const EBakedValueType type) noexcept
+{
+    return value_type_is_array(type) || (type == EBakedValueType::object);
+}
+
+inline bool CBakedDocument::decode_integer_metadata(
+    const std::uint8_t flags,
+    CIntegerMetadata& metadata) noexcept
+{
+    if ((flags & static_cast<std::uint8_t>(~baked_document_format::k_integer_metadata_flags)) != 0u)
+    {
+        return false;
+    }
+    const CIntegerMetadata decoded{
+        ((flags & 0x01u) != 0u) ? EIntegerDomain::unsigned_value : EIntegerDomain::signed_value,
+        static_cast<EIntegerWidth>((flags >> 1u) & 0x03u),
+        static_cast<EIntegerNotation>((flags >> 3u) & 0x03u),
+        ((flags & 0x20u) != 0u) ? EIntegerPrefix::alternate : EIntegerPrefix::standard,
+    };
+    if (!live_integer_metadata_is_valid(decoded))
+    {
+        return false;
+    }
+    metadata = decoded;
+    return true;
+}
+
+inline const SBakedDocumentHeader* CBakedDocument::header() const noexcept
+{
+    return is_ready() ? reinterpret_cast<const SBakedDocumentHeader*>(m_bytes) : nullptr;
+}
+
+inline const SBakedValueRecord* CBakedDocument::values(const SLayout& layout) const noexcept
+{
+    return reinterpret_cast<const SBakedValueRecord*>(m_bytes + layout.values_offset);
+}
+
+inline const SBakedValueRecord* CBakedDocument::value_record(const CBakedValueIndex value) const noexcept
+{
+    if (!is_ready() || !value.is_valid() || (value.query_value() >= header()->value_count))
+    {
+        return nullptr;
+    }
+    return reinterpret_cast<const SBakedValueRecord*>(m_bytes + sizeof(SBakedDocumentHeader)) +
+        value.query_value();
+}
+
+//==============================================================================
+//  CBakedDocumentBlock: direct observation
+//==============================================================================
+
+inline bool CBakedDocumentBlock::is_ready() const noexcept
+{
+    return m_bytes.is_ready() && m_document.is_ready();
+}
+
+inline const CBakedDocument& CBakedDocumentBlock::document() const noexcept
+{
+    return m_document;
+}
+
+inline CByteConstView CBakedDocumentBlock::bytes() const noexcept
+{
+    return m_bytes.const_view();
+}
+
+inline std::uint32_t CBakedDocumentBlock::memory_token_count() const noexcept
+{
+    return m_bytes.memory_token_count();
+}
+
+inline std::uint32_t CBakedDocumentBlock::memory_allocation_count() const noexcept
+{
+    return m_bytes.memory_allocation_count();
+}
+
+inline std::uint64_t CBakedDocumentBlock::memory_allocation_size() const noexcept
+{
+    return m_bytes.memory_allocation_size();
+}
 
 #endif // BAKED_DOCUMENT_HPP_INCLUDED

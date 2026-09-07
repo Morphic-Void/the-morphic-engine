@@ -234,6 +234,11 @@ publication; a failed rebuild leaves an existing block unchanged. The
 translation implementation is separate from the baked representation and has
 only narrow publication access to the owning block.
 
+The physical-format header is self-contained and remains separate from the
+public view declaration. Small direct-record queries and thin owning-block
+observers are defined inline in the public header; validation, scans, lookup
+and other substantial work remain out of line.
+
 ## Stage 8: promotion
 
 Promote an explicitly validated baked view into a fresh compact live document.

@@ -18,7 +18,18 @@
 #include <limits>
 #include <type_traits>
 
-#include "data_model/baked_document.hpp"
+enum class EBakedValueType : std::uint8_t
+{
+    invalid = 0u,
+    null_value,
+    boolean,
+    integer,
+    floating_point,
+    string,
+    array,
+    object,
+    recovered_array,
+};
 
 namespace baked_document_format
 {
