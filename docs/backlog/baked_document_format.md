@@ -151,7 +151,7 @@ strings are emitted. Iterating the stable stores by lexical rank supplies the
 baked order and byte totals. After measurement, those vectors may be reused as
 live-ID-to-baked-ID maps.
 
-One additional vector maps each baked value index to its live slot. It drives
+One additional vector maps each baked value index to its live key. It drives
 breadth-first emission and makes each direct-child range contiguous. No
 live-slot-to-baked-index map or mutable baked builder is required.
 

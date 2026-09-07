@@ -13,10 +13,12 @@
 #include <iostream>
 #include <limits>
 #include <type_traits>
+#include <utility>
 
 #include "containers/ByteBuffers.hpp"
 #include "data_model/baked_document.hpp"
 #include "data_model/baked_document_format.hpp"
+#include "data_model/live_document.hpp"
 #include "memory/memory_context.hpp"
 #include "tests/support/test_allocator.hpp"
 #include "tests/support/test_context.hpp"
@@ -39,6 +41,13 @@ constexpr std::uint32_t k_string_bytes_offset = k_property_bytes_offset + k_prop
 constexpr std::uint32_t k_string_byte_count = 6u;
 constexpr std::uint32_t k_total_size = k_string_bytes_offset + k_string_byte_count;
 constexpr std::uint32_t k_root_only_size = 82u;
+
+[[nodiscard]] CStringView text(const char* const value) noexcept
+{
+    return CStringView{
+        reinterpret_cast<const std::uint8_t*>(value),
+        std::strlen(value) };
+}
 
 [[nodiscard]] bool initialise_root_only(CByteBuffer& bytes) noexcept
 {
@@ -575,6 +584,171 @@ void test_validation_allocation_failure(TTestContext& ctx)
     TEST_EXPECT(ctx, memory_context.is_attribution_empty());
 }
 
+void test_live_document_bake(TTestContext& ctx)
+{
+    CLiveDocument live;
+    TEST_EXPECT(ctx, live.initialise());
+
+    const CNodeKey zeta = live.create_string(text("pear"), text("zeta"));
+    const CNodeKey alpha = live.create_array(text("alpha"));
+    const CNodeKey recovery = live.create_recovered_array(text("recovery"));
+    const CNodeKey empty = live.create_empty();
+    const CNodeKey boolean = live.create_boolean(true);
+    const CIntegerMetadata signed_metadata{
+        EIntegerDomain::signed_value,
+        EIntegerWidth::bits_8,
+        EIntegerNotation::hexadecimal,
+        EIntegerPrefix::alternate };
+    const CNodeKey signed_integer = live.create_signed_integer(-42, signed_metadata);
+    const CIntegerMetadata unsigned_metadata{
+        EIntegerDomain::unsigned_value,
+        EIntegerWidth::bits_64,
+        EIntegerNotation::hexadecimal,
+        EIntegerPrefix::alternate };
+    const CNodeKey unsigned_integer = live.create_unsigned_integer(
+        std::numeric_limits<std::uint64_t>::max(),
+        unsigned_metadata);
+    const CNodeKey floating_point = live.create_floating_point(-0.0);
+    const CNodeKey apple = live.create_string(text("apple"));
+    const CNodeKey nested_object = live.create_object();
+    const CNodeKey nested_null = live.create_null(text("nested"));
+    const CNodeKey recovered_string = live.create_string(text("pear"));
+    const CNodeKey recovered_empty_string = live.create_string(CStringView{});
+    const CNodeKey unused = live.create_string(text("unused"), text("unused"));
+
+    TEST_EXPECT(ctx,
+        zeta.is_valid() && alpha.is_valid() && recovery.is_valid() && empty.is_valid() &&
+        boolean.is_valid() && signed_integer.is_valid() && unsigned_integer.is_valid() &&
+        floating_point.is_valid() && apple.is_valid() && nested_object.is_valid() &&
+        nested_null.is_valid() && recovered_string.is_valid() &&
+        recovered_empty_string.is_valid() && unused.is_valid());
+    TEST_EXPECT(ctx, live.append_child(live.root(), zeta).succeeded());
+    TEST_EXPECT(ctx, live.append_child(live.root(), alpha).succeeded());
+    TEST_EXPECT(ctx, live.append_child(live.root(), recovery).succeeded());
+    TEST_EXPECT(ctx, live.append_child(alpha, empty).succeeded());
+    TEST_EXPECT(ctx, live.append_child(alpha, boolean).succeeded());
+    TEST_EXPECT(ctx, live.append_child(alpha, signed_integer).succeeded());
+    TEST_EXPECT(ctx, live.append_child(alpha, unsigned_integer).succeeded());
+    TEST_EXPECT(ctx, live.append_child(alpha, floating_point).succeeded());
+    TEST_EXPECT(ctx, live.append_child(alpha, apple).succeeded());
+    TEST_EXPECT(ctx, live.append_child(alpha, nested_object).succeeded());
+    TEST_EXPECT(ctx, live.append_child(nested_object, nested_null).succeeded());
+    TEST_EXPECT(ctx, live.append_child(recovery, recovered_string).succeeded());
+    TEST_EXPECT(ctx, live.append_child(recovery, recovered_empty_string).succeeded());
+    TEST_EXPECT(ctx, live.check_integrity());
+
+    CBakedDocumentBlock block;
+    TEST_EXPECT(ctx, block.build_from(live));
+    TEST_EXPECT(ctx, block.is_ready());
+    TEST_EXPECT(ctx, block.document().check_integrity());
+    TEST_EXPECT(ctx, block.memory_token_count() == 1u);
+    TEST_EXPECT(ctx, block.memory_allocation_count() == 1u);
+    TEST_EXPECT(ctx, block.memory_allocation_size() >= block.document().byte_count());
+    TEST_EXPECT(ctx, block.bytes().is_ready());
+    TEST_EXPECT(ctx, block.bytes().size() == block.document().byte_count());
+    TEST_EXPECT(ctx, block.bytes().align() == baked_document_format::k_block_alignment);
+    TEST_EXPECT(ctx,
+        (reinterpret_cast<std::uintptr_t>(block.bytes().data()) %
+            baked_document_format::k_block_alignment) == 0u);
+
+    const CBakedDocument& baked = block.document();
+    TEST_EXPECT(ctx, baked.value_count() == 14u);
+    TEST_EXPECT(ctx, baked.property_name_count() == 4u);
+    TEST_EXPECT(ctx, baked.string_value_count() == 2u);
+    TEST_EXPECT(ctx, baked.contains_recovered_content());
+    TEST_EXPECT(ctx, !baked.is_canonical());
+    TEST_EXPECT(ctx, !baked.object_child(baked.root(), text("unused")).is_valid());
+
+    const CBakedValueIndex baked_alpha = baked.object_child(baked.root(), text("alpha"));
+    const CBakedValueIndex baked_recovery = baked.object_child(baked.root(), text("recovery"));
+    const CBakedValueIndex baked_zeta = baked.object_child(baked.root(), text("zeta"));
+    TEST_EXPECT(ctx, baked.first_child(baked.root()) == baked_zeta);
+    TEST_EXPECT(ctx, baked.next_sibling(baked_zeta) == baked_alpha);
+    TEST_EXPECT(ctx, baked.next_sibling(baked_alpha) == baked_recovery);
+    TEST_EXPECT(ctx, baked.last_child(baked.root()) == baked_recovery);
+    TEST_EXPECT(ctx, !baked.previous_sibling(baked_zeta).is_valid());
+    TEST_EXPECT(ctx, !baked.next_sibling(baked_recovery).is_valid());
+    TEST_EXPECT(ctx, baked.value_type(baked.array_at(baked_alpha, 0u)) == EBakedValueType::null_value);
+
+    bool boolean_result = false;
+    TEST_EXPECT(ctx,
+        baked.boolean_value(baked.array_at(baked_alpha, 1u), boolean_result) && boolean_result);
+    std::int64_t signed_result = 0;
+    CIntegerMetadata baked_metadata;
+    const CBakedValueIndex baked_signed = baked.array_at(baked_alpha, 2u);
+    TEST_EXPECT(ctx, baked.signed_integer_value(baked_signed, signed_result) && (signed_result == -42));
+    TEST_EXPECT(ctx, baked.integer_metadata(baked_signed, baked_metadata));
+    TEST_EXPECT(ctx, baked_metadata == signed_metadata);
+    std::uint64_t unsigned_result = 0u;
+    const CBakedValueIndex baked_unsigned = baked.array_at(baked_alpha, 3u);
+    TEST_EXPECT(ctx,
+        baked.unsigned_integer_value(baked_unsigned, unsigned_result) &&
+        (unsigned_result == std::numeric_limits<std::uint64_t>::max()));
+    TEST_EXPECT(ctx, baked.integer_metadata(baked_unsigned, baked_metadata));
+    TEST_EXPECT(ctx, baked_metadata == unsigned_metadata);
+    double floating_result = 1.0;
+    TEST_EXPECT(ctx,
+        baked.floating_point_value(baked.array_at(baked_alpha, 4u), floating_result) &&
+        (live_floating_point_bits(floating_result) == live_floating_point_bits(-0.0)));
+    TEST_EXPECT(ctx, baked.string_value(baked.array_at(baked_alpha, 5u)) == text("apple"));
+    const CBakedValueIndex baked_object = baked.array_at(baked_alpha, 6u);
+    TEST_EXPECT(ctx,
+        baked.value_type(baked.object_child(baked_object, text("nested"))) == EBakedValueType::null_value);
+    TEST_EXPECT(ctx, baked.string_value(baked.array_at(baked_recovery, 0u)) == text("pear"));
+    TEST_EXPECT(ctx, baked.string_value(baked.array_at(baked_recovery, 1u)).length() == 0u);
+    TEST_EXPECT(ctx, baked.string_value(baked_zeta) == text("pear"));
+
+    CBakedDocumentBlock moved{ std::move(block) };
+    TEST_EXPECT(ctx, moved.is_ready() && moved.document().check_integrity());
+    TEST_EXPECT(ctx, !block.is_ready() && !block.bytes().is_ready());
+    CBakedDocumentBlock assigned;
+    assigned = std::move(moved);
+    TEST_EXPECT(ctx, assigned.is_ready() && assigned.document().check_integrity());
+    TEST_EXPECT(ctx, !moved.is_ready() && !moved.bytes().is_ready());
+
+    CLiveDocument unavailable;
+    const CByteConstView before_failed_rebuild = assigned.bytes();
+    TEST_EXPECT(ctx, !assigned.build_from(unavailable));
+    TEST_EXPECT(ctx, assigned.is_ready());
+    TEST_EXPECT(ctx, assigned.bytes().data() == before_failed_rebuild.data());
+    assigned.deallocate();
+    TEST_EXPECT(ctx, !assigned.is_ready());
+    TEST_EXPECT(ctx, assigned.memory_allocation_count() == 0u);
+}
+
+void test_bake_root_only_and_allocation_failure(TTestContext& ctx)
+{
+    CLiveDocument live;
+    TEST_EXPECT(ctx, live.initialise());
+
+    CBakedDocumentBlock root_only;
+    TEST_EXPECT(ctx, root_only.build_from(live));
+    TEST_EXPECT(ctx, root_only.document().byte_count() == k_root_only_size);
+    TEST_EXPECT(ctx, root_only.document().is_canonical());
+    TEST_EXPECT(ctx, root_only.document().value_count() == 1u);
+
+    tests::TAllocatorFixture allocator_fixture;
+    allocator_fixture.reject_allocation = true;
+    memory::CMemoryAllocator allocator{
+        &allocator_fixture,
+        &tests::allocate_test_memory,
+        &tests::deallocate_test_memory };
+    memory::CMemoryContext memory_context{ allocator };
+    {
+        tests::TMemoryContextScope scope{ &memory_context };
+        const std::uint8_t* const retained_bytes = root_only.bytes().data();
+        TEST_EXPECT(ctx, !root_only.build_from(live));
+        TEST_EXPECT(ctx, root_only.is_ready());
+        TEST_EXPECT(ctx, root_only.bytes().data() == retained_bytes);
+
+        CBakedDocumentBlock rejected;
+        TEST_EXPECT(ctx, !rejected.build_from(live));
+        TEST_EXPECT(ctx, !rejected.is_ready());
+        TEST_EXPECT(ctx, rejected.memory_allocation_count() == 0u);
+    }
+    TEST_EXPECT(ctx, memory_context.is_attribution_empty());
+}
+
 } // namespace
 
 int run_baked_document_tests()
@@ -588,6 +762,8 @@ int run_baked_document_tests()
     test_numeric_canonical_acceptance(ctx);
     test_string_table_and_coverage_rejections(ctx);
     test_validation_allocation_failure(ctx);
+    test_live_document_bake(ctx);
+    test_bake_root_only_and_allocation_failure(ctx);
 
     std::cout << "BakedDocument: " << ctx.passed << " passed, " << ctx.failed << " failed\n";
     return (ctx.failed == 0) ? 0 : 1;

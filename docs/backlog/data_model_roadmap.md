@@ -4,7 +4,7 @@ License: MIT (see LICENSE file in repository root)
 File:   data_model_roadmap.md
 Author: Ritchie Brannan
 Drafting and editorial assistance: OpenAI Codex
-Date:   6 Sep 2026
+Date:   7 Sep 2026
 
 # Data-model roadmap
 
@@ -20,9 +20,8 @@ the data model require separate approval and a separate commit.
 
 ## Current baseline
 
-The current checkpoint follows completion of Stages 0 through 6. Stage 7 is in
-progress: the physical records and fully validating immutable view are present,
-while owning-block construction and baking remain to be implemented.
+The current checkpoint follows completion of Stages 0 through 7. Stage 8,
+promotion of a validated baked view into a fresh live document, is next.
 
 The live implementation currently provides:
 
@@ -42,10 +41,11 @@ The live implementation currently provides:
 - allocation-free detachment, identity-preserving payload extraction and
   attachment, and payload erasure.
 
-The replacement baked implementation in `core/data_model` currently provides
-the physical records and checked non-owning view with its complete query
-surface. The v1 baked model, writer and tests under
-`graveyard/data_model_v1_2026-09-01` are reference material only.
+The replacement baked implementation in `core/data_model` provides the
+physical records, checked non-owning view and owning single-allocation block,
+including public-only baking from a live document. The v1 baked model, writer
+and tests under `graveyard/data_model_v1_2026-09-01` are reference material
+only.
 
 ## Settled direction
 
@@ -202,7 +202,7 @@ header and fixed section order derive all offsets. The root is dense index zero;
 separate lexical string tables physically include empty index zero. The format
 uses magic `MBD2`, version 1, no checksum and no semantic-summary flags.
 Arbitrary bytes enter through one fully validating checked view. Existing live
-analysis plus reusable string maps and one breadth-first slot vector is
+analysis plus reusable string maps and one breadth-first value-key vector is
 sufficient, so this checkpoint adds no live or infrastructure prerequisite.
 
 A subsequent unused-path audit removed the unneeded live aggregate total,
@@ -220,12 +220,16 @@ direct-child ranges.
 Implement explicit full validation for untrusted baked bytes. Failure must not
 publish an incomplete block as ready.
 
-Status: in progress. The first slice defines the exact header, value and string
+Status: complete. The first slice defines the exact header, value and string
 reference records and implements the checked non-owning view. Binding validates
 the complete physical artifact with one transient framework vector. The second
 slice completes classification, interned-text, relationship, ordinal-array,
 object-lookup and typed-payload queries without persistent indices or scratch.
-The owning block and public-only bake remain for later slices.
+The final slice adds the owning block and public-only bake. Baking reuses the
+live analysis reference vectors as string-ID maps and uses one breadth-first
+value-key vector to emit directly into an exactly sized, 32-byte-aligned final
+allocation. The completed bytes are validated before publication; a failed
+rebuild leaves an existing block unchanged.
 
 ## Stage 8: promotion
 

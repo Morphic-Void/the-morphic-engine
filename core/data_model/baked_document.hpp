@@ -18,6 +18,7 @@
 #include <limits>
 #include <type_traits>
 
+#include "containers/ByteBuffers.hpp"
 #include "containers/StringBuffers.hpp"
 #include "data_model/data_model_types.hpp"
 
@@ -160,5 +161,43 @@ private:
 
 static_assert(std::is_nothrow_copy_constructible_v<CBakedDocument>);
 static_assert(std::is_nothrow_copy_assignable_v<CBakedDocument>);
+
+class CBakedDocumentBlock
+{
+public:
+
+    //  Lifetime and ownership
+    CBakedDocumentBlock() noexcept = default;
+    CBakedDocumentBlock(CBakedDocumentBlock&& source) noexcept;
+    CBakedDocumentBlock& operator=(CBakedDocumentBlock&& source) noexcept;
+    CBakedDocumentBlock(const CBakedDocumentBlock&) = delete;
+    CBakedDocumentBlock& operator=(const CBakedDocumentBlock&) = delete;
+    ~CBakedDocumentBlock() noexcept = default;
+
+    //  Construction and release
+    [[nodiscard]] bool build_from(const CLiveDocument& source) noexcept;
+    void deallocate() noexcept;
+
+    //  Status and immutable access
+    [[nodiscard]] bool is_ready() const noexcept;
+    [[nodiscard]] const CBakedDocument& document() const noexcept;
+    [[nodiscard]] CByteConstView bytes() const noexcept;
+
+    //  Direct storage attribution
+    [[nodiscard]] std::uint32_t memory_token_count() const noexcept;
+    [[nodiscard]] std::uint32_t memory_allocation_count() const noexcept;
+    [[nodiscard]] std::uint64_t memory_allocation_size() const noexcept;
+
+private:
+    void replace_with(CBakedDocumentBlock& source) noexcept;
+
+    CByteBuffer m_bytes;
+    CBakedDocument m_document;
+};
+
+static_assert(std::is_nothrow_move_constructible_v<CBakedDocumentBlock>);
+static_assert(std::is_nothrow_move_assignable_v<CBakedDocumentBlock>);
+static_assert(!std::is_copy_constructible_v<CBakedDocumentBlock>);
+static_assert(!std::is_copy_assignable_v<CBakedDocumentBlock>);
 
 #endif // BAKED_DOCUMENT_HPP_INCLUDED
