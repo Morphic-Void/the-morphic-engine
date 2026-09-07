@@ -28,6 +28,10 @@ constexpr std::uint16_t k_version = 1u;
 constexpr std::uint16_t k_header_size = 32u;
 constexpr std::size_t k_block_alignment = 32u;
 constexpr std::uint32_t k_invalid_index = std::numeric_limits<std::uint32_t>::max();
+constexpr std::uint8_t k_integer_metadata_flags = 0x3fu;
+constexpr std::uint8_t k_first_sibling_flag = 0x40u;
+constexpr std::uint8_t k_last_sibling_flag = 0x80u;
+constexpr std::uint8_t k_sibling_position_flags = k_first_sibling_flag | k_last_sibling_flag;
 
 } // namespace baked_document_format
 

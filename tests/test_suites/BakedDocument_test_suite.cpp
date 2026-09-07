@@ -118,6 +118,9 @@ struct SBakedFixture
             records[index].property_name_index = index;
         }
         records[7u].parent_index = 6u;
+        records[1u].value_flags |= baked_document_format::k_first_sibling_flag;
+        records[6u].value_flags |= baked_document_format::k_last_sibling_flag;
+        records[7u].value_flags |= baked_document_format::k_sibling_position_flags;
 
         SBakedStringReference* const property_references = references(k_property_references_offset);
         property_references[0u] = SBakedStringReference{ 0u, 0u };
@@ -250,6 +253,150 @@ void test_checked_binding_and_foundational_observations(TTestContext& ctx)
     TEST_EXPECT(ctx, !corrupted.check_integrity());
 }
 
+void test_query_surface(TTestContext& ctx)
+{
+    CBakedDocument unavailable;
+    const CBakedValueIndex invalid;
+    TEST_EXPECT(ctx, !unavailable.contains(invalid));
+    TEST_EXPECT(ctx, unavailable.value_type(invalid) == EBakedValueType::invalid);
+    TEST_EXPECT(ctx, !unavailable.is_object_entry(invalid));
+    TEST_EXPECT(ctx, !unavailable.name_id(invalid).is_valid());
+    TEST_EXPECT(ctx, unavailable.name(invalid).string() == nullptr);
+    TEST_EXPECT(ctx, !unavailable.parent(invalid).is_valid());
+    TEST_EXPECT(ctx, !unavailable.previous_sibling(invalid).is_valid());
+    TEST_EXPECT(ctx, !unavailable.next_sibling(invalid).is_valid());
+    TEST_EXPECT(ctx, unavailable.child_count(invalid) == 0u);
+    TEST_EXPECT(ctx, !unavailable.first_child(invalid).is_valid());
+    TEST_EXPECT(ctx, !unavailable.last_child(invalid).is_valid());
+    TEST_EXPECT(ctx, !unavailable.array_at(invalid, 0u).is_valid());
+    TEST_EXPECT(ctx, !unavailable.object_child(invalid, CPropertyNameId{}).is_valid());
+
+    bool boolean_result = true;
+    std::int64_t signed_result = -1;
+    std::uint64_t unsigned_result = 1u;
+    double floating_result = -1.0;
+    CIntegerMetadata metadata{
+        EIntegerDomain::unsigned_value,
+        EIntegerWidth::bits_64,
+        EIntegerNotation::binary,
+        EIntegerPrefix::standard };
+    TEST_EXPECT(ctx, !unavailable.boolean_value(invalid, boolean_result) && boolean_result);
+    TEST_EXPECT(ctx, !unavailable.signed_integer_value(invalid, signed_result) && (signed_result == -1));
+    TEST_EXPECT(ctx, !unavailable.unsigned_integer_value(invalid, unsigned_result) && (unsigned_result == 1u));
+    TEST_EXPECT(ctx, !unavailable.integer_metadata(invalid, metadata));
+    TEST_EXPECT(ctx, metadata.domain == EIntegerDomain::unsigned_value);
+    TEST_EXPECT(ctx, !unavailable.floating_point_value(invalid, floating_result) && (floating_result == -1.0));
+    TEST_EXPECT(ctx, !unavailable.string_value_id(invalid).is_valid());
+    TEST_EXPECT(ctx, unavailable.string_value(invalid).string() == nullptr);
+
+    SBakedFixture fixture;
+    TEST_EXPECT(ctx, fixture.initialise());
+    CBakedDocument document{ fixture.bytes.data(), fixture.bytes.size() };
+    TEST_EXPECT(ctx, document.is_ready());
+
+    const CBakedValueIndex root = document.root();
+    const CBakedValueIndex null_value = document.first_child(root);
+    const CBakedValueIndex boolean_value = document.next_sibling(null_value);
+    const CBakedValueIndex integer_value = document.next_sibling(boolean_value);
+    const CBakedValueIndex floating_value = document.next_sibling(integer_value);
+    const CBakedValueIndex string_value = document.next_sibling(floating_value);
+    const CBakedValueIndex recovered_array = document.next_sibling(string_value);
+    const CBakedValueIndex recovered_child = document.first_child(recovered_array);
+
+    TEST_EXPECT(ctx, document.contains(root));
+    TEST_EXPECT(ctx, document.contains(recovered_child));
+    TEST_EXPECT(ctx, !document.contains(invalid));
+    TEST_EXPECT(ctx, document.value_type(root) == EBakedValueType::object);
+    TEST_EXPECT(ctx, document.value_type(null_value) == EBakedValueType::null_value);
+    TEST_EXPECT(ctx, document.value_type(boolean_value) == EBakedValueType::boolean);
+    TEST_EXPECT(ctx, document.value_type(integer_value) == EBakedValueType::integer);
+    TEST_EXPECT(ctx, document.value_type(floating_value) == EBakedValueType::floating_point);
+    TEST_EXPECT(ctx, document.value_type(string_value) == EBakedValueType::string);
+    TEST_EXPECT(ctx, document.value_type(recovered_array) == EBakedValueType::recovered_array);
+    TEST_EXPECT(ctx, document.value_type(recovered_child) == EBakedValueType::null_value);
+    TEST_EXPECT(ctx, !document.is_object_entry(root));
+    TEST_EXPECT(ctx, document.is_object_entry(null_value));
+    TEST_EXPECT(ctx, !document.is_object_entry(recovered_child));
+    TEST_EXPECT(ctx, document.name_id(root).is_empty());
+    TEST_EXPECT(ctx, document.name_id(integer_value) == document.property_name_id_at_rank(3u));
+    const CStringView expected_name{ reinterpret_cast<const std::uint8_t*>("c"), 1u };
+    TEST_EXPECT(ctx, document.name(integer_value) == expected_name);
+
+    TEST_EXPECT(ctx, !document.parent(root).is_valid());
+    TEST_EXPECT(ctx, document.parent(null_value) == root);
+    TEST_EXPECT(ctx, document.parent(recovered_child) == recovered_array);
+    TEST_EXPECT(ctx, !document.previous_sibling(null_value).is_valid());
+    TEST_EXPECT(ctx, document.next_sibling(null_value) == boolean_value);
+    TEST_EXPECT(ctx, document.previous_sibling(recovered_array) == string_value);
+    TEST_EXPECT(ctx, !document.next_sibling(recovered_array).is_valid());
+    TEST_EXPECT(ctx, !document.previous_sibling(recovered_child).is_valid());
+    TEST_EXPECT(ctx, !document.next_sibling(recovered_child).is_valid());
+    TEST_EXPECT(ctx, document.child_count(root) == 6u);
+    TEST_EXPECT(ctx, document.child_count(recovered_array) == 1u);
+    TEST_EXPECT(ctx, document.child_count(null_value) == 0u);
+    TEST_EXPECT(ctx, document.first_child(root) == null_value);
+    TEST_EXPECT(ctx, document.last_child(root) == recovered_array);
+    TEST_EXPECT(ctx, document.last_child(recovered_array) == recovered_child);
+    TEST_EXPECT(ctx, !document.first_child(null_value).is_valid());
+    TEST_EXPECT(ctx, document.array_at(recovered_array, 0u) == recovered_child);
+    TEST_EXPECT(ctx, !document.array_at(recovered_array, 1u).is_valid());
+    TEST_EXPECT(ctx, !document.array_at(root, 0u).is_valid());
+
+    TEST_EXPECT(ctx, document.object_child(root, document.property_name_id_at_rank(3u)) == integer_value);
+    TEST_EXPECT(ctx, !document.object_child(root, CPropertyNameId{}).is_valid());
+    TEST_EXPECT(ctx, !document.object_child(recovered_array, document.property_name_id_at_rank(3u)).is_valid());
+    TEST_EXPECT(ctx, document.object_child(root, expected_name) == integer_value);
+    const CStringView first_name{ reinterpret_cast<const std::uint8_t*>("a"), 1u };
+    const CStringView last_name{ reinterpret_cast<const std::uint8_t*>("f"), 1u };
+    const CStringView before_first_name{ reinterpret_cast<const std::uint8_t*>("0"), 1u };
+    const CStringView missing_name{ reinterpret_cast<const std::uint8_t*>("missing"), 7u };
+    const CStringView empty_name{ reinterpret_cast<const std::uint8_t*>(""), 0u };
+    TEST_EXPECT(ctx, document.object_child(root, first_name) == null_value);
+    TEST_EXPECT(ctx, document.object_child(root, last_name) == recovered_array);
+    TEST_EXPECT(ctx, !document.object_child(root, before_first_name).is_valid());
+    TEST_EXPECT(ctx, !document.object_child(root, missing_name).is_valid());
+    TEST_EXPECT(ctx, !document.object_child(root, empty_name).is_valid());
+    TEST_EXPECT(ctx, !document.object_child(root, CStringView{}).is_valid());
+
+    boolean_result = false;
+    TEST_EXPECT(ctx, document.boolean_value(boolean_value, boolean_result) && boolean_result);
+    boolean_result = true;
+    TEST_EXPECT(ctx, !document.boolean_value(null_value, boolean_result) && boolean_result);
+    signed_result = 0;
+    TEST_EXPECT(ctx, document.signed_integer_value(integer_value, signed_result) && (signed_result == 127));
+    unsigned_result = 11u;
+    TEST_EXPECT(ctx, !document.unsigned_integer_value(integer_value, unsigned_result) && (unsigned_result == 11u));
+    TEST_EXPECT(ctx, document.integer_metadata(integer_value, metadata));
+    TEST_EXPECT(ctx, metadata.domain == EIntegerDomain::signed_value);
+    TEST_EXPECT(ctx, metadata.width == EIntegerWidth::bits_8);
+    TEST_EXPECT(ctx, metadata.notation == EIntegerNotation::decimal);
+    TEST_EXPECT(ctx, metadata.prefix == EIntegerPrefix::standard);
+    floating_result = 0.0;
+    TEST_EXPECT(ctx, document.floating_point_value(floating_value, floating_result) && (floating_result == 1.25));
+    TEST_EXPECT(ctx, document.string_value_id(string_value) == document.string_value_id_at_rank(1u));
+    const CStringView expected_string{ reinterpret_cast<const std::uint8_t*>("text"), 4u };
+    TEST_EXPECT(ctx, document.string_value(string_value) == expected_string);
+    TEST_EXPECT(ctx, !document.string_value_id(null_value).is_valid());
+
+    TEST_EXPECT(ctx, fixture.initialise());
+    fixture.values()[3u].payload_bits = 255u;
+    fixture.values()[3u].value_flags = 0x01u;
+    TEST_EXPECT(ctx, document.reset(fixture.bytes.data(), fixture.bytes.size()));
+    const CBakedValueIndex unsigned_value =
+        document.object_child(document.root(), document.property_name_id_at_rank(3u));
+    unsigned_result = 0u;
+    TEST_EXPECT(ctx, document.unsigned_integer_value(unsigned_value, unsigned_result) && (unsigned_result == 255u));
+    signed_result = -1;
+    TEST_EXPECT(ctx, !document.signed_integer_value(unsigned_value, signed_result) && (signed_result == -1));
+
+    TEST_EXPECT(ctx, fixture.initialise());
+    fixture.values()[6u].value_type = EBakedValueType::array;
+    TEST_EXPECT(ctx, document.reset(fixture.bytes.data(), fixture.bytes.size()));
+    const CBakedValueIndex ordinary_array =
+        document.object_child(document.root(), document.property_name_id_at_rank(6u));
+    TEST_EXPECT(ctx, document.array_at(ordinary_array, 0u).query_value() == 7u);
+}
+
 void test_header_layout_and_alignment_rejections(TTestContext& ctx)
 {
     CBakedDocument document;
@@ -301,6 +448,25 @@ void test_value_and_topology_rejections(TTestContext& ctx)
     expect_rejected(ctx, [](SBakedFixture& value) { value.values()[7u].parent_index = 0u; });
     expect_rejected(ctx, [](SBakedFixture& value) { value.values()[7u].property_name_index = 1u; });
     expect_rejected(ctx, [](SBakedFixture& value) { value.values()[6u].property_name_index = 5u; });
+    expect_rejected(ctx, [](SBakedFixture& value)
+    {
+        value.values()[1u].value_flags &=
+            static_cast<std::uint8_t>(~baked_document_format::k_first_sibling_flag);
+    });
+    expect_rejected(ctx, [](SBakedFixture& value)
+    {
+        value.values()[2u].value_flags |= baked_document_format::k_first_sibling_flag;
+    });
+    expect_rejected(ctx, [](SBakedFixture& value)
+    {
+        value.values()[6u].value_flags &=
+            static_cast<std::uint8_t>(~baked_document_format::k_last_sibling_flag);
+    });
+    expect_rejected(ctx, [](SBakedFixture& value)
+    {
+        value.values()[7u].value_flags &=
+            static_cast<std::uint8_t>(~baked_document_format::k_last_sibling_flag);
+    });
 }
 
 void test_recovered_array_forms(TTestContext& ctx)
@@ -312,6 +478,12 @@ void test_recovered_array_forms(TTestContext& ctx)
     CBakedDocument document{ fixture.bytes.data(), fixture.bytes.size() };
     TEST_EXPECT(ctx, document.is_ready() && document.check_integrity());
     TEST_EXPECT(ctx, document.contains_recovered_content());
+    const CBakedValueIndex outer = document.last_child(document.root());
+    const CBakedValueIndex nested = document.array_at(outer, 0u);
+    TEST_EXPECT(ctx, document.value_type(nested) == EBakedValueType::recovered_array);
+    TEST_EXPECT(ctx, document.child_count(nested) == 0u);
+    TEST_EXPECT(ctx, !document.first_child(nested).is_valid());
+    TEST_EXPECT(ctx, !document.array_at(nested, 0u).is_valid());
 }
 
 void test_numeric_canonical_acceptance(TTestContext& ctx)
@@ -323,12 +495,35 @@ void test_numeric_canonical_acceptance(TTestContext& ctx)
     fixture.values()[4u].payload_bits = live_floating_point_bits(-0.0);
     CBakedDocument document{ fixture.bytes.data(), fixture.bytes.size() };
     TEST_EXPECT(ctx, document.is_ready() && document.check_integrity());
+    const CBakedValueIndex unsigned_value =
+        document.object_child(document.root(), document.property_name_id_at_rank(3u));
+    std::uint64_t unsigned_result = 0u;
+    CIntegerMetadata metadata;
+    TEST_EXPECT(ctx,
+        document.unsigned_integer_value(unsigned_value, unsigned_result) &&
+        (unsigned_result == std::numeric_limits<std::uint64_t>::max()));
+    TEST_EXPECT(ctx, document.integer_metadata(unsigned_value, metadata));
+    TEST_EXPECT(ctx, metadata.width == EIntegerWidth::bits_64);
+    TEST_EXPECT(ctx, metadata.notation == EIntegerNotation::hexadecimal);
+    TEST_EXPECT(ctx, metadata.prefix == EIntegerPrefix::alternate);
+    const CBakedValueIndex floating_value =
+        document.object_child(document.root(), document.property_name_id_at_rank(4u));
+    double floating_result = 1.0;
+    TEST_EXPECT(ctx, document.floating_point_value(floating_value, floating_result));
+    TEST_EXPECT(ctx, live_floating_point_bits(floating_result) == live_floating_point_bits(-0.0));
 
     TEST_EXPECT(ctx, fixture.initialise());
     fixture.values()[3u].payload_bits = live_signed_integer_bits(-129);
     fixture.values()[3u].value_flags = 0x12u;
     TEST_EXPECT(ctx, document.reset(fixture.bytes.data(), fixture.bytes.size()));
     TEST_EXPECT(ctx, document.check_integrity());
+    const CBakedValueIndex signed_value =
+        document.object_child(document.root(), document.property_name_id_at_rank(3u));
+    std::int64_t signed_result = 0;
+    TEST_EXPECT(ctx, document.signed_integer_value(signed_value, signed_result) && (signed_result == -129));
+    TEST_EXPECT(ctx, document.integer_metadata(signed_value, metadata));
+    TEST_EXPECT(ctx, metadata.width == EIntegerWidth::bits_16);
+    TEST_EXPECT(ctx, metadata.notation == EIntegerNotation::binary);
 }
 
 void test_string_table_and_coverage_rejections(TTestContext& ctx)
@@ -386,6 +581,7 @@ int run_baked_document_tests()
 {
     TTestContext ctx;
     test_checked_binding_and_foundational_observations(ctx);
+    test_query_surface(ctx);
     test_header_layout_and_alignment_rejections(ctx);
     test_value_and_topology_rejections(ctx);
     test_recovered_array_forms(ctx);

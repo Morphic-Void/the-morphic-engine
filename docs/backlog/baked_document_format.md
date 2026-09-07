@@ -107,9 +107,9 @@ An object range contains only named values with unique immediate name indices.
 A recovered-array range contains only anonymous values. An ordinary array may
 contain either.
 
-Payload and flags are canonical by type:
+Payload and type-specific flag bits are canonical by type:
 
-| Type | Payload | Flags |
+| Type | Payload | Type-specific flags |
 | --- | --- | --- |
 | null | zero | zero |
 | Boolean | zero or one | zero |
@@ -119,11 +119,14 @@ Payload and flags are canonical by type:
 | any container | zero | zero |
 
 Integer flags use bit 0 for unsigned domain, bits 1-2 for width, bits 3-4 for
-notation and bit 5 for alternate prefix. Bits 6-7 are zero. Width encodings are
-8, 16, 32 and 64 bits as 0 through 3. Notation encodings are decimal,
-hexadecimal and binary as 0 through 2; 3 is invalid. Alternate prefix is valid
-only for hexadecimal. The stored width must be the smallest width valid for
-the payload and domain.
+notation and bit 5 for alternate prefix. Width encodings are 8, 16, 32 and 64
+bits as 0 through 3. Notation encodings are decimal, hexadecimal and binary as
+0 through 2; 3 is invalid. Alternate prefix is valid only for hexadecimal. The
+stored width must be the smallest width valid for the payload and domain.
+
+For every value type, bit 6 marks the first value in its parent's direct-child
+range and bit 7 marks the last. A sole child carries both bits. The root carries
+neither. These bits must agree exactly with the canonical child ranges.
 
 ## String tables
 
@@ -179,7 +182,8 @@ Full validation checks:
 - 32-byte base and value-section alignment, header identity, version, sizes and
   overflow-safe derived section bounds;
 - every record's type, reserved fields, canonical unused fields and payload;
-- root identity and the complete reciprocal parent/range structure;
+- root identity, sibling-position flags and the complete reciprocal
+  parent/range structure;
 - object naming and uniqueness and recovered-array anonymity;
 - integer metadata, finite floating values and string indices; and
 - both string tables' dense layout, terminators, encoding, lexical order and

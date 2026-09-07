@@ -43,9 +43,9 @@ The live implementation currently provides:
   attachment, and payload erasure.
 
 The replacement baked implementation in `core/data_model` currently provides
-the checked non-owning view and physical records. The v1 baked model, writer
-and tests under `graveyard/data_model_v1_2026-09-01` are reference material
-only.
+the physical records and checked non-owning view with its complete query
+surface. The v1 baked model, writer and tests under
+`graveyard/data_model_v1_2026-09-01` are reference material only.
 
 ## Settled direction
 
@@ -222,10 +222,10 @@ publish an incomplete block as ready.
 
 Status: in progress. The first slice defines the exact header, value and string
 reference records and implements the checked non-owning view. Binding validates
-the complete physical artifact with one transient framework vector; successful
-views expose readiness, integrity, canonicality, recovered-content presence,
-root and table counts, and both string domains. The owning block, full typed
-query surface and public-only bake remain for later slices.
+the complete physical artifact with one transient framework vector. The second
+slice completes classification, interned-text, relationship, ordinal-array,
+object-lookup and typed-payload queries without persistent indices or scratch.
+The owning block and public-only bake remain for later slices.
 
 ## Stage 8: promotion
 

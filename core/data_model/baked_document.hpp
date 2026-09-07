@@ -88,10 +88,36 @@ public:
     [[nodiscard]] std::uint32_t property_name_count() const noexcept;
     [[nodiscard]] std::uint32_t string_value_count() const noexcept;
 
+    //  Value classification and interned text
+    [[nodiscard]] bool contains(CBakedValueIndex value) const noexcept;
+    [[nodiscard]] EBakedValueType value_type(CBakedValueIndex value) const noexcept;
+    [[nodiscard]] bool is_object_entry(CBakedValueIndex value) const noexcept;
+    [[nodiscard]] CPropertyNameId name_id(CBakedValueIndex value) const noexcept;
+    [[nodiscard]] CStringView name(CBakedValueIndex value) const noexcept;
     [[nodiscard]] CPropertyNameId property_name_id_at_rank(std::uint32_t rank) const noexcept;
     [[nodiscard]] CStringValueId string_value_id_at_rank(std::uint32_t rank) const noexcept;
     [[nodiscard]] CStringView property_name(CPropertyNameId id) const noexcept;
     [[nodiscard]] CStringView string_value(CStringValueId id) const noexcept;
+
+    //  Tree relationships
+    [[nodiscard]] CBakedValueIndex parent(CBakedValueIndex value) const noexcept;
+    [[nodiscard]] CBakedValueIndex previous_sibling(CBakedValueIndex value) const noexcept;
+    [[nodiscard]] CBakedValueIndex next_sibling(CBakedValueIndex value) const noexcept;
+    [[nodiscard]] std::uint32_t child_count(CBakedValueIndex container_value) const noexcept;
+    [[nodiscard]] CBakedValueIndex first_child(CBakedValueIndex container_value) const noexcept;
+    [[nodiscard]] CBakedValueIndex last_child(CBakedValueIndex container_value) const noexcept;
+    [[nodiscard]] CBakedValueIndex array_at(CBakedValueIndex array, std::uint32_t index) const noexcept;
+    [[nodiscard]] CBakedValueIndex object_child(CBakedValueIndex object, CPropertyNameId name) const noexcept;
+    [[nodiscard]] CBakedValueIndex object_child(CBakedValueIndex object, const CStringView& name) const noexcept;
+
+    //  Typed payload access
+    [[nodiscard]] bool boolean_value(CBakedValueIndex value, bool& result) const noexcept;
+    [[nodiscard]] bool signed_integer_value(CBakedValueIndex value, std::int64_t& result) const noexcept;
+    [[nodiscard]] bool unsigned_integer_value(CBakedValueIndex value, std::uint64_t& result) const noexcept;
+    [[nodiscard]] bool integer_metadata(CBakedValueIndex value, CIntegerMetadata& result) const noexcept;
+    [[nodiscard]] bool floating_point_value(CBakedValueIndex value, double& result) const noexcept;
+    [[nodiscard]] CStringValueId string_value_id(CBakedValueIndex value) const noexcept;
+    [[nodiscard]] CStringView string_value(CBakedValueIndex value) const noexcept;
 
 private:
     struct SLayout
@@ -114,10 +140,14 @@ private:
         std::uint32_t reference_count,
         std::uint32_t bytes_offset,
         std::uint32_t string_byte_count) noexcept;
+    [[nodiscard]] static bool value_type_is_array(EBakedValueType type) noexcept;
     [[nodiscard]] static bool value_type_is_container(EBakedValueType type) noexcept;
+    [[nodiscard]] static bool decode_integer_metadata(std::uint8_t flags, CIntegerMetadata& metadata) noexcept;
     [[nodiscard]] static bool validate_integer(const SBakedValueRecord& value) noexcept;
     [[nodiscard]] const SBakedDocumentHeader* header() const noexcept;
     [[nodiscard]] const SBakedValueRecord* values(const SLayout& layout) const noexcept;
+    [[nodiscard]] const SBakedValueRecord* value_record(CBakedValueIndex value) const noexcept;
+    [[nodiscard]] CPropertyNameId find_property_name_id(const CStringView& name) const noexcept;
     [[nodiscard]] CStringView string_from(
         std::uint32_t id,
         std::uint32_t references_offset,
