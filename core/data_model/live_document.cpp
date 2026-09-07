@@ -84,9 +84,9 @@ bool CLiveDocument::is_complete() const noexcept
 }
 
 template<typename TVisitor>
-bool CLiveDocument::visit_subtree(const TLiveNodeSlot subtree_root, TVisitor&& visitor) const noexcept
+bool CLiveDocument::visit_subtree(const LiveNodeSlot subtree_root, TVisitor&& visitor) const noexcept
 {
-    TLiveNodeSlot current = subtree_root;
+    LiveNodeSlot current = subtree_root;
     std::uint32_t visited = 0u;
     while (current >= 0)
     {
@@ -150,7 +150,7 @@ bool CLiveDocument::analyse(SLiveDocumentAnalysis& result, SLiveDocumentStringAn
 
     SLiveDocumentAnalysis measured;
     const bool success = visit_subtree(node_slot(m_root),
-        [&measured, strings](const TLiveNodeSlot, const CLiveNode& value, const CLiveNode* const aggregate) noexcept
+        [&measured, strings](const LiveNodeSlot, const CLiveNode& value, const CLiveNode* const aggregate) noexcept
         {
             ++measured.value_count;
             if (value.value_type() == ELiveValueType::empty)
@@ -255,7 +255,7 @@ bool CLiveDocument::check_integrity() const noexcept
             if (live_value_type_is_container(current->value_type()))
             {
                 ++containers;
-                const TLiveNodeSlot aggregate_slot = current->value_owned_aggregate_slot();
+                const LiveNodeSlot aggregate_slot = current->value_owned_aggregate_slot();
                 const CLiveNode* const aggregate = node(aggregate_slot);
                 if ((aggregate == nullptr) ||
                     !aggregate_payload_is_in_document_domain(*aggregate) ||
@@ -268,7 +268,7 @@ bool CLiveDocument::check_integrity() const noexcept
         else if (current->is_aggregate_record())
         {
             ++aggregates;
-            const TLiveNodeSlot owner_slot = current->aggregate_owner_value_slot();
+            const LiveNodeSlot owner_slot = current->aggregate_owner_value_slot();
             const CLiveNode* const owner = value_node(owner_slot);
             if (!aggregate_payload_is_in_document_domain(*current) ||
                 (owner == nullptr) || !owner->forms_container_pair_with(*current, owner_slot, index))
@@ -693,7 +693,7 @@ CLiveAttachmentResult CLiveDocument::insert_child_at(const CNodeKey destination,
         return append_child(destination, candidate);
     }
 
-    TLiveNodeSlot before = aggregate->aggregate_first_child_slot();
+    LiveNodeSlot before = aggregate->aggregate_first_child_slot();
     for (std::uint32_t ordinal = 0u; ordinal < index; ++ordinal)
     {
         const CLiveNode* const before_node = value_node(before);
@@ -737,13 +737,13 @@ CNodeKey CLiveDocument::detach_payload(const CNodeKey source) noexcept
         return CNodeKey{};
     }
 
-    const TLiveNodeSlot source_slot = node_slot(source);
+    const LiveNodeSlot source_slot = node_slot(source);
     const CLiveNode* source_node = value_node(source_slot);
     if ((source_node == nullptr) || (source_node->value_type() == ELiveValueType::empty))
     {
         return CNodeKey{};
     }
-    const TLiveNodeSlot aggregate_slot = source_node->value_owned_aggregate_slot();
+    const LiveNodeSlot aggregate_slot = source_node->value_owned_aggregate_slot();
     const bool aggregate_is_expected = live_value_type_is_container(source_node->value_type());
     const CLiveNode* const aggregate_before_allocation = node(aggregate_slot);
     if (((aggregate_slot >= 0) != aggregate_is_expected) ||
@@ -761,7 +761,7 @@ CNodeKey CLiveDocument::detach_payload(const CNodeKey source) noexcept
         return CNodeKey{};
     }
 
-    const TLiveNodeSlot payload_slot = node_slot(payload_key);
+    const LiveNodeSlot payload_slot = node_slot(payload_key);
     if (!move_value_payload(payload_slot, source_slot))
     {
         (void)m_nodes.erase(payload_slot);
@@ -776,8 +776,8 @@ CNodeKey CLiveDocument::attach_payload(const CNodeKey empty_target, const CNodeK
     {
         return CNodeKey{};
     }
-    const TLiveNodeSlot target_slot = node_slot(empty_target);
-    const TLiveNodeSlot payload_slot = node_slot(detached_payload);
+    const LiveNodeSlot target_slot = node_slot(empty_target);
+    const LiveNodeSlot payload_slot = node_slot(detached_payload);
     CLiveNode* target = value_node(target_slot);
     CLiveNode* payload = value_node(payload_slot);
     if ((target == nullptr) || (target->value_type() != ELiveValueType::empty) || (empty_target == detached_payload))
@@ -791,7 +791,7 @@ CNodeKey CLiveDocument::attach_payload(const CNodeKey empty_target, const CNodeK
     {
         return CNodeKey{};
     }
-    const TLiveNodeSlot payload_aggregate_slot = payload->value_owned_aggregate_slot();
+    const LiveNodeSlot payload_aggregate_slot = payload->value_owned_aggregate_slot();
     CLiveNode* const payload_aggregate = live_value_type_is_container(payload->value_type()) ?
         node(payload_aggregate_slot) : nullptr;
     if (live_value_type_is_container(payload->value_type()) &&
@@ -836,7 +836,7 @@ bool CLiveDocument::erase_payload(const CNodeKey value) noexcept
         return clear_root();
     }
 
-    const TLiveNodeSlot value_slot = node_slot(value);
+    const LiveNodeSlot value_slot = node_slot(value);
     CLiveNode* value_record = value_node(value_slot);
     if (value_record == nullptr)
     {
@@ -855,7 +855,7 @@ bool CLiveDocument::erase_payload(const CNodeKey value) noexcept
 
     if (live_value_type_is_container(value_record->value_type()))
     {
-        const TLiveNodeSlot aggregate_slot = value_record->value_owned_aggregate_slot();
+        const LiveNodeSlot aggregate_slot = value_record->value_owned_aggregate_slot();
         CLiveNode* const aggregate = node(aggregate_slot);
         if ((aggregate == nullptr) ||
             !aggregate_payload_is_in_document_domain(*aggregate) ||
@@ -895,7 +895,7 @@ bool CLiveDocument::erase(const CNodeKey value) noexcept
         return clear_root();
     }
 
-    const TLiveNodeSlot value_slot = node_slot(value);
+    const LiveNodeSlot value_slot = node_slot(value);
     CLiveNode* const value_record = value_node(value_slot);
     if (value_record == nullptr)
     {
@@ -1139,7 +1139,7 @@ CNodeKey CLiveDocument::create_container(const ELiveValueType type, const SPrepa
 
     CLiveNode value{};
     value.initialise_value(type, 0u, name_id, CIntegerMetadata{});
-    const TLiveNodeSlot value_slot = m_nodes.insert(value_key, value);
+    const LiveNodeSlot value_slot = m_nodes.insert(value_key, value);
     if (value_slot < 0)
     {
         return CNodeKey{};
@@ -1147,7 +1147,7 @@ CNodeKey CLiveDocument::create_container(const ELiveValueType type, const SPrepa
 
     CLiveNode aggregate{};
     aggregate.initialise_aggregate(value_slot, live_aggregate_kind_for_value_type(type), CPropertyNameId{ CPropertyNameId::k_empty_value });
-    const TLiveNodeSlot aggregate_slot = m_nodes.insert(aggregate_key, aggregate);
+    const LiveNodeSlot aggregate_slot = m_nodes.insert(aggregate_key, aggregate);
     if (aggregate_slot < 0)
     {
         (void)m_nodes.erase(value_slot);
@@ -1168,7 +1168,7 @@ bool CLiveDocument::insert_root_pair() noexcept
 
     CLiveNode root_node{};
     root_node.initialise_value(ELiveValueType::object, 0u, CPropertyNameId{ CPropertyNameId::k_empty_value }, CIntegerMetadata{});
-    const TLiveNodeSlot root_slot = m_nodes.insert(root_key, root_node);
+    const LiveNodeSlot root_slot = m_nodes.insert(root_key, root_node);
     if (root_slot < 0)
     {
         return false;
@@ -1176,7 +1176,7 @@ bool CLiveDocument::insert_root_pair() noexcept
 
     CLiveNode aggregate{};
     aggregate.initialise_aggregate(root_slot, ELiveAggregateKind::object, CPropertyNameId{ CPropertyNameId::k_empty_value });
-    const TLiveNodeSlot aggregate_slot = m_nodes.insert(aggregate_key, aggregate);
+    const LiveNodeSlot aggregate_slot = m_nodes.insert(aggregate_key, aggregate);
     if (aggregate_slot < 0)
     {
         (void)m_nodes.erase(root_slot);
@@ -1188,23 +1188,23 @@ bool CLiveDocument::insert_root_pair() noexcept
     return true;
 }
 
-TLiveNodeSlot CLiveDocument::node_slot(const CNodeKey key) const noexcept
+LiveNodeSlot CLiveDocument::node_slot(const CNodeKey key) const noexcept
 {
     return key.is_valid() ? m_nodes.find_index(key) : k_invalid_live_node_slot;
 }
 
-CNodeKey CLiveDocument::node_key(const TLiveNodeSlot slot) const noexcept
+CNodeKey CLiveDocument::node_key(const LiveNodeSlot slot) const noexcept
 {
     const CNodeKey* const key = m_nodes.key_at_slot(slot);
     return (key != nullptr) ? *key : CNodeKey{};
 }
 
-CLiveNode* CLiveDocument::node(const TLiveNodeSlot slot) noexcept
+CLiveNode* CLiveDocument::node(const LiveNodeSlot slot) noexcept
 {
     return m_nodes.get_slot(slot);
 }
 
-const CLiveNode* CLiveDocument::node(const TLiveNodeSlot slot) const noexcept
+const CLiveNode* CLiveDocument::node(const LiveNodeSlot slot) const noexcept
 {
     return m_nodes.get_slot(slot);
 }
@@ -1221,13 +1221,13 @@ const CLiveNode* CLiveDocument::value_node(const CNodeKey key) const noexcept
     return ((found != nullptr) && found->is_value_record()) ? found : nullptr;
 }
 
-CLiveNode* CLiveDocument::value_node(const TLiveNodeSlot slot) noexcept
+CLiveNode* CLiveDocument::value_node(const LiveNodeSlot slot) noexcept
 {
     CLiveNode* const found = node(slot);
     return ((found != nullptr) && found->is_value_record()) ? found : nullptr;
 }
 
-const CLiveNode* CLiveDocument::value_node(const TLiveNodeSlot slot) const noexcept
+const CLiveNode* CLiveDocument::value_node(const LiveNodeSlot slot) const noexcept
 {
     const CLiveNode* const found = node(slot);
     return ((found != nullptr) && found->is_value_record()) ? found : nullptr;
@@ -1279,7 +1279,7 @@ std::uint32_t CLiveDocument::string_id_at_rank(const CStableStrings& strings, co
         static_cast<std::uint32_t>(id) : CPropertyNameId::k_invalid_value;
 }
 
-bool CLiveDocument::subtree_next(const TLiveNodeSlot subtree_root, TLiveNodeSlot current, TLiveNodeSlot& next) const noexcept
+bool CLiveDocument::subtree_next(const LiveNodeSlot subtree_root, LiveNodeSlot current, LiveNodeSlot& next) const noexcept
 {
     next = k_invalid_live_node_slot;
     const CLiveNode* value = value_node(current);
@@ -1326,9 +1326,9 @@ bool CLiveDocument::subtree_next(const TLiveNodeSlot subtree_root, TLiveNodeSlot
     return false;
 }
 
-TLiveNodeSlot CLiveDocument::subtree_first_postorder(const TLiveNodeSlot subtree_root) noexcept
+LiveNodeSlot CLiveDocument::subtree_first_postorder(const LiveNodeSlot subtree_root) noexcept
 {
-    TLiveNodeSlot first = subtree_root;
+    LiveNodeSlot first = subtree_root;
     for (std::uint32_t descent = 0u; descent <= m_nodes.occupied_count(); ++descent)
     {
         const CLiveNode* const value = value_node(first);
@@ -1360,7 +1360,7 @@ TLiveNodeSlot CLiveDocument::subtree_first_postorder(const TLiveNodeSlot subtree
     return k_invalid_live_node_slot;
 }
 
-TLiveNodeSlot CLiveDocument::subtree_next_postorder(const TLiveNodeSlot subtree_root, const TLiveNodeSlot current) noexcept
+LiveNodeSlot CLiveDocument::subtree_next_postorder(const LiveNodeSlot subtree_root, const LiveNodeSlot current) noexcept
 {
     if (current == subtree_root)
     {
@@ -1387,11 +1387,11 @@ TLiveNodeSlot CLiveDocument::subtree_next_postorder(const TLiveNodeSlot subtree_
     return parent->aggregate_owner_value_slot();
 }
 
-bool CLiveDocument::audit_subtree_checked(const TLiveNodeSlot subtree_root, std::uint64_t& records) const noexcept
+bool CLiveDocument::audit_subtree_checked(const LiveNodeSlot subtree_root, std::uint64_t& records) const noexcept
 {
     records = 0u;
     return visit_subtree(subtree_root,
-        [this, &records](const TLiveNodeSlot value_slot, const CLiveNode& value_record, const CLiveNode* const aggregate) noexcept
+        [this, &records](const LiveNodeSlot value_slot, const CLiveNode& value_record, const CLiveNode* const aggregate) noexcept
     {
         const CLiveNode* const value = &value_record;
         ++records;
@@ -1402,7 +1402,7 @@ bool CLiveDocument::audit_subtree_checked(const TLiveNodeSlot subtree_root, std:
 
         if (aggregate != nullptr)
         {
-            const TLiveNodeSlot aggregate_slot = value->value_owned_aggregate_slot();
+            const LiveNodeSlot aggregate_slot = value->value_owned_aggregate_slot();
             if (!value->forms_container_pair_with(*aggregate, value_slot, aggregate_slot))
             {
                 return false;
@@ -1413,8 +1413,8 @@ bool CLiveDocument::audit_subtree_checked(const TLiveNodeSlot subtree_root, std:
                 return false;
             }
 
-            TLiveNodeSlot previous = k_invalid_live_node_slot;
-            TLiveNodeSlot child = aggregate->aggregate_first_child_slot();
+            LiveNodeSlot previous = k_invalid_live_node_slot;
+            LiveNodeSlot child = aggregate->aggregate_first_child_slot();
             std::uint64_t children = 0u;
             while (child >= 0)
             {
@@ -1443,7 +1443,7 @@ bool CLiveDocument::audit_subtree_checked(const TLiveNodeSlot subtree_root, std:
                 if (aggregate->aggregate_kind() == ELiveAggregateKind::object)
                 {
                     std::uint64_t earlier_count = 0u;
-                    for (TLiveNodeSlot earlier = aggregate->aggregate_first_child_slot();
+                    for (LiveNodeSlot earlier = aggregate->aggregate_first_child_slot();
                         (earlier >= 0) && (earlier != child);)
                     {
                         const CLiveNode* const earlier_node = value_node(earlier);
@@ -1478,11 +1478,11 @@ bool CLiveDocument::audit_subtree_checked(const TLiveNodeSlot subtree_root, std:
     });
 }
 
-bool CLiveDocument::query_ancestry(const TLiveNodeSlot value, const TLiveNodeSlot sought, bool& found) noexcept
+bool CLiveDocument::query_ancestry(const LiveNodeSlot value, const LiveNodeSlot sought, bool& found) noexcept
 {
     found = false;
-    TLiveNodeSlot current = value;
-    const TLiveNodeSlot root_slot = node_slot(m_root);
+    LiveNodeSlot current = value;
+    const LiveNodeSlot root_slot = node_slot(m_root);
     for (std::uint32_t hops = 0u; hops <= m_nodes.occupied_count(); ++hops)
     {
         const CLiveNode* const current_value = value_node(current);
@@ -1500,7 +1500,7 @@ bool CLiveDocument::query_ancestry(const TLiveNodeSlot value, const TLiveNodeSlo
         {
             return true;
         }
-        const TLiveNodeSlot parent_slot = current_value->value_parent_aggregate_slot();
+        const LiveNodeSlot parent_slot = current_value->value_parent_aggregate_slot();
         if (parent_slot < 0)
         {
             return current_value->value_is_unattached();
@@ -1525,13 +1525,13 @@ CLiveAttachmentResult CLiveDocument::attach_child(const CNodeKey destination, co
     {
         return attachment_rejection(ELiveAttachmentRejection::document_not_ready);
     }
-    const TLiveNodeSlot destination_slot = node_slot(destination);
+    const LiveNodeSlot destination_slot = node_slot(destination);
     CLiveNode* const destination_node = value_node(destination_slot);
     if (destination_node == nullptr)
     {
         return attachment_rejection(ELiveAttachmentRejection::destination_not_found);
     }
-    const TLiveNodeSlot candidate_slot = node_slot(candidate);
+    const LiveNodeSlot candidate_slot = node_slot(candidate);
     CLiveNode* const candidate_node = value_node(candidate_slot);
     if (candidate_node == nullptr)
     {
@@ -1550,7 +1550,7 @@ CLiveAttachmentResult CLiveDocument::attach_child(const CNodeKey destination, co
         return attachment_rejection(ELiveAttachmentRejection::candidate_not_detached);
     }
 
-    const TLiveNodeSlot aggregate_slot = destination_node->value_owned_aggregate_slot();
+    const LiveNodeSlot aggregate_slot = destination_node->value_owned_aggregate_slot();
     CLiveNode* const aggregate = node(aggregate_slot);
     if ((aggregate == nullptr) ||
         !aggregate_payload_is_in_document_domain(*aggregate) ||
@@ -1625,7 +1625,7 @@ CLiveAttachmentResult CLiveDocument::attach_child(const CNodeKey destination, co
     }
     if (aggregate->aggregate_kind() == ELiveAggregateKind::object)
     {
-        TLiveNodeSlot existing = aggregate->aggregate_first_child_slot();
+        LiveNodeSlot existing = aggregate->aggregate_first_child_slot();
         for (std::uint32_t visited = 0u; existing >= 0; ++visited)
         {
             const CLiveNode* const existing_node = value_node(existing);
@@ -1674,7 +1674,7 @@ CLiveAttachmentResult CLiveDocument::attach_child(const CNodeKey destination, co
     return CLiveAttachmentResult{};
 }
 
-bool CLiveDocument::detach_value(const TLiveNodeSlot value) noexcept
+bool CLiveDocument::detach_value(const LiveNodeSlot value) noexcept
 {
     CLiveNode* const value_record = value_node(value);
     if ((value_record == nullptr) || (node_key(value) == m_root) ||
@@ -1682,10 +1682,10 @@ bool CLiveDocument::detach_value(const TLiveNodeSlot value) noexcept
     {
         return false;
     }
-    const TLiveNodeSlot aggregate_slot = value_record->value_parent_aggregate_slot();
+    const LiveNodeSlot aggregate_slot = value_record->value_parent_aggregate_slot();
     CLiveNode* const aggregate = node(aggregate_slot);
-    const TLiveNodeSlot previous_slot = value_record->value_previous_sibling_slot();
-    const TLiveNodeSlot next_slot = value_record->value_next_sibling_slot();
+    const LiveNodeSlot previous_slot = value_record->value_previous_sibling_slot();
+    const LiveNodeSlot next_slot = value_record->value_next_sibling_slot();
     if ((aggregate == nullptr) || !aggregate_payload_is_in_document_domain(*aggregate))
     {
         mark_integrity_bad();
@@ -1761,9 +1761,9 @@ bool CLiveDocument::detach_value(const TLiveNodeSlot value) noexcept
 
 bool CLiveDocument::clear_root() noexcept
 {
-    const TLiveNodeSlot root_slot = node_slot(m_root);
+    const LiveNodeSlot root_slot = node_slot(m_root);
     CLiveNode* const root_value = value_node(root_slot);
-    const TLiveNodeSlot root_aggregate_slot = (root_value != nullptr) ?
+    const LiveNodeSlot root_aggregate_slot = (root_value != nullptr) ?
         root_value->value_owned_aggregate_slot() : k_invalid_live_node_slot;
     CLiveNode* const root_aggregate = node(root_aggregate_slot);
     if ((root_value == nullptr) || (root_aggregate == nullptr))
@@ -1776,7 +1776,7 @@ bool CLiveDocument::clear_root() noexcept
     return erase_aggregate_children(root_aggregate_slot);
 }
 
-bool CLiveDocument::move_value_payload(const TLiveNodeSlot target, const TLiveNodeSlot source) noexcept
+bool CLiveDocument::move_value_payload(const LiveNodeSlot target, const LiveNodeSlot source) noexcept
 {
     CLiveNode* const target_value = value_node(target);
     CLiveNode* const source_value = value_node(source);
@@ -1791,7 +1791,7 @@ bool CLiveDocument::move_value_payload(const TLiveNodeSlot target, const TLiveNo
         return false;
     }
 
-    const TLiveNodeSlot aggregate_slot = source_value->value_owned_aggregate_slot();
+    const LiveNodeSlot aggregate_slot = source_value->value_owned_aggregate_slot();
     CLiveNode* const aggregate = node(aggregate_slot);
     if (live_value_type_is_container(source_value->value_type()) &&
         ((aggregate == nullptr) ||
@@ -1811,7 +1811,7 @@ bool CLiveDocument::move_value_payload(const TLiveNodeSlot target, const TLiveNo
     return true;
 }
 
-bool CLiveDocument::erase_aggregate_children(const TLiveNodeSlot aggregate_slot) noexcept
+bool CLiveDocument::erase_aggregate_children(const LiveNodeSlot aggregate_slot) noexcept
 {
     CLiveNode* aggregate = node(aggregate_slot);
     if ((aggregate == nullptr) || !aggregate_payload_is_in_document_domain(*aggregate))
@@ -1821,7 +1821,7 @@ bool CLiveDocument::erase_aggregate_children(const TLiveNodeSlot aggregate_slot)
         return false;
     }
 
-    TLiveNodeSlot child = aggregate->aggregate_first_child_slot();
+    LiveNodeSlot child = aggregate->aggregate_first_child_slot();
     while (child >= 0)
     {
         const CLiveNode* const child_value = value_node(child);
@@ -1831,7 +1831,7 @@ bool CLiveDocument::erase_aggregate_children(const TLiveNodeSlot aggregate_slot)
             MV_ASSERT_MSG(false, "Child erase encountered an invalid value.");
             return false;
         }
-        const TLiveNodeSlot next = child_value->value_next_sibling_slot();
+        const LiveNodeSlot next = child_value->value_next_sibling_slot();
         if (!erase_subtree(child))
         {
             return false;
@@ -1850,9 +1850,9 @@ bool CLiveDocument::erase_aggregate_children(const TLiveNodeSlot aggregate_slot)
     return true;
 }
 
-bool CLiveDocument::erase_subtree(const TLiveNodeSlot value) noexcept
+bool CLiveDocument::erase_subtree(const LiveNodeSlot value) noexcept
 {
-    TLiveNodeSlot current = subtree_first_postorder(value);
+    LiveNodeSlot current = subtree_first_postorder(value);
     if ((current < 0) || m_integrity_known_bad)
     {
         return false;
@@ -1868,8 +1868,8 @@ bool CLiveDocument::erase_subtree(const TLiveNodeSlot value) noexcept
             MV_ASSERT_MSG(false, "Subtree erase encountered an invalid value.");
             return false;
         }
-        const TLiveNodeSlot aggregate = current_value->value_owned_aggregate_slot();
-        const TLiveNodeSlot next = subtree_next_postorder(value, current);
+        const LiveNodeSlot aggregate = current_value->value_owned_aggregate_slot();
+        const LiveNodeSlot next = subtree_next_postorder(value, current);
         if (m_integrity_known_bad)
         {
             return false;

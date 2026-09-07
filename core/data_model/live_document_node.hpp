@@ -30,22 +30,22 @@ struct SLiveNodeUsage
     ELiveAggregateKind aggregate_kind{ ELiveAggregateKind::invalid };
 };
 
-using TLiveNodeSlot = std::int32_t;
-constexpr TLiveNodeSlot k_invalid_live_node_slot = -1;
+using LiveNodeSlot = std::int32_t;
+constexpr LiveNodeSlot k_invalid_live_node_slot = -1;
 
 struct SLiveValueLinks
 {
-    TLiveNodeSlot parent_aggregate;
-    TLiveNodeSlot previous_sibling;
-    TLiveNodeSlot next_sibling;
-    TLiveNodeSlot owned_aggregate;
+    LiveNodeSlot parent_aggregate;
+    LiveNodeSlot previous_sibling;
+    LiveNodeSlot next_sibling;
+    LiveNodeSlot owned_aggregate;
 };
 
 struct SLiveAggregateLinks
 {
-    TLiveNodeSlot owner_value;
-    TLiveNodeSlot first_child;
-    TLiveNodeSlot last_child;
+    LiveNodeSlot owner_value;
+    LiveNodeSlot first_child;
+    LiveNodeSlot last_child;
 };
 
 union SLiveNodeLinks
@@ -80,23 +80,23 @@ public:
     [[nodiscard]] CIntegerMetadata integer_metadata() const noexcept;
 
     //  Role-specific relationships
-    [[nodiscard]] TLiveNodeSlot value_parent_aggregate_slot() const noexcept;
-    [[nodiscard]] TLiveNodeSlot value_previous_sibling_slot() const noexcept;
-    [[nodiscard]] TLiveNodeSlot value_next_sibling_slot() const noexcept;
-    [[nodiscard]] TLiveNodeSlot value_owned_aggregate_slot() const noexcept;
-    [[nodiscard]] TLiveNodeSlot aggregate_owner_value_slot() const noexcept;
-    [[nodiscard]] TLiveNodeSlot aggregate_first_child_slot() const noexcept;
-    [[nodiscard]] TLiveNodeSlot aggregate_last_child_slot() const noexcept;
+    [[nodiscard]] LiveNodeSlot value_parent_aggregate_slot() const noexcept;
+    [[nodiscard]] LiveNodeSlot value_previous_sibling_slot() const noexcept;
+    [[nodiscard]] LiveNodeSlot value_next_sibling_slot() const noexcept;
+    [[nodiscard]] LiveNodeSlot value_owned_aggregate_slot() const noexcept;
+    [[nodiscard]] LiveNodeSlot aggregate_owner_value_slot() const noexcept;
+    [[nodiscard]] LiveNodeSlot aggregate_first_child_slot() const noexcept;
+    [[nodiscard]] LiveNodeSlot aggregate_last_child_slot() const noexcept;
 
     //  Relationship mutation
-    void set_value_parent_aggregate_slot(const TLiveNodeSlot slot) noexcept;
-    void set_value_previous_sibling_slot(const TLiveNodeSlot slot) noexcept;
-    void set_value_next_sibling_slot(const TLiveNodeSlot slot) noexcept;
-    void set_value_owned_aggregate_slot(const TLiveNodeSlot slot) noexcept;
-    void set_aggregate_owner_value_slot(const TLiveNodeSlot slot) noexcept;
-    void set_aggregate_first_child_slot(const TLiveNodeSlot slot) noexcept;
-    void set_aggregate_last_child_slot(const TLiveNodeSlot slot) noexcept;
-    void set_value_attachment(const TLiveNodeSlot parent, const TLiveNodeSlot previous, const TLiveNodeSlot next) noexcept;
+    void set_value_parent_aggregate_slot(const LiveNodeSlot slot) noexcept;
+    void set_value_previous_sibling_slot(const LiveNodeSlot slot) noexcept;
+    void set_value_next_sibling_slot(const LiveNodeSlot slot) noexcept;
+    void set_value_owned_aggregate_slot(const LiveNodeSlot slot) noexcept;
+    void set_aggregate_owner_value_slot(const LiveNodeSlot slot) noexcept;
+    void set_aggregate_first_child_slot(const LiveNodeSlot slot) noexcept;
+    void set_aggregate_last_child_slot(const LiveNodeSlot slot) noexcept;
+    void set_value_attachment(const LiveNodeSlot parent, const LiveNodeSlot previous, const LiveNodeSlot next) noexcept;
     void clear_value_attachment() noexcept;
     void clear_aggregate_children() noexcept;
     void increment_child_count() noexcept;
@@ -111,34 +111,34 @@ public:
     [[nodiscard]] bool aggregate_payload_is_valid() const noexcept;
     [[nodiscard]] bool forms_container_pair_with(
         const CLiveNode& aggregate,
-        const TLiveNodeSlot value_slot,
-        const TLiveNodeSlot aggregate_slot) const noexcept;
+        const LiveNodeSlot value_slot,
+        const LiveNodeSlot aggregate_slot) const noexcept;
     [[nodiscard]] bool aggregate_accepts_child(const CLiveNode& value) const noexcept;
     [[nodiscard]] bool value_is_unattached() const noexcept;
     [[nodiscard]] bool value_attachment_is_consistent() const noexcept;
     [[nodiscard]] bool aggregate_child_range_is_consistent() const noexcept;
     [[nodiscard]] bool value_is_previous_sibling_of(
         const CLiveNode& value,
-        const TLiveNodeSlot own_slot,
-        const TLiveNodeSlot value_slot) const noexcept;
+        const LiveNodeSlot own_slot,
+        const LiveNodeSlot value_slot) const noexcept;
     [[nodiscard]] bool value_is_next_sibling_of(
         const CLiveNode& value,
-        const TLiveNodeSlot own_slot,
-        const TLiveNodeSlot value_slot) const noexcept;
+        const LiveNodeSlot own_slot,
+        const LiveNodeSlot value_slot) const noexcept;
     [[nodiscard]] bool aggregate_has_first_child(
         const CLiveNode& value,
-        const TLiveNodeSlot aggregate_slot,
-        const TLiveNodeSlot value_slot) const noexcept;
+        const LiveNodeSlot aggregate_slot,
+        const LiveNodeSlot value_slot) const noexcept;
     [[nodiscard]] bool aggregate_has_last_child(
         const CLiveNode& value,
-        const TLiveNodeSlot aggregate_slot,
-        const TLiveNodeSlot value_slot) const noexcept;
+        const LiveNodeSlot aggregate_slot,
+        const LiveNodeSlot value_slot) const noexcept;
     [[nodiscard]] bool aggregate_has_adjacent_children(
         const CLiveNode& previous,
         const CLiveNode& next,
-        const TLiveNodeSlot aggregate_slot,
-        const TLiveNodeSlot previous_slot,
-        const TLiveNodeSlot next_slot) const noexcept;
+        const LiveNodeSlot aggregate_slot,
+        const LiveNodeSlot previous_slot,
+        const LiveNodeSlot next_slot) const noexcept;
 
     //  Role initialization
     void initialise_value(
@@ -148,7 +148,7 @@ public:
         const CIntegerMetadata metadata) noexcept;
 
     void initialise_aggregate(
-        const TLiveNodeSlot owner,
+        const LiveNodeSlot owner,
         const ELiveAggregateKind kind,
         const CPropertyNameId empty_name) noexcept;
 
@@ -240,37 +240,37 @@ inline CIntegerMetadata CLiveNode::integer_metadata() const noexcept
 //  CLiveNode: role-specific relationships
 //==============================================================================
 
-inline TLiveNodeSlot CLiveNode::value_parent_aggregate_slot() const noexcept
+inline LiveNodeSlot CLiveNode::value_parent_aggregate_slot() const noexcept
 {
     return is_value_record() ? m_links.value.parent_aggregate : k_invalid_live_node_slot;
 }
 
-inline TLiveNodeSlot CLiveNode::value_previous_sibling_slot() const noexcept
+inline LiveNodeSlot CLiveNode::value_previous_sibling_slot() const noexcept
 {
     return is_value_record() ? m_links.value.previous_sibling : k_invalid_live_node_slot;
 }
 
-inline TLiveNodeSlot CLiveNode::value_next_sibling_slot() const noexcept
+inline LiveNodeSlot CLiveNode::value_next_sibling_slot() const noexcept
 {
     return is_value_record() ? m_links.value.next_sibling : k_invalid_live_node_slot;
 }
 
-inline TLiveNodeSlot CLiveNode::value_owned_aggregate_slot() const noexcept
+inline LiveNodeSlot CLiveNode::value_owned_aggregate_slot() const noexcept
 {
     return is_value_record() ? m_links.value.owned_aggregate : k_invalid_live_node_slot;
 }
 
-inline TLiveNodeSlot CLiveNode::aggregate_owner_value_slot() const noexcept
+inline LiveNodeSlot CLiveNode::aggregate_owner_value_slot() const noexcept
 {
     return is_aggregate_record() ? m_links.aggregate.owner_value : k_invalid_live_node_slot;
 }
 
-inline TLiveNodeSlot CLiveNode::aggregate_first_child_slot() const noexcept
+inline LiveNodeSlot CLiveNode::aggregate_first_child_slot() const noexcept
 {
     return is_aggregate_record() ? m_links.aggregate.first_child : k_invalid_live_node_slot;
 }
 
-inline TLiveNodeSlot CLiveNode::aggregate_last_child_slot() const noexcept
+inline LiveNodeSlot CLiveNode::aggregate_last_child_slot() const noexcept
 {
     return is_aggregate_record() ? m_links.aggregate.last_child : k_invalid_live_node_slot;
 }
@@ -279,42 +279,42 @@ inline TLiveNodeSlot CLiveNode::aggregate_last_child_slot() const noexcept
 //  CLiveNode: relationship mutation
 //==============================================================================
 
-inline void CLiveNode::set_value_parent_aggregate_slot(const TLiveNodeSlot slot) noexcept
+inline void CLiveNode::set_value_parent_aggregate_slot(const LiveNodeSlot slot) noexcept
 {
     m_links.value.parent_aggregate = slot;
 }
 
-inline void CLiveNode::set_value_previous_sibling_slot(const TLiveNodeSlot slot) noexcept
+inline void CLiveNode::set_value_previous_sibling_slot(const LiveNodeSlot slot) noexcept
 {
     m_links.value.previous_sibling = slot;
 }
 
-inline void CLiveNode::set_value_next_sibling_slot(const TLiveNodeSlot slot) noexcept
+inline void CLiveNode::set_value_next_sibling_slot(const LiveNodeSlot slot) noexcept
 {
     m_links.value.next_sibling = slot;
 }
 
-inline void CLiveNode::set_value_owned_aggregate_slot(const TLiveNodeSlot slot) noexcept
+inline void CLiveNode::set_value_owned_aggregate_slot(const LiveNodeSlot slot) noexcept
 {
     m_links.value.owned_aggregate = slot;
 }
 
-inline void CLiveNode::set_aggregate_owner_value_slot(const TLiveNodeSlot slot) noexcept
+inline void CLiveNode::set_aggregate_owner_value_slot(const LiveNodeSlot slot) noexcept
 {
     m_links.aggregate.owner_value = slot;
 }
 
-inline void CLiveNode::set_aggregate_first_child_slot(const TLiveNodeSlot slot) noexcept
+inline void CLiveNode::set_aggregate_first_child_slot(const LiveNodeSlot slot) noexcept
 {
     m_links.aggregate.first_child = slot;
 }
 
-inline void CLiveNode::set_aggregate_last_child_slot(const TLiveNodeSlot slot) noexcept
+inline void CLiveNode::set_aggregate_last_child_slot(const LiveNodeSlot slot) noexcept
 {
     m_links.aggregate.last_child = slot;
 }
 
-inline void CLiveNode::set_value_attachment(const TLiveNodeSlot parent, const TLiveNodeSlot previous, const TLiveNodeSlot next) noexcept
+inline void CLiveNode::set_value_attachment(const LiveNodeSlot parent, const LiveNodeSlot previous, const LiveNodeSlot next) noexcept
 {
     set_value_parent_aggregate_slot(parent);
     set_value_previous_sibling_slot(previous);
@@ -427,7 +427,7 @@ inline bool CLiveNode::aggregate_payload_is_valid() const noexcept
         (integer_metadata() == CIntegerMetadata{});
 }
 
-inline bool CLiveNode::forms_container_pair_with(const CLiveNode& aggregate, const TLiveNodeSlot value_slot, const TLiveNodeSlot aggregate_slot) const noexcept
+inline bool CLiveNode::forms_container_pair_with(const CLiveNode& aggregate, const LiveNodeSlot value_slot, const LiveNodeSlot aggregate_slot) const noexcept
 {
     if (!is_value_record() ||
         !aggregate.is_aggregate_record() ||
@@ -491,8 +491,8 @@ inline bool CLiveNode::aggregate_child_range_is_consistent() const noexcept
 
 inline bool CLiveNode::value_is_previous_sibling_of(
     const CLiveNode& value,
-    const TLiveNodeSlot own_slot,
-    const TLiveNodeSlot value_slot) const noexcept
+    const LiveNodeSlot own_slot,
+    const LiveNodeSlot value_slot) const noexcept
 {
     return is_value_record() && value.is_value_record() &&
         (m_links.value.parent_aggregate >= 0) &&
@@ -503,8 +503,8 @@ inline bool CLiveNode::value_is_previous_sibling_of(
 
 inline bool CLiveNode::value_is_next_sibling_of(
     const CLiveNode& value,
-    const TLiveNodeSlot own_slot,
-    const TLiveNodeSlot value_slot) const noexcept
+    const LiveNodeSlot own_slot,
+    const LiveNodeSlot value_slot) const noexcept
 {
     return is_value_record() && value.is_value_record() &&
         (m_links.value.parent_aggregate >= 0) &&
@@ -515,8 +515,8 @@ inline bool CLiveNode::value_is_next_sibling_of(
 
 inline bool CLiveNode::aggregate_has_first_child(
     const CLiveNode& value,
-    const TLiveNodeSlot aggregate_slot,
-    const TLiveNodeSlot value_slot) const noexcept
+    const LiveNodeSlot aggregate_slot,
+    const LiveNodeSlot value_slot) const noexcept
 {
     return is_aggregate_record() && value.is_value_record() &&
         (m_links.aggregate.first_child == value_slot) &&
@@ -526,8 +526,8 @@ inline bool CLiveNode::aggregate_has_first_child(
 
 inline bool CLiveNode::aggregate_has_last_child(
     const CLiveNode& value,
-    const TLiveNodeSlot aggregate_slot,
-    const TLiveNodeSlot value_slot) const noexcept
+    const LiveNodeSlot aggregate_slot,
+    const LiveNodeSlot value_slot) const noexcept
 {
     return is_aggregate_record() && value.is_value_record() &&
         (m_links.aggregate.last_child == value_slot) &&
@@ -538,9 +538,9 @@ inline bool CLiveNode::aggregate_has_last_child(
 inline bool CLiveNode::aggregate_has_adjacent_children(
     const CLiveNode& previous,
     const CLiveNode& next,
-    const TLiveNodeSlot aggregate_slot,
-    const TLiveNodeSlot previous_slot,
-    const TLiveNodeSlot next_slot) const noexcept
+    const LiveNodeSlot aggregate_slot,
+    const LiveNodeSlot previous_slot,
+    const LiveNodeSlot next_slot) const noexcept
 {
     return is_aggregate_record() &&
         (previous.m_links.value.parent_aggregate == aggregate_slot) &&
@@ -566,7 +566,7 @@ inline void CLiveNode::initialise_value(
 }
 
 inline void CLiveNode::initialise_aggregate(
-    const TLiveNodeSlot owner,
+    const LiveNodeSlot owner,
     const ELiveAggregateKind kind,
     const CPropertyNameId empty_name) noexcept
 {

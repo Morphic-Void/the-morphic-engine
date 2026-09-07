@@ -55,8 +55,8 @@ struct SLiveDocumentTestAccess
     static void link_as_only_child_without_validation(
         CLiveDocument& document, const CNodeKey owner, const CNodeKey child) noexcept
     {
-        const TLiveNodeSlot aggregate_slot = document.value_node(owner)->value_owned_aggregate_slot();
-        const TLiveNodeSlot child_slot = document.node_slot(child);
+        const LiveNodeSlot aggregate_slot = document.value_node(owner)->value_owned_aggregate_slot();
+        const LiveNodeSlot child_slot = document.node_slot(child);
         CLiveNode* const aggregate = document.node(aggregate_slot);
         aggregate->set_aggregate_first_child_slot(child_slot);
         aggregate->set_aggregate_last_child_slot(child_slot);
