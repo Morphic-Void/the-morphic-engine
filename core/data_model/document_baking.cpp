@@ -55,20 +55,20 @@ private:
     [[nodiscard]] bool derive_layout() noexcept;
     [[nodiscard]] bool place_section(
         std::uint64_t& offset,
-        std::uint32_t count,
-        std::uint32_t stride,
+        const std::uint32_t count,
+        const std::uint32_t stride,
         std::uint32_t& destination) const noexcept;
     [[nodiscard]] bool allocate_output() noexcept;
     void emit_strings(SStringDomain& domain) noexcept;
     [[nodiscard]] bool emit_values() noexcept;
     [[nodiscard]] bool emit_value_payload(
-        CNodeKey value,
+        const CNodeKey value,
         SBakedValueRecord& destination) const noexcept;
     [[nodiscard]] static std::uint8_t encode_integer_metadata(
-        CIntegerMetadata metadata) noexcept;
+        const CIntegerMetadata metadata) noexcept;
     [[nodiscard]] SLiveString live_string_at_rank(
-        EStringDomain domain,
-        std::uint32_t rank) const noexcept;
+        const EStringDomain domain,
+        const std::uint32_t rank) const noexcept;
     [[nodiscard]] bool validate_output() noexcept;
 
     const CLiveDocument& m_source;

@@ -34,7 +34,7 @@ private:
     };
 
     [[nodiscard]] bool prepare_values() noexcept;
-    [[nodiscard]] CNodeKey create_value(CBakedValueIndex source) noexcept;
+    [[nodiscard]] CNodeKey create_value(const CBakedValueIndex source) noexcept;
 
     const CBakedDocument& m_source;
     CLiveDocument m_destination;
