@@ -18,7 +18,8 @@ The format is an immutable, self-contained byte block smaller than 4 GiB. All
 multibyte integers are little-endian and floating payloads are IEEE-754
 binary64. The owning block uses framework allocation and consists of exactly
 one allocation. Baking scratch is external to that allocation. A bound block's
-base address is eight-byte aligned; its total size need not be.
+base address is 32-byte aligned; its total size need not be. The value-record
+section is likewise 32-byte aligned.
 
 The initial replacement format has magic bytes `MBD2` and version 1. It is
 incompatible with every archived baked format.
@@ -57,10 +58,11 @@ Sections immediately follow the header in this fixed order:
 5. string-value bytes.
 
 Offsets are derived from the preceding counts and record sizes; they are not
-stored. The 32-byte header, 32-byte value records and 8-byte string references
-make every fixed-width section naturally eight-byte aligned without padding.
-There is no trailing padding. The computed end of the final byte section must
-equal `total_size` and the supplied block size.
+stored. The 32-byte header places the 32-byte value records on a 32-byte
+boundary. Their size and the 8-byte string references make every following
+fixed-width section naturally eight-byte aligned without padding. There is no
+trailing padding. The computed end of the final byte section must equal
+`total_size` and the supplied block size.
 
 `value_count` is at least one. Both string-reference counts and both string-byte
 counts are at least one because each table physically contains its empty
@@ -174,8 +176,8 @@ table, then scans that range. No auxiliary object index is present.
 
 Full validation checks:
 
-- base alignment, header identity, version, sizes and overflow-safe derived
-  section bounds;
+- 32-byte base and value-section alignment, header identity, version, sizes and
+  overflow-safe derived section bounds;
 - every record's type, reserved fields, canonical unused fields and payload;
 - root identity and the complete reciprocal parent/range structure;
 - object naming and uniqueness and recovered-array anonymity;

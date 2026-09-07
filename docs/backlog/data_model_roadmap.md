@@ -20,8 +20,9 @@ the data model require separate approval and a separate commit.
 
 ## Current baseline
 
-The current checkpoint follows completion of Stages 0 through 6. Stage 7 is
-next; no baked-document replacement has begun.
+The current checkpoint follows completion of Stages 0 through 6. Stage 7 is in
+progress: the physical records and fully validating immutable view are present,
+while owning-block construction and baking remain to be implemented.
 
 The live implementation currently provides:
 
@@ -41,9 +42,10 @@ The live implementation currently provides:
 - allocation-free detachment, identity-preserving payload extraction and
   attachment, and payload erasure.
 
-There is no replacement baked implementation in `core/data_model`. The v1
-baked model, writer and tests under `graveyard/data_model_v1_2026-09-01` are
-reference material only.
+The replacement baked implementation in `core/data_model` currently provides
+the checked non-owning view and physical records. The v1 baked model, writer
+and tests under `graveyard/data_model_v1_2026-09-01` are reference material
+only.
 
 ## Settled direction
 
@@ -218,6 +220,13 @@ direct-child ranges.
 Implement explicit full validation for untrusted baked bytes. Failure must not
 publish an incomplete block as ready.
 
+Status: in progress. The first slice defines the exact header, value and string
+reference records and implements the checked non-owning view. Binding validates
+the complete physical artifact with one transient framework vector; successful
+views expose readiness, integrity, canonicality, recovered-content presence,
+root and table counts, and both string domains. The owning block, full typed
+query surface and public-only bake remain for later slices.
+
 ## Stage 8: promotion
 
 Promote an explicitly validated baked view into a fresh compact live document.
@@ -251,7 +260,6 @@ not settled by the data-model work.
 
 ## Continuing deferrals
 
-- Exact baked byte layout and format version.
 - O(1) baked object-name lookup.
 - Live cursors and revisions.
 - Long-term modified-UTF-8 U+0000 policy.

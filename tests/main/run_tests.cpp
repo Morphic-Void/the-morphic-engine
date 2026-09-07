@@ -9,6 +9,7 @@
 #include "tests/main/run_tests.hpp"
 #include "tests/test_suites/AssetRepository_test_suite.hpp"
 #include "tests/test_suites/AsyncState_test_suite.hpp"
+#include "tests/test_suites/BakedDocument_test_suite.hpp"
 #include "tests/test_suites/ByteBuffers_test_suite.hpp"
 #include "tests/test_suites/CMemoryToken_test_suite.hpp"
 #include "tests/test_suites/CMemoryView_test_suite.hpp"
@@ -228,6 +229,7 @@ int run_tests(ETestRunMode mode)
 
     cumulative_result += run_isolated_suite("AssetRepository", &run_asset_repository_tests);
     cumulative_result += run_isolated_suite("AsyncState", &run_async_state_tests);
+    cumulative_result += run_isolated_suite("BakedDocument", &run_baked_document_tests);
     cumulative_result += run_isolated_suite("CMemoryToken", &run_memory_token_tests);
     cumulative_result += run_isolated_suite("CMemoryView", &run_memory_view_tests);
     cumulative_result += run_isolated_suite("ErasedOwner", &run_erased_owner_tests);

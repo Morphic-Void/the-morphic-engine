@@ -231,6 +231,12 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)core\containers\TUnorderedCollection.hpp">
       <Filter>Core\include\containers</Filter>
     </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)core\data_model\baked_document.hpp">
+      <Filter>Core\include\data_model</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)core\data_model\baked_document_format.hpp">
+      <Filter>Core\include\data_model</Filter>
+    </ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)core\data_model\data_model_types.hpp">
       <Filter>Core\include\data_model</Filter>
     </ClInclude>
@@ -476,6 +482,9 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="$(MSBuildThisFileDirectory)core\data_model\baked_document.cpp">
+      <Filter>Core\src\data_model</Filter>
+    </ClCompile>
     <ClCompile Include="$(MSBuildThisFileDirectory)core\data_model\live_document.cpp">
       <Filter>Core\src\data_model</Filter>
     </ClCompile>

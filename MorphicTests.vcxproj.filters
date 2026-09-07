@@ -25,6 +25,7 @@
     <ClCompile Include="tests\support\test_allocator.cpp"><Filter>Tests\support</Filter></ClCompile>
     <ClCompile Include="tests\test_suites\AssetRepository_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
     <ClCompile Include="tests\test_suites\AsyncState_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
+    <ClCompile Include="tests\test_suites\BakedDocument_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
     <ClCompile Include="tests\test_suites\ByteBuffers_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
     <ClCompile Include="tests\test_suites\CMemoryToken_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
     <ClCompile Include="tests\test_suites\CMemoryView_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
@@ -61,6 +62,7 @@
     <ClInclude Include="tests\support\test_scopes.hpp"><Filter>Tests\support</Filter></ClInclude>
     <ClInclude Include="tests\test_suites\AssetRepository_test_suite.hpp"><Filter>Tests\test_suites</Filter></ClInclude>
     <ClInclude Include="tests\test_suites\AsyncState_test_suite.hpp"><Filter>Tests\test_suites</Filter></ClInclude>
+    <ClInclude Include="tests\test_suites\BakedDocument_test_suite.hpp"><Filter>Tests\test_suites</Filter></ClInclude>
     <ClInclude Include="tests\test_suites\ByteBuffers_test_suite.hpp"><Filter>Tests\test_suites</Filter></ClInclude>
     <ClInclude Include="tests\test_suites\CMemoryToken_test_suite.hpp"><Filter>Tests\test_suites</Filter></ClInclude>
     <ClInclude Include="tests\test_suites\CMemoryView_test_suite.hpp"><Filter>Tests\test_suites</Filter></ClInclude>

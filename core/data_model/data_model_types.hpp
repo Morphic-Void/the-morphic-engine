@@ -23,6 +23,7 @@
 //==============================================================================
 
 class CLiveDocument;
+class CBakedDocument;
 
 class CNodeKey
 {
@@ -81,6 +82,7 @@ private:
     explicit constexpr TStringId(const std::uint32_t value) noexcept : m_value(value) {}
     std::uint32_t m_value{ k_invalid_value };
     friend class ::CLiveDocument;
+    friend class ::CBakedDocument;
 };
 
 template<typename TDomainTag>
