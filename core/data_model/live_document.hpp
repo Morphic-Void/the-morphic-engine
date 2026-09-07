@@ -73,9 +73,7 @@ public:
     //  after success; scratch may retain capacity after failure. Recompute after
     //  mutation. Analysis trusts established structure; use check_integrity()
     //  for the explicit whole-document audit.
-    [[nodiscard]] bool analyse(
-        SLiveDocumentAnalysis& result,
-        SLiveDocumentStringAnalysis* const strings = nullptr) const noexcept;
+    [[nodiscard]] bool analyse(SLiveDocumentAnalysis& result, SLiveDocumentStringAnalysis* const strings = nullptr) const noexcept;
 
     //  Root and reachable structure
     [[nodiscard]] CNodeKey root() const noexcept;

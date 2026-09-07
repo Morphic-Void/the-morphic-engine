@@ -19,12 +19,10 @@ class CLiveDocument;
 
 namespace document_translation
 {
-    [[nodiscard]] bool bake(
-        const CLiveDocument& source,
-        CBakedDocumentBlock& destination) noexcept;
-    [[nodiscard]] bool promote(
-        const CBakedDocument& source,
-        CLiveDocument& destination) noexcept;
+
+[[nodiscard]] bool bake(const CLiveDocument& source, CBakedDocumentBlock& destination) noexcept;
+[[nodiscard]] bool promote(const CBakedDocument& source, CLiveDocument& destination) noexcept;
+
 }
 
 #endif // DOCUMENT_TRANSLATION_HPP_INCLUDED

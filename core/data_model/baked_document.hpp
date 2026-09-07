@@ -117,13 +117,8 @@ private:
         std::uint32_t string_value_bytes_offset{ 0u };
     };
 
-    [[nodiscard]] static bool derive_layout(
-        const SBakedDocumentHeader& header,
-        const std::size_t supplied_byte_count,
-        SLayout& layout) noexcept;
-    [[nodiscard]] static bool validate(
-        const std::uint8_t* const bytes,
-        const std::size_t byte_count) noexcept;
+    [[nodiscard]] static bool derive_layout(const SBakedDocumentHeader& header, const std::size_t supplied_byte_count, SLayout& layout) noexcept;
+    [[nodiscard]] static bool validate(const std::uint8_t* const bytes, const std::size_t byte_count) noexcept;
     [[nodiscard]] static bool validate_string_table(
         const std::uint8_t* const bytes,
         const std::uint32_t references_offset,
@@ -132,9 +127,7 @@ private:
         const std::uint32_t string_byte_count) noexcept;
     [[nodiscard]] static bool value_type_is_array(const EBakedValueType type) noexcept;
     [[nodiscard]] static bool value_type_is_container(const EBakedValueType type) noexcept;
-    [[nodiscard]] static bool decode_integer_metadata(
-        const std::uint8_t flags,
-        CIntegerMetadata& metadata) noexcept;
+    [[nodiscard]] static bool decode_integer_metadata(const std::uint8_t flags, CIntegerMetadata& metadata) noexcept;
     [[nodiscard]] static bool validate_integer(const SBakedValueRecord& value) noexcept;
     [[nodiscard]] const SBakedDocumentHeader* header() const noexcept;
     [[nodiscard]] const SBakedValueRecord* values(const SLayout& layout) const noexcept;
@@ -325,9 +318,7 @@ inline CBakedValueIndex CBakedDocument::last_child(const CBakedValueIndex contai
         CBakedValueIndex{ record->first_child_index + record->child_count - 1u } : CBakedValueIndex{};
 }
 
-inline CBakedValueIndex CBakedDocument::array_at(
-    const CBakedValueIndex array,
-    const std::uint32_t index) const noexcept
+inline CBakedValueIndex CBakedDocument::array_at(const CBakedValueIndex array, const std::uint32_t index) const noexcept
 {
     const SBakedValueRecord* const record = value_record(array);
     return ((record != nullptr) && value_type_is_array(record->value_type) && (index < record->child_count)) ?
@@ -354,9 +345,7 @@ inline bool CBakedDocument::signed_integer_value(const CBakedValueIndex value, s
     const SBakedValueRecord* const record = value_record(value);
     CIntegerMetadata metadata;
     if ((record == nullptr) || (record->value_type != EBakedValueType::integer) ||
-        !decode_integer_metadata(
-            record->value_flags & baked_document_format::k_integer_metadata_flags,
-            metadata) ||
+        !decode_integer_metadata(record->value_flags & baked_document_format::k_integer_metadata_flags, metadata) ||
         (metadata.domain != EIntegerDomain::signed_value))
     {
         return false;
@@ -370,9 +359,7 @@ inline bool CBakedDocument::unsigned_integer_value(const CBakedValueIndex value,
     const SBakedValueRecord* const record = value_record(value);
     CIntegerMetadata metadata;
     if ((record == nullptr) || (record->value_type != EBakedValueType::integer) ||
-        !decode_integer_metadata(
-            record->value_flags & baked_document_format::k_integer_metadata_flags,
-            metadata) ||
+        !decode_integer_metadata(record->value_flags & baked_document_format::k_integer_metadata_flags, metadata) ||
         (metadata.domain != EIntegerDomain::unsigned_value))
     {
         return false;
@@ -381,15 +368,11 @@ inline bool CBakedDocument::unsigned_integer_value(const CBakedValueIndex value,
     return true;
 }
 
-inline bool CBakedDocument::integer_metadata(
-    const CBakedValueIndex value,
-    CIntegerMetadata& result) const noexcept
+inline bool CBakedDocument::integer_metadata(const CBakedValueIndex value, CIntegerMetadata& result) const noexcept
 {
     const SBakedValueRecord* const record = value_record(value);
     return (record != nullptr) && (record->value_type == EBakedValueType::integer) &&
-        decode_integer_metadata(
-            record->value_flags & baked_document_format::k_integer_metadata_flags,
-            result);
+        decode_integer_metadata(record->value_flags & baked_document_format::k_integer_metadata_flags, result);
 }
 
 inline bool CBakedDocument::floating_point_value(const CBakedValueIndex value, double& result) const noexcept
@@ -429,9 +412,7 @@ inline bool CBakedDocument::value_type_is_container(const EBakedValueType type) 
     return value_type_is_array(type) || (type == EBakedValueType::object);
 }
 
-inline bool CBakedDocument::decode_integer_metadata(
-    const std::uint8_t flags,
-    CIntegerMetadata& metadata) noexcept
+inline bool CBakedDocument::decode_integer_metadata(const std::uint8_t flags, CIntegerMetadata& metadata) noexcept
 {
     if ((flags & static_cast<std::uint8_t>(~baked_document_format::k_integer_metadata_flags)) != 0u)
     {
@@ -441,8 +422,7 @@ inline bool CBakedDocument::decode_integer_metadata(
         ((flags & 0x01u) != 0u) ? EIntegerDomain::unsigned_value : EIntegerDomain::signed_value,
         static_cast<EIntegerWidth>((flags >> 1u) & 0x03u),
         static_cast<EIntegerNotation>((flags >> 3u) & 0x03u),
-        ((flags & 0x20u) != 0u) ? EIntegerPrefix::alternate : EIntegerPrefix::standard,
-    };
+        ((flags & 0x20u) != 0u) ? EIntegerPrefix::alternate : EIntegerPrefix::standard };
     if (!live_integer_metadata_is_valid(decoded))
     {
         return false;
@@ -467,8 +447,7 @@ inline const SBakedValueRecord* CBakedDocument::value_record(const CBakedValueIn
     {
         return nullptr;
     }
-    return reinterpret_cast<const SBakedValueRecord*>(m_bytes + sizeof(SBakedDocumentHeader)) +
-        value.query_value();
+    return reinterpret_cast<const SBakedValueRecord*>(m_bytes + sizeof(SBakedDocumentHeader)) + value.query_value();
 }
 
 //==============================================================================

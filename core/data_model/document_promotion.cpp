@@ -42,15 +42,13 @@ private:
     std::uint32_t m_live_node_count{ 0u };
 };
 
-CLiveDocumentPromoter::CLiveDocumentPromoter(const CBakedDocument& source) noexcept :
-    m_source(source)
+CLiveDocumentPromoter::CLiveDocumentPromoter(const CBakedDocument& source) noexcept : m_source(source)
 {
 }
 
 bool CLiveDocumentPromoter::build() noexcept
 {
-    if (!m_source.is_ready() || !prepare_values() ||
-        !m_destination.initialise(m_live_node_count))
+    if (!m_source.is_ready() || !prepare_values() || !m_destination.initialise(m_live_node_count))
     {
         return false;
     }
@@ -61,9 +59,7 @@ bool CLiveDocumentPromoter::build() noexcept
         SPromotedValue& value = m_values[index];
         value.destination = create_value(value.source);
         if (!value.destination.is_valid() ||
-            !m_destination.append_child(
-                m_values[value.parent_index].destination,
-                value.destination).succeeded())
+            !m_destination.append_child(m_values[value.parent_index].destination, value.destination).succeeded())
         {
             return false;
         }
@@ -83,23 +79,17 @@ bool CLiveDocumentPromoter::prepare_values() noexcept
         return false;
     }
 
-    m_values[0u] = SPromotedValue{
-        m_source.root(),
-        CNodeKey{},
-        std::numeric_limits<std::uint32_t>::max() };
+    m_values[0u] = SPromotedValue{ m_source.root(), CNodeKey{}, std::numeric_limits<std::uint32_t>::max() };
     std::uint32_t next_value = 1u;
     std::uint64_t live_node_count = m_source.value_count();
     for (std::uint32_t index = 0u; index < next_value; ++index)
     {
         const EBakedValueType type = m_source.value_type(m_values[index].source);
-        if ((type == EBakedValueType::array) || (type == EBakedValueType::object) ||
-            (type == EBakedValueType::recovered_array))
+        if ((type == EBakedValueType::array) || (type == EBakedValueType::object) || (type == EBakedValueType::recovered_array))
         {
             ++live_node_count;
         }
-        for (CBakedValueIndex child = m_source.first_child(m_values[index].source);
-            child.is_valid();
-            child = m_source.next_sibling(child))
+        for (CBakedValueIndex child = m_source.first_child(m_values[index].source); child.is_valid(); child = m_source.next_sibling(child))
         {
             if (next_value >= m_source.value_count())
             {
@@ -108,8 +98,7 @@ bool CLiveDocumentPromoter::prepare_values() noexcept
             m_values[next_value++] = SPromotedValue{ child, CNodeKey{}, index };
         }
     }
-    if ((next_value != m_source.value_count()) ||
-        (live_node_count > std::numeric_limits<std::uint32_t>::max()))
+    if ((next_value != m_source.value_count()) || (live_node_count > std::numeric_limits<std::uint32_t>::max()))
     {
         return false;
     }
@@ -178,9 +167,7 @@ CNodeKey CLiveDocumentPromoter::create_value(const CBakedValueIndex source) noex
     }
 }
 
-bool document_translation::promote(
-    const CBakedDocument& source,
-    CLiveDocument& destination) noexcept
+bool document_translation::promote(const CBakedDocument& source, CLiveDocument& destination) noexcept
 {
     CLiveDocumentPromoter promoter{ source };
     if (!promoter.build())

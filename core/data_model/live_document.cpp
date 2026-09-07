@@ -755,8 +755,7 @@ CNodeKey CLiveDocument::detach_payload(const CNodeKey source) noexcept
         return CNodeKey{};
     }
 
-    const CNodeKey payload_key = create_empty_node(
-        CPropertyNameId{ CPropertyNameId::k_empty_value });
+    const CNodeKey payload_key = create_empty_node(CPropertyNameId{ CPropertyNameId::k_empty_value });
     if (!payload_key.is_valid())
     {
         return CNodeKey{};
@@ -956,11 +955,7 @@ bool CLiveDocument::prepare_string(const CStringView& source, SPreparedString& p
     }
 
     std::size_t normalized_size = 0u;
-    if (!utf8_string::validate_and_measure(
-        prepared.bytes,
-        prepared.size,
-        utf8_string::ELiteralNulPolicy::promote_to_modified_utf8,
-        normalized_size))
+    if (!utf8_string::validate_and_measure(prepared.bytes, prepared.size, utf8_string::ELiteralNulPolicy::promote_to_modified_utf8, normalized_size))
     {
         return false;
     }
@@ -971,11 +966,7 @@ bool CLiveDocument::prepare_string(const CStringView& source, SPreparedString& p
         {
             return false;
         }
-        if (!utf8_string::normalize_literal_nuls(
-            prepared.bytes,
-            prepared.size,
-            prepared.storage.data(),
-            normalized_size))
+        if (!utf8_string::normalize_literal_nuls(prepared.bytes, prepared.size, prepared.storage.data(), normalized_size))
         {
             return false;
         }
@@ -1155,10 +1146,7 @@ CNodeKey CLiveDocument::create_container(const ELiveValueType type, const SPrepa
     }
 
     CLiveNode aggregate{};
-    aggregate.initialise_aggregate(
-        value_slot,
-        live_aggregate_kind_for_value_type(type),
-        CPropertyNameId{ CPropertyNameId::k_empty_value });
+    aggregate.initialise_aggregate(value_slot, live_aggregate_kind_for_value_type(type), CPropertyNameId{ CPropertyNameId::k_empty_value });
     const TLiveNodeSlot aggregate_slot = m_nodes.insert(aggregate_key, aggregate);
     if (aggregate_slot < 0)
     {
@@ -1179,11 +1167,7 @@ bool CLiveDocument::insert_root_pair() noexcept
     }
 
     CLiveNode root_node{};
-    root_node.initialise_value(
-        ELiveValueType::object,
-        0u,
-        CPropertyNameId{ CPropertyNameId::k_empty_value },
-        CIntegerMetadata{});
+    root_node.initialise_value(ELiveValueType::object, 0u, CPropertyNameId{ CPropertyNameId::k_empty_value }, CIntegerMetadata{});
     const TLiveNodeSlot root_slot = m_nodes.insert(root_key, root_node);
     if (root_slot < 0)
     {
@@ -1191,10 +1175,7 @@ bool CLiveDocument::insert_root_pair() noexcept
     }
 
     CLiveNode aggregate{};
-    aggregate.initialise_aggregate(
-        root_slot,
-        ELiveAggregateKind::object,
-        CPropertyNameId{ CPropertyNameId::k_empty_value });
+    aggregate.initialise_aggregate(root_slot, ELiveAggregateKind::object, CPropertyNameId{ CPropertyNameId::k_empty_value });
     const TLiveNodeSlot aggregate_slot = m_nodes.insert(aggregate_key, aggregate);
     if (aggregate_slot < 0)
     {

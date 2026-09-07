@@ -95,9 +95,7 @@ CStringView CBakedDocument::string_value(const CStringValueId id) const noexcept
             layout.string_value_bytes_offset) : CStringView{};
 }
 
-CBakedValueIndex CBakedDocument::object_child(
-    const CBakedValueIndex object,
-    const CPropertyNameId name) const noexcept
+CBakedValueIndex CBakedDocument::object_child(const CBakedValueIndex object, const CPropertyNameId name) const noexcept
 {
     const SBakedValueRecord* const record = value_record(object);
     if ((record == nullptr) || (record->value_type != EBakedValueType::object) ||
@@ -105,8 +103,7 @@ CBakedValueIndex CBakedDocument::object_child(
     {
         return CBakedValueIndex{};
     }
-    const SBakedValueRecord* const records = reinterpret_cast<const SBakedValueRecord*>(
-        m_bytes + sizeof(SBakedDocumentHeader));
+    const SBakedValueRecord* const records = reinterpret_cast<const SBakedValueRecord*>(m_bytes + sizeof(SBakedDocumentHeader));
     for (std::uint32_t offset = 0u; offset < record->child_count; ++offset)
     {
         const std::uint32_t child_index = record->first_child_index + offset;
@@ -118,17 +115,12 @@ CBakedValueIndex CBakedDocument::object_child(
     return CBakedValueIndex{};
 }
 
-CBakedValueIndex CBakedDocument::object_child(
-    const CBakedValueIndex object,
-    const CStringView& name) const noexcept
+CBakedValueIndex CBakedDocument::object_child(const CBakedValueIndex object, const CStringView& name) const noexcept
 {
     return object_child(object, find_property_name_id(name));
 }
 
-bool CBakedDocument::derive_layout(
-    const SBakedDocumentHeader& candidate_header,
-    const std::size_t supplied_byte_count,
-    SLayout& layout) noexcept
+bool CBakedDocument::derive_layout(const SBakedDocumentHeader& candidate_header, const std::size_t supplied_byte_count, SLayout& layout) noexcept
 {
     layout = SLayout{};
     if ((supplied_byte_count > std::numeric_limits<std::uint32_t>::max()) ||
@@ -143,10 +135,7 @@ bool CBakedDocument::derive_layout(
     }
 
     std::uint64_t offset = sizeof(SBakedDocumentHeader);
-    const auto place_section = [&offset](
-        const std::uint32_t count,
-        const std::uint32_t stride,
-        std::uint32_t& section_offset) noexcept
+    const auto place_section = [&offset](const std::uint32_t count, const std::uint32_t stride, std::uint32_t& section_offset) noexcept
     {
         if (offset > std::numeric_limits<std::uint32_t>::max())
         {
@@ -158,14 +147,8 @@ bool CBakedDocument::derive_layout(
     };
 
     if (!place_section(candidate_header.value_count, sizeof(SBakedValueRecord), layout.values_offset) ||
-        !place_section(
-            candidate_header.property_name_reference_count,
-            sizeof(SBakedStringReference),
-            layout.property_name_references_offset) ||
-        !place_section(
-            candidate_header.string_value_reference_count,
-            sizeof(SBakedStringReference),
-            layout.string_value_references_offset) ||
+        !place_section(candidate_header.property_name_reference_count, sizeof(SBakedStringReference), layout.property_name_references_offset) ||
+        !place_section(candidate_header.string_value_reference_count,  sizeof(SBakedStringReference), layout.string_value_references_offset) ||
         !place_section(candidate_header.property_name_byte_count, 1u, layout.property_name_bytes_offset) ||
         !place_section(candidate_header.string_value_byte_count, 1u, layout.string_value_bytes_offset))
     {
@@ -229,8 +212,7 @@ bool CBakedDocument::validate(const std::uint8_t* const bytes, const std::size_t
     {
         const SBakedValueRecord& value = records[index];
         const std::uint8_t type = static_cast<std::uint8_t>(value.value_type);
-        const std::uint8_t type_flags =
-            value.value_flags & static_cast<std::uint8_t>(~baked_document_format::k_sibling_position_flags);
+        const std::uint8_t type_flags = value.value_flags & static_cast<std::uint8_t>(~baked_document_format::k_sibling_position_flags);
         if ((type < static_cast<std::uint8_t>(EBakedValueType::null_value)) ||
             (type > static_cast<std::uint8_t>(EBakedValueType::recovered_array)) ||
             (value.reserved_16 != 0u) ||
@@ -251,28 +233,21 @@ bool CBakedDocument::validate(const std::uint8_t* const bytes, const std::size_t
         if (container)
         {
             if ((value.payload_bits != 0u) || (type_flags != 0u) ||
-                ((value.child_count == 0u) &&
-                    (value.first_child_index != baked_document_format::k_invalid_index)) ||
-                ((value.child_count != 0u) &&
-                    (value.first_child_index == baked_document_format::k_invalid_index)))
+                ((value.child_count == 0u) && (value.first_child_index != baked_document_format::k_invalid_index)) ||
+                ((value.child_count != 0u) && (value.first_child_index == baked_document_format::k_invalid_index)))
             {
                 return false;
             }
         }
         else if ((value.first_child_index != baked_document_format::k_invalid_index) ||
             (value.child_count != 0u) ||
-            ((value.value_type == EBakedValueType::null_value) &&
-                ((value.payload_bits != 0u) || (type_flags != 0u))) ||
-            ((value.value_type == EBakedValueType::boolean) &&
-                ((value.payload_bits > 1u) || (type_flags != 0u))) ||
+            ((value.value_type == EBakedValueType::null_value) && ((value.payload_bits != 0u) || (type_flags != 0u))) ||
+            ((value.value_type == EBakedValueType::boolean) && ((value.payload_bits > 1u) || (type_flags != 0u))) ||
             ((value.value_type == EBakedValueType::integer) && !validate_integer(value)) ||
             ((value.value_type == EBakedValueType::floating_point) &&
-                ((type_flags != 0u) ||
-                    !live_floating_point_is_finite(live_floating_point_from_bits(value.payload_bits)))) ||
+                ((type_flags != 0u) || !live_floating_point_is_finite(live_floating_point_from_bits(value.payload_bits)))) ||
             ((value.value_type == EBakedValueType::string) &&
-                ((type_flags != 0u) ||
-                    ((value.payload_bits >> 32u) != 0u) ||
-                    (static_cast<std::uint32_t>(value.payload_bits) >= string_value_count))))
+                ((type_flags != 0u) || ((value.payload_bits >> 32u) != 0u) || (static_cast<std::uint32_t>(value.payload_bits) >= string_value_count))))
         {
             return false;
         }
@@ -315,11 +290,8 @@ bool CBakedDocument::validate(const std::uint8_t* const bytes, const std::size_t
                 (((child_index + 1u) == range_end) ? baked_document_format::k_last_sibling_flag : 0u);
             if ((child.parent_index != index) ||
                 ((child.value_flags & baked_document_format::k_sibling_position_flags) != expected_position_flags) ||
-                ((container.value_type == EBakedValueType::object) &&
-                    ((child.property_name_index == 0u) ||
-                        (marks[child.property_name_index] == object_stamp))) ||
-                ((container.value_type == EBakedValueType::recovered_array) &&
-                    (child.property_name_index != 0u)))
+                ((container.value_type == EBakedValueType::object) && ((child.property_name_index == 0u) || (marks[child.property_name_index] == object_stamp))) ||
+                ((container.value_type == EBakedValueType::recovered_array) && (child.property_name_index != 0u)))
             {
                 return false;
             }
@@ -364,11 +336,9 @@ bool CBakedDocument::validate_string_table(
     const std::uint32_t bytes_offset,
     const std::uint32_t string_byte_count) noexcept
 {
-    const SBakedStringReference* const references =
-        reinterpret_cast<const SBakedStringReference*>(bytes + references_offset);
+    const SBakedStringReference* const references = reinterpret_cast<const SBakedStringReference*>(bytes + references_offset);
     const std::uint8_t* const string_bytes = bytes + bytes_offset;
-    if ((references[0u].offset != 0u) || (references[0u].length != 0u) ||
-        (string_bytes[0u] != 0u))
+    if ((references[0u].offset != 0u) || (references[0u].length != 0u) || (string_bytes[0u] != 0u))
     {
         return false;
     }
@@ -378,8 +348,7 @@ bool CBakedDocument::validate_string_table(
     for (std::uint32_t index = 1u; index < reference_count; ++index)
     {
         const SBakedStringReference& reference = references[index];
-        const std::uint64_t terminator =
-            static_cast<std::uint64_t>(reference.offset) + reference.length;
+        const std::uint64_t terminator = static_cast<std::uint64_t>(reference.offset) + reference.length;
         if ((reference.offset != expected_offset) || (reference.length == 0u) ||
             (terminator >= string_byte_count) || (string_bytes[terminator] != 0u))
         {
@@ -387,11 +356,7 @@ bool CBakedDocument::validate_string_table(
         }
         const CStringView current{ string_bytes + reference.offset, reference.length };
         std::size_t normalized_size = 0u;
-        if (!utf8_string::validate_and_measure(
-                current.string(),
-                current.length(),
-                utf8_string::ELiteralNulPolicy::reject,
-                normalized_size) ||
+        if (!utf8_string::validate_and_measure(current.string(), current.length(), utf8_string::ELiteralNulPolicy::reject, normalized_size) ||
             (normalized_size != current.length()) ||
             ((index > 1u) && (previous.relationship(current) >= 0)))
         {
@@ -406,9 +371,7 @@ bool CBakedDocument::validate_string_table(
 bool CBakedDocument::validate_integer(const SBakedValueRecord& value) noexcept
 {
     CIntegerMetadata metadata;
-    if (!decode_integer_metadata(
-            value.value_flags & baked_document_format::k_integer_metadata_flags,
-            metadata))
+    if (!decode_integer_metadata(value.value_flags & baked_document_format::k_integer_metadata_flags, metadata))
     {
         return false;
     }
@@ -428,17 +391,14 @@ CPropertyNameId CBakedDocument::find_property_name_id(const CStringView& name) c
     {
         return CPropertyNameId{};
     }
-    const SBakedStringReference* const references = reinterpret_cast<const SBakedStringReference*>(
-        m_bytes + layout.property_name_references_offset);
+    const SBakedStringReference* const references = reinterpret_cast<const SBakedStringReference*>(m_bytes + layout.property_name_references_offset);
     std::uint32_t first = 1u;
     std::uint32_t end = header()->property_name_reference_count;
     while (first < end)
     {
         const std::uint32_t middle = first + ((end - first) / 2u);
         const SBakedStringReference& reference = references[middle];
-        const CStringView candidate{
-            m_bytes + layout.property_name_bytes_offset + reference.offset,
-            reference.length };
+        const CStringView candidate{ (m_bytes + layout.property_name_bytes_offset + reference.offset), reference.length };
         const std::int32_t relationship = candidate.relationship(name);
         if (relationship < 0)
         {
@@ -454,9 +414,7 @@ CPropertyNameId CBakedDocument::find_property_name_id(const CStringView& name) c
         return CPropertyNameId{};
     }
     const SBakedStringReference& reference = references[first];
-    const CStringView candidate{
-        m_bytes + layout.property_name_bytes_offset + reference.offset,
-        reference.length };
+    const CStringView candidate{ (m_bytes + layout.property_name_bytes_offset + reference.offset), reference.length };
     return (candidate == name) ? CPropertyNameId{ first } : CPropertyNameId{};
 }
 
@@ -470,10 +428,9 @@ CStringView CBakedDocument::string_from(
     {
         return CStringView{};
     }
-    const SBakedStringReference* const references =
-        reinterpret_cast<const SBakedStringReference*>(m_bytes + references_offset);
+    const SBakedStringReference* const references = reinterpret_cast<const SBakedStringReference*>(m_bytes + references_offset);
     const SBakedStringReference& reference = references[id];
-    return CStringView{ m_bytes + bytes_offset + reference.offset, reference.length };
+    return CStringView{ (m_bytes + bytes_offset + reference.offset), reference.length };
 }
 
 CBakedDocumentBlock::CBakedDocumentBlock(CBakedDocumentBlock&& source) noexcept

@@ -30,7 +30,7 @@ public:
 private:
     enum class EStringDomain : std::uint8_t
     {
-        property_names,
+        property_names = 0u,
         string_values,
     };
 
@@ -53,22 +53,13 @@ private:
     [[nodiscard]] bool prepare() noexcept;
     [[nodiscard]] bool measure_strings(SStringDomain& domain) noexcept;
     [[nodiscard]] bool derive_layout() noexcept;
-    [[nodiscard]] bool place_section(
-        std::uint64_t& offset,
-        const std::uint32_t count,
-        const std::uint32_t stride,
-        std::uint32_t& destination) const noexcept;
+    [[nodiscard]] bool place_section(std::uint64_t& offset, const std::uint32_t count, const std::uint32_t stride, std::uint32_t& destination) const noexcept;
     [[nodiscard]] bool allocate_output() noexcept;
     void emit_strings(SStringDomain& domain) noexcept;
     [[nodiscard]] bool emit_values() noexcept;
-    [[nodiscard]] bool emit_value_payload(
-        const CNodeKey value,
-        SBakedValueRecord& destination) const noexcept;
-    [[nodiscard]] static std::uint8_t encode_integer_metadata(
-        const CIntegerMetadata metadata) noexcept;
-    [[nodiscard]] SLiveString live_string_at_rank(
-        const EStringDomain domain,
-        const std::uint32_t rank) const noexcept;
+    [[nodiscard]] bool emit_value_payload(const CNodeKey value, SBakedValueRecord& destination) const noexcept;
+    [[nodiscard]] static std::uint8_t encode_integer_metadata(const CIntegerMetadata metadata) noexcept;
+    [[nodiscard]] SLiveString live_string_at_rank(const EStringDomain domain, const std::uint32_t rank) const noexcept;
     [[nodiscard]] bool validate_output() noexcept;
 
     const CLiveDocument& m_source;
@@ -83,14 +74,9 @@ private:
     std::uint32_t m_total_size{ 0u };
 };
 
-CBakedDocumentBaker::CBakedDocumentBaker(const CLiveDocument& source) noexcept :
-    m_source(source),
-    m_property_names{
-        EStringDomain::property_names,
-        &m_string_analysis.property_name_references },
-    m_string_values{
-        EStringDomain::string_values,
-        &m_string_analysis.string_value_references }
+CBakedDocumentBaker::CBakedDocumentBaker(const CLiveDocument& source) noexcept : m_source(source),
+    m_property_names{ EStringDomain::property_names, &m_string_analysis.property_name_references },
+    m_string_values{ EStringDomain::string_values, &m_string_analysis.string_value_references }
 {
 }
 
@@ -112,10 +98,8 @@ bool CBakedDocumentBaker::prepare() noexcept
     {
         return false;
     }
-    m_property_names.reference_count =
-        m_string_analysis.referenced_property_name_count + 1u;
-    m_string_values.reference_count =
-        m_string_analysis.referenced_string_value_count + 1u;
+    m_property_names.reference_count = m_string_analysis.referenced_property_name_count + 1u;
+    m_string_values.reference_count = m_string_analysis.referenced_string_value_count + 1u;
     if (!measure_strings(m_property_names) || !measure_strings(m_string_values))
     {
         return false;
@@ -134,8 +118,7 @@ bool CBakedDocumentBaker::measure_strings(SStringDomain& domain) noexcept
     std::uint64_t byte_count = 1u;
     for (std::size_t rank = 1u; rank < references.size(); ++rank)
     {
-        const SLiveString string = live_string_at_rank(
-            domain.kind, static_cast<std::uint32_t>(rank));
+        const SLiveString string = live_string_at_rank(domain.kind, static_cast<std::uint32_t>(rank));
         if (string.id >= references.size())
         {
             return false;
@@ -162,22 +145,11 @@ bool CBakedDocumentBaker::derive_layout() noexcept
 {
     std::uint64_t offset = sizeof(SBakedDocumentHeader);
     if ((m_analysis.value_count == 0u) ||
-        !place_section(
-            offset, m_analysis.value_count, sizeof(SBakedValueRecord), m_values_offset) ||
-        !place_section(
-            offset,
-            m_property_names.reference_count,
-            sizeof(SBakedStringReference),
-            m_property_names.references_offset) ||
-        !place_section(
-            offset,
-            m_string_values.reference_count,
-            sizeof(SBakedStringReference),
-            m_string_values.references_offset) ||
-        !place_section(
-            offset, m_property_names.byte_count, 1u, m_property_names.bytes_offset) ||
-        !place_section(
-            offset, m_string_values.byte_count, 1u, m_string_values.bytes_offset))
+        !place_section(offset, m_analysis.value_count, sizeof(SBakedValueRecord), m_values_offset) ||
+        !place_section(offset, m_property_names.reference_count, sizeof(SBakedStringReference), m_property_names.references_offset) ||
+        !place_section(offset, m_string_values.reference_count, sizeof(SBakedStringReference), m_string_values.references_offset) ||
+        !place_section(offset, m_property_names.byte_count, 1u, m_property_names.bytes_offset) ||
+        !place_section(offset, m_string_values.byte_count, 1u, m_string_values.bytes_offset))
     {
         return false;
     }
@@ -185,11 +157,7 @@ bool CBakedDocumentBaker::derive_layout() noexcept
     return true;
 }
 
-bool CBakedDocumentBaker::place_section(
-    std::uint64_t& offset,
-    const std::uint32_t count,
-    const std::uint32_t stride,
-    std::uint32_t& destination) const noexcept
+bool CBakedDocumentBaker::place_section(std::uint64_t& offset, const std::uint32_t count, const std::uint32_t stride, std::uint32_t& destination) const noexcept
 {
     if (offset > std::numeric_limits<std::uint32_t>::max())
     {
@@ -202,10 +170,7 @@ bool CBakedDocumentBaker::place_section(
 
 bool CBakedDocumentBaker::allocate_output() noexcept
 {
-    if (!m_bytes.reallocate(
-            m_total_size,
-            m_total_size,
-            baked_document_format::k_block_alignment))
+    if (!m_bytes.reallocate(m_total_size, m_total_size, baked_document_format::k_block_alignment))
     {
         return false;
     }
@@ -227,8 +192,7 @@ bool CBakedDocumentBaker::allocate_output() noexcept
 void CBakedDocumentBaker::emit_strings(SStringDomain& domain) noexcept
 {
     TPodVector<std::uint32_t>& live_to_baked = *domain.live_to_baked;
-    SBakedStringReference* const references = reinterpret_cast<SBakedStringReference*>(
-        m_bytes.data() + domain.references_offset);
+    SBakedStringReference* const references = reinterpret_cast<SBakedStringReference*>(m_bytes.data() + domain.references_offset);
     std::uint8_t* const bytes = m_bytes.data() + domain.bytes_offset;
     references[0u] = SBakedStringReference{ 0u, 0u };
     bytes[0u] = 0u;
@@ -238,29 +202,21 @@ void CBakedDocumentBaker::emit_strings(SStringDomain& domain) noexcept
     std::uint32_t byte_offset = 1u;
     for (std::size_t rank = 1u; rank < live_to_baked.size(); ++rank)
     {
-        const SLiveString string = live_string_at_rank(
-            domain.kind, static_cast<std::uint32_t>(rank));
-        if (live_to_baked[string.id] == 0u)
+        const SLiveString string = live_string_at_rank(domain.kind, static_cast<std::uint32_t>(rank));
+        if (live_to_baked[string.id] != 0u)
         {
-            continue;
+            references[baked_id] = SBakedStringReference{ byte_offset, static_cast<std::uint32_t>(string.value.length()) };
+            std::memcpy((bytes + byte_offset), string.value.string(), string.value.length());
+            byte_offset += static_cast<std::uint32_t>(string.value.length());
+            bytes[byte_offset++] = 0u;
+            live_to_baked[string.id] = baked_id++;
         }
-        references[baked_id] = SBakedStringReference{
-            byte_offset,
-            static_cast<std::uint32_t>(string.value.length()) };
-        std::memcpy(
-            bytes + byte_offset,
-            string.value.string(),
-            string.value.length());
-        byte_offset += static_cast<std::uint32_t>(string.value.length());
-        bytes[byte_offset++] = 0u;
-        live_to_baked[string.id] = baked_id++;
     }
 }
 
 bool CBakedDocumentBaker::emit_values() noexcept
 {
-    SBakedValueRecord* const records =
-        reinterpret_cast<SBakedValueRecord*>(m_bytes.data() + m_values_offset);
+    SBakedValueRecord* const records = reinterpret_cast<SBakedValueRecord*>(m_bytes.data() + m_values_offset);
     records[0u].parent_index = baked_document_format::k_invalid_index;
     std::uint32_t next_value = 1u;
     for (std::uint32_t index = 0u; index < m_analysis.value_count; ++index)
@@ -309,9 +265,7 @@ bool CBakedDocumentBaker::emit_values() noexcept
     return next_value == m_analysis.value_count;
 }
 
-bool CBakedDocumentBaker::emit_value_payload(
-    const CNodeKey value,
-    SBakedValueRecord& destination) const noexcept
+bool CBakedDocumentBaker::emit_value_payload(const CNodeKey value, SBakedValueRecord& destination) const noexcept
 {
     const CPropertyNameId name = m_source.name_id(value);
     if (!name.is_valid() || (name.query_value() >= m_property_names.live_to_baked->size()))
@@ -374,8 +328,7 @@ bool CBakedDocumentBaker::emit_value_payload(
         case ELiveValueType::string:
         {
             const CStringValueId string = m_source.string_value_id(value);
-            if (!string.is_valid() ||
-                (string.query_value() >= m_string_values.live_to_baked->size()))
+            if (!string.is_valid() || (string.query_value() >= m_string_values.live_to_baked->size()))
             {
                 return false;
             }
@@ -405,8 +358,7 @@ bool CBakedDocumentBaker::emit_value_payload(
     }
 }
 
-std::uint8_t CBakedDocumentBaker::encode_integer_metadata(
-    const CIntegerMetadata metadata) noexcept
+std::uint8_t CBakedDocumentBaker::encode_integer_metadata(const CIntegerMetadata metadata) noexcept
 {
     return
         ((metadata.domain == EIntegerDomain::unsigned_value) ? 0x01u : 0u) |
@@ -415,9 +367,7 @@ std::uint8_t CBakedDocumentBaker::encode_integer_metadata(
         ((metadata.prefix == EIntegerPrefix::alternate) ? 0x20u : 0u);
 }
 
-CBakedDocumentBaker::SLiveString CBakedDocumentBaker::live_string_at_rank(
-    const EStringDomain domain,
-    const std::uint32_t rank) const noexcept
+CBakedDocumentBaker::SLiveString CBakedDocumentBaker::live_string_at_rank(const EStringDomain domain, const std::uint32_t rank) const noexcept
 {
     if (domain == EStringDomain::property_names)
     {
@@ -439,9 +389,7 @@ void CBakedDocumentBaker::publish(CBakedDocumentBlock& destination) noexcept
     destination.m_bytes = std::move(m_bytes);
 }
 
-bool document_translation::bake(
-    const CLiveDocument& source,
-    CBakedDocumentBlock& destination) noexcept
+bool document_translation::bake(const CLiveDocument& source, CBakedDocumentBlock& destination) noexcept
 {
     CBakedDocumentBaker baker{ source };
     if (!baker.build())
