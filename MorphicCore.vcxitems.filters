@@ -240,6 +240,9 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)core\data_model\data_model_types.hpp">
       <Filter>Core\include\data_model</Filter>
     </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)core\data_model\document_translation.hpp">
+      <Filter>Core\include\data_model</Filter>
+    </ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)core\data_model\live_document.hpp">
       <Filter>Core\include\data_model</Filter>
     </ClInclude>
@@ -483,6 +486,12 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="$(MSBuildThisFileDirectory)core\data_model\baked_document.cpp">
+      <Filter>Core\src\data_model</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)core\data_model\document_baking.cpp">
+      <Filter>Core\src\data_model</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)core\data_model\document_promotion.cpp">
       <Filter>Core\src\data_model</Filter>
     </ClCompile>
     <ClCompile Include="$(MSBuildThisFileDirectory)core\data_model\live_document.cpp">

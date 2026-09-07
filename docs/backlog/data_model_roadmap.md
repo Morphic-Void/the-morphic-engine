@@ -20,8 +20,8 @@ the data model require separate approval and a separate commit.
 
 ## Current baseline
 
-The current checkpoint follows completion of Stages 0 through 7. Stage 8,
-promotion of a validated baked view into a fresh live document, is next.
+The current checkpoint follows completion of Stages 0 through 8. Stage 9,
+the writer and parser path, is next.
 
 The live implementation currently provides:
 
@@ -37,15 +37,16 @@ The live implementation currently provides:
 - strict append and insertion, detachment and recursive erasure;
 - explicit integrity, canonicality and completeness observation;
 - on-demand root-reachable analysis with optional caller-owned string references;
-- a reset-only known-bad state; and
+- a reset-only known-bad state;
 - allocation-free detachment, identity-preserving payload extraction and
   attachment, and payload erasure.
 
 The replacement baked implementation in `core/data_model` provides the
-physical records, checked non-owning view and owning single-allocation block,
-including public-only baking from a live document. The v1 baked model, writer
-and tests under `graveyard/data_model_v1_2026-09-01` are reference material
-only.
+physical records, checked non-owning view and owning single-allocation block.
+A separate public translation layer provides staged baking and promotion
+without either document representation depending on the other. The v1 baked
+model, writer and tests under `graveyard/data_model_v1_2026-09-01` are
+reference material only.
 
 ## Settled direction
 
@@ -225,11 +226,13 @@ reference records and implements the checked non-owning view. Binding validates
 the complete physical artifact with one transient framework vector. The second
 slice completes classification, interned-text, relationship, ordinal-array,
 object-lookup and typed-payload queries without persistent indices or scratch.
-The final slice adds the owning block and public-only bake. Baking reuses the
-live analysis reference vectors as string-ID maps and uses one breadth-first
-value-key vector to emit directly into an exactly sized, 32-byte-aligned final
-allocation. The completed bytes are validated before publication; a failed
-rebuild leaves an existing block unchanged.
+The final slice adds the owning block and public translation bake. Baking
+reuses the live analysis reference vectors as string-ID maps and uses one
+breadth-first value-key vector to emit directly into an exactly sized,
+32-byte-aligned final allocation. The completed bytes are validated before
+publication; a failed rebuild leaves an existing block unchanged. The
+translation implementation is separate from the baked representation and has
+only narrow publication access to the owning block.
 
 ## Stage 8: promotion
 
@@ -237,7 +240,17 @@ Promote an explicitly validated baked view into a fresh compact live document.
 Preserve semantic order, names, payload kinds, numeric intent, strings and
 recovered arrays while creating new live keys and string IDs.
 
-Bake and promotion form the ordinary route between allocation contexts.
+The public translation layer's bake and promotion operations form the ordinary
+route between allocation contexts.
+
+Status: complete. Promotion uses only the checked baked query surface and the
+public live creation and attachment operations. One breadth-first discovery
+vector records the baked values and their parent indices while counting the
+exact live value-plus-aggregate node requirement. Construction occurs in a
+fresh staged live document; it replaces the destination only after all values
+are attached and the result passes its integrity check. Promotion lives beside
+baking in the translation layer rather than coupling either representation to
+the other.
 
 ## Stage 9: writer and parser
 

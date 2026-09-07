@@ -18,6 +18,7 @@
 #include "containers/ByteBuffers.hpp"
 #include "data_model/baked_document.hpp"
 #include "data_model/baked_document_format.hpp"
+#include "data_model/document_translation.hpp"
 #include "data_model/live_document.hpp"
 #include "memory/memory_context.hpp"
 #include "tests/support/test_allocator.hpp"
@@ -638,7 +639,7 @@ void test_live_document_bake(TTestContext& ctx)
     TEST_EXPECT(ctx, live.check_integrity());
 
     CBakedDocumentBlock block;
-    TEST_EXPECT(ctx, block.build_from(live));
+    TEST_EXPECT(ctx, document_translation::bake(live, block));
     TEST_EXPECT(ctx, block.is_ready());
     TEST_EXPECT(ctx, block.document().check_integrity());
     TEST_EXPECT(ctx, block.memory_token_count() == 1u);
@@ -706,11 +707,50 @@ void test_live_document_bake(TTestContext& ctx)
     TEST_EXPECT(ctx, assigned.is_ready() && assigned.document().check_integrity());
     TEST_EXPECT(ctx, !moved.is_ready() && !moved.bytes().is_ready());
 
+    CLiveDocument promoted;
+    TEST_EXPECT(ctx, document_translation::promote(assigned.document(), promoted));
+    TEST_EXPECT(ctx, promoted.check_integrity());
+    TEST_EXPECT(ctx, promoted.value_count() == 14u);
+    TEST_EXPECT(ctx, promoted.is_complete());
+    TEST_EXPECT(ctx, !promoted.is_canonical());
+    TEST_EXPECT(ctx, !promoted.property_name_id_at_rank(5u).is_valid());
+    TEST_EXPECT(ctx, !promoted.string_value_id_at_rank(3u).is_valid());
+
+    CBakedDocumentBlock round_trip;
+    TEST_EXPECT(ctx, document_translation::bake(promoted, round_trip));
+    TEST_EXPECT(ctx, round_trip.bytes().size() == assigned.bytes().size());
+    TEST_EXPECT(ctx,
+        std::memcmp(
+            round_trip.bytes().data(),
+            assigned.bytes().data(),
+            assigned.bytes().size()) == 0);
+
     CLiveDocument unavailable;
     const CByteConstView before_failed_rebuild = assigned.bytes();
-    TEST_EXPECT(ctx, !assigned.build_from(unavailable));
+    TEST_EXPECT(ctx, !document_translation::bake(unavailable, assigned));
     TEST_EXPECT(ctx, assigned.is_ready());
     TEST_EXPECT(ctx, assigned.bytes().data() == before_failed_rebuild.data());
+
+    const CNodeKey promoted_root = promoted.root();
+    CBakedDocument unavailable_baked;
+    TEST_EXPECT(ctx, !document_translation::promote(unavailable_baked, promoted));
+    TEST_EXPECT(ctx, promoted.root() == promoted_root);
+    TEST_EXPECT(ctx, promoted.check_integrity());
+
+    tests::TAllocatorFixture promotion_allocator_fixture;
+    promotion_allocator_fixture.reject_allocation = true;
+    memory::CMemoryAllocator promotion_allocator{
+        &promotion_allocator_fixture,
+        &tests::allocate_test_memory,
+        &tests::deallocate_test_memory };
+    memory::CMemoryContext promotion_context{ promotion_allocator };
+    {
+        tests::TMemoryContextScope scope{ &promotion_context };
+        TEST_EXPECT(ctx, !document_translation::promote(assigned.document(), promoted));
+        TEST_EXPECT(ctx, promoted.root() == promoted_root);
+        TEST_EXPECT(ctx, promoted.check_integrity());
+    }
+    TEST_EXPECT(ctx, promotion_context.is_attribution_empty());
     assigned.deallocate();
     TEST_EXPECT(ctx, !assigned.is_ready());
     TEST_EXPECT(ctx, assigned.memory_allocation_count() == 0u);
@@ -722,10 +762,16 @@ void test_bake_root_only_and_allocation_failure(TTestContext& ctx)
     TEST_EXPECT(ctx, live.initialise());
 
     CBakedDocumentBlock root_only;
-    TEST_EXPECT(ctx, root_only.build_from(live));
+    TEST_EXPECT(ctx, document_translation::bake(live, root_only));
     TEST_EXPECT(ctx, root_only.document().byte_count() == k_root_only_size);
     TEST_EXPECT(ctx, root_only.document().is_canonical());
     TEST_EXPECT(ctx, root_only.document().value_count() == 1u);
+
+    CLiveDocument promoted_root_only;
+    TEST_EXPECT(ctx, document_translation::promote(root_only.document(), promoted_root_only));
+    TEST_EXPECT(ctx, promoted_root_only.check_integrity());
+    TEST_EXPECT(ctx, promoted_root_only.value_count() == 1u);
+    TEST_EXPECT(ctx, promoted_root_only.child_count(promoted_root_only.root()) == 0u);
 
     tests::TAllocatorFixture allocator_fixture;
     allocator_fixture.reject_allocation = true;
@@ -737,12 +783,12 @@ void test_bake_root_only_and_allocation_failure(TTestContext& ctx)
     {
         tests::TMemoryContextScope scope{ &memory_context };
         const std::uint8_t* const retained_bytes = root_only.bytes().data();
-        TEST_EXPECT(ctx, !root_only.build_from(live));
+        TEST_EXPECT(ctx, !document_translation::bake(live, root_only));
         TEST_EXPECT(ctx, root_only.is_ready());
         TEST_EXPECT(ctx, root_only.bytes().data() == retained_bytes);
 
         CBakedDocumentBlock rejected;
-        TEST_EXPECT(ctx, !rejected.build_from(live));
+        TEST_EXPECT(ctx, !document_translation::bake(live, rejected));
         TEST_EXPECT(ctx, !rejected.is_ready());
         TEST_EXPECT(ctx, rejected.memory_allocation_count() == 0u);
     }

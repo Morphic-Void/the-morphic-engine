@@ -68,6 +68,7 @@ static_assert(sizeof(CBakedValueIndex) == sizeof(std::uint32_t));
 
 struct SBakedDocumentHeader;
 struct SBakedValueRecord;
+class CBakedDocumentBaker;
 
 class CBakedDocument
 {
@@ -174,8 +175,7 @@ public:
     CBakedDocumentBlock& operator=(const CBakedDocumentBlock&) = delete;
     ~CBakedDocumentBlock() noexcept = default;
 
-    //  Construction and release
-    [[nodiscard]] bool build_from(const CLiveDocument& source) noexcept;
+    //  Release
     void deallocate() noexcept;
 
     //  Status and immutable access
@@ -189,6 +189,8 @@ public:
     [[nodiscard]] std::uint64_t memory_allocation_size() const noexcept;
 
 private:
+    friend class CBakedDocumentBaker;
+
     void replace_with(CBakedDocumentBlock& source) noexcept;
 
     CByteBuffer m_bytes;
