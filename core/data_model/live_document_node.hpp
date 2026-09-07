@@ -173,7 +173,9 @@ static_assert(sizeof(CLiveNode) == 40u);
 
 [[nodiscard]] constexpr bool live_value_type_is_container(const ELiveValueType type) noexcept
 {
-    return (type == ELiveValueType::array) || (type == ELiveValueType::object) ||
+    return
+        (type == ELiveValueType::array) ||
+        (type == ELiveValueType::object) ||
         (type == ELiveValueType::recovered_array);
 }
 
@@ -191,14 +193,12 @@ static_assert(sizeof(CLiveNode) == 40u);
 
 inline bool CLiveNode::is_value_record() const noexcept
 {
-    return (m_usage.value_type != ELiveValueType::invalid) &&
-        (m_usage.aggregate_kind == ELiveAggregateKind::invalid);
+    return (m_usage.value_type != ELiveValueType::invalid) && (m_usage.aggregate_kind == ELiveAggregateKind::invalid);
 }
 
 inline bool CLiveNode::is_aggregate_record() const noexcept
 {
-    return (m_usage.value_type == ELiveValueType::invalid) &&
-        (m_usage.aggregate_kind != ELiveAggregateKind::invalid);
+    return (m_usage.value_type == ELiveValueType::invalid) && (m_usage.aggregate_kind != ELiveAggregateKind::invalid);
 }
 
 inline std::uint64_t CLiveNode::payload_bits() const noexcept
@@ -314,10 +314,7 @@ inline void CLiveNode::set_aggregate_last_child_slot(const TLiveNodeSlot slot) n
     m_links.aggregate.last_child = slot;
 }
 
-inline void CLiveNode::set_value_attachment(
-    const TLiveNodeSlot parent,
-    const TLiveNodeSlot previous,
-    const TLiveNodeSlot next) noexcept
+inline void CLiveNode::set_value_attachment(const TLiveNodeSlot parent, const TLiveNodeSlot previous, const TLiveNodeSlot next) noexcept
 {
     set_value_parent_aggregate_slot(parent);
     set_value_previous_sibling_slot(previous);
@@ -379,8 +376,7 @@ inline bool CLiveNode::value_payload_is_valid() const noexcept
 
     if (live_value_type_is_container(value_type()))
     {
-        return (value_owned_aggregate_slot() >= 0) &&
-            (payload_bits() == 0u) && (integer_metadata() == CIntegerMetadata{});
+        return (value_owned_aggregate_slot() >= 0) && (payload_bits() == 0u) && (integer_metadata() == CIntegerMetadata{});
     }
     if (value_owned_aggregate_slot() != k_invalid_live_node_slot)
     {
@@ -431,10 +427,7 @@ inline bool CLiveNode::aggregate_payload_is_valid() const noexcept
         (integer_metadata() == CIntegerMetadata{});
 }
 
-inline bool CLiveNode::forms_container_pair_with(
-    const CLiveNode& aggregate,
-    const TLiveNodeSlot value_slot,
-    const TLiveNodeSlot aggregate_slot) const noexcept
+inline bool CLiveNode::forms_container_pair_with(const CLiveNode& aggregate, const TLiveNodeSlot value_slot, const TLiveNodeSlot aggregate_slot) const noexcept
 {
     if (!is_value_record() ||
         !aggregate.is_aggregate_record() ||

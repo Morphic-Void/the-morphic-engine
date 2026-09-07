@@ -73,9 +73,7 @@ public:
     //  after success; scratch may retain capacity after failure. Recompute after
     //  mutation. Analysis trusts established structure; use check_integrity()
     //  for the explicit whole-document audit.
-    [[nodiscard]] bool analyse(
-        SLiveDocumentAnalysis& result,
-        SLiveDocumentStringAnalysis* strings = nullptr) const noexcept;
+    [[nodiscard]] bool analyse(SLiveDocumentAnalysis& result, SLiveDocumentStringAnalysis* strings = nullptr) const noexcept;
 
     //  Root and reachable structure
     [[nodiscard]] CNodeKey root() const noexcept;
@@ -128,17 +126,9 @@ public:
     [[nodiscard]] CNodeKey create_recovered_array(const CStringView& name = {}) noexcept;
 
     //  Structural mutation
-    [[nodiscard]] CLiveAttachmentResult append_child(
-        const CNodeKey destination,
-        const CNodeKey candidate) noexcept;
-    [[nodiscard]] CLiveAttachmentResult insert_child_before(
-        const CNodeKey destination,
-        const CNodeKey candidate,
-        const CNodeKey before) noexcept;
-    [[nodiscard]] CLiveAttachmentResult insert_child_at(
-        const CNodeKey destination,
-        const CNodeKey candidate,
-        const std::uint32_t index) noexcept;
+    [[nodiscard]] CLiveAttachmentResult append_child(const CNodeKey destination, const CNodeKey candidate) noexcept;
+    [[nodiscard]] CLiveAttachmentResult insert_child_before(const CNodeKey destination, const CNodeKey candidate, const CNodeKey before) noexcept;
+    [[nodiscard]] CLiveAttachmentResult insert_child_at(const CNodeKey destination, const CNodeKey candidate, const std::uint32_t index) noexcept;
 
     [[nodiscard]] bool detach(const CNodeKey value) noexcept;
 
@@ -186,10 +176,7 @@ private:
 
     //  String admission, stabilization and interning
     [[nodiscard]] bool prepare_string(const CStringView& source, SPreparedString& prepared) const noexcept;
-    [[nodiscard]] bool intern_string_domain(
-        const SPreparedString& value,
-        CStableStrings& strings,
-        std::uint32_t& id) noexcept;
+    [[nodiscard]] bool intern_string_domain(const SPreparedString& value, CStableStrings& strings, std::uint32_t& id) noexcept;
 
     //  Identity allocation and string interning
     [[nodiscard]] bool allocate_key(CNodeKey& key) noexcept;
@@ -225,32 +212,19 @@ private:
     //  Iterative observation and checked audit share const preorder navigation.
     template<typename TVisitor>
     [[nodiscard]] bool visit_subtree(const TLiveNodeSlot subtree_root, TVisitor&& visitor) const noexcept;
-    [[nodiscard]] bool subtree_next(
-        const TLiveNodeSlot subtree_root,
-        TLiveNodeSlot current,
-        TLiveNodeSlot& next) const noexcept;
+    [[nodiscard]] bool subtree_next(const TLiveNodeSlot subtree_root, TLiveNodeSlot current, TLiveNodeSlot& next) const noexcept;
     [[nodiscard]] bool audit_subtree_checked(const TLiveNodeSlot subtree_root, std::uint64_t& records) const noexcept;
 
     //  Trusted mutation traversal
     [[nodiscard]] TLiveNodeSlot subtree_first_postorder(const TLiveNodeSlot subtree_root) noexcept;
-    [[nodiscard]] TLiveNodeSlot subtree_next_postorder(
-        const TLiveNodeSlot subtree_root,
-        const TLiveNodeSlot current) noexcept;
-    [[nodiscard]] bool query_ancestry(
-        const TLiveNodeSlot value,
-        const TLiveNodeSlot sought,
-        bool& found) noexcept;
+    [[nodiscard]] TLiveNodeSlot subtree_next_postorder(const TLiveNodeSlot subtree_root, const TLiveNodeSlot current) noexcept;
+    [[nodiscard]] bool query_ancestry(const TLiveNodeSlot value, const TLiveNodeSlot sought, bool& found) noexcept;
 
     //  Structural mutation
-    [[nodiscard]] CLiveAttachmentResult attach_child(
-        const CNodeKey destination,
-        const CNodeKey candidate,
-        const SAttachmentPosition& position) noexcept;
+    [[nodiscard]] CLiveAttachmentResult attach_child(const CNodeKey destination, const CNodeKey candidate, const SAttachmentPosition& position) noexcept;
     [[nodiscard]] bool detach_value(const TLiveNodeSlot value) noexcept;
     [[nodiscard]] bool clear_root() noexcept;
-    [[nodiscard]] bool move_value_payload(
-        const TLiveNodeSlot target,
-        const TLiveNodeSlot source) noexcept;
+    [[nodiscard]] bool move_value_payload(const TLiveNodeSlot target, const TLiveNodeSlot source) noexcept;
     [[nodiscard]] bool erase_aggregate_children(const TLiveNodeSlot aggregate) noexcept;
     [[nodiscard]] bool erase_subtree(const TLiveNodeSlot value) noexcept;
     void mark_integrity_bad() noexcept;
