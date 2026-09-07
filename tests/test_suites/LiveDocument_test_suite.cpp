@@ -338,6 +338,51 @@ void test_detached_creation_and_accessors(TTestContext& ctx)
     TEST_EXPECT(ctx, document.check_integrity());
 }
 
+void test_lexical_string_domain_observers(TTestContext& ctx)
+{
+    CLiveDocument unavailable;
+    TEST_EXPECT(ctx, !unavailable.property_name_id_at_rank(0u).is_valid());
+    TEST_EXPECT(ctx, !unavailable.string_value_id_at_rank(0u).is_valid());
+
+    CLiveDocument document;
+    TEST_EXPECT(ctx, document.initialise());
+    TEST_EXPECT(ctx, document.property_name_id_at_rank(0u).is_empty());
+    TEST_EXPECT(ctx, document.string_value_id_at_rank(0u).is_empty());
+    TEST_EXPECT(ctx, !document.property_name_id_at_rank(1u).is_valid());
+    TEST_EXPECT(ctx, !document.string_value_id_at_rank(1u).is_valid());
+
+    const CStringView apple{ reinterpret_cast<const std::uint8_t*>("apple"), 5u };
+    const CStringView banana{ reinterpret_cast<const std::uint8_t*>("banana"), 6u };
+    const CStringView pear{ reinterpret_cast<const std::uint8_t*>("pear"), 4u };
+    const CNodeKey pear_name = document.create_null(pear);
+    const CNodeKey apple_name = document.create_null(apple);
+    const CNodeKey banana_name = document.create_null(banana);
+    const CPropertyNameId pear_name_id = document.name_id(pear_name);
+    const CPropertyNameId apple_name_id = document.name_id(apple_name);
+    const CPropertyNameId banana_name_id = document.name_id(banana_name);
+    TEST_EXPECT(ctx, document.property_name_id_at_rank(1u) == apple_name_id);
+    TEST_EXPECT(ctx, document.property_name_id_at_rank(2u) == banana_name_id);
+    TEST_EXPECT(ctx, document.property_name_id_at_rank(3u) == pear_name_id);
+    TEST_EXPECT(ctx, !document.property_name_id_at_rank(4u).is_valid());
+
+    const CNodeKey pear_value = document.create_string(pear);
+    const CNodeKey apple_value = document.create_string(apple);
+    const CNodeKey banana_value = document.create_string(banana);
+    const CStringValueId pear_value_id = document.string_value_id(pear_value);
+    const CStringValueId apple_value_id = document.string_value_id(apple_value);
+    const CStringValueId banana_value_id = document.string_value_id(banana_value);
+    TEST_EXPECT(ctx, document.string_value_id_at_rank(1u) == apple_value_id);
+    TEST_EXPECT(ctx, document.string_value_id_at_rank(2u) == banana_value_id);
+    TEST_EXPECT(ctx, document.string_value_id_at_rank(3u) == pear_value_id);
+    TEST_EXPECT(ctx, !document.string_value_id_at_rank(4u).is_valid());
+    TEST_EXPECT(ctx, !document.property_name_id_at_rank(std::numeric_limits<std::uint32_t>::max()).is_valid());
+    TEST_EXPECT(ctx, !document.string_value_id_at_rank(std::numeric_limits<std::uint32_t>::max()).is_valid());
+
+    document.deallocate();
+    TEST_EXPECT(ctx, !document.property_name_id_at_rank(0u).is_valid());
+    TEST_EXPECT(ctx, !document.string_value_id_at_rank(0u).is_valid());
+}
+
 void test_utf8_normalisation_and_rejection(TTestContext& ctx)
 {
     CLiveDocument document;
@@ -1845,6 +1890,7 @@ int run_live_document_tests()
     TTestContext ctx;
     test_initialisation_root_and_empty_domains(ctx);
     test_detached_creation_and_accessors(ctx);
+    test_lexical_string_domain_observers(ctx);
     test_utf8_normalisation_and_rejection(ctx);
     test_canonical_string_admission_avoids_normalisation_allocation(ctx);
     test_aliased_string_admission(ctx);

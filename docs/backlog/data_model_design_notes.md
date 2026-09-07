@@ -268,9 +268,10 @@ without persistent state or quadratic scans.
 
 Existing live analysis is sufficient for baking. Its two reference-count
 vectors can become string-ID maps after byte measurement, and one
-baked-index-to-live-slot vector drives breadth-first direct emission. The
-stable string stores already supply lexical rank order. No live public API or
-container extension is needed.
+baked-index-to-live-key vector drives breadth-first direct emission. Narrow
+live-document observers expose the ID at a requested lexical rank in each
+string domain. Baking can therefore use only the public live interface; no
+private node or stable-store access is required.
 
 ## Preserved future concerns
 

@@ -128,6 +128,11 @@ maintain permanent root-reachable reference counts or distinct-used-string
 totals. Baking or a requested analysis discovers references by walking the
 tree.
 
+The live document exposes each string domain's ID at a requested lexical rank.
+Rank zero is the canonical empty ID; an unavailable rank is invalid. These
+observations permit deterministic public-only baking and serialization without
+exposing the underlying stable stores.
+
 ## Numeric values
 
 An integer records:

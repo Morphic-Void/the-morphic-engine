@@ -93,6 +93,8 @@ public:
     [[nodiscard]] CStringView name(const CNodeKey value) const noexcept;
     [[nodiscard]] CStringView property_name(const CPropertyNameId id) const noexcept;
     [[nodiscard]] CStringView string_value(const CStringValueId id) const noexcept;
+    [[nodiscard]] CPropertyNameId property_name_id_at_rank(const std::uint32_t rank) const noexcept;
+    [[nodiscard]] CStringValueId string_value_id_at_rank(const std::uint32_t rank) const noexcept;
 
     //  Tree relationships
     [[nodiscard]] CNodeKey parent(const CNodeKey value) const noexcept;
@@ -208,6 +210,7 @@ private:
     [[nodiscard]] static CLiveAttachmentResult attachment_rejection(const ELiveAttachmentRejection rejection) noexcept;
     [[nodiscard]] bool value_payload_is_in_document_domain(const CLiveNode& value) const noexcept;
     [[nodiscard]] bool aggregate_payload_is_in_document_domain(const CLiveNode& aggregate) const noexcept;
+    [[nodiscard]] static std::uint32_t string_id_at_rank(const CStableStrings& strings, const std::uint32_t rank) noexcept;
 
     //  Iterative observation and checked audit share const preorder navigation.
     template<typename TVisitor>

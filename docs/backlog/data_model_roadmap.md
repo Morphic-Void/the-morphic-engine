@@ -30,6 +30,7 @@ The live implementation currently provides:
 - the implicit root object;
 - framework memory accounting;
 - separate stable property-name and string-value domains;
+- public lexical-rank observation for both string domains;
 - alias-safe validated string admission;
 - empty, scalar, array and object construction;
 - numeric intent and finite-float validation;

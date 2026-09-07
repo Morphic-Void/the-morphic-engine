@@ -383,6 +383,16 @@ CStringView CLiveDocument::string_value(const CStringValueId id) const noexcept
     return m_string_values.view(id.query_value());
 }
 
+CPropertyNameId CLiveDocument::property_name_id_at_rank(const std::uint32_t rank) const noexcept
+{
+    return is_ready() ? CPropertyNameId{ string_id_at_rank(m_property_names, rank) } : CPropertyNameId{};
+}
+
+CStringValueId CLiveDocument::string_value_id_at_rank(const std::uint32_t rank) const noexcept
+{
+    return is_ready() ? CStringValueId{ string_id_at_rank(m_string_values, rank) } : CStringValueId{};
+}
+
 CNodeKey CLiveDocument::parent(const CNodeKey value) const noexcept
 {
     const CLiveNode* const found = value_node(value);
@@ -1274,6 +1284,18 @@ bool CLiveDocument::value_payload_is_in_document_domain(const CLiveNode& value) 
 bool CLiveDocument::aggregate_payload_is_in_document_domain(const CLiveNode& aggregate) const noexcept
 {
     return aggregate.aggregate_payload_is_valid();
+}
+
+std::uint32_t CLiveDocument::string_id_at_rank(const CStableStrings& strings, const std::uint32_t rank) noexcept
+{
+    if (rank == 0u)
+    {
+        return 0u;
+    }
+    const std::size_t ref_index = strings.rank_to_ref_index(rank);
+    const std::size_t id = strings.ref_index_to_id(ref_index);
+    return ((id != CStableStrings::k_invalid_id) && (id < CPropertyNameId::k_invalid_value)) ?
+        static_cast<std::uint32_t>(id) : CPropertyNameId::k_invalid_value;
 }
 
 bool CLiveDocument::subtree_next(const TLiveNodeSlot subtree_root, TLiveNodeSlot current, TLiveNodeSlot& next) const noexcept
