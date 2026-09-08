@@ -449,6 +449,56 @@ belong to parsing. Capacity estimates are hints, not feasibility guarantees.
 If the structural check itself cannot complete because of a resource limit
 or allocation failure, it reports that failure separately from malformed text.
 
+### Initial shared text grammar
+
+`document_text_lex.hpp/.cpp` supplies bounded tokens and escape decoding for
+the structural check and subsequent parser. `document_structure.hpp/.cpp`
+checks the grammar with an iterative frame vector and no document or token
+tree. Input is the linter's successful UTF-8 output with its explicit logical
+length; encoding validation/conversion remains at the linter boundary.
+The check and scanner consume `CStringView` with an explicit length, preserving
+embedded NULs. An absent string is invalid input; a present zero-length string
+is valid empty text. Construct the view directly from the linter's output
+pointer and logical byte size so this distinction is retained.
+
+The root is an explicit object or an unbraced member list such as
+`name: 1, enabled: true`. Empty or comment-only text is an implicit empty
+object. A root array or scalar is not part of this initial grammar. Names in
+arrays require object wrappers; `[name: 1]` is invalid.
+
+The initial syntax accepts:
+
+- JSON object/array/member placement, case-sensitive `true`, `false` and `null`,
+  and JSON decimal number spelling, with no range conversion. Decimal fractions
+  need digits on both sides of the point; exponents need digits; multi-digit
+  decimal integers cannot start with zero.
+- `//` comments through CR, LF or EOF, and non-nesting `/* ... */` comments.
+  Outside quoted spans, whitespace is space, tab, CR or LF.
+- Single-quoted strings as well as double-quoted strings. Both support JSON
+  escapes and paired UTF-16 surrogate escapes. Single-quoted strings additionally
+  accept `\'`. Unknown escapes and unpaired surrogate escapes are syntax errors.
+  Literal controls, including NUL and line breaks, are accepted quoted content
+  and reported as a relaxation; delimiters/comment markers inside quotes are
+  content. Quoted Unicode content is preserved.
+- ASCII identifier-style unquoted names: `[A-Za-z_$][A-Za-z0-9_$]*`, including
+  the literal words `true`, `false` and `null` in name position. Other names
+  require quotes; bare identifier string values are not accepted.
+- One trailing comma after a member or array element, including at the end
+  of an unbraced root. Missing values and repeated commas are errors.
+- Morphic leading `+`, hexadecimal `0x`/`0X` or `#`, and binary `0b`/`0B` integer
+  spellings, with an optional sign before the prefix. Base-prefixed numbers
+  require digits and do not have fractions/exponents. `NaN`, `Infinity`, digit
+  separators and additional numeric spellings are not in this grammar.
+
+Successful structural reports distinguish required syntax relaxations from
+Morphic numeric spellings. Recovery wrappers and escaped reserved names are
+ordinary syntax at this stage; only parsing can report their interpretation.
+Estimates count syntactic values, objects, arrays, named entries, raw name/string
+token bytes, and maximum container depth (root is depth one). They describe
+occurrences before semantic normalization, not exact construction requirements.
+Failures clear estimates and feature bits and report a status plus a zero-based
+byte offset in the linter's output; EOF errors use its logical byte size.
+
 Duplicate object members are recovered through ordinary public payload and
 attachment operations. First competitors retain encounter order. A later
 collision appends its anonymous payload to an existing recovered array,

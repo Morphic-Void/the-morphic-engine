@@ -41,7 +41,7 @@ enum class EDocumentWriteStatus : std::uint8_t
     source_contract_violation,
     output_exceeds_engine_size_limit,
     allocation_failed,
-    internal_error,
+    internal_error
 };
 
 struct CDocumentWriteReport

@@ -31,7 +31,7 @@ private:
     enum class EStringDomain : std::uint8_t
     {
         property_names = 0u,
-        string_values,
+        string_values
     };
 
     struct SStringDomain

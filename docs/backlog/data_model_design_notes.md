@@ -375,9 +375,10 @@ existing default remains available to other callers.
 The structural check and relaxed parser share feature-local lexical functions
 instead of maintaining competing quote, escape and delimiter rules. Use a
 framework frame vector and reusable string scratch, not a full token tree.
-Proposed initial relaxations include comments, single quotes, identifier-style
-unquoted names and trailing commas; the exact inventory belongs to the parser
-slice and must be documented with its feature-report bits before delivery.
+The initial shared grammar includes comments, single quotes, identifier-style
+unquoted names, trailing commas, raw quoted controls and unbraced root members.
+Its exact inventory is recorded in `revised_data_model.md`; shared relaxation
+and numeric-extension bits are declared in `document_text_lex.hpp`.
 There is no separate strict parser. Ingestion transformations, required syntax
 relaxations and Morphic interpretations are reported independently.
 
@@ -389,6 +390,19 @@ resolution and reserved-wrapper interpretation in parsing. Track nesting and
 estimate capacity without treating those estimates as allocation guarantees.
 A structurally valid result may still fail parsing; failure to allocate the
 structural pass's own scratch is a resource failure, not a structural defect.
+
+`document_structure::check` and the shared scanner consume bounded
+linter-produced UTF-8 through `CStringView`. Its explicit length preserves
+embedded NULs and distinguishes absent input from present empty text. Absent
+input fails before scanning; present empty text denotes an implicit empty
+object. The check's frame vector stores only object/array context and the
+expected next syntactic role.
+There is no arbitrary grammar depth cap or document allocation preflight;
+frame allocation failure and the frame storage ceiling have resource statuses.
+The scanner exposes token spans and the same escape-to-scalar operation that
+construction can use later. No quoted string scratch is needed just to check
+syntax. Duplicate names and reserved metadata do not require string decoding,
+interning or comparison here. Report offsets refer to the linter's UTF-8 output.
 
 Recovery wrapper recognition precedes ordinary singleton unwrapping. Protocol
 control fields are validated separately from user data, and recovery transport

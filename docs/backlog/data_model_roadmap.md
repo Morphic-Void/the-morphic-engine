@@ -324,8 +324,17 @@ caller-buffer `std::to_chars`; output growth uses the framework byte buffer.
 Validation covers exact text, numeric boundaries and bit-round trips, deep
 nesting, Unicode/NUL escaping and allocation-failure cleanup. Policy validation
 and line-ending checks pass.
-The structural check and parser remain unimplemented. Update status and
-relevant documentation at each separately validated delivery boundary.
+The shared lexical helpers and structural check are implemented, validated and
+approved for commit. They accept explicit or unbraced root
+objects and the documented relaxed grammar, without numeric range conversion,
+collision handling or recovery-protocol interpretation. All ordinary suites
+pass in Debug/Release on x64/Win32, including 1,203 structural checks per
+configuration. Coverage includes absent versus present-empty string input,
+malformed syntax, bounded truncation, escape
+decoding, huge numbers, collisions, policy-invalid metadata, writer output,
+deep nesting and scratch-allocation failures. Policy and line-ending checks
+pass. The parser remains unimplemented. Update status and relevant
+documentation at each separately validated delivery boundary.
 
 ## Stage 10: persistence and integration
 

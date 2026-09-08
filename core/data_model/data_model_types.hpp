@@ -117,7 +117,7 @@ enum class ELiveValueType : std::uint8_t
     string,
     array,
     object,
-    recovered_array,
+    recovered_array
 };
 
 enum class ELiveAggregateKind : std::uint8_t
@@ -125,7 +125,7 @@ enum class ELiveAggregateKind : std::uint8_t
     invalid = 0u,
     array,
     object,
-    recovered_array,
+    recovered_array
 };
 
 //==============================================================================
@@ -147,7 +147,7 @@ enum class ELiveAttachmentRejection : std::uint8_t
     insert_before_not_child,
     index_out_of_range,
     cycle,
-    corrupt_structure,
+    corrupt_structure
 };
 
 struct CLiveAttachmentResult
@@ -167,7 +167,7 @@ struct CLiveAttachmentResult
 enum class EIntegerDomain : std::uint8_t
 {
     signed_value = 0u,
-    unsigned_value,
+    unsigned_value
 };
 
 enum class EIntegerWidth : std::uint8_t
@@ -175,20 +175,20 @@ enum class EIntegerWidth : std::uint8_t
     bits_8 = 0u,
     bits_16,
     bits_32,
-    bits_64,
+    bits_64
 };
 
 enum class EIntegerNotation : std::uint8_t
 {
     decimal = 0u,
     hexadecimal,
-    binary,
+    binary
 };
 
 enum class EIntegerPrefix : std::uint8_t
 {
     standard = 0u,
-    alternate,
+    alternate
 };
 
 struct CIntegerMetadata

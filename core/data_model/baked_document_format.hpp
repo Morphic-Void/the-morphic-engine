@@ -28,7 +28,7 @@ enum class EBakedValueType : std::uint8_t
     string,
     array,
     object,
-    recovered_array,
+    recovered_array
 };
 
 namespace baked_document_format
