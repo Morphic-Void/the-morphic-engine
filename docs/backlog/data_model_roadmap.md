@@ -15,8 +15,10 @@ deferrals for the replacement data model. The normative contract is
 `docs/backlog/revised_data_model.md`; rationale is in
 `docs/backlog/data_model_design_notes.md`.
 
-Each stage should remain a reviewable unit. Changes to infrastructure outside
-the data model require separate approval and a separate commit.
+Each stage should remain a reviewable unit. Extensions to established
+infrastructure, including live/baked APIs, require individual approval and a
+separate commit. New self-contained features and feature-local helpers do not
+require infrastructure approval merely because they are new.
 
 ## Current baseline
 
@@ -270,13 +272,43 @@ the other.
 
 ## Stage 9: writer and parser
 
-Refactor useful v1 writer behaviour onto the stable baked view. Then resume the
-parser layers in order: linter, structural prepass and relaxed parser. Strict
-duplicate rejection remains the ordinary policy; recovery-enabled parsing uses
-the same public recovered-array and payload operations as other callers.
+The parser pipeline is linter, structural-integrity check and relaxed document
+parsing. There is no separate strict parser. The writer has Morphic and strict
+output modes, with independent ASCII escaping. Named values imply object
+entries for every payload type; anonymous singleton wrappers normalize under
+the destination rules in the semantic specification. Recovery identity and
+competitor order round-trip through the explicit reserved JSON wrapper.
 
-Design any diagnostic recovery envelope and its import symmetry together. Do
-not infer a permanent format from the archived v1 representation.
+Delivery and review boundaries are:
+
+1. Update the semantic contract, rationale and roadmap for these decisions.
+2. Update the existing linter as an individually approved infrastructure
+   commit: accept/count embedded zeros, normalize modified NULs to UTF-8
+   U+0000, and report output encoding and CP1252 transformations. Preserve
+   length-aware document string admission and physical terminators.
+3. Implement the writer against public checked baked queries. Reuse useful
+   archived formatting behaviour, qualify `std::to_chars` under the constrained
+   STL policy, and implement reversible recovery/name escaping. No archived
+   checksum, mutable-builder or automatic diagnostic-envelope contract returns.
+4. Add shared feature-local lexical helpers and the structural check, with
+   bounded nesting and useful estimates rather than a full token tree.
+5. Implement relaxed live construction and feature reports, followed by
+   reversible Morphic wrapper decoding, singleton normalization and ordered
+   duplicate recovery using ordinary public operations. Review these as
+   separate slices, completing end-to-end round trips before Stage 9 is done.
+
+Tests cover numeric extrema and shortest round trips, negative zero, escaping
+and ASCII output, literal/escaped/modified NULs, CP1252 conversion and reports,
+all named payload types, singleton eligibility, malformed structure, reserved
+name lookalikes, every recovered-array cardinality, nested recovery and later
+collisions. Semantic comparisons use normalized wrapper form and fresh live
+identities. Exercise meaningful allocation failures and deep iterative walks.
+Run ordinary suites and relevant Windows Debug/Release x64/Win32 checks;
+qualify additional supported numeric toolchains with the same corpus.
+
+Status: documentation checkpoint complete. The linter update is authorized and
+next; writer, structural check and parser remain unimplemented. Update status
+and relevant documentation at each separately validated delivery boundary.
 
 ## Stage 10: persistence and integration
 
@@ -295,7 +327,5 @@ not settled by the data-model work.
 
 - O(1) baked object-name lookup.
 - Live cursors and revisions.
-- Long-term modified-UTF-8 U+0000 policy.
-- Diagnostic recovery serialization.
 - General naming or value-conversion APIs beyond demonstrated needs.
 - Detailed typed-data architecture.

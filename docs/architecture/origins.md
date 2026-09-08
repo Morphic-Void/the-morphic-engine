@@ -236,7 +236,7 @@ The active codebase is designed around constraints such as:
 - limited development resources
 - controlled allocation
 - no exceptions in production code
-- no STL in production code
+- constrained STL use without exceptions, uncontrolled allocation or material vendor/platform dependence
 - careful compartmentalisation of third-party code
 - strict ownership boundaries
 - deliberate module boundaries

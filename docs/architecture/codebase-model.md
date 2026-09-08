@@ -74,13 +74,14 @@ Internal APIs are not expected to be exception-aware, and no exception may cross
 If a foreign SDK or library forces exception use, that exception behavior is foreign to the codebase and must be quarantined to the smallest practical integration scope.
 Foreign exceptions must be translated into explicit non-throwing failure semantics before control returns to normal engine code.
 
-### No STL in production code
+### Constrained STL use in production code
 
-The standard library is not used in production code except where language support is unavoidable at the compiler/runtime boundary.
-Framework-native containers, views, ownership holders, and low-level primitives are the intended vocabulary.
+Standard-library facilities are assessed against exception, allocation and portability constraints, not rejected merely because they are STL.
+They must not introduce exceptions, allocate outside Morphic's memory system, or make required behaviour materially dependent on the library vendor or platform.
+Framework-native containers, views, ownership holders, and low-level primitives remain the intended vocabulary.
 
-This is a structural rule, not a style preference.
-New production code should not introduce STL-based ownership, container, or algorithm expectations into the codebase.
+A non-allocating, caller-buffer-based facility such as `std::to_chars` may be suitable after its specified behaviour and availability on supported toolchains have been checked.
+New production code must not silently introduce foreign ownership, allocation or exception expectations.
 
 Similarity of shape to familiar STL types does not imply STL semantics.
 
@@ -417,7 +418,7 @@ Across module boundaries:
 - arbitrary non-trivial engine ownership types must not casually cross the boundary
 - no exceptions may cross the boundary
 - allocator policy remains host-owned
-- production code does not rely on STL across the boundary because production code does not use STL
+- constrained STL use does not introduce vendor-dependent types or ownership across the boundary
 
 ### Composition root
 

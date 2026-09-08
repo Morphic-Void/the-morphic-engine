@@ -12,7 +12,7 @@ This codebase is a low-level systems foundation built around a small number of e
 ## Core defaults
 
 - No exceptions in production code.
-- No STL in production code.
+- Constrained STL use: no exceptions, allocation outside framework control, or material vendor/platform dependence; see `codebase-model.md`.
 - Allocation is explicit and routed through the framework memory layer.
 - Owning types are move-only by default.
 - Observation/use is separated from ownership wherever practical.

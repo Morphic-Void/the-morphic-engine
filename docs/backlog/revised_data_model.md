@@ -43,6 +43,13 @@ one owner.
 A **named value** has a non-empty property name. Its object-entry state is
 derived from that name. An **anonymous value** has the canonical empty name.
 
+Every named value is an object entry. If it is not already within an object,
+an anonymous containing object is implied. This rule is independent of payload
+type: it applies equally to numbers, strings, nulls, Booleans, objects, arrays,
+recovered arrays and empty placeholders. An object-valued payload does not
+supply the containing object for its own name. The implication requires no
+additional live node or baked record.
+
 A **detached value** has no parent aggregate. It may still own its complete
 payload and descendants.
 
@@ -303,6 +310,12 @@ infrastructure. Production algorithms use the existing no-exception containers
 and controlled allocation facilities; they do not depend on STL or library
 algorithms which may throw or escape that control.
 
+The STL policy is constrained use, not a blanket prohibition. A facility must
+not introduce exceptions, allocate outside framework control, or make required
+behaviour materially dependent on its vendor or platform. Caller-buffer-based
+numeric conversion may be used after checking its specified behaviour and
+availability on supported toolchains.
+
 Moving a live document within a compatible allocation context may be supported
 when it follows naturally from the existing containers. The model does not
 require elaborate accounting reattribution or allocation-context transfer.
@@ -390,23 +403,109 @@ A failed promotion must not publish a partially constructed destination as a
 coherent live document. It need not preserve unused capacity or allocation
 history.
 
+## Text ingestion and parsing
+
+The parser is always relaxed. Its stages are the linter, a structural-integrity
+check, and relaxed document parsing. There is no separate strict parser.
+Reports identify the relaxed features required for acceptance and the
+Morphic-specific features interpreted, separately from ingestion transformations.
+Strict JSON syntax may itself contain a Morphic recovery representation.
+
+The linter converts recoverable CP1252 input to UTF-8 and reports the resulting
+encoding and transformations. A parser consumes successfully produced UTF-8;
+it must not decode CP1252 itself or silently accept unconverted CP1252 bytes.
+
+Embedded literal zero bytes are accepted content, not unrecoverable encoding
+errors. The linter explicitly counts them separately from source terminators
+and modified-NUL sequences. Its length-bounded UTF-8 output may contain literal
+U+0000; accepted `C0 80` input is normalized to that scalar and reported.
+Document ingestion disables global newline rewriting to preserve quoted
+content. Source transformations and parser locations must identify their
+coordinate space rather than imply unchanged source offsets after conversion.
+
+Every logical NUL entering a live name or string value, whether from literal
+source content or an escape such as `\u0000`, uses `C0 80` through ordinary
+string admission. Physical terminal NULs in live and baked strings are
+unchanged. The writer emits logical NULs as `\u0000` and counts occurrences.
+
+The structural check establishes quoted and escaped spans, matching delimiters,
+nesting limits and proportionate capacity estimates. It is not a second parser
+or a full token tree. Where practical, it shares the functions interpreting
+quotes, escapes, comments, token boundaries and relaxed syntax with parsing.
+Traversal and parsing are iterative and use framework allocation.
+
+Duplicate object members are recovered through ordinary public payload and
+attachment operations. First competitors retain encounter order. A later
+collision appends its anonymous payload to an existing recovered array,
+including one restored from text. A recovered-array candidate remains one
+nested competitor rather than having its children flattened into the receiver.
+
 ## Serialization-facing requirements
 
-Later writers must preserve these semantics:
+Writers consume only the checked baked interface and provide two modes:
 
-- Morphic output retains integer domain, notation and prefix intent.
-- Strict JSON emits the exact decimal value across the full `uint64_t` range.
-- Finite floats use shortest-round-trip output, retain `-0.0` and contain a
-  decimal point or exponent.
-- Names and strings are quoted and optional ASCII-only escaping remains
-  available.
-- Traversal is iterative.
-- Recovery-aware output preserves competitor order.
+- Morphic output retains integer domain, notation and prefix intent and
+  preserves recovered-array identity and contents through writing and parsing.
+- Strict output emits strict JSON where possible, including the exact decimal
+  value across the full `uint64_t` range. It reports normalization of Morphic
+  features and does not promise to round-trip every feature, such as explicit
+  positive signed-integer intent.
 
-Canonical modified `C0 80` represents logical U+0000. A writer supports escape
-to `\u0000` as the default, rejection, or replacement with a caller-supplied
-valid nonzero Unicode scalar. It reports how many occurrences it handled.
-Diagnostic recovery envelopes and their import symmetry remain deferred.
+Both modes quote names and strings. ASCII-only escaping is an independent
+option for either mode and escapes every non-ASCII scalar, using surrogate
+pairs where necessary. Finite floats use shortest-round-trip output, retain
+`-0.0` and contain a decimal point or exponent. Writing is iterative.
+
+### Named entries and anonymous objects
+
+A named value outside an object is written inside an anonymous object wrapper.
+For example, named integer, string, object and array payloads in an array write
+as `[{"n": +1}, {"s": "text"}, {"o": {}}, {"a": []}]` in Morphic mode.
+The same rule applies to every other payload type. Within an object, its
+containing braces already supply the required context.
+
+When an anonymous ordinary object directly within an ordinary array contains
+exactly one named member after duplicate recovery, parsing removes the
+redundant wrapper and retains the named child with its complete payload.
+The rule does not depend on that payload's type. Empty and multi-member objects
+remain objects; the implicit root remains an object. Recovered-array
+competitors retain anonymous wrappers where needed to satisfy their naming
+rule. Reserved recovery wrappers are decoded before ordinary unwrapping.
+
+There is no additional semantic distinction for an intentional anonymous
+singleton object requiring a preservation tag. Text round trips compare this
+normalized semantic form, not redundant wrapper nodes, original live keys,
+detached content or live placeholders already baked as null.
+
+### Recovered-array text representation
+
+The reserved property name is `$morphic`. A version-1 recovered payload writes
+as the following object, with any number of anonymous competitors in `values`:
+
+```json
+{"$morphic":{"v":1,"type":"recovered-array","values":[]}}
+```
+
+The outer object has exactly one member. Control fields are unique and contain
+exactly integer version `1`, string type `recovered-array`, and an array of
+values; field order is insignificant. Unsupported versions, extra or duplicate
+control fields and malformed reserved wrappers are explicit errors. Ordinary
+duplicate recovery does not repair protocol metadata. Competitor data uses
+the relaxed document grammar. The transport array is interpreted as recovered
+content, preserving anonymous competitors, their order and nested recovery.
+Empty, singleton and multi-value recovered arrays all round-trip.
+
+Ordinary data names consisting of one or more dollar signs followed by
+`morphic` are escaped by adding one dollar sign when writing: `$morphic`
+becomes `$$morphic`, and `$$morphic` becomes `$$$morphic`. Other names are
+unchanged. After JSON string decoding, the parser recognizes the unescaped
+reserved name before removing one dollar from escaped data names. An
+unescaped reserved member must form the complete wrapper above. This rule
+distinguishes user-authored lookalikes and named array entries from protocol
+objects without changing logical names in live or baked storage.
+
+Both modes may emit this representation and name escaping: its syntax is
+strict JSON. Recovery identity is never silently reduced to an ordinary array.
 
 ## Thread and publication boundaries
 
@@ -424,7 +523,6 @@ The following are not yet normative:
 - exact public C++ names, signatures and result types;
 - live record packing and role-inapplicable field values;
 - lookup accelerators, including O(1) object lookup by name;
-- diagnostic recovery serialization and malformed-input policy;
-- whether modified UTF-8 U+0000 remains the long-term encoding policy;
+- the exact inventory of additional relaxed syntax and diagnostic presentation;
 - live cursors and revisions; and
 - the later typed-data and schema architecture.

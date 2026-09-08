@@ -35,9 +35,15 @@ defect belong primarily to integrity checks and known-bad containment.
 
 ## Infrastructure boundary
 
-Infrastructure outside the data model must be reviewed as a separate contextual
-change and committed independently. A data-model stage may depend on such a
-change only after it is expressly approved.
+Extensions to established infrastructure must be individually identified,
+expressly approved and committed independently. This includes existing live
+and baked document APIs or behaviour, containers, shared utilities and the
+linter. Explain why composition is insufficient and describe compatibility,
+allocation and platform implications before implementation.
+
+New self-contained writer/parser code and feature-local helpers are feature
+work, not infrastructure extensions merely because they are new or reside
+outside `core/data_model`.
 
 The approved observation prerequisites are now implemented:
 
@@ -83,6 +89,13 @@ uniform physical field if the current node layout benefits from one.
 An independent object-entry flag duplicates the fact already represented by a
 non-empty name and creates states which must be cross-validated. Deriving the
 state makes malformed combinations unrepresentable at the semantic level.
+
+A name always supplies object-entry meaning, regardless of the payload type.
+Outside an object, an anonymous containing object is implied. A named object
+payload still needs that outer containing context for its own name. Writers
+materialize the implied braces; parsers remove redundant singleton wrappers
+where the destination accepts named children. No persistent implicit-wrapper
+flag, extra node or object-preservation text tag is needed.
 
 ### Integer width
 
@@ -301,12 +314,72 @@ construction. Narrow friendship exists only to publish a completed owning
 baked block; promotion publishes its successfully staged live document through
 the ordinary move-assignment surface.
 
-## Preserved future concerns
+## Writer and parser implementation direction
+
+The writer consumes only `CBakedDocument` queries. Existing parent, child and
+sibling operations support iterative entry/exit traversal without a new query
+or an allocated tree index. Keep output, numeric spelling, escaping and layout
+as small reusable private functions. A private output buffer can simply be
+discarded on failure; a general rollback system is unnecessary.
+
+Assess standard-library facilities by exception, allocation and portability
+constraints. `std::to_chars` is the preferred numeric-formatting candidate,
+not grounds for importing a conversion backend. Its caller-buffer interface
+and documented non-allocating, non-throwing MSVC implementation fit the policy.
+Use a no-precision floating overload, retain negative zero and add a float
+marker when needed. Check exact output and bit-round trips on supported
+toolchains, including cross-implementation parsing when another STL becomes a
+supported target. The standard's corresponding-function round-trip guarantee
+alone does not establish cross-vendor behaviour. The parser should assess
+`std::from_chars` by the same criteria.
+
+References: [Microsoft charconv documentation](https://learn.microsoft.com/en-us/cpp/standard-library/charconv?view=msvc-170)
+and [numeric output conversion contract](https://eel.is/c++draft/charconv.to.chars).
+
+The linter owns encoding conversion. Its UTF-8 result uses bounded lengths,
+permits literal U+0000, and normalizes accepted modified NULs to that scalar.
+Live string admission supplies the established `C0 80` storage form. Keeping
+literal-input counts separate from modified-NUL normalization and stripped
+source terminators makes transformations observable without changing document
+string termination. Count raw embedded zeros once, independently of any
+retry as CP1252. A failed result must not claim a ready output encoding.
+
+The linter update is an approved separate prerequisite. It changes the former
+literal-NUL rejection and modified-NUL passthrough contracts and adds explicit
+output-encoding reporting. Existing framework buffers and SuiteUTF suffice;
+no allocator, platform or live/baked API change is required. Existing linter
+consumers must use logical lengths and inspect success and encoding. Document
+ingestion passes a zero newline-normalization mask; the general linter's
+existing default remains available to other callers.
+
+The structural check and relaxed parser share feature-local lexical functions
+instead of maintaining competing quote, escape and delimiter rules. Use a
+framework frame vector and reusable string scratch, not a full token tree.
+Proposed initial relaxations include comments, single quotes, identifier-style
+unquoted names and trailing commas; the exact inventory belongs to the parser
+slice and must be documented with its feature-report bits before delivery.
+There is no separate strict parser. Ingestion transformations, required syntax
+relaxations and Morphic interpretations are reported independently.
+
+Recovery wrapper recognition precedes ordinary singleton unwrapping. Protocol
+control fields are validated separately from user data, and recovery transport
+arrays retain anonymous competitors. Reserved data names use the reversible
+dollar escaping specified in `revised_data_model.md`; no document-wide envelope
+or tag for preserving redundant anonymous singleton objects is needed.
+
+Parser construction, singleton unwrapping and recovery use ordinary live
+creation, detachment, payload movement and erasure. Current public sibling and
+name queries suffice to find collisions; do not add a live lookup API or
+recovery privilege without demonstrating a concrete need. Build privately and
+publish through the existing move operation after success. Failure signalling
+and existing known-bad containment suffice without transactional mutation.
+
+## Preserved concerns
 
 The model deliberately retains numeric lexical intent, iterative traversal,
 separate string domains, explicit untrusted baked validation and ordered
 recovery competitors because writers, parsers and promotion consume them.
 
-Modified UTF-8 `C0 80` for logical U+0000 is retained for continuity while the
-replacement document pipeline stabilises. Its long-term value should be judged
-separately rather than entangled with removal of reachability accounting.
+Modified UTF-8 `C0 80` is the live and baked logical-NUL storage contract.
+Text ingestion and writing normalize at their boundaries; physical string
+terminators retain their established meaning.
