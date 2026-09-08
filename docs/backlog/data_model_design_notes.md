@@ -316,25 +316,45 @@ the ordinary move-assignment surface.
 
 ## Writer and parser implementation direction
 
-The writer consumes only `CBakedDocument` queries. Existing parent, child and
-sibling operations support iterative entry/exit traversal without a new query
-or an allocated tree index. Keep output, numeric spelling, escaping and layout
-as small reusable private functions. A private output buffer can simply be
+The writer in `document_writer.hpp/.cpp` consumes only `CBakedDocument` queries.
+Existing parent, child and sibling operations support iterative entry/exit
+traversal without a new query or an allocated tree index. Keep output, numeric
+spelling, escaping and layout as small reusable private functions. A private
+output buffer can simply be
 discarded on failure; a general rollback system is unnecessary.
 
 Assess standard-library facilities by exception, allocation and portability
-constraints. `std::to_chars` is the preferred numeric-formatting candidate,
-not grounds for importing a conversion backend. Its caller-buffer interface
-and documented non-allocating, non-throwing MSVC implementation fit the policy.
-Use a no-precision floating overload, retain negative zero and add a float
-marker when needed. Check exact output and bit-round trips on supported
-toolchains, including cross-implementation parsing when another STL becomes a
-supported target. The standard's corresponding-function round-trip guarantee
+constraints. The writer uses `std::to_chars` for integer magnitudes and finite
+binary64 output. Its caller-buffer interface and documented non-allocating,
+non-throwing MSVC implementation fit the policy.
+The no-format, no-precision floating overload selects shortest round-trip
+output; the writer retains negative zero and adds a float marker when needed.
+Check exact output and bit-round trips on supported toolchains, including
+cross-implementation parsing when another STL becomes a supported target.
+The standard's corresponding-function round-trip guarantee
 alone does not establish cross-vendor behaviour. The parser should assess
 `std::from_chars` by the same criteria.
 
 References: [Microsoft charconv documentation](https://learn.microsoft.com/en-us/cpp/standard-library/charconv?view=msvc-170)
 and [numeric output conversion contract](https://eel.is/c++draft/charconv.to.chars).
+
+The writer materializes implied object braces around every named child outside
+an object, independently of payload type. Recovery payloads use the documented
+version-1 wrapper in either output mode. Ordinary property names use reversible
+dollar escaping; protocol keys and string values do not. Output reports count
+numeric normalization, non-ASCII and NUL escapes, reserved-name escapes and
+recovered arrays by emitted occurrence. Failed writes discard output and
+counts, retaining the failure status. The buffer supplies its own length until
+publication, avoiding duplicate mutable length bookkeeping.
+
+Writer tests construct sources through public live operations and baking.
+They check exact text for all named payload types, recovery cardinalities,
+nested competitors, reserved-name lookalikes, quoting and layout; numeric
+boundaries and deterministic finite-bit samples check conversion independently
+through `from_chars`. Deep named arrays exercise iterative synthetic wrappers,
+and allocation failures after transformations check partial-output disposal
+and framework accounting. Full text-to-live round trips belong to the later
+parser slice; writer tests do not introduce a temporary parser.
 
 The linter owns encoding conversion. Its UTF-8 result uses bounded lengths,
 permits literal U+0000, and normalizes accepted modified NULs to that scalar.

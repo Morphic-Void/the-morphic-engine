@@ -243,6 +243,9 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)core\data_model\document_translation.hpp">
       <Filter>Core\include\data_model</Filter>
     </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)core\data_model\document_writer.hpp">
+      <Filter>Core\include\data_model</Filter>
+    </ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)core\data_model\live_document.hpp">
       <Filter>Core\include\data_model</Filter>
     </ClInclude>
@@ -492,6 +495,9 @@
       <Filter>Core\src\data_model</Filter>
     </ClCompile>
     <ClCompile Include="$(MSBuildThisFileDirectory)core\data_model\document_promotion.cpp">
+      <Filter>Core\src\data_model</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)core\data_model\document_writer.cpp">
       <Filter>Core\src\data_model</Filter>
     </ClCompile>
     <ClCompile Include="$(MSBuildThisFileDirectory)core\data_model\live_document.cpp">

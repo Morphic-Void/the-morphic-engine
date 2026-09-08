@@ -307,10 +307,19 @@ Run ordinary suites and relevant Windows Debug/Release x64/Win32 checks;
 qualify additional supported numeric toolchains with the same corpus.
 
 Status: documentation checkpoint and reviewed linter update complete.
-Ordinary suites pass in Debug x64 and
-Release Win32, including 203 linter checks in each configuration. Writer,
-structural check and parser remain unimplemented. Update status and relevant
-documentation at each separately validated delivery boundary.
+Ordinary suites pass in Debug and Release on x64 and Win32, including the
+writer suite and 203 linter checks in each configuration.
+
+The writer slice is implemented, validated and approved for commit. It
+uses the checked baked queries, supports Morphic/strict output and independent
+ASCII escaping, wraps every named payload outside an object, and emits the
+reversible recovery and reserved-name representation. Numeric formatting uses
+caller-buffer `std::to_chars`; output growth uses the framework byte buffer.
+Validation covers exact text, numeric boundaries and bit-round trips, deep
+nesting, Unicode/NUL escaping and allocation-failure cleanup. Policy validation
+and line-ending checks pass.
+The structural check and parser remain unimplemented. Update status and
+relevant documentation at each separately validated delivery boundary.
 
 ## Stage 10: persistence and integration
 

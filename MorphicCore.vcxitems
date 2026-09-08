@@ -37,6 +37,7 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)core\data_model\baked_document_format.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)core\data_model\data_model_types.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)core\data_model\document_translation.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)core\data_model\document_writer.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)core\data_model\live_document.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)core\data_model\live_document_node.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)core\debug\event_arguments.hpp" />
@@ -101,6 +102,7 @@
     <ClCompile Include="$(MSBuildThisFileDirectory)core\data_model\baked_document.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)core\data_model\document_baking.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)core\data_model\document_promotion.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)core\data_model\document_writer.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)core\data_model\live_document.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)core\debug\event_arguments.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)core\debug\log_path.cpp" />
