@@ -45,6 +45,8 @@ constexpr std::uint32_t k_default_text_lint_line_endings = ETextLineEnding::lf |
 
 enum class ECP1252Confidence : std::uint8_t { none = 0u, low, moderate, likely };
 
+enum class ETextLintEncoding : std::uint8_t { none = 0u, utf8 };
+
 enum class ETextLintEvidence : std::uint32_t
 {
     none = 0u,
@@ -79,8 +81,7 @@ struct CTextLineMetrics
 struct CTextLintFailure
 {
     bool present = false;
-    //  Raw unicode::utf::toolkit::cp_errors bits, or a locally synthesized
-    //  Failed/DelimitString result for an embedded literal zero.
+    //  Raw unicode::utf::toolkit::cp_errors bits from the source UTF-8 attempt.
     std::uint32_t suite_utf_cp_errors = 0u;
     CTextLintLocation location;
 };
@@ -94,6 +95,10 @@ struct CTextLintReport
     bool input_view_invalid = false;
     bool input_is_empty = false;
 
+    //  Only a successful result has a published output encoding. ASCII is
+    //  a UTF-8 subset; CP1252 source inference remains separately reported.
+    ETextLintEncoding output_encoding = ETextLintEncoding::none;
+
     std::size_t input_byte_size = 0u;
     std::size_t payload_input_byte_size = 0u;
     std::size_t stripped_terminal_zero_count = 0u;
@@ -105,6 +110,11 @@ struct CTextLintReport
     bool leading_utf8_bom_stripped = false;
     std::uint32_t leading_bom_byte_count = 0u;
 
+    //  Literal source zeros in the payload, excluding stripped terminators.
+    //  Counted once before decoding, including when CP1252 fallback is needed.
+    std::size_t embedded_nul_count = 0u;
+    //  Accepted C0 80 sequences normalized to U+0000 on the UTF-8 path.
+    //  Reset if that attempt is discarded in favour of CP1252 conversion.
     std::size_t modified_utf8_nul_count = 0u;
     std::uint32_t encountered_line_endings = 0u;
     std::uint32_t normalised_line_endings = 0u;
@@ -124,6 +134,8 @@ struct CTextLintReport
 
 struct CTextLintResult
 {
+    //  UTF-8 payload followed by one physical zero. Embedded U+0000 is valid:
+    //  consume report.logical_text_byte_size, never a zero-terminated length.
     CByteBuffer output;
     CTextLintReport report;
 };
@@ -131,6 +143,11 @@ struct CTextLintResult
 namespace text_linter
 {
 
+//  Converts recoverable CP1252 and accepted modified NULs to UTF-8. Literal
+//  payload zeros are retained and counted. Trailing source zeros are stripped
+//  before decoding; the output's logical length excludes only its own final
+//  terminator. Pass zero flags to preserve quoted content during document
+//  ingestion; line metrics follow the configured newline mask.
 [[nodiscard]] CTextLintResult lint(const CByteConstView& input, const std::uint32_t line_ending_flags = k_default_text_lint_line_endings) noexcept;
 
 };

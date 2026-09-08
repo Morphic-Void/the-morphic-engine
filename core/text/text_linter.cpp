@@ -50,10 +50,6 @@ struct CDecodedUnit
 
 static constexpr std::uint32_t k_utf8_bom_bytes = 3u;
 
-static constexpr std::uint32_t k_failure_literal_zero =
-    static_cast<std::uint32_t>(cp_errors::bits::Failed) |
-    static_cast<std::uint32_t>(cp_errors::bits::DelimitString);
-
 static constexpr std::uint32_t k_rejected_utf8_forms =
     static_cast<std::uint32_t>(cp_errors::bits::IrregularForm) | static_cast<std::uint32_t>(cp_errors::bits::OverlongUTF8) |
     static_cast<std::uint32_t>(cp_errors::bits::SurrogatePair) | static_cast<std::uint32_t>(cp_errors::bits::ExtendedUTF8) |
@@ -264,6 +260,7 @@ static void discard_failed_output(CTextLintResult& result) noexcept
     result.output.deallocate();
     result.report.logical_text_byte_size = 0u;
     result.report.output_is_pure_ascii = true;
+    result.report.output_encoding = ETextLintEncoding::none;
 }
 
 static bool finish_output(CTextLintResult& result) noexcept
@@ -275,6 +272,16 @@ static bool finish_output(CTextLintResult& result) noexcept
         return false;
     }
     result.report.logical_text_byte_size = result.output.size() - 1u;
+    result.report.output_is_pure_ascii = true;
+    for (std::size_t index = 0u; index < result.report.logical_text_byte_size; ++index)
+    {
+        if (result.output.data()[index] > 0x7fu)
+        {
+            result.report.output_is_pure_ascii = false;
+            break;
+        }
+    }
+    result.report.output_encoding = ETextLintEncoding::utf8;
     result.report.success = true;
     return true;
 }
@@ -371,12 +378,15 @@ CTextLintResult lint(const CByteConstView& input, const std::uint32_t line_endin
         ++report.stripped_terminal_zero_count;
     }
     report.payload_input_byte_size = payload_length;
-    for (std::size_t index = 0u; index < input.size(); ++index)
+    for (std::size_t index = 0u; index < payload_length; ++index)
     {
+        if (data[index] == 0u)
+        {
+            ++report.embedded_nul_count;
+        }
         if (data[index] > 0x7fu)
         {
             report.input_is_pure_ascii = false;
-            break;
         }
     }
 
@@ -410,7 +420,6 @@ CTextLintResult lint(const CByteConstView& input, const std::uint32_t line_endin
     input_line.line_start_byte_offset_in_file_0_based = source_offset;
 
     bool strict_ok = true;
-    bool failure_allows_cp1252_recovery = true;
     std::uint32_t offset = source_offset;
     while (offset < source_length)
     {
@@ -421,14 +430,6 @@ CTextLintResult lint(const CByteConstView& input, const std::uint32_t line_endin
             strict_ok = false;
             break;
         }
-        if ((current.value == 0) && !is_java_modified_nul(data, source_length, offset))
-        {
-            set_first_failure(report, k_failure_literal_zero, input_line, offset);
-            strict_ok = false;
-            failure_allows_cp1252_recovery = false;
-            break;
-        }
-
         CDecodedUnit next;
         const CDecodedUnit* next_ptr = nullptr;
         if ((offset + current.bytes) < source_length)
@@ -462,13 +463,16 @@ CTextLintResult lint(const CByteConstView& input, const std::uint32_t line_endin
         }
         else
         {
-            if (!append_bytes(result, data + offset, current.bytes))
+            const bool modified_nul = current.errors.any(cp_errors::bits::ModifiedUTF8);
+            const std::uint8_t nul = 0u;
+            const std::size_t emitted_bytes = modified_nul ? 1u : current.bytes;
+            if (!append_bytes(result, (modified_nul ? &nul : (data + offset)), emitted_bytes))
             {
                 discard_failed_output(result);
                 return result;
             }
             consume_content(input_line, report.input_metrics, current.value, current.bytes);
-            consume_content(output_line, report.output_metrics, current.value, current.bytes);
+            consume_content(output_line, report.output_metrics, current.value, emitted_bytes);
             if (compound)
             {
                 if (!append_bytes(result, data + offset + current.bytes, next.bytes))
@@ -495,21 +499,12 @@ CTextLintResult lint(const CByteConstView& input, const std::uint32_t line_endin
     {
         finish_line(report.input_metrics, input_line);
         finish_line(report.output_metrics, output_line);
-        report.output_is_pure_ascii = true;
-        for (std::size_t index = 0u; index < result.output.size(); ++index)
-        {
-            if (result.output.data()[index] > 0x7fu)
-            {
-                report.output_is_pure_ascii = false;
-                break;
-            }
-        }
         (void)finish_output(result);
         return result;
     }
 
     //  A recognized BOM announces another Unicode encoding and forbids CP1252 recovery.
-    if (!failure_allows_cp1252_recovery || report.leading_bom_detected)
+    if (report.leading_bom_detected)
     {
         discard_failed_output(result);
         return result;
@@ -608,8 +603,6 @@ CTextLintResult lint(const CByteConstView& input, const std::uint32_t line_endin
     }
     finish_line(report.input_metrics, input_line);
     finish_line(report.output_metrics, output_line);
-    report.output_is_pure_ascii = true;
-    for (std::size_t index = 0u; index < result.output.size(); ++index) { if (result.output.data()[index] > 0x7fu) { report.output_is_pure_ascii = false; break; } }
     if (finish_output(result))
     {
         report.recovered_as_cp1252 = true;

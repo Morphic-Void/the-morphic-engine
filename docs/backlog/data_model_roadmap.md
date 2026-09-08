@@ -306,9 +306,11 @@ identities. Exercise meaningful allocation failures and deep iterative walks.
 Run ordinary suites and relevant Windows Debug/Release x64/Win32 checks;
 qualify additional supported numeric toolchains with the same corpus.
 
-Status: documentation checkpoint complete. The linter update is authorized and
-next; writer, structural check and parser remain unimplemented. Update status
-and relevant documentation at each separately validated delivery boundary.
+Status: documentation checkpoint and reviewed linter update complete.
+Ordinary suites pass in Debug x64 and
+Release Win32, including 203 linter checks in each configuration. Writer,
+structural check and parser remain unimplemented. Update status and relevant
+documentation at each separately validated delivery boundary.
 
 ## Stage 10: persistence and integration
 
