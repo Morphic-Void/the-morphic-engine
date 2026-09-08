@@ -291,7 +291,10 @@ Delivery and review boundaries are:
    STL policy, and implement reversible recovery/name escaping. No archived
    checksum, mutable-builder or automatic diagnostic-envelope contract returns.
 4. Add shared feature-local lexical helpers and the structural check, with
-   bounded nesting and useful estimates rather than a full token tree.
+   iterative nesting tracking and useful estimates rather than a full token
+   tree. Validate syntax without numeric range checks, collision resolution or
+   document-allocation preflight. Structural success does not promise that
+   construction or policy-dependent parsing will succeed.
 5. Implement relaxed live construction and feature reports, followed by
    reversible Morphic wrapper decoding, singleton normalization and ordered
    duplicate recovery using ordinary public operations. Review these as
@@ -303,6 +306,9 @@ all named payload types, singleton eligibility, malformed structure, reserved
 name lookalikes, every recovered-array cardinality, nested recovery and later
 collisions. Semantic comparisons use normalized wrapper form and fresh live
 identities. Exercise meaningful allocation failures and deep iterative walks.
+Structural tests distinguish malformed token spellings from well-spelled
+out-of-range numbers and accept colliding object names. Keep construction
+failures and policy-dependent outcomes in parser tests.
 Run ordinary suites and relevant Windows Debug/Release x64/Win32 checks;
 qualify additional supported numeric toolchains with the same corpus.
 

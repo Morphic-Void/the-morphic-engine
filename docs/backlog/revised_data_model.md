@@ -428,11 +428,26 @@ source content or an escape such as `\u0000`, uses `C0 80` through ordinary
 string admission. Physical terminal NULs in live and baked strings are
 unchanged. The writer emits logical NULs as `\u0000` and counts occurrences.
 
-The structural check establishes quoted and escaped spans, matching delimiters,
-nesting limits and proportionate capacity estimates. It is not a second parser
-or a full token tree. Where practical, it shares the functions interpreting
-quotes, escapes, comments, token boundaries and relaxed syntax with parsing.
-Traversal and parsing are iterative and use framework allocation.
+The structural check establishes that the text is well formed under the
+accepted grammar: quoted and escaped spans, valid token spellings, matching
+delimiters, and valid placement of names, values and separators. It tracks
+nesting and may provide proportionate capacity estimates without constructing
+a document or a full token tree. Where practical, it shares the functions
+interpreting quotes, escapes, comments, token boundaries and relaxed syntax
+with parsing. Traversal and parsing are iterative and use framework allocation.
+
+Success means that the text is structurally valid and its data has parseable
+syntax; it does not guarantee that document parsing will succeed. The check
+assumes numeric values can be represented, object-name collisions can be
+handled, and document-construction allocations will succeed. It does not
+convert numbers to enforce available numeric ranges, resolve collisions,
+preflight construction allocations, or enforce other construction policies.
+For example, an incomplete exponent is a syntax error, while a well-spelled
+number outside the available numeric range is not a structural flaw.
+Numeric range policy, collision handling and reserved-wrapper interpretation
+belong to parsing. Capacity estimates are hints, not feasibility guarantees.
+If the structural check itself cannot complete because of a resource limit
+or allocation failure, it reports that failure separately from malformed text.
 
 Duplicate object members are recovered through ordinary public payload and
 attachment operations. First competitors retain encounter order. A later

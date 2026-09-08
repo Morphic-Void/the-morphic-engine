@@ -381,6 +381,15 @@ slice and must be documented with its feature-report bits before delivery.
 There is no separate strict parser. Ingestion transformations, required syntax
 relaxations and Morphic interpretations are reported independently.
 
+The structural pass validates syntax, including numeric token spelling, but
+does not establish representability or construction feasibility. It assumes
+numbers are representable, duplicate names are manageable and all subsequent
+document allocations succeed. Keep numeric conversion/range policy, collision
+resolution and reserved-wrapper interpretation in parsing. Track nesting and
+estimate capacity without treating those estimates as allocation guarantees.
+A structurally valid result may still fail parsing; failure to allocate the
+structural pass's own scratch is a resource failure, not a structural defect.
+
 Recovery wrapper recognition precedes ordinary singleton unwrapping. Protocol
 control fields are validated separately from user data, and recovery transport
 arrays retain anonymous competitors. Reserved data names use the reversible
