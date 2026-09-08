@@ -362,8 +362,8 @@ nested competitors, reserved-name lookalikes, quoting and layout; numeric
 boundaries and deterministic finite-bit samples check conversion independently
 through `from_chars`. Deep named arrays exercise iterative synthetic wrappers,
 and allocation failures after transformations check partial-output disposal
-and framework accounting. Full text-to-live round trips belong to the later
-parser slice; writer tests do not introduce a temporary parser.
+and framework accounting. Full text-to-live round trips are covered by the
+parser suite; writer tests do not introduce a temporary parser.
 
 The linter owns encoding conversion. Its UTF-8 result uses bounded lengths,
 permits literal U+0000, and normalizes accepted modified NULs to that scalar.
@@ -413,7 +413,7 @@ construction also uses. No quoted string scratch is needed just to check
 syntax. Duplicate names and reserved metadata do not require string decoding,
 interning or comparison here. Report offsets refer to the linter's UTF-8 output.
 
-The initial parser builds a private live document with an iterative frame
+The parser builds a private live document with an iterative frame
 vector and separate reusable name/value scratch buffers. Separate buffers keep
 a decoded name stable while its string payload is decoded. Plain spans borrow
 the input until live admission copies them. Publication uses the existing move
@@ -421,15 +421,29 @@ operation, allowing even input borrowed from the old destination to remain
 valid through all reads. Structural reports remain available after construction
 failure; there is no claim that syntax acceptance guarantees representability.
 Numeric range errors and unrepresentable empty object-entry names are explicit
-construction failures. Duplicate names and reserved protocol names currently
-report pending semantic support instead of losing or misinterpreting data.
-The following recovery and normalization work remains a separate review slice.
+construction failures.
 
 Recovery wrapper recognition precedes ordinary singleton unwrapping. Protocol
 control fields are validated separately from user data, and recovery transport
 arrays retain anonymous competitors. Reserved data names use the reversible
 dollar escaping specified in `revised_data_model.md`; no document-wide envelope
 or tag for preserving redundant anonymous singleton objects is needed.
+
+Construction frames distinguish ordinary objects/arrays, reserved wrappers,
+protocol metadata and recovery transport arrays. Control fields feed the
+recovered value directly without temporary live metadata nodes. This keeps
+duplicate protocol fields separate from recoverable data collisions and makes
+field order irrelevant, including when `values` precedes version and type.
+Only ordinary data names undergo reserved-name unescaping.
+
+Containers are attached after completion. A completed ordinary singleton in
+an ordinary array contributes its named child; direct recovery competitors
+retain their anonymous object context. Completed duplicate payloads are then
+moved into the first member's recovered array, preserving its original sibling
+position and competitor order. Incoming recovered arrays remain nested.
+All mutations use existing live operations, and failed private construction
+is discarded. Semantic interpretation counts are published only on success;
+structural syntax observations remain independent.
 
 Parser construction, singleton unwrapping and recovery use ordinary live
 creation, detachment, payload movement and erasure. Current public sibling and

@@ -18,8 +18,17 @@ class CLiveDocument;
 enum class EDocumentParseStatus : std::uint8_t
 {
     success = 0u, invalid_input_view, structural_failure, numeric_out_of_range,
-    empty_property_name, duplicate_object_name, unsupported_morphic_representation,
+    empty_property_name, malformed_recovery_wrapper, unsupported_recovery_version,
+    unsupported_recovery_type, invalid_root_value,
     allocation_failed, storage_limit, construction_failed, internal_error
+};
+
+struct CDocumentParseInterpretations
+{
+    std::size_t recovered_arrays_decoded{ 0u };
+    std::size_t reserved_names_unescaped{ 0u };
+    std::size_t duplicate_members_recovered{ 0u };
+    std::size_t singleton_objects_unwrapped{ 0u };
 };
 
 struct CDocumentParseReport
@@ -32,6 +41,9 @@ struct CDocumentParseReport
     //  describes accepted syntax, including relaxation and numeric-extension
     //  bits; it does not claim that the document was constructed successfully.
     CDocumentStructureReport structure;
+    //  Successful semantic interpretations, counted by source occurrence.
+    //  Cleared on failure; structural syntax observations remain available.
+    CDocumentParseInterpretations interpretations;
 
     [[nodiscard]] bool succeeded() const noexcept { return status == EDocumentParseStatus::success; }
 };
@@ -47,9 +59,10 @@ namespace document_parser
 //  after success and is unchanged on failure. All owned storage uses the
 //  ambient framework allocator. Empty text constructs the implicit root object.
 //
-//  Initial construction slice: duplicate names and reserved dollar+morphic
-//  names return explicit errors pending recovery support. Ordinary singleton
-//  object wrappers are retained pending the separate normalization slice.
+//  Decode version-1 recovery wrappers and escaped reserved data names, recover
+//  duplicate members in order, and normalize ordinary singleton objects in
+//  ordinary arrays. Protocol metadata is validated separately from user data.
+//  The root remains an object; a recovery wrapper cannot replace it.
 [[nodiscard]] CDocumentParseReport parse(const CStringView& source, CLiveDocument& destination) noexcept;
 
 }   //  namespace document_parser

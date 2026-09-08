@@ -499,7 +499,7 @@ occurrences before semantic normalization, not exact construction requirements.
 Failures clear estimates and feature bits and report a status plus a zero-based
 byte offset in the linter's output; EOF errors use its logical byte size.
 
-### Initial live construction slice
+### Live construction and interpretation
 
 `document_parser::parse` in `document_parser.hpp/.cpp` takes a bounded
 `CStringView` of successfully linted UTF-8 and a live destination. It performs
@@ -534,11 +534,13 @@ parser scratch failures have allocation/storage statuses. A rejected live
 creation has a general construction-failure status because the existing live
 API does not distinguish its underlying allocation and storage causes.
 
-This separately reviewed slice rejects duplicate decoded names and the exact
-reserved dollar(s)-plus-`morphic` name family with explicit statuses. It retains
-ordinary singleton object wrappers. Recovery decoding, reversible reserved-name
-unescaping, singleton normalization and duplicate recovery are the next slice;
-the complete round-trip contract below is not yet implemented by this parser.
+The parser implements recovery decoding, reversible reserved-name unescaping,
+singleton normalization and ordered duplicate recovery as specified below.
+`CDocumentParseReport::interpretations` counts decoded recovery wrappers,
+unescaped reserved data names, recovered duplicate members and removed singleton
+objects by source occurrence. These counts describe a successfully published
+document and are cleared on failure. Numeric spelling observations remain in
+the separate structural report, even on a later construction failure.
 
 Duplicate object members are recovered through ordinary public payload and
 attachment operations. First competitors retain encounter order. A later
@@ -600,6 +602,16 @@ duplicate recovery does not repair protocol metadata. Competitor data uses
 the relaxed document grammar. The transport array is interpreted as recovered
 content, preserving anonymous competitors, their order and nested recovery.
 Empty, singleton and multi-value recovered arrays all round-trip.
+
+Protocol fields are checked after string-escape decoding. Version one accepts
+any supported integer spelling with value one, including `+1`, `0x1` and `#1`;
+floating `1.0` is not an integer version. Unknown integer versions and string
+types have distinct unsupported-version/type statuses. Invalid field types,
+missing/extra/duplicate fields and invalid outer members report a malformed
+recovery wrapper. The root must remain the document's implicit object, so a
+reserved recovery wrapper at the root reports `invalid_root_value`.
+The structural check accepts these well-formed spellings independently of
+their interpretation.
 
 Ordinary data names consisting of one or more dollar signs followed by
 `morphic` are escaped by adding one dollar sign when writing: `$morphic`

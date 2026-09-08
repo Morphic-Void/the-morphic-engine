@@ -26,15 +26,48 @@ using document_text::CToken;
 using document_text::ETokenKind;
 
 //  These free helpers are private to this translation unit.
-static bool reserved_name(const CStringView& name) noexcept
+static std::size_t reserved_dollars(const CStringView& name) noexcept
 {
     std::size_t dollars = 0u;
     while ((dollars < name.length()) && (name.string()[dollars] == '$'))
     {
         ++dollars;
     }
-    return (dollars != 0u) && ((name.length() - dollars) == 7u) &&
-        (std::memcmp(name.string() + dollars, "morphic", 7u) == 0);
+    return ((name.length() - dollars) == 7u) && (std::memcmp(name.string() + dollars, "morphic", 7u) == 0) ? dollars : 0u;
+}
+
+//  Spelling has been checked by the scanner. Match version one without
+//  imposing a numeric range on unsupported version tokens.
+static bool version_one(const CStringView& source, const CToken& token) noexcept
+{
+    if (token.kind != ETokenKind::integer)
+    {
+        return false;
+    }
+    const std::uint8_t* first = source.string() + token.offset;
+    const std::uint8_t* const last = first + token.size;
+    if (*first == '-')
+    {
+        return false;
+    }
+    if (*first == '+')
+    {
+        ++first;
+    }
+    if (*first == '#')
+    {
+        ++first;
+    }
+    else if (((last - first) >= 2) && (*first == '0') &&
+        ((first[1] == 'x') || (first[1] == 'X') || (first[1] == 'b') || (first[1] == 'B')))
+    {
+        first += 2;
+    }
+    while ((first < last) && (*first == '0'))
+    {
+        ++first;
+    }
+    return ((last - first) == 1) && (*first == '1');
 }
 
 //  read_escape has already established that scalar is a Unicode scalar value.
@@ -66,10 +99,19 @@ static std::size_t encode_scalar(const std::uint32_t scalar, std::uint8_t* const
     return 4u;
 }
 
+enum class EFrameRole : std::uint8_t { object = 0u, array, wrapper, metadata, transport };
+
+static constexpr std::uint8_t k_version_field = 1u;
+static constexpr std::uint8_t k_type_field = 2u;
+static constexpr std::uint8_t k_values_field = 4u;
+static constexpr std::uint8_t k_all_control_fields = k_version_field | k_type_field | k_values_field;
+
 struct CFrame
 {
     CNodeKey node;
-    bool object;
+    EFrameRole role;
+    std::size_t entry_offset;
+    std::uint8_t control_fields{ 0u };
 };
 
 class CParser
@@ -81,12 +123,18 @@ public:
 private:
     void fail(const EDocumentParseStatus status) noexcept;
     void advance() noexcept;
-    [[nodiscard]] bool push(const CNodeKey node, const bool object) noexcept;
+    [[nodiscard]] bool push(const CNodeKey node, const EFrameRole role, const std::size_t entry_offset) noexcept;
+    [[nodiscard]] bool require(const bool success) noexcept;
     [[nodiscard]] bool append_text(CByteBuffer& buffer, const std::uint8_t* const bytes, const std::size_t size) noexcept;
     [[nodiscard]] CStringView text(const CToken& token, CByteBuffer& buffer) noexcept;
     [[nodiscard]] CNodeKey integer(const CStringView& name) noexcept;
     [[nodiscard]] CNodeKey floating(const CStringView& name) noexcept;
     [[nodiscard]] CNodeKey create(const CStringView& name) noexcept;
+    [[nodiscard]] CNodeKey member(const CNodeKey object, const CStringView& name) const noexcept;
+    [[nodiscard]] bool attach(const CFrame& parent, const CNodeKey node) noexcept;
+    void metadata_entry() noexcept;
+    void begin_recovery(const std::size_t entry_offset) noexcept;
+    void complete() noexcept;
     void entry() noexcept;
 
     const CStringView& m_source;
@@ -119,14 +167,23 @@ void CParser::advance() noexcept
     }
 }
 
-bool CParser::push(const CNodeKey node, const bool object) noexcept
+bool CParser::require(const bool success) noexcept
+{
+    if (!success)
+    {
+        fail(EDocumentParseStatus::construction_failed);
+    }
+    return success;
+}
+
+bool CParser::push(const CNodeKey node, const EFrameRole role, const std::size_t entry_offset) noexcept
 {
     if (m_frames.size() == memory::t_max_elements<CFrame>())
     {
         fail(EDocumentParseStatus::storage_limit);
         return false;
     }
-    if (!m_frames.push_back(CFrame{ node, object }))
+    if (!m_frames.push_back(CFrame{ node, role, entry_offset }))
     {
         fail(EDocumentParseStatus::allocation_failed);
         return false;
@@ -334,12 +391,225 @@ CNodeKey CParser::create(const CStringView& name) noexcept
     }
 }
 
+CNodeKey CParser::member(const CNodeKey object, const CStringView& name) const noexcept
+{
+    for (CNodeKey child = m_document.first_child(object); child.is_valid(); child = m_document.next_sibling(child))
+    {
+        if (m_document.name(child) == name)
+        {
+            return child;
+        }
+    }
+    return {};
+}
+
+bool CParser::attach(const CFrame& parent, const CNodeKey node) noexcept
+{
+    CNodeKey existing;
+    if (parent.role == EFrameRole::object)
+    {
+        existing = member(parent.node, m_document.name(node));
+    }
+    if (!existing.is_valid())
+    {
+        return require(m_document.append_child(parent.node, node).succeeded());
+    }
+    if (m_document.value_type(existing) != ELiveValueType::recovered_array)
+    {
+        const CNodeKey first = m_document.detach_payload(existing);
+        if (!require(first.is_valid()))
+        {
+            return false;
+        }
+        const CNodeKey recovery = m_document.create_recovered_array();
+        if (!require(recovery.is_valid()) ||
+            !require(m_document.append_child(recovery, first).succeeded()) ||
+            !require(m_document.attach_payload(existing, recovery).is_valid()))
+        {
+            return false;
+        }
+    }
+    //  Extract the complete incoming payload, including a recovered array as
+    //  one nested competitor. The receiver keeps its original name and place.
+    const CNodeKey payload = m_document.detach_payload(node);
+    if (!require(payload.is_valid()) ||
+        !require(m_document.erase(node)) ||
+        !require(m_document.append_child(existing, payload).succeeded()))
+    {
+        return false;
+    }
+    ++m_report.interpretations.duplicate_members_recovered;
+    return true;
+}
+
+void CParser::begin_recovery(const std::size_t entry_offset) noexcept
+{
+    const CNodeKey wrapper = m_frames.last().node;
+    if (wrapper == m_document.root())
+    {
+        fail(EDocumentParseStatus::invalid_root_value);
+        return;
+    }
+    if (m_document.child_count(wrapper) != 0u)
+    {
+        fail(EDocumentParseStatus::malformed_recovery_wrapper);
+        return;
+    }
+    advance(); // colon
+    advance(); // metadata object
+    if (m_token.kind != ETokenKind::object_begin)
+    {
+        fail(EDocumentParseStatus::malformed_recovery_wrapper);
+        return;
+    }
+    const CNodeKey recovery = m_document.create_recovered_array();
+    if (!require(recovery.is_valid()) ||
+        !require(m_document.erase_payload(wrapper)) ||
+        !require(m_document.attach_payload(wrapper, recovery).is_valid()))
+    {
+        return;
+    }
+    m_frames.last().role = EFrameRole::wrapper;
+    //  Metadata and its transport array feed this same recovered value; they
+    //  are grammar contexts, not extra live nodes or ordinary object members.
+    if (push(wrapper, EFrameRole::metadata, entry_offset))
+    {
+        advance();
+    }
+}
+
+void CParser::metadata_entry() noexcept
+{
+    const CStringView name = text(m_token, m_name_scratch);
+    if (!m_report.succeeded())
+    {
+        return;
+    }
+    std::uint8_t field = 0u;
+    if (name == CStringView{ "v" })
+    {
+        field = k_version_field;
+    }
+    else if (name == CStringView{ "type" })
+    {
+        field = k_type_field;
+    }
+    else if (name == CStringView{ "values" })
+    {
+        field = k_values_field;
+    }
+    if ((field == 0u) || ((m_frames.last().control_fields & field) != 0u))
+    {
+        fail(EDocumentParseStatus::malformed_recovery_wrapper);
+        return;
+    }
+    m_frames.last().control_fields |= field;
+    advance(); // colon
+    advance(); // field value
+    if (field == k_version_field)
+    {
+        if (m_token.kind != ETokenKind::integer)
+        {
+            fail(EDocumentParseStatus::malformed_recovery_wrapper);
+            return;
+        }
+        if (!version_one(m_source, m_token))
+        {
+            fail(EDocumentParseStatus::unsupported_recovery_version);
+            return;
+        }
+    }
+    else if (field == k_type_field)
+    {
+        if (m_token.kind != ETokenKind::string)
+        {
+            fail(EDocumentParseStatus::malformed_recovery_wrapper);
+            return;
+        }
+        const CStringView type = text(m_token, m_value_scratch);
+        if (!m_report.succeeded())
+        {
+            return;
+        }
+        if (!(type == CStringView{ "recovered-array" }))
+        {
+            fail(EDocumentParseStatus::unsupported_recovery_type);
+            return;
+        }
+    }
+    else
+    {
+        if (m_token.kind != ETokenKind::array_begin)
+        {
+            fail(EDocumentParseStatus::malformed_recovery_wrapper);
+            return;
+        }
+        if (!push(m_frames.last().node, EFrameRole::transport, m_token.offset))
+        {
+            return;
+        }
+    }
+    advance();
+}
+
+void CParser::complete() noexcept
+{
+    const CFrame frame = m_frames.last();
+    if ((frame.role == EFrameRole::metadata) && (frame.control_fields != k_all_control_fields))
+    {
+        fail(EDocumentParseStatus::malformed_recovery_wrapper);
+        return;
+    }
+    (void)m_frames.discard_back();
+    if ((frame.role == EFrameRole::metadata) || (frame.role == EFrameRole::transport) || (frame.node == m_document.root()))
+    {
+        return;
+    }
+    if (m_frames.is_empty())
+    {
+        fail(EDocumentParseStatus::internal_error);
+        return;
+    }
+    if (frame.role == EFrameRole::wrapper)
+    {
+        ++m_report.interpretations.recovered_arrays_decoded;
+    }
+    CNodeKey node = frame.node;
+    const CFrame parent = m_frames.last();
+    if ((frame.role == EFrameRole::object) && (parent.role == EFrameRole::array) &&
+        !m_document.is_object_entry(node) && (m_document.child_count(node) == 1u))
+    {
+        const CNodeKey child = m_document.first_child(node);
+        if (!require(m_document.detach(child)) || !require(m_document.erase(node)))
+        {
+            m_report.byte_offset = frame.entry_offset;
+            return;
+        }
+        node = child;
+        ++m_report.interpretations.singleton_objects_unwrapped;
+    }
+    if (!attach(parent, node))
+    {
+        m_report.byte_offset = frame.entry_offset;
+    }
+}
+
 void CParser::entry() noexcept
 {
     const CFrame parent = m_frames.last();
+    if (parent.role == EFrameRole::metadata)
+    {
+        metadata_entry();
+        return;
+    }
+    if (parent.role == EFrameRole::wrapper)
+    {
+        fail(EDocumentParseStatus::malformed_recovery_wrapper);
+        return;
+    }
     const std::size_t entry_offset = m_token.offset;
     CStringView name;
-    if (parent.object)
+    if (parent.role == EFrameRole::object)
     {
         name = text(m_token, m_name_scratch);
         if (!m_report.succeeded())
@@ -351,10 +621,16 @@ void CParser::entry() noexcept
             fail(EDocumentParseStatus::empty_property_name);
             return;
         }
-        if (reserved_name(name))
+        const std::size_t dollars = reserved_dollars(name);
+        if (dollars == 1u)
         {
-            fail(EDocumentParseStatus::unsupported_morphic_representation);
+            begin_recovery(entry_offset);
             return;
+        }
+        if (dollars > 1u)
+        {
+            name = CStringView{ name.string() + 1u, name.length() - 1u };
+            ++m_report.interpretations.reserved_names_unescaped;
         }
         advance(); // colon; structure has already established member placement
         if (m_token.kind != ETokenKind::colon)
@@ -380,23 +656,18 @@ void CParser::entry() noexcept
         fail(EDocumentParseStatus::construction_failed);
         return;
     }
-    const auto attached = m_document.append_child(parent.node, node);
-    if (!attached.succeeded())
-    {
-        fail((attached.rejection == ELiveAttachmentRejection::duplicate_object_name) ?
-            EDocumentParseStatus::duplicate_object_name : EDocumentParseStatus::construction_failed);
-        if (attached.rejection == ELiveAttachmentRejection::duplicate_object_name)
-        {
-            m_report.byte_offset = entry_offset;
-        }
-        return;
-    }
     if ((m_token.kind == ETokenKind::object_begin) || (m_token.kind == ETokenKind::array_begin))
     {
-        if (!push(node, m_token.kind == ETokenKind::object_begin))
+        const EFrameRole role = (m_token.kind == ETokenKind::object_begin) ? EFrameRole::object : EFrameRole::array;
+        if (!push(node, role, entry_offset))
         {
             return;
         }
+    }
+    else if (!attach(parent, node))
+    {
+        m_report.byte_offset = entry_offset;
+        return;
     }
     advance();
 }
@@ -410,7 +681,7 @@ CDocumentParseReport CParser::run(CLiveDocument& destination) noexcept
     {
         fail(EDocumentParseStatus::construction_failed);
     }
-    if (m_report.succeeded() && push(m_document.root(), true))
+    if (m_report.succeeded() && push(m_document.root(), EFrameRole::object, m_token.offset))
     {
         if (!implicit)
         {
@@ -425,8 +696,11 @@ CDocumentParseReport CParser::run(CLiveDocument& destination) noexcept
             }
             if ((m_token.kind == ETokenKind::object_end) || (m_token.kind == ETokenKind::array_end))
             {
-                (void)m_frames.discard_back();
-                advance();
+                complete();
+                if (m_report.succeeded())
+                {
+                    advance();
+                }
             }
             else if (m_token.kind == ETokenKind::comma)
             {
@@ -445,6 +719,10 @@ CDocumentParseReport CParser::run(CLiveDocument& destination) noexcept
     if (m_report.succeeded())
     {
         destination = std::move(m_document);
+    }
+    else
+    {
+        m_report.interpretations = {};
     }
     return m_report;
 }

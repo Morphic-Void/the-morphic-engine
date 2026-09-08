@@ -22,8 +22,9 @@ require infrastructure approval merely because they are new.
 
 ## Current baseline
 
-The current checkpoint follows completion of Stages 0 through 8. Stage 9,
-the writer and parser path, is next.
+Stages 0 through 8 are complete. The Stage 9 writer and parser path is
+implemented, validated and approved for commit, including its final recovery
+and normalization slice. Stage 10 persistence and integration follows that checkpoint.
 
 The live implementation currently provides:
 
@@ -339,15 +340,27 @@ The initial relaxed live parser is implemented, validated and approved for
 commit. It shares the structural scanner and escape decoder, constructs every
 ordinary payload through public live operations, retains integer metadata and
 syntax feature reports, and publishes only after successful construction.
-Numeric range errors, empty property names, duplicate names and reserved
-protocol names have explicit failure statuses. Tests cover ingestion, decoded
+That initial slice reported numeric range errors, empty property names,
+duplicate names and reserved protocol names explicitly. Its tests cover ingestion, decoded
 strings and NUL admission, numeric boundaries, source aliasing, deep nesting
 and allocation-failure cleanup. All ordinary suites pass in Debug/Release on
 x64/Win32, including 1,439 parser checks per configuration. Policy and
-line-ending checks pass. The final parser slice still needs recovery
-wrapper decoding, reserved-name unescaping, singleton normalization, ordered
-duplicate recovery and complete end-to-end round trips. Pause for review before
-committing each slice.
+line-ending checks pass.
+
+The final parser slice implements recovery-wrapper decoding, reserved-name
+unescaping, singleton normalization and ordered duplicate recovery, and is
+validated and approved for commit. Its reports distinguish successful semantic
+interpretations from structural syntax observations. Tests cover control-field
+validation and ordering, nested and extended recovery, normalization contexts,
+decoded-name collisions, deep recovery nesting and allocation-failure cleanup.
+End-to-end tests construct live fixtures, bake and write them in both modes
+with independent ASCII and layout options, lint and parse the text, compare
+normalized live semantics, and check stable rewriting.
+All ordinary suites pass in Debug and Release on x64 and Win32, including
+15,081 parser checks per configuration. Policy and line-ending checks pass.
+Validation includes 512 nested recovery wrappers and failures at successive
+framework allocation points during decoding, normalization and collision
+recovery, with unchanged destinations and complete allocation cleanup.
 
 ## Stage 10: persistence and integration
 
