@@ -4,7 +4,7 @@ License: MIT (see LICENSE file in repository root)
 File:   data_model_roadmap.md
 Author: Ritchie Brannan
 Drafting and editorial assistance: OpenAI Codex
-Date:   7 Sep 2026
+Date:   8 Sep 2026
 
 # Data-model roadmap
 
@@ -47,6 +47,14 @@ A separate public translation layer provides staged baking and promotion
 without either document representation depending on the other. The v1 baked
 model, writer and tests under `graveyard/data_model_v1_2026-09-01` are
 reference material only.
+
+Post-implementation consolidation is also complete. The baked public header
+contains the small direct-record queries intended for repeated use, while
+substantial scans and validation remain out of line. Local record-encoding
+checks are separated from whole-artifact topology and cross-record validation.
+The live slot-index type is explicitly named `LiveNodeSlot` rather than using
+the template-style `T` prefix. A complete const-correctness and manual style
+pass has also been applied across the replacement data-model implementation.
 
 ## Settled direction
 
@@ -132,12 +140,12 @@ uses are removed. Keep only outcomes which callers can act on.
 
 Status: complete. Aggregate names are canonically empty and object-entry state
 is derived directly from value names. Internal relationships use explicit
-role-specific `std::int32_t` slot links while public identity remains a
-monotonic `CNodeKey`; conversion back to public keys is O(1). The duplicated
-self key and attachment outcome category have been removed; attachment success
-is derived from the reported rejection reason. The live node has reduced from
-64 to 40 bytes. Packing remains deferred and would require the documented
-rank-map remapping pass.
+role-specific `LiveNodeSlot` indices backed by `std::int32_t`, while public
+identity remains a monotonic `CNodeKey`; conversion back to public keys is
+O(1). The duplicated self key and attachment outcome category have been
+removed; attachment success is derived from the reported rejection reason.
+The live node has reduced from 64 to 40 bytes. Packing remains deferred and
+would require the documented rank-map remapping pass.
 
 ## Stage 4: complete payload composition
 
@@ -237,7 +245,10 @@ only narrow publication access to the owning block.
 The physical-format header is self-contained and remains separate from the
 public view declaration. Small direct-record queries and thin owning-block
 observers are defined inline in the public header; validation, scans, lookup
-and other substantial work remain out of line.
+and other substantial work remain out of line. Record-local encoding checks
+are factored separately from positional, naming, topology and cross-record
+validation, retaining a single full-validation boundary without one monolithic
+validator.
 
 ## Stage 8: promotion
 

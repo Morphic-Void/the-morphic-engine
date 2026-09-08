@@ -4,7 +4,7 @@ License: MIT (see LICENSE file in repository root)
 File:   revised_data_model.md
 Author: Ritchie Brannan
 Drafting and editorial assistance: OpenAI Codex
-Date:   6 Sep 2026
+Date:   8 Sep 2026
 
 # Revised data model
 
@@ -93,9 +93,9 @@ Initialization creates an implicit anonymous object value as the root and its
 object aggregate. The root is the first logical value and the first baked
 value.
 
-The root is not selected, replaced, detached or erased by ordinary callers.
-Reset owns its lifecycle. Initialization must establish the complete root or
-leave the document uninitialized.
+The root is not replaced, detached or destroyed by ordinary callers. Reset
+owns its lifecycle. Initialization must establish the complete root or leave
+the document uninitialized.
 
 Erasing the root through either `erase` or `erase_payload` clears its
 descendants and restores the initial root object; it does not leave an empty
@@ -319,6 +319,13 @@ allocation; it should avoid unnecessary copying, allocation and memory churn.
 `CBakedDocument` is a non-owning immutable view over compatible bytes. There is
 no public mutable baked document or public baked builder.
 
+Baking and promotion are exposed by a separate public translation layer.
+Neither document representation depends on the definition or construction
+details of the other. The translation implementation consumes the ordinary
+public observation and construction surfaces. Narrow private access is limited
+to publishing a completed owning baked block; a staged live document is
+published through its ordinary move operation.
+
 Before emission, a live-tree crawl may build an externally owned analysis
 structure using framework allocation. That analysis may contain reachable
 value counts, recovered-content presence, per-string reference counts,
@@ -362,6 +369,12 @@ independently check the selected layout's:
 
 Public binding of arbitrary bytes performs full validation. A baked view is
 ready only after that validation succeeds; there is no public unchecked view.
+
+The checked view exposes value classification, names and both string domains,
+typed scalar payloads and integer metadata, parent and sibling relationships,
+child ranges, ordinal array access and object-child lookup. Canonicality and
+recovered-content presence are derived observations rather than stored summary
+state.
 
 The replacement byte format is intentionally incompatible with archived
 formats. Once its version is selected, validators must reject unsupported

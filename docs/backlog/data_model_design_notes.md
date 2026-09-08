@@ -4,7 +4,7 @@ License: MIT (see LICENSE file in repository root)
 File:   data_model_design_notes.md
 Author: Ritchie Brannan
 Drafting and editorial assistance: OpenAI Codex
-Date:   6 Sep 2026
+Date:   8 Sep 2026
 
 # Data-model design notes
 
@@ -57,9 +57,9 @@ model. They add observations over existing state rather than new container
 state or ordering machinery.
 
 `CStableStrings` already maintains lexical rank information and exposes ID/rank
-conversion. The initial baking implementation should use that facility rather
-than introduce a new sorting framework. Any further container or memory-system
-change needs its own justification and approval.
+conversion. Baking uses that facility rather than introducing a new sorting
+framework. Any further container or memory-system change needs its own
+justification and approval.
 
 ## Live representation
 
@@ -101,10 +101,11 @@ ordered container is an O(log n) boundary operation; following every tree link
 as another key repeats that search throughout traversal.
 
 Internal parent, sibling, owned-aggregate, owner and child links are represented
-as `std::int32_t` slot indices with `-1` invalid. Once an incoming
-key has resolved to a slot, each structural hop is then O(1). Returning a public
-key for a reached node is also O(1) with the implemented `key_at_slot()`
-accessor.
+as `LiveNodeSlot` indices backed by `std::int32_t`, with `-1` invalid. Once an
+incoming key has resolved to a slot, each structural hop is then O(1).
+Returning a public key for a reached node is also O(1) with the implemented
+`key_at_slot()` accessor. The concrete alias has no `T` prefix because it is a
+complete type rather than a template parameter or incomplete type.
 A height-`h` traversal changes from approximately O(h log n) key lookup to one
 O(log n) boundary lookup followed by O(h) direct traversal.
 
@@ -258,11 +259,11 @@ Recovered content is immutable and cheap to discover by scanning value types.
 
 The checked view is the only public raw-byte boundary. This keeps one view type
 and gives readiness a useful meaning: arbitrary bytes cannot become ready
-without full validation. Internally produced bytes may use a private trusted
-binding only after successful emission.
+without full validation. Baking binds its emitted bytes through that same full
+validation before publishing the owning block; no trusted bypass is needed.
 
-Full validation can remain linear with one transient framework vector. Reusing
-it first for referenced-name marks, then object-local name stamps and finally
+Full validation is linear and uses one transient framework vector. Reusing it
+first for referenced-name marks, then object-local name stamps and finally
 referenced-string marks verifies compact string coverage and object uniqueness
 without persistent state or quadratic scans.
 
@@ -272,6 +273,33 @@ baked-index-to-live-key vector drives breadth-first direct emission. Narrow
 live-document observers expose the ID at a requested lexical rank in each
 string domain. Baking can therefore use only the public live interface; no
 private node or stable-store access is required.
+
+## Baked interface and translation boundaries
+
+The immutable query surface is split by expected use rather than by a blanket
+inlining rule. Small direct-record observations and thin owning-block accessors
+are inline in the public header. Validation, string searches, object-child
+lookup and other loops remain out of line. This makes warm structural and typed
+queries available to the optimiser without moving substantial machinery into
+every consumer.
+
+Full validation likewise separates concerns without weakening the single
+checked-view boundary. A record-local helper validates type, canonical unused
+fields, payload and integer encoding. The enclosing document validator retains
+all facts requiring position, string domains, topology or comparison with
+other records. Making those latter checks record members would hide required
+context rather than simplify it.
+The helper remains private to `CBakedDocument`; `SBakedValueRecord` stays a
+passive physical-layout record rather than acquiring view-policy methods.
+
+Baking and promotion are peers in `document_translation`, not member functions
+of either representation. The live document therefore need not include or
+understand the baked representation, and the baked document need not construct
+or understand live storage. Baking consumes only public live observations;
+promotion consumes only the checked baked query surface and public live
+construction. Narrow friendship exists only to publish a completed owning
+baked block; promotion publishes its successfully staged live document through
+the ordinary move-assignment surface.
 
 ## Preserved future concerns
 
