@@ -333,8 +333,21 @@ configuration. Coverage includes absent versus present-empty string input,
 malformed syntax, bounded truncation, escape
 decoding, huge numbers, collisions, policy-invalid metadata, writer output,
 deep nesting and scratch-allocation failures. Policy and line-ending checks
-pass. The parser remains unimplemented. Update status and relevant
-documentation at each separately validated delivery boundary.
+pass.
+
+The initial relaxed live parser is implemented, validated and approved for
+commit. It shares the structural scanner and escape decoder, constructs every
+ordinary payload through public live operations, retains integer metadata and
+syntax feature reports, and publishes only after successful construction.
+Numeric range errors, empty property names, duplicate names and reserved
+protocol names have explicit failure statuses. Tests cover ingestion, decoded
+strings and NUL admission, numeric boundaries, source aliasing, deep nesting
+and allocation-failure cleanup. All ordinary suites pass in Debug/Release on
+x64/Win32, including 1,439 parser checks per configuration. Policy and
+line-ending checks pass. The final parser slice still needs recovery
+wrapper decoding, reserved-name unescaping, singleton normalization, ordered
+duplicate recovery and complete end-to-end round trips. Pause for review before
+committing each slice.
 
 ## Stage 10: persistence and integration
 

@@ -26,6 +26,7 @@
     <ClCompile Include="tests\test_suites\AssetRepository_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
     <ClCompile Include="tests\test_suites\AsyncState_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
     <ClCompile Include="tests\test_suites\BakedDocument_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
+    <ClCompile Include="tests\test_suites\DocumentParser_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
     <ClCompile Include="tests\test_suites\DocumentStructure_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
     <ClCompile Include="tests\test_suites\DocumentWriter_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
     <ClCompile Include="tests\test_suites\ByteBuffers_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
@@ -65,6 +66,7 @@
     <ClInclude Include="tests\test_suites\AssetRepository_test_suite.hpp"><Filter>Tests\test_suites</Filter></ClInclude>
     <ClInclude Include="tests\test_suites\AsyncState_test_suite.hpp"><Filter>Tests\test_suites</Filter></ClInclude>
     <ClInclude Include="tests\test_suites\BakedDocument_test_suite.hpp"><Filter>Tests\test_suites</Filter></ClInclude>
+    <ClInclude Include="tests\test_suites\DocumentParser_test_suite.hpp"><Filter>Tests\test_suites</Filter></ClInclude>
     <ClInclude Include="tests\test_suites\DocumentStructure_test_suite.hpp"><Filter>Tests\test_suites</Filter></ClInclude>
     <ClInclude Include="tests\test_suites\DocumentWriter_test_suite.hpp"><Filter>Tests\test_suites</Filter></ClInclude>
     <ClInclude Include="tests\test_suites\ByteBuffers_test_suite.hpp"><Filter>Tests\test_suites</Filter></ClInclude>

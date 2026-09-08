@@ -499,6 +499,47 @@ occurrences before semantic normalization, not exact construction requirements.
 Failures clear estimates and feature bits and report a status plus a zero-based
 byte offset in the linter's output; EOF errors use its logical byte size.
 
+### Initial live construction slice
+
+`document_parser::parse` in `document_parser.hpp/.cpp` takes a bounded
+`CStringView` of successfully linted UTF-8 and a live destination. It performs
+the shared structural check, then constructs privately through public live
+operations and publishes by move only on success. Failure leaves the existing
+destination unchanged. Present empty input constructs an empty root object;
+absent input fails. Input may refer to the destination's existing string
+storage, which remains alive until publication.
+
+Document ingestion calls `text_linter::lint(source, 0u)` to preserve quoted
+newlines, checks linter success, then constructs the view from `output.data()`
+and `report.logical_text_byte_size`. Encoding conversion and its transformation
+report remain at that boundary. The parser decodes quoted escapes, including
+surrogate pairs and logical NULs, and uses ordinary live string admission for
+the established modified-NUL storage form.
+
+Integer tokens without a sign construct unsigned values; an explicit `+` or
+`-` selects the signed domain. Magnitude must fit that domain's 64-bit range.
+The parser retains decimal/hexadecimal/binary notation and the alternate `#`
+prefix, and selects the smallest representable integer width. Floating tokens
+construct finite binary64 values, preserving negative zero. Decimal conversion
+rounds to binary64; overflow and nonzero underflow to zero are construction
+errors. Neither numeric range failure nor an empty property name is a syntax
+error. Empty names cannot represent object entries in the current live model
+and return a specific construction status.
+
+`CDocumentParseReport` retains the structural report, including syntax
+relaxations and numeric-extension bits, even if construction subsequently
+fails. Its failure offset identifies a token in the linter's UTF-8 output.
+Structural resource failures retain their detailed structural status; known
+parser scratch failures have allocation/storage statuses. A rejected live
+creation has a general construction-failure status because the existing live
+API does not distinguish its underlying allocation and storage causes.
+
+This separately reviewed slice rejects duplicate decoded names and the exact
+reserved dollar(s)-plus-`morphic` name family with explicit statuses. It retains
+ordinary singleton object wrappers. Recovery decoding, reversible reserved-name
+unescaping, singleton normalization and duplicate recovery are the next slice;
+the complete round-trip contract below is not yet implemented by this parser.
+
 Duplicate object members are recovered through ordinary public payload and
 attachment operations. First competitors retain encounter order. A later
 collision appends its anonymous payload to an existing recovered array,

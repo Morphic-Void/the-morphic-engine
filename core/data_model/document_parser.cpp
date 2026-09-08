@@ -1,0 +1,471 @@
+
+//  Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited
+//  License: MIT (see LICENSE file in repository root)
+//
+//  File:    document_parser.cpp
+//  Authors: Ritchie Brannan / OpenAI Codex
+//  Date:    8 Sep 26
+
+#include "data_model/document_parser.hpp"
+
+#include <charconv>
+#include <cstring>
+#include <limits>
+#include <utility>
+
+#include "data_model/live_document.hpp"
+
+namespace document_parser
+{
+
+//  Keep construction types distinct from the public parsing entry point.
+namespace parser_util
+{
+
+using document_text::CToken;
+using document_text::ETokenKind;
+
+//  These free helpers are private to this translation unit.
+static bool reserved_name(const CStringView& name) noexcept
+{
+    std::size_t dollars = 0u;
+    while ((dollars < name.length()) && (name.string()[dollars] == '$'))
+    {
+        ++dollars;
+    }
+    return (dollars != 0u) && ((name.length() - dollars) == 7u) &&
+        (std::memcmp(name.string() + dollars, "morphic", 7u) == 0);
+}
+
+//  read_escape has already established that scalar is a Unicode scalar value.
+//  Emit ordinary UTF-8 here; live string admission owns modified-NUL storage.
+static std::size_t encode_scalar(const std::uint32_t scalar, std::uint8_t* const bytes) noexcept
+{
+    if (scalar < 0x80u)
+    {
+        bytes[0] = static_cast<std::uint8_t>(scalar);
+        return 1u;
+    }
+    if (scalar < 0x800u)
+    {
+        bytes[0] = static_cast<std::uint8_t>(0xc0u | (scalar >> 6u));
+        bytes[1] = static_cast<std::uint8_t>(0x80u | (scalar & 0x3fu));
+        return 2u;
+    }
+    if (scalar < 0x10000u)
+    {
+        bytes[0] = static_cast<std::uint8_t>(0xe0u | (scalar >> 12u));
+        bytes[1] = static_cast<std::uint8_t>(0x80u | ((scalar >> 6u) & 0x3fu));
+        bytes[2] = static_cast<std::uint8_t>(0x80u | (scalar & 0x3fu));
+        return 3u;
+    }
+    bytes[0] = static_cast<std::uint8_t>(0xf0u | (scalar >> 18u));
+    bytes[1] = static_cast<std::uint8_t>(0x80u | ((scalar >> 12u) & 0x3fu));
+    bytes[2] = static_cast<std::uint8_t>(0x80u | ((scalar >> 6u) & 0x3fu));
+    bytes[3] = static_cast<std::uint8_t>(0x80u | (scalar & 0x3fu));
+    return 4u;
+}
+
+struct CFrame
+{
+    CNodeKey node;
+    bool object;
+};
+
+class CParser
+{
+public:
+    explicit CParser(const CStringView& source) noexcept : m_source(source), m_scanner(source) {}
+    [[nodiscard]] CDocumentParseReport run(CLiveDocument& destination) noexcept;
+
+private:
+    void fail(const EDocumentParseStatus status) noexcept;
+    void advance() noexcept;
+    [[nodiscard]] bool push(const CNodeKey node, const bool object) noexcept;
+    [[nodiscard]] bool append_text(CByteBuffer& buffer, const std::uint8_t* const bytes, const std::size_t size) noexcept;
+    [[nodiscard]] CStringView text(const CToken& token, CByteBuffer& buffer) noexcept;
+    [[nodiscard]] CNodeKey integer(const CStringView& name) noexcept;
+    [[nodiscard]] CNodeKey floating(const CStringView& name) noexcept;
+    [[nodiscard]] CNodeKey create(const CStringView& name) noexcept;
+    void entry() noexcept;
+
+    const CStringView& m_source;
+    document_text::CScanner m_scanner;
+    CToken m_token;
+    TPodVector<CFrame> m_frames;
+    //  Names must remain stable while a string value is decoded.
+    CByteBuffer m_name_scratch;
+    CByteBuffer m_value_scratch;
+    CLiveDocument m_document;
+    CDocumentParseReport m_report;
+};
+
+void CParser::fail(const EDocumentParseStatus status) noexcept
+{
+    if (m_report.succeeded())
+    {
+        m_report.status = status;
+        m_report.byte_offset = m_token.offset;
+    }
+}
+
+void CParser::advance() noexcept
+{
+    m_token = m_scanner.next();
+    if (m_token.kind == ETokenKind::error)
+    {
+        //  The immutable input already passed the same lexical rules.
+        fail(EDocumentParseStatus::internal_error);
+    }
+}
+
+bool CParser::push(const CNodeKey node, const bool object) noexcept
+{
+    if (m_frames.size() == memory::t_max_elements<CFrame>())
+    {
+        fail(EDocumentParseStatus::storage_limit);
+        return false;
+    }
+    if (!m_frames.push_back(CFrame{ node, object }))
+    {
+        fail(EDocumentParseStatus::allocation_failed);
+        return false;
+    }
+    return true;
+}
+
+bool CParser::append_text(CByteBuffer& buffer, const std::uint8_t* const bytes, const std::size_t size) noexcept
+{
+    if (size == 0u)
+    {
+        return true;
+    }
+    if (size > (memory::k_byte_size_ceiling - buffer.size()))
+    {
+        fail(EDocumentParseStatus::storage_limit);
+        return false;
+    }
+    if (!buffer.append(bytes, size))
+    {
+        fail(EDocumentParseStatus::allocation_failed);
+        return false;
+    }
+    return true;
+}
+
+CStringView CParser::text(const CToken& token, CByteBuffer& buffer) noexcept
+{
+    const bool quoted = token.kind == ETokenKind::string;
+    const std::size_t first = token.offset + (quoted ? 1u : 0u);
+    const std::size_t size = token.size - (quoted ? 2u : 0u);
+    const std::uint8_t* const bytes = m_source.string();
+    if (!quoted || (std::memchr(bytes + first, '\\', size) == nullptr))
+    {
+        return CStringView{ bytes + first, size };
+    }
+    (void)buffer.set_size(0u);
+    const std::size_t end = first + size;
+    std::size_t offset = first;
+    while (offset < end)
+    {
+        const std::size_t start = offset;
+        while ((offset < end) && (bytes[offset] != '\\'))
+        {
+            ++offset;
+        }
+        if (!append_text(buffer, bytes + start, offset - start))
+        {
+            return {};
+        }
+        if (offset < end)
+        {
+            std::uint32_t scalar = 0u;
+            if (document_text::read_escape(m_source, offset, bytes[token.offset], scalar) != document_text::ESyntaxError::none)
+            {
+                fail(EDocumentParseStatus::internal_error);
+                return {};
+            }
+            std::uint8_t encoded[4u];
+            const std::size_t count = encode_scalar(scalar, encoded);
+            if (!append_text(buffer, encoded, count))
+            {
+                return {};
+            }
+        }
+    }
+    return CStringView{ buffer.data(), buffer.size() };
+}
+
+CNodeKey CParser::integer(const CStringView& name) noexcept
+{
+    const char* first = reinterpret_cast<const char*>(m_source.string() + m_token.offset);
+    const char* const last = first + m_token.size;
+    const bool negative = *first == '-';
+    const bool signed_value = negative || (*first == '+');
+    if (signed_value)
+    {
+        ++first;
+    }
+    CIntegerMetadata metadata;
+    metadata.domain = signed_value ? EIntegerDomain::signed_value : EIntegerDomain::unsigned_value;
+    int base = 10;
+    if (*first == '#')
+    {
+        base = 16;
+        metadata.prefix = EIntegerPrefix::alternate;
+        ++first;
+    }
+    else if (((last - first) >= 2) && (*first == '0'))
+    {
+        if ((first[1] == 'x') || (first[1] == 'X'))
+        {
+            base = 16;
+            first += 2;
+        }
+        else if ((first[1] == 'b') || (first[1] == 'B'))
+        {
+            base = 2;
+            first += 2;
+        }
+    }
+    metadata.notation = (base == 16) ? EIntegerNotation::hexadecimal : ((base == 2) ? EIntegerNotation::binary : EIntegerNotation::decimal);
+    std::uint64_t magnitude = 0u;
+    const auto converted = std::from_chars(first, last, magnitude, base);
+    if (converted.ec == std::errc::result_out_of_range)
+    {
+        fail(EDocumentParseStatus::numeric_out_of_range);
+        return {};
+    }
+    if ((converted.ec != std::errc{}) || (converted.ptr != last))
+    {
+        fail(EDocumentParseStatus::internal_error);
+        return {};
+    }
+    if (!signed_value)
+    {
+        metadata.width = live_unsigned_integer_smallest_width(magnitude);
+        return m_document.create_unsigned_integer(magnitude, metadata, name);
+    }
+    const std::uint64_t maximum = static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max());
+    if (magnitude > (maximum + (negative ? 1u : 0u)))
+    {
+        fail(EDocumentParseStatus::numeric_out_of_range);
+        return {};
+    }
+    std::int64_t value = 0;
+    if (!negative)
+    {
+        value = static_cast<std::int64_t>(magnitude);
+    }
+    else if (magnitude == (maximum + 1u))
+    {
+        value = std::numeric_limits<std::int64_t>::min();
+    }
+    else
+    {
+        value = -static_cast<std::int64_t>(magnitude);
+    }
+    metadata.width = live_signed_integer_smallest_width(value);
+    return m_document.create_signed_integer(value, metadata, name);
+}
+
+CNodeKey CParser::floating(const CStringView& name) noexcept
+{
+    const char* first = reinterpret_cast<const char*>(m_source.string() + m_token.offset);
+    const char* const last = first + m_token.size;
+    if (*first == '+')
+    {
+        ++first;
+    }
+    double value = 0.0;
+    const auto converted = std::from_chars(first, last, value);
+    if ((converted.ec == std::errc::result_out_of_range) || !live_floating_point_is_finite(value))
+    {
+        fail(EDocumentParseStatus::numeric_out_of_range);
+        return {};
+    }
+    if ((converted.ec != std::errc{}) || (converted.ptr != last))
+    {
+        fail(EDocumentParseStatus::internal_error);
+        return {};
+    }
+    return m_document.create_floating_point(value, name);
+}
+
+CNodeKey CParser::create(const CStringView& name) noexcept
+{
+    switch (m_token.kind)
+    {
+        case ETokenKind::null_value:
+        {
+            return m_document.create_null(name);
+        }
+        case ETokenKind::true_value:
+        case ETokenKind::false_value:
+        {
+            return m_document.create_boolean(m_token.kind == ETokenKind::true_value, name);
+        }
+        case ETokenKind::integer:
+        {
+            return integer(name);
+        }
+        case ETokenKind::floating_point:
+        {
+            return floating(name);
+        }
+        case ETokenKind::string:
+        {
+            const CStringView value = text(m_token, m_value_scratch);
+            return m_report.succeeded() ? m_document.create_string(value, name) : CNodeKey{};
+        }
+        case ETokenKind::object_begin:
+        {
+            return m_document.create_object(name);
+        }
+        case ETokenKind::array_begin:
+        {
+            return m_document.create_array(name);
+        }
+        default:
+        {
+            fail(EDocumentParseStatus::internal_error);
+            return {};
+        }
+    }
+}
+
+void CParser::entry() noexcept
+{
+    const CFrame parent = m_frames.last();
+    const std::size_t entry_offset = m_token.offset;
+    CStringView name;
+    if (parent.object)
+    {
+        name = text(m_token, m_name_scratch);
+        if (!m_report.succeeded())
+        {
+            return;
+        }
+        if (name.length() == 0u)
+        {
+            fail(EDocumentParseStatus::empty_property_name);
+            return;
+        }
+        if (reserved_name(name))
+        {
+            fail(EDocumentParseStatus::unsupported_morphic_representation);
+            return;
+        }
+        advance(); // colon; structure has already established member placement
+        if (m_token.kind != ETokenKind::colon)
+        {
+            fail(EDocumentParseStatus::internal_error);
+            return;
+        }
+        advance();
+    }
+    if (!m_report.succeeded())
+    {
+        return;
+    }
+    const CNodeKey node = create(name);
+    if (!m_report.succeeded())
+    {
+        return;
+    }
+    if (!node.is_valid())
+    {
+        //  Live creation can fail for allocation or storage limits; its public
+        //  API does not distinguish those causes. Do not invent a precise cause.
+        fail(EDocumentParseStatus::construction_failed);
+        return;
+    }
+    const auto attached = m_document.append_child(parent.node, node);
+    if (!attached.succeeded())
+    {
+        fail((attached.rejection == ELiveAttachmentRejection::duplicate_object_name) ?
+            EDocumentParseStatus::duplicate_object_name : EDocumentParseStatus::construction_failed);
+        if (attached.rejection == ELiveAttachmentRejection::duplicate_object_name)
+        {
+            m_report.byte_offset = entry_offset;
+        }
+        return;
+    }
+    if ((m_token.kind == ETokenKind::object_begin) || (m_token.kind == ETokenKind::array_begin))
+    {
+        if (!push(node, m_token.kind == ETokenKind::object_begin))
+        {
+            return;
+        }
+    }
+    advance();
+}
+
+CDocumentParseReport CParser::run(CLiveDocument& destination) noexcept
+{
+    m_report.status = EDocumentParseStatus::success;
+    advance();
+    const bool implicit = m_token.kind != ETokenKind::object_begin;
+    if (!m_document.initialise())
+    {
+        fail(EDocumentParseStatus::construction_failed);
+    }
+    if (m_report.succeeded() && push(m_document.root(), true))
+    {
+        if (!implicit)
+        {
+            advance();
+        }
+        while (m_report.succeeded() && (m_token.kind != ETokenKind::end))
+        {
+            if (m_frames.is_empty())
+            {
+                fail(EDocumentParseStatus::internal_error);
+                break;
+            }
+            if ((m_token.kind == ETokenKind::object_end) || (m_token.kind == ETokenKind::array_end))
+            {
+                (void)m_frames.discard_back();
+                advance();
+            }
+            else if (m_token.kind == ETokenKind::comma)
+            {
+                advance();
+            }
+            else
+            {
+                entry();
+            }
+        }
+        if (m_report.succeeded() && (m_frames.size() != (implicit ? 1u : 0u)))
+        {
+            fail(EDocumentParseStatus::internal_error);
+        }
+    }
+    if (m_report.succeeded())
+    {
+        destination = std::move(m_document);
+    }
+    return m_report;
+}
+
+}   //  namespace parser_util
+
+CDocumentParseReport parse(const CStringView& source, CLiveDocument& destination) noexcept
+{
+    CDocumentParseReport report;
+    report.structure = document_structure::check(source);
+    if (!report.structure.succeeded())
+    {
+        report.status = (report.structure.status == EDocumentStructureStatus::invalid_input_view) ?
+            EDocumentParseStatus::invalid_input_view : EDocumentParseStatus::structural_failure;
+        report.byte_offset = report.structure.byte_offset;
+        return report;
+    }
+    parser_util::CParser parser(source);
+    CDocumentParseReport result = parser.run(destination);
+    result.structure = report.structure;
+    return result;
+}
+
+}   //  namespace document_parser

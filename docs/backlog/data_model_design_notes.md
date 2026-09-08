@@ -332,8 +332,17 @@ output; the writer retains negative zero and adds a float marker when needed.
 Check exact output and bit-round trips on supported toolchains, including
 cross-implementation parsing when another STL becomes a supported target.
 The standard's corresponding-function round-trip guarantee
-alone does not establish cross-vendor behaviour. The parser should assess
-`std::from_chars` by the same criteria.
+alone does not establish cross-vendor behaviour.
+
+The initial live parser uses `std::from_chars` over bounded token spans for
+integer magnitudes and binary64 conversion. The installed MSVC v143
+implementation is non-throwing and uses fixed local arithmetic storage rather
+than dynamic allocation; it does not consult the locale. Sign and base-prefix
+handling remain feature-local, with full token consumption checked after
+conversion. Tests cover both 64-bit integer domains, signed zero, normal and
+subnormal binary64 boundaries, range rejection and deterministic finite-bit
+round trips. This qualifies the current MSVC target, not every STL vendor;
+additional supported toolchains must run the same corpus.
 
 References: [Microsoft charconv documentation](https://learn.microsoft.com/en-us/cpp/standard-library/charconv?view=msvc-170)
 and [numeric output conversion contract](https://eel.is/c++draft/charconv.to.chars).
@@ -400,9 +409,21 @@ expected next syntactic role.
 There is no arbitrary grammar depth cap or document allocation preflight;
 frame allocation failure and the frame storage ceiling have resource statuses.
 The scanner exposes token spans and the same escape-to-scalar operation that
-construction can use later. No quoted string scratch is needed just to check
+construction also uses. No quoted string scratch is needed just to check
 syntax. Duplicate names and reserved metadata do not require string decoding,
 interning or comparison here. Report offsets refer to the linter's UTF-8 output.
+
+The initial parser builds a private live document with an iterative frame
+vector and separate reusable name/value scratch buffers. Separate buffers keep
+a decoded name stable while its string payload is decoded. Plain spans borrow
+the input until live admission copies them. Publication uses the existing move
+operation, allowing even input borrowed from the old destination to remain
+valid through all reads. Structural reports remain available after construction
+failure; there is no claim that syntax acceptance guarantees representability.
+Numeric range errors and unrepresentable empty object-entry names are explicit
+construction failures. Duplicate names and reserved protocol names currently
+report pending semantic support instead of losing or misinterpreting data.
+The following recovery and normalization work remains a separate review slice.
 
 Recovery wrapper recognition precedes ordinary singleton unwrapping. Protocol
 control fields are validated separately from user data, and recovery transport
