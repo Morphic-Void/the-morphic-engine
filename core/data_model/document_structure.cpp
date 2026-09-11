@@ -22,13 +22,15 @@ using document_text::ETokenKind;
 using document_text::ESyntaxError;
 using document_text::ERelaxation;
 
-enum class EState : std::uint8_t { first, after_comma, colon, value, separator };
+enum class EState : std::uint8_t { first = 0u, after_comma, colon, value, separator };
 
 struct CFrame
 {
     bool object;
     bool implicit;
     EState state;
+    CTextLocation start;
+    CTextLocation member_start;
 };
 
 class CCheck
@@ -58,7 +60,21 @@ void CCheck::fail(const EDocumentStructureStatus status, const ESyntaxError erro
         m_report = {};
         m_report.status = status;
         m_report.syntax_error = error;
-        m_report.byte_offset = m_token.offset;
+        m_report.failure_point = m_token.location;
+        m_report.structure_start = m_token.location;
+        if (m_token.kind == ETokenKind::error)
+        {
+            m_report.failure_point = m_token.failure_point;
+        }
+        else if (!m_frames.is_empty())
+        {
+            const CFrame& frame = m_frames.last();
+            m_report.structure_start = frame.start;
+            if ((frame.state == EState::colon) || (frame.state == EState::value))
+            {
+                m_report.structure_start = frame.member_start;
+            }
+        }
     }
 }
 
@@ -78,7 +94,8 @@ void CCheck::push(const bool object, const bool implicit) noexcept
         fail(EDocumentStructureStatus::scratch_size_limit);
         return;
     }
-    if (!m_frames.push_back(CFrame{ object, implicit, EState::first }))
+    const CTextLocation start = implicit ? CTextLocation{ true, 1u, 1u } : m_token.location;
+    if (!m_frames.push_back(CFrame{ object, implicit, EState::first, start, {} }))
     {
         fail(EDocumentStructureStatus::allocation_failed);
         return;
@@ -101,6 +118,7 @@ void CCheck::push(const bool object, const bool implicit) noexcept
 void CCheck::value() noexcept
 {
     //  Set the parent's next state before push_back can relocate the frames.
+    const EState previous = m_frames.last().state;
     m_frames.last().state = EState::separator;
     switch (m_token.kind)
     {
@@ -127,6 +145,7 @@ void CCheck::value() noexcept
         }
         default:
         {
+            m_frames.last().state = previous;
             syntax(ESyntaxError::expected_value);
             return;
         }
@@ -191,6 +210,7 @@ void CCheck::step() noexcept
                 m_report.required_relaxations |= static_cast<std::uint32_t>(ERelaxation::unquoted_names);
             }
             ++m_report.estimates.named_entry_count;
+            frame.member_start = m_token.location;
             m_report.estimates.string_source_byte_size += m_token.size;
             frame.state = EState::colon;
             advance();
@@ -270,7 +290,9 @@ CDocumentStructureReport check(const CStringView& source) noexcept
 {
     if (source.empty())
     {
-        return {};
+        CDocumentStructureReport report;
+        report.status = EDocumentStructureStatus::invalid_input_view;
+        return report;
     }
     structure_util::CCheck checker(source);
     return checker.run();

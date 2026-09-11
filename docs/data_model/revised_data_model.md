@@ -4,7 +4,7 @@ License: MIT (see LICENSE file in repository root)
 File:   revised_data_model.md
 Author: Ritchie Brannan
 Drafting and editorial assistance: OpenAI Codex
-Date:   8 Sep 2026
+Date:   11 Sep 2026
 
 # Data-model semantic specification
 
@@ -16,11 +16,13 @@ defines the abstract model, public operations, integrity boundaries and
 ownership rules. Requirements expressed with **must**, **must not** and
 **only** are normative.
 
-This records the implemented baseline. Parser observations, caller strictness,
-reporting and the public ownership-transfer boundary are being reconsidered
-under the [consolidation plan](../backlog/consolidation_pass.md). That plan
-identifies work to agree and implement; it does not silently change the current
-behaviour specified here. Update the affected contracts with the refactor.
+This records the implemented baseline, including the completed and reviewed
+stage-1 linter and shared diagnostics. The remaining parser/model/writer and
+caller-policy requirements are agreed in the
+[refactor specification](../backlog/parser_refactoring_specification.md) and
+await stage-2 implementation. The public ownership-transfer boundary remains
+under review in the [consolidation plan](../backlog/consolidation_pass.md).
+The current behaviour specified here changes as each replacement is implemented.
 
 Implementation rationale belongs in
 [design notes](data_model_design_notes.md). Completed implementation history
@@ -428,23 +430,69 @@ history.
 
 ## Text ingestion and parsing
 
-The parser is always relaxed. Its stages are the linter, a structural-integrity
+Stage 1 of the [refactor specification](../backlog/parser_refactoring_specification.md)
+has completed implementation and review of the linter and shared locations.
+The remaining parser/model/writer migration and acceptance policy await explicit
+progression to stage 2. The parser is currently always relaxed. Its stages are
+the linter, a structural-integrity
 check, and relaxed document parsing. There is no separate strict parser.
 Reports identify the relaxed features required for acceptance and the
 Morphic-specific features interpreted, separately from ingestion transformations.
 Strict JSON syntax may itself contain a Morphic recovery representation.
 
-The linter converts recoverable CP1252 input to UTF-8 and reports the resulting
-encoding and transformations. A parser consumes successfully produced UTF-8;
+The linter converts defined CP1252 input, exact modified NUL and valid CESU-8
+surrogate pairs to canonical UTF-8 using SuiteUTF. Undefined CP1252 bytes fail
+without replacement. A recognized leading BOM prevents CP1252 fallback.
+Malformed CESU forms are not accepted as compatibility UTF-8; unmarked input
+may instead select the separately reported CP1252 path. Source findings retain
+that adopted interpretation and useful UTF decoder evidence separately from
+terminal failure. A successful fallback has no `first_failure`.
+A parser consumes successfully produced UTF-8;
 it must not decode CP1252 itself or silently accept unconverted CP1252 bytes.
 
 Embedded literal zero bytes are accepted content, not unrecoverable encoding
 errors. The linter explicitly counts them separately from source terminators
 and modified-NUL sequences. Its length-bounded UTF-8 output may contain literal
 U+0000; accepted `C0 80` input is normalized to that scalar and reported.
-Document ingestion disables global newline rewriting to preserve quoted
-content. Source transformations and parser locations must identify their
-coordinate space rather than imply unchanged source offsets after conversion.
+Document ingestion normalizes LF, CR, CRLF, LFCR, VT, FF, NEL, LS and PS to LF,
+recognizing compound forms first. This applies equally inside quotes and
+comments: the linter has no syntax awareness and leaves escape spellings alone.
+Generic lint callers retain the existing default mask (LF, CR and CRLF) and
+may select another mask, including zero to preserve all newline spellings.
+
+`CTextLocation` is shared by linter, structural and parser diagnostics. Its
+`available` state is explicit; line and code-point column are 1-based in the
+emitted UTF-8, excluding the physical terminator. Only emitted LF advances the
+line; tabs and combining marks each count once, as does a supplementary scalar.
+Byte offsets remain private scanning details. Generic callers preserving other
+line endings still use this LF-based coordinate rule; their aggregate line
+metrics continue to follow their selected normalization mask.
+
+Linter statistics remain: input/output byte sizes, line/content metrics, literal
+and modified-NUL counts, terminal-zero counts and CP1252 evidence. CESU pairs
+have a separate occurrence count. `source_findings` records source encoding,
+raw-byte observations and decoder issues in separate contiguous categories;
+`encountered_line_endings` and `normalised_line_endings` retain per-form masks.
+A CESU pair contributes one decoded scalar to both code-point totals and six
+source bytes versus four output bytes. Failed attempts do not contaminate the
+adopted decoding path. Raw-byte observations are collected over the bounded
+payload before decoding; decoding statistics describe the processed prefix.
+The retained CP1252 replacement counter is always zero.
+
+`first_failure` now identifies terminal failure only, with a specific reason,
+SuiteUTF decoder bits where applicable, output-relative location and explicit
+`before_output`. The prospective cursor survives disposal of partial output;
+a first decoding failure uses (1, 1). Invalid views and input limits can have
+unavailable locations. `utf8_attempt_errors` keeps abandoned decoder evidence
+without publishing an abandoned attempt's location. Present empty input succeeds
+and does not claim failure before output.
+Use the `CStringView` overload of `lint` or `ingest` for present zero-length
+text; `CByteConstView` itself cannot represent a present empty range. Both
+overloads enter the same decoding and diagnostic implementation directly,
+without converting between byte and string views. A null byte or string view
+is absent input and reports `invalid_input_view`; a present zero-length string
+view succeeds. Internally, the linter owns its result and attempt state, and a
+source cursor carries the buffer, bounded length and current decoding offset.
 
 Every logical NUL entering a live name or string value, whether from literal
 source content or an escape such as `\u0000`, uses `C0 80` through ordinary
@@ -519,8 +567,12 @@ ordinary syntax at this stage; only parsing can report their interpretation.
 Estimates count syntactic values, objects, arrays, named entries, raw name/string
 token bytes, and maximum container depth (root is depth one). They describe
 occurrences before semantic normalization, not exact construction requirements.
-Failures clear estimates and feature bits and report a status plus a zero-based
-byte offset in the linter's output; EOF errors use its logical byte size.
+Failures currently clear estimates and feature bits and report a status plus
+shared `structure_start` and `failure_point` locations. The first identifies
+the immediately malformed element; the second identifies detection or the EOF
+cursor. Success leaves both unavailable. The stage status is `unexamined` until
+invoked, distinguishing skipped structure after a linter failure from valid or
+invalid syntax. Parser presence findings and estimate separation remain stage 2.
 
 ### Live construction and interpretation
 
@@ -532,10 +584,19 @@ destination unchanged. Present empty input constructs an empty root object;
 absent input fails. Input may refer to the destination's existing string
 storage, which remains alive until publication.
 
-Document ingestion calls `text_linter::lint(source, 0u)` to preserve quoted
-newlines, checks linter success, then constructs the view from `output.data()`
-and `report.logical_text_byte_size`. Encoding conversion and its transformation
-report remain at that boundary. The parser decodes quoted escapes, including
+`document_parser::ingest(source, destination)` takes bounded source bytes,
+calls the linter with `k_document_text_lint_line_endings`, and parses only its
+successful output. It retains `CDocumentParseReport::linter` and sets
+`linter_examined`. A linter failure uses status `linter_failure`, copies its
+location unchanged to `failure_point`, leaves `structure_start` unavailable and
+leaves structure `unexamined`. Every operation constructs a fresh report, so
+reuse cannot retain old structural locations. The destination is preserved on
+failure, including when source aliases its existing string storage.
+
+Low-level callers may still lint separately and pass `output.data()` with
+`report.logical_text_byte_size` to `parse`; source findings then remain in their
+separate linter report. `parse` itself leaves `linter_examined` false.
+The parser decodes quoted escapes, including
 surrogate pairs and logical NULs, and uses ordinary live string admission for
 the established modified-NUL storage form.
 
@@ -551,7 +612,8 @@ and return a specific construction status.
 
 `CDocumentParseReport` retains the structural report, including syntax
 relaxations and numeric-extension bits, even if construction subsequently
-fails. Its failure offset identifies a token in the linter's UTF-8 output.
+fails. Its shared locations identify the responsible element and detection
+point in the linter's UTF-8 output.
 Structural resource failures retain their detailed structural status; known
 parser scratch failures have allocation/storage statuses. A rejected live
 creation has a general construction-failure status because the existing live

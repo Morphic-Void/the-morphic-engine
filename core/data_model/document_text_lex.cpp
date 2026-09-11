@@ -365,6 +365,38 @@ CToken CScanner::identifier() noexcept
 
 CToken CScanner::next() noexcept
 {
+    CToken token = scan_next();
+    locate(m_element_offset);
+    token.location = m_location;
+    if (token.kind == ETokenKind::error)
+    {
+        locate(token.offset);
+        token.failure_point = m_location;
+    }
+    return token;
+}
+
+void CScanner::locate(const std::size_t offset) noexcept
+{
+    //  Each byte is visited at most once for coordinates across all tokens.
+    //  Input is linted UTF-8; continuation bytes never advance the column.
+    while (m_location_offset < offset)
+    {
+        const std::uint8_t ch = m_source.string()[m_location_offset++];
+        if (ch == '\n')
+        {
+            ++m_location.line_1_based;
+            m_location.code_point_column_1_based = 1u;
+        }
+        else if ((ch & 0xc0u) != 0x80u)
+        {
+            ++m_location.code_point_column_1_based;
+        }
+    }
+}
+
+CToken CScanner::scan_next() noexcept
+{
     while (m_offset < m_source.length())
     {
         const std::uint8_t ch = m_source.string()[m_offset];
@@ -382,6 +414,7 @@ CToken CScanner::next() noexcept
         {
             break;
         }
+        m_element_offset = m_offset;
         m_relaxations |= static_cast<std::uint32_t>(ERelaxation::comments);
         m_offset += 2u;
         if (next == '/')
@@ -406,6 +439,7 @@ CToken CScanner::next() noexcept
             m_offset += 2u;
         }
     }
+    m_element_offset = m_offset;
     if (m_offset == m_source.length())
     {
         return { ETokenKind::end, ESyntaxError::none, m_offset, 0u };

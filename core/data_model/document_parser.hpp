@@ -12,12 +12,13 @@
 #define DOCUMENT_PARSER_HPP_INCLUDED
 
 #include "data_model/document_structure.hpp"
+#include "text/text_linter.hpp"
 
 class CLiveDocument;
 
 enum class EDocumentParseStatus : std::uint8_t
 {
-    success = 0u, invalid_input_view, structural_failure, numeric_out_of_range,
+    success = 0u, invalid_input_view, linter_failure, structural_failure, numeric_out_of_range,
     empty_property_name, malformed_recovery_wrapper, unsupported_recovery_version,
     unsupported_recovery_type, invalid_root_value,
     allocation_failed, storage_limit, construction_failed, internal_error
@@ -34,9 +35,11 @@ struct CDocumentParseInterpretations
 struct CDocumentParseReport
 {
     EDocumentParseStatus status{ EDocumentParseStatus::invalid_input_view };
-    //  First failure in the linter's UTF-8 output; zero on success. Construction
-    //  errors identify the responsible token, not an original pre-lint offset.
-    std::size_t byte_offset{ 0u };
+    CTextLocation structure_start;
+    CTextLocation failure_point;
+    //  Populated by ingest; low-level parse receives already linted text.
+    bool linter_examined{ false };
+    CTextLintReport linter;
     //  Retained even when construction fails. A successful structural report
     //  describes accepted syntax, including relaxation and numeric-extension
     //  bits; it does not claim that the document was constructed successfully.
@@ -52,8 +55,8 @@ namespace document_parser
 {
 
 //  Consume present, bounded UTF-8 from a successful linter call. Pass an
-//  explicit CStringView length excluding the physical terminator, and disable
-//  newline rewriting during linting. This function performs the structural
+//  explicit CStringView length excluding the physical terminator, and normalize
+//  every source line break to LF during linting. This function performs the structural
 //  pass; it does not perform encoding detection or CP1252 conversion.
 //  Source stays immutable and alive until return. Destination is replaced only
 //  after success and is unchanged on failure. All owned storage uses the
@@ -64,6 +67,13 @@ namespace document_parser
 //  ordinary arrays. Protocol metadata is validated separately from user data.
 //  The root remains an object; a recovery wrapper cannot replace it.
 [[nodiscard]] CDocumentParseReport parse(const CStringView& source, CLiveDocument& destination) noexcept;
+
+//  Lint source bytes with uniform LF normalization, then parse. Retain the
+//  linter report on every outcome. Failure preserves destination and exposes
+//  the linter location directly as failure_point; structure stays unexamined.
+[[nodiscard]] CDocumentParseReport ingest(const CByteConstView& source, CLiveDocument& destination) noexcept;
+//  The string-view overload also admits present zero-length source text.
+[[nodiscard]] CDocumentParseReport ingest(const CStringView& source, CLiveDocument& destination) noexcept;
 
 }   //  namespace document_parser
 

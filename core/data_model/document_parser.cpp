@@ -110,7 +110,7 @@ struct CFrame
 {
     CNodeKey node;
     EFrameRole role;
-    std::size_t entry_offset;
+    CTextLocation entry_location;
     std::uint8_t control_fields{ 0u };
 };
 
@@ -123,7 +123,7 @@ public:
 private:
     void fail(const EDocumentParseStatus status) noexcept;
     void advance() noexcept;
-    [[nodiscard]] bool push(const CNodeKey node, const EFrameRole role, const std::size_t entry_offset) noexcept;
+    [[nodiscard]] bool push(const CNodeKey node, const EFrameRole role, const CTextLocation& entry_location) noexcept;
     [[nodiscard]] bool require(const bool success) noexcept;
     [[nodiscard]] bool append_text(CByteBuffer& buffer, const std::uint8_t* const bytes, const std::size_t size) noexcept;
     [[nodiscard]] CStringView text(const CToken& token, CByteBuffer& buffer) noexcept;
@@ -133,7 +133,7 @@ private:
     [[nodiscard]] CNodeKey member(const CNodeKey object, const CStringView& name) const noexcept;
     [[nodiscard]] bool attach(const CFrame& parent, const CNodeKey node) noexcept;
     void metadata_entry() noexcept;
-    void begin_recovery(const std::size_t entry_offset) noexcept;
+    void begin_recovery(const CTextLocation& entry_location) noexcept;
     void complete() noexcept;
     void entry() noexcept;
 
@@ -148,12 +148,29 @@ private:
     CDocumentParseReport m_report;
 };
 
+static CDocumentParseReport ingest_linted(const CTextLintResult& linted, CLiveDocument& destination) noexcept
+{
+    CDocumentParseReport report;
+    if (linted.report.success)
+    {
+        report = parse(CStringView{ linted.output.data(), linted.report.logical_text_byte_size }, destination);
+    }
+    else
+    {
+        report.status = EDocumentParseStatus::linter_failure;
+        report.failure_point = linted.report.first_failure.location;
+    }
+    report.linter_examined = true;
+    report.linter = linted.report;
+    return report;
+}
+
 void CParser::fail(const EDocumentParseStatus status) noexcept
 {
     if (m_report.succeeded())
     {
         m_report.status = status;
-        m_report.byte_offset = m_token.offset;
+        m_report.structure_start = m_report.failure_point = m_token.location;
     }
 }
 
@@ -176,14 +193,14 @@ bool CParser::require(const bool success) noexcept
     return success;
 }
 
-bool CParser::push(const CNodeKey node, const EFrameRole role, const std::size_t entry_offset) noexcept
+bool CParser::push(const CNodeKey node, const EFrameRole role, const CTextLocation& entry_location) noexcept
 {
     if (m_frames.size() == memory::t_max_elements<CFrame>())
     {
         fail(EDocumentParseStatus::storage_limit);
         return false;
     }
-    if (!m_frames.push_back(CFrame{ node, role, entry_offset }))
+    if (!m_frames.push_back(CFrame{ node, role, entry_location }))
     {
         fail(EDocumentParseStatus::allocation_failed);
         return false;
@@ -442,7 +459,7 @@ bool CParser::attach(const CFrame& parent, const CNodeKey node) noexcept
     return true;
 }
 
-void CParser::begin_recovery(const std::size_t entry_offset) noexcept
+void CParser::begin_recovery(const CTextLocation& entry_location) noexcept
 {
     const CNodeKey wrapper = m_frames.last().node;
     if (wrapper == m_document.root())
@@ -472,7 +489,7 @@ void CParser::begin_recovery(const std::size_t entry_offset) noexcept
     m_frames.last().role = EFrameRole::wrapper;
     //  Metadata and its transport array feed this same recovered value; they
     //  are grammar contexts, not extra live nodes or ordinary object members.
-    if (push(wrapper, EFrameRole::metadata, entry_offset))
+    if (push(wrapper, EFrameRole::metadata, entry_location))
     {
         advance();
     }
@@ -544,7 +561,7 @@ void CParser::metadata_entry() noexcept
             fail(EDocumentParseStatus::malformed_recovery_wrapper);
             return;
         }
-        if (!push(m_frames.last().node, EFrameRole::transport, m_token.offset))
+        if (!push(m_frames.last().node, EFrameRole::transport, m_token.location))
         {
             return;
         }
@@ -582,7 +599,7 @@ void CParser::complete() noexcept
         const CNodeKey child = m_document.first_child(node);
         if (!require(m_document.detach(child)) || !require(m_document.erase(node)))
         {
-            m_report.byte_offset = frame.entry_offset;
+            m_report.structure_start = frame.entry_location;
             return;
         }
         node = child;
@@ -590,7 +607,7 @@ void CParser::complete() noexcept
     }
     if (!attach(parent, node))
     {
-        m_report.byte_offset = frame.entry_offset;
+        m_report.structure_start = frame.entry_location;
     }
 }
 
@@ -607,7 +624,7 @@ void CParser::entry() noexcept
         fail(EDocumentParseStatus::malformed_recovery_wrapper);
         return;
     }
-    const std::size_t entry_offset = m_token.offset;
+    const CTextLocation entry_location = m_token.location;
     CStringView name;
     if (parent.role == EFrameRole::object)
     {
@@ -624,7 +641,7 @@ void CParser::entry() noexcept
         const std::size_t dollars = reserved_dollars(name);
         if (dollars == 1u)
         {
-            begin_recovery(entry_offset);
+            begin_recovery(entry_location);
             return;
         }
         if (dollars > 1u)
@@ -659,14 +676,14 @@ void CParser::entry() noexcept
     if ((m_token.kind == ETokenKind::object_begin) || (m_token.kind == ETokenKind::array_begin))
     {
         const EFrameRole role = (m_token.kind == ETokenKind::object_begin) ? EFrameRole::object : EFrameRole::array;
-        if (!push(node, role, entry_offset))
+        if (!push(node, role, entry_location))
         {
             return;
         }
     }
     else if (!attach(parent, node))
     {
-        m_report.byte_offset = entry_offset;
+        m_report.structure_start = entry_location;
         return;
     }
     advance();
@@ -681,7 +698,7 @@ CDocumentParseReport CParser::run(CLiveDocument& destination) noexcept
     {
         fail(EDocumentParseStatus::construction_failed);
     }
-    if (m_report.succeeded() && push(m_document.root(), EFrameRole::object, m_token.offset))
+    if (m_report.succeeded() && push(m_document.root(), EFrameRole::object, m_token.location))
     {
         if (!implicit)
         {
@@ -737,13 +754,26 @@ CDocumentParseReport parse(const CStringView& source, CLiveDocument& destination
     {
         report.status = (report.structure.status == EDocumentStructureStatus::invalid_input_view) ?
             EDocumentParseStatus::invalid_input_view : EDocumentParseStatus::structural_failure;
-        report.byte_offset = report.structure.byte_offset;
+        report.structure_start = report.structure.structure_start;
+        report.failure_point = report.structure.failure_point;
         return report;
     }
     parser_util::CParser parser(source);
     CDocumentParseReport result = parser.run(destination);
     result.structure = report.structure;
     return result;
+}
+
+CDocumentParseReport ingest(const CByteConstView& source, CLiveDocument& destination) noexcept
+{
+    const CTextLintResult linted = text_linter::lint(source, k_document_text_lint_line_endings);
+    return parser_util::ingest_linted(linted, destination);
+}
+
+CDocumentParseReport ingest(const CStringView& source, CLiveDocument& destination) noexcept
+{
+    const CTextLintResult linted = text_linter::lint(source, k_document_text_lint_line_endings);
+    return parser_util::ingest_linted(linted, destination);
 }
 
 }   //  namespace document_parser

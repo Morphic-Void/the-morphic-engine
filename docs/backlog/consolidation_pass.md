@@ -12,8 +12,9 @@ The current code is a baseline to refactor, not an approved final interface.
 
 ## Work and review boundaries
 
-- Refactor the parser/reporting in the existing parser task. Agree the revised
-  contract and examples before implementation, then keep changes reviewable.
+- Refactor the parser/reporting in the existing parser task. The revised contract
+  is agreed and stage 1 is implemented and reviewed. Keep the remaining migration
+  reviewable; stage 2 awaits explicit progression instruction.
 - Carry most other consolidation into a separate task, using this document as
   the handoff. Establish Host authority and lifetime before dependent services.
 - Add direct persistence checks and the full Executive exercise against those
@@ -26,7 +27,17 @@ The current code is a baseline to refactor, not an approved final interface.
 
 The [linter/parser refactoring specification](parser_refactoring_specification.md)
 owns the settled requirements and implementation-review details. Its consistency
-review is complete; execution requires Ritchie's explicit instruction.
+review is complete. Stage 1 has implemented and validated the linter, grouped
+source findings, retained linter statistics, shared output-relative locations
+and composed ingestion with linter-failure propagation. Its final review also
+consolidated linter state and the source cursor and removed byte-to-string view
+conversion. The specification's progress record identifies the completed scope
+and validation.
+
+Stage 2 remains: grouped parser findings and caller policy, estimate separation,
+the revised grammar and interpretation rules, and the associated live/baked/writer
+changes. It awaits explicit progression instruction. The following describes
+the full agreed direction, including both completed and remaining work.
 
 The agreed direction is caller-selected feature permissions, grouped parser
 presence flags instead of statistics, retained linter aggregate statistics,

@@ -286,7 +286,8 @@ Coverage includes numeric boundaries, Unicode/NULs, malformed structure,
 reserved names, nested recovery, deep iterative walks, meaningful allocation
 failures, unchanged transfer bytes/addresses, rejection and disposal. Policy
 and line-ending checks passed. These are historical results, not a claim that
-the forthcoming parser refactor has been validated.
+the entire parser refactor has been validated. Its completed first stage is
+recorded separately below.
 
 Current reference:
 
@@ -297,6 +298,41 @@ Current reference:
 Direct file persistence and the full Executive-controlled document run were
 planned but not implemented at this checkpoint. Their test mechanics are being
 reconsidered around the consolidated Host contracts before schema work.
+
+## Linter and shared diagnostic refactor: stage 1
+
+Implemented, validated and reviewed on 11 September 2026. This completes the
+first review stage of the
+[parser refactoring specification](../backlog/parser_refactoring_specification.md).
+
+- Normalized exact modified NUL and valid CESU-8 pairs through SuiteUTF to
+  canonical UTF-8; undefined CP1252 bytes now fail without replacement.
+- Added grouped source findings while retaining linter aggregate statistics,
+  newline-form observations, NUL provenance and abandoned UTF-8 evidence.
+- Unified linter, structural and parser locations through `CTextLocation`, with
+  explicit availability and 1-based line/code-point coordinates in emitted UTF-8.
+  Removed public diagnostic byte offsets and preserved prospective failure
+  locations when partial output is discarded.
+- Added composed ingestion that normalizes all supported source line breaks to
+  LF and propagates linter failures directly into parser diagnostics, leaving
+  structure unexamined and the destination unchanged.
+- Preserved absent versus present-empty input through direct view overloads,
+  without byte-to-string view conversion. Consolidated internal linter state and
+  source-cursor handling, and completed helper-order and formatting review.
+
+Validation: Debug/Release solution builds and ordinary tests passed on x64 and
+Win32, including 561 TextLinter, 1,247 DocumentStructure and 15,150 DocumentParser
+checks per configuration. Coverage includes malformed encodings, fallback
+provenance, every line-break form, output-relative positions, empty/absent views,
+allocation/publication failures and aliased sources. Policy checks reported zero
+errors and warnings with the existing negative-test suppression. A Debug x64
+build also passed after the final helper-definition reorder; diff and line-ending
+checks passed.
+
+The [semantic specification](../data_model/revised_data_model.md) describes these
+implemented contracts. Stage 2 remains unimplemented: parser presence findings
+and late acceptance policy, revised grammar and collision handling, root and name
+changes, per-value newline metadata, writer changes and recovery retirement.
 
 ## Retired v1 reference archive
 

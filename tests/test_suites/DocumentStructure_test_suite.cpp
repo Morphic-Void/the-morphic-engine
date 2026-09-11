@@ -82,7 +82,7 @@ static void test_grammar(TTestContext& ctx)
         const auto report = check(text);
         expect_failure(ctx, report, EDocumentStructureStatus::syntax_error);
         TEST_EXPECT(ctx, report.syntax_error != ESyntaxError::none);
-        TEST_EXPECT(ctx, report.byte_offset <= std::string(text).size());
+        TEST_EXPECT(ctx, report.failure_point.available);
     }
 }
 
@@ -90,7 +90,7 @@ static void test_input_presence(TTestContext& ctx)
 {
     const auto absent = document_structure::check(CStringView{});
     expect_failure(ctx, absent, EDocumentStructureStatus::invalid_input_view);
-    TEST_EXPECT(ctx, absent.syntax_error == ESyntaxError::none && absent.byte_offset == 0u);
+    TEST_EXPECT(ctx, absent.syntax_error == ESyntaxError::none && !absent.failure_point.available);
     const char terminator = '\0';
     const CStringView present{ &terminator, 0u };
     const auto empty = document_structure::check(present);
@@ -99,7 +99,7 @@ static void test_input_presence(TTestContext& ctx)
     TEST_EXPECT(ctx, empty.estimates.array_count == 0u && empty.estimates.named_entry_count == 0u);
     TEST_EXPECT(ctx, empty.estimates.string_source_byte_size == 0u && empty.estimates.maximum_depth == 1u);
     TEST_EXPECT(ctx, empty.required_relaxations == static_cast<std::uint32_t>(ERelaxation::implicit_root_object));
-    TEST_EXPECT(ctx, empty.numeric_extensions == 0u && empty.syntax_error == ESyntaxError::none && empty.byte_offset == 0u);
+    TEST_EXPECT(ctx, empty.numeric_extensions == 0u && empty.syntax_error == ESyntaxError::none && !empty.failure_point.available);
     document_text::CScanner scanner(present);
     const auto end = scanner.next();
     TEST_EXPECT(ctx, end.kind == ETokenKind::end && end.offset == 0u && end.size == 0u);
@@ -126,7 +126,7 @@ static void test_reports(TTestContext& ctx)
     const auto strict = check("{\"a\":[1,{\"b\":\"x\"}],\"c\":true}");
     TEST_EXPECT(ctx, strict.succeeded());
     TEST_EXPECT(ctx, strict.required_relaxations == 0u && strict.numeric_extensions == 0u);
-    TEST_EXPECT(ctx, strict.byte_offset == 0u && strict.syntax_error == ESyntaxError::none);
+    TEST_EXPECT(ctx, !strict.failure_point.available && strict.syntax_error == ESyntaxError::none);
     TEST_EXPECT(ctx, strict.estimates.value_count == 6u);
     TEST_EXPECT(ctx, strict.estimates.object_count == 2u && strict.estimates.array_count == 1u);
     TEST_EXPECT(ctx, strict.estimates.named_entry_count == 3u);
@@ -163,12 +163,39 @@ static void test_reports(TTestContext& ctx)
         const auto report = check(failure.text);
         expect_failure(ctx, report, EDocumentStructureStatus::syntax_error);
         TEST_EXPECT(ctx, report.syntax_error == failure.error);
-        TEST_EXPECT(ctx, report.byte_offset == failure.offset);
+        TEST_EXPECT(ctx, report.failure_point.available && report.failure_point.code_point_column_1_based == failure.offset + 1u);
     }
 }
 
 static void test_lexical_reuse(TTestContext& ctx)
 {
+    struct CLocationCase
+    {
+        const char* source;
+        std::size_t start_column;
+        std::size_t failure_column;
+    };
+    const CLocationCase locations[]{ { "{\"s\":\"abc", 6u, 10u },
+        { "{\"a\":[1}", 6u, 8u }, { "{\"a\":{\"b\":1]}", 6u, 12u },
+        { "{\"a\" 1}", 2u, 6u }, { "{", 1u, 2u }, { "{} /*tail", 4u, 10u },
+        { "{a:\"\\q\"}", 4u, 6u }, { "{a:}", 2u, 4u } };
+    for (const auto& item : locations)
+    {
+        const auto report = check(item.source);
+        TEST_EXPECT(ctx, !report.succeeded());
+        TEST_EXPECT(ctx, report.structure_start.available && report.failure_point.available);
+        TEST_EXPECT(ctx, report.structure_start.line_1_based == 1u && report.failure_point.line_1_based == 1u);
+        TEST_CASE_EXPECT_EQ(ctx, item.source, report.structure_start.code_point_column_1_based, item.start_column);
+        TEST_CASE_EXPECT_EQ(ctx, item.source, report.failure_point.code_point_column_1_based, item.failure_column);
+    }
+    const std::string multiline = "\xef\xbb\xbf{\r\n\"s\":\"\xc3\xa9\xcc\x81\t\xed\xa0\xbd\xed\xb8\x80\xe2\x80\xa8x";
+    const auto linted = text_linter::lint(CByteConstView{ reinterpret_cast<const std::uint8_t*>(multiline.data()), multiline.size() }, k_document_text_lint_line_endings);
+    TEST_EXPECT(ctx, linted.report.success);
+    const auto unterminated = document_structure::check(CStringView{ linted.output.data(), linted.report.logical_text_byte_size });
+    TEST_EXPECT(ctx, unterminated.syntax_error == ESyntaxError::unterminated_string);
+    TEST_EXPECT(ctx, unterminated.structure_start.line_1_based == 2u && unterminated.structure_start.code_point_column_1_based == 5u);
+    TEST_EXPECT(ctx, unterminated.failure_point.line_1_based == 3u && unterminated.failure_point.code_point_column_1_based == 2u);
+
     struct CEscape
     {
         const char* text;
@@ -204,7 +231,7 @@ static void test_lexical_reuse(TTestContext& ctx)
 static void test_ingestion_and_bounds(TTestContext& ctx)
 {
     const std::uint8_t input[]{ '{', '"', 'n', 0u, '"', ':', '"', 0xe9u, 0u, '"', '}' };
-    const auto linted = text_linter::lint(CByteConstView{ input, sizeof(input) }, 0u);
+    const auto linted = text_linter::lint(CByteConstView{ input, sizeof(input) }, k_document_text_lint_line_endings);
     TEST_EXPECT(ctx, linted.report.success && linted.report.recovered_as_cp1252);
     const auto report = document_structure::check(CStringView{ linted.output.data(), linted.report.logical_text_byte_size });
     TEST_EXPECT(ctx, report.succeeded());
@@ -221,7 +248,7 @@ static void test_ingestion_and_bounds(TTestContext& ctx)
         {
             const auto prefix = document_structure::check(CStringView{ text.data(), n });
             TEST_EXPECT(ctx, !prefix.succeeded());
-            TEST_EXPECT(ctx, prefix.byte_offset <= n);
+            TEST_EXPECT(ctx, prefix.failure_point.available);
         }
     }
 }

@@ -102,34 +102,34 @@ static void test_strings_and_ingestion(TTestContext& ctx)
     TEST_EXPECT(ctx, document.check_integrity());
 
     const std::uint8_t cp1252[]{ '{', 'n', ':', '"', 0xe9u, 0u, '\r', '\n', '"', '}' };
-    const auto linted = text_linter::lint(CByteConstView{ cp1252, sizeof(cp1252) }, 0u);
+    const auto linted = text_linter::lint(CByteConstView{ cp1252, sizeof(cp1252) }, k_document_text_lint_line_endings);
     TEST_EXPECT(ctx, linted.report.success && linted.report.recovered_as_cp1252);
-    TEST_EXPECT(ctx, linted.report.embedded_nul_count == 1u && linted.report.normalised_line_endings == 0u);
+    TEST_EXPECT(ctx, linted.report.embedded_nul_count == 1u && linted.report.normalised_line_endings == text_line_ending_bit(ETextLineEnding::crlf));
     const auto ingested = document_parser::parse(CStringView{ linted.output.data(), linted.report.logical_text_byte_size }, document);
     TEST_EXPECT(ctx, ingested.succeeded());
     TEST_EXPECT(ctx, ingested.structure.required_relaxations == (static_cast<std::uint32_t>(document_text::ERelaxation::unquoted_names) |
         static_cast<std::uint32_t>(document_text::ERelaxation::unescaped_controls)));
-    TEST_EXPECT(ctx, write(ctx, document) == "{\"n\":\"\\u00e9\\u0000\\r\\n\"}");
+    TEST_EXPECT(ctx, write(ctx, document) == "{\"n\":\"\\u00e9\\u0000\\n\"}");
 
     const std::uint8_t modified[]{ '{', 'n', ':', '"', 0xc0u, 0x80u, '"', '}' };
-    const auto normalized = text_linter::lint(CByteConstView{ modified, sizeof(modified) }, 0u);
+    const auto normalized = text_linter::lint(CByteConstView{ modified, sizeof(modified) }, k_document_text_lint_line_endings);
     TEST_EXPECT(ctx, normalized.report.success && normalized.report.modified_utf8_nul_count == 1u);
     TEST_EXPECT(ctx, document_parser::parse(CStringView{ normalized.output.data(), normalized.report.logical_text_byte_size }, document).succeeded());
     TEST_EXPECT(ctx, write(ctx, document) == "{\"n\":\"\\u0000\"}");
 
     const std::uint8_t offset_input[]{ 0xefu, 0xbbu, 0xbfu, '{', 'a', ':', '"', 0xc3u, 0xa9u, '"', ',', 'n', ':', '1', 'e', '}', 0u };
-    const auto shifted = text_linter::lint(CByteConstView{ offset_input, sizeof(offset_input) }, 0u);
+    const auto shifted = text_linter::lint(CByteConstView{ offset_input, sizeof(offset_input) }, k_document_text_lint_line_endings);
     TEST_EXPECT(ctx, shifted.report.success && shifted.report.leading_utf8_bom_stripped);
     const auto failure = document_parser::parse(CStringView{ shifted.output.data(), shifted.report.logical_text_byte_size }, document);
     TEST_EXPECT(ctx, failure.status == EDocumentParseStatus::structural_failure);
-    TEST_EXPECT(ctx, failure.byte_offset == 12u && failure.structure.byte_offset == 12u);
+    TEST_EXPECT(ctx, failure.failure_point.code_point_column_1_based == 12u && failure.structure.failure_point.code_point_column_1_based == 12u);
 
     const std::uint8_t cp1252_error[]{ '{', 'a', ':', '"', 0xe9u, '"', ',', 'n', ':', '1', 'e', '}' };
-    const auto expanded = text_linter::lint(CByteConstView{ cp1252_error, sizeof(cp1252_error) }, 0u);
+    const auto expanded = text_linter::lint(CByteConstView{ cp1252_error, sizeof(cp1252_error) }, k_document_text_lint_line_endings);
     TEST_EXPECT(ctx, expanded.report.success && expanded.report.recovered_as_cp1252);
     const auto expanded_failure = document_parser::parse(CStringView{ expanded.output.data(), expanded.report.logical_text_byte_size }, document);
     TEST_EXPECT(ctx, expanded_failure.status == EDocumentParseStatus::structural_failure);
-    TEST_EXPECT(ctx, expanded_failure.byte_offset == 12u && expanded_failure.structure.byte_offset == 12u);
+    TEST_EXPECT(ctx, expanded_failure.failure_point.code_point_column_1_based == 12u && expanded_failure.structure.failure_point.code_point_column_1_based == 12u);
 }
 
 static void test_integer_metadata(TTestContext& ctx)
@@ -268,7 +268,7 @@ static void test_failure_publication(TTestContext& ctx)
     {
         const auto report = parse(item.text, document);
         TEST_CASE_EXPECT_EQ(ctx, item.text, report.status, item.status);
-        TEST_EXPECT(ctx, report.byte_offset == item.offset);
+        TEST_EXPECT(ctx, report.failure_point.available && report.failure_point.code_point_column_1_based == item.offset + 1u);
         TEST_EXPECT(ctx, report.structure.succeeded() == item.structural_success);
         TEST_EXPECT(ctx, document.root() == root && document.first_child(root) == keep);
         TEST_EXPECT(ctx, document.memory_allocation_size() == allocation_size);
@@ -434,7 +434,7 @@ static void test_protocol_failures(TTestContext& ctx)
         const auto report = parse(item.text, document);
         TEST_CASE_EXPECT_EQ(ctx, item.text, report.status, item.status);
         TEST_EXPECT(ctx, report.structure.succeeded());
-        TEST_EXPECT(ctx, report.byte_offset < std::strlen(item.text));
+        TEST_EXPECT(ctx, report.failure_point.available && report.failure_point.code_point_column_1_based <= std::strlen(item.text));
         expect_no_interpretations(ctx, report);
         TEST_EXPECT(ctx, document.first_child(document.root()) == keep && document.memory_allocation_size() == allocation_size);
         TEST_EXPECT(ctx, document.check_integrity() && write(ctx, document) == "{\"keep\":7}");
@@ -442,11 +442,11 @@ static void test_protocol_failures(TTestContext& ctx)
     const std::string prefix = "$$morphic:1,a:[{n:1}],d:1,d:2,r:" + recovery("") + ",bad:";
     const auto late = parse(prefix + "{$morphic:{v:2,type:'recovered-array',values:[]}}", document);
     TEST_EXPECT(ctx, late.status == EDocumentParseStatus::unsupported_recovery_version);
-    TEST_EXPECT(ctx, late.byte_offset == prefix.size() + std::strlen("{$morphic:{v:"));
+    TEST_EXPECT(ctx, late.failure_point.code_point_column_1_based == prefix.size() + std::strlen("{$morphic:{v:") + 1u);
     expect_no_interpretations(ctx, late);
     TEST_EXPECT(ctx, document.first_child(document.root()) == keep);
     const auto duplicate = parse("r:{$morphic:{v:1,v:1,type:'recovered-array',values:[]}}", document);
-    TEST_EXPECT(ctx, duplicate.byte_offset == std::strlen("r:{$morphic:{v:1,"));
+    TEST_EXPECT(ctx, duplicate.failure_point.code_point_column_1_based == std::strlen("r:{$morphic:{v:1,") + 1u);
     //  User-authored protocol lookalikes are ordinary data when escaped.
     const auto data = parse("$$morphic:{v:2,type:'array',values:[],values:[1]},$$$morphic:3", document);
     TEST_EXPECT(ctx, data.succeeded() && data.interpretations.recovered_arrays_decoded == 0u);
@@ -668,8 +668,8 @@ static void test_round_trips(TTestContext& ctx)
         options.line_ending = EDocumentWriteLineEnding::crlf;
         const auto written = document_writer::write(baked.document(), options);
         TEST_EXPECT(ctx, written.report.succeeded());
-        const auto linted = text_linter::lint(CByteConstView{ written.output.data(), written.output.size() }, 0u);
-        TEST_EXPECT(ctx, linted.report.success && linted.report.normalised_line_endings == 0u);
+        const auto linted = text_linter::lint(CByteConstView{ written.output.data(), written.output.size() }, k_document_text_lint_line_endings);
+        TEST_EXPECT(ctx, linted.report.success && linted.report.normalised_line_endings == linted.report.encountered_line_endings);
         CLiveDocument parsed;
         const auto report = document_parser::parse(CStringView{ linted.output.data(), linted.report.logical_text_byte_size }, parsed);
         TEST_EXPECT(ctx, report.succeeded());
@@ -771,6 +771,78 @@ static void test_depth_and_allocation(TTestContext& ctx)
     TEST_EXPECT(ctx, write(ctx, destination) == "{\"r\":" + recovered + "}");
 }
 
+static void test_composed_linter_diagnostics(TTestContext& ctx)
+{
+    CLiveDocument document;
+    TEST_EXPECT(ctx, parse("keep:7", document).succeeded());
+    const CNodeKey keep = document.first_child(document.root());
+    CDocumentParseReport report = parse("{a:[1}", document);
+    TEST_EXPECT(ctx, report.structure_start.available && report.failure_point.available);
+    TEST_EXPECT(ctx, report.structure_start.code_point_column_1_based == 4u);
+    TEST_EXPECT(ctx, report.failure_point.code_point_column_1_based == 6u);
+    const std::string failures[]{ "\x81", "\xef\xbb\xbf\xff",
+        "\xef\xbb\xbf\r\n\t\xc3\xa9\xcc\x81\xed\xa0\x80\xed\xb0\x80\xff",
+        "\x93\r\n\xe9\t\x81" };
+    for (const auto& source : failures)
+    {
+        report = document_parser::ingest(CByteConstView{ reinterpret_cast<const std::uint8_t*>(source.data()), source.size() }, document);
+        TEST_EXPECT(ctx, report.status == EDocumentParseStatus::linter_failure);
+        TEST_EXPECT(ctx, report.linter_examined && !report.linter.success);
+        TEST_EXPECT(ctx, report.structure.status == EDocumentStructureStatus::unexamined);
+        TEST_EXPECT(ctx, !report.structure_start.available);
+        TEST_EXPECT(ctx, !report.structure.structure_start.available && !report.structure.failure_point.available);
+        TEST_EXPECT(ctx, report.failure_point.available == report.linter.first_failure.location.available);
+        TEST_EXPECT(ctx, report.failure_point.line_1_based == report.linter.first_failure.location.line_1_based);
+        TEST_EXPECT(ctx, report.failure_point.code_point_column_1_based == report.linter.first_failure.location.code_point_column_1_based);
+        TEST_EXPECT(ctx, document.first_child(document.root()) == keep);
+    }
+    report = document_parser::ingest(CByteConstView{}, document);
+    TEST_EXPECT(ctx, report.status == EDocumentParseStatus::linter_failure);
+    TEST_EXPECT(ctx, !report.structure_start.available && !report.failure_point.available);
+    TEST_EXPECT(ctx, report.linter.first_failure.before_output);
+    TEST_EXPECT(ctx, report.linter.first_failure.reason == ETextLintFailure::invalid_input_view);
+    TEST_EXPECT(ctx, document.first_child(document.root()) == keep);
+    report = document_parser::ingest(CStringView{}, document);
+    TEST_EXPECT(ctx, report.status == EDocumentParseStatus::linter_failure);
+    TEST_EXPECT(ctx, report.linter.first_failure.reason == ETextLintFailure::invalid_input_view);
+    TEST_EXPECT(ctx, report.linter.first_failure.before_output && !report.failure_point.available);
+    TEST_EXPECT(ctx, !report.structure_start.available && report.structure.status == EDocumentStructureStatus::unexamined);
+    TEST_EXPECT(ctx, document.first_child(document.root()) == keep);
+    const std::uint8_t source[]{ '{', '"', 's', '"', ':', '"', 0xedu, 0xa0u, 0x80u,
+        0xedu, 0xb0u, 0x80u, '\r', '\n', 'x', '"', '}' };
+    tests::TAllocatorFixture fixture;
+    fixture.reject_allocation = true;
+    memory::CMemoryAllocator allocator{ &fixture, &tests::allocate_test_memory, &tests::deallocate_test_memory };
+    memory::CMemoryContext context{ allocator };
+    {
+        tests::TMemoryContextScope scope{ &context };
+        report = document_parser::ingest(CByteConstView{ source, sizeof(source) }, document);
+        TEST_EXPECT(ctx, report.status == EDocumentParseStatus::linter_failure);
+        TEST_EXPECT(ctx, report.linter.first_failure.reason == ETextLintFailure::allocation_failed);
+        TEST_EXPECT(ctx, report.linter.first_failure.before_output);
+        TEST_EXPECT(ctx, !report.structure_start.available && report.failure_point.available);
+        TEST_EXPECT(ctx, report.structure.status == EDocumentStructureStatus::unexamined);
+        TEST_EXPECT(ctx, document.first_child(document.root()) == keep);
+    }
+    TEST_EXPECT(ctx, context.is_attribution_empty());
+    report = document_parser::ingest(CByteConstView{ source, sizeof(source) }, document);
+    TEST_EXPECT(ctx, report.succeeded() && report.linter.success && report.structure.succeeded());
+    TEST_EXPECT(ctx, report.linter.cesu8_pair_count == 1u);
+    TEST_EXPECT(ctx, !report.structure_start.available && !report.failure_point.available);
+    const std::uint8_t expected[]{ 0xf0u, 0x90u, 0x80u, 0x80u, '\n', 'x' };
+    TEST_EXPECT(ctx, document.string_value(document.first_child(document.root())) == (CStringView{ expected, sizeof(expected) }));
+
+    const char alias_source[] = "{\"alias\":1}";
+    TEST_EXPECT(ctx, parse("s:'{\"alias\":1}'", document).succeeded());
+    const CStringView alias = document.string_value(document.first_child(document.root()));
+    TEST_EXPECT(ctx, document_parser::ingest(CByteConstView{ alias.string(), alias.length() }, document).succeeded());
+    TEST_EXPECT(ctx, write(ctx, document) == alias_source);
+    report = document_parser::ingest(CStringView{ "", 0u }, document);
+    TEST_EXPECT(ctx, report.succeeded() && report.linter.success && report.linter.input_is_empty);
+    TEST_EXPECT(ctx, document.value_count() == 1u && document.check_integrity());
+    TEST_EXPECT(ctx, !report.failure_point.available && !report.structure_start.available);
+}
+
 }   //  namespace document_parser_tests
 
 int run_document_parser_tests()
@@ -786,6 +858,7 @@ int run_document_parser_tests()
     document_parser_tests::test_protocol_failures(ctx);
     document_parser_tests::test_round_trips(ctx);
     document_parser_tests::test_depth_and_allocation(ctx);
+    document_parser_tests::test_composed_linter_diagnostics(ctx);
     std::cout << "DocumentParser: " << ctx.passed << " passed, " << ctx.failed << " failed\n";
     return (ctx.failed == 0) ? 0 : 1;
 }

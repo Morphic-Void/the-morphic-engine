@@ -8,11 +8,12 @@ Date:   11 Sep 2026
 
 # Linter, structural check and parser refactoring specification
 
-Status: reviewed specification of the agreed requirements. Concrete API and
-format design remains subject to implementation review. This does not authorize
-execution.
-Implementation begins only when Ritchie explicitly instructs it, after the
-specification is agreed. Pause before commits for review.
+Status: reviewed specification; stage 1 (linter and shared diagnostics) is
+implemented, validated and reviewed as of 11 September 2026. Stage 2 (the
+remaining parser/model/writer and acceptance-policy
+migration) has not begun and awaits explicit progression instruction. Section 9
+records the completed scope and remaining review boundaries. Pause before
+commits for review.
 
 ## 1. Purpose and scope
 
@@ -34,8 +35,9 @@ the Executive functional exercise or schema work. Those remain in the
 [consolidation plan](consolidation_pass.md).
 
 The [current semantic specification](../data_model/revised_data_model.md)
-describes implemented behaviour. Its reporting, locations and acceptance rules
-will be updated with this refactor. The object-or-array root direction expands
+describes implemented behaviour, including the completed linter and shared
+location contracts. Remaining reporting and acceptance changes are specified
+here for stage 2. The object-or-array root direction expands
 the affected scope to live root construction/clearing, baking, baked validation,
 promotion and writing where they currently assume an object root. Per-string
 metadata controlling newline escaping also expands the live/baked model,
@@ -1103,29 +1105,80 @@ bounded NUL handling and existing codebase style continue to apply.
   Run affected suites and ordinary Debug/Release x64/Win32 validation, plus
   policy and line-ending checks, after implementation.
 
-## 9. Proposed implementation sequence, after approval
+## 9. Implementation progress and remaining sequence
 
-1. Prepare the concrete public report/options and document API shapes. Update
-   current semantic documentation to identify the exact replacement contracts.
-2. Implement shared findings/policy definitions and coordinate rules, then
-   refactor the linter and its consumers/tests. Review before committing.
-3. Implement the agreed object-or-array root contract across the live and baked
+### 9.1 Completed stage 1: linter and shared diagnostics
+
+Implemented and reviewed on 11 September 2026.
+
+- Added shared `CTextLocation` with explicit availability and 1-based line and
+  code-point column in emitted UTF-8. Migrated linter, lexer, structural and
+  parser diagnostics to these coordinates; public diagnostic byte offsets are
+  removed. Structural/parser reports retain separate `structure_start` and
+  `failure_point` locations under the existing grammar.
+- Added grouped `ETextSourceFinding` identities for source encoding, raw
+  observations and decoder issues. Retained linter aggregate statistics and
+  line-ending masks, with a separate CESU-pair count. Parser presence findings
+  and caller acceptance masks remain stage 2.
+- Used SuiteUTF to normalize exact modified NUL and valid CESU-8 pairs to
+  canonical UTF-8. Malformed CESU forms are rejected on that decoding path;
+  eligible unmarked input may still select the separately reported CP1252 path.
+  Undefined CP1252 bytes fail without replacement. Abandoned UTF-8 evidence is
+  retained separately from terminal failure and the adopted path's statistics.
+- Added document ingestion with every supported line-break form normalized to
+  LF, independently of quotes, comments and escapes. Generic lint callers retain
+  their existing default newline mask.
+- Preserved prospective terminal-failure locations through output disposal and
+  resource failures, including explicit failure-before-output. Composed ingestion
+  copies the linter failure location unchanged to the parser's failure point,
+  leaves structure start unavailable and marks structure `unexamined`.
+- Added direct byte-view and string-view entry paths for linting and ingestion.
+  Null views report absent input; a present zero-length `CStringView` succeeds.
+  No byte-to-string view conversion is required. Destination preservation and
+  source-alias safety remain covered.
+- Consolidated linter parsing state in an internal class and buffer position in
+  a source cursor, reducing `decode_attempt` to its decoding-mode argument.
+  Grouped static non-member helpers before member definitions in the linter
+  and parser, incorporating the final style review.
+- Updated the implemented semantic contract and regression tests. Debug and
+  Release solution builds and ordinary tests passed for x64 and Win32: 561
+  TextLinter, 1,247 DocumentStructure and 15,150 DocumentParser checks per build,
+  with the other ordinary suites also passing. Policy validation reported zero
+  errors and warnings with the existing negative-test suppression. The final
+  helper-only reorder also passed a Debug x64 build; diff and line-ending checks
+  passed.
+
+The existing parser grammar, interpretation counters, structural estimates,
+recovery protocol and live/baked/writer model remain the baseline. Completion
+of stage 1 does not imply implementation of the full requirements or validation
+matrix above. The [semantic specification](../data_model/revised_data_model.md)
+describes the current behaviour; the [milestone record](../project/completed_milestones.md)
+records this completed slice separately from the first pipeline.
+
+### 9.2 Remaining stage 2, after progression instruction
+
+1. Prepare the remaining public report/options and document API shapes. Complete
+   grouped parser findings and caller policy definitions, preserving the source
+   findings and shared locations already implemented. Update semantic
+   documentation alongside each implemented replacement contract.
+2. Implement the agreed object-or-array root contract across the live and baked
    model, translation and writing, together with per-string newline-escaping
    metadata, the fixed live name entry and the public collision-extension operation.
    Include format review, root-kind, newline and metadata-preservation tests.
    Review before committing this infrastructure slice.
-4. Refactor the shared lexer and structural check for grouped findings,
-   positions and the agreed superset grammar. Review before committing.
-5. Refactor parser interpretations, report composition and acceptance/publication;
+3. Refactor the shared lexer and structural check for grouped findings,
+   separate capacity estimates and the agreed superset grammar. Extend the
+   implemented location rules to the new grammar. Review before committing.
+4. Refactor parser interpretations, report composition and acceptance/publication;
    use public collision extension and retire recovered-array kinds, protocol
    handling and compatibility across all affected code and tests together.
-   Complete end-to-end tests and remove obsolete parser counts and public
-   diagnostic byte offsets. Preserve linter aggregate statistics.
+   Complete end-to-end tests and remove obsolete parser counts. Preserve the
+   implemented shared locations and linter aggregate statistics.
    Review before committing.
 
 Keep intermediate changes buildable. A small coordinated migration is preferable
 to retaining permanent duplicate report APIs. This sequence proposes review
-boundaries, not permission to start implementing them.
+boundaries for the remaining work, not permission to begin stage 2.
 
 ## 10. Decision record and implementation review
 
@@ -1165,11 +1218,13 @@ The consistency review makes these consequences explicit:
   also removes its writer counters despite retaining other writer statistics.
 - An explicit object root is never removed by singleton-object normalization.
 
-Remaining work is implementation design: concrete API names and ownership/results,
-numeric flag assignments and preset names, placement of per-value metadata, baked
-layout/version changes, and useful internal capacity estimates. These choices
-must implement the contracts above and remain reviewable; they are not unresolved
-user-facing behaviour questions.
+Remaining stage-2 design covers parser/document API names and ownership/results,
+parser feature-bit assignments and policy preset names, placement of per-value
+metadata, baked layout/version changes, and useful internal capacity estimates.
+Stage 1 has settled the implemented source findings and location APIs. The
+remaining choices must implement the contracts above and remain reviewable;
+they are not unresolved user-facing behaviour questions.
 
-Implementation begins only on Ritchie's explicit instruction. Pause before each
-commit for review.
+Stage 1 implementation and review are complete. Await Ritchie's explicit
+instruction before beginning stage 2. Pause before each subsequent commit
+for review.

@@ -96,6 +96,7 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)core\threading\transports\TQueueTransport.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)core\threading\transports\transports.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)core\threading\transports\TRingTransport.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)core\text\text_diagnostics.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)core\text\text_linter.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)core\text\utf8_string.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)core\types\atomic_types.hpp" />

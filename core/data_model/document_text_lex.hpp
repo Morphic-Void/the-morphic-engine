@@ -18,6 +18,7 @@
 #include <cstdint>
 
 #include "containers/StringBuffers.hpp"
+#include "text/text_diagnostics.hpp"
 
 namespace document_text
 {
@@ -59,6 +60,8 @@ struct CToken
     ESyntaxError error{ ESyntaxError::none };
     std::size_t offset{ 0u };
     std::size_t size{ 0u };
+    CTextLocation location;
+    CTextLocation failure_point;
 };
 
 //  On success, offset advances past one escape (including both UTF-16 units
@@ -80,6 +83,8 @@ public:
     [[nodiscard]] std::uint32_t numeric_extensions() const noexcept { return m_numeric_extensions; }
 
 private:
+    [[nodiscard]] CToken scan_next() noexcept;
+    void locate(const std::size_t offset) noexcept;
     [[nodiscard]] CToken failure(const ESyntaxError error) const noexcept;
     [[nodiscard]] CToken quoted() noexcept;
     [[nodiscard]] CToken number() noexcept;
@@ -88,10 +93,13 @@ private:
 
     CStringView m_source;
     std::size_t m_offset{ 0u };
+    std::size_t m_element_offset{ 0u };
+    std::size_t m_location_offset{ 0u };
+    CTextLocation m_location{ true, 1u, 1u };
     std::uint32_t m_relaxations{ 0u };
     std::uint32_t m_numeric_extensions{ 0u };
 };
 
-}
+}   //  namespace document_text
 
 #endif // DOCUMENT_TEXT_LEX_HPP_INCLUDED

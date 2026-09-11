@@ -64,9 +64,11 @@ Host ownership and worker authority are settled in the consolidation plan.
 
 ## Data-model follow-ons
 
-The first linter/live/baked/writer/parser implementation is complete; parser
-observations and caller policy are active consolidation work. Later source,
-shader, localisation and tooling ingestion should reuse that corrected boundary.
+The first linter/live/baked/writer/parser implementation and the stage-1 linter
+and shared diagnostic refactor are complete. The remaining parser/model/writer
+migration and caller policy are active consolidation scope, awaiting stage-2
+progression. Later source, shader, localisation and tooling ingestion should
+reuse that corrected boundary.
 
 Still deferred: live packing with slot-link remapping, live cursors/revisions,
 object-name lookup acceleration including O(1) baked lookup, and additional

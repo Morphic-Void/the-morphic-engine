@@ -483,6 +483,9 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)core\threading\transports\TRingTransport.hpp">
       <Filter>Core\include\threading\transports</Filter>
     </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)core\text\text_diagnostics.hpp">
+      <Filter>Core\include\text</Filter>
+    </ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)core\text\text_linter.hpp">
       <Filter>Core\include\text</Filter>
     </ClInclude>
