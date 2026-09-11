@@ -760,6 +760,9 @@
     <None Include="$(MSBuildThisFileDirectory)docs\backlog\baked_document_format.md">
       <Filter>Docs\backlog</Filter>
     </None>
+    <None Include="$(MSBuildThisFileDirectory)docs\backlog\consolidation_pass.md">
+      <Filter>Docs\backlog</Filter>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <Text Include="LICENSE.txt">

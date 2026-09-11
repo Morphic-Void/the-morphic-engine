@@ -161,6 +161,7 @@ public:
 private:
     friend class CStringBuffer;
     friend class CErasedOwner;
+    friend class CBakedDocumentBlock;
 
     [[nodiscard]] memory::CMemoryContext* memory_source_context() const noexcept;
     void unsafe_replace_memory_context_without_accounting(

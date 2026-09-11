@@ -332,6 +332,24 @@ allocation; it should avoid unnecessary copying, allocation and memory churn.
 `CBakedDocument` is a non-owning immutable view over compatible bytes. There is
 no public mutable baked document or public baked builder.
 
+`CBakedDocumentBlock::can_reattribute_to` and `reattribute` use the existing
+framework memory-context rules; a null argument selects the ambient context.
+An allocated block can move attribution only between contexts sharing the
+same allocator. Reattribution changes accounting and the owning context,
+without allocating, copying bytes, relocating storage or rebuilding the checked
+view. Failure leaves the allocation, view and accounting unchanged. Empty and
+moved-from blocks follow the byte buffer's empty-storage context rules.
+Ordinary C++ moves preserve the source allocation's attribution.
+
+The SYSTEM erased-owner payload `BakedDocumentAsset` contains a `block` member.
+The existing owning-message transport reattributes its payload shell and baked
+allocation together through private nested-storage hooks. The baked artifact
+still occupies one allocation; the erased owner's payload shell is separate.
+Once nested in an erased owner, transfer the complete owner rather than
+reattributing its block independently: mismatched shell/block source contexts
+are rejected by the existing source-validation rule. Views remain borrowed and
+require the owning asset to outlive their use.
+
 Baking and promotion are exposed by a separate public translation layer.
 Neither document representation depends on the definition or construction
 details of the other. The translation implementation consumes the ordinary

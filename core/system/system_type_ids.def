@@ -23,4 +23,5 @@
     type_macro(loaded_file) \
     type_macro(encoded_tga) \
     type_macro(decoded_tga) \
-    type_macro(executive_thread_function)
+    type_macro(executive_thread_function) \
+    type_macro(baked_document_asset)

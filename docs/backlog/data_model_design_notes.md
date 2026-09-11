@@ -452,6 +452,78 @@ recovery privilege without demonstrating a concrete need. Build privately and
 publish through the existing move operation after success. Failure signalling
 and existing known-bad containment suffice without transactional mutation.
 
+## Baked ownership and functional integration
+
+The Executive-controlled document run keeps a reference baked block in the
+Executive and transfers a separately baked, byte-identical block to the Host's
+type-erased asset repository. Binary and JSON reloads create additional
+Host-owned assets. Results carry their monotonic repository identities and
+checked borrowed views; they do not transfer those assets back to the Executive.
+The Executive compares each result with its own reference and controls when
+the next asynchronous stage begins.
+
+JSON serialization runs in the Executive against its retained reference view.
+The Host handles saving that text and, on the subsequent load request,
+coordinates ingestion, parsing and baking before publishing the new asset's
+view and identifier. Ingestion, parsing and baking execute in
+`CHostWorkerThread` on `thread_ids::bg_conditioning`, following file loading
+on the file-I/O worker. The Host retains the loaded text until conditioning
+completes. The live document and parser/baker scratch remain local to the
+conditioning thread; only the completed owning baked block is returned to the
+Host for publication. The JSON writer remains in the Executive.
+
+Before the full Executive test is implemented, extend the existing asynchronous
+file-load request to carry caller-supplied alignment and pass it through to
+`platform::filesystem::loadFile`. Replace the loader's fixed alignment with
+the supplied alignment subject to a 16-byte floor, preserving existing default
+load behaviour and padding semantics. Allocation and capacity rounding must
+use the effective alignment. Verify the floor, larger supported alignments,
+request propagation and failure handling. This extension and the conditioning
+worker path form a separate preparation stage after baked ownership review.
+
+The approved ownership extension adds public `can_reattribute_to` and
+`reattribute` operations to `CBakedDocumentBlock`, delegated to its byte buffer.
+Private source-context and context-replacement hooks let `CErasedOwner` account
+for its shell and the block together without double-counting. Friendship from
+the block to `CErasedOwner` and from `CByteBuffer` to the block follows the
+existing nested-storage pattern and leaves mutable bytes private. The SYSTEM
+`BakedDocumentAsset` payload uses the ordinary nested-storage registration.
+Its identity is appended to the catalog to preserve existing numeric IDs.
+
+Reattribution requires allocator compatibility and keeps the same bytes and
+checked view. No object layout, baked-format, allocator or transport algorithm
+change is needed. Ordinary C++ movement preserves the current attribution;
+transporting an erased owner performs the complete context handoff. Tests
+measure allocation-free transfer separately from full baked integrity checks,
+which legitimately allocate validation scratch.
+
+Binary reloads can retain the existing `LoadedFile` byte-buffer owner and
+construct a checked `CBakedDocument` over those immutable bytes. That uses the
+existing owned storage and untrusted-byte validation boundaries without a new
+block-adoption API. The asynchronous request must supply the alignment needed
+by the baked representation. JSON loading constructs and bakes on the
+conditioning thread and publishes a `BakedDocumentAsset` through the same
+ownership bridge.
+
+The repository owns each asset until erasure or deallocation; possession of a
+handle or view does not pin it. The Executive explicitly requests disposal of
+all remaining Host-owned assets created by the full functional test flow and
+waits for acknowledgement before completing the run. Include the original
+transferred block, loaded copies, transferred JSON text and retained request or
+intermediate assets. Track internal flow assets as well as identifiers exposed
+to the Executive, accounting for intermediates already released during work.
+
+The Executive relinquishes view use before requesting disposal, and the Host
+waits for outstanding uses to finish before erasure. Verify stale identifiers
+no longer resolve and test-owned allocations have been released. Failed flows
+also enter explicit cleanup when communication remains possible; shutdown
+cleanup is a fallback rather than the successful test's disposal mechanism.
+This bounded lifetime protocol does not require general reference counting.
+Live construction and parser/baker scratch remain thread-local. Binary
+persistence requires byte identity; text persistence uses the already specified
+normalized semantic comparison. This milestone establishes persistence and
+ownership integration before schema work.
+
 ## Preserved concerns
 
 The model deliberately retains numeric lexical intent, iterative traversal,

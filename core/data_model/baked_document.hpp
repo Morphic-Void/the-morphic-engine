@@ -171,9 +171,21 @@ public:
     [[nodiscard]] std::uint32_t memory_token_count() const noexcept;
     [[nodiscard]] std::uint32_t memory_allocation_count() const noexcept;
     [[nodiscard]] std::uint64_t memory_allocation_size() const noexcept;
+    //  Reattribute the existing allocation without copying bytes or changing
+    //  checked views. Null selects the ambient context. Allocated storage can
+    //  move only between contexts backed by the same allocator.
+    [[nodiscard]] bool can_reattribute_to(memory::CMemoryContext* const context = nullptr) const noexcept;
+    [[nodiscard]] bool reattribute(memory::CMemoryContext* const context = nullptr) noexcept;
 
 private:
     friend class CBakedDocumentBaker;
+    friend class CErasedOwner;
+
+    //  The erased owner accounts for its shell and this nested allocation in
+    //  one operation, then replaces their context pointers without recounting.
+    [[nodiscard]] memory::CMemoryContext* memory_source_context() const noexcept;
+    void unsafe_replace_memory_context_without_accounting(
+        memory::CMemoryContext* const expected_source, memory::CMemoryContext* const target) noexcept;
 
     void replace_with(CBakedDocumentBlock& source) noexcept;
 
@@ -483,6 +495,27 @@ inline std::uint32_t CBakedDocumentBlock::memory_allocation_count() const noexce
 inline std::uint64_t CBakedDocumentBlock::memory_allocation_size() const noexcept
 {
     return m_bytes.memory_allocation_size();
+}
+
+inline bool CBakedDocumentBlock::can_reattribute_to(memory::CMemoryContext* const context) const noexcept
+{
+    return m_bytes.can_reattribute_to(context);
+}
+
+inline bool CBakedDocumentBlock::reattribute(memory::CMemoryContext* const context) noexcept
+{
+    return m_bytes.reattribute(context);
+}
+
+inline memory::CMemoryContext* CBakedDocumentBlock::memory_source_context() const noexcept
+{
+    return m_bytes.memory_source_context();
+}
+
+inline void CBakedDocumentBlock::unsafe_replace_memory_context_without_accounting(
+    memory::CMemoryContext* const expected_source, memory::CMemoryContext* const target) noexcept
+{
+    m_bytes.unsafe_replace_memory_context_without_accounting(expected_source, target);
 }
 
 #endif // BAKED_DOCUMENT_HPP_INCLUDED

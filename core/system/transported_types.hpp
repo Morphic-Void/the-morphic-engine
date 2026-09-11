@@ -18,6 +18,7 @@
 #include "assets/asset_repository.hpp"
 #include "containers/ByteBuffers.hpp"
 #include "containers/StringBuffers.hpp"
+#include "data_model/baked_document.hpp"
 #include "image/codec/tga.hpp"
 #include "system/erased_owner_registration.hpp"
 #include "system/system_type_registration.hpp"
@@ -58,6 +59,7 @@ struct TgaDecodeResult {};
 struct LoadedFile { CByteBuffer buffer; };
 struct EncodedTga { CByteBuffer buffer; };
 struct DecodedTga { CByteRectBuffer buffer; image::codec::tga::decoded_image_desc desc; };
+struct BakedDocumentAsset { CBakedDocumentBlock block; };
 
 MV_REGISTER_SYSTEM_TYPE(CByteBuffer, system_type_ids::byte_buffer);
 MV_REGISTER_SYSTEM_TYPE(CByteRectBuffer, system_type_ids::byte_rect_buffer);
@@ -84,6 +86,7 @@ MV_REGISTER_SYSTEM_TYPE(TgaDecodeResult, system_type_ids::tga_decode_result);
 MV_REGISTER_SYSTEM_TYPE(LoadedFile, system_type_ids::loaded_file);
 MV_REGISTER_SYSTEM_TYPE(EncodedTga, system_type_ids::encoded_tga);
 MV_REGISTER_SYSTEM_TYPE(DecodedTga, system_type_ids::decoded_tga);
+MV_REGISTER_SYSTEM_TYPE(BakedDocumentAsset, system_type_ids::baked_document_asset);
 
 #define MV_ERASED_OWNER_PAYLOAD(type) MV_REGISTER_ERASED_OWNER_PAYLOAD(type);
 #define MV_ERASED_OWNER_PAYLOAD_WITH_STORAGE(type, member) \

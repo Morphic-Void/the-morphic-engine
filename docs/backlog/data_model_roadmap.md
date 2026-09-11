@@ -369,6 +369,107 @@ Host/Executive functional round trips. Publish completed owning baked blocks or
 lifetime-bounded views; do not move live documents across workload-thread
 boundaries.
 
+The agreed review boundaries are:
+
+1. Integrate baked-block ownership with the existing erased-owner transport,
+   including complete memory attribution and SYSTEM payload registration.
+   Propose required extensions to established interfaces for approval before
+   implementation; verify successful and rejected transfers and destruction.
+2. Prepare the Host loading and conditioning paths. Carry caller-supplied
+   alignment through the asynchronous file-load request to
+   `platform::filesystem::loadFile`, retaining a 16-byte alignment floor.
+   Add JSON ingestion, parsing and baking to `CHostWorkerThread`, dispatched
+   on `thread_ids::bg_conditioning`. Verify these paths before implementing
+   the full Executive test, with review before committing this preparation.
+3. Exercise direct binary and JSON persistence, including validation of loaded
+   bytes. Binary reloads can retain the existing loaded-file owner and expose
+   a checked baked view, without an additional block-adoption API.
+4. Implement the Executive-controlled functional run below through the real
+   Host, worker and Executive DLL messaging path.
+
+The baked-block ownership extension is implemented and validated, awaiting
+review. It delegates standalone reattribution to the existing byte buffer and
+provides private nested-storage hooks for the `BakedDocumentAsset` SYSTEM
+payload. Focused tests cover allocator compatibility, unchanged bytes and views,
+complete shell/block attribution, rejection of mixed source contexts, owning
+messages from Executive to Host contexts, repository disposal, full-queue and
+incompatible-allocator rejection, and unread-message destruction. Host loading
+and conditioning preparation, persistence tests and the Executive-controlled
+document run remain the subsequent review units.
+
+Validation: all ordinary suites pass in Debug and Release on x64 and Win32,
+including 213 baked-document transfer checks in each configuration. The policy
+validator reports no errors or warnings, and the line-ending check passes.
+
+### Executive-controlled document run
+
+The Executive controls the sequence and performs the comparisons. The Host
+owns transferred and loaded assets in its existing type-erased repository,
+addressed by monotonically issued `CAssetId` values. Returning a loaded view
+and handle does not return ownership to the Executive.
+
+1. The Executive creates and populates a live fixture on its own thread.
+   Include every supported value type, including empty placeholders' baking
+   behavior, and repeat payload types in the contexts needed to exercise named
+   object members, named array children and anonymous values. Include numeric
+   intent and boundaries, Unicode/logical NULs, reserved data names, ordinary
+   singleton objects, and empty, singleton, multiple and nested recovery.
+2. Bake the unchanged live document twice independently. Retain one block as
+   the Executive's reference and prepare the other for transfer.
+3. Before transfer, require identical byte lengths and byte-for-byte equality
+   of the two baked blocks.
+4. Transfer ownership of the second block to the Host. The Host stores its
+   erased owner and acknowledges successful storage with the asset identifier.
+5. Advance to binary saving through that identifier. The Host routes the save
+   to file I/O and reports success or failure before the Executive continues.
+6. The Executive requests loading of the saved binary file. The asynchronous
+   load carries the required baked-storage alignment through to the file
+   loader, with a minimum of 16 bytes. The Host validates the loaded bytes,
+   retains the new owning asset, and returns its distinct identifier and a
+   checked baked view.
+7. The Executive compares the loaded copy with its retained reference. The
+   binary round trip must preserve the complete baked bytes exactly.
+8. Repeat save, load and validation for Morphic JSON. The Executive writes
+   JSON from its retained reference baked view and supplies the resulting text
+   to the Host for saving through the asynchronous file-I/O path. After save
+   confirmation, the Executive requests loading. The Host coordinates linting,
+   parsing into a thread-local live document and baking a new owned block on
+   `CHostWorkerThread` using `thread_ids::bg_conditioning`. Retain the loaded
+   text throughout conditioning; live construction and scratch stay on that
+   worker. Return the completed owning block to the Host, which publishes the
+   new asset's identifier and checked view to the Executive.
+9. Compare the JSON-loaded baked view with the reference using the agreed
+   normalized semantics: preserve recovery identity and competitor order,
+   account for redundant singleton wrappers and inferred integer widths, and
+   compare values, names and retained numeric intent. Strict-output cases, if
+   included, must account explicitly for their documented numeric normalization.
+10. The Executive stops using the borrowed views and requests Host disposal of
+    every asset created by the full functional test flow that remains Host-owned.
+    This covers the transferred original, both loaded copies, transferred JSON
+    output and any retained request or intermediate assets. Track flow ownership
+    so that internal assets are covered even when their identifiers were not
+    returned to the Executive; assets already released during processing are
+    accounted for without requiring a second erasure.
+11. The Host completes disposal after outstanding uses have finished and
+    acknowledges the result. Require that disposed identifiers no longer resolve,
+    no assets belonging to the test flow remain owned, and their allocations are
+    released. The Executive waits for disposal confirmation before declaring
+    success and completing the run.
+
+Each asynchronous step waits for its correlated result. A failure enters the
+cleanup sequence, preserving the original failure while requesting disposal
+of assets already created. The Host must retain immutable backing storage
+throughout every worker and Executive view use; handles alone do not provide
+lifetime protection. Disposal requires completion of outstanding uses, including
+file I/O, and the Executive must not access a view after requesting disposal.
+Explicit acknowledged disposal is part of the functional test, before thread
+shutdown. Shutdown cleanup remains a fallback if communication or execution
+fails and cannot substitute for successful disposal verification. The Executive
+releases its own reference before DLL shutdown, and Host-owned SYSTEM payload
+destruction must remain valid after the Executive DLL unloads. Verify attribution
+and complete cleanup on success, failure and shutdown. Pause before each commit
+for review.
+
 ## Later typed-data phase
 
 Schema, remapping, serialization, code generation and limited code parsing
