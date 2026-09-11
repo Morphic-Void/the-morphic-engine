@@ -24,37 +24,71 @@ The current code is a baseline to refactor, not an approved final interface.
 
 ## Parser observations and caller policy
 
-Revisit what the parser checks, what it reports and which decisions belong to
-the caller. This is a refactor of the existing parser, not a return to the
-archived v1 model. The current semantic and physical baseline is documented
-under [docs/data_model](../data_model/revised_data_model.md).
+The [linter/parser refactoring specification](parser_refactoring_specification.md)
+owns the settled requirements and implementation-review details. Its consistency
+review is complete; execution requires Ritchie's explicit instruction.
 
-- Record relaxed syntax used, Morphic extensions encountered, numeric types
-  and explicit positive signs, and relevant UTF findings. Include embedded
-  NULs and Java-style modified/overlong UTF-8 NULs.
-- Preserve the distinction between source observations, ingestion corrections,
-  syntax observations and semantic interpretation. Define how information from
-  the linter reaches the parser's result without losing source characteristics.
-- Keep observation separate from policy. A caller supplies a strictness
-  profile; the asynchronous parse operation applies it after parsing.
-- Distinguish accepted input, policy rejection, parse failure and cancellation.
-  On policy rejection, discard the parsed result unless an explicit diagnostic
-  retention policy requests otherwise.
-- Make detailed reports optional temporary diagnostic assets. A requester
-  need not receive or retain them. Define useful location information,
-  including line/column and hierarchy context, and statistics separately.
-  Retain ingestion statistics such as line count and maximum line length,
-  alongside what was corrected and how non-standard encodings were handled.
-- Preserve the structural pass's purpose: determine well-formed syntax and
-  parseable token spelling, assuming representable numbers, manageable name
-  collisions and successful subsequent allocations. Structural success does
-  not guarantee parsing success; its own scratch failure is a resource failure.
+The agreed direction is caller-selected feature permissions, grouped parser
+presence flags instead of statistics, retained linter aggregate statistics,
+construction capacity estimates retained separately where useful, distinct
+processing and policy outcomes, and shared 1-based line/code-point locations in
+the linter's output. All supported
+line-break forms are normalized to LF. The linter has no JSON or string awareness;
+escaping belongs to the parser/writer within strings and names. Raw quoted line
+breaks are accepted string content and reported as a feature. The writer escapes
+newlines by default, with per-string metadata to suppress that escaping. The
+parser sets this metadata automatically on strings containing at least one literal
+source line break; escaped-only line endings do not trigger suppression.
+Preserve the metadata through live/baked document transformations. It belongs to
+each value occurrence, independently of shared interned text. Suppression covers
+all newline forms, and
+the writer normalizes every newline to LF before emitting literal or escaped
+output. Strict JSON overrides suppression and escapes embedded LF as `\n`,
+without modifying the document's metadata. Reparsing strict output derives
+suppression as unset from its escaped-only spelling. Structural punctuation
+outside strings/names must not be escaped. Names cannot contain newlines in text,
+direct live entry or checked baked storage.
+Structural errors identify both the beginning of the immediately malformed
+element and its failure point. Linter errors identify the prospective line and
+code-point column that could not be decoded. Linter failures
+retain a location after producing code points, even if output is discarded;
+failure before any output is identified explicitly. Both stages use the same
+location representation. On linter failure, the parser report copies that
+location into its failure-point field and leaves structure start unavailable.
+Feature-policy rejection
+occurs only after parsing has otherwise succeeded, so structural and other
+processing failures take precedence. Undefined CP1252 bytes cause linter failure
+without replacement.
 
-Before coding, settle the observation inventory, report shape, strictness
-evaluation boundary, failure/partial-report semantics and examples of each
-outcome. Define cancellation through the Host operation contract; do not infer
-that a low-level parser already implements it. Review recovery and numeric
-interpretation against this split without silently changing document meaning.
+Preserve the established logical-NUL storage form, exact Java-style `C0 80`,
+without surrogate substitutes. The linter uses SuiteUTF to normalize valid
+CESU-8 supplementary pairs to standard UTF-8, retaining source findings. CESU
+bytes are not supported for direct document entry or output. Preserve NUL
+admission without adding a generic raw-control permission requirement. Default
+acceptance is conservative, allowing
+Morphic hexadecimal, binary and explicit-positive numeric forms but excluding
+relaxed syntax. CP1252 and the supported modified-UTF-8 exception are accepted by
+default; undefined CP1252 still fails. Programmatic documents default to an object
+root; changing root type in either direction requires an empty root. Detached
+nodes and prepopulated strings do not count as root contents. Comment-only input can
+produce an empty object, subject to comment acceptance policy. Empty/whitespace-only
+input produces an empty object. Root erasure preserves its type; reset restores
+an object root.
+
+Prepopulate live name tables with `$morphic-empty`, the only required canonical
+identifier, at a fixed live name ID. Baking may omit it when unreferenced.
+Replace the distinct recovered-array representation with ordinary arrays and a separate
+public collision-extension operation available to the parser and ordinary users.
+Normal insertion still rejects collisions. Array/array collisions create a new
+array containing both arrays; incoming non-array values append to the top-level
+array. Parser collision extension is a relaxed feature. Retire all old recovery
+compatibility and replace its tests; no external consumers depend on it.
+
+The current baseline remains under
+[docs/data_model](../data_model/revised_data_model.md). Host cancellation and
+optional retention of rejected diagnostic assets belong to the asynchronous
+operation contract. They are not prerequisites to drafting or implementing the
+low-level parser/report refactor, and no automatic logging is implied.
 
 ## Host worker authority and module lifecycle
 
@@ -145,16 +179,16 @@ those mechanics must be reconciled with the consolidation decisions above.
 Retain these coverage goals:
 
 - Construct a live fixture with every supported node/payload type, repeating
-  types in named, anonymous, array, object and recovery contexts as needed.
+  types in named, anonymous, array and object contexts as needed.
   Include empty placeholders, numeric intent and boundaries, Unicode/NULs,
-  reserved names, singleton objects and all recovery cardinalities/nesting.
+  `$morphic-empty`, singleton objects and collision-extension array shapes.
 - Bake twice independently and compare complete bytes before transferring
   ownership of one copy. Retain the other as the Executive's reference.
 - Save and reload binary through the Host, returning the agreed identity and a
   checked borrowed view. Compare complete loaded bytes against the reference.
 - Exercise JSON saving, loading, conditioning and policy acceptance; compare
   against the reference using the agreed normalized semantics, including
-  recovery identity/order, singleton normalization and numeric intent/width.
+  collision-array shape/order, singleton normalization and numeric intent/width.
   Account explicitly for strict-output numeric normalization where exercised.
 - Cover direct file round trips before relying on the full asynchronous run.
   A loaded binary can remain owned by LoadedFile with a checked baked view;

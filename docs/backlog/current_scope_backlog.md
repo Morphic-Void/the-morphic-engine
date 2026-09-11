@@ -8,8 +8,10 @@ built. Completed implementation does not mean these interfaces are final.
 
 ## Active work
 
-1. Refactor the parser and its reporting in the current parser task, beginning
-   with agreement on observations, caller strictness and failure categories.
+1. Refactor the parser and its reporting in the current parser task using the
+   settled observations, caller policy, grammar and document-model requirements.
+   The [linter/parser specification](parser_refactoring_specification.md) is
+   the reviewed behavioural contract; implementation awaits explicit instruction.
 2. Develop the remaining Host consolidation in a separate task: module
    lifecycle, asset identity and lifetime, asynchronous operations, aligned
    loading, conditioning and filesystem resolution.

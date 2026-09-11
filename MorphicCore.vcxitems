@@ -180,6 +180,7 @@
     <None Include="$(MSBuildThisFileDirectory)docs\architecture\architectural-principles.md" />
     <None Include="$(MSBuildThisFileDirectory)docs\data_model\baked_document_format.md" />
     <None Include="$(MSBuildThisFileDirectory)docs\backlog\consolidation_pass.md" />
+    <None Include="$(MSBuildThisFileDirectory)docs\backlog\parser_refactoring_specification.md" />
     <None Include="$(MSBuildThisFileDirectory)docs\backlog\current_scope_backlog.md" />
     <None Include="$(MSBuildThisFileDirectory)docs\backlog\engine_backlog.md" />
     <None Include="$(MSBuildThisFileDirectory)docs\architecture\codebase-ethos-primer.md" />
