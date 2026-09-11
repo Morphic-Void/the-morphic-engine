@@ -1,97 +1,185 @@
-# Consolidation Pass Before Schema Work
+# Consolidation before schema work
 
-Status: proposed prerequisite work for the next data-model stage.
+Updated 11 September 2026. Active direction; detailed interfaces remain under
+discussion. This is the consolidated plan for parser refactoring and the Host
+prerequisites to schema work.
 
-The first stage of the data-model work is substantially complete. The anticipated schema work—representing C-like structures in JSON, then adding C/C++ parsing, code generation, serialisation, and remapping—exposes host ownership, asynchronous-operation, module-lifetime, and filesystem-resolution requirements that need to be established first.
+The first data-model implementation supplies live construction, immutable
+baking, promotion, writing, parsing and an initial baked-block ownership
+bridge. It exposed gaps in Host authority, lifetime, asynchronous operations
+and parser reporting. Resolve those contracts before adding schema consumers.
+The current code is a baseline to refactor, not an approved final interface.
 
-This is an enabling phase, not a diversion from schema work. Its purpose is to make the schema system a consumer of explicit host contracts rather than a source of ad-hoc infrastructure.
+## Work and review boundaries
 
-## Consolidation Scope
+- Refactor the parser/reporting in the existing parser task. Agree the revised
+  contract and examples before implementation, then keep changes reviewable.
+- Carry most other consolidation into a separate task, using this document as
+  the handoff. Establish Host authority and lifetime before dependent services.
+- Add direct persistence checks and the full Executive exercise against those
+  services. The former test-specific message sequence is superseded as an
+  implementation plan; retain the coverage goals below.
+- Begin a schema vertical slice only when these prerequisites are usable.
+  Pause before each commit for review.
 
-### 1. Host worker ownership and module lifecycle
+## Parser observations and caller policy
 
-- Move DLL/module loading, binding, initialisation, and unloading to the host worker thread.
-- Define executive-thread requests for module operations; executive threads must not directly mutate module bindings or host collections.
-- Define a safe unload sequence: reject new module work, cancel or drain module-associated operations, reclaim module-scoped assets, unregister bindings and types, then unload the DLL.
+Revisit what the parser checks, what it reports and which decisions belong to
+the caller. This is a refactor of the existing parser, not a return to the
+archived v1 model. The current semantic and physical baseline is documented
+under [docs/data_model](../data_model/revised_data_model.md).
 
-### 2. Identified host-owned assets and lifetime
+- Record relaxed syntax used, Morphic extensions encountered, numeric types
+  and explicit positive signs, and relevant UTF findings. Include embedded
+  NULs and Java-style modified/overlong UTF-8 NULs.
+- Preserve the distinction between source observations, ingestion corrections,
+  syntax observations and semantic interpretation. Define how information from
+  the linter reaches the parser's result without losing source characteristics.
+- Keep observation separate from policy. A caller supplies a strictness
+  profile; the asynchronous parse operation applies it after parsing.
+- Distinguish accepted input, policy rejection, parse failure and cancellation.
+  On policy rejection, discard the parsed result unless an explicit diagnostic
+  retention policy requests otherwise.
+- Make detailed reports optional temporary diagnostic assets. A requester
+  need not receive or retain them. Define useful location information,
+  including line/column and hierarchy context, and statistics separately.
+  Retain ingestion statistics such as line count and maximum line length,
+  alongside what was corrected and how non-standard encodings were handled.
+- Preserve the structural pass's purpose: determine well-formed syntax and
+  parseable token spelling, assuming representable numbers, manageable name
+  collisions and successful subsequent allocations. Structural success does
+  not guarantee parsing success; its own scratch failure is a resource failure.
 
-- Define the distinction between host-local collection/storage IDs and system IDs that can be named across requests, reports, caches, and remapping.
-- Define publication and retention intent, including temporary, module-scoped, host-durable, and cache-backed or evictable assets.
-- Ensure that an asset surviving its originating module has no remaining dependency on that module's code, type metadata, destructors, or allocation context.
+Before coding, settle the observation inventory, report shape, strictness
+evaluation boundary, failure/partial-report semantics and examples of each
+outcome. Define cancellation through the Host operation contract; do not infer
+that a low-level parser already implements it. Review recovery and numeric
+interpretation against this split without silently changing document meaning.
 
-### 3. Restricted memory-context and ownership transfer
+## Host worker authority and module lifecycle
 
-- Keep memory-context transfer mechanics private implementation machinery.
-- Expose semantic lifetime intent publicly, not allocation-transfer details.
-- Give narrowly scoped access to the erased carrier and required host internals instead of widening public APIs or accumulating broad friendship.
+- Move DLL loading, binding, initialisation and unloading to the Host worker.
+- Define Executive requests for module operations. Executive threads must not
+  directly mutate module bindings or Host collections.
+- Make the Host worker the authority performing state changes; settle how the
+  main Host coordinates requests and receives results.
+- Define safe unload: reject new module work, cancel or drain associated
+  operations, reclaim module-scoped assets, unregister bindings/types, then
+  unload the DLL.
 
-### 4. Type-erased host collection
+## Asset identity, lifetime and type erasure
 
-- Establish how concrete assets enter, live in, are retrieved from, and are reclaimed by host-owned collections.
-- Define the limited type and lifecycle contract that remains valid after a module unload.
+- Distinguish Host-local storage IDs from SYSTEM-level identities usable
+  across requests, reports, caches and remapping. Decide the identity returned
+  for worker-to-Host and module-to-Host publication; the current monotonic
+  CAssetId storage handle alone does not settle that contract.
+- Define temporary, module-scoped, Host-durable and cache-backed/evictable
+  lifetimes and the metadata accompanying publication and retention intent.
+- Define how concrete assets enter, are retrieved from and are reclaimed by
+  type-erased Host collections, including permissions and outstanding users.
+  Settle permission revocation, retiring-resource handling, long-term shared
+  backing and transport ownership as part of that authority boundary.
+- An asset surviving its originating module must retain no dependency on that
+  module's code, type metadata, destructors or allocation context.
+- Revisit the public/private split and friendship in memory attribution.
+  Keep transfer mechanics private, expose semantic lifetime intent publicly,
+  and give narrowly scoped access to erased carriers and necessary Host internals.
+  The initial BakedDocumentAsset bridge is implemented; its API is under review.
+- Keep mounting-point hazards separate from identity, ownership, permission
+  and provisioning metadata.
 
-### 5. Standard asynchronous host operations
+## Asynchronous operations, loading and conditioning
 
-- Define request and operation IDs, operation states, cancellation, completion outcomes, and result publication/ownership transfer.
-- Standardise optional diagnostic reports and statistics in operation results.
-- Keep the host worker as the authority which performs state changes.
+Define request and operation IDs, states, cancellation, completion outcomes,
+optional diagnostic reports/statistics and ownership of published results.
+Include dispatch rejection, worker failure and shutdown cleanup.
 
-### 6. Parser observations and caller strictness policy
+File loading must carry caller-supplied alignment through the asynchronous
+request and platform::filesystem::loadFile, retaining a 16-byte floor. Use
+the effective alignment for allocation and capacity rounding, preserve existing
+padding semantics, and cover larger alignments and failure handling. Baked
+binary views currently require a 32-byte-aligned base.
 
-- Extend data-model parser reporting to record relaxed syntax that was used, Morphic extensions encountered (including numeric types and explicit positive signs), and UTF findings such as embedded NULs and Java-style modified/overlong UTF-8 NULs.
-- Keep observation separate from policy: a caller supplies a strictness profile and the asynchronous parse operation applies it after parsing.
-- Distinguish accepted input, policy rejection, parse failure, and cancellation. On policy rejection, discard the parsed result unless a diagnostic-retention policy says otherwise.
-- Treat detailed reports as optional temporary diagnostic assets; callers need not receive or retain them by default.
+JSON parsing and baking run in CHostWorkerThread using
+thread_ids::bg_conditioning. Keep the live document and scratch on that
+thread and retain the loaded text until conditioning completes. Publish only
+the completed owned result accepted by the operation's policy. File I/O remains
+a separate workload from conditioning.
 
-### 7. File-backed asset association
+Resolve the save/load API before encoding it in the functional test:
 
-- Permit an externally supplied source key or path to be associated with an identified host asset.
-- Keep file identity distinct from a specific loaded buffer or immutable content version.
-- Do not yet assume every source key is known to the host or discovered by a scan.
+- Can saving name an existing Host asset, transfer a new asset, or support both?
+- What lifetime is requested for a newly supplied block after saving, including
+  failure or cancellation: disposal, temporary retention or durable publication?
+- How are binary output, JSON output and JSON writer options specified?
+- Are multiple outputs serial operations or one combined instruction, and how
+  are partial success and result ownership reported?
+- Where does JSON writing execute under the service contract? The earlier
+  proposal put writing in the Executive; do not treat that proposed test
+  arrangement as a settled restriction on the consolidated save service.
 
-### 8. Filesystem discovery and resolution
+## File association, discovery and resolution
 
-Filesystem discovery is a prerequisite for schema work because schemas and the C/C++ source/header inputs they exercise will need hierarchy-aware dependencies and filesystem search.
+- Associate an externally supplied source key or path with an identified asset.
+  Keep file identity distinct from a loaded buffer or immutable content version.
+  Do not assume all source keys were discovered by a scan.
+- Add platform-agnostic directory scanning backed by platform implementations.
+- Define configured storage roots, startup scans and filename/source-key indexes,
+  plus explicit or incremental rescans.
+- Define relative-to-requester resolution, canonical logical keys, search
+  precedence and duplicate/shadowing behaviour across roots.
+- Permit direct user-specified locations to bypass discovery while still using
+  the normal Host identity, lifetime and reporting rules after loading.
 
-- Define configured storage roots and startup scanning to populate source-key or filename lookup indexes.
-- Support later explicit or incremental rescans.
-- Define relative-to-requester resolution, canonical logical keys, search precedence, and duplicate/shadowing behaviour across roots.
-- Support directly user-specified locations which bypass ordinary discovery or lookup, while still following the normal host identity, lifetime, and reporting rules after loading.
+Schemas and their C/C++ source/header inputs require hierarchy-aware dependency
+resolution, so this service precedes schema work. A complete cache/remapping
+implementation is deferred beyond the resolution contract needed initially.
 
-## Intended Order
+## Persistence and Executive validation
 
-```text
-host worker and module lifecycle
-  -> asset identity, type erasure, lifetime, and async contracts
-  -> parser reporting and strictness policy
-  -> filesystem discovery and dependency resolution
-  -> schema vertical slice
-  -> broader C/C++ parsing, generation, serialisation, and remapping
-```
+The Executive exercise should validate the intended Host and worker services.
+Settle the operation contracts first, then define messages and reviewable test
+slices. Earlier plans assumed fixed save/load messages and repository IDs;
+those mechanics must be reconciled with the consolidation decisions above.
 
-The first schema vertical slice should resolve a schema/source and its dependencies through the host filesystem service, parse under a caller-supplied strictness profile, and publish only an accepted result that is safe for the requested lifetime.
+Retain these coverage goals:
 
-## Explicitly Deferred
+- Construct a live fixture with every supported node/payload type, repeating
+  types in named, anonymous, array, object and recovery contexts as needed.
+  Include empty placeholders, numeric intent and boundaries, Unicode/NULs,
+  reserved names, singleton objects and all recovery cardinalities/nesting.
+- Bake twice independently and compare complete bytes before transferring
+  ownership of one copy. Retain the other as the Executive's reference.
+- Save and reload binary through the Host, returning the agreed identity and a
+  checked borrowed view. Compare complete loaded bytes against the reference.
+- Exercise JSON saving, loading, conditioning and policy acceptance; compare
+  against the reference using the agreed normalized semantics, including
+  recovery identity/order, singleton normalization and numeric intent/width.
+  Account explicitly for strict-output numeric normalization where exercised.
+- Cover direct file round trips before relying on the full asynchronous run.
+  A loaded binary can remain owned by LoadedFile with a checked baked view;
+  an additional baked-block adoption API is not inherently required.
+- Correlate each completion and advance only when the preceding operation's
+  result permits it. Exercise failures without losing the original failure.
+- The Executive relinquishes borrowed views and requests disposal of every
+  asset from the full flow that remains Host-owned: transferred originals,
+  loaded copies, output text and retained requests/intermediates, including
+  internally tracked assets whose IDs were never returned to the Executive.
+- Wait for outstanding I/O and view users before disposal, acknowledge cleanup,
+  and verify stale IDs no longer resolve and test allocations are released.
+  Require explicit cleanup before success; shutdown cleanup is a fallback.
+  Release the Executive reference before DLL shutdown and verify any surviving
+  SYSTEM payload can be destroyed without Executive code.
 
-- A complete filesystem cache/remapping implementation beyond the resolution contract needed by schema work.
-- The full C/C++ parser, generator, serialisation, and remapping pipeline.
-- A requirement for every parse requester to retain detailed parser reports.
+## Order beyond this task
 
-## Ritchie's notes
+Host authority and module lifecycle enable asset identity/lifetime and standard
+asynchronous operations. Parser observations and policy can be developed
+alongside those contracts; their integration enables accepted-result
+publication. Aligned loading, conditioning and filesystem resolution then
+support meaningful persistence/integration tests and a first schema consumer.
 
-- I'm not comfortable with the current friend usage and public/private split in the memory attribution.
-- We need a more defined transfer of data from modules and threads to the host.
-- The file loader needs to be able to specify alignment above 16 bytes.
-- We need to add platform agnostic (probably backed by per-platform code) directory scanning.
-- The transfer of buffer ownership from the host worker to the host should probably use a SYSTEM level ID
-- and be usable for transfers from modules to the host.
-- The parser and parser report don't fit my vision of what these should be checking for and reporting.
-- We need to add the lifetime and ownership metadata to ownership passed to the host.
-- The current plan for the executive driven data model load/save flow and test is inappropiate
-- it should become a test of closer to final flows through the host and host worker.
-- We need to determine how to handle the loading and saving of assets more clearly, for instance:
-- - When saving a baked document, we need to be able to specify either an existing host owned
-  - baked block or that we are passing a new one. Whether a new passed block should be discarded
-  - after the operationm whether we want to save as JSON and if so with what options and whether
-  - we want to save the binary. It's unclear if these should be serial messages or a combined instruction.
+The first schema slice should resolve a schema/source and dependencies through
+the Host filesystem service, parse under a caller's strictness profile, and
+publish an accepted result safe for its requested lifetime. Broader C/C++
+parsing, generation, serialisation and remapping follow that slice.

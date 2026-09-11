@@ -11,8 +11,11 @@ Date:   6 Sep 2026
 ## Scope
 
 This document is the normative physical specification for the replacement
-baked artifact. The semantic contract remains in `revised_data_model.md`.
-Implementation rationale belongs in `data_model_design_notes.md`.
+baked artifact. The semantic contract remains in
+[the data-model specification](revised_data_model.md). Implementation rationale
+belongs in [design notes](data_model_design_notes.md). Planned parser and Host
+consolidation is tracked separately in the
+[active plan](../backlog/consolidation_pass.md).
 
 The format is an immutable, self-contained byte block smaller than 4 GiB. All
 multibyte integers are little-endian and floating payloads are IEEE-754

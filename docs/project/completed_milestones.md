@@ -228,3 +228,86 @@ Validation:
   before its pre-compilation invocation;
 - exercised positive, negative, suppression, policy-loading, include-resolution,
   allocation, identity, and project-configuration cases.
+
+## Earlier foundation and integration milestones
+
+The interim backlog's completed foundation work comprises FIFO full-buffer
+policy and non-overwriting `try_add`, cross-platform high-frequency timing,
+and the native threading primitive/start layer (hardware count, mutex,
+wait/wake, semaphore, two-phase parking gate and thread creation/trampoline).
+Windows received basic functional validation; formal cross-platform primitive
+stress remains open.
+
+The codebase also now has the system identity/name registry, thread packages
+and context, a debug service, and asynchronous TGA loading/conditioning backed
+by type-erased Host assets. These are existing infrastructure for consolidation;
+their presence does not complete the broader Host lifetime/provisioning design.
+The project attribution policy is documented. Follow-on audits and validation
+remain in the [engine backlog](../backlog/engine_backlog.md).
+
+## First replacement data-model pipeline
+
+Completed September 2026. The former stage-by-stage roadmap is replaced by this
+outcome record. The implementation is available and tested; the parser/reporting
+contract and ownership API are being revisited in the
+[consolidation plan](../backlog/consolidation_pass.md).
+
+- Added container observations for valid stable-string counts and O(1)
+  slot-to-key conversion without new persistent state.
+- Replaced continuously maintained tree/string reachability counts with an
+  iterative on-demand analysis. Kept framework memory accounting.
+- Reduced live nodes from 64 to 40 bytes using role-specific direct slot links
+  and monotonic public keys. Names imply object entries for every payload type;
+  the root is an implicit object and explicit live aggregates have empty names.
+- Completed detachment, payload extraction/attachment and payload erasure,
+  plus public recovered arrays with anonymous children and unrestricted
+  cardinality. Recovery composition uses ordinary live operations.
+- Defined the incompatible `MBD2` version-1 format: a 32-byte header, 32-byte
+  value records, dense child ranges and separate sorted name/value string tables.
+  Added a checked immutable view and one-allocation, 32-byte-aligned owning block.
+- Implemented baking and promotion in a separate translation layer using
+  external scratch and staged publication. Added topology/encoding validation,
+  direct queries and failure cleanup without a public mutable baked builder.
+- Updated text ingestion for bounded embedded NULs, modified-NUL normalization
+  and output-encoding/transformation reports (`b6b003b`).
+- Added the baked-view writer with strict/Morphic output, ASCII/layout options,
+  reversible names/recovery, numeric conversion and iterative traversal (`5b76a80`).
+- Added the shared lexer and syntax-only structural pass, preserving absent
+  versus present-empty input through CStringView (`4439900`).
+- Added relaxed live parsing, construction reports, recovery-wrapper decoding,
+  ordered duplicate recovery and singleton normalization (`8ef6e83`, `76027e5`).
+- Added the initial baked ownership transport bridge and SYSTEM payload,
+  including shell/block accounting and Host repository disposal (`96ed4a2`).
+
+Recorded validation: all ordinary suites passed in Debug and Release on x64
+and Win32 at the final parser and transfer checkpoints. These included 15,081
+parser checks and, at the transfer checkpoint, 213 transfer checks per build.
+Coverage includes numeric boundaries, Unicode/NULs, malformed structure,
+reserved names, nested recovery, deep iterative walks, meaningful allocation
+failures, unchanged transfer bytes/addresses, rejection and disposal. Policy
+and line-ending checks passed. These are historical results, not a claim that
+the forthcoming parser refactor has been validated.
+
+Current reference:
+
+- [Semantic specification](../data_model/revised_data_model.md).
+- [Physical format](../data_model/baked_document_format.md).
+- [Design rationale](../data_model/data_model_design_notes.md).
+
+Direct file persistence and the full Executive-controlled document run were
+planned but not implemented at this checkpoint. Their test mechanics are being
+reconsidered around the consolidated Host contracts before schema work.
+
+## Retired v1 reference archive
+
+The September 2026 cleanup assessed the old live model, mutable baked builder,
+writer, design document and tests. They are outside the build and describe an
+incompatible representation and superseded recovery-envelope/checksum rules.
+Current specifications and replacement tests cover the retained behaviour;
+the archive is no longer needed as an active implementation reference.
+
+The 14 files formerly under `graveyard/data_model_v1_2026-09-01` were relocated
+unchanged to the local, ignored
+`not_for_redistribution/graveyard/data_model_v1_2026-09-01` directory. The latter
+is not part of distributed checkouts. Historical versions remain available in
+Git, including the tree at `96ed4a2` before relocation.

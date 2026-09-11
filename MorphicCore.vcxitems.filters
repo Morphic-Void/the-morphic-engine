@@ -151,6 +151,9 @@
     <Filter Include="Docs\containers\slots">
       <UniqueIdentifier>{c001f1cb-f352-af39-2d43-2d28a9bc93ce}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Docs\data_model">
+      <UniqueIdentifier>{0c62e5aa-8de9-4232-b7bc-ab183c86ef4b}</UniqueIdentifier>
+    </Filter>
     <Filter Include="Docs\debug">
       <UniqueIdentifier>{5e343b5f-3444-9b99-d58e-bffdc569b4d1}</UniqueIdentifier>
     </Filter>
@@ -655,7 +658,7 @@
     <None Include="$(MSBuildThisFileDirectory)docs\backlog\current_scope_backlog.md">
       <Filter>Docs\backlog</Filter>
     </None>
-    <None Include="$(MSBuildThisFileDirectory)docs\backlog\morphic_engine_interim_backlog.md">
+    <None Include="$(MSBuildThisFileDirectory)docs\backlog\engine_backlog.md">
       <Filter>Docs\backlog</Filter>
     </None>
     <None Include="$(MSBuildThisFileDirectory)docs\architecture\codebase-ethos-primer.md">
@@ -748,17 +751,14 @@
     <None Include="$(MSBuildThisFileDirectory)README.md">
       <Filter>Docs</Filter>
     </None>
-    <None Include="$(MSBuildThisFileDirectory)docs\backlog\data_model_design_notes.md">
-      <Filter>Docs\backlog</Filter>
+    <None Include="$(MSBuildThisFileDirectory)docs\data_model\data_model_design_notes.md">
+      <Filter>Docs\data_model</Filter>
     </None>
-    <None Include="$(MSBuildThisFileDirectory)docs\backlog\data_model_roadmap.md">
-      <Filter>Docs\backlog</Filter>
+    <None Include="$(MSBuildThisFileDirectory)docs\data_model\revised_data_model.md">
+      <Filter>Docs\data_model</Filter>
     </None>
-    <None Include="$(MSBuildThisFileDirectory)docs\backlog\revised_data_model.md">
-      <Filter>Docs\backlog</Filter>
-    </None>
-    <None Include="$(MSBuildThisFileDirectory)docs\backlog\baked_document_format.md">
-      <Filter>Docs\backlog</Filter>
+    <None Include="$(MSBuildThisFileDirectory)docs\data_model\baked_document_format.md">
+      <Filter>Docs\data_model</Filter>
     </None>
     <None Include="$(MSBuildThisFileDirectory)docs\backlog\consolidation_pass.md">
       <Filter>Docs\backlog</Filter>

@@ -6,7 +6,7 @@ Author: Ritchie Brannan
 Drafting and editorial assistance: OpenAI Codex
 Date:   8 Sep 2026
 
-# Revised data model
+# Data-model semantic specification
 
 ## Status and scope
 
@@ -16,17 +16,22 @@ defines the abstract model, public operations, integrity boundaries and
 ownership rules. Requirements expressed with **must**, **must not** and
 **only** are normative.
 
-Implementation rationale and proposals belong in
-`docs/backlog/data_model_design_notes.md`. Delivery order and current status
-belong in `docs/backlog/data_model_roadmap.md`. Neither document overrides this
-specification.
+This records the implemented baseline. Parser observations, caller strictness,
+reporting and the public ownership-transfer boundary are being reconsidered
+under the [consolidation plan](../backlog/consolidation_pass.md). That plan
+identifies work to agree and implement; it does not silently change the current
+behaviour specified here. Update the affected contracts with the refactor.
+
+Implementation rationale belongs in
+[design notes](data_model_design_notes.md). Completed implementation history
+belongs in [completed milestones](../project/completed_milestones.md).
 
 The normative physical baked layout is defined separately in
-`docs/backlog/baked_document_format.md`.
+[baked-document format](baked_document_format.md).
 
-The archived v1 design and implementation are reference material only. C++
-signatures and live-record packing remain implementation choices unless
-explicitly settled here.
+The v1 design and implementation are obsolete and are preserved in Git history
+and the local non-redistributed archive. C++ signatures and live-record packing
+remain implementation choices unless explicitly settled here.
 
 ## Terminology
 

@@ -1,39 +1,37 @@
-# Current Scope Backlog
+# Current scope
 
-Status: active priorities only. Completed-task history is intentionally omitted.
+Updated 11 September 2026. Consolidation precedes schema work.
 
-This file is a short navigation layer rather than an independent detailed
-backlog:
+The first document pipeline is implemented. Its parser/reporting design and
+the surrounding Host contracts need further work before schema consumers are
+built. Completed implementation does not mean these interfaces are final.
 
-- `morphic_engine_interim_backlog.md` contains the broader engine backlog and
-  subsystem dependencies.
-- `../project/future_work_notes.md` retains useful cross-task context that is
-  not an active priority.
-- `../project/completed_milestones.md` records completed cross-cutting work.
-- Permanent architecture belongs to the subsystem documents under `docs/`.
+## Active work
 
-## Current Priorities
+1. Refactor the parser and its reporting in the current parser task, beginning
+   with agreement on observations, caller strictness and failure categories.
+2. Develop the remaining Host consolidation in a separate task: module
+   lifecycle, asset identity and lifetime, asynchronous operations, aligned
+   loading, conditioning and filesystem resolution.
+3. Exercise the resulting Host services with document persistence and an
+   Executive-controlled functional run, then begin a schema vertical slice.
 
-1. Continue the low-level text ingester and JSON infrastructure work described
-   in the interim backlog, with debug-system slices added where they support
-   diagnostics and controlled shutdown.
+[Consolidation plan](consolidation_pass.md) owns detailed scope, open questions
+and dependencies. The parser refactor can proceed alongside Host design; the
+integration run depends on both. Pause before commits for review.
 
-## Subsequent Cross-Cutting Work
+## Documentation map
 
-- Add command-line selection of named tests and test groups without requiring
-  the complete aggregate suite.
-- Add dedicated regression fixtures for the completed code policy validator,
-  covering clean, error, warning, suppression, stale-suppression, and project
-  configuration cases without retaining deliberate violations in engine
-  source. Revisit SuiteUTF coverage only after its intended policy boundary is
-  defined.
-- After the current layout and consolidation work, add a tool-independent
-  build description that preserves Core as per-consumer shared source, attempt
-  Linux compilation, and distinguish portable-Core issues from missing Linux
-  platform implementations.
-- Complete allocator bootstrap ordering before removing the temporary fallback
-  allocator.
-- Resume thread provisioning, TLS, and formal threading stress tests when the
-  Linux build path makes cross-platform validation practical.
-- Build the Windows and Linux platform modules around system pumps, input,
-  windows, and dialogs rather than relocating the existing threading wrappers.
+- [Engine backlog](engine_backlog.md): remaining broader and deferred work.
+- [Data-model specification](../data_model/revised_data_model.md),
+  [baked format](../data_model/baked_document_format.md) and
+  [design rationale](../data_model/data_model_design_notes.md): current
+  implemented baseline, with parser and ownership areas under review.
+- [Completed milestones](../project/completed_milestones.md): implementation
+  outcomes and validation, including the first document pipeline.
+- [Future work notes](../project/future_work_notes.md): supporting cross-task
+  context, without a second priority list.
+
+Historical stage-by-stage plans remain in Git history. They do not override
+the consolidation direction or require the former Executive test sequence
+to be implemented unchanged.
