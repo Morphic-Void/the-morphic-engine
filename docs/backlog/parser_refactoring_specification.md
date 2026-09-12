@@ -68,10 +68,10 @@ regression checks.
   strings; surrogate representations must never be interpreted as modified NUL.
   CP1252 remains a separately identified source-decoding path.
 - Default acceptance is conservative: permit standard JSON and the Morphic
-  hexadecimal, binary and explicit-positive-sign numeric forms; exclude relaxed
-  syntax. Also accept CP1252 and the supported modified-UTF-8 exception by default;
-  undefined CP1252 bytes remain failures. Do not enable all Morphic features
-  merely through their grouping.
+  extensions as a group: hexadecimal (including `#`), binary and explicit-positive
+  numeric forms. Exclude relaxed syntax, including single quotes. Also accept
+  CP1252 and the supported modified-UTF-8 exception by default; undefined CP1252
+  bytes remain failures.
 - Identify individual features, including explicit positive numeric signs,
   hexadecimal and binary numbers, unquoted names, unquoted string values,
   embedded NULs and embedded overlong/modified NULs.
@@ -151,8 +151,9 @@ makes membership tests direct. Provide named masks for each category and useful
 presets. Exact C++ names and bit numbers are implementation details; category
 members must form contiguous ranges and must not overlap.
 
-Do not compare the complete report mask against the allowed mask. Structural
-errors, resource failures and informational transformations are not permissions.
+Do not compare the complete report mask against the allowed mask. Informational
+transformations are not permissions. Terminal failure has a separate enumerated
+reason and responsible stage; it is never a finding or permission bit.
 Extract only acceptance-relevant findings before determining disallowed features.
 For those features the basic test is:
 
@@ -186,13 +187,14 @@ grammar can express duplicate
 members. Document these behaviours independently of the syntax-feature mask.
 
 The agreed default allows ordinary UTF-8 (including ASCII), CP1252 and the
-supported modified-UTF-8 exception, plus hexadecimal, binary and explicit-positive
-numeric forms. Relaxed features, including collision extension, are excluded.
+supported modified-UTF-8 exception, plus all Morphic extensions: hexadecimal
+(including the alternate `#` prefix), binary and explicit-positive numeric forms.
+Relaxed features, including single quotes and collision extension, are excluded.
 The supported compatibility input includes valid CESU-8 supplementary pairs;
 record that source form separately from modified NUL even when a grouped
 permission enables both. This normalization is available only through linting.
-Undefined CP1252 bytes always fail. Other Morphic features are not automatically
-enabled by their grouping. Valid JSON `\u0000` and its stored NUL form are unchanged.
+Undefined CP1252 bytes always fail. The default enables the complete Morphic
+category. Valid JSON `\u0000` and its stored NUL form are unchanged.
 Choose auxiliary preset names during API review; source-encoding defaults are
 settled. Keep internal `C0 80` storage distinct from source spelling findings.
 
@@ -206,7 +208,9 @@ CP1252 inference remains an inference, not proof of the author's encoding.
 The report must distinguish successful processing from final policy acceptance.
 Represent at least: accepted, policy rejected, linter failure, structural
 failure, parser/construction failure, and resource/internal failure, with the
-responsible stage and specific reason. A caller rejecting hexadecimal numbers
+responsible stage and specific reason. Record one terminal failure reason in an
+enumeration, retaining the root cause if subsequent failures occur. Cumulative
+observations remain in the findings mask. A caller rejecting hexadecimal numbers
 must not receive a mismatched-delimiter or malformed-number diagnosis for `0x10`.
 
 Process supported input forms and collect findings irrespective of whether the
@@ -246,13 +250,20 @@ continues to accumulate its existing statistics alongside presence findings.
 
 | Contiguous group | Findings to represent |
 | --- | --- |
-| Source encoding and linter observations | Non-ASCII UTF-8 used; modified-NUL form used; CESU-8 supplementary pair normalized; CP1252 decoding adopted; literal source NUL present; leading BOM present/stripped; terminal source zeros stripped; encountered and normalized line-ending forms; undefined CP1252 byte failure; existing CP1252 supporting/counter-evidence and relevant UTF decoder findings. |
-| Relaxed syntax | Comments; unquoted names; unquoted string values; trailing commas; raw line breaks in quoted strings; other raw quoted controls apart from the established logical-NUL case; name-collision extension; non-empty implicit/unbraced root object; implicit array-body syntax where the source contains more than one top-level value. |
-| Morphic extensions | Single-quoted strings/names; explicit positive numeric sign; hexadecimal notation; binary notation; alternate `#` hexadecimal prefix. Keep all Morphic feature bits together. |
-| Semantic observations | Implicit array root constructed, including scalar-root adaptation; empty member name encountered; redundant singleton normalization; logical NUL in decoded names/values. Empty names are ordinary JSON, not a transformation or extension. Keep observations distinct from source spelling and structural corruption. |
-| Structural errors | Unexpected character; unterminated comment/string; invalid escape/surrogate pair; forbidden newline in a name; missing name/colon/value/separator; mismatched delimiter; unexpected end; trailing content. Malformed numeric-looking candidates fall back to strings rather than producing a numeric syntax error. |
-| Construction failures | Numeric range failure; invalid root value; other construction rejection. A quoted empty name is valid and must not cause empty-name rejection. |
-| Resource and invocation failures | Invalid input view; allocation failure; storage/input limits; internal error. |
+| Source encoding and linter observations | Non-ASCII UTF-8 used; modified-NUL form used; CESU-8 supplementary pair normalized; CP1252 decoding adopted; literal source NUL present; leading BOM present/stripped; terminal source zeros stripped; encountered and normalized line-ending forms; existing CP1252 supporting/counter-evidence and relevant UTF decoder evidence, including an abandoned UTF-8 attempt. |
+| Relaxed syntax | Comments; unquoted names; unquoted string values; single-quoted strings/names; trailing commas; raw line breaks in quoted strings; other raw quoted controls apart from the established logical-NUL case; name-collision extension; implicit document body (a non-empty unbraced root object or multiple unbracketed top-level values), without encoding the body's type. |
+| Morphic extensions | Explicit positive numeric sign; binary notation; hexadecimal notation; alternate `#` hexadecimal prefix. Hexadecimal covers both `0x`/`0X` and `#`; the alternate prefix additionally sets its adjacent bit. Keep all Morphic feature bits together. |
+| Semantic observations | Empty member name encountered; redundant singleton normalization; logical NUL in decoded names/values. Empty names are ordinary JSON, not a transformation or extension. Keep observations distinct from source spelling and structural corruption. |
+
+Terminal failures use a separate reason enumeration, accompanied by the stage
+where the root failure occurred. These are alternatives, not cumulative flags:
+
+| Reason category | Reasons to represent |
+| --- | --- |
+| Decoding | UTF-8 decoding failure; undefined CP1252 byte; CP1252 decoding failure. An abandoned UTF-8 attempt followed by successful fallback is evidence, not terminal failure. |
+| Structure | Unexpected character; unterminated comment/string; invalid escape/surrogate pair; forbidden newline in a name; missing name/colon/value/separator; mismatched delimiter; unexpected end; trailing content. Malformed numeric-looking candidates fall back to strings rather than producing a numeric syntax error. |
+| Construction | Numeric range failure; invalid root value; other construction rejection. A quoted empty name is valid and must not cause empty-name rejection. |
+| Resources and invocation | Invalid input view; allocation failure; storage/input limits; internal error. |
 
 Specific statuses or bounded auxiliary evidence may accompany masks when that
 preserves a useful distinction more clearly than additional bits. Parser
@@ -361,8 +372,8 @@ implementation assessment, not a reason to retain diagnostic-report counters.
 
 Logical buffer length and bounds remain available for embedded NUL safety.
 Line and code-point coordinates remain numeric positions. Existing source,
-encoding, transformation and failure findings survive the refactor except for
-the explicitly retired recovery protocol.
+encoding and transformation findings, and terminal failure reasons, survive the
+refactor except for the explicitly retired recovery protocol.
 Other writer reporting is outside this statistics change; obsolete recovery and
 reserved-name counters are removed with the retired features.
 
@@ -620,7 +631,7 @@ the string `true`, and `\u0031` is the string `1`, not a boolean or number.
 
 In name position, the result is always a string. JSON string restrictions,
 rather than an identifier naming convention, govern names. Unquoted syntax is
-a relaxed feature; single-quoted syntax is a Morphic feature. Names which
+a relaxed feature; single-quoted syntax is also a relaxed feature. Names which
 resemble keywords or numbers are not converted to those value types.
 
 JSON has no separate identifier alphabet for member names: they use string
@@ -816,7 +827,8 @@ cases before otherwise-array inference; comments still set their finding and
 default policy rejects them after otherwise-successful parsing. An absent input
 view still fails. Do not label the no-content case as an implicit array.
 
-Record inferred roots without confusing representation with source permission.
+Use one implicit-body syntax finding without encoding the inferred container
+kind; the constructed document exposes its root type.
 A valid single JSON scalar wrapped in the internal array is an informational
 representation adaptation and does not require relaxed permission. Multiple
 top-level values and non-empty unbraced object bodies are relaxed syntax. Empty
@@ -859,8 +871,8 @@ mode the roles of single and double quotes are exchanged: an unescaped single
 quote closes the string, `\'` embeds a single quote, and a double quote is
 ordinary content requiring no escape. The non-quote JSON escapes, including
 Unicode escapes, remain available; the delimiter escape changes from `\"` to `\'`.
-Encountering single-quoted syntax sets a Morphic-extension presence flag,
-including when it supplies a name. It is not grouped with relaxed syntax.
+Encountering single-quoted syntax sets a relaxed-syntax presence flag,
+including when it supplies a name. It requires explicit relaxed permission.
 
 Within an already-started unquoted candidate, an apostrophe is ordinary content:
 `don't` does not need quoting merely because it contains an apostrophe. A single
@@ -1241,12 +1253,83 @@ Existing parser, structural, linter and other ordinary suites also passed.
 Policy validation reported zero errors and warnings with the existing negative
 test suppression. Diff, line-ending and documentation-link checks passed.
 
+### 9.3 Shared findings and policy interface preparation
+
+The next interface slice is implemented and awaiting review in
+`core/data_model/document_findings.hpp`. It uses `std::uint32_t` directly for the
+findings mask and the underlying type of `EDocumentFinding`, and defines a
+singular `CDocumentFailure` with enumerated stage and reason,
+`CDocumentParseOptions`, encoding/default/all-supported presets and a
+feature-policy evaluator. Source observation bits retain their existing linter
+identities; detailed line-ending forms, decoder evidence and linter statistics
+stay in the linter report as bounded auxiliary information.
+
+| Bit range | Group |
+| --- | --- |
+| 0-8 | Source encoding, observations and abandoned-attempt evidence |
+| 9 | Explicitly reserved as `reserved_undefined_cp1252_byte`, matching the existing linter error flag |
+| 10-18 | Relaxed syntax (including single quotes) |
+| 19-22 | Morphic extensions |
+| 23-25 | Semantic observations |
+| 26-31 | Unassigned |
+
+Each category has named `k_*_start` and `k_*_end` aliases in `EDocumentFinding`.
+These identify its first and last included findings; the category masks derive
+from these boundaries rather than repeating numeric bit positions.
+
+`EDocumentFailureReason` holds one terminal decoding, structural, construction
+or resource/invocation reason; `EDocumentFailureStage` identifies the linter,
+structural check or parser. The first terminal failure must be retained if later
+work also fails. `document_findings::from_source` imports only cumulative linter
+observations, excluding bit 9. The linter still defines and sets
+`ETextSourceFinding::undefined_cp1252_byte`; the matching named reservation
+prevents reuse of that bit as a shared observation or permission. The linter's
+specific terminal reason remains in its existing report until report integration.
+
+The single syntax flag `implicit_body` covers a non-empty root object without
+braces or multiple top-level values without brackets. Root type is observable
+in the constructed document and is not duplicated in the findings. Empty input
+and a single scalar retain their agreed default acceptance and do not set this
+relaxed-syntax flag. Binary occupies bit 20; hexadecimal and alternate hexadecimal
+prefix occupy adjacent bits 21 and 22.
+Both hexadecimal spellings set `hexadecimal`; `#` additionally sets
+`alternate_hexadecimal_prefix` and therefore needs both permissions.
+
+`document_policy::evaluate` checks only feature permissions. Its result records
+effective permissions, disallowed features and invalid policy bits. It does not
+assert processing success or stage completion and must not authorize publication
+until those separate conditions hold. Policy masks containing informational,
+reserved or unassigned bits are invalid. The ASCII preset has no feature bits;
+modified-NUL or CESU permission also permits ordinary UTF-8. The modified-UTF-8
+preset groups both compatibility forms with ordinary UTF-8. Encoding permissions
+grant no syntax permissions and require no separate logical-NUL permission.
+The default permits the agreed four source forms and the complete `k_morphic`
+category, including the alternate `#` hexadecimal prefix. All relaxed features,
+including single quotes, require explicit permission.
+
+This prepares the interface only. Existing parser and structural entry points
+still use their initial reports and grammar, and do not yet accept these options
+or apply the new evaluator. Their coordinated migration must retain partial
+findings, expose stage completion, separate construction estimates and apply
+policy only after successful private construction. The new findings intentionally
+omit retired recovery-protocol observations and numeric-syntax rejection.
+
+Tests cover category separation, all 32 policy bits, the exact default, encoding
+closure, stricter policy re-evaluation, hexadecimal prefix permissions and the
+shared implicit-body permission. Actual linter coverage includes
+ASCII Unicode escapes, literal NUL, adopted CP1252 with failed-UTF-8 evidence,
+and exclusion of the terminal undefined-CP1252 bit from imported observations.
+Debug/Release builds and ordinary suites passed on x64 and Win32, including
+15,350 DocumentParser checks per configuration. Policy validation reported no
+errors or warnings, with the existing negative-test suppression. Diff and
+line-ending checks passed; Visual Studio item/filter formatting is preserved.
+
 Remaining implementation sequence:
 
-1. Prepare the remaining public report/options and document API shapes. Complete
-   grouped parser findings and caller policy definitions, preserving the source
-   findings and shared locations already implemented. Update semantic
-   documentation alongside each implemented replacement contract.
+1. Review the shared findings and policy definitions. Integrate them into the
+   remaining public report/options and stage-completion API shapes, preserving
+   source findings and shared locations. Update semantic documentation alongside
+   each implemented replacement contract.
 2. Refactor the shared lexer and structural check for grouped findings,
    separate capacity estimates and the agreed superset grammar. Extend the
    implemented location rules to the new grammar. Review before committing.

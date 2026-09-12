@@ -577,6 +577,46 @@ belong to parsing. Capacity estimates are hints, not feasibility guarantees.
 If the structural check itself cannot complete because of a resource limit
 or allocation failure, it reports that failure separately from malformed text.
 
+### Shared findings and policy definitions
+
+The interface-preparation slice in `document_findings.hpp` defines a shared
+32-bit findings mask using `std::uint32_t` directly, caller permissions and a
+feature-policy evaluator. `EDocumentFinding` also has a `std::uint32_t` underlying type.
+Source observations retain the linter bit identities. Source observations,
+relaxed syntax, Morphic extensions and semantic observations occupy separate
+contiguous groups. Terminal failure is represented separately by
+`CDocumentFailure`, with one enumerated reason and responsible stage; subsequent
+failures must not replace the root reason. Detailed linter evidence and statistics
+remain available in the existing report. `document_findings::from_source`
+excludes the explicitly reserved `reserved_undefined_cp1252_byte` bit when
+importing observations. This reservation matches the linter's existing
+`ETextSourceFinding::undefined_cp1252_byte` flag at bit 9.
+
+The evaluator considers only acceptance-relevant source and syntax findings;
+informational findings are not permissions. Invalid policy bits
+are explicitly reported. The default permits ordinary UTF-8, modified NUL,
+CESU pairs and CP1252, plus all Morphic extensions: explicit positive numeric
+signs, binary and hexadecimal (including the alternate `#` prefix). Single quotes
+are relaxed syntax and remain excluded by default.
+Encoding permissions do not enable relaxed syntax or raw controls. ASCII
+Unicode escape spellings remain ASCII source, and CP1252 conversion retains
+its source finding.
+
+`implicit_body` identifies a non-empty root object without braces or multiple
+top-level values without brackets. The constructed document exposes its root
+type, so findings do not repeat that information. Empty input and a single scalar
+retain their agreed default acceptance and do not set this relaxed-syntax flag.
+The adjacent hexadecimal flags distinguish base notation (`0x`/`0X` or `#`)
+from the additional alternate-prefix permission needed for `#`; both permissions
+are included in the default Morphic allowance. Named inclusive start/end aliases
+in `EDocumentFinding` define the boundaries used to derive each category mask.
+
+The current parser entry points still use the initial grammar and reports
+described below. They do not yet accept `CDocumentParseOptions` or apply the
+new evaluator. Processing completion, partial-findings retention and final
+policy acceptance will be integrated during the coordinated parser migration;
+a successful feature-policy evaluation alone is not parsing success.
+
 ### Initial shared text grammar
 
 `document_text_lex.hpp/.cpp` supplies bounded tokens and escape decoding for

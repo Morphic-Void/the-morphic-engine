@@ -11,6 +11,7 @@
 #ifndef DOCUMENT_PARSER_HPP_INCLUDED
 #define DOCUMENT_PARSER_HPP_INCLUDED
 
+#include "data_model/document_findings.hpp"
 #include "data_model/document_structure.hpp"
 #include "text/text_linter.hpp"
 

@@ -61,6 +61,153 @@ static CNodeKey member(const CLiveDocument& document, const CNodeKey object, con
     return {};
 }
 
+static void test_findings_and_policy_contract(TTestContext& ctx)
+{
+    static_assert(sizeof(EDocumentFinding) == sizeof(std::uint32_t));
+    static_assert(document_finding_bit(EDocumentFinding::reserved_undefined_cp1252_byte) ==
+        text_source_finding_bit(ETextSourceFinding::undefined_cp1252_byte));
+    constexpr std::uint32_t groups[]{ document_findings::k_source,
+        document_findings::k_relaxed, document_findings::k_morphic, document_findings::k_semantic };
+    std::uint32_t combined = 0u;
+    for (const std::uint32_t group : groups)
+    {
+        TEST_EXPECT(ctx, (combined & group) == 0u);
+        std::uint32_t range = group;
+        while ((range != 0u) && ((range & 1u) == 0u))
+        {
+            range >>= 1u;
+        }
+        TEST_EXPECT(ctx, (range != 0u) && ((range & (range + 1u)) == 0u));
+        combined |= group;
+    }
+    TEST_EXPECT(ctx, combined == document_findings::k_all);
+    TEST_EXPECT(ctx, document_findings::k_relaxed == (EDocumentFinding::comments |
+        EDocumentFinding::unquoted_names | EDocumentFinding::unquoted_strings | EDocumentFinding::single_quotes |
+        EDocumentFinding::trailing_commas | EDocumentFinding::raw_quoted_line_breaks | EDocumentFinding::raw_quoted_controls |
+        EDocumentFinding::name_collision_extension | EDocumentFinding::implicit_body));
+    TEST_EXPECT(ctx, document_findings::k_morphic == (EDocumentFinding::explicit_plus |
+        EDocumentFinding::binary | EDocumentFinding::hexadecimal | EDocumentFinding::alternate_hexadecimal_prefix));
+    TEST_EXPECT(ctx, document_findings::k_semantic == (EDocumentFinding::empty_member_name |
+        EDocumentFinding::singleton_normalization | EDocumentFinding::logical_nul));
+    TEST_EXPECT(ctx, document_findings::k_source ==
+        (k_text_source_encoding_features | k_text_source_observations |
+            text_source_finding_bit(ETextSourceFinding::utf8_attempt_failed)));
+    TEST_EXPECT(ctx, (document_findings::k_all & text_source_finding_bit(ETextSourceFinding::undefined_cp1252_byte)) == 0u);
+    TEST_EXPECT(ctx, !CDocumentPolicyResult{}.accepted());
+    TEST_EXPECT(ctx, document_policy::evaluate(0u).accepted());
+    TEST_EXPECT(ctx, document_policy::evaluate(0u, { document_policy::k_ascii }).accepted());
+
+    constexpr std::uint32_t default_features = EDocumentFinding::non_ascii_utf8 |
+        EDocumentFinding::modified_nul | EDocumentFinding::cesu8_pair | EDocumentFinding::cp1252 |
+        EDocumentFinding::explicit_plus | EDocumentFinding::hexadecimal | EDocumentFinding::binary |
+        EDocumentFinding::alternate_hexadecimal_prefix;
+    TEST_EXPECT(ctx, CDocumentParseOptions{}.allowed_features == default_features);
+    const auto default_result = document_policy::evaluate(document_findings::k_all);
+    TEST_EXPECT(ctx, default_result.status == EDocumentPolicyStatus::rejected);
+    TEST_EXPECT(ctx, default_result.disallowed_features == document_findings::k_relaxed);
+    TEST_EXPECT(ctx, document_policy::evaluate(document_findings::k_all, { document_policy::k_all_supported }).accepted());
+
+    //  Every permission can be selected individually; every other bit is an
+    //  invalid policy option, including known informational findings.
+    for (unsigned index = 0u; index < 32u; ++index)
+    {
+        const std::uint32_t bit = 1u << index;
+        const auto selected = document_policy::evaluate(bit, { bit });
+        const auto excluded = document_policy::evaluate(bit, { document_policy::k_ascii });
+        if ((bit & document_findings::k_acceptance_features) != 0u)
+        {
+            TEST_EXPECT(ctx, selected.accepted());
+            TEST_EXPECT(ctx, selected.unknown_policy_bits == 0u);
+            TEST_EXPECT(ctx, excluded.status == EDocumentPolicyStatus::rejected);
+            TEST_EXPECT(ctx, excluded.disallowed_features == bit);
+            const auto default_bit = document_policy::evaluate(bit);
+            TEST_EXPECT(ctx, default_bit.accepted() == ((default_features & bit) != 0u));
+        }
+        else
+        {
+            TEST_EXPECT(ctx, selected.status == EDocumentPolicyStatus::invalid_options);
+            TEST_EXPECT(ctx, selected.unknown_policy_bits == bit);
+            TEST_EXPECT(ctx, !selected.accepted());
+            //  This evaluates feature permissions only, not processing success.
+            TEST_EXPECT(ctx, excluded.accepted());
+        }
+    }
+
+    const EDocumentFinding compatibility_forms[]{ EDocumentFinding::modified_nul, EDocumentFinding::cesu8_pair };
+    for (const EDocumentFinding form : compatibility_forms)
+    {
+        const auto result = document_policy::evaluate(EDocumentFinding::non_ascii_utf8 | form,
+            { document_finding_bit(form) });
+        TEST_EXPECT(ctx, result.accepted());
+        TEST_EXPECT(ctx, result.effective_allowed_features == (EDocumentFinding::non_ascii_utf8 | form));
+        TEST_EXPECT(ctx, document_policy::evaluate(document_findings::k_relaxed, { document_finding_bit(form) }).disallowed_features ==
+            document_findings::k_relaxed);
+    }
+    TEST_EXPECT(ctx, document_policy::evaluate(document_policy::k_modified_utf8,
+        { document_policy::k_modified_utf8 }).accepted());
+    const auto narrower = document_policy::evaluate(EDocumentFinding::hexadecimal | EDocumentFinding::comments,
+        { document_finding_bit(EDocumentFinding::hexadecimal) });
+    TEST_EXPECT(ctx, narrower.disallowed_features == document_finding_bit(EDocumentFinding::comments));
+    const auto invalid = document_policy::evaluate(default_features, { default_features | (1u << 31) });
+    TEST_EXPECT(ctx, invalid.status == EDocumentPolicyStatus::invalid_options);
+    TEST_EXPECT(ctx, invalid.unknown_policy_bits == (1u << 31));
+
+    //  Either hexadecimal spelling needs the base permission; # needs both.
+    const auto alternate_hex = EDocumentFinding::hexadecimal | EDocumentFinding::alternate_hexadecimal_prefix;
+    TEST_EXPECT(ctx, document_policy::evaluate(document_finding_bit(EDocumentFinding::hexadecimal)).accepted());
+    TEST_EXPECT(ctx, document_policy::evaluate(alternate_hex).accepted());
+    TEST_EXPECT(ctx, document_policy::evaluate(alternate_hex,
+        { document_finding_bit(EDocumentFinding::hexadecimal) }).disallowed_features ==
+        document_finding_bit(EDocumentFinding::alternate_hexadecimal_prefix));
+    TEST_EXPECT(ctx, document_policy::evaluate(alternate_hex, { alternate_hex }).accepted());
+    TEST_EXPECT(ctx, document_policy::evaluate(alternate_hex,
+        { document_finding_bit(EDocumentFinding::alternate_hexadecimal_prefix) }).disallowed_features ==
+            document_finding_bit(EDocumentFinding::hexadecimal));
+
+    //  The same permission admits either implicit body; root kind belongs to the document.
+    const auto implicit_body = document_finding_bit(EDocumentFinding::implicit_body);
+    TEST_EXPECT(ctx, document_policy::evaluate(implicit_body).disallowed_features == implicit_body);
+    TEST_EXPECT(ctx, document_policy::evaluate(implicit_body, { implicit_body }).accepted());
+}
+
+static void test_policy_source_provenance(TTestContext& ctx)
+{
+    const auto escaped = text_linter::lint(CStringView{ "{\"text\":\"\\u00e9\\u0000\"}" });
+    TEST_EXPECT(ctx, escaped.report.success);
+    TEST_EXPECT(ctx, (escaped.report.source_findings & k_text_source_encoding_features) == 0u);
+    TEST_EXPECT(ctx, document_policy::evaluate(document_findings::from_source(escaped.report.source_findings),
+        { document_policy::k_ascii }).accepted());
+
+    const std::uint8_t cp1252[]{ 0x80u };
+    const auto converted = text_linter::lint(CByteConstView{ cp1252, sizeof(cp1252) });
+    TEST_EXPECT(ctx, converted.report.success && converted.report.recovered_as_cp1252);
+    const auto converted_findings = document_findings::from_source(converted.report.source_findings);
+    const auto rejected = document_policy::evaluate(converted_findings, { document_policy::k_utf8 });
+    TEST_EXPECT(ctx, rejected.disallowed_features == document_finding_bit(EDocumentFinding::cp1252));
+    TEST_EXPECT(ctx, document_policy::evaluate(converted_findings).accepted());
+    TEST_EXPECT(ctx, (converted_findings & document_finding_bit(EDocumentFinding::utf8_attempt_failed)) != 0u);
+    TEST_EXPECT(ctx, !converted.report.first_failure.present);
+
+    const std::uint8_t undefined[]{ 0x81u };
+    const auto failed = text_linter::lint(CByteConstView{ undefined, sizeof(undefined) });
+    TEST_EXPECT(ctx, !failed.report.success && failed.report.first_failure.present);
+    TEST_EXPECT(ctx, failed.report.first_failure.reason == ETextLintFailure::undefined_cp1252_byte);
+    const auto failed_findings = document_findings::from_source(failed.report.source_findings);
+    TEST_EXPECT(ctx, (failed.report.source_findings & text_source_finding_bit(ETextSourceFinding::undefined_cp1252_byte)) != 0u);
+    TEST_EXPECT(ctx, (failed_findings & text_source_finding_bit(ETextSourceFinding::undefined_cp1252_byte)) == 0u);
+    TEST_EXPECT(ctx, (failed_findings & document_finding_bit(EDocumentFinding::utf8_attempt_failed)) != 0u);
+
+    const std::uint8_t nul[]{ 'a', 0u, 'b' };
+    const auto literal = text_linter::lint(CByteConstView{ nul, sizeof(nul) });
+    TEST_EXPECT(ctx, literal.report.success);
+    TEST_EXPECT(ctx, (literal.report.source_findings & document_finding_bit(EDocumentFinding::literal_source_nul)) != 0u);
+    const auto literal_findings = document_findings::from_source(literal.report.source_findings);
+    TEST_EXPECT(ctx, document_policy::evaluate(literal_findings, { document_policy::k_ascii }).accepted());
+    const auto logical = document_policy::evaluate(literal_findings | EDocumentFinding::logical_nul,
+        { document_policy::k_ascii });
+    TEST_EXPECT(ctx, logical.accepted());
+}
+
 static void test_construction_and_features(TTestContext& ctx)
 {
     CLiveDocument document;
@@ -847,6 +994,8 @@ static void test_composed_linter_diagnostics(TTestContext& ctx)
 int run_document_parser_tests()
 {
     tests::TTestContext ctx;
+    document_parser_tests::test_findings_and_policy_contract(ctx);
+    document_parser_tests::test_policy_source_provenance(ctx);
     document_parser_tests::test_construction_and_features(ctx);
     document_parser_tests::test_strings_and_ingestion(ctx);
     document_parser_tests::test_integer_metadata(ctx);

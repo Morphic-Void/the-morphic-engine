@@ -246,6 +246,9 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)core\data_model\document_translation.hpp">
       <Filter>Core\include\data_model</Filter>
     </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)core\data_model\document_findings.hpp">
+      <Filter>Core\include\data_model</Filter>
+    </ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)core\data_model\document_parser.hpp">
       <Filter>Core\include\data_model</Filter>
     </ClInclude>
