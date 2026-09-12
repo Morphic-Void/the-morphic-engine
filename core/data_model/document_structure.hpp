@@ -39,12 +39,11 @@ struct CDocumentStructureReport
     document_text::ESyntaxError syntax_error{ document_text::ESyntaxError::none };
     CTextLocation structure_start;
     CTextLocation failure_point;
-    //  Published only on success; failure leaves flags and estimates zero.
-    std::uint32_t required_relaxations{ 0u };
-    std::uint32_t numeric_extensions{ 0u };
-    CDocumentStructureEstimates estimates;
+    //  Retain established observations on failure. Only success denotes a
+    //  complete scan; absent findings in a partial scan do not prove absence.
+    std::uint32_t findings{ 0u };
 
-    [[nodiscard]] bool succeeded() const noexcept { return status == EDocumentStructureStatus::success; }
+    [[nodiscard]] bool succeeded() const noexcept;
 };
 
 namespace document_structure
@@ -58,8 +57,15 @@ namespace document_structure
 //  numeric conversion, name interning or collision/protocol interpretation
 //  occurs. Success guarantees syntax only.
 //  Uses ambient framework allocation for an iterative O(depth) frame vector.
-[[nodiscard]] CDocumentStructureReport check(const CStringView& source) noexcept;
+//  Optional capacity estimates are separate from diagnostics. They are reset
+//  on entry and published only after a successful structural check.
+[[nodiscard]] CDocumentStructureReport check(const CStringView& source, CDocumentStructureEstimates* estimates = nullptr) noexcept;
 
 }   //  namespace document_structure
+
+inline bool CDocumentStructureReport::succeeded() const noexcept
+{
+    return status == EDocumentStructureStatus::success;
+}
 
 #endif // DOCUMENT_STRUCTURE_HPP_INCLUDED

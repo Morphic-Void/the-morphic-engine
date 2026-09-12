@@ -18,27 +18,10 @@
 #include <cstdint>
 
 #include "containers/StringBuffers.hpp"
-#include "text/text_diagnostics.hpp"
+#include "data_model/document_findings.hpp"
 
 namespace document_text
 {
-
-enum class ERelaxation : std::uint32_t
-{
-    comments = 1u << 0,
-    single_quotes = 1u << 1,
-    unquoted_names = 1u << 2,
-    trailing_commas = 1u << 3,
-    unescaped_controls = 1u << 4,
-    implicit_root_object = 1u << 5
-};
-
-enum class ENumericExtension : std::uint32_t
-{
-    explicit_plus = 1u << 0,
-    hexadecimal = 1u << 1,
-    binary = 1u << 2
-};
 
 enum class ETokenKind : std::uint8_t
 {
@@ -79,8 +62,7 @@ public:
     //  physical terminator; literal NUL within a quoted span is content.
     explicit CScanner(const CStringView& source) noexcept : m_source(source) {}
     [[nodiscard]] CToken next() noexcept;
-    [[nodiscard]] std::uint32_t required_relaxations() const noexcept { return m_relaxations; }
-    [[nodiscard]] std::uint32_t numeric_extensions() const noexcept { return m_numeric_extensions; }
+    [[nodiscard]] std::uint32_t findings() const noexcept;
 
 private:
     [[nodiscard]] CToken scan_next() noexcept;
@@ -96,9 +78,13 @@ private:
     std::size_t m_element_offset{ 0u };
     std::size_t m_location_offset{ 0u };
     CTextLocation m_location{ true, 1u, 1u };
-    std::uint32_t m_relaxations{ 0u };
-    std::uint32_t m_numeric_extensions{ 0u };
+    std::uint32_t m_findings{ 0u };
 };
+
+inline std::uint32_t CScanner::findings() const noexcept
+{
+    return m_findings;
+}
 
 }   //  namespace document_text
 

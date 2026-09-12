@@ -208,16 +208,57 @@ static void test_policy_source_provenance(TTestContext& ctx)
     TEST_EXPECT(ctx, logical.accepted());
 }
 
+static void test_composed_findings(TTestContext& ctx)
+{
+    CLiveDocument destination;
+    TEST_EXPECT(ctx, destination.initialise());
+    const CNodeKey keep = destination.create_null(CStringView{ "keep" });
+    TEST_EXPECT(ctx, destination.append_child(destination.root(), keep).succeeded());
+    const auto failed = parse("a:1,a:2,b:[{n:1}],bad:18446744073709551616", destination);
+    TEST_EXPECT(ctx, failed.status == EDocumentParseStatus::numeric_out_of_range);
+    TEST_EXPECT(ctx, failed.structure.succeeded() && failed.parser_examined && !failed.construction_completed);
+    TEST_EXPECT(ctx, failed.findings == (EDocumentFinding::unquoted_names | EDocumentFinding::implicit_body |
+        EDocumentFinding::name_collision_extension | EDocumentFinding::singleton_normalization));
+    TEST_EXPECT(ctx, failed.interpretations.duplicate_members_recovered == 0u && failed.interpretations.singleton_objects_unwrapped == 0u);
+    TEST_EXPECT(ctx, destination.first_child(destination.root()) == keep && destination.check_integrity());
+
+    const std::uint8_t cp1252[]{ '{', 's', ':', '\'', 0x80u, '\'', ',', 'n', ':', '}' };
+    const auto malformed = document_parser::ingest(CByteConstView{ cp1252, sizeof(cp1252) }, destination);
+    TEST_EXPECT(ctx, malformed.status == EDocumentParseStatus::structural_failure);
+    TEST_EXPECT(ctx, malformed.linter_examined && malformed.linter.success && !malformed.parser_examined && !malformed.construction_completed);
+    TEST_EXPECT(ctx, malformed.findings == (EDocumentFinding::cp1252 | EDocumentFinding::utf8_attempt_failed |
+        EDocumentFinding::unquoted_names | EDocumentFinding::single_quotes));
+    TEST_EXPECT(ctx, malformed.structure.syntax_error == document_text::ESyntaxError::expected_value);
+    TEST_EXPECT(ctx, destination.first_child(destination.root()) == keep && destination.check_integrity());
+
+    const std::uint8_t undefined[]{ 0x81u };
+    const auto undecodable = document_parser::ingest(CByteConstView{ undefined, sizeof(undefined) }, destination);
+    TEST_EXPECT(ctx, undecodable.status == EDocumentParseStatus::linter_failure);
+    TEST_EXPECT(ctx, undecodable.linter_examined && !undecodable.linter.success && !undecodable.parser_examined && !undecodable.construction_completed);
+    TEST_EXPECT(ctx, undecodable.structure.status == EDocumentStructureStatus::unexamined);
+    TEST_EXPECT(ctx, undecodable.findings == document_findings::from_source(undecodable.linter.source_findings));
+    TEST_EXPECT(ctx, (undecodable.findings & document_finding_bit(EDocumentFinding::reserved_undefined_cp1252_byte)) == 0u);
+    TEST_EXPECT(ctx, destination.first_child(destination.root()) == keep);
+
+    const auto empty_name = parse("{\"\":1}", destination);
+    TEST_EXPECT(ctx, empty_name.status == EDocumentParseStatus::empty_property_name);
+    TEST_EXPECT(ctx, empty_name.findings == document_finding_bit(EDocumentFinding::empty_member_name));
+    TEST_EXPECT(ctx, empty_name.structure.succeeded() && empty_name.parser_examined && !empty_name.construction_completed);
+
+    const auto success = document_parser::ingest(CStringView{ "{\"s\":\"\\u00e9\\u0000\"}" }, destination);
+    TEST_EXPECT(ctx, success.succeeded() && success.linter_examined && success.linter.success);
+    TEST_EXPECT(ctx, success.structure.succeeded() && success.parser_examined && success.construction_completed);
+    TEST_EXPECT(ctx, success.findings == document_finding_bit(EDocumentFinding::logical_nul));
+}
+
 static void test_construction_and_features(TTestContext& ctx)
 {
     CLiveDocument document;
     const auto report = parse("/*start*/ n:+0X7f, a:[null,true,false,1.5,'text',{},[],{x:2},], o:{b:-#80},", document);
     TEST_EXPECT(ctx, report.succeeded() && report.structure.succeeded());
-    TEST_EXPECT(ctx, report.structure.required_relaxations == (static_cast<std::uint32_t>(document_text::ERelaxation::comments) |
-        static_cast<std::uint32_t>(document_text::ERelaxation::single_quotes) | static_cast<std::uint32_t>(document_text::ERelaxation::unquoted_names) |
-        static_cast<std::uint32_t>(document_text::ERelaxation::trailing_commas) | static_cast<std::uint32_t>(document_text::ERelaxation::implicit_root_object)));
-    TEST_EXPECT(ctx, report.structure.numeric_extensions == (static_cast<std::uint32_t>(document_text::ENumericExtension::explicit_plus) |
-        static_cast<std::uint32_t>(document_text::ENumericExtension::hexadecimal)));
+    TEST_EXPECT(ctx, report.structure.findings == (EDocumentFinding::comments | EDocumentFinding::single_quotes |
+        EDocumentFinding::unquoted_names | EDocumentFinding::trailing_commas | EDocumentFinding::implicit_body |
+        EDocumentFinding::explicit_plus | EDocumentFinding::hexadecimal | EDocumentFinding::alternate_hexadecimal_prefix));
     TEST_EXPECT(ctx, document.is_ready() && document.is_complete() && document.check_integrity());
     TEST_EXPECT(ctx, write(ctx, document) == "{\"n\":+0x7f,\"a\":[null,true,false,1.5,\"text\",{},[],{\"x\":2}],\"o\":{\"b\":-#80}}");
     const CNodeKey array = member(document, document.root(), CStringView{ "a" });
@@ -229,7 +270,7 @@ static void test_construction_and_features(TTestContext& ctx)
     //  Strict syntax needs neither relaxation nor numeric-extension flags.
     const auto strict = parse("{\"true\":false,\"z\":null,\"a\":[1,2]}", document);
     TEST_EXPECT(ctx, strict.succeeded());
-    TEST_EXPECT(ctx, strict.structure.required_relaxations == 0u && strict.structure.numeric_extensions == 0u);
+    TEST_EXPECT(ctx, strict.structure.findings == 0u);
     TEST_EXPECT(ctx, write(ctx, document) == "{\"true\":false,\"z\":null,\"a\":[1,2]}");
 }
 
@@ -254,8 +295,8 @@ static void test_strings_and_ingestion(TTestContext& ctx)
     TEST_EXPECT(ctx, linted.report.embedded_nul_count == 1u && linted.report.normalised_line_endings == text_line_ending_bit(ETextLineEnding::crlf));
     const auto ingested = document_parser::parse(CStringView{ linted.output.data(), linted.report.logical_text_byte_size }, document);
     TEST_EXPECT(ctx, ingested.succeeded());
-    TEST_EXPECT(ctx, ingested.structure.required_relaxations == (static_cast<std::uint32_t>(document_text::ERelaxation::unquoted_names) |
-        static_cast<std::uint32_t>(document_text::ERelaxation::unescaped_controls)));
+    TEST_EXPECT(ctx, ingested.structure.findings == (EDocumentFinding::unquoted_names |
+        EDocumentFinding::raw_quoted_line_breaks | EDocumentFinding::logical_nul));
     TEST_EXPECT(ctx, write(ctx, document) == "{\"n\":\"\\u00e9\\u0000\\n\"}");
 
     const std::uint8_t modified[]{ '{', 'n', ':', '"', 0xc0u, 0x80u, '"', '}' };
@@ -827,8 +868,8 @@ static void test_round_trips(TTestContext& ctx)
         TEST_EXPECT(ctx, report.interpretations.recovered_arrays_decoded == written.report.recovered_arrays_written);
         TEST_EXPECT(ctx, report.interpretations.reserved_names_unescaped == written.report.reserved_property_names_escaped);
         TEST_EXPECT(ctx, report.interpretations.duplicate_members_recovered == 0u && report.interpretations.singleton_objects_unwrapped > 0u);
-        TEST_EXPECT(ctx, report.structure.required_relaxations == 0u);
-        TEST_EXPECT(ctx, (report.structure.numeric_extensions == 0u) == strict);
+        TEST_EXPECT(ctx, (report.structure.findings & document_findings::k_relaxed) == 0u);
+        TEST_EXPECT(ctx, ((report.structure.findings & document_findings::k_morphic) == 0u) == strict);
         expect_same_semantics(ctx, source, parsed, strict);
         CBakedDocumentBlock rebaked;
         TEST_EXPECT(ctx, document_translation::bake(parsed, rebaked));
@@ -899,7 +940,7 @@ static void test_depth_and_allocation(TTestContext& ctx)
     constexpr std::size_t depth = 2048u;
     const std::string deep = "a:" + std::string(depth, '[') + "null" + std::string(depth, ']');
     const auto report = parse(deep, destination);
-    TEST_EXPECT(ctx, report.succeeded() && report.structure.estimates.maximum_depth == depth + 1u);
+    TEST_EXPECT(ctx, report.succeeded() && report.parser_examined && report.construction_completed);
     TEST_EXPECT(ctx, destination.check_integrity());
     TEST_EXPECT(ctx, destination.value_count() == depth + 2u);
     const std::string expected = "{\"a\":" + std::string(depth, '[') + "null" + std::string(depth, ']') + "}";
@@ -995,6 +1036,7 @@ int run_document_parser_tests()
 {
     tests::TTestContext ctx;
     document_parser_tests::test_findings_and_policy_contract(ctx);
+    document_parser_tests::test_composed_findings(ctx);
     document_parser_tests::test_policy_source_provenance(ctx);
     document_parser_tests::test_construction_and_features(ctx);
     document_parser_tests::test_strings_and_ingestion(ctx);

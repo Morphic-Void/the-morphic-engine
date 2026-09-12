@@ -1255,7 +1255,7 @@ test suppression. Diff, line-ending and documentation-link checks passed.
 
 ### 9.3 Shared findings and policy interface preparation
 
-The next interface slice is implemented and awaiting review in
+The interface slice is implemented, reviewed and committed as `c90c586` in
 `core/data_model/document_findings.hpp`. It uses `std::uint32_t` directly for the
 findings mask and the underlying type of `EDocumentFinding`, and defines a
 singular `CDocumentFailure` with enumerated stage and reason,
@@ -1307,12 +1307,11 @@ The default permits the agreed four source forms and the complete `k_morphic`
 category, including the alternate `#` hexadecimal prefix. All relaxed features,
 including single quotes, require explicit permission.
 
-This prepares the interface only. Existing parser and structural entry points
-still use their initial reports and grammar, and do not yet accept these options
-or apply the new evaluator. Their coordinated migration must retain partial
-findings, expose stage completion, separate construction estimates and apply
-policy only after successful private construction. The new findings intentionally
-omit retired recovery-protocol observations and numeric-syntax rejection.
+This commit prepared the interface only. The next integration slice is described
+in section 9.4. Parser and structural entry points still use their initial grammar
+and terminal statuses, and do not yet accept these options or apply the evaluator.
+Policy must be applied only after successful private construction. The shared
+findings omit retired recovery-protocol observations and numeric-syntax rejection.
 
 Tests cover category separation, all 32 policy bits, the exact default, encoding
 closure, stricter policy re-evaluation, hexadecimal prefix permissions and the
@@ -1324,15 +1323,53 @@ Debug/Release builds and ordinary suites passed on x64 and Win32, including
 errors or warnings, with the existing negative-test suppression. Diff and
 line-ending checks passed; Visual Studio item/filter formatting is preserved.
 
+### 9.4 Shared findings and report integration
+
+The next slice is implemented and awaiting review under the initial grammar:
+
+- The scanner and structural check now report `EDocumentFinding` bits directly.
+  The split relaxation/numeric enums and report fields are removed.
+- Structural failures retain established findings and the first failure's
+  locations/status. Numeric spelling flags require a complete valid numeric
+  token. Quoted raw line breaks, other raw controls and logical NUL are distinct;
+  `#` records both hexadecimal permissions. Empty names are observations, and
+  empty or comment-only input has no implicit-body syntax finding.
+- Capacity estimates are separate optional output from `check(source, &estimates)`.
+  They reset on every invocation and are published only on success. No capacity
+  estimates remain in the composed parser diagnostic report.
+- Parser `findings` compose structural observations, successful collision and
+  singleton operations, and (for `ingest`) imported source observations.
+  Established observations survive later construction failure. Existing protocol
+  counters retain their transitional success-only behavior until retirement.
+- `parser_examined` and `construction_completed` distinguish skipped, failed and
+  completed construction. The retained linter and structure reports describe
+  earlier-stage coverage. Destination preservation and shared locations remain
+  unchanged.
+
+This slice does not change the accepted grammar or enforce final caller policy.
+Existing terminal status/reason enums remain until their grammar-dependent
+cases, including invalid numeric syntax and recovery-protocol errors, are
+retired. The shared `CDocumentFailure` and caller options are not yet integrated.
+Empty names are recognized structurally but still rejected by the initial parser.
+
+Tests cover exact partial findings after syntax and allocation failure, cleared
+capacity outputs, source provenance through linter/structural failure, semantic
+findings retained through late construction failure, and stage coverage and
+destination preservation. Existing grammar and location coverage remains.
+
+Debug/Release builds and ordinary suites passed on x64 and Win32, including
+15,373 DocumentParser checks and 616 DocumentStructure checks per configuration.
+The structural suite now tests retained findings and separate estimate outputs
+instead of repeatedly requiring every failed report field to be zero.
+Policy validation reported no errors or warnings, with the existing negative-test
+suppression. Diff and line-ending checks passed.
+
 Remaining implementation sequence:
 
-1. Review the shared findings and policy definitions. Integrate them into the
-   remaining public report/options and stage-completion API shapes, preserving
-   source findings and shared locations. Update semantic documentation alongside
-   each implemented replacement contract.
-2. Refactor the shared lexer and structural check for grouped findings,
-   separate capacity estimates and the agreed superset grammar. Extend the
-   implemented location rules to the new grammar. Review before committing.
+1. Review the shared-findings/report integration. Complete the remaining
+   terminal-reason and caller-options integration alongside their grammar changes.
+2. Refactor the shared lexer and structural check for the agreed superset grammar.
+   Extend the implemented location rules to the new grammar. Review before committing.
 3. Refactor parser interpretations, report composition and acceptance/publication;
    use public collision extension and retire recovered-array kinds, protocol
    handling and compatibility across all affected code and tests together.

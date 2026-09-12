@@ -38,18 +38,23 @@ struct CDocumentParseReport
     EDocumentParseStatus status{ EDocumentParseStatus::invalid_input_view };
     CTextLocation structure_start;
     CTextLocation failure_point;
+    //  Findings compose the examined stages and survive later failure.
+    std::uint32_t findings{ 0u };
+    //  Distinguish skipped construction from a failed or completed attempt.
+    bool parser_examined{ false };
+    bool construction_completed{ false };
     //  Populated by ingest; low-level parse receives already linted text.
     bool linter_examined{ false };
     CTextLintReport linter;
     //  Retained even when construction fails. A successful structural report
-    //  describes accepted syntax, including relaxation and numeric-extension
-    //  bits; it does not claim that the document was constructed successfully.
+    //  describes a complete syntax check; failed checks retain partial findings.
+    //  Structural success does not claim that construction completed.
     CDocumentStructureReport structure;
     //  Successful semantic interpretations, counted by source occurrence.
     //  Cleared on failure; structural syntax observations remain available.
     CDocumentParseInterpretations interpretations;
 
-    [[nodiscard]] bool succeeded() const noexcept { return status == EDocumentParseStatus::success; }
+    [[nodiscard]] bool succeeded() const noexcept;
 };
 
 namespace document_parser
@@ -77,5 +82,10 @@ namespace document_parser
 [[nodiscard]] CDocumentParseReport ingest(const CStringView& source, CLiveDocument& destination) noexcept;
 
 }   //  namespace document_parser
+
+inline bool CDocumentParseReport::succeeded() const noexcept
+{
+    return status == EDocumentParseStatus::success;
+}
 
 #endif // DOCUMENT_PARSER_HPP_INCLUDED

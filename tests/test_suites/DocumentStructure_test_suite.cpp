@@ -26,8 +26,6 @@ namespace document_structure_tests
 {
 
 using tests::TTestContext;
-using document_text::ERelaxation;
-using document_text::ENumericExtension;
 using document_text::ESyntaxError;
 using document_text::ETokenKind;
 
@@ -36,19 +34,60 @@ static CStringView text_view(const std::string& text)
     return CStringView{ text.data(), text.size() };
 }
 
-static CDocumentStructureReport check(const std::string& text) { return document_structure::check(text_view(text)); }
+static CDocumentStructureReport check(const std::string& text, CDocumentStructureEstimates* estimates = nullptr)
+{
+    return document_structure::check(text_view(text), estimates);
+}
 
 static void expect_failure(TTestContext& ctx, const CDocumentStructureReport& report, const EDocumentStructureStatus status)
 {
     TEST_EXPECT(ctx, report.status == status);
-    TEST_EXPECT(ctx, report.required_relaxations == 0u);
-    TEST_EXPECT(ctx, report.numeric_extensions == 0u);
-    TEST_EXPECT(ctx, report.estimates.value_count == 0u);
-    TEST_EXPECT(ctx, report.estimates.object_count == 0u);
-    TEST_EXPECT(ctx, report.estimates.array_count == 0u);
-    TEST_EXPECT(ctx, report.estimates.named_entry_count == 0u);
-    TEST_EXPECT(ctx, report.estimates.string_source_byte_size == 0u);
-    TEST_EXPECT(ctx, report.estimates.maximum_depth == 0u);
+}
+
+static void expect_no_estimates(TTestContext& ctx, const CDocumentStructureEstimates& estimates)
+{
+    TEST_EXPECT(ctx, estimates.value_count == 0u && estimates.object_count == 0u && estimates.array_count == 0u);
+    TEST_EXPECT(ctx, estimates.named_entry_count == 0u && estimates.string_source_byte_size == 0u && estimates.maximum_depth == 0u);
+}
+
+static void test_partial_findings(TTestContext& ctx)
+{
+    struct CCase
+    {
+        const char* text;
+        ESyntaxError error;
+        std::uint32_t findings;
+    };
+    const CCase cases[]{
+        { "/*head*/ a:'line\n\t", ESyntaxError::unterminated_string, EDocumentFinding::comments |
+            EDocumentFinding::implicit_body | EDocumentFinding::unquoted_names | EDocumentFinding::single_quotes |
+            EDocumentFinding::raw_quoted_line_breaks | EDocumentFinding::raw_quoted_controls },
+        { "{n:+#F,a:[1,],bad:} /*unexamined*/", ESyntaxError::expected_value, EDocumentFinding::unquoted_names |
+            EDocumentFinding::explicit_plus | EDocumentFinding::hexadecimal | EDocumentFinding::alternate_hexadecimal_prefix |
+            EDocumentFinding::trailing_commas },
+        { "{n:+0x}", ESyntaxError::invalid_number, document_finding_bit(EDocumentFinding::unquoted_names) },
+        { "{\"\":}", ESyntaxError::expected_value, document_finding_bit(EDocumentFinding::empty_member_name) },
+        { "{} /*unfinished", ESyntaxError::unterminated_comment, document_finding_bit(EDocumentFinding::comments) }
+    };
+    for (const auto& item : cases)
+    {
+        CDocumentStructureEstimates estimates{ 1u, 1u, 1u, 1u, 1u, 1u };
+        const auto report = check(item.text, &estimates);
+        TEST_CASE_EXPECT_TRUE(ctx, item.text, report.syntax_error == item.error);
+        TEST_CASE_EXPECT_EQ(ctx, item.text, report.findings, item.findings);
+        TEST_EXPECT(ctx, !report.succeeded() && report.structure_start.available && report.failure_point.available);
+        expect_no_estimates(ctx, estimates);
+    }
+    CDocumentStructureEstimates estimates{ 1u, 1u, 1u, 1u, 1u, 1u };
+    const auto absent = document_structure::check(CStringView{}, &estimates);
+    TEST_EXPECT(ctx, absent.status == EDocumentStructureStatus::invalid_input_view && absent.findings == 0u);
+    expect_no_estimates(ctx, estimates);
+    TEST_EXPECT(ctx, check("").findings == 0u);
+    TEST_EXPECT(ctx, check("// empty").findings == document_finding_bit(EDocumentFinding::comments));
+    TEST_EXPECT(ctx, check("{\"s\":\"\\u0000\\n\\t\"}").findings == document_finding_bit(EDocumentFinding::logical_nul));
+    TEST_EXPECT(ctx, check("{\"s\":\"\n\"}").findings == document_finding_bit(EDocumentFinding::raw_quoted_line_breaks));
+    TEST_EXPECT(ctx, check("{\"s\":\"\t\"}").findings == document_finding_bit(EDocumentFinding::raw_quoted_controls));
+    TEST_EXPECT(ctx, check("{\"s\":\"0x1 #1 +1 0b1\"}").findings == 0u);
 }
 
 static void test_grammar(TTestContext& ctx)
@@ -93,17 +132,18 @@ static void test_input_presence(TTestContext& ctx)
     TEST_EXPECT(ctx, absent.syntax_error == ESyntaxError::none && !absent.failure_point.available);
     const char terminator = '\0';
     const CStringView present{ &terminator, 0u };
-    const auto empty = document_structure::check(present);
+    CDocumentStructureEstimates estimates;
+    const auto empty = document_structure::check(present, &estimates);
     TEST_EXPECT(ctx, empty.succeeded());
-    TEST_EXPECT(ctx, empty.estimates.value_count == 1u && empty.estimates.object_count == 1u);
-    TEST_EXPECT(ctx, empty.estimates.array_count == 0u && empty.estimates.named_entry_count == 0u);
-    TEST_EXPECT(ctx, empty.estimates.string_source_byte_size == 0u && empty.estimates.maximum_depth == 1u);
-    TEST_EXPECT(ctx, empty.required_relaxations == static_cast<std::uint32_t>(ERelaxation::implicit_root_object));
-    TEST_EXPECT(ctx, empty.numeric_extensions == 0u && empty.syntax_error == ESyntaxError::none && !empty.failure_point.available);
+    TEST_EXPECT(ctx, estimates.value_count == 1u && estimates.object_count == 1u);
+    TEST_EXPECT(ctx, estimates.array_count == 0u && estimates.named_entry_count == 0u);
+    TEST_EXPECT(ctx, estimates.string_source_byte_size == 0u && estimates.maximum_depth == 1u);
+    TEST_EXPECT(ctx, empty.findings == 0u);
+    TEST_EXPECT(ctx, empty.syntax_error == ESyntaxError::none && !empty.failure_point.available);
     document_text::CScanner scanner(present);
     const auto end = scanner.next();
     TEST_EXPECT(ctx, end.kind == ETokenKind::end && end.offset == 0u && end.size == 0u);
-    TEST_EXPECT(ctx, scanner.required_relaxations() == 0u && scanner.numeric_extensions() == 0u);
+    TEST_EXPECT(ctx, scanner.findings() == 0u);
     //  The same backing byte, when included in the logical extent, is content.
     expect_failure(ctx, document_structure::check(CStringView{ &terminator, 1u }), EDocumentStructureStatus::syntax_error);
 }
@@ -123,24 +163,23 @@ static void test_policy_boundary(TTestContext& ctx)
 
 static void test_reports(TTestContext& ctx)
 {
-    const auto strict = check("{\"a\":[1,{\"b\":\"x\"}],\"c\":true}");
+    CDocumentStructureEstimates estimates;
+    const auto strict = check("{\"a\":[1,{\"b\":\"x\"}],\"c\":true}", &estimates);
     TEST_EXPECT(ctx, strict.succeeded());
-    TEST_EXPECT(ctx, strict.required_relaxations == 0u && strict.numeric_extensions == 0u);
+    TEST_EXPECT(ctx, strict.findings == 0u);
     TEST_EXPECT(ctx, !strict.failure_point.available && strict.syntax_error == ESyntaxError::none);
-    TEST_EXPECT(ctx, strict.estimates.value_count == 6u);
-    TEST_EXPECT(ctx, strict.estimates.object_count == 2u && strict.estimates.array_count == 1u);
-    TEST_EXPECT(ctx, strict.estimates.named_entry_count == 3u);
-    TEST_EXPECT(ctx, strict.estimates.string_source_byte_size == 12u);
-    TEST_EXPECT(ctx, strict.estimates.maximum_depth == 3u);
+    TEST_EXPECT(ctx, estimates.value_count == 6u);
+    TEST_EXPECT(ctx, estimates.object_count == 2u && estimates.array_count == 1u);
+    TEST_EXPECT(ctx, estimates.named_entry_count == 3u);
+    TEST_EXPECT(ctx, estimates.string_source_byte_size == 12u);
+    TEST_EXPECT(ctx, estimates.maximum_depth == 3u);
     const auto relaxed = check("/*c*/ a:'x\ny', b:[+#F,0b1,],");
     TEST_EXPECT(ctx, relaxed.succeeded());
-    TEST_EXPECT(ctx, relaxed.required_relaxations == (static_cast<std::uint32_t>(ERelaxation::comments) |
-        static_cast<std::uint32_t>(ERelaxation::single_quotes) | static_cast<std::uint32_t>(ERelaxation::unquoted_names) |
-        static_cast<std::uint32_t>(ERelaxation::trailing_commas) | static_cast<std::uint32_t>(ERelaxation::unescaped_controls) |
-        static_cast<std::uint32_t>(ERelaxation::implicit_root_object)));
-    TEST_EXPECT(ctx, relaxed.numeric_extensions == (static_cast<std::uint32_t>(ENumericExtension::explicit_plus) |
-        static_cast<std::uint32_t>(ENumericExtension::hexadecimal) | static_cast<std::uint32_t>(ENumericExtension::binary)));
-    TEST_EXPECT(ctx, check("{\"a\":\"comments // and 0xFF and 'quoted'\"}").required_relaxations == 0u);
+    TEST_EXPECT(ctx, relaxed.findings == (EDocumentFinding::comments |
+        EDocumentFinding::single_quotes | EDocumentFinding::unquoted_names | EDocumentFinding::trailing_commas |
+        EDocumentFinding::raw_quoted_line_breaks | EDocumentFinding::implicit_body | EDocumentFinding::explicit_plus |
+        EDocumentFinding::hexadecimal | EDocumentFinding::alternate_hexadecimal_prefix | EDocumentFinding::binary));
+    TEST_EXPECT(ctx, check("{\"a\":\"comments // and 0xFF and 'quoted'\"}").findings == 0u);
 
     struct CFailure
     {
@@ -235,7 +274,7 @@ static void test_ingestion_and_bounds(TTestContext& ctx)
     TEST_EXPECT(ctx, linted.report.success && linted.report.recovered_as_cp1252);
     const auto report = document_structure::check(CStringView{ linted.output.data(), linted.report.logical_text_byte_size });
     TEST_EXPECT(ctx, report.succeeded());
-    TEST_EXPECT(ctx, report.required_relaxations == static_cast<std::uint32_t>(ERelaxation::unescaped_controls));
+    TEST_EXPECT(ctx, report.findings == document_finding_bit(EDocumentFinding::logical_nul));
     //  An included physical terminator is not silently stripped by checking.
     expect_failure(ctx, document_structure::check(CStringView{ linted.output.data(), linted.output.size() }), EDocumentStructureStatus::syntax_error);
     const std::string embedded = std::string("{a:1,") + '\0' + "b:2}";
@@ -281,17 +320,21 @@ static void test_depth_and_resources(TTestContext& ctx)
         memory::CMemoryContext context{ allocator };
         {
             tests::TMemoryContextScope scope{ &context };
-            const auto report = check(text);
+            CDocumentStructureEstimates estimates{ 1u, 1u, 1u, 1u, 1u, 1u };
+            const auto report = check(text, &estimates);
             completed = report.succeeded();
             if (completed)
             {
-                TEST_EXPECT(ctx, report.estimates.maximum_depth == depth + 1u);
-                TEST_EXPECT(ctx, report.estimates.value_count == depth + 2u);
+                TEST_EXPECT(ctx, estimates.maximum_depth == depth + 1u);
+                TEST_EXPECT(ctx, estimates.value_count == depth + 2u);
             }
             else
             {
                 expect_failure(ctx, report, EDocumentStructureStatus::allocation_failed);
                 TEST_EXPECT(ctx, report.syntax_error == ESyntaxError::none);
+                TEST_EXPECT(ctx, report.findings == ((fail_on == 0u) ? 0u :
+                    (EDocumentFinding::implicit_body | EDocumentFinding::unquoted_names)));
+                expect_no_estimates(ctx, estimates);
             }
         }
         TEST_EXPECT(ctx, context.is_attribution_empty());
@@ -347,8 +390,8 @@ static void test_writer_compatibility(TTestContext& ctx)
             const auto written = document_writer::write(baked.document(), options);
             TEST_EXPECT(ctx, written.report.succeeded());
             const auto report = document_structure::check(CStringView{ written.output.data(), written.report.logical_text_byte_size });
-            TEST_EXPECT(ctx, report.succeeded() && report.required_relaxations == 0u);
-            TEST_EXPECT(ctx, report.numeric_extensions == ((mode == EDocumentWriteMode::morphic) ? static_cast<std::uint32_t>(ENumericExtension::explicit_plus) : 0u));
+            TEST_EXPECT(ctx, report.succeeded() && ((report.findings & document_findings::k_relaxed) == 0u));
+            TEST_EXPECT(ctx, (report.findings & document_findings::k_morphic) == ((mode == EDocumentWriteMode::morphic) ? document_finding_bit(EDocumentFinding::explicit_plus) : 0u));
         }
     }
 }
@@ -362,6 +405,7 @@ int run_document_structure_tests()
     document_structure_tests::test_input_presence(ctx);
     document_structure_tests::test_policy_boundary(ctx);
     document_structure_tests::test_reports(ctx);
+    document_structure_tests::test_partial_findings(ctx);
     document_structure_tests::test_lexical_reuse(ctx);
     document_structure_tests::test_ingestion_and_bounds(ctx);
     document_structure_tests::test_depth_and_resources(ctx);

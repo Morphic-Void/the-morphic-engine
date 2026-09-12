@@ -162,6 +162,7 @@ static CDocumentParseReport ingest_linted(const CTextLintResult& linted, CLiveDo
     }
     report.linter_examined = true;
     report.linter = linted.report;
+    report.findings |= document_findings::from_source(linted.report.source_findings);
     return report;
 }
 
@@ -456,6 +457,7 @@ bool CParser::attach(const CFrame& parent, const CNodeKey node) noexcept
         return false;
     }
     ++m_report.interpretations.duplicate_members_recovered;
+    m_report.findings |= document_finding_bit(EDocumentFinding::name_collision_extension);
     return true;
 }
 
@@ -604,6 +606,7 @@ void CParser::complete() noexcept
         }
         node = child;
         ++m_report.interpretations.singleton_objects_unwrapped;
+        m_report.findings |= document_finding_bit(EDocumentFinding::singleton_normalization);
     }
     if (!attach(parent, node))
     {
@@ -691,6 +694,7 @@ void CParser::entry() noexcept
 
 CDocumentParseReport CParser::run(CLiveDocument& destination) noexcept
 {
+    m_report.parser_examined = true;
     m_report.status = EDocumentParseStatus::success;
     advance();
     const bool implicit = m_token.kind != ETokenKind::object_begin;
@@ -735,6 +739,7 @@ CDocumentParseReport CParser::run(CLiveDocument& destination) noexcept
     }
     if (m_report.succeeded())
     {
+        m_report.construction_completed = true;
         destination = std::move(m_document);
     }
     else
@@ -750,6 +755,7 @@ CDocumentParseReport parse(const CStringView& source, CLiveDocument& destination
 {
     CDocumentParseReport report;
     report.structure = document_structure::check(source);
+    report.findings = report.structure.findings;
     if (!report.structure.succeeded())
     {
         report.status = (report.structure.status == EDocumentStructureStatus::invalid_input_view) ?
@@ -761,6 +767,7 @@ CDocumentParseReport parse(const CStringView& source, CLiveDocument& destination
     parser_util::CParser parser(source);
     CDocumentParseReport result = parser.run(destination);
     result.structure = report.structure;
+    result.findings |= report.findings;
     return result;
 }
 

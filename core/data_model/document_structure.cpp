@@ -20,7 +20,6 @@ namespace structure_util
 using document_text::CToken;
 using document_text::ETokenKind;
 using document_text::ESyntaxError;
-using document_text::ERelaxation;
 
 enum class EState : std::uint8_t { first = 0u, after_comma, colon, value, separator };
 
@@ -37,7 +36,7 @@ class CCheck
 {
 public:
     explicit CCheck(const CStringView& source) noexcept : m_scanner(source) {}
-    [[nodiscard]] CDocumentStructureReport run() noexcept;
+    [[nodiscard]] CDocumentStructureReport run(CDocumentStructureEstimates* estimates) noexcept;
 
 private:
     void advance() noexcept;
@@ -51,13 +50,13 @@ private:
     CToken m_token;
     TPodVector<CFrame> m_frames;
     CDocumentStructureReport m_report;
+    CDocumentStructureEstimates m_estimates;
 };
 
 void CCheck::fail(const EDocumentStructureStatus status, const ESyntaxError error) noexcept
 {
     if (m_report.succeeded())
     {
-        m_report = {};
         m_report.status = status;
         m_report.syntax_error = error;
         m_report.failure_point = m_token.location;
@@ -100,18 +99,18 @@ void CCheck::push(const bool object, const bool implicit) noexcept
         fail(EDocumentStructureStatus::allocation_failed);
         return;
     }
-    ++m_report.estimates.value_count;
+    ++m_estimates.value_count;
     if (object)
     {
-        ++m_report.estimates.object_count;
+        ++m_estimates.object_count;
     }
     else
     {
-        ++m_report.estimates.array_count;
+        ++m_estimates.array_count;
     }
-    if (m_frames.size() > m_report.estimates.maximum_depth)
+    if (m_frames.size() > m_estimates.maximum_depth)
     {
-        m_report.estimates.maximum_depth = m_frames.size();
+        m_estimates.maximum_depth = m_frames.size();
     }
 }
 
@@ -130,8 +129,8 @@ void CCheck::value() noexcept
         }
         case ETokenKind::string:
         {
-            m_report.estimates.string_source_byte_size += m_token.size;
-            ++m_report.estimates.value_count;
+            m_estimates.string_source_byte_size += m_token.size;
+            ++m_estimates.value_count;
             break;
         }
         case ETokenKind::integer:
@@ -140,7 +139,7 @@ void CCheck::value() noexcept
         case ETokenKind::false_value:
         case ETokenKind::null_value:
         {
-            ++m_report.estimates.value_count;
+            ++m_estimates.value_count;
             break;
         }
         default:
@@ -181,7 +180,7 @@ void CCheck::step() noexcept
         }
         if (frame.state == EState::after_comma)
         {
-            m_report.required_relaxations |= static_cast<std::uint32_t>(ERelaxation::trailing_commas);
+            m_report.findings |= document_finding_bit(EDocumentFinding::trailing_commas);
         }
         (void)m_frames.discard_back();
         if (!end)
@@ -207,11 +206,15 @@ void CCheck::step() noexcept
             }
             if (m_token.kind != ETokenKind::string)
             {
-                m_report.required_relaxations |= static_cast<std::uint32_t>(ERelaxation::unquoted_names);
+                m_report.findings |= document_finding_bit(EDocumentFinding::unquoted_names);
             }
-            ++m_report.estimates.named_entry_count;
+            if ((m_token.kind == ETokenKind::string) && (m_token.size == 2u))
+            {
+                m_report.findings |= document_finding_bit(EDocumentFinding::empty_member_name);
+            }
+            ++m_estimates.named_entry_count;
             frame.member_start = m_token.location;
-            m_report.estimates.string_source_byte_size += m_token.size;
+            m_estimates.string_source_byte_size += m_token.size;
             frame.state = EState::colon;
             advance();
             return;
@@ -251,7 +254,7 @@ void CCheck::step() noexcept
     }
 }
 
-CDocumentStructureReport CCheck::run() noexcept
+CDocumentStructureReport CCheck::run(CDocumentStructureEstimates* estimates) noexcept
 {
     m_report.status = EDocumentStructureStatus::success;
     advance();
@@ -261,7 +264,10 @@ CDocumentStructureReport CCheck::run() noexcept
         push(true, implicit);
         if (implicit && m_report.succeeded())
         {
-            m_report.required_relaxations |= static_cast<std::uint32_t>(ERelaxation::implicit_root_object);
+            if (document_text::is_name_token(m_token.kind))
+            {
+                m_report.findings |= document_finding_bit(EDocumentFinding::implicit_body);
+            }
         }
         else if (m_report.succeeded())
         {
@@ -276,18 +282,22 @@ CDocumentStructureReport CCheck::run() noexcept
     {
         syntax(ESyntaxError::trailing_content);
     }
-    if (m_report.succeeded())
+    m_report.findings |= m_scanner.findings();
+    if (m_report.succeeded() && (estimates != nullptr))
     {
-        m_report.required_relaxations |= m_scanner.required_relaxations();
-        m_report.numeric_extensions = m_scanner.numeric_extensions();
+        *estimates = m_estimates;
     }
     return m_report;
 }
 
 }   //  namespace structure_util
 
-CDocumentStructureReport check(const CStringView& source) noexcept
+CDocumentStructureReport check(const CStringView& source, CDocumentStructureEstimates* estimates) noexcept
 {
+    if (estimates != nullptr)
+    {
+        *estimates = {};
+    }
     if (source.empty())
     {
         CDocumentStructureReport report;
@@ -295,7 +305,7 @@ CDocumentStructureReport check(const CStringView& source) noexcept
         return report;
     }
     structure_util::CCheck checker(source);
-    return checker.run();
+    return checker.run(estimates);
 }
 
 }   //  namespace document_structure

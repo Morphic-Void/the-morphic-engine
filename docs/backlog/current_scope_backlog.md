@@ -15,9 +15,11 @@ built. Completed implementation does not mean these interfaces are final.
    diagnostics, is implemented, validated and reviewed.
    Stage 2 is authorized and in progress. Its first model infrastructure slice
    implements native empty names, root kinds, newline metadata and collision
-   extension and is reviewed and validated. Parser grammar, findings and policy remain.
-   Shared findings, singular failure reasons and policy definitions are prepared
-   for review; integration into parser reports and final acceptance remains.
+   extension and is reviewed and validated. Shared findings, singular failure
+   reasons and policy definitions are reviewed and committed.
+   Scanner/structural findings, partial-report composition, separate capacity
+   estimates and construction coverage are now implemented for review. Grammar,
+   terminal-reason integration, protocol retirement and final acceptance remain.
 2. Develop the remaining Host consolidation in a separate task: module
    lifecycle, asset identity and lifetime, asynchronous operations, aligned
    loading, conditioning and filesystem resolution.

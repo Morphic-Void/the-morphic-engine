@@ -611,11 +611,15 @@ from the additional alternate-prefix permission needed for `#`; both permissions
 are included in the default Morphic allowance. Named inclusive start/end aliases
 in `EDocumentFinding` define the boundaries used to derive each category mask.
 
-The current parser entry points still use the initial grammar and reports
-described below. They do not yet accept `CDocumentParseOptions` or apply the
-new evaluator. Processing completion, partial-findings retention and final
-policy acceptance will be integrated during the coordinated parser migration;
-a successful feature-policy evaluation alone is not parsing success.
+The scanner and structural report now use the shared findings directly, and the
+parser report composes observations from each examined stage. Partial findings
+survive failure, and capacity estimates are separate from diagnostics. Parser
+coverage distinguishes an unexamined stage, failed construction and completed
+construction. The entry points still use the initial grammar and terminal
+statuses described below; they do not yet accept `CDocumentParseOptions`, apply
+the evaluator or use `CDocumentFailure`. These remaining replacements follow
+with the grammar and recovery-protocol migration. A successful feature-policy
+evaluation alone is not parsing success.
 
 ### Initial shared text grammar
 
@@ -645,9 +649,10 @@ The initial syntax accepts:
 - Single-quoted strings as well as double-quoted strings. Both support JSON
   escapes and paired UTF-16 surrogate escapes. Single-quoted strings additionally
   accept `\'`. Unknown escapes and unpaired surrogate escapes are syntax errors.
-  Literal controls, including NUL and line breaks, are accepted quoted content
-  and reported as a relaxation; delimiters/comment markers inside quotes are
-  content. Quoted Unicode content is preserved.
+  Literal controls, including NUL and line breaks, are accepted quoted content.
+  Raw line breaks and other raw controls have separate relaxed findings; NUL is
+  informational, including when decoded from an escape. Delimiters/comment
+  markers inside quotes are content. Quoted Unicode content is preserved.
 - ASCII identifier-style unquoted names: `[A-Za-z_$][A-Za-z0-9_$]*`, including
   the literal words `true`, `false` and `null` in name position. Other names
   require quotes; bare identifier string values are not accepted.
@@ -658,18 +663,26 @@ The initial syntax accepts:
   require digits and do not have fractions/exponents. `NaN`, `Infinity`, digit
   separators and additional numeric spellings are not in this grammar.
 
-Successful structural reports distinguish required syntax relaxations from
-Morphic numeric spellings. Recovery wrappers and escaped reserved names are
-ordinary syntax at this stage; only parsing can report their interpretation.
-Estimates count syntactic values, objects, arrays, named entries, raw name/string
-token bytes, and maximum container depth (root is depth one). They describe
-occurrences before semantic normalization, not exact construction requirements.
-Failures currently clear estimates and feature bits and report a status plus
-shared `structure_start` and `failure_point` locations. The first identifies
-the immediately malformed element; the second identifies detection or the EOF
-cursor. Success leaves both unavailable. The stage status is `unexamined` until
-invoked, distinguishing skipped structure after a linter failure from valid or
-invalid syntax. Parser presence findings and estimate separation remain stage 2.
+Structural reports hold one `findings` mask with shared category identities;
+the old `ERelaxation` and `ENumericExtension` definitions are removed. Findings
+accumulate during checking and survive syntax or resource failure. Numeric
+spelling is recorded only after the complete token is validated, including both
+hexadecimal bits for `#`. Empty or comment-only text has no implicit-body finding,
+and a quoted empty member name is an informational observation.
+
+Optional `CDocumentStructureEstimates` are returned separately through
+`document_structure::check(source, &estimates)`. They count values, objects,
+arrays, names, raw string/name token bytes and maximum container depth (root is
+depth one), before semantic normalization. They are hints rather than exact
+construction requirements. The output is reset on entry and published only on
+success; public parser diagnostics no longer contain capacity estimates.
+
+Failures retain their status and shared `structure_start` and `failure_point`
+locations. The first identifies the immediately malformed element; the second
+identifies detection or the EOF cursor. Success leaves both unavailable. The
+stage status is `unexamined` until invoked, distinguishing skipped structure
+after a linter failure from successful or failed checking. Only success denotes
+complete findings coverage; absent bits in a partial scan do not prove absence.
 
 ### Live construction and interpretation
 
@@ -704,13 +717,16 @@ prefix, and selects the smallest representable integer width. Floating tokens
 construct finite binary64 values, preserving negative zero. Decimal conversion
 rounds to binary64; overflow and nonzero underflow to zero are construction
 errors. Neither numeric range failure nor an empty property name is a syntax
-error. Empty names cannot represent object entries in the current live model
-and return a specific construction status.
+error. The live model now supports empty names, but this initial parser still
+rejects them with a specific construction status until its grammar migration.
 
-`CDocumentParseReport` retains the structural report, including syntax
-relaxations and numeric-extension bits, even if construction subsequently
-fails. Its shared locations identify the responsible element and detection
-point in the linter's UTF-8 output.
+`CDocumentParseReport` retains the structural report and composes its findings,
+linter source observations (for `ingest`) and established parser interpretations
+in a shared `findings` mask. This mask survives failure. `parser_examined` records
+entry into construction; `construction_completed` records successful private
+construction. Both remain false when linting or structure prevents parsing.
+Its shared locations identify the responsible element and detection point
+in the linter's UTF-8 output.
 Structural resource failures retain their detailed structural status; known
 parser scratch failures have allocation/storage statuses. A rejected live
 creation has a general construction-failure status because the existing live
@@ -721,8 +737,10 @@ singleton normalization and ordered duplicate recovery as specified below.
 `CDocumentParseReport::interpretations` counts decoded recovery wrappers,
 unescaped reserved data names, recovered duplicate members and removed singleton
 objects by source occurrence. These counts describe a successfully published
-document and are cleared on failure. Numeric spelling observations remain in
-the separate structural report, even on a later construction failure.
+document and are cleared on failure. These transitional counters remain until
+protocol retirement. The new collision-extension and singleton-normalization
+findings are set when those operations complete and survive later failure,
+alongside structural and source observations in the composed findings mask.
 
 Duplicate object members are recovered through ordinary public payload and
 attachment operations. First competitors retain encounter order. A later

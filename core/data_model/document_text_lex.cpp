@@ -192,7 +192,7 @@ CToken CScanner::quoted() noexcept
     const std::uint8_t quote = m_source.string()[m_offset++];
     if (quote == '\'')
     {
-        m_relaxations |= static_cast<std::uint32_t>(ERelaxation::single_quotes);
+        m_findings |= document_finding_bit(EDocumentFinding::single_quotes);
     }
     while (m_offset < m_source.length())
     {
@@ -210,12 +210,18 @@ CToken CScanner::quoted() noexcept
             {
                 return failure(error);
             }
+            if (scalar == 0u)
+            {
+                m_findings |= document_finding_bit(EDocumentFinding::logical_nul);
+            }
         }
         else
         {
             if (ch < 0x20u)
             {
-                m_relaxations |= static_cast<std::uint32_t>(ERelaxation::unescaped_controls);
+                const EDocumentFinding finding = (ch == 0u) ? EDocumentFinding::logical_nul :
+                    ((ch == '\n') || (ch == '\r')) ? EDocumentFinding::raw_quoted_line_breaks : EDocumentFinding::raw_quoted_controls;
+                m_findings |= document_finding_bit(finding);
             }
             ++m_offset;
         }
@@ -226,12 +232,13 @@ CToken CScanner::quoted() noexcept
 CToken CScanner::number() noexcept
 {
     const std::size_t start = m_offset;
+    std::uint32_t findings = 0u;
     std::uint8_t ch = m_source.string()[m_offset];
     if ((ch == '+') || (ch == '-'))
     {
         if (ch == '+')
         {
-            m_numeric_extensions |= static_cast<std::uint32_t>(ENumericExtension::explicit_plus);
+            findings |= document_finding_bit(EDocumentFinding::explicit_plus);
         }
         ++m_offset;
         if (m_offset == m_source.length())
@@ -244,6 +251,7 @@ CToken CScanner::number() noexcept
     if (ch == '#')
     {
         base = 16u;
+        findings |= document_finding_bit(EDocumentFinding::alternate_hexadecimal_prefix);
         ++m_offset;
     }
     else if ((ch == '0') && ((m_source.length() - m_offset) >= 2u))
@@ -265,7 +273,7 @@ CToken CScanner::number() noexcept
     ETokenKind kind = ETokenKind::integer;
     if (base != 10u)
     {
-        m_numeric_extensions |= static_cast<std::uint32_t>((base == 16u) ? ENumericExtension::hexadecimal : ENumericExtension::binary);
+        findings |= document_finding_bit((base == 16u) ? EDocumentFinding::hexadecimal : EDocumentFinding::binary);
         const std::size_t digits = m_offset;
         while (m_offset < m_source.length())
         {
@@ -332,6 +340,8 @@ CToken CScanner::number() noexcept
     {
         return failure(ESyntaxError::invalid_number);
     }
+    //  Numeric spelling is established only after the complete token is valid.
+    m_findings |= findings;
     return { kind, ESyntaxError::none, start, m_offset - start };
 }
 
@@ -415,7 +425,7 @@ CToken CScanner::scan_next() noexcept
             break;
         }
         m_element_offset = m_offset;
-        m_relaxations |= static_cast<std::uint32_t>(ERelaxation::comments);
+        m_findings |= document_finding_bit(EDocumentFinding::comments);
         m_offset += 2u;
         if (next == '/')
         {
