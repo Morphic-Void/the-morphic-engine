@@ -31,9 +31,10 @@ namespace document_parser_tests
 using tests::TTestContext;
 
 //  Helpers have file-local linkage; the namespace groups this suite's names.
+//  Grammar and construction tests opt into every supported feature.
 static CDocumentParseReport parse(const std::string& text, CLiveDocument& destination)
 {
-    return document_parser::parse(CStringView{ text.data(), text.size() }, destination);
+    return document_parser::parse(CStringView{ text.data(), text.size() }, destination, { document_policy::k_all_supported });
 }
 
 static std::string write(TTestContext& ctx, const CLiveDocument& document, const EDocumentWriteMode mode = EDocumentWriteMode::morphic)
@@ -169,6 +170,183 @@ static void test_findings_and_policy_contract(TTestContext& ctx)
     const auto implicit_body = document_finding_bit(EDocumentFinding::implicit_body);
     TEST_EXPECT(ctx, document_policy::evaluate(implicit_body).disallowed_features == implicit_body);
     TEST_EXPECT(ctx, document_policy::evaluate(implicit_body, { implicit_body }).accepted());
+}
+
+static void test_late_policy_acceptance(TTestContext& ctx)
+{
+    struct CCase { const char* source; std::uint32_t disallowed; };
+    const CCase cases[]{
+        { "", 0u }, { "{}", 0u }, { "[]", 0u }, { "42", 0u }, { "\"text\"", 0u },
+        { "{\"\":\"\\u0000\\u00e9\"}", 0u }, { "[{\"x\":1}]", 0u },
+        { "[+1,0b10,0x10,#10]", 0u },
+        { "/*comment*/{}", document_finding_bit(EDocumentFinding::comments) },
+        { "{name:1}", document_finding_bit(EDocumentFinding::unquoted_names) },
+        { "[text]", document_finding_bit(EDocumentFinding::unquoted_strings) },
+        { "['text']", document_finding_bit(EDocumentFinding::single_quotes) },
+        { "[1,]", document_finding_bit(EDocumentFinding::trailing_commas) },
+        { "[\"raw\nline\"]", document_finding_bit(EDocumentFinding::raw_quoted_line_breaks) },
+        { "[\"raw\tcontrol\"]", document_finding_bit(EDocumentFinding::raw_quoted_controls) },
+        { "{\"x\":1,\"x\":2}", document_finding_bit(EDocumentFinding::name_collision_extension) },
+        { "\"x\":1", document_finding_bit(EDocumentFinding::implicit_body) },
+        { "1,2", document_finding_bit(EDocumentFinding::implicit_body) },
+        { ";comment only", document_finding_bit(EDocumentFinding::comments) },
+        { "/*all*/ 'x':word,'x':+0x10,", EDocumentFinding::comments | EDocumentFinding::single_quotes |
+            EDocumentFinding::unquoted_strings | EDocumentFinding::name_collision_extension |
+            EDocumentFinding::trailing_commas | EDocumentFinding::implicit_body }
+    };
+    for (const auto& item : cases)
+    {
+        for (unsigned entry = 0u; entry < ((item.source[0] == '\0') ? 2u : 3u); ++entry)
+        {
+            CLiveDocument destination;
+            TEST_EXPECT(ctx, parse("{\"keep\":7}", destination).succeeded());
+            const CNodeKey keep = destination.first_child(destination.root());
+            const std::uint64_t allocation_size = destination.memory_allocation_size();
+            const CStringView source{ item.source };
+            const CByteConstView bytes{ source.string(), source.length() };
+            CDocumentParseReport report = (entry == 0u) ? document_parser::parse(source, destination) :
+                ((entry == 1u) ? document_parser::ingest(source, destination) : document_parser::ingest(bytes, destination));
+            TEST_CASE_EXPECT_TRUE(ctx, item.source, report.succeeded() == (item.disallowed == 0u));
+            TEST_EXPECT(ctx, report.structure.succeeded() && report.parser_examined && report.construction_completed);
+            TEST_EXPECT(ctx, report.linter_examined == (entry != 0u));
+            TEST_EXPECT(ctx, report.policy.disallowed_features == item.disallowed && report.policy.unknown_policy_bits == 0u);
+            TEST_EXPECT(ctx, report.policy.effective_allowed_features == document_policy::k_default);
+            TEST_EXPECT(ctx, report.failure.stage == EDocumentFailureStage::none && report.failure.reason == EDocumentFailureReason::none);
+            TEST_EXPECT(ctx, !report.structure_start.available && !report.failure_point.available);
+            if (item.disallowed != 0u)
+            {
+                TEST_EXPECT(ctx, report.status == EDocumentParseStatus::policy_rejected);
+                TEST_EXPECT(ctx, report.policy.status == EDocumentPolicyStatus::rejected);
+                TEST_EXPECT(ctx, destination.first_child(destination.root()) == keep);
+                TEST_EXPECT(ctx, destination.memory_allocation_size() == allocation_size);
+                TEST_EXPECT(ctx, write(ctx, destination) == "{\"keep\":7}");
+            }
+            else
+            {
+                TEST_EXPECT(ctx, report.status == EDocumentParseStatus::success && report.policy.accepted());
+            }
+            const std::uint32_t findings = report.findings;
+            const CDocumentParseOptions options{ document_policy::k_all_supported };
+            report = (entry == 0u) ? document_parser::parse(source, destination, options) :
+                ((entry == 1u) ? document_parser::ingest(source, destination, options) : document_parser::ingest(bytes, destination, options));
+            TEST_EXPECT(ctx, report.succeeded() && report.policy.accepted() && report.findings == findings);
+            TEST_EXPECT(ctx, destination.is_complete() && destination.check_integrity());
+            const auto narrower = document_policy::evaluate(report.findings);
+            TEST_EXPECT(ctx, narrower.disallowed_features == item.disallowed);
+        }
+    }
+    CLiveDocument destination;
+    auto report = document_parser::parse(CStringView{ "{\"x\":1,\"x\":2}" }, destination);
+    TEST_EXPECT(ctx, report.status == EDocumentParseStatus::policy_rejected && !destination.is_ready());
+    TEST_EXPECT(ctx, report.interpretations.duplicate_members_recovered == 1u);
+    TEST_EXPECT(ctx, report.construction_completed && report.policy.disallowed_features ==
+        document_finding_bit(EDocumentFinding::name_collision_extension));
+    report = document_parser::parse(CStringView{ "[{\"x\":1}]" }, destination, { document_policy::k_ascii });
+    TEST_EXPECT(ctx, report.succeeded() && report.interpretations.singleton_objects_unwrapped == 1u);
+    TEST_EXPECT(ctx, report.findings == document_finding_bit(EDocumentFinding::singleton_normalization));
+    //  Invalid options are diagnosed after processing too, including known
+    //  informational bits. No policy outcome invents a terminal failure.
+    for (const std::uint32_t bit : { 1u << 31, document_finding_bit(EDocumentFinding::logical_nul) })
+    {
+        report = document_parser::ingest(CStringView{ "/*comment*/{}" }, destination, { bit });
+        TEST_EXPECT(ctx, report.status == EDocumentParseStatus::invalid_options && report.construction_completed);
+        TEST_EXPECT(ctx, report.policy.status == EDocumentPolicyStatus::invalid_options && report.policy.unknown_policy_bits == bit);
+        TEST_EXPECT(ctx, report.failure.reason == EDocumentFailureReason::none && !report.failure_point.available);
+        TEST_EXPECT(ctx, write(ctx, destination) == "[{\"x\":1}]");
+    }
+    //  The source can alias the destination on either acceptance or rejection.
+    TEST_EXPECT(ctx, parse("{\"s\":\"/*comment*/[]\"}", destination).succeeded());
+    const CStringView alias = destination.string_value(destination.first_child(destination.root()));
+    report = document_parser::parse(alias, destination);
+    TEST_EXPECT(ctx, report.status == EDocumentParseStatus::policy_rejected);
+    TEST_EXPECT(ctx, destination.string_value(destination.first_child(destination.root())) == alias);
+    report = document_parser::parse(alias, destination, { document_policy::k_all_supported });
+    TEST_EXPECT(ctx, report.succeeded() && write(ctx, destination) == "[]");
+}
+
+static void test_policy_processing_precedence(TTestContext& ctx)
+{
+    struct CCase { const char* source; EDocumentFailureStage stage; EDocumentFailureReason reason; };
+    const CCase cases[]{
+        { "\x81", EDocumentFailureStage::linter, EDocumentFailureReason::undefined_cp1252_byte },
+        { "\xef\xbb\xbf\xff", EDocumentFailureStage::linter, EDocumentFailureReason::utf8_decode },
+        { "/*comment*/{a:[1}", EDocumentFailureStage::structure, EDocumentFailureReason::mismatched_delimiter },
+        { "{a:1e9999,bad:}", EDocumentFailureStage::structure, EDocumentFailureReason::missing_value },
+        { "/*comment*/[+1e9999]", EDocumentFailureStage::parser, EDocumentFailureReason::numeric_out_of_range },
+        { "{\"a\":1,\"a\":2,\"b\":18446744073709551616}", EDocumentFailureStage::parser, EDocumentFailureReason::numeric_out_of_range },
+        { "/*comment*/{\"$morphic\":{}}", EDocumentFailureStage::parser, EDocumentFailureReason::invalid_root_value }
+    };
+    CLiveDocument destination;
+    TEST_EXPECT(ctx, parse("{\"keep\":7}", destination).succeeded());
+    for (const auto& item : cases)
+    {
+        for (const std::uint32_t permissions : { document_policy::k_ascii, 1u << 31, document_policy::k_all_supported })
+        {
+            const auto report = document_parser::ingest(CStringView{ item.source }, destination, { permissions });
+            TEST_CASE_EXPECT_TRUE(ctx, item.source, report.failure.stage == item.stage && report.failure.reason == item.reason);
+            TEST_EXPECT(ctx, !report.succeeded() && !report.construction_completed);
+            TEST_EXPECT(ctx, report.policy.status == EDocumentPolicyStatus::unexamined);
+            TEST_EXPECT(ctx, report.policy.disallowed_features == 0u && report.policy.unknown_policy_bits == 0u);
+            TEST_EXPECT(ctx, report.failure_point.available);
+            TEST_EXPECT(ctx, write(ctx, destination) == "{\"keep\":7}");
+        }
+    }
+}
+
+static void test_policy_source_acceptance(TTestContext& ctx)
+{
+    struct CCase { const char* source; std::uint32_t encoding; const char* output; };
+    const CCase cases[]{
+        { "{\"s\":\"\\u00e9\\u0000\"}", 0u, "{\"s\":\"\\u00e9\\u0000\"}" },
+        { "{\"s\":\"\xc3\xa9\"}", document_finding_bit(EDocumentFinding::non_ascii_utf8), "{\"s\":\"\\u00e9\"}" },
+        { "{\"s\":\"\xc0\x80\"}", document_finding_bit(EDocumentFinding::modified_nul), "{\"s\":\"\\u0000\"}" },
+        { "{\"s\":\"\xed\xa0\x80\xed\xb0\x80\"}", document_finding_bit(EDocumentFinding::cesu8_pair), "{\"s\":\"\\ud800\\udc00\"}" },
+        { "{\"s\":\"\x80\"}", document_finding_bit(EDocumentFinding::cp1252), "{\"s\":\"\\u20ac\"}" }
+    };
+    for (const auto& item : cases)
+    {
+        CLiveDocument destination;
+        TEST_EXPECT(ctx, parse("{\"keep\":7}", destination).succeeded());
+        auto report = document_parser::ingest(CStringView{ item.source }, destination, { document_policy::k_ascii });
+        TEST_CASE_EXPECT_TRUE(ctx, item.source, report.succeeded() == (item.encoding == 0u));
+        TEST_EXPECT(ctx, report.linter.success && report.construction_completed);
+        TEST_EXPECT(ctx, report.policy.disallowed_features == (report.findings & document_findings::k_encoding_features));
+        if (item.encoding != 0u)
+        {
+            TEST_EXPECT(ctx, report.status == EDocumentParseStatus::policy_rejected && report.policy.disallowed_features != 0u);
+            TEST_EXPECT(ctx, write(ctx, destination) == "{\"keep\":7}");
+        }
+        report = document_parser::ingest(CStringView{ item.source }, destination, { item.encoding });
+        TEST_EXPECT(ctx, report.succeeded() && report.policy.accepted());
+        TEST_CASE_EXPECT_TRUE(ctx, item.output, write(ctx, destination, EDocumentWriteMode::strict_json) == item.output);
+        report = document_parser::ingest(CStringView{ item.source }, destination);
+        TEST_EXPECT(ctx, report.succeeded() && report.policy.accepted());
+        if (item.encoding == document_finding_bit(EDocumentFinding::cp1252))
+        {
+            report = document_parser::ingest(CStringView{ item.source }, destination, { document_policy::k_utf8 });
+            TEST_EXPECT(ctx, report.status == EDocumentParseStatus::policy_rejected);
+            TEST_EXPECT(ctx, report.policy.disallowed_features == item.encoding);
+            TEST_EXPECT(ctx, report.linter.recovered_as_cp1252 && report.linter.utf8_attempt_errors != 0u);
+            TEST_EXPECT(ctx, !report.linter.first_failure.present && report.failure.reason == EDocumentFailureReason::none);
+        }
+    }
+    CLiveDocument destination;
+    const char evidence[]{ '\xef', '\xbb', '\xbf', '{', '"', 's', '"', ':', '"', 0, '"', '}', 0, 0 };
+    const auto report = document_parser::ingest(CStringView{ evidence, sizeof(evidence) }, destination, { document_policy::k_ascii });
+    TEST_EXPECT(ctx, report.succeeded() && report.policy.accepted());
+    const std::uint32_t observations = EDocumentFinding::leading_bom | EDocumentFinding::stripped_utf8_bom |
+        EDocumentFinding::stripped_terminal_zeros | EDocumentFinding::literal_source_nul | EDocumentFinding::logical_nul;
+    TEST_EXPECT(ctx, (report.findings & observations) == observations);
+    TEST_EXPECT(ctx, write(ctx, destination) == "{\"s\":\"\\u0000\"}");
+    //  Numeric feature permissions are independent and both hexadecimal
+    //  permissions are required for the alternate spelling.
+    const auto hexadecimal = document_finding_bit(EDocumentFinding::hexadecimal);
+    auto numeric = document_parser::ingest(CStringView{ "[0x10,#10,+1,0b1]" }, destination, { hexadecimal });
+    TEST_EXPECT(ctx, numeric.status == EDocumentParseStatus::policy_rejected);
+    TEST_EXPECT(ctx, numeric.policy.disallowed_features == (EDocumentFinding::alternate_hexadecimal_prefix |
+        EDocumentFinding::explicit_plus | EDocumentFinding::binary));
+    numeric = document_parser::ingest(CStringView{ "[0x10]" }, destination, { hexadecimal });
+    TEST_EXPECT(ctx, numeric.succeeded());
 }
 
 static void test_policy_source_provenance(TTestContext& ctx)
@@ -473,7 +651,7 @@ static void test_strings_and_ingestion(TTestContext& ctx)
     const auto linted = text_linter::lint(CByteConstView{ cp1252, sizeof(cp1252) }, k_document_text_lint_line_endings);
     TEST_EXPECT(ctx, linted.report.success && linted.report.recovered_as_cp1252);
     TEST_EXPECT(ctx, linted.report.embedded_nul_count == 1u && linted.report.normalised_line_endings == text_line_ending_bit(ETextLineEnding::crlf));
-    const auto ingested = document_parser::parse(CStringView{ linted.output.data(), linted.report.logical_text_byte_size }, document);
+    const auto ingested = document_parser::parse(CStringView{ linted.output.data(), linted.report.logical_text_byte_size }, document, { document_policy::k_all_supported });
     TEST_EXPECT(ctx, ingested.succeeded());
     TEST_EXPECT(ctx, ingested.structure.findings == (EDocumentFinding::unquoted_names |
         EDocumentFinding::raw_quoted_line_breaks | EDocumentFinding::logical_nul));
@@ -482,7 +660,7 @@ static void test_strings_and_ingestion(TTestContext& ctx)
     const std::uint8_t modified[]{ '{', 'n', ':', '"', 0xc0u, 0x80u, '"', '}' };
     const auto normalized = text_linter::lint(CByteConstView{ modified, sizeof(modified) }, k_document_text_lint_line_endings);
     TEST_EXPECT(ctx, normalized.report.success && normalized.report.modified_utf8_nul_count == 1u);
-    TEST_EXPECT(ctx, document_parser::parse(CStringView{ normalized.output.data(), normalized.report.logical_text_byte_size }, document).succeeded());
+    TEST_EXPECT(ctx, document_parser::parse(CStringView{ normalized.output.data(), normalized.report.logical_text_byte_size }, document, { document_policy::k_all_supported }).succeeded());
     TEST_EXPECT(ctx, write(ctx, document) == "{\"n\":\"\\u0000\"}");
 
     const std::uint8_t offset_input[]{ 0xefu, 0xbbu, 0xbfu, '{', 'a', ':', '"', 0xc3u, 0xa9u, '"', ',', 'n', ':', '1', ' ', '2', '}', 0u };
@@ -584,7 +762,7 @@ static void test_newline_metadata(TTestContext& ctx)
     for (const char* line_break : breaks)
     {
         const std::string source = std::string("{\"s\":\"a") + line_break + "b\"}";
-        const auto ingested = document_parser::ingest(CStringView{ source.data(), source.size() }, document);
+        const auto ingested = document_parser::ingest(CStringView{ source.data(), source.size() }, document, { document_policy::k_all_supported });
         TEST_EXPECT(ctx, ingested.succeeded());
         const CNodeKey value = document.first_child(document.root());
         TEST_EXPECT(ctx, document.string_value(value) == CStringView{ "a\nb" } && document.suppresses_newline_escaping(value));
@@ -684,7 +862,7 @@ static void test_root_inference(TTestContext& ctx)
     TEST_EXPECT(ctx, range.structure.succeeded() && range.parser_examined && !range.construction_completed);
     TEST_EXPECT(ctx, range.findings == 0u && range.failure_point.code_point_column_1_based == 1u);
     TEST_EXPECT(ctx, document.first_child(document.root()) == keep && document.value_type(document.root()) == ELiveValueType::array);
-    const auto ingested = document_parser::ingest(CStringView{ "\xef\xbb\xbf;head\r\n[1,true]" }, document);
+    const auto ingested = document_parser::ingest(CStringView{ "\xef\xbb\xbf;head\r\n[1,true]" }, document, { document_policy::k_all_supported });
     TEST_EXPECT(ctx, ingested.succeeded() && ingested.linter_examined && ingested.linter.success);
     TEST_EXPECT(ctx, document.value_type(document.root()) == ELiveValueType::array && write(ctx, document) == "[1,true]");
     const auto nul = parse(std::string(1u, '\0'), document);
@@ -848,7 +1026,7 @@ static void test_failure_publication(TTestContext& ctx)
     //  destination's old string storage.
     TEST_EXPECT(ctx, parse("source:'new_value:42'", document).succeeded());
     const CStringView alias = document.string_value(document.first_child(document.root()));
-    TEST_EXPECT(ctx, document_parser::parse(alias, document).succeeded());
+    TEST_EXPECT(ctx, document_parser::parse(alias, document, { document_policy::k_all_supported }).succeeded());
     TEST_EXPECT(ctx, write(ctx, document) == "{\"new_value\":42}");
 }
 
@@ -1234,7 +1412,7 @@ static void test_round_trips(TTestContext& ctx)
         const auto linted = text_linter::lint(CByteConstView{ written.output.data(), written.output.size() }, k_document_text_lint_line_endings);
         TEST_EXPECT(ctx, linted.report.success && linted.report.normalised_line_endings == linted.report.encountered_line_endings);
         CLiveDocument parsed;
-        const auto report = document_parser::parse(CStringView{ linted.output.data(), linted.report.logical_text_byte_size }, parsed);
+        const auto report = document_parser::parse(CStringView{ linted.output.data(), linted.report.logical_text_byte_size }, parsed, { document_policy::k_all_supported });
         TEST_EXPECT(ctx, report.succeeded());
         if (!report.succeeded())
         {
@@ -1275,6 +1453,51 @@ static void* MV_STD_ABI_CALL allocate(void* const state, const std::size_t align
         return nullptr;
     }
     return tests::allocate_test_memory(nullptr, alignment, size);
+}
+
+static void test_policy_allocation(TTestContext& ctx)
+{
+    for (const std::uint32_t permissions : { document_policy::k_default, 1u << 31 })
+    {
+        CLiveDocument destination;
+        TEST_EXPECT(ctx, parse("[7]", destination).succeeded());
+        const CNodeKey keep = destination.first_child(destination.root());
+        const std::uint64_t allocation_size = destination.memory_allocation_size();
+        bool completed = false;
+        for (std::size_t fail_on = 0u; (fail_on < 256u) && !completed; ++fail_on)
+        {
+            CAllocatorState fixture{ 0u, fail_on, false };
+            memory::CMemoryAllocator allocator{ &fixture, &allocate, &tests::deallocate_test_memory };
+            memory::CMemoryContext context{ allocator };
+            {
+                tests::TMemoryContextScope scope{ &context };
+                const auto report = document_parser::ingest(CStringView{ "/*comment*/{\"a\":\"\\u00e9\",\"a\":[1,2]}" },
+                    destination, { permissions });
+                completed = report.construction_completed;
+                TEST_EXPECT(ctx, !report.succeeded());
+                if (completed)
+                {
+                    TEST_EXPECT(ctx, !fixture.failed && report.failure.reason == EDocumentFailureReason::none);
+                    TEST_EXPECT(ctx, report.policy.status == ((permissions == document_policy::k_default) ?
+                        EDocumentPolicyStatus::rejected : EDocumentPolicyStatus::invalid_options));
+                    TEST_EXPECT(ctx, report.interpretations.duplicate_members_recovered == 1u);
+                }
+                else
+                {
+                    TEST_EXPECT(ctx, fixture.failed && report.policy.status == EDocumentPolicyStatus::unexamined);
+                    TEST_EXPECT(ctx, report.failure.reason == EDocumentFailureReason::allocation_failed ||
+                        report.failure.reason == EDocumentFailureReason::construction_failed);
+                }
+                TEST_EXPECT(ctx, destination.value_type(destination.root()) == ELiveValueType::array);
+                TEST_EXPECT(ctx, destination.first_child(destination.root()) == keep);
+                TEST_EXPECT(ctx, destination.memory_allocation_size() == allocation_size && destination.check_integrity());
+            }
+            //  Rejected temporary documents and linter output must release all
+            //  attributed storage, even after construction completed.
+            TEST_EXPECT(ctx, context.is_attribution_empty());
+        }
+        TEST_EXPECT(ctx, completed);
+    }
 }
 
 static void test_root_allocation(TTestContext& ctx)
@@ -1425,7 +1648,7 @@ static void test_composed_linter_diagnostics(TTestContext& ctx)
     memory::CMemoryContext context{ allocator };
     {
         tests::TMemoryContextScope scope{ &context };
-        report = document_parser::ingest(CByteConstView{ source, sizeof(source) }, document);
+        report = document_parser::ingest(CByteConstView{ source, sizeof(source) }, document, { document_policy::k_all_supported });
         TEST_EXPECT(ctx, report.status == EDocumentParseStatus::linter_failure);
         TEST_EXPECT(ctx, report.linter.first_failure.reason == ETextLintFailure::allocation_failed);
         TEST_EXPECT(ctx, report.failure.stage == EDocumentFailureStage::linter && report.failure.reason == EDocumentFailureReason::allocation_failed);
@@ -1435,7 +1658,7 @@ static void test_composed_linter_diagnostics(TTestContext& ctx)
         TEST_EXPECT(ctx, document.first_child(document.root()) == keep);
     }
     TEST_EXPECT(ctx, context.is_attribution_empty());
-    report = document_parser::ingest(CByteConstView{ source, sizeof(source) }, document);
+    report = document_parser::ingest(CByteConstView{ source, sizeof(source) }, document, { document_policy::k_all_supported });
     TEST_EXPECT(ctx, report.succeeded() && report.linter.success && report.structure.succeeded());
     TEST_EXPECT(ctx, report.linter.cesu8_pair_count == 1u);
     TEST_EXPECT(ctx, !report.structure_start.available && !report.failure_point.available);
@@ -1459,6 +1682,9 @@ int run_document_parser_tests()
 {
     tests::TTestContext ctx;
     document_parser_tests::test_findings_and_policy_contract(ctx);
+    document_parser_tests::test_late_policy_acceptance(ctx);
+    document_parser_tests::test_policy_processing_precedence(ctx);
+    document_parser_tests::test_policy_source_acceptance(ctx);
     document_parser_tests::test_composed_findings(ctx);
     document_parser_tests::test_shared_failures(ctx);
     document_parser_tests::test_policy_source_provenance(ctx);
@@ -1477,6 +1703,7 @@ int run_document_parser_tests()
     document_parser_tests::test_round_trips(ctx);
     document_parser_tests::test_depth_and_allocation(ctx);
     document_parser_tests::test_root_allocation(ctx);
+    document_parser_tests::test_policy_allocation(ctx);
     document_parser_tests::test_composed_linter_diagnostics(ctx);
     std::cout << "DocumentParser: " << ctx.passed << " passed, " << ctx.failed << " failed\n";
     return (ctx.failed == 0) ? 0 : 1;

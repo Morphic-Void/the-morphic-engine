@@ -23,12 +23,15 @@ built. Completed implementation does not mean these interfaces are final.
    Parser support for native empty names, structural newline-name rejection and
    source-derived per-string newline suppression is reviewed and committed.
    Explicit array roots and shared inference of object/array bodies are
-   reviewed and committed. Shared terminal stage/reason reporting is implemented
-   for review. Caller-options integration, protocol retirement and final
-   acceptance remain.
+   reviewed and committed. Shared terminal stage/reason reporting is reviewed
+   and committed. Caller options and late policy acceptance before publication
+   are implemented for review. Protocol retirement and the remaining parser
+   report simplification remain.
    After the main implementation, consider a separate const pass: identify
    parameters that functions do not mutate, add appropriate const qualification,
    and align parameter const decoration between declarations and definitions.
+   The user plans a light manual style and beautification pass after that const
+   pass.
 2. Develop the remaining Host consolidation in a separate task: module
    lifecycle, asset identity and lifetime, asynchronous operations, aligned
    loading, conditioning and filesystem resolution.

@@ -19,7 +19,8 @@ class CLiveDocument;
 
 enum class EDocumentParseStatus : std::uint8_t
 {
-    unexamined = 0u, success, invalid_input_view, linter_failure, structural_failure, numeric_out_of_range,
+    unexamined = 0u, success, policy_rejected, invalid_options,
+    invalid_input_view, linter_failure, structural_failure, numeric_out_of_range,
     malformed_recovery_wrapper, unsupported_recovery_version,
     unsupported_recovery_type, invalid_root_value,
     allocation_failed, storage_limit, construction_failed, internal_error
@@ -38,6 +39,8 @@ struct CDocumentParseReport
     EDocumentParseStatus status{ EDocumentParseStatus::unexamined };
     //  Shared terminal diagnosis; successful fallback is evidence, not failure.
     CDocumentFailure failure;
+    //  Evaluated only after construction completes; rejection is not failure.
+    CDocumentPolicyResult policy;
     CTextLocation structure_start;
     CTextLocation failure_point;
     //  Findings compose the examined stages and survive later failure.
@@ -67,8 +70,11 @@ namespace document_parser
 //  every source line break to LF during linting. This function performs the structural
 //  pass; it does not perform encoding detection or CP1252 conversion.
 //  Source stays immutable and alive until return. Destination is replaced only
-//  after success and is unchanged on failure. All owned storage uses the
-//  ambient framework allocator. Empty text constructs the implicit root object.
+//  after construction and policy acceptance, and is unchanged on failure or
+//  rejection. Encoding provenance is unavailable here; use ingest to apply
+//  source-encoding permissions. All owned storage uses the ambient framework
+//  allocator. Empty text constructs the implicit root object. The default
+//  policy excludes relaxed syntax; k_all_supported opts into every feature.
 //
 //  Decode version-1 recovery wrappers and escaped reserved data names, recover
 //  duplicate members in order, and normalize ordinary singleton objects in
@@ -76,14 +82,18 @@ namespace document_parser
 //  Explicit containers select the root kind. Otherwise a first name followed
 //  by a colon selects an object body; other non-empty input selects an array
 //  body, including a single scalar. A recovery wrapper cannot replace the root.
-[[nodiscard]] CDocumentParseReport parse(const CStringView& source, CLiveDocument& destination) noexcept;
+[[nodiscard]] CDocumentParseReport parse(const CStringView& source, CLiveDocument& destination,
+    const CDocumentParseOptions& options = {}) noexcept;
 
 //  Lint source bytes with uniform LF normalization, then parse. Retain the
-//  linter report on every outcome. Failure preserves destination and exposes
-//  the linter location directly as failure_point; structure stays unexamined.
-[[nodiscard]] CDocumentParseReport ingest(const CByteConstView& source, CLiveDocument& destination) noexcept;
+//  linter report on every outcome. Evaluate policy against all stage findings
+//  after construction. Failure or rejection preserves destination. A linter
+//  failure exposes its location as failure_point; structure stays unexamined.
+[[nodiscard]] CDocumentParseReport ingest(const CByteConstView& source, CLiveDocument& destination,
+    const CDocumentParseOptions& options = {}) noexcept;
 //  The string-view overload also admits present zero-length source text.
-[[nodiscard]] CDocumentParseReport ingest(const CStringView& source, CLiveDocument& destination) noexcept;
+[[nodiscard]] CDocumentParseReport ingest(const CStringView& source, CLiveDocument& destination,
+    const CDocumentParseOptions& options = {}) noexcept;
 
 }   //  namespace document_parser
 

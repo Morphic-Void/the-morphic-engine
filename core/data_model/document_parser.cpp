@@ -117,8 +117,8 @@ struct CFrame
 class CParser
 {
 public:
-    explicit CParser(const CStringView& source) noexcept : m_source(source), m_scanner(source) {}
-    [[nodiscard]] CDocumentParseReport run(CLiveDocument& destination) noexcept;
+    explicit CParser(const CStringView& source, const CDocumentParseReport& report) noexcept;
+    [[nodiscard]] CDocumentParseReport run(CLiveDocument& destination, const CDocumentParseOptions& options) noexcept;
 
 private:
     void fail(const EDocumentParseStatus status) noexcept;
@@ -180,23 +180,44 @@ static EDocumentFailureReason parser_failure_reason(const EDocumentParseStatus s
     }
 }
 
-static CDocumentParseReport ingest_linted(const CTextLintResult& linted, CLiveDocument& destination) noexcept
+static CDocumentParseReport parse_linted(const CStringView& source, CLiveDocument& destination,
+    const CDocumentParseOptions& options, CDocumentParseReport report) noexcept
+{
+    report.structure = document_structure::check(source);
+    report.findings |= report.structure.findings;
+    if (!report.structure.succeeded())
+    {
+        report.status = (report.structure.failure.reason == EDocumentFailureReason::invalid_input_view) ?
+            EDocumentParseStatus::invalid_input_view : EDocumentParseStatus::structural_failure;
+        report.failure = report.structure.failure;
+        report.structure_start = report.structure.structure_start;
+        report.failure_point = report.structure.failure_point;
+        return report;
+    }
+    CParser parser(source, report);
+    return parser.run(destination, options);
+}
+
+static CDocumentParseReport ingest_linted(const CTextLintResult& linted, CLiveDocument& destination,
+    const CDocumentParseOptions& options) noexcept
 {
     CDocumentParseReport report;
-    if (linted.report.success)
-    {
-        report = parse(CStringView{ linted.output.data(), linted.report.logical_text_byte_size }, destination);
-    }
-    else
-    {
-        report.status = EDocumentParseStatus::linter_failure;
-        report.failure = { EDocumentFailureStage::linter, linter_failure_reason(linted.report.first_failure.reason) };
-        report.failure_point = linted.report.first_failure.location;
-    }
     report.linter_examined = true;
     report.linter = linted.report;
-    report.findings |= document_findings::from_source(linted.report.source_findings);
+    report.findings = document_findings::from_source(linted.report.source_findings);
+    if (linted.report.success)
+    {
+        return parse_linted(CStringView{ linted.output.data(), linted.report.logical_text_byte_size }, destination, options, report);
+    }
+    report.status = EDocumentParseStatus::linter_failure;
+    report.failure = { EDocumentFailureStage::linter, linter_failure_reason(linted.report.first_failure.reason) };
+    report.failure_point = linted.report.first_failure.location;
     return report;
+}
+
+CParser::CParser(const CStringView& source, const CDocumentParseReport& report) noexcept :
+    m_source(source), m_scanner(source), m_report(report)
+{
 }
 
 void CParser::fail(const EDocumentParseStatus status) noexcept
@@ -728,7 +749,7 @@ void CParser::entry() noexcept
     advance();
 }
 
-CDocumentParseReport CParser::run(CLiveDocument& destination) noexcept
+CDocumentParseReport CParser::run(CLiveDocument& destination, const CDocumentParseOptions& options) noexcept
 {
     m_report.parser_examined = true;
     m_report.status = EDocumentParseStatus::success;
@@ -777,7 +798,16 @@ CDocumentParseReport CParser::run(CLiveDocument& destination) noexcept
     if (m_report.succeeded())
     {
         m_report.construction_completed = true;
-        destination = std::move(m_document);
+        m_report.policy = document_policy::evaluate(m_report.findings, options);
+        if (m_report.policy.accepted())
+        {
+            destination = std::move(m_document);
+        }
+        else
+        {
+            m_report.status = (m_report.policy.status == EDocumentPolicyStatus::invalid_options) ?
+                EDocumentParseStatus::invalid_options : EDocumentParseStatus::policy_rejected;
+        }
     }
     else
     {
@@ -788,37 +818,24 @@ CDocumentParseReport CParser::run(CLiveDocument& destination) noexcept
 
 }   //  namespace parser_util
 
-CDocumentParseReport parse(const CStringView& source, CLiveDocument& destination) noexcept
+CDocumentParseReport parse(const CStringView& source, CLiveDocument& destination,
+    const CDocumentParseOptions& options) noexcept
 {
-    CDocumentParseReport report;
-    report.structure = document_structure::check(source);
-    report.findings = report.structure.findings;
-    if (!report.structure.succeeded())
-    {
-        report.status = (report.structure.failure.reason == EDocumentFailureReason::invalid_input_view) ?
-            EDocumentParseStatus::invalid_input_view : EDocumentParseStatus::structural_failure;
-        report.failure = report.structure.failure;
-        report.structure_start = report.structure.structure_start;
-        report.failure_point = report.structure.failure_point;
-        return report;
-    }
-    parser_util::CParser parser(source);
-    CDocumentParseReport result = parser.run(destination);
-    result.structure = report.structure;
-    result.findings |= report.findings;
-    return result;
+    return parser_util::parse_linted(source, destination, options, {});
 }
 
-CDocumentParseReport ingest(const CByteConstView& source, CLiveDocument& destination) noexcept
+CDocumentParseReport ingest(const CByteConstView& source, CLiveDocument& destination,
+    const CDocumentParseOptions& options) noexcept
 {
     const CTextLintResult linted = text_linter::lint(source, k_document_text_lint_line_endings);
-    return parser_util::ingest_linted(linted, destination);
+    return parser_util::ingest_linted(linted, destination, options);
 }
 
-CDocumentParseReport ingest(const CStringView& source, CLiveDocument& destination) noexcept
+CDocumentParseReport ingest(const CStringView& source, CLiveDocument& destination,
+    const CDocumentParseOptions& options) noexcept
 {
     const CTextLintResult linted = text_linter::lint(source, k_document_text_lint_line_endings);
-    return parser_util::ingest_linted(linted, destination);
+    return parser_util::ingest_linted(linted, destination, options);
 }
 
 }   //  namespace document_parser

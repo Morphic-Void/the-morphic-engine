@@ -1479,7 +1479,7 @@ for subsequent work.
 
 ### 9.8 Shared terminal failure reporting
 
-The terminal-reporting slice is implemented and awaiting review:
+The terminal-reporting slice is reviewed and committed as `a06c410`:
 
 - The lexer uses `EDocumentFailureReason` directly. The duplicate `ESyntaxError`
   enum is removed, and missing name/colon/value/separator failures use the shared
@@ -1513,15 +1513,57 @@ Validation passed in Debug and Release on x64 and Win32: all ordinary test
 suites passed, including 16,973 parser checks and 1,247 structural checks in
 each configuration.
 
-Parser entry points still do not accept or apply `CDocumentParseOptions`.
-Caller acceptance, parser status simplification and protocol retirement remain
-subsequent work. Linter statistics and its standalone report are unchanged.
+That slice left caller acceptance, parser status simplification and protocol
+retirement for subsequent work. Linter statistics and its standalone report
+were unchanged.
+
+### 9.9 Caller options and late policy acceptance
+
+The caller-policy slice is implemented and awaiting review:
+
+- Both `ingest` overloads and low-level `parse` accept `CDocumentParseOptions`,
+  with the agreed conservative default. Existing callers requiring every
+  supported form must explicitly select `document_policy::k_all_supported`.
+- `CDocumentParseReport::policy` retains the evaluator's status, effective
+  permissions, disallowed findings and unknown option bits. Final parser status
+  distinguishes `success`, `policy_rejected` and `invalid_options` from the
+  existing processing failures. `succeeded()` means construction completed,
+  policy accepted and the destination was published.
+- Ingestion imports the linter report and source findings before structure and
+  construction. The parser constructs privately and evaluates the complete
+  findings only after construction succeeds. Both rejected and invalid policies
+  preserve the destination and retain completed-stage reports and interpretations;
+  their shared terminal stage/reason remains `none`, with no failure location.
+- Processing failures take precedence, even with unknown policy bits. Their
+  policy result stays `unexamined`, and their original stage/reason and partial
+  findings remain available. No feature exclusion changes scanning, decoding,
+  numeric conversion or construction.
+- Low-level `parse` receives already linted text without the original linter
+  report. Its policy covers structural and parser findings only. Source-encoding
+  acceptance requires `ingest`, which retains the adopted encoding provenance;
+  it cannot be inferred from normalized UTF-8 or decoded string contents.
+
+Regression coverage exercises default acceptance and each relaxed exclusion,
+explicit all-supported permissions, combined findings, numeric permissions,
+encoding closure and successful fallback, ASCII Unicode escapes, informational
+NUL/BOM observations, stricter report re-evaluation and invalid options. Tests
+check processing-failure precedence, preserved destinations (including aliased
+source), completed reports on rejection, and allocation-injection cleanup through
+the linter, structural and construction stages.
+
+Debug and Release builds and all ordinary test suites pass on x64 and Win32,
+including 18,420 parser checks and 1,247 structural checks per configuration.
+Repository policy validation, whitespace and line-ending checks also pass.
+
+The existing recovery protocol and interpretation counters remain transitional.
+This slice applies the collision permission to the existing reported operation;
+the coordinated move to public collision extension and protocol retirement is
+still required to complete the agreed model semantics.
 
 Remaining implementation sequence:
 
-1. Review shared terminal failure reporting before committing.
-2. Integrate caller options and late policy acceptance. Review before committing.
-3. Refactor parser interpretations, report composition and acceptance/publication;
+1. Review caller options and late policy acceptance before committing.
+2. Simplify parser statuses and interpretations;
    use public collision extension and retire recovered-array kinds, protocol
    handling and compatibility across all affected code and tests together.
    Complete end-to-end tests and remove obsolete parser counts. Preserve the
@@ -1575,12 +1617,12 @@ The consistency review makes these consequences explicit:
   also removes its writer counters despite retaining other writer statistics.
 - An explicit object root is never removed by singleton-object normalization.
 
-Remaining stage-2 design covers parser/document API names and ownership/results,
-parser feature-bit assignments and policy preset names, placement of per-value
-metadata, baked layout/version changes, and useful internal capacity estimates.
-Stage 1 has settled the implemented source findings and location APIs. The
-remaining choices must implement the contracts above and remain reviewable;
-they are not unresolved user-facing behaviour questions.
+Remaining stage-2 work covers parser report simplification, use of the public
+collision operation and coordinated recovery-protocol retirement. The shared
+findings, policy presets, per-value metadata, root handling and failure reporting
+are implemented. Remaining API and ownership choices must implement the
+contracts above and remain reviewable; they are not unresolved user-facing
+behaviour questions.
 
 Stage 1 implementation and review are complete. Stage 2 is authorized and in
 progress. Pause before each subsequent commit for review.

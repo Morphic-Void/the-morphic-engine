@@ -489,11 +489,13 @@ history.
 
 Stage 1 of the [refactor specification](../backlog/parser_refactoring_specification.md)
 has completed implementation and review of the linter and shared locations.
-Stage 2 has begun with the model infrastructure described above. The remaining
-parser grammar, findings, acceptance policy and recovery retirement await their
-implementation slice. The parser is currently always relaxed. Its stages are
-the linter, a structural-integrity
-check, and relaxed document parsing. There is no separate strict parser.
+Stage 2 has implemented the model infrastructure described above, shared grammar
+and findings, terminal diagnostics and late caller-policy acceptance. Recovery
+retirement and the remaining report simplification await their implementation
+slice. The stages are linting, structural checking, relaxed document parsing and
+final policy evaluation. There is no separate strict parser; feature exclusions
+do not change processing, and the conservative default rejects relaxed findings
+only after construction succeeds.
 Reports identify the relaxed features required for acceptance and the
 Morphic-specific features interpreted, separately from ingestion transformations.
 Strict JSON syntax may itself contain a Morphic recovery representation.
@@ -618,10 +620,13 @@ parser report composes observations from each examined stage. Partial findings
 survive failure, and capacity estimates are separate from diagnostics. Parser
 coverage distinguishes an unexamined stage, failed construction and completed
 construction. The entry points use the shared grammar and transitional
-protocol rules described below. Both reports now carry `CDocumentFailure`;
-the entry points do not yet accept `CDocumentParseOptions` or apply the evaluator.
-Caller-policy integration and recovery-protocol retirement remain. A successful feature-policy
-evaluation alone is not parsing success.
+protocol rules described below. Both reports carry `CDocumentFailure`.
+Parser entry points accept `CDocumentParseOptions` and apply the evaluator only
+after successful private construction, before publication. The report's `policy`
+records accepted, rejected or invalid options; it remains unexamined on processing
+failure. Unknown option bits are diagnosed at this same late boundary, so they
+cannot hide a processing failure. A standalone feature-policy evaluation alone
+is not parsing success. Recovery-protocol retirement remains.
 
 ### Current shared text grammar
 
@@ -717,30 +722,34 @@ For a newline in a name, structure start identifies the name token and failure
 point identifies its first literal break or the backslash of its first escaped
 break. `CToken::first_line_break` retains decoded-content evidence independently
 of its per-token `literal_line_break` writing observation.
-Protocol retirement and final policy remain to be integrated.
+Protocol retirement remains to be integrated.
 
 ### Live construction and interpretation
 
 `document_parser::parse` in `document_parser.hpp/.cpp` takes a bounded
-`CStringView` of successfully linted UTF-8 and a live destination. It performs
-the shared structural check, then constructs privately through public live
-operations and publishes by move only on success. Failure leaves the existing
-destination unchanged. Present empty input constructs an empty root object;
+`CStringView` of successfully linted UTF-8, a live destination and optional
+`CDocumentParseOptions`. It performs the shared structural check, constructs
+privately through public live operations and publishes by move only after
+construction and policy acceptance.
+Failure, policy rejection or invalid options leave the existing destination
+unchanged. Present empty input constructs an empty root object;
 absent input fails. Input may refer to the destination's existing string
 storage, which remains alive until publication.
 
-`document_parser::ingest(source, destination)` takes bounded source bytes,
+`document_parser::ingest(source, destination, options)` takes bounded source bytes,
 calls the linter with `k_document_text_lint_line_endings`, and parses only its
 successful output. It retains `CDocumentParseReport::linter` and sets
 `linter_examined`. A linter failure uses status `linter_failure`, copies its
 location unchanged to `failure_point`, leaves `structure_start` unavailable and
 leaves structure `unexamined`. Every operation constructs a fresh report, so
 reuse cannot retain old structural locations. The destination is preserved on
-failure, including when source aliases its existing string storage.
+failure or rejection, including when source aliases its existing string storage.
 
 Low-level callers may still lint separately and pass `output.data()` with
 `report.logical_text_byte_size` to `parse`; source findings then remain in their
-separate linter report. `parse` itself leaves `linter_examined` false.
+separate linter report. `parse` itself leaves `linter_examined` false and evaluates
+only structural and parser findings. Use `ingest` to enforce source-encoding
+permissions: the original encoding cannot be recovered from normalized UTF-8.
 The parser decodes quoted and unquoted escapes, including
 surrogate pairs and logical NULs, and uses ordinary live string admission for
 the established modified-NUL storage form.
@@ -776,16 +785,27 @@ A default parser report is `unexamined`, with no terminal failure. Existing
 parser statuses remain during the migration, including the protocol-specific
 statuses. Those protocol rejections map to parser-stage `construction_failed`
 in the shared diagnosis, with their detailed status retained until protocol
-retirement. Successful and unexamined reports have stage/reason `none`.
+retirement. Successful, unexamined and policy-rejected reports have stage/reason
+`none`; invalid policy options likewise have no processing failure.
+
+Final `success` means construction completed and policy accepted; `succeeded()`
+therefore also means the destination was published. `policy_rejected` identifies
+disallowed features and `invalid_options` identifies unsupported permission bits
+through the report's `policy` result. Both retain `construction_completed`, the
+complete findings and stage reports, while discarding the private document.
+Neither supplies a failure location. The default accepts ordinary JSON, the
+agreed encoding forms and all Morphic numeric forms. To admit every supported
+relaxed feature, explicitly pass `{ document_policy::k_all_supported }`.
 
 The parser implements recovery decoding, reversible reserved-name unescaping,
 singleton normalization and ordered duplicate recovery as specified below.
 `CDocumentParseReport::interpretations` counts decoded recovery wrappers,
 unescaped reserved data names, recovered duplicate members and removed singleton
-objects by source occurrence. These counts describe a successfully published
-document and are cleared on failure. These transitional counters remain until
-protocol retirement. The new collision-extension and singleton-normalization
-findings are set when those operations complete and survive later failure,
+objects by source occurrence. These counts describe completed construction,
+including output discarded by policy, and are cleared on processing failure.
+These transitional counters remain until protocol retirement. The new
+collision-extension and singleton-normalization findings are set when those
+operations complete and survive later failure,
 alongside structural and source observations in the composed findings mask.
 
 Duplicate object members are recovered through ordinary public payload and
