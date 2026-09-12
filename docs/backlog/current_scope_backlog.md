@@ -19,9 +19,11 @@ built. Completed implementation does not mean these interfaces are final.
    reasons and policy definitions are reviewed and committed.
    Scanner/structural findings, partial-report composition, separate capacity
    estimates and construction coverage are reviewed and committed. Shared
-   unquoted-token grammar and contextual value findings are implemented for review.
-   Root/name rules, newline metadata, terminal-reason integration, protocol
-   retirement and final acceptance remain.
+   unquoted-token grammar and contextual value findings are reviewed and committed.
+   Parser support for native empty names, structural newline-name rejection and
+   source-derived per-string newline suppression is implemented for review.
+   Root inference, terminal-reason integration, protocol retirement and final
+   acceptance remain.
 2. Develop the remaining Host consolidation in a separate task: module
    lifecycle, asset identity and lifetime, asynchronous operations, aligned
    loading, conditioning and filesystem resolution.

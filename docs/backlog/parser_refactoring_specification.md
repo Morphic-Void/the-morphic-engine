@@ -1366,7 +1366,7 @@ suppression. Diff and line-ending checks passed.
 
 ### 9.5 Shared unquoted-token grammar
 
-The next grammar slice is implemented and awaiting review:
+The shared token-grammar slice is reviewed and committed as `6378c19`:
 
 - Unquoted candidates end at unescaped JSON punctuation, double quote or JSON
   whitespace. Standard JSON escapes protect content from delimiter recognition.
@@ -1400,16 +1400,50 @@ Validation passed for Debug and Release on x64 and Win32: all ordinary test
 suites passed, including 15,614 DocumentParser checks and 670 DocumentStructure
 checks in each configuration. Repository line-ending and diff checks also pass.
 
-This slice retains the initial root and recovery-protocol rules. Root inference,
-empty-name construction, newline prohibition in names across the document set,
-per-value newline-suppression metadata, shared terminal reasons and final caller
-policy remain subsequent work. The parser entry points still do not accept or
-apply `CDocumentParseOptions`.
+That slice retained the initial root and recovery-protocol rules, leaving name
+admission, newline metadata and the remaining parser migration for subsequent work.
+
+### 9.6 Parser name admission and newline metadata
+
+The next grammar slice is implemented and awaiting review:
+
+- Quoted empty names construct present-empty names for all payload types,
+  including containers, through the existing live-model APIs. Missing names and
+  values still fail structurally. The obsolete `empty_property_name` construction
+  status is removed.
+- Tokens retain the first decoded line-break location. Structural checking
+  rejects LF, CR, VT, FF, NEL, LS and PS in names, including JSON escape forms.
+  The primary location is the name token; detection identifies the literal break
+  or the backslash of its escape. Literal source breaks have already been
+  normalized to LF by linting. This connects parsing to the existing live/baked
+  name-content invariant.
+- Each string token separately records whether its source contains literal LF.
+  Construction uses this observation to set the existing newline-suppression
+  metadata. Escaped-only breaks do not set it. Interning equal decoded text
+  does not merge the per-value settings.
+
+Tests cover empty names in both quote modes across payload types and binary
+round trips, empty-named singleton unwrapping with metadata, all escaped name
+breaks with Unicode coordinates, literal name breaks after every supported
+linter normalization, and destination preservation. String tests cover equal
+interned text with different settings, mixed literal/escaped breaks, unquoted
+escaped breaks, strict/Morphic text round trips and baking/promotion. The
+allocation-failure fixture now includes an empty-named multiline string.
+
+Debug and Release solution builds and ordinary suites pass on x64 and Win32,
+including 15,908 DocumentParser checks and 922 DocumentStructure checks in each
+configuration. Policy validation reports no errors or warnings, with the existing
+negative-test suppression. Diff and repository line-ending checks pass.
+
+Root inference, shared terminal reasons, protocol retirement and final caller
+policy remain subsequent work. Parser entry points still do not accept or
+apply `CDocumentParseOptions`. Duplicate names still use the transitional
+recovery behavior until its consumers are retired together.
 
 Remaining implementation sequence:
 
-1. Review the shared token grammar, then integrate the remaining root/name rules
-   and newline metadata across structure, parsing and document admission.
+1. Review parser name admission and newline metadata, then integrate root
+   inference across checking and construction.
 2. Complete the shared terminal-reason and caller-options integration alongside
    the remaining grammar changes. Review before committing.
 3. Refactor parser interpretations, report composition and acceptance/publication;

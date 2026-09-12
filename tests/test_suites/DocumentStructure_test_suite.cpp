@@ -351,6 +351,53 @@ static void test_semicolon_comments(TTestContext& ctx)
     TEST_EXPECT(ctx, embedded.findings == (EDocumentFinding::unquoted_names | EDocumentFinding::unquoted_strings));
 }
 
+static void test_name_line_breaks(TTestContext& ctx)
+{
+    const char* const escapes[]{ "\\n", "\\r", "\\f", "\\u000A", "\\u000D", "\\u000B", "\\u000C",
+        "\\u0085", "\\u2028", "\\u2029" };
+    for (const char* escape : escapes)
+    {
+        for (const char* quote : { "\"", "'", "" })
+        {
+            const std::string source = std::string("{") + quote + "\xc3\xa9" + escape + "tail" + quote + ":1} /*unexamined*/";
+            CDocumentStructureEstimates estimates{ 1u, 1u, 1u, 1u, 1u, 1u };
+            const auto report = check(source, &estimates);
+            TEST_CASE_EXPECT_TRUE(ctx, source.c_str(), !report.succeeded() && report.syntax_error == ESyntaxError::newline_in_name);
+            const std::uint32_t findings = (*quote == '\'') ? document_finding_bit(EDocumentFinding::single_quotes) :
+                (*quote == '\0') ? document_finding_bit(EDocumentFinding::unquoted_names) : 0u;
+            TEST_EXPECT(ctx, report.findings == findings);
+            TEST_EXPECT(ctx, report.structure_start.available && report.structure_start.line_1_based == 1u &&
+                report.structure_start.code_point_column_1_based == 2u);
+            TEST_EXPECT(ctx, report.failure_point.available && report.failure_point.line_1_based == 1u &&
+                report.failure_point.code_point_column_1_based == ((*quote == '\0') ? 3u : 4u));
+            expect_no_estimates(ctx, estimates);
+            const auto value = check(std::string("{\"s\":") + quote + "a" + escape + "b" + quote + "}");
+            TEST_EXPECT(ctx, value.succeeded());
+            TEST_EXPECT(ctx, (value.findings & document_finding_bit(EDocumentFinding::raw_quoted_line_breaks)) == 0u);
+        }
+    }
+    const auto literal = check("{\"\xc3\xa9\nname\":1}");
+    TEST_EXPECT(ctx, literal.syntax_error == ESyntaxError::newline_in_name);
+    TEST_EXPECT(ctx, literal.structure_start.line_1_based == 1u && literal.structure_start.code_point_column_1_based == 2u);
+    TEST_EXPECT(ctx, literal.failure_point.line_1_based == 1u && literal.failure_point.code_point_column_1_based == 4u);
+    TEST_EXPECT(ctx, literal.findings == document_finding_bit(EDocumentFinding::raw_quoted_line_breaks));
+    TEST_EXPECT(ctx, check("{\"a\\tb\\bc\\u0001d\\u0000\":1}").succeeded());
+    TEST_EXPECT(ctx, check("{\"a\\\\nb\":1}").succeeded());
+
+    const std::string source = "\"a\nb\" \"a\\nb\" 'plain' a\\nb";
+    document_text::CScanner scanner(text_view(source));
+    const auto raw = scanner.next();
+    const auto escaped = scanner.next();
+    const auto plain = scanner.next();
+    const auto unquoted = scanner.next();
+    TEST_EXPECT(ctx, raw.literal_line_break != 0u && raw.first_line_break.available);
+    TEST_EXPECT(ctx, escaped.literal_line_break == 0u && escaped.first_line_break.available);
+    TEST_EXPECT(ctx, plain.literal_line_break == 0u && !plain.first_line_break.available);
+    TEST_EXPECT(ctx, unquoted.literal_line_break == 0u && unquoted.first_line_break.available);
+    TEST_EXPECT(ctx, escaped.location.line_1_based == 2u && escaped.location.code_point_column_1_based == 4u);
+    TEST_EXPECT(ctx, scanner.next().kind == ETokenKind::end);
+}
+
 static void test_ingestion_and_bounds(TTestContext& ctx)
 {
     const std::uint8_t input[]{ '{', '"', 'n', 0u, '"', ':', '"', 0xe9u, 0u, '"', '}' };
@@ -494,6 +541,7 @@ int run_document_structure_tests()
     document_structure_tests::test_lexical_reuse(ctx);
     document_structure_tests::test_unquoted_boundaries(ctx);
     document_structure_tests::test_semicolon_comments(ctx);
+    document_structure_tests::test_name_line_breaks(ctx);
     document_structure_tests::test_ingestion_and_bounds(ctx);
     document_structure_tests::test_depth_and_resources(ctx);
     document_structure_tests::test_writer_compatibility(ctx);

@@ -20,7 +20,7 @@ class CLiveDocument;
 enum class EDocumentParseStatus : std::uint8_t
 {
     success = 0u, invalid_input_view, linter_failure, structural_failure, numeric_out_of_range,
-    empty_property_name, malformed_recovery_wrapper, unsupported_recovery_version,
+    malformed_recovery_wrapper, unsupported_recovery_version,
     unsupported_recovery_type, invalid_root_value,
     allocation_failed, storage_limit, construction_failed, internal_error
 };

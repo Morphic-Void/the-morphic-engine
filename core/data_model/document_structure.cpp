@@ -214,6 +214,13 @@ void CCheck::step() noexcept
             {
                 m_report.findings |= document_finding_bit(EDocumentFinding::empty_member_name);
             }
+            if (m_token.first_line_break.available)
+            {
+                syntax(ESyntaxError::newline_in_name);
+                m_report.structure_start = m_token.location;
+                m_report.failure_point = m_token.first_line_break;
+                return;
+            }
             ++m_estimates.named_entry_count;
             frame.member_start = m_token.location;
             m_estimates.string_source_byte_size += m_token.size;

@@ -25,6 +25,12 @@ static bool whitespace(const std::uint8_t ch) noexcept
 
 static bool digit(const std::uint8_t ch) noexcept { return (ch >= '0') && (ch <= '9'); }
 
+static bool line_break(const std::uint32_t scalar) noexcept
+{
+    return (scalar == '\n') || (scalar == '\r') || (scalar == '\v') || (scalar == '\f') ||
+        (scalar == 0x85u) || (scalar == 0x2028u) || (scalar == 0x2029u);
+}
+
 static int hex_digit(const std::uint8_t ch) noexcept
 {
     if (digit(ch))
@@ -291,9 +297,18 @@ CToken CScanner::failure(const ESyntaxError error) const noexcept
     return { ETokenKind::error, error, m_offset, 0u };
 }
 
+void CScanner::record_line_break(const std::size_t offset) noexcept
+{
+    if (m_line_break_offset == m_source.length())
+    {
+        m_line_break_offset = offset;
+    }
+}
+
 CToken CScanner::quoted() noexcept
 {
     const std::size_t start = m_offset;
+    std::uint8_t literal_line_break = 0u;
     const std::uint8_t quote = m_source.string()[m_offset++];
     if (quote == '\'')
     {
@@ -305,10 +320,13 @@ CToken CScanner::quoted() noexcept
         if (ch == quote)
         {
             ++m_offset;
-            return { ETokenKind::string, ESyntaxError::none, start, m_offset - start };
+            CToken token{ ETokenKind::string, ESyntaxError::none, start, m_offset - start };
+            token.literal_line_break = literal_line_break;
+            return token;
         }
         if (ch == '\\')
         {
+            const std::size_t escape_start = m_offset;
             std::uint32_t scalar = 0u;
             const ESyntaxError error = read_escape(m_source, m_offset, quote, scalar);
             if (error != ESyntaxError::none)
@@ -319,9 +337,19 @@ CToken CScanner::quoted() noexcept
             {
                 m_findings |= document_finding_bit(EDocumentFinding::logical_nul);
             }
+            if (lex_util::line_break(scalar))
+            {
+                record_line_break(escape_start);
+            }
         }
         else
         {
+            //  All literal source line breaks have been normalized to LF.
+            if (ch == '\n')
+            {
+                record_line_break(m_offset);
+                literal_line_break = 1u;
+            }
             if (ch < 0x20u)
             {
                 const EDocumentFinding finding = (ch == 0u) ? EDocumentFinding::logical_nul :
@@ -342,6 +370,7 @@ CToken CScanner::unquoted() noexcept
         const std::uint8_t ch = m_source.string()[m_offset];
         if (ch == '\\')
         {
+            const std::size_t escape_start = m_offset;
             std::uint32_t scalar = 0u;
             const ESyntaxError error = read_escape(m_source, m_offset, '"', scalar);
             if (error != ESyntaxError::none)
@@ -351,6 +380,10 @@ CToken CScanner::unquoted() noexcept
             if (scalar == 0u)
             {
                 m_findings |= document_finding_bit(EDocumentFinding::logical_nul);
+            }
+            if (lex_util::line_break(scalar))
+            {
+                record_line_break(escape_start);
             }
         }
         else
@@ -395,9 +428,15 @@ CToken CScanner::unquoted() noexcept
 
 CToken CScanner::next() noexcept
 {
+    m_line_break_offset = m_source.length();
     CToken token = scan_next();
     locate(m_element_offset);
     token.location = m_location;
+    if (m_line_break_offset != m_source.length())
+    {
+        locate(m_line_break_offset);
+        token.first_line_break = m_location;
+    }
     if (token.kind == ETokenKind::error)
     {
         locate(token.offset);

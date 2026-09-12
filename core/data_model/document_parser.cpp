@@ -392,7 +392,13 @@ CNodeKey CParser::create(const CStringView& name) noexcept
         case ETokenKind::unquoted_string:
         {
             const CStringView value = text(m_token, m_value_scratch);
-            return m_report.succeeded() ? m_document.create_string(value, name) : CNodeKey{};
+            const CNodeKey node = m_report.succeeded() ? m_document.create_string(value, name) : CNodeKey{};
+            if (node.is_valid() && (m_token.literal_line_break != 0u) && !m_document.set_newline_escaping_suppressed(node, true))
+            {
+                fail(EDocumentParseStatus::internal_error);
+                return {};
+            }
+            return node;
         }
         case ETokenKind::object_begin:
         {
@@ -635,11 +641,6 @@ void CParser::entry() noexcept
         name = text(m_token, m_name_scratch);
         if (!m_report.succeeded())
         {
-            return;
-        }
-        if (name.length() == 0u)
-        {
-            fail(EDocumentParseStatus::empty_property_name);
             return;
         }
         const std::size_t dollars = reserved_dollars(name);

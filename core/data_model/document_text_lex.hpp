@@ -32,7 +32,7 @@ enum class ETokenKind : std::uint8_t
 enum class ESyntaxError : std::uint8_t
 {
     none = 0u, unexpected_character, unterminated_comment, unterminated_string,
-    invalid_escape, invalid_surrogate_pair,
+    invalid_escape, invalid_surrogate_pair, newline_in_name,
     expected_name, expected_colon, expected_value, expected_separator,
     mismatched_delimiter, unexpected_end, trailing_content
 };
@@ -47,6 +47,10 @@ struct CToken
     std::uint32_t value_findings{ 0u };
     CTextLocation location;
     CTextLocation failure_point;
+    //  Decoded content evidence; an escaped break points to its backslash.
+    CTextLocation first_line_break;
+    //  Per-token source spelling, independent of the aggregate findings.
+    std::uint8_t literal_line_break{ 0u };
 };
 
 //  On success, offset advances past one escape (including both UTF-16 units
@@ -72,12 +76,14 @@ private:
     [[nodiscard]] CToken scan_next() noexcept;
     void locate(const std::size_t offset) noexcept;
     [[nodiscard]] CToken failure(const ESyntaxError error) const noexcept;
+    void record_line_break(const std::size_t offset) noexcept;
     [[nodiscard]] CToken quoted() noexcept;
     [[nodiscard]] CToken unquoted() noexcept;
 
     CStringView m_source;
     std::size_t m_offset{ 0u };
     std::size_t m_element_offset{ 0u };
+    std::size_t m_line_break_offset{ 0u };
     std::size_t m_location_offset{ 0u };
     CTextLocation m_location{ true, 1u, 1u };
     std::uint32_t m_findings{ 0u };

@@ -142,10 +142,10 @@ absent view cannot select it. Detached values can be renamed and reattached
 through the ordinary operations. Payload-only moves retain the target's name
 and presence.
 
-Names cannot contain LF, CR, VT, FF, NEL, LS or PS. Direct admission, renaming
-and checked baked validation enforce the rule. Parser support for native empty
-names and structural newline diagnostics is pending the grammar migration;
-the current parser entry points retain the initial grammar described below.
+Names cannot contain LF, CR, VT, FF, NEL, LS or PS. Structural checking rejects
+literal or escaped breaks in names before construction; direct admission,
+renaming and checked baked validation enforce the same decoded-content rule.
+The parser preserves native empty names in both quote modes.
 
 String admission is length-aware and canonicalizes logical U+0000:
 
@@ -172,8 +172,9 @@ by `suppresses_newline_escaping` and changed by
 `set_newline_escaping_suppressed`. Non-string values reject this mutation.
 The setting defaults to false, transfers with the payload and is cleared on
 payload erasure. Baking, promotion and whole-document moves preserve it even
-when differently configured values share the same interned text. Automatic
-selection from literal source breaks remains part of the parser migration.
+when differently configured values share the same interned text. Parsing sets
+suppression for a string whose linted source contains a literal LF. Escaped-only
+line breaks and literal backslash-plus-letter spellings leave it unset.
 
 ## Numeric values
 
@@ -698,9 +699,12 @@ identifies detection or the EOF cursor. Success leaves both unavailable. The
 stage status is `unexamined` until invoked, distinguishing skipped structure
 after a linter failure from successful or failed checking. Only success denotes
 complete findings coverage; absent bits in a partial scan do not prove absence.
-Root-array/scalar inference, empty-name construction, the cross-document newline
-prohibition for names and per-value newline-suppression metadata remain to be
-integrated, along with shared terminal reasons, protocol retirement and final policy.
+For a newline in a name, structure start identifies the name token and failure
+point identifies its first literal break or the backslash of its first escaped
+break. `CToken::first_line_break` retains decoded-content evidence independently
+of its per-token `literal_line_break` writing observation.
+Root-array/scalar inference, shared terminal reasons, protocol retirement and
+final policy remain to be integrated.
 
 ### Live construction and interpretation
 
@@ -724,7 +728,7 @@ failure, including when source aliases its existing string storage.
 Low-level callers may still lint separately and pass `output.data()` with
 `report.logical_text_byte_size` to `parse`; source findings then remain in their
 separate linter report. `parse` itself leaves `linter_examined` false.
-The parser decodes quoted escapes, including
+The parser decodes quoted and unquoted escapes, including
 surrogate pairs and logical NULs, and uses ordinary live string admission for
 the established modified-NUL storage form.
 
@@ -734,9 +738,10 @@ The parser retains decimal/hexadecimal/binary notation and the alternate `#`
 prefix, and selects the smallest representable integer width. Floating tokens
 construct finite binary64 values, preserving negative zero. Decimal conversion
 rounds to binary64; overflow and nonzero underflow to zero are construction
-errors. Neither numeric range failure nor an empty property name is a syntax
-error. The live model now supports empty names, but this initial parser still
-rejects them with a specific construction status until its grammar migration.
+errors. Numeric range failure is a construction failure. A quoted empty property
+name constructs an ordinary present-empty name for every payload type; the
+obsolete empty-name failure status is removed. Missing names and values remain
+structural failures.
 
 `CDocumentParseReport` retains the structural report and composes its findings,
 linter source observations (for `ingest`) and established parser interpretations

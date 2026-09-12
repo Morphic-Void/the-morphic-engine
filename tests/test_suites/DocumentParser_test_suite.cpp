@@ -36,11 +36,12 @@ static CDocumentParseReport parse(const std::string& text, CLiveDocument& destin
     return document_parser::parse(CStringView{ text.data(), text.size() }, destination);
 }
 
-static std::string write(TTestContext& ctx, const CLiveDocument& document)
+static std::string write(TTestContext& ctx, const CLiveDocument& document, const EDocumentWriteMode mode = EDocumentWriteMode::morphic)
 {
     CBakedDocumentBlock block;
     TEST_EXPECT(ctx, document_translation::bake(document, block));
     CDocumentWriteOptions options;
+    options.mode = mode;
     options.pretty_print = false;
     options.trailing_line_ending = false;
     options.escape_non_ascii = true;
@@ -241,9 +242,9 @@ static void test_composed_findings(TTestContext& ctx)
     TEST_EXPECT(ctx, destination.first_child(destination.root()) == keep);
 
     const auto empty_name = parse("{\"\":1}", destination);
-    TEST_EXPECT(ctx, empty_name.status == EDocumentParseStatus::empty_property_name);
+    TEST_EXPECT(ctx, empty_name.succeeded());
     TEST_EXPECT(ctx, empty_name.findings == document_finding_bit(EDocumentFinding::empty_member_name));
-    TEST_EXPECT(ctx, empty_name.structure.succeeded() && empty_name.parser_examined && !empty_name.construction_completed);
+    TEST_EXPECT(ctx, empty_name.structure.succeeded() && empty_name.parser_examined && empty_name.construction_completed);
 
     const auto success = document_parser::ingest(CStringView{ "{\"s\":\"\\u00e9\\u0000\"}" }, destination);
     TEST_EXPECT(ctx, success.succeeded() && success.linter_examined && success.linter.success);
@@ -395,7 +396,7 @@ static void test_strings_and_ingestion(TTestContext& ctx)
     TEST_EXPECT(ctx, ingested.succeeded());
     TEST_EXPECT(ctx, ingested.structure.findings == (EDocumentFinding::unquoted_names |
         EDocumentFinding::raw_quoted_line_breaks | EDocumentFinding::logical_nul));
-    TEST_EXPECT(ctx, write(ctx, document) == "{\"n\":\"\\u00e9\\u0000\\n\"}");
+    TEST_EXPECT(ctx, write(ctx, document) == "{\"n\":\"\\u00e9\\u0000\n\"}");
 
     const std::uint8_t modified[]{ '{', 'n', ':', '"', 0xc0u, 0x80u, '"', '}' };
     const auto normalized = text_linter::lint(CByteConstView{ modified, sizeof(modified) }, k_document_text_lint_line_endings);
@@ -416,6 +417,105 @@ static void test_strings_and_ingestion(TTestContext& ctx)
     const auto expanded_failure = document_parser::parse(CStringView{ expanded.output.data(), expanded.report.logical_text_byte_size }, document);
     TEST_EXPECT(ctx, expanded_failure.status == EDocumentParseStatus::structural_failure);
     TEST_EXPECT(ctx, expanded_failure.failure_point.code_point_column_1_based == 12u && expanded_failure.structure.failure_point.code_point_column_1_based == 12u);
+}
+
+static void test_empty_names(TTestContext& ctx)
+{
+    struct CCase
+    {
+        const char* source;
+        ELiveValueType type;
+    };
+    const CCase cases[]{ { "null", ELiveValueType::null_value }, { "true", ELiveValueType::boolean },
+        { "1", ELiveValueType::integer }, { "1.5", ELiveValueType::floating_point }, { "\"\"", ELiveValueType::string },
+        { "{}", ELiveValueType::object }, { "[]", ELiveValueType::array } };
+    CLiveDocument document;
+    for (const auto& item : cases)
+    {
+        for (const char quote : { '"', '\'' })
+        {
+            const std::string source = std::string("{") + quote + quote + ":" + item.source + "}";
+            const auto report = parse(source, document);
+            TEST_CASE_EXPECT_TRUE(ctx, source.c_str(), report.succeeded());
+            const std::uint32_t findings = document_finding_bit(EDocumentFinding::empty_member_name) |
+                ((quote == '\'') ? document_finding_bit(EDocumentFinding::single_quotes) : 0u);
+            TEST_EXPECT(ctx, report.findings == findings);
+            const CNodeKey node = document.object_child(document.root(), CStringView{ "" });
+            TEST_EXPECT(ctx, node.is_valid() && document.is_object_entry(node));
+            TEST_EXPECT(ctx, document.value_type(node) == item.type);
+            TEST_EXPECT(ctx, !document.name(node).empty() && document.name(node).length() == 0u);
+            TEST_EXPECT(ctx, !document.object_child(document.root(), CStringView{}).is_valid());
+            TEST_EXPECT(ctx, write(ctx, document, EDocumentWriteMode::strict_json) == std::string("{\"\":") + item.source + "}");
+            CBakedDocumentBlock block;
+            TEST_EXPECT(ctx, document_translation::bake(document, block));
+            CLiveDocument promoted;
+            TEST_EXPECT(ctx, document_translation::promote(block.document(), promoted));
+            const CNodeKey copy = promoted.object_child(promoted.root(), CStringView{ "" });
+            TEST_EXPECT(ctx, copy.is_valid() && promoted.is_object_entry(copy) && promoted.value_type(copy) == item.type);
+            TEST_EXPECT(ctx, promoted.name(copy).length() == 0u && !promoted.name(copy).empty());
+        }
+    }
+    const auto nested = parse("{\"a\":[{\"\":\"line\nbreak\"}]}", document);
+    TEST_EXPECT(ctx, nested.succeeded());
+    TEST_EXPECT(ctx, nested.findings == (EDocumentFinding::empty_member_name |
+        EDocumentFinding::raw_quoted_line_breaks | EDocumentFinding::singleton_normalization));
+    const CNodeKey child = document.first_child(document.object_child(document.root(), CStringView{ "a" }));
+    TEST_EXPECT(ctx, document.is_object_entry(child) && !document.name(child).empty() && document.name(child).length() == 0u);
+    TEST_EXPECT(ctx, document.string_value(child) == CStringView{ "line\nbreak" } && document.suppresses_newline_escaping(child));
+    TEST_EXPECT(ctx, write(ctx, document) == "{\"a\":[{\"\":\"line\nbreak\"}]}");
+}
+
+static void test_newline_metadata(TTestContext& ctx)
+{
+    CLiveDocument document;
+    const auto report = parse("{\"literal\":\"a\nb\",\"escaped\":\"a\\nb\",\"mixed\":'a\nb\\nc',\"plain\":\"\\\\n\",\"unquoted\":a\\nb}", document);
+    TEST_EXPECT(ctx, report.succeeded());
+    TEST_EXPECT(ctx, report.findings == (EDocumentFinding::raw_quoted_line_breaks |
+        EDocumentFinding::single_quotes | EDocumentFinding::unquoted_strings));
+    const CNodeKey literal = member(document, document.root(), CStringView{ "literal" });
+    const CNodeKey escaped = member(document, document.root(), CStringView{ "escaped" });
+    const CNodeKey unquoted = member(document, document.root(), CStringView{ "unquoted" });
+    TEST_EXPECT(ctx, document.string_value_id(literal) == document.string_value_id(escaped));
+    TEST_EXPECT(ctx, document.string_value_id(literal) == document.string_value_id(unquoted));
+    TEST_EXPECT(ctx, document.suppresses_newline_escaping(literal));
+    TEST_EXPECT(ctx, !document.suppresses_newline_escaping(escaped) && !document.suppresses_newline_escaping(unquoted));
+    TEST_EXPECT(ctx, document.suppresses_newline_escaping(member(document, document.root(), CStringView{ "mixed" })));
+    TEST_EXPECT(ctx, !document.suppresses_newline_escaping(member(document, document.root(), CStringView{ "plain" })));
+    CBakedDocumentBlock block;
+    TEST_EXPECT(ctx, document_translation::bake(document, block));
+    CLiveDocument promoted;
+    TEST_EXPECT(ctx, document_translation::promote(block.document(), promoted));
+    TEST_EXPECT(ctx, promoted.suppresses_newline_escaping(member(promoted, promoted.root(), CStringView{ "literal" })));
+    TEST_EXPECT(ctx, !promoted.suppresses_newline_escaping(member(promoted, promoted.root(), CStringView{ "escaped" })));
+    const std::string strict = write(ctx, document, EDocumentWriteMode::strict_json);
+    TEST_EXPECT(ctx, strict == "{\"literal\":\"a\\nb\",\"escaped\":\"a\\nb\",\"mixed\":\"a\\nb\\nc\",\"plain\":\"\\\\n\",\"unquoted\":\"a\\nb\"}");
+    CLiveDocument reparsed;
+    TEST_EXPECT(ctx, parse(strict, reparsed).succeeded());
+    TEST_EXPECT(ctx, !reparsed.suppresses_newline_escaping(member(reparsed, reparsed.root(), CStringView{ "literal" })));
+    TEST_EXPECT(ctx, document.suppresses_newline_escaping(literal));
+    const std::string morphic = write(ctx, promoted);
+    TEST_EXPECT(ctx, morphic == "{\"literal\":\"a\nb\",\"escaped\":\"a\\nb\",\"mixed\":\"a\nb\nc\",\"plain\":\"\\\\n\",\"unquoted\":\"a\\nb\"}");
+    TEST_EXPECT(ctx, parse(morphic, reparsed).succeeded());
+    TEST_EXPECT(ctx, reparsed.suppresses_newline_escaping(member(reparsed, reparsed.root(), CStringView{ "literal" })));
+    TEST_EXPECT(ctx, !reparsed.suppresses_newline_escaping(member(reparsed, reparsed.root(), CStringView{ "escaped" })));
+
+    const char* const breaks[]{ "\n", "\r", "\r\n", "\n\r", "\v", "\f", "\xc2\x85", "\xe2\x80\xa8", "\xe2\x80\xa9" };
+    for (const char* line_break : breaks)
+    {
+        const std::string source = std::string("{\"s\":\"a") + line_break + "b\"}";
+        const auto ingested = document_parser::ingest(CStringView{ source.data(), source.size() }, document);
+        TEST_EXPECT(ctx, ingested.succeeded());
+        const CNodeKey value = document.first_child(document.root());
+        TEST_EXPECT(ctx, document.string_value(value) == CStringView{ "a\nb" } && document.suppresses_newline_escaping(value));
+        TEST_EXPECT(ctx, (ingested.findings & document_finding_bit(EDocumentFinding::raw_quoted_line_breaks)) != 0u);
+
+        const std::string invalid = std::string("{\"a") + line_break + "b\":1}";
+        const auto failed = document_parser::ingest(CStringView{ invalid.data(), invalid.size() }, document);
+        TEST_EXPECT(ctx, failed.status == EDocumentParseStatus::structural_failure);
+        TEST_EXPECT(ctx, failed.structure.syntax_error == document_text::ESyntaxError::newline_in_name);
+        TEST_EXPECT(ctx, !failed.parser_examined && !failed.construction_completed);
+        TEST_EXPECT(ctx, document.first_child(document.root()) == value && document.suppresses_newline_escaping(value));
+    }
 }
 
 static void test_integer_metadata(TTestContext& ctx)
@@ -547,7 +647,9 @@ static void test_failure_publication(TTestContext& ctx)
         { "n:1e99999", EDocumentParseStatus::numeric_out_of_range, 2u, true },
         { "n:1e-99999", EDocumentParseStatus::numeric_out_of_range, 2u, true },
         { "good:1,n:0x10000000000000000", EDocumentParseStatus::numeric_out_of_range, 9u, true },
-        { "good:1,'':2", EDocumentParseStatus::empty_property_name, 7u, true },
+        { "good:1,'':", EDocumentParseStatus::structural_failure, 10u, false },
+        { "{\"a\\u2028b\":1}", EDocumentParseStatus::structural_failure, 3u, false },
+        { "a\\nb:1", EDocumentParseStatus::structural_failure, 1u, false },
         { "$morphic:{v:1,type:'recovered-array',values:[]}", EDocumentParseStatus::invalid_root_value, 0u, true },
         { "'\\u0024morphic':null", EDocumentParseStatus::invalid_root_value, 0u, true } };
     for (const auto& item : cases)
@@ -1004,7 +1106,7 @@ static void test_depth_and_allocation(TTestContext& ctx)
     CLiveDocument destination;
     TEST_EXPECT(ctx, parse("keep:7", destination).succeeded());
     const CNodeKey keep = destination.first_child(destination.root());
-    const std::string text = "u\\u0020name:unquoted\\u0020value,'n\\u0000':'\\u0000\\u00e9',a:[{s:'\\uD834\\uDD1E'},+0x80,{},[],{d:1,d:2}],"
+    const std::string text = "'':'literal\nbreak',u\\u0020name:unquoted\\u0020value,'n\\u0000':'\\u0000\\u00e9',a:[{s:'\\uD834\\uDD1E'},+0x80,{},[],{d:1,d:2}],"
         "r:{$morphic:{values:[{n:1},[{a:2}]," + recovery("false") + "],type:'recovered-\\u0061rray',v:1}},"
         "r:{x:1,x:2},r:" + recovery("") + ",$$morphic:0,'\\u0024$morphic':1,b:'last'";
     bool completed = false;
@@ -1139,6 +1241,8 @@ int run_document_parser_tests()
     document_parser_tests::test_construction_and_features(ctx);
     document_parser_tests::test_unquoted_strings(ctx);
     document_parser_tests::test_strings_and_ingestion(ctx);
+    document_parser_tests::test_empty_names(ctx);
+    document_parser_tests::test_newline_metadata(ctx);
     document_parser_tests::test_integer_metadata(ctx);
     document_parser_tests::test_floats(ctx);
     document_parser_tests::test_failure_publication(ctx);
