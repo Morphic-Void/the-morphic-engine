@@ -4,7 +4,7 @@ License: MIT (see LICENSE file in repository root)
 File:   revised_data_model.md
 Author: Ritchie Brannan
 Drafting and editorial assistance: OpenAI Codex
-Date:   11 Sep 2026
+Date:   12 Sep 2026
 
 # Data-model semantic specification
 
@@ -17,10 +17,11 @@ ownership rules. Requirements expressed with **must**, **must not** and
 **only** are normative.
 
 This records the implemented baseline, including the completed and reviewed
-stage-1 linter and shared diagnostics. The remaining parser/model/writer and
-caller-policy requirements are agreed in the
+stage-1 linter and shared diagnostics and the first stage-2 model infrastructure
+slice: native empty names, root kinds, newline metadata and collision extension.
+The remaining parser and caller-policy requirements are agreed in the
 [refactor specification](../backlog/parser_refactoring_specification.md) and
-await stage-2 implementation. The public ownership-transfer boundary remains
+are being implemented in stage 2. The public ownership-transfer boundary remains
 under review in the [consolidation plan](../backlog/consolidation_pass.md).
 The current behaviour specified here changes as each replacement is implemented.
 
@@ -47,8 +48,8 @@ independent value.
 An **owner** is the value node which owns an aggregate. An aggregate has exactly
 one owner.
 
-A **named value** has a non-empty property name. Its object-entry state is
-derived from that name. An **anonymous value** has the canonical empty name.
+A **named value** has its name-presence flag set. Its property name may be empty.
+An **anonymous value** has that flag clear and canonical empty name ID zero.
 
 Every named value is an object entry. If it is not already within an object,
 an anonymous containing object is implied. This rule is independent of payload
@@ -90,8 +91,8 @@ The following invariants apply:
 - The structure is a tree. Attachment must not introduce sharing or a cycle.
 - An aggregate's name is always the canonical empty name. The owner's name is
   authoritative.
-- Object-entry state is derived from a value's non-empty name and is not an
-  independent semantic property.
+- Object-entry state is determined by name presence independently of name ID
+  or length. Aggregate records never have name presence.
 
 The live representation may use one role-dependent physical node type for
 values and aggregates. Public operations expose and accept value keys only.
@@ -111,9 +112,12 @@ The root is not replaced, detached or destroyed by ordinary callers. Reset
 owns its lifecycle. Initialization must establish the complete root or leave
 the document uninitialized.
 
-Erasing the root through either `erase` or `erase_payload` clears its
-descendants and restores the initial root object; it does not leave an empty
-root value.
+`set_root_type` changes an empty root between object and array, preserving its
+key and aggregate. A non-empty root rejects the operation. Detached values and
+interned strings do not count as root contents. Erasing the root through either
+`erase` or `erase_payload` clears descendants while preserving its container
+kind. Reset restores the default object root. Baking, validation, promotion and
+writing preserve the selected root kind.
 
 ## Names and strings
 
@@ -124,8 +128,24 @@ ID zero is the valid canonical empty string in each live domain. Baked string
 index zero likewise denotes a physically NUL-terminated empty string. Invalid
 IDs are distinct from zero.
 
-A non-empty name makes a value named and eligible for object attachment. An
-empty name makes it anonymous. Empty JSON property names are unsupported.
+Name presence makes a value eligible for object attachment. A present empty
+`CStringView` creates an empty-named entry; an absent view creates an anonymous
+value. Both use name ID zero. `name(value)` returns an absent view for an
+anonymous value and a present empty view for an empty-named entry. Canonical
+empty string queries also return present empty views without allocating a
+synthetic table entry. `$morphic-empty` is ordinary non-empty user text.
+
+`set_name` preserves the payload and position, rejects collisions and enforces
+the destination's naming rules. `object_child` accepts either a name ID or
+view; ID zero and a present empty view find the empty-named child, while an
+absent view cannot select it. Detached values can be renamed and reattached
+through the ordinary operations. Payload-only moves retain the target's name
+and presence.
+
+Names cannot contain LF, CR, VT, FF, NEL, LS or PS. Direct admission, renaming
+and checked baked validation enforce the rule. Parser support for native empty
+names and structural newline diagnostics is pending the grammar migration;
+the current parser entry points retain the initial grammar described below.
 
 String admission is length-aware and canonicalizes logical U+0000:
 
@@ -146,6 +166,14 @@ The live document exposes each string domain's ID at a requested lexical rank.
 Rank zero is the canonical empty ID; an unavailable rank is invalid. These
 observations permit deterministic public-only baking and serialization without
 exposing the underlying stable stores.
+
+Each string value independently carries newline-escaping suppression, queried
+by `suppresses_newline_escaping` and changed by
+`set_newline_escaping_suppressed`. Non-string values reject this mutation.
+The setting defaults to false, transfers with the payload and is cleared on
+payload erasure. Baking, promotion and whole-document moves preserve it even
+when differently configured values share the same interned text. Automatic
+selection from literal source breaks remains part of the parser migration.
 
 ## Numeric values
 
@@ -244,6 +272,26 @@ These operations may be composed for ordinary transfer, duplicate recovery,
 parser construction and promotion. They do not imply specialised recovery
 privileges.
 
+## Explicit collision extension
+
+`extend_object_child(object, candidate)` accepts a detached named value and
+returns the retained object member on success. With no collision it performs
+ordinary insertion and returns the candidate. On collision it preserves the
+existing member's key, name and position, consumes the candidate shell and
+combines their payloads in encounter order:
+
+- a non-array receiver becomes an ordinary array containing its old payload
+  followed by the incoming payload;
+- an array receiver appends an incoming non-array payload; and
+- two arrays become the two complete children of a new ordinary array.
+
+No children are spliced or regrouped. Empty names collide normally. Empty live
+placeholders remain empty children until baking substitutes null. Payload
+metadata follows each payload. Failure preserves both inputs and their topology;
+all required allocation precedes mutation. Ordinary insertion and renaming
+continue to reject collisions. The parser will adopt this operation when its
+existing recovery interpretation is retired in the next migration slice.
+
 ## Recovered arrays
 
 A recovered array preserves an ordered set of anonymous competing values. It
@@ -275,6 +323,14 @@ prohibit mutation, baking, promotion or writing.
 The document must retain allocation accounting needed by the framework,
 including memory token, allocation count and allocation size totals. This is
 separate from tree, content and string-reference accounting.
+
+Live and baked values share a 16-bit flag encoding for integer metadata,
+name presence and per-string newline suppression. Live nodes decode integer
+metadata on demand rather than storing a second representation. Baking copies
+the shared flags and adds sibling-position bits; promotion removes those bits
+because live topology is held in links. Live nodes remain 40 bytes with explicit
+reserved storage, and baked values remain 32 bytes. The physical encoding is
+specified in [the baked format](baked_document_format.md).
 
 An explicit integrity check walks established structure and verifies at least:
 
@@ -432,8 +488,9 @@ history.
 
 Stage 1 of the [refactor specification](../backlog/parser_refactoring_specification.md)
 has completed implementation and review of the linter and shared locations.
-The remaining parser/model/writer migration and acceptance policy await explicit
-progression to stage 2. The parser is currently always relaxed. Its stages are
+Stage 2 has begun with the model infrastructure described above. The remaining
+parser grammar, findings, acceptance policy and recovery retirement await their
+implementation slice. The parser is currently always relaxed. Its stages are
 the linter, a structural-integrity
 check, and relaxed document parsing. There is no separate strict parser.
 Reports identify the relaxed features required for acceptance and the
@@ -648,6 +705,14 @@ Both modes quote names and strings. ASCII-only escaping is an independent
 option for either mode and escapes every non-ASCII scalar, using surrogate
 pairs where necessary. Finite floats use shortest-round-trip output, retain
 `-0.0` and contain a decimal point or exponent. Writing is iterative.
+
+Every written newline normalizes to LF, recognizing CRLF and LFCR as compound
+breaks and also covering VT, FF, NEL, LS and PS. Layout and trailing newlines
+use literal LF; selectable CRLF formatting has been removed. Within string
+values, the default emits `\n`. Morphic mode emits literal LF when that value
+suppresses newline escaping; strict JSON always emits `\n`. Other escaping
+rules remain in force. Writing changes neither stored content nor metadata;
+text round trips compare newline-normalized content.
 
 ### Named entries and anonymous objects
 

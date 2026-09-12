@@ -4,14 +4,14 @@ License: MIT (see LICENSE file in repository root)
 File:   parser_refactoring_specification.md
 Author: Ritchie Brannan
 Drafting and editorial assistance: OpenAI Codex
-Date:   11 Sep 2026
+Date:   12 Sep 2026
 
 # Linter, structural check and parser refactoring specification
 
 Status: reviewed specification; stage 1 (linter and shared diagnostics) is
-implemented, validated and reviewed as of 11 September 2026. Stage 2 (the
-remaining parser/model/writer and acceptance-policy
-migration) has not begun and awaits explicit progression instruction. Section 9
+implemented, validated and reviewed as of 11 September 2026. Stage 2 began on
+12 September with explicit progression instruction. The first model
+infrastructure slice is implemented, validated and reviewed. Section 9
 records the completed scope and remaining review boundaries. Pause before
 commits for review.
 
@@ -42,9 +42,9 @@ the affected scope to live root construction/clearing, baking, baked validation,
 promotion and writing where they currently assume an object root. Per-string
 metadata controlling newline escaping also expands the live/baked model,
 baking, promotion and writer scope. Review compatibility for both changes.
-Live name-table initialization must also prepopulate canonical identifier strings
-with fixed name IDs. Replace recovered arrays with ordinary arrays through a
-separate public collision-extension operation. Retire the old recovery protocol
+Live and baked values must carry name presence independently of name-string
+length, allowing native empty member names. Replace recovered arrays with
+ordinary arrays through a separate public collision-extension operation. Retire the old recovery protocol
 and its compatibility handling; it has no consumers beyond the existing tests.
 Other baked format and writer behaviour remains outside scope except for
 regression checks.
@@ -117,11 +117,12 @@ regression checks.
   Empty/whitespace-only input produces an empty object root. Comment-only input
   can also produce an empty object root, subject to comment policy. Root erasure
   preserves its type; document reset restores an object root.
-- Prepopulate the live document's name string table with the canonical identifier
-  strings in a deterministic order, giving each a fixed name ID across live
-  documents. `$morphic-empty` is the canonical replacement for a quoted empty
-  member name. This is the only required prepopulated identifier. It always exists
-  in a live document but need not appear in baked output if unreferenced.
+- Preserve explicitly quoted empty names as empty strings. Store a name-presence
+  flag on live and baked values independently of the name-string ID: an empty
+  name is an object entry when the flag is set, and an anonymous value has no
+  name. No synthetic replacement identifier or special prepopulation is required.
+  Missing names in object entries and missing values remain structural errors;
+  explicitly quoted empty strings are valid in both positions.
 - Normal insertion continues to reject name collisions. Provide a separate public
   operation for array extension on a name collision, usable by both the parser
   and ordinary live-document callers. The direction is ordinary arrays without
@@ -178,9 +179,10 @@ Encoding and acceptance rules:
 
 The conservative default is not an unmodified JSON validator. In addition to its
 explicit encoding/numeric allowances, apply the agreed document rules: empty
-input produces an object, scalar roots adapt to arrays, quoted empty names are
-replaced, and newline-bearing names are prohibited. Duplicate-name extension is
-explicitly classified as relaxed even though JSON grammar can express duplicate
+input produces an object, scalar roots adapt to arrays, and newline-bearing
+names are prohibited. Quoted empty names are preserved as ordinary JSON names.
+Duplicate-name extension is explicitly classified as relaxed even though JSON
+grammar can express duplicate
 members. Document these behaviours independently of the syntax-feature mask.
 
 The agreed default allows ordinary UTF-8 (including ASCII), CP1252 and the
@@ -247,9 +249,9 @@ continues to accumulate its existing statistics alongside presence findings.
 | Source encoding and linter observations | Non-ASCII UTF-8 used; modified-NUL form used; CESU-8 supplementary pair normalized; CP1252 decoding adopted; literal source NUL present; leading BOM present/stripped; terminal source zeros stripped; encountered and normalized line-ending forms; undefined CP1252 byte failure; existing CP1252 supporting/counter-evidence and relevant UTF decoder findings. |
 | Relaxed syntax | Comments; unquoted names; unquoted string values; trailing commas; raw line breaks in quoted strings; other raw quoted controls apart from the established logical-NUL case; name-collision extension; non-empty implicit/unbraced root object; implicit array-body syntax where the source contains more than one top-level value. |
 | Morphic extensions | Single-quoted strings/names; explicit positive numeric sign; hexadecimal notation; binary notation; alternate `#` hexadecimal prefix. Keep all Morphic feature bits together. |
-| Semantic observations | Implicit array root constructed, including scalar-root adaptation; quoted empty name replaced; redundant singleton normalization; logical NUL in decoded names/values. Keep these distinct from source spelling and structural corruption. |
+| Semantic observations | Implicit array root constructed, including scalar-root adaptation; empty member name encountered; redundant singleton normalization; logical NUL in decoded names/values. Empty names are ordinary JSON, not a transformation or extension. Keep observations distinct from source spelling and structural corruption. |
 | Structural errors | Unexpected character; unterminated comment/string; invalid escape/surrogate pair; forbidden newline in a name; missing name/colon/value/separator; mismatched delimiter; unexpected end; trailing content. Malformed numeric-looking candidates fall back to strings rather than producing a numeric syntax error. |
-| Construction failures | Numeric range failure; invalid root value; other construction rejection. Quoted empty names use the replacement rule below rather than the former empty-name rejection. |
+| Construction failures | Numeric range failure; invalid root value; other construction rejection. A quoted empty name is valid and must not cause empty-name rejection. |
 | Resource and invocation failures | Invalid input view; allocation failure; storage/input limits; internal error. |
 
 Specific statuses or bounded auxiliary evidence may accompany masks when that
@@ -637,38 +639,66 @@ non-newline control values admitted through valid JSON escapes remain subject
 to the existing canonical string admission rules.
 [RFC 8259, sections 4 and 7](https://www.rfc-editor.org/rfc/rfc8259#section-7)
 
-An unquoted empty name is a missing name and is a structural error, for example
-`{:1}`. A quoted empty name is recognized and sets an empty-name-replaced
-presence flag. Represent it using the canonical non-empty name `$morphic-empty`.
-This applies to both permitted quote modes. Do not add native empty-name storage
-to the live model solely for this input case.
+An absent name where an object member requires one is a structural error, for
+example `{:1}`. An explicitly quoted empty name is present and is stored as the
+empty string, without substitution. This applies to both permitted quote modes;
+single quotes retain their separate syntax finding. An empty double-quoted name
+is ordinary JSON and requires no Morphic or relaxed permission. Record an
+empty-name-encountered observation, not a replacement or extension finding.
 
-Prepopulate each initialized live name table with `$morphic-empty` at a fixed
-nonzero name ID. Preserve
-ID zero's existing anonymous/empty-name meaning; `$morphic-empty` is a distinct
-non-empty name with a fixed nonzero ID. This name-table requirement does not
-prepopulate the separate string-value domain or turn identifiers into object
-members. Root conversion requires an empty root; prepopulated names and detached
-nodes are not root contents and do not make it non-empty. Initialization must
-establish both the root and required name entry or fail without publishing a
-partially initialized document.
+A missing object-entry value is also a structural error. An explicitly quoted
+empty string is a complete string value, distinct from a missing value, a live
+empty placeholder and `null`.
 
-Initialization, reset/reinitialization, copying and promotion must establish
-the same fixed live IDs before admitting arbitrary names. `$morphic-empty` is
-the only required canonical identifier; do not retain historical recovery
-protocol names as prepopulated identifiers. Baked documents can omit it when
-unreferenced and need not preserve its live ID. Promotion restores the fixed
-live-table entry even when it was absent from the baked source.
+| Input | Result |
+| --- | --- |
+| `{"":1}` | Object entry with a present empty name and numeric value |
+| `{"name":""}` | Object entry with a non-empty name and empty string value |
+| `{"":""}` | Present empty name and empty string value |
+| `{:1}` | Structural failure: missing name |
+| `{"name":}` | Structural failure: missing value |
+| `{"":}` | Structural failure: missing value, despite the valid empty name |
 
-The replacement participates in ordinary object-member collision handling.
-Multiple empty names, and an explicit name equal to the replacement string,
-collide in the same way as any other repeated name, preserving the established
-encounter order and the collision-extension behaviour below. Do not synthesize
-unique suffixes or
-give the replacement privileged collision semantics. A replaced empty name is
-a semantic observation, not a structural defect or proof of a non-JSON source
-feature. Replacement does not by itself provide reversible original-name
-metadata for later writing.
+Store name presence on each live and baked value independently of its name ID.
+The canonical empty name-string ID remains zero; it no longer determines
+whether the value is anonymous. The name-presence flag determines object-entry
+status for every payload type, including objects and arrays.
+
+| Name present | Name ID | Meaning |
+| --- | --- | --- |
+| No | Canonical empty ID zero | Anonymous value |
+| Yes | Canonical empty ID zero | Object entry named `""` |
+| Yes | Valid non-empty name ID | Object entry with that name |
+
+An absent name with a non-empty ID is invalid. Invalid string IDs retain their
+existing query/failure meaning and are not an alternative absence encoding.
+The root remains anonymous; object children require name presence. Named values
+in arrays, including empty-named values, retain the ordinary implicit-object
+and writer-wrapper rules. Internal aggregate records do not acquire names.
+
+Direct live construction, name assignment and name lookup must distinguish an
+absent `CStringView` from a present zero-length view. A node-name query returns
+an absent view for an anonymous value and a present empty view for an empty-named
+entry. Name-ID queries alone cannot establish name presence; audit consumers
+that currently infer anonymity from ID zero. Object lookup by the canonical
+empty ID finds an empty-named member; lookup with an absent name view must not
+silently select that member.
+
+Preserve name presence and exact name content through insertion, renaming,
+reparenting, copying, baking, checked validation, promotion and writing. Moving
+only a value's payload retains the destination's name and presence, as it does
+for other names. Moving a complete value, including singleton-object unwrapping,
+preserves both. Include the flag in baked layout/version and validity review.
+The writer emits an empty name as `""` in strict JSON and Morphic output.
+
+Repeated empty names collide with each other under the ordinary collision rules
+and retain encounter order. They do not collide with any non-empty name.
+`$morphic-empty` is ordinary user text, with no reserved meaning, special fixed
+ID or prepopulation requirement. No replacement or original-name recovery
+metadata is needed. The former canonical replacement proposal is superseded.
+Initialization, reset and promotion retain ordinary empty-string table support;
+they do not insert synthetic or historical recovery identifiers. Interned names
+and detached nodes are not root contents and do not prevent empty-root conversion.
 
 #### Ordinary arrays and explicit collision extension
 
@@ -708,8 +738,8 @@ Thus `{"x":[1,2],"x":3,"x":[4,5],"x":6}` becomes
 document operations and serialization.
 
 This interpretation of duplicate names is a relaxed parser feature. Set its
-presence flag when a collision occurs, including after canonical empty-name
-replacement. The default acceptance mask excludes it. Process the entire document
+presence flag when a collision occurs, including repeated empty names.
+The default acceptance mask excludes it. Process the entire document
 and report later structural failures before rejecting on this feature policy.
 The explicitly selected public live operation remains usable independently of
 parser policy. The behaviour is intentionally encounter-order dependent; document
@@ -735,7 +765,7 @@ Implementation requirements across the document set:
 Replace recovery-related findings, parser statuses, APIs, writer behaviour and
 tests together. Verify that normal insertion rejects the same
 duplicate accepted by explicit extension and that the parser uses the public
-operation. No implementation or commit is authorized by this specification work.
+operation. Implementation and commit review boundaries are recorded in section 9.
 
 #### Root shape: explicit containers or inferred container bodies
 
@@ -812,14 +842,14 @@ parentless. Programmatic construction defaults to an empty object. Object-to-arr
 and array-to-object conversion are permitted only while the root is empty.
 The parser selects root kind before constructing its contents.
 Root erasure removes its contents while preserving root kind. Document reset
-restores the default object root and the prepopulated live name entry. Do not
+restores the default anonymous object root and ordinary string-table state. Do not
 conflate these operations. A request to change a non-empty root's type fails
 without changing the document.
 
 The current baked format requires an object root and supports the retired
 recovered kind. Revise its validation and format version as needed for array
-roots, per-value string metadata and recovery removal. No legacy recovery
-compatibility is required. Do not silently reinterpret incompatible old records;
+roots, name presence, per-value string metadata and recovery removal. No legacy
+recovery compatibility is required. Do not silently reinterpret incompatible old records;
 exact layout/version choices belong to implementation review.
 
 #### Single-quoted strings and comment boundaries
@@ -955,6 +985,7 @@ whether layout newlines are emitted.
 | `CDocumentParseInterpretations` | Presence findings for supported interpretations, including relaxed collision extension and singleton normalization; retire recovery protocol findings. |
 | `CDocumentParseReport` | Composed findings, processing/acceptance distinction and separate structure-start/failure-point locations. A linter failure copies its location into failure point and leaves structure start unavailable. Preserve destination on failure/rejection. |
 | Live/baked string representation and writer | Per-string metadata to suppress newline escaping; preserve it through baking, validation, promotion and copying, with compatibility review. |
+| Live/baked names, object-entry queries and name lookup | Store name presence independently of the name ID. Preserve native empty names, admit lookup by empty name and retain absent-versus-empty view semantics. Update validation, translation and writing; remove non-empty-ID assumptions. |
 | `CDocumentWriteOptions` / `CDocumentWriteReport` | Retire CRLF selection and obsolete recovery/name-escaping counters; keep remaining writer options and statistics. Strict JSON overrides newline suppression; every emitted break normalizes to LF. |
 
 Audit all production and test consumers of removed fields, including generic
@@ -1059,15 +1090,23 @@ bounded NUL handling and existing codebase style continue to apply.
 - Verify classification before escape decoding: escaped spellings that decode
   to keyword or numeric text remain strings and do not acquire keyword/numeric
   meaning or numeric-extension findings through a second classification.
-- Verify that a missing unquoted name is structural failure, while quoted empty
-  names set the replacement flag and use the fixed name. Cover repeated empty
-  names, an explicit matching replacement name and both collision orders.
-- Verify canonical identifiers, including `$morphic-empty`, have fixed live name
-  IDs regardless of user-name insertion order and after initialization, reset,
-  copying and promotion. Preserve anonymous ID zero and check baked-to-live name
-  remapping; fixed live IDs are not a fixed baked-index requirement.
-  Verify unreferenced `$morphic-empty` can be omitted during baking and is restored
-  on promotion with its fixed live ID.
+- Verify missing names and missing object-entry values are structural failures,
+  while explicit empty quoted strings are accepted in both positions. Cover both
+  quote modes, with empty-name presence observational and only the quote mode
+  contributing a syntax feature. Default acceptance admits `{"":""}`.
+- Verify native empty names across every payload type, direct construction,
+  lookup, insertion, renaming, reparenting, copying, baking, checked validation,
+  promotion and writing. Distinguish absent views from present empty views and
+  anonymous values from empty-named entries sharing name ID zero. Reject invalid
+  flag/ID combinations and named roots. Cover empty-name lookup by view and ID,
+  payload-only moves, named values in arrays and singleton-object unwrapping.
+- Verify repeated empty names use ordinary collision extension and its relaxed
+  finding; normal insertion still rejects duplicates. Empty names and the literal
+  name `$morphic-empty` coexist in either insertion order without a collision.
+  Text round trips preserve empty names. Initialization, reset and promotion
+  introduce no synthetic name entry; keep ordinary canonical empty-string support.
+  Root inference recognizes `"":1` as an implicit object member and a standalone
+  `""` as an empty string value in an implicit singleton array.
 - Verify names reject literal and escape-decoded line endings in every supported
   name syntax. Cover JSON-valid spaces, punctuation, escaped quotes/backslashes
   and non-ASCII names without imposing an identifier alphabet.
@@ -1077,7 +1116,7 @@ bounded NUL handling and existing codebase style continue to apply.
 - Verify object-root construction by default and conversion in both directions
   when the root is empty. Reject either conversion for a non-empty root without
   changing the document.
-  Detached nodes and prepopulated strings do not make an empty root non-empty.
+  Detached nodes and interned strings do not make an empty root non-empty.
 - Cover empty/non-empty explicit object and array roots, implicit object members,
   implicit array bodies, every singleton scalar kind, trivia-aware first-member
   detection, present empty input and the agreed root initialisation/clear behaviour.
@@ -1155,21 +1194,63 @@ matrix above. The [semantic specification](../data_model/revised_data_model.md)
 describes the current behaviour; the [milestone record](../project/completed_milestones.md)
 records this completed slice separately from the first pipeline.
 
-### 9.2 Remaining stage 2, after progression instruction
+### 9.2 Stage 2 progress and remaining work
+
+The first model infrastructure slice is implemented, validated and reviewed:
+
+- Independent name presence in live and baked values supports native empty
+  names, absent/present-empty view queries, lookup and name assignment. Direct
+  name admission and baked validation reject all supported newline forms.
+- Empty roots can switch between object and array; root erasure retains kind
+  and reset restores an object. Baking, promotion and writing preserve root kind.
+- Per-string newline-escaping metadata survives payload moves, baking and
+  promotion independently of interned text. Writing normalizes all breaks to
+  LF, honors suppression in Morphic mode and overrides it in strict JSON.
+- The public `extend_object_child` operation implements ordinary-array collision
+  extension with all allocations prepared before mutation. Ordinary insertion
+  and renaming still reject duplicate names.
+- Baked format version 2 stores all value flags in the 16-bit field at offset
+  26, with a reserved zero byte at offset 24 and the value type at offset 25.
+  Live nodes share this encoding for integer metadata, name presence and newline
+  suppression, so baking and promotion transfer those flags together. Sibling-position bits
+  are added during baking and removed during promotion. Explicit reserved
+  storage keeps live nodes at 40 bytes; baked values remain 32 bytes. Version 1 is
+  rejected. The existing recovery kind remains temporarily available until its
+  parser, writer and test consumers are retired together in the later slice.
+- Allocation-failure coverage exposed an existing overly strict slot-container
+  integrity check. It now accepts backing capacity retained after failed
+  metadata growth while requiring coverage for every metadata slot.
+
+The infrastructure review is complete. Parser support for native
+empty names, root inference, the revised grammar, automatic newline suppression,
+presence findings, late policy acceptance and recovery retirement remain to be
+implemented. The initial parser still uses its existing grammar and recovery
+semantics. These completed model APIs provide the foundation for that migration.
+
+Validation on 12 September: Debug and Release solution builds and ordinary
+test suites passed on x64 and Win32. Coverage includes native empty names across
+payload types, root conversion, baked/promotion round trips, every newline form,
+per-value suppression and allocation failures at each collision-preparation
+boundary. Shared-flag coverage includes every valid integer-metadata combination
+with named and anonymous values, reserved-bit rejection and byte-identical
+bake/promote/rebake results. LiveDocument passed 4,382 checks in Debug and 4,392
+in Release; BakedDocument passed 1,224 and DocumentWriter passed 10,569 in each
+configuration. After the final baked-field ordering and live-node style changes,
+the Debug x64 build and ordinary suites passed again.
+Existing parser, structural, linter and other ordinary suites also passed.
+Policy validation reported zero errors and warnings with the existing negative
+test suppression. Diff, line-ending and documentation-link checks passed.
+
+Remaining implementation sequence:
 
 1. Prepare the remaining public report/options and document API shapes. Complete
    grouped parser findings and caller policy definitions, preserving the source
    findings and shared locations already implemented. Update semantic
    documentation alongside each implemented replacement contract.
-2. Implement the agreed object-or-array root contract across the live and baked
-   model, translation and writing, together with per-string newline-escaping
-   metadata, the fixed live name entry and the public collision-extension operation.
-   Include format review, root-kind, newline and metadata-preservation tests.
-   Review before committing this infrastructure slice.
-3. Refactor the shared lexer and structural check for grouped findings,
+2. Refactor the shared lexer and structural check for grouped findings,
    separate capacity estimates and the agreed superset grammar. Extend the
    implemented location rules to the new grammar. Review before committing.
-4. Refactor parser interpretations, report composition and acceptance/publication;
+3. Refactor parser interpretations, report composition and acceptance/publication;
    use public collision extension and retire recovered-array kinds, protocol
    handling and compatibility across all affected code and tests together.
    Complete end-to-end tests and remove obsolete parser counts. Preserve the
@@ -1178,7 +1259,8 @@ records this completed slice separately from the first pipeline.
 
 Keep intermediate changes buildable. A small coordinated migration is preferable
 to retaining permanent duplicate report APIs. This sequence proposes review
-boundaries for the remaining work, not permission to begin stage 2.
+boundaries for the remaining work. Stage-2 implementation is authorized;
+commits remain subject to review.
 
 ## 10. Decision record and implementation review
 
@@ -1194,7 +1276,7 @@ proposals are not alternative implementation requirements.
 | 4. Coordinates, names and newlines | 1-based output-relative coordinates; both structural locations; no JSON awareness in the linter; no newlines in names; per-value suppression derived only from literal source breaks. Writer normalization is LF-only and strict JSON overrides suppression. Sections 5 and 6 define the details. |
 | 5. Acceptance | Late rejection only. Default accepts ordinary UTF-8, modified NUL, CESU, CP1252 and the specified Morphic numeric forms; excludes relaxed features including collision extension. Scalar-root adaptation is informational. Section 3 and the findings inventory define this separation. |
 | 6. Statistics | Retain linter aggregates; replace parser occurrence counts with presence findings. Useful construction estimates remain separate from public diagnostics. Section 4.3 defines retention. |
-| 7. Names and roots | Fixed live `$morphic-empty` entry, optional unreferenced baked entry; root kind changes only when empty; erasure preserves kind and reset restores an object. Empty input produces an object. Section 6 defines names and root selection. |
+| 7. Names and roots | Native empty names with name presence independent of string ID; no synthetic replacement identifier. Missing object-entry names/values fail; explicit empty strings are valid. Root kind changes only when empty; erasure preserves kind and reset restores an object. Empty input produces an object. Section 6 defines names and root selection. |
 
 Collision extension uses ordinary arrays through a separate public operation;
 normal insertion still rejects duplicates. Process collisions in encounter order
@@ -1205,8 +1287,12 @@ The consistency review makes these consequences explicit:
 
 - Linter and parser locations share one representation. A linter failure uses
   the parser report's failure-point field, with structure start unavailable.
-- Empty roots can change type even when detached nodes or prepopulated strings
+- Empty roots can change type even when detached nodes or interned strings
   exist; those are not root contents.
+- The 12 September name revision supersedes canonical replacement: an empty
+  name is ordinary JSON content, while name presence is independent document
+  metadata. ID zero alone no longer means anonymous. Preserve this distinction
+  across all value types and live/baked transformations.
 - Shared interned bytes do not imply shared suppression metadata. Binary document
   transformations preserve each value's setting; text reparsing derives a new
   setting from the emitted spelling.
@@ -1225,6 +1311,5 @@ Stage 1 has settled the implemented source findings and location APIs. The
 remaining choices must implement the contracts above and remain reviewable;
 they are not unresolved user-facing behaviour questions.
 
-Stage 1 implementation and review are complete. Await Ritchie's explicit
-instruction before beginning stage 2. Pause before each subsequent commit
-for review.
+Stage 1 implementation and review are complete. Stage 2 is authorized and in
+progress. Pause before each subsequent commit for review.

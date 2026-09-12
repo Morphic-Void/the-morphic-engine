@@ -1,6 +1,6 @@
 # Current scope
 
-Updated 11 September 2026. Consolidation precedes schema work.
+Updated 12 September 2026. Consolidation precedes schema work.
 
 The first document pipeline is implemented. Its parser/reporting design and
 the surrounding Host contracts need further work before schema consumers are
@@ -13,8 +13,9 @@ built. Completed implementation does not mean these interfaces are final.
    The [linter/parser specification](parser_refactoring_specification.md) is
    the reviewed behavioural contract. Stage 1, covering the linter and shared
    diagnostics, is implemented, validated and reviewed.
-   The remaining parser/model/writer and acceptance-policy migration is stage 2
-   and awaits explicit progression instruction.
+   Stage 2 is authorized and in progress. Its first model infrastructure slice
+   implements native empty names, root kinds, newline metadata and collision
+   extension and is reviewed and validated. Parser grammar, findings and policy remain.
 2. Develop the remaining Host consolidation in a separate task: module
    lifecycle, asset identity and lifetime, asynchronous operations, aligned
    loading, conditioning and filesystem resolution.

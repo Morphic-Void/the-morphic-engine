@@ -21,7 +21,6 @@
 class CBakedDocument;
 
 enum class EDocumentWriteMode : std::uint8_t { morphic, strict_json };
-enum class EDocumentWriteLineEnding : std::uint8_t { lf, crlf };
 
 struct CDocumentWriteOptions
 {
@@ -29,7 +28,8 @@ struct CDocumentWriteOptions
     bool escape_non_ascii{ false };
     bool pretty_print{ true };
     std::size_t indent_width{ 2u };
-    EDocumentWriteLineEnding line_ending{ EDocumentWriteLineEnding::lf };
+    //  Formatting and string line breaks are normalized to LF. Strict JSON
+    //  always escapes string newlines; Morphic output honors per-value suppression.
     bool trailing_line_ending{ true };
 };
 

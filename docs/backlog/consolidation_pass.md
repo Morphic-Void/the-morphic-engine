@@ -1,6 +1,6 @@
 # Consolidation before schema work
 
-Updated 11 September 2026. Active direction; detailed interfaces remain under
+Updated 12 September 2026. Active direction; detailed interfaces remain under
 discussion. This is the consolidated plan for parser refactoring and the Host
 prerequisites to schema work.
 
@@ -14,7 +14,8 @@ The current code is a baseline to refactor, not an approved final interface.
 
 - Refactor the parser/reporting in the existing parser task. The revised contract
   is agreed and stage 1 is implemented and reviewed. Keep the remaining migration
-  reviewable; stage 2 awaits explicit progression instruction.
+  reviewable; stage 2 began on 12 September following explicit progression
+  instruction. Its first model infrastructure slice is reviewed and validated.
 - Carry most other consolidation into a separate task, using this document as
   the handoff. Establish Host authority and lifetime before dependent services.
 - Add direct persistence checks and the full Executive exercise against those
@@ -34,9 +35,11 @@ consolidated linter state and the source cursor and removed byte-to-string view
 conversion. The specification's progress record identifies the completed scope
 and validation.
 
-Stage 2 remains: grouped parser findings and caller policy, estimate separation,
-the revised grammar and interpretation rules, and the associated live/baked/writer
-changes. It awaits explicit progression instruction. The following describes
+Stage 2 is in progress. Its first slice implements native empty names, root
+kinds, per-string newline metadata and public collision extension across the
+model, translation and writer. Grouped parser findings and caller policy,
+estimate separation, revised grammar and interpretation rules, and recovery
+retirement remain. The following describes
 the full agreed direction, including both completed and remaining work.
 
 The agreed direction is caller-selected feature permissions, grouped parser
@@ -81,13 +84,16 @@ Morphic hexadecimal, binary and explicit-positive numeric forms but excluding
 relaxed syntax. CP1252 and the supported modified-UTF-8 exception are accepted by
 default; undefined CP1252 still fails. Programmatic documents default to an object
 root; changing root type in either direction requires an empty root. Detached
-nodes and prepopulated strings do not count as root contents. Comment-only input can
+nodes and interned strings do not count as root contents. Comment-only input can
 produce an empty object, subject to comment acceptance policy. Empty/whitespace-only
 input produces an empty object. Root erasure preserves its type; reset restores
 an object root.
 
-Prepopulate live name tables with `$morphic-empty`, the only required canonical
-identifier, at a fixed live name ID. Baking may omit it when unreferenced.
+Support native empty member names using a name-presence flag independent of the
+name-string ID in live and baked values. Missing object-entry names or values
+are structural errors; explicit empty quoted strings are valid in either role.
+Preserve absent-versus-empty names through lookup, translation and writing.
+No synthetic replacement name or special identifier prepopulation is required.
 Replace the distinct recovered-array representation with ordinary arrays and a separate
 public collision-extension operation available to the parser and ordinary users.
 Normal insertion still rejects collisions. Array/array collisions create a new
@@ -192,7 +198,8 @@ Retain these coverage goals:
 - Construct a live fixture with every supported node/payload type, repeating
   types in named, anonymous, array and object contexts as needed.
   Include empty placeholders, numeric intent and boundaries, Unicode/NULs,
-  `$morphic-empty`, singleton objects and collision-extension array shapes.
+  empty names and string values, singleton objects and collision-extension
+  array shapes.
 - Bake twice independently and compare complete bytes before transferring
   ownership of one copy. Retain the other as the Executive's reference.
 - Save and reload binary through the Host, returning the agreed identity and a

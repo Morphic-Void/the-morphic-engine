@@ -99,7 +99,7 @@ CBakedValueIndex CBakedDocument::object_child(const CBakedValueIndex object, con
 {
     const SBakedValueRecord* const record = value_record(object);
     if ((record == nullptr) || (record->value_type != EBakedValueType::object) ||
-        !name.is_valid() || name.is_empty() || (name.query_value() >= header()->property_name_reference_count))
+        !name.is_valid() || (name.query_value() >= header()->property_name_reference_count))
     {
         return CBakedValueIndex{};
     }
@@ -162,13 +162,15 @@ bool CBakedDocument::validate_record_encoding(const SBakedValueRecord& value, co
     const std::uint8_t type = static_cast<std::uint8_t>(value.value_type);
     if ((type < static_cast<std::uint8_t>(EBakedValueType::null_value)) ||
         (type > static_cast<std::uint8_t>(EBakedValueType::recovered_array)) ||
-        (value.reserved_16 != 0u) ||
-        (value.reserved_32 != 0u))
+        ((value.value_flags & ~document_value_flags::k_baked_flags) != 0u) ||
+        (((value.value_flags & document_value_flags::k_name_present_flag) == 0u) && (value.property_name_index != 0u)) ||
+        (((value.value_flags & document_value_flags::k_suppress_newline_escaping_flag) != 0u) && (value.value_type != EBakedValueType::string)) ||
+        (value.reserved_8 != 0u) || (value.reserved_32 != 0u))
     {
         return false;
     }
 
-    const std::uint8_t type_flags = value.value_flags & static_cast<std::uint8_t>(~baked_document_format::k_sibling_position_flags);
+    const std::uint16_t type_flags = value.value_flags & document_value_flags::k_integer_metadata_flags;
     if (value_type_is_container(value.value_type))
     {
         return (value.payload_bits == 0u) && (type_flags == 0u) &&
@@ -229,6 +231,14 @@ bool CBakedDocument::validate(const std::uint8_t* const bytes, const std::size_t
     const std::uint32_t value_count = candidate_header->value_count;
     const std::uint32_t property_name_count = candidate_header->property_name_reference_count;
     const std::uint32_t string_value_count = candidate_header->string_value_reference_count;
+    const SBakedStringReference* const names = reinterpret_cast<const SBakedStringReference*>(bytes + layout.property_name_references_offset);
+    for (std::uint32_t index = 0u; index < property_name_count; ++index)
+    {
+        if (utf8_string::contains_line_break(bytes + layout.property_name_bytes_offset + names[index].offset, names[index].length))
+        {
+            return false;
+        }
+    }
     const std::size_t mark_count = std::max(property_name_count, string_value_count);
     TPodVector<std::uint32_t> marks;
     if (!marks.resize(mark_count))
@@ -246,10 +256,11 @@ bool CBakedDocument::validate(const std::uint8_t* const bytes, const std::size_t
         if (!validate_record_encoding(value, string_value_count) ||
             (value.property_name_index >= property_name_count) ||
             ((index == 0u) &&
-                ((value.value_type != EBakedValueType::object) ||
+                (((value.value_type != EBakedValueType::object) && (value.value_type != EBakedValueType::array)) ||
                     (value.parent_index != baked_document_format::k_invalid_index) ||
                     (value.property_name_index != 0u) ||
-                    ((value.value_flags & baked_document_format::k_sibling_position_flags) != 0u))) ||
+                    ((value.value_flags & document_value_flags::k_name_present_flag) != 0u) ||
+                    ((value.value_flags & document_value_flags::k_sibling_position_flags) != 0u))) ||
             ((index != 0u) && (value.parent_index >= index)))
         {
             return false;
@@ -287,13 +298,13 @@ bool CBakedDocument::validate(const std::uint8_t* const bytes, const std::size_t
         for (std::uint32_t child_index = container.first_child_index; child_index < static_cast<std::uint32_t>(range_end); ++child_index)
         {
             const SBakedValueRecord& child = records[child_index];
-            const std::uint8_t expected_position_flags =
-                ((child_index == container.first_child_index) ? baked_document_format::k_first_sibling_flag : 0u) |
-                (((child_index + 1u) == range_end) ? baked_document_format::k_last_sibling_flag : 0u);
+            const std::uint16_t expected_position_flags =
+                ((child_index == container.first_child_index) ? document_value_flags::k_first_sibling_flag : 0u) |
+                (((child_index + 1u) == range_end) ? document_value_flags::k_last_sibling_flag : 0u);
             if ((child.parent_index != index) ||
-                ((child.value_flags & baked_document_format::k_sibling_position_flags) != expected_position_flags) ||
-                ((container.value_type == EBakedValueType::object) && ((child.property_name_index == 0u) || (marks[child.property_name_index] == object_stamp))) ||
-                ((container.value_type == EBakedValueType::recovered_array) && (child.property_name_index != 0u)))
+                ((child.value_flags & document_value_flags::k_sibling_position_flags) != expected_position_flags) ||
+                ((container.value_type == EBakedValueType::object) && (((child.value_flags & document_value_flags::k_name_present_flag) == 0u) || (marks[child.property_name_index] == object_stamp))) ||
+                ((container.value_type == EBakedValueType::recovered_array) && ((child.value_flags & document_value_flags::k_name_present_flag) != 0u)))
             {
                 return false;
             }
@@ -373,7 +384,7 @@ bool CBakedDocument::validate_string_table(
 bool CBakedDocument::validate_integer(const SBakedValueRecord& value) noexcept
 {
     CIntegerMetadata metadata;
-    if (!decode_integer_metadata(value.value_flags & baked_document_format::k_integer_metadata_flags, metadata))
+    if (!document_value_flags::decode_integer_metadata(value.value_flags & document_value_flags::k_integer_metadata_flags, metadata))
     {
         return false;
     }
@@ -384,7 +395,7 @@ bool CBakedDocument::validate_integer(const SBakedValueRecord& value) noexcept
 
 CPropertyNameId CBakedDocument::find_property_name_id(const CStringView& name) const noexcept
 {
-    if (!is_ready() || (name.string() == nullptr) || (name.length() == 0u))
+    if (!is_ready() || (name.string() == nullptr))
     {
         return CPropertyNameId{};
     }
@@ -394,7 +405,7 @@ CPropertyNameId CBakedDocument::find_property_name_id(const CStringView& name) c
         return CPropertyNameId{};
     }
     const SBakedStringReference* const references = reinterpret_cast<const SBakedStringReference*>(m_bytes + layout.property_name_references_offset);
-    std::uint32_t first = 1u;
+    std::uint32_t first = 0u;
     std::uint32_t end = header()->property_name_reference_count;
     while (first < end)
     {

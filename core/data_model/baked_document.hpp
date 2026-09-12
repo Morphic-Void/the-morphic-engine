@@ -80,6 +80,7 @@ public:
     [[nodiscard]] bool contains(const CBakedValueIndex value) const noexcept;
     [[nodiscard]] EBakedValueType value_type(const CBakedValueIndex value) const noexcept;
     [[nodiscard]] bool is_object_entry(const CBakedValueIndex value) const noexcept;
+    [[nodiscard]] bool suppresses_newline_escaping(const CBakedValueIndex value) const noexcept;
     [[nodiscard]] CPropertyNameId name_id(const CBakedValueIndex value) const noexcept;
     [[nodiscard]] CStringView name(const CBakedValueIndex value) const noexcept;
     [[nodiscard]] CPropertyNameId property_name_id_at_rank(const std::uint32_t rank) const noexcept;
@@ -108,6 +109,8 @@ public:
     [[nodiscard]] CStringView string_value(const CBakedValueIndex value) const noexcept;
 
 private:
+    friend class CLiveDocumentPromoter;
+
     struct SLayout
     {
         std::uint32_t values_offset{ 0u };
@@ -127,7 +130,6 @@ private:
         const std::uint32_t string_byte_count) noexcept;
     [[nodiscard]] static bool value_type_is_array(const EBakedValueType type) noexcept;
     [[nodiscard]] static bool value_type_is_container(const EBakedValueType type) noexcept;
-    [[nodiscard]] static bool decode_integer_metadata(const std::uint8_t flags, CIntegerMetadata& metadata) noexcept;
     [[nodiscard]] static bool validate_record_encoding(const SBakedValueRecord& value, const std::uint32_t string_value_count) noexcept;
     [[nodiscard]] static bool validate_integer(const SBakedValueRecord& value) noexcept;
     [[nodiscard]] const SBakedDocumentHeader* header() const noexcept;
@@ -256,7 +258,13 @@ inline EBakedValueType CBakedDocument::value_type(const CBakedValueIndex value) 
 inline bool CBakedDocument::is_object_entry(const CBakedValueIndex value) const noexcept
 {
     const SBakedValueRecord* const record = value_record(value);
-    return (record != nullptr) && (record->property_name_index != 0u);
+    return (record != nullptr) && ((record->value_flags & document_value_flags::k_name_present_flag) != 0u);
+}
+
+inline bool CBakedDocument::suppresses_newline_escaping(const CBakedValueIndex value) const noexcept
+{
+    const SBakedValueRecord* const record = value_record(value);
+    return (record != nullptr) && ((record->value_flags & document_value_flags::k_suppress_newline_escaping_flag) != 0u);
 }
 
 inline CPropertyNameId CBakedDocument::name_id(const CBakedValueIndex value) const noexcept
@@ -267,7 +275,7 @@ inline CPropertyNameId CBakedDocument::name_id(const CBakedValueIndex value) con
 
 inline CStringView CBakedDocument::name(const CBakedValueIndex value) const noexcept
 {
-    return property_name(name_id(value));
+    return is_object_entry(value) ? property_name(name_id(value)) : CStringView{};
 }
 
 inline CPropertyNameId CBakedDocument::property_name_id_at_rank(const std::uint32_t rank) const noexcept
@@ -298,7 +306,7 @@ inline CBakedValueIndex CBakedDocument::previous_sibling(const CBakedValueIndex 
     const SBakedValueRecord* const record = value_record(value);
     return ((record != nullptr) &&
         (record->parent_index != baked_document_format::k_invalid_index) &&
-        ((record->value_flags & baked_document_format::k_first_sibling_flag) == 0u)) ?
+        ((record->value_flags & document_value_flags::k_first_sibling_flag) == 0u)) ?
         CBakedValueIndex{ value.query_value() - 1u } : CBakedValueIndex{};
 }
 
@@ -307,7 +315,7 @@ inline CBakedValueIndex CBakedDocument::next_sibling(const CBakedValueIndex valu
     const SBakedValueRecord* const record = value_record(value);
     return ((record != nullptr) &&
         (record->parent_index != baked_document_format::k_invalid_index) &&
-        ((record->value_flags & baked_document_format::k_last_sibling_flag) == 0u)) ?
+        ((record->value_flags & document_value_flags::k_last_sibling_flag) == 0u)) ?
         CBakedValueIndex{ value.query_value() + 1u } : CBakedValueIndex{};
 }
 
@@ -358,7 +366,7 @@ inline bool CBakedDocument::signed_integer_value(const CBakedValueIndex value, s
     const SBakedValueRecord* const record = value_record(value);
     CIntegerMetadata metadata;
     if ((record == nullptr) || (record->value_type != EBakedValueType::integer) ||
-        !decode_integer_metadata(record->value_flags & baked_document_format::k_integer_metadata_flags, metadata) ||
+        !document_value_flags::decode_integer_metadata(record->value_flags & document_value_flags::k_integer_metadata_flags, metadata) ||
         (metadata.domain != EIntegerDomain::signed_value))
     {
         return false;
@@ -372,7 +380,7 @@ inline bool CBakedDocument::unsigned_integer_value(const CBakedValueIndex value,
     const SBakedValueRecord* const record = value_record(value);
     CIntegerMetadata metadata;
     if ((record == nullptr) || (record->value_type != EBakedValueType::integer) ||
-        !decode_integer_metadata(record->value_flags & baked_document_format::k_integer_metadata_flags, metadata) ||
+        !document_value_flags::decode_integer_metadata(record->value_flags & document_value_flags::k_integer_metadata_flags, metadata) ||
         (metadata.domain != EIntegerDomain::unsigned_value))
     {
         return false;
@@ -385,7 +393,7 @@ inline bool CBakedDocument::integer_metadata(const CBakedValueIndex value, CInte
 {
     const SBakedValueRecord* const record = value_record(value);
     return (record != nullptr) && (record->value_type == EBakedValueType::integer) &&
-        decode_integer_metadata(record->value_flags & baked_document_format::k_integer_metadata_flags, result);
+        document_value_flags::decode_integer_metadata(record->value_flags & document_value_flags::k_integer_metadata_flags, result);
 }
 
 inline bool CBakedDocument::floating_point_value(const CBakedValueIndex value, double& result) const noexcept
@@ -423,25 +431,6 @@ inline bool CBakedDocument::value_type_is_array(const EBakedValueType type) noex
 inline bool CBakedDocument::value_type_is_container(const EBakedValueType type) noexcept
 {
     return value_type_is_array(type) || (type == EBakedValueType::object);
-}
-
-inline bool CBakedDocument::decode_integer_metadata(const std::uint8_t flags, CIntegerMetadata& metadata) noexcept
-{
-    if ((flags & static_cast<std::uint8_t>(~baked_document_format::k_integer_metadata_flags)) != 0u)
-    {
-        return false;
-    }
-    const CIntegerMetadata decoded{
-        ((flags & 0x01u) != 0u) ? EIntegerDomain::unsigned_value : EIntegerDomain::signed_value,
-        static_cast<EIntegerWidth>((flags >> 1u) & 0x03u),
-        static_cast<EIntegerNotation>((flags >> 3u) & 0x03u),
-        ((flags & 0x20u) != 0u) ? EIntegerPrefix::alternate : EIntegerPrefix::standard };
-    if (!live_integer_metadata_is_valid(decoded))
-    {
-        return false;
-    }
-    metadata = decoded;
-    return true;
 }
 
 inline const SBakedDocumentHeader* CBakedDocument::header() const noexcept

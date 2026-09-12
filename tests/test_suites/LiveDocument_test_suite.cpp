@@ -25,6 +25,19 @@
 
 struct SLiveDocumentTestAccess
 {
+    static_assert(offsetof(CLiveNode, m_links) == 0u);
+    static_assert(offsetof(CLiveNode, m_payload_bits) == 16u);
+    static_assert(offsetof(CLiveNode, m_name) == 24u);
+    static_assert(offsetof(CLiveNode, m_child_count) == 28u);
+    static_assert(offsetof(CLiveNode, m_usage) == 32u);
+    static_assert(offsetof(CLiveNode, m_value_flags) == 34u);
+    static_assert(offsetof(CLiveNode, m_reserved_32) == 36u);
+
+    static void set_reserved(CLiveNode& node, const std::uint32_t value) noexcept
+    {
+        node.m_reserved_32 = value;
+    }
+
     [[nodiscard]] static bool append_orphan_property_name(
         CLiveDocument& document, const CStringView& value) noexcept
     {
@@ -268,7 +281,7 @@ void test_initialisation_root_and_empty_domains(TTestContext& ctx)
     TEST_EXPECT(ctx, empty_string_id.is_valid());
     TEST_EXPECT(ctx, empty_string_id.is_empty());
     TEST_EXPECT(ctx, empty_string_id.query_value() == 0u);
-    TEST_EXPECT(ctx, document.string_value(empty_string).string() == nullptr);
+    TEST_EXPECT(ctx, document.string_value(empty_string).string() != nullptr);
     TEST_EXPECT(ctx, document.string_value(empty_string).length() == 0u);
     TEST_EXPECT(ctx, document.value_count() == 1u);
     TEST_EXPECT(ctx, string_analysis(ctx, document).referenced_string_value_count == 0u);
@@ -1885,10 +1898,242 @@ void test_move_reset_and_retained_attribution(TTestContext& ctx)
 
 } // namespace
 
+namespace live_document_phase2_tests
+{
+
+static void test_shared_node_flags(TTestContext& ctx)
+{
+    CLiveDocument document;
+    TEST_EXPECT(ctx, document.initialise());
+    const CPropertyNameId empty_name = document.name_id(document.root());
+    CLiveNode integer;
+    integer.initialise_value(ELiveValueType::integer, live_signed_integer_bits(-1),
+        empty_name, CIntegerMetadata{}, true);
+    TEST_EXPECT(ctx, integer.value_flags() == 0x0100u);
+    TEST_EXPECT(ctx, integer.value_payload_is_valid());
+    for (std::uint16_t bit = 0x0040u; bit != 0u; bit = static_cast<std::uint16_t>(bit << 1u))
+    {
+        if (bit == document_value_flags::k_name_present_flag)
+        {
+            continue;
+        }
+        integer.set_value_flags(0x0100u | bit);
+        TEST_EXPECT(ctx, !integer.value_payload_is_valid());
+    }
+    constexpr std::uint16_t invalid_encodings[]{ 0x0102u, 0x0118u, 0x0120u };
+    for (const std::uint16_t invalid : invalid_encodings)
+    {
+        integer.set_value_flags(invalid);
+        TEST_EXPECT(ctx, !integer.value_payload_is_valid());
+    }
+    integer.set_value_flags(0x0100u);
+    SLiveDocumentTestAccess::set_reserved(integer, 1u);
+    TEST_EXPECT(ctx, !integer.value_payload_is_valid());
+    SLiveDocumentTestAccess::set_reserved(integer, 0u);
+    TEST_EXPECT(ctx, integer.value_payload_is_valid());
+
+    CLiveNode aggregate;
+    aggregate.initialise_aggregate(0, ELiveAggregateKind::object, empty_name);
+    TEST_EXPECT(ctx, aggregate.aggregate_payload_is_valid());
+    for (std::uint16_t bit = 1u; bit != 0u; bit = static_cast<std::uint16_t>(bit << 1u))
+    {
+        aggregate.set_value_flags(bit);
+        TEST_EXPECT(ctx, !aggregate.aggregate_payload_is_valid());
+    }
+    aggregate.set_value_flags(0u);
+    SLiveDocumentTestAccess::set_reserved(aggregate, 1u);
+    TEST_EXPECT(ctx, !aggregate.aggregate_payload_is_valid());
+}
+
+static void test_names_roots_and_metadata(TTestContext& ctx)
+{
+    CLiveDocument document;
+    TEST_EXPECT(ctx, document.initialise());
+    const CStringView empty{ "" };
+    const CNodeKey named = document.create_string(empty, empty);
+    const CNodeKey anonymous = document.create_string(empty);
+    TEST_EXPECT(ctx, document.name_id(named) == document.name_id(anonymous));
+    TEST_EXPECT(ctx, document.name(named).string() != nullptr);
+    TEST_EXPECT(ctx, document.name(anonymous).string() == nullptr);
+    TEST_EXPECT(ctx, document.is_object_entry(named));
+    TEST_EXPECT(ctx, !document.is_object_entry(anonymous));
+    TEST_EXPECT(ctx, document.set_root_type(ELiveValueType::array));
+    TEST_EXPECT(ctx, document.set_root_type(ELiveValueType::object));
+    TEST_EXPECT(ctx, document.append_child(document.root(), named).succeeded());
+    TEST_EXPECT(ctx, document.object_child(document.root(), empty) == named);
+    TEST_EXPECT(ctx, document.object_child(document.root(), document.name_id(named)) == named);
+    TEST_EXPECT(ctx, !document.object_child(document.root(), CStringView{}).is_valid());
+    TEST_EXPECT(ctx, !document.set_root_type(ELiveValueType::array));
+    TEST_EXPECT(ctx, !document.set_name(named, CStringView{}));
+    TEST_EXPECT(ctx, !document.set_name(document.root(), empty));
+    const CNodeKey ordinary = document.create_null(CStringView{ "$morphic-empty" });
+    TEST_EXPECT(ctx, document.append_child(document.root(), ordinary).succeeded());
+    TEST_EXPECT(ctx, !document.set_name(ordinary, empty));
+    TEST_EXPECT(ctx, document.set_name(named, CStringView{ "renamed" }));
+    TEST_EXPECT(ctx, document.set_name(ordinary, empty));
+    TEST_EXPECT(ctx, document.object_child(document.root(), empty) == ordinary);
+    TEST_EXPECT(ctx, document.detach(ordinary));
+    TEST_EXPECT(ctx, document.set_name(ordinary, CStringView{}));
+    TEST_EXPECT(ctx, !document.is_object_entry(ordinary));
+    TEST_EXPECT(ctx, !document.append_child(document.root(), ordinary).succeeded());
+    TEST_EXPECT(ctx, document.set_name(ordinary, empty));
+    TEST_EXPECT(ctx, document.append_child(document.root(), ordinary).succeeded());
+
+    TEST_EXPECT(ctx, document.set_newline_escaping_suppressed(named, true));
+    TEST_EXPECT(ctx, document.suppresses_newline_escaping(named));
+    TEST_EXPECT(ctx, !document.suppresses_newline_escaping(anonymous));
+    const CNodeKey payload = document.detach_payload(named);
+    TEST_EXPECT(ctx, document.suppresses_newline_escaping(payload));
+    TEST_EXPECT(ctx, !document.suppresses_newline_escaping(named));
+    TEST_EXPECT(ctx, document.name(payload).string() == nullptr);
+    TEST_EXPECT(ctx, document.attach_payload(named, payload) == named);
+    TEST_EXPECT(ctx, document.suppresses_newline_escaping(named));
+    TEST_EXPECT(ctx, document.erase_payload(named));
+    TEST_EXPECT(ctx, !document.suppresses_newline_escaping(named));
+    TEST_EXPECT(ctx, !document.set_newline_escaping_suppressed(named, true));
+    TEST_EXPECT(ctx, document.erase(document.root()));
+    TEST_EXPECT(ctx, document.set_root_type(ELiveValueType::array));
+    TEST_EXPECT(ctx, document.append_child(document.root(), anonymous).succeeded());
+    TEST_EXPECT(ctx, document.erase_payload(document.root()));
+    TEST_EXPECT(ctx, document.value_type(document.root()) == ELiveValueType::array);
+    TEST_EXPECT(ctx, !document.set_root_type(ELiveValueType::recovered_array));
+    TEST_EXPECT(ctx, document.check_integrity());
+    TEST_EXPECT(ctx, document.reset());
+    TEST_EXPECT(ctx, document.value_type(document.root()) == ELiveValueType::object);
+    TEST_EXPECT(ctx, !document.property_name_id_at_rank(1u).is_valid());
+
+    const char* const forbidden[]{ "\n", "\r", "\r\n", "\n\r", "\v", "\f", "\xc2\x85", "\xe2\x80\xa8", "\xe2\x80\xa9" };
+    for (const char* const value : forbidden)
+    {
+        TEST_EXPECT(ctx, !document.create_null(CStringView{ value }).is_valid());
+        const CNodeKey candidate = document.create_null(empty);
+        TEST_EXPECT(ctx, !document.set_name(candidate, CStringView{ value }));
+        TEST_EXPECT(ctx, document.name(candidate) == empty);
+        TEST_EXPECT(ctx, document.erase(candidate));
+    }
+    TEST_EXPECT(ctx, document.check_integrity());
+}
+
+static void test_collision_extension(TTestContext& ctx)
+{
+    CLiveDocument document;
+    TEST_EXPECT(ctx, document.initialise());
+    const CStringView name{ "" };
+    const CNodeKey first = document.create_array(name);
+    TEST_EXPECT(ctx, document.append_child(first, document.create_unsigned_integer(1u)).succeeded());
+    TEST_EXPECT(ctx, document.append_child(first, document.create_unsigned_integer(2u)).succeeded());
+    TEST_EXPECT(ctx, document.extend_object_child(document.root(), first) == first);
+    const CNodeKey second = document.create_unsigned_integer(3u, name);
+    TEST_EXPECT(ctx, document.append_child(document.root(), second).rejection == ELiveAttachmentRejection::duplicate_object_name);
+    TEST_EXPECT(ctx, document.extend_object_child(document.root(), second) == first);
+    TEST_EXPECT(ctx, !document.contains(second));
+    const CNodeKey third = document.create_array(name);
+    TEST_EXPECT(ctx, document.append_child(third, document.create_unsigned_integer(4u)).succeeded());
+    TEST_EXPECT(ctx, document.append_child(third, document.create_unsigned_integer(5u)).succeeded());
+    TEST_EXPECT(ctx, document.extend_object_child(document.root(), third) == first);
+    TEST_EXPECT(ctx, document.extend_object_child(document.root(), document.create_unsigned_integer(6u, name)) == first);
+    TEST_EXPECT(ctx, document.child_count(first) == 3u);
+    const CNodeKey left = document.first_child(first);
+    const CNodeKey right = document.next_sibling(left);
+    TEST_EXPECT(ctx, document.value_type(left) == ELiveValueType::array);
+    TEST_EXPECT(ctx, document.child_count(left) == 3u);
+    TEST_EXPECT(ctx, document.child_count(right) == 2u);
+    TEST_EXPECT(ctx, !document.is_object_entry(left) && !document.is_object_entry(right));
+    std::uint64_t value = 0u;
+    TEST_EXPECT(ctx, document.unsigned_integer_value(document.last_child(first), value) && (value == 6u));
+    TEST_EXPECT(ctx, document.object_child(document.root(), name) == first);
+
+    const CNodeKey scalar = document.create_unsigned_integer(7u, CStringView{ "scalar" });
+    TEST_EXPECT(ctx, document.extend_object_child(document.root(), scalar) == scalar);
+    const CNodeKey incoming = document.create_array(CStringView{ "scalar" });
+    TEST_EXPECT(ctx, document.extend_object_child(document.root(), incoming) == scalar);
+    TEST_EXPECT(ctx, document.child_count(scalar) == 2u);
+    TEST_EXPECT(ctx, document.value_type(document.last_child(scalar)) == ELiveValueType::array);
+    const CNodeKey placeholder = document.create_empty(CStringView{ "pending" });
+    TEST_EXPECT(ctx, document.extend_object_child(document.root(), placeholder) == placeholder);
+    TEST_EXPECT(ctx, document.extend_object_child(document.root(), document.create_empty(CStringView{ "pending" })) == placeholder);
+    TEST_EXPECT(ctx, document.child_count(placeholder) == 2u);
+    TEST_EXPECT(ctx, document.value_type(document.first_child(placeholder)) == ELiveValueType::empty);
+    TEST_EXPECT(ctx, document.value_type(document.last_child(placeholder)) == ELiveValueType::empty);
+    const CNodeKey text = document.create_string(CStringView{ "a\nb" }, CStringView{ "pending" });
+    TEST_EXPECT(ctx, document.set_newline_escaping_suppressed(text, true));
+    TEST_EXPECT(ctx, document.extend_object_child(document.root(), text) == placeholder);
+    TEST_EXPECT(ctx, document.suppresses_newline_escaping(document.last_child(placeholder)));
+    TEST_EXPECT(ctx, document.check_integrity());
+}
+
+static void test_collision_failure_atomicity(TTestContext& ctx, const unsigned headroom)
+{
+    bool reached_failure = false;
+    bool reached_success = false;
+    for (std::size_t failure_offset = 0u; failure_offset < 16u; ++failure_offset)
+    {
+        SFailingAllocator fixture;
+        memory::CMemoryAllocator allocator{ &fixture, &allocate_with_failure, &deallocate_with_failure };
+        memory::CMemoryContext context{ allocator };
+        {
+            tests::TMemoryContextScope scope{ &context };
+            CLiveDocument document;
+            TEST_EXPECT(ctx, document.initialise());
+            const CStringView empty{ "" };
+            const CNodeKey receiver = document.create_array(empty);
+            const CNodeKey candidate = document.create_array(empty);
+            TEST_EXPECT(ctx, document.append_child(receiver, document.create_boolean(true)).succeeded());
+            TEST_EXPECT(ctx, document.append_child(candidate, document.create_boolean(false)).succeeded());
+            TEST_EXPECT(ctx, document.append_child(document.root(), receiver).succeeded());
+            const CNodeKey spares[]{ document.create_null(), document.create_null(), document.create_null() };
+            //  Fill the current node capacity so the operation must allocate.
+            fixture.reject_all = true;
+            while (document.create_null().is_valid())
+            {
+            }
+            fixture.reject_all = false;
+            for (unsigned index = 0u; index < headroom; ++index)
+            {
+                TEST_EXPECT(ctx, document.erase(spares[index]));
+            }
+            const std::uint32_t before = SLiveDocumentTestAccess::occupied_node_count(document);
+            fixture.fail_on = fixture.attempt + failure_offset;
+            const CNodeKey result = document.extend_object_child(document.root(), candidate);
+            fixture.fail_on = std::numeric_limits<std::size_t>::max();
+            if (result.is_valid())
+            {
+                reached_success = true;
+                TEST_EXPECT(ctx, result == receiver);
+            }
+            else
+            {
+                reached_failure = true;
+                TEST_EXPECT(ctx, document.is_detached(candidate));
+                TEST_EXPECT(ctx, document.is_object_entry(candidate));
+                TEST_EXPECT(ctx, document.child_count(receiver) == 1u);
+                TEST_EXPECT(ctx, document.child_count(candidate) == 1u);
+                TEST_EXPECT(ctx, SLiveDocumentTestAccess::occupied_node_count(document) == before);
+            }
+            TEST_EXPECT(ctx, document.check_integrity());
+        }
+        TEST_EXPECT(ctx, context.is_attribution_empty());
+        if (reached_success)
+        {
+            break;
+        }
+    }
+    TEST_EXPECT(ctx, reached_failure && reached_success);
+}
+
+}   //  namespace live_document_phase2_tests
+
 int run_live_document_tests()
 {
     TTestContext ctx;
     test_initialisation_root_and_empty_domains(ctx);
+    live_document_phase2_tests::test_names_roots_and_metadata(ctx);
+    live_document_phase2_tests::test_shared_node_flags(ctx);
+    live_document_phase2_tests::test_collision_extension(ctx);
+    for (unsigned headroom = 0u; headroom < 4u; ++headroom)
+    {
+        live_document_phase2_tests::test_collision_failure_atomicity(ctx, headroom);
+    }
     test_detached_creation_and_accessors(ctx);
     test_lexical_string_domain_observers(ctx);
     test_utf8_normalisation_and_rejection(ctx);

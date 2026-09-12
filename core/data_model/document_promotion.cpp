@@ -54,12 +54,23 @@ bool CLiveDocumentPromoter::build() noexcept
     }
 
     m_values[0u].destination = m_destination.root();
+    if (!m_destination.set_root_type(m_source.value_type(m_source.root()) == EBakedValueType::array ?
+        ELiveValueType::array : ELiveValueType::object))
+    {
+        return false;
+    }
     for (std::uint32_t index = 1u; index < m_source.value_count(); ++index)
     {
         SPromotedValue& value = m_values[index];
         value.destination = create_value(value.source);
-        if (!value.destination.is_valid() ||
-            !m_destination.append_child(m_values[value.parent_index].destination, value.destination).succeeded())
+        if (!value.destination.is_valid())
+        {
+            return false;
+        }
+        const SBakedValueRecord* const source = m_source.value_record(value.source);
+        m_destination.value_node(value.destination)->set_value_flags(
+            source->value_flags & document_value_flags::k_live_flags);
+        if (!m_destination.append_child(m_values[value.parent_index].destination, value.destination).succeeded())
         {
             return false;
         }

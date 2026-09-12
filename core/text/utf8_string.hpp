@@ -18,6 +18,11 @@
 namespace utf8_string
 {
 
+//  Complete document newline repertoire. Input is already validated UTF-8.
+//  Returns the byte length of one break, recognizing CRLF/LFCR as a unit.
+[[nodiscard]] std::size_t line_break_size(const std::uint8_t* source, std::size_t size) noexcept;
+[[nodiscard]] bool contains_line_break(const std::uint8_t* source, std::size_t size) noexcept;
+
 enum class ELiteralNulPolicy : std::uint8_t
 {
     reject,

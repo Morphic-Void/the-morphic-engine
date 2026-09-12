@@ -129,16 +129,19 @@ void test_generic_preservation_and_live_nul_storage(TTestContext& ctx)
     CLiveDocument document;
     TEST_EXPECT(ctx, document.initialise());
     const CStringView text{ result.output.data(), result.report.logical_text_byte_size };
-    const CNodeKey value = document.create_string(text, text);
+    TEST_EXPECT(ctx, !document.create_string(text, text).is_valid()); // Names cannot contain line breaks.
+    const CStringView name_text{ text.string(), 3u };
+    const CNodeKey value = document.create_string(text, name_text);
     TEST_EXPECT(ctx, value.is_valid());
     const std::uint8_t stored[]{ 'a', 0xc0u, 0x80u, 0xc0u, 0x80u, '\r', '\n', '\\', 'u', '0', '0', '0', '0' };
     const CStringView stored_view{ stored, sizeof(stored) };
-    TEST_EXPECT(ctx, document.name(value) == stored_view);
+    const CStringView stored_name{ stored, 5u };
+    TEST_EXPECT(ctx, document.name(value) == stored_name);
     TEST_EXPECT(ctx, document.string_value(value) == stored_view);
-    if ((document.name(value).length() == sizeof(stored)) &&
+    if ((document.name(value).length() == stored_name.length()) &&
         (document.string_value(value).length() == sizeof(stored)))
     {
-        TEST_EXPECT(ctx, document.name(value).string()[sizeof(stored)] == 0u);
+        TEST_EXPECT(ctx, document.name(value).string()[stored_name.length()] == 0u);
         TEST_EXPECT(ctx, document.string_value(value).string()[sizeof(stored)] == 0u);
     }
     TEST_EXPECT(ctx, document.check_integrity());

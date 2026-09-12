@@ -119,26 +119,14 @@ void test_layout_and_options(TTestContext& ctx)
     TEST_EXPECT(ctx, document_translation::bake(live, block));
     const std::string expected = "{\n  \"a\": [\n    {\n      \"b\": true\n    },\n    {},\n    []\n  ]\n}\n";
     expect_text(ctx, document_writer::write(block.document()), expected);
-    std::string windows;
-    for (const char ch : expected)
-    {
-        if (ch == '\n') { windows += '\r'; }
-        windows += ch;
-    }
     CDocumentWriteOptions options;
-    options.line_ending = EDocumentWriteLineEnding::crlf;
-    expect_text(ctx, document_writer::write(block.document(), options), windows);
     options.indent_width = 0u;
-    options.line_ending = EDocumentWriteLineEnding::lf;
     expect_text(ctx, document_writer::write(block.document(), options), "{\n\"a\": [\n{\n\"b\": true\n},\n{},\n[]\n]\n}\n");
     options.indent_width = std::numeric_limits<std::size_t>::max();
     expect_failure(ctx, document_writer::write(block.document(), options), EDocumentWriteStatus::output_exceeds_engine_size_limit);
     options.pretty_print = false;
     expect_text(ctx, document_writer::write(block.document(), options), "{\"a\":[{\"b\":true},{},[]]}\n");
     options.mode = static_cast<EDocumentWriteMode>(255u);
-    expect_failure(ctx, document_writer::write(block.document(), options), EDocumentWriteStatus::invalid_options);
-    options = compact();
-    options.line_ending = static_cast<EDocumentWriteLineEnding>(255u);
     expect_failure(ctx, document_writer::write(block.document(), options), EDocumentWriteStatus::invalid_options);
     expect_failure(ctx, document_writer::write(CBakedDocument{}), EDocumentWriteStatus::source_not_ready);
 }
@@ -209,7 +197,7 @@ void test_strings(TTestContext& ctx)
             options.escape_non_ascii = ascii;
             const auto result = document_writer::write(block.document(), options);
             const std::string escaped_name = ascii ? "n\\u0000\\u00e9" : "n\\u0000\xc3\xa9";
-            std::string escaped_value = "\\u0000\\\"\\\\/\\b\\f\\n\\r\\t\\u0001\\u001f\x7f";
+            std::string escaped_value = "\\u0000\\\"\\\\/\\b\\n\\n\\t\\u0001\\u001f\x7f";
             escaped_value += ascii ? "\\u0080\\u07ff\\u0800\\uffff\\ud800\\udc00\\udbff\\udfff" :
                 "\xc2\x80\xdf\xbf\xe0\xa0\x80\xef\xbf\xbf\xf0\x90\x80\x80\xf4\x8f\xbf\xbf";
             expect_text(ctx, result, "{\"" + escaped_name + "\":\"" + escaped_value + "\",\"empty\":\"\"}");
@@ -399,9 +387,58 @@ void test_depth_and_allocation_failures(TTestContext& ctx)
 
 }
 
+namespace document_writer_phase2_tests
+{
+
+static void test_empty_names_and_newline_metadata(TTestContext& ctx)
+{
+    const char* const breaks[]{ "\n", "\r", "\r\n", "\n\r", "\v", "\f", "\xc2\x85", "\xe2\x80\xa8", "\xe2\x80\xa9" };
+    for (const char* const line_break : breaks)
+    {
+        CLiveDocument live;
+        TEST_EXPECT(ctx, live.initialise());
+        TEST_EXPECT(ctx, live.set_root_type(ELiveValueType::array));
+        const std::string source = std::string("a") + line_break + "b";
+        const CStringView view{ source.data(), source.size() };
+        const CNodeKey plain = live.create_string(view);
+        const CNodeKey suppressed = live.create_string(view, CStringView{ "" });
+        TEST_EXPECT(ctx, live.string_value_id(plain) == live.string_value_id(suppressed));
+        TEST_EXPECT(ctx, live.set_newline_escaping_suppressed(suppressed, true));
+        attach(ctx, live, live.root(), plain);
+        attach(ctx, live, live.root(), suppressed);
+        CBakedDocumentBlock block;
+        TEST_EXPECT(ctx, document_translation::bake(live, block));
+        auto options = compact();
+        options.escape_non_ascii = true;
+        expect_text(ctx, document_writer::write(block.document(), options), "[\"a\\nb\",{\"\":\"a\nb\"}]");
+        options.mode = EDocumentWriteMode::strict_json;
+        expect_text(ctx, document_writer::write(block.document(), options), "[\"a\\nb\",{\"\":\"a\\nb\"}]");
+        TEST_EXPECT(ctx, block.document().suppresses_newline_escaping(block.document().array_at(block.document().root(), 1u)));
+        TEST_EXPECT(ctx, live.string_value(suppressed) == view);
+        CLiveDocument promoted;
+        TEST_EXPECT(ctx, document_translation::promote(block.document(), promoted));
+        CBakedDocumentBlock again;
+        TEST_EXPECT(ctx, document_translation::bake(promoted, again));
+        expect_text(ctx, document_writer::write(again.document(), compact()), "[\"a\\nb\",{\"\":\"a\nb\"}]");
+    }
+    CLiveDocument empty;
+    TEST_EXPECT(ctx, empty.initialise());
+    TEST_EXPECT(ctx, empty.set_root_type(ELiveValueType::array));
+    CBakedDocumentBlock block;
+    TEST_EXPECT(ctx, document_translation::bake(empty, block));
+    expect_text(ctx, document_writer::write(block.document(), compact()), "[]");
+    TEST_EXPECT(ctx, empty.set_root_type(ELiveValueType::object));
+    attach(ctx, empty, empty.root(), empty.create_string(CStringView{ "" }, CStringView{ "" }));
+    TEST_EXPECT(ctx, document_translation::bake(empty, block));
+    expect_text(ctx, document_writer::write(block.document(), compact(EDocumentWriteMode::strict_json)), "{\"\":\"\"}");
+}
+
+}   //  namespace document_writer_phase2_tests
+
 int run_document_writer_tests()
 {
     TTestContext ctx;
+    document_writer_phase2_tests::test_empty_names_and_newline_metadata(ctx);
     test_named_payloads(ctx);
     test_layout_and_options(ctx);
     test_recovery_and_reserved_names(ctx);

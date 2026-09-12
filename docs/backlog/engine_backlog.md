@@ -4,7 +4,7 @@ License: MIT (see LICENSE file in repository root)
 File:   engine_backlog.md
 Author: Ritchie Brannan
 Drafting and editorial assistance: OpenAI Codex
-Date:   11 Sep 2026
+Date:   12 Sep 2026
 
 # Remaining engine backlog
 
@@ -66,9 +66,9 @@ Host ownership and worker authority are settled in the consolidation plan.
 
 The first linter/live/baked/writer/parser implementation and the stage-1 linter
 and shared diagnostic refactor are complete. The remaining parser/model/writer
-migration and caller policy are active consolidation scope, awaiting stage-2
-progression. Later source, shader, localisation and tooling ingestion should
-reuse that corrected boundary.
+migration and caller policy are active consolidation scope. Stage 2 has begun
+with the model infrastructure slice. Later source, shader, localisation and
+tooling ingestion should reuse that corrected boundary.
 
 Still deferred: live packing with slot-link remapping, live cursors/revisions,
 object-name lookup acceleration including O(1) baked lookup, and additional

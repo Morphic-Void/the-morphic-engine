@@ -205,7 +205,9 @@ bool CLiveDocument::check_integrity() const noexcept
     }
 
     const CLiveNode* const root_node = value_node(m_root);
-    if ((root_node == nullptr) || (root_node->value_type() != ELiveValueType::object) ||
+    if ((root_node == nullptr) ||
+        ((root_node->value_type() != ELiveValueType::object) && (root_node->value_type() != ELiveValueType::array)) ||
+        root_node->is_object_entry() ||
         (root_node->name_id().query_value() != 0u) ||
         !root_node->value_is_unattached() ||
         (node_key(root_node->value_owned_aggregate_slot()).query_value() != 2u))
@@ -230,6 +232,11 @@ bool CLiveDocument::check_integrity() const noexcept
             return false;
         }
         previous_key = *current_key;
+        const CStringView current_name = property_name(current->name_id());
+        if (utf8_string::contains_line_break(current_name.string(), current_name.length()))
+        {
+            return false;
+        }
 
         if (current->is_value_record())
         {
@@ -362,7 +369,110 @@ CPropertyNameId CLiveDocument::name_id(const CNodeKey value) const noexcept
 
 CStringView CLiveDocument::name(const CNodeKey value) const noexcept
 {
-    return property_name(name_id(value));
+    return is_object_entry(value) ? property_name(name_id(value)) : CStringView{};
+}
+
+bool CLiveDocument::set_root_type(const ELiveValueType type) noexcept
+{
+    if (!is_ready() || ((type != ELiveValueType::object) && (type != ELiveValueType::array)) ||
+        (child_count(m_root) != 0u))
+    {
+        return false;
+    }
+    CLiveNode* const value = value_node(m_root);
+    node(value->value_owned_aggregate_slot())->set_empty_aggregate_kind(live_aggregate_kind_for_value_type(type));
+    value->set_empty_container_type(type);
+    return true;
+}
+
+CNodeKey CLiveDocument::object_child(const CNodeKey object, const CPropertyNameId name_value) const noexcept
+{
+    if ((value_type(object) != ELiveValueType::object) || !name_value.is_valid())
+    {
+        return CNodeKey{};
+    }
+    for (CNodeKey child = first_child(object); child.is_valid(); child = next_sibling(child))
+    {
+        if (is_object_entry(child) && (name_id(child) == name_value))
+        {
+            return child;
+        }
+    }
+    return CNodeKey{};
+}
+
+CNodeKey CLiveDocument::object_child(const CNodeKey object, const CStringView& name_value) const noexcept
+{
+    if ((value_type(object) != ELiveValueType::object) || (name_value.string() == nullptr))
+    {
+        return CNodeKey{};
+    }
+    for (CNodeKey child = first_child(object); child.is_valid(); child = next_sibling(child))
+    {
+        if (is_object_entry(child) && (name(child) == name_value))
+        {
+            return child;
+        }
+    }
+    return CNodeKey{};
+}
+
+bool CLiveDocument::set_name(const CNodeKey key, const CStringView& name_value) noexcept
+{
+    if (!is_ready() || !contains(key) || (key == m_root))
+    {
+        return false;
+    }
+    SPreparedString prepared;
+    if (!prepare_string(name_value, prepared) || utf8_string::contains_line_break(prepared.bytes, prepared.size))
+    {
+        return false;
+    }
+    const bool present = name_value.string() != nullptr;
+    const CNodeKey owner = parent(key);
+    if (((value_type(owner) == ELiveValueType::object) && !present) ||
+        ((value_type(owner) == ELiveValueType::recovered_array) && present))
+    {
+        return false;
+    }
+    if (present && (value_type(owner) == ELiveValueType::object))
+    {
+        const CNodeKey existing = object_child(owner, name_value);
+        if (existing.is_valid() && (existing != key))
+        {
+            return false;
+        }
+    }
+    CPropertyNameId id;
+    if (!intern_property_name(prepared, id))
+    {
+        return false;
+    }
+    //  Interning can normalize literal NUL spelling; compare the canonical ID.
+    const CNodeKey existing = object_child(owner, id);
+    if (existing.is_valid() && (existing != key))
+    {
+        return false;
+    }
+    value_node(key)->set_name(id, present);
+    return true;
+}
+
+bool CLiveDocument::suppresses_newline_escaping(const CNodeKey key) const noexcept
+{
+    const CLiveNode* const value = value_node(key);
+    return (value != nullptr) && (value->value_type() == ELiveValueType::string) && value->suppresses_newline_escaping();
+}
+
+bool CLiveDocument::set_newline_escaping_suppressed(const CNodeKey key, const bool suppressed) noexcept
+{
+    CLiveNode* const value = value_node(key);
+    if (!is_ready() || (value == nullptr) || (value->value_type() != ELiveValueType::string))
+    {
+        return false;
+    }
+    value->set_newline_escaping_suppressed(suppressed);
+    return true;
 }
 
 CStringView CLiveDocument::property_name(const CPropertyNameId id) const noexcept
@@ -371,7 +481,7 @@ CStringView CLiveDocument::property_name(const CPropertyNameId id) const noexcep
     {
         return CStringView{};
     }
-    return m_property_names.view(id.query_value());
+    return id.is_empty() ? CStringView{ "" } : m_property_names.view(id.query_value());
 }
 
 CStringView CLiveDocument::string_value(const CStringValueId id) const noexcept
@@ -380,7 +490,7 @@ CStringView CLiveDocument::string_value(const CStringValueId id) const noexcept
     {
         return CStringView{};
     }
-    return m_string_values.view(id.query_value());
+    return id.is_empty() ? CStringView{ "" } : m_string_values.view(id.query_value());
 }
 
 CPropertyNameId CLiveDocument::property_name_id_at_rank(const std::uint32_t rank) const noexcept
@@ -604,7 +714,7 @@ CNodeKey CLiveDocument::create_string(const CStringView& value, const CStringVie
     }
 
     CLiveNode new_node{};
-    new_node.initialise_value(ELiveValueType::string, value_id.query_value(), name_id, CIntegerMetadata{});
+    new_node.initialise_value(ELiveValueType::string, value_id.query_value(), name_id, CIntegerMetadata{}, prepared_name.bytes != nullptr);
 
     if (m_nodes.insert(key, new_node) < 0)
     {
@@ -633,6 +743,68 @@ CNodeKey CLiveDocument::create_recovered_array(const CStringView& name_value) no
     SPreparedString prepared_name;
     return prepare_string(name_value, prepared_name) ?
         create_container(ELiveValueType::recovered_array, prepared_name) : CNodeKey{};
+}
+
+CNodeKey CLiveDocument::extend_object_child(const CNodeKey destination, const CNodeKey candidate) noexcept
+{
+    if (!is_ready() || (value_type(destination) != ELiveValueType::object) ||
+        !is_detached(candidate) || !is_object_entry(candidate))
+    {
+        return CNodeKey{};
+    }
+    bool cycle = false;
+    if (!query_ancestry(node_slot(destination), node_slot(candidate), cycle) || cycle)
+    {
+        return CNodeKey{};
+    }
+    const CNodeKey existing = object_child(destination, name_id(candidate));
+    if (!existing.is_valid())
+    {
+        return append_child(destination, candidate).succeeded() ? candidate : CNodeKey{};
+    }
+
+    const bool wrap = (value_type(existing) != ELiveValueType::array) ||
+        (value_type(candidate) == ELiveValueType::array);
+    //  Prepare every fallible allocation before changing either input. Node
+    //  storage can relocate while preparing, so retain keys rather than pointers.
+    const CNodeKey incoming = create_empty();
+    const CNodeKey previous = (incoming.is_valid() && wrap) ? create_empty() : CNodeKey{};
+    const CNodeKey array = (previous.is_valid() && wrap) ? create_array() : CNodeKey{};
+    if (!incoming.is_valid() || (wrap && (!previous.is_valid() || !array.is_valid())))
+    {
+        if (incoming.is_valid())
+        {
+            (void)erase(incoming);
+        }
+        if (previous.is_valid())
+        {
+            (void)erase(previous);
+        }
+        return CNodeKey{};
+    }
+
+    bool committed = (value_type(candidate) == ELiveValueType::empty) ||
+        move_value_payload(node_slot(incoming), node_slot(candidate));
+    if (wrap)
+    {
+        committed = committed && ((value_type(existing) == ELiveValueType::empty) ||
+            move_value_payload(node_slot(previous), node_slot(existing)));
+        committed = committed && append_child(array, previous).succeeded();
+        committed = committed && append_child(array, incoming).succeeded();
+        committed = committed && attach_payload(existing, array).is_valid();
+    }
+    else
+    {
+        committed = committed && append_child(existing, incoming).succeeded();
+    }
+    committed = committed && erase(candidate);
+    MV_ASSERT_MSG(committed, "Prepared collision extension must commit without allocation.");
+    if (!committed)
+    {
+        mark_integrity_bad();
+        return CNodeKey{};
+    }
+    return existing;
 }
 
 CLiveAttachmentResult CLiveDocument::append_child(const CNodeKey destination, const CNodeKey candidate) noexcept
@@ -1046,6 +1218,10 @@ bool CLiveDocument::allocate_key(CNodeKey& key) noexcept
 
 bool CLiveDocument::intern_property_name(const SPreparedString& value, CPropertyNameId& id) noexcept
 {
+    if (utf8_string::contains_line_break(value.bytes, value.size))
+    {
+        return false;
+    }
     std::uint32_t raw_id = 0u;
     if (!intern_string_domain(
         value,
@@ -1094,7 +1270,7 @@ CNodeKey CLiveDocument::create_scalar(
     }
 
     CLiveNode new_node{};
-    new_node.initialise_value(type, payload_bits, name_id, metadata);
+    new_node.initialise_value(type, payload_bits, name_id, metadata, prepared_name.bytes != nullptr);
 
     if (m_nodes.insert(key, new_node) < 0)
     {
@@ -1138,7 +1314,7 @@ CNodeKey CLiveDocument::create_container(const ELiveValueType type, const SPrepa
     }
 
     CLiveNode value{};
-    value.initialise_value(type, 0u, name_id, CIntegerMetadata{});
+    value.initialise_value(type, 0u, name_id, CIntegerMetadata{}, prepared_name.bytes != nullptr);
     const LiveNodeSlot value_slot = m_nodes.insert(value_key, value);
     if (value_slot < 0)
     {

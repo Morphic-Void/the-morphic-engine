@@ -251,6 +251,54 @@ struct CIntegerMetadata
 }
 
 //==============================================================================
+//  Shared live and baked value flags
+//==============================================================================
+
+namespace document_value_flags
+{
+
+constexpr std::uint16_t k_integer_metadata_flags = 0x003fu;
+constexpr std::uint16_t k_first_sibling_flag = 0x0040u;
+constexpr std::uint16_t k_last_sibling_flag = 0x0080u;
+constexpr std::uint16_t k_sibling_position_flags = k_first_sibling_flag | k_last_sibling_flag;
+constexpr std::uint16_t k_name_present_flag = 0x0100u;
+constexpr std::uint16_t k_suppress_newline_escaping_flag = 0x0200u;
+constexpr std::uint16_t k_payload_flags = k_integer_metadata_flags | k_suppress_newline_escaping_flag;
+constexpr std::uint16_t k_live_flags = k_payload_flags | k_name_present_flag;
+constexpr std::uint16_t k_baked_flags = k_live_flags | k_sibling_position_flags;
+
+//  The caller validates metadata before encoding it.
+[[nodiscard]] constexpr std::uint16_t encode_integer_metadata(const CIntegerMetadata metadata) noexcept
+{
+    return
+        ((metadata.domain == EIntegerDomain::unsigned_value) ? 0x01u : 0u) |
+        (static_cast<std::uint16_t>(metadata.width) << 1u) |
+        (static_cast<std::uint16_t>(metadata.notation) << 3u) |
+        ((metadata.prefix == EIntegerPrefix::alternate) ? 0x20u : 0u);
+}
+
+[[nodiscard]] constexpr bool decode_integer_metadata(const std::uint16_t flags, CIntegerMetadata& metadata) noexcept
+{
+    if ((flags & ~k_integer_metadata_flags) != 0u)
+    {
+        return false;
+    }
+    const CIntegerMetadata decoded{
+        ((flags & 0x01u) != 0u) ? EIntegerDomain::unsigned_value : EIntegerDomain::signed_value,
+        static_cast<EIntegerWidth>((flags >> 1u) & 0x03u),
+        static_cast<EIntegerNotation>((flags >> 3u) & 0x03u),
+        ((flags & 0x20u) != 0u) ? EIntegerPrefix::alternate : EIntegerPrefix::standard };
+    if (!live_integer_metadata_is_valid(decoded))
+    {
+        return false;
+    }
+    metadata = decoded;
+    return true;
+}
+
+} // namespace document_value_flags
+
+//==============================================================================
 //  Numeric payload representation
 //==============================================================================
 

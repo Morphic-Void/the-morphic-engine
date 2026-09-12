@@ -58,7 +58,6 @@ private:
     void emit_strings(SStringDomain& domain) noexcept;
     [[nodiscard]] bool emit_values() noexcept;
     [[nodiscard]] bool emit_value_payload(const CNodeKey value, SBakedValueRecord& destination) const noexcept;
-    [[nodiscard]] static std::uint8_t encode_integer_metadata(const CIntegerMetadata metadata) noexcept;
     [[nodiscard]] SLiveString live_string_at_rank(const EStringDomain domain, const std::uint32_t rank) const noexcept;
     [[nodiscard]] bool validate_output() noexcept;
 
@@ -252,11 +251,11 @@ bool CBakedDocumentBaker::emit_values() noexcept
             records[next_value].parent_index = index;
             if (ordinal == 0u)
             {
-                records[next_value].value_flags |= baked_document_format::k_first_sibling_flag;
+                records[next_value].value_flags |= document_value_flags::k_first_sibling_flag;
             }
             if ((ordinal + 1u) == child_count)
             {
-                records[next_value].value_flags |= baked_document_format::k_last_sibling_flag;
+                records[next_value].value_flags |= document_value_flags::k_last_sibling_flag;
             }
             ++next_value;
             child = m_source.next_sibling(child);
@@ -273,6 +272,12 @@ bool CBakedDocumentBaker::emit_value_payload(const CNodeKey value, SBakedValueRe
         return false;
     }
     destination.property_name_index = (*m_property_names.live_to_baked)[name.query_value()];
+    const CLiveNode* const source = m_source.value_node(value);
+    if (source == nullptr)
+    {
+        return false;
+    }
+    destination.value_flags |= source->value_flags();
 
     switch (m_source.value_type(value))
     {
@@ -301,7 +306,6 @@ bool CBakedDocumentBaker::emit_value_payload(const CNodeKey value, SBakedValueRe
                 return false;
             }
             destination.value_type = EBakedValueType::integer;
-            destination.value_flags |= encode_integer_metadata(metadata);
             if (metadata.domain == EIntegerDomain::unsigned_value)
             {
                 return m_source.unsigned_integer_value(value, destination.payload_bits);
@@ -356,15 +360,6 @@ bool CBakedDocumentBaker::emit_value_payload(const CNodeKey value, SBakedValueRe
             return false;
         }
     }
-}
-
-std::uint8_t CBakedDocumentBaker::encode_integer_metadata(const CIntegerMetadata metadata) noexcept
-{
-    return
-        ((metadata.domain == EIntegerDomain::unsigned_value) ? 0x01u : 0u) |
-        (static_cast<std::uint8_t>(metadata.width) << 1u) |
-        (static_cast<std::uint8_t>(metadata.notation) << 3u) |
-        ((metadata.prefix == EIntegerPrefix::alternate) ? 0x20u : 0u);
 }
 
 CBakedDocumentBaker::SLiveString CBakedDocumentBaker::live_string_at_rank(const EStringDomain domain, const std::uint32_t rank) const noexcept

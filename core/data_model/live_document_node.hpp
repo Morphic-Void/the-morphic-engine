@@ -77,6 +77,8 @@ public:
     [[nodiscard]] ELiveValueType value_type() const noexcept;
     [[nodiscard]] ELiveAggregateKind aggregate_kind() const noexcept;
     [[nodiscard]] bool is_object_entry() const noexcept;
+    [[nodiscard]] std::uint16_t value_flags() const noexcept;
+    [[nodiscard]] bool suppresses_newline_escaping() const noexcept;
     [[nodiscard]] CIntegerMetadata integer_metadata() const noexcept;
 
     //  Role-specific relationships
@@ -87,6 +89,12 @@ public:
     [[nodiscard]] LiveNodeSlot aggregate_owner_value_slot() const noexcept;
     [[nodiscard]] LiveNodeSlot aggregate_first_child_slot() const noexcept;
     [[nodiscard]] LiveNodeSlot aggregate_last_child_slot() const noexcept;
+
+    //  Common payload mutation
+    void set_name(const CPropertyNameId name, const bool present) noexcept;
+    void set_newline_escaping_suppressed(const bool suppressed) noexcept;
+    void set_empty_container_type(const ELiveValueType type) noexcept;
+    void set_empty_aggregate_kind(const ELiveAggregateKind kind) noexcept;
 
     //  Relationship mutation
     void set_value_parent_aggregate_slot(const LiveNodeSlot slot) noexcept;
@@ -145,12 +153,16 @@ public:
         const ELiveValueType type,
         const std::uint64_t payload_bits,
         const CPropertyNameId name,
-        const CIntegerMetadata metadata) noexcept;
+        const CIntegerMetadata metadata,
+        const bool name_present = false) noexcept;
 
     void initialise_aggregate(
         const LiveNodeSlot owner,
         const ELiveAggregateKind kind,
         const CPropertyNameId empty_name) noexcept;
+
+    //  Internal translation from validated shared flags
+    void set_value_flags(const std::uint16_t flags) noexcept;
 
 private:
     friend struct SLiveDocumentTestAccess;
@@ -159,13 +171,16 @@ private:
     std::uint64_t m_payload_bits{ 0u };
     CPropertyNameId m_name;
     std::uint32_t m_child_count{ 0u };
-    CIntegerMetadata m_integer_metadata;
     SLiveNodeUsage m_usage;
+    std::uint16_t m_value_flags{ 0u };
+    std::uint32_t m_reserved_32{ 0u };
 };
 
 static_assert(std::is_trivially_copyable_v<CLiveNode>);
 static_assert(std::is_standard_layout_v<CLiveNode>);
 static_assert(sizeof(CLiveNode) == 40u);
+static_assert(sizeof(SLiveNodeUsage) == 2u);
+static_assert(alignof(CLiveNode) == alignof(std::uint64_t));
 
 //==============================================================================
 //  Value and aggregate type helpers
@@ -228,12 +243,24 @@ inline ELiveAggregateKind CLiveNode::aggregate_kind() const noexcept
 
 inline bool CLiveNode::is_object_entry() const noexcept
 {
-    return is_value_record() && name_id().is_valid() && !name_id().is_empty();
+    return is_value_record() && ((m_value_flags & document_value_flags::k_name_present_flag) != 0u);
+}
+
+inline std::uint16_t CLiveNode::value_flags() const noexcept
+{
+    return m_value_flags;
+}
+
+inline bool CLiveNode::suppresses_newline_escaping() const noexcept
+{
+    return (m_value_flags & document_value_flags::k_suppress_newline_escaping_flag) != 0u;
 }
 
 inline CIntegerMetadata CLiveNode::integer_metadata() const noexcept
 {
-    return m_integer_metadata;
+    CIntegerMetadata metadata;
+    (void)document_value_flags::decode_integer_metadata(m_value_flags & document_value_flags::k_integer_metadata_flags, metadata);
+    return metadata;
 }
 
 //==============================================================================
@@ -273,6 +300,33 @@ inline LiveNodeSlot CLiveNode::aggregate_first_child_slot() const noexcept
 inline LiveNodeSlot CLiveNode::aggregate_last_child_slot() const noexcept
 {
     return is_aggregate_record() ? m_links.aggregate.last_child : k_invalid_live_node_slot;
+}
+
+//==============================================================================
+//  CLiveNode: common payload mutation
+//==============================================================================
+
+inline void CLiveNode::set_name(const CPropertyNameId name, const bool present) noexcept
+{
+    m_name = name;
+    m_value_flags = (m_value_flags & ~document_value_flags::k_name_present_flag) |
+        (present ? document_value_flags::k_name_present_flag : 0u);
+}
+
+inline void CLiveNode::set_newline_escaping_suppressed(const bool suppressed) noexcept
+{
+    m_value_flags = (m_value_flags & ~document_value_flags::k_suppress_newline_escaping_flag) |
+        (suppressed ? document_value_flags::k_suppress_newline_escaping_flag : 0u);
+}
+
+inline void CLiveNode::set_empty_container_type(const ELiveValueType type) noexcept
+{
+    m_usage.value_type = type;
+}
+
+inline void CLiveNode::set_empty_aggregate_kind(const ELiveAggregateKind kind) noexcept
+{
+    m_usage.aggregate_kind = kind;
 }
 
 //==============================================================================
@@ -348,7 +402,7 @@ inline void CLiveNode::clear_value_payload() noexcept
     m_links.value.owned_aggregate = k_invalid_live_node_slot;
     m_payload_bits = 0u;
     m_usage.value_type = ELiveValueType::empty;
-    m_integer_metadata = CIntegerMetadata{};
+    m_value_flags &= document_value_flags::k_name_present_flag;
 }
 
 inline void CLiveNode::move_value_payload_from(CLiveNode& source) noexcept
@@ -356,7 +410,8 @@ inline void CLiveNode::move_value_payload_from(CLiveNode& source) noexcept
     m_links.value.owned_aggregate = source.m_links.value.owned_aggregate;
     m_payload_bits = source.m_payload_bits;
     m_usage.value_type = source.m_usage.value_type;
-    m_integer_metadata = source.m_integer_metadata;
+    m_value_flags = (m_value_flags & document_value_flags::k_name_present_flag) |
+        (source.m_value_flags & document_value_flags::k_payload_flags);
     source.clear_value_payload();
 }
 
@@ -366,17 +421,21 @@ inline void CLiveNode::move_value_payload_from(CLiveNode& source) noexcept
 
 inline bool CLiveNode::value_payload_is_valid() const noexcept
 {
+    CIntegerMetadata metadata;
     if (!is_value_record() ||
         (value_type() == ELiveValueType::invalid) ||
         (aggregate_kind() != ELiveAggregateKind::invalid) ||
-        !name_id().is_valid())
+        !name_id().is_valid() || (!is_object_entry() && !name_id().is_empty()) ||
+        (suppresses_newline_escaping() && (value_type() != ELiveValueType::string)) ||
+        ((m_value_flags & ~document_value_flags::k_live_flags) != 0u) || (m_reserved_32 != 0u) ||
+        !document_value_flags::decode_integer_metadata(m_value_flags & document_value_flags::k_integer_metadata_flags, metadata))
     {
         return false;
     }
 
     if (live_value_type_is_container(value_type()))
     {
-        return (value_owned_aggregate_slot() >= 0) && (payload_bits() == 0u) && (integer_metadata() == CIntegerMetadata{});
+        return (value_owned_aggregate_slot() >= 0) && (payload_bits() == 0u) && (metadata == CIntegerMetadata{});
     }
     if (value_owned_aggregate_slot() != k_invalid_live_node_slot)
     {
@@ -388,25 +447,25 @@ inline bool CLiveNode::value_payload_is_valid() const noexcept
         case ELiveValueType::empty:
         case ELiveValueType::null_value:
         {
-            return (payload_bits() == 0u) && (integer_metadata() == CIntegerMetadata{});
+            return (payload_bits() == 0u) && (metadata == CIntegerMetadata{});
         }
         case ELiveValueType::boolean:
         {
-            return (payload_bits() <= 1u) && (integer_metadata() == CIntegerMetadata{});
+            return (payload_bits() <= 1u) && (metadata == CIntegerMetadata{});
         }
         case ELiveValueType::integer:
         {
-            return (integer_metadata().domain == EIntegerDomain::signed_value) ?
-                live_integer_metadata_matches_signed(live_signed_integer_from_bits(payload_bits()), integer_metadata()) :
-                live_integer_metadata_matches_unsigned(payload_bits(), integer_metadata());
+            return (metadata.domain == EIntegerDomain::signed_value) ?
+                live_integer_metadata_matches_signed(live_signed_integer_from_bits(payload_bits()), metadata) :
+                live_integer_metadata_matches_unsigned(payload_bits(), metadata);
         }
         case ELiveValueType::floating_point:
         {
-            return live_floating_point_is_finite(live_floating_point_from_bits(payload_bits())) && (integer_metadata() == CIntegerMetadata{});
+            return live_floating_point_is_finite(live_floating_point_from_bits(payload_bits())) && (metadata == CIntegerMetadata{});
         }
         case ELiveValueType::string:
         {
-            return (payload_bits() < CStringValueId::k_invalid_value) && (integer_metadata() == CIntegerMetadata{});
+            return (payload_bits() < CStringValueId::k_invalid_value) && (metadata == CIntegerMetadata{});
         }
         default:
         {
@@ -423,8 +482,7 @@ inline bool CLiveNode::aggregate_payload_is_valid() const noexcept
         ((kind == ELiveAggregateKind::array) || (kind == ELiveAggregateKind::object) || (kind == ELiveAggregateKind::recovered_array)) &&
         (aggregate_owner_value_slot() >= 0) &&
         aggregate_child_range_is_consistent() &&
-        (payload_bits() == 0u) && name_id().is_empty() &&
-        (integer_metadata() == CIntegerMetadata{});
+        (payload_bits() == 0u) && name_id().is_empty() && (m_value_flags == 0u) && (m_reserved_32 == 0u);
 }
 
 inline bool CLiveNode::forms_container_pair_with(const CLiveNode& aggregate, const LiveNodeSlot value_slot, const LiveNodeSlot aggregate_slot) const noexcept
@@ -556,13 +614,15 @@ inline void CLiveNode::initialise_value(
     const ELiveValueType type,
     const std::uint64_t payload_bits,
     const CPropertyNameId name,
-    const CIntegerMetadata metadata) noexcept
+    const CIntegerMetadata metadata,
+    const bool name_present) noexcept
 {
     *this = CLiveNode{};
     m_payload_bits = payload_bits;
     m_name = name;
+    m_value_flags = document_value_flags::encode_integer_metadata(metadata) |
+        (name_present ? document_value_flags::k_name_present_flag : 0u);
     m_usage.value_type = type;
-    m_integer_metadata = metadata;
 }
 
 inline void CLiveNode::initialise_aggregate(
@@ -577,6 +637,15 @@ inline void CLiveNode::initialise_aggregate(
         k_invalid_live_node_slot };
     m_name = empty_name;
     m_usage.aggregate_kind = kind;
+}
+
+//==============================================================================
+//  CLiveNode: internal translation from validated shared flags
+//==============================================================================
+
+inline void CLiveNode::set_value_flags(const std::uint16_t flags) noexcept
+{
+    m_value_flags = flags;
 }
 
 #endif // LIVE_DOCUMENT_NODE_HPP_INCLUDED

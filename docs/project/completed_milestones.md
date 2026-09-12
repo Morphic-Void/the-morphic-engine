@@ -330,9 +330,28 @@ build also passed after the final helper-definition reorder; diff and line-endin
 checks passed.
 
 The [semantic specification](../data_model/revised_data_model.md) describes these
-implemented contracts. Stage 2 remains unimplemented: parser presence findings
-and late acceptance policy, revised grammar and collision handling, root and name
-changes, per-value newline metadata, writer changes and recovery retirement.
+implemented contracts. At this checkpoint, stage 2 remained unimplemented.
+Its subsequent infrastructure work and remaining parser/policy migration are
+tracked in the specification's implementation-progress section.
+
+## Document-model infrastructure: first stage-2 slice
+
+Completed and reviewed on 12 September 2026. Live and baked documents now
+support native empty names, object/array root kinds and per-string newline
+escaping metadata. Public collision extension uses ordinary arrays; ordinary
+insertion and renaming still reject duplicate names. Writing normalizes line
+breaks to LF and strict JSON overrides newline suppression.
+
+Live and baked values share a 16-bit flag encoding for integer metadata, name
+presence and newline suppression. Baking and promotion transfer those flags
+together. Explicit reserved fields preserve the 40-byte live and 32-byte baked
+records; the baked format is version 2.
+
+Debug/Release builds and ordinary tests passed on x64 and Win32, including
+allocation-failure coverage and complete integer-metadata round trips. Debug
+x64 passed again after the final layout/style review. Parser grammar, findings,
+caller policy and recovery retirement remain in the
+[refactor specification](../backlog/parser_refactoring_specification.md).
 
 ## Retired v1 reference archive
 

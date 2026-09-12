@@ -597,8 +597,8 @@ static void test_round_trips(TTestContext& ctx)
     binary.width = live_unsigned_integer_smallest_width(256u);
     attach(ctx, source, array, source.create_unsigned_integer(256u, binary, CStringView{ "binary" }));
     attach(ctx, source, array, source.create_floating_point(-0.0, CStringView{ "float" }));
-    const std::uint8_t unicode[]{ 'x', 0u, 0xc3u, 0xa9u, 0xf0u, 0x9du, 0x84u, 0x9eu, '\r', '\n' };
-    attach(ctx, source, array, source.create_string(CStringView{ unicode, sizeof(unicode) }, CStringView{ unicode, sizeof(unicode) }));
+    const std::uint8_t unicode[]{ 'x', 0u, 0xc3u, 0xa9u, 0xf0u, 0x9du, 0x84u, 0x9eu, '\n' };
+    attach(ctx, source, array, source.create_string(CStringView{ unicode, sizeof(unicode) }, CStringView{ unicode, sizeof(unicode) - 1u }));
     attach(ctx, source, array, source.create_string(CStringView{ "" }, CStringView{ "empty" }));
     attach(ctx, source, array, source.create_array(CStringView{ "array" }));
     const CNodeKey object = source.create_object(CStringView{ "object" });
@@ -665,7 +665,6 @@ static void test_round_trips(TTestContext& ctx)
         options.mode = strict ? EDocumentWriteMode::strict_json : EDocumentWriteMode::morphic;
         options.escape_non_ascii = (variant & 2u) != 0u;
         options.pretty_print = (variant & 4u) != 0u;
-        options.line_ending = EDocumentWriteLineEnding::crlf;
         const auto written = document_writer::write(baked.document(), options);
         TEST_EXPECT(ctx, written.report.succeeded());
         const auto linted = text_linter::lint(CByteConstView{ written.output.data(), written.output.size() }, k_document_text_lint_line_endings);

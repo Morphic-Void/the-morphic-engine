@@ -77,6 +77,8 @@ public:
 
     //  Root and reachable structure
     [[nodiscard]] CNodeKey root() const noexcept;
+    //  Only an empty root can change kind. Detached values and strings do not count.
+    [[nodiscard]] bool set_root_type(const ELiveValueType type) noexcept;
 
     //  Root-reachable count only. Detached storage is excluded.
     [[nodiscard]] std::uint32_t value_count() const noexcept;
@@ -91,6 +93,10 @@ public:
 
     [[nodiscard]] CPropertyNameId name_id(const CNodeKey value) const noexcept;
     [[nodiscard]] CStringView name(const CNodeKey value) const noexcept;
+    //  Absent removes the name; present empty assigns the canonical empty name.
+    [[nodiscard]] bool set_name(const CNodeKey value, const CStringView& name) noexcept;
+    [[nodiscard]] CNodeKey object_child(const CNodeKey object, const CPropertyNameId name) const noexcept;
+    [[nodiscard]] CNodeKey object_child(const CNodeKey object, const CStringView& name) const noexcept;
     [[nodiscard]] CStringView property_name(const CPropertyNameId id) const noexcept;
     [[nodiscard]] CStringView string_value(const CStringValueId id) const noexcept;
     [[nodiscard]] CPropertyNameId property_name_id_at_rank(const std::uint32_t rank) const noexcept;
@@ -112,6 +118,8 @@ public:
     [[nodiscard]] bool floating_point_value(const CNodeKey node, double& value) const noexcept;
     [[nodiscard]] CStringValueId string_value_id(const CNodeKey node) const noexcept;
     [[nodiscard]] CStringView string_value(const CNodeKey node) const noexcept;
+    [[nodiscard]] bool suppresses_newline_escaping(const CNodeKey node) const noexcept;
+    [[nodiscard]] bool set_newline_escaping_suppressed(const CNodeKey node, const bool suppressed) noexcept;
 
     //  Detached value creation
     [[nodiscard]] CNodeKey create_empty(const CStringView& name = {}) noexcept;
@@ -129,6 +137,9 @@ public:
 
     //  Structural mutation
     [[nodiscard]] CLiveAttachmentResult append_child(const CNodeKey destination, const CNodeKey candidate) noexcept;
+    //  Explicit object-name collision extension. Success consumes the detached
+    //  candidate and returns the retained member; failure leaves both inputs unchanged.
+    [[nodiscard]] CNodeKey extend_object_child(const CNodeKey destination, const CNodeKey candidate) noexcept;
     [[nodiscard]] CLiveAttachmentResult insert_child_before(const CNodeKey destination, const CNodeKey candidate, const CNodeKey before) noexcept;
     [[nodiscard]] CLiveAttachmentResult insert_child_at(const CNodeKey destination, const CNodeKey candidate, const std::uint32_t index) noexcept;
 
@@ -143,7 +154,7 @@ public:
 
     //  Erases a value's payload and descendants while preserving its key,
     //  name and topology as an empty value. The root retains its initial
-    //  object payload and is cleared in the same way as erase(root).
+    //  container kind and is cleared in the same way as erase(root).
     [[nodiscard]] bool erase_payload(const CNodeKey value) noexcept;
 
     //  Erasing the root preserves the implicit root pair and recursively
@@ -159,7 +170,9 @@ public:
 
 private:
 
-    //  Test access
+    //  Internal translation and test access
+    friend class CBakedDocumentBaker;
+    friend class CLiveDocumentPromoter;
     friend struct SLiveDocumentTestAccess;
 
     //  Internal operation state

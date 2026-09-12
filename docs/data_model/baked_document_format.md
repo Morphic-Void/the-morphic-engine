@@ -24,8 +24,10 @@ one allocation. Baking scratch is external to that allocation. A bound block's
 base address is 32-byte aligned; its total size need not be. The value-record
 section is likewise 32-byte aligned.
 
-The initial replacement format has magic bytes `MBD2` and version 1. It is
-incompatible with every archived baked format.
+The current replacement format has magic bytes `MBD2` and version 2. It adds
+independent name presence and per-string newline metadata while retaining the
+32-byte records. Version 1 and archived formats are rejected. Recovery-kind
+retirement remains part of the subsequent parser migration.
 
 ## Indices
 
@@ -43,7 +45,7 @@ The 32-byte header contains these fields in order:
 | Offset | Type | Field |
 | ---: | --- | --- |
 | 0 | `uint32_t` | magic, `0x3244424d` |
-| 4 | `uint16_t` | version, 1 |
+| 4 | `uint16_t` | version, 2 |
 | 6 | `uint16_t` | header size, 32 |
 | 8 | `uint32_t` | total byte size |
 | 12 | `uint32_t` | value count |
@@ -82,9 +84,9 @@ Each value is one 32-byte record:
 | 12 | `uint32_t` | first-child index |
 | 16 | `uint32_t` | child count |
 | 20 | `uint32_t` | property-name index |
-| 24 | `uint8_t` | value type |
-| 25 | `uint8_t` | value flags |
-| 26 | `uint16_t` | reserved, zero |
+| 24 | `uint8_t` | reserved, zero |
+| 25 | `uint8_t` | value type |
+| 26 | `uint16_t` | value flags |
 | 28 | `uint32_t` | reserved, zero |
 
 Value-type encodings are null 1, Boolean 2, integer 3, floating point 4,
@@ -92,9 +94,24 @@ string 5, array 6, object 7 and recovered array 8. Zero and all other values
 are invalid. Empty is not encoded; baking substitutes null while retaining the
 value's name and position.
 
-The root is an anonymous object with an invalid parent. Every other value has a
-valid parent whose index is lower than its own. A value's property-name index
-is always valid; zero means anonymous.
+The root is an anonymous object or array with an invalid parent. Every other
+value has a valid parent whose index is lower than its own. A value's
+property-name index is always valid. Name presence is value flag bit 8:
+clear requires index zero and means anonymous; set permits any valid index,
+including zero for a present empty name. Object children require this flag,
+and their name indices are unique, including index zero. The root has no name.
+
+Value flag bit 9 suppresses newline escaping and is valid only on string
+values. It belongs to the value, independently of its interned string index.
+Bits 10-15 are reserved and zero. All flags share the 16-bit word at offset 26;
+the reserved byte at offset 24 is zero, followed by the value type at offset 25.
+
+The live node stores the same 16-bit encoding for integer metadata, name
+presence and newline suppression. Baking copies these flags together and adds
+the sibling-position bits. Promotion copies the shared flags with sibling bits
+removed, because live sibling relationships are represented by links. The live
+node retains its 40-byte size with explicit reserved storage; its public integer
+metadata interface decodes the shared flag word on demand.
 
 For a non-container, `first_child_index` is invalid and `child_count` is zero.
 For an empty container the same canonical pair is used. A non-empty container
@@ -144,7 +161,9 @@ There are no gaps or unreferenced bytes.
 
 Every non-empty entry is referenced by at least one baked value. String bytes
 must satisfy the canonical encoding rules in `revised_data_model.md`; literal
-zero occurs only as a terminator.
+zero occurs only as a terminator. Property names must not contain LF, CR, VT,
+FF, NEL, LS or PS; string values may contain them. Validation checks this rule
+across the property-name table as well as the ordinary UTF-8 requirements.
 
 ## Baking scratch and emission
 
@@ -200,7 +219,7 @@ The backing bytes must remain immutable and alive for the view's lifetime.
 Copying an already checked view does not repeat validation. An explicit
 integrity check may revalidate the bytes.
 
-The format contains no checksum and no cached semantic flags. Structural
+The format contains no checksum and no cached completeness or canonicality flags. Structural
 validation is not authentication, while checksums and semantic summaries can
 be added by an enclosing persistence or publication protocol if a concrete
 consumer requires them. Canonicality and recovered-content queries scan the

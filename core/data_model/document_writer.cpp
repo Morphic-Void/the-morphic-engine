@@ -15,6 +15,7 @@
 #include "data_model/baked_document.hpp"
 #include "debug/macros.hpp"
 #include "memory/memory_policies.hpp"
+#include "text/utf8_string.hpp"
 
 namespace document_writer
 {
@@ -84,7 +85,7 @@ private:
     void end(const char bracket, const bool nonempty) noexcept;
 
     //  Scalar spelling: quoting/escaping and the selected numeric output grammar.
-    void quoted(const CStringView& value, const bool data_name = false) noexcept;
+    void quoted(const CStringView& value, const bool data_name = false, const bool suppress_newlines = false) noexcept;
     void key(const CStringView& value, const bool data_name = false) noexcept;
     void hex_escape(std::uint32_t unit) noexcept;
     void integer(CBakedValueIndex node) noexcept;
@@ -173,14 +174,7 @@ void CWriter::append(const char* const bytes, const std::size_t count) noexcept
 //  Layout helpers share the same byte path as scalar and container output.
 void CWriter::newline() noexcept
 {
-    if (m_options.line_ending == EDocumentWriteLineEnding::crlf)
-    {
-        literal("\r\n");
-    }
-    else
-    {
-        literal("\n");
-    }
+    literal("\n");
 }
 
 void CWriter::indentation() noexcept
@@ -246,7 +240,7 @@ void CWriter::hex_escape(const std::uint32_t unit) noexcept
     append(escaped, sizeof(escaped));
 }
 
-void CWriter::quoted(const CStringView& value, const bool data_name) noexcept
+void CWriter::quoted(const CStringView& value, const bool data_name, const bool suppress_newlines) noexcept
 {
     if (!value.string())
     {
@@ -261,6 +255,20 @@ void CWriter::quoted(const CStringView& value, const bool data_name) noexcept
     }
     for (std::size_t offset = 0u; good() && (offset < value.length());)
     {
+        const std::size_t line_break = utf8_string::line_break_size(value.string() + offset, value.length() - offset);
+        if (line_break != 0u)
+        {
+            if (suppress_newlines && (m_options.mode == EDocumentWriteMode::morphic))
+            {
+                character('\n');
+            }
+            else
+            {
+                literal("\\n");
+            }
+            offset += line_break;
+            continue;
+        }
         std::size_t size = 0u;
         const std::uint32_t point = decode_scalar((value.string() + offset), size);
         switch (point)
@@ -505,7 +513,7 @@ void CWriter::enter(const CBakedValueIndex node) noexcept
         }
         case (EBakedValueType::string):
         {
-            quoted(m_source.string_value(node));
+            quoted(m_source.string_value(node), false, m_source.suppresses_newline_escaping(node));
             break;
         }
         case (EBakedValueType::array):
@@ -631,8 +639,7 @@ CDocumentWriteResult write(const CBakedDocument& source, const CDocumentWriteOpt
         result.report.status = EDocumentWriteStatus::source_not_ready;
         return result;
     }
-    if (((options.mode != EDocumentWriteMode::morphic) && (options.mode != EDocumentWriteMode::strict_json)) ||
-        ((options.line_ending != EDocumentWriteLineEnding::lf) && (options.line_ending != EDocumentWriteLineEnding::crlf)))
+    if ((options.mode != EDocumentWriteMode::morphic) && (options.mode != EDocumentWriteMode::strict_json))
     {
         result.report.status = EDocumentWriteStatus::invalid_options;
         return result;

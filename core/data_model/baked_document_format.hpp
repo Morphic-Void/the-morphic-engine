@@ -18,6 +18,8 @@
 #include <limits>
 #include <type_traits>
 
+#include "data_model/data_model_types.hpp"
+
 enum class EBakedValueType : std::uint8_t
 {
     invalid = 0u,
@@ -35,14 +37,10 @@ namespace baked_document_format
 {
 
 constexpr std::uint32_t k_magic = 0x3244424du; // "MBD2"
-constexpr std::uint16_t k_version = 1u;
+constexpr std::uint16_t k_version = 2u;
 constexpr std::uint16_t k_header_size = 32u;
 constexpr std::size_t k_block_alignment = 32u;
 constexpr std::uint32_t k_invalid_index = std::numeric_limits<std::uint32_t>::max();
-constexpr std::uint8_t k_integer_metadata_flags = 0x3fu;
-constexpr std::uint8_t k_first_sibling_flag = 0x40u;
-constexpr std::uint8_t k_last_sibling_flag = 0x80u;
-constexpr std::uint8_t k_sibling_position_flags = k_first_sibling_flag | k_last_sibling_flag;
 
 } // namespace baked_document_format
 
@@ -75,9 +73,9 @@ struct alignas(32) SBakedValueRecord
     std::uint32_t first_child_index;
     std::uint32_t child_count;
     std::uint32_t property_name_index;
+    std::uint8_t reserved_8;
     EBakedValueType value_type;
-    std::uint8_t value_flags;
-    std::uint16_t reserved_16;
+    std::uint16_t value_flags;
     std::uint32_t reserved_32;
 };
 
@@ -108,9 +106,9 @@ static_assert(offsetof(SBakedValueRecord, parent_index) == 8u);
 static_assert(offsetof(SBakedValueRecord, first_child_index) == 12u);
 static_assert(offsetof(SBakedValueRecord, child_count) == 16u);
 static_assert(offsetof(SBakedValueRecord, property_name_index) == 20u);
-static_assert(offsetof(SBakedValueRecord, value_type) == 24u);
-static_assert(offsetof(SBakedValueRecord, value_flags) == 25u);
-static_assert(offsetof(SBakedValueRecord, reserved_16) == 26u);
+static_assert(offsetof(SBakedValueRecord, reserved_8) == 24u);
+static_assert(offsetof(SBakedValueRecord, value_type) == 25u);
+static_assert(offsetof(SBakedValueRecord, value_flags) == 26u);
 static_assert(offsetof(SBakedValueRecord, reserved_32) == 28u);
 static_assert(std::is_trivially_copyable_v<SBakedStringReference>);
 static_assert(std::is_standard_layout_v<SBakedStringReference>);

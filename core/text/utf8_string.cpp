@@ -82,6 +82,42 @@ namespace utf8_util
 
 }   //  namespace utf8_util
 
+std::size_t line_break_size(const std::uint8_t* const source, const std::size_t size) noexcept
+{
+    if ((source == nullptr) || (size == 0u))
+    {
+        return 0u;
+    }
+    const std::uint8_t first = source[0u];
+    if ((first == '\r') || (first == '\n'))
+    {
+        return ((size > 1u) && (source[1u] != first) &&
+            ((source[1u] == '\r') || (source[1u] == '\n'))) ? 2u : 1u;
+    }
+    if ((first == '\v') || (first == '\f'))
+    {
+        return 1u;
+    }
+    if ((first == 0xc2u) && (size >= 2u) && (source[1u] == 0x85u))
+    {
+        return 2u;
+    }
+    return ((first == 0xe2u) && (size >= 3u) && (source[1u] == 0x80u) &&
+        ((source[2u] == 0xa8u) || (source[2u] == 0xa9u))) ? 3u : 0u;
+}
+
+bool contains_line_break(const std::uint8_t* const source, const std::size_t size) noexcept
+{
+    for (std::size_t offset = 0u; offset < size; ++offset)
+    {
+        if (line_break_size(source + offset, size - offset) != 0u)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
 bool validate_and_measure(
     const std::uint8_t* const source,
     const std::size_t source_size,
