@@ -206,7 +206,9 @@ inline void TPodUnorderedSlotsStorage<T>::unsafe_replace_memory_context_without_
 template<typename T>
 inline bool TPodUnorderedSlots<T>::is_valid() const noexcept
 {
-    return this->m_slots.is_valid() && (this->m_slots.size() == slot_meta_class::capacity());
+    //  Backing growth precedes metadata growth. A failed metadata allocation
+    //  may retain excess backing; every metadata slot must still be covered.
+    return this->m_slots.is_valid() && (this->m_slots.size() >= slot_meta_class::capacity());
 }
 
 template<typename T>

@@ -294,10 +294,12 @@ inline void TOrderedCollectionStorage<T, TKey>::unsafe_replace_memory_context_wi
 template<typename T, typename TKey>
 inline bool TOrderedCollection<T, TKey>::is_valid() const noexcept
 {
+    //  Backing growth precedes metadata growth. A failed metadata allocation
+    //  may retain excess backing; every metadata slot must still be covered.
     return
         storage_is_valid() &&
-        this->m_slots.is_valid() && (this->m_slots.size() == slot_meta_class::capacity()) &&
-        this->m_keys.is_valid() &&  (this->m_keys.size() == slot_meta_class::capacity()) &&
+        this->m_slots.is_valid() && (this->m_slots.size() >= slot_meta_class::capacity()) &&
+        this->m_keys.is_valid() &&  (this->m_keys.size() >= slot_meta_class::capacity()) &&
         (this->m_storage.count() <= this->m_slots.size());
 }
 
@@ -577,44 +579,52 @@ inline bool TOrderedCollection<T, TKey>::check_integrity() const noexcept
         {
             return failed_integrity_check();
         }
-        switch (slot.state)
+        if (element_index < slot_meta_class::capacity())
         {
-            case(SlotState::Unmapped):
+            switch (slot.state)
             {
-                if (!slot_meta_class::is_empty_slot(slot_index))
+                case(SlotState::Unmapped):
+                {
+                    if (!slot_meta_class::is_empty_slot(slot_index))
+                    {
+                        return failed_integrity_check();
+                    }
+                    break;
+                }
+                case(SlotState::Mapped):
+                {
+                    if (!slot_meta_class::is_empty_slot(slot_index))
+                    {
+                        return failed_integrity_check();
+                    }
+                    if (storage_index_ptr(slot.storage_index) == nullptr)
+                    {
+                        return failed_integrity_check();
+                    }
+                    break;
+                }
+                case(SlotState::Constructed):
+                {
+                    if (!slot_meta_class::is_lexed_slot(slot_index))
+                    {
+                        return failed_integrity_check();
+                    }
+                    if (storage_index_ptr(slot.storage_index) == nullptr)
+                    {
+                        return failed_integrity_check();
+                    }
+                    break;
+                }
+                default:
                 {
                     return failed_integrity_check();
                 }
-                break;
             }
-            case(SlotState::Mapped):
-            {
-                if (!slot_meta_class::is_empty_slot(slot_index))
-                {
-                    return failed_integrity_check();
-                }
-                if (storage_index_ptr(slot.storage_index) == nullptr)
-                {
-                    return failed_integrity_check();
-                }
-                break;
-            }
-            case(SlotState::Constructed):
-            {
-                if (!slot_meta_class::is_lexed_slot(slot_index))
-                {
-                    return failed_integrity_check();
-                }
-                if (storage_index_ptr(slot.storage_index) == nullptr)
-                {
-                    return failed_integrity_check();
-                }
-                break;
-            }
-            default:
-            {
-                return failed_integrity_check();
-            }
+        }
+        else if ((slot.state != SlotState::Unmapped) || (slot.storage_index != element_index))
+        {   //  Backing slots beyond the metadata must remain unmapped at their
+            //  original storage indices after failed growth.
+            return failed_integrity_check();
         }
     }
 

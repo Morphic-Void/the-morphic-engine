@@ -10,12 +10,16 @@
 #include <cstddef>
 #include <cstdint>
 #include <iostream>
+#include <limits>
 #include <type_traits>
 #include <utility>
 
 #include "containers/TUnorderedCollection.hpp"
+#include "containers/TPodUnorderedSlots.hpp"
 #include "tests/test_suites/TUnorderedCollection_test_suite.hpp"
 #include "tests/support/test_context.hpp"
+#include "tests/support/test_allocator.hpp"
+#include "tests/support/test_scopes.hpp"
 
 namespace
 {
@@ -266,11 +270,125 @@ void test_pack_and_repeated_initialise(TTestContext& ctx)
     TEST_EXPECT(ctx, TTracked::destruction_count == 7);
 }
 
+
+struct TFailingGrowthAllocator
+{
+    std::size_t remaining{ std::numeric_limits<std::size_t>::max() };
+};
+
+void* MV_STD_ABI_CALL allocate_growth_memory(
+    void* const state, const std::size_t alignment, const std::size_t bytes) noexcept
+{
+    auto& fixture = *static_cast<TFailingGrowthAllocator*>(state);
+    if (fixture.remaining == 0u)
+    {
+        return nullptr;
+    }
+    --fixture.remaining;
+    return tests::allocate_test_memory(nullptr, alignment, bytes);
+}
+
+template<bool Pod>
+void test_failed_growth(TTestContext& ctx)
+{
+    using TContainer = std::conditional_t<Pod, TPodUnorderedSlots<std::int32_t>, TCollection>;
+    const auto insert = [](TContainer& container, const std::int32_t value) noexcept
+    {
+        if constexpr (Pod)
+        {
+            return container.insert(value);
+        }
+        else
+        {
+            return container.emplace(value, 1u);
+        }
+    };
+    const auto get_value = [](const TContainer& container, const std::int32_t slot) noexcept
+        -> const std::int32_t*
+    {
+        if constexpr (Pod)
+        {
+            return container.get_slot(slot);
+        }
+        else
+        {
+            const auto* const object = container.get_object(slot);
+            return (object != nullptr) ? &object->value : nullptr;
+        }
+    };
+
+    bool reached_success = false;
+    std::size_t failures = 0u;
+    for (std::size_t allowance = 0u; allowance < 8u; ++allowance)
+    {
+        TFailingGrowthAllocator fixture;
+        memory::CMemoryAllocator allocator{ &fixture, &allocate_growth_memory, &tests::deallocate_test_memory };
+        memory::CMemoryContext context{ allocator };
+        {
+            tests::TMemoryContextScope scope{ &context };
+            TContainer container;
+            TEST_EXPECT(ctx, container.initialise(32u));
+            for (std::int32_t value = 0; value < 32; ++value)
+            {
+                TEST_EXPECT(ctx, insert(container, value) == value);
+            }
+            const auto* const original = get_value(container, 0);
+            const std::int32_t last_before = container.last_live();
+            fixture.remaining = allowance;
+            const std::int32_t added = insert(container, 32);
+            fixture.remaining = std::numeric_limits<std::size_t>::max();
+            TEST_EXPECT(ctx, container.is_valid());
+            TEST_EXPECT(ctx, container.check_integrity());
+            for (std::int32_t value = 0; value < 32; ++value)
+            {
+                const auto* const stored = get_value(container, value);
+                TEST_EXPECT(ctx, (stored != nullptr) && (*stored == value));
+            }
+            if constexpr (!Pod)
+            {
+                TEST_EXPECT(ctx, get_value(container, 0) == original);
+            }
+            if (added < 0)
+            {
+                ++failures;
+                TEST_EXPECT(ctx, container.last_live() == last_before);
+                TEST_EXPECT(ctx, get_value(container, 32) == nullptr);
+                //  Packing must also tolerate backing retained by failed metadata growth.
+                container.pack();
+                TEST_EXPECT(ctx, container.check_integrity());
+                TEST_EXPECT(ctx, insert(container, 32) == 32);
+            }
+            else
+            {
+                reached_success = true;
+                TEST_EXPECT(ctx, added == 32);
+            }
+            TEST_EXPECT(ctx, container.check_integrity());
+            TEST_EXPECT(ctx, container.erase(0));
+            container.pack();
+            TEST_EXPECT(ctx, container.check_integrity());
+        }
+        TEST_EXPECT(ctx, context.is_attribution_empty());
+        if constexpr (!Pod)
+        {
+            TEST_EXPECT(ctx, TTracked::live_count == 0);
+        }
+        if (reached_success)
+        {
+            break;
+        }
+    }
+    TEST_EXPECT(ctx, reached_success);
+    TEST_EXPECT(ctx, failures >= 2u);
+}
+
 }   //  namespace
 
 int run_unordered_collection_tests()
 {
     TTestContext ctx;
+    test_failed_growth<true>(ctx);
+    test_failed_growth<false>(ctx);
     test_default_state_and_bounds(ctx);
     test_emplace_erase_and_lookup(ctx);
     test_stable_addresses_across_growth(ctx);
@@ -279,4 +397,3 @@ int run_unordered_collection_tests()
     std::cout << "TUnorderedCollection: " << ctx.passed << " passed, " << ctx.failed << " failed\n";
     return (ctx.failed == 0) ? 0 : 1;
 }
-
