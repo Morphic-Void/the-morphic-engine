@@ -1405,7 +1405,7 @@ admission, newline metadata and the remaining parser migration for subsequent wo
 
 ### 9.6 Parser name admission and newline metadata
 
-The next grammar slice is implemented and awaiting review:
+This grammar slice is reviewed and committed as `3c7e4e7`:
 
 - Quoted empty names construct present-empty names for all payload types,
   including containers, through the existing live-model APIs. Missing names and
@@ -1435,15 +1435,53 @@ including 15,908 DocumentParser checks and 922 DocumentStructure checks in each
 configuration. Policy validation reports no errors or warnings, with the existing
 negative-test suppression. Diff and repository line-ending checks pass.
 
-Root inference, shared terminal reasons, protocol retirement and final caller
-policy remain subsequent work. Parser entry points still do not accept or
-apply `CDocumentParseOptions`. Duplicate names still use the transitional
-recovery behavior until its consumers are retired together.
+That slice left root inference and the remaining reporting, policy and protocol
+changes for subsequent work.
+
+### 9.7 Shared root inference
+
+Root inference is implemented and awaiting review:
+
+- Both checking and construction use `select_root` with the first token and a
+  scanner copy. Explicit object/array roots take priority. Otherwise a name
+  token followed by a structural colon selects an object body; other non-empty
+  input selects an array body. Empty and comment-only input produce an object.
+- Lookahead leaves the active scanner's position and findings unchanged. A
+  colon inside an escape or comment cannot turn a scalar into a member name.
+  Normal checking still establishes findings and the first terminal error.
+- Non-empty unbraced objects and multiple unbracketed values set `implicit_body`.
+  A single scalar does not set it; its other source features still apply.
+  A lone value with a trailing comma sets the trailing-comma finding. Nested
+  container contents do not contribute to the top-level value count.
+- Construction selects the empty root's kind before adding children. Roots
+  remain anonymous and parentless, explicit roots reject trailing content, and
+  the document root is never removed by singleton normalization. Ordinary
+  singleton objects inside root arrays retain the existing normalization.
+- Estimates include the inferred container, and implicit-root structural
+  locations use the virtual start at line 1, column 1. Existing live/baked APIs
+  preserve root kind and per-value metadata through the resulting documents.
+
+Tests cover explicit/implicit roots, scalar types, numeric-looking and empty
+names, trivia between a name and its colon, escaped colons, exact findings,
+estimates, Unicode/EOF locations and malformed boundaries. Text and binary
+round trips preserve root type; singleton handling preserves empty names and
+newline metadata. Allocation and numeric-conversion failures preserve the
+existing destination, including its root kind. A content-bearing bounded NUL
+now parses as an unquoted string value rather than an invalid object body.
+
+Debug and Release solution builds and ordinary suites pass on x64 and Win32,
+including 16,713 DocumentParser checks and 1,179 DocumentStructure checks in
+each configuration. Policy validation reports no errors or warnings, with
+the existing negative-test suppression. Diff and line-ending checks pass.
+
+Shared terminal reasons, protocol retirement and final caller policy remain.
+Parser entry points still do not accept or apply `CDocumentParseOptions`.
+Duplicate names and reserved wrappers retain transitional recovery behavior
+until all consumers are retired together.
 
 Remaining implementation sequence:
 
-1. Review parser name admission and newline metadata, then integrate root
-   inference across checking and construction.
+1. Review shared root inference before committing.
 2. Complete the shared terminal-reason and caller-options integration alongside
    the remaining grammar changes. Review before committing.
 3. Refactor parser interpretations, report composition and acceptance/publication;

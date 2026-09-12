@@ -51,6 +51,7 @@ private:
     TPodVector<CFrame> m_frames;
     CDocumentStructureReport m_report;
     CDocumentStructureEstimates m_estimates;
+    std::size_t m_root_value_count{ 0u };
 };
 
 void CCheck::fail(const EDocumentStructureStatus status, const ESyntaxError error) noexcept
@@ -116,6 +117,7 @@ void CCheck::push(const bool object, const bool implicit) noexcept
 
 void CCheck::value() noexcept
 {
+    const bool implicit_root_value = (m_frames.size() == 1u) && m_frames.last().implicit && !m_frames.last().object;
     //  Set the parent's next state before push_back can relocate the frames.
     const EState previous = m_frames.last().state;
     m_frames.last().state = EState::separator;
@@ -149,6 +151,10 @@ void CCheck::value() noexcept
             syntax(ESyntaxError::expected_value);
             return;
         }
+    }
+    if (implicit_root_value && (++m_root_value_count > 1u))
+    {
+        m_report.findings |= document_finding_bit(EDocumentFinding::implicit_body);
     }
     m_report.findings |= m_token.value_findings;
     if (m_report.succeeded())
@@ -269,11 +275,11 @@ CDocumentStructureReport CCheck::run(CDocumentStructureEstimates* estimates) noe
     advance();
     if (m_report.succeeded())
     {
-        const bool implicit = m_token.kind != ETokenKind::object_begin;
-        push(true, implicit);
-        if (implicit && m_report.succeeded())
+        const document_text::CRootForm root = document_text::select_root(m_token, m_scanner);
+        push(root.object, root.implicit);
+        if (root.implicit && m_report.succeeded())
         {
-            if (document_text::is_name_token(m_token.kind))
+            if (root.object && (m_token.kind != ETokenKind::end))
             {
                 m_report.findings |= document_finding_bit(EDocumentFinding::implicit_body);
             }

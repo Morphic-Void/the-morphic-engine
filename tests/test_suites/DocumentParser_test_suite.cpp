@@ -518,6 +518,101 @@ static void test_newline_metadata(TTestContext& ctx)
     }
 }
 
+static void test_root_inference(TTestContext& ctx)
+{
+    struct CCase
+    {
+        const char* source;
+        const char* output;
+        std::uint32_t findings;
+    };
+    const CCase cases[]{
+        { "", "{}", 0u }, { " \n\t", "{}", 0u },
+        { ";empty", "{}", document_finding_bit(EDocumentFinding::comments) },
+        { "{}", "{}", 0u }, { "[]", "[]", 0u },
+        { "[1,true,null]", "[1,true,null]", 0u },
+        { "{\"a\":1}", "{\"a\":1}", 0u },
+        { "\"a\":1", "{\"a\":1}", document_finding_bit(EDocumentFinding::implicit_body) },
+        { "123:1", "{\"123\":1}", EDocumentFinding::implicit_body | EDocumentFinding::unquoted_names },
+        { "0x10:1", "{\"0x10\":1}", EDocumentFinding::implicit_body | EDocumentFinding::unquoted_names },
+        { "\"\":1", "{\"\":1}", EDocumentFinding::implicit_body | EDocumentFinding::empty_member_name },
+        { "42", "[42]", 0u }, { "1.5", "[1.5]", 0u }, { "true", "[true]", 0u },
+        { "false", "[false]", 0u }, { "null", "[null]", 0u }, { "\"hello\"", "[\"hello\"]", 0u },
+        { "1,true,\"hello\"", "[1,true,\"hello\"]", document_finding_bit(EDocumentFinding::implicit_body) },
+        { "1,", "[1]", document_finding_bit(EDocumentFinding::trailing_commas) },
+        { "+#F", "[+#f]", EDocumentFinding::explicit_plus | EDocumentFinding::hexadecimal | EDocumentFinding::alternate_hexadecimal_prefix },
+        { "a\\u003Ab", "[\"a:b\"]", document_finding_bit(EDocumentFinding::unquoted_strings) },
+        { "a\\u003Ab:1", "{\"a:b\":1}", EDocumentFinding::implicit_body | EDocumentFinding::unquoted_names },
+        { "\"a\" /* : ignored */ :1", "{\"a\":1}", EDocumentFinding::implicit_body | EDocumentFinding::comments },
+        { "\"a\" /* : ignored */", "[\"a\"]", document_finding_bit(EDocumentFinding::comments) },
+        { "\"a\";ignored\n:1", "{\"a\":1}", EDocumentFinding::implicit_body | EDocumentFinding::comments },
+        { "\"line\nbreak\"", "[\"line\nbreak\"]", document_finding_bit(EDocumentFinding::raw_quoted_line_breaks) }
+    };
+    CLiveDocument document;
+    for (const auto& item : cases)
+    {
+        const auto report = parse(item.source, document);
+        TEST_CASE_EXPECT_TRUE(ctx, item.source, report.succeeded() && report.construction_completed);
+        TEST_CASE_EXPECT_EQ(ctx, item.source, report.findings, item.findings);
+        const ELiveValueType root_type = (*item.output == '[') ? ELiveValueType::array : ELiveValueType::object;
+        TEST_EXPECT(ctx, document.value_type(document.root()) == root_type);
+        TEST_EXPECT(ctx, !document.is_object_entry(document.root()) && document.name(document.root()).empty());
+        TEST_EXPECT(ctx, !document.parent(document.root()).is_valid() && document.check_integrity());
+        TEST_CASE_EXPECT_TRUE(ctx, item.source, write(ctx, document) == item.output);
+        CBakedDocumentBlock block;
+        TEST_EXPECT(ctx, document_translation::bake(document, block));
+        CLiveDocument promoted;
+        TEST_EXPECT(ctx, document_translation::promote(block.document(), promoted));
+        TEST_EXPECT(ctx, promoted.value_type(promoted.root()) == root_type);
+        TEST_EXPECT(ctx, write(ctx, promoted) == item.output);
+        CLiveDocument reparsed;
+        TEST_EXPECT(ctx, parse(item.output, reparsed).succeeded());
+        TEST_EXPECT(ctx, reparsed.value_type(reparsed.root()) == root_type);
+        TEST_EXPECT(ctx, write(ctx, reparsed) == item.output);
+        if (item.findings == 0u)
+        {
+            TEST_EXPECT(ctx, document_policy::evaluate(report.findings).accepted());
+        }
+    }
+    const auto normalized = parse("0,{\"\":\"line\nbreak\"},{},[]", document);
+    TEST_EXPECT(ctx, normalized.succeeded());
+    TEST_EXPECT(ctx, normalized.findings == (EDocumentFinding::implicit_body | EDocumentFinding::empty_member_name |
+        EDocumentFinding::raw_quoted_line_breaks | EDocumentFinding::singleton_normalization));
+    const CNodeKey named = document.next_sibling(document.first_child(document.root()));
+    TEST_EXPECT(ctx, document.is_object_entry(named) && !document.name(named).empty() && document.name(named).length() == 0u);
+    TEST_EXPECT(ctx, document.suppresses_newline_escaping(named));
+    TEST_EXPECT(ctx, write(ctx, document) == "[0,{\"\":\"line\nbreak\"},{},[]]");
+    const auto explicit_array = parse("[{\"x\":1},{},{\"x\":1,\"y\":2}]", document);
+    TEST_EXPECT(ctx, explicit_array.succeeded() && explicit_array.findings == document_finding_bit(EDocumentFinding::singleton_normalization));
+    TEST_EXPECT(ctx, document.is_object_entry(document.first_child(document.root())));
+    TEST_EXPECT(ctx, write(ctx, document) == "[{\"x\":1},{},{\"x\":1,\"y\":2}]");
+
+    const CNodeKey keep = document.first_child(document.root());
+    const std::uint64_t allocation_size = document.memory_allocation_size();
+    const char* const malformed[]{ "1 2", "[1}", "[1", "[] true", "{} ,1", "1,a:2", "\"a\":1,2", "[a:1]", "1,,2", "," };
+    for (const char* source : malformed)
+    {
+        const auto failed = parse(source, document);
+        TEST_CASE_EXPECT_TRUE(ctx, source, failed.status == EDocumentParseStatus::structural_failure);
+        TEST_EXPECT(ctx, !failed.parser_examined && !failed.construction_completed);
+        TEST_EXPECT(ctx, document.value_type(document.root()) == ELiveValueType::array && document.first_child(document.root()) == keep);
+        TEST_EXPECT(ctx, document.memory_allocation_size() == allocation_size && document.check_integrity());
+    }
+    const auto range = parse("18446744073709551616", document);
+    TEST_EXPECT(ctx, range.status == EDocumentParseStatus::numeric_out_of_range);
+    TEST_EXPECT(ctx, range.structure.succeeded() && range.parser_examined && !range.construction_completed);
+    TEST_EXPECT(ctx, range.findings == 0u && range.failure_point.code_point_column_1_based == 1u);
+    TEST_EXPECT(ctx, document.first_child(document.root()) == keep && document.value_type(document.root()) == ELiveValueType::array);
+    const auto ingested = document_parser::ingest(CStringView{ "\xef\xbb\xbf;head\r\n[1,true]" }, document);
+    TEST_EXPECT(ctx, ingested.succeeded() && ingested.linter_examined && ingested.linter.success);
+    TEST_EXPECT(ctx, document.value_type(document.root()) == ELiveValueType::array && write(ctx, document) == "[1,true]");
+    const auto nul = parse(std::string(1u, '\0'), document);
+    TEST_EXPECT(ctx, nul.succeeded() && nul.findings == (EDocumentFinding::logical_nul | EDocumentFinding::unquoted_strings));
+    const std::uint8_t canonical_nul[]{ 0xc0u, 0x80u };
+    TEST_EXPECT(ctx, document.value_type(document.root()) == ELiveValueType::array);
+    TEST_EXPECT(ctx, document.string_value(document.first_child(document.root())) == (CStringView{ canonical_nul, sizeof(canonical_nul) }));
+}
+
 static void test_integer_metadata(TTestContext& ctx)
 {
     struct CCase
@@ -1101,6 +1196,46 @@ static void* MV_STD_ABI_CALL allocate(void* const state, const std::size_t align
     return tests::allocate_test_memory(nullptr, alignment, size);
 }
 
+static void test_root_allocation(TTestContext& ctx)
+{
+    const char* const sources[]{ "[]", "42", "\"\":1", "[\"a\\nb\",{\"\":\"x\n y\"},[1]]", "1,{\"x\":2},[3]" };
+    for (const char* source : sources)
+    {
+        CLiveDocument destination;
+        TEST_EXPECT(ctx, parse("[7]", destination).succeeded());
+        const CNodeKey keep = destination.first_child(destination.root());
+        const std::uint64_t allocation_size = destination.memory_allocation_size();
+        bool completed = false;
+        for (std::size_t fail_on = 0u; (fail_on < 256u) && !completed; ++fail_on)
+        {
+            CAllocatorState fixture{ 0u, fail_on, false };
+            memory::CMemoryAllocator allocator{ &fixture, &allocate, &tests::deallocate_test_memory };
+            memory::CMemoryContext context{ allocator };
+            {
+                tests::TMemoryContextScope scope{ &context };
+                const auto report = parse(source, destination);
+                completed = report.succeeded();
+                if (completed)
+                {
+                    TEST_EXPECT(ctx, !fixture.failed && report.construction_completed && destination.check_integrity());
+                    destination.deallocate();
+                }
+                else
+                {
+                    TEST_EXPECT(ctx, fixture.failed && !report.construction_completed);
+                    TEST_EXPECT(ctx, (report.status == EDocumentParseStatus::structural_failure) ||
+                        (report.status == EDocumentParseStatus::allocation_failed) || (report.status == EDocumentParseStatus::construction_failed));
+                    TEST_EXPECT(ctx, destination.value_type(destination.root()) == ELiveValueType::array);
+                    TEST_EXPECT(ctx, destination.first_child(destination.root()) == keep);
+                    TEST_EXPECT(ctx, destination.memory_allocation_size() == allocation_size && destination.check_integrity());
+                }
+            }
+            TEST_EXPECT(ctx, context.is_attribution_empty());
+        }
+        TEST_CASE_EXPECT_TRUE(ctx, source, completed);
+    }
+}
+
 static void test_depth_and_allocation(TTestContext& ctx)
 {
     CLiveDocument destination;
@@ -1243,6 +1378,7 @@ int run_document_parser_tests()
     document_parser_tests::test_strings_and_ingestion(ctx);
     document_parser_tests::test_empty_names(ctx);
     document_parser_tests::test_newline_metadata(ctx);
+    document_parser_tests::test_root_inference(ctx);
     document_parser_tests::test_integer_metadata(ctx);
     document_parser_tests::test_floats(ctx);
     document_parser_tests::test_failure_publication(ctx);
@@ -1251,6 +1387,7 @@ int run_document_parser_tests()
     document_parser_tests::test_protocol_failures(ctx);
     document_parser_tests::test_round_trips(ctx);
     document_parser_tests::test_depth_and_allocation(ctx);
+    document_parser_tests::test_root_allocation(ctx);
     document_parser_tests::test_composed_linter_diagnostics(ctx);
     std::cout << "DocumentParser: " << ctx.passed << " passed, " << ctx.failed << " failed\n";
     return (ctx.failed == 0) ? 0 : 1;

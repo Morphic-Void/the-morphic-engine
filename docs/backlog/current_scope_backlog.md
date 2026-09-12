@@ -21,9 +21,13 @@ built. Completed implementation does not mean these interfaces are final.
    estimates and construction coverage are reviewed and committed. Shared
    unquoted-token grammar and contextual value findings are reviewed and committed.
    Parser support for native empty names, structural newline-name rejection and
-   source-derived per-string newline suppression is implemented for review.
-   Root inference, terminal-reason integration, protocol retirement and final
-   acceptance remain.
+   source-derived per-string newline suppression is reviewed and committed.
+   Explicit array roots and shared inference of object/array bodies are
+   implemented for review. Terminal-reason integration, protocol retirement
+   and final acceptance remain.
+   After the main implementation, consider a separate const pass: identify
+   parameters that functions do not mutate, add appropriate const qualification,
+   and align parameter const decoration between declarations and definitions.
 2. Develop the remaining Host consolidation in a separate task: module
    lifecycle, asset identity and lifetime, asynchronous operations, aligned
    loading, conditioning and filesystem resolution.

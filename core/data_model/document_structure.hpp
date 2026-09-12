@@ -21,7 +21,7 @@ enum class EDocumentStructureStatus : std::uint8_t
 struct CDocumentStructureEstimates
 {
     //  Syntactic occurrences before collision recovery or wrapper decoding.
-    //  Counts include the explicit or implicit root object. They are hints for
+    //  Counts include the explicit or inferred root container. They are hints for
     //  later construction, not live-node counts or allocation guarantees.
     std::size_t value_count{ 0u };
     std::size_t object_count{ 0u };
@@ -29,7 +29,7 @@ struct CDocumentStructureEstimates
     std::size_t named_entry_count{ 0u };
     //  Sum of raw name/string token bytes, including quotes and escapes.
     std::size_t string_source_byte_size{ 0u };
-    //  Root counts as depth one, even when its braces are implicit.
+    //  Root counts as depth one, even when its delimiters are implicit.
     std::size_t maximum_depth{ 0u };
 };
 

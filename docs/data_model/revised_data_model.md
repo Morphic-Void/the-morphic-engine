@@ -617,8 +617,8 @@ The scanner and structural report now use the shared findings directly, and the
 parser report composes observations from each examined stage. Partial findings
 survive failure, and capacity estimates are separate from diagnostics. Parser
 coverage distinguishes an unexamined stage, failed construction and completed
-construction. The entry points use the token grammar and remaining initial
-root/protocol rules described below; they do not yet accept `CDocumentParseOptions`, apply
+construction. The entry points use the shared grammar and transitional
+protocol rules described below; they do not yet accept `CDocumentParseOptions`, apply
 the evaluator or use `CDocumentFailure`. These remaining replacements follow
 with the grammar and recovery-protocol migration. A successful feature-policy
 evaluation alone is not parsing success.
@@ -635,10 +635,20 @@ embedded NULs. An absent string is invalid input; a present zero-length string
 is valid empty text. Construct the view directly from the linter's output
 pointer and logical byte size so this distinction is retained.
 
-The root is an explicit object or an unbraced member list such as
-`name: 1, enabled: true`. Empty or comment-only text is an implicit empty
-object. A root array or scalar is not part of this initial grammar. Names in
-arrays require object wrappers; `[name: 1]` is invalid.
+The root is an anonymous object or array. After leading trivia, `{` and `[`
+select explicit roots. Otherwise a name token followed by a structural colon
+selects an implicit object body; other non-empty input selects an implicit
+array body. Empty or comment-only text produces an empty object. The shared
+`select_root` helper probes a scanner copy, leaving the active cursor and its
+findings unchanged. Numeric/keyword spelling alone does not imply a name, and
+escaped colons remain content.
+
+For example, `123: true` produces an object, `123` produces `[123]`, and
+`1,true,"hello"` produces an array with three elements. A single scalar has
+no implicit-body finding; multiple unbracketed values or a non-empty unbraced
+object do. Other source features retain their own findings. Once an explicit
+root is selected, trailing content cannot reinterpret it as an array element.
+Names in arrays require object wrappers; `[name: 1]` is invalid.
 
 The implemented token grammar accepts:
 
@@ -703,8 +713,8 @@ For a newline in a name, structure start identifies the name token and failure
 point identifies its first literal break or the backslash of its first escaped
 break. `CToken::first_line_break` retains decoded-content evidence independently
 of its per-token `literal_line_break` writing observation.
-Root-array/scalar inference, shared terminal reasons, protocol retirement and
-final policy remain to be integrated.
+Shared terminal reasons, protocol retirement and final policy remain to be
+integrated.
 
 ### Live construction and interpretation
 
@@ -807,7 +817,7 @@ When an anonymous ordinary object directly within an ordinary array contains
 exactly one named member after duplicate recovery, parsing removes the
 redundant wrapper and retains the named child with its complete payload.
 The rule does not depend on that payload's type. Empty and multi-member objects
-remain objects; the implicit root remains an object. Recovered-array
+remain objects; the document root is never unwrapped. Recovered-array
 competitors retain anonymous wrappers where needed to satisfy their naming
 rule. Reserved recovery wrappers are decoded before ordinary unwrapping.
 
@@ -839,8 +849,8 @@ any supported integer spelling with value one, including `+1`, `0x1` and `#1`;
 floating `1.0` is not an integer version. Unknown integer versions and string
 types have distinct unsupported-version/type statuses. Invalid field types,
 missing/extra/duplicate fields and invalid outer members report a malformed
-recovery wrapper. The root must remain the document's implicit object, so a
-reserved recovery wrapper at the root reports `invalid_root_value`.
+recovery wrapper. A reserved recovery wrapper cannot replace the document
+root and reports `invalid_root_value` there.
 The structural check accepts these well-formed spellings independently of
 their interpretation.
 

@@ -92,7 +92,7 @@ static void test_partial_findings(TTestContext& ctx)
 
 static void test_grammar(TTestContext& ctx)
 {
-    const char* const accepted[]{ "", " \r\n\t", "// empty", "{}", "{\"a\":[]}",
+    const char* const accepted[]{ "", " \r\n\t", "// empty", "{}", "[]", "1", "true", "'text'", "{\"a\":[]}",
         "{\"n\":123,\"f\":-0.0e+12,\"b\":true,\"z\":null,\"s\":\"text\"}",
         "a:1, enabled:true", "{a:1,}", "a:1,", "{a:[1,2,]}",
         "{'x':'can\\'t', \"y\":'\"quoted\"'}", "{true:false,null:true,false:null}",
@@ -110,7 +110,7 @@ static void test_grammar(TTestContext& ctx)
     }
     TEST_EXPECT(ctx, check("{\"\":1,\"\":2}").succeeded());
 
-    const char* const rejected[]{ "[]", "1", "true", "'text'", "[a:1]", "{a:[n:1]}",
+    const char* const rejected[]{ "[a:1]", "{a:[n:1]}",
         "{a:[\"n\":1]}", "{a}", "{a:}", "{a:1 b:2}", "{a:1,,}", "{,}", "{a:[,]}",
         "{a:[1,,2]}", "{a:[1 2]}", "{a:[1}}", "{a:1]", "{a:1", "{a:[", "a:",
         "{a:1} {}", "{a:1},", "a:1}", "{a:\"\\q\"}", "{a:\"\\'\"}", "{a:'\\x41'}", "{a:\"\\u12\"}",
@@ -145,7 +145,9 @@ static void test_input_presence(TTestContext& ctx)
     TEST_EXPECT(ctx, end.kind == ETokenKind::end && end.offset == 0u && end.size == 0u);
     TEST_EXPECT(ctx, scanner.findings() == 0u);
     //  The same backing byte, when included in the logical extent, is content.
-    expect_failure(ctx, document_structure::check(CStringView{ &terminator, 1u }), EDocumentStructureStatus::syntax_error);
+    const auto nul = document_structure::check(CStringView{ &terminator, 1u }, &estimates);
+    TEST_EXPECT(ctx, nul.succeeded() && nul.findings == (EDocumentFinding::logical_nul | EDocumentFinding::unquoted_strings));
+    TEST_EXPECT(ctx, estimates.value_count == 2u && estimates.array_count == 1u && estimates.object_count == 0u);
 }
 
 static void test_policy_boundary(TTestContext& ctx)
@@ -398,6 +400,89 @@ static void test_name_line_breaks(TTestContext& ctx)
     TEST_EXPECT(ctx, scanner.next().kind == ETokenKind::end);
 }
 
+static void test_root_inference(TTestContext& ctx)
+{
+    struct CCase
+    {
+        const char* source;
+        bool object;
+        std::size_t children;
+        std::uint32_t findings;
+    };
+    const CCase cases[]{
+        { "", true, 0u, 0u }, { " \n\t", true, 0u, 0u },
+        { ";empty", true, 0u, document_finding_bit(EDocumentFinding::comments) },
+        { "{}", true, 0u, 0u }, { "[]", false, 0u, 0u }, { "[1,true,null]", false, 3u, 0u },
+        { "\"a\":1", true, 1u, document_finding_bit(EDocumentFinding::implicit_body) },
+        { "123:1", true, 1u, EDocumentFinding::implicit_body | EDocumentFinding::unquoted_names },
+        { "0x10:1", true, 1u, EDocumentFinding::implicit_body | EDocumentFinding::unquoted_names },
+        { "\"\":1", true, 1u, EDocumentFinding::implicit_body | EDocumentFinding::empty_member_name },
+        { "42", false, 1u, 0u }, { "1.5", false, 1u, 0u }, { "true", false, 1u, 0u },
+        { "false", false, 1u, 0u }, { "null", false, 1u, 0u }, { "\"hello\"", false, 1u, 0u },
+        { "1,true,\"hello\"", false, 3u, document_finding_bit(EDocumentFinding::implicit_body) },
+        { "1,", false, 1u, document_finding_bit(EDocumentFinding::trailing_commas) },
+        { "1,2,", false, 2u, EDocumentFinding::implicit_body | EDocumentFinding::trailing_commas },
+        { "+#F", false, 1u, EDocumentFinding::explicit_plus | EDocumentFinding::hexadecimal | EDocumentFinding::alternate_hexadecimal_prefix },
+        { "a\\u003Ab", false, 1u, document_finding_bit(EDocumentFinding::unquoted_strings) },
+        { "a\\u003Ab:1", true, 1u, EDocumentFinding::implicit_body | EDocumentFinding::unquoted_names },
+        { "\"a\" /* : ignored */ :1", true, 1u, EDocumentFinding::implicit_body | EDocumentFinding::comments },
+        { "\"a\" /* : ignored */", false, 1u, document_finding_bit(EDocumentFinding::comments) },
+        { "\"a\";ignored\n:1", true, 1u, EDocumentFinding::implicit_body | EDocumentFinding::comments },
+        { "\"line\nbreak\"", false, 1u, document_finding_bit(EDocumentFinding::raw_quoted_line_breaks) }
+    };
+    for (const auto& item : cases)
+    {
+        CDocumentStructureEstimates estimates;
+        const auto report = check(item.source, &estimates);
+        TEST_CASE_EXPECT_TRUE(ctx, item.source, report.succeeded());
+        TEST_CASE_EXPECT_EQ(ctx, item.source, report.findings, item.findings);
+        TEST_EXPECT(ctx, estimates.value_count == item.children + 1u);
+        TEST_EXPECT(ctx, estimates.object_count == (item.object ? 1u : 0u));
+        TEST_EXPECT(ctx, estimates.array_count == (item.object ? 0u : 1u));
+        TEST_EXPECT(ctx, estimates.named_entry_count == (item.object ? item.children : 0u));
+        TEST_EXPECT(ctx, estimates.maximum_depth == 1u);
+        TEST_EXPECT(ctx, !report.structure_start.available && !report.failure_point.available);
+    }
+    struct CFailure
+    {
+        const char* source;
+        ESyntaxError error;
+        std::size_t start_column;
+        std::size_t failure_column;
+    };
+    const CFailure failures[]{
+        { "1 2", ESyntaxError::expected_separator, 1u, 3u },
+        { "[1}", ESyntaxError::mismatched_delimiter, 1u, 3u },
+        { "[1", ESyntaxError::unexpected_end, 1u, 3u },
+        { "[] true", ESyntaxError::trailing_content, 4u, 4u },
+        { "{} ,1", ESyntaxError::trailing_content, 4u, 4u },
+        { "1,a:2", ESyntaxError::expected_separator, 1u, 4u },
+        { "\"a\":1,2", ESyntaxError::expected_colon, 7u, 8u },
+        { "[a:1]", ESyntaxError::expected_separator, 1u, 3u },
+        { "1,,2", ESyntaxError::expected_value, 1u, 3u },
+        { "\"a\\nb\":1", ESyntaxError::newline_in_name, 1u, 3u }
+    };
+    for (const auto& item : failures)
+    {
+        CDocumentStructureEstimates estimates{ 1u, 1u, 1u, 1u, 1u, 1u };
+        const auto report = check(item.source, &estimates);
+        TEST_CASE_EXPECT_TRUE(ctx, item.source, !report.succeeded() && report.syntax_error == item.error);
+        TEST_CASE_EXPECT_EQ(ctx, item.source, report.structure_start.code_point_column_1_based, item.start_column);
+        TEST_CASE_EXPECT_EQ(ctx, item.source, report.failure_point.code_point_column_1_based, item.failure_column);
+        expect_no_estimates(ctx, estimates);
+    }
+    //  Root lookahead must not publish observations beyond a failing first name.
+    const auto partial = check("\"a\\nb\" /*later*/ :1");
+    TEST_EXPECT(ctx, partial.syntax_error == ESyntaxError::newline_in_name);
+    TEST_EXPECT(ctx, partial.findings == document_finding_bit(EDocumentFinding::implicit_body));
+    const auto nested = check("1,{\"a\":[2]}");
+    TEST_EXPECT(ctx, nested.succeeded() && nested.findings == document_finding_bit(EDocumentFinding::implicit_body));
+    const auto location = check(" ;head\n \xc3\xa9 \"tail\"");
+    TEST_EXPECT(ctx, location.syntax_error == ESyntaxError::expected_separator);
+    TEST_EXPECT(ctx, location.structure_start.line_1_based == 1u && location.structure_start.code_point_column_1_based == 1u);
+    TEST_EXPECT(ctx, location.failure_point.line_1_based == 2u && location.failure_point.code_point_column_1_based == 4u);
+}
+
 static void test_ingestion_and_bounds(TTestContext& ctx)
 {
     const std::uint8_t input[]{ '{', '"', 'n', 0u, '"', ':', '"', 0xe9u, 0u, '"', '}' };
@@ -542,6 +627,7 @@ int run_document_structure_tests()
     document_structure_tests::test_unquoted_boundaries(ctx);
     document_structure_tests::test_semicolon_comments(ctx);
     document_structure_tests::test_name_line_breaks(ctx);
+    document_structure_tests::test_root_inference(ctx);
     document_structure_tests::test_ingestion_and_bounds(ctx);
     document_structure_tests::test_depth_and_resources(ctx);
     document_structure_tests::test_writer_compatibility(ctx);

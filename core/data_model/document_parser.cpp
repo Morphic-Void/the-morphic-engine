@@ -699,14 +699,15 @@ CDocumentParseReport CParser::run(CLiveDocument& destination) noexcept
     m_report.parser_examined = true;
     m_report.status = EDocumentParseStatus::success;
     advance();
-    const bool implicit = m_token.kind != ETokenKind::object_begin;
-    if (!m_document.initialise())
+    const document_text::CRootForm root = document_text::select_root(m_token, m_scanner);
+    if (!m_document.initialise() || !m_document.set_root_type(root.object ? ELiveValueType::object : ELiveValueType::array))
     {
         fail(EDocumentParseStatus::construction_failed);
     }
-    if (m_report.succeeded() && push(m_document.root(), EFrameRole::object, m_token.location))
+    const CTextLocation root_location = root.implicit ? CTextLocation{ true, 1u, 1u } : m_token.location;
+    if (m_report.succeeded() && push(m_document.root(), root.object ? EFrameRole::object : EFrameRole::array, root_location))
     {
-        if (!implicit)
+        if (!root.implicit)
         {
             advance();
         }
@@ -734,7 +735,7 @@ CDocumentParseReport CParser::run(CLiveDocument& destination) noexcept
                 entry();
             }
         }
-        if (m_report.succeeded() && (m_frames.size() != (implicit ? 1u : 0u)))
+        if (m_report.succeeded() && (m_frames.size() != (root.implicit ? 1u : 0u)))
         {
             fail(EDocumentParseStatus::internal_error);
         }

@@ -89,6 +89,16 @@ private:
     std::uint32_t m_findings{ 0u };
 };
 
+struct CRootForm
+{
+    bool object;
+    bool implicit;
+};
+
+//  The scanner is positioned just after first. Probe a copy so root selection
+//  does not consume input or publish findings from lookahead.
+[[nodiscard]] CRootForm select_root(const CToken& first, CScanner scanner) noexcept;
+
 inline std::uint32_t CScanner::findings() const noexcept
 {
     return m_findings;

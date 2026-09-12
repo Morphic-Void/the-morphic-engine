@@ -292,6 +292,19 @@ bool is_name_token(const ETokenKind kind) noexcept
         (kind == ETokenKind::true_value) || (kind == ETokenKind::false_value) || (kind == ETokenKind::null_value);
 }
 
+CRootForm select_root(const CToken& first, CScanner scanner) noexcept
+{
+    if (first.kind == ETokenKind::end)
+    {
+        return { true, true };
+    }
+    if ((first.kind == ETokenKind::object_begin) || (first.kind == ETokenKind::array_begin))
+    {
+        return { first.kind == ETokenKind::object_begin, false };
+    }
+    return { is_name_token(first.kind) && (scanner.next().kind == ETokenKind::colon), true };
+}
+
 CToken CScanner::failure(const ESyntaxError error) const noexcept
 {
     return { ETokenKind::error, error, m_offset, 0u };

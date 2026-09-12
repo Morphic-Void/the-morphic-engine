@@ -71,7 +71,9 @@ namespace document_parser
 //  Decode version-1 recovery wrappers and escaped reserved data names, recover
 //  duplicate members in order, and normalize ordinary singleton objects in
 //  ordinary arrays. Protocol metadata is validated separately from user data.
-//  The root remains an object; a recovery wrapper cannot replace it.
+//  Explicit containers select the root kind. Otherwise a first name followed
+//  by a colon selects an object body; other non-empty input selects an array
+//  body, including a single scalar. A recovery wrapper cannot replace the root.
 [[nodiscard]] CDocumentParseReport parse(const CStringView& source, CLiveDocument& destination) noexcept;
 
 //  Lint source bytes with uniform LF normalization, then parse. Retain the
