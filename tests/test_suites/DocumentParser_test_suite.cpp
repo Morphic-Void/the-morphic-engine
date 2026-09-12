@@ -229,7 +229,8 @@ static void test_composed_findings(TTestContext& ctx)
     TEST_EXPECT(ctx, malformed.linter_examined && malformed.linter.success && !malformed.parser_examined && !malformed.construction_completed);
     TEST_EXPECT(ctx, malformed.findings == (EDocumentFinding::cp1252 | EDocumentFinding::utf8_attempt_failed |
         EDocumentFinding::unquoted_names | EDocumentFinding::single_quotes));
-    TEST_EXPECT(ctx, malformed.structure.syntax_error == document_text::ESyntaxError::expected_value);
+    TEST_EXPECT(ctx, malformed.structure.failure.reason == EDocumentFailureReason::missing_value);
+    TEST_EXPECT(ctx, malformed.failure.stage == EDocumentFailureStage::structure && malformed.failure.reason == EDocumentFailureReason::missing_value);
     TEST_EXPECT(ctx, destination.first_child(destination.root()) == keep && destination.check_integrity());
 
     const std::uint8_t undefined[]{ 0x81u };
@@ -250,6 +251,86 @@ static void test_composed_findings(TTestContext& ctx)
     TEST_EXPECT(ctx, success.succeeded() && success.linter_examined && success.linter.success);
     TEST_EXPECT(ctx, success.structure.succeeded() && success.parser_examined && success.construction_completed);
     TEST_EXPECT(ctx, success.findings == document_finding_bit(EDocumentFinding::logical_nul));
+}
+
+static void test_shared_failures(TTestContext& ctx)
+{
+    CDocumentParseReport report;
+    TEST_EXPECT(ctx, report.status == EDocumentParseStatus::unexamined && !report.succeeded());
+    TEST_EXPECT(ctx, report.failure.stage == EDocumentFailureStage::none && report.failure.reason == EDocumentFailureReason::none);
+    CLiveDocument destination;
+    TEST_EXPECT(ctx, parse("{\"keep\":7}", destination).succeeded());
+    const CNodeKey keep = destination.first_child(destination.root());
+    struct CCase
+    {
+        const char* source;
+        EDocumentFailureStage stage;
+        EDocumentFailureReason reason;
+    };
+    const CCase cases[]{
+        { "{:1}", EDocumentFailureStage::structure, EDocumentFailureReason::missing_name },
+        { "{\"a\" 1}", EDocumentFailureStage::structure, EDocumentFailureReason::missing_colon },
+        { "{\"a\":}", EDocumentFailureStage::structure, EDocumentFailureReason::missing_value },
+        { "[1 2]", EDocumentFailureStage::structure, EDocumentFailureReason::missing_separator },
+        { "[1}", EDocumentFailureStage::structure, EDocumentFailureReason::mismatched_delimiter },
+        { "[1", EDocumentFailureStage::structure, EDocumentFailureReason::unexpected_end },
+        { "[] true", EDocumentFailureStage::structure, EDocumentFailureReason::trailing_content },
+        { "/*", EDocumentFailureStage::structure, EDocumentFailureReason::unterminated_comment },
+        { "\"unfinished", EDocumentFailureStage::structure, EDocumentFailureReason::unterminated_string },
+        { "\"\\q\"", EDocumentFailureStage::structure, EDocumentFailureReason::invalid_escape },
+        { "\"\\uD800\"", EDocumentFailureStage::structure, EDocumentFailureReason::invalid_surrogate_pair },
+        { "{\"a\\nb\":1}", EDocumentFailureStage::structure, EDocumentFailureReason::newline_in_name },
+        { "{n:1e9999,bad:}", EDocumentFailureStage::structure, EDocumentFailureReason::missing_value },
+        { "18446744073709551616", EDocumentFailureStage::parser, EDocumentFailureReason::numeric_out_of_range },
+        { "n:1e9999,r:{$morphic:{v:2,type:'recovered-array',values:[]}}", EDocumentFailureStage::parser, EDocumentFailureReason::numeric_out_of_range },
+        { "$morphic:{}", EDocumentFailureStage::parser, EDocumentFailureReason::invalid_root_value },
+        { "r:{$morphic:{v:2,type:'recovered-array',values:[]}}", EDocumentFailureStage::parser, EDocumentFailureReason::construction_failed }
+    };
+    for (const auto& item : cases)
+    {
+        report = parse(item.source, destination);
+        TEST_CASE_EXPECT_TRUE(ctx, item.source, !report.succeeded());
+        TEST_CASE_EXPECT_EQ(ctx, item.source, report.failure.stage, item.stage);
+        TEST_CASE_EXPECT_EQ(ctx, item.source, report.failure.reason, item.reason);
+        TEST_EXPECT(ctx, report.structure_start.available && report.failure_point.available);
+        TEST_EXPECT(ctx, !report.construction_completed && destination.first_child(destination.root()) == keep);
+        if (item.stage == EDocumentFailureStage::structure)
+        {
+            TEST_EXPECT(ctx, !report.parser_examined && report.structure.status == EDocumentStructureStatus::failed);
+            TEST_EXPECT(ctx, report.failure.stage == report.structure.failure.stage && report.failure.reason == report.structure.failure.reason);
+        }
+        else
+        {
+            TEST_EXPECT(ctx, report.parser_examined && report.structure.succeeded());
+            TEST_EXPECT(ctx, report.structure.failure.stage == EDocumentFailureStage::none && report.structure.failure.reason == EDocumentFailureReason::none);
+        }
+    }
+    report = document_parser::parse(CStringView{}, destination);
+    TEST_EXPECT(ctx, report.failure.stage == EDocumentFailureStage::structure && report.failure.reason == EDocumentFailureReason::invalid_input_view);
+    TEST_EXPECT(ctx, !report.parser_examined && !report.structure_start.available && !report.failure_point.available);
+    const CCase decoding[]{
+        { "\x81", EDocumentFailureStage::linter, EDocumentFailureReason::undefined_cp1252_byte },
+        { "\xef\xbb\xbf\xff", EDocumentFailureStage::linter, EDocumentFailureReason::utf8_decode }
+    };
+    for (const auto& item : decoding)
+    {
+        report = document_parser::ingest(CStringView{ item.source }, destination);
+        TEST_EXPECT(ctx, report.status == EDocumentParseStatus::linter_failure && report.failure.stage == item.stage);
+        TEST_EXPECT(ctx, report.failure.reason == item.reason && report.linter.first_failure.present);
+        TEST_EXPECT(ctx, !report.parser_examined && !report.construction_completed && !report.structure_start.available);
+        TEST_EXPECT(ctx, report.structure.status == EDocumentStructureStatus::unexamined);
+        TEST_EXPECT(ctx, report.structure.failure.stage == EDocumentFailureStage::none && report.structure.failure.reason == EDocumentFailureReason::none);
+        TEST_EXPECT(ctx, destination.first_child(destination.root()) == keep);
+    }
+    report = document_parser::ingest(CStringView{}, destination);
+    TEST_EXPECT(ctx, report.failure.stage == EDocumentFailureStage::linter && report.failure.reason == EDocumentFailureReason::invalid_input_view);
+    TEST_EXPECT(ctx, report.structure.status == EDocumentStructureStatus::unexamined);
+    report = document_parser::ingest(CStringView{ "{\"s\":\"\x80\"}" }, destination);
+    TEST_EXPECT(ctx, report.succeeded() && report.linter.recovered_as_cp1252 && report.linter.utf8_attempt_errors != 0u);
+    TEST_EXPECT(ctx, report.failure.stage == EDocumentFailureStage::none && report.failure.reason == EDocumentFailureReason::none);
+    TEST_EXPECT(ctx, !report.linter.first_failure.present && report.structure.failure.reason == EDocumentFailureReason::none);
+    report = parse("[]", destination);
+    TEST_EXPECT(ctx, report.succeeded() && report.failure.stage == EDocumentFailureStage::none && report.failure.reason == EDocumentFailureReason::none);
 }
 
 static void test_unquoted_strings(TTestContext& ctx)
@@ -512,7 +593,7 @@ static void test_newline_metadata(TTestContext& ctx)
         const std::string invalid = std::string("{\"a") + line_break + "b\":1}";
         const auto failed = document_parser::ingest(CStringView{ invalid.data(), invalid.size() }, document);
         TEST_EXPECT(ctx, failed.status == EDocumentParseStatus::structural_failure);
-        TEST_EXPECT(ctx, failed.structure.syntax_error == document_text::ESyntaxError::newline_in_name);
+        TEST_EXPECT(ctx, failed.structure.failure.reason == EDocumentFailureReason::newline_in_name);
         TEST_EXPECT(ctx, !failed.parser_examined && !failed.construction_completed);
         TEST_EXPECT(ctx, document.first_child(document.root()) == value && document.suppresses_newline_escaping(value));
     }
@@ -1225,6 +1306,9 @@ static void test_root_allocation(TTestContext& ctx)
                     TEST_EXPECT(ctx, fixture.failed && !report.construction_completed);
                     TEST_EXPECT(ctx, (report.status == EDocumentParseStatus::structural_failure) ||
                         (report.status == EDocumentParseStatus::allocation_failed) || (report.status == EDocumentParseStatus::construction_failed));
+                    TEST_EXPECT(ctx, report.failure.stage == (report.parser_examined ? EDocumentFailureStage::parser : EDocumentFailureStage::structure));
+                    TEST_EXPECT(ctx, report.failure.reason == ((report.status == EDocumentParseStatus::construction_failed) ?
+                        EDocumentFailureReason::construction_failed : EDocumentFailureReason::allocation_failed));
                     TEST_EXPECT(ctx, destination.value_type(destination.root()) == ELiveValueType::array);
                     TEST_EXPECT(ctx, destination.first_child(destination.root()) == keep);
                     TEST_EXPECT(ctx, destination.memory_allocation_size() == allocation_size && destination.check_integrity());
@@ -1265,6 +1349,9 @@ static void test_depth_and_allocation(TTestContext& ctx)
                 TEST_EXPECT(ctx, fixture.failed);
                 TEST_EXPECT(ctx, (report.status == EDocumentParseStatus::structural_failure) ||
                     (report.status == EDocumentParseStatus::allocation_failed) || (report.status == EDocumentParseStatus::construction_failed));
+                TEST_EXPECT(ctx, report.failure.stage == (report.parser_examined ? EDocumentFailureStage::parser : EDocumentFailureStage::structure));
+                TEST_EXPECT(ctx, report.failure.reason == ((report.status == EDocumentParseStatus::construction_failed) ?
+                    EDocumentFailureReason::construction_failed : EDocumentFailureReason::allocation_failed));
                 TEST_EXPECT(ctx, destination.first_child(destination.root()) == keep);
                 expect_no_interpretations(ctx, report);
             }
@@ -1341,6 +1428,7 @@ static void test_composed_linter_diagnostics(TTestContext& ctx)
         report = document_parser::ingest(CByteConstView{ source, sizeof(source) }, document);
         TEST_EXPECT(ctx, report.status == EDocumentParseStatus::linter_failure);
         TEST_EXPECT(ctx, report.linter.first_failure.reason == ETextLintFailure::allocation_failed);
+        TEST_EXPECT(ctx, report.failure.stage == EDocumentFailureStage::linter && report.failure.reason == EDocumentFailureReason::allocation_failed);
         TEST_EXPECT(ctx, report.linter.first_failure.before_output);
         TEST_EXPECT(ctx, !report.structure_start.available && report.failure_point.available);
         TEST_EXPECT(ctx, report.structure.status == EDocumentStructureStatus::unexamined);
@@ -1372,6 +1460,7 @@ int run_document_parser_tests()
     tests::TTestContext ctx;
     document_parser_tests::test_findings_and_policy_contract(ctx);
     document_parser_tests::test_composed_findings(ctx);
+    document_parser_tests::test_shared_failures(ctx);
     document_parser_tests::test_policy_source_provenance(ctx);
     document_parser_tests::test_construction_and_features(ctx);
     document_parser_tests::test_unquoted_strings(ctx);

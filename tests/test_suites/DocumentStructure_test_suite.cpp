@@ -26,7 +26,6 @@ namespace document_structure_tests
 {
 
 using tests::TTestContext;
-using document_text::ESyntaxError;
 using document_text::ETokenKind;
 
 static CStringView text_view(const std::string& text)
@@ -42,6 +41,7 @@ static CDocumentStructureReport check(const std::string& text, CDocumentStructur
 static void expect_failure(TTestContext& ctx, const CDocumentStructureReport& report, const EDocumentStructureStatus status)
 {
     TEST_EXPECT(ctx, report.status == status);
+    TEST_EXPECT(ctx, report.failure.stage == EDocumentFailureStage::structure && report.failure.reason != EDocumentFailureReason::none);
 }
 
 static void expect_no_estimates(TTestContext& ctx, const CDocumentStructureEstimates& estimates)
@@ -55,32 +55,33 @@ static void test_partial_findings(TTestContext& ctx)
     struct CCase
     {
         const char* text;
-        ESyntaxError error;
+        EDocumentFailureReason error;
         std::uint32_t findings;
     };
     const CCase cases[]{
-        { "/*head*/ a:'line\n\t", ESyntaxError::unterminated_string, EDocumentFinding::comments |
+        { "/*head*/ a:'line\n\t", EDocumentFailureReason::unterminated_string, EDocumentFinding::comments |
             EDocumentFinding::implicit_body | EDocumentFinding::unquoted_names | EDocumentFinding::single_quotes |
             EDocumentFinding::raw_quoted_line_breaks | EDocumentFinding::raw_quoted_controls },
-        { "{n:+#F,a:[1,],bad:} /*unexamined*/", ESyntaxError::expected_value, EDocumentFinding::unquoted_names |
+        { "{n:+#F,a:[1,],bad:} /*unexamined*/", EDocumentFailureReason::missing_value, EDocumentFinding::unquoted_names |
             EDocumentFinding::explicit_plus | EDocumentFinding::hexadecimal | EDocumentFinding::alternate_hexadecimal_prefix |
             EDocumentFinding::trailing_commas },
-        { "{n:+0x,b:}", ESyntaxError::expected_value, EDocumentFinding::unquoted_names | EDocumentFinding::unquoted_strings },
-        { "{\"\":}", ESyntaxError::expected_value, document_finding_bit(EDocumentFinding::empty_member_name) },
-        { "{} /*unfinished", ESyntaxError::unterminated_comment, document_finding_bit(EDocumentFinding::comments) }
+        { "{n:+0x,b:}", EDocumentFailureReason::missing_value, EDocumentFinding::unquoted_names | EDocumentFinding::unquoted_strings },
+        { "{\"\":}", EDocumentFailureReason::missing_value, document_finding_bit(EDocumentFinding::empty_member_name) },
+        { "{} /*unfinished", EDocumentFailureReason::unterminated_comment, document_finding_bit(EDocumentFinding::comments) }
     };
     for (const auto& item : cases)
     {
         CDocumentStructureEstimates estimates{ 1u, 1u, 1u, 1u, 1u, 1u };
         const auto report = check(item.text, &estimates);
-        TEST_CASE_EXPECT_TRUE(ctx, item.text, report.syntax_error == item.error);
+        TEST_CASE_EXPECT_TRUE(ctx, item.text, report.failure.reason == item.error);
+        TEST_EXPECT(ctx, report.status == EDocumentStructureStatus::failed && report.failure.stage == EDocumentFailureStage::structure);
         TEST_CASE_EXPECT_EQ(ctx, item.text, report.findings, item.findings);
         TEST_EXPECT(ctx, !report.succeeded() && report.structure_start.available && report.failure_point.available);
         expect_no_estimates(ctx, estimates);
     }
     CDocumentStructureEstimates estimates{ 1u, 1u, 1u, 1u, 1u, 1u };
     const auto absent = document_structure::check(CStringView{}, &estimates);
-    TEST_EXPECT(ctx, absent.status == EDocumentStructureStatus::invalid_input_view && absent.findings == 0u);
+    TEST_EXPECT(ctx, absent.status == EDocumentStructureStatus::failed && absent.findings == 0u);
     expect_no_estimates(ctx, estimates);
     TEST_EXPECT(ctx, check("").findings == 0u);
     TEST_EXPECT(ctx, check("// empty").findings == document_finding_bit(EDocumentFinding::comments));
@@ -119,27 +120,31 @@ static void test_grammar(TTestContext& ctx)
     for (const char* text : rejected)
     {
         const auto report = check(text);
-        expect_failure(ctx, report, EDocumentStructureStatus::syntax_error);
-        TEST_EXPECT(ctx, report.syntax_error != ESyntaxError::none);
+        expect_failure(ctx, report, EDocumentStructureStatus::failed);
+        TEST_EXPECT(ctx, report.failure.reason != EDocumentFailureReason::none);
         TEST_EXPECT(ctx, report.failure_point.available);
     }
 }
 
 static void test_input_presence(TTestContext& ctx)
 {
+    const CDocumentStructureReport initial;
+    TEST_EXPECT(ctx, initial.status == EDocumentStructureStatus::unexamined && !initial.succeeded());
+    TEST_EXPECT(ctx, initial.failure.stage == EDocumentFailureStage::none && initial.failure.reason == EDocumentFailureReason::none);
     const auto absent = document_structure::check(CStringView{});
-    expect_failure(ctx, absent, EDocumentStructureStatus::invalid_input_view);
-    TEST_EXPECT(ctx, absent.syntax_error == ESyntaxError::none && !absent.failure_point.available);
+    expect_failure(ctx, absent, EDocumentStructureStatus::failed);
+    TEST_EXPECT(ctx, absent.failure.reason == EDocumentFailureReason::invalid_input_view && !absent.failure_point.available);
     const char terminator = '\0';
     const CStringView present{ &terminator, 0u };
     CDocumentStructureEstimates estimates;
     const auto empty = document_structure::check(present, &estimates);
     TEST_EXPECT(ctx, empty.succeeded());
+    TEST_EXPECT(ctx, empty.failure.stage == EDocumentFailureStage::none && empty.failure.reason == EDocumentFailureReason::none);
     TEST_EXPECT(ctx, estimates.value_count == 1u && estimates.object_count == 1u);
     TEST_EXPECT(ctx, estimates.array_count == 0u && estimates.named_entry_count == 0u);
     TEST_EXPECT(ctx, estimates.string_source_byte_size == 0u && estimates.maximum_depth == 1u);
     TEST_EXPECT(ctx, empty.findings == 0u);
-    TEST_EXPECT(ctx, empty.syntax_error == ESyntaxError::none && !empty.failure_point.available);
+    TEST_EXPECT(ctx, empty.failure.reason == EDocumentFailureReason::none && !empty.failure_point.available);
     document_text::CScanner scanner(present);
     const auto end = scanner.next();
     TEST_EXPECT(ctx, end.kind == ETokenKind::end && end.offset == 0u && end.size == 0u);
@@ -169,7 +174,7 @@ static void test_reports(TTestContext& ctx)
     const auto strict = check("{\"a\":[1,{\"b\":\"x\"}],\"c\":true}", &estimates);
     TEST_EXPECT(ctx, strict.succeeded());
     TEST_EXPECT(ctx, strict.findings == 0u);
-    TEST_EXPECT(ctx, !strict.failure_point.available && strict.syntax_error == ESyntaxError::none);
+    TEST_EXPECT(ctx, !strict.failure_point.available && strict.failure.reason == EDocumentFailureReason::none);
     TEST_EXPECT(ctx, estimates.value_count == 6u);
     TEST_EXPECT(ctx, estimates.object_count == 2u && estimates.array_count == 1u);
     TEST_EXPECT(ctx, estimates.named_entry_count == 3u);
@@ -186,24 +191,24 @@ static void test_reports(TTestContext& ctx)
     struct CFailure
     {
         const char* text;
-        ESyntaxError error;
+        EDocumentFailureReason error;
         std::size_t offset;
     };
-    const CFailure failures[]{ { "{a:1e+ 2}", ESyntaxError::expected_separator, 7u },
-        { "{a:[}", ESyntaxError::mismatched_delimiter, 4u },
-        { "{a 1}", ESyntaxError::expected_colon, 3u },
-        { "{a:}", ESyntaxError::expected_value, 3u },
-        { "{a:[1 2]}", ESyntaxError::expected_separator, 6u },
-        { "{a:", ESyntaxError::unexpected_end, 3u },
-        { "{} true", ESyntaxError::trailing_content, 3u },
-        { "{a:'x", ESyntaxError::unterminated_string, 5u },
-        { "{a:\"\\q\"}", ESyntaxError::invalid_escape, 5u },
-        { "/*", ESyntaxError::unterminated_comment, 2u } };
+    const CFailure failures[]{ { "{a:1e+ 2}", EDocumentFailureReason::missing_separator, 7u },
+        { "{a:[}", EDocumentFailureReason::mismatched_delimiter, 4u },
+        { "{a 1}", EDocumentFailureReason::missing_colon, 3u },
+        { "{a:}", EDocumentFailureReason::missing_value, 3u },
+        { "{a:[1 2]}", EDocumentFailureReason::missing_separator, 6u },
+        { "{a:", EDocumentFailureReason::unexpected_end, 3u },
+        { "{} true", EDocumentFailureReason::trailing_content, 3u },
+        { "{a:'x", EDocumentFailureReason::unterminated_string, 5u },
+        { "{a:\"\\q\"}", EDocumentFailureReason::invalid_escape, 5u },
+        { "/*", EDocumentFailureReason::unterminated_comment, 2u } };
     for (const auto& failure : failures)
     {
         const auto report = check(failure.text);
-        expect_failure(ctx, report, EDocumentStructureStatus::syntax_error);
-        TEST_EXPECT(ctx, report.syntax_error == failure.error);
+        expect_failure(ctx, report, EDocumentStructureStatus::failed);
+        TEST_EXPECT(ctx, report.failure.reason == failure.error);
         TEST_EXPECT(ctx, report.failure_point.available && report.failure_point.code_point_column_1_based == failure.offset + 1u);
     }
 }
@@ -233,7 +238,7 @@ static void test_lexical_reuse(TTestContext& ctx)
     const auto linted = text_linter::lint(CByteConstView{ reinterpret_cast<const std::uint8_t*>(multiline.data()), multiline.size() }, k_document_text_lint_line_endings);
     TEST_EXPECT(ctx, linted.report.success);
     const auto unterminated = document_structure::check(CStringView{ linted.output.data(), linted.report.logical_text_byte_size });
-    TEST_EXPECT(ctx, unterminated.syntax_error == ESyntaxError::unterminated_string);
+    TEST_EXPECT(ctx, unterminated.failure.reason == EDocumentFailureReason::unterminated_string);
     TEST_EXPECT(ctx, unterminated.structure_start.line_1_based == 2u && unterminated.structure_start.code_point_column_1_based == 5u);
     TEST_EXPECT(ctx, unterminated.failure_point.line_1_based == 3u && unterminated.failure_point.code_point_column_1_based == 2u);
 
@@ -252,7 +257,7 @@ static void test_lexical_reuse(TTestContext& ctx)
         std::size_t offset = 0u;
         std::uint32_t scalar = 1u;
         const char quote = (escape.scalar == '"') ? '"' : '\'';
-        TEST_EXPECT(ctx, document_text::read_escape(text_view(text), offset, quote, scalar) == ESyntaxError::none);
+        TEST_EXPECT(ctx, document_text::read_escape(text_view(text), offset, quote, scalar) == EDocumentFailureReason::none);
         TEST_EXPECT(ctx, scalar == escape.scalar && offset == text.size());
         TEST_EXPECT(ctx, check(std::string("{a:") + quote + text + quote + "}").succeeded());
     }
@@ -293,13 +298,13 @@ static void test_unquoted_boundaries(TTestContext& ctx)
         TEST_EXPECT(ctx, scanner.next().kind == item.next);
     }
     const auto location = check("{s:\xc3\xa9\\u0020x\"tail\"}");
-    TEST_EXPECT(ctx, location.syntax_error == ESyntaxError::expected_separator);
+    TEST_EXPECT(ctx, location.failure.reason == EDocumentFailureReason::missing_separator);
     TEST_EXPECT(ctx, location.structure_start.available && location.structure_start.code_point_column_1_based == 1u);
     TEST_EXPECT(ctx, location.failure_point.available && location.failure_point.code_point_column_1_based == 12u);
     TEST_EXPECT(ctx, location.findings == (EDocumentFinding::unquoted_names | EDocumentFinding::unquoted_strings));
 
     const auto invalid_escape = check("{s:\xc3\xa9\\q}");
-    TEST_EXPECT(ctx, invalid_escape.syntax_error == ESyntaxError::invalid_escape);
+    TEST_EXPECT(ctx, invalid_escape.failure.reason == EDocumentFailureReason::invalid_escape);
     TEST_EXPECT(ctx, invalid_escape.structure_start.code_point_column_1_based == 4u);
     TEST_EXPECT(ctx, invalid_escape.failure_point.code_point_column_1_based == 6u);
 
@@ -332,7 +337,7 @@ static void test_semicolon_comments(TTestContext& ctx)
         const auto missing_linted = text_linter::lint(text_view(missing_source), k_document_text_lint_line_endings);
         TEST_EXPECT(ctx, missing_linted.report.success);
         const auto missing = document_structure::check(CStringView{ missing_linted.output.data(), missing_linted.report.logical_text_byte_size });
-        TEST_EXPECT(ctx, !missing.succeeded() && missing.syntax_error == ESyntaxError::expected_value);
+        TEST_EXPECT(ctx, !missing.succeeded() && missing.failure.reason == EDocumentFailureReason::missing_value);
         TEST_EXPECT(ctx, missing.findings == document_finding_bit(EDocumentFinding::comments));
         TEST_EXPECT(ctx, missing.failure_point.available && missing.failure_point.line_1_based == 2u &&
             missing.failure_point.code_point_column_1_based == 3u);
@@ -364,7 +369,7 @@ static void test_name_line_breaks(TTestContext& ctx)
             const std::string source = std::string("{") + quote + "\xc3\xa9" + escape + "tail" + quote + ":1} /*unexamined*/";
             CDocumentStructureEstimates estimates{ 1u, 1u, 1u, 1u, 1u, 1u };
             const auto report = check(source, &estimates);
-            TEST_CASE_EXPECT_TRUE(ctx, source.c_str(), !report.succeeded() && report.syntax_error == ESyntaxError::newline_in_name);
+            TEST_CASE_EXPECT_TRUE(ctx, source.c_str(), !report.succeeded() && report.failure.reason == EDocumentFailureReason::newline_in_name);
             const std::uint32_t findings = (*quote == '\'') ? document_finding_bit(EDocumentFinding::single_quotes) :
                 (*quote == '\0') ? document_finding_bit(EDocumentFinding::unquoted_names) : 0u;
             TEST_EXPECT(ctx, report.findings == findings);
@@ -379,7 +384,7 @@ static void test_name_line_breaks(TTestContext& ctx)
         }
     }
     const auto literal = check("{\"\xc3\xa9\nname\":1}");
-    TEST_EXPECT(ctx, literal.syntax_error == ESyntaxError::newline_in_name);
+    TEST_EXPECT(ctx, literal.failure.reason == EDocumentFailureReason::newline_in_name);
     TEST_EXPECT(ctx, literal.structure_start.line_1_based == 1u && literal.structure_start.code_point_column_1_based == 2u);
     TEST_EXPECT(ctx, literal.failure_point.line_1_based == 1u && literal.failure_point.code_point_column_1_based == 4u);
     TEST_EXPECT(ctx, literal.findings == document_finding_bit(EDocumentFinding::raw_quoted_line_breaks));
@@ -446,39 +451,39 @@ static void test_root_inference(TTestContext& ctx)
     struct CFailure
     {
         const char* source;
-        ESyntaxError error;
+        EDocumentFailureReason error;
         std::size_t start_column;
         std::size_t failure_column;
     };
     const CFailure failures[]{
-        { "1 2", ESyntaxError::expected_separator, 1u, 3u },
-        { "[1}", ESyntaxError::mismatched_delimiter, 1u, 3u },
-        { "[1", ESyntaxError::unexpected_end, 1u, 3u },
-        { "[] true", ESyntaxError::trailing_content, 4u, 4u },
-        { "{} ,1", ESyntaxError::trailing_content, 4u, 4u },
-        { "1,a:2", ESyntaxError::expected_separator, 1u, 4u },
-        { "\"a\":1,2", ESyntaxError::expected_colon, 7u, 8u },
-        { "[a:1]", ESyntaxError::expected_separator, 1u, 3u },
-        { "1,,2", ESyntaxError::expected_value, 1u, 3u },
-        { "\"a\\nb\":1", ESyntaxError::newline_in_name, 1u, 3u }
+        { "1 2", EDocumentFailureReason::missing_separator, 1u, 3u },
+        { "[1}", EDocumentFailureReason::mismatched_delimiter, 1u, 3u },
+        { "[1", EDocumentFailureReason::unexpected_end, 1u, 3u },
+        { "[] true", EDocumentFailureReason::trailing_content, 4u, 4u },
+        { "{} ,1", EDocumentFailureReason::trailing_content, 4u, 4u },
+        { "1,a:2", EDocumentFailureReason::missing_separator, 1u, 4u },
+        { "\"a\":1,2", EDocumentFailureReason::missing_colon, 7u, 8u },
+        { "[a:1]", EDocumentFailureReason::missing_separator, 1u, 3u },
+        { "1,,2", EDocumentFailureReason::missing_value, 1u, 3u },
+        { "\"a\\nb\":1", EDocumentFailureReason::newline_in_name, 1u, 3u }
     };
     for (const auto& item : failures)
     {
         CDocumentStructureEstimates estimates{ 1u, 1u, 1u, 1u, 1u, 1u };
         const auto report = check(item.source, &estimates);
-        TEST_CASE_EXPECT_TRUE(ctx, item.source, !report.succeeded() && report.syntax_error == item.error);
+        TEST_CASE_EXPECT_TRUE(ctx, item.source, !report.succeeded() && report.failure.reason == item.error);
         TEST_CASE_EXPECT_EQ(ctx, item.source, report.structure_start.code_point_column_1_based, item.start_column);
         TEST_CASE_EXPECT_EQ(ctx, item.source, report.failure_point.code_point_column_1_based, item.failure_column);
         expect_no_estimates(ctx, estimates);
     }
     //  Root lookahead must not publish observations beyond a failing first name.
     const auto partial = check("\"a\\nb\" /*later*/ :1");
-    TEST_EXPECT(ctx, partial.syntax_error == ESyntaxError::newline_in_name);
+    TEST_EXPECT(ctx, partial.failure.reason == EDocumentFailureReason::newline_in_name);
     TEST_EXPECT(ctx, partial.findings == document_finding_bit(EDocumentFinding::implicit_body));
     const auto nested = check("1,{\"a\":[2]}");
     TEST_EXPECT(ctx, nested.succeeded() && nested.findings == document_finding_bit(EDocumentFinding::implicit_body));
     const auto location = check(" ;head\n \xc3\xa9 \"tail\"");
-    TEST_EXPECT(ctx, location.syntax_error == ESyntaxError::expected_separator);
+    TEST_EXPECT(ctx, location.failure.reason == EDocumentFailureReason::missing_separator);
     TEST_EXPECT(ctx, location.structure_start.line_1_based == 1u && location.structure_start.code_point_column_1_based == 1u);
     TEST_EXPECT(ctx, location.failure_point.line_1_based == 2u && location.failure_point.code_point_column_1_based == 4u);
 }
@@ -492,7 +497,7 @@ static void test_ingestion_and_bounds(TTestContext& ctx)
     TEST_EXPECT(ctx, report.succeeded());
     TEST_EXPECT(ctx, report.findings == document_finding_bit(EDocumentFinding::logical_nul));
     //  An included physical terminator is not silently stripped by checking.
-    expect_failure(ctx, document_structure::check(CStringView{ linted.output.data(), linted.output.size() }), EDocumentStructureStatus::syntax_error);
+    expect_failure(ctx, document_structure::check(CStringView{ linted.output.data(), linted.output.size() }), EDocumentStructureStatus::failed);
     const std::string embedded = std::string("{a:1,") + '\0' + "b:2}";
     TEST_EXPECT(ctx, check(embedded).succeeded());
     TEST_EXPECT(ctx, check(embedded).findings == (EDocumentFinding::unquoted_names | EDocumentFinding::logical_nul));
@@ -547,8 +552,8 @@ static void test_depth_and_resources(TTestContext& ctx)
             }
             else
             {
-                expect_failure(ctx, report, EDocumentStructureStatus::allocation_failed);
-                TEST_EXPECT(ctx, report.syntax_error == ESyntaxError::none);
+                expect_failure(ctx, report, EDocumentStructureStatus::failed);
+                TEST_EXPECT(ctx, report.failure.reason == EDocumentFailureReason::allocation_failed);
                 TEST_EXPECT(ctx, report.findings == ((fail_on == 0u) ? 0u :
                     (EDocumentFinding::implicit_body | EDocumentFinding::unquoted_names)));
                 expect_no_estimates(ctx, estimates);
@@ -557,7 +562,7 @@ static void test_depth_and_resources(TTestContext& ctx)
         TEST_EXPECT(ctx, context.is_attribution_empty());
     }
     TEST_EXPECT(ctx, completed);
-    expect_failure(ctx, check(text.substr(0u, text.size() - 1u)), EDocumentStructureStatus::syntax_error);
+    expect_failure(ctx, check(text.substr(0u, text.size() - 1u)), EDocumentStructureStatus::failed);
 
     //  Token scanning allocates nothing, and flat input needs only the root
     //  frame regardless of the number of names or the length of its numbers.

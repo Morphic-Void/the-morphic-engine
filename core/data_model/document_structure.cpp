@@ -19,7 +19,6 @@ namespace structure_util
 
 using document_text::CToken;
 using document_text::ETokenKind;
-using document_text::ESyntaxError;
 
 enum class EState : std::uint8_t { first = 0u, after_comma, colon, value, separator };
 
@@ -40,8 +39,7 @@ public:
 
 private:
     void advance() noexcept;
-    void fail(const EDocumentStructureStatus status, const ESyntaxError error = ESyntaxError::none) noexcept;
-    void syntax(const ESyntaxError error) noexcept { fail(EDocumentStructureStatus::syntax_error, error); }
+    void fail(const EDocumentFailureReason reason) noexcept;
     void push(const bool object, const bool implicit = false) noexcept;
     void value() noexcept;
     void step() noexcept;
@@ -54,12 +52,12 @@ private:
     std::size_t m_root_value_count{ 0u };
 };
 
-void CCheck::fail(const EDocumentStructureStatus status, const ESyntaxError error) noexcept
+void CCheck::fail(const EDocumentFailureReason reason) noexcept
 {
     if (m_report.succeeded())
     {
-        m_report.status = status;
-        m_report.syntax_error = error;
+        m_report.status = EDocumentStructureStatus::failed;
+        m_report.failure = { EDocumentFailureStage::structure, reason };
         m_report.failure_point = m_token.location;
         m_report.structure_start = m_token.location;
         if (m_token.kind == ETokenKind::error)
@@ -83,7 +81,7 @@ void CCheck::advance() noexcept
     m_token = m_scanner.next();
     if (m_token.kind == ETokenKind::error)
     {
-        syntax(m_token.error);
+        fail(m_token.error);
     }
 }
 
@@ -91,13 +89,13 @@ void CCheck::push(const bool object, const bool implicit) noexcept
 {
     if (m_frames.size() == memory::t_max_elements<CFrame>())
     {
-        fail(EDocumentStructureStatus::scratch_size_limit);
+        fail(EDocumentFailureReason::storage_limit);
         return;
     }
     const CTextLocation start = implicit ? CTextLocation{ true, 1u, 1u } : m_token.location;
     if (!m_frames.push_back(CFrame{ object, implicit, EState::first, start, {} }))
     {
-        fail(EDocumentStructureStatus::allocation_failed);
+        fail(EDocumentFailureReason::allocation_failed);
         return;
     }
     ++m_estimates.value_count;
@@ -148,7 +146,7 @@ void CCheck::value() noexcept
         default:
         {
             m_frames.last().state = previous;
-            syntax(ESyntaxError::expected_value);
+            fail(EDocumentFailureReason::missing_value);
             return;
         }
     }
@@ -173,17 +171,17 @@ void CCheck::step() noexcept
         const bool matches = frame.implicit ? end : (m_token.kind == (frame.object ? ETokenKind::object_end : ETokenKind::array_end));
         if (!matches)
         {
-            syntax(end ? ESyntaxError::unexpected_end : ESyntaxError::mismatched_delimiter);
+            fail(end ? EDocumentFailureReason::unexpected_end : EDocumentFailureReason::mismatched_delimiter);
             return;
         }
         if (frame.state == EState::colon)
         {
-            syntax(ESyntaxError::expected_colon);
+            fail(EDocumentFailureReason::missing_colon);
             return;
         }
         if (frame.state == EState::value)
         {
-            syntax(ESyntaxError::expected_value);
+            fail(EDocumentFailureReason::missing_value);
             return;
         }
         if (frame.state == EState::after_comma)
@@ -209,7 +207,7 @@ void CCheck::step() noexcept
             }
             if (!document_text::is_name_token(m_token.kind))
             {
-                syntax(ESyntaxError::expected_name);
+                fail(EDocumentFailureReason::missing_name);
                 return;
             }
             if (m_token.kind != ETokenKind::string)
@@ -222,7 +220,7 @@ void CCheck::step() noexcept
             }
             if (m_token.first_line_break.available)
             {
-                syntax(ESyntaxError::newline_in_name);
+                fail(EDocumentFailureReason::newline_in_name);
                 m_report.structure_start = m_token.location;
                 m_report.failure_point = m_token.first_line_break;
                 return;
@@ -238,7 +236,7 @@ void CCheck::step() noexcept
         {
             if (m_token.kind != ETokenKind::colon)
             {
-                syntax(ESyntaxError::expected_colon);
+                fail(EDocumentFailureReason::missing_colon);
                 return;
             }
             frame.state = EState::value;
@@ -254,7 +252,7 @@ void CCheck::step() noexcept
         {
             if (m_token.kind != ETokenKind::comma)
             {
-                syntax(ESyntaxError::expected_separator);
+                fail(EDocumentFailureReason::missing_separator);
                 return;
             }
             frame.state = EState::after_comma;
@@ -263,7 +261,7 @@ void CCheck::step() noexcept
         }
         default:
         {
-            fail(EDocumentStructureStatus::internal_error);
+            fail(EDocumentFailureReason::internal_error);
             return;
         }
     }
@@ -295,7 +293,7 @@ CDocumentStructureReport CCheck::run(CDocumentStructureEstimates* estimates) noe
     }
     if (m_report.succeeded() && (m_token.kind != ETokenKind::end))
     {
-        syntax(ESyntaxError::trailing_content);
+        fail(EDocumentFailureReason::trailing_content);
     }
     m_report.findings |= m_scanner.findings();
     if (m_report.succeeded() && (estimates != nullptr))
@@ -316,7 +314,8 @@ CDocumentStructureReport check(const CStringView& source, CDocumentStructureEsti
     if (source.empty())
     {
         CDocumentStructureReport report;
-        report.status = EDocumentStructureStatus::invalid_input_view;
+        report.status = EDocumentStructureStatus::failed;
+        report.failure = { EDocumentFailureStage::structure, EDocumentFailureReason::invalid_input_view };
         return report;
     }
     structure_util::CCheck checker(source);

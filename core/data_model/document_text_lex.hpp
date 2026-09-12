@@ -29,18 +29,10 @@ enum class ETokenKind : std::uint8_t
     string, unquoted_string, integer, floating_point, true_value, false_value, null_value
 };
 
-enum class ESyntaxError : std::uint8_t
-{
-    none = 0u, unexpected_character, unterminated_comment, unterminated_string,
-    invalid_escape, invalid_surrogate_pair, newline_in_name,
-    expected_name, expected_colon, expected_value, expected_separator,
-    mismatched_delimiter, unexpected_end, trailing_content
-};
-
 struct CToken
 {
     ETokenKind kind{ ETokenKind::end };
-    ESyntaxError error{ ESyntaxError::none };
+    EDocumentFailureReason error{ EDocumentFailureReason::none };
     std::size_t offset{ 0u };
     std::size_t size{ 0u };
     //  Apply only in value position; numeric-looking names remain strings.
@@ -58,7 +50,7 @@ struct CToken
 //  On failure, offset identifies the offending byte or bounded end of input.
 //  quote is the enclosing delimiter, or double quote for unquoted JSON escapes;
 //  offset initially addresses '\\'.
-[[nodiscard]] ESyntaxError read_escape(const CStringView& source, std::size_t& offset, const std::uint8_t quote, std::uint32_t& scalar) noexcept;
+[[nodiscard]] EDocumentFailureReason read_escape(const CStringView& source, std::size_t& offset, const std::uint8_t quote, std::uint32_t& scalar) noexcept;
 
 [[nodiscard]] bool is_name_token(const ETokenKind kind) noexcept;
 
@@ -75,7 +67,7 @@ public:
 private:
     [[nodiscard]] CToken scan_next() noexcept;
     void locate(const std::size_t offset) noexcept;
-    [[nodiscard]] CToken failure(const ESyntaxError error) const noexcept;
+    [[nodiscard]] CToken failure(const EDocumentFailureReason error) const noexcept;
     void record_line_break(const std::size_t offset) noexcept;
     [[nodiscard]] CToken quoted() noexcept;
     [[nodiscard]] CToken unquoted() noexcept;

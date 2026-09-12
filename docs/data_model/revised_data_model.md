@@ -618,9 +618,9 @@ parser report composes observations from each examined stage. Partial findings
 survive failure, and capacity estimates are separate from diagnostics. Parser
 coverage distinguishes an unexamined stage, failed construction and completed
 construction. The entry points use the shared grammar and transitional
-protocol rules described below; they do not yet accept `CDocumentParseOptions`, apply
-the evaluator or use `CDocumentFailure`. These remaining replacements follow
-with the grammar and recovery-protocol migration. A successful feature-policy
+protocol rules described below. Both reports now carry `CDocumentFailure`;
+the entry points do not yet accept `CDocumentParseOptions` or apply the evaluator.
+Caller-policy integration and recovery-protocol retirement remain. A successful feature-policy
 evaluation alone is not parsing success.
 
 ### Current shared text grammar
@@ -703,7 +703,11 @@ depth one), before semantic normalization. They are hints rather than exact
 construction requirements. The output is reset on entry and published only on
 success; public parser diagnostics no longer contain capacity estimates.
 
-Failures retain their status and shared `structure_start` and `failure_point`
+Structural status is `unexamined`, `success` or `failed`. The separate `failure`
+field carries the structure stage and one `EDocumentFailureReason`, covering
+syntax, input, resource and internal failures. The lexer uses this reason type
+directly; the separate `ESyntaxError` enum and `syntax_error` field are removed.
+Failures retain shared `structure_start` and `failure_point`
 locations. The first identifies the immediately malformed element; the second
 identifies detection or the EOF cursor. Success leaves both unavailable. The
 stage status is `unexamined` until invoked, distinguishing skipped structure
@@ -713,8 +717,7 @@ For a newline in a name, structure start identifies the name token and failure
 point identifies its first literal break or the backslash of its first escaped
 break. `CToken::first_line_break` retains decoded-content evidence independently
 of its per-token `literal_line_break` writing observation.
-Shared terminal reasons, protocol retirement and final policy remain to be
-integrated.
+Protocol retirement and final policy remain to be integrated.
 
 ### Live construction and interpretation
 
@@ -760,10 +763,20 @@ entry into construction; `construction_completed` records successful private
 construction. Both remain false when linting or structure prevents parsing.
 Its shared locations identify the responsible element and detection point
 in the linter's UTF-8 output.
-Structural resource failures retain their detailed structural status; known
-parser scratch failures have allocation/storage statuses. A rejected live
-creation has a general construction-failure status because the existing live
-API does not distinguish its underlying allocation and storage causes.
+The top-level `failure` carries the original stage and reason. A structural
+failure is copied unchanged; a terminal linter failure is translated from
+`first_failure`, retaining its original evidence and location. Linter output
+limits map to `storage_limit`. Successful fallback leaves failure absent.
+Known parser scratch failures retain allocation/storage reasons; rejected live
+creation uses `construction_failed` because the live API does not distinguish
+its underlying allocation and storage causes. First-failure guards preserve
+the original reason and locations.
+
+A default parser report is `unexamined`, with no terminal failure. Existing
+parser statuses remain during the migration, including the protocol-specific
+statuses. Those protocol rejections map to parser-stage `construction_failed`
+in the shared diagnosis, with their detailed status retained until protocol
+retirement. Successful and unexamined reports have stage/reason `none`.
 
 The parser implements recovery decoding, reversible reserved-name unescaping,
 singleton normalization and ordered duplicate recovery as specified below.

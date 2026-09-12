@@ -194,16 +194,16 @@ static ETokenKind classify_number(const CStringView& source, std::uint32_t& valu
 
 }   //  namespace lex_util
 
-ESyntaxError read_escape(const CStringView& source, std::size_t& offset, const std::uint8_t quote, std::uint32_t& scalar) noexcept
+EDocumentFailureReason read_escape(const CStringView& source, std::size_t& offset, const std::uint8_t quote, std::uint32_t& scalar) noexcept
 {
     if ((offset >= source.length()) || (source.string()[offset] != '\\'))
     {
-        return ESyntaxError::invalid_escape;
+        return EDocumentFailureReason::invalid_escape;
     }
     ++offset;
     if (offset == source.length())
     {
-        return ESyntaxError::invalid_escape;
+        return EDocumentFailureReason::invalid_escape;
     }
     const std::uint8_t ch = source.string()[offset];
     switch (ch)
@@ -219,7 +219,7 @@ ESyntaxError read_escape(const CStringView& source, std::size_t& offset, const s
         {
             if (quote != ch)
             {
-                return ESyntaxError::invalid_escape;
+                return EDocumentFailureReason::invalid_escape;
             }
             scalar = ch;
             break;
@@ -254,35 +254,35 @@ ESyntaxError read_escape(const CStringView& source, std::size_t& offset, const s
             ++offset;
             if (!lex_util::read_unit(source, offset, scalar))
             {
-                return ESyntaxError::invalid_escape;
+                return EDocumentFailureReason::invalid_escape;
             }
             if ((scalar >= 0xdc00u) && (scalar <= 0xdfffu))
             {
-                return ESyntaxError::invalid_surrogate_pair;
+                return EDocumentFailureReason::invalid_surrogate_pair;
             }
             if ((scalar >= 0xd800u) && (scalar <= 0xdbffu))
             {
                 if (((source.length() - offset) < 2u) || (source.string()[offset] != '\\') || (source.string()[offset + 1u] != 'u'))
                 {
-                    return ESyntaxError::invalid_surrogate_pair;
+                    return EDocumentFailureReason::invalid_surrogate_pair;
                 }
                 offset += 2u;
                 std::uint32_t low = 0u;
                 if (!lex_util::read_unit(source, offset, low) || (low < 0xdc00u) || (low > 0xdfffu))
                 {
-                    return ESyntaxError::invalid_surrogate_pair;
+                    return EDocumentFailureReason::invalid_surrogate_pair;
                 }
                 scalar = 0x10000u + ((scalar - 0xd800u) << 10u) + (low - 0xdc00u);
             }
-            return ESyntaxError::none;
+            return EDocumentFailureReason::none;
         }
         default:
         {
-            return ESyntaxError::invalid_escape;
+            return EDocumentFailureReason::invalid_escape;
         }
     }
     ++offset;
-    return ESyntaxError::none;
+    return EDocumentFailureReason::none;
 }
 
 bool is_name_token(const ETokenKind kind) noexcept
@@ -305,7 +305,7 @@ CRootForm select_root(const CToken& first, CScanner scanner) noexcept
     return { is_name_token(first.kind) && (scanner.next().kind == ETokenKind::colon), true };
 }
 
-CToken CScanner::failure(const ESyntaxError error) const noexcept
+CToken CScanner::failure(const EDocumentFailureReason error) const noexcept
 {
     return { ETokenKind::error, error, m_offset, 0u };
 }
@@ -333,7 +333,7 @@ CToken CScanner::quoted() noexcept
         if (ch == quote)
         {
             ++m_offset;
-            CToken token{ ETokenKind::string, ESyntaxError::none, start, m_offset - start };
+            CToken token{ ETokenKind::string, EDocumentFailureReason::none, start, m_offset - start };
             token.literal_line_break = literal_line_break;
             return token;
         }
@@ -341,8 +341,8 @@ CToken CScanner::quoted() noexcept
         {
             const std::size_t escape_start = m_offset;
             std::uint32_t scalar = 0u;
-            const ESyntaxError error = read_escape(m_source, m_offset, quote, scalar);
-            if (error != ESyntaxError::none)
+            const EDocumentFailureReason error = read_escape(m_source, m_offset, quote, scalar);
+            if (error != EDocumentFailureReason::none)
             {
                 return failure(error);
             }
@@ -372,7 +372,7 @@ CToken CScanner::quoted() noexcept
             ++m_offset;
         }
     }
-    return failure(ESyntaxError::unterminated_string);
+    return failure(EDocumentFailureReason::unterminated_string);
 }
 
 CToken CScanner::unquoted() noexcept
@@ -385,8 +385,8 @@ CToken CScanner::unquoted() noexcept
         {
             const std::size_t escape_start = m_offset;
             std::uint32_t scalar = 0u;
-            const ESyntaxError error = read_escape(m_source, m_offset, '"', scalar);
-            if (error != ESyntaxError::none)
+            const EDocumentFailureReason error = read_escape(m_source, m_offset, '"', scalar);
+            if (error != EDocumentFailureReason::none)
             {
                 return failure(error);
             }
@@ -436,7 +436,7 @@ CToken CScanner::unquoted() noexcept
             value_findings = document_finding_bit(EDocumentFinding::unquoted_strings);
         }
     }
-    return { kind, ESyntaxError::none, start, size, value_findings };
+    return { kind, EDocumentFailureReason::none, start, size, value_findings };
 }
 
 CToken CScanner::next() noexcept
@@ -517,7 +517,7 @@ CToken CScanner::scan_next() noexcept
             if ((m_source.length() - m_offset) < 2u)
             {
                 m_offset = m_source.length();
-                return failure(ESyntaxError::unterminated_comment);
+                return failure(EDocumentFailureReason::unterminated_comment);
             }
             m_offset += 2u;
         }
@@ -525,7 +525,7 @@ CToken CScanner::scan_next() noexcept
     m_element_offset = m_offset;
     if (m_offset == m_source.length())
     {
-        return { ETokenKind::end, ESyntaxError::none, m_offset, 0u };
+        return { ETokenKind::end, EDocumentFailureReason::none, m_offset, 0u };
     }
     const std::uint8_t ch = m_source.string()[m_offset];
     if ((ch == '"') || (ch == '\''))
@@ -570,7 +570,7 @@ CToken CScanner::scan_next() noexcept
             return unquoted();
         }
     }
-    return { kind, ESyntaxError::none, m_offset++, 1u };
+    return { kind, EDocumentFailureReason::none, m_offset++, 1u };
 }
 
 }   //  namespace document_text

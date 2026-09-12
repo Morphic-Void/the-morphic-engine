@@ -15,7 +15,7 @@
 
 enum class EDocumentStructureStatus : std::uint8_t
 {
-    unexamined = 0u, success, invalid_input_view, syntax_error, allocation_failed, scratch_size_limit, internal_error
+    unexamined = 0u, success, failed
 };
 
 struct CDocumentStructureEstimates
@@ -36,7 +36,7 @@ struct CDocumentStructureEstimates
 struct CDocumentStructureReport
 {
     EDocumentStructureStatus status{ EDocumentStructureStatus::unexamined };
-    document_text::ESyntaxError syntax_error{ document_text::ESyntaxError::none };
+    CDocumentFailure failure;
     CTextLocation structure_start;
     CTextLocation failure_point;
     //  Retain established observations on failure. Only success denotes a

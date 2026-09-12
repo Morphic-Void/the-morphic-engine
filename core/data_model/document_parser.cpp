@@ -148,6 +148,38 @@ private:
     CDocumentParseReport m_report;
 };
 
+static EDocumentFailureReason linter_failure_reason(const ETextLintFailure reason) noexcept
+{
+    switch (reason)
+    {
+        case ETextLintFailure::invalid_input_view: return EDocumentFailureReason::invalid_input_view;
+        case ETextLintFailure::input_limit: return EDocumentFailureReason::input_limit;
+        case ETextLintFailure::output_limit: return EDocumentFailureReason::storage_limit;
+        case ETextLintFailure::allocation_failed: return EDocumentFailureReason::allocation_failed;
+        case ETextLintFailure::utf8_decode: return EDocumentFailureReason::utf8_decode;
+        case ETextLintFailure::undefined_cp1252_byte: return EDocumentFailureReason::undefined_cp1252_byte;
+        case ETextLintFailure::cp1252_decode: return EDocumentFailureReason::cp1252_decode;
+        default: return EDocumentFailureReason::internal_error;
+    }
+}
+
+static EDocumentFailureReason parser_failure_reason(const EDocumentParseStatus status) noexcept
+{
+    switch (status)
+    {
+        case EDocumentParseStatus::numeric_out_of_range: return EDocumentFailureReason::numeric_out_of_range;
+        case EDocumentParseStatus::invalid_root_value: return EDocumentFailureReason::invalid_root_value;
+        case EDocumentParseStatus::allocation_failed: return EDocumentFailureReason::allocation_failed;
+        case EDocumentParseStatus::storage_limit: return EDocumentFailureReason::storage_limit;
+        //  Protocol-specific statuses remain auxiliary until protocol retirement.
+        case EDocumentParseStatus::malformed_recovery_wrapper:
+        case EDocumentParseStatus::unsupported_recovery_version:
+        case EDocumentParseStatus::unsupported_recovery_type:
+        case EDocumentParseStatus::construction_failed: return EDocumentFailureReason::construction_failed;
+        default: return EDocumentFailureReason::internal_error;
+    }
+}
+
 static CDocumentParseReport ingest_linted(const CTextLintResult& linted, CLiveDocument& destination) noexcept
 {
     CDocumentParseReport report;
@@ -158,6 +190,7 @@ static CDocumentParseReport ingest_linted(const CTextLintResult& linted, CLiveDo
     else
     {
         report.status = EDocumentParseStatus::linter_failure;
+        report.failure = { EDocumentFailureStage::linter, linter_failure_reason(linted.report.first_failure.reason) };
         report.failure_point = linted.report.first_failure.location;
     }
     report.linter_examined = true;
@@ -171,6 +204,7 @@ void CParser::fail(const EDocumentParseStatus status) noexcept
     if (m_report.succeeded())
     {
         m_report.status = status;
+        m_report.failure = { EDocumentFailureStage::parser, parser_failure_reason(status) };
         m_report.structure_start = m_report.failure_point = m_token.location;
     }
 }
@@ -255,7 +289,7 @@ CStringView CParser::text(const CToken& token, CByteBuffer& buffer) noexcept
         if (offset < end)
         {
             std::uint32_t scalar = 0u;
-            if (document_text::read_escape(m_source, offset, quoted ? bytes[token.offset] : '"', scalar) != document_text::ESyntaxError::none)
+            if (document_text::read_escape(m_source, offset, quoted ? bytes[token.offset] : '"', scalar) != EDocumentFailureReason::none)
             {
                 fail(EDocumentParseStatus::internal_error);
                 return {};
@@ -761,8 +795,9 @@ CDocumentParseReport parse(const CStringView& source, CLiveDocument& destination
     report.findings = report.structure.findings;
     if (!report.structure.succeeded())
     {
-        report.status = (report.structure.status == EDocumentStructureStatus::invalid_input_view) ?
+        report.status = (report.structure.failure.reason == EDocumentFailureReason::invalid_input_view) ?
             EDocumentParseStatus::invalid_input_view : EDocumentParseStatus::structural_failure;
+        report.failure = report.structure.failure;
         report.structure_start = report.structure.structure_start;
         report.failure_point = report.structure.failure_point;
         return report;

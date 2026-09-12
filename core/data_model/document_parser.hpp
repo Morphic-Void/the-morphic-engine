@@ -19,7 +19,7 @@ class CLiveDocument;
 
 enum class EDocumentParseStatus : std::uint8_t
 {
-    success = 0u, invalid_input_view, linter_failure, structural_failure, numeric_out_of_range,
+    unexamined = 0u, success, invalid_input_view, linter_failure, structural_failure, numeric_out_of_range,
     malformed_recovery_wrapper, unsupported_recovery_version,
     unsupported_recovery_type, invalid_root_value,
     allocation_failed, storage_limit, construction_failed, internal_error
@@ -35,7 +35,9 @@ struct CDocumentParseInterpretations
 
 struct CDocumentParseReport
 {
-    EDocumentParseStatus status{ EDocumentParseStatus::invalid_input_view };
+    EDocumentParseStatus status{ EDocumentParseStatus::unexamined };
+    //  Shared terminal diagnosis; successful fallback is evidence, not failure.
+    CDocumentFailure failure;
     CTextLocation structure_start;
     CTextLocation failure_point;
     //  Findings compose the examined stages and survive later failure.

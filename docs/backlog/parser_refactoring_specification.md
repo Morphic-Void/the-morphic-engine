@@ -1440,7 +1440,7 @@ changes for subsequent work.
 
 ### 9.7 Shared root inference
 
-Root inference is implemented and awaiting review:
+Root inference is reviewed and committed as `04b5e7a`:
 
 - Both checking and construction use `select_root` with the first token and a
   scanner copy. Explicit object/array roots take priority. Otherwise a name
@@ -1474,16 +1474,53 @@ including 16,713 DocumentParser checks and 1,179 DocumentStructure checks in
 each configuration. Policy validation reports no errors or warnings, with
 the existing negative-test suppression. Diff and line-ending checks pass.
 
-Shared terminal reasons, protocol retirement and final caller policy remain.
+That slice left shared terminal reasons, caller policy and protocol retirement
+for subsequent work.
+
+### 9.8 Shared terminal failure reporting
+
+The terminal-reporting slice is implemented and awaiting review:
+
+- The lexer uses `EDocumentFailureReason` directly. The duplicate `ESyntaxError`
+  enum is removed, and missing name/colon/value/separator failures use the shared
+  reason names. Grammar and failure locations are unchanged.
+- Structural status is now `unexamined`, `success` or `failed`; the report's
+  `CDocumentFailure` stores the structure stage and terminal reason for syntax,
+  invocation, resource and internal failures. It replaces `syntax_error` and
+  the detailed structural status alternatives. Estimates still publish only
+  on success.
+- Parser reports carry the same shared stage/reason pair. Structural failures
+  copy through unchanged. Terminal linter reasons are translated at ingestion,
+  preserving original linter evidence and output-relative locations; linter
+  output limits use shared `storage_limit`. Successful CP1252 fallback does
+  not become a terminal UTF-8 failure.
+- Construction failures identify the parser stage. Existing first-failure
+  guards preserve the original diagnosis when later operations also fail.
+  A default parser report is explicitly unexamined, with no terminal failure.
+- Existing parser statuses remain auxiliary during the migration. The three
+  protocol-specific rejection statuses map to parser-stage `construction_failed`
+  while retaining their detailed status. No protocol reason is added to the
+  shared enum; these temporary statuses retire with protocol handling.
+
+Regression coverage checks shared stage/reason pairs for lexical and structural
+errors, absent input at each entry point, numeric conversion and protocol
+rejection, structural-before-construction precedence, terminal decoding versus
+successful fallback, report reuse and failure locations. Allocation-injection
+tests verify stage attribution and distinguish known scratch allocation errors
+from generic live-construction rejection while preserving the destination.
+
+Validation passed in Debug and Release on x64 and Win32: all ordinary test
+suites passed, including 16,973 parser checks and 1,247 structural checks in
+each configuration.
+
 Parser entry points still do not accept or apply `CDocumentParseOptions`.
-Duplicate names and reserved wrappers retain transitional recovery behavior
-until all consumers are retired together.
+Caller acceptance, parser status simplification and protocol retirement remain
+subsequent work. Linter statistics and its standalone report are unchanged.
 
 Remaining implementation sequence:
 
-1. Review shared root inference before committing.
-2. Complete the shared terminal-reason and caller-options integration alongside
-   the remaining grammar changes. Review before committing.
+1. Review shared terminal failure reporting before committing.
+2. Integrate caller options and late policy acceptance. Review before committing.
 3. Refactor parser interpretations, report composition and acceptance/publication;
    use public collision extension and retire recovered-array kinds, protocol
    handling and compatibility across all affected code and tests together.
