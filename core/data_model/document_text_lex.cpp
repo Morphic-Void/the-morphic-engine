@@ -42,9 +42,10 @@ static int hex_digit(const std::uint8_t ch) noexcept
     return -1;
 }
 
-static bool name_start(const std::uint8_t ch) noexcept
+static bool unquoted_boundary(const std::uint8_t ch) noexcept
 {
-    return ((ch >= 'a') && (ch <= 'z')) || ((ch >= 'A') && (ch <= 'Z')) || (ch == '_') || (ch == '$');
+    return whitespace(ch) || (ch == '{') || (ch == '}') || (ch == '[') ||
+        (ch == ']') || (ch == ':') || (ch == ',') || (ch == '"');
 }
 
 static bool read_unit(const CStringView& source, std::size_t& offset, std::uint32_t& unit) noexcept
@@ -67,6 +68,124 @@ static bool read_unit(const CStringView& source, std::size_t& offset, std::uint3
     return true;
 }
 
+//  Classify a complete non-empty source candidate without decoding escapes.
+//  Failed numeric interpretation contributes no numeric feature permissions.
+static ETokenKind classify_number(const CStringView& source, std::uint32_t& value_findings) noexcept
+{
+    std::size_t offset = 0u;
+    std::uint32_t findings = 0u;
+    std::uint8_t ch = source.string()[offset];
+    if ((ch == '+') || (ch == '-'))
+    {
+        if (ch == '+')
+        {
+            findings |= document_finding_bit(EDocumentFinding::explicit_plus);
+        }
+        ++offset;
+        if (offset == source.length())
+        {
+            return ETokenKind::unquoted_string;
+        }
+        ch = source.string()[offset];
+    }
+    unsigned base = 10u;
+    if (ch == '#')
+    {
+        base = 16u;
+        findings |= document_finding_bit(EDocumentFinding::alternate_hexadecimal_prefix);
+        ++offset;
+    }
+    else if ((ch == '0') && ((source.length() - offset) >= 2u))
+    {
+        const std::uint8_t prefix = source.string()[offset + 1u];
+        if ((prefix == 'x') || (prefix == 'X'))
+        {
+            base = 16u;
+        }
+        if ((prefix == 'b') || (prefix == 'B'))
+        {
+            base = 2u;
+        }
+        if (base != 10u)
+        {
+            offset += 2u;
+        }
+    }
+    ETokenKind kind = ETokenKind::integer;
+    if (base != 10u)
+    {
+        findings |= document_finding_bit((base == 16u) ? EDocumentFinding::hexadecimal : EDocumentFinding::binary);
+        const std::size_t digits = offset;
+        while (offset < source.length())
+        {
+            const int value = hex_digit(source.string()[offset]);
+            if ((value < 0) || (static_cast<unsigned>(value) >= base))
+            {
+                break;
+            }
+            ++offset;
+        }
+        if (offset == digits)
+        {
+            return ETokenKind::unquoted_string;
+        }
+    }
+    else
+    {
+        if (!digit(ch))
+        {
+            return ETokenKind::unquoted_string;
+        }
+        ++offset;
+        if (ch != '0')
+        {
+            while ((offset < source.length()) && digit(source.string()[offset]))
+            {
+                ++offset;
+            }
+        }
+        if ((offset < source.length()) && (source.string()[offset] == '.'))
+        {
+            kind = ETokenKind::floating_point;
+            ++offset;
+            const std::size_t digits = offset;
+            while ((offset < source.length()) && digit(source.string()[offset]))
+            {
+                ++offset;
+            }
+            if (offset == digits)
+            {
+                return ETokenKind::unquoted_string;
+            }
+        }
+        if ((offset < source.length()) && ((source.string()[offset] == 'e') || (source.string()[offset] == 'E')))
+        {
+            kind = ETokenKind::floating_point;
+            ++offset;
+            if ((offset < source.length()) && ((source.string()[offset] == '+') || (source.string()[offset] == '-')))
+            {
+                ++offset;
+            }
+            const std::size_t digits = offset;
+            while ((offset < source.length()) && digit(source.string()[offset]))
+            {
+                ++offset;
+            }
+            if (offset == digits)
+            {
+                return ETokenKind::unquoted_string;
+            }
+        }
+    }
+    if (offset != source.length())
+    {
+        return ETokenKind::unquoted_string;
+    }
+    //  Numeric spelling is established only after the complete token is valid.
+    value_findings = findings;
+    return kind;
+}
+
 }   //  namespace lex_util
 
 ESyntaxError read_escape(const CStringView& source, std::size_t& offset, const std::uint8_t quote, std::uint32_t& scalar) noexcept
@@ -83,16 +202,16 @@ ESyntaxError read_escape(const CStringView& source, std::size_t& offset, const s
     const std::uint8_t ch = source.string()[offset];
     switch (ch)
     {
-        case '"':
         case '\\':
         case '/':
         {
             scalar = ch;
             break;
         }
+        case '"':
         case '\'':
         {
-            if (quote != '\'')
+            if (quote != ch)
             {
                 return ESyntaxError::invalid_escape;
             }
@@ -162,28 +281,14 @@ ESyntaxError read_escape(const CStringView& source, std::size_t& offset, const s
 
 bool is_name_token(const ETokenKind kind) noexcept
 {
-    return (kind == ETokenKind::string) || (kind == ETokenKind::identifier) ||
+    return (kind == ETokenKind::string) || (kind == ETokenKind::unquoted_string) ||
+        (kind == ETokenKind::integer) || (kind == ETokenKind::floating_point) ||
         (kind == ETokenKind::true_value) || (kind == ETokenKind::false_value) || (kind == ETokenKind::null_value);
 }
 
 CToken CScanner::failure(const ESyntaxError error) const noexcept
 {
     return { ETokenKind::error, error, m_offset, 0u };
-}
-
-bool CScanner::boundary() const noexcept
-{
-    if (m_offset == m_source.length())
-    {
-        return true;
-    }
-    const std::uint8_t ch = m_source.string()[m_offset];
-    if (lex_util::whitespace(ch) || (ch == ',') || (ch == ':') || (ch == ']') || (ch == '}'))
-    {
-        return true;
-    }
-    return (ch == '/') && ((m_source.length() - m_offset) >= 2u) &&
-        ((m_source.string()[m_offset + 1u] == '/') || (m_source.string()[m_offset + 1u] == '*'));
 }
 
 CToken CScanner::quoted() noexcept
@@ -229,148 +334,63 @@ CToken CScanner::quoted() noexcept
     return failure(ESyntaxError::unterminated_string);
 }
 
-CToken CScanner::number() noexcept
+CToken CScanner::unquoted() noexcept
 {
     const std::size_t start = m_offset;
-    std::uint32_t findings = 0u;
-    std::uint8_t ch = m_source.string()[m_offset];
-    if ((ch == '+') || (ch == '-'))
+    while (m_offset < m_source.length())
     {
-        if (ch == '+')
+        const std::uint8_t ch = m_source.string()[m_offset];
+        if (ch == '\\')
         {
-            findings |= document_finding_bit(EDocumentFinding::explicit_plus);
+            std::uint32_t scalar = 0u;
+            const ESyntaxError error = read_escape(m_source, m_offset, '"', scalar);
+            if (error != ESyntaxError::none)
+            {
+                return failure(error);
+            }
+            if (scalar == 0u)
+            {
+                m_findings |= document_finding_bit(EDocumentFinding::logical_nul);
+            }
         }
-        ++m_offset;
-        if (m_offset == m_source.length())
+        else
         {
-            return failure(ESyntaxError::invalid_number);
-        }
-        ch = m_source.string()[m_offset];
-    }
-    unsigned base = 10u;
-    if (ch == '#')
-    {
-        base = 16u;
-        findings |= document_finding_bit(EDocumentFinding::alternate_hexadecimal_prefix);
-        ++m_offset;
-    }
-    else if ((ch == '0') && ((m_source.length() - m_offset) >= 2u))
-    {
-        const std::uint8_t prefix = m_source.string()[m_offset + 1u];
-        if ((prefix == 'x') || (prefix == 'X'))
-        {
-            base = 16u;
-        }
-        if ((prefix == 'b') || (prefix == 'B'))
-        {
-            base = 2u;
-        }
-        if (base != 10u)
-        {
-            m_offset += 2u;
-        }
-    }
-    ETokenKind kind = ETokenKind::integer;
-    if (base != 10u)
-    {
-        findings |= document_finding_bit((base == 16u) ? EDocumentFinding::hexadecimal : EDocumentFinding::binary);
-        const std::size_t digits = m_offset;
-        while (m_offset < m_source.length())
-        {
-            const int value = lex_util::hex_digit(m_source.string()[m_offset]);
-            if ((value < 0) || (static_cast<unsigned>(value) >= base))
+            if (lex_util::unquoted_boundary(ch))
             {
                 break;
             }
+            if (ch == 0u)
+            {
+                m_findings |= document_finding_bit(EDocumentFinding::logical_nul);
+            }
             ++m_offset;
         }
-        if (m_offset == digits)
-        {
-            return failure(ESyntaxError::invalid_number);
-        }
-    }
-    else
-    {
-        if (!lex_util::digit(ch))
-        {
-            return failure(ESyntaxError::invalid_number);
-        }
-        ++m_offset;
-        if (ch != '0')
-        {
-            while ((m_offset < m_source.length()) && lex_util::digit(m_source.string()[m_offset]))
-            {
-                ++m_offset;
-            }
-        }
-        if ((m_offset < m_source.length()) && (m_source.string()[m_offset] == '.'))
-        {
-            kind = ETokenKind::floating_point;
-            ++m_offset;
-            const std::size_t digits = m_offset;
-            while ((m_offset < m_source.length()) && lex_util::digit(m_source.string()[m_offset]))
-            {
-                ++m_offset;
-            }
-            if (m_offset == digits)
-            {
-                return failure(ESyntaxError::invalid_number);
-            }
-        }
-        if ((m_offset < m_source.length()) && ((m_source.string()[m_offset] == 'e') || (m_source.string()[m_offset] == 'E')))
-        {
-            kind = ETokenKind::floating_point;
-            ++m_offset;
-            if ((m_offset < m_source.length()) && ((m_source.string()[m_offset] == '+') || (m_source.string()[m_offset] == '-')))
-            {
-                ++m_offset;
-            }
-            const std::size_t digits = m_offset;
-            while ((m_offset < m_source.length()) && lex_util::digit(m_source.string()[m_offset]))
-            {
-                ++m_offset;
-            }
-            if (m_offset == digits)
-            {
-                return failure(ESyntaxError::invalid_number);
-            }
-        }
-    }
-    if (!boundary())
-    {
-        return failure(ESyntaxError::invalid_number);
-    }
-    //  Numeric spelling is established only after the complete token is valid.
-    m_findings |= findings;
-    return { kind, ESyntaxError::none, start, m_offset - start };
-}
-
-CToken CScanner::identifier() noexcept
-{
-    const std::size_t start = m_offset++;
-    while ((m_offset < m_source.length()) && (lex_util::name_start(m_source.string()[m_offset]) || lex_util::digit(m_source.string()[m_offset])))
-    {
-        ++m_offset;
-    }
-    if (!boundary())
-    {
-        return failure(ESyntaxError::unexpected_character);
     }
     const std::size_t size = m_offset - start;
-    ETokenKind kind = ETokenKind::identifier;
-    if ((size == 4u) && (std::memcmp(m_source.string() + start, "true", 4u) == 0))
+    const CStringView candidate{ m_source.string() + start, size };
+    ETokenKind kind;
+    std::uint32_t value_findings = 0u;
+    if ((size == 4u) && (std::memcmp(candidate.string(), "true", 4u) == 0))
     {
         kind = ETokenKind::true_value;
     }
-    if ((size == 5u) && (std::memcmp(m_source.string() + start, "false", 5u) == 0))
+    else if ((size == 5u) && (std::memcmp(candidate.string(), "false", 5u) == 0))
     {
         kind = ETokenKind::false_value;
     }
-    if ((size == 4u) && (std::memcmp(m_source.string() + start, "null", 4u) == 0))
+    else if ((size == 4u) && (std::memcmp(candidate.string(), "null", 4u) == 0))
     {
         kind = ETokenKind::null_value;
     }
-    return { kind, ESyntaxError::none, start, size };
+    else
+    {
+        kind = lex_util::classify_number(candidate, value_findings);
+        if (kind == ETokenKind::unquoted_string)
+        {
+            value_findings = document_finding_bit(EDocumentFinding::unquoted_strings);
+        }
+    }
+    return { kind, ESyntaxError::none, start, size, value_findings };
 }
 
 CToken CScanner::next() noexcept
@@ -415,18 +435,19 @@ CToken CScanner::scan_next() noexcept
             ++m_offset;
             continue;
         }
-        if ((ch != '/') || ((m_source.length() - m_offset) < 2u))
+        const bool semicolon_comment = ch == ';';
+        if (!semicolon_comment && ((ch != '/') || ((m_source.length() - m_offset) < 2u)))
         {
             break;
         }
-        const std::uint8_t next = m_source.string()[m_offset + 1u];
+        const std::uint8_t next = semicolon_comment ? '/' : m_source.string()[m_offset + 1u];
         if ((next != '/') && (next != '*'))
         {
             break;
         }
         m_element_offset = m_offset;
         m_findings |= document_finding_bit(EDocumentFinding::comments);
-        m_offset += 2u;
+        m_offset += semicolon_comment ? 1u : 2u;
         if (next == '/')
         {
             while ((m_offset < m_source.length()) && (m_source.string()[m_offset] != '\r') && (m_source.string()[m_offset] != '\n'))
@@ -458,14 +479,6 @@ CToken CScanner::scan_next() noexcept
     if ((ch == '"') || (ch == '\''))
     {
         return quoted();
-    }
-    if (lex_util::digit(ch) || (ch == '+') || (ch == '-') || (ch == '#'))
-    {
-        return number();
-    }
-    if (lex_util::name_start(ch))
-    {
-        return identifier();
     }
     ETokenKind kind;
     switch (ch)
@@ -502,7 +515,7 @@ CToken CScanner::scan_next() noexcept
         }
         default:
         {
-            return failure(ESyntaxError::unexpected_character);
+            return unquoted();
         }
     }
     return { kind, ESyntaxError::none, m_offset++, 1u };

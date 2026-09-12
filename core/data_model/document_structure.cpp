@@ -128,6 +128,7 @@ void CCheck::value() noexcept
             break;
         }
         case ETokenKind::string:
+        case ETokenKind::unquoted_string:
         {
             m_estimates.string_source_byte_size += m_token.size;
             ++m_estimates.value_count;
@@ -149,6 +150,7 @@ void CCheck::value() noexcept
             return;
         }
     }
+    m_report.findings |= m_token.value_findings;
     if (m_report.succeeded())
     {
         advance();

@@ -1325,7 +1325,7 @@ line-ending checks passed; Visual Studio item/filter formatting is preserved.
 
 ### 9.4 Shared findings and report integration
 
-The next slice is implemented and awaiting review under the initial grammar:
+The reporting slice was reviewed and committed as `eaf7b53` under the initial grammar:
 
 - The scanner and structural check now report `EDocumentFinding` bits directly.
   The split relaxation/numeric enums and report fields are removed.
@@ -1346,7 +1346,7 @@ The next slice is implemented and awaiting review under the initial grammar:
   earlier-stage coverage. Destination preservation and shared locations remain
   unchanged.
 
-This slice does not change the accepted grammar or enforce final caller policy.
+That reporting slice did not change the accepted grammar or enforce final caller policy.
 Existing terminal status/reason enums remain until their grammar-dependent
 cases, including invalid numeric syntax and recovery-protocol errors, are
 retired. The shared `CDocumentFailure` and caller options are not yet integrated.
@@ -1364,12 +1364,54 @@ instead of repeatedly requiring every failed report field to be zero.
 Policy validation reported no errors or warnings, with the existing negative-test
 suppression. Diff and line-ending checks passed.
 
+### 9.5 Shared unquoted-token grammar
+
+The next grammar slice is implemented and awaiting review:
+
+- Unquoted candidates end at unescaped JSON punctuation, double quote or JSON
+  whitespace. Standard JSON escapes protect content from delimiter recognition.
+  Apostrophes and comment markers inside an already-started candidate are content;
+  comments (`;`, `//` and `/* ... */`) are recognized only before a token starts.
+- Complete source keywords and valid numbers retain their value types. Malformed
+  numeric-looking candidates become unquoted strings; `invalid_number` is removed
+  from the structural reason enum. Classification precedes escape decoding, so
+  escaped keyword/numeric lookalikes remain strings. Valid out-of-range numbers
+  still fail during numeric conversion.
+- Names always remain strings, including numeric-looking names. Context-dependent
+  `CToken::value_findings` are applied only when the structural grammar consumes
+  a value, avoiding numeric or unquoted-value permissions on names.
+- Both structural checking and live parsing accept unquoted strings and decode
+  their escapes consistently. The same string-token handling is used for the
+  transitional recovery type field until protocol retirement.
+- Single-quoted strings exchange the quote roles: a double quote is plain content,
+  and the delimiter escape is `\'` rather than `\"`. Unquoted escapes use the
+  standard JSON repertoire. Adjacent tokens still require separators.
+
+Tests cover value and name classification, decoded payloads, literal comment
+markers, quoted/unquoted escapes, forbidden short escapes, Unicode locations,
+all token boundaries, bounded prefixes, exact findings and allocation-failure
+destination preservation. Existing numeric range and document round-trip
+coverage remains. Coordinator review identified missing semicolon line-comment
+recognition before tokens; this is corrected, with coverage for comment-only
+input, comments before values, missing-value failures, ignored quote/punctuation
+content, embedded semicolons and locations after linted LF/CR/CRLF input.
+
+Validation passed for Debug and Release on x64 and Win32: all ordinary test
+suites passed, including 15,614 DocumentParser checks and 670 DocumentStructure
+checks in each configuration. Repository line-ending and diff checks also pass.
+
+This slice retains the initial root and recovery-protocol rules. Root inference,
+empty-name construction, newline prohibition in names across the document set,
+per-value newline-suppression metadata, shared terminal reasons and final caller
+policy remain subsequent work. The parser entry points still do not accept or
+apply `CDocumentParseOptions`.
+
 Remaining implementation sequence:
 
-1. Review the shared-findings/report integration. Complete the remaining
-   terminal-reason and caller-options integration alongside their grammar changes.
-2. Refactor the shared lexer and structural check for the agreed superset grammar.
-   Extend the implemented location rules to the new grammar. Review before committing.
+1. Review the shared token grammar, then integrate the remaining root/name rules
+   and newline metadata across structure, parsing and document admission.
+2. Complete the shared terminal-reason and caller-options integration alongside
+   the remaining grammar changes. Review before committing.
 3. Refactor parser interpretations, report composition and acceptance/publication;
    use public collision extension and retire recovered-array kinds, protocol
    handling and compatibility across all affected code and tests together.

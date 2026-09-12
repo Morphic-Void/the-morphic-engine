@@ -234,7 +234,7 @@ CStringView CParser::text(const CToken& token, CByteBuffer& buffer) noexcept
     const std::size_t first = token.offset + (quoted ? 1u : 0u);
     const std::size_t size = token.size - (quoted ? 2u : 0u);
     const std::uint8_t* const bytes = m_source.string();
-    if (!quoted || (std::memchr(bytes + first, '\\', size) == nullptr))
+    if (std::memchr(bytes + first, '\\', size) == nullptr)
     {
         return CStringView{ bytes + first, size };
     }
@@ -255,7 +255,7 @@ CStringView CParser::text(const CToken& token, CByteBuffer& buffer) noexcept
         if (offset < end)
         {
             std::uint32_t scalar = 0u;
-            if (document_text::read_escape(m_source, offset, bytes[token.offset], scalar) != document_text::ESyntaxError::none)
+            if (document_text::read_escape(m_source, offset, quoted ? bytes[token.offset] : '"', scalar) != document_text::ESyntaxError::none)
             {
                 fail(EDocumentParseStatus::internal_error);
                 return {};
@@ -389,6 +389,7 @@ CNodeKey CParser::create(const CStringView& name) noexcept
             return floating(name);
         }
         case ETokenKind::string:
+        case ETokenKind::unquoted_string:
         {
             const CStringView value = text(m_token, m_value_scratch);
             return m_report.succeeded() ? m_document.create_string(value, name) : CNodeKey{};
@@ -540,7 +541,7 @@ void CParser::metadata_entry() noexcept
     }
     else if (field == k_type_field)
     {
-        if (m_token.kind != ETokenKind::string)
+        if ((m_token.kind != ETokenKind::string) && (m_token.kind != ETokenKind::unquoted_string))
         {
             fail(EDocumentParseStatus::malformed_recovery_wrapper);
             return;

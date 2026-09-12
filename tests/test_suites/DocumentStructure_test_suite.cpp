@@ -65,7 +65,7 @@ static void test_partial_findings(TTestContext& ctx)
         { "{n:+#F,a:[1,],bad:} /*unexamined*/", ESyntaxError::expected_value, EDocumentFinding::unquoted_names |
             EDocumentFinding::explicit_plus | EDocumentFinding::hexadecimal | EDocumentFinding::alternate_hexadecimal_prefix |
             EDocumentFinding::trailing_commas },
-        { "{n:+0x}", ESyntaxError::invalid_number, document_finding_bit(EDocumentFinding::unquoted_names) },
+        { "{n:+0x,b:}", ESyntaxError::expected_value, EDocumentFinding::unquoted_names | EDocumentFinding::unquoted_strings },
         { "{\"\":}", ESyntaxError::expected_value, document_finding_bit(EDocumentFinding::empty_member_name) },
         { "{} /*unfinished", ESyntaxError::unterminated_comment, document_finding_bit(EDocumentFinding::comments) }
     };
@@ -95,11 +95,15 @@ static void test_grammar(TTestContext& ctx)
     const char* const accepted[]{ "", " \r\n\t", "// empty", "{}", "{\"a\":[]}",
         "{\"n\":123,\"f\":-0.0e+12,\"b\":true,\"z\":null,\"s\":\"text\"}",
         "a:1, enabled:true", "{a:1,}", "a:1,", "{a:[1,2,]}",
-        "{'x':'can\\'t', \"y\":'\\\"quoted\\\"'}", "{true:false,null:true,false:null}",
+        "{'x':'can\\'t', \"y\":'\"quoted\"'}", "{true:false,null:true,false:null}",
         "/*head*/{a:1/*value*/,b:[true//line\n,false]}/*tail*/",
         "{a:[{n:1},{s:'text'},{z:null},{b:true},{o:{}},{a:[]}]}",
         "{a:\"[ } // /* \\u0000\",b:'a\nb'}", "{a:+0,b:-#FF,c:0Xfa,d:+0B10}",
-        "{a:0,b:-0,c:0.1,d:0e0,e:1E-9}" };
+        "{a:0,b:-0,c:0.1,d:0e0,e:1E-9}",
+        "{a:truth}", "{a:True}", "{1:2}",
+        "{a:01}", "{a:-01}", "{a:.5}", "{a:1.}", "{a:1e}", "{a:1e+}", "{a:1e-}",
+        "{a:+}", "{a:--1}", "{a:0x}", "{a:#}", "{a:0b2}", "{a:0x1g}", "{a:0b10.1}",
+        "{a:1e2x}", "{a:1_000}", "{a:NaN}", "{a:Infinity}", "{a:1/2}", "{a:/}" };
     for (const char* text : accepted)
     {
         TEST_CASE_EXPECT_TRUE(ctx, text, check(text).succeeded());
@@ -109,13 +113,9 @@ static void test_grammar(TTestContext& ctx)
     const char* const rejected[]{ "[]", "1", "true", "'text'", "[a:1]", "{a:[n:1]}",
         "{a:[\"n\":1]}", "{a}", "{a:}", "{a:1 b:2}", "{a:1,,}", "{,}", "{a:[,]}",
         "{a:[1,,2]}", "{a:[1 2]}", "{a:[1}}", "{a:1]", "{a:1", "{a:[", "a:",
-        "{a:1} {}", "{a:1},", "a:1}", "{a:truth}", "{a:True}", "{1:2}",
-        "{a:01}", "{a:-01}", "{a:.5}", "{a:1.}", "{a:1e}", "{a:1e+}", "{a:1e-}",
-        "{a:+}", "{a:--1}", "{a:0x}", "{a:#}", "{a:0b2}", "{a:0x1g}", "{a:0b10.1}",
-        "{a:1e2x}", "{a:1_000}", "{a:NaN}", "{a:Infinity}", "{a:1/2}",
-        "{a:\"\\q\"}", "{a:\"\\'\"}", "{a:'\\x41'}", "{a:\"\\u12\"}",
+        "{a:1} {}", "{a:1},", "a:1}", "{a:\"\\q\"}", "{a:\"\\'\"}", "{a:'\\x41'}", "{a:\"\\u12\"}",
         "{a:\"\\uD800\"}", "{a:\"\\uDC00\"}", "{a:\"\\uD800\\u0041\"}",
-        "{a:\"\\uD800\\uDC0z\"}", "{a:'unterminated}", "/*", "/*/", "{} /*tail", "{a:/}" };
+        "{a:\"\\uD800\\uDC0z\"}", "{a:'unterminated}", "/*", "/*/", "{} /*tail" };
     for (const char* text : rejected)
     {
         const auto report = check(text);
@@ -187,7 +187,7 @@ static void test_reports(TTestContext& ctx)
         ESyntaxError error;
         std::size_t offset;
     };
-    const CFailure failures[]{ { "{a:1e+}", ESyntaxError::invalid_number, 6u },
+    const CFailure failures[]{ { "{a:1e+ 2}", ESyntaxError::expected_separator, 7u },
         { "{a:[}", ESyntaxError::mismatched_delimiter, 4u },
         { "{a 1}", ESyntaxError::expected_colon, 3u },
         { "{a:}", ESyntaxError::expected_value, 3u },
@@ -249,9 +249,10 @@ static void test_lexical_reuse(TTestContext& ctx)
         const std::string text(escape.text);
         std::size_t offset = 0u;
         std::uint32_t scalar = 1u;
-        TEST_EXPECT(ctx, document_text::read_escape(text_view(text), offset, '\'', scalar) == ESyntaxError::none);
+        const char quote = (escape.scalar == '"') ? '"' : '\'';
+        TEST_EXPECT(ctx, document_text::read_escape(text_view(text), offset, quote, scalar) == ESyntaxError::none);
         TEST_EXPECT(ctx, scalar == escape.scalar && offset == text.size());
-        TEST_EXPECT(ctx, check("{a:'" + text + "'}").succeeded());
+        TEST_EXPECT(ctx, check(std::string("{a:") + quote + text + quote + "}").succeeded());
     }
     const std::string text = " /* c */ 'name' : +0xFF, n:1e9999999999999999999999";
     document_text::CScanner scanner(text_view(text));
@@ -260,11 +261,94 @@ static void test_lexical_reuse(TTestContext& ctx)
     TEST_EXPECT(ctx, scanner.next().kind == ETokenKind::colon);
     const auto number = scanner.next();
     TEST_EXPECT(ctx, number.kind == ETokenKind::integer && text.substr(number.offset, number.size) == "+0xFF");
+    TEST_EXPECT(ctx, number.value_findings == (EDocumentFinding::explicit_plus | EDocumentFinding::hexadecimal));
+    TEST_EXPECT(ctx, scanner.findings() == (EDocumentFinding::comments | EDocumentFinding::single_quotes));
     TEST_EXPECT(ctx, scanner.next().kind == ETokenKind::comma);
-    TEST_EXPECT(ctx, scanner.next().kind == ETokenKind::identifier);
+    TEST_EXPECT(ctx, scanner.next().kind == ETokenKind::unquoted_string);
     TEST_EXPECT(ctx, scanner.next().kind == ETokenKind::colon);
     TEST_EXPECT(ctx, scanner.next().kind == ETokenKind::floating_point);
     TEST_EXPECT(ctx, scanner.next().kind == ETokenKind::end);
+}
+
+static void test_unquoted_boundaries(TTestContext& ctx)
+{
+    struct CBoundary
+    {
+        char separator;
+        ETokenKind next;
+    };
+    const CBoundary boundaries[]{ { '{', ETokenKind::object_begin }, { '}', ETokenKind::object_end },
+        { '[', ETokenKind::array_begin }, { ']', ETokenKind::array_end }, { ':', ETokenKind::colon },
+        { ',', ETokenKind::comma }, { '"', ETokenKind::error }, { ' ', ETokenKind::end },
+        { '\t', ETokenKind::end }, { '\r', ETokenKind::end }, { '\n', ETokenKind::end } };
+    for (const auto& item : boundaries)
+    {
+        const std::string source = std::string("text") + item.separator;
+        document_text::CScanner scanner(text_view(source));
+        const auto token = scanner.next();
+        TEST_EXPECT(ctx, token.kind == ETokenKind::unquoted_string && token.offset == 0u && token.size == 4u);
+        TEST_EXPECT(ctx, token.value_findings == document_finding_bit(EDocumentFinding::unquoted_strings));
+        TEST_EXPECT(ctx, scanner.next().kind == item.next);
+    }
+    const auto location = check("{s:\xc3\xa9\\u0020x\"tail\"}");
+    TEST_EXPECT(ctx, location.syntax_error == ESyntaxError::expected_separator);
+    TEST_EXPECT(ctx, location.structure_start.available && location.structure_start.code_point_column_1_based == 1u);
+    TEST_EXPECT(ctx, location.failure_point.available && location.failure_point.code_point_column_1_based == 12u);
+    TEST_EXPECT(ctx, location.findings == (EDocumentFinding::unquoted_names | EDocumentFinding::unquoted_strings));
+
+    const auto invalid_escape = check("{s:\xc3\xa9\\q}");
+    TEST_EXPECT(ctx, invalid_escape.syntax_error == ESyntaxError::invalid_escape);
+    TEST_EXPECT(ctx, invalid_escape.structure_start.code_point_column_1_based == 4u);
+    TEST_EXPECT(ctx, invalid_escape.failure_point.code_point_column_1_based == 6u);
+
+    CDocumentStructureEstimates estimates;
+    const auto report = check("{a\\u0020b:c\\u002Cd}", &estimates);
+    TEST_EXPECT(ctx, report.succeeded());
+    TEST_EXPECT(ctx, estimates.named_entry_count == 1u && estimates.value_count == 2u);
+    TEST_EXPECT(ctx, estimates.string_source_byte_size == 16u);
+    const std::string bounded = "{a:word\\u002Cword}";
+    for (std::size_t count = 1u; count < bounded.size(); ++count)
+    {
+        TEST_EXPECT(ctx, !document_structure::check(CStringView{ bounded.data(), count }).succeeded());
+    }
+}
+
+static void test_semicolon_comments(TTestContext& ctx)
+{
+    const char* const accepted[]{ ";", ";note", ";head\n{}", "{\"s\":;note\n1}",
+        "{;\"'{}[]:,/* \\q\n\"s\":1};tail" };
+    for (const char* source : accepted)
+    {
+        const auto report = check(source);
+        TEST_CASE_EXPECT_TRUE(ctx, source, report.succeeded());
+        TEST_EXPECT(ctx, report.findings == document_finding_bit(EDocumentFinding::comments));
+    }
+    const char* const endings[]{ "\n", "\r", "\r\n" };
+    for (const char* ending : endings)
+    {
+        const std::string missing_source = std::string("{\"s\":;note") + ending + "  }";
+        const auto missing_linted = text_linter::lint(text_view(missing_source), k_document_text_lint_line_endings);
+        TEST_EXPECT(ctx, missing_linted.report.success);
+        const auto missing = document_structure::check(CStringView{ missing_linted.output.data(), missing_linted.report.logical_text_byte_size });
+        TEST_EXPECT(ctx, !missing.succeeded() && missing.syntax_error == ESyntaxError::expected_value);
+        TEST_EXPECT(ctx, missing.findings == document_finding_bit(EDocumentFinding::comments));
+        TEST_EXPECT(ctx, missing.failure_point.available && missing.failure_point.line_1_based == 2u &&
+            missing.failure_point.code_point_column_1_based == 3u);
+
+        const std::string source = std::string(";\"'{}[]:,/* \\q") + ending + "  alpha;beta";
+        const auto linted = text_linter::lint(text_view(source), k_document_text_lint_line_endings);
+        TEST_EXPECT(ctx, linted.report.success);
+        document_text::CScanner scanner(CStringView{ linted.output.data(), linted.report.logical_text_byte_size });
+        const auto token = scanner.next();
+        TEST_EXPECT(ctx, token.kind == ETokenKind::unquoted_string && token.size == 10u);
+        TEST_EXPECT(ctx, token.location.available && token.location.line_1_based == 2u &&
+            token.location.code_point_column_1_based == 3u);
+        TEST_EXPECT(ctx, scanner.findings() == document_finding_bit(EDocumentFinding::comments));
+        TEST_EXPECT(ctx, scanner.next().kind == ETokenKind::end);
+    }
+    const auto embedded = check("{alpha;beta:alpha;beta}");
+    TEST_EXPECT(ctx, embedded.succeeded());
+    TEST_EXPECT(ctx, embedded.findings == (EDocumentFinding::unquoted_names | EDocumentFinding::unquoted_strings));
 }
 
 static void test_ingestion_and_bounds(TTestContext& ctx)
@@ -278,8 +362,9 @@ static void test_ingestion_and_bounds(TTestContext& ctx)
     //  An included physical terminator is not silently stripped by checking.
     expect_failure(ctx, document_structure::check(CStringView{ linted.output.data(), linted.output.size() }), EDocumentStructureStatus::syntax_error);
     const std::string embedded = std::string("{a:1,") + '\0' + "b:2}";
-    expect_failure(ctx, check(embedded), EDocumentStructureStatus::syntax_error);
-    const char* const samples[]{ "{a:'\\uD834\\uDD1E',b:0x123}", "{a:1e-123}", "{a:1/*comment*/}", "{a:'\\\"'}" };
+    TEST_EXPECT(ctx, check(embedded).succeeded());
+    TEST_EXPECT(ctx, check(embedded).findings == (EDocumentFinding::unquoted_names | EDocumentFinding::logical_nul));
+    const char* const samples[]{ "{a:'\\uD834\\uDD1E',b:0x123}", "{a:1e-123}", "{a:1/*comment*/}", "{a:'\"'}" };
     for (const char* sample : samples)
     {
         const std::string text(sample);
@@ -407,6 +492,8 @@ int run_document_structure_tests()
     document_structure_tests::test_reports(ctx);
     document_structure_tests::test_partial_findings(ctx);
     document_structure_tests::test_lexical_reuse(ctx);
+    document_structure_tests::test_unquoted_boundaries(ctx);
+    document_structure_tests::test_semicolon_comments(ctx);
     document_structure_tests::test_ingestion_and_bounds(ctx);
     document_structure_tests::test_depth_and_resources(ctx);
     document_structure_tests::test_writer_compatibility(ctx);

@@ -251,6 +251,104 @@ static void test_composed_findings(TTestContext& ctx)
     TEST_EXPECT(ctx, success.findings == document_finding_bit(EDocumentFinding::logical_nul));
 }
 
+static void test_unquoted_strings(TTestContext& ctx)
+{
+    struct CCase
+    {
+        const char* source;
+        const char* value;
+    };
+    const CCase cases[]{
+        { "hello", "hello" }, { "123abc", "123abc" }, { "1e+", "1e+" },
+        { "01", "01" }, { "-01", "-01" }, { ".5", ".5" }, { "1.", "1." },
+        { "+", "+" }, { "--1", "--1" }, { "+0x", "+0x" }, { "#", "#" },
+        { "0b2", "0b2" }, { "0x1g", "0x1g" }, { "1e99999x", "1e99999x" },
+        { "NaN", "NaN" }, { "Infinity", "Infinity" }, { "True", "True" },
+        { "tr\\u0075e", "true" }, { "\\u0031", "1" }, { "\\u002B0x10", "+0x10" },
+        { "a\\u002Cb", "a,b" }, { "a\\u0020b", "a b" }, { "a\\u003Ab", "a:b" },
+        { "\\u007B\\u005B\\u005D\\u007D", "{[]}" }, { "\\\"quoted\\\"", "\"quoted\"" },
+        { "don't", "don't" }, { "path//part", "path//part" }, { "path/*part*/", "path/*part*/" },
+        { "/", "/" }, { "\\/\\/text", "//text" }, { "\xc3\xa9", "\xc3\xa9" },
+        { "a\\nb", "a\nb" }, { "alpha;beta", "alpha;beta" }
+    };
+    CLiveDocument document;
+    for (const auto& item : cases)
+    {
+        const auto report = parse(std::string("{\"s\":") + item.source + "}", document);
+        TEST_CASE_EXPECT_TRUE(ctx, item.source, report.succeeded());
+        TEST_EXPECT(ctx, report.findings == document_finding_bit(EDocumentFinding::unquoted_strings));
+        const CNodeKey value = member(document, document.root(), CStringView{ "s" });
+        TEST_EXPECT(ctx, document.value_type(value) == ELiveValueType::string);
+        TEST_CASE_EXPECT_TRUE(ctx, item.source, document.string_value(value) == CStringView{ item.value });
+    }
+    const CCase names[]{ { "0x10", "0x10" }, { "+#F", "+#F" }, { "0b10", "0b10" },
+        { "1e99999", "1e99999" }, { "true", "true" }, { "tr\\u0075e", "true" },
+        { "\\u0031", "1" }, { "a\\u003Ab", "a:b" }, { "\xc3\xa9", "\xc3\xa9" },
+        { "name/*text*/", "name/*text*/" }, { "alpha;beta", "alpha;beta" } };
+    for (const auto& item : names)
+    {
+        const auto report = parse(std::string("{") + item.source + ":null}", document);
+        TEST_CASE_EXPECT_TRUE(ctx, item.source, report.succeeded());
+        TEST_EXPECT(ctx, report.findings == document_finding_bit(EDocumentFinding::unquoted_names));
+        const CNodeKey value = member(document, document.root(), CStringView{ item.value });
+        TEST_EXPECT(ctx, value.is_valid() && document.value_type(value) == ELiveValueType::null_value);
+    }
+    const auto typed = parse(R"({"n":+#F,"b":true,"z":null,"f":1e2})", document);
+    TEST_EXPECT(ctx, typed.succeeded());
+    TEST_EXPECT(ctx, typed.findings == (EDocumentFinding::explicit_plus | EDocumentFinding::hexadecimal |
+        EDocumentFinding::alternate_hexadecimal_prefix));
+    TEST_EXPECT(ctx, document.value_type(member(document, document.root(), CStringView{ "n" })) == ELiveValueType::integer);
+    TEST_EXPECT(ctx, document.value_type(member(document, document.root(), CStringView{ "b" })) == ELiveValueType::boolean);
+    TEST_EXPECT(ctx, document.value_type(member(document, document.root(), CStringView{ "f" })) == ELiveValueType::floating_point);
+
+    const auto comments = parse(R"({"s":abc/*literal*/,"n":1 /*comment*/})", document);
+    TEST_EXPECT(ctx, comments.succeeded());
+    TEST_EXPECT(ctx, comments.findings == (EDocumentFinding::unquoted_strings | EDocumentFinding::comments));
+    TEST_EXPECT(ctx, document.string_value(member(document, document.root(), CStringView{ "s" })) == CStringView{ "abc/*literal*/" });
+    const char* const semicolon_comments[]{ ";head\n{\"s\":\"value\"}", "{\"s\":;note\n\"value\"}",
+        "{\"s\":;\"'{}[]:,/* \\q\n\"value\"};tail" };
+    for (const char* source : semicolon_comments)
+    {
+        const auto report = parse(source, document);
+        TEST_CASE_EXPECT_TRUE(ctx, source, report.succeeded());
+        TEST_EXPECT(ctx, report.findings == document_finding_bit(EDocumentFinding::comments));
+        TEST_EXPECT(ctx, document.string_value(member(document, document.root(), CStringView{ "s" })) == CStringView{ "value" });
+    }
+    const char* const comment_only[]{ ";", ";note", ";\"'{}[]:,/* \\q\n;tail" };
+    for (const char* source : comment_only)
+    {
+        const auto report = parse(source, document);
+        TEST_CASE_EXPECT_TRUE(ctx, source, report.succeeded());
+        TEST_EXPECT(ctx, report.findings == document_finding_bit(EDocumentFinding::comments));
+        TEST_EXPECT(ctx, !document.first_child(document.root()).is_valid());
+    }
+    const auto quotes = parse(R"({"s":'say "hello", don\'t'})", document);
+    TEST_EXPECT(ctx, quotes.succeeded() && quotes.findings == document_finding_bit(EDocumentFinding::single_quotes));
+    TEST_EXPECT(ctx, document.string_value(member(document, document.root(), CStringView{ "s" })) == CStringView{ "say \"hello\", don't" });
+
+    const CNodeKey keep = document.first_child(document.root());
+    const char* const malformed[]{ R"({"s":abc"tail"})", R"({"s":abc[]})", R"({"s":abc{}})",
+        R"({"s":abc def})", R"({"s":abc\q})", R"({"s":abc\,def})", R"({"s":abc\ def})",
+        R"({"s":abc\x41})", R"({"s":abc\'def})", R"({"s":'abc\"def'})",
+        R"({"s":abc\uD800})", R"({"s":abc\uDC00})", R"({"s":abc\u12})",
+        "{\"s\":;note\n}", "{\"s\":;note" };
+    for (const char* source : malformed)
+    {
+        const auto report = parse(source, document);
+        TEST_CASE_EXPECT_TRUE(ctx, source, report.status == EDocumentParseStatus::structural_failure);
+        TEST_EXPECT(ctx, !report.parser_examined && !report.construction_completed);
+        TEST_EXPECT(ctx, document.first_child(document.root()) == keep && document.check_integrity());
+    }
+    const std::string nul = std::string("{s:a") + '\0' + "b}";
+    const auto embedded = parse(nul, document);
+    TEST_EXPECT(ctx, embedded.succeeded());
+    TEST_EXPECT(ctx, embedded.findings == (EDocumentFinding::unquoted_names |
+        EDocumentFinding::unquoted_strings | EDocumentFinding::logical_nul));
+    const std::uint8_t canonical[]{ 'a', 0xc0u, 0x80u, 'b' };
+    TEST_EXPECT(ctx, document.string_value(member(document, document.root(), CStringView{ "s" })) ==
+        (CStringView{ canonical, sizeof(canonical) }));
+}
+
 static void test_construction_and_features(TTestContext& ctx)
 {
     CLiveDocument document;
@@ -305,14 +403,14 @@ static void test_strings_and_ingestion(TTestContext& ctx)
     TEST_EXPECT(ctx, document_parser::parse(CStringView{ normalized.output.data(), normalized.report.logical_text_byte_size }, document).succeeded());
     TEST_EXPECT(ctx, write(ctx, document) == "{\"n\":\"\\u0000\"}");
 
-    const std::uint8_t offset_input[]{ 0xefu, 0xbbu, 0xbfu, '{', 'a', ':', '"', 0xc3u, 0xa9u, '"', ',', 'n', ':', '1', 'e', '}', 0u };
+    const std::uint8_t offset_input[]{ 0xefu, 0xbbu, 0xbfu, '{', 'a', ':', '"', 0xc3u, 0xa9u, '"', ',', 'n', ':', '1', ' ', '2', '}', 0u };
     const auto shifted = text_linter::lint(CByteConstView{ offset_input, sizeof(offset_input) }, k_document_text_lint_line_endings);
     TEST_EXPECT(ctx, shifted.report.success && shifted.report.leading_utf8_bom_stripped);
     const auto failure = document_parser::parse(CStringView{ shifted.output.data(), shifted.report.logical_text_byte_size }, document);
     TEST_EXPECT(ctx, failure.status == EDocumentParseStatus::structural_failure);
     TEST_EXPECT(ctx, failure.failure_point.code_point_column_1_based == 12u && failure.structure.failure_point.code_point_column_1_based == 12u);
 
-    const std::uint8_t cp1252_error[]{ '{', 'a', ':', '"', 0xe9u, '"', ',', 'n', ':', '1', 'e', '}' };
+    const std::uint8_t cp1252_error[]{ '{', 'a', ':', '"', 0xe9u, '"', ',', 'n', ':', '1', ' ', '2', '}' };
     const auto expanded = text_linter::lint(CByteConstView{ cp1252_error, sizeof(cp1252_error) }, k_document_text_lint_line_endings);
     TEST_EXPECT(ctx, expanded.report.success && expanded.report.recovered_as_cp1252);
     const auto expanded_failure = document_parser::parse(CStringView{ expanded.output.data(), expanded.report.logical_text_byte_size }, document);
@@ -442,7 +540,7 @@ static void test_failure_publication(TTestContext& ctx)
         bool structural_success;
     };
     const CCase cases[]{
-        { "{n:1e}", EDocumentParseStatus::structural_failure, 5u, false },
+        { "{n:1 2}", EDocumentParseStatus::structural_failure, 5u, false },
         { "n:18446744073709551616", EDocumentParseStatus::numeric_out_of_range, 2u, true },
         { "n:+9223372036854775808", EDocumentParseStatus::numeric_out_of_range, 2u, true },
         { "n:-9223372036854775809", EDocumentParseStatus::numeric_out_of_range, 2u, true },
@@ -906,7 +1004,7 @@ static void test_depth_and_allocation(TTestContext& ctx)
     CLiveDocument destination;
     TEST_EXPECT(ctx, parse("keep:7", destination).succeeded());
     const CNodeKey keep = destination.first_child(destination.root());
-    const std::string text = "'n\\u0000':'\\u0000\\u00e9',a:[{s:'\\uD834\\uDD1E'},+0x80,{},[],{d:1,d:2}],"
+    const std::string text = "u\\u0020name:unquoted\\u0020value,'n\\u0000':'\\u0000\\u00e9',a:[{s:'\\uD834\\uDD1E'},+0x80,{},[],{d:1,d:2}],"
         "r:{$morphic:{values:[{n:1},[{a:2}]," + recovery("false") + "],type:'recovered-\\u0061rray',v:1}},"
         "r:{x:1,x:2},r:" + recovery("") + ",$$morphic:0,'\\u0024$morphic':1,b:'last'";
     bool completed = false;
@@ -1039,6 +1137,7 @@ int run_document_parser_tests()
     document_parser_tests::test_composed_findings(ctx);
     document_parser_tests::test_policy_source_provenance(ctx);
     document_parser_tests::test_construction_and_features(ctx);
+    document_parser_tests::test_unquoted_strings(ctx);
     document_parser_tests::test_strings_and_ingestion(ctx);
     document_parser_tests::test_integer_metadata(ctx);
     document_parser_tests::test_floats(ctx);

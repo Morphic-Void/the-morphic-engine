@@ -570,8 +570,9 @@ assumes numeric values can be represented, object-name collisions can be
 handled, and document-construction allocations will succeed. It does not
 convert numbers to enforce available numeric ranges, resolve collisions,
 preflight construction allocations, or enforce other construction policies.
-For example, an incomplete exponent is a syntax error, while a well-spelled
-number outside the available numeric range is not a structural flaw.
+For example, an incomplete exponent such as `1e+` is now an unquoted string
+candidate, while a well-spelled number outside the available numeric range is
+not a structural flaw.
 Numeric range policy, collision handling and reserved-wrapper interpretation
 belong to parsing. Capacity estimates are hints, not feasibility guarantees.
 If the structural check itself cannot complete because of a resource limit
@@ -615,13 +616,13 @@ The scanner and structural report now use the shared findings directly, and the
 parser report composes observations from each examined stage. Partial findings
 survive failure, and capacity estimates are separate from diagnostics. Parser
 coverage distinguishes an unexamined stage, failed construction and completed
-construction. The entry points still use the initial grammar and terminal
-statuses described below; they do not yet accept `CDocumentParseOptions`, apply
+construction. The entry points use the token grammar and remaining initial
+root/protocol rules described below; they do not yet accept `CDocumentParseOptions`, apply
 the evaluator or use `CDocumentFailure`. These remaining replacements follow
 with the grammar and recovery-protocol migration. A successful feature-policy
 evaluation alone is not parsing success.
 
-### Initial shared text grammar
+### Current shared text grammar
 
 `document_text_lex.hpp/.cpp` supplies bounded tokens and escape decoding for
 the structural check and subsequent parser. `document_structure.hpp/.cpp`
@@ -638,36 +639,50 @@ The root is an explicit object or an unbraced member list such as
 object. A root array or scalar is not part of this initial grammar. Names in
 arrays require object wrappers; `[name: 1]` is invalid.
 
-The initial syntax accepts:
+The implemented token grammar accepts:
 
 - JSON object/array/member placement, case-sensitive `true`, `false` and `null`,
-  and JSON decimal number spelling, with no range conversion. Decimal fractions
-  need digits on both sides of the point; exponents need digits; multi-digit
-  decimal integers cannot start with zero.
-- `//` comments through CR, LF or EOF, and non-nesting `/* ... */` comments.
-  Outside quoted spans, whitespace is space, tab, CR or LF.
+  and complete JSON decimal number spelling, with no range conversion. Numeric
+  classification requires digits on both sides of a decimal point, exponent
+  digits and no leading zero in a multi-digit decimal integer. Candidates that
+  fail these spelling rules are unquoted strings rather than numeric errors.
+- `;` and `//` line comments, and non-nesting `/* ... */` comments.
+  Comments are recognized only before a token starts. Inside an already-started
+  unquoted token, `//` and `/*` are literal content. Whitespace is space, tab,
+  CR or LF.
 - Single-quoted strings as well as double-quoted strings. Both support JSON
-  escapes and paired UTF-16 surrogate escapes. Single-quoted strings additionally
-  accept `\'`. Unknown escapes and unpaired surrogate escapes are syntax errors.
+  non-quote escapes and paired UTF-16 surrogate escapes. The quote roles are
+  exchanged: `\'` escapes the delimiter in single-quoted strings, while `\"`
+  escapes it in double-quoted strings and unquoted JSON escapes. The other quote
+  is plain content; its backslash escape is not accepted in that quoted mode.
+  Unknown escapes and unpaired surrogate escapes are syntax errors.
   Literal controls, including NUL and line breaks, are accepted quoted content.
   Raw line breaks and other raw controls have separate relaxed findings; NUL is
   informational, including when decoded from an escape. Delimiters/comment
   markers inside quotes are content. Quoted Unicode content is preserved.
-- ASCII identifier-style unquoted names: `[A-Za-z_$][A-Za-z0-9_$]*`, including
-  the literal words `true`, `false` and `null` in name position. Other names
-  require quotes; bare identifier string values are not accepted.
+- Unquoted names and string values end at unescaped JSON structural punctuation,
+  double quote or JSON whitespace. Standard JSON escapes protect decoded
+  delimiters and whitespace; an apostrophe inside an already-started candidate
+  is ordinary content. No extra short punctuation escapes are added.
+- In value position, exact source keywords and complete numeric spellings retain
+  their types. Other candidates are strings. Classification precedes escape
+  decoding, so `tr\u0075e` and `\u0031` construct strings, not a boolean or number.
+  Names always remain strings, including numeric- and keyword-looking names.
+  Unquoted names and unquoted values have distinct relaxed findings.
 - One trailing comma after a member or array element, including at the end
   of an unbraced root. Missing values and repeated commas are errors.
 - Morphic leading `+`, hexadecimal `0x`/`0X` or `#`, and binary `0b`/`0B` integer
   spellings, with an optional sign before the prefix. Base-prefixed numbers
   require digits and do not have fractions/exponents. `NaN`, `Infinity`, digit
-  separators and additional numeric spellings are not in this grammar.
+  separators and malformed numeric candidates are unquoted strings.
 
 Structural reports hold one `findings` mask with shared category identities;
 the old `ERelaxation` and `ENumericExtension` definitions are removed. Findings
 accumulate during checking and survive syntax or resource failure. Numeric
-spelling is recorded only after the complete token is validated, including both
-hexadecimal bits for `#`. Empty or comment-only text has no implicit-body finding,
+spelling is recorded only for a complete valid token consumed as a value,
+including both hexadecimal bits for `#`; a numeric-looking name does not acquire
+numeric findings. The scanner retains context-independent observations while
+`CToken::value_findings` supplies observations applied only in value position. Empty or comment-only text has no implicit-body finding,
 and a quoted empty member name is an informational observation.
 
 Optional `CDocumentStructureEstimates` are returned separately through
@@ -683,6 +698,9 @@ identifies detection or the EOF cursor. Success leaves both unavailable. The
 stage status is `unexamined` until invoked, distinguishing skipped structure
 after a linter failure from successful or failed checking. Only success denotes
 complete findings coverage; absent bits in a partial scan do not prove absence.
+Root-array/scalar inference, empty-name construction, the cross-document newline
+prohibition for names and per-value newline-suppression metadata remain to be
+integrated, along with shared terminal reasons, protocol retirement and final policy.
 
 ### Live construction and interpretation
 

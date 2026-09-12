@@ -26,13 +26,13 @@ namespace document_text
 enum class ETokenKind : std::uint8_t
 {
     end = 0u, error, object_begin, object_end, array_begin, array_end, colon, comma,
-    string, identifier, integer, floating_point, true_value, false_value, null_value
+    string, unquoted_string, integer, floating_point, true_value, false_value, null_value
 };
 
 enum class ESyntaxError : std::uint8_t
 {
     none = 0u, unexpected_character, unterminated_comment, unterminated_string,
-    invalid_escape, invalid_surrogate_pair, invalid_number,
+    invalid_escape, invalid_surrogate_pair,
     expected_name, expected_colon, expected_value, expected_separator,
     mismatched_delimiter, unexpected_end, trailing_content
 };
@@ -43,6 +43,8 @@ struct CToken
     ESyntaxError error{ ESyntaxError::none };
     std::size_t offset{ 0u };
     std::size_t size{ 0u };
+    //  Apply only in value position; numeric-looking names remain strings.
+    std::uint32_t value_findings{ 0u };
     CTextLocation location;
     CTextLocation failure_point;
 };
@@ -50,7 +52,8 @@ struct CToken
 //  On success, offset advances past one escape (including both UTF-16 units
 //  of a surrogate pair), and scalar contains its Unicode value, including NUL.
 //  On failure, offset identifies the offending byte or bounded end of input.
-//  quote is the enclosing quote delimiter; offset initially addresses '\\'.
+//  quote is the enclosing delimiter, or double quote for unquoted JSON escapes;
+//  offset initially addresses '\\'.
 [[nodiscard]] ESyntaxError read_escape(const CStringView& source, std::size_t& offset, const std::uint8_t quote, std::uint32_t& scalar) noexcept;
 
 [[nodiscard]] bool is_name_token(const ETokenKind kind) noexcept;
@@ -62,6 +65,7 @@ public:
     //  physical terminator; literal NUL within a quoted span is content.
     explicit CScanner(const CStringView& source) noexcept : m_source(source) {}
     [[nodiscard]] CToken next() noexcept;
+    //  Context-independent observations; token value_findings need value context.
     [[nodiscard]] std::uint32_t findings() const noexcept;
 
 private:
@@ -69,9 +73,7 @@ private:
     void locate(const std::size_t offset) noexcept;
     [[nodiscard]] CToken failure(const ESyntaxError error) const noexcept;
     [[nodiscard]] CToken quoted() noexcept;
-    [[nodiscard]] CToken number() noexcept;
-    [[nodiscard]] CToken identifier() noexcept;
-    [[nodiscard]] bool boundary() const noexcept;
+    [[nodiscard]] CToken unquoted() noexcept;
 
     CStringView m_source;
     std::size_t m_offset{ 0u };
