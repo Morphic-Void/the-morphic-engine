@@ -959,7 +959,7 @@ CNodeKey CLiveDocument::attach_payload(const CNodeKey empty_target, const CNodeK
     if ((payload == nullptr) ||
         (payload->value_type() == ELiveValueType::empty) ||
         !payload->value_is_unattached() ||
-        (payload->name_id().query_value() != CPropertyNameId::k_empty_value))
+        payload->is_object_entry())
     {
         return CNodeKey{};
     }

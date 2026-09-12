@@ -1493,6 +1493,58 @@ void test_integrity_rejects_unrooted_cycles_and_shared_aggregates(TTestContext& 
     TEST_EXPECT(ctx, !shared.check_integrity());
 }
 
+void test_payload_attachment_requires_anonymous_source(TTestContext& ctx)
+{
+    const CStringView names[]{ CStringView{ "" }, CStringView{ "source" } };
+    for (const CStringView name : names)
+    {
+        CLiveDocument document;
+        TEST_EXPECT(ctx, document.initialise());
+        const CNodeKey before = document.create_null(CStringView{ "before" });
+        const CNodeKey target = document.create_empty(CStringView{ "target" });
+        const CNodeKey after = document.create_null(CStringView{ "after" });
+        TEST_EXPECT(ctx, document.append_child(document.root(), before).succeeded());
+        TEST_EXPECT(ctx, document.append_child(document.root(), target).succeeded());
+        TEST_EXPECT(ctx, document.append_child(document.root(), after).succeeded());
+        const CNodeKey source = document.create_boolean(true, name);
+        const CPropertyNameId source_name = document.name_id(source);
+        const std::uint32_t node_count = SLiveDocumentTestAccess::occupied_node_count(document);
+        TEST_EXPECT(ctx, document.is_object_entry(source));
+        TEST_EXPECT(ctx, source_name.is_empty() == (name.length() == 0u));
+
+        TEST_EXPECT(ctx, !document.attach_payload(target, source).is_valid());
+        TEST_EXPECT(ctx, document.contains(target) && document.contains(source));
+        TEST_EXPECT(ctx, SLiveDocumentTestAccess::occupied_node_count(document) == node_count);
+        TEST_EXPECT(ctx, document.value_type(target) == ELiveValueType::empty);
+        TEST_EXPECT(ctx, document.name(target) == CStringView{ "target" });
+        TEST_EXPECT(ctx, document.parent(target) == document.root());
+        TEST_EXPECT(ctx, document.previous_sibling(target) == before);
+        TEST_EXPECT(ctx, document.next_sibling(target) == after);
+        TEST_EXPECT(ctx, document.child_count(document.root()) == 3u);
+        TEST_EXPECT(ctx, document.is_detached(source));
+        TEST_EXPECT(ctx, document.is_object_entry(source));
+        TEST_EXPECT(ctx, document.name_id(source) == source_name);
+        TEST_EXPECT(ctx, document.name(source).string() != nullptr);
+        TEST_EXPECT(ctx, document.name(source) == name);
+        bool value = false;
+        TEST_EXPECT(ctx, document.boolean_value(source, value) && value);
+        TEST_EXPECT(ctx, document.check_integrity());
+
+        //  Removing the name admits the same source with anonymous ID zero.
+        TEST_EXPECT(ctx, document.set_name(source, CStringView{}));
+        TEST_EXPECT(ctx, !document.is_object_entry(source));
+        TEST_EXPECT(ctx, document.name_id(source).is_empty());
+        TEST_EXPECT(ctx, document.attach_payload(target, source) == target);
+        TEST_EXPECT(ctx, !document.contains(source));
+        TEST_EXPECT(ctx, document.boolean_value(target, value) && value);
+        TEST_EXPECT(ctx, document.name(target) == CStringView{ "target" });
+        TEST_EXPECT(ctx, document.parent(target) == document.root());
+        TEST_EXPECT(ctx, document.previous_sibling(target) == before);
+        TEST_EXPECT(ctx, document.next_sibling(target) == after);
+        TEST_EXPECT(ctx, document.check_integrity());
+    }
+}
+
 void test_payload_transfer_rejections_cycles_and_recovery(TTestContext& ctx)
 {
     CLiveDocument document;
@@ -2161,6 +2213,7 @@ int run_live_document_tests()
     test_cyclic_subtree_audit_and_analysis_terminate(ctx);
     test_integrity_rejects_unrooted_cycles_and_shared_aggregates(ctx);
     test_payload_transfer_rejections_cycles_and_recovery(ctx);
+    test_payload_attachment_requires_anonymous_source(ctx);
     test_payload_transfer_allocation_limits_depth_move_and_attribution(ctx);
     test_analysis_summary_and_string_references(ctx);
     test_analysis_allocation_failure_and_attribution(ctx);
