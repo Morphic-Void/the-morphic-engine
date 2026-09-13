@@ -88,7 +88,7 @@ enum class EDocumentFailureReason : std::uint8_t
     mismatched_delimiter, unexpected_end, trailing_content,
 
     //  Construction
-    numeric_out_of_range, invalid_root_value, construction_failed,
+    numeric_out_of_range, construction_failed,
 
     //  Resources and invocation (the stage identifies where failure occurred)
     invalid_input_view, allocation_failed, input_limit, storage_limit, internal_error

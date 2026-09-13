@@ -597,7 +597,7 @@ static void test_writer_compatibility(TTestContext& ctx)
     const CNodeKey array = live.create_array(CStringView{ "a" });
     TEST_EXPECT(ctx, live.append_child(live.root(), array).succeeded());
     TEST_EXPECT(ctx, live.append_child(array, live.create_signed_integer(1, CStringView{ "n" })).succeeded());
-    TEST_EXPECT(ctx, live.append_child(array, live.create_recovered_array(CStringView{ "r" })).succeeded());
+    TEST_EXPECT(ctx, live.append_child(array, live.create_array(CStringView{ "r" })).succeeded());
     const std::uint8_t content[]{ 0u, 0xc3u, 0xa9u };
     TEST_EXPECT(ctx, live.append_child(array, live.create_string(CStringView{ content, sizeof(content) })).succeeded());
     CBakedDocumentBlock baked;

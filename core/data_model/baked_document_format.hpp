@@ -29,15 +29,14 @@ enum class EBakedValueType : std::uint8_t
     floating_point,
     string,
     array,
-    object,
-    recovered_array
+    object
 };
 
 namespace baked_document_format
 {
 
 constexpr std::uint32_t k_magic = 0x3244424du; // "MBD2"
-constexpr std::uint16_t k_version = 2u;
+constexpr std::uint16_t k_version = 3u;
 constexpr std::uint16_t k_header_size = 32u;
 constexpr std::size_t k_block_alignment = 32u;
 constexpr std::uint32_t k_invalid_index = std::numeric_limits<std::uint32_t>::max();
@@ -51,7 +50,7 @@ static_assert(static_cast<std::uint8_t>(EBakedValueType::floating_point) == 4u);
 static_assert(static_cast<std::uint8_t>(EBakedValueType::string) == 5u);
 static_assert(static_cast<std::uint8_t>(EBakedValueType::array) == 6u);
 static_assert(static_cast<std::uint8_t>(EBakedValueType::object) == 7u);
-static_assert(static_cast<std::uint8_t>(EBakedValueType::recovered_array) == 8u);
+//  Retired value tag 8 is invalid and must not be reused.
 
 struct SBakedDocumentHeader
 {

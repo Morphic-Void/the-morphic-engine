@@ -350,11 +350,6 @@ bool CBakedDocumentBaker::emit_value_payload(const CNodeKey value, SBakedValueRe
             destination.value_type = EBakedValueType::object;
             return true;
         }
-        case ELiveValueType::recovered_array:
-        {
-            destination.value_type = EBakedValueType::recovered_array;
-            return true;
-        }
         default:
         {
             return false;

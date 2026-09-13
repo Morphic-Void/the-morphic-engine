@@ -63,8 +63,6 @@ void expect_failure(TTestContext& ctx, const CDocumentWriteResult& result, const
     TEST_EXPECT(ctx, result.report.explicit_positive_signs_omitted == 0u);
     TEST_EXPECT(ctx, result.report.non_ascii_code_points_escaped == 0u);
     TEST_EXPECT(ctx, result.report.embedded_nuls_escaped == 0u);
-    TEST_EXPECT(ctx, result.report.reserved_property_names_escaped == 0u);
-    TEST_EXPECT(ctx, result.report.recovered_arrays_written == 0u);
 }
 
 void test_named_payloads(TTestContext& ctx)
@@ -85,7 +83,7 @@ void test_named_payloads(TTestContext& ctx)
     const CNodeKey array = live.create_array(CStringView{ "a" });
     attach(ctx, live, items, array);
     attach(ctx, live, array, live.create_unsigned_integer(2u));
-    const CNodeKey recovery = live.create_recovered_array(CStringView{ "r" });
+    const CNodeKey recovery = live.create_array(CStringView{ "r" });
     attach(ctx, live, items, recovery);
     attach(ctx, live, recovery, live.create_null());
     attach(ctx, live, items, live.create_empty(CStringView{ "e" }));
@@ -98,8 +96,7 @@ void test_named_payloads(TTestContext& ctx)
         const std::string sign = (mode == EDocumentWriteMode::morphic) ? "+" : "";
         expect_text(ctx, result, "{\"items\":[{\"n\":" + sign + "1},{\"u\":5},{\"f\":1.5},{\"b\":true},"
             "{\"z\":null},{\"s\":\"text\"},{\"o\":{\"k\":false}},{\"a\":[2]},"
-            "{\"r\":{\"$morphic\":{\"v\":1,\"type\":\"recovered-array\",\"values\":[null]}}},{\"e\":null},3]}");
-        TEST_EXPECT(ctx, result.report.recovered_arrays_written == 1u);
+            "{\"r\":[null]},{\"e\":null},3]}");
         TEST_EXPECT(ctx, result.report.explicit_positive_signs_omitted == ((mode == EDocumentWriteMode::strict_json) ? 1u : 0u));
     }
 }
@@ -131,18 +128,18 @@ void test_layout_and_options(TTestContext& ctx)
     expect_failure(ctx, document_writer::write(CBakedDocument{}), EDocumentWriteStatus::source_not_ready);
 }
 
-void test_recovery_and_reserved_names(TTestContext& ctx)
+void test_arrays_and_dollar_names(TTestContext& ctx)
 {
     CLiveDocument live;
     TEST_EXPECT(ctx, live.initialise());
-    const CNodeKey recovered = live.create_recovered_array(CStringView{ "r" });
+    const CNodeKey recovered = live.create_array(CStringView{ "r" });
     attach(ctx, live, live.root(), recovered);
     attach(ctx, live, recovered, live.create_unsigned_integer(22u));
     const CNodeKey competitor = live.create_object();
     attach(ctx, live, recovered, competitor);
     attach(ctx, live, competitor, live.create_string(CStringView{ "first" }, CStringView{ "x" }));
-    attach(ctx, live, recovered, live.create_recovered_array());
-    const CNodeKey nested = live.create_recovered_array();
+    attach(ctx, live, recovered, live.create_array());
+    const CNodeKey nested = live.create_array();
     attach(ctx, live, recovered, nested);
     attach(ctx, live, nested, live.create_boolean(false));
     const CNodeKey lookalike = live.create_object(CStringView{ "$morphic" });
@@ -158,11 +155,9 @@ void test_recovery_and_reserved_names(TTestContext& ctx)
     attach(ctx, live, array, live.create_null(CStringView{ "$" }));
     CBakedDocumentBlock block;
     TEST_EXPECT(ctx, document_translation::bake(live, block));
-    const std::string expected = "{\"r\":{\"$morphic\":{\"v\":1,\"type\":\"recovered-array\",\"values\":[22,{\"x\":\"first\"},"
-        "{\"$morphic\":{\"v\":1,\"type\":\"recovered-array\",\"values\":[]}},"
-        "{\"$morphic\":{\"v\":1,\"type\":\"recovered-array\",\"values\":[false]}}]}},"
-        "\"$$morphic\":{\"v\":1,\"type\":\"recovered-array\",\"values\":[]},"
-        "\"a\":[{\"$$$morphic\":null},{\"$$morphic\":\"$morphic\"},{\"$morphicx\":null},{\"$\":null}]}";
+    const std::string expected = "{\"r\":[22,{\"x\":\"first\"},[],[false]],"
+        "\"$morphic\":{\"v\":1,\"type\":\"recovered-array\",\"values\":[]},"
+        "\"a\":[{\"$$morphic\":null},{\"$morphic\":\"$morphic\"},{\"$morphicx\":null},{\"$\":null}]}";
     for (const EDocumentWriteMode mode : { EDocumentWriteMode::morphic, EDocumentWriteMode::strict_json })
     {
         auto options = compact(mode);
@@ -171,8 +166,6 @@ void test_recovery_and_reserved_names(TTestContext& ctx)
             options.escape_non_ascii = ascii;
             const auto result = document_writer::write(block.document(), options);
             expect_text(ctx, result, expected);
-            TEST_EXPECT(ctx, result.report.recovered_arrays_written == 3u);
-            TEST_EXPECT(ctx, result.report.reserved_property_names_escaped == 3u);
         }
     }
 }
@@ -352,9 +345,9 @@ void test_depth_and_allocation_failures(TTestContext& ctx)
     const CIntegerMetadata hex{ EIntegerDomain::signed_value, EIntegerWidth::bits_8,
         EIntegerNotation::hexadecimal, EIntegerPrefix::alternate };
     TEST_EXPECT(ctx, live.insert_child_before(live.root(), live.create_signed_integer(7, hex, CStringView{ "h" }), first).succeeded());
-    TEST_EXPECT(ctx, live.insert_child_before(live.root(), live.create_recovered_array(CStringView{ "r" }), first).succeeded());
+    TEST_EXPECT(ctx, live.insert_child_before(live.root(), live.create_array(CStringView{ "r" }), first).succeeded());
     TEST_EXPECT(ctx, document_translation::bake(live, block));
-    expected = "{\"$$morphic\":\"\\u0000\\u00e9\",\"h\":7,\"r\":{\"$morphic\":{\"v\":1,\"type\":\"recovered-array\",\"values\":[]}}," + expected.substr(1u);
+    expected = "{\"$morphic\":\"\\u0000\\u00e9\",\"h\":7,\"r\":[]," + expected.substr(1u);
     auto options = compact(EDocumentWriteMode::strict_json);
     options.escape_non_ascii = true;
     bool completed = false;
@@ -370,12 +363,10 @@ void test_depth_and_allocation_failures(TTestContext& ctx)
             if (completed)
             {
                 expect_text(ctx, result, expected);
-                TEST_EXPECT(ctx, result.report.reserved_property_names_escaped == 1u);
                 TEST_EXPECT(ctx, result.report.non_decimal_integers_normalised == 1u);
                 TEST_EXPECT(ctx, result.report.explicit_positive_signs_omitted == 1u);
                 TEST_EXPECT(ctx, result.report.embedded_nuls_escaped == 1u);
                 TEST_EXPECT(ctx, result.report.non_ascii_code_points_escaped == 1u);
-                TEST_EXPECT(ctx, result.report.recovered_arrays_written == 1u);
             }
             else { expect_failure(ctx, result, EDocumentWriteStatus::allocation_failed); }
         }
@@ -441,7 +432,7 @@ int run_document_writer_tests()
     document_writer_phase2_tests::test_empty_names_and_newline_metadata(ctx);
     test_named_payloads(ctx);
     test_layout_and_options(ctx);
-    test_recovery_and_reserved_names(ctx);
+    test_arrays_and_dollar_names(ctx);
     test_strings(ctx);
     test_integers(ctx);
     test_floats(ctx);

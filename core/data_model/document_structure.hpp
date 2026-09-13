@@ -20,7 +20,7 @@ enum class EDocumentStructureStatus : std::uint8_t
 
 struct CDocumentStructureEstimates
 {
-    //  Syntactic occurrences before collision recovery or wrapper decoding.
+    //  Syntactic occurrences before collision extension or singleton normalization.
     //  Counts include the explicit or inferred root container. They are hints for
     //  later construction, not live-node counts or allocation guarantees.
     std::size_t value_count{ 0u };

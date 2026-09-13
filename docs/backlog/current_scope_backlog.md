@@ -25,8 +25,9 @@ built. Completed implementation does not mean these interfaces are final.
    Explicit array roots and shared inference of object/array bodies are
    reviewed and committed. Shared terminal stage/reason reporting is reviewed
    and committed. Caller options and late policy acceptance before publication
-   are implemented for review. Protocol retirement and the remaining parser
-   report simplification remain.
+   are reviewed and committed. Coordinated recovery-array/protocol retirement,
+   parser use of public ordinary-array collision extension, baked version 3 and
+   removal of obsolete reports and counters are implemented for review.
    After the main implementation, consider a separate const pass: identify
    parameters that functions do not mutate, add appropriate const qualification,
    and align parameter const decoration between declarations and definitions.

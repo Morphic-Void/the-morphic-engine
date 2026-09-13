@@ -169,13 +169,13 @@ coherent live tree
 ```
 
 The analysis structure can hold exactly what a bake needs: category counts,
-recovered-content presence, per-name and per-string reference counts, final
+per-name and per-string reference counts, final
 string ranks or maps, byte totals and emission offsets. It is single-use,
 single-threaded and allocated through the framework. It should not become a
 second mutable document.
 
-Queries such as `is_complete`, `is_canonical`, category counts and "contains
-recovered content" use the same traversal components on demand. Reusable
+Queries such as `is_complete` and category counts use the same traversal
+components on demand. Reusable
 visitation and accumulation helpers avoid a persistent cache, revision system
 or several near-identical walks.
 
@@ -197,7 +197,7 @@ source shell avoids a public half-consumed object.
 
 `erase_payload` is the other small primitive. It generalises the existing
 nested-erasure behaviour by preserving the selected top value as an empty
-placeholder. Together these operations express recovery repair without a
+placeholder. Together these operations express payload replacement without a
 special tree-rewrite implementation.
 
 The implementation uses one private payload-field move for extraction and
@@ -206,30 +206,19 @@ retargets an owned aggregate directly when present. Payload erasure and root
 clearing share the same aggregate-child erasure path. This removed the former
 whole-node topology substitution rather than expanding it.
 
-## Public recovered arrays
+## Public collision extension
 
-Making recovered arrays public simplifies both parser construction and baked
-promotion. The useful invariant is structural: their children are anonymous.
-Minimum cardinality and collision-only construction do not protect tree
-coherence, but would require special construction modes and awkward transient
-states.
+The explicit `extend_object_child` operation combines duplicate object members
+using ordinary arrays. The retained member keeps its key, name and position.
+An incoming non-array appends to an existing array; otherwise a new array
+contains both complete payloads. Array/array collisions therefore preserve both
+arrays as children rather than splicing their contents.
 
-A first object-member collision can be assembled from ordinary operations:
-
-1. extract the existing member's payload into an anonymous carrier;
-2. extract the candidate's payload into another anonymous carrier;
-3. create a recovered array and append both carriers in encounter order;
-4. attach that aggregate payload to the now-empty existing member; and
-5. erase the now-empty candidate shell.
-
-For a later collision, extract the candidate payload, append the carrier to the
-existing recovered array and erase the candidate shell. A pre-existing public
-recovered array can also be promoted by creating it and appending its anonymous
-children normally.
-
-This composition made the reserved recovery attachment outcomes unnecessary;
-they were removed with the live-node simplification. Attachment now reports a
-rejection reason; `none` means that insertion succeeded.
+The operation prepares all fallible allocation before changing either input.
+It is independently usable by callers and is now the parser's collision path.
+Ordinary insertion still rejects duplicates. This replaces the distinct recovery
+kind, anonymous-only child constraint and serialization protocol, eliminating
+provenance that ordinary document editing would otherwise have to maintain.
 
 ## Mutation failure policy
 
@@ -353,16 +342,14 @@ References: [Microsoft charconv documentation](https://learn.microsoft.com/en-us
 and [numeric output conversion contract](https://eel.is/c++draft/charconv.to.chars).
 
 The writer materializes implied object braces around every named child outside
-an object, independently of payload type. Recovery payloads use the documented
-version-1 wrapper in either output mode. Ordinary property names use reversible
-dollar escaping; protocol keys and string values do not. Output reports count
-numeric normalization, non-ASCII and NUL escapes, reserved-name escapes and
-recovered arrays by emitted occurrence. Failed writes discard output and
+an object, independently of payload type. Arrays emit ordinary JSON brackets,
+and dollar-prefixed names retain their spelling. Output reports count numeric
+normalization, non-ASCII and NUL escapes by emitted occurrence. Failed writes discard output and
 counts, retaining the failure status. The buffer supplies its own length until
 publication, avoiding duplicate mutable length bookkeeping.
 
 Writer tests construct sources through public live operations and baking.
-They check exact text for all named payload types, recovery cardinalities,
+They check exact text for all named payload types, ordinary nested arrays,
 nested competitors, reserved-name lookalikes, quoting and layout; numeric
 boundaries and deterministic finite-bit samples check conversion independently
 through `from_chars`. Deep named arrays exercise iterative synthetic wrappers,
@@ -415,7 +402,7 @@ There is no arbitrary grammar depth cap or document allocation preflight;
 frame allocation failure and the frame storage ceiling have resource statuses.
 The scanner exposes token spans and the same escape-to-scalar operation that
 construction also uses. No quoted string scratch is needed just to check
-syntax. Duplicate names and reserved metadata do not require string decoding,
+syntax. Duplicate names do not require string decoding,
 interning or comparison here. Report offsets refer to the linter's UTF-8 output.
 
 The parser builds a private live document with an iterative frame
@@ -425,37 +412,23 @@ the input until live admission copies them. Publication uses the existing move
 operation, allowing even input borrowed from the old destination to remain
 valid through all reads. Structural reports remain available after construction
 failure; there is no claim that syntax acceptance guarantees representability.
-Numeric range errors and unrepresentable empty object-entry names are explicit
-construction failures.
+Numeric range errors are explicit construction failures. Empty object-entry
+names are represented natively.
 
-Recovery wrapper recognition precedes ordinary singleton unwrapping. Protocol
-control fields are validated separately from user data, and recovery transport
-arrays retain anonymous competitors. Reserved data names use the reversible
-dollar escaping specified in `revised_data_model.md`; no document-wide envelope
-or tag for preserving redundant anonymous singleton objects is needed.
+Construction frames distinguish objects and arrays. Former protocol wrappers
+and their fields are ordinary content, and dollar-prefixed names are never
+unescaped beyond normal JSON string decoding.
 
-Construction frames distinguish ordinary objects/arrays, reserved wrappers,
-protocol metadata and recovery transport arrays. Control fields feed the
-recovered value directly without temporary live metadata nodes. This keeps
-duplicate protocol fields separate from recoverable data collisions and makes
-field order irrelevant, including when `values` precedes version and type.
-Only ordinary data names undergo reserved-name unescaping.
+Containers are attached after completion. A completed singleton object in an
+array contributes its named child. Completed duplicate payloads use the public
+collision-extension operation, preserving the receiving member's position and
+encounter order. All resulting arrays follow ordinary container rules.
 
-Containers are attached after completion. A completed ordinary singleton in
-an ordinary array contributes its named child; direct recovery competitors
-retain their anonymous object context. Completed duplicate payloads are then
-moved into the first member's recovered array, preserving its original sibling
-position and competitor order. Incoming recovered arrays remain nested.
-All mutations use existing live operations, and failed private construction
-is discarded. Semantic interpretation counts are published only on success;
-structural syntax observations remain independent.
-
-Parser construction, singleton unwrapping and recovery use ordinary live
-creation, detachment, payload movement and erasure. Current public sibling and
-name queries suffice to find collisions; do not add a live lookup API or
-recovery privilege without demonstrating a concrete need. Build privately and
-publish through the existing move operation after success. Failure signalling
-and existing known-bad containment suffice without transactional mutation.
+Processing builds privately and retains presence findings through later failure.
+After successful construction, caller policy evaluates the complete findings;
+only acceptance publishes the document. Rejection preserves the completed report
+and the caller's destination. Shared stage/reason diagnostics replace detailed
+parser status alternatives, and parser interpretation counters have been removed.
 
 ## Baked ownership baseline
 
@@ -477,7 +450,7 @@ their workload thread.
 
 The model deliberately retains numeric lexical intent, iterative traversal,
 separate string domains, explicit untrusted baked validation and ordered
-recovery competitors because writers, parsers and promotion consume them.
+collision payloads because writers, parsers and promotion consume them.
 
 Modified UTF-8 `C0 80` is the live and baked logical-NUL storage contract.
 Text ingestion and writing normalize at their boundaries; physical string

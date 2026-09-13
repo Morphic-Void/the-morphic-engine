@@ -262,7 +262,7 @@ where the root failure occurred. These are alternatives, not cumulative flags:
 | --- | --- |
 | Decoding | UTF-8 decoding failure; undefined CP1252 byte; CP1252 decoding failure. An abandoned UTF-8 attempt followed by successful fallback is evidence, not terminal failure. |
 | Structure | Unexpected character; unterminated comment/string; invalid escape/surrogate pair; forbidden newline in a name; missing name/colon/value/separator; mismatched delimiter; unexpected end; trailing content. Malformed numeric-looking candidates fall back to strings rather than producing a numeric syntax error. |
-| Construction | Numeric range failure; invalid root value; other construction rejection. A quoted empty name is valid and must not cause empty-name rejection. |
+| Construction | Numeric range failure; other construction rejection. A quoted empty name is valid and must not cause empty-name rejection. |
 | Resources and invocation | Invalid input view; allocation failure; storage/input limits; internal error. |
 
 Specific statuses or bounded auxiliary evidence may accompany masks when that
@@ -1519,7 +1519,7 @@ were unchanged.
 
 ### 9.9 Caller options and late policy acceptance
 
-The caller-policy slice is implemented and awaiting review:
+The caller-policy slice is reviewed and committed as `e458600`:
 
 - Both `ingest` overloads and low-level `parse` accept `CDocumentParseOptions`,
   with the agreed conservative default. Existing callers requiring every
@@ -1555,25 +1555,51 @@ Debug and Release builds and all ordinary test suites pass on x64 and Win32,
 including 18,420 parser checks and 1,247 structural checks per configuration.
 Repository policy validation, whitespace and line-ending checks also pass.
 
-The existing recovery protocol and interpretation counters remain transitional.
-This slice applies the collision permission to the existing reported operation;
-the coordinated move to public collision extension and protocol retirement is
-still required to complete the agreed model semantics.
+That slice retained the recovery protocol and interpretation counters pending
+the coordinated retirement below.
 
-Remaining implementation sequence:
+### 9.10 Recovery-array retirement
 
-1. Review caller options and late policy acceptance before committing.
-2. Simplify parser statuses and interpretations;
-   use public collision extension and retire recovered-array kinds, protocol
-   handling and compatibility across all affected code and tests together.
-   Complete end-to-end tests and remove obsolete parser counts. Preserve the
-   implemented shared locations and linter aggregate statistics.
-   Review before committing.
+The final coordinated implementation slice is ready for review:
 
-Keep intermediate changes buildable. A small coordinated migration is preferable
-to retaining permanent duplicate report APIs. This sequence proposes review
-boundaries for the remaining work. Stage-2 implementation is authorized;
-commits remain subject to review.
+- The parser uses the existing public `extend_object_child` operation. Collision
+  payloads form ordinary arrays with the agreed encounter-order semantics,
+  including whole-array wrapping when both payloads are arrays. Normal insertion
+  still rejects duplicates. The collision finding controls late acceptance.
+- Live and baked recovery kinds, creation APIs, anonymous-only child restrictions,
+  recovered-content analysis and recovery-specific canonicality queries are
+  removed. Baking and promotion carry ordinary arrays through the same paths.
+- The writer emits arrays directly. The parser treats former `$morphic` wrappers
+  and dollar-prefixed names as ordinary data. Protocol recognition, metadata
+  validation, reserved-name escaping and compatibility conversion are absent.
+- Parser status is now `unexamined`, `success`, `policy_rejected`,
+  `invalid_options` or `failed`. The shared failure pair supplies the stage and
+  singular reason for processing failures; the protocol-only `invalid_root_value`
+  reason is removed. First-failure guards, locations and late policy remain.
+- `CDocumentParseInterpretations` and its occurrence counters are removed.
+  Collision and singleton-normalization presence findings remain and survive
+  later failure. Writer recovery/name-escaping counters are removed; its other
+  statistics and the standalone linter aggregates remain.
+- Baked version 3 retains the `MBD2` family magic and 32-byte record layout.
+  Earlier versions are rejected. Retired value tag 8 remains invalid rather
+  than acquiring an ordinary-array meaning.
+
+Replacement tests cover collision shape/order, empty and escaped names, nested
+payloads, policy rejection, bake/promote/text round trips, former protocol data,
+retired baked versions/tags and the existing allocation-failure boundaries.
+Recovery-specific assertions are removed while ordinary payload transfer,
+traversal, singleton normalization and ownership-transfer checks remain.
+
+Validation passes in Debug and Release on x64 and Win32. Every configuration
+passes all ordinary suites, including 18,079 parser, 1,247 structure, 10,539
+writer, 1,216 baked-document and 213 baked-transfer checks. Policy validation,
+whitespace and line-ending checks pass. No retired recovery API remains in
+the core or tests; former protocol text is retained only as ordinary-data
+regression coverage.
+
+The implementation is uncommitted pending user and coordinator review. After
+this slice is approved, the separately recorded const pass and the user's manual
+style/beautification pass remain. Do not fold those passes into this retirement.
 
 ## 10. Decision record and implementation review
 
@@ -1617,8 +1643,8 @@ The consistency review makes these consequences explicit:
   also removes its writer counters despite retaining other writer statistics.
 - An explicit object root is never removed by singleton-object normalization.
 
-Remaining stage-2 work covers parser report simplification, use of the public
-collision operation and coordinated recovery-protocol retirement. The shared
+Stage-2 behaviour is implemented through the retirement slice and awaits its
+final review. The shared
 findings, policy presets, per-value metadata, root handling and failure reporting
 are implemented. Remaining API and ownership choices must implement the
 contracts above and remain reviewable; they are not unresolved user-facing

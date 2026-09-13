@@ -116,16 +116,14 @@ enum class ELiveValueType : std::uint8_t
     floating_point,
     string,
     array,
-    object,
-    recovered_array
+    object
 };
 
 enum class ELiveAggregateKind : std::uint8_t
 {
     invalid = 0u,
     array,
-    object,
-    recovered_array
+    object
 };
 
 //==============================================================================
@@ -142,7 +140,6 @@ enum class ELiveAttachmentRejection : std::uint8_t
     candidate_is_root,
     candidate_not_detached,
     object_entry_required,
-    anonymous_value_required,
     duplicate_object_name,
     insert_before_not_child,
     index_out_of_range,

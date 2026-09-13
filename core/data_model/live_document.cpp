@@ -71,12 +71,6 @@ bool CLiveDocument::is_ready() const noexcept
     return m_nodes.is_ready() && m_root.is_valid() && !m_integrity_known_bad;
 }
 
-bool CLiveDocument::is_canonical() const noexcept
-{
-    SLiveDocumentAnalysis result;
-    return analyse(result) && (result.recovered_aggregate_count == 0u);
-}
-
 bool CLiveDocument::is_complete() const noexcept
 {
     SLiveDocumentAnalysis result;
@@ -150,19 +144,12 @@ bool CLiveDocument::analyse(SLiveDocumentAnalysis& result, SLiveDocumentStringAn
 
     SLiveDocumentAnalysis measured;
     const bool success = visit_subtree(node_slot(m_root),
-        [&measured, strings](const LiveNodeSlot, const CLiveNode& value, const CLiveNode* const aggregate) noexcept
+        [&measured, strings](const LiveNodeSlot, const CLiveNode& value, const CLiveNode*) noexcept
         {
             ++measured.value_count;
             if (value.value_type() == ELiveValueType::empty)
             {
                 ++measured.empty_value_count;
-            }
-            if (aggregate != nullptr)
-            {
-                if (aggregate->aggregate_kind() == ELiveAggregateKind::recovered_array)
-                {
-                    ++measured.recovered_aggregate_count;
-                }
             }
             if (strings != nullptr)
             {
@@ -430,8 +417,7 @@ bool CLiveDocument::set_name(const CNodeKey key, const CStringView& name_value) 
     }
     const bool present = name_value.string() != nullptr;
     const CNodeKey owner = parent(key);
-    if (((value_type(owner) == ELiveValueType::object) && !present) ||
-        ((value_type(owner) == ELiveValueType::recovered_array) && present))
+    if ((value_type(owner) == ELiveValueType::object) && !present)
     {
         return false;
     }
@@ -736,13 +722,6 @@ CNodeKey CLiveDocument::create_object(const CStringView& name_value) noexcept
     SPreparedString prepared_name;
     return prepare_string(name_value, prepared_name) ?
         create_container(ELiveValueType::object, prepared_name) : CNodeKey{};
-}
-
-CNodeKey CLiveDocument::create_recovered_array(const CStringView& name_value) noexcept
-{
-    SPreparedString prepared_name;
-    return prepare_string(name_value, prepared_name) ?
-        create_container(ELiveValueType::recovered_array, prepared_name) : CNodeKey{};
 }
 
 CNodeKey CLiveDocument::extend_object_child(const CNodeKey destination, const CNodeKey candidate) noexcept
@@ -1797,7 +1776,7 @@ CLiveAttachmentResult CLiveDocument::attach_child(const CNodeKey destination, co
         return attachment_rejection(
             (aggregate->aggregate_kind() == ELiveAggregateKind::object) ?
                 ELiveAttachmentRejection::object_entry_required :
-                ELiveAttachmentRejection::anonymous_value_required);
+                ELiveAttachmentRejection::corrupt_structure);
     }
     if (aggregate->aggregate_kind() == ELiveAggregateKind::object)
     {

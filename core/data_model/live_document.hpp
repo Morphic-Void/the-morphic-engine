@@ -28,7 +28,6 @@ struct SLiveDocumentTestAccess;
 struct SLiveDocumentAnalysis
 {
     std::uint32_t value_count{ 0u };
-    std::uint32_t recovered_aggregate_count{ 0u };
     std::uint32_t empty_value_count{ 0u };
 };
 
@@ -64,7 +63,6 @@ public:
 
     //  Status
     [[nodiscard]] bool is_ready() const noexcept;
-    [[nodiscard]] bool is_canonical() const noexcept;
     [[nodiscard]] bool is_complete() const noexcept;
     [[nodiscard]] bool check_integrity() const noexcept;
 
@@ -133,7 +131,6 @@ public:
     [[nodiscard]] CNodeKey create_string(const CStringView& value, const CStringView& name = {}) noexcept;
     [[nodiscard]] CNodeKey create_array(const CStringView& name = {}) noexcept;
     [[nodiscard]] CNodeKey create_object(const CStringView& name = {}) noexcept;
-    [[nodiscard]] CNodeKey create_recovered_array(const CStringView& name = {}) noexcept;
 
     //  Structural mutation
     [[nodiscard]] CLiveAttachmentResult append_child(const CNodeKey destination, const CNodeKey candidate) noexcept;

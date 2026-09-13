@@ -190,16 +190,13 @@ static_assert(alignof(CLiveNode) == alignof(std::uint64_t));
 {
     return
         (type == ELiveValueType::array) ||
-        (type == ELiveValueType::object) ||
-        (type == ELiveValueType::recovered_array);
+        (type == ELiveValueType::object);
 }
 
 [[nodiscard]] constexpr ELiveAggregateKind live_aggregate_kind_for_value_type(const ELiveValueType type) noexcept
 {
     return (type == ELiveValueType::array) ? ELiveAggregateKind::array :
-        ((type == ELiveValueType::object) ? ELiveAggregateKind::object :
-            ((type == ELiveValueType::recovered_array) ?
-                ELiveAggregateKind::recovered_array : ELiveAggregateKind::invalid));
+        ((type == ELiveValueType::object) ? ELiveAggregateKind::object : ELiveAggregateKind::invalid);
 }
 
 //==============================================================================
@@ -479,7 +476,7 @@ inline bool CLiveNode::aggregate_payload_is_valid() const noexcept
     const ELiveAggregateKind kind = aggregate_kind();
     return is_aggregate_record() &&
         (value_type() == ELiveValueType::invalid) &&
-        ((kind == ELiveAggregateKind::array) || (kind == ELiveAggregateKind::object) || (kind == ELiveAggregateKind::recovered_array)) &&
+        ((kind == ELiveAggregateKind::array) || (kind == ELiveAggregateKind::object)) &&
         (aggregate_owner_value_slot() >= 0) &&
         aggregate_child_range_is_consistent() &&
         (payload_bits() == 0u) && name_id().is_empty() && (m_value_flags == 0u) && (m_reserved_32 == 0u);
@@ -509,8 +506,7 @@ inline bool CLiveNode::aggregate_accepts_child(const CLiveNode& value) const noe
     {
         return value.is_object_entry();
     }
-    return (aggregate_kind() == ELiveAggregateKind::array) ||
-        ((aggregate_kind() == ELiveAggregateKind::recovered_array) && !value.is_object_entry());
+    return aggregate_kind() == ELiveAggregateKind::array;
 }
 
 inline bool CLiveNode::value_is_unattached() const noexcept

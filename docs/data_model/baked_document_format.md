@@ -24,10 +24,11 @@ one allocation. Baking scratch is external to that allocation. A bound block's
 base address is 32-byte aligned; its total size need not be. The value-record
 section is likewise 32-byte aligned.
 
-The current replacement format has magic bytes `MBD2` and version 2. It adds
-independent name presence and per-string newline metadata while retaining the
-32-byte records. Version 1 and archived formats are rejected. Recovery-kind
-retirement remains part of the subsequent parser migration.
+The current format retains family magic bytes `MBD2` and uses version 3.
+It preserves the independent name-presence and per-string newline flags and
+32-byte records introduced in version 2, and removes the recovery value kind.
+Versions 1 and 2 and archived formats are rejected without conversion. Retired
+value tag 8 is invalid and must not be reused.
 
 ## Indices
 
@@ -45,7 +46,7 @@ The 32-byte header contains these fields in order:
 | Offset | Type | Field |
 | ---: | --- | --- |
 | 0 | `uint32_t` | magic, `0x3244424d` |
-| 4 | `uint16_t` | version, 2 |
+| 4 | `uint16_t` | version, 3 |
 | 6 | `uint16_t` | header size, 32 |
 | 8 | `uint32_t` | total byte size |
 | 12 | `uint32_t` | value count |
@@ -90,7 +91,7 @@ Each value is one 32-byte record:
 | 28 | `uint32_t` | reserved, zero |
 
 Value-type encodings are null 1, Boolean 2, integer 3, floating point 4,
-string 5, array 6, object 7 and recovered array 8. Zero and all other values
+string 5, array 6 and object 7. Zero, retired tag 8 and all other values
 are invalid. Empty is not encoded; baking substitutes null while retaining the
 value's name and position.
 
@@ -124,7 +125,7 @@ names that container as its parent. Child order within each range is semantic
 order.
 
 An object range contains only named values with unique immediate name indices.
-A recovered-array range contains only anonymous values. An ordinary array may
+An array may
 contain either.
 
 Payload and type-specific flag bits are canonical by type:
@@ -191,9 +192,8 @@ unchecked baked view and no public mutable baked builder.
 The view exposes the established read surface: readiness and integrity, root
 and counts, value type and name, typed scalar payloads and integer metadata,
 parent and sibling relationships, child ranges and ordinal array access, object
-lookup by property name, and both string domains. Canonicality and recovered
-content are observations, not stored fields. Exact C++ spelling remains an
-implementation choice.
+lookup by property name, and both string domains. Recovery-specific canonicality
+and content queries are removed.
 
 Object lookup by an already resolved property-name index scans only the direct
 child range. Lookup from bytes first binary-searches the sorted property-name
@@ -206,7 +206,7 @@ Full validation checks:
 - every record's type, reserved fields, canonical unused fields and payload;
 - root identity, sibling-position flags and the complete reciprocal
   parent/range structure;
-- object naming and uniqueness and recovered-array anonymity;
+- object naming and uniqueness;
 - integer metadata, finite floating values and string indices; and
 - both string tables' dense layout, terminators, encoding, lexical order and
   reference coverage.
@@ -222,5 +222,4 @@ integrity check may revalidate the bytes.
 The format contains no checksum and no cached completeness or canonicality flags. Structural
 validation is not authentication, while checksums and semantic summaries can
 be added by an enclosing persistence or publication protocol if a concrete
-consumer requires them. Canonicality and recovered-content queries scan the
-immutable value table on demand.
+consumer requires them.

@@ -38,33 +38,6 @@ bool CBakedDocument::check_integrity() const noexcept
     return is_ready() && validate(m_bytes, m_byte_count);
 }
 
-bool CBakedDocument::is_canonical() const noexcept
-{
-    return is_ready() && !contains_recovered_content();
-}
-
-bool CBakedDocument::contains_recovered_content() const noexcept
-{
-    if (!is_ready())
-    {
-        return false;
-    }
-    SLayout layout;
-    if (!derive_layout(*header(), m_byte_count, layout))
-    {
-        return false;
-    }
-    const SBakedValueRecord* const records = values(layout);
-    for (std::uint32_t index = 0u; index < header()->value_count; ++index)
-    {
-        if (records[index].value_type == EBakedValueType::recovered_array)
-        {
-            return true;
-        }
-    }
-    return false;
-}
-
 CStringView CBakedDocument::property_name(const CPropertyNameId id) const noexcept
 {
     if (!is_ready() || !id.is_valid())
@@ -161,7 +134,7 @@ bool CBakedDocument::validate_record_encoding(const SBakedValueRecord& value, co
 {
     const std::uint8_t type = static_cast<std::uint8_t>(value.value_type);
     if ((type < static_cast<std::uint8_t>(EBakedValueType::null_value)) ||
-        (type > static_cast<std::uint8_t>(EBakedValueType::recovered_array)) ||
+        (type > static_cast<std::uint8_t>(EBakedValueType::object)) ||
         ((value.value_flags & ~document_value_flags::k_baked_flags) != 0u) ||
         (((value.value_flags & document_value_flags::k_name_present_flag) == 0u) && (value.property_name_index != 0u)) ||
         (((value.value_flags & document_value_flags::k_suppress_newline_escaping_flag) != 0u) && (value.value_type != EBakedValueType::string)) ||
@@ -303,8 +276,7 @@ bool CBakedDocument::validate(const std::uint8_t* const bytes, const std::size_t
                 (((child_index + 1u) == range_end) ? document_value_flags::k_last_sibling_flag : 0u);
             if ((child.parent_index != index) ||
                 ((child.value_flags & document_value_flags::k_sibling_position_flags) != expected_position_flags) ||
-                ((container.value_type == EBakedValueType::object) && (((child.value_flags & document_value_flags::k_name_present_flag) == 0u) || (marks[child.property_name_index] == object_stamp))) ||
-                ((container.value_type == EBakedValueType::recovered_array) && ((child.value_flags & document_value_flags::k_name_present_flag) != 0u)))
+                ((container.value_type == EBakedValueType::object) && (((child.value_flags & document_value_flags::k_name_present_flag) == 0u) || (marks[child.property_name_index] == object_stamp))))
             {
                 return false;
             }

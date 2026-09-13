@@ -35,12 +35,12 @@ consolidated linter state and the source cursor and removed byte-to-string view
 conversion. The specification's progress record identifies the completed scope
 and validation.
 
-Stage 2 is in progress. Its first slice implements native empty names, root
-kinds, per-string newline metadata and public collision extension across the
-model, translation and writer. Grouped parser findings and caller policy,
-estimate separation, revised grammar and interpretation rules, and recovery
-retirement remain. The following describes
-the full agreed direction, including both completed and remaining work.
+Stage 2 implements native empty names, root kinds, per-string newline metadata,
+grouped findings, shared failures, separate capacity estimates, revised grammar
+and late caller policy. The final coordinated slice replaces recovery arrays
+with public ordinary-array collision extension, removes the protocol and
+obsolete reports, and advances the baked format to version 3. That slice awaits
+user and coordinator review. The following describes the agreed direction.
 
 The agreed direction is caller-selected feature permissions, grouped parser
 presence flags instead of statistics, retained linter aggregate statistics,

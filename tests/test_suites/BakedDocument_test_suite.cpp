@@ -117,7 +117,7 @@ struct SBakedFixture
         records[4u].payload_bits = live_floating_point_bits(1.25);
         records[5u].value_type = EBakedValueType::string;
         records[5u].payload_bits = 1u;
-        records[6u].value_type = EBakedValueType::recovered_array;
+        records[6u].value_type = EBakedValueType::array;
         records[6u].first_child_index = 7u;
         records[6u].child_count = 1u;
         records[7u].value_type = EBakedValueType::null_value;
@@ -194,8 +194,6 @@ void test_checked_binding_and_foundational_observations(TTestContext& ctx)
     TEST_EXPECT(ctx, unavailable.value_count() == 0u);
     TEST_EXPECT(ctx, unavailable.property_name_count() == 0u);
     TEST_EXPECT(ctx, unavailable.string_value_count() == 0u);
-    TEST_EXPECT(ctx, !unavailable.is_canonical());
-    TEST_EXPECT(ctx, !unavailable.contains_recovered_content());
 
     SBakedFixture fixture;
     TEST_EXPECT(ctx, fixture.initialise());
@@ -210,8 +208,6 @@ void test_checked_binding_and_foundational_observations(TTestContext& ctx)
     TEST_EXPECT(ctx, document.value_count() == k_value_count);
     TEST_EXPECT(ctx, document.property_name_count() == 6u);
     TEST_EXPECT(ctx, document.string_value_count() == 1u);
-    TEST_EXPECT(ctx, !document.is_canonical());
-    TEST_EXPECT(ctx, document.contains_recovered_content());
 
     const CPropertyNameId empty_name = document.property_name_id_at_rank(0u);
     const CPropertyNameId first_name = document.property_name_id_at_rank(1u);
@@ -236,14 +232,6 @@ void test_checked_binding_and_foundational_observations(TTestContext& ctx)
     TEST_EXPECT(ctx, !document.is_ready());
     TEST_EXPECT(ctx, copy.is_ready());
 
-    SBakedFixture canonical_fixture;
-    TEST_EXPECT(ctx, canonical_fixture.initialise());
-    canonical_fixture.values()[6u].value_type = EBakedValueType::array;
-    CBakedDocument canonical{ canonical_fixture.bytes.data(), canonical_fixture.bytes.size() };
-    TEST_EXPECT(ctx, canonical.is_ready());
-    TEST_EXPECT(ctx, canonical.is_canonical());
-    TEST_EXPECT(ctx, !canonical.contains_recovered_content());
-
     CByteBuffer root_only_bytes;
     TEST_EXPECT(ctx, initialise_root_only(root_only_bytes));
     CBakedDocument root_only{ root_only_bytes.data(), root_only_bytes.size() };
@@ -251,7 +239,6 @@ void test_checked_binding_and_foundational_observations(TTestContext& ctx)
     TEST_EXPECT(ctx, root_only.value_count() == 1u);
     TEST_EXPECT(ctx, root_only.property_name_count() == 0u);
     TEST_EXPECT(ctx, root_only.string_value_count() == 0u);
-    TEST_EXPECT(ctx, root_only.is_canonical());
 
     TEST_EXPECT(ctx, document.reset(fixture.bytes.data(), fixture.bytes.size()));
     TEST_EXPECT(ctx, document.is_ready());
@@ -311,11 +298,11 @@ void test_query_surface(TTestContext& ctx)
     const CBakedValueIndex integer_value = document.next_sibling(boolean_value);
     const CBakedValueIndex floating_value = document.next_sibling(integer_value);
     const CBakedValueIndex string_value = document.next_sibling(floating_value);
-    const CBakedValueIndex recovered_array = document.next_sibling(string_value);
-    const CBakedValueIndex recovered_child = document.first_child(recovered_array);
+    const CBakedValueIndex nested_array = document.next_sibling(string_value);
+    const CBakedValueIndex nested_child = document.first_child(nested_array);
 
     TEST_EXPECT(ctx, document.contains(root));
-    TEST_EXPECT(ctx, document.contains(recovered_child));
+    TEST_EXPECT(ctx, document.contains(nested_child));
     TEST_EXPECT(ctx, !document.contains(invalid));
     TEST_EXPECT(ctx, document.value_type(root) == EBakedValueType::object);
     TEST_EXPECT(ctx, document.value_type(null_value) == EBakedValueType::null_value);
@@ -323,11 +310,11 @@ void test_query_surface(TTestContext& ctx)
     TEST_EXPECT(ctx, document.value_type(integer_value) == EBakedValueType::integer);
     TEST_EXPECT(ctx, document.value_type(floating_value) == EBakedValueType::floating_point);
     TEST_EXPECT(ctx, document.value_type(string_value) == EBakedValueType::string);
-    TEST_EXPECT(ctx, document.value_type(recovered_array) == EBakedValueType::recovered_array);
-    TEST_EXPECT(ctx, document.value_type(recovered_child) == EBakedValueType::null_value);
+    TEST_EXPECT(ctx, document.value_type(nested_array) == EBakedValueType::array);
+    TEST_EXPECT(ctx, document.value_type(nested_child) == EBakedValueType::null_value);
     TEST_EXPECT(ctx, !document.is_object_entry(root));
     TEST_EXPECT(ctx, document.is_object_entry(null_value));
-    TEST_EXPECT(ctx, !document.is_object_entry(recovered_child));
+    TEST_EXPECT(ctx, !document.is_object_entry(nested_child));
     TEST_EXPECT(ctx, document.name_id(root).is_empty());
     TEST_EXPECT(ctx, document.name_id(integer_value) == document.property_name_id_at_rank(3u));
     const CStringView expected_name{ reinterpret_cast<const std::uint8_t*>("c"), 1u };
@@ -335,27 +322,27 @@ void test_query_surface(TTestContext& ctx)
 
     TEST_EXPECT(ctx, !document.parent(root).is_valid());
     TEST_EXPECT(ctx, document.parent(null_value) == root);
-    TEST_EXPECT(ctx, document.parent(recovered_child) == recovered_array);
+    TEST_EXPECT(ctx, document.parent(nested_child) == nested_array);
     TEST_EXPECT(ctx, !document.previous_sibling(null_value).is_valid());
     TEST_EXPECT(ctx, document.next_sibling(null_value) == boolean_value);
-    TEST_EXPECT(ctx, document.previous_sibling(recovered_array) == string_value);
-    TEST_EXPECT(ctx, !document.next_sibling(recovered_array).is_valid());
-    TEST_EXPECT(ctx, !document.previous_sibling(recovered_child).is_valid());
-    TEST_EXPECT(ctx, !document.next_sibling(recovered_child).is_valid());
+    TEST_EXPECT(ctx, document.previous_sibling(nested_array) == string_value);
+    TEST_EXPECT(ctx, !document.next_sibling(nested_array).is_valid());
+    TEST_EXPECT(ctx, !document.previous_sibling(nested_child).is_valid());
+    TEST_EXPECT(ctx, !document.next_sibling(nested_child).is_valid());
     TEST_EXPECT(ctx, document.child_count(root) == 6u);
-    TEST_EXPECT(ctx, document.child_count(recovered_array) == 1u);
+    TEST_EXPECT(ctx, document.child_count(nested_array) == 1u);
     TEST_EXPECT(ctx, document.child_count(null_value) == 0u);
     TEST_EXPECT(ctx, document.first_child(root) == null_value);
-    TEST_EXPECT(ctx, document.last_child(root) == recovered_array);
-    TEST_EXPECT(ctx, document.last_child(recovered_array) == recovered_child);
+    TEST_EXPECT(ctx, document.last_child(root) == nested_array);
+    TEST_EXPECT(ctx, document.last_child(nested_array) == nested_child);
     TEST_EXPECT(ctx, !document.first_child(null_value).is_valid());
-    TEST_EXPECT(ctx, document.array_at(recovered_array, 0u) == recovered_child);
-    TEST_EXPECT(ctx, !document.array_at(recovered_array, 1u).is_valid());
+    TEST_EXPECT(ctx, document.array_at(nested_array, 0u) == nested_child);
+    TEST_EXPECT(ctx, !document.array_at(nested_array, 1u).is_valid());
     TEST_EXPECT(ctx, !document.array_at(root, 0u).is_valid());
 
     TEST_EXPECT(ctx, document.object_child(root, document.property_name_id_at_rank(3u)) == integer_value);
     TEST_EXPECT(ctx, !document.object_child(root, CPropertyNameId{}).is_valid());
-    TEST_EXPECT(ctx, !document.object_child(recovered_array, document.property_name_id_at_rank(3u)).is_valid());
+    TEST_EXPECT(ctx, !document.object_child(nested_array, document.property_name_id_at_rank(3u)).is_valid());
     TEST_EXPECT(ctx, document.object_child(root, expected_name) == integer_value);
     const CStringView first_name{ reinterpret_cast<const std::uint8_t*>("a"), 1u };
     const CStringView last_name{ reinterpret_cast<const std::uint8_t*>("f"), 1u };
@@ -363,7 +350,7 @@ void test_query_surface(TTestContext& ctx)
     const CStringView missing_name{ reinterpret_cast<const std::uint8_t*>("missing"), 7u };
     const CStringView empty_name{ reinterpret_cast<const std::uint8_t*>(""), 0u };
     TEST_EXPECT(ctx, document.object_child(root, first_name) == null_value);
-    TEST_EXPECT(ctx, document.object_child(root, last_name) == recovered_array);
+    TEST_EXPECT(ctx, document.object_child(root, last_name) == nested_array);
     TEST_EXPECT(ctx, !document.object_child(root, before_first_name).is_valid());
     TEST_EXPECT(ctx, !document.object_child(root, missing_name).is_valid());
     TEST_EXPECT(ctx, !document.object_child(root, empty_name).is_valid());
@@ -420,6 +407,7 @@ void test_header_layout_and_alignment_rejections(TTestContext& ctx)
 
     expect_rejected(ctx, [](SBakedFixture& value) { value.header().magic = 0u; });
     expect_rejected(ctx, [](SBakedFixture& value) { value.header().version = 1u; });
+    expect_rejected(ctx, [](SBakedFixture& value) { value.header().version = 2u; });
     expect_rejected(ctx, [](SBakedFixture& value) { value.header().header_size = 0u; });
     expect_rejected(ctx, [](SBakedFixture& value) { --value.header().total_size; });
     expect_rejected(ctx, [](SBakedFixture& value) { value.header().value_count = 0u; });
@@ -440,6 +428,8 @@ void test_value_and_topology_rejections(TTestContext& ctx)
     expect_rejected(ctx, [](SBakedFixture& value) { value.values()[1u].value_flags |= document_value_flags::k_suppress_newline_escaping_flag; });
     expect_rejected(ctx, [](SBakedFixture& value) { value.bytes.data()[k_property_bytes_offset + 1u] = '\n'; });
     expect_rejected(ctx, [](SBakedFixture& value) { value.values()[1u].value_type = EBakedValueType::invalid; });
+    //  The retired recovery tag is invalid even under the current version.
+    expect_rejected(ctx, [](SBakedFixture& value) { value.values()[6u].value_type = static_cast<EBakedValueType>(8u); });
     expect_rejected(ctx, [](SBakedFixture& value)
     {
         value.values()[1u].value_type = static_cast<EBakedValueType>(9u);
@@ -488,18 +478,17 @@ void test_value_and_topology_rejections(TTestContext& ctx)
     });
 }
 
-void test_recovered_array_forms(TTestContext& ctx)
+void test_nested_array_forms(TTestContext& ctx)
 {
     SBakedFixture fixture;
     TEST_EXPECT(ctx, fixture.initialise());
-    fixture.values()[7u].value_type = EBakedValueType::recovered_array;
+    fixture.values()[7u].value_type = EBakedValueType::array;
 
     CBakedDocument document{ fixture.bytes.data(), fixture.bytes.size() };
     TEST_EXPECT(ctx, document.is_ready() && document.check_integrity());
-    TEST_EXPECT(ctx, document.contains_recovered_content());
     const CBakedValueIndex outer = document.last_child(document.root());
     const CBakedValueIndex nested = document.array_at(outer, 0u);
-    TEST_EXPECT(ctx, document.value_type(nested) == EBakedValueType::recovered_array);
+    TEST_EXPECT(ctx, document.value_type(nested) == EBakedValueType::array);
     TEST_EXPECT(ctx, document.child_count(nested) == 0u);
     TEST_EXPECT(ctx, !document.first_child(nested).is_valid());
     TEST_EXPECT(ctx, !document.array_at(nested, 0u).is_valid());
@@ -601,7 +590,7 @@ void test_live_document_bake(TTestContext& ctx)
 
     const CNodeKey zeta = live.create_string(text("pear"), text("zeta"));
     const CNodeKey alpha = live.create_array(text("alpha"));
-    const CNodeKey recovery = live.create_recovered_array(text("recovery"));
+    const CNodeKey recovery = live.create_array(text("recovery"));
     const CNodeKey empty = live.create_empty();
     const CNodeKey boolean = live.create_boolean(true);
     const CIntegerMetadata signed_metadata{
@@ -665,8 +654,6 @@ void test_live_document_bake(TTestContext& ctx)
     TEST_EXPECT(ctx, baked.value_count() == 14u);
     TEST_EXPECT(ctx, baked.property_name_count() == 4u);
     TEST_EXPECT(ctx, baked.string_value_count() == 2u);
-    TEST_EXPECT(ctx, baked.contains_recovered_content());
-    TEST_EXPECT(ctx, !baked.is_canonical());
     TEST_EXPECT(ctx, !baked.object_child(baked.root(), text("unused")).is_valid());
 
     const CBakedValueIndex baked_alpha = baked.object_child(baked.root(), text("alpha"));
@@ -721,7 +708,6 @@ void test_live_document_bake(TTestContext& ctx)
     TEST_EXPECT(ctx, promoted.check_integrity());
     TEST_EXPECT(ctx, promoted.value_count() == 14u);
     TEST_EXPECT(ctx, promoted.is_complete());
-    TEST_EXPECT(ctx, !promoted.is_canonical());
     TEST_EXPECT(ctx, !promoted.property_name_id_at_rank(5u).is_valid());
     TEST_EXPECT(ctx, !promoted.string_value_id_at_rank(3u).is_valid());
 
@@ -773,7 +759,6 @@ void test_bake_root_only_and_allocation_failure(TTestContext& ctx)
     CBakedDocumentBlock root_only;
     TEST_EXPECT(ctx, document_translation::bake(live, root_only));
     TEST_EXPECT(ctx, root_only.document().byte_count() == k_root_only_size);
-    TEST_EXPECT(ctx, root_only.document().is_canonical());
     TEST_EXPECT(ctx, root_only.document().value_count() == 1u);
 
     CLiveDocument promoted_root_only;
@@ -960,7 +945,7 @@ int run_baked_document_tests()
     test_query_surface(ctx);
     test_header_layout_and_alignment_rejections(ctx);
     test_value_and_topology_rejections(ctx);
-    test_recovered_array_forms(ctx);
+    test_nested_array_forms(ctx);
     test_numeric_canonical_acceptance(ctx);
     test_string_table_and_coverage_rejections(ctx);
     test_validation_allocation_failure(ctx);

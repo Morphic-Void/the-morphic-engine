@@ -50,14 +50,11 @@ struct CDocumentWriteReport
     std::size_t logical_text_byte_size{ 0u };
 
     //  Emitted occurrences, not distinct interned strings. All counts are zero
-    //  on failure. Strict mode reports numeric normalization; both modes use
-    //  reversible reserved-name escaping and recovered-array wrappers.
+    //  on failure. Strict mode reports numeric normalization.
     std::size_t non_decimal_integers_normalised{ 0u };
     std::size_t explicit_positive_signs_omitted{ 0u };
     std::size_t non_ascii_code_points_escaped{ 0u };
     std::size_t embedded_nuls_escaped{ 0u };
-    std::size_t reserved_property_names_escaped{ 0u };
-    std::size_t recovered_arrays_written{ 0u };
 
     [[nodiscard]] bool succeeded() const noexcept { return status == EDocumentWriteStatus::success; }
 };

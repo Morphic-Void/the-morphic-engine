@@ -67,8 +67,6 @@ public:
 
     [[nodiscard]] bool is_ready() const noexcept;
     [[nodiscard]] bool check_integrity() const noexcept;
-    [[nodiscard]] bool is_canonical() const noexcept;
-    [[nodiscard]] bool contains_recovered_content() const noexcept;
 
     [[nodiscard]] std::size_t byte_count() const noexcept;
     [[nodiscard]] CBakedValueIndex root() const noexcept;
@@ -425,7 +423,7 @@ inline CStringView CBakedDocument::string_value(const CBakedValueIndex value) co
 
 inline bool CBakedDocument::value_type_is_array(const EBakedValueType type) noexcept
 {
-    return (type == EBakedValueType::array) || (type == EBakedValueType::recovered_array);
+    return type == EBakedValueType::array;
 }
 
 inline bool CBakedDocument::value_type_is_container(const EBakedValueType type) noexcept

@@ -244,7 +244,6 @@ void test_initialisation_root_and_empty_domains(TTestContext& ctx)
     TEST_EXPECT(ctx, document.initialise());
     TEST_EXPECT(ctx, document.is_ready());
     TEST_EXPECT(ctx, document.check_integrity());
-    TEST_EXPECT(ctx, document.is_canonical());
     TEST_EXPECT(ctx, document.is_complete());
     TEST_EXPECT(ctx, document.root().query_value() == 1u);
     TEST_EXPECT(ctx, document.value_count() == 1u);
@@ -1043,60 +1042,7 @@ void test_ordinary_aggregate_value_kind_matrix_and_normalized_duplicates(TTestCo
     TEST_EXPECT(ctx, normalized_document.check_integrity());
 }
 
-void test_recovered_aggregate_observations(TTestContext& ctx)
-{
-    CLiveDocument document;
-    TEST_EXPECT(ctx, document.initialise());
-    const CStringView recovered_name{
-        reinterpret_cast<const std::uint8_t*>("duplicate"), 9u };
-    const CNodeKey recovered_owner = document.create_recovered_array(recovered_name);
-    TEST_EXPECT(ctx, recovered_owner.is_valid());
-    TEST_EXPECT(ctx, document.value_type(recovered_owner) == ELiveValueType::recovered_array);
-    TEST_EXPECT(ctx, document.child_count(recovered_owner) == 0u);
-    TEST_EXPECT(ctx, document.check_integrity());
-
-    const CNodeKey first = document.create_signed_integer(1);
-    const CNodeKey second = document.create_signed_integer(2);
-    const CNodeKey nested = document.create_recovered_array();
-    const CNodeKey nested_child = document.create_null();
-    const CNodeKey named_child = document.create_null(recovered_name);
-    TEST_EXPECT(ctx, document.append_child(recovered_owner, first).succeeded());
-    TEST_EXPECT(ctx, document.child_count(recovered_owner) == 1u);
-    TEST_EXPECT(ctx, document.check_integrity());
-    TEST_EXPECT(ctx, document.append_child(nested, nested_child).succeeded());
-    TEST_EXPECT(ctx, document.append_child(recovered_owner, nested).succeeded());
-    TEST_EXPECT(ctx, document.insert_child_before(
-        recovered_owner, second, nested).succeeded());
-    const CLiveAttachmentResult named_result =
-        document.append_child(recovered_owner, named_child);
-    TEST_EXPECT(ctx,
-        named_result.rejection == ELiveAttachmentRejection::anonymous_value_required);
-    TEST_EXPECT(ctx, document.is_detached(named_child));
-    TEST_EXPECT(ctx, document.first_child(recovered_owner) == first);
-    TEST_EXPECT(ctx, document.next_sibling(first) == second);
-    TEST_EXPECT(ctx, document.next_sibling(second) == nested);
-    TEST_EXPECT(ctx, document.last_child(recovered_owner) == nested);
-    TEST_EXPECT(ctx, document.check_integrity());
-    TEST_EXPECT(ctx, document.is_canonical());
-
-    TEST_EXPECT(ctx, document.append_child(
-        document.root(), recovered_owner).succeeded());
-    TEST_EXPECT(ctx, !document.is_canonical());
-    SLiveDocumentAnalysis summary;
-    TEST_EXPECT(ctx, document.analyse(summary));
-    TEST_EXPECT(ctx, summary.recovered_aggregate_count == 2u);
-    TEST_EXPECT(ctx, summary.empty_value_count == 0u);
-    TEST_EXPECT(ctx, document.check_integrity());
-    TEST_EXPECT(ctx, document.detach(recovered_owner));
-    TEST_EXPECT(ctx, document.is_canonical());
-    TEST_EXPECT(ctx, document.analyse(summary));
-    TEST_EXPECT(ctx, summary.recovered_aggregate_count == 0u);
-    TEST_EXPECT(ctx, document.check_integrity());
-    TEST_EXPECT(ctx, document.erase(recovered_owner));
-    TEST_EXPECT(ctx, document.check_integrity());
-}
-
-void test_collision_recovery_composition_and_repair(TTestContext& ctx)
+void test_array_composition_and_repair(TTestContext& ctx)
 {
     CLiveDocument document;
     TEST_EXPECT(ctx, document.initialise());
@@ -1113,7 +1059,7 @@ void test_collision_recovery_composition_and_repair(TTestContext& ctx)
 
     const CNodeKey retained_payload = document.detach_payload(retained);
     const CNodeKey candidate_payload = document.detach_payload(first_candidate);
-    const CNodeKey recovered_payload = document.create_recovered_array();
+    const CNodeKey recovered_payload = document.create_array();
     TEST_EXPECT(ctx, retained_payload.is_valid());
     TEST_EXPECT(ctx, candidate_payload.is_valid());
     TEST_EXPECT(ctx, recovered_payload.is_valid());
@@ -1123,9 +1069,8 @@ void test_collision_recovery_composition_and_repair(TTestContext& ctx)
         recovered_payload, candidate_payload).succeeded());
     TEST_EXPECT(ctx, document.attach_payload(retained, recovered_payload) == retained);
     TEST_EXPECT(ctx, document.erase(first_candidate));
-    TEST_EXPECT(ctx, document.value_type(retained) == ELiveValueType::recovered_array);
+    TEST_EXPECT(ctx, document.value_type(retained) == ELiveValueType::array);
     TEST_EXPECT(ctx, document.child_count(retained) == 2u);
-    TEST_EXPECT(ctx, !document.is_canonical());
     TEST_EXPECT(ctx, document.check_integrity());
 
     const CNodeKey later_candidate = document.create_unsigned_integer(7u, duplicate_name);
@@ -1145,7 +1090,6 @@ void test_collision_recovery_composition_and_repair(TTestContext& ctx)
     TEST_EXPECT(ctx, document.value_type(retained) == ELiveValueType::string);
     TEST_EXPECT(ctx, document.string_value(retained) == candidate_text);
     TEST_EXPECT(ctx, document.name(retained) == duplicate_name);
-    TEST_EXPECT(ctx, document.is_canonical());
     TEST_EXPECT(ctx, document.check_integrity());
 }
 
@@ -1464,7 +1408,6 @@ void test_cyclic_subtree_audit_and_analysis_terminate(TTestContext& ctx)
     TEST_EXPECT(ctx, document.append_child(document.root(), array).succeeded());
     TEST_EXPECT(ctx, !document.analyse(summary));
     TEST_EXPECT(ctx, summary.value_count == 0u);
-    TEST_EXPECT(ctx, !document.is_canonical());
     TEST_EXPECT(ctx, !document.is_complete());
     TEST_EXPECT(ctx, !document.check_integrity());
     TEST_EXPECT(ctx, document.reset());
@@ -1545,7 +1488,7 @@ void test_payload_attachment_requires_anonymous_source(TTestContext& ctx)
     }
 }
 
-void test_payload_transfer_rejections_cycles_and_recovery(TTestContext& ctx)
+void test_payload_transfer_rejections_cycles_and_arrays(TTestContext& ctx)
 {
     CLiveDocument document;
     TEST_EXPECT(ctx, document.initialise());
@@ -1575,7 +1518,7 @@ void test_payload_transfer_rejections_cycles_and_recovery(TTestContext& ctx)
 
     const CStringView recovery_name{
         reinterpret_cast<const std::uint8_t*>("recovered"), 9u };
-    const CNodeKey recovered = document.create_recovered_array(recovery_name);
+    const CNodeKey recovered = document.create_array(recovery_name);
     const CNodeKey first = document.create_null();
     const CNodeKey second = document.create_null();
     TEST_EXPECT(ctx, document.append_child(recovered, first).succeeded());
@@ -1589,7 +1532,6 @@ void test_payload_transfer_rejections_cycles_and_recovery(TTestContext& ctx)
     TEST_EXPECT(ctx, document.check_integrity());
 
     TEST_EXPECT(ctx, document.attach_payload(recovered, recovered_payload) == recovered);
-    TEST_EXPECT(ctx, !document.is_canonical());
     TEST_EXPECT(ctx, document.check_integrity());
 
     const CNodeKey second_recovered_payload = document.detach_payload(recovered);
@@ -1605,8 +1547,7 @@ void test_payload_transfer_rejections_cycles_and_recovery(TTestContext& ctx)
     TEST_EXPECT(ctx, !document.contains(second_recovered_payload));
     TEST_EXPECT(ctx, document.name(anonymous_target).length() == 0u);
     TEST_EXPECT(ctx, document.parent(anonymous_target) == holder);
-    TEST_EXPECT(ctx, document.value_type(anonymous_target) == ELiveValueType::recovered_array);
-    TEST_EXPECT(ctx, !document.is_canonical());
+    TEST_EXPECT(ctx, document.value_type(anonymous_target) == ELiveValueType::array);
     TEST_EXPECT(ctx, document.check_integrity());
 
     CLiveDocument local;
@@ -1717,7 +1658,6 @@ void test_analysis_summary_and_string_references(TTestContext& ctx)
     TEST_EXPECT(ctx, document.analyse(summary, &strings));
     TEST_EXPECT(ctx, summary.value_count == 1u);
     TEST_EXPECT(ctx, summary.empty_value_count == 0u);
-    TEST_EXPECT(ctx, summary.recovered_aggregate_count == 0u);
     TEST_EXPECT(ctx, strings.property_name_references.size() == 1u);
     TEST_EXPECT(ctx, strings.string_value_references.size() == 1u);
     TEST_EXPECT(ctx, strings.property_name_references[0u] == 1u);
@@ -1753,10 +1693,8 @@ void test_analysis_summary_and_string_references(TTestContext& ctx)
     TEST_EXPECT(ctx, document.analyse(summary, &strings));
     TEST_EXPECT(ctx, summary.value_count == 6u);
     TEST_EXPECT(ctx, summary.empty_value_count == 1u);
-    TEST_EXPECT(ctx, summary.recovered_aggregate_count == 0u);
     TEST_EXPECT(ctx, document.value_count() == summary.value_count);
     TEST_EXPECT(ctx, !document.is_complete());
-    TEST_EXPECT(ctx, document.is_canonical());
     TEST_EXPECT(ctx, strings.referenced_property_name_count == 2u);
     TEST_EXPECT(ctx, strings.referenced_string_value_count == 1u);
     TEST_EXPECT(ctx, strings.property_name_references[document.name_id(group).query_value()] == 1u);
@@ -1826,7 +1764,6 @@ void test_analysis_allocation_failure_and_attribution(TTestContext& ctx)
         TEST_EXPECT(ctx, document.analyse(summary));
         TEST_EXPECT(ctx, summary.value_count == 2u);
         TEST_EXPECT(ctx, document.value_count() == 2u);
-        TEST_EXPECT(ctx, document.is_canonical());
         TEST_EXPECT(ctx, document.is_complete());
         TEST_EXPECT(ctx, document.check_integrity());
         TEST_EXPECT(ctx, fixture.attempt == attempts);
@@ -2048,7 +1985,7 @@ static void test_names_roots_and_metadata(TTestContext& ctx)
     TEST_EXPECT(ctx, document.append_child(document.root(), anonymous).succeeded());
     TEST_EXPECT(ctx, document.erase_payload(document.root()));
     TEST_EXPECT(ctx, document.value_type(document.root()) == ELiveValueType::array);
-    TEST_EXPECT(ctx, !document.set_root_type(ELiveValueType::recovered_array));
+    TEST_EXPECT(ctx, !document.set_root_type(static_cast<ELiveValueType>(9u)));
     TEST_EXPECT(ctx, document.check_integrity());
     TEST_EXPECT(ctx, document.reset());
     TEST_EXPECT(ctx, document.value_type(document.root()) == ELiveValueType::object);
@@ -2203,8 +2140,7 @@ int run_live_document_tests()
     test_topology_operations_do_not_allocate(ctx);
     test_integrity_rejects_topology_corruption(ctx);
     test_ordinary_aggregate_value_kind_matrix_and_normalized_duplicates(ctx);
-    test_recovered_aggregate_observations(ctx);
-    test_collision_recovery_composition_and_repair(ctx);
+    test_array_composition_and_repair(ctx);
     test_empty_completeness_and_payload_round_trip(ctx);
     test_scalar_and_detached_payload_transfer(ctx);
     test_payload_erasure_preserves_value_identity(ctx);
@@ -2212,7 +2148,7 @@ int run_live_document_tests()
     test_local_topology_failure_marks_document_known_bad(ctx);
     test_cyclic_subtree_audit_and_analysis_terminate(ctx);
     test_integrity_rejects_unrooted_cycles_and_shared_aggregates(ctx);
-    test_payload_transfer_rejections_cycles_and_recovery(ctx);
+    test_payload_transfer_rejections_cycles_and_arrays(ctx);
     test_payload_attachment_requires_anonymous_source(ctx);
     test_payload_transfer_allocation_limits_depth_move_and_attribution(ctx);
     test_analysis_summary_and_string_references(ctx);

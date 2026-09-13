@@ -19,19 +19,7 @@ class CLiveDocument;
 
 enum class EDocumentParseStatus : std::uint8_t
 {
-    unexamined = 0u, success, policy_rejected, invalid_options,
-    invalid_input_view, linter_failure, structural_failure, numeric_out_of_range,
-    malformed_recovery_wrapper, unsupported_recovery_version,
-    unsupported_recovery_type, invalid_root_value,
-    allocation_failed, storage_limit, construction_failed, internal_error
-};
-
-struct CDocumentParseInterpretations
-{
-    std::size_t recovered_arrays_decoded{ 0u };
-    std::size_t reserved_names_unescaped{ 0u };
-    std::size_t duplicate_members_recovered{ 0u };
-    std::size_t singleton_objects_unwrapped{ 0u };
+    unexamined = 0u, success, policy_rejected, invalid_options, failed
 };
 
 struct CDocumentParseReport
@@ -55,9 +43,6 @@ struct CDocumentParseReport
     //  describes a complete syntax check; failed checks retain partial findings.
     //  Structural success does not claim that construction completed.
     CDocumentStructureReport structure;
-    //  Successful semantic interpretations, counted by source occurrence.
-    //  Cleared on failure; structural syntax observations remain available.
-    CDocumentParseInterpretations interpretations;
 
     [[nodiscard]] bool succeeded() const noexcept;
 };
@@ -76,12 +61,12 @@ namespace document_parser
 //  allocator. Empty text constructs the implicit root object. The default
 //  policy excludes relaxed syntax; k_all_supported opts into every feature.
 //
-//  Decode version-1 recovery wrappers and escaped reserved data names, recover
-//  duplicate members in order, and normalize ordinary singleton objects in
-//  ordinary arrays. Protocol metadata is validated separately from user data.
+//  Extend duplicate members in encounter order through the public live-document
+//  collision operation, using ordinary arrays. Normalize singleton objects in
+//  arrays; dollar-prefixed names and former protocol shapes are ordinary data.
 //  Explicit containers select the root kind. Otherwise a first name followed
 //  by a colon selects an object body; other non-empty input selects an array
-//  body, including a single scalar. A recovery wrapper cannot replace the root.
+//  body, including a single scalar.
 [[nodiscard]] CDocumentParseReport parse(const CStringView& source, CLiveDocument& destination,
     const CDocumentParseOptions& options = {}) noexcept;
 

@@ -70,7 +70,7 @@ static void bake(TTestContext& ctx, CBakedDocumentBlock& block)
 {
     CLiveDocument live;
     TEST_EXPECT(ctx, live.initialise());
-    const CNodeKey recovery = live.create_recovered_array(CStringView{ "values" });
+    const CNodeKey recovery = live.create_array(CStringView{ "values" });
     TEST_EXPECT(ctx, live.append_child(live.root(), recovery).succeeded());
     TEST_EXPECT(ctx, live.append_child(recovery, live.create_signed_integer(-128)).succeeded());
     TEST_EXPECT(ctx, live.append_child(recovery, live.create_floating_point(-0.0)).succeeded());
@@ -85,7 +85,7 @@ static void expect_bytes(TTestContext& ctx, const CBakedDocumentBlock& block,
     const std::uint8_t* const pointer, const std::vector<std::uint8_t>& bytes)
 {
     TEST_EXPECT(ctx, block.bytes().data() == pointer && block.bytes().size() == bytes.size());
-    TEST_EXPECT(ctx, block.document().is_ready() && block.document().contains_recovered_content());
+    TEST_EXPECT(ctx, block.document().is_ready());
     if (block.bytes().size() == bytes.size())
     {
         TEST_EXPECT(ctx, std::memcmp(block.bytes().data(), bytes.data(), bytes.size()) == 0);

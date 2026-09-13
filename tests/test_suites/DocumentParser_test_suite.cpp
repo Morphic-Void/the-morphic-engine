@@ -238,11 +238,10 @@ static void test_late_policy_acceptance(TTestContext& ctx)
     CLiveDocument destination;
     auto report = document_parser::parse(CStringView{ "{\"x\":1,\"x\":2}" }, destination);
     TEST_EXPECT(ctx, report.status == EDocumentParseStatus::policy_rejected && !destination.is_ready());
-    TEST_EXPECT(ctx, report.interpretations.duplicate_members_recovered == 1u);
     TEST_EXPECT(ctx, report.construction_completed && report.policy.disallowed_features ==
         document_finding_bit(EDocumentFinding::name_collision_extension));
     report = document_parser::parse(CStringView{ "[{\"x\":1}]" }, destination, { document_policy::k_ascii });
-    TEST_EXPECT(ctx, report.succeeded() && report.interpretations.singleton_objects_unwrapped == 1u);
+    TEST_EXPECT(ctx, report.succeeded() && report.policy.accepted());
     TEST_EXPECT(ctx, report.findings == document_finding_bit(EDocumentFinding::singleton_normalization));
     //  Invalid options are diagnosed after processing too, including known
     //  informational bits. No policy outcome invents a terminal failure.
@@ -274,7 +273,6 @@ static void test_policy_processing_precedence(TTestContext& ctx)
         { "{a:1e9999,bad:}", EDocumentFailureStage::structure, EDocumentFailureReason::missing_value },
         { "/*comment*/[+1e9999]", EDocumentFailureStage::parser, EDocumentFailureReason::numeric_out_of_range },
         { "{\"a\":1,\"a\":2,\"b\":18446744073709551616}", EDocumentFailureStage::parser, EDocumentFailureReason::numeric_out_of_range },
-        { "/*comment*/{\"$morphic\":{}}", EDocumentFailureStage::parser, EDocumentFailureReason::invalid_root_value }
     };
     CLiveDocument destination;
     TEST_EXPECT(ctx, parse("{\"keep\":7}", destination).succeeded());
@@ -394,16 +392,15 @@ static void test_composed_findings(TTestContext& ctx)
     const CNodeKey keep = destination.create_null(CStringView{ "keep" });
     TEST_EXPECT(ctx, destination.append_child(destination.root(), keep).succeeded());
     const auto failed = parse("a:1,a:2,b:[{n:1}],bad:18446744073709551616", destination);
-    TEST_EXPECT(ctx, failed.status == EDocumentParseStatus::numeric_out_of_range);
+    TEST_EXPECT(ctx, failed.failure.reason == EDocumentFailureReason::numeric_out_of_range);
     TEST_EXPECT(ctx, failed.structure.succeeded() && failed.parser_examined && !failed.construction_completed);
     TEST_EXPECT(ctx, failed.findings == (EDocumentFinding::unquoted_names | EDocumentFinding::implicit_body |
         EDocumentFinding::name_collision_extension | EDocumentFinding::singleton_normalization));
-    TEST_EXPECT(ctx, failed.interpretations.duplicate_members_recovered == 0u && failed.interpretations.singleton_objects_unwrapped == 0u);
     TEST_EXPECT(ctx, destination.first_child(destination.root()) == keep && destination.check_integrity());
 
     const std::uint8_t cp1252[]{ '{', 's', ':', '\'', 0x80u, '\'', ',', 'n', ':', '}' };
     const auto malformed = document_parser::ingest(CByteConstView{ cp1252, sizeof(cp1252) }, destination);
-    TEST_EXPECT(ctx, malformed.status == EDocumentParseStatus::structural_failure);
+    TEST_EXPECT(ctx, malformed.status == EDocumentParseStatus::failed);
     TEST_EXPECT(ctx, malformed.linter_examined && malformed.linter.success && !malformed.parser_examined && !malformed.construction_completed);
     TEST_EXPECT(ctx, malformed.findings == (EDocumentFinding::cp1252 | EDocumentFinding::utf8_attempt_failed |
         EDocumentFinding::unquoted_names | EDocumentFinding::single_quotes));
@@ -413,7 +410,7 @@ static void test_composed_findings(TTestContext& ctx)
 
     const std::uint8_t undefined[]{ 0x81u };
     const auto undecodable = document_parser::ingest(CByteConstView{ undefined, sizeof(undefined) }, destination);
-    TEST_EXPECT(ctx, undecodable.status == EDocumentParseStatus::linter_failure);
+    TEST_EXPECT(ctx, undecodable.status == EDocumentParseStatus::failed);
     TEST_EXPECT(ctx, undecodable.linter_examined && !undecodable.linter.success && !undecodable.parser_examined && !undecodable.construction_completed);
     TEST_EXPECT(ctx, undecodable.structure.status == EDocumentStructureStatus::unexamined);
     TEST_EXPECT(ctx, undecodable.findings == document_findings::from_source(undecodable.linter.source_findings));
@@ -460,9 +457,7 @@ static void test_shared_failures(TTestContext& ctx)
         { "{\"a\\nb\":1}", EDocumentFailureStage::structure, EDocumentFailureReason::newline_in_name },
         { "{n:1e9999,bad:}", EDocumentFailureStage::structure, EDocumentFailureReason::missing_value },
         { "18446744073709551616", EDocumentFailureStage::parser, EDocumentFailureReason::numeric_out_of_range },
-        { "n:1e9999,r:{$morphic:{v:2,type:'recovered-array',values:[]}}", EDocumentFailureStage::parser, EDocumentFailureReason::numeric_out_of_range },
-        { "$morphic:{}", EDocumentFailureStage::parser, EDocumentFailureReason::invalid_root_value },
-        { "r:{$morphic:{v:2,type:'recovered-array',values:[]}}", EDocumentFailureStage::parser, EDocumentFailureReason::construction_failed }
+        { "n:1e9999,r:{$morphic:{v:2,type:'recovered-array',values:[]}}", EDocumentFailureStage::parser, EDocumentFailureReason::numeric_out_of_range }
     };
     for (const auto& item : cases)
     {
@@ -493,7 +488,7 @@ static void test_shared_failures(TTestContext& ctx)
     for (const auto& item : decoding)
     {
         report = document_parser::ingest(CStringView{ item.source }, destination);
-        TEST_EXPECT(ctx, report.status == EDocumentParseStatus::linter_failure && report.failure.stage == item.stage);
+        TEST_EXPECT(ctx, report.status == EDocumentParseStatus::failed && report.failure.stage == item.stage);
         TEST_EXPECT(ctx, report.failure.reason == item.reason && report.linter.first_failure.present);
         TEST_EXPECT(ctx, !report.parser_examined && !report.construction_completed && !report.structure_start.available);
         TEST_EXPECT(ctx, report.structure.status == EDocumentStructureStatus::unexamined);
@@ -595,7 +590,7 @@ static void test_unquoted_strings(TTestContext& ctx)
     for (const char* source : malformed)
     {
         const auto report = parse(source, document);
-        TEST_CASE_EXPECT_TRUE(ctx, source, report.status == EDocumentParseStatus::structural_failure);
+        TEST_CASE_EXPECT_TRUE(ctx, source, report.status == EDocumentParseStatus::failed);
         TEST_EXPECT(ctx, !report.parser_examined && !report.construction_completed);
         TEST_EXPECT(ctx, document.first_child(document.root()) == keep && document.check_integrity());
     }
@@ -624,7 +619,6 @@ static void test_construction_and_features(TTestContext& ctx)
     const CNodeKey singleton = document.last_child(array);
     TEST_EXPECT(ctx, document.value_type(singleton) == ELiveValueType::integer && document.is_object_entry(singleton));
     TEST_EXPECT(ctx, document.name(singleton) == CStringView{ "x" });
-    TEST_EXPECT(ctx, report.interpretations.singleton_objects_unwrapped == 1u);
     //  Strict syntax needs neither relaxation nor numeric-extension flags.
     const auto strict = parse("{\"true\":false,\"z\":null,\"a\":[1,2]}", document);
     TEST_EXPECT(ctx, strict.succeeded());
@@ -667,14 +661,14 @@ static void test_strings_and_ingestion(TTestContext& ctx)
     const auto shifted = text_linter::lint(CByteConstView{ offset_input, sizeof(offset_input) }, k_document_text_lint_line_endings);
     TEST_EXPECT(ctx, shifted.report.success && shifted.report.leading_utf8_bom_stripped);
     const auto failure = document_parser::parse(CStringView{ shifted.output.data(), shifted.report.logical_text_byte_size }, document);
-    TEST_EXPECT(ctx, failure.status == EDocumentParseStatus::structural_failure);
+    TEST_EXPECT(ctx, failure.status == EDocumentParseStatus::failed);
     TEST_EXPECT(ctx, failure.failure_point.code_point_column_1_based == 12u && failure.structure.failure_point.code_point_column_1_based == 12u);
 
     const std::uint8_t cp1252_error[]{ '{', 'a', ':', '"', 0xe9u, '"', ',', 'n', ':', '1', ' ', '2', '}' };
     const auto expanded = text_linter::lint(CByteConstView{ cp1252_error, sizeof(cp1252_error) }, k_document_text_lint_line_endings);
     TEST_EXPECT(ctx, expanded.report.success && expanded.report.recovered_as_cp1252);
     const auto expanded_failure = document_parser::parse(CStringView{ expanded.output.data(), expanded.report.logical_text_byte_size }, document);
-    TEST_EXPECT(ctx, expanded_failure.status == EDocumentParseStatus::structural_failure);
+    TEST_EXPECT(ctx, expanded_failure.status == EDocumentParseStatus::failed);
     TEST_EXPECT(ctx, expanded_failure.failure_point.code_point_column_1_based == 12u && expanded_failure.structure.failure_point.code_point_column_1_based == 12u);
 }
 
@@ -770,7 +764,7 @@ static void test_newline_metadata(TTestContext& ctx)
 
         const std::string invalid = std::string("{\"a") + line_break + "b\":1}";
         const auto failed = document_parser::ingest(CStringView{ invalid.data(), invalid.size() }, document);
-        TEST_EXPECT(ctx, failed.status == EDocumentParseStatus::structural_failure);
+        TEST_EXPECT(ctx, failed.status == EDocumentParseStatus::failed);
         TEST_EXPECT(ctx, failed.structure.failure.reason == EDocumentFailureReason::newline_in_name);
         TEST_EXPECT(ctx, !failed.parser_examined && !failed.construction_completed);
         TEST_EXPECT(ctx, document.first_child(document.root()) == value && document.suppresses_newline_escaping(value));
@@ -852,13 +846,13 @@ static void test_root_inference(TTestContext& ctx)
     for (const char* source : malformed)
     {
         const auto failed = parse(source, document);
-        TEST_CASE_EXPECT_TRUE(ctx, source, failed.status == EDocumentParseStatus::structural_failure);
+        TEST_CASE_EXPECT_TRUE(ctx, source, failed.status == EDocumentParseStatus::failed);
         TEST_EXPECT(ctx, !failed.parser_examined && !failed.construction_completed);
         TEST_EXPECT(ctx, document.value_type(document.root()) == ELiveValueType::array && document.first_child(document.root()) == keep);
         TEST_EXPECT(ctx, document.memory_allocation_size() == allocation_size && document.check_integrity());
     }
     const auto range = parse("18446744073709551616", document);
-    TEST_EXPECT(ctx, range.status == EDocumentParseStatus::numeric_out_of_range);
+    TEST_EXPECT(ctx, range.failure.reason == EDocumentFailureReason::numeric_out_of_range);
     TEST_EXPECT(ctx, range.structure.succeeded() && range.parser_examined && !range.construction_completed);
     TEST_EXPECT(ctx, range.findings == 0u && range.failure_point.code_point_column_1_based == 1u);
     TEST_EXPECT(ctx, document.first_child(document.root()) == keep && document.value_type(document.root()) == ELiveValueType::array);
@@ -989,27 +983,26 @@ static void test_failure_publication(TTestContext& ctx)
     struct CCase
     {
         const char* text;
-        EDocumentParseStatus status;
+        EDocumentFailureReason reason;
         std::size_t offset;
         bool structural_success;
     };
     const CCase cases[]{
-        { "{n:1 2}", EDocumentParseStatus::structural_failure, 5u, false },
-        { "n:18446744073709551616", EDocumentParseStatus::numeric_out_of_range, 2u, true },
-        { "n:+9223372036854775808", EDocumentParseStatus::numeric_out_of_range, 2u, true },
-        { "n:-9223372036854775809", EDocumentParseStatus::numeric_out_of_range, 2u, true },
-        { "n:1e99999", EDocumentParseStatus::numeric_out_of_range, 2u, true },
-        { "n:1e-99999", EDocumentParseStatus::numeric_out_of_range, 2u, true },
-        { "good:1,n:0x10000000000000000", EDocumentParseStatus::numeric_out_of_range, 9u, true },
-        { "good:1,'':", EDocumentParseStatus::structural_failure, 10u, false },
-        { "{\"a\\u2028b\":1}", EDocumentParseStatus::structural_failure, 3u, false },
-        { "a\\nb:1", EDocumentParseStatus::structural_failure, 1u, false },
-        { "$morphic:{v:1,type:'recovered-array',values:[]}", EDocumentParseStatus::invalid_root_value, 0u, true },
-        { "'\\u0024morphic':null", EDocumentParseStatus::invalid_root_value, 0u, true } };
+        { "{n:1 2}", EDocumentFailureReason::missing_separator, 5u, false },
+        { "n:18446744073709551616", EDocumentFailureReason::numeric_out_of_range, 2u, true },
+        { "n:+9223372036854775808", EDocumentFailureReason::numeric_out_of_range, 2u, true },
+        { "n:-9223372036854775809", EDocumentFailureReason::numeric_out_of_range, 2u, true },
+        { "n:1e99999", EDocumentFailureReason::numeric_out_of_range, 2u, true },
+        { "n:1e-99999", EDocumentFailureReason::numeric_out_of_range, 2u, true },
+        { "good:1,n:0x10000000000000000", EDocumentFailureReason::numeric_out_of_range, 9u, true },
+        { "good:1,'':", EDocumentFailureReason::missing_value, 10u, false },
+        { "{\"a\\u2028b\":1}", EDocumentFailureReason::newline_in_name, 3u, false },
+        { "a\\nb:1", EDocumentFailureReason::newline_in_name, 1u, false } };
     for (const auto& item : cases)
     {
         const auto report = parse(item.text, document);
-        TEST_CASE_EXPECT_EQ(ctx, item.text, report.status, item.status);
+        TEST_CASE_EXPECT_EQ(ctx, item.text, report.failure.reason, item.reason);
+        TEST_EXPECT(ctx, report.status == EDocumentParseStatus::failed);
         TEST_EXPECT(ctx, report.failure_point.available && report.failure_point.code_point_column_1_based == item.offset + 1u);
         TEST_EXPECT(ctx, report.structure.succeeded() == item.structural_success);
         TEST_EXPECT(ctx, document.root() == root && document.first_child(root) == keep);
@@ -1017,7 +1010,7 @@ static void test_failure_publication(TTestContext& ctx)
         TEST_EXPECT(ctx, document.check_integrity());
         TEST_EXPECT(ctx, write(ctx, document) == "{\"keep\":7}");
     }
-    TEST_EXPECT(ctx, document_parser::parse(CStringView{}, document).status == EDocumentParseStatus::invalid_input_view);
+    TEST_EXPECT(ctx, document_parser::parse(CStringView{}, document).status == EDocumentParseStatus::failed);
     TEST_EXPECT(ctx, document.first_child(document.root()) == keep);
     TEST_EXPECT(ctx, parse("$morphicx:1,s:'$morphic'", document).succeeded());
     TEST_EXPECT(ctx, parse("", document).succeeded());
@@ -1030,91 +1023,107 @@ static void test_failure_publication(TTestContext& ctx)
     TEST_EXPECT(ctx, write(ctx, document) == "{\"new_value\":42}");
 }
 
-static std::string recovery(const std::string& values)
+static std::string array_body(const std::string& values)
 {
-    return "{\"$morphic\":{\"v\":1,\"type\":\"recovered-array\",\"values\":[" + values + "]}}";
+    return "[" + values + "]";
 }
 
-static void expect_no_interpretations(TTestContext& ctx, const CDocumentParseReport& report)
+static void test_collision_arrays(TTestContext& ctx)
 {
-    TEST_EXPECT(ctx, report.interpretations.recovered_arrays_decoded == 0u);
-    TEST_EXPECT(ctx, report.interpretations.reserved_names_unescaped == 0u);
-    TEST_EXPECT(ctx, report.interpretations.duplicate_members_recovered == 0u);
-    TEST_EXPECT(ctx, report.interpretations.singleton_objects_unwrapped == 0u);
+    struct CCase { const char* source; const char* output; };
+    const CCase cases[]{
+        { "{\"x\":1,\"x\":2,\"x\":3}", "{\"x\":[1,2,3]}" },
+        { "{\"x\":1,\"x\":[2,3]}", "{\"x\":[1,[2,3]]}" },
+        { "{\"x\":[1,2],\"x\":3}", "{\"x\":[1,2,3]}" },
+        { "{\"x\":[1,2],\"x\":[3,4]}", "{\"x\":[[1,2],[3,4]]}" },
+        { "{\"x\":[1,2],\"x\":3,\"x\":[4,5],\"x\":6}", "{\"x\":[[1,2,3],[4,5],6]}" },
+        { "{\"x\":[],\"x\":[]}", "{\"x\":[[],[]]}" },
+        { "{\"x\":[],\"x\":null}", "{\"x\":[null]}" },
+        { "{\"x\":null,\"x\":[]}", "{\"x\":[null,[]]}" },
+        { "{\"first\":0,\"x\":true,\"middle\":1,\"x\":\"two\",\"x\":null,\"last\":2}",
+          "{\"first\":0,\"x\":[true,\"two\",null],\"middle\":1,\"last\":2}" },
+        { "{\"x\":{\"a\":1},\"x\":{\"b\":2}}", "{\"x\":[{\"a\":1},{\"b\":2}]}" },
+        { "{\"x\":1.5,\"x\":-0.0}", "{\"x\":[1.5,-0.0]}" },
+        { "{\"\":1,\"\":2}", "{\"\":[1,2]}" },
+        { "{\"a\\u0000\":1,\"a\\u0000\":2}", "{\"a\\u0000\":[1,2]}" },
+        { "{\"\\u0024morphic\":1,\"$morphic\":2,\"$$morphic\":3}", "{\"$morphic\":[1,2],\"$$morphic\":3}" },
+        { "{\"x\":{\"d\":1,\"d\":2},\"x\":{\"d\":3}}", "{\"x\":[{\"d\":[1,2]},{\"d\":3}]}" }
+    };
+    for (const auto& item : cases)
+    {
+        CLiveDocument document;
+        TEST_EXPECT(ctx, parse("{\"keep\":7}", document).succeeded());
+        const auto rejected = document_parser::ingest(CStringView{ item.source }, document);
+        TEST_CASE_EXPECT_TRUE(ctx, item.source, rejected.status == EDocumentParseStatus::policy_rejected);
+        TEST_EXPECT(ctx, rejected.construction_completed && rejected.policy.disallowed_features ==
+            document_finding_bit(EDocumentFinding::name_collision_extension));
+        TEST_EXPECT(ctx, write(ctx, document) == "{\"keep\":7}");
+        const auto report = document_parser::ingest(CStringView{ item.source }, document,
+            { document_policy::k_all_supported });
+        TEST_EXPECT(ctx, report.succeeded() && document.check_integrity());
+        TEST_EXPECT(ctx, (report.findings & document_finding_bit(EDocumentFinding::name_collision_extension)) != 0u);
+        CBakedDocumentBlock block;
+        CLiveDocument promoted;
+        TEST_EXPECT(ctx, document_translation::bake(document, block));
+        TEST_EXPECT(ctx, document_translation::promote(block.document(), promoted));
+        for (const EDocumentWriteMode mode : { EDocumentWriteMode::morphic, EDocumentWriteMode::strict_json })
+        {
+            TEST_CASE_EXPECT_TRUE(ctx, item.source, write(ctx, promoted, mode) == item.output);
+            CLiveDocument reparsed;
+            const auto round_trip = document_parser::ingest(CStringView{ item.output }, reparsed);
+            TEST_EXPECT(ctx, round_trip.succeeded());
+            TEST_EXPECT(ctx, (round_trip.findings & document_finding_bit(EDocumentFinding::name_collision_extension)) == 0u);
+            TEST_EXPECT(ctx, write(ctx, reparsed, mode) == item.output);
+        }
+    }
 }
 
-static void test_recovery_and_collisions(TTestContext& ctx)
+static void test_former_protocol_as_data(TTestContext& ctx)
 {
+    const char* const sources[]{
+        "{\"$morphic\":null}", "{\"$morphic\":[]}", "{\"$morphic\":{}}",
+        "{\"$morphic\":{\"v\":1,\"type\":\"recovered-array\",\"values\":[]}}",
+        "{\"$morphic\":{\"v\":2,\"type\":\"unknown\",\"extra\":true}}",
+        "{\"$morphic\":{\"v\":true,\"type\":null,\"values\":{}}}",
+        "{\"$morphic\":{\"\":0,\"$$morphic\":1}}",
+        "{\"extra\":0,\"$morphic\":{\"values\":[{\"n\":1},[2,3]]}}",
+        "{\"$morphic\":0,\"$$morphic\":1,\"$$$morphic\":2,\"$morphicx\":3}",
+        "[{\"$morphic\":{\"v\":1,\"type\":\"recovered-array\",\"values\":[]}}]"
+    };
+    for (const char* source : sources)
+    {
+        CLiveDocument document;
+        const auto report = document_parser::ingest(CStringView{ source }, document);
+        TEST_CASE_EXPECT_TRUE(ctx, source, report.succeeded());
+        TEST_EXPECT(ctx, report.failure.reason == EDocumentFailureReason::none);
+        for (const EDocumentWriteMode mode : { EDocumentWriteMode::morphic, EDocumentWriteMode::strict_json })
+        {
+            TEST_CASE_EXPECT_TRUE(ctx, source, write(ctx, document, mode) == source);
+        }
+    }
     CLiveDocument document;
-    const std::string nested = recovery("false");
-    const std::string text = "first:0,item:1,middle:2,item:'two',item:null,item:" + nested + ",last:3";
-    const auto report = parse(text, document);
+    auto report = document_parser::ingest(CStringView{ "{\"$morphic\":{\"v\":1,\"v\":2}}" }, document,
+        { document_policy::k_all_supported });
     TEST_EXPECT(ctx, report.succeeded());
-    TEST_EXPECT(ctx, report.interpretations.duplicate_members_recovered == 3u);
-    TEST_EXPECT(ctx, report.interpretations.recovered_arrays_decoded == 1u);
-    TEST_EXPECT(ctx, document.check_integrity() && document.is_complete());
-    const CNodeKey item = member(document, document.root(), CStringView{ "item" });
-    TEST_EXPECT(ctx, document.value_type(item) == ELiveValueType::recovered_array && document.child_count(item) == 4u);
-    TEST_EXPECT(ctx, document.value_type(document.last_child(item)) == ELiveValueType::recovered_array);
-    TEST_EXPECT(ctx, write(ctx, document) == "{\"first\":0,\"item\":" + recovery("1,\"two\",null," + nested) + ",\"middle\":2,\"last\":3}");
-    for (CNodeKey child = document.first_child(item); child.is_valid(); child = document.next_sibling(child))
-    {
-        TEST_EXPECT(ctx, !document.is_object_entry(child));
-    }
-
-    for (const std::string& values : { std::string{}, std::string("1"), std::string("1,2") })
-    {
-        const auto extended = parse("r:" + recovery(values) + ",r:{a:1,a:2},r:" + nested, document);
-        TEST_EXPECT(ctx, extended.succeeded());
-        TEST_EXPECT(ctx, extended.interpretations.duplicate_members_recovered == 3u);
-        TEST_EXPECT(ctx, extended.interpretations.recovered_arrays_decoded == 2u);
-        const std::string prefix = values.empty() ? std::string{} : values + ",";
-        TEST_EXPECT(ctx, write(ctx, document) == "{\"r\":" + recovery(prefix + "{\"a\":" + recovery("1,2") + "}," + nested) + "}");
-        TEST_EXPECT(ctx, document.check_integrity());
-    }
-
-    //  All six metadata field orders, decoded control names, relaxed version
-    //  spellings, and a singleton competitor that must remain anonymous.
-    const char* fields[]{ "'\\u0076':+0x01", "type:'recovered-\\u0061rray'", "values:[{n:1}]" };
-    const unsigned orders[][3]{ {0u,1u,2u}, {0u,2u,1u}, {1u,0u,2u}, {1u,2u,0u}, {2u,0u,1u}, {2u,1u,0u} };
-    for (const auto& order : orders)
-    {
-        const auto decoded = parse(std::string("r:{'\\u0024morphic':{/*metadata*/") + fields[order[0]] + "," + fields[order[1]] + "," + fields[order[2]] + ",}}", document);
-        TEST_EXPECT(ctx, decoded.succeeded());
-        TEST_EXPECT(ctx, decoded.interpretations.recovered_arrays_decoded == 1u && decoded.interpretations.singleton_objects_unwrapped == 0u);
-        const CNodeKey r = document.first_child(document.root());
-        const CNodeKey competitor = document.first_child(r);
-        TEST_EXPECT(ctx, document.value_type(r) == ELiveValueType::recovered_array && document.child_count(r) == 1u);
-        TEST_EXPECT(ctx, document.value_type(competitor) == ELiveValueType::object && !document.is_object_entry(competitor));
-        TEST_EXPECT(ctx, write(ctx, document) == "{\"r\":" + recovery("{\"n\":1}") + "}");
-    }
-    const auto aliases = parse("'a\\u0000':1,'a" + std::string(1u, '\0') + "':2,'$$morphic':3,'\\u0024$morphic':4,$$$morphic:5,$morphicx:6,s:'$$morphic'", document);
-    TEST_EXPECT(ctx, aliases.succeeded());
-    TEST_EXPECT(ctx, aliases.interpretations.duplicate_members_recovered == 2u && aliases.interpretations.reserved_names_unescaped == 3u);
-    TEST_EXPECT(ctx, write(ctx, document) == "{\"a\\u0000\":" + recovery("1,2") + ",\"$$morphic\":" + recovery("3,4") + ",\"$$$morphic\":5,\"$morphicx\":6,\"s\":\"$$morphic\"}");
-    for (const char* version : { "1", "+1", "0X0001", "#01", "+#1", "0b001", "+0B1" })
-    {
-        const auto decoded = parse(std::string("r:{$morphic:{v:") + version + ",type:'recovered-array',values:[]}}", document);
-        TEST_CASE_EXPECT_TRUE(ctx, version, decoded.succeeded());
-        TEST_EXPECT(ctx, decoded.interpretations.recovered_arrays_decoded == 1u);
-        TEST_EXPECT(ctx, write(ctx, document) == "{\"r\":" + recovery("") + "}");
-    }
+    TEST_EXPECT(ctx, write(ctx, document) == "{\"$morphic\":{\"v\":[1,2]}}");
+    report = document_parser::ingest(CStringView{ "{\"$morphic\":{\"v\":1e9999}}" }, document);
+    TEST_EXPECT(ctx, report.status == EDocumentParseStatus::failed);
+    TEST_EXPECT(ctx, report.failure.stage == EDocumentFailureStage::parser &&
+        report.failure.reason == EDocumentFailureReason::numeric_out_of_range);
 }
 
 static void test_singleton_contexts(TTestContext& ctx)
 {
     CLiveDocument document;
-    const std::string text = "a:[{n:null},{b:true},{s:'text'},{i:+1},{f:-0.0},{o:{}},{a:[]},{r:" + recovery("") + "},"
-        "{d:1,d:2},{},{x:1,y:2}," + recovery("{n:1},[{a:2}]," + recovery("{b:3}")) + "],o:{one:1}";
+    const std::string text = "a:[{n:null},{b:true},{s:'text'},{i:+1},{f:-0.0},{o:{}},{a:[]},{r:" + array_body("") + "},"
+        "{d:1,d:2},{},{x:1,y:2}," + array_body("{n:1},[{a:2}]," + array_body("{b:3}")) + "],o:{one:1}";
     const auto report = parse(text, document);
     TEST_EXPECT(ctx, report.succeeded());
-    TEST_EXPECT(ctx, report.interpretations.singleton_objects_unwrapped == 10u);
-    TEST_EXPECT(ctx, report.interpretations.duplicate_members_recovered == 1u && report.interpretations.recovered_arrays_decoded == 3u);
     const CNodeKey array = member(document, document.root(), CStringView{ "a" });
     const ELiveValueType types[]{ ELiveValueType::null_value, ELiveValueType::boolean, ELiveValueType::string,
         ELiveValueType::integer, ELiveValueType::floating_point, ELiveValueType::object, ELiveValueType::array,
-        ELiveValueType::recovered_array, ELiveValueType::recovered_array, ELiveValueType::object,
-        ELiveValueType::object, ELiveValueType::recovered_array };
+        ELiveValueType::array, ELiveValueType::array, ELiveValueType::object,
+        ELiveValueType::object, ELiveValueType::array };
     CNodeKey child = document.first_child(array);
     for (unsigned i = 0u; i < 12u; ++i)
     {
@@ -1124,75 +1133,10 @@ static void test_singleton_contexts(TTestContext& ctx)
     }
     TEST_EXPECT(ctx, !child.is_valid());
     const CNodeKey transport = document.last_child(array);
-    TEST_EXPECT(ctx, document.value_type(document.first_child(transport)) == ELiveValueType::object);
-    TEST_EXPECT(ctx, document.value_type(document.first_child(document.last_child(transport))) == ELiveValueType::object);
+    TEST_EXPECT(ctx, document.value_type(document.first_child(transport)) == ELiveValueType::integer);
+    TEST_EXPECT(ctx, document.value_type(document.first_child(document.last_child(transport))) == ELiveValueType::integer);
     TEST_EXPECT(ctx, document.value_type(member(document, document.root(), CStringView{ "o" })) == ELiveValueType::object);
     TEST_EXPECT(ctx, document.value_type(document.root()) == ELiveValueType::object && document.check_integrity());
-}
-
-static void test_protocol_failures(TTestContext& ctx)
-{
-    struct CCase
-    {
-        const char* text;
-        EDocumentParseStatus status;
-    };
-    const CCase cases[]{
-        { "r:{$morphic:null}", EDocumentParseStatus::malformed_recovery_wrapper },
-        { "r:{$morphic:[]}", EDocumentParseStatus::malformed_recovery_wrapper },
-        { "r:{$morphic:{}}", EDocumentParseStatus::malformed_recovery_wrapper },
-        { "r:{$morphic:{v:1,type:'recovered-array'}}", EDocumentParseStatus::malformed_recovery_wrapper },
-        { "r:{$morphic:{v:1,values:[]}}", EDocumentParseStatus::malformed_recovery_wrapper },
-        { "r:{$morphic:{type:'recovered-array',values:[]}}", EDocumentParseStatus::malformed_recovery_wrapper },
-        { "r:{$morphic:{v:1,v:1,type:'recovered-array',values:[]}}", EDocumentParseStatus::malformed_recovery_wrapper },
-        { "r:{$morphic:{v:1,type:'recovered-array','\\u0074ype':'recovered-array',values:[]}}", EDocumentParseStatus::malformed_recovery_wrapper },
-        { "r:{$morphic:{values:[],values:[],v:1,type:'recovered-array'}}", EDocumentParseStatus::malformed_recovery_wrapper },
-        { "r:{$morphic:{v:1,type:'recovered-array',values:[],extra:0}}", EDocumentParseStatus::malformed_recovery_wrapper },
-        { "r:{$morphic:{'':0}}", EDocumentParseStatus::malformed_recovery_wrapper },
-        { "r:{$morphic:{$$morphic:0}}", EDocumentParseStatus::malformed_recovery_wrapper },
-        { "r:{extra:0,$morphic:{v:1,type:'recovered-array',values:[]}}", EDocumentParseStatus::malformed_recovery_wrapper },
-        { "r:{$morphic:{v:1,type:'recovered-array',values:[]},extra:0}", EDocumentParseStatus::malformed_recovery_wrapper },
-        { "r:{$morphic:{v:1,type:'recovered-array',values:[]},$morphic:{}}", EDocumentParseStatus::malformed_recovery_wrapper },
-        { "r:{$morphic:{v:1.0,type:'recovered-array',values:[]}}", EDocumentParseStatus::malformed_recovery_wrapper },
-        { "r:{$morphic:{v:true,type:'recovered-array',values:[]}}", EDocumentParseStatus::malformed_recovery_wrapper },
-        { "r:{$morphic:{v:2,type:'recovered-array',values:[]}}", EDocumentParseStatus::unsupported_recovery_version },
-        { "r:{$morphic:{v:0,type:'recovered-array',values:[]}}", EDocumentParseStatus::unsupported_recovery_version },
-        { "r:{$morphic:{v:#00,type:'recovered-array',values:[]}}", EDocumentParseStatus::unsupported_recovery_version },
-        { "r:{$morphic:{v:0b11,type:'recovered-array',values:[]}}", EDocumentParseStatus::unsupported_recovery_version },
-        { "r:{$morphic:{v:-1,type:'recovered-array',values:[]}}", EDocumentParseStatus::unsupported_recovery_version },
-        { "r:{$morphic:{v:18446744073709551616,type:'recovered-array',values:[]}}", EDocumentParseStatus::unsupported_recovery_version },
-        { "r:{$morphic:{v:1,type:null,values:[]}}", EDocumentParseStatus::malformed_recovery_wrapper },
-        { "r:{$morphic:{v:1,type:'array',values:[]}}", EDocumentParseStatus::unsupported_recovery_type },
-        { "r:{$morphic:{v:1,type:'recovered-array\\u0000',values:[]}}", EDocumentParseStatus::unsupported_recovery_type },
-        { "r:{$morphic:{v:1,type:'recovered-array',values:{}}}", EDocumentParseStatus::malformed_recovery_wrapper },
-        { "r:{$morphic:{v:1,type:'recovered-array',values:null}}", EDocumentParseStatus::malformed_recovery_wrapper },
-        { "{$morphic:{v:1,type:'recovered-array',values:[]}}", EDocumentParseStatus::invalid_root_value } };
-    CLiveDocument document;
-    TEST_EXPECT(ctx, parse("keep:7", document).succeeded());
-    const CNodeKey keep = document.first_child(document.root());
-    const std::uint64_t allocation_size = document.memory_allocation_size();
-    for (const auto& item : cases)
-    {
-        const auto report = parse(item.text, document);
-        TEST_CASE_EXPECT_EQ(ctx, item.text, report.status, item.status);
-        TEST_EXPECT(ctx, report.structure.succeeded());
-        TEST_EXPECT(ctx, report.failure_point.available && report.failure_point.code_point_column_1_based <= std::strlen(item.text));
-        expect_no_interpretations(ctx, report);
-        TEST_EXPECT(ctx, document.first_child(document.root()) == keep && document.memory_allocation_size() == allocation_size);
-        TEST_EXPECT(ctx, document.check_integrity() && write(ctx, document) == "{\"keep\":7}");
-    }
-    const std::string prefix = "$$morphic:1,a:[{n:1}],d:1,d:2,r:" + recovery("") + ",bad:";
-    const auto late = parse(prefix + "{$morphic:{v:2,type:'recovered-array',values:[]}}", document);
-    TEST_EXPECT(ctx, late.status == EDocumentParseStatus::unsupported_recovery_version);
-    TEST_EXPECT(ctx, late.failure_point.code_point_column_1_based == prefix.size() + std::strlen("{$morphic:{v:") + 1u);
-    expect_no_interpretations(ctx, late);
-    TEST_EXPECT(ctx, document.first_child(document.root()) == keep);
-    const auto duplicate = parse("r:{$morphic:{v:1,v:1,type:'recovered-array',values:[]}}", document);
-    TEST_EXPECT(ctx, duplicate.failure_point.code_point_column_1_based == std::strlen("r:{$morphic:{v:1,") + 1u);
-    //  User-authored protocol lookalikes are ordinary data when escaped.
-    const auto data = parse("$$morphic:{v:2,type:'array',values:[],values:[1]},$$$morphic:3", document);
-    TEST_EXPECT(ctx, data.succeeded() && data.interpretations.recovered_arrays_decoded == 0u);
-    TEST_EXPECT(ctx, data.interpretations.reserved_names_unescaped == 2u && data.interpretations.duplicate_members_recovered == 1u);
 }
 
 static void attach(TTestContext& ctx, CLiveDocument& document, const CNodeKey parent, const CNodeKey child)
@@ -1292,7 +1236,6 @@ static void expect_same_semantics(TTestContext& ctx, const CLiveDocument& source
             }
             case ELiveValueType::object:
             case ELiveValueType::array:
-            case ELiveValueType::recovered_array:
             {
                 TEST_EXPECT(ctx, source.child_count(pair.source) == parsed.child_count(pair.parsed));
                 CNodeKey before = source.first_child(pair.source);
@@ -1358,7 +1301,7 @@ static void test_round_trips(TTestContext& ctx)
     for (unsigned count = 0u; count < 4u; ++count)
     {
         const std::string name = std::string(count + 1u, '$') + "morphic";
-        const CNodeKey recovered = source.create_recovered_array(CStringView{ name.data(), name.size() });
+        const CNodeKey recovered = source.create_array(CStringView{ name.data(), name.size() });
         attach(ctx, source, array, recovered);
         for (unsigned i = 0u; i < count; ++i)
         {
@@ -1367,12 +1310,12 @@ static void test_round_trips(TTestContext& ctx)
             attach(ctx, source, competitor, source.create_unsigned_integer(i, CStringView{ "n" }));
         }
     }
-    const CNodeKey recovery_array = source.create_recovered_array();
-    attach(ctx, source, array, recovery_array);
-    attach(ctx, source, recovery_array, source.create_recovered_array());
+    const CNodeKey nested_arrays = source.create_array();
+    attach(ctx, source, array, nested_arrays);
+    attach(ctx, source, nested_arrays, source.create_array());
     const CNodeKey competitor_array = source.create_array();
-    attach(ctx, source, recovery_array, competitor_array);
-    attach(ctx, source, competitor_array, source.create_recovered_array(CStringView{ "nested" }));
+    attach(ctx, source, nested_arrays, competitor_array);
+    attach(ctx, source, competitor_array, source.create_array(CStringView{ "nested" }));
     const CNodeKey lookalike = source.create_object(CStringView{ "$morphic" });
     attach(ctx, source, source.root(), lookalike);
     attach(ctx, source, lookalike, source.create_unsigned_integer(2u, CStringView{ "v" }));
@@ -1419,9 +1362,8 @@ static void test_round_trips(TTestContext& ctx)
             continue;
         }
         TEST_EXPECT(ctx, parsed.check_integrity() && parsed.is_complete());
-        TEST_EXPECT(ctx, report.interpretations.recovered_arrays_decoded == written.report.recovered_arrays_written);
-        TEST_EXPECT(ctx, report.interpretations.reserved_names_unescaped == written.report.reserved_property_names_escaped);
-        TEST_EXPECT(ctx, report.interpretations.duplicate_members_recovered == 0u && report.interpretations.singleton_objects_unwrapped > 0u);
+        TEST_EXPECT(ctx, (report.findings & document_finding_bit(EDocumentFinding::singleton_normalization)) != 0u);
+        TEST_EXPECT(ctx, (report.findings & document_finding_bit(EDocumentFinding::name_collision_extension)) == 0u);
         TEST_EXPECT(ctx, (report.structure.findings & document_findings::k_relaxed) == 0u);
         TEST_EXPECT(ctx, ((report.structure.findings & document_findings::k_morphic) == 0u) == strict);
         expect_same_semantics(ctx, source, parsed, strict);
@@ -1480,7 +1422,6 @@ static void test_policy_allocation(TTestContext& ctx)
                     TEST_EXPECT(ctx, !fixture.failed && report.failure.reason == EDocumentFailureReason::none);
                     TEST_EXPECT(ctx, report.policy.status == ((permissions == document_policy::k_default) ?
                         EDocumentPolicyStatus::rejected : EDocumentPolicyStatus::invalid_options));
-                    TEST_EXPECT(ctx, report.interpretations.duplicate_members_recovered == 1u);
                 }
                 else
                 {
@@ -1527,11 +1468,10 @@ static void test_root_allocation(TTestContext& ctx)
                 else
                 {
                     TEST_EXPECT(ctx, fixture.failed && !report.construction_completed);
-                    TEST_EXPECT(ctx, (report.status == EDocumentParseStatus::structural_failure) ||
-                        (report.status == EDocumentParseStatus::allocation_failed) || (report.status == EDocumentParseStatus::construction_failed));
+                    TEST_EXPECT(ctx, report.status == EDocumentParseStatus::failed);
                     TEST_EXPECT(ctx, report.failure.stage == (report.parser_examined ? EDocumentFailureStage::parser : EDocumentFailureStage::structure));
-                    TEST_EXPECT(ctx, report.failure.reason == ((report.status == EDocumentParseStatus::construction_failed) ?
-                        EDocumentFailureReason::construction_failed : EDocumentFailureReason::allocation_failed));
+                    TEST_EXPECT(ctx, (report.failure.reason == EDocumentFailureReason::construction_failed) ||
+                        (report.failure.reason == EDocumentFailureReason::allocation_failed));
                     TEST_EXPECT(ctx, destination.value_type(destination.root()) == ELiveValueType::array);
                     TEST_EXPECT(ctx, destination.first_child(destination.root()) == keep);
                     TEST_EXPECT(ctx, destination.memory_allocation_size() == allocation_size && destination.check_integrity());
@@ -1549,8 +1489,8 @@ static void test_depth_and_allocation(TTestContext& ctx)
     TEST_EXPECT(ctx, parse("keep:7", destination).succeeded());
     const CNodeKey keep = destination.first_child(destination.root());
     const std::string text = "'':'literal\nbreak',u\\u0020name:unquoted\\u0020value,'n\\u0000':'\\u0000\\u00e9',a:[{s:'\\uD834\\uDD1E'},+0x80,{},[],{d:1,d:2}],"
-        "r:{$morphic:{values:[{n:1},[{a:2}]," + recovery("false") + "],type:'recovered-\\u0061rray',v:1}},"
-        "r:{x:1,x:2},r:" + recovery("") + ",$$morphic:0,'\\u0024$morphic':1,b:'last'";
+        "r:{$morphic:{values:[{n:1},[{a:2}]," + array_body("false") + "],type:'recovered-\\u0061rray',v:1}},"
+        "r:{x:1,x:2},r:" + array_body("") + ",$$morphic:0,'\\u0024$morphic':1,b:'last'";
     bool completed = false;
     for (std::size_t fail_on = 0u; (fail_on < 256u) && !completed; ++fail_on)
     {
@@ -1570,13 +1510,11 @@ static void test_depth_and_allocation(TTestContext& ctx)
             else
             {
                 TEST_EXPECT(ctx, fixture.failed);
-                TEST_EXPECT(ctx, (report.status == EDocumentParseStatus::structural_failure) ||
-                    (report.status == EDocumentParseStatus::allocation_failed) || (report.status == EDocumentParseStatus::construction_failed));
+                TEST_EXPECT(ctx, report.status == EDocumentParseStatus::failed);
                 TEST_EXPECT(ctx, report.failure.stage == (report.parser_examined ? EDocumentFailureStage::parser : EDocumentFailureStage::structure));
-                TEST_EXPECT(ctx, report.failure.reason == ((report.status == EDocumentParseStatus::construction_failed) ?
-                    EDocumentFailureReason::construction_failed : EDocumentFailureReason::allocation_failed));
+                TEST_EXPECT(ctx, (report.failure.reason == EDocumentFailureReason::construction_failed) ||
+                        (report.failure.reason == EDocumentFailureReason::allocation_failed));
                 TEST_EXPECT(ctx, destination.first_child(destination.root()) == keep);
-                expect_no_interpretations(ctx, report);
             }
         }
         TEST_EXPECT(ctx, context.is_attribution_empty());
@@ -1591,15 +1529,15 @@ static void test_depth_and_allocation(TTestContext& ctx)
     const std::string expected = "{\"a\":" + std::string(depth, '[') + "null" + std::string(depth, ']') + "}";
     TEST_EXPECT(ctx, write(ctx, destination) == expected);
 
-    constexpr std::size_t recovery_depth = 512u;
+    constexpr std::size_t array_depth = 512u;
     std::string recovered = "null";
-    for (std::size_t i = 0u; i < recovery_depth; ++i)
+    for (std::size_t i = 0u; i < array_depth; ++i)
     {
-        recovered = recovery(recovered);
+        recovered = array_body(recovered);
     }
     const auto nested = parse("r:" + recovered, destination);
-    TEST_EXPECT(ctx, nested.succeeded() && nested.interpretations.recovered_arrays_decoded == recovery_depth);
-    TEST_EXPECT(ctx, destination.value_count() == recovery_depth + 2u && destination.check_integrity());
+    TEST_EXPECT(ctx, nested.succeeded());
+    TEST_EXPECT(ctx, destination.value_count() == array_depth + 2u && destination.check_integrity());
     TEST_EXPECT(ctx, write(ctx, destination) == "{\"r\":" + recovered + "}");
 }
 
@@ -1618,7 +1556,7 @@ static void test_composed_linter_diagnostics(TTestContext& ctx)
     for (const auto& source : failures)
     {
         report = document_parser::ingest(CByteConstView{ reinterpret_cast<const std::uint8_t*>(source.data()), source.size() }, document);
-        TEST_EXPECT(ctx, report.status == EDocumentParseStatus::linter_failure);
+        TEST_EXPECT(ctx, report.status == EDocumentParseStatus::failed);
         TEST_EXPECT(ctx, report.linter_examined && !report.linter.success);
         TEST_EXPECT(ctx, report.structure.status == EDocumentStructureStatus::unexamined);
         TEST_EXPECT(ctx, !report.structure_start.available);
@@ -1629,13 +1567,13 @@ static void test_composed_linter_diagnostics(TTestContext& ctx)
         TEST_EXPECT(ctx, document.first_child(document.root()) == keep);
     }
     report = document_parser::ingest(CByteConstView{}, document);
-    TEST_EXPECT(ctx, report.status == EDocumentParseStatus::linter_failure);
+    TEST_EXPECT(ctx, report.status == EDocumentParseStatus::failed);
     TEST_EXPECT(ctx, !report.structure_start.available && !report.failure_point.available);
     TEST_EXPECT(ctx, report.linter.first_failure.before_output);
     TEST_EXPECT(ctx, report.linter.first_failure.reason == ETextLintFailure::invalid_input_view);
     TEST_EXPECT(ctx, document.first_child(document.root()) == keep);
     report = document_parser::ingest(CStringView{}, document);
-    TEST_EXPECT(ctx, report.status == EDocumentParseStatus::linter_failure);
+    TEST_EXPECT(ctx, report.status == EDocumentParseStatus::failed);
     TEST_EXPECT(ctx, report.linter.first_failure.reason == ETextLintFailure::invalid_input_view);
     TEST_EXPECT(ctx, report.linter.first_failure.before_output && !report.failure_point.available);
     TEST_EXPECT(ctx, !report.structure_start.available && report.structure.status == EDocumentStructureStatus::unexamined);
@@ -1649,7 +1587,7 @@ static void test_composed_linter_diagnostics(TTestContext& ctx)
     {
         tests::TMemoryContextScope scope{ &context };
         report = document_parser::ingest(CByteConstView{ source, sizeof(source) }, document, { document_policy::k_all_supported });
-        TEST_EXPECT(ctx, report.status == EDocumentParseStatus::linter_failure);
+        TEST_EXPECT(ctx, report.status == EDocumentParseStatus::failed);
         TEST_EXPECT(ctx, report.linter.first_failure.reason == ETextLintFailure::allocation_failed);
         TEST_EXPECT(ctx, report.failure.stage == EDocumentFailureStage::linter && report.failure.reason == EDocumentFailureReason::allocation_failed);
         TEST_EXPECT(ctx, report.linter.first_failure.before_output);
@@ -1697,9 +1635,9 @@ int run_document_parser_tests()
     document_parser_tests::test_integer_metadata(ctx);
     document_parser_tests::test_floats(ctx);
     document_parser_tests::test_failure_publication(ctx);
-    document_parser_tests::test_recovery_and_collisions(ctx);
     document_parser_tests::test_singleton_contexts(ctx);
-    document_parser_tests::test_protocol_failures(ctx);
+    document_parser_tests::test_collision_arrays(ctx);
+    document_parser_tests::test_former_protocol_as_data(ctx);
     document_parser_tests::test_round_trips(ctx);
     document_parser_tests::test_depth_and_allocation(ctx);
     document_parser_tests::test_root_allocation(ctx);

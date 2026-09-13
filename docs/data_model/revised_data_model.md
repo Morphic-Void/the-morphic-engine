@@ -16,12 +16,11 @@ defines the abstract model, public operations, integrity boundaries and
 ownership rules. Requirements expressed with **must**, **must not** and
 **only** are normative.
 
-This records the implemented baseline, including the completed and reviewed
-stage-1 linter and shared diagnostics and the first stage-2 model infrastructure
-slice: native empty names, root kinds, newline metadata and collision extension.
-The remaining parser and caller-policy requirements are agreed in the
-[refactor specification](../backlog/parser_refactoring_specification.md) and
-are being implemented in stage 2. The public ownership-transfer boundary remains
+This records the implemented document model and parser migration, including
+shared diagnostics, native empty names, root kinds, newline metadata, caller
+policy and ordinary collision arrays. The final recovery-retirement slice
+awaits review under the
+[refactor specification](../backlog/parser_refactoring_specification.md). The public ownership-transfer boundary remains
 under review in the [consolidation plan](../backlog/consolidation_pass.md).
 The current behaviour specified here changes as each replacement is implemented.
 
@@ -38,11 +37,11 @@ remain implementation choices unless explicitly settled here.
 
 ## Terminology
 
-A **value node** represents an empty live placeholder, JSON scalar, array,
-object or recovered array.
+A **value node** represents an empty live placeholder, JSON scalar, array or
+object.
 
 An **aggregate node** is an internal composition-owned payload holding ordered
-value children. Its kind is object, array or recovered array. It is not an
+value children. Its kind is object or array. It is not an
 independent value.
 
 An **owner** is the value node which owns an aggregate. An aggregate has exactly
@@ -53,8 +52,8 @@ An **anonymous value** has that flag clear and canonical empty name ID zero.
 
 Every named value is an object entry. If it is not already within an object,
 an anonymous containing object is implied. This rule is independent of payload
-type: it applies equally to numbers, strings, nulls, Booleans, objects, arrays,
-recovered arrays and empty placeholders. An object-valued payload does not
+type: it applies equally to numbers, strings, nulls, Booleans, objects, arrays
+and empty placeholders. An object-valued payload does not
 supply the containing object for its own name. The implication requires no
 additional live node or baked record.
 
@@ -73,7 +72,7 @@ The hierarchy strictly alternates between values and their aggregate payloads:
 value
   scalar or empty                         (end)
 
-value: array, object or recovered array
+value: array or object
   `-- aggregate
         `-- zero or more value children   (repeat)
 ```
@@ -82,7 +81,7 @@ The following invariants apply:
 
 - A non-empty scalar value owns no aggregate.
 - An empty live value owns no payload.
-- An array, object or recovered-array value owns exactly one aggregate of the
+- An array or object value owns exactly one aggregate of the
   corresponding kind.
 - Every aggregate has exactly one value owner and is never shared or exposed
   as a public value.
@@ -209,8 +208,7 @@ return a complete owner/aggregate pair or fail. `create_empty` creates a live
 placeholder, not JSON null.
 
 The public set of value types includes empty, null, Boolean, signed integer,
-unsigned integer, floating point, string, array, object and recovered array.
-Recovered arrays are not restricted to collision-handling internals.
+unsigned integer, floating point, string, array and object.
 
 ### Attachment and insertion
 
@@ -226,12 +224,7 @@ Attachment validates before changing topology that:
 Destination rules are:
 
 - an object accepts only named values and requires unique immediate names;
-- an ordinary array accepts named or anonymous values; and
-- a recovered array accepts only anonymous values.
-
-Recovered arrays have no minimum cardinality and no collision-only origin
-requirement. An empty or single-child recovered array is coherent. A recovered
-array may contain an anonymous recovered array.
+- an array accepts named or anonymous values.
 
 Append and positional insertion differ only in the selected sibling position.
 There is no relaxed attachment mode which silently bypasses these rules.
@@ -269,8 +262,8 @@ It moves the source payload and descendants into the target. The target keeps
 its key, name and structural position. The now-empty source shell is erased.
 The operation returns the target key and requires no allocation.
 
-These operations may be composed for ordinary transfer, duplicate recovery,
-parser construction and promotion. They do not imply specialised recovery
+These operations may be composed for ordinary transfer, collision extension,
+parser construction and promotion. They do not imply specialised collision
 privileges.
 
 ## Explicit collision extension
@@ -290,36 +283,18 @@ No children are spliced or regrouped. Empty names collide normally. Empty live
 placeholders remain empty children until baking substitutes null. Payload
 metadata follows each payload. Failure preserves both inputs and their topology;
 all required allocation precedes mutation. Ordinary insertion and renaming
-continue to reject collisions. The parser will adopt this operation when its
-existing recovery interpretation is retired in the next migration slice.
-
-## Recovered arrays
-
-A recovered array preserves an ordered set of anonymous competing values. It
-is a first-class public live value type so that parsers, promotion and users can
-construct and inspect recovered content using ordinary operations.
-
-Its special invariant is limited to anonymous children. The model does not
-require that it was produced by a collision, that it contains at least two
-children or that it remains attached to an object.
-
-Recovery repair can be expressed by ordinary composition: detach the selected
-anonymous competitor, erase the recovery owner's payload, then attach the
-selected payload to that owner. Exact convenience APIs and result types remain
-interface choices.
+continue to reject collisions. The parser uses this operation for every object-name collision.
 
 ## Observation and integrity
 
-Public observations may include completeness, canonicality, recovered-content
-presence and node/category counts. Unless a value is already held for another
+Public observations include completeness and node/category counts. Unless a value is already held for another
 essential purpose, these observations are computed on demand rather than kept
 coherent through every mutation.
 
 A live document is **complete** when no empty value is reachable from the root.
-It is **canonical** when no recovered array is reachable from the root.
-Detached subtrees do not affect either observation. Both properties are
-descriptive: they do not substitute for integrity and do not by themselves
-prohibit mutation, baking, promotion or writing.
+Detached subtrees do not affect completeness. This observation does not
+substitute for integrity or prohibit mutation, baking, promotion or writing.
+The recovery-specific canonicality and content queries have been removed.
 
 The document must retain allocation accounting needed by the framework,
 including memory token, allocation count and allocation size totals. This is
@@ -423,7 +398,7 @@ published through its ordinary move operation.
 
 Before emission, a live-tree crawl may build an externally owned analysis
 structure using framework allocation. That analysis may contain reachable
-value counts, recovered-content presence, per-string reference counts,
+value counts, per-string reference counts,
 mappings, section sizes and other prerequisites. It is not persistent
 live-document state.
 
@@ -458,7 +433,6 @@ independently check the selected layout's:
 - identity, version, total size, alignment and section bounds;
 - root and value/aggregate semantics;
 - ownership and direct-child ranges;
-- recovered-array anonymity rule;
 - names, strings, ordering, uniqueness, bounds, terminators and encoding;
 - payload/type agreement and numeric metadata.
 
@@ -467,9 +441,8 @@ ready only after that validation succeeds; there is no public unchecked view.
 
 The checked view exposes value classification, names and both string domains,
 typed scalar payloads and integer metadata, parent and sibling relationships,
-child ranges, ordinal array access and object-child lookup. Canonicality and
-recovered-content presence are derived observations rather than stored summary
-state.
+child ranges, ordinal array access and object-child lookup. The retired recovery
+kind has no public query or stored summary state.
 
 The replacement byte format is intentionally incompatible with archived
 formats. Once its version is selected, validators must reject unsupported
@@ -479,7 +452,7 @@ versions rather than infer or silently migrate them.
 
 Promotion constructs a new compact live document from an explicitly validated
 baked view. It creates fresh live keys and string IDs while preserving order,
-names, payload kinds, numeric intent, string contents and recovered arrays.
+names, payload kinds, numeric intent and string contents.
 
 A failed promotion must not publish a partially constructed destination as a
 coherent live document. It need not preserve unused capacity or allocation
@@ -489,16 +462,16 @@ history.
 
 Stage 1 of the [refactor specification](../backlog/parser_refactoring_specification.md)
 has completed implementation and review of the linter and shared locations.
-Stage 2 has implemented the model infrastructure described above, shared grammar
-and findings, terminal diagnostics and late caller-policy acceptance. Recovery
-retirement and the remaining report simplification await their implementation
-slice. The stages are linting, structural checking, relaxed document parsing and
+Stage 2 implements the model infrastructure described above, shared grammar
+and findings, terminal diagnostics, late caller-policy acceptance and ordinary
+collision arrays. Recovery types, protocol handling and obsolete counters are
+removed; the final retirement slice is awaiting review. The stages are linting, structural checking, relaxed document parsing and
 final policy evaluation. There is no separate strict parser; feature exclusions
 do not change processing, and the conservative default rejects relaxed findings
 only after construction succeeds.
 Reports identify the relaxed features required for acceptance and the
 Morphic-specific features interpreted, separately from ingestion transformations.
-Strict JSON syntax may itself contain a Morphic recovery representation.
+Former recovery-wrapper shapes and dollar-prefixed names are ordinary data.
 
 The linter converts defined CP1252 input, exact modified NUL and valid CESU-8
 surrogate pairs to canonical UTF-8 using SuiteUTF. Undefined CP1252 bytes fail
@@ -576,8 +549,7 @@ preflight construction allocations, or enforce other construction policies.
 For example, an incomplete exponent such as `1e+` is now an unquoted string
 candidate, while a well-spelled number outside the available numeric range is
 not a structural flaw.
-Numeric range policy, collision handling and reserved-wrapper interpretation
-belong to parsing. Capacity estimates are hints, not feasibility guarantees.
+Numeric conversion and collision handling belong to parsing. Capacity estimates are hints, not feasibility guarantees.
 If the structural check itself cannot complete because of a resource limit
 or allocation failure, it reports that failure separately from malformed text.
 
@@ -619,14 +591,13 @@ The scanner and structural report now use the shared findings directly, and the
 parser report composes observations from each examined stage. Partial findings
 survive failure, and capacity estimates are separate from diagnostics. Parser
 coverage distinguishes an unexamined stage, failed construction and completed
-construction. The entry points use the shared grammar and transitional
-protocol rules described below. Both reports carry `CDocumentFailure`.
+construction. The entry points use the shared grammar described below. Both reports carry `CDocumentFailure`.
 Parser entry points accept `CDocumentParseOptions` and apply the evaluator only
 after successful private construction, before publication. The report's `policy`
 records accepted, rejected or invalid options; it remains unexamined on processing
 failure. Unknown option bits are diagnosed at this same late boundary, so they
 cannot hide a processing failure. A standalone feature-policy evaluation alone
-is not parsing success. Recovery-protocol retirement remains.
+is not parsing success.
 
 ### Current shared text grammar
 
@@ -722,7 +693,6 @@ For a newline in a name, structure start identifies the name token and failure
 point identifies its first literal break or the backslash of its first escaped
 break. `CToken::first_line_break` retains decoded-content evidence independently
 of its per-token `literal_line_break` writing observation.
-Protocol retirement remains to be integrated.
 
 ### Live construction and interpretation
 
@@ -739,7 +709,7 @@ storage, which remains alive until publication.
 `document_parser::ingest(source, destination, options)` takes bounded source bytes,
 calls the linter with `k_document_text_lint_line_endings`, and parses only its
 successful output. It retains `CDocumentParseReport::linter` and sets
-`linter_examined`. A linter failure uses status `linter_failure`, copies its
+`linter_examined`. A linter failure uses status `failed` with the linter stage, copies its
 location unchanged to `failure_point`, leaves `structure_start` unavailable and
 leaves structure `unexamined`. Every operation constructs a fresh report, so
 reuse cannot retain old structural locations. The destination is preserved on
@@ -781,12 +751,11 @@ creation uses `construction_failed` because the live API does not distinguish
 its underlying allocation and storage causes. First-failure guards preserve
 the original reason and locations.
 
-A default parser report is `unexamined`, with no terminal failure. Existing
-parser statuses remain during the migration, including the protocol-specific
-statuses. Those protocol rejections map to parser-stage `construction_failed`
-in the shared diagnosis, with their detailed status retained until protocol
-retirement. Successful, unexamined and policy-rejected reports have stage/reason
-`none`; invalid policy options likewise have no processing failure.
+A default parser report is `unexamined`, with no terminal failure. Processing
+failures use status `failed`; `failure` supplies the stage and precise reason.
+Protocol-specific statuses and `invalid_root_value` are removed. Successful,
+unexamined and policy-rejected reports have stage/reason `none`; invalid policy
+options likewise have no processing failure.
 
 Final `success` means construction completed and policy accepted; `succeeded()`
 therefore also means the destination was published. `policy_rejected` identifies
@@ -797,29 +766,20 @@ Neither supplies a failure location. The default accepts ordinary JSON, the
 agreed encoding forms and all Morphic numeric forms. To admit every supported
 relaxed feature, explicitly pass `{ document_policy::k_all_supported }`.
 
-The parser implements recovery decoding, reversible reserved-name unescaping,
-singleton normalization and ordered duplicate recovery as specified below.
-`CDocumentParseReport::interpretations` counts decoded recovery wrappers,
-unescaped reserved data names, recovered duplicate members and removed singleton
-objects by source occurrence. These counts describe completed construction,
-including output discarded by policy, and are cleared on processing failure.
-These transitional counters remain until protocol retirement. The new
-collision-extension and singleton-normalization findings are set when those
-operations complete and survive later failure,
-alongside structural and source observations in the composed findings mask.
+The parser records successful collision extension and singleton normalization
+as presence findings. These observations survive a later processing failure.
+The redundant `CDocumentParseInterpretations` occurrence counters are removed;
+linter aggregates and the writer's remaining statistics are retained.
 
-Duplicate object members are recovered through ordinary public payload and
-attachment operations. First competitors retain encounter order. A later
-collision appends its anonymous payload to an existing recovered array,
-including one restored from text. A recovered-array candidate remains one
-nested competitor rather than having its children flattened into the receiver.
+Duplicate object members use `extend_object_child` with the encounter-order
+rules above. The resulting arrays are ordinary values through editing, baking,
+promotion and either text-writing mode.
 
 ## Serialization-facing requirements
 
 Writers consume only the checked baked interface and provide two modes:
 
-- Morphic output retains integer domain, notation and prefix intent and
-  preserves recovered-array identity and contents through writing and parsing.
+- Morphic output retains integer domain, notation and prefix intent.
 - Strict output emits strict JSON where possible, including the exact decimal
   value across the full `uint64_t` range. It reports normalization of Morphic
   features and does not promise to round-trip every feature, such as explicit
@@ -847,57 +807,27 @@ The same rule applies to every other payload type. Within an object, its
 containing braces already supply the required context.
 
 When an anonymous ordinary object directly within an ordinary array contains
-exactly one named member after duplicate recovery, parsing removes the
+exactly one named member after collision extension, parsing removes the
 redundant wrapper and retains the named child with its complete payload.
 The rule does not depend on that payload's type. Empty and multi-member objects
-remain objects; the document root is never unwrapped. Recovered-array
-competitors retain anonymous wrappers where needed to satisfy their naming
-rule. Reserved recovery wrappers are decoded before ordinary unwrapping.
+remain objects; the document root is never unwrapped.
 
 There is no additional semantic distinction for an intentional anonymous
 singleton object requiring a preservation tag. Text round trips compare this
 normalized semantic form, not redundant wrapper nodes, original live keys,
 detached content or live placeholders already baked as null.
 
-### Recovered-array text representation
+### Ordinary arrays and dollar-prefixed names
 
-The reserved property name is `$morphic`. A version-1 recovered payload writes
-as the following object, with any number of anonymous competitors in `values`:
+Collision arrays serialize as ordinary JSON arrays in both writing modes.
+No wrapper or reserved-name escaping is emitted. `$morphic`, `$$morphic` and
+other dollar-prefixed names retain their decoded spelling. Former version/type/
+values objects have no special interpretation, even at the document root;
+their fields follow ordinary parsing, numeric conversion and collision rules.
 
-```json
-{"$morphic":{"v":1,"type":"recovered-array","values":[]}}
-```
-
-The outer object has exactly one member. Control fields are unique and contain
-exactly integer version `1`, string type `recovered-array`, and an array of
-values; field order is insignificant. Unsupported versions, extra or duplicate
-control fields and malformed reserved wrappers are explicit errors. Ordinary
-duplicate recovery does not repair protocol metadata. Competitor data uses
-the relaxed document grammar. The transport array is interpreted as recovered
-content, preserving anonymous competitors, their order and nested recovery.
-Empty, singleton and multi-value recovered arrays all round-trip.
-
-Protocol fields are checked after string-escape decoding. Version one accepts
-any supported integer spelling with value one, including `+1`, `0x1` and `#1`;
-floating `1.0` is not an integer version. Unknown integer versions and string
-types have distinct unsupported-version/type statuses. Invalid field types,
-missing/extra/duplicate fields and invalid outer members report a malformed
-recovery wrapper. A reserved recovery wrapper cannot replace the document
-root and reports `invalid_root_value` there.
-The structural check accepts these well-formed spellings independently of
-their interpretation.
-
-Ordinary data names consisting of one or more dollar signs followed by
-`morphic` are escaped by adding one dollar sign when writing: `$morphic`
-becomes `$$morphic`, and `$$morphic` becomes `$$$morphic`. Other names are
-unchanged. After JSON string decoding, the parser recognizes the unescaped
-reserved name before removing one dollar from escaped data names. An
-unescaped reserved member must form the complete wrapper above. This rule
-distinguishes user-authored lookalikes and named array entries from protocol
-objects without changing logical names in live or baked storage.
-
-Both modes may emit this representation and name escaping: its syntax is
-strict JSON. Recovery identity is never silently reduced to an ordinary array.
+Baked version 3 retains the `MBD2` family magic and the 32-byte record layout.
+Earlier versions are rejected, and retired value tag 8 is invalid even under
+version 3. There is no compatibility reader or recovery conversion.
 
 ## Thread and publication boundaries
 

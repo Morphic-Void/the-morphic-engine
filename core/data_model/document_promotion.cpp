@@ -96,7 +96,7 @@ bool CLiveDocumentPromoter::prepare_values() noexcept
     for (std::uint32_t index = 0u; index < next_value; ++index)
     {
         const EBakedValueType type = m_source.value_type(m_values[index].source);
-        if ((type == EBakedValueType::array) || (type == EBakedValueType::object) || (type == EBakedValueType::recovered_array))
+        if ((type == EBakedValueType::array) || (type == EBakedValueType::object))
         {
             ++live_node_count;
         }
@@ -166,10 +166,6 @@ CNodeKey CLiveDocumentPromoter::create_value(const CBakedValueIndex source) noex
         case EBakedValueType::object:
         {
             return m_destination.create_object(name);
-        }
-        case EBakedValueType::recovered_array:
-        {
-            return m_destination.create_recovered_array(name);
         }
         default:
         {

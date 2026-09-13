@@ -24,18 +24,7 @@ namespace writer_util
 
 [[nodiscard]] static bool is_container(const EBakedValueType type) noexcept
 {
-    return (type == EBakedValueType::array) || (type == EBakedValueType::object) || (type == EBakedValueType::recovered_array);
-}
-
-[[nodiscard]] static bool is_reserved_data_name(const CStringView& name) noexcept
-{
-    std::size_t dollars = 0u;
-    while ((dollars < name.length()) && (name.string()[dollars] == '$'))
-    {
-        ++dollars;
-    }
-    return (dollars != 0u) && ((name.length() - dollars) == 7u) &&
-        (std::memcmp(name.string() + dollars, "morphic", 7u) == 0);
+    return (type == EBakedValueType::array) || (type == EBakedValueType::object);
 }
 
 //  Decode only already-validated baked payloads: strict UTF-8 plus C0 80.
@@ -85,13 +74,13 @@ private:
     void end(const char bracket, const bool nonempty) noexcept;
 
     //  Scalar spelling: quoting/escaping and the selected numeric output grammar.
-    void quoted(const CStringView& value, const bool data_name = false, const bool suppress_newlines = false) noexcept;
-    void key(const CStringView& value, const bool data_name = false) noexcept;
+    void quoted(const CStringView& value, const bool suppress_newlines = false) noexcept;
+    void key(const CStringView& value) noexcept;
     void hex_escape(std::uint32_t unit) noexcept;
     void integer(CBakedValueIndex node) noexcept;
     void floating(CBakedValueIndex node) noexcept;
 
-    //  Iterative traversal with implied objects and explicit recovery payloads.
+    //  Iterative traversal with implied objects for named array entries.
     [[nodiscard]] bool needs_object_wrapper(const CBakedValueIndex node) const noexcept;
     void enter(CBakedValueIndex node) noexcept;
     void leave(CBakedValueIndex node) noexcept;
@@ -240,7 +229,7 @@ void CWriter::hex_escape(const std::uint32_t unit) noexcept
     append(escaped, sizeof(escaped));
 }
 
-void CWriter::quoted(const CStringView& value, const bool data_name, const bool suppress_newlines) noexcept
+void CWriter::quoted(const CStringView& value, const bool suppress_newlines) noexcept
 {
     if (!value.string())
     {
@@ -248,11 +237,6 @@ void CWriter::quoted(const CStringView& value, const bool data_name, const bool 
         return;
     }
     character('"');
-    if (data_name && is_reserved_data_name(value))
-    {
-        character('$');
-        ++m_report.reserved_property_names_escaped;
-    }
     for (std::size_t offset = 0u; good() && (offset < value.length());)
     {
         const std::size_t line_break = utf8_string::line_break_size(value.string() + offset, value.length() - offset);
@@ -344,9 +328,9 @@ void CWriter::quoted(const CStringView& value, const bool data_name, const bool 
     character('"');
 }
 
-void CWriter::key(const CStringView& value, const bool data_name) noexcept
+void CWriter::key(const CStringView& value) noexcept
 {
-    quoted(value, data_name);
+    quoted(value);
     character(':');
     if (m_options.pretty_print)
     {
@@ -473,7 +457,7 @@ void CWriter::floating(const CBakedValueIndex node) noexcept
     }
 }
 
-//  Traversal follows baked links; synthetic recovery containers affect layout only.
+//  Traversal follows baked links and preserves ordinary container kinds.
 void CWriter::enter(const CBakedValueIndex node) noexcept
 {
     switch (m_source.value_type(node))
@@ -513,7 +497,7 @@ void CWriter::enter(const CBakedValueIndex node) noexcept
         }
         case (EBakedValueType::string):
         {
-            quoted(m_source.string_value(node), false, m_source.suppresses_newline_escaping(node));
+            quoted(m_source.string_value(node), m_source.suppresses_newline_escaping(node));
             break;
         }
         case (EBakedValueType::array):
@@ -524,24 +508,6 @@ void CWriter::enter(const CBakedValueIndex node) noexcept
         case (EBakedValueType::object):
         {
             begin('{');
-            break;
-        }
-        case (EBakedValueType::recovered_array):
-        {
-            ++m_report.recovered_arrays_written;
-            begin('{');
-            item(false);
-            key(CStringView{ "$morphic" });
-            begin('{');
-            item(false);
-            key(CStringView{ "v" });
-            character('1');
-            item(true);
-            key(CStringView{ "type" });
-            quoted(CStringView{ "recovered-array" });
-            item(true);
-            key(CStringView{ "values" });
-            begin('[');
             break;
         }
         default:
@@ -558,11 +524,6 @@ void CWriter::leave(const CBakedValueIndex node) noexcept
     if (is_container(type))
     {
         end(type == EBakedValueType::object ? '}' : ']', m_source.child_count(node) != 0u);
-        if (type == EBakedValueType::recovered_array)
-        {
-            end('}', true);
-            end('}', true);
-        }
     }
     if (needs_object_wrapper(node))
     {
@@ -592,7 +553,7 @@ void CWriter::traverse() noexcept
             }
             if (m_source.is_object_entry(node))
             {
-                key(m_source.name(node), true);
+                key(m_source.name(node));
             }
         }
         enter(node);
