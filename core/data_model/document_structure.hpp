@@ -59,7 +59,7 @@ namespace document_structure
 //  Uses ambient framework allocation for an iterative O(depth) frame vector.
 //  Optional capacity estimates are separate from diagnostics. They are reset
 //  on entry and published only after a successful structural check.
-[[nodiscard]] CDocumentStructureReport check(const CStringView& source, CDocumentStructureEstimates* estimates = nullptr) noexcept;
+[[nodiscard]] CDocumentStructureReport check(const CStringView& source, CDocumentStructureEstimates* const estimates = nullptr) noexcept;
 
 }   //  namespace document_structure
 

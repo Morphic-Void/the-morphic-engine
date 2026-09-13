@@ -35,7 +35,7 @@ class CCheck
 {
 public:
     explicit CCheck(const CStringView& source) noexcept : m_scanner(source) {}
-    [[nodiscard]] CDocumentStructureReport run(CDocumentStructureEstimates* estimates) noexcept;
+    [[nodiscard]] CDocumentStructureReport run(CDocumentStructureEstimates* const estimates) noexcept;
 
 private:
     void advance() noexcept;
@@ -267,7 +267,7 @@ void CCheck::step() noexcept
     }
 }
 
-CDocumentStructureReport CCheck::run(CDocumentStructureEstimates* estimates) noexcept
+CDocumentStructureReport CCheck::run(CDocumentStructureEstimates* const estimates) noexcept
 {
     m_report.status = EDocumentStructureStatus::success;
     advance();
@@ -305,7 +305,7 @@ CDocumentStructureReport CCheck::run(CDocumentStructureEstimates* estimates) noe
 
 }   //  namespace structure_util
 
-CDocumentStructureReport check(const CStringView& source, CDocumentStructureEstimates* estimates) noexcept
+CDocumentStructureReport check(const CStringView& source, CDocumentStructureEstimates* const estimates) noexcept
 {
     if (estimates != nullptr)
     {

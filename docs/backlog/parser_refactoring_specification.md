@@ -1560,7 +1560,7 @@ the coordinated retirement below.
 
 ### 9.10 Recovery-array retirement
 
-The final coordinated implementation slice is ready for review:
+The final coordinated implementation slice is reviewed and committed as `db85f31`:
 
 - The parser uses the existing public `extend_object_child` operation. Collision
   payloads form ordinary arrays with the agreed encounter-order semantics,
@@ -1597,9 +1597,32 @@ whitespace and line-ending checks pass. No retired recovery API remains in
 the core or tests; former protocol text is retained only as ordinary-data
 regression coverage.
 
-The implementation is uncommitted pending user and coordinator review. After
-this slice is approved, the separately recorded const pass and the user's manual
-style/beautification pass remain. Do not fold those passes into this retirement.
+User and coordinator review are complete. The separate parameter const pass
+follows below; the user's manual style/beautification pass remains afterward.
+
+### 9.11 Parameter const pass
+
+The parameter const pass is implemented for review across the linter, shared
+text utilities, parser, structure checker, writer and live/baked model and
+translation code. Most parameters already had appropriate qualification.
+
+- Writer and UTF-8 utility declarations now match their existing const-qualified
+  definitions.
+- Structural estimate pointers are const in declarations and definitions;
+  the pointed-to estimates remain writable outputs.
+- The baker takes its unchanged string-domain descriptor by const reference.
+  The referenced live-to-baked ID map remains writable during emission.
+- Mutable scanner copies, traversal cursors, report accumulation, output
+  references, scratch storage and ownership transfers retain mutation access.
+
+This pass changes no parsing, writing or document semantics. It remains
+uncommitted pending user and coordinator review. The manual style pass is
+separate.
+
+Debug and Release builds and all ordinary suites pass on x64 and Win32,
+including 18,079 parser, 1,247 structure and 10,539 writer checks in each
+configuration. Repository policy validation, whitespace and line-ending
+checks pass. Existing regression coverage is unchanged.
 
 ## 10. Decision record and implementation review
 
@@ -1643,12 +1666,13 @@ The consistency review makes these consequences explicit:
   also removes its writer counters despite retaining other writer statistics.
 - An explicit object root is never removed by singleton-object normalization.
 
-Stage-2 behaviour is implemented through the retirement slice and awaits its
-final review. The shared
+Stage-2 behaviour is implemented, reviewed and committed through the retirement
+slice. The shared
 findings, policy presets, per-value metadata, root handling and failure reporting
 are implemented. Remaining API and ownership choices must implement the
 contracts above and remain reviewable; they are not unresolved user-facing
 behaviour questions.
 
-Stage 1 implementation and review are complete. Stage 2 is authorized and in
-progress. Pause before each subsequent commit for review.
+Stage 1 and stage 2 functional implementation and review are complete. The
+parameter const pass awaits review; manual style work follows. Pause before
+each subsequent commit for review.

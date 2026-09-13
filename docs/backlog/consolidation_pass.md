@@ -1,6 +1,6 @@
 # Consolidation before schema work
 
-Updated 12 September 2026. Active direction; detailed interfaces remain under
+Updated 13 September 2026. Active direction; detailed interfaces remain under
 discussion. This is the consolidated plan for parser refactoring and the Host
 prerequisites to schema work.
 
@@ -12,10 +12,9 @@ The current code is a baseline to refactor, not an approved final interface.
 
 ## Work and review boundaries
 
-- Refactor the parser/reporting in the existing parser task. The revised contract
-  is agreed and stage 1 is implemented and reviewed. Keep the remaining migration
-  reviewable; stage 2 began on 12 September following explicit progression
-  instruction. Its first model infrastructure slice is reviewed and validated.
+- Parser/reporting functional implementation and review are complete in the
+  existing parser task. The separate parameter const pass awaits review;
+  the user's manual style pass follows it.
 - Carry most other consolidation into a separate task, using this document as
   the handoff. Establish Host authority and lifetime before dependent services.
 - Add direct persistence checks and the full Executive exercise against those
@@ -39,8 +38,8 @@ Stage 2 implements native empty names, root kinds, per-string newline metadata,
 grouped findings, shared failures, separate capacity estimates, revised grammar
 and late caller policy. The final coordinated slice replaces recovery arrays
 with public ordinary-array collision extension, removes the protocol and
-obsolete reports, and advances the baked format to version 3. That slice awaits
-user and coordinator review. The following describes the agreed direction.
+obsolete reports, and advances the baked format to version 3. That slice is
+reviewed and committed as `db85f31`. The following describes the agreed direction.
 
 The agreed direction is caller-selected feature permissions, grouped parser
 presence flags instead of statistics, retained linter aggregate statistics,

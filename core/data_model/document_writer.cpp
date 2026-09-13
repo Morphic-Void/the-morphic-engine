@@ -76,14 +76,14 @@ private:
     //  Scalar spelling: quoting/escaping and the selected numeric output grammar.
     void quoted(const CStringView& value, const bool suppress_newlines = false) noexcept;
     void key(const CStringView& value) noexcept;
-    void hex_escape(std::uint32_t unit) noexcept;
-    void integer(CBakedValueIndex node) noexcept;
-    void floating(CBakedValueIndex node) noexcept;
+    void hex_escape(const std::uint32_t unit) noexcept;
+    void integer(const CBakedValueIndex node) noexcept;
+    void floating(const CBakedValueIndex node) noexcept;
 
     //  Iterative traversal with implied objects for named array entries.
     [[nodiscard]] bool needs_object_wrapper(const CBakedValueIndex node) const noexcept;
-    void enter(CBakedValueIndex node) noexcept;
-    void leave(CBakedValueIndex node) noexcept;
+    void enter(const CBakedValueIndex node) noexcept;
+    void leave(const CBakedValueIndex node) noexcept;
     void traverse() noexcept;
 
     //  Bound configuration; run() does not change or take ownership of either input.

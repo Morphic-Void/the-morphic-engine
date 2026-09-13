@@ -55,7 +55,7 @@ private:
     [[nodiscard]] bool derive_layout() noexcept;
     [[nodiscard]] bool place_section(std::uint64_t& offset, const std::uint32_t count, const std::uint32_t stride, std::uint32_t& destination) const noexcept;
     [[nodiscard]] bool allocate_output() noexcept;
-    void emit_strings(SStringDomain& domain) noexcept;
+    void emit_strings(const SStringDomain& domain) noexcept;
     [[nodiscard]] bool emit_values() noexcept;
     [[nodiscard]] bool emit_value_payload(const CNodeKey value, SBakedValueRecord& destination) const noexcept;
     [[nodiscard]] SLiveString live_string_at_rank(const EStringDomain domain, const std::uint32_t rank) const noexcept;
@@ -188,7 +188,7 @@ bool CBakedDocumentBaker::allocate_output() noexcept
     return true;
 }
 
-void CBakedDocumentBaker::emit_strings(SStringDomain& domain) noexcept
+void CBakedDocumentBaker::emit_strings(const SStringDomain& domain) noexcept
 {
     TPodVector<std::uint32_t>& live_to_baked = *domain.live_to_baked;
     SBakedStringReference* const references = reinterpret_cast<SBakedStringReference*>(m_bytes.data() + domain.references_offset);

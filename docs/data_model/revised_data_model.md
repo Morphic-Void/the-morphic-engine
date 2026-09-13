@@ -18,8 +18,8 @@ ownership rules. Requirements expressed with **must**, **must not** and
 
 This records the implemented document model and parser migration, including
 shared diagnostics, native empty names, root kinds, newline metadata, caller
-policy and ordinary collision arrays. The final recovery-retirement slice
-awaits review under the
+policy and ordinary collision arrays. Recovery retirement is reviewed and
+committed as `db85f31`, completing functional implementation under the
 [refactor specification](../backlog/parser_refactoring_specification.md). The public ownership-transfer boundary remains
 under review in the [consolidation plan](../backlog/consolidation_pass.md).
 The current behaviour specified here changes as each replacement is implemented.
@@ -465,7 +465,8 @@ has completed implementation and review of the linter and shared locations.
 Stage 2 implements the model infrastructure described above, shared grammar
 and findings, terminal diagnostics, late caller-policy acceptance and ordinary
 collision arrays. Recovery types, protocol handling and obsolete counters are
-removed; the final retirement slice is awaiting review. The stages are linting, structural checking, relaxed document parsing and
+removed, and the final retirement slice is reviewed and committed. The stages
+are linting, structural checking, relaxed document parsing and
 final policy evaluation. There is no separate strict parser; feature exclusions
 do not change processing, and the conservative default rejects relaxed findings
 only after construction succeeds.

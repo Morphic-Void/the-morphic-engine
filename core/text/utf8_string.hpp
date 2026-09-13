@@ -20,8 +20,8 @@ namespace utf8_string
 
 //  Complete document newline repertoire. Input is already validated UTF-8.
 //  Returns the byte length of one break, recognizing CRLF/LFCR as a unit.
-[[nodiscard]] std::size_t line_break_size(const std::uint8_t* source, std::size_t size) noexcept;
-[[nodiscard]] bool contains_line_break(const std::uint8_t* source, std::size_t size) noexcept;
+[[nodiscard]] std::size_t line_break_size(const std::uint8_t* const source, const std::size_t size) noexcept;
+[[nodiscard]] bool contains_line_break(const std::uint8_t* const source, const std::size_t size) noexcept;
 
 enum class ELiteralNulPolicy : std::uint8_t
 {
@@ -33,19 +33,19 @@ enum class ELiteralNulPolicy : std::uint8_t
 //  U+0000. Under promote_to_modified_utf8, literal zero bytes are accepted
 //  and each contributes two bytes to normalized_size; otherwise they fail.
 [[nodiscard]] bool validate_and_measure(
-    const std::uint8_t* source,
-    std::size_t source_size,
-    ELiteralNulPolicy literal_nul_policy,
+    const std::uint8_t* const source,
+    const std::size_t source_size,
+    const ELiteralNulPolicy literal_nul_policy,
     std::size_t& normalized_size) noexcept;
 
 //  The source must already have passed validate_and_measure with
 //  promote_to_modified_utf8. Copies strict/modified UTF-8 unchanged and
 //  replaces each literal zero byte with C0 80.
 [[nodiscard]] bool normalize_literal_nuls(
-    const std::uint8_t* source,
-    std::size_t source_size,
-    std::uint8_t* destination,
-    std::size_t destination_size) noexcept;
+    const std::uint8_t* const source,
+    const std::size_t source_size,
+    std::uint8_t* const destination,
+    const std::size_t destination_size) noexcept;
 
 } // namespace utf8_string
 

@@ -1,6 +1,6 @@
 # Current scope
 
-Updated 12 September 2026. Consolidation precedes schema work.
+Updated 13 September 2026. Consolidation precedes schema work.
 
 The first document pipeline is implemented. Its parser/reporting design and
 the surrounding Host contracts need further work before schema consumers are
@@ -13,7 +13,7 @@ built. Completed implementation does not mean these interfaces are final.
    The [linter/parser specification](parser_refactoring_specification.md) is
    the reviewed behavioural contract. Stage 1, covering the linter and shared
    diagnostics, is implemented, validated and reviewed.
-   Stage 2 is authorized and in progress. Its first model infrastructure slice
+   Stage 2 functional implementation is complete. Its first model infrastructure slice
    implements native empty names, root kinds, newline metadata and collision
    extension and is reviewed and validated. Shared findings, singular failure
    reasons and policy definitions are reviewed and committed.
@@ -27,10 +27,10 @@ built. Completed implementation does not mean these interfaces are final.
    and committed. Caller options and late policy acceptance before publication
    are reviewed and committed. Coordinated recovery-array/protocol retirement,
    parser use of public ordinary-array collision extension, baked version 3 and
-   removal of obsolete reports and counters are implemented for review.
-   After the main implementation, consider a separate const pass: identify
-   parameters that functions do not mutate, add appropriate const qualification,
-   and align parameter const decoration between declarations and definitions.
+   removal of obsolete reports and counters are reviewed and committed as `db85f31`.
+   The separate parameter const pass is implemented for review: declarations
+   and definitions agree, and unchanged parameters have appropriate const
+   qualification. Output state and ownership transfers remain mutable.
    The user plans a light manual style and beautification pass after that const
    pass.
 2. Develop the remaining Host consolidation in a separate task: module
@@ -50,7 +50,7 @@ integration run depends on both. Pause before commits for review.
   [baked format](../data_model/baked_document_format.md) and
   [design rationale](../data_model/data_model_design_notes.md): current
   implemented baseline, including stage-1 linter/shared diagnostics, with the
-  remaining parser/model migration and ownership areas still open.
+  completed parser/model migration; ownership areas remain open.
 - [Completed milestones](../project/completed_milestones.md): implementation
   outcomes and validation, including the first document pipeline.
 - [Future work notes](../project/future_work_notes.md): supporting cross-task
