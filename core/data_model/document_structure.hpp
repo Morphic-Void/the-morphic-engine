@@ -20,7 +20,7 @@ enum class EDocumentStructureStatus : std::uint8_t
 
 struct CDocumentStructureEstimates
 {
-    //  Syntactic occurrences before collision extension or singleton normalization.
+    //  Syntactic occurrences before collision extension or singleton normalisation.
     //  Counts include the explicit or inferred root container. They are hints for
     //  later construction, not live-node counts or allocation guarantees.
     std::size_t value_count{ 0u };
@@ -50,7 +50,7 @@ namespace document_structure
 {
 
 //  Check bounded UTF-8 already produced by a successful linter call. Exclude
-//  its physical terminal zero and normalize all source line breaks to LF.
+//  its physical terminal zero and normalise all source line breaks to LF.
 //  Source must stay immutable and alive. An absent string is invalid input;
 //  a present zero-length string denotes an implicit empty object. Always supply
 //  an explicit length to preserve embedded NULs. No document construction,

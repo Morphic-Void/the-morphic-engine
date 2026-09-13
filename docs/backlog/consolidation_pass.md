@@ -135,6 +135,10 @@ low-level parser/report refactor, and no automatic logging is implied.
   Keep transfer mechanics private, expose semantic lifetime intent publicly,
   and give narrowly scoped access to erased carriers and necessary Host internals.
   The initial BakedDocumentAsset bridge is implemented; its API is under review.
+- Review baked-block/buffer ownership as part of this boundary: whether
+  `CBakedDocumentBlock` should adopt a `CByteBuffer`, or whether a general
+  interpretation of owned byte storage could replace the distinct block type.
+  This is an open design question from the [document style review](document_style_review.md).
 - Keep mounting-point hazards separate from identity, ownership, permission
   and provisioning metadata.
 

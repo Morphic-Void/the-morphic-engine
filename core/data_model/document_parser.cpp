@@ -88,9 +88,11 @@ private:
     document_text::CScanner m_scanner;
     CToken m_token;
     TPodVector<CFrame> m_frames;
-    //  Names must remain stable while a string value is decoded.
+
+    //  Separate scratch buffers keep the decoded name stable while decoding its value.
     CByteBuffer m_name_scratch;
     CByteBuffer m_value_scratch;
+
     CLiveDocument m_document;
     CDocumentParseReport m_report;
 };
@@ -144,8 +146,7 @@ static CDocumentParseReport ingest_linted(const CTextLintResult& linted, CLiveDo
     return report;
 }
 
-CParser::CParser(const CStringView& source, const CDocumentParseReport& report) noexcept :
-    m_source(source), m_scanner(source), m_report(report)
+CParser::CParser(const CStringView& source, const CDocumentParseReport& report) noexcept : m_source(source), m_scanner(source), m_report(report)
 {
 }
 
@@ -257,6 +258,8 @@ CStringView CParser::text(const CToken& token, CByteBuffer& buffer) noexcept
 
 CNodeKey CParser::integer(const CStringView& name) noexcept
 {
+    constexpr std::uint64_t max_signed_integer = static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max());
+
     const char* first = reinterpret_cast<const char*>(m_source.string() + m_token.offset);
     const char* const last = first + m_token.size;
     const bool negative = *first == '-';
@@ -305,8 +308,7 @@ CNodeKey CParser::integer(const CStringView& name) noexcept
         metadata.width = live_unsigned_integer_smallest_width(magnitude);
         return m_document.create_unsigned_integer(magnitude, metadata, name);
     }
-    const std::uint64_t maximum = static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max());
-    if (magnitude > (maximum + (negative ? 1u : 0u)))
+    if (magnitude > (max_signed_integer + (negative ? 1u : 0u)))
     {
         fail(EDocumentFailureReason::numeric_out_of_range);
         return {};
@@ -316,7 +318,7 @@ CNodeKey CParser::integer(const CStringView& name) noexcept
     {
         value = static_cast<std::int64_t>(magnitude);
     }
-    else if (magnitude == (maximum + 1u))
+    else if (magnitude == (max_signed_integer + 1u))
     {
         value = std::numeric_limits<std::int64_t>::min();
     }

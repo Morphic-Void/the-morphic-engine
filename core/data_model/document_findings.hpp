@@ -180,8 +180,7 @@ namespace document_policy
 //  Feature-policy evaluation only: processing status and stage completion are
 //  separate. The pipeline must succeed before using this result to publish.
 //  Evidence and semantic bits are never interpreted as feature permissions.
-[[nodiscard]] constexpr CDocumentPolicyResult evaluate(
-    const std::uint32_t findings, const CDocumentParseOptions& options = {}) noexcept
+[[nodiscard]] constexpr CDocumentPolicyResult evaluate(const std::uint32_t findings, const CDocumentParseOptions& options = {}) noexcept
 {
     CDocumentPolicyResult result;
     result.unknown_policy_bits = options.allowed_features & ~document_findings::k_acceptance_features;

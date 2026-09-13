@@ -171,6 +171,7 @@ public:
     [[nodiscard]] std::uint32_t memory_token_count() const noexcept;
     [[nodiscard]] std::uint32_t memory_allocation_count() const noexcept;
     [[nodiscard]] std::uint64_t memory_allocation_size() const noexcept;
+
     //  Reattribute the existing allocation without copying bytes or changing
     //  checked views. Null selects the ambient context. Allocated storage can
     //  move only between contexts backed by the same allocator.

@@ -434,7 +434,7 @@ bool CLiveDocument::set_name(const CNodeKey key, const CStringView& name_value) 
     {
         return false;
     }
-    //  Interning can normalize literal NUL spelling; compare the canonical ID.
+    //  Interning can normalise literal NUL spelling; compare the canonical ID.
     const CNodeKey existing = object_child(owner, id);
     if (existing.is_valid() && (existing != key))
     {
@@ -724,68 +724,6 @@ CNodeKey CLiveDocument::create_object(const CStringView& name_value) noexcept
         create_container(ELiveValueType::object, prepared_name) : CNodeKey{};
 }
 
-CNodeKey CLiveDocument::extend_object_child(const CNodeKey destination, const CNodeKey candidate) noexcept
-{
-    if (!is_ready() || (value_type(destination) != ELiveValueType::object) ||
-        !is_detached(candidate) || !is_object_entry(candidate))
-    {
-        return CNodeKey{};
-    }
-    bool cycle = false;
-    if (!query_ancestry(node_slot(destination), node_slot(candidate), cycle) || cycle)
-    {
-        return CNodeKey{};
-    }
-    const CNodeKey existing = object_child(destination, name_id(candidate));
-    if (!existing.is_valid())
-    {
-        return append_child(destination, candidate).succeeded() ? candidate : CNodeKey{};
-    }
-
-    const bool wrap = (value_type(existing) != ELiveValueType::array) ||
-        (value_type(candidate) == ELiveValueType::array);
-    //  Prepare every fallible allocation before changing either input. Node
-    //  storage can relocate while preparing, so retain keys rather than pointers.
-    const CNodeKey incoming = create_empty();
-    const CNodeKey previous = (incoming.is_valid() && wrap) ? create_empty() : CNodeKey{};
-    const CNodeKey array = (previous.is_valid() && wrap) ? create_array() : CNodeKey{};
-    if (!incoming.is_valid() || (wrap && (!previous.is_valid() || !array.is_valid())))
-    {
-        if (incoming.is_valid())
-        {
-            (void)erase(incoming);
-        }
-        if (previous.is_valid())
-        {
-            (void)erase(previous);
-        }
-        return CNodeKey{};
-    }
-
-    bool committed = (value_type(candidate) == ELiveValueType::empty) ||
-        move_value_payload(node_slot(incoming), node_slot(candidate));
-    if (wrap)
-    {
-        committed = committed && ((value_type(existing) == ELiveValueType::empty) ||
-            move_value_payload(node_slot(previous), node_slot(existing)));
-        committed = committed && append_child(array, previous).succeeded();
-        committed = committed && append_child(array, incoming).succeeded();
-        committed = committed && attach_payload(existing, array).is_valid();
-    }
-    else
-    {
-        committed = committed && append_child(existing, incoming).succeeded();
-    }
-    committed = committed && erase(candidate);
-    MV_ASSERT_MSG(committed, "Prepared collision extension must commit without allocation.");
-    if (!committed)
-    {
-        mark_integrity_bad();
-        return CNodeKey{};
-    }
-    return existing;
-}
-
 CLiveAttachmentResult CLiveDocument::append_child(const CNodeKey destination, const CNodeKey candidate) noexcept
 {
     SAttachmentPosition position;
@@ -1070,6 +1008,66 @@ bool CLiveDocument::erase(const CNodeKey value) noexcept
         return false;
     }
     return true;
+}
+
+CNodeKey CLiveDocument::extend_object_child(const CNodeKey destination, const CNodeKey candidate) noexcept
+{
+    if (!is_ready() || (value_type(destination) != ELiveValueType::object) ||
+        !is_detached(candidate) || !is_object_entry(candidate))
+    {
+        return CNodeKey{};
+    }
+    bool cycle = false;
+    if (!query_ancestry(node_slot(destination), node_slot(candidate), cycle) || cycle)
+    {
+        return CNodeKey{};
+    }
+    const CNodeKey existing = object_child(destination, name_id(candidate));
+    if (!existing.is_valid())
+    {
+        return append_child(destination, candidate).succeeded() ? candidate : CNodeKey{};
+    }
+
+    const bool wrap = (value_type(existing) != ELiveValueType::array) || (value_type(candidate) == ELiveValueType::array);
+
+    //  Prepare every fallible allocation before changing either input. Node
+    //  storage can relocate while preparing, so retain keys rather than pointers.
+    const CNodeKey incoming = create_empty();
+    const CNodeKey previous = (incoming.is_valid() && wrap) ? create_empty() : CNodeKey{};
+    const CNodeKey array = (previous.is_valid() && wrap) ? create_array() : CNodeKey{};
+    if (!incoming.is_valid() || (wrap && (!previous.is_valid() || !array.is_valid())))
+    {
+        if (incoming.is_valid())
+        {
+            (void)erase(incoming);
+        }
+        if (previous.is_valid())
+        {
+            (void)erase(previous);
+        }
+        return CNodeKey{};
+    }
+
+    bool committed = (value_type(candidate) == ELiveValueType::empty) || move_value_payload(node_slot(incoming), node_slot(candidate));
+    if (wrap)
+    {
+        committed = committed && ((value_type(existing) == ELiveValueType::empty) || move_value_payload(node_slot(previous), node_slot(existing)));
+        committed = committed && append_child(array, previous).succeeded();
+        committed = committed && append_child(array, incoming).succeeded();
+        committed = committed && attach_payload(existing, array).is_valid();
+    }
+    else
+    {
+        committed = committed && append_child(existing, incoming).succeeded();
+    }
+    committed = committed && erase(candidate);
+    MV_ASSERT_MSG(committed, "Prepared collision extension must commit without allocation.");
+    if (!committed)
+    {
+        mark_integrity_bad();
+        return CNodeKey{};
+    }
+    return existing;
 }
 
 std::uint32_t CLiveDocument::memory_token_count() const noexcept

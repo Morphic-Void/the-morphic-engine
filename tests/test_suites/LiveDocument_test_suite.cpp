@@ -589,18 +589,32 @@ void test_numeric_boundaries_metadata_and_negative_zero(TTestContext& ctx)
     CLiveDocument document;
     TEST_EXPECT(ctx, document.initialise());
 
-    const std::int64_t signed_values[]{ -129, -128, 127, 128, -32769, 32767, 32768,
-        static_cast<std::int64_t>(std::numeric_limits<std::int32_t>::min()) - 1,
-        std::numeric_limits<std::int64_t>::min(), std::numeric_limits<std::int64_t>::max() };
-    for (const std::int64_t value : signed_values)
+    struct CSignedCase { std::int64_t value; EIntegerWidth width; };
+    const CSignedCase signed_values[]{
+        { static_cast<std::int64_t>(std::numeric_limits<std::int8_t>::min()) - 1, EIntegerWidth::bits_16 },
+        { std::numeric_limits<std::int8_t>::min(), EIntegerWidth::bits_8 },
+        { std::numeric_limits<std::int8_t>::max(), EIntegerWidth::bits_8 },
+        { static_cast<std::int64_t>(std::numeric_limits<std::int8_t>::max()) + 1, EIntegerWidth::bits_16 },
+        { static_cast<std::int64_t>(std::numeric_limits<std::int16_t>::min()) - 1, EIntegerWidth::bits_32 },
+        { std::numeric_limits<std::int16_t>::min(), EIntegerWidth::bits_16 },
+        { std::numeric_limits<std::int16_t>::max(), EIntegerWidth::bits_16 },
+        { static_cast<std::int64_t>(std::numeric_limits<std::int16_t>::max()) + 1, EIntegerWidth::bits_32 },
+        { static_cast<std::int64_t>(std::numeric_limits<std::int32_t>::min()) - 1, EIntegerWidth::bits_64 },
+        { std::numeric_limits<std::int32_t>::min(), EIntegerWidth::bits_32 },
+        { std::numeric_limits<std::int32_t>::max(), EIntegerWidth::bits_32 },
+        { static_cast<std::int64_t>(std::numeric_limits<std::int32_t>::max()) + 1, EIntegerWidth::bits_64 },
+        { std::numeric_limits<std::int64_t>::min(), EIntegerWidth::bits_64 },
+        { std::numeric_limits<std::int64_t>::max(), EIntegerWidth::bits_64 } };
+    for (const auto& item : signed_values)
     {
+        const std::int64_t value = item.value;
         const CNodeKey key = document.create_signed_integer(value);
         CIntegerMetadata metadata;
         std::int64_t recovered = 0;
         TEST_EXPECT(ctx, key.is_valid());
         TEST_EXPECT(ctx, document.integer_metadata(key, metadata));
         TEST_EXPECT(ctx, metadata.domain == EIntegerDomain::signed_value);
-        TEST_EXPECT(ctx, metadata.width == live_signed_integer_smallest_width(value));
+        TEST_EXPECT(ctx, metadata.width == item.width);
         TEST_EXPECT(ctx, document.signed_integer_value(key, recovered) && (recovered == value));
     }
 

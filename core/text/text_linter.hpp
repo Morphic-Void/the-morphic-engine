@@ -12,7 +12,7 @@
 //  - No file I/O or logging.
 //
 //  Bounded source-text validation, transcoding recovery, and line-ending
-//  normalization for byte-backed text sources.
+//  normalisation for byte-backed text sources.
 
 #pragma once
 
@@ -119,7 +119,7 @@ struct CTextLintReport
     //  Literal source zeros in the payload, excluding stripped terminators.
     //  Counted once before decoding, including when CP1252 fallback is needed.
     std::size_t embedded_nul_count = 0u;
-    //  Accepted C0 80 sequences normalized to U+0000 on the UTF-8 path.
+    //  Accepted C0 80 sequences normalised to U+0000 on the UTF-8 path.
     //  Reset if that attempt is discarded in favour of CP1252 conversion.
     std::size_t modified_utf8_nul_count = 0u;
     std::size_t cesu8_pair_count = 0u;
@@ -156,7 +156,7 @@ namespace text_linter
 //  payload zeros are retained and counted. Trailing source zeros are stripped
 //  before decoding; the output's logical length excludes only its own final
 //  terminator. Generic line metrics follow the configured newline mask.
-//  Document ingestion uses k_document_text_lint_line_endings; normalization
+//  Document ingestion uses k_document_text_lint_line_endings; normalisation
 //  applies uniformly, with no awareness of quotes, comments or escapes.
 //  A null byte view is absent input and reports invalid_input_view.
 [[nodiscard]] CTextLintResult lint(const CByteConstView& input, const std::uint32_t line_ending_flags = k_default_text_lint_line_endings) noexcept;

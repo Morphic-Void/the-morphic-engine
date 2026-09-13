@@ -357,7 +357,7 @@ CToken CScanner::quoted() noexcept
         }
         else
         {
-            //  All literal source line breaks have been normalized to LF.
+            //  All literal source line breaks have been normalised to LF.
             if (ch == '\n')
             {
                 record_line_break(m_offset);

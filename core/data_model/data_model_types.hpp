@@ -220,9 +220,9 @@ struct CIntegerMetadata
 [[nodiscard]] constexpr EIntegerWidth live_signed_integer_smallest_width(const std::int64_t value) noexcept
 {
     return
-        ((value >= -128) && (value <= 127)) ? EIntegerWidth::bits_8 :
-        ((value >= -32768) && (value <= 32767)) ? EIntegerWidth::bits_16 :
-        ((value >= (-2147483647 - 1)) && (value <= 2147483647)) ? EIntegerWidth::bits_32 : EIntegerWidth::bits_64;
+        ((value >= -static_cast<std::int64_t>(0x80u)) && (value <= static_cast<std::int64_t>(0x7fu))) ? EIntegerWidth::bits_8 :
+        ((value >= -static_cast<std::int64_t>(0x8000u)) && (value <= static_cast<std::int64_t>(0x7fffu))) ? EIntegerWidth::bits_16 :
+        ((value >= -static_cast<std::int64_t>(0x80000000u)) && (value <= static_cast<std::int64_t>(0x7fffffffu))) ? EIntegerWidth::bits_32 : EIntegerWidth::bits_64;
 }
 
 [[nodiscard]] constexpr EIntegerWidth live_unsigned_integer_smallest_width(const std::uint64_t value) noexcept

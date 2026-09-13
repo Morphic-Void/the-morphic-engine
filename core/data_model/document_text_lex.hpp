@@ -35,14 +35,11 @@ struct CToken
     EDocumentFailureReason error{ EDocumentFailureReason::none };
     std::size_t offset{ 0u };
     std::size_t size{ 0u };
-    //  Apply only in value position; numeric-looking names remain strings.
-    std::uint32_t value_findings{ 0u };
+    std::uint32_t value_findings{ 0u };        //  Apply only in value position; numeric-looking names remain strings.
     CTextLocation location;
     CTextLocation failure_point;
-    //  Decoded content evidence; an escaped break points to its backslash.
-    CTextLocation first_line_break;
-    //  Per-token source spelling, independent of the aggregate findings.
-    std::uint8_t literal_line_break{ 0u };
+    CTextLocation first_line_break;           //  Decoded content evidence; an escaped break points to its backslash.
+    std::uint8_t literal_line_break{ 0u };    //  Per-token source spelling, independent of the aggregate findings.
 };
 
 //  On success, offset advances past one escape (including both UTF-16 units

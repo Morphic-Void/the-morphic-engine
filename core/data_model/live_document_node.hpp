@@ -148,7 +148,7 @@ public:
         const LiveNodeSlot previous_slot,
         const LiveNodeSlot next_slot) const noexcept;
 
-    //  Role initialization
+    //  Role initialisation
     void initialise_value(
         const ELiveValueType type,
         const std::uint64_t payload_bits,
@@ -603,7 +603,7 @@ inline bool CLiveNode::aggregate_has_adjacent_children(
 }
 
 //==============================================================================
-//  CLiveNode: role initialization
+//  CLiveNode: role initialisation
 //==============================================================================
 
 inline void CLiveNode::initialise_value(

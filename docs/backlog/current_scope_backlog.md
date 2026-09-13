@@ -28,11 +28,12 @@ built. Completed implementation does not mean these interfaces are final.
    are reviewed and committed. Coordinated recovery-array/protocol retirement,
    parser use of public ordinary-array collision extension, baked version 3 and
    removal of obsolete reports and counters are reviewed and committed as `db85f31`.
-   The separate parameter const pass is implemented for review: declarations
+   The separate parameter const pass is reviewed and committed as `8d5ca1d`: declarations
    and definitions agree, and unchanged parameters have appropriate const
    qualification. Output state and ownership transfers remain mutable.
-   The user plans a light manual style and beautification pass after that const
-   pass.
+   The user's manual style review is complete. Straightforward corrections and
+   verification findings are implemented for review; buffer ownership and report
+   design questions remain deferred in the [style review notes](document_style_review.md).
 2. Develop the remaining Host consolidation in a separate task: module
    lifecycle, asset identity and lifetime, asynchronous operations, aligned
    loading, conditioning and filesystem resolution.

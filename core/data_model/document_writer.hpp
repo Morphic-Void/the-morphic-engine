@@ -6,7 +6,14 @@
 //  Authors: Ritchie Brannan / OpenAI Codex
 //  Date:    8 Sep 26
 //
-//  Iterative text serialization over the checked baked-document interface.
+//  Iterative text serialisation over the checked baked-document interface.
+//
+//  Formatting and line endings:
+//  pretty_print inserts layout line breaks and indentation between values.
+//  trailing_line_ending independently appends one LF after the complete document,
+//  including when pretty_print is false. All formatting line breaks use LF.
+//  Within strings, line breaks are normalised to LF. Strict JSON always escapes
+//  them; Morphic output honours per-value newline-escaping suppression.
 
 #pragma once
 
@@ -28,9 +35,7 @@ struct CDocumentWriteOptions
     bool escape_non_ascii{ false };
     bool pretty_print{ true };
     std::size_t indent_width{ 2u };
-    //  Formatting and string line breaks are normalized to LF. Strict JSON
-    //  always escapes string newlines; Morphic output honors per-value suppression.
-    bool trailing_line_ending{ true };
+    bool trailing_line_ending{ true };   //  See "Formatting and line endings" in the file header.
 };
 
 enum class EDocumentWriteStatus : std::uint8_t
@@ -50,7 +55,7 @@ struct CDocumentWriteReport
     std::size_t logical_text_byte_size{ 0u };
 
     //  Emitted occurrences, not distinct interned strings. All counts are zero
-    //  on failure. Strict mode reports numeric normalization.
+    //  on failure. Strict mode reports numeric normalisation.
     std::size_t non_decimal_integers_normalised{ 0u };
     std::size_t explicit_positive_signs_omitted{ 0u };
     std::size_t non_ascii_code_points_escaped{ 0u };

@@ -51,7 +51,7 @@ namespace document_parser
 {
 
 //  Consume present, bounded UTF-8 from a successful linter call. Pass an
-//  explicit CStringView length excluding the physical terminator, and normalize
+//  explicit CStringView length excluding the physical terminator, and normalise
 //  every source line break to LF during linting. This function performs the structural
 //  pass; it does not perform encoding detection or CP1252 conversion.
 //  Source stays immutable and alive until return. Destination is replaced only
@@ -62,23 +62,20 @@ namespace document_parser
 //  policy excludes relaxed syntax; k_all_supported opts into every feature.
 //
 //  Extend duplicate members in encounter order through the public live-document
-//  collision operation, using ordinary arrays. Normalize singleton objects in
+//  collision operation, using ordinary arrays. Normalise singleton objects in
 //  arrays; dollar-prefixed names and former protocol shapes are ordinary data.
 //  Explicit containers select the root kind. Otherwise a first name followed
 //  by a colon selects an object body; other non-empty input selects an array
 //  body, including a single scalar.
-[[nodiscard]] CDocumentParseReport parse(const CStringView& source, CLiveDocument& destination,
-    const CDocumentParseOptions& options = {}) noexcept;
+[[nodiscard]] CDocumentParseReport parse(const CStringView& source, CLiveDocument& destination, const CDocumentParseOptions& options = {}) noexcept;
 
-//  Lint source bytes with uniform LF normalization, then parse. Retain the
+//  Lint source bytes with uniform LF normalisation, then parse. Retain the
 //  linter report on every outcome. Evaluate policy against all stage findings
 //  after construction. Failure or rejection preserves destination. A linter
 //  failure exposes its location as failure_point; structure stays unexamined.
-[[nodiscard]] CDocumentParseReport ingest(const CByteConstView& source, CLiveDocument& destination,
-    const CDocumentParseOptions& options = {}) noexcept;
+[[nodiscard]] CDocumentParseReport ingest(const CByteConstView& source, CLiveDocument& destination, const CDocumentParseOptions& options = {}) noexcept;
 //  The string-view overload also admits present zero-length source text.
-[[nodiscard]] CDocumentParseReport ingest(const CStringView& source, CLiveDocument& destination,
-    const CDocumentParseOptions& options = {}) noexcept;
+[[nodiscard]] CDocumentParseReport ingest(const CStringView& source, CLiveDocument& destination, const CDocumentParseOptions& options = {}) noexcept;
 
 }   //  namespace document_parser
 

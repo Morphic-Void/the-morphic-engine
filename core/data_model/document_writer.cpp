@@ -19,6 +19,7 @@
 
 namespace document_writer
 {
+
 namespace writer_util
 {
 
@@ -28,7 +29,7 @@ namespace writer_util
 }
 
 //  Decode only already-validated baked payloads: strict UTF-8 plus C0 80.
-//  No validity policy or normalization belongs here. Physical terminators
+//  No validity policy or normalisation belongs here. Physical terminators
 //  are excluded by the caller's explicit string length.
 [[nodiscard]] static std::uint32_t decode_scalar(const std::uint8_t* const bytes, std::size_t& size) noexcept
 {

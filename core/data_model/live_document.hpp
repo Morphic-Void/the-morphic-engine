@@ -54,7 +54,7 @@ public:
     CLiveDocument& operator=(CLiveDocument&& source) noexcept;
     ~CLiveDocument() noexcept = default;
 
-    //  Initialization and readiness
+    //  Initialisation and readiness
     //  A live document cannot be reattributed. Moves retain the allocation
     //  contexts already carried by its storage.
     [[nodiscard]] bool initialise(const std::size_t initial_node_capacity = 0u) noexcept;
@@ -134,9 +134,6 @@ public:
 
     //  Structural mutation
     [[nodiscard]] CLiveAttachmentResult append_child(const CNodeKey destination, const CNodeKey candidate) noexcept;
-    //  Explicit object-name collision extension. Success consumes the detached
-    //  candidate and returns the retained member; failure leaves both inputs unchanged.
-    [[nodiscard]] CNodeKey extend_object_child(const CNodeKey destination, const CNodeKey candidate) noexcept;
     [[nodiscard]] CLiveAttachmentResult insert_child_before(const CNodeKey destination, const CNodeKey candidate, const CNodeKey before) noexcept;
     [[nodiscard]] CLiveAttachmentResult insert_child_at(const CNodeKey destination, const CNodeKey candidate, const std::uint32_t index) noexcept;
 
@@ -157,6 +154,11 @@ public:
     //  Erasing the root preserves the implicit root pair and recursively
     //  erases all root-reachable content below it.
     [[nodiscard]] bool erase(const CNodeKey value) noexcept;
+
+    //  Object-name collision extension
+    //  Success consumes the detached candidate and returns the retained member;
+    //  failure leaves both inputs unchanged.
+    [[nodiscard]] CNodeKey extend_object_child(const CNodeKey destination, const CNodeKey candidate) noexcept;
 
     //  Direct storage attribution
     //  Complete direct ownership accounting. There is intentionally no
@@ -186,7 +188,7 @@ private:
         LiveNodeSlot next{ k_invalid_live_node_slot };
     };
 
-    //  String admission, stabilization and interning
+    //  String admission, stabilisation and interning
     [[nodiscard]] bool prepare_string(const CStringView& source, SPreparedString& prepared) const noexcept;
     [[nodiscard]] bool intern_string_domain(const SPreparedString& value, CStableStrings& strings, std::uint32_t& id) noexcept;
 
