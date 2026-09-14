@@ -14,6 +14,8 @@
 #include <utility>
 
 #include "data_model/live_document.hpp"
+#include "data_model/document_structure.hpp"
+#include "data_model/document_text_lex.hpp"
 
 namespace document_parser
 {
@@ -66,8 +68,8 @@ struct CFrame
 class CParser
 {
 public:
-    explicit CParser(const CStringView& source, const CDocumentParseReport& report) noexcept;
-    [[nodiscard]] CDocumentParseReport run(CLiveDocument& destination, const CDocumentParseOptions& options) noexcept;
+    explicit CParser(const CStringView& source, CDocumentReport& report) noexcept;
+    void run(CLiveDocument& destination, const CDocumentParseOptions& options) noexcept;
 
 private:
     void fail(const EDocumentFailureReason reason) noexcept;
@@ -94,7 +96,7 @@ private:
     CByteBuffer m_value_scratch;
 
     CLiveDocument m_document;
-    CDocumentParseReport m_report;
+    CDocumentReport& m_report;
 };
 
 static EDocumentFailureReason linter_failure_reason(const ETextLintFailure reason) noexcept
@@ -112,51 +114,17 @@ static EDocumentFailureReason linter_failure_reason(const ETextLintFailure reaso
     }
 }
 
-static CDocumentParseReport parse_linted(const CStringView& source, CLiveDocument& destination,
-    const CDocumentParseOptions& options, CDocumentParseReport report) noexcept
-{
-    report.structure = document_structure::check(source);
-    report.findings |= report.structure.findings;
-    if (!report.structure.succeeded())
-    {
-        report.status = EDocumentParseStatus::failed;
-        report.failure = report.structure.failure;
-        report.structure_start = report.structure.structure_start;
-        report.failure_point = report.structure.failure_point;
-        return report;
-    }
-    CParser parser(source, report);
-    return parser.run(destination, options);
-}
-
-static CDocumentParseReport ingest_linted(const CTextLintResult& linted, CLiveDocument& destination,
-    const CDocumentParseOptions& options) noexcept
-{
-    CDocumentParseReport report;
-    report.linter_examined = true;
-    report.linter = linted.report;
-    report.findings = document_findings::from_source(linted.report.source_findings);
-    if (linted.report.success)
-    {
-        return parse_linted(CStringView{ linted.output.data(), linted.report.logical_text_byte_size }, destination, options, report);
-    }
-    report.status = EDocumentParseStatus::failed;
-    report.failure = { EDocumentFailureStage::linter, linter_failure_reason(linted.report.first_failure.reason) };
-    report.failure_point = linted.report.first_failure.location;
-    return report;
-}
-
-CParser::CParser(const CStringView& source, const CDocumentParseReport& report) noexcept : m_source(source), m_scanner(source), m_report(report)
+CParser::CParser(const CStringView& source, CDocumentReport& report) noexcept : m_source(source), m_scanner(source), m_report(report)
 {
 }
 
 void CParser::fail(const EDocumentFailureReason reason) noexcept
 {
-    if (m_report.succeeded())
+    if (m_report.processing_succeeded())
     {
-        m_report.status = EDocumentParseStatus::failed;
+        m_report.state = EDocumentProcessingState::failure;
         m_report.failure = { EDocumentFailureStage::parser, reason };
-        m_report.structure_start = m_report.failure_point = m_token.location;
+        m_report.failure.element_start = m_report.failure.location = m_token.location;
     }
 }
 
@@ -378,7 +346,7 @@ CNodeKey CParser::create(const CStringView& name) noexcept
         case ETokenKind::unquoted_string:
         {
             const CStringView value = text(m_token, m_value_scratch);
-            const CNodeKey node = m_report.succeeded() ? m_document.create_string(value, name) : CNodeKey{};
+            const CNodeKey node = m_report.processing_succeeded() ? m_document.create_string(value, name) : CNodeKey{};
             if (node.is_valid() && (m_token.literal_line_break != 0u) && !m_document.set_newline_escaping_suppressed(node, true))
             {
                 fail(EDocumentFailureReason::internal_error);
@@ -454,7 +422,7 @@ void CParser::complete() noexcept
         const CNodeKey child = m_document.first_child(node);
         if (!require(m_document.detach(child)) || !require(m_document.erase(node)))
         {
-            m_report.structure_start = frame.entry_location;
+            m_report.failure.element_start = frame.entry_location;
             return;
         }
         node = child;
@@ -462,7 +430,7 @@ void CParser::complete() noexcept
     }
     if (!attach(parent, node))
     {
-        m_report.structure_start = frame.entry_location;
+        m_report.failure.element_start = frame.entry_location;
     }
 }
 
@@ -474,7 +442,7 @@ void CParser::entry() noexcept
     if (parent.role == EFrameRole::object)
     {
         name = text(m_token, m_name_scratch);
-        if (!m_report.succeeded())
+        if (!m_report.processing_succeeded())
         {
             return;
         }
@@ -486,12 +454,12 @@ void CParser::entry() noexcept
         }
         advance();
     }
-    if (!m_report.succeeded())
+    if (!m_report.processing_succeeded())
     {
         return;
     }
     const CNodeKey node = create(name);
-    if (!m_report.succeeded())
+    if (!m_report.processing_succeeded())
     {
         return;
     }
@@ -512,16 +480,15 @@ void CParser::entry() noexcept
     }
     else if (!attach(parent, node))
     {
-        m_report.structure_start = entry_location;
+        m_report.failure.element_start = entry_location;
         return;
     }
     advance();
 }
 
-CDocumentParseReport CParser::run(CLiveDocument& destination, const CDocumentParseOptions& options) noexcept
+void CParser::run(CLiveDocument& destination, const CDocumentParseOptions& options) noexcept
 {
-    m_report.parser_examined = true;
-    m_report.status = EDocumentParseStatus::success;
+    m_report.state = EDocumentProcessingState::success;
     advance();
     const document_text::CRootForm root = document_text::select_root(m_token, m_scanner);
     if (!m_document.initialise() || !m_document.set_root_type(root.object ? ELiveValueType::object : ELiveValueType::array))
@@ -529,13 +496,13 @@ CDocumentParseReport CParser::run(CLiveDocument& destination, const CDocumentPar
         fail(EDocumentFailureReason::construction_failed);
     }
     const CTextLocation root_location = root.implicit ? CTextLocation{ true, 1u, 1u } : m_token.location;
-    if (m_report.succeeded() && push(m_document.root(), root.object ? EFrameRole::object : EFrameRole::array, root_location))
+    if (m_report.processing_succeeded() && push(m_document.root(), root.object ? EFrameRole::object : EFrameRole::array, root_location))
     {
         if (!root.implicit)
         {
             advance();
         }
-        while (m_report.succeeded() && (m_token.kind != ETokenKind::end))
+        while (m_report.processing_succeeded() && (m_token.kind != ETokenKind::end))
         {
             if (m_frames.is_empty())
             {
@@ -545,7 +512,7 @@ CDocumentParseReport CParser::run(CLiveDocument& destination, const CDocumentPar
             if ((m_token.kind == ETokenKind::object_end) || (m_token.kind == ETokenKind::array_end))
             {
                 complete();
-                if (m_report.succeeded())
+                if (m_report.processing_succeeded())
                 {
                     advance();
                 }
@@ -559,48 +526,50 @@ CDocumentParseReport CParser::run(CLiveDocument& destination, const CDocumentPar
                 entry();
             }
         }
-        if (m_report.succeeded() && (m_frames.size() != (root.implicit ? 1u : 0u)))
+        if (m_report.processing_succeeded() && (m_frames.size() != (root.implicit ? 1u : 0u)))
         {
             fail(EDocumentFailureReason::internal_error);
         }
     }
-    if (m_report.succeeded())
+    if (m_report.processing_succeeded())
     {
-        m_report.construction_completed = true;
         m_report.policy = document_policy::evaluate(m_report.findings, options);
         if (m_report.policy.accepted())
         {
             destination = std::move(m_document);
         }
-        else
-        {
-            m_report.status = (m_report.policy.status == EDocumentPolicyStatus::invalid_options) ?
-                EDocumentParseStatus::invalid_options : EDocumentParseStatus::policy_rejected;
-        }
     }
-    return m_report;
 }
 
 }   //  namespace parser_util
 
-CDocumentParseReport parse(const CStringView& source, CLiveDocument& destination,
-    const CDocumentParseOptions& options) noexcept
+CDocumentReport parse(const CByteConstView& source, CLiveDocument& destination, const CDocumentParseOptions& options, CTextLintReport* const linter_report) noexcept
 {
-    return parser_util::parse_linted(source, destination, options, {});
-}
-
-CDocumentParseReport ingest(const CByteConstView& source, CLiveDocument& destination,
-    const CDocumentParseOptions& options) noexcept
-{
-    const CTextLintResult linted = text_linter::lint(source, k_document_text_lint_line_endings);
-    return parser_util::ingest_linted(linted, destination, options);
-}
-
-CDocumentParseReport ingest(const CStringView& source, CLiveDocument& destination,
-    const CDocumentParseOptions& options) noexcept
-{
-    const CTextLintResult linted = text_linter::lint(source, k_document_text_lint_line_endings);
-    return parser_util::ingest_linted(linted, destination, options);
+    const CStringView input = (source.size() == 0u) ? CStringView{ "", 0u } : CStringView{ source.data(), source.size() };
+    const CTextLintResult linted = text_linter::lint(input, k_document_text_lint_line_endings);
+    if (linter_report != nullptr)
+    {
+        *linter_report = linted.report;
+    }
+    const std::uint32_t source_findings = document_findings::from_source(linted.report.source_findings);
+    if (!linted.report.success)
+    {
+        CDocumentReport report;
+        report.state = EDocumentProcessingState::failure;
+        report.findings = source_findings;
+        report.failure = { EDocumentFailureStage::linter, parser_util::linter_failure_reason(linted.report.first_failure.reason),
+            linted.report.first_failure.location, {} };
+        return report;
+    }
+    const CStringView text{ linted.output.data(), linted.report.logical_text_byte_size };
+    CDocumentReport report = document_structure::check(text);
+    report.findings |= source_findings;
+    if (report.processing_succeeded())
+    {
+        parser_util::CParser parser(text, report);
+        parser.run(destination, options);
+    }
+    return report;
 }
 
 }   //  namespace document_parser

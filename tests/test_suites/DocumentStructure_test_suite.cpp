@@ -13,6 +13,7 @@
 
 #include "data_model/baked_document.hpp"
 #include "data_model/document_structure.hpp"
+#include "data_model/document_text_lex.hpp"
 #include "data_model/document_translation.hpp"
 #include "data_model/document_writer.hpp"
 #include "data_model/live_document.hpp"
@@ -33,14 +34,14 @@ static CStringView text_view(const std::string& text)
     return CStringView{ text.data(), text.size() };
 }
 
-static CDocumentStructureReport check(const std::string& text, CDocumentStructureEstimates* estimates = nullptr)
+static CDocumentReport check(const std::string& text, CDocumentStructureEstimates* estimates = nullptr)
 {
     return document_structure::check(text_view(text), estimates);
 }
 
-static void expect_failure(TTestContext& ctx, const CDocumentStructureReport& report, const EDocumentStructureStatus status)
+static void expect_failure(TTestContext& ctx, const CDocumentReport& report, const EDocumentProcessingState status)
 {
-    TEST_EXPECT(ctx, report.status == status);
+    TEST_EXPECT(ctx, report.state == status);
     TEST_EXPECT(ctx, report.failure.stage == EDocumentFailureStage::structure && report.failure.reason != EDocumentFailureReason::none);
 }
 
@@ -74,14 +75,14 @@ static void test_partial_findings(TTestContext& ctx)
         CDocumentStructureEstimates estimates{ 1u, 1u, 1u, 1u, 1u, 1u };
         const auto report = check(item.text, &estimates);
         TEST_CASE_EXPECT_TRUE(ctx, item.text, report.failure.reason == item.error);
-        TEST_EXPECT(ctx, report.status == EDocumentStructureStatus::failed && report.failure.stage == EDocumentFailureStage::structure);
+        TEST_EXPECT(ctx, report.state == EDocumentProcessingState::failure && report.failure.stage == EDocumentFailureStage::structure);
         TEST_CASE_EXPECT_EQ(ctx, item.text, report.findings, item.findings);
-        TEST_EXPECT(ctx, !report.succeeded() && report.structure_start.available && report.failure_point.available);
+        TEST_EXPECT(ctx, !report.processing_succeeded() && report.failure.element_start.available && report.failure.location.available);
         expect_no_estimates(ctx, estimates);
     }
     CDocumentStructureEstimates estimates{ 1u, 1u, 1u, 1u, 1u, 1u };
     const auto absent = document_structure::check(CStringView{}, &estimates);
-    TEST_EXPECT(ctx, absent.status == EDocumentStructureStatus::failed && absent.findings == 0u);
+    TEST_EXPECT(ctx, absent.state == EDocumentProcessingState::failure && absent.findings == 0u);
     expect_no_estimates(ctx, estimates);
     TEST_EXPECT(ctx, check("").findings == 0u);
     TEST_EXPECT(ctx, check("// empty").findings == document_finding_bit(EDocumentFinding::comments));
@@ -107,9 +108,9 @@ static void test_grammar(TTestContext& ctx)
         "{a:1e2x}", "{a:1_000}", "{a:NaN}", "{a:Infinity}", "{a:1/2}", "{a:/}" };
     for (const char* text : accepted)
     {
-        TEST_CASE_EXPECT_TRUE(ctx, text, check(text).succeeded());
+        TEST_CASE_EXPECT_TRUE(ctx, text, check(text).processing_succeeded());
     }
-    TEST_EXPECT(ctx, check("{\"\":1,\"\":2}").succeeded());
+    TEST_EXPECT(ctx, check("{\"\":1,\"\":2}").processing_succeeded());
 
     const char* const rejected[]{ "[a:1]", "{a:[n:1]}",
         "{a:[\"n\":1]}", "{a}", "{a:}", "{a:1 b:2}", "{a:1,,}", "{,}", "{a:[,]}",
@@ -120,68 +121,69 @@ static void test_grammar(TTestContext& ctx)
     for (const char* text : rejected)
     {
         const auto report = check(text);
-        expect_failure(ctx, report, EDocumentStructureStatus::failed);
+        expect_failure(ctx, report, EDocumentProcessingState::failure);
         TEST_EXPECT(ctx, report.failure.reason != EDocumentFailureReason::none);
-        TEST_EXPECT(ctx, report.failure_point.available);
+        TEST_EXPECT(ctx, report.failure.location.available);
     }
 }
 
 static void test_input_presence(TTestContext& ctx)
 {
-    const CDocumentStructureReport initial;
-    TEST_EXPECT(ctx, initial.status == EDocumentStructureStatus::unexamined && !initial.succeeded());
+    const CDocumentReport initial;
+    TEST_EXPECT(ctx, initial.state == EDocumentProcessingState::unprocessed && !initial.processing_succeeded());
     TEST_EXPECT(ctx, initial.failure.stage == EDocumentFailureStage::none && initial.failure.reason == EDocumentFailureReason::none);
     const auto absent = document_structure::check(CStringView{});
-    expect_failure(ctx, absent, EDocumentStructureStatus::failed);
-    TEST_EXPECT(ctx, absent.failure.reason == EDocumentFailureReason::invalid_input_view && !absent.failure_point.available);
+    expect_failure(ctx, absent, EDocumentProcessingState::failure);
+    TEST_EXPECT(ctx, absent.failure.reason == EDocumentFailureReason::invalid_input_view && !absent.failure.location.available);
     const char terminator = '\0';
     const CStringView present{ &terminator, 0u };
     CDocumentStructureEstimates estimates;
     const auto empty = document_structure::check(present, &estimates);
-    TEST_EXPECT(ctx, empty.succeeded());
+    TEST_EXPECT(ctx, empty.processing_succeeded());
     TEST_EXPECT(ctx, empty.failure.stage == EDocumentFailureStage::none && empty.failure.reason == EDocumentFailureReason::none);
     TEST_EXPECT(ctx, estimates.value_count == 1u && estimates.object_count == 1u);
     TEST_EXPECT(ctx, estimates.array_count == 0u && estimates.named_entry_count == 0u);
     TEST_EXPECT(ctx, estimates.string_source_byte_size == 0u && estimates.maximum_depth == 1u);
     TEST_EXPECT(ctx, empty.findings == 0u);
-    TEST_EXPECT(ctx, empty.failure.reason == EDocumentFailureReason::none && !empty.failure_point.available);
+    TEST_EXPECT(ctx, empty.failure.reason == EDocumentFailureReason::none && !empty.failure.location.available);
     document_text::CScanner scanner(present);
     const auto end = scanner.next();
     TEST_EXPECT(ctx, end.kind == ETokenKind::end && end.offset == 0u && end.size == 0u);
     TEST_EXPECT(ctx, scanner.findings() == 0u);
     //  The same backing byte, when included in the logical extent, is content.
     const auto nul = document_structure::check(CStringView{ &terminator, 1u }, &estimates);
-    TEST_EXPECT(ctx, nul.succeeded() && nul.findings == (EDocumentFinding::logical_nul | EDocumentFinding::unquoted_strings));
+    TEST_EXPECT(ctx, nul.processing_succeeded() && nul.findings == (EDocumentFinding::logical_nul | EDocumentFinding::unquoted_strings));
     TEST_EXPECT(ctx, estimates.value_count == 2u && estimates.array_count == 1u && estimates.object_count == 0u);
 }
 
 static void test_policy_boundary(TTestContext& ctx)
 {
     const std::string huge(8192u, '9');
-    TEST_EXPECT(ctx, check("{n:" + huge + ",n:-" + huge + ",n:1e+" + huge + ",n:1e-" + huge + "}").succeeded());
-    TEST_EXPECT(ctx, check("{n:0x" + std::string(8192u, 'f') + ",n:0b" + std::string(8192u, '1') + "}").succeeded());
-    TEST_EXPECT(ctx, check("{n:18446744073709551616,n:-9223372036854775809,n:1e99999,n:1e-99999}").succeeded());
+    TEST_EXPECT(ctx, check("{n:" + huge + ",n:-" + huge + ",n:1e+" + huge + ",n:1e-" + huge + "}").processing_succeeded());
+    TEST_EXPECT(ctx, check("{n:0x" + std::string(8192u, 'f') + ",n:0b" + std::string(8192u, '1') + "}").processing_succeeded());
+    TEST_EXPECT(ctx, check("{n:18446744073709551616,n:-9223372036854775809,n:1e99999,n:1e-99999}").processing_succeeded());
     //  Protocol interpretation belongs to parsing, even with duplicate,
     //  unsupported, missing or incorrectly typed metadata fields.
-    TEST_EXPECT(ctx, check("{\"$morphic\":{v:999,v:1,type:false,extra:1,values:null}}").succeeded());
-    TEST_EXPECT(ctx, check("{\"$morphic\":null,\"$morphic\":{},\"$$morphic\":1}").succeeded());
-    TEST_EXPECT(ctx, check("{\"a\":1,\"\\u0061\":2,a:3}").succeeded());
+    TEST_EXPECT(ctx, check("{\"$morphic\":{v:999,v:1,type:false,extra:1,values:null}}").processing_succeeded());
+    TEST_EXPECT(ctx, check("{\"$morphic\":null,\"$morphic\":{},\"$$morphic\":1}").processing_succeeded());
+    TEST_EXPECT(ctx, check("{\"a\":1,\"\\u0061\":2,a:3}").processing_succeeded());
 }
 
 static void test_reports(TTestContext& ctx)
 {
     CDocumentStructureEstimates estimates;
     const auto strict = check("{\"a\":[1,{\"b\":\"x\"}],\"c\":true}", &estimates);
-    TEST_EXPECT(ctx, strict.succeeded());
+    TEST_EXPECT(ctx, strict.processing_succeeded());
+    TEST_EXPECT(ctx, !strict.accepted() && strict.policy.status == EDocumentPolicyStatus::unexamined);
     TEST_EXPECT(ctx, strict.findings == 0u);
-    TEST_EXPECT(ctx, !strict.failure_point.available && strict.failure.reason == EDocumentFailureReason::none);
+    TEST_EXPECT(ctx, !strict.failure.location.available && strict.failure.reason == EDocumentFailureReason::none);
     TEST_EXPECT(ctx, estimates.value_count == 6u);
     TEST_EXPECT(ctx, estimates.object_count == 2u && estimates.array_count == 1u);
     TEST_EXPECT(ctx, estimates.named_entry_count == 3u);
     TEST_EXPECT(ctx, estimates.string_source_byte_size == 12u);
     TEST_EXPECT(ctx, estimates.maximum_depth == 3u);
     const auto relaxed = check("/*c*/ a:'x\ny', b:[+#F,0b1,],");
-    TEST_EXPECT(ctx, relaxed.succeeded());
+    TEST_EXPECT(ctx, relaxed.processing_succeeded());
     TEST_EXPECT(ctx, relaxed.findings == (EDocumentFinding::comments |
         EDocumentFinding::single_quotes | EDocumentFinding::unquoted_names | EDocumentFinding::trailing_commas |
         EDocumentFinding::raw_quoted_line_breaks | EDocumentFinding::implicit_body | EDocumentFinding::explicit_plus |
@@ -207,9 +209,9 @@ static void test_reports(TTestContext& ctx)
     for (const auto& failure : failures)
     {
         const auto report = check(failure.text);
-        expect_failure(ctx, report, EDocumentStructureStatus::failed);
+        expect_failure(ctx, report, EDocumentProcessingState::failure);
         TEST_EXPECT(ctx, report.failure.reason == failure.error);
-        TEST_EXPECT(ctx, report.failure_point.available && report.failure_point.code_point_column_1_based == failure.offset + 1u);
+        TEST_EXPECT(ctx, report.failure.location.available && report.failure.location.code_point_column_1_based == failure.offset + 1u);
     }
 }
 
@@ -228,19 +230,19 @@ static void test_lexical_reuse(TTestContext& ctx)
     for (const auto& item : locations)
     {
         const auto report = check(item.source);
-        TEST_EXPECT(ctx, !report.succeeded());
-        TEST_EXPECT(ctx, report.structure_start.available && report.failure_point.available);
-        TEST_EXPECT(ctx, report.structure_start.line_1_based == 1u && report.failure_point.line_1_based == 1u);
-        TEST_CASE_EXPECT_EQ(ctx, item.source, report.structure_start.code_point_column_1_based, item.start_column);
-        TEST_CASE_EXPECT_EQ(ctx, item.source, report.failure_point.code_point_column_1_based, item.failure_column);
+        TEST_EXPECT(ctx, !report.processing_succeeded());
+        TEST_EXPECT(ctx, report.failure.element_start.available && report.failure.location.available);
+        TEST_EXPECT(ctx, report.failure.element_start.line_1_based == 1u && report.failure.location.line_1_based == 1u);
+        TEST_CASE_EXPECT_EQ(ctx, item.source, report.failure.element_start.code_point_column_1_based, item.start_column);
+        TEST_CASE_EXPECT_EQ(ctx, item.source, report.failure.location.code_point_column_1_based, item.failure_column);
     }
     const std::string multiline = "\xef\xbb\xbf{\r\n\"s\":\"\xc3\xa9\xcc\x81\t\xed\xa0\xbd\xed\xb8\x80\xe2\x80\xa8x";
     const auto linted = text_linter::lint(CByteConstView{ reinterpret_cast<const std::uint8_t*>(multiline.data()), multiline.size() }, k_document_text_lint_line_endings);
     TEST_EXPECT(ctx, linted.report.success);
     const auto unterminated = document_structure::check(CStringView{ linted.output.data(), linted.report.logical_text_byte_size });
     TEST_EXPECT(ctx, unterminated.failure.reason == EDocumentFailureReason::unterminated_string);
-    TEST_EXPECT(ctx, unterminated.structure_start.line_1_based == 2u && unterminated.structure_start.code_point_column_1_based == 5u);
-    TEST_EXPECT(ctx, unterminated.failure_point.line_1_based == 3u && unterminated.failure_point.code_point_column_1_based == 2u);
+    TEST_EXPECT(ctx, unterminated.failure.element_start.line_1_based == 2u && unterminated.failure.element_start.code_point_column_1_based == 5u);
+    TEST_EXPECT(ctx, unterminated.failure.location.line_1_based == 3u && unterminated.failure.location.code_point_column_1_based == 2u);
 
     struct CEscape
     {
@@ -259,7 +261,7 @@ static void test_lexical_reuse(TTestContext& ctx)
         const char quote = (escape.scalar == '"') ? '"' : '\'';
         TEST_EXPECT(ctx, document_text::read_escape(text_view(text), offset, quote, scalar) == EDocumentFailureReason::none);
         TEST_EXPECT(ctx, scalar == escape.scalar && offset == text.size());
-        TEST_EXPECT(ctx, check(std::string("{a:") + quote + text + quote + "}").succeeded());
+        TEST_EXPECT(ctx, check(std::string("{a:") + quote + text + quote + "}").processing_succeeded());
     }
     const std::string text = " /* c */ 'name' : +0xFF, n:1e9999999999999999999999";
     document_text::CScanner scanner(text_view(text));
@@ -299,24 +301,24 @@ static void test_unquoted_boundaries(TTestContext& ctx)
     }
     const auto location = check("{s:\xc3\xa9\\u0020x\"tail\"}");
     TEST_EXPECT(ctx, location.failure.reason == EDocumentFailureReason::missing_separator);
-    TEST_EXPECT(ctx, location.structure_start.available && location.structure_start.code_point_column_1_based == 1u);
-    TEST_EXPECT(ctx, location.failure_point.available && location.failure_point.code_point_column_1_based == 12u);
+    TEST_EXPECT(ctx, location.failure.element_start.available && location.failure.element_start.code_point_column_1_based == 1u);
+    TEST_EXPECT(ctx, location.failure.location.available && location.failure.location.code_point_column_1_based == 12u);
     TEST_EXPECT(ctx, location.findings == (EDocumentFinding::unquoted_names | EDocumentFinding::unquoted_strings));
 
     const auto invalid_escape = check("{s:\xc3\xa9\\q}");
     TEST_EXPECT(ctx, invalid_escape.failure.reason == EDocumentFailureReason::invalid_escape);
-    TEST_EXPECT(ctx, invalid_escape.structure_start.code_point_column_1_based == 4u);
-    TEST_EXPECT(ctx, invalid_escape.failure_point.code_point_column_1_based == 6u);
+    TEST_EXPECT(ctx, invalid_escape.failure.element_start.code_point_column_1_based == 4u);
+    TEST_EXPECT(ctx, invalid_escape.failure.location.code_point_column_1_based == 6u);
 
     CDocumentStructureEstimates estimates;
     const auto report = check("{a\\u0020b:c\\u002Cd}", &estimates);
-    TEST_EXPECT(ctx, report.succeeded());
+    TEST_EXPECT(ctx, report.processing_succeeded());
     TEST_EXPECT(ctx, estimates.named_entry_count == 1u && estimates.value_count == 2u);
     TEST_EXPECT(ctx, estimates.string_source_byte_size == 16u);
     const std::string bounded = "{a:word\\u002Cword}";
     for (std::size_t count = 1u; count < bounded.size(); ++count)
     {
-        TEST_EXPECT(ctx, !document_structure::check(CStringView{ bounded.data(), count }).succeeded());
+        TEST_EXPECT(ctx, !document_structure::check(CStringView{ bounded.data(), count }).processing_succeeded());
     }
 }
 
@@ -327,7 +329,7 @@ static void test_semicolon_comments(TTestContext& ctx)
     for (const char* source : accepted)
     {
         const auto report = check(source);
-        TEST_CASE_EXPECT_TRUE(ctx, source, report.succeeded());
+        TEST_CASE_EXPECT_TRUE(ctx, source, report.processing_succeeded());
         TEST_EXPECT(ctx, report.findings == document_finding_bit(EDocumentFinding::comments));
     }
     const char* const endings[]{ "\n", "\r", "\r\n" };
@@ -337,10 +339,10 @@ static void test_semicolon_comments(TTestContext& ctx)
         const auto missing_linted = text_linter::lint(text_view(missing_source), k_document_text_lint_line_endings);
         TEST_EXPECT(ctx, missing_linted.report.success);
         const auto missing = document_structure::check(CStringView{ missing_linted.output.data(), missing_linted.report.logical_text_byte_size });
-        TEST_EXPECT(ctx, !missing.succeeded() && missing.failure.reason == EDocumentFailureReason::missing_value);
+        TEST_EXPECT(ctx, !missing.processing_succeeded() && missing.failure.reason == EDocumentFailureReason::missing_value);
         TEST_EXPECT(ctx, missing.findings == document_finding_bit(EDocumentFinding::comments));
-        TEST_EXPECT(ctx, missing.failure_point.available && missing.failure_point.line_1_based == 2u &&
-            missing.failure_point.code_point_column_1_based == 3u);
+        TEST_EXPECT(ctx, missing.failure.location.available && missing.failure.location.line_1_based == 2u &&
+            missing.failure.location.code_point_column_1_based == 3u);
 
         const std::string source = std::string(";\"'{}[]:,/* \\q") + ending + "  alpha;beta";
         const auto linted = text_linter::lint(text_view(source), k_document_text_lint_line_endings);
@@ -354,7 +356,7 @@ static void test_semicolon_comments(TTestContext& ctx)
         TEST_EXPECT(ctx, scanner.next().kind == ETokenKind::end);
     }
     const auto embedded = check("{alpha;beta:alpha;beta}");
-    TEST_EXPECT(ctx, embedded.succeeded());
+    TEST_EXPECT(ctx, embedded.processing_succeeded());
     TEST_EXPECT(ctx, embedded.findings == (EDocumentFinding::unquoted_names | EDocumentFinding::unquoted_strings));
 }
 
@@ -369,27 +371,27 @@ static void test_name_line_breaks(TTestContext& ctx)
             const std::string source = std::string("{") + quote + "\xc3\xa9" + escape + "tail" + quote + ":1} /*unexamined*/";
             CDocumentStructureEstimates estimates{ 1u, 1u, 1u, 1u, 1u, 1u };
             const auto report = check(source, &estimates);
-            TEST_CASE_EXPECT_TRUE(ctx, source.c_str(), !report.succeeded() && report.failure.reason == EDocumentFailureReason::newline_in_name);
+            TEST_CASE_EXPECT_TRUE(ctx, source.c_str(), !report.processing_succeeded() && report.failure.reason == EDocumentFailureReason::newline_in_name);
             const std::uint32_t findings = (*quote == '\'') ? document_finding_bit(EDocumentFinding::single_quotes) :
                 (*quote == '\0') ? document_finding_bit(EDocumentFinding::unquoted_names) : 0u;
             TEST_EXPECT(ctx, report.findings == findings);
-            TEST_EXPECT(ctx, report.structure_start.available && report.structure_start.line_1_based == 1u &&
-                report.structure_start.code_point_column_1_based == 2u);
-            TEST_EXPECT(ctx, report.failure_point.available && report.failure_point.line_1_based == 1u &&
-                report.failure_point.code_point_column_1_based == ((*quote == '\0') ? 3u : 4u));
+            TEST_EXPECT(ctx, report.failure.element_start.available && report.failure.element_start.line_1_based == 1u &&
+                report.failure.element_start.code_point_column_1_based == 2u);
+            TEST_EXPECT(ctx, report.failure.location.available && report.failure.location.line_1_based == 1u &&
+                report.failure.location.code_point_column_1_based == ((*quote == '\0') ? 3u : 4u));
             expect_no_estimates(ctx, estimates);
             const auto value = check(std::string("{\"s\":") + quote + "a" + escape + "b" + quote + "}");
-            TEST_EXPECT(ctx, value.succeeded());
+            TEST_EXPECT(ctx, value.processing_succeeded());
             TEST_EXPECT(ctx, (value.findings & document_finding_bit(EDocumentFinding::raw_quoted_line_breaks)) == 0u);
         }
     }
     const auto literal = check("{\"\xc3\xa9\nname\":1}");
     TEST_EXPECT(ctx, literal.failure.reason == EDocumentFailureReason::newline_in_name);
-    TEST_EXPECT(ctx, literal.structure_start.line_1_based == 1u && literal.structure_start.code_point_column_1_based == 2u);
-    TEST_EXPECT(ctx, literal.failure_point.line_1_based == 1u && literal.failure_point.code_point_column_1_based == 4u);
+    TEST_EXPECT(ctx, literal.failure.element_start.line_1_based == 1u && literal.failure.element_start.code_point_column_1_based == 2u);
+    TEST_EXPECT(ctx, literal.failure.location.line_1_based == 1u && literal.failure.location.code_point_column_1_based == 4u);
     TEST_EXPECT(ctx, literal.findings == document_finding_bit(EDocumentFinding::raw_quoted_line_breaks));
-    TEST_EXPECT(ctx, check("{\"a\\tb\\bc\\u0001d\\u0000\":1}").succeeded());
-    TEST_EXPECT(ctx, check("{\"a\\\\nb\":1}").succeeded());
+    TEST_EXPECT(ctx, check("{\"a\\tb\\bc\\u0001d\\u0000\":1}").processing_succeeded());
+    TEST_EXPECT(ctx, check("{\"a\\\\nb\":1}").processing_succeeded());
 
     const std::string source = "\"a\nb\" \"a\\nb\" 'plain' a\\nb";
     document_text::CScanner scanner(text_view(source));
@@ -439,14 +441,14 @@ static void test_root_inference(TTestContext& ctx)
     {
         CDocumentStructureEstimates estimates;
         const auto report = check(item.source, &estimates);
-        TEST_CASE_EXPECT_TRUE(ctx, item.source, report.succeeded());
+        TEST_CASE_EXPECT_TRUE(ctx, item.source, report.processing_succeeded());
         TEST_CASE_EXPECT_EQ(ctx, item.source, report.findings, item.findings);
         TEST_EXPECT(ctx, estimates.value_count == item.children + 1u);
         TEST_EXPECT(ctx, estimates.object_count == (item.object ? 1u : 0u));
         TEST_EXPECT(ctx, estimates.array_count == (item.object ? 0u : 1u));
         TEST_EXPECT(ctx, estimates.named_entry_count == (item.object ? item.children : 0u));
         TEST_EXPECT(ctx, estimates.maximum_depth == 1u);
-        TEST_EXPECT(ctx, !report.structure_start.available && !report.failure_point.available);
+        TEST_EXPECT(ctx, !report.failure.element_start.available && !report.failure.location.available);
     }
     struct CFailure
     {
@@ -471,9 +473,9 @@ static void test_root_inference(TTestContext& ctx)
     {
         CDocumentStructureEstimates estimates{ 1u, 1u, 1u, 1u, 1u, 1u };
         const auto report = check(item.source, &estimates);
-        TEST_CASE_EXPECT_TRUE(ctx, item.source, !report.succeeded() && report.failure.reason == item.error);
-        TEST_CASE_EXPECT_EQ(ctx, item.source, report.structure_start.code_point_column_1_based, item.start_column);
-        TEST_CASE_EXPECT_EQ(ctx, item.source, report.failure_point.code_point_column_1_based, item.failure_column);
+        TEST_CASE_EXPECT_TRUE(ctx, item.source, !report.processing_succeeded() && report.failure.reason == item.error);
+        TEST_CASE_EXPECT_EQ(ctx, item.source, report.failure.element_start.code_point_column_1_based, item.start_column);
+        TEST_CASE_EXPECT_EQ(ctx, item.source, report.failure.location.code_point_column_1_based, item.failure_column);
         expect_no_estimates(ctx, estimates);
     }
     //  Root lookahead must not publish observations beyond a failing first name.
@@ -481,11 +483,11 @@ static void test_root_inference(TTestContext& ctx)
     TEST_EXPECT(ctx, partial.failure.reason == EDocumentFailureReason::newline_in_name);
     TEST_EXPECT(ctx, partial.findings == document_finding_bit(EDocumentFinding::implicit_body));
     const auto nested = check("1,{\"a\":[2]}");
-    TEST_EXPECT(ctx, nested.succeeded() && nested.findings == document_finding_bit(EDocumentFinding::implicit_body));
+    TEST_EXPECT(ctx, nested.processing_succeeded() && nested.findings == document_finding_bit(EDocumentFinding::implicit_body));
     const auto location = check(" ;head\n \xc3\xa9 \"tail\"");
     TEST_EXPECT(ctx, location.failure.reason == EDocumentFailureReason::missing_separator);
-    TEST_EXPECT(ctx, location.structure_start.line_1_based == 1u && location.structure_start.code_point_column_1_based == 1u);
-    TEST_EXPECT(ctx, location.failure_point.line_1_based == 2u && location.failure_point.code_point_column_1_based == 4u);
+    TEST_EXPECT(ctx, location.failure.element_start.line_1_based == 1u && location.failure.element_start.code_point_column_1_based == 1u);
+    TEST_EXPECT(ctx, location.failure.location.line_1_based == 2u && location.failure.location.code_point_column_1_based == 4u);
 }
 
 static void test_ingestion_and_bounds(TTestContext& ctx)
@@ -494,12 +496,12 @@ static void test_ingestion_and_bounds(TTestContext& ctx)
     const auto linted = text_linter::lint(CByteConstView{ input, sizeof(input) }, k_document_text_lint_line_endings);
     TEST_EXPECT(ctx, linted.report.success && linted.report.recovered_as_cp1252);
     const auto report = document_structure::check(CStringView{ linted.output.data(), linted.report.logical_text_byte_size });
-    TEST_EXPECT(ctx, report.succeeded());
+    TEST_EXPECT(ctx, report.processing_succeeded());
     TEST_EXPECT(ctx, report.findings == document_finding_bit(EDocumentFinding::logical_nul));
     //  An included physical terminator is not silently stripped by checking.
-    expect_failure(ctx, document_structure::check(CStringView{ linted.output.data(), linted.output.size() }), EDocumentStructureStatus::failed);
+    expect_failure(ctx, document_structure::check(CStringView{ linted.output.data(), linted.output.size() }), EDocumentProcessingState::failure);
     const std::string embedded = std::string("{a:1,") + '\0' + "b:2}";
-    TEST_EXPECT(ctx, check(embedded).succeeded());
+    TEST_EXPECT(ctx, check(embedded).processing_succeeded());
     TEST_EXPECT(ctx, check(embedded).findings == (EDocumentFinding::unquoted_names | EDocumentFinding::logical_nul));
     const char* const samples[]{ "{a:'\\uD834\\uDD1E',b:0x123}", "{a:1e-123}", "{a:1/*comment*/}", "{a:'\"'}" };
     for (const char* sample : samples)
@@ -508,8 +510,8 @@ static void test_ingestion_and_bounds(TTestContext& ctx)
         for (std::size_t n = 1u; n < text.size(); ++n)
         {
             const auto prefix = document_structure::check(CStringView{ text.data(), n });
-            TEST_EXPECT(ctx, !prefix.succeeded());
-            TEST_EXPECT(ctx, prefix.failure_point.available);
+            TEST_EXPECT(ctx, !prefix.processing_succeeded());
+            TEST_EXPECT(ctx, prefix.failure.location.available);
         }
     }
 }
@@ -544,7 +546,7 @@ static void test_depth_and_resources(TTestContext& ctx)
             tests::TMemoryContextScope scope{ &context };
             CDocumentStructureEstimates estimates{ 1u, 1u, 1u, 1u, 1u, 1u };
             const auto report = check(text, &estimates);
-            completed = report.succeeded();
+            completed = report.processing_succeeded();
             if (completed)
             {
                 TEST_EXPECT(ctx, estimates.maximum_depth == depth + 1u);
@@ -552,7 +554,7 @@ static void test_depth_and_resources(TTestContext& ctx)
             }
             else
             {
-                expect_failure(ctx, report, EDocumentStructureStatus::failed);
+                expect_failure(ctx, report, EDocumentProcessingState::failure);
                 TEST_EXPECT(ctx, report.failure.reason == EDocumentFailureReason::allocation_failed);
                 TEST_EXPECT(ctx, report.findings == ((fail_on == 0u) ? 0u :
                     (EDocumentFinding::implicit_body | EDocumentFinding::unquoted_names)));
@@ -562,7 +564,7 @@ static void test_depth_and_resources(TTestContext& ctx)
         TEST_EXPECT(ctx, context.is_attribution_empty());
     }
     TEST_EXPECT(ctx, completed);
-    expect_failure(ctx, check(text.substr(0u, text.size() - 1u)), EDocumentStructureStatus::failed);
+    expect_failure(ctx, check(text.substr(0u, text.size() - 1u)), EDocumentProcessingState::failure);
 
     //  Token scanning allocates nothing, and flat input needs only the root
     //  frame regardless of the number of names or the length of its numbers.
@@ -584,7 +586,7 @@ static void test_depth_and_resources(TTestContext& ctx)
         }
         TEST_EXPECT(ctx, kind == ETokenKind::end);
         TEST_EXPECT(ctx, fixture.attempts == 0u);
-        TEST_EXPECT(ctx, check(flat).succeeded());
+        TEST_EXPECT(ctx, check(flat).processing_succeeded());
         TEST_EXPECT(ctx, fixture.attempts == 1u);
     }
     TEST_EXPECT(ctx, context.is_attribution_empty());
@@ -612,7 +614,7 @@ static void test_writer_compatibility(TTestContext& ctx)
             const auto written = document_writer::write(baked.document(), options);
             TEST_EXPECT(ctx, written.report.succeeded());
             const auto report = document_structure::check(CStringView{ written.output.data(), written.report.logical_text_byte_size });
-            TEST_EXPECT(ctx, report.succeeded() && ((report.findings & document_findings::k_relaxed) == 0u));
+            TEST_EXPECT(ctx, report.processing_succeeded() && ((report.findings & document_findings::k_relaxed) == 0u));
             TEST_EXPECT(ctx, (report.findings & document_findings::k_morphic) == ((mode == EDocumentWriteMode::morphic) ? document_finding_bit(EDocumentFinding::explicit_plus) : 0u));
         }
     }

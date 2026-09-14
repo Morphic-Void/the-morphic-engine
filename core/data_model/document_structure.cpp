@@ -8,6 +8,8 @@
 
 #include "data_model/document_structure.hpp"
 
+#include "data_model/document_text_lex.hpp"
+
 #include "containers/TPodVector.hpp"
 
 namespace document_structure
@@ -35,7 +37,7 @@ class CCheck
 {
 public:
     explicit CCheck(const CStringView& source) noexcept : m_scanner(source) {}
-    [[nodiscard]] CDocumentStructureReport run(CDocumentStructureEstimates* const estimates) noexcept;
+    [[nodiscard]] CDocumentReport run(CDocumentStructureEstimates* const estimates) noexcept;
 
 private:
     void advance() noexcept;
@@ -47,30 +49,30 @@ private:
     document_text::CScanner m_scanner;
     CToken m_token;
     TPodVector<CFrame> m_frames;
-    CDocumentStructureReport m_report;
+    CDocumentReport m_report;
     CDocumentStructureEstimates m_estimates;
     std::size_t m_root_value_count{ 0u };
 };
 
 void CCheck::fail(const EDocumentFailureReason reason) noexcept
 {
-    if (m_report.succeeded())
+    if (m_report.processing_succeeded())
     {
-        m_report.status = EDocumentStructureStatus::failed;
+        m_report.state = EDocumentProcessingState::failure;
         m_report.failure = { EDocumentFailureStage::structure, reason };
-        m_report.failure_point = m_token.location;
-        m_report.structure_start = m_token.location;
+        m_report.failure.location = m_token.location;
+        m_report.failure.element_start = m_token.location;
         if (m_token.kind == ETokenKind::error)
         {
-            m_report.failure_point = m_token.failure_point;
+            m_report.failure.location = m_token.failure_point;
         }
         else if (!m_frames.is_empty())
         {
             const CFrame& frame = m_frames.last();
-            m_report.structure_start = frame.start;
+            m_report.failure.element_start = frame.start;
             if ((frame.state == EState::colon) || (frame.state == EState::value))
             {
-                m_report.structure_start = frame.member_start;
+                m_report.failure.element_start = frame.member_start;
             }
         }
     }
@@ -155,7 +157,7 @@ void CCheck::value() noexcept
         m_report.findings |= document_finding_bit(EDocumentFinding::implicit_body);
     }
     m_report.findings |= m_token.value_findings;
-    if (m_report.succeeded())
+    if (m_report.processing_succeeded())
     {
         advance();
     }
@@ -221,8 +223,8 @@ void CCheck::step() noexcept
             if (m_token.first_line_break.available)
             {
                 fail(EDocumentFailureReason::newline_in_name);
-                m_report.structure_start = m_token.location;
-                m_report.failure_point = m_token.first_line_break;
+                m_report.failure.element_start = m_token.location;
+                m_report.failure.location = m_token.first_line_break;
                 return;
             }
             ++m_estimates.named_entry_count;
@@ -267,36 +269,36 @@ void CCheck::step() noexcept
     }
 }
 
-CDocumentStructureReport CCheck::run(CDocumentStructureEstimates* const estimates) noexcept
+CDocumentReport CCheck::run(CDocumentStructureEstimates* const estimates) noexcept
 {
-    m_report.status = EDocumentStructureStatus::success;
+    m_report.state = EDocumentProcessingState::success;
     advance();
-    if (m_report.succeeded())
+    if (m_report.processing_succeeded())
     {
         const document_text::CRootForm root = document_text::select_root(m_token, m_scanner);
         push(root.object, root.implicit);
-        if (root.implicit && m_report.succeeded())
+        if (root.implicit && m_report.processing_succeeded())
         {
             if (root.object && (m_token.kind != ETokenKind::end))
             {
                 m_report.findings |= document_finding_bit(EDocumentFinding::implicit_body);
             }
         }
-        else if (m_report.succeeded())
+        else if (m_report.processing_succeeded())
         {
             advance();
         }
     }
-    while (m_report.succeeded() && !m_frames.is_empty())
+    while (m_report.processing_succeeded() && !m_frames.is_empty())
     {
         step();
     }
-    if (m_report.succeeded() && (m_token.kind != ETokenKind::end))
+    if (m_report.processing_succeeded() && (m_token.kind != ETokenKind::end))
     {
         fail(EDocumentFailureReason::trailing_content);
     }
     m_report.findings |= m_scanner.findings();
-    if (m_report.succeeded() && (estimates != nullptr))
+    if (m_report.processing_succeeded() && (estimates != nullptr))
     {
         *estimates = m_estimates;
     }
@@ -305,7 +307,7 @@ CDocumentStructureReport CCheck::run(CDocumentStructureEstimates* const estimate
 
 }   //  namespace structure_util
 
-CDocumentStructureReport check(const CStringView& source, CDocumentStructureEstimates* const estimates) noexcept
+CDocumentReport check(const CStringView& source, CDocumentStructureEstimates* const estimates) noexcept
 {
     if (estimates != nullptr)
     {
@@ -313,8 +315,8 @@ CDocumentStructureReport check(const CStringView& source, CDocumentStructureEsti
     }
     if (source.empty())
     {
-        CDocumentStructureReport report;
-        report.status = EDocumentStructureStatus::failed;
+        CDocumentReport report;
+        report.state = EDocumentProcessingState::failure;
         report.failure = { EDocumentFailureStage::structure, EDocumentFailureReason::invalid_input_view };
         return report;
     }

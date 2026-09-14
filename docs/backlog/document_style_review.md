@@ -1,10 +1,11 @@
 # Document style review
 
-Updated 13 September 2026. Follow-up to the parameter const pass committed as
-`8d5ca1d`. The user's manual formatting edits are retained in the working tree.
-The changes below are uncommitted and await user and coordinator review.
+Updated 14 September 2026. Follow-up to the parameter const pass committed as
+`8d5ca1d`. The style checkpoint, including the user's manual formatting edits,
+was reviewed and committed as `ab3d81f`. The parser/report follow-up below is
+implemented and awaits user and coordinator review.
 
-Validation: Debug and Release builds and all ordinary test suites pass on x64
+Style checkpoint validation: Debug and Release builds and all ordinary test suites pass on x64
 and Win32. Each configuration passes 18,079 parser, 1,247 structure, 10,539
 writer, 1,216 baked-document and 213 baked-transfer checks. Live-document checks
 pass at 4,426 in Debug and 4,436 in Release, including the expanded signed-width
@@ -52,21 +53,25 @@ parser/report review.
 
 ## Parser and structural report discussion
 
-Items 3 and 4 are being evaluated together. They remain design questions,
-not approved API changes.
+Items 3 and 4 have been addressed together in the current follow-up:
 
-The agreed direction is to separate concerns and represent each consistently:
-one shared processing-state vocabulary, one accumulated findings value, one
-terminal diagnosis with locations, and an independent policy result. Structural
-checking should contribute to the pipeline report without retaining duplicate
-diagnoses or findings inside an embedded report. Reuse representations where
-distinct types provide no useful type strictness. The numerical values and
-signedness of processing states remain undecided; the negative/zero/positive
-example was illustrative, not a specification.
+- `CDocumentReport` is shared by structural checking and parsing. Its processing
+  state uses `std::int8_t` with failure = -1, unprocessed = 0 and success = 1.
+- One terminal diagnosis groups stage, reason, detection location and optional
+  element start. Findings accumulate once; policy remains independent. No
+  embedded structural or linter report duplicates those fields.
+- The sole public parser entry point takes `CByteConstView` and always performs
+  linting, structural checking, construction and final policy evaluation.
+  Zero-length input, including a default byte view, means empty document text;
+  internal `CStringView` retains the distinction between empty and absent.
+- An optional output parameter receives the full linter report on every
+  outcome. The standalone linter interface is unchanged.
+- Parser usage and diagnostic documentation is in the header's top-of-file
+  comments. The structural checker remains independently usable and retains
+  its own header; the two estimate comments are now inline.
 
-The current style changes form a proposed commit checkpoint before experiments
-with report composition and public entry points. No such API changes are
-included in this checkpoint.
+See [the implementation checkpoint](parser_refactoring_specification.md#913-shared-report-and-byte-input-parsing)
+for validation and scope. Original observations:
 
 - **Item 3:** Improve `document_parser.hpp` readability: move extensive comments into the
    file header or external documentation; reconsider report naming, whitespace

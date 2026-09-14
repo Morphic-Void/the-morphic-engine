@@ -4,7 +4,7 @@ License: MIT (see LICENSE file in repository root)
 File:   revised_data_model.md
 Author: Ritchie Brannan
 Drafting and editorial assistance: OpenAI Codex
-Date:   12 Sep 2026
+Date:   14 Sep 2026
 
 # Data-model semantic specification
 
@@ -16,13 +16,11 @@ defines the abstract model, public operations, integrity boundaries and
 ownership rules. Requirements expressed with **must**, **must not** and
 **only** are normative.
 
-This records the implemented document model and parser migration, including
-shared diagnostics, native empty names, root kinds, newline metadata, caller
-policy and ordinary collision arrays. Recovery retirement is reviewed and
-committed as `db85f31`, completing functional implementation under the
-[refactor specification](../backlog/parser_refactoring_specification.md). The public ownership-transfer boundary remains
-under review in the [consolidation plan](../backlog/consolidation_pass.md).
-The current behaviour specified here changes as each replacement is implemented.
+This records the current document model: shared diagnostics, native empty names,
+object/array roots, newline metadata, caller policy and ordinary collision arrays.
+The text and parser contracts are defined in [the text format](document_text_format.md)
+and [parsing and reporting](document_parsing.md). See the
+[documentation index](README.md) for the division of responsibilities.
 
 Implementation rationale belongs in
 [design notes](data_model_design_notes.md). Completed implementation history
@@ -163,7 +161,7 @@ tree.
 
 The live document exposes each string domain's ID at a requested lexical rank.
 Rank zero is the canonical empty ID; an unavailable rank is invalid. These
-observations permit deterministic public-only baking and serialization without
+observations permit deterministic public-only baking and serialisation without
 exposing the underlying stable stores.
 
 Each string value independently carries newline-escaping suppression, queried
@@ -186,7 +184,7 @@ An integer records:
 
 Width is derived from the value and domain. Unsigned values have no sign.
 Signed negative values use `-`; signed non-negative values use `+`. Hexadecimal
-uses normalized `0x` or alternate `#`. Binary uses normalized `0b` and has no
+uses normalised `0x` or alternate `#`. Binary uses normalised `0b` and has no
 alternate prefix.
 
 The validated width is stored and directly queryable in both live and baked
@@ -217,7 +215,7 @@ Attachment validates before changing topology that:
 - supplied keys resolve locally to the required roles;
 - the candidate is detached;
 - the destination accepts the candidate's name form;
-- an object destination has no child with the same normalized name;
+- an object destination has no child with the same normalised name;
 - an optional insertion position belongs to the destination; and
 - the attachment cannot create a cycle.
 
@@ -444,9 +442,9 @@ typed scalar payloads and integer metadata, parent and sibling relationships,
 child ranges, ordinal array access and object-child lookup. The retired recovery
 kind has no public query or stored summary state.
 
-The replacement byte format is intentionally incompatible with archived
-formats. Once its version is selected, validators must reject unsupported
-versions rather than infer or silently migrate them.
+The current version 3 byte format is intentionally incompatible with earlier
+versions. Validators reject unsupported versions rather than infer or silently
+migrate them.
 
 ## Promotion
 
@@ -460,321 +458,42 @@ history.
 
 ## Text ingestion and parsing
 
-Stage 1 of the [refactor specification](../backlog/parser_refactoring_specification.md)
-has completed implementation and review of the linter and shared locations.
-Stage 2 implements the model infrastructure described above, shared grammar
-and findings, terminal diagnostics, late caller-policy acceptance and ordinary
-collision arrays. Recovery types, protocol handling and obsolete counters are
-removed, and the final retirement slice is reviewed and committed. The stages
-are linting, structural checking, relaxed document parsing and
-final policy evaluation. There is no separate strict parser; feature exclusions
-do not change processing, and the conservative default rejects relaxed findings
-only after construction succeeds.
-Reports identify the relaxed features required for acceptance and the
-Morphic-specific features interpreted, separately from ingestion transformations.
-Former recovery-wrapper shapes and dollar-prefixed names are ordinary data.
+The complete [text format](document_text_format.md) defines source encoding,
+line endings, grammar, root inference, string escapes, numeric classification,
+NUL provenance, collision interpretation and text round trips.
+[Parsing and reporting](document_parsing.md) defines the byte-view entry point,
+shared report, diagnostic locations, findings and caller policy.
 
-The linter converts defined CP1252 input, exact modified NUL and valid CESU-8
-surrogate pairs to canonical UTF-8 using SuiteUTF. Undefined CP1252 bytes fail
-without replacement. A recognized leading BOM prevents CP1252 fallback.
-Malformed CESU forms are not accepted as compatibility UTF-8; unmarked input
-may instead select the separately reported CP1252 path. Source findings retain
-that adopted interpretation and useful UTF decoder evidence separately from
-terminal failure. A successful fallback has no `first_failure`.
-A parser consumes successfully produced UTF-8;
-it must not decode CP1252 itself or silently accept unconverted CP1252 bytes.
-
-Embedded literal zero bytes are accepted content, not unrecoverable encoding
-errors. The linter explicitly counts them separately from source terminators
-and modified-NUL sequences. Its length-bounded UTF-8 output may contain literal
-U+0000; accepted `C0 80` input is normalized to that scalar and reported.
-Document ingestion normalizes LF, CR, CRLF, LFCR, VT, FF, NEL, LS and PS to LF,
-recognizing compound forms first. This applies equally inside quotes and
-comments: the linter has no syntax awareness and leaves escape spellings alone.
-Generic lint callers retain the existing default mask (LF, CR and CRLF) and
-may select another mask, including zero to preserve all newline spellings.
-
-`CTextLocation` is shared by linter, structural and parser diagnostics. Its
-`available` state is explicit; line and code-point column are 1-based in the
-emitted UTF-8, excluding the physical terminator. Only emitted LF advances the
-line; tabs and combining marks each count once, as does a supplementary scalar.
-Byte offsets remain private scanning details. Generic callers preserving other
-line endings still use this LF-based coordinate rule; their aggregate line
-metrics continue to follow their selected normalization mask.
-
-Linter statistics remain: input/output byte sizes, line/content metrics, literal
-and modified-NUL counts, terminal-zero counts and CP1252 evidence. CESU pairs
-have a separate occurrence count. `source_findings` records source encoding,
-raw-byte observations and decoder issues in separate contiguous categories;
-`encountered_line_endings` and `normalised_line_endings` retain per-form masks.
-A CESU pair contributes one decoded scalar to both code-point totals and six
-source bytes versus four output bytes. Failed attempts do not contaminate the
-adopted decoding path. Raw-byte observations are collected over the bounded
-payload before decoding; decoding statistics describe the processed prefix.
-The retained CP1252 replacement counter is always zero.
-
-`first_failure` now identifies terminal failure only, with a specific reason,
-SuiteUTF decoder bits where applicable, output-relative location and explicit
-`before_output`. The prospective cursor survives disposal of partial output;
-a first decoding failure uses (1, 1). Invalid views and input limits can have
-unavailable locations. `utf8_attempt_errors` keeps abandoned decoder evidence
-without publishing an abandoned attempt's location. Present empty input succeeds
-and does not claim failure before output.
-Use the `CStringView` overload of `lint` or `ingest` for present zero-length
-text; `CByteConstView` itself cannot represent a present empty range. Both
-overloads enter the same decoding and diagnostic implementation directly,
-without converting between byte and string views. A null byte or string view
-is absent input and reports `invalid_input_view`; a present zero-length string
-view succeeds. Internally, the linter owns its result and attempt state, and a
-source cursor carries the buffer, bounded length and current decoding offset.
-
-Every logical NUL entering a live name or string value, whether from literal
-source content or an escape such as `\u0000`, uses `C0 80` through ordinary
-string admission. Physical terminal NULs in live and baked strings are
-unchanged. The writer emits logical NULs as `\u0000` and counts occurrences.
-
-The structural check establishes that the text is well formed under the
-accepted grammar: quoted and escaped spans, valid token spellings, matching
-delimiters, and valid placement of names, values and separators. It tracks
-nesting and may provide proportionate capacity estimates without constructing
-a document or a full token tree. Where practical, it shares the functions
-interpreting quotes, escapes, comments, token boundaries and relaxed syntax
-with parsing. Traversal and parsing are iterative and use framework allocation.
-
-Success means that the text is structurally valid and its data has parseable
-syntax; it does not guarantee that document parsing will succeed. The check
-assumes numeric values can be represented, object-name collisions can be
-handled, and document-construction allocations will succeed. It does not
-convert numbers to enforce available numeric ranges, resolve collisions,
-preflight construction allocations, or enforce other construction policies.
-For example, an incomplete exponent such as `1e+` is now an unquoted string
-candidate, while a well-spelled number outside the available numeric range is
-not a structural flaw.
-Numeric conversion and collision handling belong to parsing. Capacity estimates are hints, not feasibility guarantees.
-If the structural check itself cannot complete because of a resource limit
-or allocation failure, it reports that failure separately from malformed text.
+The model-level contract is that parsing constructs privately and publishes
+only after processing succeeds and policy accepts. Failures and rejections
+preserve the destination. Empty byte input constructs an object; scalar input
+constructs an array containing that value. Every logical NUL enters canonical
+string storage, names retain presence independently of their length, and
+duplicate members use the public collision-extension rules.
 
 ### Shared findings and policy definitions
 
-The interface-preparation slice in `document_findings.hpp` defines a shared
-32-bit findings mask using `std::uint32_t` directly, caller permissions and a
-feature-policy evaluator. `EDocumentFinding` also has a `std::uint32_t` underlying type.
-Source observations retain the linter bit identities. Source observations,
-relaxed syntax, Morphic extensions and semantic observations occupy separate
-contiguous groups. Terminal failure is represented separately by
-`CDocumentFailure`, with one enumerated reason and responsible stage; subsequent
-failures must not replace the root reason. Detailed linter evidence and statistics
-remain available in the existing report. `document_findings::from_source`
-excludes the explicitly reserved `reserved_undefined_cp1252_byte` bit when
-importing observations. This reservation matches the linter's existing
-`ETextSourceFinding::undefined_cp1252_byte` flag at bit 9.
-
-The evaluator considers only acceptance-relevant source and syntax findings;
-informational findings are not permissions. Invalid policy bits
-are explicitly reported. The default permits ordinary UTF-8, modified NUL,
-CESU pairs and CP1252, plus all Morphic extensions: explicit positive numeric
-signs, binary and hexadecimal (including the alternate `#` prefix). Single quotes
-are relaxed syntax and remain excluded by default.
-Encoding permissions do not enable relaxed syntax or raw controls. ASCII
-Unicode escape spellings remain ASCII source, and CP1252 conversion retains
-its source finding.
-
-`implicit_body` identifies a non-empty root object without braces or multiple
-top-level values without brackets. The constructed document exposes its root
-type, so findings do not repeat that information. Empty input and a single scalar
-retain their agreed default acceptance and do not set this relaxed-syntax flag.
-The adjacent hexadecimal flags distinguish base notation (`0x`/`0X` or `#`)
-from the additional alternate-prefix permission needed for `#`; both permissions
-are included in the default Morphic allowance. Named inclusive start/end aliases
-in `EDocumentFinding` define the boundaries used to derive each category mask.
-
-The scanner and structural report now use the shared findings directly, and the
-parser report composes observations from each examined stage. Partial findings
-survive failure, and capacity estimates are separate from diagnostics. Parser
-coverage distinguishes an unexamined stage, failed construction and completed
-construction. The entry points use the shared grammar described below. Both reports carry `CDocumentFailure`.
-Parser entry points accept `CDocumentParseOptions` and apply the evaluator only
-after successful private construction, before publication. The report's `policy`
-records accepted, rejected or invalid options; it remains unexamined on processing
-failure. Unknown option bits are diagnosed at this same late boundary, so they
-cannot hide a processing failure. A standalone feature-policy evaluation alone
-is not parsing success.
+The [findings inventory](document_parsing.md#findings-inventory) and
+[acceptance policy](document_parsing.md#acceptance-policy) define every shared
+observation and permission. One processing state and terminal diagnosis remain
+independent of accumulated findings and final policy acceptance.
 
 ### Current shared text grammar
 
-`document_text_lex.hpp/.cpp` supplies bounded tokens and escape decoding for
-the structural check and subsequent parser. `document_structure.hpp/.cpp`
-checks the grammar with an iterative frame vector and no document or token
-tree. Input is the linter's successful UTF-8 output with its explicit logical
-length; encoding validation/conversion remains at the linter boundary.
-The check and scanner consume `CStringView` with an explicit length, preserving
-embedded NULs. An absent string is invalid input; a present zero-length string
-is valid empty text. Construct the view directly from the linter's output
-pointer and logical byte size so this distinction is retained.
-
-The root is an anonymous object or array. After leading trivia, `{` and `[`
-select explicit roots. Otherwise a name token followed by a structural colon
-selects an implicit object body; other non-empty input selects an implicit
-array body. Empty or comment-only text produces an empty object. The shared
-`select_root` helper probes a scanner copy, leaving the active cursor and its
-findings unchanged. Numeric/keyword spelling alone does not imply a name, and
-escaped colons remain content.
-
-For example, `123: true` produces an object, `123` produces `[123]`, and
-`1,true,"hello"` produces an array with three elements. A single scalar has
-no implicit-body finding; multiple unbracketed values or a non-empty unbraced
-object do. Other source features retain their own findings. Once an explicit
-root is selected, trailing content cannot reinterpret it as an array element.
-Names in arrays require object wrappers; `[name: 1]` is invalid.
-
-The implemented token grammar accepts:
-
-- JSON object/array/member placement, case-sensitive `true`, `false` and `null`,
-  and complete JSON decimal number spelling, with no range conversion. Numeric
-  classification requires digits on both sides of a decimal point, exponent
-  digits and no leading zero in a multi-digit decimal integer. Candidates that
-  fail these spelling rules are unquoted strings rather than numeric errors.
-- `;` and `//` line comments, and non-nesting `/* ... */` comments.
-  Comments are recognized only before a token starts. Inside an already-started
-  unquoted token, `//` and `/*` are literal content. Whitespace is space, tab,
-  CR or LF.
-- Single-quoted strings as well as double-quoted strings. Both support JSON
-  non-quote escapes and paired UTF-16 surrogate escapes. The quote roles are
-  exchanged: `\'` escapes the delimiter in single-quoted strings, while `\"`
-  escapes it in double-quoted strings and unquoted JSON escapes. The other quote
-  is plain content; its backslash escape is not accepted in that quoted mode.
-  Unknown escapes and unpaired surrogate escapes are syntax errors.
-  Literal controls, including NUL and line breaks, are accepted quoted content.
-  Raw line breaks and other raw controls have separate relaxed findings; NUL is
-  informational, including when decoded from an escape. Delimiters/comment
-  markers inside quotes are content. Quoted Unicode content is preserved.
-- Unquoted names and string values end at unescaped JSON structural punctuation,
-  double quote or JSON whitespace. Standard JSON escapes protect decoded
-  delimiters and whitespace; an apostrophe inside an already-started candidate
-  is ordinary content. No extra short punctuation escapes are added.
-- In value position, exact source keywords and complete numeric spellings retain
-  their types. Other candidates are strings. Classification precedes escape
-  decoding, so `tr\u0075e` and `\u0031` construct strings, not a boolean or number.
-  Names always remain strings, including numeric- and keyword-looking names.
-  Unquoted names and unquoted values have distinct relaxed findings.
-- One trailing comma after a member or array element, including at the end
-  of an unbraced root. Missing values and repeated commas are errors.
-- Morphic leading `+`, hexadecimal `0x`/`0X` or `#`, and binary `0b`/`0B` integer
-  spellings, with an optional sign before the prefix. Base-prefixed numbers
-  require digits and do not have fractions/exponents. `NaN`, `Infinity`, digit
-  separators and malformed numeric candidates are unquoted strings.
-
-Structural reports hold one `findings` mask with shared category identities;
-the old `ERelaxation` and `ENumericExtension` definitions are removed. Findings
-accumulate during checking and survive syntax or resource failure. Numeric
-spelling is recorded only for a complete valid token consumed as a value,
-including both hexadecimal bits for `#`; a numeric-looking name does not acquire
-numeric findings. The scanner retains context-independent observations while
-`CToken::value_findings` supplies observations applied only in value position. Empty or comment-only text has no implicit-body finding,
-and a quoted empty member name is an informational observation.
-
-Optional `CDocumentStructureEstimates` are returned separately through
-`document_structure::check(source, &estimates)`. They count values, objects,
-arrays, names, raw string/name token bytes and maximum container depth (root is
-depth one), before semantic normalization. They are hints rather than exact
-construction requirements. The output is reset on entry and published only on
-success; public parser diagnostics no longer contain capacity estimates.
-
-Structural status is `unexamined`, `success` or `failed`. The separate `failure`
-field carries the structure stage and one `EDocumentFailureReason`, covering
-syntax, input, resource and internal failures. The lexer uses this reason type
-directly; the separate `ESyntaxError` enum and `syntax_error` field are removed.
-Failures retain shared `structure_start` and `failure_point`
-locations. The first identifies the immediately malformed element; the second
-identifies detection or the EOF cursor. Success leaves both unavailable. The
-stage status is `unexamined` until invoked, distinguishing skipped structure
-after a linter failure from successful or failed checking. Only success denotes
-complete findings coverage; absent bits in a partial scan do not prove absence.
-For a newline in a name, structure start identifies the name token and failure
-point identifies its first literal break or the backslash of its first escaped
-break. `CToken::first_line_break` retains decoded-content evidence independently
-of its per-token `literal_line_break` writing observation.
+The [text grammar](document_text_format.md#containers-and-root-selection)
+defines supported syntax independently of permission. The
+[standalone structural checker](document_parsing.md#standalone-structural-checking-and-linting)
+checks syntax without guaranteeing numeric representability or construction
+feasibility; optional capacity estimates remain separate from diagnostics.
 
 ### Live construction and interpretation
 
-`document_parser::parse` in `document_parser.hpp/.cpp` takes a bounded
-`CStringView` of successfully linted UTF-8, a live destination and optional
-`CDocumentParseOptions`. It performs the shared structural check, constructs
-privately through public live operations and publishes by move only after
-construction and policy acceptance.
-Failure, policy rejection or invalid options leave the existing destination
-unchanged. Present empty input constructs an empty root object;
-absent input fails. Input may refer to the destination's existing string
-storage, which remains alive until publication.
-
-`document_parser::ingest(source, destination, options)` takes bounded source bytes,
-calls the linter with `k_document_text_lint_line_endings`, and parses only its
-successful output. It retains `CDocumentParseReport::linter` and sets
-`linter_examined`. A linter failure uses status `failed` with the linter stage, copies its
-location unchanged to `failure_point`, leaves `structure_start` unavailable and
-leaves structure `unexamined`. Every operation constructs a fresh report, so
-reuse cannot retain old structural locations. The destination is preserved on
-failure or rejection, including when source aliases its existing string storage.
-
-Low-level callers may still lint separately and pass `output.data()` with
-`report.logical_text_byte_size` to `parse`; source findings then remain in their
-separate linter report. `parse` itself leaves `linter_examined` false and evaluates
-only structural and parser findings. Use `ingest` to enforce source-encoding
-permissions: the original encoding cannot be recovered from normalized UTF-8.
-The parser decodes quoted and unquoted escapes, including
-surrogate pairs and logical NULs, and uses ordinary live string admission for
-the established modified-NUL storage form.
-
-Integer tokens without a sign construct unsigned values; an explicit `+` or
-`-` selects the signed domain. Magnitude must fit that domain's 64-bit range.
-The parser retains decimal/hexadecimal/binary notation and the alternate `#`
-prefix, and selects the smallest representable integer width. Floating tokens
-construct finite binary64 values, preserving negative zero. Decimal conversion
-rounds to binary64; overflow and nonzero underflow to zero are construction
-errors. Numeric range failure is a construction failure. A quoted empty property
-name constructs an ordinary present-empty name for every payload type; the
-obsolete empty-name failure status is removed. Missing names and values remain
-structural failures.
-
-`CDocumentParseReport` retains the structural report and composes its findings,
-linter source observations (for `ingest`) and established parser interpretations
-in a shared `findings` mask. This mask survives failure. `parser_examined` records
-entry into construction; `construction_completed` records successful private
-construction. Both remain false when linting or structure prevents parsing.
-Its shared locations identify the responsible element and detection point
-in the linter's UTF-8 output.
-The top-level `failure` carries the original stage and reason. A structural
-failure is copied unchanged; a terminal linter failure is translated from
-`first_failure`, retaining its original evidence and location. Linter output
-limits map to `storage_limit`. Successful fallback leaves failure absent.
-Known parser scratch failures retain allocation/storage reasons; rejected live
-creation uses `construction_failed` because the live API does not distinguish
-its underlying allocation and storage causes. First-failure guards preserve
-the original reason and locations.
-
-A default parser report is `unexamined`, with no terminal failure. Processing
-failures use status `failed`; `failure` supplies the stage and precise reason.
-Protocol-specific statuses and `invalid_root_value` are removed. Successful,
-unexamined and policy-rejected reports have stage/reason `none`; invalid policy
-options likewise have no processing failure.
-
-Final `success` means construction completed and policy accepted; `succeeded()`
-therefore also means the destination was published. `policy_rejected` identifies
-disallowed features and `invalid_options` identifies unsupported permission bits
-through the report's `policy` result. Both retain `construction_completed`, the
-complete findings and stage reports, while discarding the private document.
-Neither supplies a failure location. The default accepts ordinary JSON, the
-agreed encoding forms and all Morphic numeric forms. To admit every supported
-relaxed feature, explicitly pass `{ document_policy::k_all_supported }`.
-
-The parser records successful collision extension and singleton normalization
-as presence findings. These observations survive a later processing failure.
-The redundant `CDocumentParseInterpretations` occurrence counters are removed;
-linter aggregates and the writer's remaining statistics are retained.
-
-Duplicate object members use `extend_object_child` with the encounter-order
-rules above. The resulting arrays are ordinary values through editing, baking,
-promotion and either text-writing mode.
+Construction retains integer domain, width, notation and prefix, finite
+binary64 values, native empty names and source-derived per-string newline
+metadata. Duplicate names extend ordinary arrays in encounter order.
+Singleton-object unwrapping retains the named child's complete payload.
+The [text format](document_text_format.md#collision-extension-and-singleton-objects)
+specifies these interpretations and their source examples.
 
 ## Serialization-facing requirements
 
@@ -782,7 +501,7 @@ Writers consume only the checked baked interface and provide two modes:
 
 - Morphic output retains integer domain, notation and prefix intent.
 - Strict output emits strict JSON where possible, including the exact decimal
-  value across the full `uint64_t` range. It reports normalization of Morphic
+  value across the full `uint64_t` range. It reports normalisation of Morphic
   features and does not promise to round-trip every feature, such as explicit
   positive signed-integer intent.
 
@@ -791,13 +510,13 @@ option for either mode and escapes every non-ASCII scalar, using surrogate
 pairs where necessary. Finite floats use shortest-round-trip output, retain
 `-0.0` and contain a decimal point or exponent. Writing is iterative.
 
-Every written newline normalizes to LF, recognizing CRLF and LFCR as compound
+Every written newline normalises to LF, recognising CRLF and LFCR as compound
 breaks and also covering VT, FF, NEL, LS and PS. Layout and trailing newlines
 use literal LF; selectable CRLF formatting has been removed. Within string
 values, the default emits `\n`. Morphic mode emits literal LF when that value
 suppresses newline escaping; strict JSON always emits `\n`. Other escaping
 rules remain in force. Writing changes neither stored content nor metadata;
-text round trips compare newline-normalized content.
+text round trips compare newline-normalised content.
 
 ### Named entries and anonymous objects
 
@@ -815,12 +534,12 @@ remain objects; the document root is never unwrapped.
 
 There is no additional semantic distinction for an intentional anonymous
 singleton object requiring a preservation tag. Text round trips compare this
-normalized semantic form, not redundant wrapper nodes, original live keys,
+normalised semantic form, not redundant wrapper nodes, original live keys,
 detached content or live placeholders already baked as null.
 
 ### Ordinary arrays and dollar-prefixed names
 
-Collision arrays serialize as ordinary JSON arrays in both writing modes.
+Collision arrays serialise as ordinary JSON arrays in both writing modes.
 No wrapper or reserved-name escaping is emitted. `$morphic`, `$$morphic` and
 other dollar-prefixed names retain their decoded spelling. Former version/type/
 values objects have no special interpretation, even at the document root;
@@ -846,6 +565,6 @@ The following are not yet normative:
 - exact public C++ names, signatures and result types;
 - live record packing and role-inapplicable field values;
 - lookup accelerators, including O(1) object lookup by name;
-- the exact inventory of additional relaxed syntax and diagnostic presentation;
+- future syntax extensions beyond the documented grammar and consumer diagnostic presentation;
 - live cursors and revisions; and
 - the later typed-data and schema architecture.

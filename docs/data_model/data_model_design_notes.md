@@ -4,7 +4,7 @@ License: MIT (see LICENSE file in repository root)
 File:   data_model_design_notes.md
 Author: Ritchie Brannan
 Drafting and editorial assistance: OpenAI Codex
-Date:   8 Sep 2026
+Date:   14 Sep 2026
 
 # Data-model design notes
 
@@ -16,10 +16,10 @@ They are not requirements. Keeping rationale here prevents implementation
 history, rejected alternatives and provisional mechanics from obscuring the
 semantic contract.
 
-Parser/reporting and ownership-interface rationale below describes the current
-baseline, which is under review. Future work and open decisions belong to the
-[consolidation plan](../backlog/consolidation_pass.md); completed delivery and
-validation belong to [completed milestones](../project/completed_milestones.md).
+The [documentation index](README.md) separates the semantic, text, reporting
+and physical-format contracts. The rationale below explains the current
+implementation; completed delivery and validation belong to
+[completed milestones](../project/completed_milestones.md).
 
 ## Simplicity discipline
 
@@ -98,7 +98,7 @@ state makes malformed combinations unrepresentable at the semantic level.
 A name always supplies object-entry meaning, regardless of the payload type.
 Outside an object, an anonymous containing object is implied. A named object
 payload still needs that outer containing context for its own name. Writers
-materialize the implied braces; parsers remove redundant singleton wrappers
+materialise the implied braces; parsers remove redundant singleton wrappers
 where the destination accepts named children. No persistent implicit-wrapper
 flag, extra node or object-preservation text tag is needed.
 
@@ -217,7 +217,7 @@ arrays as children rather than splicing their contents.
 The operation prepares all fallible allocation before changing either input.
 It is independently usable by callers and is now the parser's collision path.
 Ordinary insertion still rejects duplicates. This replaces the distinct recovery
-kind, anonymous-only child constraint and serialization protocol, eliminating
+kind, anonymous-only child constraint and serialisation protocol, eliminating
 provenance that ordinary document editing would otherwise have to maintain.
 
 ## Mutation failure policy
@@ -328,7 +328,7 @@ cross-implementation parsing when another STL becomes a supported target.
 The standard's corresponding-function round-trip guarantee
 alone does not establish cross-vendor behaviour.
 
-The initial live parser uses `std::from_chars` over bounded token spans for
+The live parser uses `std::from_chars` over bounded token spans for
 integer magnitudes and binary64 conversion. The installed MSVC v143
 implementation is non-throwing and uses fixed local arithmetic storage rather
 than dynamic allocation; it does not consult the locale. Sign and base-prefix
@@ -341,10 +341,10 @@ additional supported toolchains must run the same corpus.
 References: [Microsoft charconv documentation](https://learn.microsoft.com/en-us/cpp/standard-library/charconv?view=msvc-170)
 and [numeric output conversion contract](https://eel.is/c++draft/charconv.to.chars).
 
-The writer materializes implied object braces around every named child outside
+The writer materialises implied object braces around every named child outside
 an object, independently of payload type. Arrays emit ordinary JSON brackets,
 and dollar-prefixed names retain their spelling. Output reports count numeric
-normalization, non-ASCII and NUL escapes by emitted occurrence. Failed writes discard output and
+normalisation, non-ASCII and NUL escapes by emitted occurrence. Failed writes discard output and
 counts, retaining the failure status. The buffer supplies its own length until
 publication, avoiding duplicate mutable length bookkeeping.
 
@@ -358,28 +358,26 @@ and framework accounting. Full text-to-live round trips are covered by the
 parser suite; writer tests do not introduce a temporary parser.
 
 The linter owns encoding conversion. Its UTF-8 result uses bounded lengths,
-permits literal U+0000, and normalizes accepted modified NULs to that scalar.
+permits literal U+0000, and normalises accepted modified NULs to that scalar.
 Live string admission supplies the established `C0 80` storage form. Keeping
-literal-input counts separate from modified-NUL normalization and stripped
+literal-input counts separate from modified-NUL normalisation and stripped
 source terminators makes transformations observable without changing document
 string termination. Count raw embedded zeros once, independently of any
 retry as CP1252. A failed result must not claim a ready output encoding.
 
-The linter update is an approved separate prerequisite. It changes the former
-literal-NUL rejection and modified-NUL passthrough contracts and adds explicit
-output-encoding reporting. Existing framework buffers and SuiteUTF suffice;
-no allocator, platform or live/baked API change is required. Existing linter
-consumers must use logical lengths and inspect success and encoding. Document
-ingestion passes a zero newline-normalization mask; the general linter's
-existing default remains available to other callers.
+Existing framework buffers and SuiteUTF supply the encoding boundary without
+introducing another document decoder. Linter consumers use logical lengths and
+inspect success and encoding. Document parsing normalises the full supported
+line-break repertoire to LF; standalone linter consumers choose their own mask.
 
 The structural check and relaxed parser share feature-local lexical functions
 instead of maintaining competing quote, escape and delimiter rules. Use a
 framework frame vector and reusable string scratch, not a full token tree.
-The initial shared grammar includes comments, single quotes, identifier-style
-unquoted names, trailing commas, raw quoted controls and unbraced root members.
-Its exact inventory is recorded in `revised_data_model.md`; shared relaxation
-and numeric-extension bits are declared in `document_text_lex.hpp`.
+The shared grammar uses delimiter-based unquoted names and strings, alongside
+quoted forms, comments and inferred root bodies. Its complete contract is in
+[the text format](document_text_format.md); shared findings and permissions are
+declared in `document_findings.hpp` and described in
+[parsing and reporting](document_parsing.md).
 There is no separate strict parser. Ingestion transformations, required syntax
 relaxations and Morphic interpretations are reported independently.
 
@@ -387,7 +385,7 @@ The structural pass validates syntax, including numeric token spelling, but
 does not establish representability or construction feasibility. It assumes
 numbers are representable, duplicate names are manageable and all subsequent
 document allocations succeed. Keep numeric conversion/range policy, collision
-resolution and reserved-wrapper interpretation in parsing. Track nesting and
+resolution and singleton-object interpretation in parsing. Track nesting and
 estimate capacity without treating those estimates as allocation guarantees.
 A structurally valid result may still fail parsing; failure to allocate the
 structural pass's own scratch is a resource failure, not a structural defect.
@@ -399,18 +397,18 @@ input fails before scanning; present empty text denotes an implicit empty
 object. The check's frame vector stores only object/array context and the
 expected next syntactic role.
 There is no arbitrary grammar depth cap or document allocation preflight;
-frame allocation failure and the frame storage ceiling have resource statuses.
+frame allocation failure and the frame storage ceiling have resource reasons.
 The scanner exposes token spans and the same escape-to-scalar operation that
 construction also uses. No quoted string scratch is needed just to check
 syntax. Duplicate names do not require string decoding,
-interning or comparison here. Report offsets refer to the linter's UTF-8 output.
+interning or comparison here. Report locations refer to the linter's UTF-8 output.
 
 The parser builds a private live document with an iterative frame
 vector and separate reusable name/value scratch buffers. Separate buffers keep
 a decoded name stable while its string payload is decoded. Plain spans borrow
 the input until live admission copies them. Publication uses the existing move
 operation, allowing even input borrowed from the old destination to remain
-valid through all reads. Structural reports remain available after construction
+valid through all reads. Structural findings remain available after construction
 failure; there is no claim that syntax acceptance guarantees representability.
 Numeric range errors are explicit construction failures. Empty object-entry
 names are represented natively.
@@ -429,6 +427,23 @@ After successful construction, caller policy evaluates the complete findings;
 only acceptance publishes the document. Rejection preserves the completed report
 and the caller's destination. Shared stage/reason diagnostics replace detailed
 parser status alternatives, and parser interpretation counters have been removed.
+
+Structural checking and parsing now share `CDocumentReport`. A signed processing
+state distinguishes failure (-1), unprocessed (0) and success (1), independently
+of policy. One terminal diagnosis keeps stage, reason, detection location and
+optional element start together for logging. Retaining a second structural
+report would duplicate findings and diagnoses without adding useful evidence.
+Standalone structural success means syntax was checked; policy is unexamined.
+Full parsing success means construction completed, while `accepted()` also
+requires policy acceptance before publication.
+
+The public parser takes source bytes through one `parse` function and always
+lints them before structural checking and construction. This keeps source
+findings available for policy evaluation. Zero-length byte input means empty
+text, supplied internally as a present empty `CStringView`; the internal view
+type still distinguishes absent text. The full linter report serves separate
+consumers and is available through an optional output parameter on every parse
+outcome. The common report contains only the linter evidence needed by parsing.
 
 ## Baked ownership baseline
 
@@ -453,5 +468,5 @@ separate string domains, explicit untrusted baked validation and ordered
 collision payloads because writers, parsers and promotion consume them.
 
 Modified UTF-8 `C0 80` is the live and baked logical-NUL storage contract.
-Text ingestion and writing normalize at their boundaries; physical string
+Text ingestion and writing normalise at their boundaries; physical string
 terminators retain their established meaning.

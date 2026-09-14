@@ -5,83 +5,61 @@
 //  File:    document_parser.hpp
 //  Authors: Ritchie Brannan / OpenAI Codex
 //  Date:    8 Sep 26
+//
+//  Parse source bytes into a live document through linting, structural checking,
+//  private construction and final caller-policy evaluation. No file I/O or logging
+//  occurs; all owned storage uses the ambient framework allocator.
+//
+//  Input and lifetime:
+//  A zero-length byte view, including a default view, represents empty text and
+//  produces an empty object. Internally CStringView preserves present empty text
+//  separately from unavailable text. Source bytes must remain immutable and alive
+//  until return; they may be backed by the destination's current storage.
+//
+//  Processing and publication:
+//  The linter adopts the source encoding and normalises every line break to LF.
+//  Parsing uses its bounded UTF-8 output without the physical terminal zero.
+//  The default policy excludes relaxed syntax; k_all_supported admits every
+//  supported feature. Policy is evaluated only after construction succeeds.
+//  Destination is replaced only when the report is accepted(), and is otherwise
+//  unchanged. Processing success alone does not imply policy acceptance.
+//
+//  Reporting:
+//  state distinguishes failure (-1), unprocessed (0) and success (1). findings
+//  accumulates observations from all examined stages, including on failure.
+//  failure groups one terminal stage, reason, detection location and optional
+//  element start. Policy remains unexamined on processing failure; rejection or
+//  invalid options leave processing successful and carry no terminal diagnosis.
+//  If supplied, linter_report receives the full linter report on every outcome.
+//
+//  Locations:
+//  Coordinates are 1-based lines and code-point columns in the linter's UTF-8
+//  output, not byte offsets into the original input. A linter failure identifies
+//  its output cursor; element_start is unavailable. Structural and construction
+//  failures identify detection and the affected element's start where available.
+//  An unavailable location has available == false; success carries no locations.
+//  The stage must accompany the reason and location when interpreting diagnostics.
+//
+//  Grammar, findings and policy details:
+//  See docs/data_model/document_text_format.md and
+//  docs/data_model/document_parsing.md.
 
 #pragma once
 
 #ifndef DOCUMENT_PARSER_HPP_INCLUDED
 #define DOCUMENT_PARSER_HPP_INCLUDED
 
+#include "containers/ByteBuffers.hpp"
 #include "data_model/document_findings.hpp"
-#include "data_model/document_structure.hpp"
 #include "text/text_linter.hpp"
 
 class CLiveDocument;
 
-enum class EDocumentParseStatus : std::uint8_t
-{
-    unexamined = 0u, success, policy_rejected, invalid_options, failed
-};
-
-struct CDocumentParseReport
-{
-    EDocumentParseStatus status{ EDocumentParseStatus::unexamined };
-    //  Shared terminal diagnosis; successful fallback is evidence, not failure.
-    CDocumentFailure failure;
-    //  Evaluated only after construction completes; rejection is not failure.
-    CDocumentPolicyResult policy;
-    CTextLocation structure_start;
-    CTextLocation failure_point;
-    //  Findings compose the examined stages and survive later failure.
-    std::uint32_t findings{ 0u };
-    //  Distinguish skipped construction from a failed or completed attempt.
-    bool parser_examined{ false };
-    bool construction_completed{ false };
-    //  Populated by ingest; low-level parse receives already linted text.
-    bool linter_examined{ false };
-    CTextLintReport linter;
-    //  Retained even when construction fails. A successful structural report
-    //  describes a complete syntax check; failed checks retain partial findings.
-    //  Structural success does not claim that construction completed.
-    CDocumentStructureReport structure;
-
-    [[nodiscard]] bool succeeded() const noexcept;
-};
-
 namespace document_parser
 {
 
-//  Consume present, bounded UTF-8 from a successful linter call. Pass an
-//  explicit CStringView length excluding the physical terminator, and normalise
-//  every source line break to LF during linting. This function performs the structural
-//  pass; it does not perform encoding detection or CP1252 conversion.
-//  Source stays immutable and alive until return. Destination is replaced only
-//  after construction and policy acceptance, and is unchanged on failure or
-//  rejection. Encoding provenance is unavailable here; use ingest to apply
-//  source-encoding permissions. All owned storage uses the ambient framework
-//  allocator. Empty text constructs the implicit root object. The default
-//  policy excludes relaxed syntax; k_all_supported opts into every feature.
-//
-//  Extend duplicate members in encounter order through the public live-document
-//  collision operation, using ordinary arrays. Normalise singleton objects in
-//  arrays; dollar-prefixed names and former protocol shapes are ordinary data.
-//  Explicit containers select the root kind. Otherwise a first name followed
-//  by a colon selects an object body; other non-empty input selects an array
-//  body, including a single scalar.
-[[nodiscard]] CDocumentParseReport parse(const CStringView& source, CLiveDocument& destination, const CDocumentParseOptions& options = {}) noexcept;
-
-//  Lint source bytes with uniform LF normalisation, then parse. Retain the
-//  linter report on every outcome. Evaluate policy against all stage findings
-//  after construction. Failure or rejection preserves destination. A linter
-//  failure exposes its location as failure_point; structure stays unexamined.
-[[nodiscard]] CDocumentParseReport ingest(const CByteConstView& source, CLiveDocument& destination, const CDocumentParseOptions& options = {}) noexcept;
-//  The string-view overload also admits present zero-length source text.
-[[nodiscard]] CDocumentParseReport ingest(const CStringView& source, CLiveDocument& destination, const CDocumentParseOptions& options = {}) noexcept;
+[[nodiscard]] CDocumentReport parse(const CByteConstView& source, CLiveDocument& destination, const CDocumentParseOptions& options = {}, CTextLintReport* const linter_report = nullptr) noexcept;
 
 }   //  namespace document_parser
-
-inline bool CDocumentParseReport::succeeded() const noexcept
-{
-    return status == EDocumentParseStatus::success;
-}
 
 #endif // DOCUMENT_PARSER_HPP_INCLUDED

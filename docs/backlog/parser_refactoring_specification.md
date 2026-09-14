@@ -4,16 +4,16 @@ License: MIT (see LICENSE file in repository root)
 File:   parser_refactoring_specification.md
 Author: Ritchie Brannan
 Drafting and editorial assistance: OpenAI Codex
-Date:   12 Sep 2026
+Date:   14 Sep 2026
 
 # Linter, structural check and parser refactoring specification
 
-Status: reviewed specification; stage 1 (linter and shared diagnostics) is
-implemented, validated and reviewed as of 11 September 2026. Stage 2 began on
-12 September with explicit progression instruction. The first model
-infrastructure slice is implemented, validated and reviewed. Section 9
-records the completed scope and remaining review boundaries. Pause before
-commits for review.
+Status: migration specification and implementation/review record. The current
+contracts now live in [data-model documentation](../data_model/README.md):
+[text format](../data_model/document_text_format.md) and
+[parsing and reporting](../data_model/document_parsing.md). Those references
+supersede transitional interface descriptions below. Section 9 records completed
+work and pending review; commits still require review.
 
 ## 1. Purpose and scope
 
@@ -34,20 +34,11 @@ implement Host operations, cancellation, asset lifetimes, filesystem services,
 the Executive functional exercise or schema work. Those remain in the
 [consolidation plan](consolidation_pass.md).
 
-The [current semantic specification](../data_model/revised_data_model.md)
-describes implemented behaviour, including the completed linter and shared
-location contracts. Remaining reporting and acceptance changes are specified
-here for stage 2. The object-or-array root direction expands
-the affected scope to live root construction/clearing, baking, baked validation,
-promotion and writing where they currently assume an object root. Per-string
-metadata controlling newline escaping also expands the live/baked model,
-baking, promotion and writer scope. Review compatibility for both changes.
-Live and baked values must carry name presence independently of name-string
-length, allowing native empty member names. Replace recovered arrays with
-ordinary arrays through a separate public collision-extension operation. Retire the old recovery protocol
-and its compatibility handling; it has no consumers beyond the existing tests.
-Other baked format and writer behaviour remains outside scope except for
-regression checks.
+The current semantic, text and reporting contracts are maintained together in
+the data-model documentation linked above. The requirements below record the
+migration's design decisions, including proposals superseded during interface
+review; they are retained as implementation history rather than the consumer
+reference.
 
 ## 2. Agreed requirements
 
@@ -993,9 +984,9 @@ whether layout newlines are emitted.
 | `CTextLintReport` / `CTextLineMetrics` | Preserve aggregate statistics and bounded output length; add or reorganize findings and explicit outcome/progress as required. |
 | `CTextLintFailure` | Preserve specific decoder/failure evidence and output-relative location; identify failure before any emitted code point. |
 | `ERelaxation` / `ENumericExtension` | Shared grouped feature identities and masks; add agreed missing features rather than duplicating stage enums. |
-| `CDocumentStructureReport` | Structural reason, required element-start and detection positions, retained findings and completion; remove public byte offset. Keep useful construction estimates separate from public diagnostic reporting. |
+| `CDocumentStructureReport` / `EDocumentStructureStatus` | Replace with shared `CDocumentReport` and signed `EDocumentProcessingState`; keep optional construction estimates separate. |
 | `CDocumentParseInterpretations` | Presence findings for supported interpretations, including relaxed collision extension and singleton normalization; retire recovery protocol findings. |
-| `CDocumentParseReport` | Composed findings, processing/acceptance distinction and separate structure-start/failure-point locations. A linter failure copies its location into failure point and leaves structure start unavailable. Preserve destination on failure/rejection. |
+| `CDocumentParseReport` / `EDocumentParseStatus` | Replace with `CDocumentReport`: one processing state, cumulative findings, terminal diagnosis with locations, and independent policy. No embedded stage reports. One byte-view `parse` entry point may optionally return the full linter report. |
 | Live/baked string representation and writer | Per-string metadata to suppress newline escaping; preserve it through baking, validation, promotion and copying, with compatibility review. |
 | Live/baked names, object-entry queries and name lookup | Store name presence independently of the name ID. Preserve native empty names, admit lookup by empty name and retain absent-versus-empty view semantics. Update validation, translation and writing; remove non-empty-ID assumptions. |
 | `CDocumentWriteOptions` / `CDocumentWriteReport` | Retire CRLF selection and obsolete recovery/name-escaping counters; keep remaining writer options and statistics. Strict JSON overrides newline suppression; every emitted break normalizes to LF. |
@@ -1602,7 +1593,7 @@ follows below; the user's manual style/beautification pass remains afterward.
 
 ### 9.11 Parameter const pass
 
-The parameter const pass is implemented for review across the linter, shared
+The parameter const pass is reviewed and committed as `8d5ca1d` across the linter, shared
 text utilities, parser, structure checker, writer and live/baked model and
 translation code. Most parameters already had appropriate qualification.
 
@@ -1615,14 +1606,80 @@ translation code. Most parameters already had appropriate qualification.
 - Mutable scanner copies, traversal cursors, report accumulation, output
   references, scratch storage and ownership transfers retain mutation access.
 
-This pass changes no parsing, writing or document semantics. It remains
-uncommitted pending user and coordinator review. The manual style pass is
-separate.
+This pass changes no parsing, writing or document semantics. User and
+coordinator review are complete. The subsequent style checkpoint is separate.
 
 Debug and Release builds and all ordinary suites pass on x64 and Win32,
 including 18,079 parser, 1,247 structure and 10,539 writer checks in each
 configuration. Repository policy validation, whitespace and line-ending
 checks pass. Existing regression coverage is unchanged.
+
+### 9.12 Manual style checkpoint
+
+The user's formatting edits and the straightforward style-review corrections
+are reviewed and committed as `ab3d81f`. The [style review notes](document_style_review.md)
+record the addressed observations and the wider ownership question.
+
+### 9.13 Shared report and byte-input parsing
+
+The report/API follow-up is implemented for review:
+
+- `CDocumentReport` replaces both parser and structural reports, without
+  compatibility aliases. `EDocumentProcessingState : std::int8_t` uses failure
+  -1, unprocessed 0 and success 1. The two former status enums are removed.
+- One diagnostic groups stage, reason, detection `location` and optional
+  `element_start`. There are no embedded stage reports or duplicated locations,
+  findings or progress flags. Structural checking returns the common report,
+  which construction continues using after source findings are imported.
+- Processing state and policy are independent. Construction success remains
+  success when policy rejects or options are invalid. `processing_succeeded()`
+  tests state; `accepted()` also requires accepted policy before publication.
+- The only public parsing entry point accepts a `CByteConstView`, destination,
+  options and optional `CTextLintReport*`. It always lints before structure and
+  construction. The optional output receives the full linter report on every
+  outcome. Standalone linting and its reporting contract are unchanged.
+- Zero-length byte input, including a default view, means empty document text.
+  A present empty `CStringView` carries that meaning internally; other internal
+  views still distinguish absent and empty. Trailing source NUL stripping is
+  inherited from linting, rather than bypassed by a low-level parser entry.
+- Public usage and diagnostics are documented at the top of
+  `document_parser.hpp`. Structural estimates remain optional separate outputs;
+  the structural header no longer exposes lexer types transitively.
+
+Regression coverage preserves grammar, policy, source findings, first-failure
+locations, destination preservation and round trips. It now exercises optional
+linter output on success, each failure stage, rejection and invalid options;
+signed processing states; default and allocated empty byte inputs; standalone
+structural success without policy acceptance; and allocation failure through
+linting, structure and construction. Old overload-matrix and duplicate-report
+assertions are replaced with the common contract.
+
+Debug and Release builds and all ordinary suites pass on x64 and Win32. Each
+configuration passes 17,853 parser, 1,248 structure, 10,539 writer, 1,216 baked
+document, 213 baked-transfer and 562 linter checks. Live-document checks pass
+at 4,426 in Debug and 4,436 in Release. Repository policy validation reports
+no errors or warnings; whitespace and line-ending checks pass.
+
+This follow-up is uncommitted pending user and coordinator review. It does not
+change baked storage ownership or the grammar and document-model contracts.
+
+### 9.14 Permanent documentation
+
+The consumer contracts are now self-contained under `docs/data_model`.
+The text-format reference covers decoding, complete grammar, root selection,
+numeric classification, names/NULs, collision and singleton interpretations,
+newline metadata and text round trips. The parsing reference covers the
+byte-view API, shared state and failure report, coordinate rules, all finding
+bits, policy presets/evaluation and standalone linter/structural contracts.
+
+The semantic specification links to those references instead of duplicating
+their detailed contracts. Design notes have been corrected where they still
+described identifier-only names, preserved source line endings or reserved
+wrapper interpretation. The parser header points only to permanent data-model
+references. The documentation index separates these responsibilities.
+
+This documentation follow-up changes no runtime behaviour and remains part of
+the uncommitted review scope.
 
 ## 10. Decision record and implementation review
 
@@ -1648,7 +1705,7 @@ compatibility, protocol handling and associated tests.
 The consistency review makes these consequences explicit:
 
 - Linter and parser locations share one representation. A linter failure uses
-  the parser report's failure-point field, with structure start unavailable.
+  the common diagnosis's `location` field, with `element_start` unavailable.
 - Empty roots can change type even when detached nodes or interned strings
   exist; those are not root contents.
 - The 12 September name revision supersedes canonical replacement: an empty
@@ -1674,5 +1731,6 @@ contracts above and remain reviewable; they are not unresolved user-facing
 behaviour questions.
 
 Stage 1 and stage 2 functional implementation and review are complete. The
-parameter const pass awaits review; manual style work follows. Pause before
-each subsequent commit for review.
+parameter const pass and manual style checkpoint are reviewed and committed.
+The shared-report/API follow-up awaits review. Pause before each subsequent
+commit for review.

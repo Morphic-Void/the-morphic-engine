@@ -1,6 +1,6 @@
 # Current scope
 
-Updated 13 September 2026. Consolidation precedes schema work.
+Updated 14 September 2026. Consolidation precedes schema work.
 
 The first document pipeline is implemented. Its parser/reporting design and
 the surrounding Host contracts need further work before schema consumers are
@@ -31,9 +31,11 @@ built. Completed implementation does not mean these interfaces are final.
    The separate parameter const pass is reviewed and committed as `8d5ca1d`: declarations
    and definitions agree, and unchanged parameters have appropriate const
    qualification. Output state and ownership transfers remain mutable.
-   The user's manual style review is complete. Straightforward corrections and
-   verification findings are implemented for review; buffer ownership and report
-   design questions remain deferred in the [style review notes](document_style_review.md).
+   The user's manual style review and straightforward corrections are reviewed
+   and committed as `ab3d81f`. Shared reporting and the single byte-view parser
+   API and permanent text/reporting documentation are implemented for review.
+   The [style review notes](document_style_review.md)
+   record the follow-up and the wider buffer-ownership question.
 2. Develop the remaining Host consolidation in a separate task: module
    lifecycle, asset identity and lifetime, asynchronous operations, aligned
    loading, conditioning and filesystem resolution.
@@ -47,11 +49,9 @@ integration run depends on both. Pause before commits for review.
 ## Documentation map
 
 - [Engine backlog](engine_backlog.md): remaining broader and deferred work.
-- [Data-model specification](../data_model/revised_data_model.md),
-  [baked format](../data_model/baked_document_format.md) and
-  [design rationale](../data_model/data_model_design_notes.md): current
-  implemented baseline, including stage-1 linter/shared diagnostics, with the
-  completed parser/model migration; ownership areas remain open.
+- [Data-model documentation](../data_model/README.md): current semantic, text,
+  parsing/reporting and baked-format contracts, with design rationale kept
+  separately. Grammar, findings and policy need no backlog reference.
 - [Completed milestones](../project/completed_milestones.md): implementation
   outcomes and validation, including the first document pipeline.
 - [Future work notes](../project/future_work_notes.md): supporting cross-task

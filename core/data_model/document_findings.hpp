@@ -6,7 +6,7 @@
 //  Authors: Ritchie Brannan / OpenAI Codex
 //  Date:    12 Sep 26
 //
-//  Shared findings and caller-policy definitions for the parser migration.
+//  Shared processing reports, terminal diagnostics, findings and caller policy.
 
 #pragma once
 
@@ -98,6 +98,9 @@ struct CDocumentFailure
 {
     EDocumentFailureStage stage{ EDocumentFailureStage::none };
     EDocumentFailureReason reason{ EDocumentFailureReason::none };
+
+    CTextLocation location;          //  Where the failure was detected.
+    CTextLocation element_start;     //  Start of the affected element, when available.
 };
 
 [[nodiscard]] constexpr std::uint32_t document_finding_bit(const EDocumentFinding finding) noexcept
@@ -204,6 +207,34 @@ namespace document_policy
 inline constexpr bool CDocumentPolicyResult::accepted() const noexcept
 {
     return status == EDocumentPolicyStatus::accepted;
+}
+
+enum class EDocumentProcessingState : std::int8_t
+{
+    failure = -1, unprocessed = 0, success = 1
+};
+
+struct CDocumentReport
+{
+    EDocumentProcessingState state{ EDocumentProcessingState::unprocessed };
+    CDocumentFailure failure;
+
+    std::uint32_t findings{ 0u };
+
+    CDocumentPolicyResult policy;
+
+    [[nodiscard]] bool processing_succeeded() const noexcept;
+    [[nodiscard]] bool accepted() const noexcept;
+};
+
+inline bool CDocumentReport::processing_succeeded() const noexcept
+{
+    return state == EDocumentProcessingState::success;
+}
+
+inline bool CDocumentReport::accepted() const noexcept
+{
+    return processing_succeeded() && policy.accepted();
 }
 
 #endif // DOCUMENT_FINDINGS_HPP_INCLUDED

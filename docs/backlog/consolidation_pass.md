@@ -1,6 +1,6 @@
 # Consolidation before schema work
 
-Updated 13 September 2026. Active direction; detailed interfaces remain under
+Updated 14 September 2026. Active direction; detailed interfaces remain under
 discussion. This is the consolidated plan for parser refactoring and the Host
 prerequisites to schema work.
 
@@ -13,8 +13,9 @@ The current code is a baseline to refactor, not an approved final interface.
 ## Work and review boundaries
 
 - Parser/reporting functional implementation and review are complete in the
-  existing parser task. The separate parameter const pass awaits review;
-  the user's manual style pass follows it.
+  existing parser task. The parameter const and manual style checkpoints are
+  reviewed and committed. Shared reporting and the byte-view parser API follow-up
+  are implemented for review.
 - Carry most other consolidation into a separate task, using this document as
   the handoff. Establish Host authority and lifetime before dependent services.
 - Add direct persistence checks and the full Executive exercise against those
