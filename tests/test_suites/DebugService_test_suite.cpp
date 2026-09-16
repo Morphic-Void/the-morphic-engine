@@ -1207,12 +1207,12 @@ void test_writer_and_direct_paths(TTestContext& ctx)
 #endif
 }
 
-void test_lazy_log_opening(TTestContext& ctx)
+void test_explicit_log_opening(TTestContext& ctx)
 {
     const std::string event_path_storage =
-        test_environment::test_log_path("debug_service_lazy_test");
+        test_environment::test_log_path("debug_service_explicit_test");
     const std::string direct_path_storage =
-        test_environment::test_log_path("debug_service_lazy_test_direct");
+        test_environment::test_log_path("debug_service_explicit_test_direct");
     const char* const event_path = event_path_storage.c_str();
     const char* const direct_path = direct_path_storage.c_str();
 
@@ -1223,6 +1223,9 @@ void test_lazy_log_opening(TTestContext& ctx)
     debug_system::CDebugServiceState* const service = owner.operator->();
     TEST_EXPECT(ctx,
         service->configure_log_paths(event_path, direct_path));
+    TEST_EXPECT(ctx, !service->start());
+    TEST_EXPECT(ctx, service->thread_state() == debug_system::EServiceThreadState::empty);
+    TEST_EXPECT(ctx, service->open_logs());
     TEST_EXPECT(ctx, debug_system::install_service(service));
     TEST_EXPECT(ctx, service->start());
 
@@ -1441,14 +1444,14 @@ void test_queued_and_direct_equivalence(TTestContext& ctx)
         "byte_buffer executable:host executable host"));
     TEST_EXPECT(ctx, tests::file_contains(direct_path,
         "[DebugService_test_suite.cpp:778] full report fallback"));
-    TEST_EXPECT(ctx, debug_system::report(
+    TEST_EXPECT(ctx, !debug_system::report(
         debug_system::SEventUsagePoint{
             source_file, sizeof(source_file) - 1u, 779u },
         "closed %s", "report fallback"));
     TEST_EXPECT(ctx, debug_system::uninstall_service(service));
     owner.reset();
 
-    TEST_EXPECT(ctx, tests::file_contains(direct_path,
+    TEST_EXPECT(ctx, !tests::file_contains(direct_path,
         "[DebugService_test_suite.cpp:779] closed report fallback"));
 }
 
@@ -1560,7 +1563,7 @@ int run_debug_service_tests()
     debug_service_tests::test_system_id_name_registry(ctx);
     debug_service_tests::test_provisioning_and_shared_words(ctx);
     debug_service_tests::test_writer_and_direct_paths(ctx);
-    debug_service_tests::test_lazy_log_opening(ctx);
+    debug_service_tests::test_explicit_log_opening(ctx);
     debug_service_tests::test_filename_and_capacity_boundaries(ctx);
     debug_service_tests::test_queued_and_direct_equivalence(ctx);
     debug_service_tests::test_malformed_event_overlays(ctx);

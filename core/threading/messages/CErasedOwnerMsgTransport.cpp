@@ -75,6 +75,7 @@ bool CErasedOwnerMsgTransport::post(threading::CErasedOwnerMsg&& msg) noexcept
 
         source_context = owner.memory_context();
         const bool reattributed = owner.reattribute(transport_context);
+        //  Preflight established ownership validity; accounting diagnostics cannot fail this transfer.
         MV_CRITICAL_ASSERT(reattributed);
         if (!reattributed)
         {

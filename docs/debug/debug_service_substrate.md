@@ -56,17 +56,18 @@ The payload is immovable after provisioning. Its owner must not be reset,
 re-emplaced, moved, or reattributed until producers have quiesced, the writer
 has stopped, and every module-local pointer has been removed.
 
-The host normally configures both paths and calls `open_logs()` before
-publishing the service pointer. This optional eager preflight succeeds only
-when both logs are open. If the direct log cannot be opened, an event log first
+The host configures both paths and calls `open_logs()` before publishing the
+service pointer and starting the writer. This explicit provisioning operation
+succeeds only when both logs are open. If the direct log cannot be opened, an event log first
 opened by the same call is closed again; a log which was already open is left
 unchanged.
 
-Eager preflight and deferred opening are distinct startup policies. When
-preflight is deliberately omitted, writer startup opens the event log and the
-first direct write opens the direct log while holding its lock. A failed
-preflight does not itself select deferred opening; the host decides whether
-and how startup proceeds. After startup, the writer thread exclusively writes,
+`start()` requires both logs already open. Provisioning must not run concurrently
+with reporting. Reporting and writer startup never open or reopen files;
+direct writes fail when the direct log is closed, including after `stop()`.
+This prevents low-level diagnostics from recursively allocating through the
+engine while opening a log. Actual opening, writing and flushing failures retain
+their existing failure results. After startup, the writer thread exclusively writes,
 services, flushes, and closes the event log. Any thread may synchronously enter
 the separately locked direct path while the service remains live.
 
@@ -357,10 +358,9 @@ or direct fallback. Event and direct routes use the same record reconstruction.
 
 The native entry function validates and casts its opaque pointer, then invokes
 `writer_thread_main()` through a service reference. The main function reads as
-the sequential writer-thread program: it ensures that the event log is open,
-publishes `running`, and then alternates between draining and parking. In the
-preferred host lifecycle the log is already open; this check preserves
-deferred opening.
+the sequential writer-thread program: it verifies that the event log is already
+open, publishes `running`, and then alternates between draining and parking.
+Failure of the open-state check fails writer startup; it does not open the file.
 
 The wake protocol loads an epoch before draining. A producer increments that
 epoch after publication and wakes one waiter. If publication races the writer
@@ -448,8 +448,9 @@ lifecycle calls rather than redesign the service.
 - 447-character transport, 448-character fallback, full-report limits, and immediate routing;
 - identical level/type reconstruction on event and direct routes;
 - all-or-nothing pre-install opening of both configured log paths;
-- deferred event-log opening by writer startup;
-- deferred direct-log opening on first direct write;
+- rejection of startup without both logs already open;
+- no file opening or engine allocation from reporting to closed logs;
+- no reopening from reporting after stop;
 - oversized direct fallback;
 - orderly drain, close, and join;
 - event and direct file output.

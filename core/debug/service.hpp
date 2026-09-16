@@ -273,9 +273,9 @@ public:
     ~CDebugServiceState() noexcept = default;
 
     [[nodiscard]] bool configure_log_paths(const char* const event_log_path, const char* const direct_log_path) noexcept;
-    //  Optional all-or-nothing preflight for both configured paths. Failure
-    //  rolls back an event log opened by this call. If preflight is omitted,
-    //  start() and the direct write path open their respective logs lazily.
+    //  Explicit provisioning before installing the service or starting its writer.
+    //  Failure rolls back an event log opened by this call. Reporting never opens
+    //  files; provisioning must not run concurrently with reporting.
     [[nodiscard]] bool open_logs() noexcept;
 
     [[nodiscard]] bool start() noexcept;

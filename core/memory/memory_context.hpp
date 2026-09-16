@@ -109,8 +109,10 @@ public:
 private:
     [[nodiscard]] static bool validate(const std::size_t align, const std::size_t bytes) noexcept;
     [[nodiscard]] static bool validate(const std::size_t align, const std::size_t bytes, const void* const ptr) noexcept;
-    [[nodiscard]] bool add(const std::size_t allocation_count, const std::uint64_t bytes) noexcept;
-    [[nodiscard]] bool sub(const std::size_t allocation_count, const std::uint64_t bytes) noexcept;
+    void add(const std::uint32_t allocation_count, const std::uint64_t bytes) noexcept;
+    void sub(const std::uint32_t allocation_count, const std::uint64_t bytes) noexcept;
+
+    friend struct SMemoryContextTestAccess;
 
     friend bool reattribute(CMemoryContext& from, CMemoryContext& to,
         const std::size_t allocation_count, const std::uint64_t bytes) noexcept;
@@ -121,6 +123,8 @@ private:
     std::atomic<std::uint64_t> m_live_allocated_bytes{ 0u };
 };
 
+//  Diagnostic totals are modular, independently including zero. Only allocator
+//  incompatibility rejects this adjustment; callers establish ownership validity.
 [[nodiscard]] bool reattribute(CMemoryContext& from, CMemoryContext& to,
     const std::size_t allocation_count, const std::uint64_t bytes) noexcept;
 
@@ -234,60 +238,40 @@ inline bool CMemoryContext::validate(const std::size_t align, const std::size_t 
     return validate(align, bytes) && (ptr != nullptr) && ((reinterpret_cast<std::uintptr_t>(ptr) & (align - 1u)) == 0u);
 }
 
-inline bool CMemoryContext::add(const std::size_t allocation_count, const std::uint64_t bytes) noexcept
+inline void CMemoryContext::add(const std::uint32_t allocation_count, const std::uint64_t bytes) noexcept
 {
-    if ((allocation_count == 0u) || (allocation_count > std::numeric_limits<std::uint32_t>::max()) || (bytes == 0u))
+    const std::uint32_t count_before = m_live_allocations.fetch_add(allocation_count, std::memory_order_relaxed);
+    const std::uint64_t bytes_before = m_live_allocated_bytes.fetch_add(bytes, std::memory_order_relaxed);
+    const std::uint32_t count_after = count_before + allocation_count;
+    const std::uint64_t bytes_after = bytes_before + bytes;
+    if (((count_before ^ count_after) & 0x80000000u) != 0u)
     {
-        return false;
+        MV_ERROR("Memory accounting count add: context {} system {} before {} after {} adjustment {}",
+            static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(this)), m_system_id, count_before, count_after, allocation_count);
     }
-
-    const std::uint32_t count = static_cast<std::uint32_t>(allocation_count);
-    std::uint32_t allocations = m_live_allocations.load(std::memory_order_relaxed);
-    while (count <= (std::numeric_limits<std::uint32_t>::max() - allocations))
+    if (((bytes_before ^ bytes_after) & 0x8000000000000000ull) != 0u)
     {
-        if (m_live_allocations.compare_exchange_weak(allocations, (allocations + count), std::memory_order_relaxed))
-        {
-            std::uint64_t allocated_bytes = m_live_allocated_bytes.load(std::memory_order_relaxed);
-            while (bytes <= (std::numeric_limits<std::uint64_t>::max() - allocated_bytes))
-            {
-                if (m_live_allocated_bytes.compare_exchange_weak(allocated_bytes, (allocated_bytes + bytes), std::memory_order_relaxed))
-                {
-                    return true;
-                }
-            }
-            m_live_allocations.fetch_sub(count, std::memory_order_relaxed);
-            return false;
-        }
+        MV_ERROR("Memory accounting bytes add: context {} system {} before {} after {} adjustment {}",
+            static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(this)), m_system_id, bytes_before, bytes_after, bytes);
     }
-    return false;
 }
 
-inline bool CMemoryContext::sub(const std::size_t allocation_count, const std::uint64_t bytes) noexcept
+inline void CMemoryContext::sub(const std::uint32_t allocation_count, const std::uint64_t bytes) noexcept
 {
-    if ((allocation_count == 0u) || (allocation_count > std::numeric_limits<std::uint32_t>::max()) || (bytes == 0u))
+    const std::uint32_t count_before = m_live_allocations.fetch_sub(allocation_count, std::memory_order_relaxed);
+    const std::uint64_t bytes_before = m_live_allocated_bytes.fetch_sub(bytes, std::memory_order_relaxed);
+    const std::uint32_t count_after = count_before - allocation_count;
+    const std::uint64_t bytes_after = bytes_before - bytes;
+    if (((count_before ^ count_after) & 0x80000000u) != 0u)
     {
-        return false;
+        MV_ERROR("Memory accounting count sub: context {} system {} before {} after {} adjustment {}",
+            static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(this)), m_system_id, count_before, count_after, allocation_count);
     }
-
-    const std::uint32_t count = static_cast<std::uint32_t>(allocation_count);
-    std::uint32_t allocations = m_live_allocations.load(std::memory_order_relaxed);
-    while (count <= allocations)
+    if (((bytes_before ^ bytes_after) & 0x8000000000000000ull) != 0u)
     {
-        if (m_live_allocations.compare_exchange_weak(allocations, (allocations - count), std::memory_order_relaxed))
-        {
-            std::uint64_t allocated_bytes = m_live_allocated_bytes.load(std::memory_order_relaxed);
-            while (bytes <= allocated_bytes)
-            {
-                if (m_live_allocated_bytes.compare_exchange_weak(allocated_bytes, (allocated_bytes - bytes), std::memory_order_relaxed))
-                {
-                    return true;
-                }
-            }
-            m_live_allocations.fetch_add(count, std::memory_order_relaxed);
-            return false;
-        }
+        MV_ERROR("Memory accounting bytes sub: context {} system {} before {} after {} adjustment {}",
+            static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(this)), m_system_id, bytes_before, bytes_after, bytes);
     }
-    return false;
 }
 
 inline void* CMemoryContext::allocate(
@@ -302,29 +286,21 @@ inline void* CMemoryContext::allocate(
         return nullptr;
     }
 
-    if (!add(1u, conditioned_bytes))
-    {
-        MV_ERROR("CMemoryContext::allocate failed to add allocation accounting");
-        return nullptr;
-    }
+    add(1u, conditioned_bytes);
 
     void* const ptr = m_allocator.allocate(conditioned_alignment, conditioned_bytes);
     if (ptr == nullptr)
     {
-        if (!sub(1u, conditioned_bytes))
-        {
-            MV_ERROR("CMemoryContext::allocate failed to roll back allocation accounting");
-        }
+        sub(1u, conditioned_bytes);
         return nullptr;
     }
 
     if ((reinterpret_cast<std::uintptr_t>(ptr) & (conditioned_alignment - 1u)) != 0u)
     {
         MV_ERROR("CMemoryContext::allocate returned a misaligned pointer");
-        (void)m_allocator.deallocate(conditioned_alignment, ptr);
-        if (!sub(1u, conditioned_bytes))
+        if (m_allocator.deallocate(conditioned_alignment, ptr))
         {
-            MV_ERROR("CMemoryContext::allocate failed to roll back allocation accounting after misalignment");
+            sub(1u, conditioned_bytes);
         }
         return nullptr;
     }
@@ -344,17 +320,10 @@ inline void CMemoryContext::deallocate(
         return;
     }
 
-    if (!sub(1u, conditioned_bytes))
-    {
-        MV_ERROR("CMemoryContext::deallocate failed to subtract allocation accounting");
-        return;
-    }
+    sub(1u, conditioned_bytes);
     if (!m_allocator.deallocate(conditioned_alignment, ptr))
     {
-        if (!add(1u, conditioned_bytes))
-        {
-            MV_ERROR("CMemoryContext::deallocate failed to restore allocation accounting after allocator failure");
-        }
+        add(1u, conditioned_bytes);
     }
 }
 
@@ -368,22 +337,21 @@ inline bool reattribute(
     {
         return true;
     }
-    if (!from.is_compatible_with(to) ||
-        (allocation_count == 0u) || (bytes == 0u))
+    if (!from.is_compatible_with(to))
     {
         MV_ERROR("memory::reattribute received an invalid attribution transfer request");
         return false;
     }
-    if (!to.add(allocation_count, bytes))
+    const std::uint32_t count = static_cast<std::uint32_t>(allocation_count);
+    if (allocation_count > std::numeric_limits<std::uint32_t>::max())
     {
-        return false;
+        MV_ERROR("Memory accounting count narrowed: source {} target {} original {} adjustment {}",
+            static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(&from)),
+            static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(&to)),
+            static_cast<std::uint64_t>(allocation_count), count);
     }
-    if (!from.sub(allocation_count, bytes))
-    {
-        MV_ERROR("memory::reattribute failed to remove accounting from the source context");
-        MV_ASSERT(to.sub(allocation_count, bytes));
-        return false;
-    }
+    to.add(count, bytes);
+    from.sub(count, bytes);
     return true;
 }
 

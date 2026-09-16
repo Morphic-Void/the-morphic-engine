@@ -182,17 +182,28 @@ token's existing attribution. It does not select a new accounting context.
 
 When ownership crosses a thread, module, or DLL accounting boundary,
 reattribution must be requested deliberately. Compatible contexts are required.
-The complete allocation count and conditioned-byte total are reserved in the
-target before they are released from the source.
+The allocation count and conditioned-byte total are added to the target before
+they are subtracted from the source.
 
 The accounting-transfer policy uses token-side observers consistently:
 
     transfer allocation count using memory_allocation_count()
     transfer conditioned footprint using memory_allocation_size()
 
-Target reservation failure is recoverable and leaves source attribution
-unchanged. Source release failure after reservation is an accounting-corruption
-boundary: the target reservation is rolled back and the failure is critical.
+Accounting discrepancies are diagnostic in development and release builds. They
+do not reject an otherwise valid transfer, roll back its adjustments or request
+shutdown. `memory::reattribute` retains its boolean result for allocator
+incompatibility; ownership and source-context coherence remain caller preflight
+requirements. Diagnostic totals are modular and independently permit zero.
+
+The unsigned 32-bit allocation count and unsigned 64-bit byte count are adjusted
+independently with relaxed atomic fetch operations. Each report uses that
+operation's returned before value and derives after at the counter's width.
+Report when `((before ^ after) & high_bit_mask) != 0`, in either direction, with
+context, counter and adjustment details. Further activity with the same high bit
+does not repeat the report; concurrent transition clusters are permitted. Retain
+the adjustment without clamping or resetting. This heuristic does not detect every
+possible wrap for arbitrary adjustment magnitudes.
 
 Accounting transfer must not infer deep ownership. If a container owns nested containers, the outer container's shallow memory token accounts only for its own direct storage unless the container explicitly implements and documents recursive accounting.
 
@@ -324,14 +335,18 @@ is unchanged but the preserved prefix is smaller than the extent.
 
 Deallocation requires correct metadata.
 
-Allocator-facing deallocation is a critical boundary. Invalid allocator state,
-missing callbacks, accounting corruption, and deallocation failure are critical
-conditions. Allocation exhaustion from an otherwise valid allocator is
+Allocator-facing deallocation is a critical boundary. Invalid ownership or
+allocator metadata, missing callbacks and real deallocation failure remain genuine
+failure conditions. A discrepancy in diagnostic counters cannot by itself skip
+valid freeing, reject valid allocation or reattribution, or request shutdown.
+Allocation exhaustion from an otherwise valid allocator is
 recoverable and may be used speculatively.
 
 The allocator callback reports deallocation failure to `CMemoryContext`.
-`CMemoryContext::deallocate()` consumes that result; failure does not propagate
-through tokens or containers.
+`CMemoryContext::deallocate()` consumes that result and restores the accounting
+subtraction when the allocator rejects deallocation; failure does not propagate
+through tokens or containers. This inverse adjustment reflects a real allocator
+failure, not rejection because a diagnostic counter looked wrong.
 
 Fail-safe observers are for safe observation and diagnostics. They are not a license to silently deallocate with untrusted metadata.
 
@@ -375,14 +390,15 @@ one direct allocation. The recovered payload may itself contain owning
 allocations, whose accounting remains part of the payload's own policy.
 
 Compound owners gather one coherent source context from their storage-owning
-tokens, perform one aggregate context transaction, and only then replace every
+tokens, preflight ownership and allocator compatibility, adjust aggregate
+accounting once, and then replace every
 token context without additional accounting. Empty tokens are rebound with
-their owner after a successful transaction. Failure before commit leaves the
-object and all token contexts unchanged.
+their owner too. Rejected ownership preflight leaves the object and all token
+contexts unchanged; accounting diagnostics do not prevent context replacement.
 
 A LOCAL `CErasedOwner` additionally requires both source and target contexts to
 belong to the ambient component. This provenance check precedes the aggregate
-transaction, preventing direct reattribution from becoming an accidental
+adjustment, preventing direct reattribution from becoming an accidental
 component-boundary transfer.
 
 Container reattribution covers only storage owned directly by the container. It

@@ -415,6 +415,7 @@ void test_concrete_erased_pod_transport_diagnostics(TTestContext& ctx)
     debug_system::CDebugServiceState* const service =
         service_owner.operator->();
     TEST_EXPECT(ctx, service->configure_log_paths(event_path, direct_path));
+    TEST_EXPECT(ctx, service->open_logs());
     service->publish_configuration(0u);
     TEST_EXPECT(ctx, debug_system::install_service(service));
     TEST_EXPECT(ctx, service->start());

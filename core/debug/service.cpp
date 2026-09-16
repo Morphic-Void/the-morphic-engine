@@ -350,7 +350,8 @@ bool CDebugServiceState::open_logs() noexcept
 
 bool CDebugServiceState::start() noexcept
 {
-    if ((thread_state() != EServiceThreadState::empty) || !m_direct_lock.is_valid() || !log_paths_configured() || !m_event_transport.is_valid())
+    if ((thread_state() != EServiceThreadState::empty) || !m_direct_lock.is_valid() ||
+        !m_event_log.opened() || !m_direct_log.opened() || !m_event_transport.is_valid())
     {
         return false;
     }
@@ -498,7 +499,7 @@ bool CDebugServiceState::report_immediate_va(const SEventUsagePoint& usage_point
     bool formatted = false;
     bool written = false;
     bool flushed = false;
-    if (m_direct_log.opened() || m_direct_log.open(m_direct_log_path))
+    if (m_direct_log.opened())
     {
         const int formatted_size = std::vsnprintf(m_direct_format_buffer, k_format_buffer_capacity, format, arguments);
         formatted = (formatted_size > 0) && (static_cast<std::size_t>(formatted_size) < k_format_buffer_capacity);
@@ -736,7 +737,7 @@ bool CDebugServiceState::write_direct_record(
     m_direct_lock.acquire();
     bool written = false;
     bool flushed = false;
-    if (m_direct_log.opened() || m_direct_log.open(m_direct_log_path))
+    if (m_direct_log.opened())
     {
         written = write_record(m_direct_log, level, type, incident, text, text_size);
         flushed = m_direct_log.flush();
@@ -759,7 +760,7 @@ bool CDebugServiceState::write_direct_event(
     m_direct_lock.acquire();
     bool written = false;
     bool flushed = false;
-    if (m_direct_log.opened() || m_direct_log.open(m_direct_log_path))
+    if (m_direct_log.opened())
     {
         std::size_t text_size = 0u;
         const EEventFormatResult result = format_event_content(
@@ -972,7 +973,7 @@ std::uint32_t CDebugServiceState::writer_thread_main() noexcept
         (void)platform::threading::set_current_thread_name(thread_name);
     }
 
-    if (!open_event_log())
+    if (!m_event_log.opened())
     {
         m_writer_state.value.store(static_cast<std::uint32_t>(EServiceThreadState::failed), std::memory_order_release);
         platform::threading::wake_all_waiters(m_writer_state.value);

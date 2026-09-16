@@ -28,6 +28,7 @@
 #include "system/transported_types.hpp"
 #include "tests/test_suites/ErasedOwner_test_suite.hpp"
 #include "tests/support/test_allocator.hpp"
+#include "tests/support/memory_context_test_access.hpp"
 #include "tests/support/test_context.hpp"
 #include "tests/support/test_scopes.hpp"
 #include "threading/messages/CErasedMessageTransports.hpp"
@@ -1178,6 +1179,88 @@ void test_erased_owner_message_transport_diagnostics(TTestContext& ctx)
     TEST_EXPECT(ctx, executive_context.is_attribution_empty());
 }
 
+CErasedOwner& accounting_owner(CErasedOwner& owner) noexcept { return owner; }
+CErasedOwner& accounting_owner(threading::CErasedOwnerMsg& message) noexcept { return message.owner(); }
+
+template<typename TTransport, typename TEnvelope>
+void test_transport_with_accounting_discrepancies(TTestContext& ctx)
+{
+    using Access = memory::SMemoryContextTestAccess;
+    TAllocatorState state;
+    memory::CMemoryAllocator allocator{&state, allocate_test_memory, deallocate_test_memory, system_ids::host};
+    memory::CMemoryContext source{allocator, system_ids::host};
+    memory::CMemoryContext channel{allocator, system_ids::host};
+    memory::CMemoryContext recipient{allocator, system_ids::host};
+    const TModuleIdScope module_scope{module_ids::executable};
+    auto service_owner = TInstance<debug_system::CDebugServiceState>::create();
+    TEST_EXPECT(ctx, service_owner.is_ready());
+    if (!service_owner.is_ready()) return;
+    auto& service = *service_owner;
+    service.publish_configuration(debug_system::k_critical_shutdown_enabled);
+    TEST_EXPECT(ctx, debug_system::install_service(&service));
+    const TMemoryContextScope scope{&source};
+    TTransport transport{module_ids::executable, &channel, &recipient};
+    TEST_EXPECT(ctx, transport.initialise(1u));
+    TEnvelope posted;
+    TEnvelope received;
+    CErasedOwner content = CErasedOwner::create<LoadedFile>();
+    auto* const payload = content.payload<LoadedFile>();
+    TEST_EXPECT(ctx, payload != nullptr);
+    TEST_EXPECT(ctx, payload->buffer.allocate(48u));
+    void* const buffer_address = payload->buffer.data();
+    content.add_hazard(mount_point_ids::conditioning);
+    const std::uint32_t count = source.get_live_allocation_count();
+    const std::uint64_t bytes = source.get_live_allocated_bytes();
+    if constexpr (std::is_same_v<TEnvelope, threading::CErasedOwnerMsg>)
+    {
+        posted.template set_message_type<FileLoadResult>();
+        posted.set_async_slot(77);
+        posted.set_owner(std::move(content));
+    }
+    else
+    {
+        posted = std::move(content);
+    }
+    Access::seed(source, 0u, 0u);
+    Access::seed(channel, UINT32_MAX, UINT64_MAX);
+    const std::uint32_t incident = service.allocate_incident_id();
+    TEST_EXPECT(ctx, transport.post(std::move(posted)));
+    TEST_EXPECT(ctx, accounting_owner(posted).is_empty());
+    TEST_EXPECT(ctx, source.get_live_allocation_count() == std::uint32_t{0u} - count);
+    TEST_EXPECT(ctx, source.get_live_allocated_bytes() == std::uint64_t{0u} - bytes);
+    TEST_EXPECT(ctx, channel.get_live_allocation_count() == count - 1u);
+    TEST_EXPECT(ctx, channel.get_live_allocated_bytes() == bytes - 1u);
+    TEST_EXPECT(ctx, service.allocate_incident_id() == incident + 5u);
+
+    Access::seed(channel, 0u, 0u);
+    Access::seed(recipient, 0x7fffffffu, 0x7fffffffffffffffull);
+    const std::uint32_t read_incident = service.allocate_incident_id();
+    TEST_EXPECT(ctx, transport.read(received));
+    CErasedOwner& received_owner = accounting_owner(received);
+    TEST_EXPECT(ctx, received_owner.memory_context() == &recipient);
+    TEST_EXPECT(ctx, received_owner.payload<LoadedFile>() == payload);
+    TEST_EXPECT(ctx, payload->buffer.data() == buffer_address);
+    TEST_EXPECT(ctx, received_owner.has_hazard(mount_point_ids::conditioning));
+    TEST_EXPECT(ctx, service.allocate_incident_id() == read_incident + 5u);
+    TEST_EXPECT(ctx, channel.get_live_allocation_count() == std::uint32_t{0u} - count);
+    TEST_EXPECT(ctx, channel.get_live_allocated_bytes() == std::uint64_t{0u} - bytes);
+    if constexpr (std::is_same_v<TEnvelope, threading::CErasedOwnerMsg>)
+    {
+        TEST_EXPECT(ctx, received.template is_message_a<FileLoadResult>());
+        TEST_EXPECT(ctx, received.query_async_slot() == 77);
+    }
+    received_owner.destroy();
+    TEST_EXPECT(ctx, recipient.get_live_allocation_count() == 0x7fffffffu);
+    TEST_EXPECT(ctx, recipient.get_live_allocated_bytes() == 0x7fffffffffffffffull);
+    transport.deallocate();
+    TEST_EXPECT(ctx, service.read_shutdown_request() == debug_system::EShutdownReason::none);
+    TEST_EXPECT(ctx, debug_system::uninstall_service(&service));
+    //  All actual owners are destroyed; discard only the deliberately injected offsets.
+    Access::seed(source, 0u, 0u);
+    Access::seed(channel, 0u, 0u);
+    Access::seed(recipient, 0u, 0u);
+}
+
 }   //  namespace
 
 int run_erased_owner_tests()
@@ -1203,6 +1286,8 @@ int run_erased_owner_tests()
     test_owned_tga_request_transport_and_asset_lifetime(ctx);
     test_erased_owner_message_transport(ctx);
     test_erased_owner_message_transport_diagnostics(ctx);
+    test_transport_with_accounting_discrepancies<threading::transports::CErasedOwnerTransport, CErasedOwner>(ctx);
+    test_transport_with_accounting_discrepancies<threading::transports::CErasedOwnerMsgTransport, threading::CErasedOwnerMsg>(ctx);
 
     std::cout << "ErasedOwner: " << ctx.passed << " passed, " << ctx.failed << " failed\n";
     return (ctx.failed == 0) ? 0 : 1;
