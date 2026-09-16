@@ -1394,10 +1394,10 @@ static bool test_pod_ordered_slots_wrapper(TestLogger& log)
         log.fail("TPodOrderedSlots exposed a key for an invalid or empty slot");
         return false;
     }
-    if ((slots.memory_token_count() != 3u) ||
-        (slots.memory_allocation_count() == 0u) ||
-        (slots.memory_allocation_size() == 0u) ||
-        !slots.can_reattribute_to() || !slots.reattribute())
+    if ((slots.memory_attribution().token_count != 3u) ||
+        (slots.memory_attribution().allocation_count == 0u) ||
+        (slots.memory_attribution().allocation_size == 0u) ||
+        !memory::can_reattribute_to(slots) || !memory::reattribute(slots))
     {
         log.fail("TPodOrderedSlots memory attribution audit failed");
         return false;

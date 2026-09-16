@@ -25,6 +25,31 @@
 
 struct SLiveDocumentTestAccess
 {
+    static bool reattribute_component(CLiveDocument& document, const unsigned component,
+        memory::CMemoryContext* const target) noexcept
+    {
+        if (component == 0u) return memory::reattribute(document.m_nodes, target);
+        if (component == 1u) return memory::reattribute(document.m_property_names, target);
+        return memory::reattribute(document.m_string_values, target);
+    }
+
+    static bool components_have_source(const CLiveDocument& document,
+        memory::CMemoryContext* const expected) noexcept
+    {
+        const auto nodes = document.m_nodes.memory_attribution();
+        const auto names = document.m_property_names.memory_attribution();
+        const auto values = document.m_string_values.memory_attribution();
+        return (nodes.source_state == memory::EMemorySourceState::coherent) &&
+            (names.source_state == memory::EMemorySourceState::coherent) &&
+            (values.source_state == memory::EMemorySourceState::coherent) &&
+            (nodes.source == expected) && (names.source == expected) && (values.source == expected);
+    }
+
+    static const CLiveNode* node_address(const CLiveDocument& document, const CNodeKey key) noexcept
+    {
+        return document.m_nodes.get_slot(key);
+    }
+
     static_assert(offsetof(CLiveNode, m_links) == 0u);
     static_assert(offsetof(CLiveNode, m_payload_bits) == 16u);
     static_assert(offsetof(CLiveNode, m_name) == 24u);
@@ -95,7 +120,7 @@ struct SLiveDocumentTestAccess
     [[nodiscard]] static std::uint64_t node_storage_allocation_size(
         const CLiveDocument& document) noexcept
     {
-        return document.m_nodes.memory_allocation_size();
+        return document.m_nodes.memory_attribution().allocation_size;
     }
 
     [[nodiscard]] static CPropertyNameId aggregate_name_id(
@@ -1754,10 +1779,10 @@ void test_analysis_allocation_failure_and_attribution(TTestContext& ctx)
     memory::CMemoryContext document_context{ allocator };
     memory::CMemoryContext analysis_context{ allocator };
     CLiveDocument document;
-    const std::uint32_t tokens = document.memory_token_count();
+    const std::uint32_t tokens = document.memory_attribution().token_count;
     TEST_EXPECT(ctx, tokens != 0u);
-    TEST_EXPECT(ctx, document.memory_allocation_count() == 0u);
-    TEST_EXPECT(ctx, document.memory_allocation_size() == 0u);
+    TEST_EXPECT(ctx, document.memory_attribution().allocation_count == 0u);
+    TEST_EXPECT(ctx, document.memory_attribution().allocation_size == 0u);
     {
         tests::TMemoryContextScope scope{ &document_context };
         TEST_EXPECT(ctx, document.initialise());
@@ -1765,9 +1790,9 @@ void test_analysis_allocation_failure_and_attribution(TTestContext& ctx)
         const CNodeKey string = document.create_string(text, text);
         TEST_EXPECT(ctx, document.append_child(document.root(), string).succeeded());
     }
-    const std::uint32_t allocations = document.memory_allocation_count();
-    const std::uint64_t bytes = document.memory_allocation_size();
-    TEST_EXPECT(ctx, document.memory_token_count() == tokens);
+    const std::uint32_t allocations = document.memory_attribution().allocation_count;
+    const std::uint64_t bytes = document.memory_attribution().allocation_size;
+    TEST_EXPECT(ctx, document.memory_attribution().token_count == tokens);
     TEST_EXPECT(ctx, allocations == document_context.get_live_allocation_count());
     TEST_EXPECT(ctx, bytes == document_context.get_live_allocated_bytes());
     {
@@ -1794,9 +1819,9 @@ void test_analysis_allocation_failure_and_attribution(TTestContext& ctx)
                 fixture.fail_on = std::numeric_limits<std::size_t>::max();
                 TEST_EXPECT(ctx, document.is_ready());
                 TEST_EXPECT(ctx, document.check_integrity());
-                TEST_EXPECT(ctx, document.memory_token_count() == tokens);
-                TEST_EXPECT(ctx, document.memory_allocation_count() == allocations);
-                TEST_EXPECT(ctx, document.memory_allocation_size() == bytes);
+                TEST_EXPECT(ctx, document.memory_attribution().token_count == tokens);
+                TEST_EXPECT(ctx, document.memory_attribution().allocation_count == allocations);
+                TEST_EXPECT(ctx, document.memory_attribution().allocation_size == bytes);
                 TEST_EXPECT(ctx, document_context.get_live_allocation_count() == allocations);
                 TEST_EXPECT(ctx, document_context.get_live_allocated_bytes() == bytes);
                 TEST_EXPECT(ctx, document.analyse(summary, &strings));
@@ -1819,13 +1844,128 @@ void test_analysis_allocation_failure_and_attribution(TTestContext& ctx)
         TEST_EXPECT(ctx, strings.referenced_string_value_count == 0u);
         TEST_EXPECT(ctx, fixture.attempt == before_reuse);
         fixture.reject_all = false;
-        TEST_EXPECT(ctx, document.memory_allocation_count() == allocations);
-        TEST_EXPECT(ctx, document.memory_allocation_size() == bytes);
+        TEST_EXPECT(ctx, document.memory_attribution().allocation_count == allocations);
+        TEST_EXPECT(ctx, document.memory_attribution().allocation_size == bytes);
     }
     TEST_EXPECT(ctx, analysis_context.is_attribution_empty());
     document.deallocate();
-    TEST_EXPECT(ctx, document.memory_token_count() == tokens);
+    TEST_EXPECT(ctx, document.memory_attribution().token_count == tokens);
     TEST_EXPECT(ctx, document_context.is_attribution_empty());
+}
+
+void test_complete_document_reattribution(TTestContext& ctx)
+{
+    memory::CMemoryAllocator allocator{nullptr, &tests::allocate_test_memory, &tests::deallocate_test_memory};
+    memory::CMemoryAllocator other_allocator{nullptr, &tests::allocate_test_memory, &tests::deallocate_test_memory};
+    memory::CMemoryContext source{allocator};
+    memory::CMemoryContext target{allocator};
+    memory::CMemoryContext scratch_context{allocator};
+    memory::CMemoryContext other{other_allocator};
+    tests::TMemoryContextScope source_scope{&source};
+    CLiveDocument document;
+    TEST_EXPECT(ctx, document.memory_attribution().source_state == memory::EMemorySourceState::empty);
+    TEST_EXPECT(ctx, document.memory_attribution().source == nullptr);
+    TEST_EXPECT(ctx, memory::reattribute(document, &other));
+    TEST_EXPECT(ctx, document.memory_attribution().allocation_count == 0u);
+    TEST_EXPECT(ctx, document.initialise());
+    //  The document initially has node backing and two unallocated string domains.
+    TEST_EXPECT(ctx, memory::reattribute(document, &target));
+    TEST_EXPECT(ctx, source.is_attribution_empty());
+    //  Same-context transfer must still rebind both empty string domains.
+    TEST_EXPECT(ctx, SLiveDocumentTestAccess::reattribute_component(document, 1u, &other));
+    TEST_EXPECT(ctx, SLiveDocumentTestAccess::reattribute_component(document, 2u, &other));
+    TEST_EXPECT(ctx, memory::reattribute(document, &target));
+    {
+        tests::TMemoryContextScope target_scope{&target};
+        TEST_EXPECT(ctx, document.create_string(CStringView{"value"}, CStringView{"property"}).is_valid());
+    }
+    TEST_EXPECT(ctx, SLiveDocumentTestAccess::components_have_source(document, &target));
+    TEST_EXPECT(ctx, memory::reattribute(document, &source));
+    const auto key = document.create_string(CStringView{"retained"}, CStringView{"name"});
+    TEST_EXPECT(ctx, key.is_valid());
+    const auto root = document.root();
+    const auto name_id = document.name_id(key);
+    const auto value_id = document.string_value_id(key);
+    const auto* const node_address = SLiveDocumentTestAccess::node_address(document, key);
+    const auto* const name_address = document.property_name(name_id).string();
+    const auto* const value_address = document.string_value(key).string();
+    const auto count = document.memory_attribution().allocation_count;
+    const auto bytes = document.memory_attribution().allocation_size;
+    TEST_EXPECT(ctx, count == source.get_live_allocation_count());
+    TEST_EXPECT(ctx, bytes == source.get_live_allocated_bytes());
+    TEST_EXPECT(ctx, target.is_attribution_empty());
+    TEST_EXPECT(ctx, !memory::can_reattribute_to(document, &other) && !memory::reattribute(document, &other));
+    TEST_EXPECT(ctx, SLiveDocumentTestAccess::components_have_source(document, &source));
+    TEST_EXPECT(ctx, document.memory_attribution().source_state == memory::EMemorySourceState::coherent);
+    TEST_EXPECT(ctx, document.memory_attribution().source == &source);
+
+    for (unsigned component = 0u; component < 3u; ++component)
+    {
+        TEST_EXPECT(ctx, SLiveDocumentTestAccess::reattribute_component(document, component, &target));
+        const auto source_count = source.get_live_allocation_count();
+        const auto source_bytes = source.get_live_allocated_bytes();
+        const auto target_count = target.get_live_allocation_count();
+        const auto target_bytes = target.get_live_allocated_bytes();
+        const auto mixed = document.memory_attribution();
+        TEST_EXPECT(ctx, mixed.source_state == memory::EMemorySourceState::mixed && mixed.source == nullptr);
+        TEST_EXPECT(ctx, mixed.allocation_count == count && mixed.allocation_size == bytes);
+        TEST_EXPECT(ctx, !memory::can_reattribute_to(document, &target) && !memory::reattribute(document, &target));
+        TEST_EXPECT(ctx, !memory::reattribute(document, &source));
+        TEST_EXPECT(ctx, source.get_live_allocation_count() == source_count);
+        TEST_EXPECT(ctx, source.get_live_allocated_bytes() == source_bytes);
+        TEST_EXPECT(ctx, target.get_live_allocation_count() == target_count);
+        TEST_EXPECT(ctx, target.get_live_allocated_bytes() == target_bytes);
+        TEST_EXPECT(ctx, SLiveDocumentTestAccess::reattribute_component(document, component, &source));
+        TEST_EXPECT(ctx, SLiveDocumentTestAccess::components_have_source(document, &source));
+    }
+
+    {
+        tests::TMemoryContextScope scratch_scope{&scratch_context};
+        SLiveDocumentStringAnalysis scratch;
+        {
+            SLiveDocumentAnalysis analysis;
+            TEST_EXPECT(ctx, document.analyse(analysis, &scratch));
+        }
+        const auto scratch_count = scratch_context.get_live_allocation_count();
+        const auto scratch_bytes = scratch_context.get_live_allocated_bytes();
+        TEST_EXPECT(ctx, scratch_count > 0u);
+        const auto attribution = document.memory_attribution();
+        TEST_EXPECT(ctx, attribution.source_state == memory::EMemorySourceState::coherent && attribution.source == &source);
+        TEST_EXPECT(ctx, memory::can_reattribute_to(document, &target));
+        TEST_EXPECT(ctx, memory::reattribute(*attribution.source, target, attribution.allocation_count, attribution.allocation_size));
+        document.unsafe_replace_memory_context_without_accounting(attribution.source, &target);
+        TEST_EXPECT(ctx, SLiveDocumentTestAccess::components_have_source(document, &target));
+        TEST_EXPECT(ctx, source.is_attribution_empty());
+        TEST_EXPECT(ctx, target.get_live_allocation_count() == count);
+        TEST_EXPECT(ctx, target.get_live_allocated_bytes() == bytes);
+        TEST_EXPECT(ctx, memory::reattribute(document, &target));
+        TEST_EXPECT(ctx, target.get_live_allocation_count() == count);
+        TEST_EXPECT(ctx, target.get_live_allocated_bytes() == bytes);
+        TEST_EXPECT(ctx, scratch_context.get_live_allocation_count() == scratch_count);
+        TEST_EXPECT(ctx, scratch_context.get_live_allocated_bytes() == scratch_bytes);
+    }
+    TEST_EXPECT(ctx, scratch_context.is_attribution_empty());
+    TEST_EXPECT(ctx, document.root() == root && document.contains(key));
+    TEST_EXPECT(ctx, document.name_id(key) == name_id && document.string_value_id(key) == value_id);
+    TEST_EXPECT(ctx, SLiveDocumentTestAccess::node_address(document, key) == node_address);
+    TEST_EXPECT(ctx, document.property_name(name_id).string() == name_address);
+    TEST_EXPECT(ctx, document.string_value(key).string() == value_address);
+    TEST_EXPECT(ctx, document.check_integrity());
+    CLiveDocument moved{std::move(document)};
+    TEST_EXPECT(ctx, SLiveDocumentTestAccess::components_have_source(moved, &target));
+    TEST_EXPECT(ctx, memory::reattribute(document, &other));
+    TEST_EXPECT(ctx, other.is_attribution_empty());
+    {
+        tests::TMemoryContextScope target_scope{&target};
+        for (int i = 0; i < 100; ++i) TEST_EXPECT(ctx, moved.create_signed_integer(i).is_valid());
+        TEST_EXPECT(ctx, moved.create_string(CStringView{"more content"}, CStringView{"another name"}).is_valid());
+    }
+    TEST_EXPECT(ctx, SLiveDocumentTestAccess::components_have_source(moved, &target));
+    TEST_EXPECT(ctx, moved.memory_attribution().allocation_count == target.get_live_allocation_count());
+    TEST_EXPECT(ctx, moved.memory_attribution().allocation_size == target.get_live_allocated_bytes());
+    TEST_EXPECT(ctx, moved.check_integrity());
+    moved.deallocate();
+    TEST_EXPECT(ctx, source.is_attribution_empty() && target.is_attribution_empty());
 }
 
 void test_move_reset_and_retained_attribution(TTestContext& ctx)
@@ -1851,8 +1991,8 @@ void test_move_reset_and_retained_attribution(TTestContext& ctx)
     const CNodeKey original_root = source.root();
     const CStringValueId original_string_id = source.string_value_id(original_string);
     const std::uint8_t* const original_string_address = source.string_value(original_string).string();
-    const std::uint32_t allocation_count = source.memory_allocation_count();
-    const std::uint64_t allocation_size = source.memory_allocation_size();
+    const std::uint32_t allocation_count = source.memory_attribution().allocation_count;
+    const std::uint64_t allocation_size = source.memory_attribution().allocation_size;
     TEST_EXPECT(ctx, allocation_count == source_context.get_live_allocation_count());
     TEST_EXPECT(ctx, allocation_size == source_context.get_live_allocated_bytes());
     TEST_EXPECT(ctx, other_context.is_attribution_empty());
@@ -2168,6 +2308,7 @@ int run_live_document_tests()
     test_analysis_summary_and_string_references(ctx);
     test_analysis_allocation_failure_and_attribution(ctx);
     test_move_reset_and_retained_attribution(ctx);
+    test_complete_document_reattribution(ctx);
 
     std::cout << "LiveDocument: " << ctx.passed << " passed, " << ctx.failed << " failed\n";
     return (ctx.failed == 0) ? 0 : 1;

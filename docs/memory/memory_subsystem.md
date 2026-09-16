@@ -114,7 +114,7 @@ A damaged token may therefore contain a non-null owning pointer while its alignm
 - bytes() may report zero because the byte extent is not trusted;
 - the combination is diagnostic evidence, not proof that the allocation is safe, complete, or accurately sized.
 
-Container-facing accounting should use:
+Primitive token accounting uses:
 
     allocation count  <- memory_allocation_count()
     byte footprint    <- memory_allocation_size()
@@ -372,16 +372,42 @@ requirements are documented with the system-owned facility.
 
 Container allocation accounting is shallow unless explicitly documented otherwise.
 
-Complete owning containers expose direct `memory_token_count()`,
-`memory_allocation_count()`, and `memory_allocation_size()` statistics.
+Participating containers, backing classes, metadata classes and document owners
+expose the same two public infrastructure methods:
 
-For a container that directly owns one or more memory tokens:
+```cpp
+//  Interface for memory accounting and ownership-transfer infrastructure.
+public:
 
-    allocation count:
-        sum memory_allocation_count()
+    //  Observe all owned backing storage without changing its attribution.
+    [[nodiscard]] memory::SMemoryAttribution memory_attribution() const noexcept;
 
-    byte footprint:
-        sum memory_allocation_size()
+    //  Requires completed source/allocator preflight and accounting adjustment.
+    //  Replace all owned contexts, including unallocated members.
+    void unsafe_replace_memory_context_without_accounting(
+        memory::CMemoryContext* const expected_source, memory::CMemoryContext* const target) noexcept;
+```
+
+`SMemoryAttribution` reports `source_state` (`empty`, `coherent` or `mixed`),
+`source`, `token_count`, `allocation_count` and `allocation_size`. Empty and mixed
+records have a null source. A coherent record names the single context of all
+allocated backing storage. State is independent of diagnostic totals: zero or
+wrapped totals never make allocated storage empty. Token count is the bounded
+inventory of owned tokens, including unallocated tokens.
+
+Leaves adapt a token with `observe_memory_attribution(token)` or forward an
+owned wrapper's record. Aggregates combine complete child records with
+`combine_memory_attribution(left, right)`. Empty sources are neutral, coherent
+sources must match by pointer, and mixed state is absorbing. All totals are
+collected even after mixed sources are found. Slot/collection outer records
+include backing and metadata; metadata records alone cover only metadata.
+
+`memory::can_reattribute_to(owner, target)` and `memory::reattribute(owner, target)`
+provide the common checked operations. Null selects the ambient context. Each
+operation observes the owner once after resolving a non-null target. Missing
+targets, mixed sources and incompatible allocated sources reject transfer.
+Reattribution always makes its own fresh observation; a prior successful query
+is not a reservation.
 
 For containers that can contain other containers, accounting is not automatically recursive. Recursive or deep accounting must be implemented and documented by that container.
 
@@ -396,13 +422,45 @@ token context without additional accounting. Empty tokens are rebound with
 their owner too. Rejected ownership preflight leaves the object and all token
 contexts unchanged; accounting diagnostics do not prevent context replacement.
 
+`unsafe_replace_memory_context_without_accounting` requires completed source and
+allocator preflight and the outer accounting adjustment. It replaces contexts in
+all owned children, including unallocated tokens, without repeating accounting.
+Empty and same-context transfers skip counter adjustment but still call this hook.
+The caller must retain exclusive access throughout preflight and replacement.
+Ordinary moves preserve attribution; reattribution preserves content addresses and
+keys. Later growth follows the existing ambient-context allocation policy.
+
+Aggregate allocation-count and byte totals use `add_accounting_counts` and
+`add_accounting_bytes` at every sum boundary. These report unsigned overflow and
+return modulo totals; a child's representability loss is reported before its
+result reaches a parent. Explicit observer queries can emit these diagnostics,
+including again on repeated observations. They neither reject transfer nor request
+shutdown, and do not change atomic-context high-bit-transition diagnostics.
+Shared preflight queries and same-context transfers also observe complete records
+and can therefore emit these diagnostics.
+
+`CLiveDocument` explicitly composes ownership of its node store, property-name
+table and string-value table. Its reattribution preflights all three, adjusts
+accounting once, and replaces their contexts through complete child hooks.
+Caller-owned analysis scratch and temporary parser/baker storage are excluded.
+This interface does not register live documents as erased payloads or add a
+transport service.
+
 A LOCAL `CErasedOwner` additionally requires both source and target contexts to
 belong to the ambient component. This provenance check precedes the aggregate
 adjustment, preventing direct reattribution from becoming an accidental
 component-boundary transfer.
 
-Container reattribution covers only storage owned directly by the container. It
-does not reattribute allocations owned by contained objects.
+`CMemoryToken` retains its primitive member interface. `CErasedOwner` retains its
+checked member operations, registered callback table and component checks. Its
+typed nested adapters consume attribution records and the shared query; separate
+callbacks may observe a payload independently. The one-observation guarantee
+applies to each shared operation, not to an entire erased-owner operation.
+`CBakedDocumentBlock` forwards the common two-method interface to its existing
+byte buffer without changing its representation or adoption rules.
+
+General-purpose collection reattribution covers its backing storage. It does not
+automatically reattribute allocations owned by user values stored in the collection.
 
 ## DLL and transport boundaries
 
@@ -449,9 +507,9 @@ The system-owned erased carrier is documented in
 
 ## Summary rules
 
-Use `memory_allocation_count()` for direct allocation-count accounting.
-
-Use `memory_allocation_size()` for conditioned allocation footprint.
+Use a container's `memory_attribution().allocation_count` for its owned
+allocation count and `.allocation_size` for its conditioned allocation footprint.
+Primitive tokens retain `memory_allocation_count()` and `memory_allocation_size()`.
 
 Do not treat views as owners.
 

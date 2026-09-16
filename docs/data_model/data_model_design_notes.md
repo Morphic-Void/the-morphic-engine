@@ -447,15 +447,17 @@ outcome. The common report contains only the linter evidence needed by parsing.
 
 ## Baked ownership baseline
 
-The initial ownership bridge delegates the block's public reattribution
-operations to its byte buffer. Private source-context and context-replacement
-hooks let CErasedOwner account for the shell and nested storage together.
+The ownership bridge forwards the block's public `memory_attribution()` and
+`unsafe_replace_memory_context_without_accounting()` methods to its byte buffer.
+Shared `memory::can_reattribute_to` and `memory::reattribute` implement checked
+transfer. The same two-method interface lets CErasedOwner account for the shell
+and nested storage together through its existing registered callbacks.
 BakedDocumentAsset uses the ordinary SYSTEM nested-storage registration, with
 its identity appended to preserve existing numeric IDs. Compatible-context
 reattribution keeps the allocation, bytes and checked views unchanged.
 
-This establishes working transfer mechanics, but the public/private split and
-friendship are explicitly under review. The consolidation plan owns the future
+This establishes working transfer mechanics with the common public infrastructure
+interface and no erased-owner friendship. The consolidation plan owns the future
 semantic lifetime/publication interface and Host operation design. Borrowed
 views still require their backing owner to remain alive; a handle alone does
 not retain an asset. Live construction and parser/baker scratch stay local to

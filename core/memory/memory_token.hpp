@@ -866,9 +866,7 @@ inline bool CMemoryToken::reattribute(CMemoryContext* target) noexcept
     return true;
 }
 
-inline void CMemoryToken::unsafe_replace_context_without_accounting(
-    CMemoryContext* const expected_source,
-    CMemoryContext* const target) noexcept
+inline void CMemoryToken::unsafe_replace_context_without_accounting(CMemoryContext* const expected_source, CMemoryContext* const target) noexcept
 {
     const bool valid = (target != nullptr) && (!owns_storage() ||
         ((expected_source != nullptr) && (m_context == expected_source) &&
@@ -878,6 +876,15 @@ inline void CMemoryToken::unsafe_replace_context_without_accounting(
     {
         m_context = target;
     }
+}
+
+//  Adapt the primitive token to the common container observation contract.
+[[nodiscard]] inline SMemoryAttribution observe_memory_attribution(const CMemoryToken& token) noexcept
+{
+    return SMemoryAttribution{
+        token.owns_storage() ? EMemorySourceState::coherent : EMemorySourceState::empty,
+        token.owns_storage() ? token.context() : nullptr,
+        token.memory_token_count(), token.memory_allocation_count(), token.memory_allocation_size() };
 }
 
 }   //  namespace memory

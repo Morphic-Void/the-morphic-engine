@@ -266,6 +266,10 @@ void test_stable_strings_direct_storage_reattribution(TTestContext& ctx)
     memory::CMemoryContext* const previous_context = memory::set_thread_memory_context(&source_context);
 
     CStableStrings table;
+    TEST_EXPECT(ctx, table.memory_attribution().source_state == memory::EMemorySourceState::empty);
+    TEST_EXPECT(ctx, table.memory_attribution().source == nullptr);
+    TEST_EXPECT(ctx, memory::reattribute(table, &incompatible_context));
+    TEST_EXPECT(ctx, memory::reattribute(table, &source_context));
     TEST_EXPECT(ctx, table.initialise(8u, 64u));
     const std::size_t pear_id = table.append(reinterpret_cast<const std::uint8_t*>("pear"));
     const std::size_t apple_id = table.append(reinterpret_cast<const std::uint8_t*>("apple"));
@@ -277,19 +281,21 @@ void test_stable_strings_direct_storage_reattribution(TTestContext& ctx)
     const std::uint8_t* const pear_address = table.view(pear_id).string();
     const std::uint32_t allocation_count = source_context.get_live_allocation_count();
     const std::uint64_t allocation_size = source_context.get_live_allocated_bytes();
-    TEST_EXPECT(ctx, table.memory_token_count() == 5u);
-    TEST_EXPECT(ctx, table.memory_allocation_count() == allocation_count);
-    TEST_EXPECT(ctx, table.memory_allocation_size() == allocation_size);
-    TEST_EXPECT(ctx, table.can_reattribute_to(&target_context));
-    TEST_EXPECT(ctx, !table.can_reattribute_to(&incompatible_context));
+    TEST_EXPECT(ctx, table.memory_attribution().token_count == 5u);
+    TEST_EXPECT(ctx, table.memory_attribution().allocation_count == allocation_count);
+    TEST_EXPECT(ctx, table.memory_attribution().allocation_size == allocation_size);
+    TEST_EXPECT(ctx, table.memory_attribution().source_state == memory::EMemorySourceState::coherent);
+    TEST_EXPECT(ctx, table.memory_attribution().source == &source_context);
+    TEST_EXPECT(ctx, memory::can_reattribute_to(table, &target_context));
+    TEST_EXPECT(ctx, !memory::can_reattribute_to(table, &incompatible_context));
 
-    TEST_EXPECT(ctx, !table.reattribute(&incompatible_context));
+    TEST_EXPECT(ctx, !memory::reattribute(table, &incompatible_context));
     TEST_EXPECT(ctx, source_context.get_live_allocation_count() == allocation_count);
     TEST_EXPECT(ctx, source_context.get_live_allocated_bytes() == allocation_size);
     TEST_EXPECT(ctx, incompatible_context.get_live_allocation_count() == 0u);
     TEST_EXPECT(ctx, incompatible_context.get_live_allocated_bytes() == 0u);
 
-    TEST_EXPECT(ctx, table.reattribute(&target_context));
+    TEST_EXPECT(ctx, memory::reattribute(table, &target_context));
     TEST_EXPECT(ctx, table.view(pear_id).string() == pear_address);
     TEST_EXPECT(ctx, table.find_id(reinterpret_cast<const std::uint8_t*>("apple")) == apple_id);
     TEST_EXPECT(ctx, table.check_integrity());
@@ -297,11 +303,50 @@ void test_stable_strings_direct_storage_reattribution(TTestContext& ctx)
     TEST_EXPECT(ctx, source_context.get_live_allocated_bytes() == 0u);
     TEST_EXPECT(ctx, target_context.get_live_allocation_count() == allocation_count);
     TEST_EXPECT(ctx, target_context.get_live_allocated_bytes() == allocation_size);
+    TEST_EXPECT(ctx, memory::reattribute(table, &target_context));
+    TEST_EXPECT(ctx, target_context.get_live_allocated_bytes() == allocation_size);
+    TEST_EXPECT(ctx, table.memory_attribution().source_state == memory::EMemorySourceState::coherent);
+    TEST_EXPECT(ctx, table.memory_attribution().source == &target_context);
 
     table.deallocate();
     TEST_EXPECT(ctx, target_context.get_live_allocation_count() == 0u);
     TEST_EXPECT(ctx, target_context.get_live_allocated_bytes() == 0u);
     (void)memory::set_thread_memory_context(previous_context);
+}
+
+void test_stable_strings_mixed_sources(TTestContext& ctx)
+{
+    memory::CMemoryAllocator allocator{nullptr, &attribution_test_allocate, &attribution_test_deallocate};
+    memory::CMemoryContext source{allocator};
+    memory::CMemoryContext target{allocator};
+    memory::CMemoryContext* const previous = memory::set_thread_memory_context(&source);
+    {
+        CStableStrings table;
+        TEST_EXPECT(ctx, table.initialise(8u, 16u));
+        (void)memory::set_thread_memory_context(&target);
+        TEST_EXPECT(ctx, table.ensure_free(memory::k_buffer_growth_policy_min_capacity + 1u));
+        const auto id = table.append(reinterpret_cast<const std::uint8_t*>("mixed-source"));
+        TEST_EXPECT(ctx, id != CStableStrings::k_invalid_id);
+        TEST_EXPECT(ctx, !source.is_attribution_empty() && !target.is_attribution_empty());
+        const auto source_count = source.get_live_allocation_count();
+        const auto source_bytes = source.get_live_allocated_bytes();
+        const auto target_count = target.get_live_allocation_count();
+        const auto target_bytes = target.get_live_allocated_bytes();
+        const auto* const address = table.view(id).string();
+        const auto mixed = table.memory_attribution();
+        TEST_EXPECT(ctx, mixed.source_state == memory::EMemorySourceState::mixed && mixed.source == nullptr);
+        TEST_EXPECT(ctx, mixed.allocation_count == source_count + target_count);
+        TEST_EXPECT(ctx, mixed.allocation_size == source_bytes + target_bytes);
+        TEST_EXPECT(ctx, !memory::can_reattribute_to(table, &target) && !memory::reattribute(table, &target));
+        TEST_EXPECT(ctx, !memory::reattribute(table, &source));
+        TEST_EXPECT(ctx, table.view(id).string() == address);
+        TEST_EXPECT(ctx, source.get_live_allocation_count() == source_count);
+        TEST_EXPECT(ctx, source.get_live_allocated_bytes() == source_bytes);
+        TEST_EXPECT(ctx, target.get_live_allocation_count() == target_count);
+        TEST_EXPECT(ctx, target.get_live_allocated_bytes() == target_bytes);
+    }
+    TEST_EXPECT(ctx, source.is_attribution_empty() && target.is_attribution_empty());
+    (void)memory::set_thread_memory_context(previous);
 }
 
 }   //  namespace
@@ -315,6 +360,7 @@ int run_string_buffer_tests()
     test_stable_strings_lookup_duplicates_and_sort(ctx);
     test_stable_strings_reserve_shrink_and_invariants(ctx);
     test_stable_strings_direct_storage_reattribution(ctx);
+    test_stable_strings_mixed_sources(ctx);
 
     std::cout << "StringBuffers: " << ctx.passed << " passed, " << ctx.failed << " failed\n";
     return (ctx.failed == 0) ? 0 : 1;

@@ -7,6 +7,8 @@
 //  Date:    1 Sep 26
 //
 //  Mutable, single-threaded live document foundations.
+//  Attribution covers nodes and both string domains, excluding caller-owned
+//  analysis scratch and temporary parser or baker storage.
 
 #pragma once
 
@@ -55,8 +57,7 @@ public:
     ~CLiveDocument() noexcept = default;
 
     //  Initialisation and readiness
-    //  A live document cannot be reattributed. Moves retain the allocation
-    //  contexts already carried by its storage.
+    //  Moves retain the allocation contexts already carried by its storage.
     [[nodiscard]] bool initialise(const std::size_t initial_node_capacity = 0u) noexcept;
     [[nodiscard]] bool reset(const std::size_t initial_node_capacity = 0u) noexcept;
     void deallocate() noexcept;
@@ -160,12 +161,16 @@ public:
     //  failure leaves both inputs unchanged.
     [[nodiscard]] CNodeKey extend_object_child(const CNodeKey destination, const CNodeKey candidate) noexcept;
 
-    //  Direct storage attribution
-    //  Complete direct ownership accounting. There is intentionally no
-    //  reattribution surface.
-    [[nodiscard]] std::uint32_t memory_token_count() const noexcept;
-    [[nodiscard]] std::uint32_t memory_allocation_count() const noexcept;
-    [[nodiscard]] std::uint64_t memory_allocation_size() const noexcept;
+//  Interface for memory accounting and ownership-transfer infrastructure.
+public:
+
+    //  Observe all owned backing storage without changing its attribution.
+    [[nodiscard]] memory::SMemoryAttribution memory_attribution() const noexcept;
+
+    //  Requires completed source/allocator preflight and accounting adjustment.
+    //  Replace all owned contexts, including unallocated members.
+    void unsafe_replace_memory_context_without_accounting(
+        memory::CMemoryContext* const expected_source, memory::CMemoryContext* const target) noexcept;
 
 private:
 

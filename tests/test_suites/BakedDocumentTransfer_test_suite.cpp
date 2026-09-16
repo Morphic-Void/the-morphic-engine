@@ -78,7 +78,7 @@ static void bake(TTestContext& ctx, CBakedDocumentBlock& block)
     TEST_EXPECT(ctx, live.append_child(recovery, live.create_string(CStringView{ text, sizeof(text) })).succeeded());
     TEST_EXPECT(ctx, document_translation::bake(live, block));
     TEST_EXPECT(ctx, block.is_ready() && block.document().check_integrity());
-    TEST_EXPECT(ctx, block.memory_allocation_count() == 1u);
+    TEST_EXPECT(ctx, block.memory_attribution().allocation_count == 1u);
 }
 
 static void expect_bytes(TTestContext& ctx, const CBakedDocumentBlock& block,
@@ -109,36 +109,36 @@ static void test_block_attribution(TTestContext& ctx)
     CContexts contexts;
     const tests::TMemoryContextScope source_scope{ &contexts.executive };
     CBakedDocumentBlock block;
-    TEST_EXPECT(ctx, block.can_reattribute_to(&contexts.incompatible));
-    TEST_EXPECT(ctx, block.reattribute(&contexts.incompatible));
+    TEST_EXPECT(ctx, memory::can_reattribute_to(block, &contexts.incompatible));
+    TEST_EXPECT(ctx, memory::reattribute(block, &contexts.incompatible));
     TEST_EXPECT(ctx, !block.is_ready() && !block.document().is_ready());
-    TEST_EXPECT(ctx, block.memory_allocation_count() == 0u);
+    TEST_EXPECT(ctx, block.memory_attribution().allocation_count == 0u);
     bake(ctx, block);
     const auto bytes = block.bytes();
     const std::vector<std::uint8_t> snapshot(bytes.data(), bytes.data() + bytes.size());
     const CBakedDocument view = block.document();
-    const std::uint64_t allocated_bytes = block.memory_allocation_size();
+    const std::uint64_t allocated_bytes = block.memory_attribution().allocation_size;
     const std::size_t allocation_calls = contexts.state.allocations;
     const std::size_t deallocation_calls = contexts.state.deallocations;
     TEST_EXPECT(ctx, contexts.executive.get_live_allocation_count() == 1u);
-    TEST_EXPECT(ctx, block.can_reattribute_to() && block.reattribute());
-    TEST_EXPECT(ctx, !block.can_reattribute_to(&contexts.incompatible) && !block.reattribute(&contexts.incompatible));
+    TEST_EXPECT(ctx, memory::can_reattribute_to(block) && memory::reattribute(block));
+    TEST_EXPECT(ctx, !memory::can_reattribute_to(block, &contexts.incompatible) && !memory::reattribute(block, &contexts.incompatible));
     TEST_EXPECT(ctx, contexts.executive.get_live_allocated_bytes() == allocated_bytes);
     TEST_EXPECT(ctx, contexts.incompatible.is_attribution_empty());
     {
         const tests::TMemoryContextScope target_scope{ &contexts.host };
-        TEST_EXPECT(ctx, block.can_reattribute_to() && block.reattribute());
+        TEST_EXPECT(ctx, memory::can_reattribute_to(block) && memory::reattribute(block));
     }
     TEST_EXPECT(ctx, contexts.executive.is_attribution_empty());
     TEST_EXPECT(ctx, contexts.host.get_live_allocation_count() == 1u && contexts.host.get_live_allocated_bytes() == allocated_bytes);
-    TEST_EXPECT(ctx, block.reattribute(&contexts.host));
+    TEST_EXPECT(ctx, memory::reattribute(block, &contexts.host));
     expect_bytes(ctx, block, bytes.data(), snapshot);
     TEST_EXPECT(ctx, view.is_ready() && view.value_count() == block.document().value_count());
     CBakedDocumentBlock moved{ std::move(block) };
-    TEST_EXPECT(ctx, !block.is_ready() && !block.document().is_ready() && block.memory_allocation_count() == 0u);
-    TEST_EXPECT(ctx, block.reattribute(&contexts.incompatible));
+    TEST_EXPECT(ctx, !block.is_ready() && !block.document().is_ready() && block.memory_attribution().allocation_count == 0u);
+    TEST_EXPECT(ctx, memory::reattribute(block, &contexts.incompatible));
     expect_bytes(ctx, moved, bytes.data(), snapshot);
-    TEST_EXPECT(ctx, moved.reattribute(&contexts.executive));
+    TEST_EXPECT(ctx, memory::reattribute(moved, &contexts.executive));
     TEST_EXPECT(ctx, contexts.host.is_attribution_empty());
     TEST_EXPECT(ctx, contexts.state.allocations == allocation_calls && contexts.state.deallocations == deallocation_calls);
     //  Full validation uses its own scratch; keep it outside the measurement
@@ -168,7 +168,7 @@ static void test_owner_attribution(TTestContext& ctx)
     const std::uint64_t total_bytes = contexts.executive.get_live_allocated_bytes();
     const std::size_t allocation_calls = contexts.state.allocations;
     TEST_EXPECT(ctx, contexts.executive.get_live_allocation_count() == 2u);
-    TEST_EXPECT(ctx, total_bytes > payload->block.memory_allocation_size());
+    TEST_EXPECT(ctx, total_bytes > payload->block.memory_attribution().allocation_size);
     owner.add_hazard(mount_point_ids::asset);
     TEST_EXPECT(ctx, !owner.can_reattribute_to(&contexts.incompatible) && !owner.reattribute(&contexts.incompatible));
     TEST_EXPECT(ctx, owner.memory_context() == &contexts.executive && owner.payload<BakedDocumentAsset>() == payload);
@@ -182,11 +182,11 @@ static void test_owner_attribution(TTestContext& ctx)
 
     //  A nested block moved independently into a different context must not
     //  let the owner silently attribute both allocations to a single source.
-    TEST_EXPECT(ctx, payload->block.reattribute(&contexts.host));
+    TEST_EXPECT(ctx, memory::reattribute(payload->block, &contexts.host));
     TEST_EXPECT(ctx, !owner.can_reattribute_to(&contexts.transport) && !owner.reattribute(&contexts.transport));
     TEST_EXPECT(ctx, contexts.executive.get_live_allocation_count() == 1u && contexts.host.get_live_allocation_count() == 1u);
     TEST_EXPECT(ctx, contexts.transport.is_attribution_empty());
-    TEST_EXPECT(ctx, payload->block.reattribute(&contexts.executive));
+    TEST_EXPECT(ctx, memory::reattribute(payload->block, &contexts.executive));
     TEST_EXPECT(ctx, owner.can_reattribute_to(&contexts.transport));
     TEST_EXPECT(ctx, contexts.state.allocations == allocation_calls);
     owner.destroy();

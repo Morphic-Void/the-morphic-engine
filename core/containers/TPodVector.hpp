@@ -218,25 +218,19 @@ public:
     static constexpr std::size_t k_align = memory::t_default_align<T>();
     static constexpr std::size_t k_max_elements = memory::t_max_elements<T>();
 
-    //  Direct storage attribution
-    [[nodiscard]] std::uint32_t memory_token_count() const noexcept;
-    [[nodiscard]] std::uint32_t memory_allocation_count() const noexcept;
-    [[nodiscard]] std::uint64_t memory_allocation_size() const noexcept;
-    [[nodiscard]] bool can_reattribute_to(memory::CMemoryContext* const context = nullptr) const noexcept;
-    [[nodiscard]] bool reattribute(memory::CMemoryContext* const context = nullptr) noexcept;
+//  Interface for memory accounting and ownership-transfer infrastructure.
+public:
 
-private:
-    template<typename> friend class TPodUnorderedSlotsStorage;
-    template<typename, typename> friend class TPodOrderedSlotsStorage;
-    template<typename> friend class TUnorderedCollectionStorage;
-    template<typename, typename> friend class TOrderedCollectionStorage;
-    friend class CStableStrings;
+    //  Observe all owned backing storage without changing its attribution.
+    [[nodiscard]] memory::SMemoryAttribution memory_attribution() const noexcept;
 
-    static constexpr std::size_t k_max_bytes = k_max_elements * k_element_size;
-
-    [[nodiscard]] memory::CMemoryContext* memory_source_context() const noexcept;
+    //  Requires completed source/allocator preflight and accounting adjustment.
+    //  Replace all owned contexts, including unallocated members.
     void unsafe_replace_memory_context_without_accounting(
         memory::CMemoryContext* const expected_source, memory::CMemoryContext* const target) noexcept;
+
+private:
+    static constexpr std::size_t k_max_bytes = k_max_elements * k_element_size;
 
     [[nodiscard]] T* raw_data() noexcept { return static_cast<T*>(m_token.data()); }
     [[nodiscard]] const T* raw_data() const noexcept { return static_cast<const T*>(m_token.data()); }
@@ -425,9 +419,9 @@ inline bool TPodVector<T>::is_ready() const noexcept
 }
 
 template<typename T>
-inline memory::CMemoryContext* TPodVector<T>::memory_source_context() const noexcept
+inline memory::SMemoryAttribution TPodVector<T>::memory_attribution() const noexcept
 {
-    return m_token.owns_storage() ? m_token.context() : nullptr;
+    return memory::observe_memory_attribution(m_token);
 }
 
 template<typename T>
@@ -743,36 +737,6 @@ inline bool TPodVector<T>::shrink_to_fit() noexcept
         return true;
     }
     return reallocate(m_size, m_size);
-}
-
-template<typename T>
-inline std::uint32_t TPodVector<T>::memory_token_count() const noexcept
-{
-    return m_token.memory_token_count();
-}
-
-template<typename T>
-inline std::uint32_t TPodVector<T>::memory_allocation_count() const noexcept
-{
-    return m_token.memory_allocation_count();
-}
-
-template<typename T>
-inline std::uint64_t TPodVector<T>::memory_allocation_size() const noexcept
-{
-    return m_token.memory_allocation_size();
-}
-
-template<typename T>
-inline bool TPodVector<T>::can_reattribute_to(memory::CMemoryContext* const context) const noexcept
-{
-    return m_token.can_reattribute_to(context);
-}
-
-template<typename T>
-inline bool TPodVector<T>::reattribute(memory::CMemoryContext* const context) noexcept
-{
-    return m_token.reattribute(context);
 }
 
 template<typename T>

@@ -208,7 +208,7 @@ static void test_late_policy_acceptance(TTestContext& ctx)
             CLiveDocument destination;
             TEST_EXPECT(ctx, parse("{\"keep\":7}", destination).accepted());
             const CNodeKey keep = destination.first_child(destination.root());
-            const std::uint64_t allocation_size = destination.memory_allocation_size();
+            const std::uint64_t allocation_size = destination.memory_attribution().allocation_size;
             const CStringView source{ item.source };
             const CByteConstView bytes{ source.string(), source.length() };
             CTextLintReport linter_report;
@@ -226,7 +226,7 @@ static void test_late_policy_acceptance(TTestContext& ctx)
                 TEST_EXPECT(ctx, (report.processing_succeeded() && report.policy.status == EDocumentPolicyStatus::rejected));
                 TEST_EXPECT(ctx, report.policy.status == EDocumentPolicyStatus::rejected);
                 TEST_EXPECT(ctx, destination.first_child(destination.root()) == keep);
-                TEST_EXPECT(ctx, destination.memory_allocation_size() == allocation_size);
+                TEST_EXPECT(ctx, destination.memory_attribution().allocation_size == allocation_size);
                 TEST_EXPECT(ctx, write(ctx, destination) == "{\"keep\":7}");
             }
             else
@@ -835,7 +835,7 @@ static void test_root_inference(TTestContext& ctx)
     TEST_EXPECT(ctx, write(ctx, document) == "[{\"x\":1},{},{\"x\":1,\"y\":2}]");
 
     const CNodeKey keep = document.first_child(document.root());
-    const std::uint64_t allocation_size = document.memory_allocation_size();
+    const std::uint64_t allocation_size = document.memory_attribution().allocation_size;
     const char* const malformed[]{ "1 2", "[1}", "[1", "[] true", "{} ,1", "1,a:2", "\"a\":1,2", "[a:1]", "1,,2", "," };
     for (const char* source : malformed)
     {
@@ -843,7 +843,7 @@ static void test_root_inference(TTestContext& ctx)
         TEST_CASE_EXPECT_TRUE(ctx, source, failed.state == EDocumentProcessingState::failure);
         TEST_EXPECT(ctx, failed.failure.stage == EDocumentFailureStage::structure && !failed.processing_succeeded());
         TEST_EXPECT(ctx, document.value_type(document.root()) == ELiveValueType::array && document.first_child(document.root()) == keep);
-        TEST_EXPECT(ctx, document.memory_allocation_size() == allocation_size && document.check_integrity());
+        TEST_EXPECT(ctx, document.memory_attribution().allocation_size == allocation_size && document.check_integrity());
     }
     const auto range = parse("18446744073709551616", document);
     TEST_EXPECT(ctx, range.failure.reason == EDocumentFailureReason::numeric_out_of_range);
@@ -976,7 +976,7 @@ static void test_failure_publication(TTestContext& ctx)
     TEST_EXPECT(ctx, parse("keep:7", document).accepted());
     const CNodeKey root = document.root();
     const CNodeKey keep = document.first_child(root);
-    const std::uint64_t allocation_size = document.memory_allocation_size();
+    const std::uint64_t allocation_size = document.memory_attribution().allocation_size;
     struct CCase
     {
         const char* text;
@@ -1003,7 +1003,7 @@ static void test_failure_publication(TTestContext& ctx)
         TEST_EXPECT(ctx, report.failure.location.available && report.failure.location.code_point_column_1_based == item.offset + 1u);
         TEST_EXPECT(ctx, report.failure.stage == (item.structural_success ? EDocumentFailureStage::parser : EDocumentFailureStage::structure));
         TEST_EXPECT(ctx, document.root() == root && document.first_child(root) == keep);
-        TEST_EXPECT(ctx, document.memory_allocation_size() == allocation_size);
+        TEST_EXPECT(ctx, document.memory_attribution().allocation_size == allocation_size);
         TEST_EXPECT(ctx, document.check_integrity());
         TEST_EXPECT(ctx, write(ctx, document) == "{\"keep\":7}");
     }
@@ -1399,7 +1399,7 @@ static void test_policy_allocation(TTestContext& ctx)
         CLiveDocument destination;
         TEST_EXPECT(ctx, parse("[7]", destination).accepted());
         const CNodeKey keep = destination.first_child(destination.root());
-        const std::uint64_t allocation_size = destination.memory_allocation_size();
+        const std::uint64_t allocation_size = destination.memory_attribution().allocation_size;
         bool completed = false;
         for (std::size_t fail_on = 0u; (fail_on < 256u) && !completed; ++fail_on)
         {
@@ -1428,7 +1428,7 @@ static void test_policy_allocation(TTestContext& ctx)
                 }
                 TEST_EXPECT(ctx, destination.value_type(destination.root()) == ELiveValueType::array);
                 TEST_EXPECT(ctx, destination.first_child(destination.root()) == keep);
-                TEST_EXPECT(ctx, destination.memory_allocation_size() == allocation_size && destination.check_integrity());
+                TEST_EXPECT(ctx, destination.memory_attribution().allocation_size == allocation_size && destination.check_integrity());
             }
             //  Rejected temporary documents and linter output must release all
             //  attributed storage, even after construction completed.
@@ -1446,7 +1446,7 @@ static void test_root_allocation(TTestContext& ctx)
         CLiveDocument destination;
         TEST_EXPECT(ctx, parse("[7]", destination).accepted());
         const CNodeKey keep = destination.first_child(destination.root());
-        const std::uint64_t allocation_size = destination.memory_allocation_size();
+        const std::uint64_t allocation_size = destination.memory_attribution().allocation_size;
         bool completed = false;
         for (std::size_t fail_on = 0u; (fail_on < 256u) && !completed; ++fail_on)
         {
@@ -1471,7 +1471,7 @@ static void test_root_allocation(TTestContext& ctx)
                         (report.failure.reason == EDocumentFailureReason::allocation_failed));
                     TEST_EXPECT(ctx, destination.value_type(destination.root()) == ELiveValueType::array);
                     TEST_EXPECT(ctx, destination.first_child(destination.root()) == keep);
-                    TEST_EXPECT(ctx, destination.memory_allocation_size() == allocation_size && destination.check_integrity());
+                    TEST_EXPECT(ctx, destination.memory_attribution().allocation_size == allocation_size && destination.check_integrity());
                 }
             }
             TEST_EXPECT(ctx, context.is_attribution_empty());

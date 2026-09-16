@@ -16,6 +16,7 @@
 #include <string>
 
 #include "containers/TInstance.hpp"
+#include "data_model/live_document.hpp"
 #include "memory/memory_token.hpp"
 #include "platform/filesystem/internal/file_utils.hpp"
 #include "platform/path/native_path.hpp"
@@ -524,6 +525,216 @@ void test_boundaries(TTestContext& ctx, memory::CMemoryContext& context, debug_s
     Access::seed(context, 0u, 0u);
 }
 
+void test_checked_sums(TTestContext& ctx, memory::CMemoryContext& source,
+    memory::CMemoryAllocator& allocator, debug_system::CDebugServiceState& service)
+{
+    struct SCase
+    {
+        std::uint32_t left_count;
+        std::uint32_t right_count;
+        std::uint32_t count;
+        std::uint64_t left_bytes;
+        std::uint64_t right_bytes;
+        std::uint64_t bytes;
+        std::uint32_t reports;
+    };
+    constexpr SCase cases[]{
+        {0u, 0u, 0u, 0u, 0u, 0u, 0u},
+        {UINT32_MAX - 1u, 1u, UINT32_MAX, UINT64_MAX - 1u, 1u, UINT64_MAX, 0u},
+        {UINT32_MAX, 1u, 0u, 0u, 16u, 16u, 1u},
+        {0u, 1u, 1u, UINT64_MAX, 1u, 0u, 1u},
+        {UINT32_MAX, 1u, 0u, UINT64_MAX, 1u, 0u, 2u},
+        {UINT32_MAX, 3u, 2u, UINT64_MAX, 17u, 16u, 2u},
+        {UINT32_MAX, UINT32_MAX, UINT32_MAX - 1u, UINT64_MAX, UINT64_MAX, UINT64_MAX - 1u, 2u}
+    };
+    memory::CMemoryContext target{allocator};
+    for (const auto& test : cases)
+    {
+        const auto incident = service.allocate_incident_id();
+        const auto count = memory::add_accounting_counts(test.left_count, test.right_count);
+        const auto bytes = memory::add_accounting_bytes(test.left_bytes, test.right_bytes);
+        TEST_EXPECT(ctx, count == test.count && bytes == test.bytes);
+        TEST_EXPECT(ctx, service.allocate_incident_id() == incident + test.reports + 1u);
+        //  Zero/modulo totals remain valid compatible adjustments after overflow.
+        Access::seed(source, count, bytes);
+        TEST_EXPECT(ctx, memory::reattribute(source, target, count, bytes));
+        TEST_EXPECT(ctx, source.is_attribution_empty());
+        TEST_EXPECT(ctx, target.get_live_allocation_count() == count);
+        TEST_EXPECT(ctx, target.get_live_allocated_bytes() == bytes);
+        TEST_EXPECT(ctx, memory::reattribute(target, source, count, bytes));
+        TEST_EXPECT(ctx, target.is_attribution_empty());
+        Access::seed(source, 0u, 0u);
+        TEST_EXPECT(ctx, service.read_shutdown_request() == debug_system::EShutdownReason::none);
+    }
+    const auto incident = service.allocate_incident_id();
+    const auto child_count = memory::add_accounting_counts(UINT32_MAX, 3u);
+    const auto child_bytes = memory::add_accounting_bytes(UINT64_MAX, 17u);
+    TEST_EXPECT(ctx, memory::add_accounting_counts(1u, child_count) == 3u);
+    TEST_EXPECT(ctx, memory::add_accounting_bytes(16u, child_bytes) == 32u);
+    //  The parent sum does not wrap; the child's two losses were still reported.
+    TEST_EXPECT(ctx, service.allocate_incident_id() == incident + 3u);
+}
+
+struct SObservedOwner
+{
+    memory::SMemoryAttribution attribution;
+    mutable unsigned observations{};
+    unsigned replacements{};
+    memory::CMemoryContext* replaced_source{};
+    memory::CMemoryContext* replaced_target{};
+
+    memory::SMemoryAttribution memory_attribution() const noexcept
+    {
+        ++observations;
+        return attribution;
+    }
+
+    void unsafe_replace_memory_context_without_accounting(
+        memory::CMemoryContext* const source, memory::CMemoryContext* const target) noexcept
+    {
+        ++replacements;
+        replaced_source = source;
+        replaced_target = target;
+        if (attribution.source_state == memory::EMemorySourceState::coherent) attribution.source = target;
+    }
+};
+
+void test_attribution_contract(TTestContext& ctx, memory::CMemoryContext& source,
+    memory::CMemoryAllocator& allocator, debug_system::CDebugServiceState& service)
+{
+    using State = memory::EMemorySourceState;
+    using Record = memory::SMemoryAttribution;
+    memory::CMemoryContext target{allocator};
+    memory::CMemoryAllocator other_allocator{nullptr, nullptr, nullptr};
+    memory::CMemoryContext other{other_allocator};
+    const Record records[]{
+        {State::empty, nullptr, 1u, 0u, 0u},
+        {State::coherent, &source, 2u, 2u, 32u},
+        {State::coherent, &target, 3u, 3u, 48u},
+        {State::mixed, nullptr, 4u, 4u, 64u}
+    };
+    const State expected[4][4]{
+        {State::empty, State::coherent, State::coherent, State::mixed},
+        {State::coherent, State::coherent, State::mixed, State::mixed},
+        {State::coherent, State::mixed, State::coherent, State::mixed},
+        {State::mixed, State::mixed, State::mixed, State::mixed}
+    };
+    for (unsigned left = 0u; left < 4u; ++left)
+    {
+        for (unsigned right = 0u; right < 4u; ++right)
+        {
+            const auto result = memory::combine_memory_attribution(records[left], records[right]);
+            TEST_EXPECT(ctx, result.source_state == expected[left][right]);
+            auto* const expected_source = (result.source_state == State::coherent)
+                ? ((left == 0u) ? records[right].source : records[left].source) : nullptr;
+            TEST_EXPECT(ctx, result.source == expected_source);
+            TEST_EXPECT(ctx, result.token_count == records[left].token_count + records[right].token_count);
+            TEST_EXPECT(ctx, result.allocation_count == records[left].allocation_count + records[right].allocation_count);
+            TEST_EXPECT(ctx, result.allocation_size == records[left].allocation_size + records[right].allocation_size);
+        }
+    }
+
+    const Record large{State::coherent, &source, 1u, UINT32_MAX, UINT64_MAX};
+    const Record one{State::coherent, &source, 1u, 1u, 1u};
+    const auto incident = service.allocate_incident_id();
+    const auto child = memory::combine_memory_attribution(large, one);
+    const auto parent = memory::combine_memory_attribution(records[1], child);
+    TEST_EXPECT(ctx, child.source_state == State::coherent && child.source == &source);
+    TEST_EXPECT(ctx, child.allocation_count == 0u && child.allocation_size == 0u);
+    TEST_EXPECT(ctx, parent.allocation_count == 2u && parent.allocation_size == 32u);
+    TEST_EXPECT(ctx, service.allocate_incident_id() == incident + 3u);
+    const auto mixed = memory::combine_memory_attribution(child, records[2]);
+    TEST_EXPECT(ctx, mixed.source_state == State::mixed && mixed.source == nullptr);
+    TEST_EXPECT(ctx, mixed.allocation_count == 3u && mixed.allocation_size == 48u);
+
+    SObservedOwner owner{records[1]};
+    Access::seed(source, 2u, 32u);
+    TEST_EXPECT(ctx, memory::can_reattribute_to(owner, &target));
+    TEST_EXPECT(ctx, owner.observations == 1u && owner.replacements == 0u);
+    TEST_EXPECT(ctx, source.get_live_allocation_count() == 2u && target.is_attribution_empty());
+    //  An earlier successful query cannot substitute for the transfer's preflight.
+    owner.attribution = mixed;
+    TEST_EXPECT(ctx, !memory::reattribute(owner, &target));
+    TEST_EXPECT(ctx, owner.observations == 2u && owner.replacements == 0u);
+    TEST_EXPECT(ctx, source.get_live_allocation_count() == 2u && target.is_attribution_empty());
+    owner.attribution = records[1];
+    TEST_EXPECT(ctx, !memory::can_reattribute_to(owner, &other));
+    TEST_EXPECT(ctx, !memory::reattribute(owner, &other));
+    TEST_EXPECT(ctx, owner.observations == 4u && owner.replacements == 0u);
+    TEST_EXPECT(ctx, memory::reattribute(owner, &target));
+    TEST_EXPECT(ctx, owner.observations == 5u && owner.replacements == 1u);
+    TEST_EXPECT(ctx, owner.replaced_source == &source && owner.replaced_target == &target);
+    TEST_EXPECT(ctx, source.is_attribution_empty());
+    TEST_EXPECT(ctx, target.get_live_allocation_count() == 2u && target.get_live_allocated_bytes() == 32u);
+    TEST_EXPECT(ctx, memory::reattribute(owner, &target));
+    TEST_EXPECT(ctx, owner.observations == 6u && owner.replacements == 2u);
+    TEST_EXPECT(ctx, target.get_live_allocation_count() == 2u && target.get_live_allocated_bytes() == 32u);
+    TEST_EXPECT(ctx, memory::reattribute(owner, &source));
+    Access::seed(source, 0u, 0u);
+
+    SObservedOwner wrapped{child};
+    TEST_EXPECT(ctx, !memory::reattribute(wrapped, &other));
+    TEST_EXPECT(ctx, wrapped.observations == 1u && wrapped.replacements == 0u);
+    TEST_EXPECT(ctx, memory::reattribute(wrapped, &target));
+    TEST_EXPECT(ctx, wrapped.observations == 2u && wrapped.replacements == 1u);
+    TEST_EXPECT(ctx, wrapped.replaced_source == &source && wrapped.replaced_target == &target);
+    SObservedOwner empty{records[0]};
+    TEST_EXPECT(ctx, memory::reattribute(empty, &other));
+    TEST_EXPECT(ctx, empty.observations == 1u && empty.replacements == 1u);
+    TEST_EXPECT(ctx, empty.replaced_source == nullptr && empty.replaced_target == &other);
+    {
+        tests::TMemoryContextScope scope{nullptr};
+        auto* const previous_module = memory::set_module_memory_context(nullptr);
+        const bool can_transfer = memory::can_reattribute_to(empty);
+        const bool transferred = memory::reattribute(empty);
+        (void)memory::set_module_memory_context(previous_module);
+        TEST_EXPECT(ctx, !can_transfer && !transferred);
+        TEST_EXPECT(ctx, empty.observations == 1u && empty.replacements == 1u);
+    }
+    {
+        tests::TMemoryContextScope scope{&target};
+        TEST_EXPECT(ctx, memory::can_reattribute_to(empty));
+        TEST_EXPECT(ctx, memory::reattribute(empty));
+        TEST_EXPECT(ctx, empty.observations == 3u && empty.replacements == 2u);
+        TEST_EXPECT(ctx, empty.replaced_target == &target);
+    }
+    TEST_EXPECT(ctx, source.is_attribution_empty() && target.is_attribution_empty() && other.is_attribution_empty());
+    TEST_EXPECT(ctx, service.read_shutdown_request() == debug_system::EShutdownReason::none);
+}
+
+void test_document_with_accounting_discrepancies(TTestContext& ctx,
+    memory::CMemoryContext& source, memory::CMemoryAllocator& allocator,
+    debug_system::CDebugServiceState& service)
+{
+    memory::CMemoryContext target{allocator};
+    tests::TMemoryContextScope scope{&source};
+    CLiveDocument document;
+    TEST_EXPECT(ctx, document.initialise());
+    const auto key = document.create_string(CStringView{"payload"}, CStringView{"property"});
+    TEST_EXPECT(ctx, key.is_valid());
+    const auto* const pointer = document.string_value(key).string();
+    const auto count = document.memory_attribution().allocation_count;
+    const auto bytes = document.memory_attribution().allocation_size;
+    Access::seed(source, 0u, 0u);
+    Access::seed(target, 0u - count, 0ull - bytes);
+    TEST_EXPECT(ctx, memory::can_reattribute_to(document, &target));
+    TEST_EXPECT(ctx, memory::reattribute(document, &target));
+    TEST_EXPECT(ctx, document.memory_attribution().source_state == memory::EMemorySourceState::coherent);
+    TEST_EXPECT(ctx, document.memory_attribution().source == &target);
+    TEST_EXPECT(ctx, document.string_value(key).string() == pointer);
+    TEST_EXPECT(ctx, target.is_attribution_empty());
+    TEST_EXPECT(ctx, source.get_live_allocation_count() == 0u - count);
+    TEST_EXPECT(ctx, source.get_live_allocated_bytes() == 0ull - bytes);
+    TEST_EXPECT(ctx, document.check_integrity());
+    document.deallocate();
+    TEST_EXPECT(ctx, target.get_live_allocation_count() == 0u - count);
+    TEST_EXPECT(ctx, target.get_live_allocated_bytes() == 0ull - bytes);
+    TEST_EXPECT(ctx, service.read_shutdown_request() == debug_system::EShutdownReason::none);
+    //  Undo only the deliberately injected diagnostic offsets after real cleanup.
+    Access::seed(source, 0u, 0u);
+    Access::seed(target, 0u, 0u);
+}
+
 struct SConcurrentAdjustment
 {
     memory::CMemoryContext& context;
@@ -758,6 +969,9 @@ void run(TTestContext& ctx)
     test_concurrent_adjustments(ctx, context, service);
     test_real_operations(ctx, context, fixture);
     test_transfer(ctx, context, allocator);
+    test_checked_sums(ctx, context, allocator, service);
+    test_attribution_contract(ctx, context, allocator, service);
+    test_document_with_accounting_discrepancies(ctx, context, allocator, service);
 
     //  With no writer running, fill the bounded queue to exercise direct fallback.
     for (std::uint32_t i = 0u; i < debug_system::CEventTransport::k_capacity; ++i)
@@ -770,6 +984,8 @@ void run(TTestContext& ctx)
     {
         tests::TMemoryContextScope scope{&context};
         test_boundaries(ctx, context, service);
+        test_checked_sums(ctx, context, allocator, service);
+        test_attribution_contract(ctx, context, allocator, service);
     }
     TEST_EXPECT(ctx, fixture.allocations == allocations);
     TEST_EXPECT(ctx, fixture.deallocations == deallocations);
@@ -805,6 +1021,10 @@ void run(TTestContext& ctx)
         TEST_EXPECT(ctx, tests::file_contains(path->c_str(), "before 9223372036854775808 after 9223372036854775807 adjustment 1"));
         TEST_EXPECT(ctx, tests::file_contains(path->c_str(), "Memory accounting count add: context"));
         TEST_EXPECT(ctx, tests::file_contains(path->c_str(), "Memory accounting bytes sub: context"));
+        TEST_EXPECT(ctx, tests::file_contains(path->c_str(),
+            "Memory accounting count sum overflow: left 4294967295 right 3 total 2"));
+        TEST_EXPECT(ctx, tests::file_contains(path->c_str(),
+            "Memory accounting bytes sum overflow: left 18446744073709551615 right 17 total 16"));
     }
     TEST_EXPECT(ctx, context.is_attribution_empty());
     TEST_EXPECT(ctx, fixture.outstanding == 0u);

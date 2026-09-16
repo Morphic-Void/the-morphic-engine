@@ -56,7 +56,7 @@ void expect_text(TTestContext& ctx, const CDocumentWriteResult& result, const st
 void expect_failure(TTestContext& ctx, const CDocumentWriteResult& result, const EDocumentWriteStatus status)
 {
     TEST_EXPECT(ctx, result.report.status == status);
-    TEST_EXPECT(ctx, result.output.memory_allocation_count() == 0u);
+    TEST_EXPECT(ctx, result.output.memory_attribution().allocation_count == 0u);
     TEST_EXPECT(ctx, result.output.size() == 0u);
     TEST_EXPECT(ctx, result.report.logical_text_byte_size == 0u);
     TEST_EXPECT(ctx, result.report.non_decimal_integers_normalised == 0u);

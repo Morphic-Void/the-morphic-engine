@@ -812,10 +812,10 @@ static bool test_pod_unordered_slots_smoke(TestLogger& log)
         log.fail("TPodUnorderedSlots initialise failed");
         return false;
     }
-    if ((slots.memory_token_count() != 2u) ||
-        (slots.memory_allocation_count() == 0u) ||
-        (slots.memory_allocation_size() == 0u) ||
-        !slots.can_reattribute_to() || !slots.reattribute())
+    if ((slots.memory_attribution().token_count != 2u) ||
+        (slots.memory_attribution().allocation_count == 0u) ||
+        (slots.memory_attribution().allocation_size == 0u) ||
+        !memory::can_reattribute_to(slots) || !memory::reattribute(slots))
     {
         log.fail("TPodUnorderedSlots memory attribution audit failed");
         return false;

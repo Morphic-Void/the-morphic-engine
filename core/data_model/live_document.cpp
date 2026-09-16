@@ -30,7 +30,8 @@ CLiveDocument& CLiveDocument::operator=(CLiveDocument&& source) noexcept
 
 bool CLiveDocument::initialise(const std::size_t initial_node_capacity) noexcept
 {
-    if (is_ready() || (memory_allocation_count() != 0u) || (initial_node_capacity > std::numeric_limits<std::uint32_t>::max()))
+    if (is_ready() || (memory_attribution().source_state != memory::EMemorySourceState::empty) ||
+        (initial_node_capacity > std::numeric_limits<std::uint32_t>::max()))
     {
         return false;
     }
@@ -1070,22 +1071,20 @@ CNodeKey CLiveDocument::extend_object_child(const CNodeKey destination, const CN
     return existing;
 }
 
-std::uint32_t CLiveDocument::memory_token_count() const noexcept
+memory::SMemoryAttribution CLiveDocument::memory_attribution() const noexcept
 {
-    return m_nodes.memory_token_count() + m_property_names.memory_token_count() +
-        m_string_values.memory_token_count();
+    memory::SMemoryAttribution result = m_nodes.memory_attribution();
+    result = memory::combine_memory_attribution(result, m_property_names.memory_attribution());
+    result = memory::combine_memory_attribution(result, m_string_values.memory_attribution());
+    return result;
 }
 
-std::uint32_t CLiveDocument::memory_allocation_count() const noexcept
+void CLiveDocument::unsafe_replace_memory_context_without_accounting(
+    memory::CMemoryContext* const expected_source, memory::CMemoryContext* const target) noexcept
 {
-    return m_nodes.memory_allocation_count() + m_property_names.memory_allocation_count() +
-        m_string_values.memory_allocation_count();
-}
-
-std::uint64_t CLiveDocument::memory_allocation_size() const noexcept
-{
-    return m_nodes.memory_allocation_size() + m_property_names.memory_allocation_size() +
-        m_string_values.memory_allocation_size();
+    m_nodes.unsafe_replace_memory_context_without_accounting(expected_source, target);
+    m_property_names.unsafe_replace_memory_context_without_accounting(expected_source, target);
+    m_string_values.unsafe_replace_memory_context_without_accounting(expected_source, target);
 }
 
 bool CLiveDocument::prepare_string(const CStringView& source, SPreparedString& prepared) const noexcept
@@ -2053,7 +2052,7 @@ bool CLiveDocument::erase_subtree(const LiveNodeSlot value) noexcept
 
 bool CLiveDocument::check_string_domain(const CStableStrings& strings) const noexcept
 {
-    if (strings.memory_allocation_count() == 0u)
+    if (strings.memory_attribution().source_state == memory::EMemorySourceState::empty)
     {
         return strings.string_count() == 0u;
     }

@@ -179,29 +179,30 @@ template<typename T, auto Member>
 inline bool CErasedOwner::validate_nested_memory_source(const void* const payload, memory::CMemoryContext* const source) noexcept
 {
     const auto& storage = static_cast<const T*>(payload)->*Member;
-    memory::CMemoryContext* const nested_source = storage.memory_source_context();
-    return (nested_source == nullptr) || (nested_source == source);
+    const memory::SMemoryAttribution attribution = storage.memory_attribution();
+    return (attribution.source_state == memory::EMemorySourceState::empty) ||
+        ((attribution.source_state == memory::EMemorySourceState::coherent) && (attribution.source == source));
 }
 
 template<typename T, auto Member>
 inline std::uint32_t CErasedOwner::nested_memory_allocation_count(const void* const payload) noexcept
 {
     const auto& storage = static_cast<const T*>(payload)->*Member;
-    return storage.memory_allocation_count();
+    return storage.memory_attribution().allocation_count;
 }
 
 template<typename T, auto Member>
 inline std::uint64_t CErasedOwner::nested_memory_allocation_size(const void* const payload) noexcept
 {
     const auto& storage = static_cast<const T*>(payload)->*Member;
-    return storage.memory_allocation_size();
+    return storage.memory_attribution().allocation_size;
 }
 
 template<typename T, auto Member>
 inline bool CErasedOwner::nested_can_reattribute_to(const void* const payload, memory::CMemoryContext* const target) noexcept
 {
     const auto& storage = static_cast<const T*>(payload)->*Member;
-    return storage.can_reattribute_to(target);
+    return memory::can_reattribute_to(storage, target);
 }
 
 template<typename T, auto Member>

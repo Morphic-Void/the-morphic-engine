@@ -168,7 +168,7 @@ std::uint32_t CErasedOwner::memory_allocation_count() const noexcept
     const erased_owner_operations::SRegistration* const registration = operations();
     MV_CRITICAL_ASSERT(registration != nullptr);
     return (registration != nullptr)
-        ? (m_storage.memory_allocation_count() + registration->operations.memory_allocation_count(m_storage.data()))
+        ? memory::add_accounting_counts(m_storage.memory_allocation_count(), registration->operations.memory_allocation_count(m_storage.data()))
         : 0u;
 }
 
@@ -181,7 +181,7 @@ std::uint64_t CErasedOwner::memory_allocation_size() const noexcept
     const erased_owner_operations::SRegistration* const registration = operations();
     MV_CRITICAL_ASSERT(registration != nullptr);
     return (registration != nullptr)
-        ? (m_storage.memory_allocation_size() + registration->operations.memory_allocation_size(m_storage.data()))
+        ? memory::add_accounting_bytes(m_storage.memory_allocation_size(), registration->operations.memory_allocation_size(m_storage.data()))
         : 0u;
 }
 

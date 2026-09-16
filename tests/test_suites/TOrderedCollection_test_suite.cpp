@@ -16,6 +16,10 @@
 
 #include "containers/TOrderedCollection.hpp"
 #include "containers/TPodOrderedSlots.hpp"
+#include "containers/TPodUnorderedSlots.hpp"
+#include "containers/TUnorderedCollection.hpp"
+#include "containers/TInstance.hpp"
+#include "containers/TPodFifo.hpp"
 #include "tests/test_suites/TOrderedCollection_test_suite.hpp"
 #include "tests/support/test_context.hpp"
 #include "tests/support/test_allocator.hpp"
@@ -76,6 +80,226 @@ int TTrackedValue::construction_count = 0;
 int TTrackedValue::destruction_count = 0;
 
 using TCollection = TOrderedCollection<TTrackedValue, TTrackedKey>;
+
+template<bool Pod, bool Ordered>
+using TAttributionBase = std::conditional_t<Ordered,
+    std::conditional_t<Pod, TPodOrderedSlots<int, TTrackedKey>, TOrderedCollection<int, TTrackedKey>>,
+    std::conditional_t<Pod, TPodUnorderedSlots<int>, TUnorderedCollection<int>>>;
+
+template<bool Pod, bool Ordered>
+struct TAttributionContainer : TAttributionBase<Pod, Ordered>
+{
+    using Backing = std::conditional_t<Ordered,
+        std::conditional_t<Pod, TPodOrderedSlotsStorage<int, TTrackedKey>, TOrderedCollectionStorage<int, TTrackedKey>>,
+        std::conditional_t<Pod, TPodUnorderedSlotsStorage<int>, TUnorderedCollectionStorage<int>>>;
+    using Metadata = std::conditional_t<Ordered, slots::TOrderedSlots<Backing>, slots::TUnorderedSlots<Backing>>;
+
+    int insert_value(const int value) noexcept
+    {
+        if constexpr (Pod && Ordered) return this->insert(TTrackedKey{value}, value);
+        else if constexpr (Pod) return this->insert(value);
+        else if constexpr (Ordered) return this->emplace(TTrackedKey{value}, value);
+        else return this->emplace(value);
+    }
+
+    const int* address(const int slot) const noexcept
+    {
+        if constexpr (Pod) return this->get_slot(slot);
+        else return this->get_object(slot);
+    }
+
+    bool split_payload_context(memory::CMemoryContext* target) noexcept
+    {
+        return memory::reattribute(this->m_slots, target);
+    }
+
+    bool sources_match(memory::CMemoryContext* expected) const noexcept
+    {
+        const auto payload = Backing::memory_attribution();
+        const auto metadata = Metadata::memory_attribution();
+        return (payload.source_state == memory::EMemorySourceState::coherent) &&
+            (metadata.source_state == memory::EMemorySourceState::coherent) &&
+            (payload.source == expected) && (metadata.source == expected);
+    }
+
+    bool empty_storage_context_matches(memory::CMemoryContext* expected) const noexcept
+    {
+        if constexpr (Pod) return true;
+        else return this->m_storage.context() == expected;
+    }
+};
+
+template<bool Pod, bool Ordered>
+void test_complete_aggregate_reattribution(TTestContext& ctx)
+{
+    using Container = TAttributionContainer<Pod, Ordered>;
+    memory::CMemoryAllocator allocator{nullptr, &tests::allocate_test_memory, &tests::deallocate_test_memory};
+    memory::CMemoryAllocator other_allocator{nullptr, &tests::allocate_test_memory, &tests::deallocate_test_memory};
+    memory::CMemoryContext source{allocator};
+    memory::CMemoryContext target{allocator};
+    memory::CMemoryContext other{other_allocator};
+    tests::TMemoryContextScope source_scope{&source};
+    Container container;
+
+    TEST_EXPECT(ctx, container.memory_attribution().source_state == memory::EMemorySourceState::empty);
+    TEST_EXPECT(ctx, container.memory_attribution().source == nullptr);
+    TEST_EXPECT(ctx, memory::reattribute(container, &other));
+    TEST_EXPECT(ctx, container.is_valid());
+    TEST_EXPECT(ctx, container.empty_storage_context_matches(&other));
+    TEST_EXPECT(ctx, memory::reattribute(container, &source));
+    TEST_EXPECT(ctx, container.initialise(32u));
+    const int slot = container.insert_value(7);
+    const int* const address = container.address(slot);
+    TEST_EXPECT(ctx, (address != nullptr) && (*address == 7));
+    const std::uint32_t count = container.memory_attribution().allocation_count;
+    const std::uint64_t bytes = container.memory_attribution().allocation_size;
+    TEST_EXPECT(ctx, count == source.get_live_allocation_count());
+    TEST_EXPECT(ctx, bytes == source.get_live_allocated_bytes());
+    TEST_EXPECT(ctx, container.sources_match(&source));
+    TEST_EXPECT(ctx, container.memory_attribution().source_state == memory::EMemorySourceState::coherent);
+    TEST_EXPECT(ctx, container.memory_attribution().source == &source);
+    TEST_EXPECT(ctx, !memory::can_reattribute_to(container, &other) && !memory::reattribute(container, &other));
+    TEST_EXPECT(ctx, container.sources_match(&source));
+    TEST_EXPECT(ctx, source.get_live_allocation_count() == count);
+    TEST_EXPECT(ctx, source.get_live_allocated_bytes() == bytes);
+    TEST_EXPECT(ctx, other.is_attribution_empty());
+
+    //  Matching allocators do not permit mixed allocated source contexts.
+    TEST_EXPECT(ctx, container.split_payload_context(&target));
+    const auto source_count = source.get_live_allocation_count();
+    const auto source_bytes = source.get_live_allocated_bytes();
+    const auto target_count = target.get_live_allocation_count();
+    const auto target_bytes = target.get_live_allocated_bytes();
+    const auto mixed = container.memory_attribution();
+    TEST_EXPECT(ctx, mixed.source_state == memory::EMemorySourceState::mixed && mixed.source == nullptr);
+    TEST_EXPECT(ctx, mixed.allocation_count == count && mixed.allocation_size == bytes);
+    TEST_EXPECT(ctx, !memory::can_reattribute_to(container, &target) && !memory::reattribute(container, &target));
+    TEST_EXPECT(ctx, !memory::reattribute(container, &source));
+    TEST_EXPECT(ctx, source.get_live_allocation_count() == source_count);
+    TEST_EXPECT(ctx, source.get_live_allocated_bytes() == source_bytes);
+    TEST_EXPECT(ctx, target.get_live_allocation_count() == target_count);
+    TEST_EXPECT(ctx, target.get_live_allocated_bytes() == target_bytes);
+    TEST_EXPECT(ctx, container.split_payload_context(&source));
+    TEST_EXPECT(ctx, container.sources_match(&source));
+
+    //  A parent needs only the complete public interface, never the backing split.
+    const auto attribution = container.memory_attribution();
+    TEST_EXPECT(ctx, attribution.source_state == memory::EMemorySourceState::coherent);
+    TEST_EXPECT(ctx, memory::can_reattribute_to(container, &target));
+    TEST_EXPECT(ctx, memory::reattribute(*attribution.source, target, attribution.allocation_count, attribution.allocation_size));
+    container.unsafe_replace_memory_context_without_accounting(attribution.source, &target);
+    TEST_EXPECT(ctx, container.sources_match(&target));
+    TEST_EXPECT(ctx, container.address(slot) == address);
+    if constexpr (Ordered) TEST_EXPECT(ctx, container.key_at_slot(slot)->value == 7);
+    TEST_EXPECT(ctx, source.is_attribution_empty());
+    TEST_EXPECT(ctx, target.get_live_allocation_count() == count);
+    TEST_EXPECT(ctx, target.get_live_allocated_bytes() == bytes);
+    TEST_EXPECT(ctx, memory::reattribute(container, &target));
+    TEST_EXPECT(ctx, target.get_live_allocation_count() == count);
+    TEST_EXPECT(ctx, target.get_live_allocated_bytes() == bytes);
+    TEST_EXPECT(ctx, memory::reattribute(container, &source));
+    TEST_EXPECT(ctx, container.sources_match(&source));
+    TEST_EXPECT(ctx, target.is_attribution_empty());
+
+    {
+        tests::TMemoryContextScope target_scope{&target};
+        Container moved{std::move(container)};
+        TEST_EXPECT(ctx, moved.sources_match(&source));
+        TEST_EXPECT(ctx, moved.address(slot) == address);
+        TEST_EXPECT(ctx, source.get_live_allocation_count() == count);
+        TEST_EXPECT(ctx, target.is_attribution_empty());
+        TEST_EXPECT(ctx, memory::reattribute(container, &other));
+        TEST_EXPECT(ctx, container.is_valid());
+        TEST_EXPECT(ctx, container.empty_storage_context_matches(&other));
+        TEST_EXPECT(ctx, memory::reattribute(moved));
+        for (int value = 8; value < 80; ++value) TEST_EXPECT(ctx, moved.insert_value(value) >= 0);
+        TEST_EXPECT(ctx, moved.sources_match(&target));
+        TEST_EXPECT(ctx, moved.memory_attribution().allocation_count == target.get_live_allocation_count());
+        TEST_EXPECT(ctx, moved.memory_attribution().allocation_size == target.get_live_allocated_bytes());
+        TEST_EXPECT(ctx, moved.check_integrity());
+    }
+    TEST_EXPECT(ctx, source.is_attribution_empty());
+    TEST_EXPECT(ctx, target.is_attribution_empty());
+    TEST_EXPECT(ctx, other.is_attribution_empty());
+}
+
+void test_composed_instance_and_fifo(TTestContext& ctx)
+{
+    struct SOwner
+    {
+        TInstance<int> instance;
+        TPodFifo<int> fifo;
+
+        memory::SMemoryAttribution memory_attribution() const noexcept
+        {
+            return memory::combine_memory_attribution(instance.memory_attribution(), fifo.memory_attribution());
+        }
+
+        void unsafe_replace_memory_context_without_accounting(
+            memory::CMemoryContext* const source, memory::CMemoryContext* const target) noexcept
+        {
+            instance.unsafe_replace_memory_context_without_accounting(source, target);
+            fifo.unsafe_replace_memory_context_without_accounting(source, target);
+        }
+    };
+    memory::CMemoryAllocator allocator{nullptr, &tests::allocate_test_memory, &tests::deallocate_test_memory};
+    memory::CMemoryContext source{allocator};
+    memory::CMemoryContext target{allocator};
+    tests::TMemoryContextScope scope{&source};
+    {
+        SOwner owner;
+        TEST_EXPECT(ctx, memory::reattribute(owner, &target));
+        TEST_EXPECT(ctx, owner.memory_attribution().source_state == memory::EMemorySourceState::empty);
+        TEST_EXPECT(ctx, memory::reattribute(owner, &source));
+        owner.instance = TInstance<int>::create(42);
+        TEST_EXPECT(ctx, owner.instance.is_ready());
+        TEST_EXPECT(ctx, owner.fifo.allocate(8u) && owner.fifo.push_back(7));
+        TEST_EXPECT(ctx, memory::reattribute(owner, &source));
+        const auto* const instance = owner.instance.operator->();
+        const auto* const fifo = owner.fifo.data();
+        const auto attribution = owner.memory_attribution();
+        TEST_EXPECT(ctx, attribution.token_count == 2u && attribution.allocation_count == 2u);
+        TEST_EXPECT(ctx, attribution.allocation_size == source.get_live_allocated_bytes());
+        TEST_EXPECT(ctx, memory::reattribute(owner.fifo, &target));
+        TEST_EXPECT(ctx, owner.memory_attribution().source_state == memory::EMemorySourceState::mixed);
+        TEST_EXPECT(ctx, !memory::reattribute(owner, &target));
+        TEST_EXPECT(ctx, owner.instance.memory_attribution().source == &source);
+        TEST_EXPECT(ctx, memory::reattribute(owner.fifo, &source));
+        TEST_EXPECT(ctx, memory::reattribute(owner, &target));
+        TEST_EXPECT(ctx, owner.instance.operator->() == instance && owner.fifo.data() == fifo);
+        TEST_EXPECT(ctx, *owner.instance == 42 && owner.fifo.size() == 1u);
+        int value = 0;
+        TEST_EXPECT(ctx, owner.fifo.pop_front(value) && value == 7);
+        TEST_EXPECT(ctx, source.is_attribution_empty());
+        TEST_EXPECT(ctx, target.get_live_allocation_count() == attribution.allocation_count);
+        TEST_EXPECT(ctx, target.get_live_allocated_bytes() == attribution.allocation_size);
+    }
+    TEST_EXPECT(ctx, source.is_attribution_empty() && target.is_attribution_empty());
+}
+
+void test_user_value_allocations_remain_separate(TTestContext& ctx)
+{
+    memory::CMemoryAllocator allocator{nullptr, &tests::allocate_test_memory, &tests::deallocate_test_memory};
+    memory::CMemoryContext source{allocator};
+    memory::CMemoryContext target{allocator};
+    tests::TMemoryContextScope scope{&source};
+    {
+        TOrderedCollection<TInstance<int>, TTrackedKey> collection;
+        TEST_EXPECT(ctx, collection.initialise());
+        auto value = TInstance<int>::create(42);
+        const auto value_count = value.memory_attribution().allocation_count;
+        const auto value_bytes = value.memory_attribution().allocation_size;
+        const int slot = collection.emplace(TTrackedKey{1}, std::move(value));
+        TEST_EXPECT(ctx, slot >= 0);
+        TEST_EXPECT(ctx, memory::reattribute(collection, &target));
+        TEST_EXPECT(ctx, source.get_live_allocation_count() == value_count);
+        TEST_EXPECT(ctx, source.get_live_allocated_bytes() == value_bytes);
+        TEST_EXPECT(ctx, target.get_live_allocation_count() == collection.memory_attribution().allocation_count);
+        TEST_EXPECT(ctx, target.get_live_allocated_bytes() == collection.memory_attribution().allocation_size);
+        TEST_EXPECT(ctx, **collection.get_object(slot) == 42);
+    }
+    TEST_EXPECT(ctx, source.is_attribution_empty() && target.is_attribution_empty());
+}
 
 void test_default_state_and_initialise(TTestContext& ctx)
 {
@@ -188,11 +412,11 @@ void test_stable_pointer_preservation_across_growth(TTestContext& ctx)
     TEST_EXPECT(ctx, TTrackedValue::live_count == 70);
     TEST_EXPECT(ctx, TTrackedValue::construction_count == 70);
     TEST_EXPECT(ctx, TTrackedValue::destruction_count == 0);
-    TEST_EXPECT(ctx, collection.memory_token_count() == 4u);
-    TEST_EXPECT(ctx, collection.memory_allocation_count() != 0u);
-    TEST_EXPECT(ctx, collection.memory_allocation_size() != 0u);
-    TEST_EXPECT(ctx, collection.can_reattribute_to());
-    TEST_EXPECT(ctx, collection.reattribute());
+    TEST_EXPECT(ctx, collection.memory_attribution().token_count == 4u);
+    TEST_EXPECT(ctx, collection.memory_attribution().allocation_count != 0u);
+    TEST_EXPECT(ctx, collection.memory_attribution().allocation_size != 0u);
+    TEST_EXPECT(ctx, memory::can_reattribute_to(collection));
+    TEST_EXPECT(ctx, memory::reattribute(collection));
 }
 
 void test_erase_sort_pack_and_stable_addresses(TTestContext& ctx)
@@ -365,6 +589,7 @@ void test_failed_growth(TTestContext& ctx)
         TFailingGrowthAllocator fixture;
         memory::CMemoryAllocator allocator{ &fixture, &allocate_growth_memory, &tests::deallocate_test_memory };
         memory::CMemoryContext context{ allocator };
+        memory::CMemoryContext destination{ allocator };
         {
             tests::TMemoryContextScope scope{ &context };
             TContainer container;
@@ -389,6 +614,13 @@ void test_failed_growth(TTestContext& ctx)
             {
                 TEST_EXPECT(ctx, get_value(container, 0) == original);
             }
+            const auto retained_count = context.get_live_allocation_count();
+            const auto retained_bytes = context.get_live_allocated_bytes();
+            TEST_EXPECT(ctx, memory::reattribute(container, &destination));
+            TEST_EXPECT(ctx, context.is_attribution_empty());
+            TEST_EXPECT(ctx, destination.get_live_allocation_count() == retained_count);
+            TEST_EXPECT(ctx, destination.get_live_allocated_bytes() == retained_bytes);
+            tests::TMemoryContextScope destination_scope{&destination};
             if (added < 0)
             {
                 ++failures;
@@ -410,6 +642,7 @@ void test_failed_growth(TTestContext& ctx)
             TEST_EXPECT(ctx, container.check_integrity());
         }
         TEST_EXPECT(ctx, context.is_attribution_empty());
+        TEST_EXPECT(ctx, destination.is_attribution_empty());
         if constexpr (!Pod)
         {
             TEST_EXPECT(ctx, TTrackedValue::live_count == 0);
@@ -428,6 +661,12 @@ void test_failed_growth(TTestContext& ctx)
 int run_ordered_collection_tests()
 {
     TTestContext ctx;
+    test_complete_aggregate_reattribution<true, true>(ctx);
+    test_complete_aggregate_reattribution<true, false>(ctx);
+    test_complete_aggregate_reattribution<false, true>(ctx);
+    test_complete_aggregate_reattribution<false, false>(ctx);
+    test_user_value_allocations_remain_separate(ctx);
+    test_composed_instance_and_fifo(ctx);
     test_failed_growth<true>(ctx);
     test_failed_growth<false>(ctx);
     test_default_state_and_initialise(ctx);

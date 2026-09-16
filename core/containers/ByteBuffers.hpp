@@ -151,21 +151,18 @@ public:
     //  Handoff
     memory::CMemoryToken disown(MetaByteBuffer& meta) noexcept;
 
-    //  Direct storage attribution
-    [[nodiscard]] std::uint32_t memory_token_count() const noexcept;
-    [[nodiscard]] std::uint32_t memory_allocation_count() const noexcept;
-    [[nodiscard]] std::uint64_t memory_allocation_size() const noexcept;
-    [[nodiscard]] bool can_reattribute_to(memory::CMemoryContext* const context = nullptr) const noexcept;
-    [[nodiscard]] bool reattribute(memory::CMemoryContext* const context = nullptr) noexcept;
+//  Interface for memory accounting and ownership-transfer infrastructure.
+public:
 
-private:
-    friend class CStringBuffer;
-    friend class CErasedOwner;
-    friend class CBakedDocumentBlock;
+    //  Observe all owned backing storage without changing its attribution.
+    [[nodiscard]] memory::SMemoryAttribution memory_attribution() const noexcept;
 
-    [[nodiscard]] memory::CMemoryContext* memory_source_context() const noexcept;
+    //  Requires completed source/allocator preflight and accounting adjustment.
+    //  Replace all owned contexts, including unallocated members.
     void unsafe_replace_memory_context_without_accounting(
         memory::CMemoryContext* const expected_source, memory::CMemoryContext* const target) noexcept;
+
+private:
 
     memory::CMemoryToken m_token{ 1u, 1u };
     MetaByteBuffer m_meta;
@@ -365,19 +362,18 @@ public:
     //  Handoff
     memory::CMemoryToken disown(MetaByteRectBuffer& meta) noexcept;
 
-    //  Direct storage attribution
-    [[nodiscard]] std::uint32_t memory_token_count() const noexcept;
-    [[nodiscard]] std::uint32_t memory_allocation_count() const noexcept;
-    [[nodiscard]] std::uint64_t memory_allocation_size() const noexcept;
-    [[nodiscard]] bool can_reattribute_to(memory::CMemoryContext* const context = nullptr) const noexcept;
-    [[nodiscard]] bool reattribute(memory::CMemoryContext* const context = nullptr) noexcept;
+//  Interface for memory accounting and ownership-transfer infrastructure.
+public:
 
-private:
-    friend class CErasedOwner;
+    //  Observe all owned backing storage without changing its attribution.
+    [[nodiscard]] memory::SMemoryAttribution memory_attribution() const noexcept;
 
-    [[nodiscard]] memory::CMemoryContext* memory_source_context() const noexcept;
+    //  Requires completed source/allocator preflight and accounting adjustment.
+    //  Replace all owned contexts, including unallocated members.
     void unsafe_replace_memory_context_without_accounting(
         memory::CMemoryContext* const expected_source, memory::CMemoryContext* const target) noexcept;
+
+private:
 
     memory::CMemoryToken m_token{ 1u, 1u };
     MetaByteRectBuffer m_meta;
@@ -568,9 +564,9 @@ inline bool CByteBuffer::is_ready() const noexcept
     return is_valid() && (m_token.data() != nullptr);
 }
 
-inline memory::CMemoryContext* CByteBuffer::memory_source_context() const noexcept
+inline memory::SMemoryAttribution CByteBuffer::memory_attribution() const noexcept
 {
-    return m_token.owns_storage() ? m_token.context() : nullptr;
+    return memory::observe_memory_attribution(m_token);
 }
 
 inline void CByteBuffer::unsafe_replace_memory_context_without_accounting(
@@ -761,31 +757,6 @@ inline void CByteBuffer::zero_fill() const noexcept
     }
 }
 
-inline std::uint32_t CByteBuffer::memory_token_count() const noexcept
-{
-    return m_token.memory_token_count();
-}
-
-inline std::uint32_t CByteBuffer::memory_allocation_count() const noexcept
-{
-    return m_token.memory_allocation_count();
-}
-
-inline std::uint64_t CByteBuffer::memory_allocation_size() const noexcept
-{
-    return m_token.memory_allocation_size();
-}
-
-inline bool CByteBuffer::can_reattribute_to(memory::CMemoryContext* const context) const noexcept
-{
-    return m_token.can_reattribute_to(context);
-}
-
-inline bool CByteBuffer::reattribute(memory::CMemoryContext* const context) noexcept
-{
-    return m_token.reattribute(context);
-}
-
 //==============================================================================
 //  CByteView out of class function bodies
 //==============================================================================
@@ -941,9 +912,9 @@ inline bool CByteRectBuffer::is_ready() const noexcept
     return is_valid() && (m_token.data() != nullptr);
 }
 
-inline memory::CMemoryContext* CByteRectBuffer::memory_source_context() const noexcept
+inline memory::SMemoryAttribution CByteRectBuffer::memory_attribution() const noexcept
 {
-    return m_token.owns_storage() ? m_token.context() : nullptr;
+    return memory::observe_memory_attribution(m_token);
 }
 
 inline void CByteRectBuffer::unsafe_replace_memory_context_without_accounting(
@@ -1131,31 +1102,6 @@ inline void CByteRectBuffer::zero_fill() const noexcept
             }
         }
     }
-}
-
-inline std::uint32_t CByteRectBuffer::memory_token_count() const noexcept
-{
-    return m_token.memory_token_count();
-}
-
-inline std::uint32_t CByteRectBuffer::memory_allocation_count() const noexcept
-{
-    return m_token.memory_allocation_count();
-}
-
-inline std::uint64_t CByteRectBuffer::memory_allocation_size() const noexcept
-{
-    return m_token.memory_allocation_size();
-}
-
-inline bool CByteRectBuffer::can_reattribute_to(memory::CMemoryContext* const context) const noexcept
-{
-    return m_token.can_reattribute_to(context);
-}
-
-inline bool CByteRectBuffer::reattribute(memory::CMemoryContext* const context) noexcept
-{
-    return m_token.reattribute(context);
 }
 
 //==============================================================================

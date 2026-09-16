@@ -114,8 +114,7 @@ private:
 
     friend struct SMemoryContextTestAccess;
 
-    friend bool reattribute(CMemoryContext& from, CMemoryContext& to,
-        const std::size_t allocation_count, const std::uint64_t bytes) noexcept;
+    friend bool reattribute(CMemoryContext& from, CMemoryContext& to, const std::size_t allocation_count, const std::uint64_t bytes) noexcept;
 
     CMemoryAllocator&          m_allocator;
     system_ids::id_type        m_system_id{};
@@ -125,8 +124,127 @@ private:
 
 //  Diagnostic totals are modular, independently including zero. Only allocator
 //  incompatibility rejects this adjustment; callers establish ownership validity.
-[[nodiscard]] bool reattribute(CMemoryContext& from, CMemoryContext& to,
-    const std::size_t allocation_count, const std::uint64_t bytes) noexcept;
+[[nodiscard]] bool reattribute(CMemoryContext& from, CMemoryContext& to, const std::size_t allocation_count, const std::uint64_t bytes) noexcept;
+
+//  Check every aggregate sum before a narrowed child total reaches its parent.
+//  Overflow is diagnostic: retain the unsigned modulo result without rejection.
+[[nodiscard]] inline std::uint32_t add_accounting_counts(const std::uint32_t left, const std::uint32_t right) noexcept
+{
+    const std::uint32_t total = left + right;
+    if (right > (std::numeric_limits<std::uint32_t>::max() - left))
+    {
+        MV_ERROR("Memory accounting count sum overflow: left {} right {} total {}", left, right, total);
+    }
+    return total;
+}
+
+[[nodiscard]] inline std::uint64_t add_accounting_bytes(const std::uint64_t left, const std::uint64_t right) noexcept
+{
+    const std::uint64_t total = left + right;
+    if (right > (std::numeric_limits<std::uint64_t>::max() - left))
+    {
+        MV_ERROR("Memory accounting bytes sum overflow: left {} right {} total {}", left, right, total);
+    }
+    return total;
+}
+
+//==============================================================================
+//  Container attribution
+//==============================================================================
+
+//  Source state is structural and independent of the diagnostic modulo totals.
+enum class EMemorySourceState
+{
+    empty = 0,
+    coherent,
+    mixed
+};
+
+struct SMemoryAttribution
+{
+    EMemorySourceState source_state{ EMemorySourceState::empty };
+    CMemoryContext* source{ nullptr };
+    std::uint32_t token_count{ 0u };
+    std::uint32_t allocation_count{ 0u };
+    std::uint64_t allocation_size{ 0u };
+};
+
+[[nodiscard]] inline SMemoryAttribution combine_memory_attribution(const SMemoryAttribution& left, const SMemoryAttribution& right) noexcept
+{
+    SMemoryAttribution result;
+    result.token_count = left.token_count + right.token_count;
+    result.allocation_count = add_accounting_counts(left.allocation_count, right.allocation_count);
+    result.allocation_size = add_accounting_bytes(left.allocation_size, right.allocation_size);
+
+    if ((left.source_state == EMemorySourceState::mixed) ||
+        (right.source_state == EMemorySourceState::mixed) ||
+        ((left.source_state == EMemorySourceState::coherent) &&
+            (right.source_state == EMemorySourceState::coherent) && (left.source != right.source)))
+    {
+        result.source_state = EMemorySourceState::mixed;
+    }
+    else if (left.source_state == EMemorySourceState::coherent)
+    {
+        result.source_state = EMemorySourceState::coherent;
+        result.source = left.source;
+    }
+    else if (right.source_state == EMemorySourceState::coherent)
+    {
+        result.source_state = EMemorySourceState::coherent;
+        result.source = right.source;
+    }
+    return result;
+}
+
+[[nodiscard]] inline bool attribution_is_compatible(const SMemoryAttribution& attribution, const CMemoryContext& target) noexcept
+{
+    switch (attribution.source_state)
+    {
+        case EMemorySourceState::empty:
+        {
+            return attribution.source == nullptr;
+        }
+        case EMemorySourceState::coherent:
+        {
+            return (attribution.source != nullptr) && attribution.source->is_compatible_with(target);
+        }
+        default:
+        {
+            return false;
+        }
+    }
+}
+
+//  Queries are observations, not reservations. Keep exclusive access through
+//  preflight and replacement; reattribute always performs its own fresh query.
+template<typename TOwner>
+[[nodiscard]] inline bool can_reattribute_to(const TOwner& owner, CMemoryContext* target = nullptr) noexcept
+{
+    target = (target != nullptr) ? target : get_ambient_memory_context();
+    return (target != nullptr) && attribution_is_compatible(owner.memory_attribution(), *target);
+}
+
+template<typename TOwner>
+[[nodiscard]] inline bool reattribute(TOwner& owner, CMemoryContext* target = nullptr) noexcept
+{
+    target = (target != nullptr) ? target : get_ambient_memory_context();
+    if (target == nullptr)
+    {
+        return false;
+    }
+    const SMemoryAttribution attribution = owner.memory_attribution();
+    if (!attribution_is_compatible(attribution, *target))
+    {
+        return false;
+    }
+    if ((attribution.source_state == EMemorySourceState::coherent) && (attribution.source != target) &&
+        !memory::reattribute(*attribution.source, *target, attribution.allocation_count, attribution.allocation_size))
+    {
+        return false;
+    }
+    owner.unsafe_replace_memory_context_without_accounting(attribution.source, target);
+    return true;
+}
 
 //==============================================================================
 //  CMemoryAllocator implementation

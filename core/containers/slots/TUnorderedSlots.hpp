@@ -222,11 +222,14 @@ protected:
     //  Validate metadata integrity in stable state.
     [[nodiscard]] bool check_integrity() const noexcept;
 
-    //  Direct metadata storage attribution
-    [[nodiscard]] std::uint32_t memory_token_count() const noexcept;
-    [[nodiscard]] std::uint32_t memory_allocation_count() const noexcept;
-    [[nodiscard]] std::uint64_t memory_allocation_size() const noexcept;
-    [[nodiscard]] bool memory_source_context(memory::CMemoryContext*& source) const noexcept;
+//  Interface for memory accounting and ownership-transfer infrastructure.
+public:
+
+    //  Observe all owned backing storage without changing its attribution.
+    [[nodiscard]] memory::SMemoryAttribution memory_attribution() const noexcept;
+
+    //  Requires completed source/allocator preflight and accounting adjustment.
+    //  Replace all owned contexts, including unallocated members.
     void unsafe_replace_memory_context_without_accounting(
         memory::CMemoryContext* const expected_source, memory::CMemoryContext* const target) noexcept;
 
@@ -867,37 +870,9 @@ inline std::uint32_t TUnorderedSlots<TSlotBacking, TIndex>::apply_growth_policy(
 //  This function only exists as a debug convenience to help capture integrity check failure causes.
 //  It may be expanded on in the future as a potential logging site.
 template<typename TSlotBacking, typename TIndex>
-inline std::uint32_t TUnorderedSlots<TSlotBacking, TIndex>::memory_token_count() const noexcept
+inline memory::SMemoryAttribution TUnorderedSlots<TSlotBacking, TIndex>::memory_attribution() const noexcept
 {
-    return m_meta_slot_array.memory_token_count();
-}
-
-template<typename TSlotBacking, typename TIndex>
-inline std::uint32_t TUnorderedSlots<TSlotBacking, TIndex>::memory_allocation_count() const noexcept
-{
-    return m_meta_slot_array.memory_allocation_count();
-}
-
-template<typename TSlotBacking, typename TIndex>
-inline std::uint64_t TUnorderedSlots<TSlotBacking, TIndex>::memory_allocation_size() const noexcept
-{
-    return m_meta_slot_array.memory_allocation_size();
-}
-
-template<typename TSlotBacking, typename TIndex>
-inline bool TUnorderedSlots<TSlotBacking, TIndex>::memory_source_context(
-    memory::CMemoryContext*& source) const noexcept
-{
-    if (!m_meta_slot_array.owns_storage())
-    {
-        return true;
-    }
-    if ((source != nullptr) && (source != m_meta_slot_array.context()))
-    {
-        return false;
-    }
-    source = m_meta_slot_array.context();
-    return true;
+    return memory::observe_memory_attribution(m_meta_slot_array);
 }
 
 template<typename TSlotBacking, typename TIndex>

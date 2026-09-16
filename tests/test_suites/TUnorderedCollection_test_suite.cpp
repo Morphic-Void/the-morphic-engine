@@ -184,11 +184,11 @@ void test_stable_addresses_across_growth(TTestContext& ctx)
     TEST_EXPECT(ctx, count_live_slots(collection) == k_total);
     TEST_EXPECT(ctx, collection.check_integrity());
     TEST_EXPECT(ctx, TTracked::live_count == static_cast<int>(k_total));
-    TEST_EXPECT(ctx, collection.memory_token_count() == 3u);
-    TEST_EXPECT(ctx, collection.memory_allocation_count() != 0u);
-    TEST_EXPECT(ctx, collection.memory_allocation_size() != 0u);
-    TEST_EXPECT(ctx, collection.can_reattribute_to());
-    TEST_EXPECT(ctx, collection.reattribute());
+    TEST_EXPECT(ctx, collection.memory_attribution().token_count == 3u);
+    TEST_EXPECT(ctx, collection.memory_attribution().allocation_count != 0u);
+    TEST_EXPECT(ctx, collection.memory_attribution().allocation_size != 0u);
+    TEST_EXPECT(ctx, memory::can_reattribute_to(collection));
+    TEST_EXPECT(ctx, memory::reattribute(collection));
 
     for (std::size_t i = 0u; i < k_total; ++i)
     {
@@ -324,6 +324,7 @@ void test_failed_growth(TTestContext& ctx)
         TFailingGrowthAllocator fixture;
         memory::CMemoryAllocator allocator{ &fixture, &allocate_growth_memory, &tests::deallocate_test_memory };
         memory::CMemoryContext context{ allocator };
+        memory::CMemoryContext destination{ allocator };
         {
             tests::TMemoryContextScope scope{ &context };
             TContainer container;
@@ -348,6 +349,13 @@ void test_failed_growth(TTestContext& ctx)
             {
                 TEST_EXPECT(ctx, get_value(container, 0) == original);
             }
+            const auto retained_count = context.get_live_allocation_count();
+            const auto retained_bytes = context.get_live_allocated_bytes();
+            TEST_EXPECT(ctx, memory::reattribute(container, &destination));
+            TEST_EXPECT(ctx, context.is_attribution_empty());
+            TEST_EXPECT(ctx, destination.get_live_allocation_count() == retained_count);
+            TEST_EXPECT(ctx, destination.get_live_allocated_bytes() == retained_bytes);
+            tests::TMemoryContextScope destination_scope{&destination};
             if (added < 0)
             {
                 ++failures;
@@ -369,6 +377,7 @@ void test_failed_growth(TTestContext& ctx)
             TEST_EXPECT(ctx, container.check_integrity());
         }
         TEST_EXPECT(ctx, context.is_attribution_empty());
+        TEST_EXPECT(ctx, destination.is_attribution_empty());
         if constexpr (!Pod)
         {
             TEST_EXPECT(ctx, TTracked::live_count == 0);

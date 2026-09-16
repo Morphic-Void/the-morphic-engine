@@ -90,12 +90,16 @@ public:
     void reset() noexcept;
     void swap(TInstance& other) noexcept;
 
-    //  Direct storage attribution. The contained object's own allocations are excluded.
-    [[nodiscard]] std::uint32_t memory_token_count() const noexcept;
-    [[nodiscard]] std::uint32_t memory_allocation_count() const noexcept;
-    [[nodiscard]] std::uint64_t memory_allocation_size() const noexcept;
-    [[nodiscard]] bool can_reattribute_to(memory::CMemoryContext* const context = nullptr) const noexcept;
-    [[nodiscard]] bool reattribute(memory::CMemoryContext* const context = nullptr) noexcept;
+//  Interface for memory accounting and ownership-transfer infrastructure.
+public:
+
+    //  Observe all owned backing storage without changing its attribution.
+    [[nodiscard]] memory::SMemoryAttribution memory_attribution() const noexcept;
+
+    //  Requires completed source/allocator preflight and accounting adjustment.
+    //  Replace all owned contexts, including unallocated members.
+    void unsafe_replace_memory_context_without_accounting(
+        memory::CMemoryContext* const expected_source, memory::CMemoryContext* const target) noexcept;
 
 private:
     void destroy_and_deallocate() noexcept;
@@ -239,33 +243,16 @@ inline void TInstance<T>::swap(TInstance& other) noexcept
 }
 
 template<typename T>
-inline std::uint32_t TInstance<T>::memory_token_count() const noexcept
+inline memory::SMemoryAttribution TInstance<T>::memory_attribution() const noexcept
 {
-    return m_token.memory_token_count();
+    return memory::observe_memory_attribution(m_token);
 }
 
 template<typename T>
-inline std::uint32_t TInstance<T>::memory_allocation_count() const noexcept
+inline void TInstance<T>::unsafe_replace_memory_context_without_accounting(
+    memory::CMemoryContext* const expected_source, memory::CMemoryContext* const target) noexcept
 {
-    return m_token.memory_allocation_count();
-}
-
-template<typename T>
-inline std::uint64_t TInstance<T>::memory_allocation_size() const noexcept
-{
-    return m_token.memory_allocation_size();
-}
-
-template<typename T>
-inline bool TInstance<T>::can_reattribute_to(memory::CMemoryContext* const context) const noexcept
-{
-    return m_token.can_reattribute_to(context);
-}
-
-template<typename T>
-inline bool TInstance<T>::reattribute(memory::CMemoryContext* const context) noexcept
-{
-    return m_token.reattribute(context);
+    m_token.unsafe_replace_context_without_accounting(expected_source, target);
 }
 
 #endif  //  TINSTANCE_HPP_INCLUDED

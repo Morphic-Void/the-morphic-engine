@@ -640,9 +640,9 @@ void test_live_document_bake(TTestContext& ctx)
     TEST_EXPECT(ctx, document_translation::bake(live, block));
     TEST_EXPECT(ctx, block.is_ready());
     TEST_EXPECT(ctx, block.document().check_integrity());
-    TEST_EXPECT(ctx, block.memory_token_count() == 1u);
-    TEST_EXPECT(ctx, block.memory_allocation_count() == 1u);
-    TEST_EXPECT(ctx, block.memory_allocation_size() >= block.document().byte_count());
+    TEST_EXPECT(ctx, block.memory_attribution().token_count == 1u);
+    TEST_EXPECT(ctx, block.memory_attribution().allocation_count == 1u);
+    TEST_EXPECT(ctx, block.memory_attribution().allocation_size >= block.document().byte_count());
     TEST_EXPECT(ctx, block.bytes().is_ready());
     TEST_EXPECT(ctx, block.bytes().size() == block.document().byte_count());
     TEST_EXPECT(ctx, block.bytes().align() == baked_document_format::k_block_alignment);
@@ -748,7 +748,7 @@ void test_live_document_bake(TTestContext& ctx)
     TEST_EXPECT(ctx, promotion_context.is_attribution_empty());
     assigned.deallocate();
     TEST_EXPECT(ctx, !assigned.is_ready());
-    TEST_EXPECT(ctx, assigned.memory_allocation_count() == 0u);
+    TEST_EXPECT(ctx, assigned.memory_attribution().allocation_count == 0u);
 }
 
 void test_bake_root_only_and_allocation_failure(TTestContext& ctx)
@@ -784,7 +784,7 @@ void test_bake_root_only_and_allocation_failure(TTestContext& ctx)
         CBakedDocumentBlock rejected;
         TEST_EXPECT(ctx, !document_translation::bake(live, rejected));
         TEST_EXPECT(ctx, !rejected.is_ready());
-        TEST_EXPECT(ctx, rejected.memory_allocation_count() == 0u);
+        TEST_EXPECT(ctx, rejected.memory_attribution().allocation_count == 0u);
     }
     TEST_EXPECT(ctx, memory_context.is_attribution_empty());
 }

@@ -369,8 +369,9 @@ allocation; it should avoid unnecessary copying, allocation and memory churn.
 `CBakedDocument` is a non-owning immutable view over compatible bytes. There is
 no public mutable baked document or public baked builder.
 
-`CBakedDocumentBlock::can_reattribute_to` and `reattribute` use the existing
-framework memory-context rules; a null argument selects the ambient context.
+`memory::can_reattribute_to(block, target)` and `memory::reattribute(block, target)`
+use the block's common attribution and replacement interface with the existing
+framework memory-context rules; a null target selects the ambient context.
 An allocated block can move attribution only between contexts sharing the
 same allocator. Reattribution changes accounting and the owning context,
 without allocating, copying bytes, relocating storage or rebuilding the checked

@@ -14,6 +14,8 @@
 //
 //  Uses TUnorderedSlots for slot management and
 //  memory::CMemoryToken for address-stable object backing.
+//  Attribution covers object backing, slots and metadata; allocations owned
+//  by contained T objects are excluded.
 //
 //  IMPORTANT TERMINOLOGY NOTE
 //  --------------------------
@@ -72,13 +74,18 @@ public:
     void on_move_payload(const std::int32_t source_index, const std::int32_t target_index) noexcept;
     [[nodiscard]] std::uint32_t on_reserve_empty(const std::uint32_t minimum_capacity, const std::uint32_t recommended_capacity) noexcept;
 
-protected:
-    [[nodiscard]] std::uint32_t memory_token_count() const noexcept;
-    [[nodiscard]] std::uint32_t memory_allocation_count() const noexcept;
-    [[nodiscard]] std::uint64_t memory_allocation_size() const noexcept;
-    [[nodiscard]] bool memory_source_context(memory::CMemoryContext*& source) const noexcept;
+//  Interface for memory accounting and ownership-transfer infrastructure.
+public:
+
+    //  Observe all owned backing storage without changing its attribution.
+    [[nodiscard]] memory::SMemoryAttribution memory_attribution() const noexcept;
+
+    //  Requires completed source/allocator preflight and accounting adjustment.
+    //  Replace all owned contexts, including unallocated members.
     void unsafe_replace_memory_context_without_accounting(
-        memory::CMemoryContext* expected_source, memory::CMemoryContext* target) noexcept;
+        memory::CMemoryContext* const expected_source, memory::CMemoryContext* const target) noexcept;
+
+protected:
 
     memory::CMemoryToken m_storage{};
     TPodVector<SlotData> m_slots;
@@ -142,12 +149,16 @@ public:
     static constexpr std::size_t k_element_size = sizeof(T);
     static constexpr std::size_t k_element_align = memory::t_default_align<T>();
 
-    //  Direct storage attribution. Allocations owned by contained T objects are excluded.
-    [[nodiscard]] std::uint32_t memory_token_count() const noexcept;
-    [[nodiscard]] std::uint32_t memory_allocation_count() const noexcept;
-    [[nodiscard]] std::uint64_t memory_allocation_size() const noexcept;
-    [[nodiscard]] bool can_reattribute_to(memory::CMemoryContext* context = nullptr) const noexcept;
-    [[nodiscard]] bool reattribute(memory::CMemoryContext* context = nullptr) noexcept;
+//  Interface for memory accounting and ownership-transfer infrastructure.
+public:
+
+    //  Observe all owned backing storage without changing its attribution.
+    [[nodiscard]] memory::SMemoryAttribution memory_attribution() const noexcept;
+
+    //  Requires completed source/allocator preflight and accounting adjustment.
+    //  Replace all owned contexts, including unallocated members.
+    void unsafe_replace_memory_context_without_accounting(
+        memory::CMemoryContext* const expected_source, memory::CMemoryContext* const target) noexcept;
 
 private:
     [[nodiscard]] bool storage_is_valid() const noexcept;
@@ -192,46 +203,11 @@ inline std::uint32_t TUnorderedCollectionStorage<T>::on_reserve_empty(const std:
 }
 
 template<typename T>
-inline std::uint32_t TUnorderedCollectionStorage<T>::memory_token_count() const noexcept
+inline memory::SMemoryAttribution TUnorderedCollectionStorage<T>::memory_attribution() const noexcept
 {
-    return m_storage.memory_token_count() + m_slots.memory_token_count();
-}
-
-template<typename T>
-inline std::uint32_t TUnorderedCollectionStorage<T>::memory_allocation_count() const noexcept
-{
-    return m_storage.memory_allocation_count() + m_slots.memory_allocation_count();
-}
-
-template<typename T>
-inline std::uint64_t TUnorderedCollectionStorage<T>::memory_allocation_size() const noexcept
-{
-    return m_storage.memory_allocation_size() + m_slots.memory_allocation_size();
-}
-
-template<typename T>
-inline bool TUnorderedCollectionStorage<T>::memory_source_context(
-    memory::CMemoryContext*& source) const noexcept
-{
-    if (m_storage.owns_storage())
-    {
-        if ((source != nullptr) && (source != m_storage.context()))
-        {
-            return false;
-        }
-        source = m_storage.context();
-    }
-
-    memory::CMemoryContext* const context = m_slots.memory_source_context();
-    if ((source != nullptr) && (context != nullptr) && (context != source))
-    {
-        return false;
-    }
-    if (source == nullptr)
-    {
-        source = context;
-    }
-    return true;
+    memory::SMemoryAttribution result = memory::observe_memory_attribution(m_storage);
+    result = memory::combine_memory_attribution(result, m_slots.memory_attribution());
+    return result;
 }
 
 template<typename T>
@@ -538,56 +514,20 @@ inline bool TUnorderedCollection<T>::check_integrity() const noexcept
 }
 
 template<typename T>
-inline std::uint32_t TUnorderedCollection<T>::memory_token_count() const noexcept
+inline memory::SMemoryAttribution TUnorderedCollection<T>::memory_attribution() const noexcept
 {
-    return slot_data_class::memory_token_count() + slot_meta_class::memory_token_count();
+    memory::SMemoryAttribution result = slot_data_class::memory_attribution();
+    result = memory::combine_memory_attribution(result, slot_meta_class::memory_attribution());
+    return result;
 }
 
 template<typename T>
-inline std::uint32_t TUnorderedCollection<T>::memory_allocation_count() const noexcept
+inline void TUnorderedCollection<T>::unsafe_replace_memory_context_without_accounting(
+    memory::CMemoryContext* const expected_source,
+    memory::CMemoryContext* const target) noexcept
 {
-    return slot_data_class::memory_allocation_count() + slot_meta_class::memory_allocation_count();
-}
-
-template<typename T>
-inline std::uint64_t TUnorderedCollection<T>::memory_allocation_size() const noexcept
-{
-    return slot_data_class::memory_allocation_size() + slot_meta_class::memory_allocation_size();
-}
-
-template<typename T>
-inline bool TUnorderedCollection<T>::can_reattribute_to(memory::CMemoryContext* target) const noexcept
-{
-    target = (target != nullptr) ? target : memory::get_ambient_memory_context();
-    memory::CMemoryContext* source = nullptr;
-    return (target != nullptr) &&
-        slot_data_class::memory_source_context(source) &&
-        slot_meta_class::memory_source_context(source) &&
-        ((source == nullptr) || (source == target) || source->is_compatible_with(*target));
-}
-
-template<typename T>
-inline bool TUnorderedCollection<T>::reattribute(memory::CMemoryContext* target) noexcept
-{
-    target = (target != nullptr) ? target : memory::get_ambient_memory_context();
-    memory::CMemoryContext* source = nullptr;
-    if ((target == nullptr) ||
-        !slot_data_class::memory_source_context(source) ||
-        !slot_meta_class::memory_source_context(source) ||
-        ((source != nullptr) && (source != target) && !source->is_compatible_with(*target)))
-    {
-        return false;
-    }
-
-    if ((source != nullptr) && (source != target) &&
-        !memory::reattribute(*source, *target, memory_allocation_count(), memory_allocation_size()))
-    {
-        return false;
-    }
-
-    slot_data_class::unsafe_replace_memory_context_without_accounting(source, target);
-    slot_meta_class::unsafe_replace_memory_context_without_accounting(source, target);
-    return true;
+    slot_data_class::unsafe_replace_memory_context_without_accounting(expected_source, target);
+    slot_meta_class::unsafe_replace_memory_context_without_accounting(expected_source, target);
 }
 
 template<typename T>
@@ -596,7 +536,6 @@ inline bool TUnorderedCollection<T>::storage_is_valid() const noexcept
     if (!this->m_storage.is_configured())
     {
         return !this->m_storage.owns_storage() &&
-            (this->m_storage.context() == nullptr) &&
             (this->m_storage.count() == 0u) &&
             (this->m_storage.stride() == 0u) &&
             (this->m_storage.storage_alignment() == 0u) &&

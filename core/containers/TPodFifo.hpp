@@ -103,12 +103,16 @@ public:
     static constexpr std::size_t k_element_size = sizeof(T);
     static constexpr std::size_t k_align = memory::t_default_align<T>();
 
-    //  Direct storage attribution
-    [[nodiscard]] std::uint32_t memory_token_count() const noexcept;
-    [[nodiscard]] std::uint32_t memory_allocation_count() const noexcept;
-    [[nodiscard]] std::uint64_t memory_allocation_size() const noexcept;
-    [[nodiscard]] bool can_reattribute_to(memory::CMemoryContext* const context = nullptr) const noexcept;
-    [[nodiscard]] bool reattribute(memory::CMemoryContext* const context = nullptr) noexcept;
+//  Interface for memory accounting and ownership-transfer infrastructure.
+public:
+
+    //  Observe all owned backing storage without changing its attribution.
+    [[nodiscard]] memory::SMemoryAttribution memory_attribution() const noexcept;
+
+    //  Requires completed source/allocator preflight and accounting adjustment.
+    //  Replace all owned contexts, including unallocated members.
+    void unsafe_replace_memory_context_without_accounting(
+        memory::CMemoryContext* const expected_source, memory::CMemoryContext* const target) noexcept;
 
 private:
     [[nodiscard]] T* raw_data() noexcept { return static_cast<T*>(m_token.data()); }
@@ -344,33 +348,16 @@ inline void TPodFifo<T>::pack() noexcept
 }
 
 template<typename T>
-inline std::uint32_t TPodFifo<T>::memory_token_count() const noexcept
+inline memory::SMemoryAttribution TPodFifo<T>::memory_attribution() const noexcept
 {
-    return m_token.memory_token_count();
+    return memory::observe_memory_attribution(m_token);
 }
 
 template<typename T>
-inline std::uint32_t TPodFifo<T>::memory_allocation_count() const noexcept
+inline void TPodFifo<T>::unsafe_replace_memory_context_without_accounting(
+    memory::CMemoryContext* const expected_source, memory::CMemoryContext* const target) noexcept
 {
-    return m_token.memory_allocation_count();
-}
-
-template<typename T>
-inline std::uint64_t TPodFifo<T>::memory_allocation_size() const noexcept
-{
-    return m_token.memory_allocation_size();
-}
-
-template<typename T>
-inline bool TPodFifo<T>::can_reattribute_to(memory::CMemoryContext* const context) const noexcept
-{
-    return m_token.can_reattribute_to(context);
-}
-
-template<typename T>
-inline bool TPodFifo<T>::reattribute(memory::CMemoryContext* const context) noexcept
-{
-    return m_token.reattribute(context);
+    m_token.unsafe_replace_context_without_accounting(expected_source, target);
 }
 
 template<typename T>
