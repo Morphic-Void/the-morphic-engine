@@ -369,6 +369,12 @@ allocation; it should avoid unnecessary copying, allocation and memory churn.
 `CBakedDocument` is a non-owning immutable view over compatible bytes. There is
 no public mutable baked document or public baked builder.
 
+The block privately contains a validated byte buffer with exact document extent
+as its logical size. `CBakedDocument{block}` and `block.document()` construct
+borrowed views without repeating validation or allocating; the accessor returns
+by value, not a reference to retained state. Neither extends the storage lifetime.
+Arbitrary-byte construction/reset and explicit integrity checks remain checked.
+
 `memory::can_reattribute_to(block, target)` and `memory::reattribute(block, target)`
 use the block's common attribution and replacement interface with the existing
 framework memory-context rules; a null target selects the ambient context.
@@ -376,7 +382,7 @@ An allocated block can move attribution only between contexts sharing the
 same allocator. Reattribution changes accounting and the owning context,
 without allocating, copying bytes, relocating storage or rebuilding the checked
 view. Failure leaves the allocation, view and accounting unchanged. Empty and
-moved-from blocks follow the byte buffer's empty-storage context rules.
+moved-from blocks follow the common empty-owner context-replacement rules.
 Ordinary C++ moves preserve the source allocation's attribution.
 
 The SYSTEM erased-owner payload `BakedDocumentAsset` contains a `block` member.
@@ -443,7 +449,7 @@ typed scalar payloads and integer metadata, parent and sibling relationships,
 child ranges, ordinal array access and object-child lookup. The retired recovery
 kind has no public query or stored summary state.
 
-The current version 3 byte format is intentionally incompatible with earlier
+The current version 4 byte format is intentionally incompatible with earlier
 versions. Validators reject unsupported versions rather than infer or silently
 migrate them.
 
@@ -546,9 +552,10 @@ other dollar-prefixed names retain their decoded spelling. Former version/type/
 values objects have no special interpretation, even at the document root;
 their fields follow ordinary parsing, numeric conversion and collision rules.
 
-Baked version 3 retains the `MBD2` family magic and the 32-byte record layout.
-Earlier versions are rejected, and retired value tag 8 is invalid even under
-version 3. There is no compatibility reader or recovery conversion.
+Baked version 4 retains the `MBD2` family magic and the 32-byte record layout.
+Its 64-byte header stores section offsets alongside counts, maintaining contiguous
+layout and 32-byte node alignment. Earlier versions are rejected, and retired
+value tag 8 remains invalid. There is no compatibility reader or recovery conversion.
 
 ## Thread and publication boundaries
 

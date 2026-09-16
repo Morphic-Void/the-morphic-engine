@@ -9,14 +9,20 @@
 #include "tests/test_suites/BakedDocumentTransfer_test_suite.hpp"
 
 #include <cstring>
+#include <cstdio>
 #include <iostream>
+#include <limits>
+#include <string>
 #include <utility>
 #include <vector>
 
 #include "assets/asset_repository.hpp"
 #include "data_model/document_translation.hpp"
 #include "data_model/live_document.hpp"
+#include "platform/filesystem/file.hpp"
+#include "platform/filesystem/internal/file_utils.hpp"
 #include "system/transported_types.hpp"
+#include "tests/environment/test_paths.hpp"
 #include "threading/messages/CErasedMessageTransports.hpp"
 #include "tests/support/test_allocator.hpp"
 #include "tests/support/test_context.hpp"
@@ -307,6 +313,108 @@ static void test_rejected_and_unread_messages(TTestContext& ctx)
     expect_empty(ctx, contexts);
 }
 
+static void test_aligned_file_round_trip(TTestContext& ctx)
+{
+    const FileLoadRequest default_request{};
+    TEST_EXPECT(ctx, default_request.alignment == 16u);
+    const std::string path = test_environment::test_log_path("baked_storage_round_trip");
+    const std::string empty_path = test_environment::test_log_path("baked_storage_empty");
+    const std::string missing_path = test_environment::test_log_path("baked_storage_missing");
+    CLiveDocument live;
+    TEST_EXPECT(ctx, live.initialise());
+    CBakedDocumentBlock original;
+    TEST_EXPECT(ctx, document_translation::bake(live, original));
+    TEST_EXPECT(ctx, original.bytes().size() == baked_document_format::k_min_document_size);
+    const bool saved = platform::filesystem::saveFile(path.c_str(), original.bytes());
+    TEST_EXPECT(ctx, saved);
+    if (!saved) return;
+
+    const auto native_path = platform::path::makeNativePath(path.c_str());
+    std::FILE* handle = platform::filesystem::openFile(native_path);
+    TEST_EXPECT(ctx, handle != nullptr);
+    if (handle)
+    {
+        TEST_EXPECT(ctx, platform::filesystem::getFileSize(handle) == original.bytes().size());
+        TEST_EXPECT(ctx, std::fclose(handle) == 0);
+    }
+
+    CByteBuffer default_load = platform::filesystem::loadFile(path.c_str());
+    TEST_EXPECT(ctx, default_load.align() == 16u && default_load.size() == baked_document_format::k_min_document_size && default_load.capacity() == baked_document_format::k_min_block_capacity);
+    struct SAlignment { std::size_t request; std::size_t expected; };
+    constexpr SAlignment alignments[]{ {0u, 16u}, {1u, 16u}, {8u, 16u}, {16u, 16u},
+        {24u, 16u}, {32u, 32u}, {48u, 16u}, {64u, 64u}, {256u, 256u} };
+    for (const SAlignment& alignment : alignments)
+    {
+        CByteBuffer loaded = platform::filesystem::loadFile(path.c_str(), 5u, alignment.request);
+        TEST_EXPECT(ctx, loaded.is_ready());
+        if (!loaded.is_ready()) continue;
+        TEST_EXPECT(ctx, loaded.align() == alignment.expected);
+        TEST_EXPECT(ctx, (reinterpret_cast<std::uintptr_t>(loaded.data()) & (alignment.expected - 1u)) == 0u);
+        TEST_EXPECT(ctx, loaded.size() == original.bytes().size() + 5u);
+        TEST_EXPECT(ctx, loaded.capacity() == memory::condition_bytes(alignment.expected, loaded.size()));
+        TEST_EXPECT(ctx, std::memcmp(loaded.data(), original.bytes().data(), original.bytes().size()) == 0);
+        for (std::size_t index = original.bytes().size(); index < loaded.capacity(); ++index)
+        {
+            TEST_EXPECT(ctx, loaded.data()[index] == 0u);
+        }
+        if (alignment.expected >= 32u)
+        {
+            const auto pointer = loaded.data();
+            const auto attribution = loaded.memory_attribution();
+            CBakedDocumentBlock adopted;
+            TEST_EXPECT(ctx, adopted.adopt(std::move(loaded)));
+            TEST_EXPECT(ctx, !loaded.is_ready() && adopted.bytes().data() == pointer);
+            TEST_EXPECT(ctx, adopted.memory_attribution().source == attribution.source);
+            TEST_EXPECT(ctx, adopted.memory_attribution().allocation_size == attribution.allocation_size);
+            TEST_EXPECT(ctx, adopted.bytes().size() == original.bytes().size());
+            TEST_EXPECT(ctx, adopted.document().check_integrity());
+            TEST_EXPECT(ctx, std::memcmp(adopted.bytes().data(), original.bytes().data(), original.bytes().size()) == 0);
+        }
+    }
+
+    //  No padding: the loader allocates the final block directly and adoption keeps it.
+    CByteBuffer direct = platform::filesystem::loadFile(path.c_str(), 0u, 32u);
+    const auto direct_pointer = direct.data();
+    CBakedDocumentBlock reloaded;
+    TEST_EXPECT(ctx, reloaded.adopt(std::move(direct)));
+    TEST_EXPECT(ctx, reloaded.bytes().data() == direct_pointer && reloaded.bytes().size() == baked_document_format::k_min_document_size);
+    TEST_EXPECT(ctx, platform::filesystem::saveFile(path.c_str(), reloaded.bytes()));
+    handle = platform::filesystem::openFile(native_path);
+    TEST_EXPECT(ctx, handle != nullptr);
+    if (handle)
+    {
+        TEST_EXPECT(ctx, platform::filesystem::getFileSize(handle) == baked_document_format::k_min_document_size);
+        TEST_EXPECT(ctx, std::fclose(handle) == 0);
+    }
+
+    TEST_EXPECT(ctx, !platform::filesystem::loadFile(path.c_str(), 0u, memory::k_byte_size_ceiling + 1u).is_ready());
+    TEST_EXPECT(ctx, !platform::filesystem::loadFile(path.c_str(), 0u, std::numeric_limits<std::size_t>::max()).is_ready());
+    TEST_EXPECT(ctx, !platform::filesystem::loadFile(path.c_str(), std::numeric_limits<std::size_t>::max(), 32u).is_ready());
+    TEST_EXPECT(ctx, !platform::filesystem::loadFile(path.c_str(), memory::k_byte_size_ceiling, 32u).is_ready());
+    TEST_EXPECT(ctx, !platform::filesystem::loadFile(missing_path.c_str(), 0u, 32u).is_ready());
+
+    const auto native_empty_path = platform::path::makeNativePath(empty_path.c_str());
+    handle = platform::filesystem::openFile(native_empty_path, platform::filesystem::EOpenMode::BinaryWrite);
+    TEST_EXPECT(ctx, handle != nullptr);
+    if (handle)
+    {
+        TEST_EXPECT(ctx, std::fclose(handle) == 0);
+        TEST_EXPECT(ctx, !platform::filesystem::loadFile(empty_path.c_str(), 0u, 32u).is_ready());
+        TEST_EXPECT(ctx, !platform::filesystem::loadFile(empty_path.c_str(), 17u, 32u).is_ready());
+        platform::filesystem::removeFile(native_empty_path);
+    }
+
+    tests::TAllocatorFixture failing{ true };
+    memory::CMemoryAllocator allocator{ &failing, &tests::allocate_test_memory, &tests::deallocate_test_memory };
+    memory::CMemoryContext context{ allocator };
+    {
+        const tests::TMemoryContextScope scope{ &context };
+        TEST_EXPECT(ctx, !platform::filesystem::loadFile(path.c_str(), 0u, 32u).is_ready());
+    }
+    TEST_EXPECT(ctx, context.is_attribution_empty());
+    platform::filesystem::removeFile(native_path);
+}
+
 }   //  namespace baked_document_transfer_tests
 
 int run_baked_document_transfer_tests()
@@ -316,6 +424,7 @@ int run_baked_document_transfer_tests()
     baked_document_transfer_tests::test_owner_attribution(ctx);
     baked_document_transfer_tests::test_message_and_repository(ctx);
     baked_document_transfer_tests::test_rejected_and_unread_messages(ctx);
+    baked_document_transfer_tests::test_aligned_file_round_trip(ctx);
     std::cout << "BakedDocumentTransfer: " << ctx.passed << " passed, " << ctx.failed << " failed\n";
     return (ctx.failed == 0u) ? 0 : 1;
 }

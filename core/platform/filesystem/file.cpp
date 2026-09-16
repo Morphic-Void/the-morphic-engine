@@ -11,6 +11,7 @@
 //  Multi-threaded usage assumes that multiple threads will not be saving
 //  files with the same name.
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -19,15 +20,20 @@
 #include "platform/filesystem/file.hpp"
 #include "platform/filesystem/internal/file_utils.hpp"
 #include "platform/path/native_path.hpp"
-#include "bit_utils/bit_ops.hpp"
+#include "memory/memory_policies.hpp"
 
 namespace platform::filesystem
 {
 
-CByteBuffer loadFile(const char* const utf8_path, const std::size_t pad) noexcept
+CByteBuffer loadFile(const char* const utf8_path, const std::size_t pad, const std::size_t alignment) noexcept
 {
-    static const std::size_t k_align = 16u;
     CByteBuffer buffer;
+    //  Token/view alignment is represented by an exponent in the range 0..31.
+    if (alignment > memory::k_byte_size_ceiling)
+    {
+        return buffer;
+    }
+    const std::size_t effective_alignment = std::max(std::size_t{ 16u }, memory::condition_alignment(alignment));
     path::NativePath std_path = path::makeNativePath(utf8_path);
     if (!std_path.is_empty())
     {
@@ -38,8 +44,8 @@ CByteBuffer loadFile(const char* const utf8_path, const std::size_t pad) noexcep
             std::size_t size = getFileSize(handle, pad);
             if (size != 0u)
             {
-                const std::size_t aligned_size = bit_ops::round_up_to_pow2_multiple(size, k_align);
-                if (buffer.allocate(aligned_size, k_align))
+                const std::size_t aligned_size = memory::condition_bytes(effective_alignment, size);
+                if ((aligned_size != 0u) && buffer.allocate(aligned_size, effective_alignment))
                 {
                     std::uint8_t* data = buffer.data();
                     std::size_t file_size = size - pad;

@@ -253,11 +253,13 @@ cheap reciprocal structural check. Removing it would reduce the record to 24
 bytes, but would turn a useful established query into a scan. The eight-byte
 cost is proportionate for the direct-user and later schema interfaces.
 
-The replacement header stores counts and byte sizes, not five redundant
-section offsets. A fixed section order derives every address and removes layout
-combinations from both emission and validation. Root index zero also removes
-the archived sentinel value record. Explicit reserved fields avoid unmanaged
-structure padding in the byte format.
+The version-4 header stores five section offsets alongside counts and byte sizes.
+A fixed contiguous section order remains mandatory: validation checks the stored
+offsets against widened count/stride calculations before using section addresses.
+Normal access reads offsets directly rather than repeatedly reconstructing and
+checking the layout. The 64-byte header preserves 32-byte node alignment; its
+explicit reserved words are zeroed and checked. Root index zero removes the
+archived sentinel value record. Views need no cached layout descriptor.
 
 The format omits v1's checksum and derived semantic flags. A checksum detects
 some accidental changes but is not authentication, requires another whole
@@ -447,8 +449,14 @@ outcome. The common report contains only the linter evidence needed by parsing.
 
 ## Baked ownership baseline
 
-The ownership bridge forwards the block's public `memory_attribution()` and
-`unsafe_replace_memory_context_without_accounting()` methods to its byte buffer.
+The block privately owns a `CByteBuffer`. Its public `memory_attribution()` and
+`unsafe_replace_memory_context_without_accounting()` forward to that buffer.
+Checked adoption validates before normalising logical size to the exact document
+extent and moving the buffer, preserving both owners on failure. Capacity and
+the allocation's address and attribution are unchanged. A populated block is
+therefore already validated: `CBakedDocument{block}` and `block.document()`
+construct borrowed views without revalidation or scratch allocation. No separate
+view is retained in the block, and neither route extends the storage lifetime.
 Shared `memory::can_reattribute_to` and `memory::reattribute` implement checked
 transfer. The same two-method interface lets CErasedOwner account for the shell
 and nested storage together through its existing registered callbacks.

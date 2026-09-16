@@ -16,17 +16,19 @@ baked artifact. The semantic contract remains in
 belongs in [design notes](data_model_design_notes.md). The
 [documentation index](README.md) also links the text and parsing contracts.
 
-The format is an immutable, self-contained byte block smaller than 4 GiB. All
+The format is an immutable, self-contained byte block of at most 2 GiB. All
 multibyte integers are little-endian and floating payloads are IEEE-754
 binary64. The owning block uses framework allocation and consists of exactly
 one allocation. Baking scratch is external to that allocation. A bound block's
-base address is 32-byte aligned; its total size need not be. The value-record
-section is likewise 32-byte aligned.
+base address is 32-byte aligned; its exact serialized size need not be. Owning
+storage capacity is a multiple of 32 bytes, separate from that exact extent.
+The value-record section is likewise 32-byte aligned.
 
-The current format retains family magic bytes `MBD2` and uses version 3.
+The current format retains family magic bytes `MBD2` and uses version 4.
 It preserves the independent name-presence and per-string newline flags and
-32-byte records introduced in version 2, and removes the recovery value kind.
-Versions 1 and 2 and archived formats are rejected without conversion. Retired
+32-byte records introduced in version 2, and retains version 3's removal of the
+recovery value kind. Version 4 embeds section offsets alongside explicit counts.
+Versions 1 through 3 and archived formats are rejected without conversion. Retired
 value tag 8 is invalid and must not be reused.
 
 ## Indices
@@ -40,19 +42,25 @@ string and `UINT32_MAX` is invalid.
 
 ## Header and section order
 
-The 32-byte header contains these fields in order:
+The 64-byte header contains these fields in order:
 
 | Offset | Type | Field |
 | ---: | --- | --- |
 | 0 | `uint32_t` | magic, `0x3244424d` |
-| 4 | `uint16_t` | version, 3 |
-| 6 | `uint16_t` | header size, 32 |
+| 4 | `uint16_t` | version, 4 |
+| 6 | `uint16_t` | header size, 64 |
 | 8 | `uint32_t` | total byte size |
 | 12 | `uint32_t` | value count |
 | 16 | `uint32_t` | property-name reference count |
 | 20 | `uint32_t` | property-name byte count |
 | 24 | `uint32_t` | string-value reference count |
 | 28 | `uint32_t` | string-value byte count |
+| 32 | `uint32_t` | value-record section offset |
+| 36 | `uint32_t` | property-name references offset |
+| 40 | `uint32_t` | string-value references offset |
+| 44 | `uint32_t` | property-name bytes offset |
+| 48 | `uint32_t` | string-value bytes offset |
+| 52 | `uint32_t[3]` | reserved, all zero |
 
 Sections immediately follow the header in this fixed order:
 
@@ -62,16 +70,25 @@ Sections immediately follow the header in this fixed order:
 4. property-name bytes; and
 5. string-value bytes.
 
-Offsets are derived from the preceding counts and record sizes; they are not
-stored. The 32-byte header places the 32-byte value records on a 32-byte
+Offsets are byte offsets from the beginning of the document and are stored
+alongside counts. The 64-byte header places the 32-byte value records on a 32-byte
 boundary. Their size and the 8-byte string references make every following
 fixed-width section naturally eight-byte aligned without padding. There is no
-trailing padding. The computed end of the final byte section must equal
-`total_size` and the supplied block size.
+trailing serialized padding. The computed end of the final byte section must
+equal `total_size` and the checked view's exact extent, not allocation capacity.
+
+Validation uses widened arithmetic to check every stored offset against the
+preceding counts and record sizes, requiring the first offset to be 64 and every
+following section to begin exactly at the preceding section's end. All boundaries
+and the final extent are checked before dereferencing any section. Reserved
+header words must be zero. Ordinary access uses the validated stored offsets
+directly, normally bounding indices by counts; no layout descriptor is cached in
+the view and no checked layout reconstruction is repeated by accessors.
 
 `value_count` is at least one. Both string-reference counts and both string-byte
 counts are at least one because each table physically contains its empty
-string.
+string. The minimum document is therefore 114 bytes: the header, one root record,
+two string references and two NUL bytes. Its minimum owning capacity is 128 bytes.
 
 ## Value records
 
@@ -177,16 +194,50 @@ One additional vector maps each baked value index to its live key. It drives
 breadth-first emission and makes each direct-child range contiguous. No
 live-slot-to-baked-index map or mutable baked builder is required.
 
-After sizes are checked with 64-bit arithmetic, the final block is allocated
-once and filled directly. Failure must be reported and must not expose the
-partial bytes as a ready baked document.
+After sizes are checked with 64-bit arithmetic against the 2 GiB limit, the
+output byte buffer is explicitly reallocated with capacity rounded to 32 bytes.
+The entire capacity is zeroed before direct emission. The exact serialized
+extent remains in the header. Final checked adoption transfers the allocation
+without copying or a second validation pass. Any preparation, emission or
+validation failure leaves the caller's destination block unchanged.
 
 ## Validation and views
 
-`CBakedDocumentBlock` owns the byte allocation. `CBakedDocument` is a copyable,
-non-owning immutable checked view. Public binding of arbitrary bytes performs
+`CBakedDocumentBlock` privately owns a `CByteBuffer` containing validated bytes,
+with its logical size set to the exact document extent. It stores no document
+view and exposes no mutable buffer access.
+`CBakedDocument` is a copyable, non-owning immutable checked view backed by a
+byte-stride `CMemoryConstView`. Public binding of arbitrary bytes performs
 full validation and leaves the view not ready on failure. There is no public
-unchecked baked view and no public mutable baked builder.
+unchecked arbitrary-byte binding and no public mutable baked builder.
+
+`CBakedDocument{block}` constructs a view from a validated block without repeating
+content validation or allocating scratch. `block.document()` returns the same
+kind of view by value. Both borrow storage; neither extends its lifetime. Empty,
+moved-from and deallocated blocks produce empty views. Moving an owner preserves
+existing views while the same allocation remains alive; releasing or replacing
+that allocation invalidates them. Explicit `check_integrity()` still performs
+full validation, as do pointer/extent construction and reset.
+
+`CBakedDocumentBlock::adopt(CByteBuffer&&)` takes no separate type or extent.
+Before inspecting content, it checks buffer readiness, actual 32-byte address
+alignment, capacity divisible by 32 and at least 128 bytes, and enough logical
+bytes for the header. The header identifies the format and exact extent, which
+must be at least 114 bytes, no greater than the buffer's logical size and at most
+2 GiB. Full document validation precedes changing either owner. Failure,
+including validation scratch-allocation failure, preserves both source and
+destination; success empties the source and replaces the destination without
+changing the allocation's address or memory attribution. Logical padding and
+larger capacity are permitted; adoption does not inspect their contents. After
+validation, adoption sets the source's logical size to the exact document extent
+without reallocating and moves the buffer into the block, retaining its capacity.
+
+Block `bytes()` exposes only the exact serialized extent. Baking and aligned
+file loading zero spare capacity, but it is not part of the saved document.
+`loadFile(path, pad, alignment)` supports direct loading with alignment 32;
+its default alignment remains 16. The loader retains file length plus explicit
+padding as logical size and rounds capacity to the effective alignment. Loading
+and adoption therefore require no subsequent alignment copy.
 
 The view exposes the established read surface: readiness and integrity, root
 and counts, value type and name, typed scalar payloads and integer metadata,
@@ -200,8 +251,9 @@ table, then scans that range. No auxiliary object index is present.
 
 Full validation checks:
 
+- a supplied extent between 114 bytes and 2 GiB before content inspection;
 - 32-byte base and value-section alignment, header identity, version, sizes and
-  overflow-safe derived section bounds;
+  reserved-zero header words and overflow-safe contiguous section bounds;
 - every record's type, reserved fields, canonical unused fields and payload;
 - root identity, sibling-position flags and the complete reciprocal
   parent/range structure;

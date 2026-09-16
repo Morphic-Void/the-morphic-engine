@@ -95,7 +95,7 @@ void CHostWorkerThread::operate() noexcept
                     CErasedOwner content = CErasedOwner::create<LoadedFile>();
                     if (LoadedFile* const result = content.payload<LoadedFile>())
                     {
-                        result->buffer = platform::filesystem::loadFile(request.file);
+                        result->buffer = platform::filesystem::loadFile(request.file, 0u, request.alignment);
                     }
                     threading::CErasedOwnerMsg outbound_msg;
                     outbound_msg.set_message_type<FileLoadResult>();

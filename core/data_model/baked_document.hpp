@@ -22,6 +22,7 @@
 #include "containers/StringBuffers.hpp"
 #include "data_model/baked_document_format.hpp"
 #include "data_model/data_model_types.hpp"
+#include "memory/memory_view.hpp"
 
 class CBakedValueIndex
 {
@@ -54,13 +55,16 @@ static_assert(std::is_trivially_copyable_v<CBakedValueIndex>);
 static_assert(std::is_standard_layout_v<CBakedValueIndex>);
 static_assert(sizeof(CBakedValueIndex) == sizeof(std::uint32_t));
 
-class CBakedDocumentBaker;
+class CBakedDocumentBlock;
 
 class CBakedDocument
 {
 public:
     CBakedDocument() noexcept = default;
     CBakedDocument(const void* const bytes, const std::size_t byte_count) noexcept;
+
+    //  Borrow already-validated block storage without revalidation or allocation.
+    explicit CBakedDocument(const CBakedDocumentBlock& block) noexcept;
 
     [[nodiscard]] bool reset(const void* const bytes, const std::size_t byte_count) noexcept;
     void clear() noexcept;
@@ -109,16 +113,7 @@ public:
 private:
     friend class CLiveDocumentPromoter;
 
-    struct SLayout
-    {
-        std::uint32_t values_offset{ 0u };
-        std::uint32_t property_name_references_offset{ 0u };
-        std::uint32_t string_value_references_offset{ 0u };
-        std::uint32_t property_name_bytes_offset{ 0u };
-        std::uint32_t string_value_bytes_offset{ 0u };
-    };
-
-    [[nodiscard]] static bool derive_layout(const SBakedDocumentHeader& header, const std::size_t supplied_byte_count, SLayout& layout) noexcept;
+    [[nodiscard]] static bool validate_layout(const SBakedDocumentHeader& header, const std::size_t supplied_byte_count) noexcept;
     [[nodiscard]] static bool validate(const std::uint8_t* const bytes, const std::size_t byte_count) noexcept;
     [[nodiscard]] static bool validate_string_table(
         const std::uint8_t* const bytes,
@@ -130,8 +125,8 @@ private:
     [[nodiscard]] static bool value_type_is_container(const EBakedValueType type) noexcept;
     [[nodiscard]] static bool validate_record_encoding(const SBakedValueRecord& value, const std::uint32_t string_value_count) noexcept;
     [[nodiscard]] static bool validate_integer(const SBakedValueRecord& value) noexcept;
+    [[nodiscard]] const std::uint8_t* data() const noexcept;
     [[nodiscard]] const SBakedDocumentHeader* header() const noexcept;
-    [[nodiscard]] const SBakedValueRecord* values(const SLayout& layout) const noexcept;
     [[nodiscard]] const SBakedValueRecord* value_record(const CBakedValueIndex value) const noexcept;
     [[nodiscard]] CPropertyNameId find_property_name_id(const CStringView& name) const noexcept;
     [[nodiscard]] CStringView string_from(
@@ -140,8 +135,7 @@ private:
         const std::uint32_t reference_count,
         const std::uint32_t bytes_offset) const noexcept;
 
-    const std::uint8_t* m_bytes{ nullptr };
-    std::size_t m_byte_count{ 0u };
+    memory::CMemoryConstView m_bytes;
 };
 
 static_assert(std::is_nothrow_copy_constructible_v<CBakedDocument>);
@@ -153,18 +147,23 @@ public:
 
     //  Lifetime and ownership
     CBakedDocumentBlock() noexcept = default;
-    CBakedDocumentBlock(CBakedDocumentBlock&& source) noexcept;
-    CBakedDocumentBlock& operator=(CBakedDocumentBlock&& source) noexcept;
+    CBakedDocumentBlock(CBakedDocumentBlock&& source) noexcept = default;
+    CBakedDocumentBlock& operator=(CBakedDocumentBlock&& source) noexcept = default;
     CBakedDocumentBlock(const CBakedDocumentBlock&) = delete;
     CBakedDocumentBlock& operator=(const CBakedDocumentBlock&) = delete;
     ~CBakedDocumentBlock() noexcept = default;
+
+    //  Adopt checked document storage; failure preserves both owners.
+    [[nodiscard]] bool adopt(CByteBuffer&& source) noexcept;
 
     //  Release
     void deallocate() noexcept;
 
     //  Status and immutable access
     [[nodiscard]] bool is_ready() const noexcept;
-    [[nodiscard]] const CBakedDocument& document() const noexcept;
+
+    //  Borrowed view; does not extend the backing storage's lifetime.
+    [[nodiscard]] CBakedDocument document() const noexcept;
     [[nodiscard]] CByteConstView bytes() const noexcept;
 
 //  Interface for memory accounting and ownership-transfer infrastructure.
@@ -179,12 +178,7 @@ public:
         memory::CMemoryContext* const expected_source, memory::CMemoryContext* const target) noexcept;
 
 private:
-    friend class CBakedDocumentBaker;
-
-    void replace_with(CBakedDocumentBlock& source) noexcept;
-
     CByteBuffer m_bytes;
-    CBakedDocument m_document;
 };
 
 static_assert(std::is_nothrow_move_constructible_v<CBakedDocumentBlock>);
@@ -198,18 +192,17 @@ static_assert(!std::is_copy_assignable_v<CBakedDocumentBlock>);
 
 inline void CBakedDocument::clear() noexcept
 {
-    m_bytes = nullptr;
-    m_byte_count = 0u;
+    m_bytes.reset();
 }
 
 inline bool CBakedDocument::is_ready() const noexcept
 {
-    return m_bytes != nullptr;
+    return m_bytes.is_valid();
 }
 
 inline std::size_t CBakedDocument::byte_count() const noexcept
 {
-    return is_ready() ? m_byte_count : 0u;
+    return m_bytes.bytes();
 }
 
 inline CBakedValueIndex CBakedDocument::root() const noexcept
@@ -425,14 +418,14 @@ inline bool CBakedDocument::value_type_is_container(const EBakedValueType type) 
     return value_type_is_array(type) || (type == EBakedValueType::object);
 }
 
-inline const SBakedDocumentHeader* CBakedDocument::header() const noexcept
+inline const std::uint8_t* CBakedDocument::data() const noexcept
 {
-    return is_ready() ? reinterpret_cast<const SBakedDocumentHeader*>(m_bytes) : nullptr;
+    return static_cast<const std::uint8_t*>(m_bytes.data());
 }
 
-inline const SBakedValueRecord* CBakedDocument::values(const SLayout& layout) const noexcept
+inline const SBakedDocumentHeader* CBakedDocument::header() const noexcept
 {
-    return reinterpret_cast<const SBakedValueRecord*>(m_bytes + layout.values_offset);
+    return is_ready() ? reinterpret_cast<const SBakedDocumentHeader*>(data()) : nullptr;
 }
 
 inline const SBakedValueRecord* CBakedDocument::value_record(const CBakedValueIndex value) const noexcept
@@ -441,7 +434,7 @@ inline const SBakedValueRecord* CBakedDocument::value_record(const CBakedValueIn
     {
         return nullptr;
     }
-    return reinterpret_cast<const SBakedValueRecord*>(m_bytes + sizeof(SBakedDocumentHeader)) + value.query_value();
+    return reinterpret_cast<const SBakedValueRecord*>(data() + header()->values_offset) + value.query_value();
 }
 
 //==============================================================================
@@ -450,17 +443,18 @@ inline const SBakedValueRecord* CBakedDocument::value_record(const CBakedValueIn
 
 inline bool CBakedDocumentBlock::is_ready() const noexcept
 {
-    return m_bytes.is_ready() && m_document.is_ready();
+    return m_bytes.is_ready();
 }
 
-inline const CBakedDocument& CBakedDocumentBlock::document() const noexcept
+inline CBakedDocument CBakedDocumentBlock::document() const noexcept
 {
-    return m_document;
+    return CBakedDocument{ *this };
 }
 
 inline CByteConstView CBakedDocumentBlock::bytes() const noexcept
 {
-    return m_bytes.const_view();
+    return is_ready() ? CByteConstView{ m_bytes.data(),
+        m_bytes.size(), baked_document_format::k_block_alignment } : CByteConstView{};
 }
 
 inline memory::SMemoryAttribution CBakedDocumentBlock::memory_attribution() const noexcept

@@ -25,7 +25,7 @@
 
 struct UnrecognisedMsg { system_type_id msg_id; };
 
-struct FileLoadRequest { const char* file; };
+struct FileLoadRequest { const char* file; std::size_t alignment{ 16u }; };
 struct FileSaveRequest { const char* file; CByteConstView view; };
 
 struct TgaLoadRequest

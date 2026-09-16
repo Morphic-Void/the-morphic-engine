@@ -456,8 +456,14 @@ checked member operations, registered callback table and component checks. Its
 typed nested adapters consume attribution records and the shared query; separate
 callbacks may observe a payload independently. The one-observation guarantee
 applies to each shared operation, not to an entire erased-owner operation.
-`CBakedDocumentBlock` forwards the common two-method interface to its existing
-byte buffer without changing its representation or adoption rules.
+`CBakedDocumentBlock` privately owns a `CByteBuffer` and forwards its common
+two-method interface to that buffer. Checked adoption validates before setting
+the exact logical document size and moving the buffer, preserving allocation
+capacity, address and attribution. Document views are constructed on demand from
+the validated block without allocation or revalidation; they borrow storage and
+do not extend its lifetime. Immutable byte access exposes only the exact extent,
+separate from the buffer's 32-byte-multiple capacity; see the
+[baked-document storage contract](../data_model/baked_document_format.md).
 
 General-purpose collection reattribution covers its backing storage. It does not
 automatically reattribute allocations owned by user values stored in the collection.

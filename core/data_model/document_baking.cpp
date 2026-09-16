@@ -11,7 +11,6 @@
 #include "data_model/document_translation.hpp"
 
 #include <cstring>
-#include <limits>
 #include <utility>
 
 #include "containers/TPodVector.hpp"
@@ -68,7 +67,7 @@ private:
     SStringDomain m_string_values;
     TPodVector<CNodeKey> m_values;
     CByteBuffer m_bytes;
-    CBakedDocument m_document;
+    CBakedDocumentBlock m_block;
     std::uint32_t m_values_offset{ 0u };
     std::uint32_t m_total_size{ 0u };
 };
@@ -131,7 +130,7 @@ bool CBakedDocumentBaker::measure_strings(SStringDomain& domain) noexcept
             return false;
         }
         byte_count += static_cast<std::uint64_t>(string.value.length()) + 1u;
-        if (byte_count > std::numeric_limits<std::uint32_t>::max())
+        if (byte_count > memory::k_byte_size_ceiling)
         {
             return false;
         }
@@ -158,22 +157,23 @@ bool CBakedDocumentBaker::derive_layout() noexcept
 
 bool CBakedDocumentBaker::place_section(std::uint64_t& offset, const std::uint32_t count, const std::uint32_t stride, std::uint32_t& destination) const noexcept
 {
-    if (offset > std::numeric_limits<std::uint32_t>::max())
+    if (offset > memory::k_byte_size_ceiling)
     {
         return false;
     }
     destination = static_cast<std::uint32_t>(offset);
     offset += static_cast<std::uint64_t>(count) * stride;
-    return offset <= std::numeric_limits<std::uint32_t>::max();
+    return offset <= memory::k_byte_size_ceiling;
 }
 
 bool CBakedDocumentBaker::allocate_output() noexcept
 {
-    if (!m_bytes.reallocate(m_total_size, m_total_size, baked_document_format::k_block_alignment))
+    const std::size_t capacity = memory::condition_bytes(baked_document_format::k_block_alignment, m_total_size);
+    if ((capacity == 0u) || !m_bytes.reallocate(m_total_size, capacity, baked_document_format::k_block_alignment))
     {
         return false;
     }
-    m_bytes.zero_fill();
+    std::memset(m_bytes.data(), 0, m_bytes.capacity());
 
     SBakedDocumentHeader& header = *reinterpret_cast<SBakedDocumentHeader*>(m_bytes.data());
     header.magic = baked_document_format::k_magic;
@@ -185,6 +185,11 @@ bool CBakedDocumentBaker::allocate_output() noexcept
     header.property_name_byte_count = m_property_names.byte_count;
     header.string_value_reference_count = m_string_values.reference_count;
     header.string_value_byte_count = m_string_values.byte_count;
+    header.values_offset = m_values_offset;
+    header.property_name_references_offset = m_property_names.references_offset;
+    header.string_value_references_offset = m_string_values.references_offset;
+    header.property_name_bytes_offset = m_property_names.bytes_offset;
+    header.string_value_bytes_offset = m_string_values.bytes_offset;
     return true;
 }
 
@@ -370,13 +375,12 @@ CBakedDocumentBaker::SLiveString CBakedDocumentBaker::live_string_at_rank(const 
 
 bool CBakedDocumentBaker::validate_output() noexcept
 {
-    return m_document.reset(m_bytes.data(), m_bytes.size());
+    return m_block.adopt(std::move(m_bytes));
 }
 
 void CBakedDocumentBaker::publish(CBakedDocumentBlock& destination) noexcept
 {
-    destination.m_document = m_document;
-    destination.m_bytes = std::move(m_bytes);
+    destination = std::move(m_block);
 }
 
 bool document_translation::bake(const CLiveDocument& source, CBakedDocumentBlock& destination) noexcept

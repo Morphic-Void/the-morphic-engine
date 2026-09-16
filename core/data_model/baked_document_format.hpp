@@ -36,8 +36,8 @@ namespace baked_document_format
 {
 
 constexpr std::uint32_t k_magic = 0x3244424du; // "MBD2"
-constexpr std::uint16_t k_version = 3u;
-constexpr std::uint16_t k_header_size = 32u;
+constexpr std::uint16_t k_version = 4u;
+constexpr std::uint16_t k_header_size = 64u;
 constexpr std::size_t k_block_alignment = 32u;
 constexpr std::uint32_t k_invalid_index = std::numeric_limits<std::uint32_t>::max();
 
@@ -63,6 +63,12 @@ struct SBakedDocumentHeader
     std::uint32_t property_name_byte_count;
     std::uint32_t string_value_reference_count;
     std::uint32_t string_value_byte_count;
+    std::uint32_t values_offset;
+    std::uint32_t property_name_references_offset;
+    std::uint32_t string_value_references_offset;
+    std::uint32_t property_name_bytes_offset;
+    std::uint32_t string_value_bytes_offset;
+    std::uint32_t reserved[3];
 };
 
 struct alignas(32) SBakedValueRecord
@@ -86,7 +92,8 @@ struct SBakedStringReference
 
 static_assert(std::is_trivially_copyable_v<SBakedDocumentHeader>);
 static_assert(std::is_standard_layout_v<SBakedDocumentHeader>);
-static_assert(sizeof(SBakedDocumentHeader) == 32u);
+static_assert(sizeof(SBakedDocumentHeader) == baked_document_format::k_header_size);
+static_assert((sizeof(SBakedDocumentHeader) % baked_document_format::k_block_alignment) == 0u);
 static_assert(offsetof(SBakedDocumentHeader, magic) == 0u);
 static_assert(offsetof(SBakedDocumentHeader, version) == 4u);
 static_assert(offsetof(SBakedDocumentHeader, header_size) == 6u);
@@ -96,6 +103,12 @@ static_assert(offsetof(SBakedDocumentHeader, property_name_reference_count) == 1
 static_assert(offsetof(SBakedDocumentHeader, property_name_byte_count) == 20u);
 static_assert(offsetof(SBakedDocumentHeader, string_value_reference_count) == 24u);
 static_assert(offsetof(SBakedDocumentHeader, string_value_byte_count) == 28u);
+static_assert(offsetof(SBakedDocumentHeader, values_offset) == 32u);
+static_assert(offsetof(SBakedDocumentHeader, property_name_references_offset) == 36u);
+static_assert(offsetof(SBakedDocumentHeader, string_value_references_offset) == 40u);
+static_assert(offsetof(SBakedDocumentHeader, property_name_bytes_offset) == 44u);
+static_assert(offsetof(SBakedDocumentHeader, string_value_bytes_offset) == 48u);
+static_assert(offsetof(SBakedDocumentHeader, reserved) == 52u);
 static_assert(std::is_trivially_copyable_v<SBakedValueRecord>);
 static_assert(std::is_standard_layout_v<SBakedValueRecord>);
 static_assert(sizeof(SBakedValueRecord) == 32u);
@@ -114,5 +127,14 @@ static_assert(std::is_standard_layout_v<SBakedStringReference>);
 static_assert(sizeof(SBakedStringReference) == 8u);
 static_assert(offsetof(SBakedStringReference, offset) == 0u);
 static_assert(offsetof(SBakedStringReference, length) == 4u);
+
+namespace baked_document_format
+{
+
+//  Root-only document, including the two canonical empty string-table entries.
+constexpr std::size_t k_min_document_size = sizeof(SBakedDocumentHeader) + sizeof(SBakedValueRecord) + (2u * sizeof(SBakedStringReference)) + 2u;
+constexpr std::size_t k_min_block_capacity = (k_min_document_size + k_block_alignment - 1u) & ~(k_block_alignment - 1u);
+
+} // namespace baked_document_format
 
 #endif // BAKED_DOCUMENT_FORMAT_HPP_INCLUDED

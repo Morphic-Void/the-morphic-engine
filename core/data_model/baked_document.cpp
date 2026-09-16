@@ -12,12 +12,19 @@
 #include "data_model/baked_document_format.hpp"
 
 #include <algorithm>
+#include <utility>
 
 #include "text/utf8_string.hpp"
 
 CBakedDocument::CBakedDocument(const void* const bytes, const std::size_t byte_count) noexcept
 {
     (void)reset(bytes, byte_count);
+}
+
+CBakedDocument::CBakedDocument(const CBakedDocumentBlock& block) noexcept
+{
+    const CByteConstView bytes = block.bytes();
+    (void)m_bytes.set(bytes.data(), bytes.size(), 1u, baked_document_format::k_block_alignment);
 }
 
 bool CBakedDocument::reset(const void* const bytes, const std::size_t byte_count) noexcept
@@ -28,14 +35,12 @@ bool CBakedDocument::reset(const void* const bytes, const std::size_t byte_count
     {
         return false;
     }
-    m_bytes = candidate;
-    m_byte_count = byte_count;
-    return true;
+    return m_bytes.set(candidate, byte_count, 1u, baked_document_format::k_block_alignment);
 }
 
 bool CBakedDocument::check_integrity() const noexcept
 {
-    return is_ready() && validate(m_bytes, m_byte_count);
+    return is_ready() && validate(data(), byte_count());
 }
 
 CStringView CBakedDocument::property_name(const CPropertyNameId id) const noexcept
@@ -44,13 +49,11 @@ CStringView CBakedDocument::property_name(const CPropertyNameId id) const noexce
     {
         return CStringView{};
     }
-    SLayout layout;
-    return derive_layout(*header(), m_byte_count, layout) ?
-        string_from(
-            id.query_value(),
-            layout.property_name_references_offset,
-            header()->property_name_reference_count,
-            layout.property_name_bytes_offset) : CStringView{};
+    return string_from(
+        id.query_value(),
+        header()->property_name_references_offset,
+        header()->property_name_reference_count,
+        header()->property_name_bytes_offset);
 }
 
 CStringView CBakedDocument::string_value(const CStringValueId id) const noexcept
@@ -59,13 +62,11 @@ CStringView CBakedDocument::string_value(const CStringValueId id) const noexcept
     {
         return CStringView{};
     }
-    SLayout layout;
-    return derive_layout(*header(), m_byte_count, layout) ?
-        string_from(
-            id.query_value(),
-            layout.string_value_references_offset,
-            header()->string_value_reference_count,
-            layout.string_value_bytes_offset) : CStringView{};
+    return string_from(
+        id.query_value(),
+        header()->string_value_references_offset,
+        header()->string_value_reference_count,
+        header()->string_value_bytes_offset);
 }
 
 CBakedValueIndex CBakedDocument::object_child(const CBakedValueIndex object, const CPropertyNameId name) const noexcept
@@ -76,7 +77,7 @@ CBakedValueIndex CBakedDocument::object_child(const CBakedValueIndex object, con
     {
         return CBakedValueIndex{};
     }
-    const SBakedValueRecord* const records = reinterpret_cast<const SBakedValueRecord*>(m_bytes + sizeof(SBakedDocumentHeader));
+    const SBakedValueRecord* const records = reinterpret_cast<const SBakedValueRecord*>(data() + header()->values_offset);
     for (std::uint32_t offset = 0u; offset < record->child_count; ++offset)
     {
         const std::uint32_t child_index = record->first_child_index + offset;
@@ -93,10 +94,9 @@ CBakedValueIndex CBakedDocument::object_child(const CBakedValueIndex object, con
     return object_child(object, find_property_name_id(name));
 }
 
-bool CBakedDocument::derive_layout(const SBakedDocumentHeader& candidate_header, const std::size_t supplied_byte_count, SLayout& layout) noexcept
+bool CBakedDocument::validate_layout(const SBakedDocumentHeader& candidate_header, const std::size_t supplied_byte_count) noexcept
 {
-    layout = SLayout{};
-    if ((supplied_byte_count > std::numeric_limits<std::uint32_t>::max()) ||
+    if ((supplied_byte_count > memory::k_byte_size_ceiling) ||
         (candidate_header.total_size != supplied_byte_count) ||
         (candidate_header.value_count == 0u) ||
         (candidate_header.property_name_reference_count == 0u) ||
@@ -107,23 +107,30 @@ bool CBakedDocument::derive_layout(const SBakedDocumentHeader& candidate_header,
         return false;
     }
 
-    std::uint64_t offset = sizeof(SBakedDocumentHeader);
-    const auto place_section = [&offset](const std::uint32_t count, const std::uint32_t stride, std::uint32_t& section_offset) noexcept
+    for (const std::uint32_t reserved : candidate_header.reserved)
     {
-        if (offset > std::numeric_limits<std::uint32_t>::max())
+        if (reserved != 0u)
         {
             return false;
         }
-        section_offset = static_cast<std::uint32_t>(offset);
+    }
+
+    std::uint64_t offset = sizeof(SBakedDocumentHeader);
+    const auto check_section = [&offset](const std::uint32_t count, const std::uint32_t stride, const std::uint32_t section_offset) noexcept
+    {
+        if (section_offset != offset)
+        {
+            return false;
+        }
         offset += static_cast<std::uint64_t>(count) * stride;
-        return offset <= std::numeric_limits<std::uint32_t>::max();
+        return offset <= memory::k_byte_size_ceiling;
     };
 
-    if (!place_section(candidate_header.value_count, sizeof(SBakedValueRecord), layout.values_offset) ||
-        !place_section(candidate_header.property_name_reference_count, sizeof(SBakedStringReference), layout.property_name_references_offset) ||
-        !place_section(candidate_header.string_value_reference_count,  sizeof(SBakedStringReference), layout.string_value_references_offset) ||
-        !place_section(candidate_header.property_name_byte_count, 1u, layout.property_name_bytes_offset) ||
-        !place_section(candidate_header.string_value_byte_count, 1u, layout.string_value_bytes_offset))
+    if (!check_section(candidate_header.value_count, sizeof(SBakedValueRecord), candidate_header.values_offset) ||
+        !check_section(candidate_header.property_name_reference_count, sizeof(SBakedStringReference), candidate_header.property_name_references_offset) ||
+        !check_section(candidate_header.string_value_reference_count,  sizeof(SBakedStringReference), candidate_header.string_value_references_offset) ||
+        !check_section(candidate_header.property_name_byte_count, 1u, candidate_header.property_name_bytes_offset) ||
+        !check_section(candidate_header.string_value_byte_count, 1u, candidate_header.string_value_bytes_offset))
     {
         return false;
     }
@@ -168,7 +175,8 @@ bool CBakedDocument::validate(const std::uint8_t* const bytes, const std::size_t
 {
     if ((bytes == nullptr) ||
         ((reinterpret_cast<std::uintptr_t>(bytes) & (baked_document_format::k_block_alignment - 1u)) != 0u) ||
-        (byte_count < sizeof(SBakedDocumentHeader)))
+        (byte_count < baked_document_format::k_min_document_size) ||
+        (byte_count > memory::k_byte_size_ceiling))
     {
         return false;
     }
@@ -181,33 +189,31 @@ bool CBakedDocument::validate(const std::uint8_t* const bytes, const std::size_t
         return false;
     }
 
-    SLayout layout;
-    if (!derive_layout(*candidate_header, byte_count, layout) ||
-        ((layout.values_offset & (baked_document_format::k_block_alignment - 1u)) != 0u) ||
+    if (!validate_layout(*candidate_header, byte_count) ||
         !validate_string_table(
             bytes,
-            layout.property_name_references_offset,
+            candidate_header->property_name_references_offset,
             candidate_header->property_name_reference_count,
-            layout.property_name_bytes_offset,
+            candidate_header->property_name_bytes_offset,
             candidate_header->property_name_byte_count) ||
         !validate_string_table(
             bytes,
-            layout.string_value_references_offset,
+            candidate_header->string_value_references_offset,
             candidate_header->string_value_reference_count,
-            layout.string_value_bytes_offset,
+            candidate_header->string_value_bytes_offset,
             candidate_header->string_value_byte_count))
     {
         return false;
     }
 
-    const SBakedValueRecord* const records = reinterpret_cast<const SBakedValueRecord*>(bytes + layout.values_offset);
+    const SBakedValueRecord* const records = reinterpret_cast<const SBakedValueRecord*>(bytes + candidate_header->values_offset);
     const std::uint32_t value_count = candidate_header->value_count;
     const std::uint32_t property_name_count = candidate_header->property_name_reference_count;
     const std::uint32_t string_value_count = candidate_header->string_value_reference_count;
-    const SBakedStringReference* const names = reinterpret_cast<const SBakedStringReference*>(bytes + layout.property_name_references_offset);
+    const SBakedStringReference* const names = reinterpret_cast<const SBakedStringReference*>(bytes + candidate_header->property_name_references_offset);
     for (std::uint32_t index = 0u; index < property_name_count; ++index)
     {
-        if (utf8_string::contains_line_break(bytes + layout.property_name_bytes_offset + names[index].offset, names[index].length))
+        if (utf8_string::contains_line_break(bytes + candidate_header->property_name_bytes_offset + names[index].offset, names[index].length))
         {
             return false;
         }
@@ -371,19 +377,14 @@ CPropertyNameId CBakedDocument::find_property_name_id(const CStringView& name) c
     {
         return CPropertyNameId{};
     }
-    SLayout layout;
-    if (!derive_layout(*header(), m_byte_count, layout))
-    {
-        return CPropertyNameId{};
-    }
-    const SBakedStringReference* const references = reinterpret_cast<const SBakedStringReference*>(m_bytes + layout.property_name_references_offset);
+    const SBakedStringReference* const references = reinterpret_cast<const SBakedStringReference*>(data() + header()->property_name_references_offset);
     std::uint32_t first = 0u;
     std::uint32_t end = header()->property_name_reference_count;
     while (first < end)
     {
         const std::uint32_t middle = first + ((end - first) / 2u);
         const SBakedStringReference& reference = references[middle];
-        const CStringView candidate{ (m_bytes + layout.property_name_bytes_offset + reference.offset), reference.length };
+        const CStringView candidate{ (data() + header()->property_name_bytes_offset + reference.offset), reference.length };
         const std::int32_t relationship = candidate.relationship(name);
         if (relationship < 0)
         {
@@ -399,7 +400,7 @@ CPropertyNameId CBakedDocument::find_property_name_id(const CStringView& name) c
         return CPropertyNameId{};
     }
     const SBakedStringReference& reference = references[first];
-    const CStringView candidate{ (m_bytes + layout.property_name_bytes_offset + reference.offset), reference.length };
+    const CStringView candidate{ (data() + header()->property_name_bytes_offset + reference.offset), reference.length };
     return (candidate == name) ? CPropertyNameId{ first } : CPropertyNameId{};
 }
 
@@ -413,34 +414,44 @@ CStringView CBakedDocument::string_from(
     {
         return CStringView{};
     }
-    const SBakedStringReference* const references = reinterpret_cast<const SBakedStringReference*>(m_bytes + references_offset);
+    const SBakedStringReference* const references = reinterpret_cast<const SBakedStringReference*>(data() + references_offset);
     const SBakedStringReference& reference = references[id];
-    return CStringView{ (m_bytes + bytes_offset + reference.offset), reference.length };
+    return CStringView{ (data() + bytes_offset + reference.offset), reference.length };
 }
 
-CBakedDocumentBlock::CBakedDocumentBlock(CBakedDocumentBlock&& source) noexcept
+bool CBakedDocumentBlock::adopt(CByteBuffer&& source) noexcept
 {
-    replace_with(source);
-}
-
-CBakedDocumentBlock& CBakedDocumentBlock::operator=(CBakedDocumentBlock&& source) noexcept
-{
-    if (this != &source)
+    if (!source.is_ready() ||
+        ((reinterpret_cast<std::uintptr_t>(source.data()) & (baked_document_format::k_block_alignment - 1u)) != 0u) ||
+        ((source.capacity() & (baked_document_format::k_block_alignment - 1u)) != 0u) ||
+        (source.capacity() < baked_document_format::k_min_block_capacity) ||
+        (source.size() < sizeof(SBakedDocumentHeader)))
     {
-        replace_with(source);
+        return false;
     }
-    return *this;
+
+    const SBakedDocumentHeader& header = *reinterpret_cast<const SBakedDocumentHeader*>(source.data());
+    if ((header.magic != baked_document_format::k_magic) ||
+        (header.version != baked_document_format::k_version) ||
+        (header.header_size != baked_document_format::k_header_size) ||
+        (header.total_size < baked_document_format::k_min_document_size) ||
+        (header.total_size > source.size()) ||
+        (header.total_size > memory::k_byte_size_ceiling))
+    {
+        return false;
+    }
+
+    CBakedDocument document;
+    if (!document.reset(source.data(), header.total_size) || !source.set_size(document.byte_count()))
+    {
+        return false;
+    }
+
+    m_bytes = std::move(source);
+    return true;
 }
 
 void CBakedDocumentBlock::deallocate() noexcept
 {
-    m_document.clear();
     m_bytes.deallocate();
-}
-
-void CBakedDocumentBlock::replace_with(CBakedDocumentBlock& source) noexcept
-{
-    m_bytes = std::move(source.m_bytes);
-    m_document = source.m_document;
-    source.m_document.clear();
 }
