@@ -1,6 +1,6 @@
 # Filesystem asset mapping
 
-Updated 16 September 2026. Initial design discussion, not an implementation
+Updated 18 September 2026. Initial design discussion, not an implementation
 specification. This develops the filesystem portion of the
 [consolidation plan](consolidation_pass.md). Current ownership follows the
 [active stages](consolidation_design_order.md): Host assets remain owned until
@@ -443,9 +443,18 @@ hashing or complete cache remapping.
 
 ### Live construction and baked catalogue views
 
+Ritchie confirmed on 18 September that the document model will be used for the
+filesystem image. Navigation helpers alongside the document types will take a
+live or baked document, a starting node and a filesystem-path-like path, and
+return the end node. Exact path and failure semantics remain open. The
+[future document-use notes](consolidation_deferred_design.md#future-document-navigation-and-save-game-values)
+also record a separate possible save-game use with mutable values and fixed layout;
+that possibility does not change immutable catalogue publication.
+
 One candidate is to construct or update scan metadata in a thread-local live
 document, then publish a baked catalogue snapshot for editor and other readers.
-Its backing storage would use ordinary Host ownership and interest handles.
+Snapshot retention follows the open publication/lifetime questions above, rather
+than requiring the superseded per-client interest handles.
 Readers retaining an older snapshot can finish using it while a new snapshot
 is published. Snapshot retention and retention of assets described by the
 snapshot are separate; describing a file does not require keeping its content

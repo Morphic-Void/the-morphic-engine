@@ -1,6 +1,6 @@
 # Deferred consolidation design
 
-Updated 16 September 2026. Reference material for later design work, separate from
+Updated 18 September 2026. Reference material for later design work, separate from
 the [active design stages](consolidation_design_order.md) and their subsequent
 implementation. This document preserves motivations, possible approaches and
 unresolved questions. It is not an implementation specification or a dependency
@@ -56,6 +56,27 @@ meaning across replacements, retention for IDs in flight, and change detection
 for bulk queries such as editor path-tree construction. Keeping a traversal's
 image alive and determining whether it is still current are separate concerns.
 These are deferred design questions, not additions to the current implementation.
+
+## Future document navigation and save-game values
+
+Ritchie's 18 September direction: the document model will represent the filesystem
+image. Add filesystem-path-like navigation as side functions that accept a live
+or baked document, a starting node and a path, and return the end node. These
+helpers sit alongside the document types. Path syntax, traversal rules and the
+result for an unresolved path remain to be specified; no native filesystem path
+semantics or particular path standard is selected by this note.
+
+Ritchie also identifies a possible extension of baked documents for save games:
+allow modification of values while preserving the layout, to hold switch states
+and other game state. This is a candidate for later design, not a change to the
+current immutable baked-document contract. Which values may change, how updates
+preserve validity and how access is coordinated with readers remain open. Fixed
+layout alone does not settle those questions, including the treatment of shared
+string-table entries.
+
+The possible save-game extension does not change the proposed immutable
+filesystem-image publication contract. These notes capture future uses without
+resuming implementation or selecting their APIs now.
 
 ## Asset lifetime and reference counting
 
