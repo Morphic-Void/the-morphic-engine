@@ -1,0 +1,87 @@
+{
+  "format": "morphic-schema",
+  "version": 1,
+
+  "enumerations": {
+    "BlendMode": {
+      "storage": "u8",
+      "values": {
+        "opaque": 0,
+        "alpha": 1,
+        "additive": 2
+      }
+    },
+
+    "Axis": {
+      "storage": "i8",
+      "values": {
+        "x": 0,
+        "y": 1,
+        "z": 2
+      }
+    }
+  },
+
+  "structures": {
+    "Position": {
+      "layout": "explicit",
+      "size": 12,
+      "alignment": 4,
+      "members": [
+        { "name": "x", "type": "f32", "offset": 0 },
+        { "name": "y", "type": "f32", "offset": 4 },
+        { "name": "z", "type": "f32", "offset": 8 }
+      ]
+    },
+
+    "Vertex": {
+      "layout": "explicit",
+      "size": 24,
+      "alignment": 4,
+      "members": [
+        { "name": "position", "type": "Position", "offset": 0 },
+        {
+          "name": "uv",
+          "type": { "kind": "array", "element": "f32", "count": 2 },
+          "offset": 12
+        },
+        { "name": "colour", "type": "ColourRgba8", "offset": 20 }
+      ]
+    },
+
+    "ColourRgba8": {
+      "layout": "explicit",
+      "size": 4,
+      "alignment": 1,
+      "members": [
+        { "name": "r", "type": "u8", "offset": 0 },
+        { "name": "g", "type": "u8", "offset": 1 },
+        { "name": "b", "type": "u8", "offset": 2 },
+        { "name": "a", "type": "u8", "offset": 3 }
+      ]
+    }
+  },
+
+  "bit_structures": {
+    "ColourRgba10A2": {
+      "storage": "u32",
+      "unused_bits": "zero",
+      "members": [
+        { "name": "r", "bit_offset": 0, "bit_width": 10, "interpretation": "unorm" },
+        { "name": "g", "bit_offset": 10, "bit_width": 10, "interpretation": "unorm" },
+        { "name": "b", "bit_offset": 20, "bit_width": 10, "interpretation": "unorm" },
+        { "name": "a", "bit_offset": 30, "bit_width": 2, "interpretation": "unorm" }
+      ]
+    },
+
+    "SurfaceFlags": {
+      "storage": "u16",
+      "unused_bits": "zero",
+      "members": [
+        { "name": "visible", "bit_offset": 0, "bit_width": 1, "interpretation": "boolean" },
+        { "name": "mode", "bit_offset": 1, "bit_width": 3, "interpretation": { "kind": "enum", "type": "BlendMode" } },
+        { "name": "axis", "bit_offset": 4, "bit_width": 2, "interpretation": { "kind": "enum", "type": "Axis" } }
+      ]
+    }
+  }
+}
