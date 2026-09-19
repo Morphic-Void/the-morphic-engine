@@ -1,0 +1,138 @@
+# Image view
+
+`image::CImageView` in `core/image/image_view.hpp` is a development utility for
+experiments and markup of captured textures. It borrows a rectangular buffer;
+it does not allocate storage or participate in the rendering system. The owner
+must keep that storage alive and unchanged in shape for every use of the view.
+Copies of the view remain borrowers. Concurrent access requires coordination
+by the caller; this class does not establish asynchronous asset access rules.
+
+## Storage and access
+
+The description is the TGA decoder's `Gray`, `RGBX` or `RGBA`. Gray uses one byte
+per texel; the other descriptions use four, with the codec's existing lane
+layout (`0xAABBGGRR`). Colour storage requires four-byte alignment, row width and
+row pitch. Padding is outside the image and is never filled or copied.
+
+Coordinates and signed rectangle extents are `std::int32_t`. Intermediate
+coordinate arithmetic uses wider integers so negative extents and extreme
+off-image endpoints do not overflow. Image dimensions retain the rectangular
+buffer's existing size limits.
+
+`texel(x, y)` always returns `std::uint32_t`, zero-extending greyscale. Invalid
+reads return zero. `plot` and all other drawing operations silently ignore
+invalid or read-only destinations. Greyscale writes take only the low eight
+colour bits. The write mask applies to colour images:
+
+```cpp
+result = (previous & ~write_mask) | (colour & write_mask);
+```
+
+Attachment from a const rectangular view is permanently read-only. A mutable
+attachment can be temporarily restricted using `set_read_only`. The image view
+exposes only a const backing-buffer view, so it does not provide a route around
+its own read-only flag. Existing external mutable aliases remain the caller's
+responsibility. Invalid attachment resets the image view.
+
+Logical `(0, 0)` is top left. By default it addresses the first texel in the
+buffer and increasing Y advances through physical rows. `vertical_flip` reverses
+row addressing for bottom-up storage, including reads, writes and copies.
+
+## Drawing and copying
+
+- `fill` fills every texel, respecting the colour write mask.
+- `fill_rectangle` and `draw_rectangle` take an anchor and signed width/height.
+  Normalise the two corners first, then include left/top and exclude right/bottom.
+  Zero extents draw nothing. An outline is clipped without introducing a new
+  border along the clipping boundary.
+- `draw_line` includes both endpoints and clips to the entire image.
+- `copy_rectangle` takes source/destination anchors, shared signed width/height,
+  flip/mirror flags and a colour write mask. Both rectangles are normalised, then
+  shortened by identical amounts at each corresponding edge. Flip and mirror
+  apply to the surviving source rectangle after this shared clipping.
+
+Copies require matching texel sizes; RGBX and RGBA can copy to each other without
+conversion or metadata changes. Copy returns `false` for invalid views, a
+read-only destination, incompatible formats, invalid flags or overlapping byte
+regions. It checks overlap after clipping, across all participating rows, even
+when views start at different addresses or use different pitches. Failure makes
+no writes. A valid copy with an empty clipped region returns `true`.
+
+### Line stepping
+
+Ritchie's clarified rule, 19 September 2026, supersedes the earlier assumption
+that the major coordinate must always increase:
+
+1. Begin at the endpoint with the lower **numeric Y**, regardless of the view's
+   physical row direction. Horizontal lines use their own span path.
+2. Choose X-major when `abs(dx) > abs(dy)`, otherwise Y-major. Use absolute deltas
+   in the stepping arithmetic and signed coordinate advances. An X-major line
+   may progress toward decreasing X.
+3. Initialise error to `major >> 1`. Emit the current pixel, then subtract the
+   minor delta. Advance the minor coordinate only when that subtraction would
+   underflow, adding the major delta to restore the remainder. Equality is not
+   underflow.
+4. Group the major-axis steps into runs using a precomputed whole quotient and
+   a fractional remainder; no division is needed inside the run loop.
+5. Clip the original sequence, preserving both its phase and any partial first
+   run. Offscreen spans are skipped analytically, not traversed pixel by pixel.
+
+Horizontal, vertical and exact diagonal lines have specialised paths. Tests
+compare the run implementation with an unclipped scalar reference, and verify
+endpoint reversal, translation through clipping and left/right reflection,
+including midpoint cases. For example, `(0,0)` to `(2,1)` emits `(0,0), (1,0),
+(2,1)`; its counterpart ending at `(-2,1)` emits `(0,0), (-1,0), (-2,1)` before
+clipping. This is the intended reflection comparison; rotation is not a mirror.
+
+## TGA configuration
+
+The view retains the decode description and encoding preferences. Drawing does
+not inspect or maintain alpha metadata. RGBX defaults to RGB encoding, RGBA to
+RGBA, and Gray to greyscale. Explicit RGB/RGBA source selection changes that
+interpretation without changing pixels. `AutoTrue32` and single-channel R/G/B/A
+encoding remain explicit choices for colour storage. CLUT and RLE eligibility
+can be configured independently and default to allowed, as in the existing codec.
+
+`encode_options()` returns the existing small `codec::tga::EncodeOptions` value.
+That is the configuration carrier; the borrowed storage is supplied separately:
+
+```cpp
+auto bytes = image::codec::tga::encode(view.buffer_view(), view.encode_options());
+```
+
+The current TGA codec defaults to bottom-up buffers. Its `vflip` therefore has
+the opposite sense to the image view's `vertical_flip` when encoding. To attach
+a freshly decoded image:
+
+```cpp
+image::codec::tga::decoded_image_desc desc;
+auto pixels = image::codec::tga::decode(file_bytes, desc, true); // top-down
+image::CImageView view{ pixels.view(), desc };
+```
+
+Alternatively, decode with the existing default `vflip=false` and attach using
+`vertical_flip=true`. This preserves codec behaviour while giving the view a
+consistent top-left coordinate convention. Original file compression, palette
+choice and ancillary TGA metadata are not exposed by the decoder and are not
+invented or retained by this view.
+
+## Validation
+
+19 September 2026: the solution built and all ordinary (`-t1`) suites passed in
+Debug and Release for x64 and x86, using `tools/invoke_sandbox_build.ps1`.
+`ImageView` reports 300,677 passing checks in each configuration. Coverage includes
+all line octants and degenerate lines, midpoint reflection, endpoint reversal,
+translated clipping, extreme signed endpoints, rectangle boundaries, copy
+clipping/transform combinations, aliased storage, read-only access, write masks,
+row padding and TGA orientation/alpha round trips.
+
+The image view measures 56 bytes on x64 and 36 bytes on x86; `EncodeOptions` is
+4 bytes on both. Retaining the smaller configuration value avoids carrying
+borrowed pointers and drawing-access state into encoding requests.
+
+Build/test logs are in the ignored `build/image-view-final-dbg64.log`,
+`build/image-view-dbg32.log`, `build/image-view-rel64.log` and
+`build/image-view-rel32.log`. Policy validation and the repository line-ending
+check passed. Asynchronous Host admission and Executive workflows are separate
+remaining consolidation work; these codec round trips do not claim to complete
+that integration.

@@ -5,6 +5,13 @@ notes deliberately develop the first three of the four consolidation steps being
 tracked elsewhere.  They are design direction and a record of unresolved choices,
 not an implementation specification or authorisation to start speculative work.
 
+Subsequent image-view discussion on 19 September authorised implementation of
+the bounded utility described in [image view](../image/image_view.md). That
+document records the settled drawing, copy, access and encoding contracts and
+the clarified lower-numeric-Y endpoint ordering. These supersede the tentative
+image-view scope and major-axis endpoint ordering recorded below. The broader
+asynchronous operation contracts remain design work.
+
 They refine the earlier conclusion that all accepted assets have permanent Host
 ownership and can only be acted on through a separate asset-ID request.  Durable
 Host ownership remains valid, but it is not the only useful operation form.  The

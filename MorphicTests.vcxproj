@@ -105,6 +105,7 @@
     <ClCompile Include="tests\test_suites\DocumentStructure_test_suite.cpp" />
     <ClCompile Include="tests\test_suites\DocumentWriter_test_suite.cpp" />
     <ClCompile Include="tests\test_suites\ByteBuffers_test_suite.cpp" />
+    <ClCompile Include="tests\test_suites\ImageView_test_suite.cpp" />
     <ClCompile Include="tests\test_suites\CMemoryToken_test_suite.cpp" />
     <ClCompile Include="tests\test_suites\CMemoryView_test_suite.cpp" />
     <ClCompile Include="tests\test_suites\DebugService_test_suite.cpp" />
@@ -146,6 +147,7 @@
     <ClInclude Include="tests\test_suites\DocumentStructure_test_suite.hpp" />
     <ClInclude Include="tests\test_suites\DocumentWriter_test_suite.hpp" />
     <ClInclude Include="tests\test_suites\ByteBuffers_test_suite.hpp" />
+    <ClInclude Include="tests\test_suites\ImageView_test_suite.hpp" />
     <ClInclude Include="tests\test_suites\CMemoryToken_test_suite.hpp" />
     <ClInclude Include="tests\test_suites\CMemoryView_test_suite.hpp" />
     <ClInclude Include="tests\test_suites\DebugService_test_suite.hpp" />

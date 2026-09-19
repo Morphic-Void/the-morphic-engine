@@ -279,6 +279,9 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)core\image\codec\tga.hpp">
       <Filter>Core\include\image\codec</Filter>
     </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)core\image\image_view.hpp">
+      <Filter>Core\include\image</Filter>
+    </ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)core\memory\memory_context.hpp">
       <Filter>Core\include\memory</Filter>
     </ClInclude>
@@ -541,6 +544,9 @@
     </ClCompile>
     <ClCompile Include="$(MSBuildThisFileDirectory)core\image\codec\tga.cpp">
       <Filter>Core\src\image\codec</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)core\image\image_view.cpp">
+      <Filter>Core\src\image</Filter>
     </ClCompile>
     <ClCompile Include="$(MSBuildThisFileDirectory)core\memory\memory_context.cpp">
       <Filter>Core\src\memory</Filter>

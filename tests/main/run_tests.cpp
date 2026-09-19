@@ -19,6 +19,7 @@
 #include "tests/test_suites/DocumentStructure_test_suite.hpp"
 #include "tests/test_suites/DocumentParser_test_suite.hpp"
 #include "tests/test_suites/ErasedPod_test_suite.hpp"
+#include "tests/test_suites/ImageView_test_suite.hpp"
 #include "tests/test_suites/LiveDocument_test_suite.hpp"
 #include "tests/test_suites/ErasedOwner_test_suite.hpp"
 #include "tests/test_suites/StringBuffers_test_suite.hpp"
@@ -245,6 +246,7 @@ int run_tests(ETestRunMode mode)
     cumulative_result += run_isolated_suite("LiveDocument", &run_live_document_tests);
     cumulative_result += run_isolated_suite("TPodVector", &run_pod_vector_tests);
     cumulative_result += run_isolated_suite("ByteBuffers", &run_byte_buffer_tests);
+    cumulative_result += run_isolated_suite("ImageView", &run_image_view_tests);
     cumulative_result += run_isolated_suite("TextLinter", &run_text_linter_tests);
     cumulative_result += run_isolated_suite("TInstance", &run_instance_tests);
     cumulative_result += run_isolated_suite("DebugService", &run_debug_service_tests);

@@ -49,6 +49,7 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)core\debug\macros.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)core\debug\service.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)core\image\codec\tga.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)core\image\image_view.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)core\memory\memory_context.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)core\memory\memory_policies.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)core\memory\memory_token.hpp" />
@@ -116,6 +117,7 @@
     <ClCompile Include="$(MSBuildThisFileDirectory)core\debug\log_path.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)core\debug\service.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)core\image\codec\tga.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)core\image\image_view.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)core\memory\memory_context.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)core\module\bound_module.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)core\module\module_binding_context.cpp" />
