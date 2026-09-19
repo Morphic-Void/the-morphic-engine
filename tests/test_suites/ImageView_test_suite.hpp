@@ -1,5 +1,12 @@
+
 //  Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited
 //  License: MIT (see LICENSE file in repository root)
+//
+//  File:   ImageView_test_suite.hpp
+//  Primary implementation: OpenAI Codex
+//  Date:   19 Sep 26
+//
+//  Entry point for the image-view regression suite.
 
 #pragma once
 

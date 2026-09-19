@@ -14,10 +14,17 @@ per texel; the other descriptions use four, with the codec's existing lane
 layout (`0xAABBGGRR`). Colour storage requires four-byte alignment, row width and
 row pitch. Padding is outside the image and is never filled or copied.
 
-Coordinates and signed rectangle extents are `std::int32_t`. Intermediate
-coordinate arithmetic uses wider integers so negative extents and extreme
-off-image endpoints do not overflow. Image dimensions retain the rectangular
-buffer's existing size limits.
+Coordinates, signed rectangle extents, rectangle bounds and reported image
+dimensions are `std::int32_t`. Attachment rejects either image dimension above
+65,535, matching TGA's dimension limit. Rectangular-buffer pitch and allocation
+limits still apply. Rectangle endpoints use checked, saturating 32-bit addition:
+an endpoint beyond the signed range remains outside the image, preserving its
+clipped result without a wider rectangle representation.
+
+Line setup uses unsigned 32-bit distances because the span from `INT32_MIN` to
+`INT32_MAX` exceeds the positive signed range. Its phase calculations alone use
+64-bit products to skip extreme off-image spans without overflow. Rasterization
+uses 32-bit counts and native-width `std::uintptr_t` byte offsets and deltas.
 
 `texel(x, y)` always returns `std::uint32_t`, zero-extending greyscale. Invalid
 reads return zero. `plot` and all other drawing operations silently ignore
@@ -77,6 +84,13 @@ that the major coordinate must always increase:
 5. Clip the original sequence, preserving both its phase and any partial first
    run. Offscreen spans are skipped analytically, not traversed pixel by pixel.
 
+Line drawing writes directly to the buffer rather than calling rectangle fills
+or the coordinate-based texel writer. It calculates the first address once and
+advances it using precomputed major/minor byte deltas. Greyscale, full-colour and
+masked-colour variants are selected once per line, so the pixel loop has no
+format/mask branching or repeated coordinate-to-buffer calculations. Horizontal,
+vertical and exact diagonal lines need only a single constant-stride run.
+
 Horizontal, vertical and exact diagonal lines have specialised paths. Tests
 compare the run implementation with an unclipped scalar reference, and verify
 endpoint reversal, translation through clipping and left/right reflection,
@@ -120,19 +134,22 @@ invented or retained by this view.
 
 19 September 2026: the solution built and all ordinary (`-t1`) suites passed in
 Debug and Release for x64 and x86, using `tools/invoke_sandbox_build.ps1`.
-`ImageView` reports 300,677 passing checks in each configuration. Coverage includes
+After the style/type and incremental-rasterization refinement, `ImageView`
+reports 314,179 passing checks in each configuration. Coverage includes
 all line octants and degenerate lines, midpoint reflection, endpoint reversal,
 translated clipping, extreme signed endpoints, rectangle boundaries, copy
 clipping/transform combinations, aliased storage, read-only access, write masks,
-row padding and TGA orientation/alpha round trips.
+row padding and TGA orientation/alpha round trips. Added regression cases cover
+the 65,535 dimension boundary, rejection at 65,536, masked/unmasked line writes,
+and extreme signed rectangle/copy extents against an independent wider reference.
 
 The image view measures 56 bytes on x64 and 36 bytes on x86; `EncodeOptions` is
 4 bytes on both. Retaining the smaller configuration value avoids carrying
 borrowed pointers and drawing-access state into encoding requests.
 
-Build/test logs are in the ignored `build/image-view-final-dbg64.log`,
-`build/image-view-dbg32.log`, `build/image-view-rel64.log` and
-`build/image-view-rel32.log`. Policy validation and the repository line-ending
+Build/test logs are in the ignored `build/image-view-style-final-dbg64.log`,
+`build/image-view-style-dbg32.log`, `build/image-view-style-rel64.log` and
+`build/image-view-style-rel32.log`. Policy validation and the repository line-ending
 check passed. Asynchronous Host admission and Executive workflows are separate
 remaining consolidation work; these codec round trips do not claim to complete
 that integration.

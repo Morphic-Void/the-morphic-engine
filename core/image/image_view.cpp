@@ -1,48 +1,176 @@
+
 //  Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited
 //  License: MIT (see LICENSE file in repository root)
 //
-//  Image utility design: Ritchie Brannan
-//  Implementation: OpenAI Codex
+//  File:   image_view.cpp
+//  Authors: Ritchie Brannan / OpenAI Codex
+//  Date:   19 Sep 26
+//
+//  Clipped image drawing and copying over borrowed rectangular storage.
 
 #include "image/image_view.hpp"
 
 #include <algorithm>
 #include <cstring>
+#include <limits>
 
 namespace image
 {
-namespace
+namespace rasterization
 {
 
-struct Rectangle
+struct SRectangle
 {
-    std::int64_t left;
-    std::int64_t top;
-    std::int64_t right;
-    std::int64_t bottom;
+    std::int32_t left;
+    std::int32_t top;
+    std::int32_t right;
+    std::int32_t bottom;
 };
 
-Rectangle rectangle(const CImageView::coordinate x, const CImageView::coordinate y,
-    const CImageView::coordinate width, const CImageView::coordinate height) noexcept
+static std::int32_t saturated_add(const std::int32_t value, const std::int32_t delta) noexcept
 {
-    const std::int64_t end_x = static_cast<std::int64_t>(x) + width;
-    const std::int64_t end_y = static_cast<std::int64_t>(y) + height;
-    return { std::min<std::int64_t>(x, end_x), std::min<std::int64_t>(y, end_y),
-        std::max<std::int64_t>(x, end_x), std::max<std::int64_t>(y, end_y) };
+    constexpr std::int32_t low = std::numeric_limits<std::int32_t>::min();
+    constexpr std::int32_t high = std::numeric_limits<std::int32_t>::max();
+    if ((delta > 0) && (value > (high - delta)))
+    {
+        return high;
+    }
+    if ((delta < 0) && (value < (low - delta)))
+    {
+        return low;
+    }
+    return value + delta;
+}
+
+static SRectangle rectangle(const std::int32_t x, const std::int32_t y, const std::int32_t width, const std::int32_t height) noexcept
+{
+    //  Saturated endpoints remain far outside the 16-bit image bounds. This
+    //  preserves the visible rectangle without widening coordinate arithmetic.
+    const std::int32_t end_x = saturated_add(x, width);
+    const std::int32_t end_y = saturated_add(y, height);
+    return { std::min(x, end_x), std::min(y, end_y), std::max(x, end_x), std::max(y, end_y) };
+}
+
+static bool intersects_image(const SRectangle& rect, const std::int32_t width, const std::int32_t height) noexcept
+{
+    return (rect.left < rect.right) && (rect.top < rect.bottom) &&
+        (rect.left < width) && (rect.right > 0) && (rect.top < height) && (rect.bottom > 0);
+}
+
+static std::uint32_t axis_distance(const std::int32_t a, const std::int32_t b) noexcept
+{
+    //  The distance between INT32_MIN and INT32_MAX needs all 32 unsigned bits.
+    //  Unsigned subtraction gives that magnitude without signed overflow.
+    return (a >= b) ?
+        (static_cast<std::uint32_t>(a) - static_cast<std::uint32_t>(b)) :
+        (static_cast<std::uint32_t>(b) - static_cast<std::uint32_t>(a));
+}
+
+static bool clip_axis(const std::int32_t start, const std::int32_t finish, const std::int32_t limit, std::uint32_t& first, std::uint32_t& last) noexcept
+{
+    if ((std::max(start, finish) < 0) || (std::min(start, finish) >= limit))
+    {
+        return false;
+    }
+    first = axis_distance(start, std::clamp(start, 0, (limit - 1)));
+    last = axis_distance(start, std::clamp(finish, 0, (limit - 1)));
+    return true;
+}
+
+static std::int32_t clipped_coordinate(const std::int32_t start, const bool increasing, const std::uint32_t steps) noexcept
+{
+    //  Called only after clipping: the final unsigned value is in 0..65534,
+    //  even if the skipped distance is greater than INT32_MAX.
+    const std::uint32_t result = increasing ?
+        (static_cast<std::uint32_t>(start) + steps) :
+        (static_cast<std::uint32_t>(start) - steps);
+    return static_cast<std::int32_t>(result);
+}
+
+struct SLineRaster
+{
+    std::uintptr_t offset = 0u;
+    std::uintptr_t major_step = 0u;
+    std::uintptr_t minor_step = 0u;
+    std::uint32_t pixel_count = 0u;
+    std::uint32_t first_run = 0u;
+    std::uint32_t whole_steps = 0u;
+    std::uint32_t remainder = 0u;
+    std::uint32_t fraction = 0u;
+    std::uint32_t minor_delta = 0u;
+};
+
+template<bool Gray, bool Masked>
+static void draw_line_pixels(std::uint8_t* const data, const SLineRaster& line, const std::uint32_t colour, const std::uint32_t write_mask) noexcept
+{
+    std::uintptr_t address = reinterpret_cast<std::uintptr_t>(data) + line.offset;
+    std::uint32_t remaining = line.pixel_count;
+    std::uint32_t run = line.first_run;
+    std::uint32_t fraction = line.fraction;
+    const std::uintptr_t major_step = line.major_step;
+    const std::uintptr_t minor_step = line.minor_step;
+    const std::uint32_t whole_steps = line.whole_steps;
+    const std::uint32_t remainder = line.remainder;
+    const std::uint32_t minor_delta = line.minor_delta;
+    const std::uint32_t masked_colour = colour & write_mask;
+    const std::uint32_t preserve_mask = ~write_mask;
+    while (remaining != 0u)
+    {
+        const std::uint32_t count = std::min(run, remaining);
+        for (std::uint32_t pixel = 0u; pixel < count; ++pixel)
+        {
+            if constexpr (Gray)
+            {
+                *reinterpret_cast<std::uint8_t*>(address) = static_cast<std::uint8_t>(colour);
+            }
+            else if constexpr (Masked)
+            {
+                std::uint32_t previous;
+                std::memcpy(&previous, reinterpret_cast<const void*>(address), sizeof(previous));
+                const std::uint32_t result = (previous & preserve_mask) | masked_colour;
+                std::memcpy(reinterpret_cast<void*>(address), &result, sizeof(result));
+            }
+            else
+            {
+                std::memcpy(reinterpret_cast<void*>(address), &colour, sizeof(colour));
+            }
+            //  Unsigned address deltas also represent backward traversal. Only
+            //  clipped pixel addresses are dereferenced; no coordinate products
+            //  or pixel-format/mask branches are needed inside this loop.
+            address += major_step;
+        }
+        remaining -= count;
+        if (remaining == 0u)
+        {
+            break;
+        }
+        address += minor_step;
+        run = whole_steps;
+        if (fraction < remainder)
+        {
+            fraction += minor_delta - remainder;
+            ++run;
+        }
+        else
+        {
+            fraction -= remainder;
+        }
+    }
 }
 
 //  Rect views may alias without sharing their starting address or row pitch.
 //  Walk the actual active row intervals in address order, excluding row padding.
-bool regions_overlap(const CByteRectConstView& a, const std::size_t ax, const std::size_t ay,
-    const CByteRectConstView& b, const std::size_t bx, const std::size_t by,
-    const std::size_t width_bytes, const std::size_t rows) noexcept
+static bool regions_overlap(
+    const CByteRectConstView& a, const std::uintptr_t ax, const std::int32_t ay,
+    const CByteRectConstView& b, const std::uintptr_t bx, const std::int32_t by,
+    const std::uintptr_t width_bytes, const std::int32_t rows) noexcept
 {
-    std::size_t ar = 0u;
-    std::size_t br = 0u;
+    std::int32_t ar = 0;
+    std::int32_t br = 0;
     while ((ar < rows) && (br < rows))
     {
-        const auto a_begin = reinterpret_cast<std::uintptr_t>(a.row_data(ay + ar) + ax);
-        const auto b_begin = reinterpret_cast<std::uintptr_t>(b.row_data(by + br) + bx);
+        const auto a_begin = reinterpret_cast<std::uintptr_t>(a.row_data((ay + ar)) + ax);
+        const auto b_begin = reinterpret_cast<std::uintptr_t>(b.row_data((by + br)) + bx);
         if ((a_begin < b_begin + width_bytes) && (b_begin < a_begin + width_bytes))
         {
             return true;
@@ -59,7 +187,7 @@ bool regions_overlap(const CByteRectConstView& a, const std::size_t ax, const st
     return false;
 }
 
-}   //  namespace
+}   //  namespace rasterization
 
 CImageView::CImageView(const CByteRectView& view, const description desc, const bool vertical_flip) noexcept
 {
@@ -74,13 +202,16 @@ CImageView::CImageView(const CByteRectConstView& view, const description desc, c
 bool CImageView::set(const CByteRectConstView& view, const description desc, const bool vertical_flip) noexcept
 {
     reset();
-    if (!view.is_ready() ||
-        ((desc != description::Gray) && (desc != description::RGBA) && (desc != description::RGBX)))
+    if (!view.is_ready() || ((desc != description::Gray) && (desc != description::RGBA) && (desc != description::RGBX)))
     {
         return false;
     }
-    if ((desc != description::Gray) &&
-        (((view.row_width() | view.row_pitch()) & 3u) != 0u || view.align() < 4u))
+    if ((desc != description::Gray) && (((view.row_width() | view.row_pitch()) & 3u) != 0u || view.align() < 4u))
+    {
+        return false;
+    }
+    const std::uint32_t bytes = (desc == description::Gray) ? 1u : 4u;
+    if ((view.row_width() / bytes > 0xffffu) || (view.row_count() > 0xffffu))
     {
         return false;
     }
@@ -105,7 +236,7 @@ bool CImageView::set(const CByteRectView& view, const description desc, const bo
 
 bool CImageView::set_encode_source(const encode_source source) noexcept
 {
-    if (!is_ready() || (static_cast<unsigned>(source) > static_cast<unsigned>(encode_source::A)) ||
+    if (!is_ready() || (static_cast<std::uint8_t>(source) > static_cast<std::uint8_t>(encode_source::A)) ||
         (is_greyscale() != (source == encode_source::Gray)))
     {
         return false;
@@ -140,20 +271,24 @@ codec::tga::EncodeOptions CImageView::encode_options() const noexcept
     return result;
 }
 
-bool CImageView::contains(const coordinate x, const coordinate y) const noexcept
+std::uintptr_t CImageView::buffer_offset(const std::int32_t x, const std::int32_t y) const noexcept
 {
-    return (x >= 0) && (y >= 0) &&
-        (static_cast<std::size_t>(x) < width()) && (static_cast<std::size_t>(y) < height());
+    return static_cast<std::uintptr_t>(physical_row(y)) * m_view.row_pitch() +
+        static_cast<std::uintptr_t>(x) * texel_bytes();
 }
 
-std::uint32_t CImageView::texel(const coordinate x, const coordinate y) const noexcept
+bool CImageView::contains(const std::int32_t x, const std::int32_t y) const noexcept
+{
+    return (x >= 0) && (y >= 0) && (x < width()) && (y < height());
+}
+
+std::uint32_t CImageView::texel(const std::int32_t x, const std::int32_t y) const noexcept
 {
     if (!contains(x, y))
     {
         return 0u;
     }
-    const auto* const data = m_view.row_data(physical_row(static_cast<std::size_t>(y))) +
-        static_cast<std::size_t>(x) * texel_bytes();
+    const std::uint8_t* const data = m_view.data() + buffer_offset(x, y);
     if (is_greyscale())
     {
         return *data;
@@ -163,10 +298,9 @@ std::uint32_t CImageView::texel(const coordinate x, const coordinate y) const no
     return result;
 }
 
-void CImageView::write_texel(const std::size_t x, const std::size_t y,
-    const std::uint32_t colour, const std::uint32_t write_mask) const noexcept
+void CImageView::write_texel(const std::int32_t x, const std::int32_t y, const std::uint32_t colour, const std::uint32_t write_mask) const noexcept
 {
-    auto* const data = m_write_data + physical_row(y) * m_view.row_pitch() + x * texel_bytes();
+    std::uint8_t* const data = m_write_data + buffer_offset(x, y);
     if (is_greyscale())
     {
         *data = static_cast<std::uint8_t>(colour);
@@ -184,30 +318,31 @@ void CImageView::write_texel(const std::size_t x, const std::size_t y,
     }
 }
 
-void CImageView::plot(const coordinate x, const coordinate y, const std::uint32_t colour,
-    const std::uint32_t write_mask) const noexcept
+void CImageView::plot(const std::int32_t x, const std::int32_t y, const std::uint32_t colour, const std::uint32_t write_mask) const noexcept
 {
     if (!m_read_only && contains(x, y))
     {
-        write_texel(static_cast<std::size_t>(x), static_cast<std::size_t>(y), colour, write_mask);
+        write_texel(x, y, colour, write_mask);
     }
 }
 
-void CImageView::fill_region(const std::int64_t left, const std::int64_t top,
-    const std::int64_t right, const std::int64_t bottom,
+void CImageView::fill_region(
+    const std::int32_t left, const std::int32_t top,
+    const std::int32_t right, const std::int32_t bottom,
     const std::uint32_t colour, const std::uint32_t write_mask) const noexcept
 {
     if (m_read_only)
     {
         return;
     }
-    const auto x_end = std::min<std::int64_t>(right, width());
-    const auto y_end = std::min<std::int64_t>(bottom, height());
-    for (auto y = std::max<std::int64_t>(top, 0); y < y_end; ++y)
+    const std::int32_t x_begin = std::max(left, 0);
+    const std::int32_t x_end = std::min(right, width());
+    const std::int32_t y_end = std::min(bottom, height());
+    for (std::int32_t y = std::max(top, 0); y < y_end; ++y)
     {
-        for (auto x = std::max<std::int64_t>(left, 0); x < x_end; ++x)
+        for (std::int32_t x = x_begin; x < x_end; ++x)
         {
-            write_texel(static_cast<std::size_t>(x), static_cast<std::size_t>(y), colour, write_mask);
+            write_texel(x, y, colour, write_mask);
         }
     }
 }
@@ -217,210 +352,213 @@ void CImageView::fill(const std::uint32_t colour, const std::uint32_t write_mask
     fill_region(0, 0, width(), height(), colour, write_mask);
 }
 
-void CImageView::draw_line(const coordinate x0, const coordinate y0,
-    const coordinate x1, const coordinate y1, const std::uint32_t colour,
-    const std::uint32_t write_mask) const noexcept
+void CImageView::draw_line(
+    const std::int32_t x0, const std::int32_t y0,
+    const std::int32_t x1, const std::int32_t y1,
+    const std::uint32_t colour, const std::uint32_t write_mask) const noexcept
 {
-    if (m_read_only || !is_ready())
+    const bool gray = is_greyscale();
+    if (m_read_only || !is_ready() || (!gray && (write_mask == 0u)))
     {
         return;
     }
+    const std::uintptr_t x_step = texel_bytes();
+    const std::uintptr_t y_step = m_vertical_flip ? (std::uintptr_t{ 0u } - m_view.row_pitch()) : m_view.row_pitch();
+    rasterization::SLineRaster line;
     if (y0 == y1)
     {
-        fill_region(std::min(x0, x1), y0, static_cast<std::int64_t>(std::max(x0, x1)) + 1,
-            static_cast<std::int64_t>(y0) + 1, colour, write_mask);
-        return;
-    }
-    if (x0 == x1)
-    {
-        fill_region(x0, std::min(y0, y1), static_cast<std::int64_t>(x0) + 1,
-            static_cast<std::int64_t>(std::max(y0, y1)) + 1, colour, write_mask);
-        return;
-    }
-    const std::int64_t dx = static_cast<std::int64_t>(x1) - x0;
-    const std::int64_t dy = static_cast<std::int64_t>(y1) - y0;
-    const auto abs_dx = static_cast<std::uint64_t>(dx < 0 ? -dx : dx);
-    const auto abs_dy = static_cast<std::uint64_t>(dy < 0 ? -dy : dy);
-    const bool x_major = abs_dx > abs_dy;
-    std::int64_t major_start = x_major ? x0 : y0;
-    std::int64_t major_finish = x_major ? x1 : y1;
-    std::int64_t minor_start = x_major ? y0 : x0;
-    std::int64_t minor_finish = x_major ? y1 : x1;
-    if (y0 > y1)
-    {
-        std::swap(major_start, major_finish);
-        std::swap(minor_start, minor_finish);
-    }
-    const auto major = x_major ? abs_dx : abs_dy;
-    const auto minor = x_major ? abs_dy : abs_dx;
-    const std::int64_t major_direction = major_finish > major_start ? 1 : -1;
-    const std::int64_t direction = minor_finish > minor_start ? 1 : -1;
-    const auto major_limit = static_cast<std::int64_t>(x_major ? width() : height());
-    const auto minor_limit = static_cast<std::int64_t>(x_major ? height() : width());
-    auto first = std::max<std::int64_t>(0,
-        major_direction > 0 ? -major_start : major_start - (major_limit - 1));
-    auto last = std::min<std::int64_t>(major,
-        major_direction > 0 ? major_limit - 1 - major_start : major_start);
-    const auto minor_first = std::max<std::int64_t>(0,
-        direction > 0 ? -minor_start : minor_start - (minor_limit - 1));
-    const auto minor_last = std::min<std::int64_t>(minor,
-        direction > 0 ? minor_limit - 1 - minor_start : minor_start);
-    if ((first > last) || (minor_first > minor_last))
-    {
-        return;
-    }
-    if (major == minor)
-    {
-        first = std::max(first, minor_first);
-        last = std::min(last, minor_last);
-        for (auto step = first; step <= last; ++step)
+        const std::int32_t first = std::max(std::min(x0, x1), 0);
+        const std::int32_t last = std::min(std::max(x0, x1), (width() - 1));
+        if ((y0 < 0) || (y0 >= height()) || (first > last))
         {
-            const auto a = static_cast<std::size_t>(major_start + major_direction * step);
-            const auto b = static_cast<std::size_t>(minor_start + direction * step);
-            write_texel(x_major ? a : b, x_major ? b : a, colour, write_mask);
+            return;
         }
-        return;
+        line.offset = buffer_offset(first, y0);
+        line.major_step = x_step;
+        line.pixel_count = static_cast<std::uint32_t>(last - first + 1);
+        line.first_run = line.pixel_count;
     }
-
-    //  The reference pixel loop starts with error = major >> 1, subtracts minor
-    //  after each pixel and advances the minor coordinate only on underflow.
-    //  At major step k its minor advance count is (k * minor + bias) / major.
-    //  Clip that original sequence, without replacing endpoints or restarting it.
-    //  Int32 endpoints bound all products below UINT64_MAX, including at extremes.
-    const auto half = major >> 1u;
-    const auto bias = major - 1u - half;
-    if (minor_first > 0)
+    else if (x0 == x1)
     {
-        const auto numerator = static_cast<std::uint64_t>(minor_first) * major - bias;
-        first = std::max(first, static_cast<std::int64_t>((numerator + minor - 1u) / minor));
-    }
-    if (static_cast<std::uint64_t>(minor_last) < minor)
-    {
-        const auto numerator = (static_cast<std::uint64_t>(minor_last) + 1u) * major - bias - 1u;
-        last = std::min(last, static_cast<std::int64_t>(numerator / minor));
-    }
-    if (first > last)
-    {
-        return;
-    }
-    auto step = static_cast<std::uint64_t>(first);
-    const auto final_step = static_cast<std::uint64_t>(last);
-    auto advance = (step * minor + bias) / major;
-    const auto numerator = half + advance * major;
-    auto run_end = numerator / minor;
-    auto fraction = minor - 1u - (numerator % minor);
-    const auto whole_steps = major / minor;
-    const auto remainder = major % minor;
-    while (step <= final_step)
-    {
-        const auto end = std::min(run_end, final_step);
-        const auto a = major_start + major_direction * static_cast<std::int64_t>(step);
-        const auto b = minor_start + direction * static_cast<std::int64_t>(advance);
-        const auto z = major_start + major_direction * static_cast<std::int64_t>(end);
-        const auto run_first = std::min(a, z);
-        const auto run_after = std::max(a, z) + 1;
-        if (x_major)
+        const std::int32_t first = std::max(std::min(y0, y1), 0);
+        const std::int32_t last = std::min(std::max(y0, y1), (height() - 1));
+        if ((x0 < 0) || (x0 >= width()) || (first > last))
         {
-            fill_region(run_first, b, run_after, b + 1, colour, write_mask);
+            return;
+        }
+        line.offset = buffer_offset(x0, first);
+        line.major_step = y_step;
+        line.pixel_count = static_cast<std::uint32_t>(last - first + 1);
+        line.first_run = line.pixel_count;
+    }
+    else
+    {
+        const std::int32_t start_x = (y0 < y1) ? x0 : x1;
+        const std::int32_t finish_x = (y0 < y1) ? x1 : x0;
+        const std::int32_t start_y = std::min(y0, y1);
+        const std::int32_t finish_y = std::max(y0, y1);
+        const std::uint32_t dx = rasterization::axis_distance(start_x, finish_x);
+        const std::uint32_t dy = rasterization::axis_distance(start_y, finish_y);
+        const bool x_major = dx > dy;
+        const bool x_increasing = start_x < finish_x;
+        const std::uint32_t major = std::max(dx, dy);
+        const std::uint32_t minor = std::min(dx, dy);
+        const std::int32_t major_start = x_major ? start_x : start_y;
+        const std::int32_t major_finish = x_major ? finish_x : finish_y;
+        const std::int32_t minor_start = x_major ? start_y : start_x;
+        const std::int32_t minor_finish = x_major ? finish_y : finish_x;
+        std::uint32_t first, last, minor_first, minor_last;
+        if (!rasterization::clip_axis(major_start, major_finish, (x_major ? width() : height()), first, last) ||
+            !rasterization::clip_axis(minor_start, minor_finish, (x_major ? height() : width()), minor_first, minor_last))
+        {
+            return;
+        }
+        const std::uintptr_t horizontal_step = x_increasing ? x_step : (std::uintptr_t{ 0u } - x_step);
+        std::uint32_t advance;
+        if (major == minor)
+        {
+            first = std::max(first, minor_first);
+            last = std::min(last, minor_last);
+            if (first > last)
+            {
+                return;
+            }
+            advance = first;
+            line.major_step = horizontal_step + y_step;
+            line.first_run = last - first + 1u;
         }
         else
         {
-            fill_region(b, run_first, b + 1, run_after, colour, write_mask);
+            //  At major step k the scalar underflow algorithm has advanced the
+            //  minor axis (k * minor + bias) / major times. Products alone need
+            //  uint64: an extreme off-image line can have 32-bit unsigned deltas.
+            //  All coordinates, clipped counts and the raster loop remain 32-bit.
+            const std::uint32_t half = major >> 1u;
+            const std::uint32_t bias = major - 1u - half;
+            if (minor_first != 0u)
+            {
+                const std::uint64_t numerator = (static_cast<std::uint64_t>(minor_first) * major) - bias;
+                first = std::max(first, static_cast<std::uint32_t>((numerator + minor - 1u) / minor));
+            }
+            if (minor_last < minor)
+            {
+                const std::uint64_t numerator = ((static_cast<std::uint64_t>(minor_last) + 1u) * major) - bias - 1u;
+                last = std::min(last, static_cast<std::uint32_t>(numerator / minor));
+            }
+            if (first > last)
+            {
+                return;
+            }
+            advance = static_cast<std::uint32_t>(((static_cast<std::uint64_t>(first) * minor) + bias) / major);
+            const std::uint64_t numerator = half + (static_cast<std::uint64_t>(advance) * major);
+            line.first_run = static_cast<std::uint32_t>(std::min<std::uint64_t>((numerator / minor), last)) - first + 1u;
+            line.fraction = minor - 1u - static_cast<std::uint32_t>(numerator % minor);
+            line.whole_steps = major / minor;
+            line.remainder = major % minor;
+            line.minor_delta = minor;
+            line.major_step = x_major ? horizontal_step : y_step;
+            line.minor_step = x_major ? y_step : horizontal_step;
         }
-        if (end == final_step)
-        {
-            break;
-        }
-        step = end + 1u;
-        ++advance;
-        run_end += whole_steps;
-        if (fraction < remainder)
-        {
-            fraction += minor - remainder;
-            ++run_end;
-        }
-        else
-        {
-            fraction -= remainder;
-        }
+        const std::int32_t x = rasterization::clipped_coordinate(start_x, x_increasing, (x_major ? first : advance));
+        const std::int32_t y = rasterization::clipped_coordinate(start_y, true, (x_major ? advance : first));
+        line.offset = buffer_offset(x, y);
+        line.pixel_count = last - first + 1u;
+    }
+    if (gray)
+    {
+        rasterization::draw_line_pixels<true, false>(m_write_data, line, colour, write_mask);
+    }
+    else if (write_mask == 0xffffffffu)
+    {
+        rasterization::draw_line_pixels<false, false>(m_write_data, line, colour, write_mask);
+    }
+    else
+    {
+        rasterization::draw_line_pixels<false, true>(m_write_data, line, colour, write_mask);
     }
 }
 
-void CImageView::fill_rectangle(const coordinate x, const coordinate y,
-    const coordinate width, const coordinate height, const std::uint32_t colour,
-    const std::uint32_t write_mask) const noexcept
+void CImageView::fill_rectangle(
+    const std::int32_t x, const std::int32_t y,
+    const std::int32_t width, const std::int32_t height,
+    const std::uint32_t colour, const std::uint32_t write_mask) const noexcept
 {
-    const auto rect = rectangle(x, y, width, height);
+    const rasterization::SRectangle rect = rasterization::rectangle(x, y, width, height);
     fill_region(rect.left, rect.top, rect.right, rect.bottom, colour, write_mask);
 }
 
-void CImageView::draw_rectangle(const coordinate x, const coordinate y,
-    const coordinate width, const coordinate height, const std::uint32_t colour,
-    const std::uint32_t write_mask) const noexcept
+void CImageView::draw_rectangle(
+    const std::int32_t x, const std::int32_t y,
+    const std::int32_t width, const std::int32_t height,
+    const std::uint32_t colour, const std::uint32_t write_mask) const noexcept
 {
-    const auto rect = rectangle(x, y, width, height);
+    const rasterization::SRectangle rect = rasterization::rectangle(x, y, width, height);
     if ((rect.left == rect.right) || (rect.top == rect.bottom))
     {
         return;
     }
-    fill_region(rect.left, rect.top, rect.right, rect.top + 1, colour, write_mask);
-    if (rect.bottom - rect.top > 1)
+    fill_region(rect.left, rect.top, rect.right, (rect.top + 1), colour, write_mask);
+    if (rect.bottom > (rect.top + 1))
     {
-        fill_region(rect.left, rect.bottom - 1, rect.right, rect.bottom, colour, write_mask);
-        fill_region(rect.left, rect.top + 1, rect.left + 1, rect.bottom - 1, colour, write_mask);
-        if (rect.right - rect.left > 1)
+        fill_region(rect.left, (rect.bottom - 1), rect.right, rect.bottom, colour, write_mask);
+        fill_region(rect.left, (rect.top + 1), (rect.left + 1), (rect.bottom - 1), colour, write_mask);
+        if (rect.right > (rect.left + 1))
         {
-            fill_region(rect.right - 1, rect.top + 1, rect.right, rect.bottom - 1, colour, write_mask);
+            fill_region((rect.right - 1), (rect.top + 1), rect.right, (rect.bottom - 1), colour, write_mask);
         }
     }
 }
 
 bool CImageView::copy_rectangle(const CImageView& source,
-    const coordinate source_x, const coordinate source_y,
-    const coordinate destination_x, const coordinate destination_y,
-    const coordinate width, const coordinate height, const EImageCopyFlags flags,
-    const std::uint32_t write_mask) const noexcept
+    const std::int32_t source_x, const std::int32_t source_y,
+    const std::int32_t destination_x, const std::int32_t destination_y,
+    const std::int32_t width, const std::int32_t height,
+    const EImageCopyFlags flags, const std::uint32_t write_mask) const noexcept
 {
     if (m_read_only || !is_ready() || !source.is_ready() ||
-        (is_greyscale() != source.is_greyscale()) || (static_cast<unsigned>(flags) > 3u))
+        (is_greyscale() != source.is_greyscale()) || (static_cast<std::uint8_t>(flags) > 3u))
     {
         return false;
     }
-    const auto src = rectangle(source_x, source_y, width, height);
-    const auto dst = rectangle(destination_x, destination_y, width, height);
-    const auto left = std::max({ std::int64_t{ 0 }, -src.left, -dst.left });
-    const auto top = std::max({ std::int64_t{ 0 }, -src.top, -dst.top });
-    const auto right = std::min({ src.right - src.left,
-        static_cast<std::int64_t>(source.width()) - src.left, static_cast<std::int64_t>(this->width()) - dst.left });
-    const auto bottom = std::min({ src.bottom - src.top,
-        static_cast<std::int64_t>(source.height()) - src.top, static_cast<std::int64_t>(this->height()) - dst.top });
-    if ((left >= right) || (top >= bottom))
+    const rasterization::SRectangle src = rasterization::rectangle(source_x, source_y, width, height);
+    const rasterization::SRectangle dst = rasterization::rectangle(destination_x, destination_y, width, height);
+    if (!rasterization::intersects_image(src, source.width(), source.height()) ||
+        !rasterization::intersects_image(dst, this->width(), this->height()))
     {
         return true;
     }
-    const auto sx = static_cast<std::size_t>(src.left + left);
-    const auto sy = static_cast<std::size_t>(src.top + top);
-    const auto dx = static_cast<std::size_t>(dst.left + left);
-    const auto dy = static_cast<std::size_t>(dst.top + top);
-    const auto columns = static_cast<std::size_t>(right - left);
-    const auto rows = static_cast<std::size_t>(bottom - top);
-    const auto source_first_row = source.m_vertical_flip ? source.height() - sy - rows : sy;
-    const auto destination_first_row = m_vertical_flip ? this->height() - dy - rows : dy;
-    if (regions_overlap(source.m_view, sx * texel_bytes(), source_first_row,
-        m_view, dx * texel_bytes(), destination_first_row, columns * texel_bytes(), rows))
+    //  Any rectangle starting at INT32_MIN cannot reach a positive image texel
+    //  with an int32 extent, so the intersection check above makes negation safe.
+    const std::int32_t left = std::max({ 0, -src.left, -dst.left });
+    const std::int32_t top = std::max({ 0, -src.top, -dst.top });
+    const std::int32_t sx = rasterization::saturated_add(src.left, left);
+    const std::int32_t sy = rasterization::saturated_add(src.top, top);
+    const std::int32_t dx = rasterization::saturated_add(dst.left, left);
+    const std::int32_t dy = rasterization::saturated_add(dst.top, top);
+    const std::int32_t columns = std::min((std::min(src.right, source.width()) - sx), (std::min(dst.right, this->width()) - dx));
+    const std::int32_t rows = std::min((std::min(src.bottom, source.height()) - sy), (std::min(dst.bottom, this->height()) - dy));
+    if ((columns <= 0) || (rows <= 0))
+    {
+        return true;
+    }
+    const std::int32_t source_first_row = source.m_vertical_flip ? (source.height() - sy - rows) : sy;
+    const std::int32_t destination_first_row = m_vertical_flip ? (this->height() - dy - rows) : dy;
+    if (rasterization::regions_overlap(
+        source.m_view, (static_cast<std::uintptr_t>(sx) * texel_bytes()), source_first_row,
+        m_view, (static_cast<std::uintptr_t>(dx) * texel_bytes()), destination_first_row,
+        (static_cast<std::uintptr_t>(columns) * texel_bytes()), rows))
     {
         return false;
     }
-    const bool mirror = (static_cast<unsigned>(flags) & 1u) != 0u;
-    const bool flip = (static_cast<unsigned>(flags) & 2u) != 0u;
-    for (std::size_t y = 0u; y < rows; ++y)
+    const bool mirror = (static_cast<std::uint8_t>(flags) & 1u) != 0u;
+    const bool flip = (static_cast<std::uint8_t>(flags) & 2u) != 0u;
+    for (std::int32_t y = 0; y < rows; ++y)
     {
-        for (std::size_t x = 0u; x < columns; ++x)
+        for (std::int32_t x = 0; x < columns; ++x)
         {
-            const auto tx = sx + (mirror ? columns - 1u - x : x);
-            const auto ty = sy + (flip ? rows - 1u - y : y);
-            write_texel(dx + x, dy + y,
-                source.texel(static_cast<coordinate>(tx), static_cast<coordinate>(ty)), write_mask);
+            const std::int32_t tx = sx + (mirror ? (columns - 1 - x) : x);
+            const std::int32_t ty = sy + (flip ? (rows - 1 - y) : y);
+            write_texel((dx + x), (dy + y), source.texel(tx, ty), write_mask);
         }
     }
     return true;
