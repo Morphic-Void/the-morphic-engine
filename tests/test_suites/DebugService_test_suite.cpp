@@ -990,7 +990,7 @@ void test_writer_and_direct_paths(TTestContext& ctx)
             system_type_ids::file_load_request,
             debug_system::CInlineText16{ "payload" },
             local_type_ids::test_runtime,
-            type_id{ local_type_ids::tga_file_load },
+            type_id{ local_type_ids::asset_load },
             system_ids::host,
             module_ids::executable,
             thread_ids::host)));
@@ -1137,7 +1137,7 @@ void test_writer_and_direct_paths(TTestContext& ctx)
     const int source_marker_size = std::snprintf(
         source_marker,
         sizeof(source_marker),
-        "[%s:%u] typed -7 file_load_request payload test_runtime tga_file_load "
+        "[%s:%u] typed -7 file_load_request payload test_runtime asset_load "
         "executable:host executable host",
         source_suffix,
         source_line);

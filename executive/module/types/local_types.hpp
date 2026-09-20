@@ -17,8 +17,6 @@ namespace executive
 {
 
 struct CExecutiveModuleTag {};
-struct SExecutiveTgaLoadState;
-struct SExecutiveTgaSaveState;
 
 }   //  namespace executive
 

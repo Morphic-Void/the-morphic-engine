@@ -2,8 +2,4 @@
 //  Defines MV_LOCAL_TYPES(type_macro).
 
 #define MV_LOCAL_TYPES(type_macro) \
-    type_macro(host_runtime, host::CHost) \
-    type_macro(tga_file_load, host::SHostTgaFileLoadState) \
-    type_macro(tga_decode, host::SHostTgaDecodeState) \
-    type_macro(tga_encode, host::SHostTgaEncodeState) \
-    type_macro(tga_file_save, host::SHostTgaFileSaveState)
+    type_macro(host_runtime, host::CHost)

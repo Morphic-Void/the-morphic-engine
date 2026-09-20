@@ -15,6 +15,7 @@
 
 #include "containers/TInstance.hpp"
 #include "debug/service.hpp"
+#include "data_model/document_translation.hpp"
 #include "tests/environment/local_type_ids.hpp"
 #include "tests/environment/test_paths.hpp"
 #include "system/erased_pod.hpp"
@@ -206,14 +207,16 @@ void test_thread_message_copy_boundary(TTestContext& ctx)
     static_assert(CErasedPodMsg::is_payload_compatible_with<SAlignedPod>());
     static_assert(CErasedPodMsg::is_payload_compatible_with<CCanonicalValue>());
     static_assert(CErasedPodMsg::is_payload_compatible_with<FileSaveRequest>());
-    static_assert(!CErasedPodMsg::is_payload_compatible_with<TgaLoadRequest>());
-    static_assert(!CErasedPodMsg::is_payload_compatible_with<TgaSaveRequest>());
+    static_assert(!CErasedPodMsg::is_payload_compatible_with<AssetLoadRequest>());
+    static_assert(!CErasedPodMsg::is_payload_compatible_with<AssetSaveRequest>());
     static_assert(CErasedPodMsg::is_payload_compatible_with<TgaEncodeRequest>());
     static_assert(CErasedPodMsg::is_payload_compatible_with<TgaDecodeRequest>());
     static_assert(!CErasedPodMsg::is_payload_compatible_with<CNonTriviallyCopyable>());
     static_assert(!CErasedPodMsg::is_payload_compatible_with<SOverAlignedPod>());
     static_assert(!CErasedPodMsg::is_payload_compatible_with<SOversizedPod>());
     static_assert(sizeof(CErasedPodMsg) == 64u);
+    static_assert(CErasedPodMsg::is_payload_compatible_with<AssetResult>());
+    static_assert(CErasedPodMsg::is_payload_compatible_with<DocumentConditionRequest>());
     static_assert(alignof(CErasedPodMsg) == 16u);
 
     CErasedPodMsg message;
@@ -243,9 +246,90 @@ void test_thread_message_copy_boundary(TTestContext& ctx)
     TEST_EXPECT(ctx, message.copy_payload_to(copied));
     TEST_EXPECT(ctx, copied.success);
 
-    UnrecognisedMsg mismatch{ system_type_ids::tga_save_request };
+    UnrecognisedMsg mismatch{ system_type_ids::asset_save_request };
     TEST_EXPECT(ctx, !message.copy_payload_to(mismatch));
-    TEST_EXPECT(ctx, mismatch.msg_id == system_type_ids::tga_save_request);
+    TEST_EXPECT(ctx, mismatch.msg_id == system_type_ids::asset_save_request);
+
+    //  Borrow a published image view through the queue, then copy its metadata.
+    //  Ownership of both the view and its texels stays with this fixture.
+    CByteRectBuffer pixels;
+    TEST_EXPECT(ctx, pixels.allocate(12u, 2u, 16u));
+    image::CImageView host_view;
+    TEST_EXPECT(ctx, host_view.set(pixels.view(), image::codec::tga::decoded_image_desc::RGBA, true));
+    host_view.plot(1, 1, 0x12345678u);
+    AssetResult asset;
+    asset.set_image_view(&host_view);
+    asset.status = EAssetStatus::write_failed;
+    asset.document_policy = EDocumentPolicyStatus::rejected;
+    asset.document_findings = document_finding_bit(EDocumentFinding::unquoted_names);
+    message.assign_payload(asset);
+    threading::transports::CErasedPodMsgTransport transport(system_context::get_ambient_module_id());
+    TEST_EXPECT(ctx, transport.initialise_growable(0u));
+    TEST_EXPECT(ctx, transport.post(message));
+    threading::CErasedPodMsg received;
+    TEST_EXPECT(ctx, transport.read(received));
+    AssetResult returned;
+    TEST_EXPECT(ctx, received.copy_payload_to(returned));
+    image::CImageView client_view = returned.image_view();
+    TEST_EXPECT(ctx, returned.views.image == &host_view);
+    TEST_EXPECT(ctx, client_view.vertical_flip());
+    TEST_EXPECT(ctx, !client_view.is_read_only());
+    TEST_EXPECT(ctx, client_view.texel(1, 1) == 0x12345678u);
+    TEST_EXPECT(ctx, returned.status == EAssetStatus::write_failed);
+    TEST_EXPECT(ctx, returned.document_policy == EDocumentPolicyStatus::rejected);
+    TEST_EXPECT(ctx, returned.document_findings == document_finding_bit(EDocumentFinding::unquoted_names));
+    client_view.plot(1, 1, 0x87654321u);
+    TEST_EXPECT(ctx, host_view.texel(1, 1) == 0x87654321u);
+    client_view.set_read_only(true);
+    client_view.set_vertical_flip(false);
+    TEST_EXPECT(ctx, !host_view.is_read_only());
+    TEST_EXPECT(ctx, host_view.vertical_flip());
+    client_view.reset();
+    TEST_EXPECT(ctx, host_view.is_ready());
+    TEST_EXPECT(ctx, !returned.document_view().is_ready());
+    TEST_EXPECT(ctx, !returned.byte_view().is_ready());
+    TEST_EXPECT(ctx, returned.live_document() == nullptr);
+
+    CLiveDocument live;
+    asset.set_live_view(&live);
+    message.assign_payload(asset);
+    TEST_EXPECT(ctx, transport.post(message));
+    TEST_EXPECT(ctx, transport.read(received));
+    TEST_EXPECT(ctx, received.copy_payload_to(returned));
+    TEST_EXPECT(ctx, returned.live_document() == &live);
+    TEST_EXPECT(ctx, !returned.image_view().is_ready());
+
+    CBakedDocumentBlock block;
+    TEST_EXPECT(ctx, live.initialise());
+    TEST_EXPECT(ctx, live.set_root_type(ELiveValueType::object));
+    TEST_EXPECT(ctx, document_translation::bake(live, block));
+    const CByteConstView bytes = block.bytes();
+    asset.set_baked_view(BakedAssetView{
+        memory::CMemoryConstView{ bytes.data(), bytes.size(), 1u, bytes.align() }, block.document() });
+    message.assign_payload(asset);
+    TEST_EXPECT(ctx, transport.post(message));
+    TEST_EXPECT(ctx, transport.read(received));
+    TEST_EXPECT(ctx, received.copy_payload_to(returned));
+    TEST_EXPECT(ctx, returned.document_view().check_integrity());
+    TEST_EXPECT(ctx, returned.byte_view().data() == bytes.data());
+    TEST_EXPECT(ctx, returned.byte_view().size() == bytes.size());
+    TEST_EXPECT(ctx, returned.live_document() == nullptr);
+
+    CDocumentWriteOptions options;
+    DocumentConditionRequest request;
+    request.set_baked_source(block.document());
+    request.options = &options;
+    request.write_json = true;
+    message.assign_payload(request);
+    TEST_EXPECT(ctx, transport.post(message));
+    TEST_EXPECT(ctx, transport.read(received));
+    DocumentConditionRequest condition;
+    TEST_EXPECT(ctx, received.copy_payload_to(condition));
+    TEST_EXPECT(ctx, condition.kind == EDocumentSource::baked);
+    TEST_EXPECT(ctx, condition.source.baked.check_integrity());
+    TEST_EXPECT(ctx, condition.options == &options);
+    TEST_EXPECT(ctx, condition.write_json);
+    transport.deallocate();
 }
 
 void test_local_thread_message_carrier(TTestContext& ctx)
@@ -313,7 +397,7 @@ void test_concrete_erased_pod_transport_admission(TTestContext& ctx)
 
     threading::CErasedPodMsg local_source;
     local_source.set_async_slot(18);
-    local_source.assign_payload(test_environment::STestTgaFileSaveState{
+    local_source.assign_payload(test_environment::STestAssetSaveState{
         18, CAssetId{}, CAssetId{} });
     const threading::CErasedPodMsg local_snapshot = local_source;
 
@@ -322,7 +406,7 @@ void test_concrete_erased_pod_transport_admission(TTestContext& ctx)
     TEST_EXPECT(ctx, local_same_component.initialise_fixed(2u));
     TEST_EXPECT(ctx, local_same_component.post(local_source));
     TEST_EXPECT(ctx, local_same_component.read(received));
-    test_environment::STestTgaFileSaveState local_result{};
+    test_environment::STestAssetSaveState local_result{};
     TEST_EXPECT(ctx, received.copy_payload_to(local_result));
     TEST_EXPECT(ctx, local_result.executive_slot == 18);
     TEST_EXPECT(ctx, received.query_async_slot() == 18);
@@ -425,7 +509,7 @@ void test_concrete_erased_pod_transport_diagnostics(TTestContext& ctx)
 
     threading::CErasedPodMsg local_message;
     local_message.assign_payload(
-        test_environment::STestTgaFileSaveState{ 22, CAssetId{}, CAssetId{} });
+        test_environment::STestAssetSaveState{ 22, CAssetId{}, CAssetId{} });
     threading::transports::CErasedPodMsgTransport local_cross_component(
         module_ids::executive);
     TEST_EXPECT(ctx, local_cross_component.initialise_fixed(1u));

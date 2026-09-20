@@ -10,18 +10,24 @@
     type_macro(unrecognised_msg) \
     type_macro(file_load_request) \
     type_macro(file_save_request) \
-    type_macro(tga_load_request) \
-    type_macro(tga_save_request) \
     type_macro(tga_encode_request) \
     type_macro(tga_decode_request) \
     type_macro(file_load_result) \
     type_macro(file_save_result) \
-    type_macro(tga_load_result) \
-    type_macro(tga_save_result) \
     type_macro(tga_encode_result) \
     type_macro(tga_decode_result) \
     type_macro(loaded_file) \
     type_macro(encoded_tga) \
     type_macro(decoded_tga) \
     type_macro(executive_thread_function) \
-    type_macro(baked_document_asset)
+    type_macro(baked_document_asset) \
+    type_macro(raw_asset_transfer) \
+    type_macro(image_asset_transfer) \
+    type_macro(baked_asset_transfer) \
+    type_macro(live_asset_transfer) \
+    type_macro(asset_load_request) \
+    type_macro(asset_save_request) \
+    type_macro(asset_result) \
+    type_macro(document_condition_request) \
+    type_macro(document_condition_result) \
+    type_macro(live_document_asset)

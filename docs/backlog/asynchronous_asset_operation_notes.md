@@ -1,5 +1,12 @@
 # Asynchronous asset-operation consolidation notes
 
+The subsequent implementation and settled contracts are recorded in
+[asynchronous asset services](../assets/asynchronous_asset_services.md). Retention
+on failure, correlated completion, live conditioning, load-result views and the
+caller-managed mutation convention supersede the open questions below. The image
+view is complete in commits `5b1282f` and `98ce708`. Module-worker migration remains
+separate; the broader deferred features are unchanged.
+
 Captured 18 September 2026; updated 19 September for the coordinator handoff. These
 notes deliberately develop the first three of the four consolidation steps being
 tracked elsewhere.  They are design direction and a record of unresolved choices,

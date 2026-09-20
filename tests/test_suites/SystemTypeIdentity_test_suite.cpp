@@ -165,14 +165,10 @@ void test_registration_categories(TTestContext& ctx)
     static_assert(debug_system::is_supported_event_argument_v<type_id>);
     static_assert(k_type_id_v<CByteBuffer> == type_id{ k_system_type_id_v<CByteBuffer> });
     static_assert(k_type_id_v<test_environment::CTestRuntime> == type_id{ k_local_type_id_v<test_environment::CTestRuntime> });
-    static_assert(k_type_id_binding_category_v<test_environment::STestTgaFileLoadState> == ETypeIdBindingCategory::local);
-    static_assert(k_type_id_binding_category_v<test_environment::STestTgaDecodeState> == ETypeIdBindingCategory::local);
-    static_assert(k_type_id_binding_category_v<test_environment::STestTgaEncodeState> == ETypeIdBindingCategory::local);
-    static_assert(k_type_id_binding_category_v<test_environment::STestTgaFileSaveState> == ETypeIdBindingCategory::local);
-    static_assert(k_type_id_v<test_environment::STestTgaFileLoadState> == type_id{ local_type_ids::tga_file_load });
-    static_assert(k_type_id_v<test_environment::STestTgaDecodeState> == type_id{ local_type_ids::tga_decode });
-    static_assert(k_type_id_v<test_environment::STestTgaEncodeState> == type_id{ local_type_ids::tga_encode });
-    static_assert(k_type_id_v<test_environment::STestTgaFileSaveState> == type_id{ local_type_ids::tga_file_save });
+    static_assert(k_type_id_binding_category_v<test_environment::STestAssetLoadState> == ETypeIdBindingCategory::local);
+    static_assert(k_type_id_binding_category_v<test_environment::STestAssetSaveState> == ETypeIdBindingCategory::local);
+    static_assert(k_type_id_v<test_environment::STestAssetLoadState> == type_id{ local_type_ids::asset_load });
+    static_assert(k_type_id_v<test_environment::STestAssetSaveState> == type_id{ local_type_ids::asset_save });
     TEST_EXPECT(ctx, system_type_ids::ops::is_valid_id(k_system_type_id_v<CByteBuffer>));
     TEST_EXPECT(ctx, local_type_ids::ops::is_valid_id(k_local_type_id_v<test_environment::CTestRuntime>));
 }
@@ -284,10 +280,10 @@ void test_local_names_and_lookup(TTestContext& ctx)
     if (registration != nullptr)
         TEST_EXPECT(ctx, std::strcmp(registration->short_name.bytes, "test_runtime") == 0);
     const local_type_registry::SLocalTypeRegistration* const state_registration =
-        local_type_registry::find_type(local_type_ids::tga_file_load);
+        local_type_registry::find_type(local_type_ids::asset_load);
     TEST_EXPECT(ctx, state_registration != nullptr);
     if (state_registration != nullptr)
-        TEST_EXPECT(ctx, std::strcmp(state_registration->short_name.bytes, "tga_file_load") == 0);
+        TEST_EXPECT(ctx, std::strcmp(state_registration->short_name.bytes, "asset_load") == 0);
     TEST_EXPECT(ctx, local_type_registry::find_type(
         static_cast<const local_type_registry::SLocalTypeRegistryView*>(nullptr),
         local_type_ids::test_runtime) == nullptr);

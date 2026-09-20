@@ -2,7 +2,5 @@
 
 #define MV_LOCAL_TYPES(type_macro) \
     type_macro(test_runtime, test_environment::CTestRuntime) \
-    type_macro(tga_file_load, test_environment::STestTgaFileLoadState) \
-    type_macro(tga_decode, test_environment::STestTgaDecodeState) \
-    type_macro(tga_encode, test_environment::STestTgaEncodeState) \
-    type_macro(tga_file_save, test_environment::STestTgaFileSaveState)
+    type_macro(asset_load, test_environment::STestAssetLoadState) \
+    type_macro(asset_save, test_environment::STestAssetSaveState)

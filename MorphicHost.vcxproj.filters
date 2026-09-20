@@ -27,6 +27,7 @@
     <ClInclude Include="host\module\types\local_types.hpp"><Filter>Host\include\module\types</Filter></ClInclude>
     <ClInclude Include="host\runtime\host_worker_thread.hpp"><Filter>Host\include\runtime</Filter></ClInclude>
     <ClInclude Include="host\runtime\host.hpp"><Filter>Host\include\runtime</Filter></ClInclude>
+    <ClInclude Include="host\runtime\asset_service.hpp"><Filter>Host\include\runtime</Filter></ClInclude>
     <ClInclude Include="host\system\host_context.hpp"><Filter>Host\include\system</Filter></ClInclude>
     <ClInclude Include="host\system\system_id_definitions.hpp"><Filter>Host\include\system</Filter></ClInclude>
   </ItemGroup>
@@ -35,6 +36,7 @@
     <ClCompile Include="host\module\types\local_type_ids.cpp"><Filter>Host\src\module\types</Filter></ClCompile>
     <ClCompile Include="host\runtime\host_worker_thread.cpp"><Filter>Host\src\runtime</Filter></ClCompile>
     <ClCompile Include="host\runtime\host.cpp"><Filter>Host\src\runtime</Filter></ClCompile>
+    <ClCompile Include="host\runtime\asset_service.cpp"><Filter>Host\src\runtime</Filter></ClCompile>
     <ClCompile Include="host\system\host_context.cpp"><Filter>Host\src\system</Filter></ClCompile>
     <ClCompile Include="host\system\system_id_definitions.cpp"><Filter>Host\src\system</Filter></ClCompile>
   </ItemGroup>

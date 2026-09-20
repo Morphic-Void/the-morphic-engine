@@ -1,5 +1,15 @@
 # Consolidation coordinator handoff
 
+Update after the 20 September review: image-view work is
+complete in `5b1282f` and `98ce708`. The combined asset-service and Executive
+acceptance pass is implemented, validated and reviewed by the user and coordinator;
+the user has authorised its commit. The legacy client TGA flow and redundant
+catalogue identities are retired.
+See [asynchronous asset services](../assets/asynchronous_asset_services.md) for the
+settled contracts, review map and validation evidence. The older next-discussion
+and open image-view statements below are historical. Module-worker migration is
+still a separate follow-up.
+
 19 September 2026. Starting point for the successor coordinator task, replacing
 the dense discussion in task `01a09fd4-73ad-7ce2-a3e4-efcdadb454dd`.
 

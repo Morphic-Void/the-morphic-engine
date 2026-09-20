@@ -20,14 +20,13 @@
 #include <cstddef>      //  std::size_t
 #include <cstdint>      //  std::int32_t, std::uint8_t
 
-#include "assets/asset_repository.hpp"
+#include "host/runtime/asset_service.hpp"
 #include "containers/TInstance.hpp"
 #include "containers/TUnorderedCollection.hpp"
 #include "debug/service.hpp"
 #include "module/bound_module.hpp"
 #include "executive/module/binding/executive_binding.hpp"
 #include "platform/system/performance_counter.hpp"
-#include "system/async_state.hpp"
 #include "threading/CThreadPackage.hpp"
 
 namespace host
@@ -77,8 +76,8 @@ private:
     bool m_debug_service_started{ false };
 
     TUnorderedCollection<threading::CThreadPackage> m_thread_packages;
-    CAssetRepository m_assets;
-    CASyncStates m_async_states;
+    CAssetService m_asset_service;
+    bool m_runtime_failed{ false };
     platform::system::CPerfCountConversion m_perf_count_conversion;
     modules::CBoundModule m_executive_module;
     executive::FExecutiveThread m_executive_thread{ nullptr };

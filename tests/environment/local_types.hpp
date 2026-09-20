@@ -18,26 +18,13 @@ namespace test_environment
 
 class CTestRuntime;
 
-struct STestTgaFileLoadState
+struct STestAssetLoadState
 {
     std::int32_t executive_slot;
     CAssetId request;
 };
 
-struct STestTgaDecodeState
-{
-    std::int32_t executive_slot;
-    CAssetId loaded_file;
-};
-
-struct STestTgaEncodeState
-{
-    std::int32_t executive_slot;
-    CAssetId source;
-    CAssetId request;
-};
-
-struct STestTgaFileSaveState
+struct STestAssetSaveState
 {
     std::int32_t executive_slot;
     CAssetId encoded_file;

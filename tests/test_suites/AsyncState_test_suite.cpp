@@ -96,7 +96,7 @@ void test_reused_slot_is_reinitialised(TTestContext& ctx)
 
     const std::int32_t released_slot = states.acquire<UnrecognisedMsg>(0xffffffffu);
     TEST_EXPECT(ctx, released_slot >= 0);
-    states.payload<UnrecognisedMsg>(released_slot)->msg_id = system_type_ids::tga_save_request;
+    states.payload<UnrecognisedMsg>(released_slot)->msg_id = system_type_ids::asset_save_request;
     TEST_EXPECT(ctx, states.release(released_slot));
 
     const std::int32_t acquired_slot = states.acquire<FileSaveResult>(7u);

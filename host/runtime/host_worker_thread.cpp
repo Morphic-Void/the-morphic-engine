@@ -14,6 +14,9 @@
 #include "host/runtime/host_worker_thread.hpp"
 
 #include "debug/macros.hpp"
+#include "data_model/document_parser.hpp"
+#include "data_model/document_translation.hpp"
+#include "data_model/document_writer.hpp"
 #include "image/codec/tga.hpp"
 #include "platform/filesystem/file.hpp"
 #include "system/erased_owner.hpp"
@@ -22,6 +25,168 @@
 
 namespace host
 {
+
+namespace asset_diagnostics
+{
+
+static const char* failure_stage(const EDocumentFailureStage stage) noexcept
+{
+    switch (stage)
+    {
+        case EDocumentFailureStage::linter: return "linter";
+        case EDocumentFailureStage::structure: return "structure";
+        case EDocumentFailureStage::parser: return "parser";
+        default: return "processing";
+    }
+}
+
+static const char* failure_reason(const EDocumentFailureReason reason) noexcept
+{
+    switch (reason)
+    {
+        case EDocumentFailureReason::utf8_decode: return "UTF-8 decode failed";
+        case EDocumentFailureReason::undefined_cp1252_byte: return "undefined CP1252 byte";
+        case EDocumentFailureReason::cp1252_decode: return "CP1252 decode failed";
+        case EDocumentFailureReason::unexpected_character: return "unexpected character";
+        case EDocumentFailureReason::unterminated_comment: return "unterminated comment";
+        case EDocumentFailureReason::unterminated_string: return "unterminated string";
+        case EDocumentFailureReason::invalid_escape: return "invalid escape";
+        case EDocumentFailureReason::invalid_surrogate_pair: return "invalid surrogate pair";
+        case EDocumentFailureReason::newline_in_name: return "newline in name";
+        case EDocumentFailureReason::missing_name: return "missing name";
+        case EDocumentFailureReason::missing_colon: return "missing colon";
+        case EDocumentFailureReason::missing_value: return "missing value";
+        case EDocumentFailureReason::missing_separator: return "missing separator";
+        case EDocumentFailureReason::mismatched_delimiter: return "mismatched delimiter";
+        case EDocumentFailureReason::unexpected_end: return "unexpected end";
+        case EDocumentFailureReason::trailing_content: return "trailing content";
+        case EDocumentFailureReason::numeric_out_of_range: return "numeric value out of range";
+        case EDocumentFailureReason::construction_failed: return "construction failed";
+        case EDocumentFailureReason::invalid_input_view: return "invalid input view";
+        case EDocumentFailureReason::allocation_failed: return "allocation failed";
+        case EDocumentFailureReason::input_limit: return "input limit exceeded";
+        case EDocumentFailureReason::storage_limit: return "storage limit exceeded";
+        case EDocumentFailureReason::internal_error: return "internal error";
+        default: return "unspecified failure";
+    }
+}
+
+static void report_parse_failure(const std::int32_t slot, const CDocumentReport& report) noexcept
+{
+    if (!report.processing_succeeded())
+    {
+        const CDocumentFailure& failure = report.failure;
+        const char* const stage = failure_stage(failure.stage);
+        const char* const reason = failure_reason(failure.reason);
+        const bool show_start = (failure.stage != EDocumentFailureStage::linter) && failure.element_start.available &&
+            (!failure.location.available ||
+                (failure.element_start.line_1_based != failure.location.line_1_based) ||
+                (failure.element_start.code_point_column_1_based != failure.location.code_point_column_1_based));
+        if (failure.location.available && show_start)
+        {
+            MV_REPORT("Document slot %d: %s: %s at %zu:%zu; element starts %zu:%zu", slot, stage, reason,
+                failure.location.line_1_based, failure.location.code_point_column_1_based,
+                failure.element_start.line_1_based, failure.element_start.code_point_column_1_based);
+        }
+        else if (failure.location.available)
+        {
+            MV_REPORT("Document slot %d: %s: %s at %zu:%zu", slot, stage, reason,
+                failure.location.line_1_based, failure.location.code_point_column_1_based);
+        }
+        else if (show_start)
+        {
+            MV_REPORT("Document slot %d: %s: %s; element starts %zu:%zu", slot, stage, reason,
+                failure.element_start.line_1_based, failure.element_start.code_point_column_1_based);
+        }
+        else
+        {
+            MV_REPORT("Document slot %d: %s: %s", slot, stage, reason);
+        }
+    }
+    else if (report.policy.status == EDocumentPolicyStatus::invalid_options)
+    {
+        MV_REPORT("Document slot %d: invalid policy bits 0x%08x", slot, report.policy.unknown_policy_bits);
+    }
+    else if (report.policy.status == EDocumentPolicyStatus::rejected)
+    {
+        MV_REPORT("Document slot %d: policy rejected features 0x%08x", slot, report.policy.disallowed_features);
+    }
+}
+
+}   //  namespace asset_diagnostics
+
+static EAssetStatus condition_document(const DocumentConditionRequest& request, const std::int32_t slot, DocumentConditionResult& result) noexcept
+{
+    if ((request.kind > EDocumentSource::live) || (request.write_json && (request.options == nullptr)))
+    {
+        MV_REPORT("Document slot %d: invalid conditioning request", slot);
+        return EAssetStatus::conditioning_failed;
+    }
+
+    CLiveDocument parsed;
+    const CLiveDocument* live = nullptr;
+    CBakedDocument baked;
+    switch (request.kind)
+    {
+        case EDocumentSource::text:
+        {
+            const CDocumentReport report = document_parser::parse(request.source.text, parsed, request.policy);
+            result.findings = report.findings;
+            result.policy = report.policy.status;
+            if (!report.accepted())
+            {
+                asset_diagnostics::report_parse_failure(slot, report);
+                return report.processing_succeeded() ? EAssetStatus::policy_rejected : EAssetStatus::conditioning_failed;
+            }
+            live = &parsed;
+            break;
+        }
+        case EDocumentSource::live:
+        {
+            live = request.source.live;
+            break;
+        }
+        case EDocumentSource::baked:
+        {
+            baked = request.source.baked;
+            break;
+        }
+        default:
+        {   //  Validation above limits the kind to the three handled sources; no current request reaches this.
+            MV_REPORT("Document slot %d: invalid conditioning source", slot);
+            return EAssetStatus::conditioning_failed;
+        }
+    }
+
+    if (live != nullptr)
+    {
+        if (!document_translation::bake(*live, result.storage.baked))
+        {
+            MV_REPORT("Document slot %d: baking failed", slot);
+            return EAssetStatus::conditioning_failed;
+        }
+        baked = result.storage.baked.document();
+    }
+    if (!baked.is_ready())
+    {
+        MV_REPORT("Document slot %d: source document is not ready", slot);
+        return EAssetStatus::conditioning_failed;
+    }
+    if (request.write_json)
+    {
+        CDocumentWriteResult written = document_writer::write(baked, *request.options);
+        if (!written.report.succeeded())
+        {   //  Leave the baked snapshot intact for the Host's retention decision.
+            MV_REPORT("Document slot %d: JSON writing failed (status %u)", slot, static_cast<unsigned int>(written.report.status));
+            return EAssetStatus::conditioning_failed;
+        }
+
+        //  File bytes exclude the writer's physical terminal zero.
+        (void)written.output.set_size(written.report.logical_text_byte_size);
+        result.storage.text = std::move(written.output);
+    }
+    return EAssetStatus::success;
+}
 
 class CHostWorkerThread
 {
@@ -43,6 +208,7 @@ private:
     void shutdown() noexcept;
 
     threading::CThreadContext m_context;
+    bool m_failed{ false };
 };
 
 std::uint32_t MV_STD_ABI_CALL CHostWorkerThread::entry_point(void* const user_data) noexcept
@@ -63,7 +229,7 @@ std::uint32_t CHostWorkerThread::main() noexcept
     startup();
     operate();
     shutdown();
-    return 0u;
+    return m_failed ? 1u : 0u;
 }
 
 void CHostWorkerThread::startup() noexcept
@@ -97,11 +263,20 @@ void CHostWorkerThread::operate() noexcept
                     {
                         result->buffer = platform::filesystem::loadFile(request.file, 0u, request.alignment);
                     }
+                    const LoadedFile* const loaded = content.payload<LoadedFile>();
+                    if ((loaded == nullptr) || !loaded->buffer.is_ready())
+                    {
+                        MV_REPORT("File load failed: %s", (request.file != nullptr) ? request.file : "<null path>");
+                    }
                     threading::CErasedOwnerMsg outbound_msg;
                     outbound_msg.set_message_type<FileLoadResult>();
                     outbound_msg.set_async_slot(inbound_msg.query_async_slot());
                     outbound_msg.set_owner(std::move(content));
-                    (void)m_context.post(std::move(outbound_msg));
+                    if (!m_context.post(std::move(outbound_msg)))
+                    {
+                        m_failed = true;
+                        return;
+                    }
                     break;
                 }
                 case k_type_id_v<FileSaveRequest>.raw_value():
@@ -112,10 +287,18 @@ void CHostWorkerThread::operate() noexcept
                     (void)inbound_msg.copy_payload_to(request);
                     FileSaveResult result;
                     result.success = platform::filesystem::saveFile(request.file, request.view);
+                    if (!result.success)
+                    {
+                        MV_REPORT("File save failed: %s", (request.file != nullptr) ? request.file : "<null path>");
+                    }
                     threading::CErasedPodMsg outbound_msg;
                     outbound_msg.set_async_slot(inbound_msg.query_async_slot());
                     outbound_msg.assign_payload(result);
-                    (void)m_context.post(outbound_msg);
+                    if (!m_context.post(outbound_msg))
+                    {
+                        m_failed = true;
+                        return;
+                    }
                     break;
                 }
                 case k_type_id_v<TgaEncodeRequest>.raw_value():
@@ -133,7 +316,11 @@ void CHostWorkerThread::operate() noexcept
                     outbound_msg.set_message_type<TgaEncodeResult>();
                     outbound_msg.set_async_slot(inbound_msg.query_async_slot());
                     outbound_msg.set_owner(std::move(content));
-                    (void)m_context.post(std::move(outbound_msg));
+                    if (!m_context.post(std::move(outbound_msg)))
+                    {
+                        m_failed = true;
+                        return;
+                    }
                     break;
                 }
                 case k_type_id_v<TgaDecodeRequest>.raw_value():
@@ -145,13 +332,44 @@ void CHostWorkerThread::operate() noexcept
                     CErasedOwner content = CErasedOwner::create<DecodedTga>();
                     if (DecodedTga* const result = content.payload<DecodedTga>())
                     {
-                        result->buffer = image::codec::tga::decode(request.view, result->desc, request.vflip);
+                        result->buffer = image::codec::tga::decode(request.view, result->desc, request.decode_top_down);
+                        //  The codec defaults to bottom-up rows; the image view uses a
+                        //  top-left logical origin and reverses addressing for that storage.
+                        result->storage_bottom_up = !request.decode_top_down;
                     }
                     threading::CErasedOwnerMsg outbound_msg;
                     outbound_msg.set_message_type<TgaDecodeResult>();
                     outbound_msg.set_async_slot(inbound_msg.query_async_slot());
                     outbound_msg.set_owner(std::move(content));
-                    (void)m_context.post(std::move(outbound_msg));
+                    if (!m_context.post(std::move(outbound_msg)))
+                    {
+                        m_failed = true;
+                        return;
+                    }
+                    break;
+                }
+                case k_type_id_v<DocumentConditionRequest>.raw_value():
+                {
+                    DocumentConditionRequest request;
+                    (void)inbound_msg.copy_payload_to(request);
+                    CErasedOwner content = CErasedOwner::create<DocumentConditionResult>();
+                    if (DocumentConditionResult* const result = content.payload<DocumentConditionResult>())
+                    {
+                        result->status = condition_document(request, inbound_msg.query_async_slot(), *result);
+                    }
+                    else
+                    {
+                        MV_REPORT("Document slot %d: result allocation failed", inbound_msg.query_async_slot());
+                    }
+                    threading::CErasedOwnerMsg outbound_msg;
+                    outbound_msg.set_message_type<DocumentConditionResult>();
+                    outbound_msg.set_async_slot(inbound_msg.query_async_slot());
+                    outbound_msg.set_owner(std::move(content));
+                    if (!m_context.post(std::move(outbound_msg)))
+                    {
+                        m_failed = true;
+                        return;
+                    }
                     break;
                 }
                 default:
@@ -170,7 +388,11 @@ void CHostWorkerThread::operate() noexcept
                     threading::CErasedPodMsg outbound_msg;
                     outbound_msg.set_async_slot(inbound_msg.query_async_slot());
                     outbound_msg.assign_payload(unrecognised);
-                    (void)m_context.post(outbound_msg);
+                    if (!m_context.post(outbound_msg))
+                    {
+                        m_failed = true;
+                        return;
+                    }
                     break;
                 }
             }
@@ -184,6 +406,11 @@ void CHostWorkerThread::operate() noexcept
 
 void CHostWorkerThread::shutdown() noexcept
 {
+    if (m_failed)
+    {
+        m_context.mark_failed(1u);
+        return;
+    }
     m_context.mark_exiting();
     m_context.mark_exited();
     MV_INFO("Worker exited");

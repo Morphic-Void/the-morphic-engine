@@ -1,4 +1,4 @@
 //  MorphicTests-local erased-owner payload catalog.
 
 #define MV_LOCAL_ERASED_OWNER_PAYLOADS(payload_macro, payload_with_storage_macro) \
-    payload_macro(test_environment::STestTgaFileLoadState)
+    payload_macro(test_environment::STestAssetLoadState)
