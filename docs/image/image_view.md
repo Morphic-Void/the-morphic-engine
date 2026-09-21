@@ -35,8 +35,10 @@ Line setup uses unsigned 32-bit distances because the span from `INT32_MIN` to
 uses 32-bit counts and native-width `std::uintptr_t` byte offsets and deltas.
 
 `texel(x, y)` always returns `std::uint32_t`, zero-extending greyscale. Invalid
-reads return zero. `plot` and all other drawing operations silently ignore
-invalid or read-only destinations. Greyscale writes take only the low eight
+reads return zero. `plot` and all other drawing operations assert on read-only
+destinations and then reject the operation, including when assertions are
+disabled or execution continues. Other invalid drawing requests are ignored.
+Greyscale writes take only the low eight
 colour bits. The write mask applies to colour images:
 
 ```cpp
@@ -44,10 +46,17 @@ result = (previous & ~write_mask) | (colour & write_mask);
 ```
 
 Attachment from a const rectangular view is permanently read-only. A mutable
-attachment can be temporarily restricted using `set_read_only`. The image view
-exposes only a const backing-buffer view, so it does not provide a route around
+attachment can be temporarily restricted using `set_read_only`. It returns
+`false` if writable access is requested for const or unattached storage, leaving
+the state unchanged. Requesting the current state succeeds, including read-only
+access on an empty view. The image view exposes only a const backing-buffer view,
+so it does not provide a route around
 its own read-only flag. Existing external mutable aliases remain the caller's
 responsibility. Invalid attachment resets the image view.
+
+A compact access state distinguishes const storage, temporarily read-only
+mutable storage and writable storage. Drawing uses a guarded `const_cast` of
+the backing-view pointer; no separate writable pointer is stored.
 
 Logical `(0, 0)` is top left. By default it addresses the first texel in the
 buffer and increasing Y advances through physical rows. `vertical_flip` reverses

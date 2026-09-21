@@ -6,7 +6,7 @@
 //  Authors: Ritchie Brannan / OpenAI Codex
 //  Date:    7 Sep 26
 //
-//  Checked immutable view over the replacement baked-document format.
+//  Checked read-only and mutable views over the baked-document format.
 
 #pragma once
 
@@ -23,6 +23,10 @@
 #include "data_model/baked_document_format.hpp"
 #include "data_model/data_model_types.hpp"
 #include "memory/memory_view.hpp"
+
+//==============================================================================
+//  CBakedValueIndex
+//==============================================================================
 
 class CBakedValueIndex
 {
@@ -56,6 +60,10 @@ static_assert(std::is_standard_layout_v<CBakedValueIndex>);
 static_assert(sizeof(CBakedValueIndex) == sizeof(std::uint32_t));
 
 class CBakedDocumentBlock;
+
+//==============================================================================
+//  CBakedDocument
+//==============================================================================
 
 class CBakedDocument
 {
@@ -112,6 +120,7 @@ public:
 
 private:
     friend class CLiveDocumentPromoter;
+    friend class CMutableBakedDocument;
 
     [[nodiscard]] static bool validate_layout(const SBakedDocumentHeader& header, const std::size_t supplied_byte_count) noexcept;
     [[nodiscard]] static bool validate(const std::uint8_t* const bytes, const std::size_t byte_count) noexcept;
@@ -140,6 +149,57 @@ private:
 
 static_assert(std::is_nothrow_copy_constructible_v<CBakedDocument>);
 static_assert(std::is_nothrow_copy_assignable_v<CBakedDocument>);
+static_assert(std::is_trivially_copyable_v<CBakedDocument>);
+static_assert(std::is_standard_layout_v<CBakedDocument>);
+static_assert(sizeof(CBakedDocument) == sizeof(memory::CMemoryConstView));
+
+//==============================================================================
+//  CMutableBakedDocument
+//==============================================================================
+
+class CMutableBakedDocument
+{
+public:
+    CMutableBakedDocument() noexcept = default;
+    explicit CMutableBakedDocument(const CByteView& bytes) noexcept;
+    //  Borrow already-validated mutable block storage without revalidation.
+    explicit CMutableBakedDocument(CBakedDocumentBlock& block) noexcept;
+
+    //  Only mutable storage can be attached. Failure clears the view.
+    [[nodiscard]] bool reset(const CByteView& bytes) noexcept;
+    void clear() noexcept { m_baked.clear(); }
+
+    [[nodiscard]] bool is_ready() const noexcept { return m_baked.is_ready(); }
+
+    //  Reading and transport use the contained view. Its const reference prevents
+    //  rebinding the editor through this accessor; a copy may be rebound independently.
+    [[nodiscard]] const CBakedDocument& baked() const noexcept { return m_baked; }
+
+    //  Update only existing payloads, preserving types, integer metadata and all
+    //  topology/formatting flags. Invalid types, ranges and IDs return false.
+    //  Integer widths must remain canonical, so narrowing is also rejected.
+    //  String IDs refer to this document's existing string-value table, including
+    //  the canonical empty string. Stored text is never modified or added; a
+    //  non-empty string's final reference cannot be removed (checked by a scan).
+    //  Unattached views reject writes without changing any bytes.
+    [[nodiscard]] bool set_boolean_value(const CBakedValueIndex value, const bool replacement) const noexcept;
+    [[nodiscard]] bool set_signed_integer_value(const CBakedValueIndex value, const std::int64_t replacement) const noexcept;
+    [[nodiscard]] bool set_unsigned_integer_value(const CBakedValueIndex value, const std::uint64_t replacement) const noexcept;
+    [[nodiscard]] bool set_floating_point_value(const CBakedValueIndex value, const double replacement) const noexcept;
+    [[nodiscard]] bool set_string_value(const CBakedValueIndex value, const CStringValueId replacement) const noexcept;
+
+private:
+    [[nodiscard]] SBakedValueRecord* writable_value_record(const CBakedValueIndex value, const EBakedValueType type) const noexcept;
+
+    CBakedDocument m_baked;
+};
+
+static_assert(std::is_nothrow_copy_constructible_v<CMutableBakedDocument>);
+static_assert(std::is_nothrow_copy_assignable_v<CMutableBakedDocument>);
+
+//==============================================================================
+//  CBakedDocumentBlock
+//==============================================================================
 
 class CBakedDocumentBlock
 {
@@ -159,7 +219,7 @@ public:
     //  Release
     void deallocate() noexcept;
 
-    //  Status and immutable access
+    //  Status and borrowed access
     [[nodiscard]] bool is_ready() const noexcept;
 
     //  Borrowed view; does not extend the backing storage's lifetime.

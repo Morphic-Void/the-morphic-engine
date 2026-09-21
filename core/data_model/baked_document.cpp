@@ -6,7 +6,7 @@
 //  Authors: Ritchie Brannan / OpenAI Codex
 //  Date:    7 Sep 26
 //
-//  Validation, observation and ownership of immutable baked documents.
+//  Validation, fixed-layout editing and ownership of baked documents.
 
 #include "data_model/baked_document.hpp"
 #include "data_model/baked_document_format.hpp"
@@ -15,6 +15,10 @@
 #include <utility>
 
 #include "text/utf8_string.hpp"
+
+//==============================================================================
+//  CBakedDocument
+//==============================================================================
 
 CBakedDocument::CBakedDocument(const void* const bytes, const std::size_t byte_count) noexcept
 {
@@ -135,40 +139,6 @@ bool CBakedDocument::validate_layout(const SBakedDocumentHeader& candidate_heade
         return false;
     }
     return offset == candidate_header.total_size;
-}
-
-bool CBakedDocument::validate_record_encoding(const SBakedValueRecord& value, const std::uint32_t string_value_count) noexcept
-{
-    const std::uint8_t type = static_cast<std::uint8_t>(value.value_type);
-    if ((type < static_cast<std::uint8_t>(EBakedValueType::null_value)) ||
-        (type > static_cast<std::uint8_t>(EBakedValueType::object)) ||
-        ((value.value_flags & ~document_value_flags::k_baked_flags) != 0u) ||
-        (((value.value_flags & document_value_flags::k_name_present_flag) == 0u) && (value.property_name_index != 0u)) ||
-        (((value.value_flags & document_value_flags::k_suppress_newline_escaping_flag) != 0u) && (value.value_type != EBakedValueType::string)) ||
-        (value.reserved_8 != 0u) || (value.reserved_32 != 0u))
-    {
-        return false;
-    }
-
-    const std::uint16_t type_flags = value.value_flags & document_value_flags::k_integer_metadata_flags;
-    if (value_type_is_container(value.value_type))
-    {
-        return (value.payload_bits == 0u) && (type_flags == 0u) &&
-            ((value.child_count == 0u) ?
-                (value.first_child_index == baked_document_format::k_invalid_index) :
-                (value.first_child_index != baked_document_format::k_invalid_index));
-    }
-
-    return
-        (value.first_child_index == baked_document_format::k_invalid_index) &&
-        (value.child_count == 0u) &&
-        ((value.value_type != EBakedValueType::null_value) || ((value.payload_bits == 0u) && (type_flags == 0u))) &&
-        ((value.value_type != EBakedValueType::boolean) || ((value.payload_bits <= 1u) && (type_flags == 0u))) &&
-        ((value.value_type != EBakedValueType::integer) || validate_integer(value)) &&
-        ((value.value_type != EBakedValueType::floating_point) ||
-            ((type_flags == 0u) && live_floating_point_is_finite(live_floating_point_from_bits(value.payload_bits)))) &&
-        ((value.value_type != EBakedValueType::string) ||
-            ((type_flags == 0u) && ((value.payload_bits >> 32u) == 0u) && (static_cast<std::uint32_t>(value.payload_bits) < string_value_count)));
 }
 
 bool CBakedDocument::validate(const std::uint8_t* const bytes, const std::size_t byte_count) noexcept
@@ -359,6 +329,40 @@ bool CBakedDocument::validate_string_table(
     return expected_offset == string_byte_count;
 }
 
+bool CBakedDocument::validate_record_encoding(const SBakedValueRecord& value, const std::uint32_t string_value_count) noexcept
+{
+    const std::uint8_t type = static_cast<std::uint8_t>(value.value_type);
+    if ((type < static_cast<std::uint8_t>(EBakedValueType::null_value)) ||
+        (type > static_cast<std::uint8_t>(EBakedValueType::object)) ||
+        ((value.value_flags & ~document_value_flags::k_baked_flags) != 0u) ||
+        (((value.value_flags & document_value_flags::k_name_present_flag) == 0u) && (value.property_name_index != 0u)) ||
+        (((value.value_flags & document_value_flags::k_suppress_newline_escaping_flag) != 0u) && (value.value_type != EBakedValueType::string)) ||
+        (value.reserved_8 != 0u) || (value.reserved_32 != 0u))
+    {
+        return false;
+    }
+
+    const std::uint16_t type_flags = value.value_flags & document_value_flags::k_integer_metadata_flags;
+    if (value_type_is_container(value.value_type))
+    {
+        return (value.payload_bits == 0u) && (type_flags == 0u) &&
+            ((value.child_count == 0u) ?
+                (value.first_child_index == baked_document_format::k_invalid_index) :
+                (value.first_child_index != baked_document_format::k_invalid_index));
+    }
+
+    return
+        (value.first_child_index == baked_document_format::k_invalid_index) &&
+        (value.child_count == 0u) &&
+        ((value.value_type != EBakedValueType::null_value) || ((value.payload_bits == 0u) && (type_flags == 0u))) &&
+        ((value.value_type != EBakedValueType::boolean) || ((value.payload_bits <= 1u) && (type_flags == 0u))) &&
+        ((value.value_type != EBakedValueType::integer) || validate_integer(value)) &&
+        ((value.value_type != EBakedValueType::floating_point) ||
+            ((type_flags == 0u) && live_floating_point_is_finite(live_floating_point_from_bits(value.payload_bits)))) &&
+        ((value.value_type != EBakedValueType::string) ||
+            ((type_flags == 0u) && ((value.payload_bits >> 32u) == 0u) && (static_cast<std::uint32_t>(value.payload_bits) < string_value_count)));
+}
+
 bool CBakedDocument::validate_integer(const SBakedValueRecord& value) noexcept
 {
     CIntegerMetadata metadata;
@@ -418,6 +422,120 @@ CStringView CBakedDocument::string_from(
     const SBakedStringReference& reference = references[id];
     return CStringView{ (data() + bytes_offset + reference.offset), reference.length };
 }
+
+//==============================================================================
+//  CMutableBakedDocument
+//==============================================================================
+
+CMutableBakedDocument::CMutableBakedDocument(const CByteView& bytes) noexcept
+{
+    (void)reset(bytes);
+}
+
+CMutableBakedDocument::CMutableBakedDocument(CBakedDocumentBlock& block) noexcept
+    : m_baked(block)
+{
+}
+
+bool CMutableBakedDocument::reset(const CByteView& bytes) noexcept
+{
+    return m_baked.reset(bytes.data(), bytes.size());
+}
+
+bool CMutableBakedDocument::set_boolean_value(const CBakedValueIndex value, const bool replacement) const noexcept
+{
+    SBakedValueRecord* const record = writable_value_record(value, EBakedValueType::boolean);
+    if (record == nullptr)
+    {
+        return false;
+    }
+    record->payload_bits = replacement ? 1u : 0u;
+    return true;
+}
+
+bool CMutableBakedDocument::set_signed_integer_value(const CBakedValueIndex value, const std::int64_t replacement) const noexcept
+{
+    SBakedValueRecord* const record = writable_value_record(value, EBakedValueType::integer);
+    CIntegerMetadata metadata;
+    if ((record == nullptr) || !m_baked.integer_metadata(value, metadata) ||
+        !live_integer_metadata_matches_signed(replacement, metadata))
+    {
+        return false;
+    }
+    record->payload_bits = live_signed_integer_bits(replacement);
+    return true;
+}
+
+bool CMutableBakedDocument::set_unsigned_integer_value(const CBakedValueIndex value, const std::uint64_t replacement) const noexcept
+{
+    SBakedValueRecord* const record = writable_value_record(value, EBakedValueType::integer);
+    CIntegerMetadata metadata;
+    if ((record == nullptr) || !m_baked.integer_metadata(value, metadata) ||
+        !live_integer_metadata_matches_unsigned(replacement, metadata))
+    {
+        return false;
+    }
+    record->payload_bits = replacement;
+    return true;
+}
+
+bool CMutableBakedDocument::set_floating_point_value(const CBakedValueIndex value, const double replacement) const noexcept
+{
+    SBakedValueRecord* const record = writable_value_record(value, EBakedValueType::floating_point);
+    if ((record == nullptr) || !live_floating_point_is_finite(replacement))
+    {
+        return false;
+    }
+    record->payload_bits = live_floating_point_bits(replacement);
+    return true;
+}
+
+bool CMutableBakedDocument::set_string_value(const CBakedValueIndex value, const CStringValueId replacement) const noexcept
+{
+    SBakedValueRecord* const record = writable_value_record(value, EBakedValueType::string);
+    if ((record == nullptr) || !replacement.is_valid() ||
+        (replacement.query_value() >= m_baked.header()->string_value_reference_count))
+    {
+        return false;
+    }
+    //  Every non-empty table entry must retain at least one value reference.
+    //  Removing its final reference would require rebuilding the string table.
+    if ((record->payload_bits != 0u) && (record->payload_bits != replacement.query_value()))
+    {
+        const SBakedValueRecord* const records = reinterpret_cast<const SBakedValueRecord*>(m_baked.data() + m_baked.header()->values_offset);
+        bool shared = false;
+        for (std::uint32_t index = 0u; index < m_baked.value_count(); ++index)
+        {
+            if ((index != value.query_value()) && (records[index].value_type == EBakedValueType::string) &&
+                (records[index].payload_bits == record->payload_bits))
+            {
+                shared = true;
+                break;
+            }
+        }
+        if (!shared)
+        {
+            return false;
+        }
+    }
+    record->payload_bits = replacement.query_value();
+    return true;
+}
+
+SBakedValueRecord* CMutableBakedDocument::writable_value_record(const CBakedValueIndex value, const EBakedValueType type) const noexcept
+{
+    const SBakedValueRecord* const record = m_baked.value_record(value);
+    if ((record == nullptr) || (record->value_type != type))
+    {
+        return nullptr;
+    }
+    //  The contained view can only be bound to mutable storage through this class.
+    return const_cast<SBakedValueRecord*>(record);
+}
+
+//==============================================================================
+//  CBakedDocumentBlock
+//==============================================================================
 
 bool CBakedDocumentBlock::adopt(CByteBuffer&& source) noexcept
 {

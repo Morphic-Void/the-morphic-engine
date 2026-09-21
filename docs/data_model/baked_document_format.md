@@ -16,7 +16,7 @@ baked artifact. The semantic contract remains in
 belongs in [design notes](data_model_design_notes.md). The
 [documentation index](README.md) also links the text and parsing contracts.
 
-The format is an immutable, self-contained byte block of at most 2 GiB. All
+The format is a fixed-layout, self-contained byte block of at most 2 GiB. All
 multibyte integers are little-endian and floating payloads are IEEE-754
 binary64. The owning block uses framework allocation and consists of exactly
 one allocation. Baking scratch is external to that allocation. A bound block's
@@ -206,8 +206,9 @@ validation failure leaves the caller's destination block unchanged.
 `CBakedDocumentBlock` privately owns a `CByteBuffer` containing validated bytes,
 with its logical size set to the exact document extent. It stores no document
 view and exposes no mutable buffer access.
-`CBakedDocument` is a copyable, non-owning immutable checked view backed by a
-byte-stride `CMemoryConstView`. Public binding of arbitrary bytes performs
+`CBakedDocument` is a copyable, non-owning read-only checked view backed by a
+byte-stride `CMemoryConstView`. It retains its compact descriptor for fixed-size
+asset transport. Public binding of arbitrary bytes performs
 full validation and leaves the view not ready on failure. There is no public
 unchecked arbitrary-byte binding and no public mutable baked builder.
 
@@ -218,6 +219,50 @@ moved-from and deallocated blocks produce empty views. Moving an owner preserves
 existing views while the same allocation remains alive; releasing or replacing
 that allocation invalidates them. Explicit `check_integrity()` still performs
 full validation, as do pointer/extent construction and reset.
+
+`CMutableBakedDocument` contains a `CBakedDocument` and provides value editing. It
+accepts mutable storage only: construction or reset with a `CByteView` performs
+full validation; construction from a non-const `CBakedDocumentBlock` borrows
+already-validated storage without revalidation or allocation. It does not accept
+a const block, a const byte view or a `CBakedDocument` as an attachment source.
+Both view classes borrow storage and require it to outlive their use.
+
+The editor's `baked()` accessor returns `const CBakedDocument&`, even from a
+non-const editor, for all reading operations. Callers can copy that reading view
+for transport or independent rebinding; they cannot rebind the editor through
+the accessor. `block.document()` continues to return a read-only view.
+
+```cpp
+CMutableBakedDocument editable{ block };
+const CBakedValueIndex value = editable.baked().object_child(editable.baked().root(), name);
+const bool updated = editable.set_boolean_value(value, true);
+CBakedDocument reading_view = editable.baked();
+```
+
+An attached editor is always writable. Read-only access uses `CBakedDocument`;
+the editor has no read-only flag. Clear or failed attachment resets the editor
+to an empty state, where setters return `false`. Mutable access uses a
+`const_cast` after checking the contained view's target record and type.
+Only mutable attachment sources are accepted, and the contained view cannot
+be rebound externally.
+
+The editor's typed setters `set_boolean_value`, `set_signed_integer_value`,
+`set_unsigned_integer_value`, `set_floating_point_value` and `set_string_value`
+modify only an existing value's payload bits. They return `false` for invalid
+indices, mismatched types or unsupported payloads, without modifying bytes.
+Types, names, topology, counts, offsets and formatting flags remain unchanged.
+There is no entry creation, removal, renaming or container resizing API.
+Integer domain, width and notation are preserved. Width must remain the
+canonical smallest width, so both widening and narrowing are rejected.
+Floating-point replacements must be finite.
+
+String replacement takes a `CStringValueId` from this document's existing
+string-value table, including its canonical empty string. IDs are document-local;
+they do not carry owner identity. No stored text is overwritten or added.
+Every non-empty stored string must remain referenced, so removing its last value
+reference is rejected. A change away from a non-empty string scans the value
+records to check that another reference remains. Other payload updates take
+constant time. Setters allocate no storage and preserve the serialized extent.
 
 `CBakedDocumentBlock::adopt(CByteBuffer&&)` takes no separate type or extent.
 Before inspecting content, it checks buffer readiness, actual 32-byte address
@@ -266,7 +311,9 @@ Validation may use one transient framework vector as reusable marks for string
 coverage and object-name uniqueness. The view retains no validation scratch;
 allocation failure leaves it not ready.
 
-The backing bytes must remain immutable and alive for the view's lifetime.
+The backing bytes must remain alive for the view's lifetime and may be changed
+only through the supported payload setters while views are attached. Callers
+must synchronize access through all borrowed views of the same storage.
 Copying an already checked view does not repeat validation. An explicit
 integrity check may revalidate the bytes.
 

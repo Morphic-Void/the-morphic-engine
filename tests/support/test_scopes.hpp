@@ -8,9 +8,49 @@
 
 #include "memory/memory_context.hpp"
 #include "system/system_context.hpp"
+#include "containers/TInstance.hpp"
+#include "debug/service.hpp"
+#include "tests/support/test_context.hpp"
 
 namespace tests
 {
+
+//  Exercise assertion continuations using the debug service's incident counter,
+//  with breakpoints disabled as in the debug-service tests. No log worker needed.
+class TAssertionTestScope
+{
+public:
+    explicit TAssertionTestScope(TTestContext& ctx) noexcept
+        : m_owner(TInstance<debug_system::CDebugServiceState>::create())
+    {
+        m_installed = m_owner.is_ready() && debug_system::install_service(m_owner.operator->());
+        TEST_EXPECT(ctx, m_installed);
+        if (m_installed) m_owner->publish_configuration(0u);
+    }
+
+    ~TAssertionTestScope() noexcept
+    {
+        if (m_installed) (void)debug_system::uninstall_service(m_owner.operator->());
+    }
+
+    template<typename TOperation>
+    void expect_assertion(TTestContext& ctx, TOperation&& operation)
+    {
+        if (!m_installed) return;
+        const std::uint32_t before = m_owner->allocate_incident_id();
+        operation();
+        const std::uint32_t after = m_owner->allocate_incident_id();
+#if MV_DEVELOPMENT_BUILD
+        TEST_EXPECT(ctx, after == before + 2u);
+#else
+        TEST_EXPECT(ctx, after == before + 1u);
+#endif
+    }
+
+private:
+    TInstance<debug_system::CDebugServiceState> m_owner;
+    bool m_installed = false;
+};
 
 class TMemoryContextScope
 {

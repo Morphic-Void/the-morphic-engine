@@ -46,10 +46,13 @@ public:
     [[nodiscard]] bool set(const CByteRectConstView& view, const description desc, const bool vertical_flip = false) noexcept;
     void reset() noexcept { *this = CImageView{}; }
 
+    //  Returns false when writable access is requested for const or unattached
+    //  storage. Requesting the current state succeeds without changing it.
+    [[nodiscard]] bool set_read_only(const bool read_only) noexcept;
+
+    //  Status.
     [[nodiscard]] bool is_ready() const noexcept { return m_view.is_ready(); }
-    [[nodiscard]] bool is_read_only() const noexcept { return m_read_only; }
-    //  Const storage can never be made writable through this flag.
-    void set_read_only(const bool read_only) noexcept { m_read_only = read_only || (m_write_data == nullptr); }
+    [[nodiscard]] bool is_read_only() const noexcept { return m_access != EAccess::writable; }
     [[nodiscard]] bool is_greyscale() const noexcept { return m_desc == description::Gray; }
     [[nodiscard]] std::int32_t width() const noexcept { return static_cast<std::int32_t>(m_view.row_width() / texel_bytes()); }
     [[nodiscard]] std::int32_t height() const noexcept { return static_cast<std::int32_t>(m_view.row_count()); }
@@ -67,7 +70,8 @@ public:
     void set_encoding_compression(const bool allow_clut, const bool allow_rle) noexcept;
     [[nodiscard]] codec::tga::EncodeOptions encode_options() const noexcept;
 
-    //  Invalid reads return zero. Invalid/read-only writes do nothing. Greyscale
+    //  Invalid reads return zero. Read-only writes assert and do nothing;
+    //  other invalid writes do nothing. Greyscale
     //  writes use the low eight colour bits and ignore the colour-channel mask.
     [[nodiscard]] std::uint32_t texel(const std::int32_t x, const std::int32_t y) const noexcept;
     void plot(const std::int32_t x, const std::int32_t y, const std::uint32_t colour, const std::uint32_t write_mask = 0xffffffffu) const noexcept;
@@ -98,6 +102,13 @@ public:
         const std::uint32_t write_mask = 0xffffffffu) const noexcept;
 
 private:
+    enum class EAccess : std::uint8_t
+    {
+        const_storage,
+        read_only,
+        writable
+    };
+
     [[nodiscard]] std::uint32_t texel_bytes() const noexcept { return is_greyscale() ? 1u : 4u; }
     [[nodiscard]] std::int32_t physical_row(const std::int32_t y) const noexcept { return m_vertical_flip ? (height() - 1 - y) : y; }
     [[nodiscard]] std::uintptr_t buffer_offset(const std::int32_t x, const std::int32_t y) const noexcept;
@@ -107,10 +118,9 @@ private:
         const std::uint32_t colour, const std::uint32_t write_mask) const noexcept;
 
     CByteRectConstView m_view;
-    std::uint8_t* m_write_data = nullptr;
     description m_desc = description::Gray;
     encode_source m_encode_source = encode_source::Gray;
-    bool m_read_only = true;
+    EAccess m_access = EAccess::const_storage;
     bool m_vertical_flip = false;
     bool m_allow_clut = true;
     bool m_allow_rle = true;

@@ -192,6 +192,222 @@ void expect_rejected(TTestContext& ctx, TMutation&& mutation)
     TEST_EXPECT(ctx, !document.is_ready());
 }
 
+void test_fixed_layout_value_editing(TTestContext& ctx)
+{
+    static_assert(std::is_same_v<decltype(std::declval<CMutableBakedDocument&>().baked()), const CBakedDocument&>);
+    static_assert(std::is_same_v<decltype(std::declval<const CMutableBakedDocument&>().baked()), const CBakedDocument&>);
+    static_assert(!std::is_convertible_v<CMutableBakedDocument&, CBakedDocument&>);
+    static_assert(!std::is_constructible_v<CMutableBakedDocument, const CBakedDocument&>);
+    static_assert(!std::is_constructible_v<CMutableBakedDocument, const CBakedDocumentBlock&>);
+    static_assert(!std::is_constructible_v<CMutableBakedDocument, const CByteConstView&>);
+    static_assert(!std::is_invocable_v<decltype(&CMutableBakedDocument::reset), CMutableBakedDocument&, const CByteConstView&>);
+
+    SBakedFixture fixture;
+    TEST_EXPECT(ctx, fixture.initialise());
+    fixture.values()[1u].value_type = EBakedValueType::string;
+    fixture.values()[1u].payload_bits = 1u;
+    CIntegerMetadata unsigned_metadata;
+    unsigned_metadata.domain = EIntegerDomain::unsigned_value;
+    unsigned_metadata.width = EIntegerWidth::bits_64;
+    unsigned_metadata.notation = EIntegerNotation::hexadecimal;
+    unsigned_metadata.prefix = EIntegerPrefix::alternate;
+    fixture.values()[7u].value_type = EBakedValueType::integer;
+    fixture.values()[7u].payload_bits = std::numeric_limits<std::uint64_t>::max();
+    fixture.values()[7u].value_flags |= document_value_flags::encode_integer_metadata(unsigned_metadata);
+    fixture.values()[5u].value_flags |= document_value_flags::k_suppress_newline_escaping_flag;
+
+    CMutableBakedDocument editable{ fixture.bytes.view() };
+    const CBakedDocument& document = editable.baked();
+    TEST_EXPECT(ctx, document.is_ready() && editable.is_ready());
+    if (!document.is_ready()) return;
+    const CBakedValueIndex boolean = document.object_child(document.root(), text("b"));
+    const CBakedValueIndex integer = document.object_child(document.root(), text("c"));
+    const CBakedValueIndex floating = document.object_child(document.root(), text("d"));
+    const CBakedValueIndex string = document.object_child(document.root(), text("e"));
+    const CBakedValueIndex array = document.object_child(document.root(), text("f"));
+    const CBakedValueIndex unsigned_integer = document.array_at(array, 0u);
+    const CStringValueId empty_string = document.string_value_id_at_rank(0u);
+    const CStringValueId original_string = document.string_value_id(string);
+    const auto backing = fixture.bytes.data();
+    const auto capacity = fixture.bytes.capacity();
+    const std::vector<std::uint8_t> before(backing, backing + fixture.bytes.size());
+    const CBakedDocument observer{ fixture.bytes.data(), fixture.bytes.size() };
+
+    tests::TAllocatorFixture allocator_fixture{ true };
+    memory::CMemoryAllocator allocator{ &allocator_fixture, &tests::allocate_test_memory, &tests::deallocate_test_memory };
+    memory::CMemoryContext context{ allocator };
+    {
+        const tests::TMemoryContextScope scope{ &context };
+        TEST_EXPECT(ctx, editable.set_boolean_value(boolean, false));
+        TEST_EXPECT(ctx, editable.set_signed_integer_value(integer, -128));
+        TEST_EXPECT(ctx, editable.set_unsigned_integer_value(unsigned_integer, std::uint64_t{ 1u } << 32u));
+        TEST_EXPECT(ctx, editable.set_floating_point_value(floating, -2.5));
+        TEST_EXPECT(ctx, editable.set_string_value(string, empty_string));
+        TEST_EXPECT(ctx, document.string_value(string) == text(""));
+        //  Reassignment is supported while another value retains the old string.
+        TEST_EXPECT(ctx, editable.set_string_value(string, original_string));
+        TEST_EXPECT(ctx, document.string_value(string) == text("text"));
+        TEST_EXPECT(ctx, editable.set_string_value(string, empty_string));
+    }
+    TEST_EXPECT(ctx, context.is_attribution_empty());
+    bool boolean_result = true;
+    std::int64_t signed_result = 0;
+    std::uint64_t unsigned_result = 0u;
+    double floating_result = 0.0;
+    CIntegerMetadata metadata;
+    TEST_EXPECT(ctx, observer.boolean_value(boolean, boolean_result) && !boolean_result);
+    TEST_EXPECT(ctx, observer.signed_integer_value(integer, signed_result) && signed_result == -128);
+    TEST_EXPECT(ctx, observer.unsigned_integer_value(unsigned_integer, unsigned_result) && unsigned_result == (std::uint64_t{ 1u } << 32u));
+    TEST_EXPECT(ctx, observer.floating_point_value(floating, floating_result) && floating_result == -2.5);
+    TEST_EXPECT(ctx, observer.integer_metadata(unsigned_integer, metadata) && metadata == unsigned_metadata);
+    TEST_EXPECT(ctx, observer.suppresses_newline_escaping(string));
+    TEST_EXPECT(ctx, observer.check_integrity());
+    TEST_EXPECT(ctx, fixture.bytes.data() == backing && fixture.bytes.capacity() == capacity);
+    TEST_EXPECT(ctx, fixture.bytes.size() == before.size());
+    //  Only the five selected payloads may differ; this includes every header,
+    //  link, type, name, formatting flag, string reference and stored text byte.
+    for (std::size_t offset = 0u; offset < before.size(); ++offset)
+    {
+        bool editable_payload = false;
+        for (const auto value : { boolean, integer, unsigned_integer, floating, string })
+        {
+            const std::size_t start = k_values_offset + value.query_value() * sizeof(SBakedValueRecord);
+            editable_payload |= (offset >= start) && (offset < start + sizeof(std::uint64_t));
+        }
+        if (!editable_payload) TEST_EXPECT(ctx, backing[offset] == before[offset]);
+    }
+
+    const std::vector<std::uint8_t> edited(backing, backing + fixture.bytes.size());
+    const auto expect_unchanged = [&]
+    {
+        TEST_EXPECT(ctx, std::memcmp(backing, edited.data(), edited.size()) == 0);
+    };
+    const auto reject = [&](const bool result)
+    {
+        TEST_EXPECT(ctx, !result);
+        expect_unchanged();
+    };
+    reject(editable.set_signed_integer_value(integer, 128));
+    reject(editable.set_signed_integer_value(integer, -129));
+    reject(editable.set_unsigned_integer_value(integer, 1u));
+    reject(editable.set_signed_integer_value(unsigned_integer, 1));
+    reject(editable.set_unsigned_integer_value(unsigned_integer, 1u)); // Would narrow the metadata.
+    reject(editable.set_floating_point_value(floating, std::numeric_limits<double>::infinity()));
+    reject(editable.set_floating_point_value(floating, std::numeric_limits<double>::quiet_NaN()));
+    reject(editable.set_string_value(string, CStringValueId{}));
+    reject(editable.set_string_value(document.object_child(document.root(), text("a")), empty_string));
+    //  Valid IDs are document-local: an out-of-table ID from another document is rejected.
+    CLiveDocument other;
+    TEST_EXPECT(ctx, other.initialise());
+    const CNodeKey other_a = other.create_string(text("a"));
+    const CNodeKey other_b = other.create_string(text("b"));
+    TEST_EXPECT(ctx, other_a.is_valid() && other_b.is_valid());
+    reject(editable.set_string_value(string, other.string_value_id(other_b)));
+    for (const auto target : { CBakedValueIndex{}, document.root(), array })
+    {
+        reject(editable.set_boolean_value(target, true));
+        reject(editable.set_signed_integer_value(target, 1));
+        reject(editable.set_unsigned_integer_value(target, 1u));
+        reject(editable.set_floating_point_value(target, 1.0));
+        reject(editable.set_string_value(target, original_string));
+    }
+    reject(editable.set_boolean_value(integer, true));
+    reject(editable.set_floating_point_value(integer, 1.0));
+    reject(editable.set_string_value(boolean, original_string));
+
+    const auto reject_unattached = [&](const CMutableBakedDocument& view)
+    {
+        reject(view.set_boolean_value(boolean, true));
+        reject(view.set_signed_integer_value(integer, 1));
+        reject(view.set_unsigned_integer_value(unsigned_integer, std::numeric_limits<std::uint64_t>::max()));
+        reject(view.set_floating_point_value(floating, 3.0));
+        reject(view.set_string_value(string, original_string));
+    };
+    reject_unattached(CMutableBakedDocument{});
+    CMutableBakedDocument copied = editable;
+    TEST_EXPECT(ctx, copied.is_ready());
+    TEST_EXPECT(ctx, copied.set_boolean_value(boolean, true));
+    TEST_EXPECT(ctx, copied.set_boolean_value(boolean, false));
+    //  A copied reading view can be rebound without changing the editor's target.
+    SBakedFixture other_fixture;
+    TEST_EXPECT(ctx, other_fixture.initialise());
+    const std::vector<std::uint8_t> other_before(other_fixture.bytes.data(), other_fixture.bytes.data() + other_fixture.bytes.size());
+    CBakedDocument reading_copy = editable.baked();
+    TEST_EXPECT(ctx, reading_copy.reset(other_fixture.bytes.data(), other_fixture.bytes.size()));
+    TEST_EXPECT(ctx, editable.set_boolean_value(boolean, true));
+    TEST_EXPECT(ctx, document.boolean_value(boolean, boolean_result) && boolean_result);
+    TEST_EXPECT(ctx, editable.set_boolean_value(boolean, false));
+    TEST_EXPECT(ctx, reading_copy.boolean_value(reading_copy.object_child(reading_copy.root(), text("b")), boolean_result) && boolean_result);
+    TEST_EXPECT(ctx, std::memcmp(other_before.data(), other_fixture.bytes.data(), other_before.size()) == 0);
+    expect_unchanged();
+    TEST_EXPECT(ctx, editable.reset(fixture.bytes.view()));
+    TEST_EXPECT(ctx, editable.is_ready());
+    editable.clear();
+    TEST_EXPECT(ctx, !document.is_ready() && !editable.is_ready());
+    reject_unattached(editable);
+    TEST_EXPECT(ctx, editable.reset(fixture.bytes.view()));
+    TEST_EXPECT(ctx, !editable.reset(CByteView{}));
+    TEST_EXPECT(ctx, !document.is_ready() && !editable.is_ready());
+    reject_unattached(editable);
+
+    CBakedDocumentBlock block;
+    TEST_EXPECT(ctx, block.adopt(std::move(fixture.bytes)));
+    CMutableBakedDocument writable{ block };
+    TEST_EXPECT(ctx, writable.is_ready());
+    TEST_EXPECT(ctx, writable.set_boolean_value(boolean, true));
+    TEST_EXPECT(ctx, writable.set_boolean_value(boolean, false));
+    const CBakedDocument constant = static_cast<const CBakedDocumentBlock&>(block).document();
+    TEST_EXPECT(ctx, constant.check_integrity());
+    CBakedDocumentBlock empty_block;
+    CMutableBakedDocument empty{ empty_block };
+    TEST_EXPECT(ctx, !empty.is_ready());
+    reject_unattached(empty);
+
+    //  A malformed mutable attachment must also clear a previously writable editor.
+    TEST_EXPECT(ctx, copied.reset(other_fixture.bytes.view()));
+    other_fixture.header().magic = 0u;
+    TEST_EXPECT(ctx, !copied.reset(other_fixture.bytes.view()));
+    TEST_EXPECT(ctx, !copied.baked().is_ready() && !copied.is_ready());
+    reject_unattached(copied);
+}
+
+void test_existing_string_reassignment(TTestContext& ctx)
+{
+    CLiveDocument live;
+    TEST_EXPECT(ctx, live.initialise());
+    TEST_EXPECT(ctx, live.set_root_type(ELiveValueType::array));
+    for (const char* value : { "first", "first", "second" })
+    {
+        TEST_EXPECT(ctx, live.append_child(live.root(), live.create_string(text(value))).succeeded());
+    }
+    TEST_EXPECT(ctx, live.append_child(live.root(), live.create_null()).succeeded());
+    CBakedDocumentBlock block;
+    TEST_EXPECT(ctx, document_translation::bake(live, block));
+    const CMutableBakedDocument editable{ block };
+    const CBakedDocument& document = editable.baked();
+    const auto first = document.array_at(document.root(), 0u);
+    const auto duplicate = document.array_at(document.root(), 1u);
+    const auto second = document.array_at(document.root(), 2u);
+    const auto null = document.array_at(document.root(), 3u);
+    const auto first_id = document.string_value_id(first);
+    const auto second_id = document.string_value_id(second);
+    TEST_EXPECT(ctx, editable.set_string_value(first, second_id));
+    TEST_EXPECT(ctx, document.string_value(first) == text("second"));
+    TEST_EXPECT(ctx, document.string_value(duplicate) == text("first"));
+    TEST_EXPECT(ctx, document.check_integrity());
+    const std::vector<std::uint8_t> edited(block.bytes().data(), block.bytes().data() + block.bytes().size());
+    TEST_EXPECT(ctx, !editable.set_string_value(duplicate, second_id)); // Last reference to "first".
+    TEST_EXPECT(ctx, !editable.set_boolean_value(null, true));
+    TEST_EXPECT(ctx, !editable.set_signed_integer_value(null, 1));
+    TEST_EXPECT(ctx, !editable.set_unsigned_integer_value(null, 1u));
+    TEST_EXPECT(ctx, !editable.set_floating_point_value(null, 1.0));
+    TEST_EXPECT(ctx, !editable.set_string_value(null, first_id));
+    TEST_EXPECT(ctx, std::memcmp(edited.data(), block.bytes().data(), edited.size()) == 0);
+    TEST_EXPECT(ctx, editable.set_string_value(duplicate, first_id)); // Same ID, even for a sole reference.
+    TEST_EXPECT(ctx, editable.set_string_value(first, first_id));
+    TEST_EXPECT(ctx, document.check_integrity());
+}
+
 void test_checked_binding_and_foundational_observations(TTestContext& ctx)
 {
     static_assert(std::is_nothrow_copy_constructible_v<CBakedDocument>);
@@ -1196,7 +1412,10 @@ static void test_views_from_validated_block(TTestContext& ctx)
         const tests::TMemoryContextScope scope{ &context };
         const CBakedDocument direct{ block };
         const CBakedDocument accessor = block.document();
+        const CMutableBakedDocument editable{ block };
         TEST_EXPECT(ctx, direct.is_ready() && accessor.is_ready());
+        TEST_EXPECT(ctx, editable.is_ready());
+        TEST_EXPECT(ctx, editable.baked().root() == direct.root());
         TEST_EXPECT(ctx, direct.byte_count() == baked_document_format::k_min_document_size && accessor.byte_count() == baked_document_format::k_min_document_size);
         TEST_EXPECT(ctx, direct.value_count() == 1u && accessor.value_count() == 1u);
         TEST_EXPECT(ctx, direct.value_type(direct.root()) == EBakedValueType::object);
@@ -1291,6 +1510,8 @@ static void test_baking_storage(TTestContext& ctx)
 int run_baked_document_tests()
 {
     TTestContext ctx;
+    test_fixed_layout_value_editing(ctx);
+    test_existing_string_reassignment(ctx);
     test_checked_binding_and_foundational_observations(ctx);
     baked_document_phase2_tests::test_shared_integer_flags_round_trip(ctx);
     baked_document_phase2_tests::test_native_names_and_metadata_round_trip(ctx);

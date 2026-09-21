@@ -14,8 +14,11 @@
 #include <cstring>
 #include <limits>
 
+#include "debug/macros.hpp"
+
 namespace image
 {
+
 namespace rasterization
 {
 
@@ -229,8 +232,17 @@ bool CImageView::set(const CByteRectView& view, const description desc, const bo
     {
         return false;
     }
-    m_write_data = view.data();
-    m_read_only = false;
+    m_access = EAccess::writable;
+    return true;
+}
+
+bool CImageView::set_read_only(const bool read_only) noexcept
+{
+    if (m_access == EAccess::const_storage)
+    {
+        return read_only;
+    }
+    m_access = read_only ? EAccess::read_only : EAccess::writable;
     return true;
 }
 
@@ -300,7 +312,8 @@ std::uint32_t CImageView::texel(const std::int32_t x, const std::int32_t y) cons
 
 void CImageView::write_texel(const std::int32_t x, const std::int32_t y, const std::uint32_t colour, const std::uint32_t write_mask) const noexcept
 {
-    std::uint8_t* const data = m_write_data + buffer_offset(x, y);
+    //  All callers have rejected read-only access before reaching this helper.
+    std::uint8_t* const data = const_cast<std::uint8_t*>(m_view.data()) + buffer_offset(x, y);
     if (is_greyscale())
     {
         *data = static_cast<std::uint8_t>(colour);
@@ -320,7 +333,12 @@ void CImageView::write_texel(const std::int32_t x, const std::int32_t y, const s
 
 void CImageView::plot(const std::int32_t x, const std::int32_t y, const std::uint32_t colour, const std::uint32_t write_mask) const noexcept
 {
-    if (!m_read_only && contains(x, y))
+    if (is_read_only())
+    {
+        MV_ASSERT_MSG(false, "Cannot draw to a read-only image view.");
+        return;
+    }
+    if (contains(x, y))
     {
         write_texel(x, y, colour, write_mask);
     }
@@ -331,8 +349,9 @@ void CImageView::fill_region(
     const std::int32_t right, const std::int32_t bottom,
     const std::uint32_t colour, const std::uint32_t write_mask) const noexcept
 {
-    if (m_read_only)
+    if (is_read_only())
     {
+        MV_ASSERT_MSG(false, "Cannot draw to a read-only image view.");
         return;
     }
     const std::int32_t x_begin = std::max(left, 0);
@@ -358,7 +377,12 @@ void CImageView::draw_line(
     const std::uint32_t colour, const std::uint32_t write_mask) const noexcept
 {
     const bool gray = is_greyscale();
-    if (m_read_only || !is_ready() || (!gray && (write_mask == 0u)))
+    if (is_read_only())
+    {
+        MV_ASSERT_MSG(false, "Cannot draw to a read-only image view.");
+        return;
+    }
+    if (!is_ready() || (!gray && (write_mask == 0u)))
     {
         return;
     }
@@ -464,17 +488,18 @@ void CImageView::draw_line(
         line.offset = buffer_offset(x, y);
         line.pixel_count = last - first + 1u;
     }
+    std::uint8_t* const data = const_cast<std::uint8_t*>(m_view.data());
     if (gray)
     {
-        rasterization::draw_line_pixels<true, false>(m_write_data, line, colour, write_mask);
+        rasterization::draw_line_pixels<true, false>(data, line, colour, write_mask);
     }
     else if (write_mask == 0xffffffffu)
     {
-        rasterization::draw_line_pixels<false, false>(m_write_data, line, colour, write_mask);
+        rasterization::draw_line_pixels<false, false>(data, line, colour, write_mask);
     }
     else
     {
-        rasterization::draw_line_pixels<false, true>(m_write_data, line, colour, write_mask);
+        rasterization::draw_line_pixels<false, true>(data, line, colour, write_mask);
     }
 }
 
@@ -492,6 +517,11 @@ void CImageView::draw_rectangle(
     const std::int32_t width, const std::int32_t height,
     const std::uint32_t colour, const std::uint32_t write_mask) const noexcept
 {
+    if (is_read_only())
+    {
+        MV_ASSERT_MSG(false, "Cannot draw to a read-only image view.");
+        return;
+    }
     const rasterization::SRectangle rect = rasterization::rectangle(x, y, width, height);
     if ((rect.left == rect.right) || (rect.top == rect.bottom))
     {
@@ -515,7 +545,12 @@ bool CImageView::copy_rectangle(const CImageView& source,
     const std::int32_t width, const std::int32_t height,
     const EImageCopyFlags flags, const std::uint32_t write_mask) const noexcept
 {
-    if (m_read_only || !is_ready() || !source.is_ready() ||
+    if (is_read_only())
+    {
+        MV_ASSERT_MSG(false, "Cannot draw to a read-only image view.");
+        return false;
+    }
+    if (!is_ready() || !source.is_ready() ||
         (is_greyscale() != source.is_greyscale()) || (static_cast<std::uint8_t>(flags) > 3u))
     {
         return false;

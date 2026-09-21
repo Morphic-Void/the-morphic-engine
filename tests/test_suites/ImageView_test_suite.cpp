@@ -19,6 +19,7 @@
 
 #include "image/image_view.hpp"
 #include "tests/support/test_context.hpp"
+#include "tests/support/test_scopes.hpp"
 
 namespace image_view_tests
 {
@@ -56,17 +57,21 @@ struct Fixture
 
 static void test_access_and_masks(TTestContext& ctx)
 {
+    tests::TAssertionTestScope assertions{ ctx };
     CImageView empty;
     TEST_EXPECT(ctx, !empty.is_ready());
+    TEST_EXPECT(ctx, empty.set_read_only(true));
+    TEST_EXPECT(ctx, !empty.set_read_only(false));
     TEST_EXPECT(ctx, empty.is_read_only());
     TEST_EXPECT(ctx, empty.texel(0, 0) == 0u);
-    empty.plot(0, 0, 1u);
-    empty.fill(1u);
+    assertions.expect_assertion(ctx, [&] { empty.plot(0, 0, 1u); });
+    assertions.expect_assertion(ctx, [&] { empty.fill(1u); });
 
     for (const bool gray : { false, true })
     {
         Fixture f{ gray };
         TEST_EXPECT(ctx, f.view.is_ready());
+        TEST_EXPECT(ctx, f.view.set_read_only(false));
         TEST_EXPECT(ctx, f.view.width() == 6u && f.view.height() == 5u);
         f.view.fill(0x12345678u);
         f.view.plot(2, 3, 0xaabbccddu, 0x00ff00ffu);
@@ -82,24 +87,39 @@ static void test_access_and_masks(TTestContext& ctx)
         f.view.plot(6, 0, 0u);
         f.view.plot(0, 5, 0u);
         TEST_EXPECT(ctx, f.view.texel(0, 0) == first);
-        f.view.set_read_only(true);
+        TEST_EXPECT(ctx, f.view.set_read_only(true));
+        TEST_EXPECT(ctx, f.view.set_read_only(true));
+        CImageView writable_copy = f.view;
+        TEST_EXPECT(ctx, writable_copy.set_read_only(false));
+        TEST_EXPECT(ctx, !writable_copy.is_read_only() && f.view.is_read_only());
+        writable_copy.plot(0, 0, 0x55u);
+        TEST_EXPECT(ctx, f.view.texel(0, 0) == 0x55u);
+        writable_copy.plot(0, 0, first);
         std::array<std::uint8_t, sizeof(f.bytes)> before;
         std::memcpy(before.data(), f.bytes, sizeof(f.bytes));
-        f.view.plot(0, 0, 0u);
-        f.view.fill(0u);
-        f.view.fill_rectangle(0, 0, 6, 5, 0u);
-        f.view.draw_rectangle(0, 0, 6, 5, 0u);
-        f.view.draw_line(0, 0, 5, 4, 0u);
-        TEST_EXPECT(ctx, !f.view.copy_rectangle(f.view, 0, 0, 3, 3, 1, 1));
+        assertions.expect_assertion(ctx, [&] { f.view.plot(0, 0, 0u); });
+        assertions.expect_assertion(ctx, [&] { f.view.fill(0u); });
+        assertions.expect_assertion(ctx, [&] { f.view.fill_rectangle(0, 0, 6, 5, 0u); });
+        assertions.expect_assertion(ctx, [&] { f.view.draw_rectangle(0, 0, 6, 5, 0u); });
+        assertions.expect_assertion(ctx, [&] { f.view.draw_line(0, 0, 5, 4, 0u); });
+        assertions.expect_assertion(ctx, [&] { TEST_EXPECT(ctx, !f.view.copy_rectangle(f.view, 0, 0, 3, 3, 1, 1)); });
+        //  Degenerate/clipped requests and zero masks still constitute misuse.
+        assertions.expect_assertion(ctx, [&] { f.view.plot(-1, -1, 0u, 0u); });
+        assertions.expect_assertion(ctx, [&] { f.view.fill(0u, 0u); });
+        assertions.expect_assertion(ctx, [&] { f.view.fill_rectangle(0, 0, 0, 0, 0u); });
+        assertions.expect_assertion(ctx, [&] { f.view.draw_rectangle(0, 0, 0, 0, 0u); });
+        assertions.expect_assertion(ctx, [&] { f.view.draw_line(-5, -5, -1, -1, 0u, 0u); });
+        assertions.expect_assertion(ctx, [&] { TEST_EXPECT(ctx, !f.view.copy_rectangle(empty, 0, 0, 0, 0, 0, 0)); });
         TEST_EXPECT(ctx, std::memcmp(before.data(), f.bytes, sizeof(f.bytes)) == 0);
-        f.view.set_read_only(false);
+        TEST_EXPECT(ctx, f.view.set_read_only(false));
         f.view.plot(0, 0, 0x55u);
         TEST_EXPECT(ctx, f.view.texel(0, 0) == 0x55u);
 
         CImageView readonly{ f.view.buffer_view(), gray ? Desc::Gray : Desc::RGBA };
-        readonly.set_read_only(false);
+        TEST_EXPECT(ctx, readonly.set_read_only(true));
+        TEST_EXPECT(ctx, !readonly.set_read_only(false));
         TEST_EXPECT(ctx, readonly.is_read_only());
-        readonly.fill(0u);
+        assertions.expect_assertion(ctx, [&] { readonly.fill(0u); });
         TEST_EXPECT(ctx, f.view.texel(0, 0) == 0x55u);
         f.view.set_vertical_flip(true);
         TEST_EXPECT(ctx, f.view.texel(0, 4) == 0x55u);
@@ -107,6 +127,28 @@ static void test_access_and_masks(TTestContext& ctx)
         f.view.set_vertical_flip(false);
         TEST_EXPECT(ctx, f.view.texel(1, 4) == 0x66u);
         f.check_padding(ctx);
+
+        //  Rebinding a writable view to const storage must revoke write access.
+        alignas(4) static const std::uint8_t constant_pixels[8]{ 1u, 2u, 3u, 4u, 5u, 6u, 7u, 8u };
+        TEST_EXPECT(ctx, writable_copy.set(CByteRectConstView{ constant_pixels, 8u, gray ? 2u : 8u, 1u, 4u }, gray ? Desc::Gray : Desc::RGBA));
+        TEST_EXPECT(ctx, writable_copy.set_read_only(true));
+        TEST_EXPECT(ctx, !writable_copy.set_read_only(false));
+        TEST_EXPECT(ctx, writable_copy.is_read_only());
+        const auto constant_first = writable_copy.texel(0, 0);
+        assertions.expect_assertion(ctx, [&] { writable_copy.fill(0u); });
+        TEST_EXPECT(ctx, writable_copy.texel(0, 0) == constant_first);
+        CImageView const_copy = writable_copy;
+        TEST_EXPECT(ctx, !const_copy.set_read_only(false));
+        TEST_EXPECT(ctx, const_copy.is_read_only());
+        assertions.expect_assertion(ctx, [&] { const_copy.draw_line(0, 0, 1, 0, 0u); });
+
+        TEST_EXPECT(ctx, writable_copy.set(CByteRectView{ f.bytes, 32u, gray ? 6u : 24u, 5u, 16u }, gray ? Desc::Gray : Desc::RGBA));
+        TEST_EXPECT(ctx, !writable_copy.is_read_only());
+        writable_copy.plot(0, 0, 0x77u);
+        TEST_EXPECT(ctx, f.view.texel(0, 0) == 0x77u);
+        writable_copy.reset();
+        TEST_EXPECT(ctx, !writable_copy.set_read_only(false));
+        TEST_EXPECT(ctx, !writable_copy.is_ready() && writable_copy.is_read_only());
     }
     alignas(8) std::uint8_t bad[64]{};
     TEST_EXPECT(ctx, (!CImageView{ CByteRectView{ bad, 8u, 7u, 2u, 8u }, Desc::RGBA }.is_ready()));

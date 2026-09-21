@@ -286,7 +286,7 @@ void test_thread_message_copy_boundary(TTestContext& ctx)
     TEST_EXPECT(ctx, returned.document_findings == document_finding_bit(EDocumentFinding::unquoted_names));
     client_view.plot(1, 1, 0x87654321u);
     TEST_EXPECT(ctx, host_view.texel(1, 1) == 0x87654321u);
-    client_view.set_read_only(true);
+    TEST_EXPECT(ctx, client_view.set_read_only(true));
     client_view.set_vertical_flip(false);
     TEST_EXPECT(ctx, !host_view.is_read_only());
     TEST_EXPECT(ctx, host_view.vertical_flip());
