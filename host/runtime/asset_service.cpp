@@ -82,6 +82,7 @@ void CAssetService::finish_operation(const std::int32_t slot, const EAssetStatus
     SOperation& operation = *m_operations.get_object(slot);
     if (operation.phase == EPhase::disposing)
     {
+        MV_DETAIL("Host asset disposal completed at client slot {}", operation.client_slot);
         reply(*operation.client, operation.client_slot, AssetDisposeResult{ operation.retained_asset, status });
         (void)m_operations.erase(slot);
         return;
@@ -141,6 +142,7 @@ bool CAssetService::asset_in_use(const CAssetId asset) const noexcept
 
 void CAssetService::request_disposal(const AssetDisposeRequest& request, const std::int32_t slot, threading::CThreadPackage& client) noexcept
 {
+    MV_DETAIL("Host asset disposal request at client slot {}", slot);
     if ((m_assets.resolve(request.asset) == nullptr) || disposal_pending(request.asset))
     {
         reply(client, slot, AssetDisposeResult{ request.asset, EAssetStatus::invalid_asset });
@@ -159,6 +161,10 @@ void CAssetService::request_disposal(const AssetDisposeRequest& request, const s
     operation.client_slot = slot;
     operation.phase = EPhase::disposing;
     operation.retained_asset = request.asset;
+    if (asset_in_use(request.asset))
+    {
+        MV_DETAIL("Host asset disposal deferred for accepted borrowers at client slot {}", slot);
+    }
 }
 
 void CAssetService::complete_disposals() noexcept

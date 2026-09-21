@@ -202,15 +202,17 @@ static EModuleStatus perform_module_work(SModuleWork& work) noexcept
 {
     const ModuleRequest& request = *work.request;
     work.function = nullptr;
+    work.thread_function = nullptr;
     if (work.previous != nullptr)
     {
         if (!work.previous->unbind())
         {
             return EModuleStatus::unload_failed;
         }
-        MV_REPORT("Module unloaded on Host worker");
+        MV_REPORT("Module unloaded on Host worker, mount %s",
+            system_id_registry::lookup_mount_point_name(module_ids::ops::get_mount_point_id(request.module)));
     }
-    if (request.action == EModuleAction::unload)
+    if ((request.action == EModuleAction::unload) || work.cleanup_only)
     {
         return EModuleStatus::success;
     }
@@ -237,6 +239,11 @@ static EModuleStatus perform_module_work(SModuleWork& work) noexcept
             }
             if ((request.required_function != system_type_ids::undefined) &&
                 !work.next->query_function(request.required_function, work.function))
+            {
+                status = EModuleStatus::function_unavailable;
+            }
+            if ((module_ids::ops::get_mount_point_id(request.module) == mount_point_ids::render) &&
+                !work.next->query_function(system_type_ids::rendering_thread_function, work.thread_function))
             {
                 status = EModuleStatus::function_unavailable;
             }

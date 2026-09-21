@@ -10,8 +10,9 @@ Date:   12 Sep 2026
 
 Updated 21 September 2026. This consolidates unresolved scope from the interim
 capture. The parser, image view, concrete asset services and Executive acceptance
-are complete. The asynchronous module/disposal work is reviewed and accepted;
-the rendering DLL stub follows as a separate stage. The
+are complete. The asynchronous module/disposal work is committed; the separate
+rendering DLL stub is implemented and accepted. Actual rendering remains
+deferred. The
 [consolidation plan](consolidation_pass.md) preserves the earlier design record.
 [Current scope](current_scope_backlog.md) sets priorities.
 [Completed milestones](../project/completed_milestones.md) records delivered work.

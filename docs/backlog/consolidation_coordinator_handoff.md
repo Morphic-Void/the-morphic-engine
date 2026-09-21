@@ -12,10 +12,11 @@ the Executive bootstrap, replacement, notification and shutdown contracts.
 The follow-up adds explicit retained-asset disposal and replaces dependency-based
 unload rejection with assertion logging and disposal before DLL unbinding.
 The 21 September review tidy-up consolidates module declarations and transport
-registrations and completes worker request diagnostics. A rendering DLL stub is
-the next separate work stage, after acceptance and commit of the current changes.
-User review, the manual style pass and coordinator verification are complete.
-The user authorised committing the module/disposal change on 21 September.
+registrations and completes worker request diagnostics. That module/disposal
+stage is committed as `491ce78` after user and coordinator review.
+The separately authorised rendering DLL stub is now implemented in the shared
+checkout. Lifecycle and Vulkan identity coordinator reviews are complete.
+The user accepted the work and authorised its commit on 21 September.
 
 Originally captured 19 September 2026 for the successor coordinator task, replacing
 the dense discussion in task `01a09fd4-73ad-7ce2-a3e4-efcdadb454dd`.
@@ -68,7 +69,7 @@ Explicit asset disposal waits for accepted borrowers and rejects later saves by
 that ID. Before module unload, the Host drains operations and joins the affected
 Host-managed thread. Remaining dependent assets produce an assertion log and are
 disposed of while their DLL is loaded. Unrelated retained assets survive replacement.
-The Executive is currently the only DLL with a Host-managed thread.
+The rendering extension now adds a second DLL with a Host-managed thread.
 
 Messages and registrations are grouped in `core/system/transported_types.hpp`;
 the worker job and module records live in `host/runtime/module_service.hpp`.
@@ -78,11 +79,25 @@ passed again after the manual style pass; see the lifecycle document for logs.
 
 ## Next stage and deferred scope
 
-After acceptance and commit, add the rendering DLL stub as a separate stage:
-a minimal rendering thread waiting for an exit request, with Host lifecycle
-handling. It may simplify successful-path test fixtures; deliberate failure
-fixtures still serve a separate purpose. Do not start that implementation merely
-because this handoff records it.
+The rendering stage adds `MorphicRendering.vcxproj` to the solution, using the
+existing `render_vulkan_windows` and `rendering` identities. Its only runtime
+work is to wait for an exit request. Ordinary module completion waits for
+thread startup, and failure cleanup runs on the I/O worker. Teardown joins the
+thread before dependent-asset disposal and DLL unload. Rendering transitions
+remain distinct from Executive self-termination. The normal Executive now chooses
+and requests its Vulkan renderer before asset acceptance, checking acknowledgement,
+identity and availability. It reuses an already available matching implementation
+after Executive replacement. Selector Executives can omit rendering entirely;
+the Host still bootstraps only Executive. This startup-policy follow-up has passed
+coordinator review and is included in the user's commit authorisation after the
+preceding unchanged style pass.
+
+Successful lifecycle service cases now use the real stub. The Executive driver,
+missing rendering export, failed rendering startup and disposal during rendering
+exit remain purposeful fixtures. The stopped rendering package stays alive until
+its final requests have been drained and accepted asset operations have replied.
+Review this stage before selecting subsequent work; no rendering API, general
+job framework or schema implementation is included.
 
 Filesystem-image implementation, path navigation helpers, trust, overlays/layers,
 automatic reclamation/cache eviction and the broader asynchronous framework

@@ -1,8 +1,10 @@
 # Current scope
 
 Updated 21 September 2026. The selected image, asset-service and asynchronous
-module-lifecycle consolidation is implemented, reviewed and accepted. The final
-documentation reconciliation is complete, and the user has authorised the commit.
+module-lifecycle consolidation is implemented, reviewed and committed. The next
+rendering DLL stub stage passed coordinator review and the user's unchanged style
+pass. The normal-Executive rendering startup follow-up has passed coordinator
+review. The user accepted the work and authorised its commit on 21 September.
 
 ## Completed consolidation
 
@@ -20,16 +22,19 @@ documentation reconciliation is complete, and the user has authorised the commit
 - Asynchronous DLL load/bind and unbind/unload on the Host I/O worker, Executive
   bootstrap/replacement/shutdown, explicit asset disposal and dependent-asset
   cleanup are implemented. User review, the manual style pass and coordinator
-  checks are complete; the user authorised the commit on 21 September.
+  checks are complete; this stage is committed as `491ce78`.
+- The separate `MorphicRendering` solution project and its minimal wait-for-exit
+  thread are implemented. Host-managed rendering load, startup, replacement,
+  unload and shutdown are accepted; actual rendering remains deferred.
+- The normal Executive now selects and requests its Vulkan renderer before asset
+  acceptance, accepting an already available matching renderer after replacement.
+  Renderer-free selector Executives remain supported; Host bootstrap is unchanged.
 
 ## Active work
 
-1. Following this accepted consolidation, undertake the rendering DLL stub as a separate
-   work stage: a minimal module thread waiting for an exit request, with its
-   Host-managed lifecycle. Revisit successful-path fixture duplication then;
-   this stub is not part of the current implementation.
-2. Reassess subsequent schema and other consumers after that stage. Existing
-   schema design material does not mean a schema implementation is complete.
+The rendering stage, including normal-Executive startup, is accepted. Select the
+next work stage with the user, reassessing schema and other consumers as needed.
+Existing schema design material does not mean a schema implementation is complete.
 
 Filesystem images/resolution, document path navigation, cache eviction/reference
 counting, trust/layers and the general job framework remain deferred. Explicit

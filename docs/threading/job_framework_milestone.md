@@ -11,8 +11,9 @@ Date:   7 Aug 2026
 Status, 21 September 2026: this is a deferred design milestone. The implemented
 [asynchronous module lifecycle](../modules/asynchronous_module_lifecycle.md)
 loads and unloads DLLs through a Host worker, but does not implement the provider,
-scheduler or executable-obligation framework described here. The planned
-rendering DLL stub is a separate bounded thread-lifecycle stage.
+scheduler or executable-obligation framework described here. The rendering
+DLL stub is now implemented as a separate bounded thread-lifecycle stage and
+is accepted; it does not execute scheduled jobs.
 
 ## Purpose
 

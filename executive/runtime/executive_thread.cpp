@@ -206,7 +206,7 @@ private:
     //  Failure codes start at one because zero is the successful thread exit code.
     enum class EFailure : std::uint32_t { registry = 1u, timing, submission, completion, timeout };
 
-    enum class EPhase : std::uint8_t { sequential = 0, concurrent, awaiting_exit, complete };
+    enum class EPhase : std::uint8_t { rendering_acknowledgement = 0, rendering_completion, sequential, concurrent, awaiting_exit, complete };
 
     CExecutiveThread(const CExecutiveThread&) noexcept = delete;
     CExecutiveThread& operator=(const CExecutiveThread&) noexcept = delete;
@@ -218,6 +218,7 @@ private:
     std::uint32_t main() noexcept;
     [[nodiscard]] bool startup() noexcept;
     [[nodiscard]] bool initialise() noexcept;
+    [[nodiscard]] bool accept_rendering_notice(const threading::CErasedPodMsg& message) noexcept;
     void operate() noexcept;
     [[nodiscard]] bool submit(const asset_acceptance::SScenario& scenario, const std::int32_t slot) noexcept;
     [[nodiscard]] bool check(const asset_acceptance::SScenario& scenario, const AssetResult& result) noexcept;
@@ -241,7 +242,7 @@ private:
     std::uint32_t m_scenario_index{ 0u };
     std::int32_t m_pending_slot{ 0 };
     std::int32_t m_concurrent_first_slot{ 0 };
-    EPhase m_phase{ EPhase::sequential };
+    EPhase m_phase{ EPhase::rendering_acknowledgement };
     AssetResult m_raw;
     AssetResult m_image;
     image::CImageView m_image_view;
@@ -315,11 +316,61 @@ bool CExecutiveThread::initialise() noexcept
         return false;
     }
 
-    if (!submit(asset_acceptance::scenarios[m_scenario_index], m_pending_slot))
+    //  Renderer selection belongs to this Executive; selector Executives may
+    //  omit it entirely. Loading an occupied mount is resolved by its reply.
+    CErasedOwner owner = CErasedOwner::create<ModuleRequest>();
+    ModuleRequest* const request = owner.payload<ModuleRequest>();
+    if ((request == nullptr) || !request->file.set("MorphicRendering.dll"))
     {
-        fail(EFailure::submission, "initial request submission");
+        fail(EFailure::submission, "rendering load submission");
         return false;
     }
+    request->module = module_ids::render_vulkan_windows;
+    request->action = EModuleAction::load;
+    if (!post(m_pending_slot, std::move(owner), request))
+    {
+        fail(EFailure::submission, "rendering load submission");
+        return false;
+    }
+    MV_REPORT("Executive: Rendering load requested");
+    return true;
+}
+
+bool CExecutiveThread::accept_rendering_notice(const threading::CErasedPodMsg& message) noexcept
+{
+    MV_DETAIL("Executive rendering module notification");
+
+    ModuleResult result;
+    if (!message.copy_payload_to(result) || (message.query_async_slot() != m_pending_slot) ||
+        (result.module != module_ids::render_vulkan_windows))
+    {
+        return false;
+    }
+
+    if (m_phase == EPhase::rendering_acknowledgement)
+    {
+        if ((result.notice != EModuleNotice::acknowledged) || (result.status != EModuleStatus::success))
+        {
+            return false;
+        }
+        m_phase = EPhase::rendering_completion;
+        MV_REPORT("Executive: Rendering load acknowledged");
+    }
+    else
+    {
+        //  An Executive replacement may inherit an already running renderer.
+        //  Accept only the chosen implementation, with a live service thread.
+        if ((result.notice != EModuleNotice::completed) || !result.available ||
+            ((result.status != EModuleStatus::success) && (result.status != EModuleStatus::already_loaded)))
+        {
+            return false;
+        }
+        m_phase = EPhase::sequential;
+        ++m_pending_slot;
+        MV_REPORT("Executive: Rendering ready (%s)",
+            (result.status == EModuleStatus::already_loaded) ? "already loaded" : "loaded");
+    }
+    (void)m_perf_counter.update();
     return true;
 }
 
@@ -812,9 +863,26 @@ void CExecutiveThread::operate() noexcept
             {
                 continue;
             }
+            if ((m_phase == EPhase::rendering_acknowledgement) || (m_phase == EPhase::rendering_completion))
+            {
+                if (!accept_rendering_notice(message))
+                {
+                    MV_REPORT("Executive: Rendering unavailable or invalid reply; requesting system shutdown");
+                    if (!request_system_shutdown())
+                    {
+                        fail(EFailure::submission, "system shutdown request");
+                    }
+                }
+                else if ((m_phase == EPhase::sequential) && !submit(scenarios[m_scenario_index], m_pending_slot))
+                {
+                    fail(EFailure::submission, "initial asset request submission");
+                }
+                continue;
+            }
             ModuleResult module_result;
             if (message.copy_payload_to(module_result))
             {
+                MV_DETAIL("Executive module notification");
                 //  No retry policy yet: failure of another DLL's operation requests
                 //  our own termination, which the Host interprets as system shutdown.
                 if ((module_result.notice == EModuleNotice::completed) && (module_result.status != EModuleStatus::success) &&
@@ -886,8 +954,9 @@ void CExecutiveThread::fail(const EFailure failure, const char* const reason) no
     if (m_failure_code == 0u)
     {
         m_failure_code = static_cast<std::uint32_t>(failure);
-        const char* const scenario = (m_scenario_index < asset_acceptance::scenario_count) ?
-            asset_acceptance::scenarios[m_scenario_index].name : "concurrent_saves";
+        const char* const scenario = ((m_phase == EPhase::rendering_acknowledgement) || (m_phase == EPhase::rendering_completion)) ?
+            "rendering_startup" : ((m_scenario_index < asset_acceptance::scenario_count) ?
+                asset_acceptance::scenarios[m_scenario_index].name : "concurrent_saves");
         MV_REPORT("Executive: %s failed: %s", scenario, reason);
         m_context.mark_failed(m_failure_code);
     }

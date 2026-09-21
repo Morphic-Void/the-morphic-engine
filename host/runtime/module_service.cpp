@@ -146,7 +146,7 @@ mount_point_ids::id_type CModuleService::pending_mount_point() const noexcept
 
 void CModuleService::dispatch(threading::CThreadPackage& worker, debug_system::CDebugServiceState* const debug_service) noexcept
 {
-    if (!m_pending || m_in_flight)
+    if (!m_pending || m_in_flight || m_start_pending)
     {
         return;
     }
@@ -184,7 +184,47 @@ void CModuleService::complete(const threading::CErasedPodMsg& message) noexcept
     }
 
     m_in_flight = false;
+    if (m_work.cleanup_only)
+    {
+        finish((result.status == EModuleStatus::success) ? EModuleStatus::installation_failed : result.status);
+        return;
+    }
+    if ((result.status == EModuleStatus::success) && (m_work.next != nullptr) &&
+        (pending_mount_point() == mount_point_ids::render))
+    {
+        //  Keep the request and client correlation until the Host starts the thread.
+        m_start_pending = true;
+        return;
+    }
     finish(result.status);
+}
+
+void CModuleService::complete_thread_start(const bool started) noexcept
+{
+    MV_ASSERT(m_start_pending);
+    m_start_pending = false;
+    if (started)
+    {
+        SModuleRecord* const record = find(pending_mount_point());
+        MV_ASSERT(record != nullptr);
+        record->thread_started = true;
+        finish(EModuleStatus::success);
+        return;
+    }
+
+    //  Startup has joined any failed thread. Release the installed DLL on the
+    //  same worker before reporting failure to the ordinary client.
+    m_work.previous = m_work.next;
+    m_work.next = nullptr;
+    m_work.cleanup_only = true;
+}
+
+void CModuleService::rendering_stopped() noexcept
+{
+    if (SModuleRecord* const record = find(mount_point_ids::render))
+    {
+        record->thread_started = false;
+    }
 }
 
 void CModuleService::finish(const EModuleStatus status) noexcept
@@ -202,7 +242,8 @@ void CModuleService::finish(const EModuleStatus status) noexcept
             current->function = m_work.function;
         }
 
-        result.available = current->binding.is_ready();
+        result.available = current->binding.is_ready() &&
+            ((pending_mount_point() != mount_point_ids::render) || current->thread_started);
         result.module = current->identity;
         result.function = result.available ? current->function : nullptr;
     }
@@ -218,6 +259,7 @@ void CModuleService::finish(const EModuleStatus status) noexcept
     }
 
     m_pending = false;
+    m_start_pending = false;
     m_work = {};
     m_request_owner.destroy();
     m_client = nullptr;

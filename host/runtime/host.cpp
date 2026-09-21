@@ -19,6 +19,7 @@
 #include "host/runtime/host_worker_thread.hpp"
 #include "host/system/system_id_definitions.hpp"
 #include "executive/module/binding/executive_binding.hpp"
+#include "rendering/module/binding/rendering_binding.hpp"
 #include "platform/system/performance_counter.hpp"
 #include "platform/threading/processor_relax.hpp"
 #include "system/transported_types.hpp"
@@ -119,6 +120,62 @@ bool CHost::start_executive() noexcept
     return m_thread_packages.get_object(slot)->startup();
 }
 
+bool CHost::start_rendering() noexcept
+{
+    modules::CBoundModule* const binding = m_module_service.pending_binding();
+    const auto entry = reinterpret_cast<rendering::FRenderingThread>(m_module_service.pending_thread_function());
+    if ((binding == nullptr) || (entry == nullptr))
+    {
+        return false;
+    }
+
+    const threading::ThreadConfig configuration{
+        thread_ids::rendering, binding->advertised_module_identity().advertised_module_id,
+        platform::threading::EThreadPriority::Normal, entry, &modules::CBoundModule::prepare_thread, binding };
+    const std::int32_t slot = m_thread_packages.emplace(configuration, m_perf_count_conversion);
+    if (slot < 0)
+    {
+        return false;
+    }
+    if (!m_thread_packages.get_object(slot)->startup())
+    {
+        (void)m_thread_packages.erase(slot);
+        return false;
+    }
+
+    m_thread_slots[static_cast<std::uint32_t>(EWorkerThreadID::rendering)] = slot;
+    MV_REPORT("Host: Rendering started after asynchronous binding");
+    return true;
+}
+
+bool CHost::stop_rendering(const threading::EThreadRunState state) noexcept
+{
+    threading::CThreadPackage* const rendering = thread_package(EWorkerThreadID::rendering);
+    if (rendering == nullptr)
+    {
+        return true;
+    }
+
+    rendering->request_exit();
+    if (((state != threading::EThreadRunState::Exited) && (state != threading::EThreadRunState::Failed)) ||
+        !m_asset_service.is_idle())
+    {
+        return false;
+    }
+
+    //  Terminal state was observed before the final queue drain. Accepted asset
+    //  operations have also replied, so neither they nor the thread borrow the
+    //  package or its transports when shutdown joins and destroys them.
+    m_runtime_failed = m_runtime_failed || (state == threading::EThreadRunState::Failed);
+    (void)rendering->shutdown();
+    std::int32_t& slot = m_thread_slots[static_cast<std::uint32_t>(EWorkerThreadID::rendering)];
+    (void)m_thread_packages.erase(slot);
+    slot = -1;
+    m_module_service.rendering_stopped();
+    MV_REPORT("Host: Rendering thread joined");
+    return true;
+}
+
 bool CHost::initialise_runtime(const char* const executive_file) noexcept
 {
     if (!m_perf_count_conversion.init() || !m_thread_packages.initialise() ||
@@ -174,6 +231,8 @@ void CHost::receive_request(threading::CErasedOwnerMsg& message, threading::CThr
 {
     if (message.is_message_a<ModuleRequest>())
     {
+        MV_DETAIL("Host module lifecycle request");
+
         const ModuleRequest* const request = message.owner().payload<ModuleRequest>();
         const bool self = (request != nullptr) &&
             (module_ids::ops::get_mount_point_id(request->module) == mount_point_ids::executive) &&
@@ -360,9 +419,12 @@ void CHost::run() noexcept
         threading::CThreadPackage* const executive = thread_package(EWorkerThreadID::executive);
 
         //  Observe terminal state before draining queues, then advance the lifecycle.
-        //  A terminal publication makes all of that Executive's preceding requests visible.
+        //  A terminal publication makes each DLL thread's preceding requests visible.
         const threading::EThreadRunState executive_state = (executive != nullptr) ?
             executive->query_state() : threading::EThreadRunState::Empty;
+        threading::CThreadPackage* const rendering = thread_package(EWorkerThreadID::rendering);
+        const threading::EThreadRunState rendering_state = (rendering != nullptr) ?
+            rendering->query_state() : threading::EThreadRunState::Empty;
 
         for (std::int32_t slot = m_thread_packages.first_live(); slot >= 0; slot = m_thread_packages.next_live(slot))
         {
@@ -413,9 +475,17 @@ void CHost::run() noexcept
 
         //  Complete disposal after draining worker replies, then advance module
         //  teardown only when no asset operation retains a worker borrow.
+        if (m_module_service.needs_thread_start())
+        {
+            m_module_service.complete_thread_start(start_rendering());
+        }
+
         m_asset_service.complete_disposals();
         advance_lifecycle(executive_state);
-        if (m_asset_service.is_idle() && !m_module_service.is_idle() && !m_module_service.is_in_flight())
+        const bool stopping_rendering = !m_module_service.is_idle() && !m_module_service.is_in_flight() &&
+            m_module_service.releases_binding() && (m_module_service.pending_mount_point() == mount_point_ids::render);
+        const bool rendering_stopped = !stopping_rendering || stop_rendering(rendering_state);
+        if (rendering_stopped && m_asset_service.is_idle() && !m_module_service.is_idle() && !m_module_service.is_in_flight())
         {
             if (m_module_service.releases_binding())
             {

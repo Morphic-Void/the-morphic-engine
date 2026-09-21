@@ -1,0 +1,5 @@
+//  Component-local type identity catalog.
+//  Defines MV_LOCAL_TYPES(type_macro).
+
+#define MV_LOCAL_TYPES(type_macro) \
+    type_macro(rendering, rendering::CRenderingModuleTag)

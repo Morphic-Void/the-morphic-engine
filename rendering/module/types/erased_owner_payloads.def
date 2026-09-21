@@ -1,0 +1,6 @@
+//  Component-local erased-owner payload catalog.
+//  Defines MV_LOCAL_ERASED_OWNER_PAYLOADS(payload_macro,
+//  payload_with_storage_macro).
+
+//  The Rendering currently has no local erased-owner payload operations.
+#define MV_LOCAL_ERASED_OWNER_PAYLOADS(payload_macro, payload_with_storage_macro)

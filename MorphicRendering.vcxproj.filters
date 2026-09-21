@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="Rendering"><UniqueIdentifier>{3dba8092-f5e0-408c-a343-374823c92be9}</UniqueIdentifier></Filter>
+    <Filter Include="Rendering\include"><UniqueIdentifier>{f2805def-7c5e-4d64-a143-a156d65a0fd5}</UniqueIdentifier></Filter>
+    <Filter Include="Rendering\include\module"><UniqueIdentifier>{13e342ba-1857-4f79-864b-beeb9e8355d4}</UniqueIdentifier></Filter>
+    <Filter Include="Rendering\include\module\binding"><UniqueIdentifier>{e3f58065-f03a-43bd-adbb-58d24ba2ddc2}</UniqueIdentifier></Filter>
+    <Filter Include="Rendering\include\module\types"><UniqueIdentifier>{c6587a47-c2b3-4424-88d3-8f32c2556a83}</UniqueIdentifier></Filter>
+    <Filter Include="Rendering\include\runtime"><UniqueIdentifier>{48aab50b-ebbb-4290-b9eb-4f76a1c8ca27}</UniqueIdentifier></Filter>
+    <Filter Include="Rendering\src"><UniqueIdentifier>{e1d67a2e-5792-45db-8309-077193253562}</UniqueIdentifier></Filter>
+    <Filter Include="Rendering\src\module"><UniqueIdentifier>{d9adb579-60e3-4f99-b4d5-4ef54f36564b}</UniqueIdentifier></Filter>
+    <Filter Include="Rendering\src\module\binding"><UniqueIdentifier>{3f4960a4-cd6a-41f2-aa49-22849b3223b8}</UniqueIdentifier></Filter>
+    <Filter Include="Rendering\src\module\types"><UniqueIdentifier>{f01fbee1-46d6-4c27-89af-750abac0f286}</UniqueIdentifier></Filter>
+    <Filter Include="Rendering\src\runtime"><UniqueIdentifier>{fdf22805-900c-42b1-983c-a0eed76326dd}</UniqueIdentifier></Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="rendering\module\binding\rendering_binding.hpp"><Filter>Rendering\include\module\binding</Filter></ClInclude>
+    <ClInclude Include="rendering\module\types\erased_owner_payloads.def"><Filter>Rendering\include\module\types</Filter></ClInclude>
+    <ClInclude Include="rendering\module\types\local_type_ids.def"><Filter>Rendering\include\module\types</Filter></ClInclude>
+    <ClInclude Include="rendering\module\types\local_type_ids.hpp"><Filter>Rendering\include\module\types</Filter></ClInclude>
+    <ClInclude Include="rendering\module\types\local_types.hpp"><Filter>Rendering\include\module\types</Filter></ClInclude>
+    <ClInclude Include="rendering\runtime\rendering_thread.hpp"><Filter>Rendering\include\runtime</Filter></ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="rendering\module\binding\rendering_binding.cpp"><Filter>Rendering\src\module\binding</Filter></ClCompile>
+    <ClCompile Include="rendering\module\types\local_type_ids.cpp"><Filter>Rendering\src\module\types</Filter></ClCompile>
+    <ClCompile Include="rendering\runtime\rendering_thread.cpp"><Filter>Rendering\src\runtime</Filter></ClCompile>
+  </ItemGroup>
+</Project>

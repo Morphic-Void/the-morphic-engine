@@ -9,6 +9,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <iostream>
 #include <string>
 #include <type_traits>
@@ -24,6 +25,7 @@
 #include "tests/environment/test_paths.hpp"
 #include "memory/memory_context.hpp"
 #include "platform/path/native_path.hpp"
+#include "platform/threading/processor_relax.hpp"
 #include "system/erased_owner.hpp"
 #include "system/erased_owner_transport.hpp"
 #include "system/transported_types.hpp"
@@ -36,6 +38,105 @@
 #include "threading/messages/CErasedMessageTransports.hpp"
 #include "threading/CThreadPackage.hpp"
 #include "threading/transports/TOwningTransport.hpp"
+
+namespace executive_startup_tests
+{
+
+static bool read_request(threading::CThreadPackage& package, threading::CErasedOwnerMsg& message,
+    const platform::system::CPerfCountConversion& conversion) noexcept
+{
+    platform::system::CPerfCounter timer;
+    (void)timer.update();
+    while (timer.query_delta() < (conversion.query_ticks_per_second() * 5u))
+    {
+        if (package.read(message))
+        {
+            return true;
+        }
+        platform::threading::processor_relax();
+    }
+    return false;
+}
+
+static void check_rendering_notices(tests::TTestContext& ctx, modules::CBoundModule& module,
+    const platform::threading::FThreadEntry entry, const platform::system::CPerfCountConversion& conversion)
+{
+    enum class ECase : std::uint8_t
+    {
+        loaded = 0, already_loaded, unavailable, wrong_implementation, load_failure,
+        missing_acknowledgement, wrong_correlation, duplicate_acknowledgement
+    };
+    for (const ECase scenario : { ECase::loaded, ECase::already_loaded, ECase::unavailable,
+        ECase::wrong_implementation, ECase::load_failure, ECase::missing_acknowledgement,
+        ECase::wrong_correlation, ECase::duplicate_acknowledgement })
+    {
+        const threading::ThreadConfig configuration{
+            thread_ids::executive, module_ids::executive, platform::threading::EThreadPriority::Normal,
+            entry, &modules::CBoundModule::prepare_thread, &module };
+        threading::CThreadPackage package(configuration, conversion);
+        const bool started = package.startup();
+        TEST_EXPECT(ctx, started);
+        if (!started)
+        {
+            continue;
+        }
+
+        threading::CErasedOwnerMsg request;
+        const bool received = read_request(package, request, conversion);
+        TEST_EXPECT(ctx, received);
+        const ModuleRequest* const load = request.owner().payload<ModuleRequest>();
+        TEST_EXPECT(ctx, (load != nullptr) && (load->action == EModuleAction::load) &&
+            (load->module == module_ids::render_vulkan_windows) && (load->file.length() != 0u) &&
+            (std::strcmp(load->file.cstring(), "MorphicRendering.dll") == 0));
+        const std::int32_t slot = request.query_async_slot();
+        request.take_owner().destroy();
+
+        ModuleResult result;
+        result.module = module_ids::render_vulkan_windows;
+        result.notice = EModuleNotice::acknowledged;
+        result.status = EModuleStatus::success;
+        threading::CErasedPodMsg reply;
+        reply.set_async_slot(slot);
+        if (scenario != ECase::missing_acknowledgement)
+        {
+            reply.assign_payload(result);
+            TEST_EXPECT(ctx, package.post(reply));
+        }
+        result.notice = (scenario == ECase::duplicate_acknowledgement) ?
+            EModuleNotice::acknowledged : EModuleNotice::completed;
+        result.status = (scenario == ECase::load_failure) ? EModuleStatus::binding_failed :
+            (((scenario == ECase::loaded) || (scenario == ECase::duplicate_acknowledgement)) ?
+                EModuleStatus::success : EModuleStatus::already_loaded);
+        result.available = (scenario != ECase::unavailable) && (scenario != ECase::load_failure);
+        if (scenario == ECase::wrong_implementation)
+        {
+            result.module = module_ids::render_vulkan_linux;
+        }
+        if (scenario == ECase::wrong_correlation)
+        {
+            reply.set_async_slot(slot + 1);
+        }
+        reply.assign_payload(result);
+        TEST_EXPECT(ctx, package.post(reply));
+        TEST_EXPECT(ctx, read_request(package, request, conversion));
+        if ((scenario == ECase::loaded) || (scenario == ECase::already_loaded))
+        {
+            TEST_EXPECT(ctx, request.is_message_a<RawAssetTransfer>());
+            TEST_EXPECT(ctx, request.query_async_slot() == slot + 1);
+        }
+        else
+        {
+            const ModuleRequest* const shutdown = request.owner().payload<ModuleRequest>();
+            TEST_EXPECT(ctx, (shutdown != nullptr) && (shutdown->action == EModuleAction::unload) &&
+                (shutdown->module == module_ids::executive));
+        }
+        request.take_owner().destroy();
+        package.request_exit();
+        TEST_EXPECT(ctx, package.shutdown());
+    }
+}
+
+}   //  namespace executive_startup_tests
 
 namespace
 {
@@ -275,8 +376,10 @@ void test_executive_context_and_module_unload_gate(TTestContext& ctx)
             TEST_EXPECT(ctx, failure.failure_code != 0u);
             TEST_EXPECT(ctx, failure.exit_code == failure.failure_code);
             TEST_EXPECT(ctx, executive_context->is_attribution_empty());
+            executive_startup_tests::check_rendering_notices(ctx, module, failure.entry, conversion);
+            TEST_EXPECT(ctx, executive_context->is_attribution_empty());
             TEST_EXPECT(ctx, debug_service->stop());
-            TEST_EXPECT(ctx, tests::file_contains(submission_log.c_str(), "retain_raw failed: initial request submission"));
+            TEST_EXPECT(ctx, tests::file_contains(submission_log.c_str(), "rendering_startup failed: rendering load submission"));
         }
     }
     void* const allocation = executive_context->allocate(

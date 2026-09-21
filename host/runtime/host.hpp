@@ -51,6 +51,7 @@ private:
         bg_file_io = 0u,
         bg_conditioning,
         executive,
+        rendering,
         count
     };
 
@@ -70,6 +71,8 @@ private:
     [[nodiscard]] bool initialise_runtime(const char* const executive_file) noexcept;
     [[nodiscard]] bool start_threads() noexcept;
     [[nodiscard]] bool start_executive() noexcept;
+    [[nodiscard]] bool start_rendering() noexcept;
+    [[nodiscard]] bool stop_rendering(const threading::EThreadRunState state) noexcept;
     void receive_request(threading::CErasedOwnerMsg& message, threading::CThreadPackage& executive) noexcept;
     void advance_lifecycle(const threading::EThreadRunState executive_state) noexcept;
     void executive_failure(const EModuleStatus status) noexcept;
@@ -94,7 +97,7 @@ private:
     CModuleService m_module_service;
     CErasedOwner m_executive_request;
     EPhase m_phase{ EPhase::starting };
-    std::int32_t m_thread_slots[k_thread_count]{ -1, -1, -1 };
+    std::int32_t m_thread_slots[k_thread_count]{ -1, -1, -1, -1 };
 };
 
 int host(const char* const log_tag = nullptr, const char* const executive_file = "MorphicExecutive.dll") noexcept;

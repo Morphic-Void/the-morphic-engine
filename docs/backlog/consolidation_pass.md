@@ -3,9 +3,8 @@
 Status update, 21 September 2026: the selected parser, storage, image-view and
 asset-service consolidation is complete and committed through `f74213f`.
 The subsequent asynchronous module lifecycle and asset-disposal implementation
-has completed user/coordinator review and the manual style pass and is accepted
-for commit on 21 September.
-The rendering DLL stub is the next separate stage after that commit.
+is committed as `491ce78` after user/coordinator review and the manual style pass.
+The separate rendering DLL stub is now implemented and accepted.
 
 Use [current scope](current_scope_backlog.md) and the
 [coordinator handoff](consolidation_coordinator_handoff.md) for the remaining work,

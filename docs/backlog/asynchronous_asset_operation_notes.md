@@ -7,10 +7,10 @@ caller-managed mutation convention supersede the open questions below. The image
 view is complete in commits `5b1282f` and `98ce708`; asset services and Executive
 acceptance are committed as `f74213f`. As of 21 September, the separate
 [module-worker migration](../modules/asynchronous_module_lifecycle.md) and explicit
-asset disposal are implemented, reviewed and accepted for commit. Retained assets
+asset disposal are committed as `491ce78`. Retained assets
 now live until explicit disposal, dependent-module cleanup or application exit.
-The rendering DLL stub is the next separate stage; broader deferred features
-remain deferred.
+The separate rendering DLL stub is implemented and accepted; broader
+deferred features remain deferred.
 
 ## Historical discussion: 18–19 September 2026
 

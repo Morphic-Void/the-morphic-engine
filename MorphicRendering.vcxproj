@@ -11,8 +11,8 @@
   <PropertyGroup Label="Globals">
     <VCProjectVersion>17.0</VCProjectVersion>
     <Keyword>Win32Proj</Keyword>
-    <ProjectGuid>{5e94fa12-9fc8-4504-b088-c01021527d76}</ProjectGuid>
-    <RootNamespace>MorphicLifecycleFixture</RootNamespace>
+    <ProjectGuid>{730bc2ab-3a54-445d-91ae-7f279f6fbacd}</ProjectGuid>
+    <RootNamespace>MorphicRendering</RootNamespace>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
@@ -47,15 +47,11 @@
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup>
     <OutDir>$(SolutionDir)build\bin\$(Platform)\$(Configuration)\</OutDir>
-    <FixtureRole Condition="'$(FixtureRole)'==''">MissingThread</FixtureRole>
-    <IntDir>$(SolutionDir)build\obj\$(ProjectName)\$(FixtureRole)\$(Platform)\$(Configuration)\</IntDir>
-    <TargetName>MorphicLifecycle$(FixtureRole)</TargetName>
+    <IntDir>$(SolutionDir)build\obj\$(ProjectName)\$(Platform)\$(Configuration)\</IntDir>
+    <TargetName>MorphicRendering</TargetName>
   </PropertyGroup>
   <ItemDefinitionGroup>
     <ClCompile>
-      <PreprocessorDefinitions Condition="'$(FixtureRole)'=='Executive'">MV_LIFECYCLE_EXECUTIVE=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <PreprocessorDefinitions Condition="'$(FixtureRole)'=='RenderingFailure'">MV_LIFECYCLE_RENDERING_FAILURE=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <PreprocessorDefinitions Condition="'$(FixtureRole)'=='RenderingDisposal'">MV_LIFECYCLE_RENDERING_DISPOSAL=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <WarningLevel>Level3</WarningLevel>
       <SDLCheck>true</SDLCheck>
       <ConformanceMode>true</ConformanceMode>
@@ -94,8 +90,17 @@
     <Link><AdditionalOptions>/EXPORT:morphic_module_bootstrap_v3=_morphic_module_bootstrap_v3@4 %(AdditionalOptions)</AdditionalOptions></Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="tests\module_lifecycle\fixture.cpp" />
-    <ClCompile Include="tests\environment\local_type_ids.cpp" />
+    <ClCompile Include="rendering\module\binding\rendering_binding.cpp" />
+    <ClCompile Include="rendering\module\types\local_type_ids.cpp" />
+    <ClCompile Include="rendering\runtime\rendering_thread.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="rendering\module\binding\rendering_binding.hpp" />
+    <ClInclude Include="rendering\module\types\erased_owner_payloads.def" />
+    <ClInclude Include="rendering\module\types\local_type_ids.def" />
+    <ClInclude Include="rendering\module\types\local_type_ids.hpp" />
+    <ClInclude Include="rendering\module\types\local_types.hpp" />
+    <ClInclude Include="rendering\runtime\rendering_thread.hpp" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="external\SuiteUTF\SuiteUTF.vcxproj">

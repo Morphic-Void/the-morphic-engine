@@ -159,7 +159,10 @@ normalised JSON semantics, repeated saves after live mutation, retained/discard
 inputs, optional admission-time baking, retained results after save/JSON failures,
 invalid IDs, malformed files and parse-policy rejection. Concurrent saves check
 correlation and source lifetime. Files are written under `build/`; run the engine
-from the repository root with its built Executive DLL available.
+from the repository root with its built Executive and Rendering DLLs available.
+The normal Executive first requests its Vulkan rendering module and validates
+acknowledgement and readiness before submitting the first asset operation; see
+[module startup policy](../modules/asynchronous_module_lifecycle.md).
 Diagnostic fixtures also cover undefined CP1252 input, numeric overflow,
 unterminated text and invalid policy bits, with compact failure metadata checked
 on the client and worker reports inspected in the logs.

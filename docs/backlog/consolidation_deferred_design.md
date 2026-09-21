@@ -27,8 +27,7 @@ work is complete in `d1d804c`, `42a908d` and `a75962f`; see the
 generic wrapper migration was superseded. The image view and drawing/copying
 utility are complete in `5b1282f`/`98ce708`. Concrete raw/baked/JSON/TGA services
 and Executive acceptance are complete in `f74213f`. Host-worker module lifecycle
-and explicit asset disposal are implemented, reviewed and accepted for commit on
-21 September.
+and explicit asset disposal are committed as `491ce78` on 21 September.
 
 The current [asset contract](../assets/asynchronous_asset_services.md) supports
 retained transfers, one-shot transfer/conditioning/save operations and saves by
@@ -37,7 +36,7 @@ a dependent module; they are not necessarily retained until application exit.
 The [module lifecycle](../modules/asynchronous_module_lifecycle.md) supplies the
 bounded DLL service without implementing the broader job framework below.
 
-The rendering DLL stub is the next separate stage after the current commit.
+The separate rendering DLL stub is implemented and accepted.
 Filesystem discovery/mapping, broader image operations and general lifetime/job
 mechanisms remain later design resources, not missing prerequisites of completed
 asset-service acceptance.

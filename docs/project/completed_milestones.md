@@ -65,9 +65,10 @@ Policy, whitespace and line-ending checks passed. The
 [module lifecycle reference](../modules/asynchronous_module_lifecycle.md) records
 the protocol, failure handling and exact evidence paths.
 
-The rendering DLL stub remains a separate next stage after acceptance and commit;
-the general job framework and automatic cache reclamation are not completed by
-this bounded lifecycle service.
+This stage is committed as `491ce78`. The separately authorised rendering DLL
+stub is now implemented and accepted; see the module lifecycle reference
+for its current contract and validation. Actual rendering, the general job
+framework and automatic cache reclamation remain outside this bounded service.
 
 ## Memory Ownership And Accounting
 

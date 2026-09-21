@@ -9,6 +9,7 @@
 //  Real DLL fixtures for the Host's asynchronous module lifecycle.
 
 #include <cstdlib>
+#include <cstdio>
 #include <cstring>
 #include "platform/system/performance_counter.hpp"
 #include "platform/threading/processor_relax.hpp"
@@ -65,7 +66,7 @@ static bool operation(threading::CThreadContext& context, const EModuleAction ac
     const char* const file, const std::int32_t slot, const EModuleStatus expected, const bool available,
     const system_type_id function = system_type_ids::undefined) noexcept
 {
-    if (!post(context, action, module_ids::conditioning_general, file, slot, function))
+    if (!post(context, action, module_ids::render_vulkan_windows, file, slot, function))
     {
         return false;
     }
@@ -74,8 +75,10 @@ static bool operation(threading::CThreadContext& context, const EModuleAction ac
         threading::CErasedPodMsg message;
         ModuleResult result;
         if (!receive(context, message) || !message.copy_payload_to(result) || (message.query_async_slot() != slot) ||
+            (result.module != module_ids::render_vulkan_windows) ||
             (result.notice != notice) || (result.status != ((notice == EModuleNotice::acknowledged) ? EModuleStatus::success : expected)) ||
-            ((notice == EModuleNotice::completed) && (result.available != available)))
+            ((notice == EModuleNotice::completed) && ((result.available != available) ||
+                ((expected == EModuleStatus::success) && (function != system_type_ids::undefined) && (result.function == nullptr)))))
         {
             MV_REPORT("Lifecycle fixture: operation %d notification failed", slot);
             return false;
@@ -114,11 +117,12 @@ static bool self_terminate(threading::CThreadContext& context, const char* const
 }
 
 static bool retain_raw_asset(threading::CThreadContext& context, const bool dependency,
-    CAssetId* const asset = nullptr, const mount_point_ids::id_type mount = mount_point_ids::conditioning) noexcept
+    CAssetId* const asset = nullptr, const mount_point_ids::id_type mount = mount_point_ids::render,
+    const std::size_t size = 16u) noexcept
 {
     CErasedOwner owner = CErasedOwner::create<RawAssetTransfer>();
     RawAssetTransfer* const request = owner.payload<RawAssetTransfer>();
-    if ((request == nullptr) || !request->storage.value.allocate(16u) || !request->storage.value.set_size(16u))
+    if ((request == nullptr) || !request->storage.value.allocate(size) || !request->storage.value.set_size(size))
     {
         return false;
     }
@@ -126,7 +130,7 @@ static bool retain_raw_asset(threading::CThreadContext& context, const bool depe
     {
         owner.add_hazard(mount);
     }
-    std::memset(request->storage.value.data(), 0x5a, 16u);
+    std::memset(request->storage.value.data(), 0x5a, size);
     threading::CErasedOwnerMsg transfer;
     transfer.set_message_type<RawAssetTransfer>();
     transfer.set_async_slot(20);
@@ -187,7 +191,7 @@ static bool disposal_during_saves(threading::CThreadContext& context) noexcept
     }
     //  An owning request behind the saves establishes their admission before
     //  disposal crosses the separate POD queue. The service is already loaded.
-    if (!post(context, EModuleAction::load, module_ids::conditioning_general, "MorphicLifecycleService.dll", 40))
+    if (!post(context, EModuleAction::load, module_ids::render_vulkan_windows, "MorphicRendering.dll", 40))
     {
         return false;
     }
@@ -298,8 +302,152 @@ static bool disposal_during_saves(threading::CThreadContext& context) noexcept
     return dispose_asset(context, asset, EAssetStatus::invalid_asset);
 }
 
+static bool unload_during_saves(threading::CThreadContext& context, const bool rendering_disposes = false) noexcept
+{
+    CAssetId asset;
+    if (!retain_raw_asset(context, true, &asset, mount_point_ids::render, rendering_disposes ? (1024u * 1024u) : 16u))
+    {
+        return false;
+    }
+
+    CAssetId final_asset;
+    if (rendering_disposes)
+    {
+        if (!retain_raw_asset(context, true, &final_asset))
+        {
+            return false;
+        }
+        //  Test-only configuration carries value identities, never borrowed
+        //  pointers. The fixture reads it before publishing thread readiness.
+        const CAssetId identities[]{ asset, final_asset };
+        std::FILE* file{ nullptr };
+        if (fopen_s(&file, "build/lifecycle-render-disposal.ids", "wb") != 0)
+        {
+            return false;
+        }
+        const bool written = std::fwrite(identities, sizeof(identities), 1u, file) == 1u;
+        const bool closed = std::fclose(file) == 0;
+        if (!written || !closed ||
+            !operation(context, EModuleAction::load, "MorphicLifecycleRenderingDisposal.dll", 1, EModuleStatus::success, true))
+        {
+            return false;
+        }
+    }
+
+    constexpr std::int32_t k_save_count{ 32 };
+    for (std::int32_t index = 0; index < k_save_count; ++index)
+    {
+        if (!post_save(context, asset, 200 + index))
+        {
+            return false;
+        }
+    }
+    //  This owning request follows every save on the same queue. Teardown must
+    //  retain the rendering package until accepted saves and disposal replies
+    //  finish, before destroying its transports or disposing dependent assets.
+    if (!post(context, EModuleAction::unload, module_ids::render_vulkan_windows, nullptr, 40))
+    {
+        return false;
+    }
+
+    bool saved[k_save_count]{};
+    std::int32_t save_count{ 0 };
+    bool acknowledged{ false };
+    for (;;)
+    {
+        threading::CErasedPodMsg message;
+        if (!receive(context, message))
+        {
+            return false;
+        }
+        ModuleResult module;
+        AssetResult result;
+        const std::int32_t slot = message.query_async_slot();
+        if (message.copy_payload_to(module))
+        {
+            if ((slot != 40) || (module.status != EModuleStatus::success))
+            {
+                return false;
+            }
+            if (module.notice == EModuleNotice::acknowledged)
+            {
+                if (acknowledged)
+                {
+                    return false;
+                }
+                acknowledged = true;
+            }
+            else
+            {
+                return acknowledged && !module.available && (save_count == k_save_count) &&
+                    dispose_asset(context, asset, EAssetStatus::invalid_asset) &&
+                    (!rendering_disposes || dispose_asset(context, final_asset, EAssetStatus::invalid_asset));
+            }
+        }
+        else if (message.copy_payload_to(result))
+        {
+            const std::int32_t index = slot - 200;
+            if ((index < 0) || (index >= k_save_count) || saved[index] ||
+                (result.status != EAssetStatus::success) || (result.asset != asset))
+            {
+                return false;
+            }
+            saved[index] = true;
+            ++save_count;
+        }
+        else
+        {
+            return false;
+        }
+    }
+}
+
 static bool run_case(threading::CThreadContext& context, const char* const selected) noexcept
 {
+    if (std::strcmp(selected, "render-exit-disposal") == 0)
+    {
+        return unload_during_saves(context, true) && self_terminate(context, nullptr);
+    }
+    if (std::strcmp(selected, "render-drain") == 0)
+    {
+        return operation(context, EModuleAction::load, "MorphicRendering.dll", 1, EModuleStatus::success, true) &&
+            unload_during_saves(context) && self_terminate(context, nullptr);
+    }
+    if (std::strcmp(selected, "thread-failures") == 0)
+    {
+        return operation(context, EModuleAction::load, "MorphicRendering.dll", 1, EModuleStatus::success, true) &&
+            operation(context, EModuleAction::replace, "MorphicLifecycleRenderingFailure.dll", 2, EModuleStatus::installation_failed, false) &&
+            operation(context, EModuleAction::load, "MorphicRendering.dll", 3, EModuleStatus::success, true) &&
+            operation(context, EModuleAction::unload, nullptr, 4, EModuleStatus::success, false) &&
+            operation(context, EModuleAction::load, "MorphicLifecycleRenderingFailure.dll", 5, EModuleStatus::installation_failed, false) &&
+            operation(context, EModuleAction::load, "MorphicLifecycleMissingThread.dll", 6, EModuleStatus::function_unavailable, false) &&
+            self_terminate(context, nullptr);
+    }
+    if (std::strcmp(selected, "render-shutdown") == 0)
+    {
+        return operation(context, EModuleAction::load, "MorphicRendering.dll", 1, EModuleStatus::success, true) &&
+            self_terminate(context, nullptr);
+    }
+    if (std::strcmp(selected, "render-shutdown-dependency") == 0)
+    {
+        return operation(context, EModuleAction::load, "MorphicRendering.dll", 1, EModuleStatus::success, true) &&
+            retain_raw_asset(context, true) && self_terminate(context, nullptr);
+    }
+    if (std::strcmp(selected, "render-replace-dependency") == 0)
+    {
+        CAssetId dependent;
+        CAssetId independent;
+        return operation(context, EModuleAction::load, "MorphicRendering.dll", 1, EModuleStatus::success, true) &&
+            retain_raw_asset(context, true, &dependent) && retain_raw_asset(context, false, &independent) &&
+            operation(context, EModuleAction::replace, "MorphicRendering.dll", 2, EModuleStatus::success, true) &&
+            dispose_asset(context, dependent, EAssetStatus::invalid_asset) &&
+            dispose_asset(context, independent, EAssetStatus::success) && self_terminate(context, nullptr);
+    }
+    if (std::strcmp(selected, "render-executive-replace") == 0)
+    {
+        return operation(context, EModuleAction::load, "MorphicRendering.dll", 1, EModuleStatus::success, true) &&
+            self_terminate(context, "MorphicExecutive.dll");
+    }
     if (std::strcmp(selected, "replace") == 0)
     {
         return retain_raw_asset(context, false) && self_terminate(context, "MorphicExecutive.dll");
@@ -329,7 +477,7 @@ static bool run_case(threading::CThreadContext& context, const char* const selec
     if (std::strcmp(selected, "disposal") == 0)
     {
         CAssetId asset;
-        return operation(context, EModuleAction::load, "MorphicLifecycleService.dll", 1, EModuleStatus::success, true) &&
+        return operation(context, EModuleAction::load, "MorphicRendering.dll", 1, EModuleStatus::success, true) &&
             retain_raw_asset(context, true, &asset) && dispose_asset(context, asset, EAssetStatus::success) &&
             dispose_asset(context, asset, EAssetStatus::invalid_asset) &&
             dispose_asset(context, CAssetId{}, EAssetStatus::invalid_asset) &&
@@ -337,7 +485,7 @@ static bool run_case(threading::CThreadContext& context, const char* const selec
     }
     if (std::strcmp(selected, "disposal-during-save") == 0)
     {
-        return operation(context, EModuleAction::load, "MorphicLifecycleService.dll", 1, EModuleStatus::success, true) &&
+        return operation(context, EModuleAction::load, "MorphicRendering.dll", 1, EModuleStatus::success, true) &&
             disposal_during_saves(context) &&
             operation(context, EModuleAction::unload, nullptr, 2, EModuleStatus::success, false) && self_terminate(context, nullptr);
     }
@@ -345,7 +493,7 @@ static bool run_case(threading::CThreadContext& context, const char* const selec
     {
         CAssetId dependent;
         CAssetId independent;
-        return operation(context, EModuleAction::load, "MorphicLifecycleService.dll", 1, EModuleStatus::success, true) &&
+        return operation(context, EModuleAction::load, "MorphicRendering.dll", 1, EModuleStatus::success, true) &&
             retain_raw_asset(context, true, &dependent) && retain_raw_asset(context, false, &independent) &&
             operation(context, EModuleAction::unload, nullptr, 2, EModuleStatus::success, false) &&
             dispose_asset(context, dependent, EAssetStatus::invalid_asset) &&
@@ -355,16 +503,17 @@ static bool run_case(threading::CThreadContext& context, const char* const selec
     {
         return false;
     }
-    return operation(context, EModuleAction::load, "MorphicLifecycleService.dll", 1, EModuleStatus::success, true) &&
-        operation(context, EModuleAction::load, "MorphicLifecycleService.dll", 2, EModuleStatus::already_loaded, true) &&
-        operation(context, EModuleAction::replace, "MorphicLifecycleService.dll", 3, EModuleStatus::success, true) &&
+    return operation(context, EModuleAction::load, "MorphicRendering.dll", 1, EModuleStatus::success, true,
+            system_type_ids::rendering_thread_function) &&
+        operation(context, EModuleAction::load, "MorphicRendering.dll", 2, EModuleStatus::already_loaded, true) &&
+        operation(context, EModuleAction::replace, "MorphicRendering.dll", 3, EModuleStatus::success, true) &&
         operation(context, EModuleAction::unload, nullptr, 4, EModuleStatus::success, false) &&
         operation(context, EModuleAction::unload, nullptr, 5, EModuleStatus::not_loaded, false) &&
-        operation(context, EModuleAction::load, "MorphicMissingService.dll", 6, EModuleStatus::binding_failed, false) &&
-        operation(context, EModuleAction::load, "MorphicLifecycleService.dll", 7, EModuleStatus::function_unavailable, false,
+        operation(context, EModuleAction::load, "MorphicMissingRendering.dll", 6, EModuleStatus::binding_failed, false) &&
+        operation(context, EModuleAction::load, "MorphicRendering.dll", 7, EModuleStatus::function_unavailable, false,
             system_type_ids::executive_thread_function) &&
-        operation(context, EModuleAction::load, "MorphicLifecycleService.dll", 8, EModuleStatus::success, true) &&
-        operation(context, EModuleAction::replace, "MorphicMissingService.dll", 9, EModuleStatus::binding_failed, false) &&
+        operation(context, EModuleAction::load, "MorphicRendering.dll", 8, EModuleStatus::success, true) &&
+        operation(context, EModuleAction::replace, "MorphicMissingRendering.dll", 9, EModuleStatus::binding_failed, false) &&
         self_terminate(context, nullptr);
 }
 
@@ -396,7 +545,64 @@ static std::uint32_t MV_STD_ABI_CALL executive_entry(void* const data) noexcept
     return success ? 0u : 1u;
 }
 #else
-static constexpr auto k_advertised_module_id = module_ids::conditioning_general;
+static constexpr auto k_advertised_module_id = module_ids::render_vulkan_windows;
+
+#if MV_LIFECYCLE_RENDERING_FAILURE
+static std::uint32_t MV_STD_ABI_CALL rendering_entry(void* const data) noexcept
+{
+    threading::CThreadContext context{ *static_cast<threading::CThreadResources*>(data) };
+    context.startup();
+    context.mark_failed(1u);
+    return 1u;
+}
+#elif MV_LIFECYCLE_RENDERING_DISPOSAL
+static std::uint32_t MV_STD_ABI_CALL rendering_entry(void* const data) noexcept
+{
+    threading::CThreadContext context{ *static_cast<threading::CThreadResources*>(data) };
+    context.startup();
+    CAssetId identities[2]{};
+    std::FILE* file{ nullptr };
+    if (fopen_s(&file, "build/lifecycle-render-disposal.ids", "rb") != 0)
+    {
+        context.mark_failed(1u);
+        return 1u;
+    }
+    const bool read = std::fread(identities, sizeof(identities), 1u, file) == 1u;
+    const bool closed = std::fclose(file) == 0;
+    if (!read || !closed || !identities[0] || !identities[1])
+    {
+        context.mark_failed(1u);
+        return 1u;
+    }
+
+    MV_REPORT("Rendering: Running");
+    context.mark_running();
+    std::uint32_t epoch{ 0u };
+    while (!context.exit_requested())
+    {
+        epoch = context.wait_for_new_epoch(epoch);
+    }
+
+    context.mark_exiting();
+    for (std::int32_t index = 0; index < 2; ++index)
+    {
+        threading::CErasedPodMsg disposal;
+        disposal.set_async_slot(600 + index);
+        disposal.assign_payload(AssetDisposeRequest{ identities[index] });
+        if (!context.post(disposal))
+        {
+            context.mark_failed(1u);
+            return 1u;
+        }
+    }
+    //  Do not consume replies: the Host must retain our package while the first
+    //  disposal waits for saves, and drain the final request before destroying it.
+    MV_REPORT("Lifecycle rendering: final disposals posted");
+    MV_REPORT("Rendering: Exited");
+    context.mark_exited();
+    return 0u;
+}
+#endif
 #endif
 
 static constexpr std::uint32_t k_advertised_version_minor{ 0u };
@@ -415,6 +621,12 @@ static modules::EBindingResult MV_STD_ABI_CALL query_function(const system_type_
     if (type == system_type_ids::executive_thread_function)
     {
         *function = reinterpret_cast<modules::FModuleFunction>(&executive_entry);
+        return modules::EBindingResult::success;
+    }
+#elif MV_LIFECYCLE_RENDERING_FAILURE || MV_LIFECYCLE_RENDERING_DISPOSAL
+    if (type == system_type_ids::rendering_thread_function)
+    {
+        *function = reinterpret_cast<modules::FModuleFunction>(&rendering_entry);
         return modules::EBindingResult::success;
     }
 #endif

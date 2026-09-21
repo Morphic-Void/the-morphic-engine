@@ -36,6 +36,8 @@ struct SModuleWork
     debug_system::CDebugServiceState* debug_service{ nullptr };
     const ModuleRequest* request{ nullptr };
     modules::FModuleFunction function{ nullptr };
+    modules::FModuleFunction thread_function{ nullptr };
+    bool cleanup_only{ false };
 };
 
 //==============================================================================
@@ -55,6 +57,8 @@ public:
         threading::CThreadPackage& worker,
         debug_system::CDebugServiceState* const debug_service) noexcept;
     void complete(const threading::CErasedPodMsg& message) noexcept;
+    void complete_thread_start(const bool started) noexcept;
+    void rendering_stopped() noexcept;
     [[nodiscard]] bool take_internal_result(ModuleResult& result, EPurpose& purpose) noexcept;
     [[nodiscard]] bool request_shutdown() noexcept;
     void cancel_pending() noexcept;
@@ -62,6 +66,9 @@ public:
 
     [[nodiscard]] bool is_idle() const noexcept { return !m_pending; }
     [[nodiscard]] bool is_in_flight() const noexcept { return m_in_flight; }
+    [[nodiscard]] bool needs_thread_start() const noexcept { return m_start_pending; }
+    [[nodiscard]] modules::CBoundModule* pending_binding() noexcept { return m_work.next; }
+    [[nodiscard]] modules::FModuleFunction pending_thread_function() const noexcept { return m_work.thread_function; }
     [[nodiscard]] bool releases_binding() const noexcept { return m_work.previous != nullptr; }
     [[nodiscard]] bool failed() const noexcept { return m_failed; }
     [[nodiscard]] mount_point_ids::id_type pending_mount_point() const noexcept;
@@ -77,6 +84,7 @@ private:
         modules::CBoundModule binding;
         modules::FModuleFunction function{ nullptr };
         module_ids::id_type identity{};
+        bool thread_started{ false };
     };
 
     [[nodiscard]] SModuleRecord* find(const mount_point_ids::id_type mount) noexcept;
@@ -99,6 +107,7 @@ private:
     bool m_internal_result_ready{ false };
     bool m_pending{ false };
     bool m_in_flight{ false };
+    bool m_start_pending{ false };
     bool m_failed{ false };
     std::uint32_t m_shutdown_index{ 0u };
 };

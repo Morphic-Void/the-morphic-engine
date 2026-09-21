@@ -2,9 +2,9 @@
 
 Status update, 21 September 2026: the accounting, attribution, baked storage,
 image view, concrete asset services and Executive acceptance stages are complete.
-Asynchronous DLL lifecycle and explicit asset disposal are also implemented and
-reviewed, including the manual style pass, and accepted for commit. The next separate
-stage is the rendering DLL stub after acceptance and commit of the current work.
+Asynchronous DLL lifecycle and explicit asset disposal are committed as `491ce78`
+after review and the manual style pass. The separate rendering DLL stub is now
+implemented and accepted.
 
 [Current scope](current_scope_backlog.md) and the
 [coordinator handoff](consolidation_coordinator_handoff.md) supersede the sequencing
