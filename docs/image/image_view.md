@@ -1,3 +1,11 @@
+Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited
+License: MIT (see LICENSE file in repository root)
+
+File:   image_view.md
+Author: Ritchie Brannan
+Drafting and editorial assistance: OpenAI Codex
+Date:   19 Sep 2026
+
 # Image view
 
 `image::CImageView` in `core/image/image_view.hpp` is a development utility for
@@ -132,25 +140,15 @@ invented or retained by this view.
 
 ## Validation
 
-19 September 2026: the solution built and all ordinary (`-t1`) suites passed in
-Debug and Release for x64 and x86, using `tools/invoke_sandbox_build.ps1`.
-After the style/type and incremental-rasterization refinement, `ImageView`
-reports 314,179 passing checks in each configuration. Coverage includes
-all line octants and degenerate lines, midpoint reflection, endpoint reversal,
-translated clipping, extreme signed endpoints, rectangle boundaries, copy
-clipping/transform combinations, aliased storage, read-only access, write masks,
-row padding and TGA orientation/alpha round trips. Added regression cases cover
-the 65,535 dimension boundary, rejection at 65,536, masked/unmasked line writes,
+The Core `ImageView` suite covers line octants and degenerate lines, exact midpoint
+reflection, endpoint reversal, translated clipping, extreme signed endpoints,
+rectangle boundaries, copy clipping/transforms, alias rejection, read-only access,
+write masks, row padding and TGA orientation/alpha round trips. Boundary cases
+include accepted 65,535 and rejected 65,536 dimensions, masked/unmasked lines,
 and extreme signed rectangle/copy extents against an independent wider reference.
 
-The image view measures 56 bytes on x64 and 36 bytes on x86; `EncodeOptions` is
-4 bytes on both. Retaining the smaller configuration value avoids carrying
-borrowed pointers and drawing-access state into encoding requests.
-
-Build/test logs are in the ignored `build/image-view-style-final-dbg64.log`,
-`build/image-view-style-dbg32.log`, `build/image-view-style-rel64.log` and
-`build/image-view-style-rel32.log`. Policy validation and the repository line-ending
-check passed. Asynchronous Host admission and Executive workflows were validated
-separately and are now committed in `f74213f`; see
-[asynchronous asset services](../assets/asynchronous_asset_services.md). The codec
-round trips above remain the image utility's own validation record.
+The view measures 56 bytes on x64 and 36 bytes on x86; `EncodeOptions` is 4 bytes
+on both. The smaller encoding configuration avoids carrying borrowed pointers
+and drawing-access state into encoding requests. Host admission and returned
+views follow the [asset-service contract](../assets/asynchronous_asset_services.md).
+Recorded validation is in [completed milestones](../project/completed_milestones.md).

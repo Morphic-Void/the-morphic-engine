@@ -183,8 +183,15 @@
     <None Include="$(MSBuildThisFileDirectory).gitignore" />
     <None Include="$(MSBuildThisFileDirectory)docs\architecture\architectural-principles.md" />
     <None Include="$(MSBuildThisFileDirectory)docs\data_model\baked_document_format.md" />
-    <None Include="$(MSBuildThisFileDirectory)docs\backlog\consolidation_pass.md" />
-    <None Include="$(MSBuildThisFileDirectory)docs\backlog\parser_refactoring_specification.md" />
+    <None Include="$(MSBuildThisFileDirectory)docs\README.md" />
+    <None Include="$(MSBuildThisFileDirectory)docs\backlog\consolidation_deferred_design.md" />
+    <None Include="$(MSBuildThisFileDirectory)docs\backlog\filesystem_asset_mapping.md" />
+    <None Include="$(MSBuildThisFileDirectory)docs\assets\asynchronous_asset_services.md" />
+    <None Include="$(MSBuildThisFileDirectory)docs\modules\asynchronous_module_lifecycle.md" />
+    <None Include="$(MSBuildThisFileDirectory)docs\image\image_view.md" />
+    <None Include="$(MSBuildThisFileDirectory)docs\data_model\README.md" />
+    <None Include="$(MSBuildThisFileDirectory)docs\data_model\document_parsing.md" />
+    <None Include="$(MSBuildThisFileDirectory)docs\data_model\document_text_format.md" />
     <None Include="$(MSBuildThisFileDirectory)docs\backlog\current_scope_backlog.md" />
     <None Include="$(MSBuildThisFileDirectory)docs\backlog\engine_backlog.md" />
     <None Include="$(MSBuildThisFileDirectory)docs\architecture\codebase-ethos-primer.md" />
@@ -212,7 +219,7 @@
     <None Include="$(MSBuildThisFileDirectory)docs\system\erased_owner.md" />
     <None Include="$(MSBuildThisFileDirectory)docs\system\module_bootstrap.md" />
     <None Include="$(MSBuildThisFileDirectory)docs\system\type_identity.md" />
-    <None Include="$(MSBuildThisFileDirectory)docs\threading\job_framework_milestone.md" />
+    <None Include="$(MSBuildThisFileDirectory)docs\backlog\job_framework_design.md" />
     <None Include="$(MSBuildThisFileDirectory)docs\threading\transports\TMpmcTransport.md" />
     <None Include="$(MSBuildThisFileDirectory)docs\threading\transports\TOwningTransport.md" />
     <None Include="$(MSBuildThisFileDirectory)docs\threading\transports\TQueueTransport.md" />

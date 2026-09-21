@@ -205,6 +205,18 @@ does not repeat the report; concurrent transition clusters are permitted. Retain
 the adjustment without clamping or resetting. This heuristic does not detect every
 possible wrap for arbitrary adjustment magnitudes.
 
+The primitive transfer accepts a `std::size_t` allocation count. A value beyond
+the 32-bit counter range is reported and narrowed modulo 2^32 before adjustment;
+the diagnostic does not reject the transfer.
+
+Real allocator failure remains distinct from an accounting incident: failed
+allocation reverses its reservation, and refused deallocation restores its
+subtraction. A misaligned allocation retains accounting if the allocator cannot
+release it. Reporting must not allocate through the engine's accounting path;
+the [debug service](../debug/debug_service_substrate.md) opens logs before being
+published and does not lazily reopen them while reporting. No counter-reset or
+reload-period policy is implied by diagnostic-only primitive updates.
+
 Accounting transfer must not infer deep ownership. If a container owns nested containers, the outer container's shallow memory token accounts only for its own direct storage unless the container explicitly implements and documents recursive accounting.
 
 ## Threading and observation model

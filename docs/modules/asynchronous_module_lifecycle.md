@@ -1,11 +1,16 @@
+Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited
+License: MIT (see LICENSE file in repository root)
+
+File:   asynchronous_module_lifecycle.md
+Author: Ritchie Brannan
+Drafting and editorial assistance: OpenAI Codex
+Date:   21 Sep 2026
+
 # Asynchronous module lifecycle
 
-Updated 21 September 2026 for the rendering DLL stub. The preceding module and
-asset-disposal stage is committed as `491ce78`. The rendering extension is
-implemented with lifecycle and Vulkan identity coordinator reviews complete;
-the user's style pass made no changes. The subsequent normal-Executive rendering
-startup flow has passed coordinator review. The user accepted the work and
-authorised its commit on 21 September.
+This reference describes the implemented Host DLL service, Executive startup
+policy and passive rendering module. Completion history and validation evidence
+are recorded in [completed milestones](../project/completed_milestones.md).
 
 Module loading, binding, context installation, compatibility
 checks and unloading now execute on the Host I/O worker. Both Host worker threads
@@ -178,169 +183,54 @@ worker/transport failure prevents safe unloading, cleanup retains native DLL
 references until process exit instead of attempting DLL unloading on the Host
 thread. The process exits unsuccessfully and logs the failure.
 
-## Review and validation
+## Implementation map
 
-- `core/system/transported_types.hpp`: grouped messages, notifications and their
-  consolidated type registrations.
-- `host/runtime/module_service.*`: the exclusively borrowed worker job, admission,
-  stable records and completion routing.
-- `host/runtime/host.cpp`: bootstrap, Executive transitions and shutdown ordering.
+- `core/system/transported_types.hpp`: requests, notices and worker exchange.
+- `host/runtime/module_service.*`: admission, stable records, worker-job lifetime
+  and completion routing, including thread-start completion.
+- `host/runtime/host.cpp`: bootstrap, queue draining and thread/package lifetime.
 - `host/runtime/host_worker_thread.cpp`: shared binding/unbinding handlers.
-- `rendering/module/binding/*` and `rendering/runtime/*`: standard module binding
-  and the minimal wait-for-exit thread.
-- `tests/module_lifecycle/fixture.cpp`: Executive driver and deliberate rendering
-  missing-export/startup-failure and disposal-at-exit DLL fixtures.
-- `tests/module_lifecycle/run_tests.ps1`: maintained integration harness, rather
-  than a one-off editing script. It builds the four fixture roles of the standalone
-  `MorphicLifecycleFixture.vcxproj` and runs the Host in separate processes.
+- `rendering/module/binding/*` and `rendering/runtime/*`: module binding and the
+  passive wait-for-exit thread.
+- `executive/runtime/executive_thread.cpp`: renderer selection and readiness gate.
 
-The harness checks acknowledgement/completion ordering; load, replacement and
-unload success; duplicate and missing modules; missing required functions;
-unavailable service after failed replacement; explicit asset disposal, invalid
-and stale identities, disposal after queued saves, independent asset preservation,
-and assertion-based dependency cleanup before ordinary unload, Executive
-replacement and shutdown;
-Executive exit requests without notifications; successful Executive replacement;
-failed replacement, failed bootstrap and Executive thread startup failures before
-and after replacement. It checks exit codes, assertion counts
-and that module execution is reported by the I/O worker. Successful replacement
-runs the normal Executive's 48 sequential and 32 concurrent asset operations while
-an asset retained from the outgoing Executive remains owned by the Host.
+## Validation
 
-Example: `tests/module_lifecycle/run_tests.ps1 -Configuration Debug -Platform x64`.
-Use `Win32` for x86 and `-SkipBuild` when the matching solution and fixture DLLs
-have already been built. The ordinary Core suites also cover dependency lookup,
-selective dependency disposal and compact module/disposal-message compatibility.
+Run `tests/module_lifecycle/run_tests.ps1 -Configuration Debug -Platform x64`
+from PowerShell. The script builds the solution and four roles of the standalone
+`MorphicLifecycleFixture.vcxproj`, then launches isolated Host processes.
+Use `Release` and/or `Win32` for other configurations; `-SkipBuild` requires all
+matching solution and fixture binaries to have already been built.
 
-All twelve lifecycle scenarios and the Core suites passed in Debug/Release on
-x64/Win32, with solution and fixture builds, policy validation, diff whitespace
-and repository line-ending checks passing. Validation evidence for
-the disposal revision is recorded in `build/module-disposal-*-lifecycle.log`
-and `build/module-disposal-*-tests.log`; each lifecycle log names its exact
-process event logs.
+The fixture project is maintained test infrastructure outside the solution.
+It produces the Executive driver, missing-thread-export, failed-thread-start
+and disposal-at-exit DLLs. Successful rendering service cases use the real stub.
+The production renderer contains no test switches. Adding the fixture project
+to the solution for IDE visibility is not required by the harness.
 
-The 21 September review pass consolidates the module headers, groups transported
-types and registrations, adds the missing worker request diagnostics and tidies
-spacing, comments and enum initialisers. That stage was accepted and committed
-before the rendering extension described above.
+The 23 process cases cover:
 
-After that tidy-up, the Core suites and all twelve lifecycle scenarios passed
-again in Debug/Release x64/Win32. Evidence is in
-`build/module-review-{dbg64,rel64,dbg32,rel32}-{lifecycle,tests}.log`.
-The Debug replacement log also confirms the added module and document request
-diagnostics on the I/O and conditioning workers respectively.
+- Correlated acknowledgement/completion, normal and duplicate loads, missing
+  files/functions, replacement and unavailable service after failure.
+- Executive bootstrap, self-shutdown without notifications, replacement and
+  startup failures; selector Executives that never load rendering.
+- Rendering load/unload/replacement, failed startup cleanup and Vulkan identity.
+  A renderer survives Executive replacement and is reused without a second thread.
+- Normal Executive startup and unavailable-renderer shutdown before asset work.
+  Successful startup/replacement runs 48 sequential and 32 concurrent asset cases.
+- Explicit disposal, invalid/stale IDs, saves admitted before disposal, dependent
+  cleanup and preservation of unrelated retained assets.
+- Disposal requests posted by rendering immediately before terminal publication:
+  the final queue is drained and replies finish before package destruction.
 
-The user's manual style pass and coordinator check are complete. A fresh Debug
-x64 build, all twelve lifecycle scenarios and the Core suites passed afterwards:
-`build/module-manual-style-dbg64-lifecycle.log` and
-`build/module-manual-style-dbg64-tests.log`. Whitespace and line-ending checks
-also passed. These final checks do not claim a fresh four-configuration run
-after formatting-only edits; the preceding matrix remains recorded above.
+Checks include process status, notification order, saved bytes, dependency
+assertions, exit/join/unload ordering and I/O-worker attribution. In Debug the
+exit-disposal regression must actually defer a reply for accepted saves, so it
+cannot pass merely by missing the pending-operation condition. Missing/failing
+normal-renderer tests use isolated binary copies under `build/`.
 
-### Rendering extension validation
-
-The rendering stage passed solution and three-role fixture builds, all 18
-lifecycle scenarios, and the Core `-t1` suites in Debug/Release x64/Win32.
-The six added cases cover failed rendering startup on load and replacement,
-the mandatory missing thread export, shutdown with a live rendering thread,
-dependent cleanup on rendering shutdown/replacement, rendering survival across
-Executive replacement, and unloading after 32 accepted saves. Existing ordinary
-operations and disposal cases now run against the real threaded rendering DLL.
-
-The harness checks thread exit before join, join before rendering unload or
-dependency disposal, matching start/join counts, worker-only DLL operations,
-reply ordering, expected assertion counts and process exit status. It also
-checks that rendering stays active throughout the replacement Executive's
-48 sequential and 32 concurrent asset operations.
-
-Evidence from 21 September:
-
-- `build/rendering-lifecycle-debug-x64-final.log`: 18 cases, process tag
-  `lifecycle-ceebcec7` (build evidence in `build/rendering-build-debug-x64.log`
-  and `build/rendering-lifecycle-debug-x64.log`).
-- `build/rendering-lifecycle-release-x64.log`: 18 cases, `lifecycle-66ed0ba2`.
-- `build/rendering-lifecycle-debug-win32.log`: 18 cases, `lifecycle-8d3b9e95`.
-- `build/rendering-lifecycle-release-win32.log`: 18 cases, `lifecycle-7d3147ed`.
-- `build/rendering-core-{debug-x64,release-x64,debug-win32,release-win32}.log`:
-  all Core suites passed with exit code zero.
-
-The final explicit rendering-survival assertion was also checked against all
-four recorded process logs. Policy builds reported no errors or warnings;
-whitespace and tracked-file line-ending checks passed, and the new files were
-checked separately for LF source/project text and CRLF filter metadata. An
-initial sandboxed Core attempt encountered DebugService log/service failures;
-the unrestricted rerun passed. Validation covers Windows Debug/Release, not the
-Development configuration or other operating systems.
-
-### Coordinator review: rendering package lifetime
-
-Review identified that a rendering-originated disposal could retain a reply
-pointer to its package after the initial teardown destroyed it. Sampling terminal
-state after the queue drain could also lose a final request. The correction now
-samples rendering state before queue draining and retains the stopped package
-and transports until accepted asset operations are idle. Only then does the Host
-join/destroy the package and proceed to dependency cleanup and unbinding.
-
-The `RenderingDisposal` fixture posts two valid asset disposals during exit. The
-first waits for accepted saves; the second is the final request before terminal
-publication. The Executive confirms both identities are stale after unload, the
-saved 1 MiB contents are intact, and no dependency-cleanup assertion was needed.
-Debug diagnostics additionally require an actually deferred first disposal and
-both completions before package teardown, so a run that misses the pending-save
-condition cannot silently pass. The production rendering stub remains passive.
-
-After this correction, solution/four-role fixture builds and all 19 lifecycle
-cases passed in Debug/Release x64/Win32. Evidence is in
-`build/rendering-review-lifecycle-{debug-x64,release-x64,debug-win32,release-win32}.log`,
-with process tags `16f1a0db`, `02f00f95`, `c6d722cd` and `201611b9` respectively.
-Whitespace and tracked-file line-ending checks passed again. Core sources and
-tests were unchanged by this correction; their passing matrix above was not
-repeated. Final coordinator review verified the correction and recorded log
-ordering with no outstanding findings. The user subsequently accepted the work
-and authorised its commit on 21 September.
-
-### Vulkan identity selection
-
-The subsequent user-directed identity change selects the existing
-`render_vulkan_windows` identity for the stub and its lifecycle fixtures.
-Project/DLL names, mounting point, thread identity and lifecycle behavior are
-unchanged. Tests now also check reply identities and Vulkan thread attribution.
-Solution/four-role fixture builds and all 19 lifecycle cases passed in
-Debug/Release x64/Win32; evidence is in
-`build/rendering-vulkan-lifecycle-{debug-x64,release-x64,debug-win32,release-win32}.log`
-with tags `d4c92891`, `d500ff75`, `02b9f4b3` and `72efd068` respectively.
-Whitespace and line-ending checks passed. Unchanged Core suites were not repeated.
-Coordinator review verified the identity changes and validation evidence with no
-outstanding findings. This follow-up is included in the accepted rendering stage.
-
-### Normal Executive rendering startup
-
-The later startup-policy follow-up moves the rendering choice into the normal
-Executive's first owning request, followed by correlated acknowledgement and
-completion phases. The 48 sequential/32 concurrent asset acceptance flow begins
-only after a successful, available matching renderer result, including the
-explicit `already_loaded` case after Executive replacement.
-
-All 23 lifecycle cases and Core `-t1` suites passed in Debug/Release x64/Win32.
-The four new process cases cover normal startup and orderly Executive self-unload
-for a missing rendering DLL, failed rendering thread startup and missing thread
-export. Failure cases use isolated binary copies under `build/`, leaving the
-normal binaries intact. Existing selector cases require zero rendering starts;
-the survival case requires the replacement Executive to reuse its one renderer.
-
-The real-Executive tests in `ErasedOwner_test_suite.cpp` additionally cover
-successful/new and already-loaded readiness, unavailable or wrong-implementation
-results, load failure, completion before acknowledgement, wrong correlation and
-duplicate acknowledgement. The existing initial submission-failure regression
-now checks the rendering request diagnostic. The suite passed 631 checks in each
-configuration, with no residual Executive memory attribution.
-
-Evidence is in
-`build/executive-rendering-lifecycle-{debug-x64,release-x64,debug-win32,release-win32}.log`
-(tags `0d3b933a`, `87ef5f2e`, `91404227`, `68912f1c`) and
-`build/executive-rendering-core-{debug-x64,release-x64,debug-win32,release-win32}.log`.
-The Debug Core rebuild is recorded separately in
-`build/executive-rendering-core-build-debug-x64.log`. Build policy, whitespace and
-line-ending checks passed. Coordinator review verified the startup flow, protocol
-tests and recorded lifecycle evidence with no outstanding findings. This follow-up
-is accepted for commit; fixture project solution membership is unchanged.
+Core `MorphicTests -t1` covers dependency disposal and compact message compatibility.
+Its real-Executive protocol tests exercise successful and already-loaded replies,
+wrong identity/correlation, unavailable service, load failure, missing/duplicate
+acknowledgement and initial submission failure. The test script and suites are
+the executable coverage inventory; milestone counts describe dated runs.

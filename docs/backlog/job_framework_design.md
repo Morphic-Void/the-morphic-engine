@@ -1,19 +1,18 @@
 Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited
 License: MIT (see LICENSE file in repository root)
 
-File:   job_framework_milestone.md
+File:   job_framework_design.md
 Primary draft: OpenAI tools
 Reviewed and accepted by: Ritchie Brannan
 Date:   7 Aug 2026
 
-# Host-Owned Job Framework Milestone
+# Host-Owned Job Framework Design
 
-Status, 21 September 2026: this is a deferred design milestone. The implemented
-[asynchronous module lifecycle](../modules/asynchronous_module_lifecycle.md)
-loads and unloads DLLs through a Host worker, but does not implement the provider,
-scheduler or executable-obligation framework described here. The rendering
-DLL stub is now implemented as a separate bounded thread-lifecycle stage and
-is accepted; it does not execute scheduled jobs.
+Status, 21 September 2026: future design, not an implemented scheduler.
+The [module lifecycle service](../modules/asynchronous_module_lifecycle.md)
+and rendering stub are complete, but do not implement the provider, scheduler
+or executable-obligation framework below. This design becomes relevant when a
+module needs scheduled job work; it is not a missing prerequisite of the stub.
 
 ## Purpose
 

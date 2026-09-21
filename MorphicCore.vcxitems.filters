@@ -142,6 +142,15 @@
     <Filter Include="Docs\architecture">
       <UniqueIdentifier>{a1440ed4-93de-4c9e-bc15-49167e863fa8}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Docs\assets">
+      <UniqueIdentifier>{a09f97a3-e95e-4773-ae43-f6da3ee12607}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Docs\modules">
+      <UniqueIdentifier>{81c52ec1-8117-4e30-812a-c8a8c42dc3ac}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Docs\image">
+      <UniqueIdentifier>{9d85204b-efe3-4623-a619-c2a46adfb2cf}</UniqueIdentifier>
+    </Filter>
     <Filter Include="Docs\backlog">
       <UniqueIdentifier>{acb9d1d1-fcda-ef05-9aeb-a066f8537d31}</UniqueIdentifier>
     </Filter>
@@ -667,6 +676,33 @@
     <None Include="$(MSBuildThisFileDirectory)docs\architecture\architectural-principles.md">
       <Filter>Docs\architecture</Filter>
     </None>
+    <None Include="$(MSBuildThisFileDirectory)docs\README.md">
+      <Filter>Docs</Filter>
+    </None>
+    <None Include="$(MSBuildThisFileDirectory)docs\backlog\consolidation_deferred_design.md">
+      <Filter>Docs\backlog</Filter>
+    </None>
+    <None Include="$(MSBuildThisFileDirectory)docs\backlog\filesystem_asset_mapping.md">
+      <Filter>Docs\backlog</Filter>
+    </None>
+    <None Include="$(MSBuildThisFileDirectory)docs\assets\asynchronous_asset_services.md">
+      <Filter>Docs\assets</Filter>
+    </None>
+    <None Include="$(MSBuildThisFileDirectory)docs\modules\asynchronous_module_lifecycle.md">
+      <Filter>Docs\modules</Filter>
+    </None>
+    <None Include="$(MSBuildThisFileDirectory)docs\image\image_view.md">
+      <Filter>Docs\image</Filter>
+    </None>
+    <None Include="$(MSBuildThisFileDirectory)docs\data_model\README.md">
+      <Filter>Docs\data_model</Filter>
+    </None>
+    <None Include="$(MSBuildThisFileDirectory)docs\data_model\document_parsing.md">
+      <Filter>Docs\data_model</Filter>
+    </None>
+    <None Include="$(MSBuildThisFileDirectory)docs\data_model\document_text_format.md">
+      <Filter>Docs\data_model</Filter>
+    </None>
     <None Include="$(MSBuildThisFileDirectory)docs\backlog\current_scope_backlog.md">
       <Filter>Docs\backlog</Filter>
     </None>
@@ -742,8 +778,8 @@
     <None Include="$(MSBuildThisFileDirectory)docs\system\type_identity.md">
       <Filter>Docs\system</Filter>
     </None>
-    <None Include="$(MSBuildThisFileDirectory)docs\threading\job_framework_milestone.md">
-      <Filter>Docs\threading</Filter>
+    <None Include="$(MSBuildThisFileDirectory)docs\backlog\job_framework_design.md">
+      <Filter>Docs\backlog</Filter>
     </None>
     <None Include="$(MSBuildThisFileDirectory)docs\threading\transports\TMpmcTransport.md">
       <Filter>Docs\threading\transports</Filter>
@@ -771,12 +807,6 @@
     </None>
     <None Include="$(MSBuildThisFileDirectory)docs\data_model\baked_document_format.md">
       <Filter>Docs\data_model</Filter>
-    </None>
-    <None Include="$(MSBuildThisFileDirectory)docs\backlog\consolidation_pass.md">
-      <Filter>Docs\backlog</Filter>
-    </None>
-    <None Include="$(MSBuildThisFileDirectory)docs\backlog\parser_refactoring_specification.md">
-      <Filter>Docs\backlog</Filter>
     </None>
   </ItemGroup>
   <ItemGroup>

@@ -18,18 +18,14 @@ Use:
 
 - `docs/backlog/current_scope_backlog.md` for active priorities;
 - `docs/backlog/engine_backlog.md` for the broader backlog;
-- `docs/backlog/consolidation_pass.md` for parser and Host consolidation;
+- [Deferred design](../backlog/consolidation_deferred_design.md) for resource
+  and lifecycle ideas, and [job framework design](../backlog/job_framework_design.md)
+  for future scheduled execution;
 - `completed_milestones.md` for completed cross-cutting work;
 - subsystem documents for implemented behavior.
 
 Remove notes from this file when they are completed, rejected, or promoted into
 a permanent subsystem contract.
-
-## Debug Infrastructure
-
-For `CErasedOwnerTransport`, an unexpected read-time reattribution failure is
-an accounting or corruption boundary. The item is still delivered rather than
-discarded, and the critical-reporting path records the violation.
 
 ## Erased Payload Context
 

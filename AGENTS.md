@@ -22,3 +22,17 @@ newline.
 
 `tools/check_line_endings.ps1` enforces the CRLF working-tree form while
 allowing the missing final newline for these Visual Studio-managed files.
+
+## Working arrangement
+
+Work directly in the shared main checkout unless the user requests otherwise;
+do not create a branch or worktree automatically. Preserve unrelated user/task
+changes and coordinate edits when multiple tasks share the checkout.
+
+Create a separate implementing task only when the user asks. Discuss substantive
+design choices with the user; completed consolidation plans are not authority
+to begin future work. Commit only on explicit user instruction and after any
+applicable coordinator review. The user performs pushes; do not push.
+
+Do not repeat passing validation matrices without a new change or unresolved
+concern. Preserve the user's manual formatting when editing nearby code.

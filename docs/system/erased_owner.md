@@ -138,14 +138,18 @@ setter.
 payload's nested ownership against a proposed target context.
 
 `reattribute()` gathers the carrier and nested payload allocation count and
-size, performs one accounting transaction, then replaces every participating
-token context without further accounting. Carrier type, payload address, and
+size, performs one aggregate accounting adjustment, then replaces every
+participating token context without further accounting. Carrier type, payload address, and
 hazards remain unchanged. Empty owners succeed without becoming configured,
 preserving canonical emptiness.
 
-Current registered owner payloads contain either `CByteBuffer` or
-`CByteRectBuffer`. Their context replacement hooks remain private and are
-available only to the carrier transaction.
+Registered payloads include byte and image storage, baked and live documents,
+and owning request envelopes. The catalogue in
+`core/system/system_erased_owner_payloads.def` selects each payload's nested
+storage member. Those owners expose the common attribution interface, including
+explicitly unsafe context replacement without accounting. The carrier uses
+that hook only after preflight and the aggregate adjustment; see the
+[uniform attribution contract](../memory/memory_subsystem.md).
 
 For LOCAL identity, both source and target memory contexts must belong to the
 currently executing component's ambient module. This is checked even for a
@@ -191,16 +195,19 @@ Identity is not revalidated on read. The owning read side exists to perform
 the required memory re-attribution as ownership exits the transport.
 
 Transport and recipient allocator compatibility is validated before
-initialisation and ordinary operation. A read-time accounting failure still
-delivers the item and triggers `MV_CRITICAL_ASSERT`; it is not treated as an
-ordinary incompatibility or disposed of.
+initialisation and ordinary operation. An unexpected read-time reattribution
+failure still delivers the item and triggers `MV_CRITICAL_ASSERT`; it is not
+treated as an ordinary incompatibility or disposed of. Accounting discrepancies
+alone cannot cause that failure: the primitive reports them without rejecting
+reattribution. The assertion protects structural/ownership invariants after
+successful preflight; see [memory accounting](../memory/memory_subsystem.md).
 
 Thin producer and consumer endpoints expose only their role-specific wrapper
 operations. The underlying `TOwning` and context mutation are not exposed.
 Plain transports remain non-reattributable.
 
 `MV_CRITICAL_ASSERT` remains reserved for failures that represent broken
-architecture or accounting contracts after successful admission.
+architecture or ownership contracts after successful admission.
 
 ## Virtual Interface Boundary
 

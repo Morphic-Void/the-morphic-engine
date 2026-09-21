@@ -12,8 +12,8 @@ Updated 21 September 2026. This consolidates unresolved scope from the interim
 capture. The parser, image view, concrete asset services and Executive acceptance
 are complete. The asynchronous module/disposal work is committed; the separate
 rendering DLL stub is implemented and accepted. Actual rendering remains
-deferred. The
-[consolidation plan](consolidation_pass.md) preserves the earlier design record.
+deferred. The [deferred design](consolidation_deferred_design.md) preserves
+future ideas and unresolved questions from that work.
 [Current scope](current_scope_backlog.md) sets priorities.
 [Completed milestones](../project/completed_milestones.md) records delivered work.
 The sections below are deferred scope, not an implementation schedule.
@@ -63,7 +63,9 @@ The sections below are deferred scope, not an implementation schedule.
 Build Windows and Linux modules around system/event pumps, HID/input, windows,
 dialogs and rendering surfaces. Native thread primitives and thread creation
 remain below these modules; Host thread provisioning and TLS remain separate.
-Host ownership and worker authority are settled in the consolidation plan.
+Host ownership and worker authority are documented in the
+[asset](../assets/asynchronous_asset_services.md) and
+[module](../modules/asynchronous_module_lifecycle.md) references.
 
 ## Data-model follow-ons
 
@@ -94,8 +96,10 @@ are consumers. No detailed typed-data architecture is settled here.
   Runtime rendering must accept both offline and on-demand conditioned data.
 - Keep image conversion, compression/decompression and graphics asset
   conditioning separable from pipeline conditioning, for runtime and offline use.
-- Build a swappable renderer/RHI with Vulkan and DirectX baselines and possible
-  later APIs. A renderer may request an RHI thread; the Host owns and provisions it.
+- Build a swappable renderer/RHI with Vulkan as the primary first implementation.
+  DirectX and other APIs are deferred. A renderer may request an RHI thread;
+  the Host owns and provisions it. The existing passive rendering DLL is a
+  lifecycle foundation, not a graphics implementation.
 
 ## Maths and geometry
 
@@ -121,6 +125,18 @@ gameplay integration rather than owning the primitive geometry library.
   spreadsheet inputs where useful.
 - Retain a small, rendering-independent Katakana UTF-8 conditioning facility
   as a specialised future consumer, separate from localisation itself.
+
+## Resource and execution design
+
+- [Filesystem mapping](filesystem_asset_mapping.md): discovery, source resolution,
+  storage locations and immutable catalogue publication.
+- [Deferred design](consolidation_deferred_design.md): reference counting/cache
+  eviction, document navigation, fixed-layout save-game updates, bundled outputs,
+  module accounting periods, overlays, trust and later image transforms.
+- [Job framework](job_framework_design.md): provider execution, dependencies,
+  runner groups and unload obligations beyond the current bounded services.
+
+These documents preserve design context and alternatives, not selected work.
 
 ## Higher-level consumers
 

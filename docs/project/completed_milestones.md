@@ -18,57 +18,127 @@ Permanent behavior and architectural contracts belong in the subsystem
 documents linked from each milestone. Current and future work belongs in
 `future_work_notes.md` and the backlog.
 
-## September consolidation: document, image and asset services
+## September consolidation: documents, storage, images and assets
 
-Completed and committed by 20 September 2026:
+The selected consolidation is complete, including the rendering follow-up on
+21 September 2026. The committed checkpoints are:
 
-- `e60407f` completes shared document reports, byte-view parsing and the permanent
-  text/reporting documentation after the parser/model/writer and style passes.
-- `d1d804c`, `42a908d` and `a75962f` establish diagnostic-only memory accounting,
-  uniform container/live-document attribution and baked-document storage with
-  version-4 stored offsets, on-demand views and aligned file loading.
-- `5b1282f` and `98ce708` add the image view over 8-bit/32-bit storage, clipped
-  drawing/copying, channel write masks and TGA encoding configuration.
-- `f74213f` consolidates raw, baked, JSON and TGA asynchronous asset operations.
-  It supports retained and one-shot transfers, conditioning on the Host worker,
-  file I/O on the I/O worker, compact borrowed-view results and failure diagnostics.
-  The Executive exercises 48 sequential and 32 concurrent asset operations.
-  The legacy client TGA flow and redundant catalogue identities are retired.
+| Checkpoint | Delivered outcome | Permanent reference |
+| --- | --- | --- |
+| `d1d804c` | Diagnostic-only accounting updates; explicit debug-log provisioning prevents recursive allocation during reporting. | [Memory](../memory/memory_subsystem.md), [debug service](../debug/debug_service_substrate.md) |
+| `42a908d` | Uniform attribution observations and context replacement across containers and live documents. | [Memory infrastructure](../memory/memory_subsystem.md#container-facing-accounting) |
+| `a75962f` | Byte-buffer-owned baked blocks, borrowed views constructed on demand, aligned loading and version-4 stored offsets. | [Baked format and storage](../data_model/baked_document_format.md) |
+| `e60407f` | Shared document reports and the byte-view parser API, following grammar/policy migration and manual style review. | [Document references](../data_model/README.md) |
+| `5b1282f`, `98ce708` | Image view, clipped drawing/copying, write masks, TGA configuration and incremental line rasterisation. | [Image view](../image/image_view.md) |
+| `f74213f` | Raw/baked/JSON/TGA asset services, retained and one-shot operations, compact borrowed results and worker diagnostics. | [Asset services](../assets/asynchronous_asset_services.md) |
 
-These checkpoints passed their recorded Debug/Release x64/Win32 builds and Core
-suites; service integration also passed the Executive acceptance flow. Exact
-contracts and validation are in the [image](../image/image_view.md),
-[asset](../assets/asynchronous_asset_services.md) and
-[data-model](../data_model/README.md) references.
+Accounting no longer makes valid allocation, deallocation or reattribution fail
+solely because diagnostic totals disagree. Structural ownership and allocator
+compatibility checks remain. The uniform interface distinguishes empty, coherent
+and mixed backing independently of totals, performs fresh preflight and includes
+unallocated children in context replacement. Tests cover modular accounting,
+nonallocating diagnostics, nested aggregates, complete ownership and rejected
+transfers. All four Debug/Release x64/Win32 builds and Core suites passed.
+Recorded runs include `uniform-attribution-final-{dbg64,rel64,dbg32,rel32}`.
+
+Baked-storage validation covered all stored offsets/reserved fields, exact extent
+versus rounded capacity, immutable allocation-free borrowed views, rejected
+adoption preserving both owners and direct aligned loading. Four configurations
+passed 1,711 baked-document and 568 transfer checks at the version-4 checkpoint;
+`baked-v4-{dbg64,rel64,dbg32,rel32}` records those runs. These counts are historical.
+
+Parser/report consolidation completed both refactoring stages, recovery-array
+retirement, parameter const and the manual style checkpoints (`8d5ca1d`,
+`ab3d81f`). The final shared report/API and permanent grammar/report documentation
+were committed in `e60407f`; superseded migration interfaces are not pending work.
+Their builds, Core suites, policy and line-ending checks passed on all four
+Windows configurations.
+
+Image refinement passed 314,179 ImageView checks per configuration, including
+extreme coordinates, midpoint behaviour, clipped transformed copies and masks.
+Evidence: `build/image-view-style-final-dbg64.log` and
+`build/image-view-style-{dbg32,rel64,rel32}.log`.
+
+Asset integration passed 48 sequential and 32 concurrent Executive operations
+per configuration. Tests cover retained/discarded inputs, source-preserving
+failure outcomes, document policy, binary/JSON/TGA round trips, malformed data,
+correlation and lifetime. Legacy client TGA messages and redundant catalogue IDs
+were retired. The readability pass gave operations/scenarios explicit names and
+expectations, separated published views from owned storage, and centralised
+completion construction and dispatch. Existing data-model algorithms were unchanged.
+Evidence: `build/asset-review-*`, `build/asset-retire-*` and the final Debug x64
+`build/asset-defaults-dbg64-*` checks after the user's style pass.
 
 ## Asynchronous module lifecycle and asset disposal
 
-Implemented and reviewed as of 21 September 2026, including the user's manual
-style pass and coordinator verification. The user authorised committing this
-milestone on 21 September.
+Completed on 21 September 2026 in `491ce78`, after coordinator review and the
+user's manual style pass.
 
-- DLL load/bind and unbind/unload run on the Host I/O worker. Workers share their
-  operation handlers, preserving later optional coalescing.
-- The Host bootstraps without the Executive and starts it after asynchronous
-  binding. Other-module requests receive acknowledgement and completion;
-  Executive self-termination receives neither and immediately requests thread exit.
-- Self-unload shuts down the system. Failed Executive replacement logs an
-  assertion and shuts down; failed ordinary replacement leaves the service
-  unavailable for the Executive to handle.
-- Explicit disposal waits for accepted asset operations. Before DLL unload,
-  remaining dependent assets trigger an assertion log and are destroyed while
-  the DLL is still loaded. Independent assets survive replacement.
+- DLL load/bind and unbind/unload execute on the Host I/O worker. Both Host
+  workers share handlers, allowing later optional coalescing.
+- The Host starts without Executive code, binds asynchronously and then starts
+  its thread. Ordinary requests receive acknowledgement and completion.
+- Executive self-termination requests exit immediately and receives no reply.
+  Self-unload shuts down; failed self-replacement logs an assertion and shuts down.
+  Ordinary replacement failure leaves the service unavailable without rollback.
+- Explicit disposal waits for accepted operations. Before unload, dependent
+  retained assets trigger an assertion log and are disposed of while the DLL
+  remains loaded. Unrelated assets survive replacement.
 
-All twelve lifecycle scenarios and Core suites passed in Debug/Release x64/Win32
-after the review tidy-up. Debug x64 passed again after the manual style pass.
-Policy, whitespace and line-ending checks passed. The
-[module lifecycle reference](../modules/asynchronous_module_lifecycle.md) records
-the protocol, failure handling and exact evidence paths.
+All twelve then-current lifecycle scenarios and Core suites passed in
+Debug/Release x64/Win32. Debug x64 passed again after manual style review.
+Evidence: `build/module-review-{dbg64,rel64,dbg32,rel32}-{lifecycle,tests}.log`
+and `build/module-manual-style-dbg64-{lifecycle,tests}.log`.
+The [module reference](../modules/asynchronous_module_lifecycle.md) documents
+the protocol, failure handling and test entry points.
 
-This stage is committed as `491ce78`. The separately authorised rendering DLL
-stub is now implemented and accepted; see the module lifecycle reference
-for its current contract and validation. Actual rendering, the general job
-framework and automatic cache reclamation remain outside this bounded service.
+## Rendering stub and Executive-controlled startup
+
+Completed on 21 September 2026 in `f91ded3`, after coordinator and user review.
+`MorphicRendering` is a separate solution DLL using `render_vulkan_windows`.
+It provisions a module thread which parks until exit; no graphics API is implemented.
+Vulkan is the primary first rendering target; DirectX remains deferred.
+
+The normal Executive chooses and requests rendering, validates acknowledgement
+then readiness and reuses an available matching renderer after Executive
+replacement. Selector Executives can omit rendering. Missing/unavailable services
+and invalid replies cause the normal Executive to request system shutdown.
+The Host does not independently select or bootstrap a rendering implementation.
+
+Rendering load completion includes successful thread startup; failed startup is
+cleaned up on the I/O worker. Teardown observes terminal state before draining
+final requests and retains the package/transports until accepted replies complete.
+It then joins/destroys the package, cleans dependencies and dispatches unload.
+Coordinator review identified and corrected the original package-lifetime gap;
+a fixture proves deferred disposal and a final exit request complete before teardown.
+
+Solution/four-role fixture builds, all 23 lifecycle cases and Core `-t1` suites
+passed in Debug/Release x64/Win32. Core coverage includes 631 ErasedOwner checks
+at this checkpoint, exercising the real Executive's readiness protocol and
+failed initial submission. Identity, reuse, renderer-free selectors, startup
+failures, disposal ordering and output contents are checked by the harness.
+Policy, whitespace and line-ending checks passed. Development configuration and
+non-Windows execution were not validated by these runs.
+
+Evidence: `build/executive-rendering-lifecycle-{debug-x64,release-x64,debug-win32,release-win32}.log`
+and corresponding `build/executive-rendering-core-*.log`; process tags are
+`0d3b933a`, `87ef5f2e`, `91404227` and `68912f1c` respectively. Logs are local
+ignored artifacts, not files guaranteed to exist in a fresh checkout.
+
+## Consolidation documentation closeout
+
+Completed plans, review notes and task handoffs have been retired from the active
+documentation. Their final contracts are in the memory/debug, data-model, image,
+asset and module references above. This record retains completion evidence;
+the original deliberations and intermediate validation remain in Git history.
+
+Future ideas were preserved in [deferred design](../backlog/consolidation_deferred_design.md),
+[filesystem mapping](../backlog/filesystem_asset_mapping.md),
+[job framework design](../backlog/job_framework_design.md), the engine backlog
+and schema documents. The deferred record distinguishes implemented services,
+open choices and rejected alternatives, including accounting-period reset,
+bundled outputs, possible baked save-game mutation and message-validity proposals.
+No future system is marked implemented by this documentation cleanup.
 
 ## Memory Ownership And Accounting
 
@@ -302,7 +372,7 @@ remain in the [engine backlog](../backlog/engine_backlog.md).
 Completed September 2026. The former stage-by-stage roadmap is replaced by this
 outcome record. The implementation is available and tested; the parser/reporting
 contract and ownership API were subsequently consolidated as recorded above.
-The [consolidation plan](../backlog/consolidation_pass.md) preserves that history.
+The original migration history remains in Git; current contracts are linked below.
 
 - Added container observations for valid stable-string counts and O(1)
   slot-to-key conversion without new persistent state.
@@ -354,8 +424,8 @@ asset-service milestone above and committed as `f74213f`.
 ## Linter and shared diagnostic refactor: stage 1
 
 Implemented, validated and reviewed on 11 September 2026. This completes the
-first review stage of the
-[parser refactoring specification](../backlog/parser_refactoring_specification.md).
+first review stage of the parser migration. Its final contract is in
+[document parsing](../data_model/document_parsing.md).
 
 - Normalized exact modified NUL and valid CESU-8 pairs through SuiteUTF to
   canonical UTF-8; undefined CP1252 bytes now fail without replacement.
@@ -383,8 +453,8 @@ checks passed.
 
 The [semantic specification](../data_model/revised_data_model.md) describes these
 implemented contracts. At this checkpoint, stage 2 remained unimplemented.
-Its subsequent infrastructure work and remaining parser/policy migration are
-tracked in the specification's implementation-progress section.
+The subsequent infrastructure and completed parser/policy migration are
+recorded in the later checkpoints above and below.
 
 ## Document-model infrastructure: first stage-2 slice
 
@@ -402,8 +472,8 @@ records; the baked format is version 2.
 Debug/Release builds and ordinary tests passed on x64 and Win32, including
 allocation-failure coverage and complete integer-metadata round trips. Debug
 x64 passed again after the final layout/style review. Parser grammar, findings,
-caller policy and recovery retirement remain in the
-[refactor specification](../backlog/parser_refactoring_specification.md).
+caller policy and recovery retirement were completed subsequently; see
+[document parsing](../data_model/document_parsing.md) for the final contract.
 
 ## Retired v1 reference archive
 

@@ -1,11 +1,9 @@
 # Asynchronous asset services
 
-Updated 21 September 2026. The asset-operation contracts settled after storage
-and image-view consolidation are committed in `f74213f`. The explicit disposal
-and dependent-module cleanup additions described here belong to the module-lifecycle
-follow-up, reviewed and accepted for commit on 21 September. The subsequent
-[asynchronous module lifecycle](../modules/asynchronous_module_lifecycle.md)
-records the separately authorised Host-worker loading/unloading implementation.
+This reference describes the implemented asset-operation, ownership and disposal
+contracts. The [module lifecycle](../modules/asynchronous_module_lifecycle.md)
+describes dependent-module cleanup and worker loading/unloading. Completion
+history and validation are in [completed milestones](../project/completed_milestones.md).
 
 ## Requests and ownership
 
@@ -142,7 +140,7 @@ dependent retained assets are disposed of before unbinding. Independent assets
 may survive module replacement. Terminal worker failure retains DLL references
 until process exit; see the module lifecycle notes for that fallback.
 
-## Acceptance and review map
+## Acceptance and source map
 
 - `core/system/transported_types.hpp`: requests, results, retention and aggregate
   memory-attribution hooks; system catalogues register their identities/ownership.
@@ -174,52 +172,15 @@ Core regression coverage also checks compact POD message transport, image-view
 copy independence, document views and borrowed conditioning options, plus nested
 allocation attribution, including rejection across incompatible allocators.
 
-## Coordinated readability review, 20 September
-
-This pass changes the handling introduced by the asset-service diff. Existing
-data-model types, reports and algorithms remain unchanged.
-
-| Review items | Revision |
-| --- | --- |
-| R1–R2 | Named scenarios have explicit status, retained kind, policy and finding expectations. Helpers receive settings and correlation slots explicitly. Concurrent progress has its own phase, slots and completion tracking. |
-| R3 | `handle_transfer_if_type_matches` names its recognition contract; acceptance remains a separate status checked by its caller. |
-| R4 | Operation owners name the storage they keep alive. Temporary working views and the retained identity are separate; `finish_operation` alone constructs publishable replies. Writer-option borrows document the address-stable operation requirement. |
-| R5 | Image preparation occurs at admission/decode completion before publication; `describe_views` only describes prepared resources. |
-| R6 | Each phase/message association appears once in completion dispatch, with a focused transition handler. |
-| R7 | Document conditioning validates, parses, bakes and writes through explicit outcomes and early failure returns. Completion posting remains common. |
-| R8–R9 | Decode orientation and view addressing have distinct names. Source/view setters establish union alternatives and tags together. Image-only transfer metadata and retention rules are labelled beside their fields. |
-| R10 | Initial submission failure records a nonzero failure code and Failed state. An integration regression disables the outbound queue and checks the real Executive, its diagnostic and Host-side startup rejection. |
-| R11 | The legacy client TGA requests, replies, registrations and Host/Executive state identities are removed. Catalogue ordinals may change; all components are rebuilt together. Ownership tests use the current asset requests, and the remaining local state fixtures model asset loads and saves. TGA codec worker messages remain active. |
-
-Scenario order still expresses fixture dependencies. Expected behaviour is never
-derived from position. A failed check names its scenario and differing property;
-status, kind, policy and findings diagnostics include actual and expected values.
-
 ## Validation
 
-The implementation passed solution builds, policy validation, ordinary `-t1`
-core suites and the Executive acceptance run in Debug/Release x64/x86. Each engine
-run completed all 80 operations and exited successfully. The 32 concurrent output
-files were identical and included the later mutation of the retained live source.
-Engine logs contained no error or critical events. Core suites include 565
-ErasedOwner checks, 187 ErasedPod checks and the unchanged 314,179 ImageView checks.
+Run the built engine from the repository root with its Executive and Rendering
+DLLs available to exercise 48 sequential and 32 concurrent operations. Core
+`MorphicTests -t1` additionally checks transport, ownership and view contracts.
+The [module lifecycle harness](../modules/asynchronous_module_lifecycle.md#validation)
+covers disposal during outstanding saves and module teardown.
 
-Build/test evidence for the coordinated review pass is under
-`build/asset-review-{dbg64,rel64,dbg32,rel32}-*`;
-engine log tags are `asset-review-dbg64-final` and `asset-review-{rel64,dbg32,rel32}`. Line-ending and diff
-whitespace checks pass.
-
-After retiring the legacy TGA protocol and compacting its catalogues, all four
-configurations passed the same build, policy, core-suite and 80-operation checks.
-This validation is recorded in `build/asset-retire-{dbg64,rel64,dbg32,rel32}-*`
-with matching `asset-retire-{dbg64,rel64,dbg32,rel32}` engine log tags. The owning
-request transport regression now checks the asset file format as well as decode
-orientation, increasing its suite count from 564 to 565.
-
-The user completed the manual review and style pass on 20 September. Explicit
-defaults now document the otherwise exhaustive scenario and document-source
-switches. The scenario index remains bounded by the sequential-to-concurrent
-phase transition. Final Debug x64 build, policy, core-suite and 80-operation
-validation passed under `build/asset-defaults-dbg64-*` and engine log tag
-`asset-defaults-dbg64`. User and coordinator review completed with no outstanding
-findings, and the change was committed as `f74213f`.
+Historical build matrices and completion commits are recorded in
+[completed milestones](../project/completed_milestones.md). Protocol and
+implementation changes should extend the relevant coverage above; old check
+counts and log filenames are evidence for their checkpoints, not current APIs.

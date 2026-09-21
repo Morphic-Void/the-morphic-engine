@@ -1,10 +1,11 @@
 # Filesystem asset mapping
 
-Updated 18 September 2026. Initial design discussion, not an implementation
-specification. This develops the filesystem portion of the
-[consolidation plan](consolidation_pass.md). Current ownership follows the
-[active stages](consolidation_design_order.md): Host assets remain owned until
-application exit and asset operations use already issued Host asset IDs.
+Design discussion begun 18 September 2026; status reconciled 21 September.
+Filesystem discovery and mapping remain future work, not implemented services.
+The current [asset contract](../assets/asynchronous_asset_services.md) supports
+retained assets and one-shot saves. Retained assets can be explicitly disposed of,
+cleaned up before dependent-module unload or released at shutdown. Catalogue
+identity/publication proposals below do not change those implemented lifetimes.
 
 This file retains historical proposals as well as current filesystem discussion.
 The separate [deferred design resource](consolidation_deferred_design.md) collects
@@ -27,7 +28,7 @@ selection below are preserved for possible future consideration, not current
 implementation requirements. This does not by itself discard filesystem mapping,
 source trust classification, validation or module compatibility checks. The
 interest-token machinery referenced here is superseded; see the
-[design-order scope update](consolidation_design_order.md).
+[preserved alternatives](consolidation_deferred_design.md#alternatives-considered-not-scheduled-work).
 
 Further scope clarification, 15 September: overrides and document layering remain
 expected requirements, but their detailed specification is premature and is
@@ -467,9 +468,11 @@ This proposal preserves the existing thread-local live-document contract.
 
 ## First questions to resolve
 
-Use the [design and implementation order](consolidation_design_order.md) to stage
-these questions. Platform research, including Android/Quest 3+ storage and
-Steam/Epic UGC services, precedes fixing the contracts that depend on it.
+Select a bounded stage through [current scope](current_scope_backlog.md).
+Use primary sources for platform questions, including Android/Quest 3+ storage
+and Steam/Epic UGC services, before fixing dependent contracts. Record verification
+dates and separate platform facts from application policy; providers need not
+offer equivalent APIs.
 
 - Define roots and logical source keys within the core/secondary grouping,
   including how standalone items are addressed. Specify overlay eligibility,
@@ -489,7 +492,22 @@ Steam/Epic UGC services, precedes fixing the contracts that depend on it.
   source-identity continuity remain open.
 - Evaluate the catalogue document shape and whether snapshots meet editor needs.
 
-The asynchronous binary/JSON persistence acceptance exercise remains part of the
-overall consolidation. Filesystem tests should additionally cover constrained
+Asynchronous binary/JSON persistence is already validated by the
+[asset-service exercise](../assets/asynchronous_asset_services.md#acceptance-and-source-map).
+Future filesystem tests should additionally cover constrained
 scan scope, classification, source changes/removal, failed scans, retained old
 catalogue/content views and correct resolution of subsequent load/save requests.
+
+## Consumer and source-resolution boundaries
+
+Preserve direct user-specified locations that bypass discovery but still use
+the Host's ownership and reporting contracts after loading. Source identities
+may be supplied externally and need not originate in a scan. Resolve new save
+destinations as well as existing files, with relative-to-requester rules,
+canonical logical keys and duplicate/shadowing precedence across roots.
+
+Schema/source/header consumers will need hierarchy-aware dependency resolution.
+The earlier proposed first schema exercise would resolve a source and dependencies,
+parse under caller policy and publish an accepted result with a safe lifetime.
+Reassess the minimum resolution contract when selecting that work; a complete
+cache, remapping or discovery implementation is not automatically a prerequisite.

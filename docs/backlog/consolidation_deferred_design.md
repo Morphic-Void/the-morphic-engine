@@ -1,45 +1,29 @@
-# Deferred consolidation design
+# Deferred resource and lifecycle design
 
-Updated 21 September 2026. Reference material for later design work, separate from
-the [current scope](current_scope_backlog.md) and its subsequent
-implementation. This document preserves motivations, possible approaches and
-unresolved questions. It is not an implementation specification or a dependency
-list for the current work. Inclusion does not settle a proposal or schedule it.
+Updated 21 September 2026. These future ideas and open questions are preserved
+from the consolidation discussions. They are not implementation requirements,
+a priority list or authority to begin work. User direction and assistant-proposed
+alternatives are distinguished where they differ.
 
-The [framework discussion](framework_consolidation_discussion.md) and
-[filesystem discussion](filesystem_asset_mapping.md) retain the fuller history.
-Where those discussions contain earlier agreements that have since changed, the
-current scope and implemented subsystem contracts take precedence.
+See [current scope](current_scope_backlog.md) to select subsequent work,
+[filesystem mapping](filesystem_asset_mapping.md) for the fuller discovery design
+and [job framework design](job_framework_design.md) for future scheduled execution.
+Historical proposals must be reassessed against the implemented subsystem contracts.
 
-Historical reassessment, 15 September: retain the existing container reattribution
-support. The earlier proposal to restrict transfers to new byte/image wrappers
-has been set aside as the working direction; the baked-document and image designs
-are being reconsidered. Statements below about keeping rich containers local or
-limiting transfer support describe the preceding approach, not a requirement to
-remove existing capabilities. Specific cleanup is expected to be considered by hand.
+## Implemented boundary
 
-## Current boundary
+Memory accounting and attribution, baked storage, image drawing/copying, concrete
+asset operations, explicit disposal and asynchronous DLL lifecycle are complete.
+The rendering stub and Executive-controlled startup are committed as `f91ded3`.
+[Completed milestones](../project/completed_milestones.md) records the checkpoints.
 
-The narrowed accounting, container/live-document attribution and baked-storage
-work is complete in `d1d804c`, `42a908d` and `a75962f`; see the
-[current scope](current_scope_backlog.md) and
-[final baked-storage record](baked_document_storage_specification.md). The earlier
-generic wrapper migration was superseded. The image view and drawing/copying
-utility are complete in `5b1282f`/`98ce708`. Concrete raw/baked/JSON/TGA services
-and Executive acceptance are complete in `f74213f`. Host-worker module lifecycle
-and explicit asset disposal are committed as `491ce78` on 21 September.
-
-The current [asset contract](../assets/asynchronous_asset_services.md) supports
-retained transfers, one-shot transfer/conditioning/save operations and saves by
-ID. Retained assets may be explicitly disposed of or cleaned up before unloading
-a dependent module; they are not necessarily retained until application exit.
-The [module lifecycle](../modules/asynchronous_module_lifecycle.md) supplies the
-bounded DLL service without implementing the broader job framework below.
-
-The separate rendering DLL stub is implemented and accepted.
-Filesystem discovery/mapping, broader image operations and general lifetime/job
-mechanisms remain later design resources, not missing prerequisites of completed
-asset-service acceptance.
+The [asset service](../assets/asynchronous_asset_services.md) supports retained
+transfers, one-shot transfer/conditioning/save and saves by ID. Retained assets
+live until explicit disposal, dependent-module cleanup or shutdown. The
+[module service](../modules/asynchronous_module_lifecycle.md) drains operations
+and joins affected threads before dependency cleanup and I/O-worker unbinding.
+These bounded services do not implement reference counting, cache eviction,
+filesystem discovery, cancellation or a general scheduler.
 
 ## Filesystem image publication and in-flight identifiers
 
@@ -65,10 +49,11 @@ result for an unresolved path remain to be specified; no native filesystem path
 semantics or particular path standard is selected by this note.
 
 Ritchie also identifies a possible extension of baked documents for save games:
-allow modification of values while preserving the layout, to hold switch states
-and other game state. This is a candidate for later design, not a change to the
-current immutable baked-document contract. Which values may change, how updates
-preserve validity and how access is coordinated with readers remain open. Fixed
+allow numeric and Boolean values to change while preserving structure, types,
+layout and variable-size regions, to hold switch states and other game state.
+This is a candidate for later design, not a change to the current immutable
+baked-document contract. Exact permitted updates, a possible read-only/mutable
+view flag and coordination with readers remain open. Fixed
 layout alone does not settle those questions, including the treatment of shared
 string-table entries.
 
@@ -78,7 +63,7 @@ resuming implementation or selecting their APIs now.
 
 ## Asset lifetime and reference counting
 
-Automatic reclamation and cache eviction remain deferred from former stage 2.
+Automatic reclamation and cache eviction remain deferred.
 Explicit disposal is now implemented, with Host operations drained before
 destruction and other borrowers quiesced by convention. Simple reference counting
 without per-client tokens remains a possible later direction; its mechanics are
@@ -100,7 +85,7 @@ allocation-context dependencies as well as outstanding operations and views.
 
 ## General Host authority and asynchronous operations
 
-Deferred from former stage 3. Preserve the questions about authority shared among
+Preserve the questions about authority shared among
 the main Host, Host worker and execution workers; general operation states,
 cancellation, requester disappearance, failed dispatch, shutdown and completion
 delivery; and common ownership rules for inputs, intermediates and results.
@@ -109,8 +94,7 @@ Request correlation and compact configured results are implemented by the concre
 services. A general scheduling, cancellation or message-validity subsystem is not
 required merely to implement those services. Reassess any such machinery against
 demonstrated operations. Existing module compatibility and dependency checks
-remain applicable now; the bounded module migration is complete in the reviewed
-working tree.
+remain applicable now; the bounded module service is already implemented.
 
 ## Developer responsibility, core configuration and shared discovery
 
@@ -148,7 +132,7 @@ The initial preference is simple replacement selection when an eligible substitu
 exists. Competing substitutes, layer order, target identity, patch interaction and
 composition failure need later decisions. Patches are expected to use this system.
 Selection primarily occurs at application startup; editor intervention and refresh
-can have different rules. The current filesystem image does not require this
+can have different rules. The proposed filesystem image does not require this
 selection/composition design to be completed first.
 
 Reassess these earlier selection proposals against developer-supplied core
@@ -186,30 +170,84 @@ trust storage and platform-service interfaces become concrete.
 
 ## Later image capabilities
 
-The initial image wrapper holds rectangular byte storage, TGA decode provenance,
-encode configuration and queryable views. Later additions include line drawing,
-filled/unfilled rectangles and possibly rectangle copying between images.
-Resizing, rotation, cropping and similar transformations will produce new wrappers
-with their own buffers, preserving the source image. Manipulation interfaces and
-algorithms are deferred.
+The [image view](../image/image_view.md) already supports pixel access/plotting,
+clipped lines, filled/unfilled rectangles, flipped/mirrored rectangle copies,
+full fills and channel write masks. TGA provenance and encoding configuration
+are part of the existing view.
 
-## Superseded approaches, not scheduled work
+Resizing, arbitrary rotation, cropping and similar transforms remain possible
+extensions. The proposed ownership rule is to produce an independent result
+buffer and preserve the source; copying a borrowed view is not such a transform.
+Vector-text annotation, transparency and other blending also remain future work.
+Select algorithms and synchronisation/version rules against actual consumers.
 
-Per-client monotonic interest tokens, reverse lookup, recipient-handle translation
-and their associated missing-interest message handling were explored and then set
-aside. They are historical alternatives, not features waiting for implementation.
-Neither notifications nor copied views should be taken as a reason to resurrect
-that machinery without a fresh requirement.
+## Operation and publication extensions
 
-General transfer support for rich editable containers, another general type-erasure
-layer for byte interpretation and a universal Host asset-capability registry are
-also outside the chosen direction. The current design uses limited wrappers with
-checked view access and reconstructs richer working structures locally.
+Separate saves already permit multiple outputs from one retained asset. Bundling
+binary and JSON outputs into one request remains an option, with partial success,
+cancellation, output identity and failure retention still requiring a contract.
+Do not reintroduce mandatory separate transfer/save: one-shot saves are implemented.
 
-Combined ownership transfer/save requests and disposal after operations are
-superseded for current work by separate admission and asset-ID-based requests,
-with permanent Host ownership until exit. Multiple output operations on an already
-owned asset remain a concrete service question in the active design.
+Optional retention of original encoded TGA bytes alongside decoded pixels was
+proposed and remains a future service option; the current image load publishes
+decoded storage. A general source/content-version relationship, cache freshness,
+transformed-result publication and storage extraction from Host ownership would
+need their own design. If extraction is ever added, ordinary
+moves should preserve attribution, emptied owners must stop publishing views,
+and already copied views remain subject to the backing owner's lifetime.
+
+Retaining policy-rejected parse results for diagnosis is a possible future Host
+policy. It must not turn rejected content into a successfully published asset.
+A universal asset-capability registry was considered but is not required by the
+current concrete payloads. Any later registry should separate type capability
+from instance/options suitability and account for the implementing DLL's lifetime.
+
+## Module accounting periods and diagnostic evidence
+
+Ritchie's earlier direction was to report a quiescent imbalance and begin a fresh
+zeroed accounting period on reload, so an old discrepancy is not carried forward
+unless its cause recurs. Module replacement is now implemented, but that separate
+report/reset policy is not: existing binding installation/unload accounting checks
+remain enforced, and Host-owned module records can survive binding transitions.
+
+A future reset requires quiescence, reporting before reset and separation from
+legitimate late updates belonging to the old period. Resetting totals does not
+release leaked storage or prove code, allocator or view lifetimes safe. Do not
+infer permission to force unload, weaken dependencies or reset a live context.
+Any wait or refusal policy needs a concrete decision.
+
+Release-build diagnostics and user-supplied logs remain useful for investigating
+local setups and patch combinations. Automatic telemetry was mentioned as a
+less likely possibility; it is not selected or authorised work.
+
+## Alternatives considered, not scheduled work
+
+The per-client interest-token proposal was set aside as too elaborate. Its useful
+distinctions remain available for future lifetime design: asset identity differs
+from a client's retained use and from request correlation; copying a view or
+receiving a notification need not acquire a new retained use. A holder lending
+views to its workers must keep backing storage alive through their use.
+
+That proposal used one handle per client thread per asset, recipient translation
+and reverse lookup. Sharing established the recipient's interest before releasing
+the sender's; repeated notifications did not create obligations. Host operations
+held their own interests; retiring one client handle did not dispose other users'
+handles or necessarily evict cached content. Repeated acquisition and balancing
+remained open. These are historical alternatives, not the implemented disposal API.
+
+For missing recipient interests, alternatives were discarding the message,
+replacing it with a correlated failure envelope, or Ritchie's proposal for a
+common validity flag making the original message unactionable. No alternative
+was selected. Any future scheme must preserve safely accessible type/correlation,
+prevent use of unprotected embedded views, and destroy owned payloads while their
+module dependencies remain valid. Sending a zero handle alone would not suffice.
+
+The proposed restriction of reattribution to new byte/image wrappers was also
+withdrawn. Existing container and live-document transfer support is intentional;
+rich working structures may still be reconstructed locally from baked views.
+The implemented uniform attribution interface supersedes the old friendship-led
+wrapper redesign. Another generic byte-interpretation/type-erasure layer remains
+unselected. Payload descriptors would not replace content validation.
 
 ## Returning to these topics
 
