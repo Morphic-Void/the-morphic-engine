@@ -4,8 +4,18 @@ The subsequent implementation and settled contracts are recorded in
 [asynchronous asset services](../assets/asynchronous_asset_services.md). Retention
 on failure, correlated completion, live conditioning, load-result views and the
 caller-managed mutation convention supersede the open questions below. The image
-view is complete in commits `5b1282f` and `98ce708`. Module-worker migration remains
-separate; the broader deferred features are unchanged.
+view is complete in commits `5b1282f` and `98ce708`; asset services and Executive
+acceptance are committed as `f74213f`. As of 21 September, the separate
+[module-worker migration](../modules/asynchronous_module_lifecycle.md) and explicit
+asset disposal are implemented, reviewed and accepted for commit. Retained assets
+now live until explicit disposal, dependent-module cleanup or application exit.
+The rendering DLL stub is the next separate stage; broader deferred features
+remain deferred.
+
+## Historical discussion: 18–19 September 2026
+
+Pending-work and lifetime statements below record that discussion, rather than
+the current implementation. The linked subsystem contracts take precedence.
 
 Captured 18 September 2026; updated 19 September for the coordinator handoff. These
 notes deliberately develop the first three of the four consolidation steps being

@@ -8,9 +8,11 @@ Date:   12 Sep 2026
 
 # Remaining engine backlog
 
-This consolidates unresolved scope from the interim capture. Active parser,
-Host, asset, asynchronous-operation and filesystem work belongs to the
-[consolidation plan](consolidation_pass.md); it is not duplicated here.
+Updated 21 September 2026. This consolidates unresolved scope from the interim
+capture. The parser, image view, concrete asset services and Executive acceptance
+are complete. The asynchronous module/disposal work is reviewed and accepted;
+the rendering DLL stub follows as a separate stage. The
+[consolidation plan](consolidation_pass.md) preserves the earlier design record.
 [Current scope](current_scope_backlog.md) sets priorities.
 [Completed milestones](../project/completed_milestones.md) records delivered work.
 The sections below are deferred scope, not an implementation schedule.
@@ -64,11 +66,10 @@ Host ownership and worker authority are settled in the consolidation plan.
 
 ## Data-model follow-ons
 
-The first linter/live/baked/writer/parser implementation and the stage-1 linter
-and shared diagnostic refactor are complete. The remaining parser/model/writer
-migration and caller policy are active consolidation scope. Stage 2 has begun
-with the model infrastructure slice. Later source, shader, localisation and
-tooling ingestion should reuse that corrected boundary.
+The linter/live/baked/writer/parser implementation, both refactoring stages,
+caller policy and shared-report/byte-view API consolidation are complete.
+Later source, shader, localisation and tooling ingestion should reuse the
+[documented boundary](../data_model/README.md).
 
 Still deferred: live packing with slot-link remapping, live cursors/revisions,
 object-name lookup acceleration including O(1) baked lookup, and additional
@@ -111,9 +112,10 @@ gameplay integration rather than owning the primitive geometry library.
 
 - Build the vector-glyph/Unicode mapping and shared user-facing text path for
   game, editor, debugging and prototyping. This is distinct from text ingestion.
-- Add an image view over existing 8-bit grayscale and 32-bit RGBA buffers, with
-  lines, boxes, rectangles and non-antialiased vector text; support solid,
-  transparent and a small set of predefined blending operations.
+- Extend the completed [image view](../image/image_view.md) only as consumers
+  require. Clipped lines, filled/unfilled rectangles, transformed rectangle
+  copies, fills and channel write masks already exist. Non-antialiased vector
+  text, transparency blending and further blending operations remain deferred.
 - Build JSON-backed localisation with offline conditioning, including external
   spreadsheet inputs where useful.
 - Retain a small, rendering-independent Katakana UTF-8 conditioning facility

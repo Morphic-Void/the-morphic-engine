@@ -3,6 +3,12 @@ License: MIT (see LICENSE file in repository root)
 
 # Module Bootstrap ABI Version 3
 
+The [asynchronous module lifecycle](../modules/asynchronous_module_lifecycle.md)
+is the implemented Host orchestration around this ABI. The Host I/O worker loads,
+binds, installs and unloads DLLs; per-thread preparation still runs on each new
+module thread. The Host starts its workers before asynchronously bootstrapping
+the Executive. The ABI and installation ordering below remain unchanged.
+
 The category-bearing type-identity transition removes component-confined
 continuation types from the system identity table. Later system ordinals
 therefore change and define a new DLL ABI. The exported entry point is
@@ -52,7 +58,9 @@ Operation authority is installed once and has no uninstall path. Its function
 pointers remain in component-local static storage and are not part of the
 bootstrap ABI exchanged with the host. Shutdown first stops and joins all
 module threads, which destroys module-local runtime state and deallocates their
-transports. The host then requires the module context's allocation count and
+transports. Accepted asset operations are drained; any retained assets still
+flagging a dependency on the outgoing module trigger an assertion log and are
+disposed of before unbinding. The host then requires the module context's allocation count and
 attributed bytes both to be zero before native unload. A failed audit leaves the
 DLL loaded, preserving its code and component-local operation authority.
 Consequently all LOCAL owners are gone before their defining DLL and operation

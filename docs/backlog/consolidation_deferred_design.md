@@ -1,7 +1,7 @@
 # Deferred consolidation design
 
-Updated 18 September 2026. Reference material for later design work, separate from
-the [active design stages](consolidation_design_order.md) and their subsequent
+Updated 21 September 2026. Reference material for later design work, separate from
+the [current scope](current_scope_backlog.md) and its subsequent
 implementation. This document preserves motivations, possible approaches and
 unresolved questions. It is not an implementation specification or a dependency
 list for the current work. Inclusion does not settle a proposal or schedule it.
@@ -9,9 +9,9 @@ list for the current work. Inclusion does not settle a proposal or schedule it.
 The [framework discussion](framework_consolidation_discussion.md) and
 [filesystem discussion](filesystem_asset_mapping.md) retain the fuller history.
 Where those discussions contain earlier agreements that have since changed, the
-current active outline takes precedence.
+current scope and implemented subsystem contracts take precedence.
 
-Latest reassessment, 15 September: retain the existing container reattribution
+Historical reassessment, 15 September: retain the existing container reattribution
 support. The earlier proposal to restrict transfers to new byte/image wrappers
 has been set aside as the working direction; the baked-document and image designs
 are being reconsidered. Statements below about keeping rich containers local or
@@ -22,26 +22,25 @@ remove existing capabilities. Specific cleanup is expected to be considered by h
 
 The narrowed accounting, container/live-document attribution and baked-storage
 work is complete in `d1d804c`, `42a908d` and `a75962f`; see the
-[current outline](consolidation_design_order.md) and
+[current scope](current_scope_backlog.md) and
 [final baked-storage record](baked_document_storage_specification.md). The earlier
-generic wrapper migration was superseded. The owning image wrapper and filesystem
-image remain deferred; an image view may be sufficient for the next concrete
-consumer. These completions do not authorise the broader stage list or discard
-the eventual asynchronous data-model exercise.
+generic wrapper migration was superseded. The image view and drawing/copying
+utility are complete in `5b1282f`/`98ce708`. Concrete raw/baked/JSON/TGA services
+and Executive acceptance are complete in `f74213f`. Host-worker module lifecycle
+and explicit asset disposal are implemented, reviewed and accepted for commit on
+21 September.
 
-The separately recorded Host contract retains accepted assets until application
-exit and requires an already Host-owned asset ID for operations: transfer ownership,
-receive the ID, then send a separate operation request. How much of the remaining
-work is needed immediately will be reconciled with the narrowed design.
+The current [asset contract](../assets/asynchronous_asset_services.md) supports
+retained transfers, one-shot transfer/conditioning/save operations and saves by
+ID. Retained assets may be explicitly disposed of or cleaned up before unloading
+a dependent module; they are not necessarily retained until application exit.
+The [module lifecycle](../modules/asynchronous_module_lifecycle.md) supplies the
+bounded DLL service without implementing the broader job framework below.
 
-Preserve the filesystem discovery/mapping notes and image ownership/manipulation
-ideas as later design resources. Their earlier development does not make them
-prerequisites for the narrower baked-document work.
-
-Moving module load/unload to the Host worker remains an explicit follow-up after
-the Executive exercise in the active outline. It is not postponed with the broader
-authority/lifecycle work below. The deferred asynchronous data-model tests are
-also still part of active acceptance, despite having previously been deferred.
+The rendering DLL stub is the next separate stage after the current commit.
+Filesystem discovery/mapping, broader image operations and general lifetime/job
+mechanisms remain later design resources, not missing prerequisites of completed
+asset-service acceptance.
 
 ## Filesystem image publication and in-flight identifiers
 
@@ -80,21 +79,24 @@ resuming implementation or selecting their APIs now.
 
 ## Asset lifetime and reference counting
 
-Deferred from former stage 2. Revisit when runtime reclamation or cache eviction
-is needed. Simple reference counting without per-client tokens is the proposed
-direction; its mechanics remain undecided.
+Automatic reclamation and cache eviction remain deferred from former stage 2.
+Explicit disposal is now implemented, with Host operations drained before
+destruction and other borrowers quiesced by convention. Simple reference counting
+without per-client tokens remains a possible later direction; its mechanics are
+undecided and it is not required by the current disposal path.
 
 Questions include acquisition/release, initial retained uses after transfer or
 load, Host uses during operations, borrowed-view responsibility, final reclamation
 and optional cache retention with no outstanding users. Consider client departure,
-shared backing, ownership extraction and stale IDs if runtime removal is introduced.
+shared backing and ownership extraction in any broader lifetime design. Current
+disposal invalidates the ID and borrowed views without reusing the ID.
 Earlier temporary, module-scoped and durable lifetime categories are possibilities,
 not a required taxonomy. Broader SYSTEM identity, publication permissions and
 revocation proposals also require reassessment against actual consumers.
 
 The motivating cases include transitory load/save assets and filesystem caching
-that survives the loss of client uses. They do not change today's retention until
-exit. Any future reclamation design must account for module code, metadata and
+that survives the loss of client uses. One-shot saves and explicit disposal already
+cover bounded cases. Any future reclamation design must account for module code, metadata and
 allocation-context dependencies as well as outstanding operations and views.
 
 ## General Host authority and asynchronous operations
@@ -104,11 +106,12 @@ the main Host, Host worker and execution workers; general operation states,
 cancellation, requester disappearance, failed dispatch, shutdown and completion
 delivery; and common ownership rules for inputs, intermediates and results.
 
-Request correlation and compact configured results are needed by current concrete
+Request correlation and compact configured results are implemented by the concrete
 services. A general scheduling, cancellation or message-validity subsystem is not
 required merely to implement those services. Reassess any such machinery against
 demonstrated operations. Existing module compatibility and dependency checks
-remain applicable now; the scheduled module migration is a bounded separate task.
+remain applicable now; the bounded module migration is complete in the reviewed
+working tree.
 
 ## Developer responsibility, core configuration and shared discovery
 

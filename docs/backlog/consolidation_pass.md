@@ -1,8 +1,24 @@
 # Consolidation before schema work
 
-Updated 16 September 2026. Active direction; detailed interfaces remain under
-discussion. This is the consolidated plan for parser refactoring and the Host
-prerequisites to schema work.
+Status update, 21 September 2026: the selected parser, storage, image-view and
+asset-service consolidation is complete and committed through `f74213f`.
+The subsequent asynchronous module lifecycle and asset-disposal implementation
+has completed user/coordinator review and the manual style pass and is accepted
+for commit on 21 September.
+The rendering DLL stub is the next separate stage after that commit.
+
+Use [current scope](current_scope_backlog.md) and the
+[coordinator handoff](consolidation_coordinator_handoff.md) for the remaining work,
+and the [asset](../assets/asynchronous_asset_services.md) and
+[module](../modules/asynchronous_module_lifecycle.md) documents for implemented
+contracts. Filesystem images and the general job/lifetime framework remain deferred.
+
+## Historical planning record: 16 September 2026
+
+The remainder preserves the consolidated plan and its evolving decisions.
+References to current/pending work below are dated history, not open assignments.
+Permanent-until-exit retention and mandatory separate transfer/save proposals
+were superseded by one-shot operations and explicit disposal.
 
 Current implementation status, 16 September: diagnostic accounting is committed
 as `d1d804c`, uniform container/live-document attribution as `42a908d`, and baked

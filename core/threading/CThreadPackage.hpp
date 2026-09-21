@@ -103,6 +103,7 @@ public:
 
     bool startup() noexcept;
     bool shutdown() noexcept;
+    void request_exit() noexcept;
     bool read(CErasedPodMsg& msg) noexcept;
     bool post(const CErasedPodMsg& msg) noexcept;
     bool read(CErasedOwnerMsg& msg) noexcept;
@@ -224,6 +225,15 @@ inline bool CThreadPackage::read(CErasedOwnerMsg& msg) noexcept
 inline EThreadRunState CThreadPackage::query_state() const noexcept
 {
     return m_resources.control_state.query_state();
+}
+
+inline void CThreadPackage::request_exit() noexcept
+{
+    m_resources.control_state.request_exit();
+    if (m_resources.wait_predicate.has_control())
+    {   //  Failed startup has already released the wait predicate and joined the thread.
+        (void)m_resources.wait_predicate.poke_epoch_and_wake_one();
+    }
 }
 
 }   //  namespace threading

@@ -6,18 +6,20 @@
 //  Authors: Ritchie Brannan / OpenAI Codex
 //  Date:    7 Aug 26
 //
-//  Host-owned file and image conditioning worker thread.
+//  Shared Host worker for file I/O, asset conditioning and module binding.
 
 #include <cstdint>      //  std::uint32_t
 #include <utility>      //  std::move
 
 #include "host/runtime/host_worker_thread.hpp"
+#include "host/runtime/module_service.hpp"
 
 #include "debug/macros.hpp"
 #include "data_model/document_parser.hpp"
 #include "data_model/document_translation.hpp"
 #include "data_model/document_writer.hpp"
 #include "image/codec/tga.hpp"
+#include "platform/path/native_path.hpp"
 #include "platform/filesystem/file.hpp"
 #include "system/erased_owner.hpp"
 #include "system/transported_types.hpp"
@@ -25,6 +27,10 @@
 
 namespace host
 {
+
+//==============================================================================
+//  Document failure diagnostics
+//==============================================================================
 
 namespace asset_diagnostics
 {
@@ -115,6 +121,10 @@ static void report_parse_failure(const std::int32_t slot, const CDocumentReport&
 
 }   //  namespace asset_diagnostics
 
+//==============================================================================
+//  Shared worker operations
+//==============================================================================
+
 static EAssetStatus condition_document(const DocumentConditionRequest& request, const std::int32_t slot, DocumentConditionResult& result) noexcept
 {
     if ((request.kind > EDocumentSource::live) || (request.write_json && (request.options == nullptr)))
@@ -188,6 +198,69 @@ static EAssetStatus condition_document(const DocumentConditionRequest& request, 
     return EAssetStatus::success;
 }
 
+static EModuleStatus perform_module_work(SModuleWork& work) noexcept
+{
+    const ModuleRequest& request = *work.request;
+    work.function = nullptr;
+    if (work.previous != nullptr)
+    {
+        if (!work.previous->unbind())
+        {
+            return EModuleStatus::unload_failed;
+        }
+        MV_REPORT("Module unloaded on Host worker");
+    }
+    if (request.action == EModuleAction::unload)
+    {
+        return EModuleStatus::success;
+    }
+
+    constexpr modules::SAdvertisedIdentity host_identity{
+        module_ids::executable, { modules::k_binding_abi_major, 0u },
+        modules::k_binding_abi_major, modules::k_binding_abi_major };
+    const platform::path::NativePath path = platform::path::makeNativePath(request.file.cstring());
+    EModuleStatus status = EModuleStatus::binding_failed;
+    if (path.is_ready() && work.next->bind(path, request.module, host_identity) &&
+        (work.next->advertised_module_identity().version.major == modules::k_binding_abi_major))
+    {
+        status = EModuleStatus::installation_failed;
+        if (work.next->install(*work.registry, request.module, work.memory_context, work.debug_service))
+        {
+            status = EModuleStatus::success;
+            modules::SCoreFunctions unsupported;
+            modules::FModuleFunction unknown = nullptr;
+            if ((work.next->populate_core_functions(modules::k_binding_abi_major + 1u, unsupported) !=
+                    modules::EBindingResult::unsupported_version) || !unsupported.is_empty() ||
+                work.next->query_function(system_type_ids::undefined, unknown) || (unknown != nullptr))
+            {
+                status = EModuleStatus::binding_failed;
+            }
+            if ((request.required_function != system_type_ids::undefined) &&
+                !work.next->query_function(request.required_function, work.function))
+            {
+                status = EModuleStatus::function_unavailable;
+            }
+        }
+    }
+    if (status != EModuleStatus::success)
+    {
+        //  Failed installation must also release its native handle on this worker.
+        //  Failure to unload keeps the record bound; the Host must not overwrite it.
+        if (!work.next->unbind())
+        {
+            return EModuleStatus::unload_failed;
+        }
+        return status;
+    }
+    MV_REPORT("Module loaded and bound on Host worker");
+    return EModuleStatus::success;
+}
+
+//==============================================================================
+//  CHostWorkerThread
+//  Both Host workers use this dispatch loop; the Host selects the destination.
+//==============================================================================
+
 class CHostWorkerThread
 {
 public:
@@ -252,6 +325,28 @@ void CHostWorkerThread::operate() noexcept
 
             switch (inbound_msg.query_message_type_id().raw_value())
             {
+                case k_type_id_v<ModuleWorkRequest>.raw_value():
+                {
+                    MV_DETAIL("Worker module lifecycle request");
+
+                    ModuleWorkRequest request;
+                    (void)inbound_msg.copy_payload_to(request);
+                    ModuleWorkResult result;
+                    if ((request.work != nullptr) && (request.work->request != nullptr))
+                    {
+                        result.status = perform_module_work(*request.work);
+                    }
+
+                    threading::CErasedPodMsg completion;
+                    completion.set_async_slot(inbound_msg.query_async_slot());
+                    completion.assign_payload(result);
+                    if (!m_context.post(completion))
+                    {
+                        m_failed = true;
+                        return;
+                    }
+                    break;
+                }
                 case k_type_id_v<FileLoadRequest>.raw_value():
                 {
                     MV_DETAIL("Worker file load request");
@@ -350,6 +445,8 @@ void CHostWorkerThread::operate() noexcept
                 }
                 case k_type_id_v<DocumentConditionRequest>.raw_value():
                 {
+                    MV_DETAIL("Worker document conditioning request");
+
                     DocumentConditionRequest request;
                     (void)inbound_msg.copy_payload_to(request);
                     CErasedOwner content = CErasedOwner::create<DocumentConditionResult>();
@@ -375,8 +472,7 @@ void CHostWorkerThread::operate() noexcept
                 default:
                 {
                     system_type_id unrecognised_id;
-                    if (!inbound_msg.query_message_type_id().try_system_type_id(
-                            unrecognised_id))
+                    if (!inbound_msg.query_message_type_id().try_system_type_id(unrecognised_id))
                     {
                         MV_DETAIL("Worker unrecognised LOCAL message type");
                         break;

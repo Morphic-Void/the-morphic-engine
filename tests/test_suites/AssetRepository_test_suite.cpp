@@ -51,8 +51,11 @@ void test_repository_identity_and_reuse(TTestContext& ctx)
 
     CErasedOwner first_owner = make_test_asset();
     CErasedOwner second_owner = make_test_asset();
+    first_owner.add_hazard(mount_point_ids::conditioning);
     const CAssetId first_id = repository.insert(std::move(first_owner));
     const CAssetId second_id = repository.insert(std::move(second_owner));
+    TEST_EXPECT(ctx, repository.has_dependency(mount_point_ids::conditioning));
+    TEST_EXPECT(ctx, !repository.has_dependency(mount_point_ids::executive));
 
     TEST_EXPECT(ctx, first_id.query_value() == 1u);
     TEST_EXPECT(ctx, second_id.query_value() == 2u);
@@ -66,6 +69,7 @@ void test_repository_identity_and_reuse(TTestContext& ctx)
 
     CAssetRecord* const second_record = repository.resolve(second_id);
     TEST_EXPECT(ctx, repository.erase(first_id));
+    TEST_EXPECT(ctx, !repository.has_dependency(mount_point_ids::conditioning));
     TEST_EXPECT(ctx, repository.resolve(first_id) == nullptr);
 
     CErasedOwner third_owner = make_test_asset();
@@ -103,6 +107,34 @@ void test_repository_reinitialisation_does_not_reuse_ids(TTestContext& ctx)
     TEST_EXPECT(ctx, empty_owner.is_empty());
 }
 
+void test_repository_dependency_disposal(TTestContext& ctx)
+{
+    CAssetRepository repository;
+    TEST_EXPECT(ctx, repository.initialise(4u, 4u));
+    CAssetId ids[6]{};
+    for (std::uint32_t index = 0u; index < 6u; ++index)
+    {
+        CErasedOwner owner = make_test_asset();
+        owner.add_hazard((index == 2u) ? mount_point_ids::executive : mount_point_ids::conditioning);
+        ids[index] = repository.insert(std::move(owner));
+        TEST_EXPECT(ctx, ids[index].is_valid());
+    }
+    TEST_EXPECT(ctx, repository.erase(ids[1]));
+    CAssetRecord* const survivor = repository.resolve(ids[2]);
+    repository.erase_dependencies(mount_point_ids::conditioning);
+    TEST_EXPECT(ctx, !repository.has_dependency(mount_point_ids::conditioning));
+    TEST_EXPECT(ctx, repository.has_dependency(mount_point_ids::executive));
+    for (std::uint32_t index = 0u; index < 6u; ++index)
+    {
+        TEST_EXPECT(ctx, repository.resolve(ids[index]) == ((index == 2u) ? survivor : nullptr));
+    }
+    TEST_EXPECT(ctx, repository.check_integrity());
+    repository.erase_dependencies(mount_point_ids::conditioning);
+    repository.erase_dependencies(mount_point_ids::executive);
+    TEST_EXPECT(ctx, repository.is_empty());
+    TEST_EXPECT(ctx, repository.check_integrity());
+}
+
 }   //  namespace
 
 int run_asset_repository_tests()
@@ -111,6 +143,7 @@ int run_asset_repository_tests()
     test_asset_id_contract(ctx);
     test_repository_identity_and_reuse(ctx);
     test_repository_reinitialisation_does_not_reuse_ids(ctx);
+    test_repository_dependency_disposal(ctx);
 
     std::cout << "AssetRepository: " << ctx.passed << " passed, " << ctx.failed << " failed\n";
     return ctx.failed;

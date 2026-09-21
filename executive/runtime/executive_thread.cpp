@@ -34,7 +34,7 @@ namespace asset_acceptance
 
 enum class EScenario : std::uint8_t
 {
-    retain_raw,
+    retain_raw = 0,
     save_retained_raw,
     load_saved_raw,
     save_discarded_raw,
@@ -203,8 +203,11 @@ public:
     static std::uint32_t MV_STD_ABI_CALL entry_point(void* const user_data) noexcept;
 
 private:
-    enum class EPhase : std::uint8_t { sequential, concurrent, complete };
+    //  Failure codes start at one because zero is the successful thread exit code.
     enum class EFailure : std::uint32_t { registry = 1u, timing, submission, completion, timeout };
+
+    enum class EPhase : std::uint8_t { sequential = 0, concurrent, awaiting_exit, complete };
+
     CExecutiveThread(const CExecutiveThread&) noexcept = delete;
     CExecutiveThread& operator=(const CExecutiveThread&) noexcept = delete;
     CExecutiveThread(CExecutiveThread&&) noexcept = delete;
@@ -229,6 +232,7 @@ private:
     [[nodiscard]] bool prepare_expected_document() noexcept;
     [[nodiscard]] bool submit_concurrent_saves() noexcept;
     [[nodiscard]] bool complete_concurrent_save(const threading::CErasedPodMsg& message) noexcept;
+    [[nodiscard]] bool request_system_shutdown() noexcept;
     void shutdown() noexcept;
     void fail(const EFailure failure, const char* const reason) noexcept;
 
@@ -384,8 +388,7 @@ bool CExecutiveThread::transfer_image(const std::int32_t slot, const bool greysc
 {
     CErasedOwner owner = CErasedOwner::create<ImageAssetTransfer>();
     ImageAssetTransfer* const request = owner.payload<ImageAssetTransfer>();
-    if ((request == nullptr) || !request->storage.value.allocate(greyscale ? 7u : 28u, 5u, 16u) ||
-        !request->storage.file.set(file))
+    if ((request == nullptr) || !request->storage.value.allocate(greyscale ? 7u : 28u, 5u, 16u) || !request->storage.file.set(file))
     {
         return false;
     }
@@ -406,8 +409,7 @@ bool CExecutiveThread::transfer_live(const std::int32_t slot, const EAssetRetent
 {
     CErasedOwner owner = CErasedOwner::create<LiveAssetTransfer>();
     LiveAssetTransfer* const request = owner.payload<LiveAssetTransfer>();
-    if ((request == nullptr) || !asset_acceptance::fixture_document(request->storage.value) ||
-        (save && !request->storage.file.set(file)))
+    if ((request == nullptr) || !asset_acceptance::fixture_document(request->storage.value) || (save && !request->storage.file.set(file)))
     {
         return false;
     }
@@ -778,6 +780,25 @@ bool CExecutiveThread::complete_concurrent_save(const threading::CErasedPodMsg& 
     return true;
 }
 
+bool CExecutiveThread::request_system_shutdown() noexcept
+{
+    CErasedOwner owner = CErasedOwner::create<ModuleRequest>();
+    ModuleRequest* const request = owner.payload<ModuleRequest>();
+    if (request == nullptr)
+    {
+        return false;
+    }
+    request->module = module_ids::executive;
+    request->action = EModuleAction::unload;
+    if (!post(-1, std::move(owner), request))
+    {
+        return false;
+    }
+    m_phase = EPhase::awaiting_exit;
+    (void)m_perf_counter.update();
+    return true;
+}
+
 void CExecutiveThread::operate() noexcept
 {
     using namespace asset_acceptance;
@@ -787,6 +808,22 @@ void CExecutiveThread::operate() noexcept
         threading::CErasedPodMsg message;
         if (m_context.read(message))
         {
+            if (m_phase == EPhase::awaiting_exit)
+            {
+                continue;
+            }
+            ModuleResult module_result;
+            if (message.copy_payload_to(module_result))
+            {
+                //  No retry policy yet: failure of another DLL's operation requests
+                //  our own termination, which the Host interprets as system shutdown.
+                if ((module_result.notice == EModuleNotice::completed) && (module_result.status != EModuleStatus::success) &&
+                    !request_system_shutdown())
+                {
+                    fail(EFailure::submission, "system shutdown request");
+                }
+                continue;
+            }
             if (m_phase == EPhase::concurrent)
             {
                 if (!complete_concurrent_save(message))

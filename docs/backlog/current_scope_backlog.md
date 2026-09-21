@@ -1,53 +1,47 @@
 # Current scope
 
-Updated 14 September 2026. Consolidation precedes schema work.
+Updated 21 September 2026. The selected image, asset-service and asynchronous
+module-lifecycle consolidation is implemented, reviewed and accepted. The final
+documentation reconciliation is complete, and the user has authorised the commit.
 
-The first document pipeline is implemented. Its parser/reporting design and
-the surrounding Host contracts need further work before schema consumers are
-built. Completed implementation does not mean these interfaces are final.
+## Completed consolidation
+
+- Parser/model/writer migration, parameter const and manual style passes are
+  complete. Shared reports and the byte-view parser API are committed as
+  `e60407f`; the permanent [data-model documentation](../data_model/README.md)
+  describes the resulting contracts.
+- Diagnostic accounting, uniform container/live-document attribution and baked
+  storage/aligned loading are committed as `d1d804c`, `42a908d` and `a75962f`.
+- The image view and its drawing/copying utility are committed as `5b1282f` and
+  `98ce708`; see [image view](../image/image_view.md).
+- Raw, baked, JSON and TGA asset services, retained and one-shot ownership,
+  compact results and the Executive's 48 sequential/32 concurrent acceptance
+  operations are committed as `f74213f`. The legacy client TGA flow is retired.
+- Asynchronous DLL load/bind and unbind/unload on the Host I/O worker, Executive
+  bootstrap/replacement/shutdown, explicit asset disposal and dependent-asset
+  cleanup are implemented. User review, the manual style pass and coordinator
+  checks are complete; the user authorised the commit on 21 September.
 
 ## Active work
 
-1. Refactor the parser and its reporting in the current parser task using the
-   settled observations, caller policy, grammar and document-model requirements.
-   The [linter/parser specification](parser_refactoring_specification.md) is
-   the reviewed behavioural contract. Stage 1, covering the linter and shared
-   diagnostics, is implemented, validated and reviewed.
-   Stage 2 functional implementation is complete. Its first model infrastructure slice
-   implements native empty names, root kinds, newline metadata and collision
-   extension and is reviewed and validated. Shared findings, singular failure
-   reasons and policy definitions are reviewed and committed.
-   Scanner/structural findings, partial-report composition, separate capacity
-   estimates and construction coverage are reviewed and committed. Shared
-   unquoted-token grammar and contextual value findings are reviewed and committed.
-   Parser support for native empty names, structural newline-name rejection and
-   source-derived per-string newline suppression is reviewed and committed.
-   Explicit array roots and shared inference of object/array bodies are
-   reviewed and committed. Shared terminal stage/reason reporting is reviewed
-   and committed. Caller options and late policy acceptance before publication
-   are reviewed and committed. Coordinated recovery-array/protocol retirement,
-   parser use of public ordinary-array collision extension, baked version 3 and
-   removal of obsolete reports and counters are reviewed and committed as `db85f31`.
-   The separate parameter const pass is reviewed and committed as `8d5ca1d`: declarations
-   and definitions agree, and unchanged parameters have appropriate const
-   qualification. Output state and ownership transfers remain mutable.
-   The user's manual style review and straightforward corrections are reviewed
-   and committed as `ab3d81f`. Shared reporting and the single byte-view parser
-   API and permanent text/reporting documentation are implemented for review.
-   The [style review notes](document_style_review.md)
-   record the follow-up and the wider buffer-ownership question.
-2. Develop the remaining Host consolidation in a separate task: module
-   lifecycle, asset identity and lifetime, asynchronous operations, aligned
-   loading, conditioning and filesystem resolution.
-3. Exercise the resulting Host services with document persistence and an
-   Executive-controlled functional run, then begin a schema vertical slice.
+1. Following this accepted consolidation, undertake the rendering DLL stub as a separate
+   work stage: a minimal module thread waiting for an exit request, with its
+   Host-managed lifecycle. Revisit successful-path fixture duplication then;
+   this stub is not part of the current implementation.
+2. Reassess subsequent schema and other consumers after that stage. Existing
+   schema design material does not mean a schema implementation is complete.
 
-[Consolidation plan](consolidation_pass.md) owns detailed scope, open questions
-and dependencies. The parser refactor can proceed alongside Host design; the
-integration run depends on both. Pause before commits for review.
+Filesystem images/resolution, document path navigation, cache eviction/reference
+counting, trust/layers and the general job framework remain deferred. Explicit
+asset disposal does not implement those broader lifetime mechanisms.
 
 ## Documentation map
 
+- [Coordinator handoff](consolidation_coordinator_handoff.md): current status,
+  working arrangement and next-stage boundary.
+- [Asset services](../assets/asynchronous_asset_services.md) and
+  [module lifecycle](../modules/asynchronous_module_lifecycle.md): implemented
+  ownership, message, shutdown and validation contracts.
 - [Engine backlog](engine_backlog.md): remaining broader and deferred work.
 - [Data-model documentation](../data_model/README.md): current semantic, text,
   parsing/reporting and baked-format contracts, with design rationale kept
@@ -57,6 +51,6 @@ integration run depends on both. Pause before commits for review.
 - [Future work notes](../project/future_work_notes.md): supporting cross-task
   context, without a second priority list.
 
-Historical stage-by-stage plans remain in Git history. They do not override
-the consolidation direction or require the former Executive test sequence
-to be implemented unchanged.
+The dated [consolidation plan](consolidation_pass.md), design stages and discussion
+notes preserve earlier proposals. Their historical pending-work statements do
+not override this status or the implemented subsystem contracts.

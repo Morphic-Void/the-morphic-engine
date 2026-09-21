@@ -13,7 +13,7 @@ contracts now live in [data-model documentation](../data_model/README.md):
 [text format](../data_model/document_text_format.md) and
 [parsing and reporting](../data_model/document_parsing.md). Those references
 supersede transitional interface descriptions below. Section 9 records completed
-work and pending review; commits still require review.
+work and review through commit `e60407f`; no parser follow-up remains pending here.
 
 ## 1. Purpose and scope
 
@@ -1622,7 +1622,7 @@ record the addressed observations and the wider ownership question.
 
 ### 9.13 Shared report and byte-input parsing
 
-The report/API follow-up is implemented for review:
+The report/API follow-up is reviewed and committed as `e60407f`:
 
 - `CDocumentReport` replaces both parser and structural reports, without
   compatibility aliases. `EDocumentProcessingState : std::int8_t` uses failure
@@ -1660,7 +1660,7 @@ document, 213 baked-transfer and 562 linter checks. Live-document checks pass
 at 4,426 in Debug and 4,436 in Release. Repository policy validation reports
 no errors or warnings; whitespace and line-ending checks pass.
 
-This follow-up is uncommitted pending user and coordinator review. It does not
+This follow-up completed user/coordinator review and is committed as `e60407f`. It does not
 change baked storage ownership or the grammar and document-model contracts.
 
 ### 9.14 Permanent documentation
@@ -1678,8 +1678,8 @@ described identifier-only names, preserved source line endings or reserved
 wrapper interpretation. The parser header points only to permanent data-model
 references. The documentation index separates these responsibilities.
 
-This documentation follow-up changes no runtime behaviour and remains part of
-the uncommitted review scope.
+This documentation follow-up changes no runtime behaviour and was included in
+commit `e60407f` with the report/API work.
 
 ## 10. Decision record and implementation review
 
@@ -1732,5 +1732,6 @@ behaviour questions.
 
 Stage 1 and stage 2 functional implementation and review are complete. The
 parameter const pass and manual style checkpoint are reviewed and committed.
-The shared-report/API follow-up awaits review. Pause before each subsequent
-commit for review.
+The shared-report/API follow-up and permanent documentation are reviewed and
+committed as `e60407f`. Subsequent storage, image and Host work is tracked in
+[current scope](current_scope_backlog.md); it does not reopen this refactor.

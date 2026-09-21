@@ -2,8 +2,9 @@
 
 Updated 14 September 2026. Follow-up to the parameter const pass committed as
 `8d5ca1d`. The style checkpoint, including the user's manual formatting edits,
-was reviewed and committed as `ab3d81f`. The parser/report follow-up below is
-implemented and awaits user and coordinator review.
+was reviewed and committed as `ab3d81f`. The parser/report follow-up below was
+also reviewed and committed as `e60407f`. This file records those completed
+checkpoints; it is not an outstanding review request.
 
 Style checkpoint validation: Debug and Release builds and all ordinary test suites pass on x64
 and Win32. Each configuration passes 18,079 parser, 1,247 structure, 10,539
@@ -42,9 +43,10 @@ Original note numbers are retained for reference.
 
 ## Wider ownership refactoring
 
-Item 2 is deferred to the wider ownership refactoring in the
-[consolidation plan](consolidation_pass.md). It is not part of the current
-parser/report review.
+Item 2 was resolved by the later baked-storage refactor, committed as `a75962f`.
+`CBakedDocumentBlock` retains its distinct role, owns a `CByteBuffer`, supports
+checked adoption and constructs borrowed views on demand. See the
+[completed storage record](baked_document_storage_specification.md).
 
 - **Item 2:** Consider whether `CBakedDocumentBlock` should adopt a `CByteBuffer` to simplify
    building and ownership transfer. Reassess whether a distinct block class is
@@ -53,7 +55,7 @@ parser/report review.
 
 ## Parser and structural report discussion
 
-Items 3 and 4 have been addressed together in the current follow-up:
+Items 3 and 4 were addressed together in `e60407f`:
 
 - `CDocumentReport` is shared by structural checking and parsing. Its processing
   state uses `std::int8_t` with failure = -1, unprocessed = 0 and success = 1.

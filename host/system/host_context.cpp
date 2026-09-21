@@ -68,7 +68,6 @@ static bool MV_STD_ABI_CALL host_deallocate(void* const context, const std::size
 static memory::CMemoryAllocator s_host_memory_allocator(nullptr, &host_allocate, &host_deallocate, system_ids::host);
 
 static memory::CMemoryContext s_host_memory_context(s_host_memory_allocator, system_ids::host);
-static memory::CMemoryContext s_executive_memory_context(s_host_memory_allocator, system_ids::executive);
 
 //==============================================================================
 //  Host context installation
@@ -102,9 +101,9 @@ memory::CMemoryContext* host_memory_context() noexcept
     return &s_host_memory_context;
 }
 
-memory::CMemoryContext* executive_memory_context() noexcept
+memory::CMemoryAllocator& host_memory_allocator() noexcept
 {
-    return &s_executive_memory_context;
+    return s_host_memory_allocator;
 }
 
 }   //  namespace host

@@ -1,8 +1,11 @@
 # Asynchronous asset services
 
-19 September 2026. Implements the asset-operation contracts settled after the
-storage and image-view consolidation. Module loading/unloading on the Host worker
-remains a separate follow-up.
+Updated 21 September 2026. The asset-operation contracts settled after storage
+and image-view consolidation are committed in `f74213f`. The explicit disposal
+and dependent-module cleanup additions described here belong to the module-lifecycle
+follow-up, reviewed and accepted for commit on 21 September. The subsequent
+[asynchronous module lifecycle](../modules/asynchronous_module_lifecycle.md)
+records the separately authorised Host-worker loading/unloading implementation.
 
 ## Requests and ownership
 
@@ -14,7 +17,8 @@ select raw bytes, baked binary, JSON or TGA as appropriate to the resource.
 
 Retention is explicit:
 
-- `source`: retain the transferred representation until application exit.
+- `source`: retain the transferred representation until explicit disposal,
+  dependent-module cleanup or application exit.
 - `discard`: retain it only for the combined save, then release it on either
   success or failure. Admission without an operation cannot select discard.
 - `baked`: for live input, bake and retain the resulting snapshot. This also
@@ -31,6 +35,16 @@ operation storage are separate collections.
 that asset. The request owns its destination filename, but does not own the asset.
 It captures image encoding and document-writing settings by value. JSON output
 defaults to strict JSON, with the existing writer options available explicitly.
+
+`AssetDisposeRequest` carries only a retained `CAssetId` and can be sent by any
+connected thread. The Host rejects further saves using that ID once disposal is
+accepted, waits for accepted operations using it to finish, and destroys the
+asset. `AssetDisposeResult` returns the same ID and a status, with no views.
+Invalid, stale and already pending disposal IDs return `invalid_asset`.
+Callers must quiesce all borrowed views before requesting disposal. Save results
+already in transit do not extend the asset's lifetime. POD and owning requests
+use separate queues, so sending a save before a disposal does not itself prove
+the save has been admitted; clients must establish that ordering when needed.
 
 The existing owning transport rejects unsuccessful posts without consuming the
 sender's message. Once accepted, resource ownership remains in the Host. Client
@@ -123,7 +137,10 @@ clients. Infrastructure binding remains a separately established lifetime except
 Completion transport failure is a terminal runtime error, never a silent success.
 On terminal shutdown, workers are stopped before pending input storage is released;
 remaining operations receive failure replies where the client transport still
-works. Thread packages and retained assets are destroyed before module unbinding.
+works. During normal module teardown, the affected thread is joined and its
+dependent retained assets are disposed of before unbinding. Independent assets
+may survive module replacement. Terminal worker failure retains DLL references
+until process exit; see the module lifecycle notes for that fallback.
 
 ## Acceptance and review map
 
@@ -201,5 +218,5 @@ defaults now document the otherwise exhaustive scenario and document-source
 switches. The scenario index remains bounded by the sequential-to-concurrent
 phase transition. Final Debug x64 build, policy, core-suite and 80-operation
 validation passed under `build/asset-defaults-dbg64-*` and engine log tag
-`asset-defaults-dbg64`. Coordinator review has no outstanding findings, and the
-user has authorised the commit.
+`asset-defaults-dbg64`. User and coordinator review completed with no outstanding
+findings, and the change was committed as `f74213f`.

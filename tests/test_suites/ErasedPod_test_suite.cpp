@@ -215,7 +215,13 @@ void test_thread_message_copy_boundary(TTestContext& ctx)
     static_assert(!CErasedPodMsg::is_payload_compatible_with<SOverAlignedPod>());
     static_assert(!CErasedPodMsg::is_payload_compatible_with<SOversizedPod>());
     static_assert(sizeof(CErasedPodMsg) == 64u);
+    static_assert(CErasedPodMsg::is_payload_compatible_with<ModuleResult>());
+    static_assert(CErasedPodMsg::is_payload_compatible_with<ModuleWorkRequest>());
+    static_assert(CErasedPodMsg::is_payload_compatible_with<ModuleWorkResult>());
+    static_assert(!CErasedPodMsg::is_payload_compatible_with<ModuleRequest>());
     static_assert(CErasedPodMsg::is_payload_compatible_with<AssetResult>());
+    static_assert(CErasedPodMsg::is_payload_compatible_with<AssetDisposeRequest>());
+    static_assert(CErasedPodMsg::is_payload_compatible_with<AssetDisposeResult>());
     static_assert(CErasedPodMsg::is_payload_compatible_with<DocumentConditionRequest>());
     static_assert(alignof(CErasedPodMsg) == 16u);
 

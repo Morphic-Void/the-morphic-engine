@@ -95,6 +95,7 @@ public:
 
     [[nodiscard]] bool is_ready() const noexcept { return m_owner.is_ready(); }
     [[nodiscard]] type_id query_type_id() const noexcept { return m_owner.query_type_id(); }
+    [[nodiscard]] bool has_dependency(const mount_point_ids::id_type mount) const noexcept { return m_owner.has_hazard(mount); }
 
     template<typename T>
     [[nodiscard]] T* payload() noexcept { return m_owner.payload<T>(); }
@@ -142,6 +143,8 @@ public:
     void compact() noexcept { m_assets.sort_and_pack(); }
 
     [[nodiscard]] bool check_integrity() const noexcept { return m_assets.check_integrity(); }
+    [[nodiscard]] bool has_dependency(const mount_point_ids::id_type mount) const noexcept;
+    void erase_dependencies(const mount_point_ids::id_type mount) noexcept;
 
 private:
     TOrderedCollection<CAssetRecord, CAssetId> m_assets;
@@ -183,6 +186,31 @@ inline const CAssetRecord* CAssetRepository::resolve(const CAssetId id) const no
 inline bool CAssetRepository::erase(const CAssetId id) noexcept
 {
     return id.is_valid() && m_assets.erase(id);
+}
+
+inline void CAssetRepository::erase_dependencies(const mount_point_ids::id_type mount) noexcept
+{
+    for (std::int32_t slot = m_assets.first_live(); slot >= 0;)
+    {
+        const std::int32_t next = m_assets.next_live(slot);
+        if (m_assets.get_object(slot)->has_dependency(mount))
+        {
+            (void)m_assets.erase(slot);
+        }
+        slot = next;
+    }
+}
+
+inline bool CAssetRepository::has_dependency(const mount_point_ids::id_type mount) const noexcept
+{
+    for (std::int32_t slot = m_assets.first_live(); slot >= 0; slot = m_assets.next_live(slot))
+    {
+        if (m_assets.get_object(slot)->has_dependency(mount))
+        {
+            return true;
+        }
+    }
+    return false;
 }
 
 #endif  //  #ifndef ASSET_REPOSITORY_HPP_INCLUDED

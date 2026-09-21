@@ -32,13 +32,29 @@ public:
     [[nodiscard]] bool is_idle() const noexcept { return m_operations.is_empty(); }
     [[nodiscard]] bool failed() const noexcept { return m_failed; }
 
-    void request(threading::CErasedOwnerMsg& message, threading::CThreadPackage& client,
+    //  Requires idle operations and quiescent clients; the DLL must remain loaded.
+    void dispose_dependencies(const mount_point_ids::id_type mount) noexcept;
+    void complete_disposals() noexcept;
+
+    void request(
+        threading::CErasedOwnerMsg& message, threading::CThreadPackage& client,
         threading::CThreadPackage& file_io, threading::CThreadPackage& conditioning) noexcept;
+    void request_disposal(
+        const AssetDisposeRequest& request, const std::int32_t slot,
+        threading::CThreadPackage& client) noexcept;
     void complete(threading::CErasedOwnerMsg& message) noexcept;
     void complete(const threading::CErasedPodMsg& message) noexcept;
 
 private:
-    enum class EPhase : std::uint8_t { loading, decoding, conditioning, encoding, saving };
+    enum class EPhase : std::uint8_t
+    {
+        loading = 0,
+        decoding,
+        conditioning,
+        encoding,
+        saving,
+        disposing
+    };
 
     struct SOperation
     {
@@ -51,12 +67,15 @@ private:
         EAssetRetention retention{ EAssetRetention::source };
         bool save_requested{ false };
         bool load_requested{ false };
+
         const char* file{ nullptr };
         AssetSaveSettings save_settings; //  Borrowed writer options remain unchanged until completion.
+
         CErasedOwner request_owner; //  Keeps the borrowed filename alive.
         CErasedOwner candidate_owner; //  Temporary asset; empty after repository retention.
         CErasedOwner conditioning_input_owner; //  File bytes borrowed by decoding/parsing.
         CErasedOwner worker_result_owner; //  Worker output, also backs a pending file save.
+
         AssetResult working_views; //  May refer to temporary storage; never publish directly.
         CAssetId retained_asset{}; //  Only this identity permits client views.
     };
@@ -68,7 +87,12 @@ private:
     void begin_save_or_bake(const std::int32_t slot) noexcept;
     void begin_file_save(const std::int32_t slot, const CByteConstView& bytes) noexcept;
     void finish_operation(const std::int32_t slot, const EAssetStatus status) noexcept;
-    void reply(threading::CThreadPackage& client, const std::int32_t slot, const AssetResult& result) noexcept;
+    [[nodiscard]] bool disposal_pending(const CAssetId asset) const noexcept;
+    [[nodiscard]] bool asset_in_use(const CAssetId asset) const noexcept;
+
+    template<typename TResult>
+    void reply(threading::CThreadPackage& client, const std::int32_t slot, const TResult& result) noexcept;
+
     template<typename TOwner>
     static void describe_views(TOwner& source, AssetResult& result) noexcept;
 
@@ -78,6 +102,7 @@ private:
     void complete_document_conditioning(const std::int32_t slot) noexcept;
 
     CAssetRepository m_assets;
+
     //  Address-stable objects: workers borrow save_settings until completion.
     TUnorderedCollection<SOperation> m_operations;
     bool m_failed{ false };

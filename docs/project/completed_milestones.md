@@ -18,6 +18,57 @@ Permanent behavior and architectural contracts belong in the subsystem
 documents linked from each milestone. Current and future work belongs in
 `future_work_notes.md` and the backlog.
 
+## September consolidation: document, image and asset services
+
+Completed and committed by 20 September 2026:
+
+- `e60407f` completes shared document reports, byte-view parsing and the permanent
+  text/reporting documentation after the parser/model/writer and style passes.
+- `d1d804c`, `42a908d` and `a75962f` establish diagnostic-only memory accounting,
+  uniform container/live-document attribution and baked-document storage with
+  version-4 stored offsets, on-demand views and aligned file loading.
+- `5b1282f` and `98ce708` add the image view over 8-bit/32-bit storage, clipped
+  drawing/copying, channel write masks and TGA encoding configuration.
+- `f74213f` consolidates raw, baked, JSON and TGA asynchronous asset operations.
+  It supports retained and one-shot transfers, conditioning on the Host worker,
+  file I/O on the I/O worker, compact borrowed-view results and failure diagnostics.
+  The Executive exercises 48 sequential and 32 concurrent asset operations.
+  The legacy client TGA flow and redundant catalogue identities are retired.
+
+These checkpoints passed their recorded Debug/Release x64/Win32 builds and Core
+suites; service integration also passed the Executive acceptance flow. Exact
+contracts and validation are in the [image](../image/image_view.md),
+[asset](../assets/asynchronous_asset_services.md) and
+[data-model](../data_model/README.md) references.
+
+## Asynchronous module lifecycle and asset disposal
+
+Implemented and reviewed as of 21 September 2026, including the user's manual
+style pass and coordinator verification. The user authorised committing this
+milestone on 21 September.
+
+- DLL load/bind and unbind/unload run on the Host I/O worker. Workers share their
+  operation handlers, preserving later optional coalescing.
+- The Host bootstraps without the Executive and starts it after asynchronous
+  binding. Other-module requests receive acknowledgement and completion;
+  Executive self-termination receives neither and immediately requests thread exit.
+- Self-unload shuts down the system. Failed Executive replacement logs an
+  assertion and shuts down; failed ordinary replacement leaves the service
+  unavailable for the Executive to handle.
+- Explicit disposal waits for accepted asset operations. Before DLL unload,
+  remaining dependent assets trigger an assertion log and are destroyed while
+  the DLL is still loaded. Independent assets survive replacement.
+
+All twelve lifecycle scenarios and Core suites passed in Debug/Release x64/Win32
+after the review tidy-up. Debug x64 passed again after the manual style pass.
+Policy, whitespace and line-ending checks passed. The
+[module lifecycle reference](../modules/asynchronous_module_lifecycle.md) records
+the protocol, failure handling and exact evidence paths.
+
+The rendering DLL stub remains a separate next stage after acceptance and commit;
+the general job framework and automatic cache reclamation are not completed by
+this bounded lifecycle service.
+
 ## Memory Ownership And Accounting
 
 The memory refactor established one system-wide ownership and accounting model:
@@ -249,8 +300,8 @@ remain in the [engine backlog](../backlog/engine_backlog.md).
 
 Completed September 2026. The former stage-by-stage roadmap is replaced by this
 outcome record. The implementation is available and tested; the parser/reporting
-contract and ownership API are being revisited in the
-[consolidation plan](../backlog/consolidation_pass.md).
+contract and ownership API were subsequently consolidated as recorded above.
+The [consolidation plan](../backlog/consolidation_pass.md) preserves that history.
 
 - Added container observations for valid stable-string counts and O(1)
   slot-to-key conversion without new persistent state.
@@ -296,8 +347,8 @@ Current reference:
 - [Design rationale](../data_model/data_model_design_notes.md).
 
 Direct file persistence and the full Executive-controlled document run were
-planned but not implemented at this checkpoint. Their test mechanics are being
-reconsidered around the consolidated Host contracts before schema work.
+not implemented at this historical checkpoint. They are now covered by the
+asset-service milestone above and committed as `f74213f`.
 
 ## Linter and shared diagnostic refactor: stage 1
 

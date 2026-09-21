@@ -56,7 +56,23 @@ int main(const int argc, char** const argv)
     {
         return 1;
     }
-    const int host_result = host::host(log_tag);
+    const char* executive_file = "MorphicExecutive.dll";
+    bool executive_option_seen = false;
+    constexpr char executive_prefix[] = "--executive=";
+    for (int index = 1; index < argc; ++index)
+    {
+        if (std::strncmp(argv[index], executive_prefix, sizeof(executive_prefix) - 1u) == 0)
+        {
+            executive_file = argv[index] + sizeof(executive_prefix) - 1u;
+            if (executive_option_seen || (*executive_file == '\0'))
+            {
+                std::fputs("Use one --executive=<DLL path>.\n", stderr);
+                return 2;
+            }
+            executive_option_seen = true;
+        }
+    }
+    const int host_result = host::host(log_tag, executive_file);
     platform::system::set_current_process_priority(platform::system::EProcessPriority::AboveNormal);
     const std::uint32_t hw_threads_supported = platform::threading::query_hardware_thread_count();
     (void)hw_threads_supported;

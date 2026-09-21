@@ -21,6 +21,7 @@
 #include <cstdint>      //  std::int32_t, std::uint8_t
 
 #include "host/runtime/asset_service.hpp"
+#include "host/runtime/module_service.hpp"
 #include "containers/TInstance.hpp"
 #include "containers/TUnorderedCollection.hpp"
 #include "debug/service.hpp"
@@ -42,7 +43,7 @@ public:
     CHost& operator=(CHost&&) = delete;
     ~CHost() noexcept;
 
-    [[nodiscard]] int execute(const char* log_tag) noexcept;
+    [[nodiscard]] int execute(const char* const log_tag, const char* const executive_file) noexcept;
 
 private:
     enum class EWorkerThreadID : std::uint8_t
@@ -53,16 +54,25 @@ private:
         count
     };
 
+    enum class EPhase : std::uint8_t
+    {
+        starting = 0,
+        running,
+        stopping_executive,
+        replacing_executive,
+        shutting_down,
+        complete
+    };
+
     static constexpr std::size_t k_thread_count = static_cast<std::size_t>(EWorkerThreadID::count);
 
-    void initialise_debug_service(const char* log_tag) noexcept;
-    [[nodiscard]] bool initialise_runtime() noexcept;
-    [[nodiscard]] bool bind_executive_module() noexcept;
-    [[nodiscard]] bool validate_executive_module_compatibility(
-        const modules::SAdvertisedIdentity& advertised_host_identity,
-        const std::uint32_t expected_module_major,
-        executive::FExecutiveThread& executive_thread) noexcept;
+    void initialise_debug_service(const char* const log_tag) noexcept;
+    [[nodiscard]] bool initialise_runtime(const char* const executive_file) noexcept;
     [[nodiscard]] bool start_threads() noexcept;
+    [[nodiscard]] bool start_executive() noexcept;
+    void receive_request(threading::CErasedOwnerMsg& message, threading::CThreadPackage& executive) noexcept;
+    void advance_lifecycle(const threading::EThreadRunState executive_state) noexcept;
+    void executive_failure(const EModuleStatus status) noexcept;
     void run() noexcept;
     [[nodiscard]] bool shutdown() noexcept;
     void shutdown_threads() noexcept;
@@ -79,12 +89,15 @@ private:
     CAssetService m_asset_service;
     bool m_runtime_failed{ false };
     platform::system::CPerfCountConversion m_perf_count_conversion;
-    modules::CBoundModule m_executive_module;
-    executive::FExecutiveThread m_executive_thread{ nullptr };
+
+    //  Self-replacement owns its request until the outgoing Executive is joined.
+    CModuleService m_module_service;
+    CErasedOwner m_executive_request;
+    EPhase m_phase{ EPhase::starting };
     std::int32_t m_thread_slots[k_thread_count]{ -1, -1, -1 };
 };
 
-int host(const char* log_tag = nullptr) noexcept;
+int host(const char* const log_tag = nullptr, const char* const executive_file = "MorphicExecutive.dll") noexcept;
 
 }   //  namespace host
 

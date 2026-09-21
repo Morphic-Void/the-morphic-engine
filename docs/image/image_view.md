@@ -150,6 +150,7 @@ borrowed pointers and drawing-access state into encoding requests.
 Build/test logs are in the ignored `build/image-view-style-final-dbg64.log`,
 `build/image-view-style-dbg32.log`, `build/image-view-style-rel64.log` and
 `build/image-view-style-rel32.log`. Policy validation and the repository line-ending
-check passed. Asynchronous Host admission and Executive workflows are separate
-remaining consolidation work; these codec round trips do not claim to complete
-that integration.
+check passed. Asynchronous Host admission and Executive workflows were validated
+separately and are now committed in `f74213f`; see
+[asynchronous asset services](../assets/asynchronous_asset_services.md). The codec
+round trips above remain the image utility's own validation record.

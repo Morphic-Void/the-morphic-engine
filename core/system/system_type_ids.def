@@ -27,7 +27,13 @@
     type_macro(live_asset_transfer) \
     type_macro(asset_load_request) \
     type_macro(asset_save_request) \
+    type_macro(asset_dispose_request) \
+    type_macro(asset_dispose_result) \
     type_macro(asset_result) \
     type_macro(document_condition_request) \
     type_macro(document_condition_result) \
-    type_macro(live_document_asset)
+    type_macro(live_document_asset) \
+    type_macro(module_request) \
+    type_macro(module_result) \
+    type_macro(module_work_request) \
+    type_macro(module_work_result)

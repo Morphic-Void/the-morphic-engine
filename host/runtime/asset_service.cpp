@@ -18,6 +18,10 @@
 namespace host
 {
 
+//==============================================================================
+//  Service lifetime and completion publication
+//==============================================================================
+
 bool CAssetService::initialise() noexcept
 {
     return m_assets.initialise() && m_operations.initialise();
@@ -60,14 +64,14 @@ void CAssetService::describe_views(TOwner& source, AssetResult& result) noexcept
     }
 }
 
-void CAssetService::reply(threading::CThreadPackage& client, const std::int32_t slot, const AssetResult& result) noexcept
+template<typename TResult>
+void CAssetService::reply(threading::CThreadPackage& client, const std::int32_t slot, const TResult& result) noexcept
 {
     threading::CErasedPodMsg message;
     message.set_async_slot(slot);
     message.assign_payload(result);
     if (!client.post(message))
-    {
-        //  A broken completion transport is terminal, never a silent success.
+    {   //  A broken completion transport is terminal, never a silent success.
         m_failed = true;
         MV_CRITICAL_EVENT("Host: Asset completion delivery failed for slot {}", slot);
     }
@@ -76,6 +80,13 @@ void CAssetService::reply(threading::CThreadPackage& client, const std::int32_t 
 void CAssetService::finish_operation(const std::int32_t slot, const EAssetStatus status) noexcept
 {
     SOperation& operation = *m_operations.get_object(slot);
+    if (operation.phase == EPhase::disposing)
+    {
+        reply(*operation.client, operation.client_slot, AssetDisposeResult{ operation.retained_asset, status });
+        (void)m_operations.erase(slot);
+        return;
+    }
+
     AssetResult result = operation.retained_asset ? operation.working_views : AssetResult{};
     result.asset = operation.retained_asset;
     result.status = status;
@@ -92,9 +103,96 @@ bool CAssetService::retain_candidate(SOperation& operation) noexcept
     {
         return false;
     }
+
     operation.retained_asset = asset;
     return true;
 }
+
+//==============================================================================
+//  Retained asset disposal
+//  Pending disposal closes admission, then waits only for existing borrowers.
+//==============================================================================
+
+bool CAssetService::disposal_pending(const CAssetId asset) const noexcept
+{
+    for (std::int32_t slot = m_operations.first_live(); slot >= 0; slot = m_operations.next_live(slot))
+    {
+        const SOperation& operation = *m_operations.get_object(slot);
+        if ((operation.phase == EPhase::disposing) && (operation.retained_asset == asset))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool CAssetService::asset_in_use(const CAssetId asset) const noexcept
+{
+    for (std::int32_t slot = m_operations.first_live(); slot >= 0; slot = m_operations.next_live(slot))
+    {
+        const SOperation& operation = *m_operations.get_object(slot);
+        if ((operation.phase != EPhase::disposing) && (operation.retained_asset == asset))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+void CAssetService::request_disposal(const AssetDisposeRequest& request, const std::int32_t slot, threading::CThreadPackage& client) noexcept
+{
+    if ((m_assets.resolve(request.asset) == nullptr) || disposal_pending(request.asset))
+    {
+        reply(client, slot, AssetDisposeResult{ request.asset, EAssetStatus::invalid_asset });
+        return;
+    }
+
+    const std::int32_t operation_slot = m_operations.emplace();
+    if (operation_slot < 0)
+    {
+        reply(client, slot, AssetDisposeResult{ request.asset, EAssetStatus::allocation_failed });
+        return;
+    }
+
+    SOperation& operation = *m_operations.get_object(operation_slot);
+    operation.client = &client;
+    operation.client_slot = slot;
+    operation.phase = EPhase::disposing;
+    operation.retained_asset = request.asset;
+}
+
+void CAssetService::complete_disposals() noexcept
+{
+    //  Save the next slot before erasing this operation. Disposal replies never
+    //  publish the views that ordinary load/save completions may carry.
+    for (std::int32_t slot = m_operations.first_live(); slot >= 0;)
+    {
+        const std::int32_t next = m_operations.next_live(slot);
+        const SOperation& operation = *m_operations.get_object(slot);
+        if ((operation.phase == EPhase::disposing) && !asset_in_use(operation.retained_asset))
+        {
+            const bool erased = m_assets.erase(operation.retained_asset);
+            finish_operation(slot, erased ? EAssetStatus::success : EAssetStatus::invalid_asset);
+        }
+        slot = next;
+    }
+}
+
+void CAssetService::dispose_dependencies(const mount_point_ids::id_type mount) noexcept
+{
+    if (m_assets.has_dependency(mount))
+    {
+        //  A module should release its assets before stopping. Log the violated
+        //  contract, then destroy remaining owners while their DLL is still bound.
+        (void)debug_system::submit_event<debug_system::EEventLevel::assert, debug_system::EEventType::condition>(
+            MV_INTERNAL_USAGE_POINT, "Host: disposing retained assets dependent on module mount {}", mount.raw_value());
+        m_assets.erase_dependencies(mount);
+    }
+}
+
+//==============================================================================
+//  Asset admission and worker submission
+//==============================================================================
 
 template<typename TRequest, typename TAsset>
 bool CAssetService::handle_transfer_if_type_matches(SOperation& operation) noexcept
@@ -105,6 +203,15 @@ bool CAssetService::handle_transfer_if_type_matches(SOperation& operation) noexc
         return false;
     }
     operation.candidate_owner = CErasedOwner::create<TAsset>();
+    //  Moving backing storage into a Host carrier does not remove explicit code/data dependencies.
+    for (std::uint32_t index = 0u; index < mount_point_ids::k_count; ++index)
+    {
+        const auto mount = mount_point_ids::ops::make_id(mount_point_ids::ops::make_index(index));
+        if (operation.request_owner.has_hazard(mount))
+        {
+            operation.candidate_owner.add_hazard(mount);
+        }
+    }
     TAsset* const source = operation.candidate_owner.payload<TAsset>();
     if (source == nullptr)
     {
@@ -155,7 +262,8 @@ bool CAssetService::handle_transfer_if_type_matches(SOperation& operation) noexc
     return true;
 }
 
-void CAssetService::request(threading::CErasedOwnerMsg& message, threading::CThreadPackage& client,
+void CAssetService::request(
+    threading::CErasedOwnerMsg& message, threading::CThreadPackage& client,
     threading::CThreadPackage& file_io, threading::CThreadPackage& conditioning) noexcept
 {
     const std::int32_t slot = m_operations.emplace();
@@ -204,7 +312,7 @@ void CAssetService::request(threading::CErasedOwnerMsg& message, threading::CThr
         operation.file = save->file.cstring();
         operation.save_settings = save->settings;
         operation.save_requested = true;
-        CAssetRecord* const source = m_assets.resolve(save->source);
+        CAssetRecord* const source = disposal_pending(save->source) ? nullptr : m_assets.resolve(save->source);
         if ((source == nullptr) || (save->file.length() == 0u))
         {
             finish_operation(slot, (source == nullptr) ? EAssetStatus::invalid_asset : EAssetStatus::invalid_request);
@@ -301,6 +409,10 @@ void CAssetService::begin_file_save(const std::int32_t slot, const CByteConstVie
         finish_operation(slot, EAssetStatus::delivery_failed);
     }
 }
+
+//==============================================================================
+//  Worker completion dispatch and operation continuation
+//==============================================================================
 
 void CAssetService::complete(const threading::CErasedPodMsg& message) noexcept
 {

@@ -233,6 +233,7 @@
   <ItemGroup>
     <ClCompile Include="host\runtime\host.cpp" />
     <ClCompile Include="host\runtime\asset_service.cpp" />
+    <ClCompile Include="host\runtime\module_service.cpp" />
     <ClCompile Include="host\system\host_context.cpp" />
     <ClCompile Include="host\runtime\host_worker_thread.cpp" />
     <ClCompile Include="host\module\types\local_type_ids.cpp" />
@@ -242,6 +243,7 @@
   <ItemGroup>
     <ClInclude Include="host\runtime\host.hpp" />
     <ClInclude Include="host\runtime\asset_service.hpp" />
+    <ClInclude Include="host\runtime\module_service.hpp" />
     <ClInclude Include="host\module\types\erased_owner_payloads.def" />
     <ClInclude Include="host\system\host_context.hpp" />
     <ClInclude Include="host\module\types\local_types.hpp" />

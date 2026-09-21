@@ -1,27 +1,31 @@
 # Consolidation coordinator handoff
 
-Update after the 20 September review: image-view work is
+Updated 21 September 2026 after the manual style pass: image-view work is
 complete in `5b1282f` and `98ce708`. The combined asset-service and Executive
-acceptance pass is implemented, validated and reviewed by the user and coordinator;
-the user has authorised its commit. The legacy client TGA flow and redundant
-catalogue identities are retired.
+acceptance pass is committed in `f74213f` after user and coordinator review. The
+legacy client TGA flow and redundant catalogue identities are retired.
 See [asynchronous asset services](../assets/asynchronous_asset_services.md) for the
-settled contracts, review map and validation evidence. The older next-discussion
-and open image-view statements below are historical. Module-worker migration is
-still a separate follow-up.
+settled contracts, review map and validation evidence. The subsequently authorised
+module-worker migration is implemented and reviewed; see
+[asynchronous module lifecycle](../modules/asynchronous_module_lifecycle.md) for
+the Executive bootstrap, replacement, notification and shutdown contracts.
+The follow-up adds explicit retained-asset disposal and replaces dependency-based
+unload rejection with assertion logging and disposal before DLL unbinding.
+The 21 September review tidy-up consolidates module declarations and transport
+registrations and completes worker request diagnostics. A rendering DLL stub is
+the next separate work stage, after acceptance and commit of the current changes.
+User review, the manual style pass and coordinator verification are complete.
+The user authorised committing the module/disposal change on 21 September.
 
-19 September 2026. Starting point for the successor coordinator task, replacing
+Originally captured 19 September 2026 for the successor coordinator task, replacing
 the dense discussion in task `01a09fd4-73ad-7ce2-a3e4-efcdadb454dd`.
 
 ## Read first and precedence
 
-Read [asynchronous asset-operation notes](asynchronous_asset_operation_notes.md)
-first. They contain Ritchie's latest scope and ownership decisions, image-view
-direction and explanation of the proof-of-concept line algorithm. They supersede
-older statements that every transfer must create a permanent asset or that every
-save requires separate admission and an asset-ID receipt.
-
-Use this handoff and those notes for current direction. The
+Use [current scope](current_scope_backlog.md), this handoff and the implemented
+[image](../image/image_view.md), [asset](../assets/asynchronous_asset_services.md)
+and [module](../modules/asynchronous_module_lifecycle.md) contracts for current
+direction. The [asynchronous asset-operation notes](asynchronous_asset_operation_notes.md),
 [design order](consolidation_design_order.md),
 [consolidation plan](consolidation_pass.md) and
 [stage discussion](consolidation_stage_1_specification.md) retain substantial
@@ -36,6 +40,9 @@ Do not restart completed work or promote an old stage into an active assignment.
   checked byte-buffer adoption, rounded capacity and aligned file loading.
 - `7401671`: consolidated and deferred design history.
 - `b7657f7`: future document navigation and save-game uses.
+- `e60407f`: shared document reports and byte-view parsing.
+- `5b1282f`, `98ce708`: image view, drawing, copy and TGA configuration utility.
+- `f74213f`: consolidated asynchronous asset services and Executive acceptance.
 
 The production changes passed coordinator and user review, four full
 Debug/Release x64/x86 configurations and the recorded engine smoke exercises.
@@ -46,41 +53,40 @@ the current production baked format remains immutable. Its version-4 header is
 64 bytes, with counts and offsets; minimum extent/capacity are 114/128 bytes.
 
 There is also separately committed schema design material (`b5f7441`,
-docs/schema). It does not imply that the asynchronous acceptance work is complete.
+docs/schema). It does not imply that schema implementation is complete.
 
-## Remaining work and next discussion
+## Completed module lifecycle and asset disposal
 
-The next design discussion is the image view. Ritchie expects a richer class with
-local mutable state, borrowing rectangular storage. Determine metadata, pixel
-access, mutability and which state belongs in the view versus operation arguments.
-Whether it is suitable as encode/save configuration or should supply smaller
-settings remains open.
+DLL loading/binding and unbinding/unloading run on the Host I/O worker. The Host
+starts without an Executive, binds it asynchronously and then starts its thread.
+Ordinary module requests receive acknowledgement and completion; self-termination
+sets the Executive exit request immediately and sends neither notification.
+Self-unload requests system shutdown; failed self-replacement logs an assertion
+and shuts down. A failed ordinary replacement leaves the service unavailable.
 
-Ritchie is considering including a deliberately small drawing set: clipped,
-non-antialiased Bresenham lines, filled/unfilled rectangles and rectangle copies.
-Drawing state must inform the design even if implementation is staged. The latest
-notes give inclusive endpoints, major-axis endpoint ordering and preservation of
-the accumulator when clipping skips pixels. Translation stability and endpoint
-reversal independence are requirements; mirror symmetry is an expected consequence
-to verify. Exact ties/update ordering remain open. No source extraction is needed
-merely to begin this discussion, and no drawing implementation is authorised yet.
+Explicit asset disposal waits for accepted borrowers and rejects later saves by
+that ID. Before module unload, the Host drains operations and joins the affected
+Host-managed thread. Remaining dependent assets produce an assertion log and are
+disposed of while their DLL is loaded. Unrelated retained assets survive replacement.
+The Executive is currently the only DLL with a Host-managed thread.
 
-The remaining consolidation develops retained and one-shot save ownership,
-concrete raw/baked/JSON/TGA asynchronous services, and their end-to-end acceptance
-coverage together. Every successful load creates a permanent Host-owned asset.
-Ownership only moves to the Host. Retained assets live until application exit;
-saving by ID does not dispose of them. A one-shot save may receive temporary
-ownership and dispose after completion. Interfaces may permit limited mutation
-without transferring ownership. Failure/cleanup, operation ordering and concurrent
-mutation/save semantics still need design. Live-document baking placement is open.
+Messages and registrations are grouped in `core/system/transported_types.hpp`;
+the worker job and module records live in `host/runtime/module_service.hpp`.
+All worker request handlers have detail diagnostics. The Core suites and twelve
+lifecycle scenarios passed in Debug/Release x64/Win32 after the tidy-up. Debug x64
+passed again after the manual style pass; see the lifecycle document for logs.
 
-The binary/JSON/TGA Executive workflows prove the mechanism and must not be
-postponed until after claiming it complete. Module load/unload migration to the
-Host worker remains a separate follow-up after that exercise.
+## Next stage and deferred scope
+
+After acceptance and commit, add the rendering DLL stub as a separate stage:
+a minimal rendering thread waiting for an exit request, with Host lifecycle
+handling. It may simplify successful-path test fixtures; deliberate failure
+fixtures still serve a separate purpose. Do not start that implementation merely
+because this handoff records it.
 
 Filesystem-image implementation, path navigation helpers, trust, overlays/layers,
-general reclamation and the broader asynchronous framework remain deferred. The
-possible baked numeric/Boolean mutation API for save-game state is not yet
+automatic reclamation/cache eviction and the broader asynchronous framework
+remain deferred. The possible baked numeric/Boolean mutation API for save-game state is not yet
 selected. Preserve those ideas in the
 [deferred resource](consolidation_deferred_design.md) and
 [filesystem notes](filesystem_asset_mapping.md).
@@ -94,8 +100,8 @@ selected. Preserve those ideas in the
   with Ritchie; avoid coordinator micromanagement.
 - Continue sequentially. Create an implementing task only when Ritchie asks;
   use Astra High as his established task preference.
-- This handoff authorises continuity and design discussion, not production edits.
-  Start with a short acknowledgement and readiness for the image-view discussion.
+- This handoff records current state; new stages require the user's direction.
+  Do not reopen the completed image, asset-service or parser design discussions.
 - Follow AGENTS.md. Commits require coordinator review and explicit user
   instruction; approval of one commit is not blanket permission for later commits.
   Ritchie handles all pushes. Do not push.

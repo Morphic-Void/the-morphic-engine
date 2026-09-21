@@ -12,8 +12,12 @@ Ritchie's review and commit instructions. The focused
 precedence over earlier alternatives and pending-work statements below. In
 particular, the final block owns only CByteBuffer and constructs borrowed views
 on demand; the version-4 header stores offsets and counts. Direct token ownership
-and a retained document view were superseded. Broader Host/TGA/service work and
-the Executive acceptance exercise remain separate follow-up work.
+and a retained document view were superseded. The subsequent image-view work is
+complete in `5b1282f`/`98ce708`, and the Host asset services and Executive acceptance
+exercise are complete in `f74213f`. As of 21 September, asynchronous module
+lifecycle and explicit asset disposal are implemented, reviewed and accepted
+for commit. See [current scope](current_scope_backlog.md); later sections of this
+file remain the historical stage-1 discussion.
 
 Stage task: `01a0a4d6-e506-7912-8cf8-0ace7c96453a`.
 Coordinator: `01a09fd4-73ad-7ce2-a3e4-efcdadb454dd` (local).

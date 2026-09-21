@@ -27,6 +27,7 @@
 namespace memory
 {
 class CMemoryContext;
+class CMemoryAllocator;
 }
 
 namespace host
@@ -35,7 +36,7 @@ namespace host
 //  Installs the host context.
 [[nodiscard]] bool host_context_install() noexcept;
 [[nodiscard]] memory::CMemoryContext* host_memory_context() noexcept;
-[[nodiscard]] memory::CMemoryContext* executive_memory_context() noexcept;
+[[nodiscard]] memory::CMemoryAllocator& host_memory_allocator() noexcept;
 
 }   //  namespace host
 

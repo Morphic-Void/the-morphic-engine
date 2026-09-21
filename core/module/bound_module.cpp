@@ -167,4 +167,13 @@ bool CBoundModule::unbind() noexcept
     return true;
 }
 
+void CBoundModule::retain_until_process_exit() noexcept
+{
+    (void)m_native_module.release_without_unload();
+    m_installed = false;
+    m_module_memory_context = nullptr;
+    m_core = {};
+    m_bootstrap = {};
+}
+
 }   //  namespace modules

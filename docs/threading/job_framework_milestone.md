@@ -8,6 +8,12 @@ Date:   7 Aug 2026
 
 # Host-Owned Job Framework Milestone
 
+Status, 21 September 2026: this is a deferred design milestone. The implemented
+[asynchronous module lifecycle](../modules/asynchronous_module_lifecycle.md)
+loads and unloads DLLs through a Host worker, but does not implement the provider,
+scheduler or executable-obligation framework described here. The planned
+rendering DLL stub is a separate bounded thread-lifecycle stage.
+
 ## Purpose
 
 This document defines the initial milestone for the host-owned job framework

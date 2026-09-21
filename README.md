@@ -2,7 +2,10 @@
 
 A C++17 game engine developed by Morphic Void. It is being built from first principles with an emphasis on clear structure, modular systems, and long-term maintainability.
 
-This repository currently contains the initial project structure and test infrastructure. Additional systems and documentation will be added as the engine evolves.
+The repository contains the Core memory, container, transport and document systems,
+image utilities, and Host-managed asynchronous asset and DLL services, with test
+infrastructure. See [current scope](docs/backlog/current_scope_backlog.md) and
+[completed milestones](docs/project/completed_milestones.md) for implementation status.
 
 ## Tests
 
@@ -47,8 +50,13 @@ Git attributes, rejects mixed or incorrectly checked-out line endings, and
 requires a final newline in every non-empty tracked text file. It can also be
 run directly from PowerShell when checking a working tree without building.
 
-The Executive-driven TGA load/decode/encode/save path remains a Host integration
-exercise. The separate direct TGA round-trip helper is compiled into
+The Executive runs 48 sequential and 32 concurrent acceptance operations across
+raw, baked-document, JSON and TGA asset services. The standalone DLL lifecycle
+harness, `tests/module_lifecycle/run_tests.ps1`, builds real module fixtures and
+checks bootstrap, replacement, shutdown and asset disposal. See the
+[asset](docs/assets/asynchronous_asset_services.md) and
+[module](docs/modules/asynchronous_module_lifecycle.md) references for details.
+The separate direct TGA round-trip helper is compiled into
 `MorphicTests` as a manual test but is intentionally not registered or invoked.
 
 This repository is developed using a mixed human/AI workflow. The project's

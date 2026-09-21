@@ -14,6 +14,7 @@
 #define TRANSPORTED_TYPES_HPP_INCLUDED
 
 #include <cstddef>      //  std::size_t
+#include <cstdint>      //  std::uint8_t, std::uint32_t
 
 #include "assets/asset_repository.hpp"
 #include "containers/ByteBuffers.hpp"
@@ -24,15 +25,33 @@
 #include "data_model/document_writer.hpp"
 #include "image/codec/tga.hpp"
 #include "image/image_view.hpp"
+#include "module/module_binding.hpp"
 #include "system/erased_owner_registration.hpp"
 #include "system/system_type_registration.hpp"
 
+//==============================================================================
+//  Transport fallback
+//==============================================================================
+
 struct UnrecognisedMsg { system_type_id msg_id; };
+
+//==============================================================================
+//  File I/O: borrowed Host inputs and worker completions
+//  FileLoadResult identifies an owning reply whose payload is LoadedFile.
+//==============================================================================
 
 struct FileLoadRequest { const char* file; std::size_t alignment{ 16u }; };
 struct FileSaveRequest { const char* file; CByteConstView view; };
 
-//  Active Host-to-conditioning-worker codec requests.
+struct FileLoadResult {};
+struct FileSaveResult { bool success; };
+struct LoadedFile { CByteBuffer buffer; };
+
+//==============================================================================
+//  Image conditioning: borrowed Host inputs and owning worker completions
+//  Result identities describe the operation; payloads own the resulting bytes.
+//==============================================================================
+
 struct TgaEncodeRequest
 {
     CByteRectConstView view;
@@ -41,15 +60,11 @@ struct TgaEncodeRequest
 
 struct TgaDecodeRequest { CByteConstView view; bool decode_top_down; };
 
-struct FileLoadResult {};
-struct FileSaveResult { bool success; };
-
-//  Active conditioning-worker completion identities.
 struct TgaEncodeResult {};
 struct TgaDecodeResult {};
 
-struct LoadedFile { CByteBuffer buffer; };
 struct EncodedTga { CByteBuffer buffer; };
+
 struct DecodedTga
 {
     CByteRectBuffer buffer;
@@ -59,17 +74,34 @@ struct DecodedTga
     //  Initialise after the buffer arrives at the Host; never change after publication.
     image::CImageView view;
 };
+
+//==============================================================================
+//  Retained document storage
+//==============================================================================
+
 struct BakedDocumentAsset { CBakedDocumentBlock block; };
 struct LiveDocumentAsset { CLiveDocument document; };
 
+//==============================================================================
+//  Client-to-Host asset requests and shared settings
 //  Asset operations keep ownership in the Host. Returned views do not extend
 //  lifetime, and callers must not mutate an asset while an operation reads it.
-enum class EAssetFileFormat : std::uint8_t { raw, baked, json, tga };
-enum class EAssetRetention : std::uint8_t { discard, source, baked };
+//==============================================================================
+
+enum class EAssetFileFormat : std::uint8_t { raw = 0, baked, json, tga };
+enum class EAssetRetention : std::uint8_t { discard = 0, source, baked };
+
 enum class EAssetStatus : std::uint8_t
 {
-    success, invalid_request, invalid_asset, allocation_failed, read_failed,
-    conditioning_failed, policy_rejected, write_failed, delivery_failed
+    success = 0,
+    invalid_request,
+    invalid_asset,
+    allocation_failed,
+    read_failed,
+    conditioning_failed,
+    policy_rejected,
+    write_failed,
+    delivery_failed
 };
 
 struct AssetSaveSettings
@@ -135,7 +167,22 @@ struct AssetSaveRequest
     AssetSaveSettings settings;
 };
 
-enum class EAssetKind : std::uint8_t { none, raw, image, baked, live };
+//  Callers quiesce borrowed views before requesting disposal. Completion contains
+//  no view; an accepted request prevents further saves using this identity.
+struct AssetDisposeRequest { CAssetId asset{}; };
+
+//==============================================================================
+//  Host-to-client asset completions
+//  Views borrow Host storage. Disposal returns only the identity and status.
+//==============================================================================
+
+struct AssetDisposeResult
+{
+    CAssetId asset{};
+    EAssetStatus status{ EAssetStatus::invalid_asset };
+};
+
+enum class EAssetKind : std::uint8_t { none = 0, raw, image, baked, live };
 
 struct BakedAssetView
 {
@@ -214,7 +261,11 @@ struct AssetResult
     }
 };
 
-enum class EDocumentSource : std::uint8_t { text, baked, live };
+//==============================================================================
+//  Document conditioning: borrowed Host inputs and owning worker output
+//==============================================================================
+
+enum class EDocumentSource : std::uint8_t { text = 0, baked, live };
 
 union DocumentConditionSource
 {
@@ -282,39 +333,117 @@ struct DocumentConditionResult
     std::uint32_t findings{ 0u };
 };
 
+//==============================================================================
+//  Module lifecycle: owning client requests and correlated notifications
+//==============================================================================
+
+enum class EModuleAction : std::uint8_t { load = 0, unload, replace };
+enum class EModuleNotice : std::uint8_t { acknowledged = 0, completed };
+
+enum class EModuleStatus : std::uint8_t
+{
+    success = 0,
+    invalid_request,
+    busy,
+    not_loaded,
+    already_loaded,
+    allocation_failed,
+    binding_failed,
+    installation_failed,
+    function_unavailable,
+    unload_failed,
+    delivery_failed
+};
+
+//  The module identifies the implementation to load, or the current implementation
+//  to unload. Replacement occupies the same mounting point, without rollback.
+struct ModuleRequest
+{
+    CSimpleString file;
+    module_ids::id_type module{};
+    system_type_id required_function{ system_type_ids::undefined };
+    EModuleAction action{ EModuleAction::load };
+};
+
+struct ModuleResult
+{
+    module_ids::id_type module{};
+    modules::FModuleFunction function{ nullptr };
+    EModuleNotice notice{ EModuleNotice::completed };
+    EModuleStatus status{ EModuleStatus::invalid_request };
+    bool available{ false };
+};
+
+//==============================================================================
+//  Module worker exchange
+//  Only the Host and its worker need the complete job definition.
+//==============================================================================
+
+namespace host { struct SModuleWork; }
+
+//  The Host keeps the record and inputs stable until completion. Only the worker
+//  mutates the job while it is borrowed; no client supplies this pointer.
+struct ModuleWorkRequest { host::SModuleWork* work{ nullptr }; };
+struct ModuleWorkResult { EModuleStatus status{ EModuleStatus::invalid_request }; };
+
+//==============================================================================
+//  System type registrations
+//  Keep these together, after all declarations and before owner registrations.
+//==============================================================================
+
+//  Unrecognised message.
+MV_REGISTER_SYSTEM_TYPE(UnrecognisedMsg, system_type_ids::unrecognised_msg);
+
+//  General storage and transport fallback.
 MV_REGISTER_SYSTEM_TYPE(CByteBuffer, system_type_ids::byte_buffer);
 MV_REGISTER_SYSTEM_TYPE(CByteRectBuffer, system_type_ids::byte_rect_buffer);
 MV_REGISTER_SYSTEM_TYPE(CSimpleString, system_type_ids::simple_string);
 MV_REGISTER_SYSTEM_TYPE(CStringBuffer, system_type_ids::string_buffer);
 MV_REGISTER_SYSTEM_TYPE(CStableStrings, system_type_ids::stable_strings);
 
-MV_REGISTER_SYSTEM_TYPE(UnrecognisedMsg, system_type_ids::unrecognised_msg);
-
+//  File I/O.
 MV_REGISTER_SYSTEM_TYPE(FileLoadRequest, system_type_ids::file_load_request);
 MV_REGISTER_SYSTEM_TYPE(FileSaveRequest, system_type_ids::file_save_request);
-MV_REGISTER_SYSTEM_TYPE(TgaEncodeRequest, system_type_ids::tga_encode_request);
-MV_REGISTER_SYSTEM_TYPE(TgaDecodeRequest, system_type_ids::tga_decode_request);
-
 MV_REGISTER_SYSTEM_TYPE(FileLoadResult, system_type_ids::file_load_result);
 MV_REGISTER_SYSTEM_TYPE(FileSaveResult, system_type_ids::file_save_result);
+MV_REGISTER_SYSTEM_TYPE(LoadedFile, system_type_ids::loaded_file);
+
+//  Image conditioning and storage.
+MV_REGISTER_SYSTEM_TYPE(TgaEncodeRequest, system_type_ids::tga_encode_request);
+MV_REGISTER_SYSTEM_TYPE(TgaDecodeRequest, system_type_ids::tga_decode_request);
 MV_REGISTER_SYSTEM_TYPE(TgaEncodeResult, system_type_ids::tga_encode_result);
 MV_REGISTER_SYSTEM_TYPE(TgaDecodeResult, system_type_ids::tga_decode_result);
-
-MV_REGISTER_SYSTEM_TYPE(LoadedFile, system_type_ids::loaded_file);
 MV_REGISTER_SYSTEM_TYPE(EncodedTga, system_type_ids::encoded_tga);
 MV_REGISTER_SYSTEM_TYPE(DecodedTga, system_type_ids::decoded_tga);
+
+//  Retained document storage.
 MV_REGISTER_SYSTEM_TYPE(BakedDocumentAsset, system_type_ids::baked_document_asset);
 MV_REGISTER_SYSTEM_TYPE(LiveDocumentAsset, system_type_ids::live_document_asset);
 
+//  Client asset requests and Host completions.
 MV_REGISTER_SYSTEM_TYPE(RawAssetTransfer, system_type_ids::raw_asset_transfer);
 MV_REGISTER_SYSTEM_TYPE(ImageAssetTransfer, system_type_ids::image_asset_transfer);
 MV_REGISTER_SYSTEM_TYPE(BakedAssetTransfer, system_type_ids::baked_asset_transfer);
 MV_REGISTER_SYSTEM_TYPE(LiveAssetTransfer, system_type_ids::live_asset_transfer);
 MV_REGISTER_SYSTEM_TYPE(AssetLoadRequest, system_type_ids::asset_load_request);
 MV_REGISTER_SYSTEM_TYPE(AssetSaveRequest, system_type_ids::asset_save_request);
+MV_REGISTER_SYSTEM_TYPE(AssetDisposeRequest, system_type_ids::asset_dispose_request);
+MV_REGISTER_SYSTEM_TYPE(AssetDisposeResult, system_type_ids::asset_dispose_result);
 MV_REGISTER_SYSTEM_TYPE(AssetResult, system_type_ids::asset_result);
+
+//  Document conditioning.
 MV_REGISTER_SYSTEM_TYPE(DocumentConditionRequest, system_type_ids::document_condition_request);
 MV_REGISTER_SYSTEM_TYPE(DocumentConditionResult, system_type_ids::document_condition_result);
+
+//  Module lifecycle and worker exchange.
+MV_REGISTER_SYSTEM_TYPE(ModuleRequest, system_type_ids::module_request);
+MV_REGISTER_SYSTEM_TYPE(ModuleResult, system_type_ids::module_result);
+MV_REGISTER_SYSTEM_TYPE(ModuleWorkRequest, system_type_ids::module_work_request);
+MV_REGISTER_SYSTEM_TYPE(ModuleWorkResult, system_type_ids::module_work_result);
+
+//==============================================================================
+//  Owning payload registrations
+//==============================================================================
 
 #define MV_ERASED_OWNER_PAYLOAD(type) MV_REGISTER_ERASED_OWNER_PAYLOAD(type);
 #define MV_ERASED_OWNER_PAYLOAD_WITH_STORAGE(type, member) MV_REGISTER_ERASED_OWNER_PAYLOAD(type);

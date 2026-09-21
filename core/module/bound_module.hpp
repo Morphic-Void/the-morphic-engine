@@ -40,6 +40,10 @@ public:
         debug_system::CDebugServiceState* const debug_service) noexcept;
     [[nodiscard]] bool unbind() noexcept;
 
+    //  Terminal cleanup only: prevent destructor-side unloading after the worker
+    //  could not safely release the DLL. The process retains its native reference.
+    void retain_until_process_exit() noexcept;
+
     [[nodiscard]] EBindingResult populate_core_functions(
         const std::uint32_t functional_major, SCoreFunctions& functions) const noexcept;
     [[nodiscard]] bool query_function(const system_type_id function_type, FModuleFunction& function) const noexcept;
@@ -47,6 +51,7 @@ public:
     [[nodiscard]] const SAdvertisedIdentity& advertised_module_identity() const noexcept { return m_advertised_module_identity; }
     [[nodiscard]] std::uint32_t negotiated_functional_major() const noexcept { return m_negotiated_functional_major; }
     [[nodiscard]] bool is_ready() const noexcept { return m_installed; }
+    [[nodiscard]] bool is_bound() const noexcept { return m_native_module.is_bound(); }
 
     static bool MV_STD_ABI_CALL prepare_thread(void* const context, const thread_ids::id_type thread_id, void* const thread_resources) noexcept;
 

@@ -1,7 +1,21 @@
 # Consolidation design stages
 
-Updated 16 September 2026. Current outline for discussion and specification.
-This is not authorisation to implement production changes.
+Status update, 21 September 2026: the accounting, attribution, baked storage,
+image view, concrete asset services and Executive acceptance stages are complete.
+Asynchronous DLL lifecycle and explicit asset disposal are also implemented and
+reviewed, including the manual style pass, and accepted for commit. The next separate
+stage is the rendering DLL stub after acceptance and commit of the current work.
+
+[Current scope](current_scope_backlog.md) and the
+[coordinator handoff](consolidation_coordinator_handoff.md) supersede the sequencing
+and pending-work statements below. The implemented contracts are in the
+[image](../image/image_view.md), [asset](../assets/asynchronous_asset_services.md)
+and [module](../modules/asynchronous_module_lifecycle.md) references.
+
+## Historical design outline: 16 September 2026
+
+The remainder records the earlier discussion and proposed stages. It does not
+reopen completed work or authorise deferred production changes.
 
 The baked-document storage, on-demand views, version-4 stored offsets and aligned
 file loading are complete in commit `a75962f`, Refactor baked document storage
