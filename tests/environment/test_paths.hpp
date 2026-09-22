@@ -19,6 +19,8 @@ namespace test_environment
 [[nodiscard]] std::string repository_path(const char* relative_path);
 [[nodiscard]] std::string binary_path(const char* filename);
 [[nodiscard]] std::string test_log_path(const char* stem);
+//  Produces a process/tag-qualified output filename, preserving its extension.
+[[nodiscard]] std::string test_output_path(const char* filename);
 [[nodiscard]] const std::string& log_path_pattern() noexcept;
 
 }   //  namespace test_environment

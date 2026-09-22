@@ -161,7 +161,7 @@ static bool post_save(threading::CThreadContext& context, const CAssetId asset, 
 {
     CErasedOwner owner = CErasedOwner::create<AssetSaveRequest>();
     AssetSaveRequest* const request = owner.payload<AssetSaveRequest>();
-    if ((request == nullptr) || !request->file.set("build/lifecycle-disposal.bin"))
+    if ((request == nullptr) || !request->file.set("development/logical-roots/test-output/lifecycle-disposal.bin"))
     {
         return false;
     }
@@ -321,7 +321,7 @@ static bool unload_during_saves(threading::CThreadContext& context, const bool r
         //  pointers. The fixture reads it before publishing thread readiness.
         const CAssetId identities[]{ asset, final_asset };
         std::FILE* file{ nullptr };
-        if (fopen_s(&file, "build/lifecycle-render-disposal.ids", "wb") != 0)
+        if (fopen_s(&file, "development/logical-roots/test-output/lifecycle-render-disposal.ids", "wb") != 0)
         {
             return false;
         }
@@ -562,7 +562,7 @@ static std::uint32_t MV_STD_ABI_CALL rendering_entry(void* const data) noexcept
     context.startup();
     CAssetId identities[2]{};
     std::FILE* file{ nullptr };
-    if (fopen_s(&file, "build/lifecycle-render-disposal.ids", "rb") != 0)
+    if (fopen_s(&file, "development/logical-roots/test-output/lifecycle-render-disposal.ids", "rb") != 0)
     {
         context.mark_failed(1u);
         return 1u;

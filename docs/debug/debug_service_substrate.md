@@ -408,9 +408,12 @@ direct log and prints its absolute path pattern before running tests. This
 allows parallel invocations to be reconciled with captured command output
 without sharing writable files.
 
-Test output defaults to `tests/data/output`. The optional command-line form
+Test logs default to `development/logical-roots/test-logs`; non-log test output defaults
+to `development/logical-roots/test-output`. The optional command-line form
 `--output-directory=<path>` selects another output root, with suite logs written
 beneath its `logs` child. Relative paths are resolved from the launch directory.
+Ordinary Host logs use `development/logical-roots/logs`; `--log-directory=<existing directory>`
+redirects them, including into the test-log root for the DLL lifecycle harness.
 
 The current TGA processing and worker-management sketch did not influence the
 service internals. Future backing-file, multi-step-operation, module-loading,

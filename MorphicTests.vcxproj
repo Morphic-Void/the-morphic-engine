@@ -171,9 +171,7 @@
     <ClInclude Include="tests\test_suites\TextLinter_test_suite.hpp" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="tests\data\input\files\test_input.tga" />
-    <None Include="tests\data\output\files\.gitkeep" />
-    <None Include="tests\data\output\logs\.gitkeep" />
+    <None Include="development\logical-roots\dev-source\test_input.tga" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="external\SuiteUTF\SuiteUTF.vcxproj">

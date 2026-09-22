@@ -31,7 +31,7 @@ MorphicPolicyValidator.exe --root <repository> [--project <name>]
 ```
 
 Unless `--no-report` is used, reports are written beneath
-`logs/policy_validator`. Report names include the validated project,
+`development/logical-roots/logs/policy_validator`. Report names include the validated project,
 configuration, and platform where supplied, so concurrent configuration builds
 do not intentionally share a report file.
 

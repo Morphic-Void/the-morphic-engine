@@ -1228,7 +1228,7 @@ void write_report(
     const std::size_t warnings,
     const std::size_t suppressed)
 {
-    const fs::path directory = root / "logs" / "policy_validator";
+    const fs::path directory = root / "development" / "logical-roots" / "logs" / "policy_validator";
     fs::create_directories(directory);
     std::string filename = safe_filename_component(options.project);
     if (!options.configuration.empty())

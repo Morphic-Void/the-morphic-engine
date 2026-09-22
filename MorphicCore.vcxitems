@@ -224,7 +224,7 @@
     <None Include="$(MSBuildThisFileDirectory)docs\threading\transports\TOwningTransport.md" />
     <None Include="$(MSBuildThisFileDirectory)docs\threading\transports\TQueueTransport.md" />
     <None Include="$(MSBuildThisFileDirectory)docs\threading\transports\TRingTransport.md" />
-    <None Include="$(MSBuildThisFileDirectory)logs\.gitkeep" />
+    <None Include="$(MSBuildThisFileDirectory)development\logical-roots\logs\.gitkeep" />
     <None Include="$(MSBuildThisFileDirectory)README.md" />
   </ItemGroup>
   <ItemGroup>

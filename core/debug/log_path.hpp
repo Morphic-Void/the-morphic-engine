@@ -32,13 +32,15 @@ constexpr std::size_t k_log_tag_max_length = 48u;
 [[nodiscard]] bool is_valid_log_tag(const char* tag) noexcept;
 
 //  Produces <stem>.<tag>.p<process-id>.log, or <stem>.p<process-id>.log
-//  when tag is null. The destination is cleared on failure.
+//  when tag is null. An optional directory prefixes the filename.
+//  The destination is cleared on failure.
 [[nodiscard]] bool format_process_log_path(
     char* destination,
     std::size_t destination_capacity,
     const char* stem,
     const char* tag,
-    std::uint64_t process_id) noexcept;
+    std::uint64_t process_id,
+    const char* directory = nullptr) noexcept;
 
 }   //  namespace debug_system
 

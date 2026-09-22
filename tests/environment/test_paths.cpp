@@ -19,6 +19,7 @@ namespace
 std::filesystem::path s_repository_root;
 std::filesystem::path s_binary_directory;
 std::filesystem::path s_log_directory;
+std::filesystem::path s_output_directory;
 std::string s_repository_root_text;
 std::string s_log_tag;
 std::string s_log_path_pattern;
@@ -27,7 +28,7 @@ platform::system::CPlatformProcessId s_process_id;
 bool is_repository_root(const std::filesystem::path& candidate)
 {
     std::error_code error;
-    return std::filesystem::is_regular_file(candidate / "tests" / "data" / "input" / "files" / "test_input.tga", error);
+    return std::filesystem::is_regular_file(candidate / "development" / "root-manifest.json", error);
 }
 
 std::filesystem::path find_repository_root(std::filesystem::path candidate)
@@ -70,6 +71,7 @@ bool initialise_paths(
     s_repository_root.clear();
     s_binary_directory.clear();
     s_log_directory.clear();
+    s_output_directory.clear();
     s_repository_root_text.clear();
     s_log_tag.clear();
     s_log_path_pattern.clear();
@@ -122,12 +124,19 @@ bool initialise_paths(
         {
             return false;
         }
+        s_log_directory = output_path.lexically_normal() / "logs";
     }
     else
     {
-        output_path = s_repository_root / "tests" / "data" / "output";
+        output_path = s_repository_root / "development" / "logical-roots" / "test-output";
+        s_log_directory = s_repository_root / "development" / "logical-roots" / "test-logs";
     }
-    s_log_directory = output_path.lexically_normal() / "logs";
+    s_output_directory = output_path.lexically_normal();
+    std::filesystem::create_directories(s_output_directory, error);
+    if (error)
+    {
+        return false;
+    }
     std::filesystem::create_directories(s_log_directory, error);
     if (error)
     {
@@ -193,6 +202,24 @@ std::string test_log_path(const char* const stem)
 const std::string& log_path_pattern() noexcept
 {
     return s_log_path_pattern;
+}
+
+std::string test_output_path(const char* const filename)
+{
+    if ((filename == nullptr) || (filename[0] == '\0') || s_output_directory.empty() || !s_process_id.is_valid())
+    {
+        return {};
+    }
+    const std::filesystem::path name(filename);
+    const std::string stem = (s_output_directory / name.stem()).string();
+    std::array<char, debug_system::k_log_path_capacity> path{};
+    const char* const tag = s_log_tag.empty() ? nullptr : s_log_tag.c_str();
+    if (!debug_system::format_process_log_path(
+        path.data(), path.size(), stem.c_str(), tag, s_process_id.value()))
+    {
+        return {};
+    }
+    return std::filesystem::path(path.data()).replace_extension(name.extension()).string();
 }
 
 }   //  namespace test_environment

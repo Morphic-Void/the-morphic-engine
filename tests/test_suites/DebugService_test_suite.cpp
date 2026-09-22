@@ -145,6 +145,13 @@ void test_process_log_paths(TTestContext& ctx)
         path, sizeof(path), "logs/example", "parallel-a", 42u));
     TEST_EXPECT(ctx,
         std::strcmp(path, "logs/example.parallel-a.p42.log") == 0);
+    TEST_EXPECT(ctx, debug_system::format_process_log_path(
+        path, sizeof(path), "example", "parallel-a", 42u, "development/logical-roots/test-logs"));
+    TEST_EXPECT(ctx,
+        std::strcmp(path, "development/logical-roots/test-logs/example.parallel-a.p42.log") == 0);
+    TEST_EXPECT(ctx, !debug_system::format_process_log_path(
+        path, 32u, "example", nullptr, 42u, "development/logical-roots/test-logs"));
+    TEST_EXPECT(ctx, path[0] == '\0');
     TEST_EXPECT(ctx, !debug_system::format_process_log_path(
         path, sizeof(path), "logs/example", "bad/tag", 42u));
     TEST_EXPECT(ctx, path[0] == '\0');

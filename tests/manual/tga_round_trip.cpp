@@ -17,9 +17,9 @@ namespace tests::manual
 [[maybe_unused]] bool tga_round_trip()
 {
     const std::string input_path = test_environment::repository_path(
-        "tests/data/input/files/test_input.tga");
-    const std::string output_path = test_environment::repository_path(
-        "tests/data/output/files/manual_tga_round_trip.tga");
+        "development/logical-roots/dev-source/test_input.tga");
+    const std::string output_path = test_environment::test_output_path(
+        "manual_tga_round_trip.tga");
 
     CByteBuffer loaded_tga = platform::filesystem::loadFile(input_path.c_str());
     if (loaded_tga.is_empty())

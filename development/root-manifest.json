@@ -1,0 +1,141 @@
+{
+  "schemaVersion": 1,
+  "profile": "development-filesystem",
+  "roots": [
+    {
+      "id": "package",
+      "logicalRoot": "package:",
+      "relativePath": "logical-roots/package",
+      "backend": "directory",
+      "purpose": "core_content",
+      "discovery": "startup_or_on_demand",
+      "capabilities": ["enumerate", "read"],
+      "writable": false
+    },
+    {
+      "id": "dev-source",
+      "logicalRoot": "dev-source:",
+      "relativePath": "logical-roots/dev-source",
+      "backend": "directory",
+      "purpose": "development_source_content",
+      "discovery": "manual_or_on_demand",
+      "capabilities": ["enumerate", "read", "create", "replace", "delete"],
+      "writable": true,
+      "developmentOnly": true
+    },
+    {
+      "id": "dev-workspace",
+      "logicalRoot": "dev-workspace:",
+      "relativePath": "logical-roots/dev-workspace",
+      "backend": "directory",
+      "purpose": "development_workspace",
+      "discovery": "manual_or_on_demand",
+      "capabilities": ["enumerate", "read", "create", "replace", "delete"],
+      "writable": true,
+      "developmentOnly": true
+    },
+    {
+      "id": "config",
+      "logicalRoot": "config:",
+      "relativePath": "logical-roots/config",
+      "backend": "directory",
+      "purpose": "configuration",
+      "discovery": "direct_lookup",
+      "capabilities": ["read", "create", "replace", "delete"],
+      "writable": true
+    },
+    {
+      "id": "saves",
+      "logicalRoot": "save:",
+      "relativePath": "logical-roots/saves",
+      "backend": "directory",
+      "purpose": "save_game",
+      "discovery": "on_demand",
+      "capabilities": ["enumerate", "read", "create", "replace", "delete"],
+      "writable": true
+    },
+    {
+      "id": "state",
+      "logicalRoot": "state:",
+      "relativePath": "logical-roots/state",
+      "backend": "directory",
+      "purpose": "runtime_state",
+      "discovery": "disabled",
+      "capabilities": ["read", "create", "replace", "delete"],
+      "writable": true
+    },
+    {
+      "id": "logs",
+      "logicalRoot": "logs:",
+      "relativePath": "logical-roots/logs",
+      "backend": "directory",
+      "purpose": "diagnostic_log",
+      "discovery": "disabled",
+      "capabilities": ["read", "create", "replace", "delete"],
+      "writable": true
+    },
+    {
+      "id": "test-logs",
+      "logicalRoot": "test-logs:",
+      "relativePath": "logical-roots/test-logs",
+      "backend": "directory",
+      "purpose": "test_log",
+      "discovery": "disabled",
+      "capabilities": ["read", "create", "replace", "delete"],
+      "writable": true,
+      "developmentOnly": true
+    },
+    {
+      "id": "cache",
+      "logicalRoot": "cache:",
+      "relativePath": "logical-roots/cache",
+      "backend": "directory",
+      "purpose": "cache",
+      "discovery": "disabled",
+      "capabilities": ["read", "create", "replace", "delete"],
+      "writable": true
+    },
+    {
+      "id": "test-output",
+      "logicalRoot": "test-output:",
+      "relativePath": "logical-roots/test-output",
+      "backend": "directory",
+      "purpose": "test_output",
+      "discovery": "disabled",
+      "capabilities": ["read", "create", "replace", "delete"],
+      "writable": true,
+      "developmentOnly": true
+    },
+    {
+      "id": "ugc-work",
+      "logicalRoot": "ugc-work:",
+      "relativePath": "logical-roots/ugc-work",
+      "backend": "directory",
+      "purpose": "ugc_workspace",
+      "discovery": "manual_or_on_demand",
+      "capabilities": ["enumerate", "read", "create", "replace", "delete"],
+      "writable": true,
+      "developmentOnly": true
+    },
+    {
+      "id": "ugc-inbox",
+      "logicalRoot": "ugc-inbox:",
+      "relativePath": "logical-roots/ugc-inbox",
+      "backend": "directory",
+      "purpose": "ugc_inbox",
+      "discovery": "manual_or_on_demand",
+      "capabilities": ["enumerate", "read", "create", "replace", "delete"],
+      "writable": true
+    },
+    {
+      "id": "ugc-installed",
+      "logicalRoot": "ugc-installed:",
+      "relativePath": "logical-roots/ugc-installed",
+      "backend": "directory",
+      "purpose": "ugc_installed",
+      "discovery": "startup_or_on_demand",
+      "capabilities": ["enumerate", "read"],
+      "writable": false
+    }
+  ]
+}

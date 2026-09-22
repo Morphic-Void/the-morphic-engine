@@ -57,10 +57,28 @@ int main(const int argc, char** const argv)
         return 1;
     }
     const char* executive_file = "MorphicExecutive.dll";
+    const char* log_directory = "development/logical-roots/logs";
+    bool log_directory_option_seen = false;
     bool executive_option_seen = false;
     constexpr char executive_prefix[] = "--executive=";
+    constexpr char log_directory_prefix[] = "--log-directory=";
     for (int index = 1; index < argc; ++index)
     {
+        if (std::strncmp(argv[index], log_directory_prefix, sizeof(log_directory_prefix) - 1u) == 0)
+        {
+            log_directory = argv[index] + sizeof(log_directory_prefix) - 1u;
+            if (log_directory_option_seen || (*log_directory == '\0'))
+            {
+                std::fputs("Use one --log-directory=<existing directory>.\n", stderr);
+                return 2;
+            }
+            log_directory_option_seen = true;
+        }
+        else if (std::strcmp(argv[index], "--log-directory") == 0)
+        {
+            std::fputs("Use --log-directory=<existing directory>.\n", stderr);
+            return 2;
+        }
         if (std::strncmp(argv[index], executive_prefix, sizeof(executive_prefix) - 1u) == 0)
         {
             executive_file = argv[index] + sizeof(executive_prefix) - 1u;
@@ -72,7 +90,7 @@ int main(const int argc, char** const argv)
             executive_option_seen = true;
         }
     }
-    const int host_result = host::host(log_tag, executive_file);
+    const int host_result = host::host(log_tag, executive_file, log_directory);
     platform::system::set_current_process_priority(platform::system::EProcessPriority::AboveNormal);
     const std::uint32_t hw_threads_supported = platform::threading::query_hardware_thread_count();
     (void)hw_threads_supported;

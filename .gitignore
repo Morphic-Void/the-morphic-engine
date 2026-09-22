@@ -5,6 +5,27 @@
 /out/
 /bin/
 /obj/
+/development/logical-roots/config/*
+!/development/logical-roots/config/.gitkeep
+/development/logical-roots/saves/*
+!/development/logical-roots/saves/.gitkeep
+/development/logical-roots/state/*
+!/development/logical-roots/state/.gitkeep
+/development/logical-roots/logs/*
+!/development/logical-roots/logs/.gitkeep
+/development/logical-roots/test-logs/*
+!/development/logical-roots/test-logs/.gitkeep
+/development/logical-roots/test-output/*
+!/development/logical-roots/test-output/.gitkeep
+/development/logical-roots/cache/*
+!/development/logical-roots/cache/.gitkeep
+/development/logical-roots/ugc-work/*
+!/development/logical-roots/ugc-work/.gitkeep
+/development/logical-roots/ugc-inbox/*
+!/development/logical-roots/ugc-inbox/.gitkeep
+/development/logical-roots/ugc-installed/*
+!/development/logical-roots/ugc-installed/.gitkeep
+/development/manifests/*.generated.*
 /cmake-build-*/
 /CMakeFiles/
 CMakeCache.txt
@@ -43,7 +64,6 @@ Thumbs.db
 # ================================
 *.log
 *.tmp
-/tests/data/output/files/manual_tga_round_trip.tga
 
 # ================================
 # Perforce leftovers (defensive)

@@ -100,8 +100,7 @@ if ($RunTests) {
         throw "The test executable was not produced at '$testExecutable'."
     }
 
-    $testOutput = Join-Path $repositoryRoot "build\sandbox-test-output\$Platform\$Configuration"
-    & $testExecutable "-t$TestMode" "--log-tag=$LogTag" "--output-directory=$testOutput"
+    & $testExecutable "-t$TestMode" "--log-tag=$LogTag"
     if ($LASTEXITCODE -ne 0) {
         exit $LASTEXITCODE
     }

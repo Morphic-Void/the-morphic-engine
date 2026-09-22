@@ -23,9 +23,16 @@ supplied for human or automation reconciliation, for example
 absolute log-path pattern at startup. Concurrent invocations therefore remain
 isolated even when the tag is omitted or accidentally reused.
 
-Test output defaults to `tests/data/output`. Pass
-`--output-directory=<path>` to use another location; logs are written beneath
-that directory's `logs` child.
+Test logs default to `development/logical-roots/test-logs`; non-log test output defaults
+to `development/logical-roots/test-output`. Pass `--output-directory=<path>` to override
+both locations; logs then use that directory's `logs` child. Test output
+filenames retain the process ID and optional tag.
+
+The shared TGA input fixture is `development/logical-roots/dev-source/test_input.tga`.
+The engine's logs use `development/logical-roots/logs`, and policy-validator reports use
+its `policy_validator` child. Run the engine from the repository root as before.
+Its `--log-directory=<existing directory>` option redirects logs; the DLL
+lifecycle harness selects `development/logical-roots/test-logs` this way.
 
 ### Sandboxed Windows builds
 
@@ -33,15 +40,14 @@ Windows sandboxing can prevent MSBuild's SDK locator and native file tracker
 from inspecting per-user directories. It can also expose both `PATH` and `Path`,
 which .NET Framework build tasks reject when launching the compiler. Use the
 repository helper to select an installed Windows SDK explicitly, disable file
-tracking, normalise the child-process environment, and keep test logs beneath
-the writable build tree:
+tracking and normalise the child-process environment:
 
 ```powershell
 .\tools\invoke_sandbox_build.ps1 -RunTests -TestMode 1
 ```
 
 The helper defaults to `Debug|x64`, discovers the newest installed Windows SDK,
-and writes test logs under `build/sandbox-test-output`. Configuration, platform,
+and uses the same development test-log and test-output roots. Configuration, platform,
 SDK version, MSBuild path, test mode, and log tag can all be overridden through
 the script parameters. Because sandbox-safe file tracking is disabled, a build
 invocation recompiles sources rather than relying on MSBuild's tracked inputs.

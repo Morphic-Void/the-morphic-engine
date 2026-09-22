@@ -317,9 +317,9 @@ static void test_aligned_file_round_trip(TTestContext& ctx)
 {
     const FileLoadRequest default_request{};
     TEST_EXPECT(ctx, default_request.alignment == 16u);
-    const std::string path = test_environment::test_log_path("baked_storage_round_trip");
-    const std::string empty_path = test_environment::test_log_path("baked_storage_empty");
-    const std::string missing_path = test_environment::test_log_path("baked_storage_missing");
+    const std::string path = test_environment::test_output_path("baked_storage_round_trip.bin");
+    const std::string empty_path = test_environment::test_output_path("baked_storage_empty.bin");
+    const std::string missing_path = test_environment::test_output_path("baked_storage_missing.bin");
     CLiveDocument live;
     TEST_EXPECT(ctx, live.initialise());
     CBakedDocumentBlock original;

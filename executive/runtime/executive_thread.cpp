@@ -150,11 +150,11 @@ static constexpr std::uint32_t concurrent_save_count{ 32u };
 static_assert(concurrent_save_count <= 100u, "Concurrent filenames reserve two decimal digits.");
 
 static constexpr char fixture[] = R"({"null":null,"bool":true,"signed":-123,"unsigned":18446744073709551615,"float":1.25,"text":"line\ntext","object":{},"mixed":[null,true,3,"text"],"bools":[true,false],"ints":[-1,-2],"uints":[18446744073709551615,18446744073709551614],"floats":[1.25,2.5],"strings":["a","b"],"empty":[]})";
-static constexpr char raw_file[] = "build/asset-acceptance.raw";
-static constexpr char binary_file[] = "build/asset-acceptance.bin";
-static constexpr char json_file[] = "build/asset-acceptance.json";
-static constexpr char image_file[] = "build/asset-acceptance.tga";
-static constexpr char failure_file[] = "build/asset-acceptance-missing-directory/output.bin";
+static constexpr char raw_file[] = "development/logical-roots/test-output/asset-acceptance.raw";
+static constexpr char binary_file[] = "development/logical-roots/test-output/asset-acceptance.bin";
+static constexpr char json_file[] = "development/logical-roots/test-output/asset-acceptance.json";
+static constexpr char image_file[] = "development/logical-roots/test-output/asset-acceptance.tga";
+static constexpr char failure_file[] = "development/logical-roots/test-output/asset-acceptance-missing-directory/output.bin";
 
 static bool fixture_document(CLiveDocument& document) noexcept
 {
@@ -519,11 +519,11 @@ bool CExecutiveThread::submit(const asset_acceptance::SScenario& scenario, const
         }
         case EScenario::load_tga:
         {
-            return load(slot, EAssetFileFormat::tga, "test_data/input/files/test_input.tga");
+            return load(slot, EAssetFileFormat::tga, "development/logical-roots/dev-source/test_input.tga");
         }
         case EScenario::load_tga_bottom_up:
         {
-            return load(slot, EAssetFileFormat::tga, "test_data/input/files/test_input.tga", {}, false);
+            return load(slot, EAssetFileFormat::tga, "development/logical-roots/dev-source/test_input.tga", {}, false);
         }
         case EScenario::save_retained_image:
         {
@@ -788,10 +788,10 @@ bool CExecutiveThread::submit_concurrent_saves() noexcept
     m_concurrent_first_slot = m_pending_slot + 1;
 
     //  The source stays immutable until every independently correlated save completes.
-    static constexpr char path_prefix[] = "build/asset-concurrent-";
+    static constexpr char path_prefix[] = "development/logical-roots/test-output/asset-concurrent-";
     for (std::uint32_t index = 0u; index < concurrent_save_count; ++index)
     {
-        char path[] = "build/asset-concurrent-00.json";
+        char path[] = "development/logical-roots/test-output/asset-concurrent-00.json";
         constexpr std::uint32_t digit_offset = sizeof(path_prefix) - 1u;
         path[digit_offset] = static_cast<char>('0' + (index / 10u));
         path[digit_offset + 1u] = static_cast<char>('0' + (index % 10u));

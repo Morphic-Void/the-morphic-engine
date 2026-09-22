@@ -20,6 +20,11 @@ foreach ($record in $records) {
     $attributes = $Matches[3]
     $relativePath = $Matches[4]
 
+    # Unstaged deletions still appear in ls-files but have no working-tree text.
+    if (!(Test-Path -LiteralPath (Join-Path $resolvedRoot $relativePath) -PathType Leaf)) {
+        continue
+    }
+
     if (($indexEnding.Length -eq 0) -and ($workingEnding.Length -eq 0)) {
         continue
     }

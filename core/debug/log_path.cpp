@@ -56,7 +56,8 @@ bool format_process_log_path(
     const std::size_t destination_capacity,
     const char* const stem,
     const char* const tag,
-    const std::uint64_t process_id) noexcept
+    const std::uint64_t process_id,
+    const char* const directory) noexcept
 {
     if ((destination == nullptr) || (destination_capacity == 0u))
     {
@@ -68,9 +69,12 @@ bool format_process_log_path(
         return false;
     }
 
+    const bool has_directory = (directory != nullptr) && (directory[0] != '\0');
+    const char* const prefix = has_directory ? directory : "";
+    const char* const separator = has_directory ? "/" : "";
     const int result = (tag != nullptr)
-        ? std::snprintf(destination, destination_capacity, "%s.%s.p%llu.log", stem, tag, static_cast<unsigned long long>(process_id))
-        : std::snprintf(destination, destination_capacity, "%s.p%llu.log", stem, static_cast<unsigned long long>(process_id));
+        ? std::snprintf(destination, destination_capacity, "%s%s%s.%s.p%llu.log", prefix, separator, stem, tag, static_cast<unsigned long long>(process_id))
+        : std::snprintf(destination, destination_capacity, "%s%s%s.p%llu.log", prefix, separator, stem, static_cast<unsigned long long>(process_id));
     if ((result < 0) || (static_cast<std::size_t>(result) >= destination_capacity))
     {
         destination[0] = '\0';

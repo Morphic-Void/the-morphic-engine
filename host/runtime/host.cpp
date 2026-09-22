@@ -42,7 +42,7 @@ CHost::~CHost() noexcept
     (void)shutdown();
 }
 
-void CHost::initialise_debug_service(const char* const log_tag) noexcept
+void CHost::initialise_debug_service(const char* const log_tag, const char* const log_directory) noexcept
 {
     m_debug_service_owner = TInstance<debug_system::CDebugServiceState>::create();
     if (m_debug_service_owner)
@@ -55,10 +55,10 @@ void CHost::initialise_debug_service(const char* const log_tag) noexcept
             process_id.is_valid() &&
             debug_system::format_process_log_path(
                 event_log_path, sizeof(event_log_path),
-                "logs/morphic_debug", log_tag, process_id.value()) &&
+                "morphic_debug", log_tag, process_id.value(), log_directory) &&
             debug_system::format_process_log_path(
                 direct_log_path, sizeof(direct_log_path),
-                "logs/morphic_debug_direct", log_tag, process_id.value()) &&
+                "morphic_debug_direct", log_tag, process_id.value(), log_directory) &&
             m_debug_service->configure_log_paths(
                 event_log_path,
                 direct_log_path) &&
@@ -208,9 +208,9 @@ threading::CThreadPackage* CHost::thread_package(const EWorkerThreadID id) noexc
     return m_thread_packages.get_object(m_thread_slots[index]);
 }
 
-int CHost::execute(const char* const log_tag, const char* const executive_file) noexcept
+int CHost::execute(const char* const log_tag, const char* const executive_file, const char* const log_directory) noexcept
 {
-    initialise_debug_service(log_tag);
+    initialise_debug_service(log_tag, log_directory);
     MV_INFO("Host: Starting");
 
     const bool initialised = initialise_runtime(executive_file);
@@ -553,10 +553,10 @@ bool CHost::shutdown() noexcept
     return modules_unloaded;
 }
 
-int host(const char* const log_tag, const char* const executive_file) noexcept
+int host(const char* const log_tag, const char* const executive_file, const char* const log_directory) noexcept
 {
     CHost runtime;
-    return runtime.execute(log_tag, executive_file);
+    return runtime.execute(log_tag, executive_file, log_directory);
 }
 
 }   //  namespace host

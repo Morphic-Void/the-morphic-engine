@@ -13,12 +13,9 @@
     <Filter Include="Host\src\module\types"><UniqueIdentifier>{ee34383d-a37f-b0a8-cba0-d09cb066dd8c}</UniqueIdentifier></Filter>
     <Filter Include="Host\src\runtime"><UniqueIdentifier>{3e9a656f-34cb-dfed-bcab-7ad8ba4b9a72}</UniqueIdentifier></Filter>
     <Filter Include="Host\src\system"><UniqueIdentifier>{c191b9c4-2263-1c55-f7ba-7fc3034e22cb}</UniqueIdentifier></Filter>
-    <Filter Include="TestData"><UniqueIdentifier>{57bf483a-c3e0-265f-ce3b-9c55911f9092}</UniqueIdentifier></Filter>
-    <Filter Include="TestData\input"><UniqueIdentifier>{37c259ba-8f0e-9226-44e5-06738d5db527}</UniqueIdentifier></Filter>
-    <Filter Include="TestData\input\files"><UniqueIdentifier>{deca212c-d1b7-e6c9-469e-05dc744d7170}</UniqueIdentifier></Filter>
-    <Filter Include="TestData\output"><UniqueIdentifier>{04228b5f-ad7d-fb9a-dd04-2e5d7730f096}</UniqueIdentifier></Filter>
-    <Filter Include="TestData\output\files"><UniqueIdentifier>{73a6fb72-efef-392c-cb51-c2279ac65c87}</UniqueIdentifier></Filter>
-    <Filter Include="TestData\output\logs"><UniqueIdentifier>{e047485a-ae84-44ec-8e56-4604874c7c6f}</UniqueIdentifier></Filter>
+    <Filter Include="Development"><UniqueIdentifier>{57bf483a-c3e0-265f-ce3b-9c55911f9092}</UniqueIdentifier></Filter>
+    <Filter Include="Development\logical-roots"><UniqueIdentifier>{37c259ba-8f0e-9226-44e5-06738d5db527}</UniqueIdentifier></Filter>
+    <Filter Include="Development\logical-roots\dev-source"><UniqueIdentifier>{deca212c-d1b7-e6c9-469e-05dc744d7170}</UniqueIdentifier></Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="host\module\types\erased_owner_payloads.def"><Filter>Host\include\module\types</Filter></ClInclude>
@@ -43,8 +40,6 @@
     <ClCompile Include="host\system\system_id_definitions.cpp"><Filter>Host\src\system</Filter></ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <None Include="test_data\input\files\test_input.tga"><Filter>TestData\input\files</Filter></None>
-    <None Include="test_data\output\files\test_output.tga"><Filter>TestData\output\files</Filter></None>
-    <None Include="test_data\output\logs\.gitkeep"><Filter>TestData\output\logs</Filter></None>
+    <None Include="development\logical-roots\dev-source\test_input.tga"><Filter>Development\logical-roots\dev-source</Filter></None>
   </ItemGroup>
 </Project>

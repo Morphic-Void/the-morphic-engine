@@ -156,7 +156,8 @@ The Executive exercise checks raw byte equality and alignment, TGA pixel equalit
 normalised JSON semantics, repeated saves after live mutation, retained/discard
 inputs, optional admission-time baking, retained results after save/JSON failures,
 invalid IDs, malformed files and parse-policy rejection. Concurrent saves check
-correlation and source lifetime. Files are written under `build/`; run the engine
+correlation and source lifetime. Files are written under `development/logical-roots/test-output/`;
+the TGA source is `development/logical-roots/dev-source/test_input.tga`. Run the engine
 from the repository root with its built Executive and Rendering DLLs available.
 The normal Executive first requests its Vulkan rendering module and validates
 acknowledgement and readiness before submitting the first asset operation; see

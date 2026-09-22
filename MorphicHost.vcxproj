@@ -253,9 +253,7 @@
     <ClInclude Include="host\system\system_id_definitions.hpp" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="test_data\input\files\test_input.tga" />
-    <None Include="test_data\output\files\test_output.tga" />
-    <None Include="test_data\output\logs\.gitkeep" />
+    <None Include="development\logical-roots\dev-source\test_input.tga" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="external\SuiteUTF\SuiteUTF.vcxproj">

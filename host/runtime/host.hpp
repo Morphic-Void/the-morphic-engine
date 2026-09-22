@@ -43,7 +43,7 @@ public:
     CHost& operator=(CHost&&) = delete;
     ~CHost() noexcept;
 
-    [[nodiscard]] int execute(const char* const log_tag, const char* const executive_file) noexcept;
+    [[nodiscard]] int execute(const char* const log_tag, const char* const executive_file, const char* const log_directory) noexcept;
 
 private:
     enum class EWorkerThreadID : std::uint8_t
@@ -67,7 +67,7 @@ private:
 
     static constexpr std::size_t k_thread_count = static_cast<std::size_t>(EWorkerThreadID::count);
 
-    void initialise_debug_service(const char* const log_tag) noexcept;
+    void initialise_debug_service(const char* const log_tag, const char* const log_directory) noexcept;
     [[nodiscard]] bool initialise_runtime(const char* const executive_file) noexcept;
     [[nodiscard]] bool start_threads() noexcept;
     [[nodiscard]] bool start_executive() noexcept;
@@ -100,7 +100,8 @@ private:
     std::int32_t m_thread_slots[k_thread_count]{ -1, -1, -1, -1 };
 };
 
-int host(const char* const log_tag = nullptr, const char* const executive_file = "MorphicExecutive.dll") noexcept;
+int host(const char* const log_tag = nullptr, const char* const executive_file = "MorphicExecutive.dll",
+    const char* const log_directory = "development/logical-roots/logs") noexcept;
 
 }   //  namespace host
 

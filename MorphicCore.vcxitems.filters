@@ -793,7 +793,7 @@
     <None Include="$(MSBuildThisFileDirectory)docs\threading\transports\TRingTransport.md">
       <Filter>Docs\threading\transports</Filter>
     </None>
-    <None Include="$(MSBuildThisFileDirectory)logs\.gitkeep">
+    <None Include="$(MSBuildThisFileDirectory)development\logical-roots\logs\.gitkeep">
       <Filter>Logs</Filter>
     </None>
     <None Include="$(MSBuildThisFileDirectory)README.md">
