@@ -35,6 +35,7 @@ struct SModuleWork
     const system_id_registry::SSystemRegistryView* registry{ nullptr };
     debug_system::CDebugServiceState* debug_service{ nullptr };
     const ModuleRequest* request{ nullptr };
+    const char* physical_file{ nullptr };
     modules::FModuleFunction function{ nullptr };
     modules::FModuleFunction thread_function{ nullptr };
     bool cleanup_only{ false };
@@ -49,6 +50,7 @@ class CModuleService
 {
 public:
     enum class EPurpose : std::uint8_t { client = 0, bootstrap, executive_change, shutdown };
+    void set_filesystem(filesystem_image::CImage& image) noexcept { m_filesystem = &image; }
 
     void request(
         CErasedOwner&& owner, const std::int32_t slot,
@@ -96,6 +98,8 @@ private:
 
     //  A single request owns the filename and backs the worker's borrowed job.
     CErasedOwner m_request_owner;
+    filesystem_image::CImage* m_filesystem{ nullptr };
+    CSimpleString m_physical_file;
     SModuleWork m_work;
     threading::CThreadPackage* m_client{ nullptr };
     std::int32_t m_client_slot{ -1 };

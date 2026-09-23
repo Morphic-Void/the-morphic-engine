@@ -56,7 +56,7 @@ int main(const int argc, char** const argv)
     {
         return 1;
     }
-    const char* executive_file = "MorphicExecutive.dll";
+    const char* executive_file = "package:/bin/MorphicExecutive.dll";
     const char* log_directory = "development/logical-roots/logs";
     bool log_directory_option_seen = false;
     bool executive_option_seen = false;
@@ -84,7 +84,7 @@ int main(const int argc, char** const argv)
             executive_file = argv[index] + sizeof(executive_prefix) - 1u;
             if (executive_option_seen || (*executive_file == '\0'))
             {
-                std::fputs("Use one --executive=<DLL path>.\n", stderr);
+                std::fputs("Use one --executive=<logical DLL path>.\n", stderr);
                 return 2;
             }
             executive_option_seen = true;

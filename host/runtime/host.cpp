@@ -194,8 +194,14 @@ bool CHost::initialise_runtime(const char* const executive_file) noexcept
 
     request->module = module_ids::executive;
     request->required_function = system_type_ids::executive_thread_function;
-    m_module_service.request(std::move(owner), -1, nullptr, CModuleService::EPurpose::bootstrap);
-    return true;
+    m_executive_request = std::move(owner);
+    m_asset_service.set_filesystem(m_filesystem);
+    m_module_service.set_filesystem(m_filesystem);
+    threading::CErasedPodMsg scan;
+    scan.assign_payload(FilesystemScanRequest{});
+    m_initial_scan = true;
+    m_scan_in_flight = thread_package(EWorkerThreadID::bg_file_io)->post(scan);
+    return m_scan_in_flight;
 }
 
 threading::CThreadPackage* CHost::thread_package(const EWorkerThreadID id) noexcept
@@ -229,6 +235,11 @@ int CHost::execute(const char* const log_tag, const char* const executive_file, 
 
 void CHost::receive_request(threading::CErasedOwnerMsg& message, threading::CThreadPackage& executive) noexcept
 {
+    if (message.is_message_a<FilesystemRefreshRequest>())
+    {
+        request_refresh(message, executive);
+        return;
+    }
     if (message.is_message_a<ModuleRequest>())
     {
         MV_DETAIL("Host module lifecycle request");
@@ -260,6 +271,93 @@ void CHost::receive_request(threading::CErasedOwnerMsg& message, threading::CThr
     m_asset_service.request(
         message, executive, *thread_package(EWorkerThreadID::bg_file_io),
         *thread_package(EWorkerThreadID::bg_conditioning));
+}
+
+
+void CHost::reply_refresh(threading::CThreadPackage& client, const std::int32_t slot, const EFilesystemStatus status) noexcept
+{
+    threading::CErasedPodMsg reply;
+    reply.set_async_slot(slot);
+    reply.assign_payload(FilesystemRefreshResult{ status });
+    if (!client.post(reply))
+    {
+        m_filesystem_failed = true;
+    }
+}
+
+void CHost::request_refresh(threading::CErasedOwnerMsg& message, threading::CThreadPackage& executive) noexcept
+{
+    if (m_refresh_count == k_refresh_capacity)
+    {
+        reply_refresh(executive, message.query_async_slot(), EFilesystemStatus::queue_full);
+        return;
+    }
+    SRefresh& refresh = m_refresh_queue[(m_refresh_head + m_refresh_count) % k_refresh_capacity];
+    refresh.owner = message.take_owner();
+    refresh.client = &executive;
+    refresh.slot = message.query_async_slot();
+    ++m_refresh_count;
+}
+
+void CHost::dispatch_refresh() noexcept
+{
+    if (m_scan_in_flight || m_initial_scan || (m_refresh_count == 0u))
+    {
+        return;
+    }
+    SRefresh& refresh = m_refresh_queue[m_refresh_head];
+    const FilesystemRefreshRequest* const request = refresh.owner.payload<FilesystemRefreshRequest>();
+    EFilesystemStatus failure = EFilesystemStatus::invalid_root;
+    if ((request != nullptr) && m_filesystem.prepare_scan(request->root.cstring(), m_root_scan))
+    {
+        threading::CErasedPodMsg scan;
+        scan.assign_payload(FilesystemScanRequest{ &m_root_scan });
+        m_scan_serial = m_filesystem.write_serial();
+        if (thread_package(EWorkerThreadID::bg_file_io)->post(scan))
+        {
+            m_scan_in_flight = true;
+            return;
+        }
+        failure = EFilesystemStatus::delivery_failed;
+    }
+    reply_refresh(*refresh.client, refresh.slot, failure);
+    refresh.owner.destroy();
+    m_refresh_head = (m_refresh_head + 1u) % k_refresh_capacity;
+    --m_refresh_count;
+}
+
+void CHost::complete_scan(threading::CErasedOwnerMsg& message) noexcept
+{
+    if (!m_scan_in_flight)
+    {
+        m_filesystem_failed = true;
+        return;
+    }
+    m_scan_in_flight = false;
+    CErasedOwner owner = message.take_owner();
+    FilesystemScanResult* const result = owner.payload<FilesystemScanResult>();
+    const bool scanned = (result != nullptr) && (result->status == filesystem_image::EScanStatus::success);
+    if (m_initial_scan)
+    {
+        m_initial_scan = false;
+        if (!scanned || m_runtime_failed)
+        {
+            MV_ERROR("Host: Initial filesystem image could not be constructed");
+            executive_failure(EModuleStatus::binding_failed);
+            return;
+        }
+        m_filesystem.adopt(std::move(result->document));
+        MV_REPORT("Host: Filesystem image ready before Executive bootstrap");
+        m_module_service.request(std::move(m_executive_request), -1, nullptr, CModuleService::EPurpose::bootstrap);
+        return;
+    }
+    SRefresh& refresh = m_refresh_queue[m_refresh_head];
+    const EFilesystemStatus status = !scanned ? EFilesystemStatus::scan_failed :
+        (m_filesystem.integrate(result->document, m_scan_serial) ? EFilesystemStatus::success : EFilesystemStatus::integration_failed);
+    reply_refresh(*refresh.client, refresh.slot, status);
+    refresh.owner.destroy();
+    m_refresh_head = (m_refresh_head + 1u) % k_refresh_capacity;
+    --m_refresh_count;
 }
 
 void CHost::executive_failure(const EModuleStatus status) noexcept
@@ -340,7 +438,7 @@ void CHost::advance_lifecycle(const threading::EThreadRunState executive_state) 
             m_phase = EPhase::stopping_executive;
         }
 
-        if ((m_phase == EPhase::stopping_executive) && stopped && m_asset_service.is_idle() && m_module_service.is_idle())
+        if ((m_phase == EPhase::stopping_executive) && stopped && m_asset_service.is_idle() && m_module_service.is_idle() && filesystem_idle())
         {
             //  Join before dropping queued messages or allowing the worker to
             //  unbind the outgoing Executive. No asset operation still borrows it.
@@ -369,7 +467,7 @@ void CHost::advance_lifecycle(const threading::EThreadRunState executive_state) 
         }
     }
 
-    if ((m_phase == EPhase::shutting_down) && m_asset_service.is_idle() && m_module_service.is_idle())
+    if ((m_phase == EPhase::shutting_down) && m_asset_service.is_idle() && m_module_service.is_idle() && filesystem_idle())
     {
         if (!m_module_service.request_shutdown())
         {
@@ -393,7 +491,7 @@ void CHost::run() noexcept
     {
         if ((file_io.query_state() == threading::EThreadRunState::Failed) ||
             (conditioning.query_state() == threading::EThreadRunState::Failed) ||
-            m_module_service.failed() || m_asset_service.failed())
+            m_module_service.failed() || m_asset_service.failed() || m_filesystem_failed)
         {
             m_runtime_failed = true;
             break;
@@ -466,6 +564,10 @@ void CHost::run() noexcept
                 {
                     receive_request(owned, package);
                 }
+                else if ((&package == &file_io) && owned.is_message_a<FilesystemScanResult>())
+                {
+                    complete_scan(owned);
+                }
                 else
                 {
                     m_asset_service.complete(owned);
@@ -481,6 +583,7 @@ void CHost::run() noexcept
         }
 
         m_asset_service.complete_disposals();
+        dispatch_refresh();
         advance_lifecycle(executive_state);
         const bool stopping_rendering = !m_module_service.is_idle() && !m_module_service.is_in_flight() &&
             m_module_service.releases_binding() && (m_module_service.pending_mount_point() == mount_point_ids::render);
@@ -547,6 +650,11 @@ bool CHost::shutdown() noexcept
     m_module_service.cancel_pending();
     m_asset_service.fail_pending();
     m_asset_service.deallocate();
+    for (SRefresh& refresh : m_refresh_queue)
+    {
+        refresh.owner.destroy();
+    }
+    m_executive_request.destroy();
     m_thread_packages.deallocate();
     const bool modules_unloaded = m_module_service.release_records();
     shutdown_debug_service();

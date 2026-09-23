@@ -125,6 +125,44 @@ and corresponding `build/executive-rendering-core-*.log`; process tags are
 `0d3b933a`, `87ef5f2e`, `91404227` and `68912f1c` respectively. Logs are local
 ignored artifacts, not files guaranteed to exist in a fresh checkout.
 
+## Development filesystem image
+
+Implemented 22 September 2026, reviewed and accepted on 23 September with the
+review corrections applied. The
+[development reference](../../development/README.md) is the permanent contract.
+
+- The Host I/O worker constructs the startup image before Executive bootstrap
+  and supplies per-root refresh observations. The Host alone integrates and
+  accesses the live document.
+- Schema version 2 uses named roots and nested `content` objects, sparse cached
+  asset IDs, inherited source/write bindings and forward-slash stored paths.
+  Both log roots retain bindings without inventory; `test-output:` is inventoried.
+- Logical-file reads validate inventory membership, writes validate destinations,
+  and compatible loads can reuse retained IDs. Successful writes update inventory;
+  disposal removes cache associations without removing the discovered file.
+- A bounded FIFO queues root refreshes. Failed scans preserve the current image;
+  write serials protect newer successful writes against older observations/loads.
+  Workers borrow stable Host-owned paths or scan backing, not mutable image nodes.
+- `package:/bin/` discovers adjacent DLLs for the running build, including test
+  DLLs, without copying binaries or discovering the executable. Module loading
+  resolves those logical names through the same image.
+
+Windows Debug x64 validation during this stage passed the Core suite, including
+157 filesystem-image checks, the Executive's 48 sequential and 32 concurrent
+asset operations plus 12 filesystem operations, and all 23 lifecycle cases.
+Recorded tags include `filesystem-const` for the Core suite,
+`filesystem-review-updates` for the final enum/logging/filter follow-up's Host
+acceptance checks, and `lifecycle-8aa3eeb9` for the lifecycle run. The follow-up
+solution build, policy checks, filter mappings and line-ending checks also passed.
+Logs are local ignored artifacts, not guaranteed files in a fresh checkout.
+These runs do not establish Linux/Android support or a new four-configuration
+validation matrix.
+
+The former deferred filesystem design is fully superseded. Only
+[limitations and useful future considerations](../backlog/filesystem_asset_mapping.md)
+remain; no shared-immutable-image publication or reader-retirement system is
+required to finish this implementation.
+
 ## Consolidation documentation closeout
 
 Completed plans, review notes and task handoffs have been retired from the active
@@ -133,7 +171,7 @@ asset and module references above. This record retains completion evidence;
 the original deliberations and intermediate validation remain in Git history.
 
 Future ideas were preserved in [deferred design](../backlog/consolidation_deferred_design.md),
-[filesystem mapping](../backlog/filesystem_asset_mapping.md),
+[filesystem considerations](../backlog/filesystem_asset_mapping.md),
 [job framework design](../backlog/job_framework_design.md), the engine backlog
 and schema documents. The deferred record distinguishes implemented services,
 open choices and rejected alternatives, including accounting-period reset,

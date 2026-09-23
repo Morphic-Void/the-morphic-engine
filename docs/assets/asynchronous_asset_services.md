@@ -53,7 +53,15 @@ for each save. Retaining a baked document instead selects an independent snapsho
 
 `AssetLoadRequest` owns the filename and selects the file format, requested byte
 alignment, JSON parse policy and TGA decode orientation. Every successful load
-creates a retained Host asset.
+returns a retained Host asset, possibly reusing the same cached identity.
+Filenames now use logical roots, such as `dev-source:/test_input.tga` and
+`test-output:/result.json`. The [development filesystem image](../../development/README.md)
+defines lookup, write permission, refresh and cache-association rules. Loads
+require an inventoried file; saves may create a new file below a discovered
+writable directory. The non-inventoried log roots are write-only through this
+interface, and their writes do not add file entries. Disposal removes the image's
+matching cache IDs without removing the files.
+TGA decode options deliberately do not distinguish cache entries in this stage.
 
 | Format | Processing | Returned interface |
 | --- | --- | --- |
@@ -66,7 +74,7 @@ Baked loads request at least 32-byte alignment. Other loads preserve the file
 primitive's alignment policy and 16-byte floor. The existing primitive rejects
 empty files; these produce an explicit read failure.
 
-All file reads and writes run on the Host file I/O worker. All live-document
+All asset file reads and writes run on the Host file I/O worker. Asset live-document
 baking, JSON parsing/writing and TGA encoding/decoding run on the conditioning
 worker. Live-to-JSON saving is one conditioning job: bake, then write that baked
 view without another Host round trip. The JSON writer's terminal zero is excluded
@@ -165,9 +173,12 @@ acknowledgement and readiness before submitting the first asset operation; see
 Diagnostic fixtures also cover undefined CP1252 input, numeric overflow,
 unterminated text and invalid policy bits, with compact failure metadata checked
 on the client and worker reports inspected in the logs.
-The original 47 scenarios remain; an additional bottom-up TGA load checks the
-same logical texels as top-down decoding. The greyscale transfer also exercises
-bottom-up source storage.
+The original 47 scenarios remain; the additional bottom-up TGA request now
+checks reuse of the cached top-down representation and the same logical texels,
+documenting the deliberately deferred cache-option distinction. The greyscale
+transfer still exercises bottom-up source storage. Twelve additional operations
+exercise queued root refreshes with concurrent file access, cached identities,
+disposal/reload and read-only destination rejection.
 
 Core regression coverage also checks compact POD message transport, image-view
 copy independence, document views and borrowed conditioning options, plus nested
@@ -176,8 +187,12 @@ allocation attribution, including rejection across incompatible allocators.
 ## Validation
 
 Run the built engine from the repository root with its Executive and Rendering
-DLLs available to exercise 48 sequential and 32 concurrent operations. Core
-`MorphicTests -t1` additionally checks transport, ownership and view contracts.
+DLLs available to exercise 48 sequential and 32 concurrent asset operations,
+followed by 12 filesystem refresh/cache operations. Core `MorphicTests -t1`
+additionally checks transport, ownership, views and the filesystem-image
+discovery/reconciliation contract. The filesystem suite writes a process- and
+tag-qualified JSON image beneath `development/logical-roots/test-output/` for
+inspection.
 The [module lifecycle harness](../modules/asynchronous_module_lifecycle.md#validation)
 covers disposal during outstanding saves and module teardown.
 

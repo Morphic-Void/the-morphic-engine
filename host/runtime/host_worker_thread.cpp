@@ -216,11 +216,15 @@ static EModuleStatus perform_module_work(SModuleWork& work) noexcept
     {
         return EModuleStatus::success;
     }
+    if (work.physical_file == nullptr)
+    {
+        return EModuleStatus::binding_failed;
+    }
 
     constexpr modules::SAdvertisedIdentity host_identity{
         module_ids::executable, { modules::k_binding_abi_major, 0u },
         modules::k_binding_abi_major, modules::k_binding_abi_major };
-    const platform::path::NativePath path = platform::path::makeNativePath(request.file.cstring());
+    const platform::path::NativePath path = platform::path::makeNativePath(work.physical_file);
     EModuleStatus status = EModuleStatus::binding_failed;
     if (path.is_ready() && work.next->bind(path, request.module, host_identity) &&
         (work.next->advertised_module_identity().version.major == modules::k_binding_abi_major))
@@ -332,6 +336,36 @@ void CHostWorkerThread::operate() noexcept
 
             switch (inbound_msg.query_message_type_id().raw_value())
             {
+                case k_type_id_v<FilesystemScanRequest>.raw_value():
+                {
+                    MV_DETAIL("Worker filesystem scan request");
+
+                    FilesystemScanRequest request;
+                    (void)inbound_msg.copy_payload_to(request);
+                    CErasedOwner content = CErasedOwner::create<FilesystemScanResult>();
+                    if (FilesystemScanResult* const result = content.payload<FilesystemScanResult>())
+                    {
+                        result->status = (request.root == nullptr) ?
+                            filesystem_image::scan_manifest("development/root-manifest.json", result->document) :
+                            filesystem_image::scan_root(*request.root, result->document);
+                        if (result->status != filesystem_image::EScanStatus::success)
+                        {
+                            MV_REPORT("Filesystem scan failed: %s (status %u)",
+                                (request.root == nullptr) ? "development/root-manifest.json" : request.root->logical_root.cstring(),
+                                static_cast<unsigned int>(result->status));
+                        }
+                    }
+                    threading::CErasedOwnerMsg completion;
+                    completion.set_message_type<FilesystemScanResult>();
+                    completion.set_async_slot(inbound_msg.query_async_slot());
+                    completion.set_owner(std::move(content));
+                    if (!m_context.post(std::move(completion)))
+                    {
+                        m_failed = true;
+                        return;
+                    }
+                    break;
+                }
                 case k_type_id_v<ModuleWorkRequest>.raw_value():
                 {
                     MV_DETAIL("Worker module lifecycle request");

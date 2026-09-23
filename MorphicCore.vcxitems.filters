@@ -28,6 +28,9 @@
     <Filter Include="Core\include\debug">
       <UniqueIdentifier>{d581e920-1518-fd05-9ce8-a1c03b2524c9}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Core\include\filesystem">
+      <UniqueIdentifier>{f57cd056-e389-427b-a503-658786d15f66}</UniqueIdentifier>
+    </Filter>
     <Filter Include="Core\include\image">
       <UniqueIdentifier>{e8403f33-fab0-43d8-9d8b-229dc8d7a917}</UniqueIdentifier>
     </Filter>
@@ -87,6 +90,9 @@
     </Filter>
     <Filter Include="Core\src\data_model">
       <UniqueIdentifier>{77ec940a-6393-49c4-8cb9-36fd907cf65e}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Core\src\filesystem">
+      <UniqueIdentifier>{7459d8e2-fad5-45eb-9d80-998ce05f86cb}</UniqueIdentifier>
     </Filter>
     <Filter Include="Core\src\image">
       <UniqueIdentifier>{820fbd0f-1f89-4472-b601-bb355730b034}</UniqueIdentifier>
@@ -314,6 +320,12 @@
     </ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)core\platform\filesystem\file.hpp">
       <Filter>Core\include\platform\filesystem</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)core\platform\filesystem\directory.hpp">
+      <Filter>Core\include\platform\filesystem</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)core\filesystem\filesystem_image.hpp">
+      <Filter>Core\include\filesystem</Filter>
     </ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)core\platform\filesystem\internal\file_utils.hpp">
       <Filter>Core\include\platform\filesystem\internal</Filter>
@@ -568,6 +580,12 @@
     </ClCompile>
     <ClCompile Include="$(MSBuildThisFileDirectory)core\platform\filesystem\file.cpp">
       <Filter>Core\src\platform\filesystem</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)core\platform\filesystem\directory.cpp">
+      <Filter>Core\src\platform\filesystem</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)core\filesystem\filesystem_image.cpp">
+      <Filter>Core\src\filesystem</Filter>
     </ClCompile>
     <ClCompile Include="$(MSBuildThisFileDirectory)core\platform\filesystem\internal\file_utils.cpp">
       <Filter>Core\src\platform\filesystem\internal</Filter>

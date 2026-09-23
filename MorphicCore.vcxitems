@@ -140,6 +140,10 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="$(MSBuildThisFileDirectory)core\platform\filesystem\file.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)core\platform\filesystem\directory.cpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)core\platform\filesystem\directory.hpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)core\filesystem\filesystem_image.cpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)core\filesystem\filesystem_image.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)core\platform\filesystem\file.hpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)core\platform\filesystem\internal\file_utils.cpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)core\platform\filesystem\internal\file_utils.hpp" />

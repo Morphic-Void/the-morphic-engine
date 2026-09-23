@@ -1,12 +1,12 @@
 # Deferred resource and lifecycle design
 
-Updated 21 September 2026. These future ideas and open questions are preserved
+Updated 23 September 2026. These future ideas and open questions are preserved
 from the consolidation discussions. They are not implementation requirements,
 a priority list or authority to begin work. User direction and assistant-proposed
 alternatives are distinguished where they differ.
 
 See [current scope](current_scope_backlog.md) to select subsequent work,
-[filesystem mapping](filesystem_asset_mapping.md) for the fuller discovery design
+[filesystem limitations](filesystem_asset_mapping.md) for possible later iterations
 and [job framework design](job_framework_design.md) for future scheduled execution.
 Historical proposals must be reassessed against the implemented subsystem contracts.
 
@@ -15,6 +15,9 @@ Historical proposals must be reassessed against the implemented subsystem contra
 Memory accounting and attribution, baked storage, image drawing/copying, concrete
 asset operations, explicit disposal and asynchronous DLL lifecycle are complete.
 The rendering stub and Executive-controlled startup are committed as `f91ded3`.
+The directory-backed [filesystem image](../../development/README.md), logical
+resolution, DLL redirect, queued root refresh and cache associations are now
+complete and accepted, including the first-pass review corrections.
 [Completed milestones](../project/completed_milestones.md) records the checkpoints.
 
 The [asset service](../assets/asynchronous_asset_services.md) supports retained
@@ -22,31 +25,19 @@ transfers, one-shot transfer/conditioning/save and saves by ID. Retained assets
 live until explicit disposal, dependent-module cleanup or shutdown. The
 [module service](../modules/asynchronous_module_lifecycle.md) drains operations
 and joins affected threads before dependency cleanup and I/O-worker unbinding.
-These bounded services do not implement reference counting, cache eviction,
-filesystem discovery, cancellation or a general scheduler.
-
-## Filesystem image publication and in-flight identifiers
-
-Ritchie's 16 September proposal is recorded in the
-[filesystem image discussion](filesystem_asset_mapping.md#immutable-image-publication-and-identifier-lifetime).
-The image lets messages identify files without carrying paths. Published images
-are immutable; updates atomically replace the current pointer, with entry/exit
-accounting and a drain process retaining old images until their users have exited.
-
-The proposal still needs a safe acquisition/retirement protocol, defined ID
-meaning across replacements, retention for IDs in flight, and change detection
-for bulk queries such as editor path-tree construction. Keeping a traversal's
-image alive and determining whether it is still current are separate concerns.
-These are deferred design questions, not additions to the current implementation.
+These bounded services do not implement reference counting, automatic cache
+eviction, cancellation or a general scheduler. The former deferred filesystem
+design is superseded by the implementation, not awaiting completion. Its useful
+remaining considerations are in [filesystem limitations](filesystem_asset_mapping.md).
 
 ## Future document navigation and save-game values
 
-Ritchie's 18 September direction: the document model will represent the filesystem
-image. Add filesystem-path-like navigation as side functions that accept a live
-or baked document, a starting node and a path, and return the end node. These
-helpers sit alongside the document types. Path syntax, traversal rules and the
-result for an unresolved path remain to be specified; no native filesystem path
-semantics or particular path standard is selected by this note.
+The filesystem image now uses the document model and has its own logical-file
+lookup. General path-navigation helpers for arbitrary live or baked documents
+remain a separate possible extension: accept a starting node and a path and
+return the end node. Select syntax, traversal and failure semantics when an
+actual document consumer needs that API; the filesystem resolver does not
+establish a universal document-path standard.
 
 Ritchie also identifies a possible extension of baked documents for save games:
 allow numeric and Boolean values to change while preserving structure, types,
@@ -57,9 +48,9 @@ view flag and coordination with readers remain open. Fixed
 layout alone does not settle those questions, including the treatment of shared
 string-table entries.
 
-The possible save-game extension does not change the proposed immutable
-filesystem-image publication contract. These notes capture future uses without
-resuming implementation or selecting their APIs now.
+The possible save-game extension is independent of the Host-owned filesystem
+image and does not alter the current baked-document contract. These notes do
+not select either extension for implementation.
 
 ## Asset lifetime and reference counting
 
@@ -107,7 +98,9 @@ automatic content selection or repair.
 The core will likely use a distributed configuration specifying which files to
 use and how to apply options for safe loading. The configuration representation
 and the meaning of individual options remain to be designed. This is a proposed
-direction, not a settled manifest format or configuration-distribution mechanism.
+direction for final content selection, not a configuration-distribution mechanism.
+The implemented development root manifest already defines directory bindings,
+permissions and inventory policy; that is a separate, settled first-pass contract.
 
 Discovery has a larger role for UGC and for our own content production. Both are
 expected to use much of the same local discovery and content-handling infrastructure,
@@ -117,8 +110,8 @@ by itself give external UGC the provenance or permissions of developer content.
 A useful consequence to consider later is that discovering available content and
 deciding which content a configuration selects are separate responsibilities.
 How discovered production content becomes part of a distributed core configuration
-remains open. These observations refine the deferred direction without expanding
-the immediate filesystem-image specification or scheduling trust/layering work.
+remains open. These observations do not schedule trust/layering work or reopen
+the implemented filesystem-image contract.
 
 ## Overrides, layers and patches
 
@@ -131,9 +124,9 @@ alone. The permissions and representation remain open.
 The initial preference is simple replacement selection when an eligible substitute
 exists. Competing substitutes, layer order, target identity, patch interaction and
 composition failure need later decisions. Patches are expected to use this system.
-Selection primarily occurs at application startup; editor intervention and refresh
-can have different rules. The proposed filesystem image does not require this
-selection/composition design to be completed first.
+Application-startup selection and editor-directed changes may have different
+rules; neither selection policy is implemented by the filesystem image.
+The existing discovery and cache service does not depend on composition.
 
 Reassess these earlier selection proposals against developer-supplied core
 configuration and the shared UGC/content-production discovery direction above.
@@ -146,27 +139,16 @@ clarification above replaces self-healing as the intended framing. The remaining
 notes in this section preserve earlier possibilities for reassessment; they do
 not establish that a trust engine or journal will be needed.
 
-The earlier discussion distinguished a last
-known safe configuration and a harder recovery mode using original shipping assets
-and modules. A successful run cannot prove every loaded asset was exercised.
+Potentially useful distinctions are source provenance versus payload validity,
+and a previously working configuration versus an original shipping baseline.
+A successful run cannot prove every loaded asset was exercised, and an interrupted
+operation does not prove which file caused a failure. The filesystem image does
+not currently store or enforce a source-trust classification.
 
-Ideas to revisit include asset-type risk, recording impending first use before
-using a file, and staged success evidence. DLL loading, binding and clean unloading
-were candidate boundaries, with time in use affecting confidence. Shaders and
-configuration were also considered higher risk than ordinary maps and textures.
-These are design hypotheses, not a settled scoring algorithm or safety guarantee.
-
-The earlier proposed persistent representation was `trust_state` in JSON and a per-process
-`trust_process` CSV, in a dedicated trust directory rather than the logging directory.
-At startup, reconcile the previous process record into state, save the updated
-state, then remove the consumed record and create the new process record. Durable
-update/recovery behaviour and incomplete records need specification before use.
-Platform restrictions may require mapping this storage through save facilities.
-
-Source provenance and the initial trusted-core/untrusted-UGC distinction remain
-useful to current discovery. Payload validation and module compatibility do not
-depend on the deferred trust machinery. Platform research is needed when the
-trust storage and platform-service interfaces become concrete.
+Any later diagnostic or recovery feature needs a concrete consumer and a defined
+persistence/failure contract. No risk-scoring algorithm, trust-file layout,
+first-use journal or recovery-selection sequence is prescribed here. Existing
+payload validation and module compatibility checks do not depend on such features.
 
 ## Later image capabilities
 

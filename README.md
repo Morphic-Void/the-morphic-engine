@@ -3,8 +3,9 @@
 A C++17 game engine developed by Morphic Void. It is being built from first principles with an emphasis on clear structure, modular systems, and long-term maintainability.
 
 The repository contains the Core memory, container, transport and document systems,
-image utilities, and Host-managed asynchronous asset and DLL services, with test
-infrastructure. See the [documentation index](docs/README.md),
+image utilities, a [development filesystem image](development/README.md), and
+Host-managed asynchronous asset and DLL services, with test infrastructure.
+See the [documentation index](docs/README.md),
 [current scope](docs/backlog/current_scope_backlog.md) and
 [completed milestones](docs/project/completed_milestones.md) for implementation status.
 

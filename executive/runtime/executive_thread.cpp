@@ -150,11 +150,11 @@ static constexpr std::uint32_t concurrent_save_count{ 32u };
 static_assert(concurrent_save_count <= 100u, "Concurrent filenames reserve two decimal digits.");
 
 static constexpr char fixture[] = R"({"null":null,"bool":true,"signed":-123,"unsigned":18446744073709551615,"float":1.25,"text":"line\ntext","object":{},"mixed":[null,true,3,"text"],"bools":[true,false],"ints":[-1,-2],"uints":[18446744073709551615,18446744073709551614],"floats":[1.25,2.5],"strings":["a","b"],"empty":[]})";
-static constexpr char raw_file[] = "development/logical-roots/test-output/asset-acceptance.raw";
-static constexpr char binary_file[] = "development/logical-roots/test-output/asset-acceptance.bin";
-static constexpr char json_file[] = "development/logical-roots/test-output/asset-acceptance.json";
-static constexpr char image_file[] = "development/logical-roots/test-output/asset-acceptance.tga";
-static constexpr char failure_file[] = "development/logical-roots/test-output/asset-acceptance-missing-directory/output.bin";
+static constexpr char raw_file[] = "test-output:/asset-acceptance.raw";
+static constexpr char binary_file[] = "test-output:/asset-acceptance.bin";
+static constexpr char json_file[] = "test-output:/asset-acceptance.json";
+static constexpr char image_file[] = "test-output:/asset-acceptance.tga";
+static constexpr char failure_file[] = "test-output:/asset-acceptance-missing-directory/output.bin";
 
 static bool fixture_document(CLiveDocument& document) noexcept
 {
@@ -206,7 +206,7 @@ private:
     //  Failure codes start at one because zero is the successful thread exit code.
     enum class EFailure : std::uint32_t { registry = 1u, timing, submission, completion, timeout };
 
-    enum class EPhase : std::uint8_t { rendering_acknowledgement = 0, rendering_completion, sequential, concurrent, awaiting_exit, complete };
+    enum class EPhase : std::uint8_t { rendering_acknowledgement = 0, rendering_completion, sequential, concurrent, filesystem, awaiting_exit, complete };
 
     CExecutiveThread(const CExecutiveThread&) noexcept = delete;
     CExecutiveThread& operator=(const CExecutiveThread&) noexcept = delete;
@@ -233,6 +233,8 @@ private:
     [[nodiscard]] bool prepare_expected_document() noexcept;
     [[nodiscard]] bool submit_concurrent_saves() noexcept;
     [[nodiscard]] bool complete_concurrent_save(const threading::CErasedPodMsg& message) noexcept;
+    [[nodiscard]] bool start_filesystem_exercise() noexcept;
+    [[nodiscard]] bool complete_filesystem_exercise(const threading::CErasedPodMsg& message) noexcept;
     [[nodiscard]] bool request_system_shutdown() noexcept;
     void shutdown() noexcept;
     void fail(const EFailure failure, const char* const reason) noexcept;
@@ -251,6 +253,10 @@ private:
     CBakedDocumentBlock m_expected;
     bool m_save_completed[asset_acceptance::concurrent_save_count]{};
     std::uint32_t m_completed_save_count{ 0u };
+    bool m_filesystem_completed[6]{};
+    std::uint32_t m_filesystem_count{ 0u };
+    std::int32_t m_filesystem_step{ 0 };
+    std::int32_t m_refresh_step{ 0 };
     std::uint32_t m_failure_code{ 0u };
 };
 
@@ -320,7 +326,7 @@ bool CExecutiveThread::initialise() noexcept
     //  omit it entirely. Loading an occupied mount is resolved by its reply.
     CErasedOwner owner = CErasedOwner::create<ModuleRequest>();
     ModuleRequest* const request = owner.payload<ModuleRequest>();
-    if ((request == nullptr) || !request->file.set("MorphicRendering.dll"))
+    if ((request == nullptr) || !request->file.set("package:/bin/MorphicRendering.dll"))
     {
         fail(EFailure::submission, "rendering load submission");
         return false;
@@ -519,11 +525,11 @@ bool CExecutiveThread::submit(const asset_acceptance::SScenario& scenario, const
         }
         case EScenario::load_tga:
         {
-            return load(slot, EAssetFileFormat::tga, "development/logical-roots/dev-source/test_input.tga");
+            return load(slot, EAssetFileFormat::tga, "dev-source:/test_input.tga");
         }
         case EScenario::load_tga_bottom_up:
         {
-            return load(slot, EAssetFileFormat::tga, "development/logical-roots/dev-source/test_input.tga", {}, false);
+            return load(slot, EAssetFileFormat::tga, "dev-source:/test_input.tga", {}, false);
         }
         case EScenario::save_retained_image:
         {
@@ -725,7 +731,8 @@ bool CExecutiveThread::check(const asset_acceptance::SScenario& scenario, const 
         {
             if (!expect(scenario, (image.width() == m_image_view.width()) &&
                 (image.height() == m_image_view.height()), "image dimensions") ||
-                !expect(scenario, image.vertical_flip() == (scenario.identity == EScenario::load_tga_bottom_up), "image row addressing"))
+                !expect(scenario, image.vertical_flip() == m_image_view.vertical_flip(), "cached image row addressing") ||
+                !expect(scenario, result.asset == m_image.asset, "same cached image identity"))
             {
                 return false;
             }
@@ -788,10 +795,10 @@ bool CExecutiveThread::submit_concurrent_saves() noexcept
     m_concurrent_first_slot = m_pending_slot + 1;
 
     //  The source stays immutable until every independently correlated save completes.
-    static constexpr char path_prefix[] = "development/logical-roots/test-output/asset-concurrent-";
+    static constexpr char path_prefix[] = "test-output:/asset-concurrent-";
     for (std::uint32_t index = 0u; index < concurrent_save_count; ++index)
     {
-        char path[] = "development/logical-roots/test-output/asset-concurrent-00.json";
+        char path[] = "test-output:/asset-concurrent-00.json";
         constexpr std::uint32_t digit_offset = sizeof(path_prefix) - 1u;
         path[digit_offset] = static_cast<char>('0' + (index / 10u));
         path[digit_offset + 1u] = static_cast<char>('0' + (index % 10u));
@@ -825,10 +832,124 @@ bool CExecutiveThread::complete_concurrent_save(const threading::CErasedPodMsg& 
     ++m_completed_save_count;
     if (m_completed_save_count == concurrent_save_count)
     {
-        m_phase = EPhase::complete;
         MV_REPORT("Asset acceptance: %u sequential and %u concurrent operations passed", scenario_count, concurrent_save_count);
+        return start_filesystem_exercise();
     }
     return true;
+}
+
+bool CExecutiveThread::start_filesystem_exercise() noexcept
+{
+    m_phase = EPhase::filesystem;
+    const char* roots[]{ "dev-source:", "test-output:", "unknown:" };
+    for (std::int32_t index = 0; index < 3; ++index)
+    {
+        CErasedOwner owner = CErasedOwner::create<FilesystemRefreshRequest>();
+        FilesystemRefreshRequest* const request = owner.payload<FilesystemRefreshRequest>();
+        if ((request == nullptr) || !request->root.set(roots[index]) || !post(1000 + index, std::move(owner), request))
+        {
+            return false;
+        }
+    }
+    return load(1003, EAssetFileFormat::tga, "dev-source:/test_input.tga") &&
+        save(1004, m_baked.asset, "test-output:/filesystem-concurrent.bin", asset_acceptance::save_settings(EAssetFileFormat::baked)) &&
+        load(1005, EAssetFileFormat::json, asset_acceptance::json_file);
+}
+
+bool CExecutiveThread::complete_filesystem_exercise(const threading::CErasedPodMsg& message) noexcept
+{
+    const std::int32_t step = message.query_async_slot() - 1000;
+    if (m_filesystem_count < 6u)
+    {
+        if ((step < 0) || (step >= 6) || m_filesystem_completed[step])
+        {
+            return false;
+        }
+        if (step < 3)
+        {
+            FilesystemRefreshResult result;
+            if ((step != m_refresh_step) || !message.copy_payload_to(result) ||
+                (result.status != ((step == 2) ? EFilesystemStatus::invalid_root : EFilesystemStatus::success)))
+            {
+                return false;
+            }
+            ++m_refresh_step;
+        }
+        else
+        {
+            AssetResult result;
+            if (!message.copy_payload_to(result) || (result.status != EAssetStatus::success) ||
+                ((step == 3) && (result.asset != m_image.asset)) ||
+                ((step == 4) && (result.asset != m_baked.asset)) ||
+                ((step == 5) && !result.document_view().is_ready()))
+            {
+                return false;
+            }
+        }
+        m_filesystem_completed[step] = true;
+        if (++m_filesystem_count != 6u)
+        {
+            return true;
+        }
+        m_filesystem_step = 6;
+        threading::CErasedPodMsg disposal;
+        disposal.set_async_slot(1006);
+        disposal.assign_payload(AssetDisposeRequest{ m_image.asset });
+        return m_context.post(disposal);
+    }
+    if (step != m_filesystem_step++)
+    {
+        return false;
+    }
+    if (step == 6)
+    {
+        AssetDisposeResult result;
+        return message.copy_payload_to(result) && (result.status == EAssetStatus::success) &&
+            (result.asset == m_image.asset) && load(1007, EAssetFileFormat::tga, "dev-source:/test_input.tga");
+    }
+    AssetResult result;
+    if (!message.copy_payload_to(result))
+    {
+        return false;
+    }
+    switch (step)
+    {
+        case 7:
+        {
+            if ((result.status != EAssetStatus::success) || (result.asset == m_image.asset) || !result.image_view().is_ready())
+            {
+                return false;
+            }
+            m_image = result;
+            return load(1008, EAssetFileFormat::tga, "dev-source:/test_input.tga");
+        }
+        case 8:
+        {
+            return (result.status == EAssetStatus::success) && (result.asset == m_image.asset) &&
+                load(1009, EAssetFileFormat::raw, "dev-source:/filesystem-missing-file");
+        }
+        case 9:
+        {
+            return (result.status == EAssetStatus::read_failed) &&
+                save(1010, m_raw.asset, "package:/bin/MorphicExecutive.dll", asset_acceptance::save_settings(EAssetFileFormat::raw));
+        }
+        case 10:
+        {
+            return (result.status == EAssetStatus::write_failed) &&
+                load(1011, EAssetFileFormat::baked, "test-output:/filesystem-concurrent.bin");
+        }
+        case 11:
+        {
+            if ((result.status != EAssetStatus::success) || (result.asset != m_baked.asset))
+            {
+                return false;
+            }
+            m_phase = EPhase::complete;
+            MV_REPORT("Filesystem acceptance: 12 queued refresh, concurrent access and cache operations passed");
+            return true;
+        }
+        default: return false;
+    }
 }
 
 bool CExecutiveThread::request_system_shutdown() noexcept
@@ -889,6 +1010,14 @@ void CExecutiveThread::operate() noexcept
                     !request_system_shutdown())
                 {
                     fail(EFailure::submission, "system shutdown request");
+                }
+                continue;
+            }
+            if (m_phase == EPhase::filesystem)
+            {
+                if (!complete_filesystem_exercise(message))
+                {
+                    fail(EFailure::completion, "filesystem image exercise");
                 }
                 continue;
             }

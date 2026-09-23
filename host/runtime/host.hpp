@@ -74,6 +74,11 @@ private:
     [[nodiscard]] bool start_rendering() noexcept;
     [[nodiscard]] bool stop_rendering(const threading::EThreadRunState state) noexcept;
     void receive_request(threading::CErasedOwnerMsg& message, threading::CThreadPackage& executive) noexcept;
+    void request_refresh(threading::CErasedOwnerMsg& message, threading::CThreadPackage& executive) noexcept;
+    void dispatch_refresh() noexcept;
+    void complete_scan(threading::CErasedOwnerMsg& message) noexcept;
+    void reply_refresh(threading::CThreadPackage& client, const std::int32_t slot, const EFilesystemStatus status) noexcept;
+    [[nodiscard]] bool filesystem_idle() const noexcept { return !m_initial_scan && (m_refresh_count == 0u); }
     void advance_lifecycle(const threading::EThreadRunState executive_state) noexcept;
     void executive_failure(const EModuleStatus status) noexcept;
     void run() noexcept;
@@ -90,6 +95,22 @@ private:
 
     TUnorderedCollection<threading::CThreadPackage> m_thread_packages;
     CAssetService m_asset_service;
+    filesystem_image::CImage m_filesystem;
+    struct SRefresh
+    {
+        CErasedOwner owner;
+        threading::CThreadPackage* client{ nullptr };
+        std::int32_t slot{ -1 };
+    };
+    static constexpr std::size_t k_refresh_capacity = 16u;
+    SRefresh m_refresh_queue[k_refresh_capacity];
+    filesystem_image::SRootScan m_root_scan;
+    std::size_t m_refresh_head{ 0u };
+    std::size_t m_refresh_count{ 0u };
+    std::uint64_t m_scan_serial{ 0u };
+    bool m_initial_scan{ false };
+    bool m_scan_in_flight{ false };
+    bool m_filesystem_failed{ false };
     bool m_runtime_failed{ false };
     platform::system::CPerfCountConversion m_perf_count_conversion;
 
@@ -100,7 +121,7 @@ private:
     std::int32_t m_thread_slots[k_thread_count]{ -1, -1, -1, -1 };
 };
 
-int host(const char* const log_tag = nullptr, const char* const executive_file = "MorphicExecutive.dll",
+int host(const char* const log_tag = nullptr, const char* const executive_file = "package:/bin/MorphicExecutive.dll",
     const char* const log_directory = "development/logical-roots/logs") noexcept;
 
 }   //  namespace host

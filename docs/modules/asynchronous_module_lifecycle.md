@@ -18,19 +18,22 @@ use the same handlers, preserving the option to combine their work later.
 
 ## Startup and Executive transitions
 
-The Host starts its two workers before requesting the Executive DLL. Its normal
+The Host starts its two workers and builds the filesystem image on its file I/O
+worker before requesting the Executive DLL. Its normal
 message loop receives the binding completion and then creates the Executive
 thread. Per-thread context installation still runs on the newly created thread,
 because that operation installs thread-local state.
 
-The default bootstrap path is `MorphicExecutive.dll`. The launcher accepts
-`--executive=<DLL path>` to select another implementation advertising the Executive
+The default bootstrap path is `package:/bin/MorphicExecutive.dll`. The launcher accepts
+`--executive=<logical DLL path>` to select another implementation advertising the Executive
 identity and exporting the Executive thread function.
+The [development filesystem image](../../development/README.md#build-output-redirect)
+resolves discovered DLLs adjacent to the running executable without copying them.
 
 Rendering selection belongs to the Executive. The Host bootstraps only the
 Executive; a selector implementation can run without a renderer or choose another
 implementation later. The normal `MorphicExecutive.dll` first sends an owning
-load request for `MorphicRendering.dll` and `render_vulkan_windows`. It validates
+load request for `package:/bin/MorphicRendering.dll` and `render_vulkan_windows`. It validates
 the correlated acknowledgement before accepting completion, then starts its
 48 sequential and 32 concurrent asset acceptance operations only when rendering
 is available.
@@ -73,7 +76,8 @@ uses the same failure handling.
 
 ## Ordinary DLL operations
 
-`ModuleRequest` owns its filename and carries an action (`load`, `unload`, or
+`ModuleRequest` owns its logical filename (for example
+`package:/bin/MorphicRendering.dll`) and carries an action (`load`, `unload`, or
 `replace`), a registered module identity and an optional required function identity.
 The mounting point encoded in the module identity selects the service being
 changed. A replacement may select another registered implementation at that point.
@@ -217,17 +221,19 @@ The 23 process cases cover:
 - Rendering load/unload/replacement, failed startup cleanup and Vulkan identity.
   A renderer survives Executive replacement and is reused without a second thread.
 - Normal Executive startup and unavailable-renderer shutdown before asset work.
-  Successful startup/replacement runs 48 sequential and 32 concurrent asset cases.
+  Successful startup/replacement runs 48 sequential and 32 concurrent asset cases,
+  followed by 12 filesystem refresh/cache operations.
 - Explicit disposal, invalid/stale IDs, saves admitted before disposal, dependent
   cleanup and preservation of unrelated retained assets.
 - Disposal requests posted by rendering immediately before terminal publication:
   the final queue is drained and replies finish before package destruction.
 
 Checks include process status, notification order, saved bytes, dependency
-assertions, exit/join/unload ordering and I/O-worker attribution. In Debug the
-exit-disposal regression must actually defer a reply for accepted saves, so it
-cannot pass merely by missing the pending-operation condition. Missing/failing
-normal-renderer tests use isolated binary copies under `build/`.
+assertions, exit/join/unload ordering and I/O-worker attribution. The rendering
+exit-disposal regression allows saves to finish before disposal is requested.
+When a reply is deferred, it checks deferral-to-completion ordering; in either
+case, both disposal completions must precede the Rendering thread join.
+Missing/failing normal-renderer tests use isolated binary copies under `build/`.
 
 Core `MorphicTests -t1` covers dependency disposal and compact message compatibility.
 Its real-Executive protocol tests exercise successful and already-loaded replies,

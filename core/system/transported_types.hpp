@@ -23,6 +23,7 @@
 #include "data_model/live_document.hpp"
 #include "data_model/document_findings.hpp"
 #include "data_model/document_writer.hpp"
+#include "filesystem/filesystem_image.hpp"
 #include "image/codec/tga.hpp"
 #include "image/image_view.hpp"
 #include "module/module_binding.hpp"
@@ -386,6 +387,18 @@ namespace host { struct SModuleWork; }
 struct ModuleWorkRequest { host::SModuleWork* work{ nullptr }; };
 struct ModuleWorkResult { EModuleStatus status{ EModuleStatus::invalid_request }; };
 
+//  Executive refreshes name one logical root, e.g. "dev-source:". Completion
+//  follows Host integration, not merely worker enumeration.
+enum class EFilesystemStatus : std::uint8_t { success = 0, invalid_root, queue_full, scan_failed, integration_failed, delivery_failed };
+struct FilesystemRefreshRequest { CSimpleString root; };
+struct FilesystemRefreshResult { EFilesystemStatus status{ EFilesystemStatus::scan_failed }; };
+struct FilesystemScanRequest { const filesystem_image::SRootScan* root{ nullptr }; };
+struct FilesystemScanResult
+{
+    CLiveDocument document;
+    filesystem_image::EScanStatus status{ filesystem_image::EScanStatus::allocation_failed };
+};
+
 //==============================================================================
 //  System type registrations
 //  Keep these together, after all declarations and before owner registrations.
@@ -440,6 +453,10 @@ MV_REGISTER_SYSTEM_TYPE(ModuleRequest, system_type_ids::module_request);
 MV_REGISTER_SYSTEM_TYPE(ModuleResult, system_type_ids::module_result);
 MV_REGISTER_SYSTEM_TYPE(ModuleWorkRequest, system_type_ids::module_work_request);
 MV_REGISTER_SYSTEM_TYPE(ModuleWorkResult, system_type_ids::module_work_result);
+MV_REGISTER_SYSTEM_TYPE(FilesystemRefreshRequest, system_type_ids::filesystem_refresh_request);
+MV_REGISTER_SYSTEM_TYPE(FilesystemRefreshResult, system_type_ids::filesystem_refresh_result);
+MV_REGISTER_SYSTEM_TYPE(FilesystemScanRequest, system_type_ids::filesystem_scan_request);
+MV_REGISTER_SYSTEM_TYPE(FilesystemScanResult, system_type_ids::filesystem_scan_result);
 
 //==============================================================================
 //  Owning payload registrations

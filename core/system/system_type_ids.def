@@ -37,4 +37,8 @@
     type_macro(module_result) \
     type_macro(module_work_request) \
     type_macro(module_work_result) \
-    type_macro(rendering_thread_function)
+    type_macro(rendering_thread_function) \
+    type_macro(filesystem_refresh_request) \
+    type_macro(filesystem_refresh_result) \
+    type_macro(filesystem_scan_request) \
+    type_macro(filesystem_scan_result)

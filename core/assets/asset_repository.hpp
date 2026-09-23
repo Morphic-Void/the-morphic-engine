@@ -138,6 +138,9 @@ public:
 
     [[nodiscard]] const CAssetRecord* resolve(const CAssetId id) const noexcept;
 
+    //  Revalidate a process-local identity stored in a live metadata document.
+    [[nodiscard]] CAssetId find_identity(const std::uint64_t value) const noexcept;
+
     [[nodiscard]] bool erase(const CAssetId id) noexcept;
 
     void compact() noexcept { m_assets.sort_and_pack(); }
@@ -181,6 +184,12 @@ inline CAssetRecord* CAssetRepository::resolve(const CAssetId id) noexcept
 inline const CAssetRecord* CAssetRepository::resolve(const CAssetId id) const noexcept
 {
     return id.is_valid() ? m_assets.get_object(id) : nullptr;
+}
+
+inline CAssetId CAssetRepository::find_identity(const std::uint64_t value) const noexcept
+{
+    const CAssetId id{ value };
+    return (resolve(id) != nullptr) ? id : CAssetId{};
 }
 
 inline bool CAssetRepository::erase(const CAssetId id) noexcept

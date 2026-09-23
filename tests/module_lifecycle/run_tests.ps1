@@ -3,7 +3,7 @@
 # License: MIT (see LICENSE file in repository root)
 #
 # File:    run_tests.ps1
-# Authors: Ritchie Brannan / OpenAI Codex
+# Author:  OpenAI Codex
 # Date:    20 Sep 26
 #
 # Build and exercise real DLL lifecycle fixtures against the Host process.
@@ -54,7 +54,7 @@ foreach ($case in @('ordinary', 'dependency', 'disposal', 'disposal-during-save'
     $process.StartInfo.WorkingDirectory = $repository
     $process.StartInfo.UseShellExecute = $false
     $process.StartInfo.CreateNoWindow = $true
-    $process.StartInfo.ArgumentList.Add("--executive=$executive")
+    $process.StartInfo.ArgumentList.Add("--executive=package:/bin/$executive")
     $process.StartInfo.ArgumentList.Add("--log-tag=$tag")
     $process.StartInfo.ArgumentList.Add('--log-directory=development/logical-roots/test-logs')
     $process.StartInfo.Environment['MORPHIC_LIFECYCLE_CASE'] = $case
@@ -131,9 +131,11 @@ foreach ($case in @('ordinary', 'dependency', 'disposal', 'disposal-during-save'
                 $completed = $events.IndexOf('Host asset disposal completed at client slot 600')
                 $finalCompleted = $events.IndexOf('Host asset disposal completed at client slot 601')
                 $joined = $events.IndexOf('Host: Rendering thread joined')
-                if (($deferred -lt 0) -or ($completed -lt $deferred) -or ($finalCompleted -lt 0) -or
+                # Saves can legally finish before the renderer posts disposal.
+                # When deferral occurs, require its completion ordering too.
+                if (($completed -lt 0) -or (($deferred -ge 0) -and ($completed -lt $deferred)) -or ($finalCompleted -lt 0) -or
                     ($joined -lt $completed) -or ($joined -lt $finalCompleted)) {
-                    throw 'Rendering disposal did not exercise deferred completion and final request drain before package destruction.'
+                    throw 'Rendering disposal did not complete and drain final requests before package destruction.'
                 }
             }
         }

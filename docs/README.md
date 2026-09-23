@@ -13,6 +13,8 @@ or that work has been authorised.
 - [Image view](image/image_view.md): drawing, copying, access and TGA metadata.
 - [Asynchronous asset services](assets/asynchronous_asset_services.md): requests,
   ownership, conditioning, results, diagnostics and disposal.
+- [Development filesystem image](../development/README.md): logical roots,
+  hierarchical inventory, DLL redirection, queued refresh and cache associations.
 - [Asynchronous module lifecycle](modules/asynchronous_module_lifecycle.md):
   Executive bootstrap, rendering startup, replacement, shutdown and lifecycle tests.
 - [Module binding ABI](system/module_bootstrap.md), [type identity](system/type_identity.md)
@@ -30,7 +32,7 @@ or that work has been authorised.
 - [Current scope](backlog/current_scope_backlog.md) and
   [engine backlog](backlog/engine_backlog.md).
 - [Deferred resource and lifecycle design](backlog/consolidation_deferred_design.md),
-  [filesystem mapping](backlog/filesystem_asset_mapping.md) and
+  [filesystem limitations and future considerations](backlog/filesystem_asset_mapping.md) and
   [job framework](backlog/job_framework_design.md).
 - [Schema design](schema/design.md) and [header survey](schema/header-survey.md).
 - [Future work notes](project/future_work_notes.md).

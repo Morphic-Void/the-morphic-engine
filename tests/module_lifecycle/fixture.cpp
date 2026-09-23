@@ -3,7 +3,7 @@
 //  License: MIT (see LICENSE file in repository root)
 //
 //  File:    fixture.cpp
-//  Authors: Ritchie Brannan / OpenAI Codex
+//  Author:  OpenAI Codex
 //  Date:    20 Sep 26
 //
 //  Real DLL fixtures for the Host's asynchronous module lifecycle.
@@ -161,7 +161,7 @@ static bool post_save(threading::CThreadContext& context, const CAssetId asset, 
 {
     CErasedOwner owner = CErasedOwner::create<AssetSaveRequest>();
     AssetSaveRequest* const request = owner.payload<AssetSaveRequest>();
-    if ((request == nullptr) || !request->file.set("development/logical-roots/test-output/lifecycle-disposal.bin"))
+    if ((request == nullptr) || !request->file.set("test-output:/lifecycle-disposal.bin"))
     {
         return false;
     }
@@ -191,7 +191,7 @@ static bool disposal_during_saves(threading::CThreadContext& context) noexcept
     }
     //  An owning request behind the saves establishes their admission before
     //  disposal crosses the separate POD queue. The service is already loaded.
-    if (!post(context, EModuleAction::load, module_ids::render_vulkan_windows, "MorphicRendering.dll", 40))
+    if (!post(context, EModuleAction::load, module_ids::render_vulkan_windows, "package:/bin/MorphicRendering.dll", 40))
     {
         return false;
     }
@@ -328,7 +328,7 @@ static bool unload_during_saves(threading::CThreadContext& context, const bool r
         const bool written = std::fwrite(identities, sizeof(identities), 1u, file) == 1u;
         const bool closed = std::fclose(file) == 0;
         if (!written || !closed ||
-            !operation(context, EModuleAction::load, "MorphicLifecycleRenderingDisposal.dll", 1, EModuleStatus::success, true))
+            !operation(context, EModuleAction::load, "package:/bin/MorphicLifecycleRenderingDisposal.dll", 1, EModuleStatus::success, true))
         {
             return false;
         }
@@ -410,56 +410,56 @@ static bool run_case(threading::CThreadContext& context, const char* const selec
     }
     if (std::strcmp(selected, "render-drain") == 0)
     {
-        return operation(context, EModuleAction::load, "MorphicRendering.dll", 1, EModuleStatus::success, true) &&
+        return operation(context, EModuleAction::load, "package:/bin/MorphicRendering.dll", 1, EModuleStatus::success, true) &&
             unload_during_saves(context) && self_terminate(context, nullptr);
     }
     if (std::strcmp(selected, "thread-failures") == 0)
     {
-        return operation(context, EModuleAction::load, "MorphicRendering.dll", 1, EModuleStatus::success, true) &&
-            operation(context, EModuleAction::replace, "MorphicLifecycleRenderingFailure.dll", 2, EModuleStatus::installation_failed, false) &&
-            operation(context, EModuleAction::load, "MorphicRendering.dll", 3, EModuleStatus::success, true) &&
+        return operation(context, EModuleAction::load, "package:/bin/MorphicRendering.dll", 1, EModuleStatus::success, true) &&
+            operation(context, EModuleAction::replace, "package:/bin/MorphicLifecycleRenderingFailure.dll", 2, EModuleStatus::installation_failed, false) &&
+            operation(context, EModuleAction::load, "package:/bin/MorphicRendering.dll", 3, EModuleStatus::success, true) &&
             operation(context, EModuleAction::unload, nullptr, 4, EModuleStatus::success, false) &&
-            operation(context, EModuleAction::load, "MorphicLifecycleRenderingFailure.dll", 5, EModuleStatus::installation_failed, false) &&
-            operation(context, EModuleAction::load, "MorphicLifecycleMissingThread.dll", 6, EModuleStatus::function_unavailable, false) &&
+            operation(context, EModuleAction::load, "package:/bin/MorphicLifecycleRenderingFailure.dll", 5, EModuleStatus::installation_failed, false) &&
+            operation(context, EModuleAction::load, "package:/bin/MorphicLifecycleMissingThread.dll", 6, EModuleStatus::function_unavailable, false) &&
             self_terminate(context, nullptr);
     }
     if (std::strcmp(selected, "render-shutdown") == 0)
     {
-        return operation(context, EModuleAction::load, "MorphicRendering.dll", 1, EModuleStatus::success, true) &&
+        return operation(context, EModuleAction::load, "package:/bin/MorphicRendering.dll", 1, EModuleStatus::success, true) &&
             self_terminate(context, nullptr);
     }
     if (std::strcmp(selected, "render-shutdown-dependency") == 0)
     {
-        return operation(context, EModuleAction::load, "MorphicRendering.dll", 1, EModuleStatus::success, true) &&
+        return operation(context, EModuleAction::load, "package:/bin/MorphicRendering.dll", 1, EModuleStatus::success, true) &&
             retain_raw_asset(context, true) && self_terminate(context, nullptr);
     }
     if (std::strcmp(selected, "render-replace-dependency") == 0)
     {
         CAssetId dependent;
         CAssetId independent;
-        return operation(context, EModuleAction::load, "MorphicRendering.dll", 1, EModuleStatus::success, true) &&
+        return operation(context, EModuleAction::load, "package:/bin/MorphicRendering.dll", 1, EModuleStatus::success, true) &&
             retain_raw_asset(context, true, &dependent) && retain_raw_asset(context, false, &independent) &&
-            operation(context, EModuleAction::replace, "MorphicRendering.dll", 2, EModuleStatus::success, true) &&
+            operation(context, EModuleAction::replace, "package:/bin/MorphicRendering.dll", 2, EModuleStatus::success, true) &&
             dispose_asset(context, dependent, EAssetStatus::invalid_asset) &&
             dispose_asset(context, independent, EAssetStatus::success) && self_terminate(context, nullptr);
     }
     if (std::strcmp(selected, "render-executive-replace") == 0)
     {
-        return operation(context, EModuleAction::load, "MorphicRendering.dll", 1, EModuleStatus::success, true) &&
-            self_terminate(context, "MorphicExecutive.dll");
+        return operation(context, EModuleAction::load, "package:/bin/MorphicRendering.dll", 1, EModuleStatus::success, true) &&
+            self_terminate(context, "package:/bin/MorphicExecutive.dll");
     }
     if (std::strcmp(selected, "replace") == 0)
     {
-        return retain_raw_asset(context, false) && self_terminate(context, "MorphicExecutive.dll");
+        return retain_raw_asset(context, false) && self_terminate(context, "package:/bin/MorphicExecutive.dll");
     }
     if (std::strcmp(selected, "replace-startup-failure") == 0)
     {
         return (_putenv_s("MORPHIC_LIFECYCLE_CASE", "startup-failure") == 0) &&
-            self_terminate(context, "MorphicLifecycleExecutive.dll");
+            self_terminate(context, "package:/bin/MorphicLifecycleExecutive.dll");
     }
     if (std::strcmp(selected, "replace-missing") == 0)
     {
-        return self_terminate(context, "MorphicMissingExecutive.dll");
+        return self_terminate(context, "package:/bin/MorphicMissingExecutive.dll");
     }
     if (std::strcmp(selected, "shutdown") == 0)
     {
@@ -468,7 +468,7 @@ static bool run_case(threading::CThreadContext& context, const char* const selec
     if (std::strcmp(selected, "replace-dependency") == 0)
     {
         return retain_raw_asset(context, true, nullptr, mount_point_ids::executive) &&
-            self_terminate(context, "MorphicExecutive.dll");
+            self_terminate(context, "package:/bin/MorphicExecutive.dll");
     }
     if (std::strcmp(selected, "shutdown-dependency") == 0)
     {
@@ -477,7 +477,7 @@ static bool run_case(threading::CThreadContext& context, const char* const selec
     if (std::strcmp(selected, "disposal") == 0)
     {
         CAssetId asset;
-        return operation(context, EModuleAction::load, "MorphicRendering.dll", 1, EModuleStatus::success, true) &&
+        return operation(context, EModuleAction::load, "package:/bin/MorphicRendering.dll", 1, EModuleStatus::success, true) &&
             retain_raw_asset(context, true, &asset) && dispose_asset(context, asset, EAssetStatus::success) &&
             dispose_asset(context, asset, EAssetStatus::invalid_asset) &&
             dispose_asset(context, CAssetId{}, EAssetStatus::invalid_asset) &&
@@ -485,7 +485,7 @@ static bool run_case(threading::CThreadContext& context, const char* const selec
     }
     if (std::strcmp(selected, "disposal-during-save") == 0)
     {
-        return operation(context, EModuleAction::load, "MorphicRendering.dll", 1, EModuleStatus::success, true) &&
+        return operation(context, EModuleAction::load, "package:/bin/MorphicRendering.dll", 1, EModuleStatus::success, true) &&
             disposal_during_saves(context) &&
             operation(context, EModuleAction::unload, nullptr, 2, EModuleStatus::success, false) && self_terminate(context, nullptr);
     }
@@ -493,7 +493,7 @@ static bool run_case(threading::CThreadContext& context, const char* const selec
     {
         CAssetId dependent;
         CAssetId independent;
-        return operation(context, EModuleAction::load, "MorphicRendering.dll", 1, EModuleStatus::success, true) &&
+        return operation(context, EModuleAction::load, "package:/bin/MorphicRendering.dll", 1, EModuleStatus::success, true) &&
             retain_raw_asset(context, true, &dependent) && retain_raw_asset(context, false, &independent) &&
             operation(context, EModuleAction::unload, nullptr, 2, EModuleStatus::success, false) &&
             dispose_asset(context, dependent, EAssetStatus::invalid_asset) &&
@@ -503,17 +503,17 @@ static bool run_case(threading::CThreadContext& context, const char* const selec
     {
         return false;
     }
-    return operation(context, EModuleAction::load, "MorphicRendering.dll", 1, EModuleStatus::success, true,
+    return operation(context, EModuleAction::load, "package:/bin/MorphicRendering.dll", 1, EModuleStatus::success, true,
             system_type_ids::rendering_thread_function) &&
-        operation(context, EModuleAction::load, "MorphicRendering.dll", 2, EModuleStatus::already_loaded, true) &&
-        operation(context, EModuleAction::replace, "MorphicRendering.dll", 3, EModuleStatus::success, true) &&
+        operation(context, EModuleAction::load, "package:/bin/MorphicRendering.dll", 2, EModuleStatus::already_loaded, true) &&
+        operation(context, EModuleAction::replace, "package:/bin/MorphicRendering.dll", 3, EModuleStatus::success, true) &&
         operation(context, EModuleAction::unload, nullptr, 4, EModuleStatus::success, false) &&
         operation(context, EModuleAction::unload, nullptr, 5, EModuleStatus::not_loaded, false) &&
-        operation(context, EModuleAction::load, "MorphicMissingRendering.dll", 6, EModuleStatus::binding_failed, false) &&
-        operation(context, EModuleAction::load, "MorphicRendering.dll", 7, EModuleStatus::function_unavailable, false,
+        operation(context, EModuleAction::load, "package:/bin/MorphicMissingRendering.dll", 6, EModuleStatus::binding_failed, false) &&
+        operation(context, EModuleAction::load, "package:/bin/MorphicRendering.dll", 7, EModuleStatus::function_unavailable, false,
             system_type_ids::executive_thread_function) &&
-        operation(context, EModuleAction::load, "MorphicRendering.dll", 8, EModuleStatus::success, true) &&
-        operation(context, EModuleAction::replace, "MorphicMissingRendering.dll", 9, EModuleStatus::binding_failed, false) &&
+        operation(context, EModuleAction::load, "package:/bin/MorphicRendering.dll", 8, EModuleStatus::success, true) &&
+        operation(context, EModuleAction::replace, "package:/bin/MorphicMissingRendering.dll", 9, EModuleStatus::binding_failed, false) &&
         self_terminate(context, nullptr);
 }
 

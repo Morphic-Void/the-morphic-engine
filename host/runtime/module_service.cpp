@@ -126,6 +126,13 @@ void CModuleService::request(
     m_work.previous = (previous != nullptr) ? &previous->binding : nullptr;
     if (request->action != EModuleAction::unload)
     {
+        //  A failed replacement still tears down the previous binding, matching
+        //  the existing lifecycle contract, but never attempts an unknown file.
+        m_physical_file.deallocate();
+        if ((m_filesystem != nullptr) && m_filesystem->resolve(request->file.cstring(), false, m_physical_file))
+        {
+            m_work.physical_file = m_physical_file.cstring();
+        }
         const auto index = module_ids::ops::decode_id(request->module).raw_value();
         if ((index >= module_ids::k_count) || (!m_records[index] && !m_records[index].emplace(request->module)))
         {

@@ -98,6 +98,7 @@
     <ClCompile Include="tests\support\file_helpers.cpp" />
     <ClCompile Include="tests\support\test_allocator.cpp" />
     <ClCompile Include="tests\test_suites\AssetRepository_test_suite.cpp" />
+    <ClCompile Include="tests\test_suites\FilesystemImage_test_suite.cpp" />
     <ClCompile Include="tests\test_suites\AsyncState_test_suite.cpp" />
     <ClCompile Include="tests\test_suites\BakedDocument_test_suite.cpp" />
     <ClCompile Include="tests\test_suites\BakedDocumentTransfer_test_suite.cpp" />
@@ -140,6 +141,7 @@
     <ClInclude Include="tests\support\test_context.hpp" />
     <ClInclude Include="tests\support\test_scopes.hpp" />
     <ClInclude Include="tests\test_suites\AssetRepository_test_suite.hpp" />
+    <ClInclude Include="tests\test_suites\FilesystemImage_test_suite.hpp" />
     <ClInclude Include="tests\test_suites\AsyncState_test_suite.hpp" />
     <ClInclude Include="tests\test_suites\BakedDocument_test_suite.hpp" />
     <ClInclude Include="tests\test_suites\BakedDocumentTransfer_test_suite.hpp" />

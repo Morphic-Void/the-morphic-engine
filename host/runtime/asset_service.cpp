@@ -29,6 +29,10 @@ bool CAssetService::initialise() noexcept
 
 void CAssetService::deallocate() noexcept
 {   //  Workers and clients must have stopped before their borrowed storage dies.
+    if (m_filesystem != nullptr)
+    {
+        (void)m_filesystem->clear_cache();
+    }
     m_operations.deallocate();
     m_assets.deallocate();
 }
@@ -88,6 +92,29 @@ void CAssetService::finish_operation(const std::int32_t slot, const EAssetStatus
         return;
     }
 
+    if ((status == EAssetStatus::success) && (m_filesystem != nullptr))
+    {
+        bool updated = true;
+        if (operation.load_requested)
+        {
+            updated = m_filesystem->loaded(operation.logical_file, operation.retained_asset.query_value(),
+                static_cast<std::uint64_t>(operation.load_format), operation.working_views.document_findings, operation.admission_serial);
+        }
+        else if (operation.save_requested && (operation.phase == EPhase::saving))
+        {
+            //  Live sources and JSON serialization are not necessarily the same
+            //  representation as a later baked load. Keep the association only
+            //  where the retained representation can satisfy that load.
+            const CAssetId cached = (operation.working_views.kind != EAssetKind::live) ? operation.retained_asset : CAssetId{};
+            updated = m_filesystem->written(operation.logical_file, operation.file, cached.query_value(),
+                static_cast<std::uint64_t>(operation.save_settings.format));
+        }
+        if (!updated)
+        {
+            m_failed = true;
+            MV_CRITICAL_EVENT("Host: Filesystem cache update failed");
+        }
+    }
     AssetResult result = operation.retained_asset ? operation.working_views : AssetResult{};
     result.asset = operation.retained_asset;
     result.status = status;
@@ -177,6 +204,10 @@ void CAssetService::complete_disposals() noexcept
         const SOperation& operation = *m_operations.get_object(slot);
         if ((operation.phase == EPhase::disposing) && !asset_in_use(operation.retained_asset))
         {
+            if ((m_filesystem != nullptr) && !m_filesystem->forget_asset(operation.retained_asset.query_value()))
+            {
+                m_failed = true;
+            }
             const bool erased = m_assets.erase(operation.retained_asset);
             finish_operation(slot, erased ? EAssetStatus::success : EAssetStatus::invalid_asset);
         }
@@ -193,6 +224,10 @@ void CAssetService::dispose_dependencies(const mount_point_ids::id_type mount) n
         (void)debug_system::submit_event<debug_system::EEventLevel::assert, debug_system::EEventType::condition>(
             MV_INTERNAL_USAGE_POINT, "Host: disposing retained assets dependent on module mount {}", mount.raw_value());
         m_assets.erase_dependencies(mount);
+        if ((m_filesystem != nullptr) && !m_filesystem->clear_cache())
+        {
+            m_failed = true;
+        }
     }
 }
 
@@ -302,8 +337,44 @@ void CAssetService::request(
             finish_operation(slot, EAssetStatus::invalid_request);
             return;
         }
-        FileLoadRequest request{ operation.file,
-            (load->format == EAssetFileFormat::baked) ? std::max(load->alignment, std::size_t{ 32u }) : load->alignment };
+        operation.logical_file = operation.file;
+        if ((m_filesystem == nullptr) || !m_filesystem->resolve(operation.logical_file, false, operation.physical_file))
+        {
+            finish_operation(slot, EAssetStatus::read_failed);
+            return;
+        }
+        operation.file = operation.physical_file.cstring();
+        operation.admission_serial = m_filesystem->write_serial();
+        const CAssetId cached = m_assets.find_identity(m_filesystem->cached_asset(operation.logical_file, static_cast<std::uint64_t>(load->format)));
+        if (CAssetRecord* const record = disposal_pending(cached) ? nullptr : m_assets.resolve(cached))
+        {
+            AssetResult views;
+            describe_views(*record, views);
+            const std::uint32_t findings = m_filesystem->cached_findings(operation.logical_file);
+            const bool json = load->format == EAssetFileFormat::json;
+            const bool adequate_alignment = !views.byte_view().is_ready() || (views.byte_view().align() >= std::max(load->alignment, std::size_t{ 16u }));
+            if (adequate_alignment && (!json || (findings != UINT32_MAX)))
+            {
+                if (json)
+                {
+                    const CDocumentPolicyResult policy = document_policy::evaluate(findings, load->policy);
+                    operation.working_views.document_policy = policy.status;
+                    operation.working_views.document_findings = findings;
+                    if (!policy.accepted())
+                    {
+                        finish_operation(slot, EAssetStatus::policy_rejected);
+                        return;
+                    }
+                    views.document_policy = policy.status;
+                    views.document_findings = findings;
+                }
+                operation.retained_asset = cached;
+                operation.working_views = views;
+                finish_operation(slot, EAssetStatus::success);
+                return;
+            }
+        }
+        FileLoadRequest request{ operation.file, (load->format == EAssetFileFormat::baked) ? std::max(load->alignment, std::size_t{ 32u }) : load->alignment };
         threading::CErasedPodMsg outbound;
         outbound.set_async_slot(slot);
         outbound.assign_payload(request);
@@ -406,6 +477,13 @@ void CAssetService::begin_save_or_bake(const std::int32_t slot) noexcept
 void CAssetService::begin_file_save(const std::int32_t slot, const CByteConstView& bytes) noexcept
 {
     SOperation& operation = *m_operations.get_object(slot);
+    operation.logical_file = operation.file;
+    if ((m_filesystem == nullptr) || !m_filesystem->resolve(operation.logical_file, true, operation.physical_file))
+    {
+        finish_operation(slot, EAssetStatus::write_failed);
+        return;
+    }
+    operation.file = operation.physical_file.cstring();
     operation.phase = EPhase::saving;
     threading::CErasedPodMsg outbound;
     outbound.set_async_slot(slot);

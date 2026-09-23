@@ -3,7 +3,7 @@
 //  License: MIT (see LICENSE file in repository root)
 //
 //  File:    ErasedOwner_test_suite.cpp
-//  Authors: Ritchie Brannan / OpenAI Codex
+//  Author:  OpenAI Codex
 //  Date:    12 Aug 26
 
 #include <array>
@@ -87,7 +87,7 @@ static void check_rendering_notices(tests::TTestContext& ctx, modules::CBoundMod
         const ModuleRequest* const load = request.owner().payload<ModuleRequest>();
         TEST_EXPECT(ctx, (load != nullptr) && (load->action == EModuleAction::load) &&
             (load->module == module_ids::render_vulkan_windows) && (load->file.length() != 0u) &&
-            (std::strcmp(load->file.cstring(), "MorphicRendering.dll") == 0));
+            (std::strcmp(load->file.cstring(), "package:/bin/MorphicRendering.dll") == 0));
         const std::int32_t slot = request.query_async_slot();
         request.take_owner().destroy();
 

@@ -3,11 +3,12 @@
 //  License: MIT (see LICENSE file in repository root)
 // 
 //  File:    run_tests.cpp
-//  Authors: Ritchie Brannan / OpenAI Codex
+//  Author:  OpenAI Codex
 //  Date:    24 Apr 26
 
 #include "tests/main/run_tests.hpp"
 #include "tests/test_suites/AssetRepository_test_suite.hpp"
+#include "tests/test_suites/FilesystemImage_test_suite.hpp"
 #include "tests/test_suites/AsyncState_test_suite.hpp"
 #include "tests/test_suites/BakedDocument_test_suite.hpp"
 #include "tests/test_suites/BakedDocumentTransfer_test_suite.hpp"
@@ -233,6 +234,7 @@ int run_tests(ETestRunMode mode)
     int cumulative_result = 0;
 
     cumulative_result += run_isolated_suite("AssetRepository", &run_asset_repository_tests);
+    cumulative_result += run_isolated_suite("FilesystemImage", &run_filesystem_image_tests);
     cumulative_result += run_isolated_suite("AsyncState", &run_async_state_tests);
     cumulative_result += run_isolated_suite("BakedDocument", &run_baked_document_tests);
     cumulative_result += run_isolated_suite("BakedDocumentTransfer", &run_baked_document_transfer_tests);

@@ -8,12 +8,14 @@ Date:   12 Sep 2026
 
 # Remaining engine backlog
 
-Updated 21 September 2026. This consolidates unresolved scope from the interim
+Updated 23 September 2026. This consolidates unresolved scope from the interim
 capture. The parser, image view, concrete asset services and Executive acceptance
 are complete. The asynchronous module/disposal work is committed; the separate
 rendering DLL stub is implemented and accepted. Actual rendering remains
-deferred. The [deferred design](consolidation_deferred_design.md) preserves
-future ideas and unresolved questions from that work.
+deferred. The [development filesystem image](../../development/README.md) is
+also complete and accepted, including the first-pass review corrections.
+The [deferred design](consolidation_deferred_design.md) preserves useful future
+ideas, not the superseded filesystem implementation proposal.
 [Current scope](current_scope_backlog.md) sets priorities.
 [Completed milestones](../project/completed_milestones.md) records delivered work.
 The sections below are deferred scope, not an implementation schedule.
@@ -128,8 +130,10 @@ gameplay integration rather than owning the primitive geometry library.
 
 ## Resource and execution design
 
-- [Filesystem mapping](filesystem_asset_mapping.md): discovery, source resolution,
-  storage locations and immutable catalogue publication.
+- [Filesystem limitations](filesystem_asset_mapping.md): deployment/platform
+  bindings, UGC integration, explicit asset replacement/variants and additional
+  consumer needs. Directory discovery, logical resolution, queued refresh,
+  write updates and basic caching already exist.
 - [Deferred design](consolidation_deferred_design.md): reference counting/cache
   eviction, document navigation, fixed-layout save-game updates, bundled outputs,
   module accounting periods, overlays, trust and later image transforms.

@@ -24,6 +24,7 @@ namespace host
 class CAssetService
 {
 public:
+    void set_filesystem(filesystem_image::CImage& image) noexcept { m_filesystem = &image; }
     [[nodiscard]] bool initialise() noexcept;
     void deallocate() noexcept;
 
@@ -69,6 +70,9 @@ private:
         bool load_requested{ false };
 
         const char* file{ nullptr };
+        const char* logical_file{ nullptr }; //  Backed by request_owner.
+        CSimpleString physical_file; //  Stable backing borrowed by the I/O worker.
+        std::uint64_t admission_serial{ 0u };
         AssetSaveSettings save_settings; //  Borrowed writer options remain unchanged until completion.
 
         CErasedOwner request_owner; //  Keeps the borrowed filename alive.
@@ -102,6 +106,7 @@ private:
     void complete_document_conditioning(const std::int32_t slot) noexcept;
 
     CAssetRepository m_assets;
+    filesystem_image::CImage* m_filesystem{ nullptr };
 
     //  Address-stable objects: workers borrow save_settings until completion.
     TUnorderedCollection<SOperation> m_operations;
