@@ -42,8 +42,12 @@ or that work has been authorised.
 - [Architectural principles](architecture/architectural-principles.md),
   [codebase model](architecture/codebase-model.md) and
   [engineering principles](architecture/engineering-principles.md).
+- [Why Morphic Engine](architecture/why_morphic_engine.md): the project's
+  position as a foundation for bespoke game technology and its relationship to
+  *Locality*.
 - [Data-model rationale](data_model/data_model_design_notes.md).
-- [Completed milestones](project/completed_milestones.md) and
+- [Building and testing](project/building_and_testing.md),
+  [completed milestones](project/completed_milestones.md) and
   [attribution policy](project/attribution_policy.md).
 
 Completed consolidation plans and task handoffs have been retired. Their final
