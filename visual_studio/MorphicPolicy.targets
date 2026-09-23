@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <MorphicRepositoryRoot>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..'))</MorphicRepositoryRoot>
+    <MorphicPolicyValidatorExecutable>$(MorphicRepositoryRoot)\build\bin\$(Platform)\$(Configuration)\MorphicPolicyValidator.exe</MorphicPolicyValidatorExecutable>
+  </PropertyGroup>
+  <Target Name="ValidateMorphicPolicy" BeforeTargets="ClCompile" Condition="'$(DesignTimeBuild)' != 'true'">
+    <Error Condition="!Exists('$(MorphicPolicyValidatorExecutable)')" Text="MorphicPolicyValidator has not been built: $(MorphicPolicyValidatorExecutable)" />
+    <Exec Command="&quot;$(MorphicPolicyValidatorExecutable)&quot; --root &quot;$(MorphicRepositoryRoot)&quot; --project &quot;$(ProjectName)&quot; --configuration &quot;$(Configuration)&quot; --platform &quot;$(Platform)&quot;" />
+  </Target>
+</Project>

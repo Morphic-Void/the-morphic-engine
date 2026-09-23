@@ -14,21 +14,21 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="tools\policy_validator\main.cpp">
+    <ClCompile Include="..\tools\policy_validator\main.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="tools\policy_validator\policy_validator.cpp">
+    <ClCompile Include="..\tools\policy_validator\policy_validator.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="tools\policy_validator\policy_validator.hpp">
+    <ClInclude Include="..\tools\policy_validator\policy_validator.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
     <None Include="MorphicPolicy.targets">
       <Filter>Policy Files</Filter>
     </None>
-    <None Include="policy\morphic_policy.cfg">
+    <None Include="..\policy\morphic_policy.cfg">
       <Filter>Policy Files</Filter>
     </None>
   </ItemGroup>

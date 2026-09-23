@@ -3,7 +3,7 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.14.36811.4
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "MorphicHost", "MorphicHost.vcxproj", "{EFB8A2F1-CDEC-4E22-933E-590558D7F314}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "MorphicHost", "visual_studio\MorphicHost.vcxproj", "{EFB8A2F1-CDEC-4E22-933E-590558D7F314}"
 	ProjectSection(ProjectDependencies) = postProject
 		{730BC2AB-3A54-445D-91AE-7F279F6FBACD} = {730BC2AB-3A54-445D-91AE-7F279F6FBACD}
 		{6B6E8D7D-21CB-4B92-9088-FAAA562D9F31} = {6B6E8D7D-21CB-4B92-9088-FAAA562D9F31}
@@ -11,21 +11,21 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "MorphicHost", "MorphicHost.
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "SuiteUTF", "external\SuiteUTF\SuiteUTF.vcxproj", "{0BF5D948-138E-45A7-915F-AA8C3D6DBA08}"
 EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "MorphicExecutive", "MorphicExecutive.vcxproj", "{6B6E8D7D-21CB-4B92-9088-FAAA562D9F31}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "MorphicExecutive", "visual_studio\MorphicExecutive.vcxproj", "{6B6E8D7D-21CB-4B92-9088-FAAA562D9F31}"
 EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "MorphicTests", "MorphicTests.vcxproj", "{D5B6BE43-4A70-4C3A-BE6D-59D50BC71A24}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "MorphicTests", "visual_studio\MorphicTests.vcxproj", "{D5B6BE43-4A70-4C3A-BE6D-59D50BC71A24}"
 	ProjectSection(ProjectDependencies) = postProject
 		{730BC2AB-3A54-445D-91AE-7F279F6FBACD} = {730BC2AB-3A54-445D-91AE-7F279F6FBACD}
 		{6B6E8D7D-21CB-4B92-9088-FAAA562D9F31} = {6B6E8D7D-21CB-4B92-9088-FAAA562D9F31}
 	EndProjectSection
 EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "MorphicCore", "MorphicCore.vcxitems", "{A250136D-15BB-4A6C-A3BB-29C92A92E205}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "MorphicCore", "visual_studio\MorphicCore.vcxitems", "{A250136D-15BB-4A6C-A3BB-29C92A92E205}"
 EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "MorphicPolicyValidator", "MorphicPolicyValidator.vcxproj", "{9F240D42-75CB-4F16-A5B4-2B8D6A7E2C41}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "MorphicPolicyValidator", "visual_studio\MorphicPolicyValidator.vcxproj", "{9F240D42-75CB-4F16-A5B4-2B8D6A7E2C41}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "External", "External", "{02EA681E-C7D8-13C7-8484-4AC65E1B71E8}"
 EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "MorphicRendering", "MorphicRendering.vcxproj", "{730BC2AB-3A54-445D-91AE-7F279F6FBACD}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "MorphicRendering", "visual_studio\MorphicRendering.vcxproj", "{730BC2AB-3A54-445D-91AE-7F279F6FBACD}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -120,10 +120,10 @@ Global
 		SolutionGuid = {6412ED91-C516-41EB-ABE6-FCD1B4D2E855}
 	EndGlobalSection
 	GlobalSection(SharedMSBuildProjectFiles) = preSolution
-		MorphicCore.vcxitems*{730bc2ab-3a54-445d-91ae-7f279f6fbacd}*SharedItemsImports = 4
-		MorphicCore.vcxitems*{6b6e8d7d-21cb-4b92-9088-faaa562d9f31}*SharedItemsImports = 4
-		MorphicCore.vcxitems*{a250136d-15bb-4a6c-a3bb-29c92a92e205}*SharedItemsImports = 9
-		MorphicCore.vcxitems*{d5b6be43-4a70-4c3a-be6d-59d50bc71a24}*SharedItemsImports = 4
-		MorphicCore.vcxitems*{efb8a2f1-cdec-4e22-933e-590558d7f314}*SharedItemsImports = 4
+		visual_studio\MorphicCore.vcxitems*{730bc2ab-3a54-445d-91ae-7f279f6fbacd}*SharedItemsImports = 4
+		visual_studio\MorphicCore.vcxitems*{6b6e8d7d-21cb-4b92-9088-faaa562d9f31}*SharedItemsImports = 4
+		visual_studio\MorphicCore.vcxitems*{a250136d-15bb-4a6c-a3bb-29c92a92e205}*SharedItemsImports = 9
+		visual_studio\MorphicCore.vcxitems*{d5b6be43-4a70-4c3a-be6d-59d50bc71a24}*SharedItemsImports = 4
+		visual_studio\MorphicCore.vcxitems*{efb8a2f1-cdec-4e22-933e-590558d7f314}*SharedItemsImports = 4
 	EndGlobalSection
 EndGlobal

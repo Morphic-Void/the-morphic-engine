@@ -63,13 +63,13 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="tools\policy_validator\main.cpp" />
-    <ClCompile Include="tools\policy_validator\policy_validator.cpp" />
+    <ClCompile Include="..\tools\policy_validator\main.cpp" />
+    <ClCompile Include="..\tools\policy_validator\policy_validator.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="tools\policy_validator\policy_validator.hpp" />
+    <ClInclude Include="..\tools\policy_validator\policy_validator.hpp" />
     <None Include="MorphicPolicy.targets" />
-    <None Include="policy\morphic_policy.cfg" />
+    <None Include="..\policy\morphic_policy.cfg" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets" />

@@ -25,7 +25,7 @@ if (!$SkipBuild) {
     & $MSBuild (Join-Path $repository 'MorphicEngine.sln') /m "/p:Configuration=$Configuration" "/p:Platform=$solutionPlatform" /v:minimal
     if ($LASTEXITCODE -ne 0) { throw 'Solution build failed.' }
     foreach ($role in @('MissingThread', 'RenderingFailure', 'RenderingDisposal', 'Executive')) {
-        & $MSBuild (Join-Path $repository 'MorphicLifecycleFixture.vcxproj') /m "/p:Configuration=$Configuration" "/p:Platform=$Platform" "/p:SolutionDir=$repository\" "/p:FixtureRole=$role" /v:minimal
+        & $MSBuild (Join-Path $repository 'visual_studio/MorphicLifecycleFixture.vcxproj') /m "/p:Configuration=$Configuration" "/p:Platform=$Platform" "/p:SolutionDir=$repository\" "/p:FixtureRole=$role" /v:minimal
         if ($LASTEXITCODE -ne 0) { throw "$role fixture build failed." }
     }
 }

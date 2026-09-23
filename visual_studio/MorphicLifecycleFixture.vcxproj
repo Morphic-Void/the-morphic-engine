@@ -94,11 +94,11 @@
     <Link><AdditionalOptions>/EXPORT:morphic_module_bootstrap_v3=_morphic_module_bootstrap_v3@4 %(AdditionalOptions)</AdditionalOptions></Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="tests\module_lifecycle\fixture.cpp" />
-    <ClCompile Include="tests\environment\local_type_ids.cpp" />
+    <ClCompile Include="..\tests\module_lifecycle\fixture.cpp" />
+    <ClCompile Include="..\tests\environment\local_type_ids.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="external\SuiteUTF\SuiteUTF.vcxproj">
+    <ProjectReference Include="..\external\SuiteUTF\SuiteUTF.vcxproj">
       <Project>{0BF5D948-138E-45A7-915F-AA8C3D6DBA08}</Project>
       <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
     </ProjectReference>

@@ -14,16 +14,16 @@
     <Filter Include="Rendering\src\runtime"><UniqueIdentifier>{fdf22805-900c-42b1-983c-a0eed76326dd}</UniqueIdentifier></Filter>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="rendering\module\binding\rendering_binding.hpp"><Filter>Rendering\include\module\binding</Filter></ClInclude>
-    <ClInclude Include="rendering\module\types\erased_owner_payloads.def"><Filter>Rendering\include\module\types</Filter></ClInclude>
-    <ClInclude Include="rendering\module\types\local_type_ids.def"><Filter>Rendering\include\module\types</Filter></ClInclude>
-    <ClInclude Include="rendering\module\types\local_type_ids.hpp"><Filter>Rendering\include\module\types</Filter></ClInclude>
-    <ClInclude Include="rendering\module\types\local_types.hpp"><Filter>Rendering\include\module\types</Filter></ClInclude>
-    <ClInclude Include="rendering\runtime\rendering_thread.hpp"><Filter>Rendering\include\runtime</Filter></ClInclude>
+    <ClInclude Include="..\rendering\module\binding\rendering_binding.hpp"><Filter>Rendering\include\module\binding</Filter></ClInclude>
+    <ClInclude Include="..\rendering\module\types\erased_owner_payloads.def"><Filter>Rendering\include\module\types</Filter></ClInclude>
+    <ClInclude Include="..\rendering\module\types\local_type_ids.def"><Filter>Rendering\include\module\types</Filter></ClInclude>
+    <ClInclude Include="..\rendering\module\types\local_type_ids.hpp"><Filter>Rendering\include\module\types</Filter></ClInclude>
+    <ClInclude Include="..\rendering\module\types\local_types.hpp"><Filter>Rendering\include\module\types</Filter></ClInclude>
+    <ClInclude Include="..\rendering\runtime\rendering_thread.hpp"><Filter>Rendering\include\runtime</Filter></ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="rendering\module\binding\rendering_binding.cpp"><Filter>Rendering\src\module\binding</Filter></ClCompile>
-    <ClCompile Include="rendering\module\types\local_type_ids.cpp"><Filter>Rendering\src\module\types</Filter></ClCompile>
-    <ClCompile Include="rendering\runtime\rendering_thread.cpp"><Filter>Rendering\src\runtime</Filter></ClCompile>
+    <ClCompile Include="..\rendering\module\binding\rendering_binding.cpp"><Filter>Rendering\src\module\binding</Filter></ClCompile>
+    <ClCompile Include="..\rendering\module\types\local_type_ids.cpp"><Filter>Rendering\src\module\types</Filter></ClCompile>
+    <ClCompile Include="..\rendering\runtime\rendering_thread.cpp"><Filter>Rendering\src\runtime</Filter></ClCompile>
   </ItemGroup>
 </Project>

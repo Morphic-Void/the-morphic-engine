@@ -192,643 +192,643 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\algo\validate_permutations.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\algo\validate_permutations.hpp">
       <Filter>Core\include\algo</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\assets\asset_repository.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\assets\asset_repository.hpp">
       <Filter>Core\include\assets</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\bit_utils\bit_ops.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\bit_utils\bit_ops.hpp">
       <Filter>Core\include\bit_utils</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\bit_utils\bit_utils.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\bit_utils\bit_utils.hpp">
       <Filter>Core\include\bit_utils</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\bit_utils\spatial_codes.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\bit_utils\spatial_codes.hpp">
       <Filter>Core\include\bit_utils</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\bit_utils\TBitField.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\bit_utils\TBitField.hpp">
       <Filter>Core\include\bit_utils</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\containers\ByteBuffers.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\containers\ByteBuffers.hpp">
       <Filter>Core\include\containers</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\containers\containers.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\containers\containers.hpp">
       <Filter>Core\include\containers</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\containers\slots\SlotsRankMap.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\containers\slots\SlotsRankMap.hpp">
       <Filter>Core\include\containers\slots</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\containers\slots\TOrderedSlots.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\containers\slots\TOrderedSlots.hpp">
       <Filter>Core\include\containers\slots</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\containers\slots\TUnorderedSlots.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\containers\slots\TUnorderedSlots.hpp">
       <Filter>Core\include\containers\slots</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\containers\StringBuffers.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\containers\StringBuffers.hpp">
       <Filter>Core\include\containers</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\containers\TInstance.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\containers\TInstance.hpp">
       <Filter>Core\include\containers</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\containers\TOrderedCollection.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\containers\TOrderedCollection.hpp">
       <Filter>Core\include\containers</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\containers\TPodFifo.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\containers\TPodFifo.hpp">
       <Filter>Core\include\containers</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\containers\TPodOrderedSlots.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\containers\TPodOrderedSlots.hpp">
       <Filter>Core\include\containers</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\containers\TPodUnorderedSlots.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\containers\TPodUnorderedSlots.hpp">
       <Filter>Core\include\containers</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\containers\TPodVector.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\containers\TPodVector.hpp">
       <Filter>Core\include\containers</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\containers\TUnorderedCollection.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\containers\TUnorderedCollection.hpp">
       <Filter>Core\include\containers</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\data_model\baked_document.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\data_model\baked_document.hpp">
       <Filter>Core\include\data_model</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\data_model\baked_document_format.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\data_model\baked_document_format.hpp">
       <Filter>Core\include\data_model</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\data_model\data_model_types.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\data_model\data_model_types.hpp">
       <Filter>Core\include\data_model</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\data_model\document_translation.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\data_model\document_translation.hpp">
       <Filter>Core\include\data_model</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\data_model\document_findings.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\data_model\document_findings.hpp">
       <Filter>Core\include\data_model</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\data_model\document_parser.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\data_model\document_parser.hpp">
       <Filter>Core\include\data_model</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\data_model\document_structure.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\data_model\document_structure.hpp">
       <Filter>Core\include\data_model</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\data_model\document_text_lex.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\data_model\document_text_lex.hpp">
       <Filter>Core\include\data_model</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\data_model\document_writer.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\data_model\document_writer.hpp">
       <Filter>Core\include\data_model</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\data_model\live_document.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\data_model\live_document.hpp">
       <Filter>Core\include\data_model</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\debug\event_arguments.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\debug\event_arguments.hpp">
       <Filter>Core\include\debug</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\debug\log_path.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\debug\log_path.hpp">
       <Filter>Core\include\debug</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\debug\macros.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\debug\macros.hpp">
       <Filter>Core\include\debug</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\debug\service.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\debug\service.hpp">
       <Filter>Core\include\debug</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\image\codec\tga.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\image\codec\tga.hpp">
       <Filter>Core\include\image\codec</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\image\image_view.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\image\image_view.hpp">
       <Filter>Core\include\image</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\memory\memory_context.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\memory\memory_context.hpp">
       <Filter>Core\include\memory</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\memory\memory_policies.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\memory\memory_policies.hpp">
       <Filter>Core\include\memory</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\memory\memory_token.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\memory\memory_token.hpp">
       <Filter>Core\include\memory</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\memory\memory_view.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\memory\memory_view.hpp">
       <Filter>Core\include\memory</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\module\bound_module.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\module\bound_module.hpp">
       <Filter>Core\include\module</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\module\module_binding_context.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\module\module_binding_context.hpp">
       <Filter>Core\include\module</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\module\module_binding.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\module\module_binding.hpp">
       <Filter>Core\include\module</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\platform\filesystem\file.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\platform\filesystem\file.hpp">
       <Filter>Core\include\platform\filesystem</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\platform\filesystem\directory.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\platform\filesystem\directory.hpp">
       <Filter>Core\include\platform\filesystem</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\filesystem\filesystem_image.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\filesystem\filesystem_image.hpp">
       <Filter>Core\include\filesystem</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\platform\filesystem\internal\file_utils.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\platform\filesystem\internal\file_utils.hpp">
       <Filter>Core\include\platform\filesystem\internal</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\platform\filesystem\log.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\platform\filesystem\log.hpp">
       <Filter>Core\include\platform\filesystem</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\platform\module\binding.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\platform\module\binding.hpp">
       <Filter>Core\include\platform\module</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\platform\path\native_path.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\platform\path\native_path.hpp">
       <Filter>Core\include\platform\path</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\platform\platform_defines.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\platform\platform_defines.hpp">
       <Filter>Core\include\platform</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\platform\system\debugger.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\platform\system\debugger.hpp">
       <Filter>Core\include\platform\system</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\platform\system\performance_counter.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\platform\system\performance_counter.hpp">
       <Filter>Core\include\platform\system</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\platform\system\process_priority.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\platform\system\process_priority.hpp">
       <Filter>Core\include\platform\system</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\platform\system\process_id.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\platform\system\process_id.hpp">
       <Filter>Core\include\platform\system</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\platform\threading\exclusive_lock.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\platform\threading\exclusive_lock.hpp">
       <Filter>Core\include\platform\threading</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\platform\threading\hw_thread_count.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\platform\threading\hw_thread_count.hpp">
       <Filter>Core\include\platform\threading</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\platform\threading\native_thread_id.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\platform\threading\native_thread_id.hpp">
       <Filter>Core\include\platform\threading</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\platform\threading\platform_threading.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\platform\threading\platform_threading.hpp">
       <Filter>Core\include\platform\threading</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\platform\threading\processor_relax.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\platform\threading\processor_relax.hpp">
       <Filter>Core\include\platform\threading</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\platform\threading\thread_lifetime.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\platform\threading\thread_lifetime.hpp">
       <Filter>Core\include\platform\threading</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\platform\threading\thread_naming.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\platform\threading\thread_naming.hpp">
       <Filter>Core\include\platform\threading</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\platform\threading\thread_priority.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\platform\threading\thread_priority.hpp">
       <Filter>Core\include\platform\threading</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\platform\threading\wait_word_semaphore.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\platform\threading\wait_word_semaphore.hpp">
       <Filter>Core\include\platform\threading</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\platform\threading\wait_word.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\platform\threading\wait_word.hpp">
       <Filter>Core\include\platform\threading</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\platform\windows_include.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\platform\windows_include.hpp">
       <Filter>Core\include\platform</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\system\async_state.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\system\async_state.hpp">
       <Filter>Core\include\system</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\system\erased_owner_operations.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\system\erased_owner_operations.hpp">
       <Filter>Core\include\system</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\system\erased_owner_registration.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\system\erased_owner_registration.hpp">
       <Filter>Core\include\system</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\system\erased_owner_transport.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\system\erased_owner_transport.hpp">
       <Filter>Core\include\system</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\system\erased_owner.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\system\erased_owner.hpp">
       <Filter>Core\include\system</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\system\erased_pod.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\system\erased_pod.hpp">
       <Filter>Core\include\system</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\system\erased_transport_admission.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\system\erased_transport_admission.hpp">
       <Filter>Core\include\system</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\system\local_type_registration.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\system\local_type_registration.hpp">
       <Filter>Core\include\system</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\system\local_type_ids.cpp.inl">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\system\local_type_ids.cpp.inl">
       <Filter>Core\include\system</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\system\local_type_ids.hpp.inl">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\system\local_type_ids.hpp.inl">
       <Filter>Core\include\system</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\system\local_type_registry.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\system\local_type_registry.hpp">
       <Filter>Core\include\system</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\system\runtime_ids.def">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\system\runtime_ids.def">
       <Filter>Core\include\system</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\system\system_context.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\system\system_context.hpp">
       <Filter>Core\include\system</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\system\system_erased_owner_payloads.def">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\system\system_erased_owner_payloads.def">
       <Filter>Core\include\system</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\system\system_id_registry.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\system\system_id_registry.hpp">
       <Filter>Core\include\system</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\system\system_ids.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\system\system_ids.hpp">
       <Filter>Core\include\system</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\system\system_type_ids.def">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\system\system_type_ids.def">
       <Filter>Core\include\system</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\system\system_type_registration.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\system\system_type_registration.hpp">
       <Filter>Core\include\system</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\system\thread_ids.def">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\system\thread_ids.def">
       <Filter>Core\include\system</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\system\transported_types.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\system\transported_types.hpp">
       <Filter>Core\include\system</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\system\TStaticLookup.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\system\TStaticLookup.hpp">
       <Filter>Core\include\system</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\system\type_id_binding_category.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\system\type_id_binding_category.hpp">
       <Filter>Core\include\system</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\system\type_registration.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\system\type_registration.hpp">
       <Filter>Core\include\system</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\threading\CCountingSemaphore.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\threading\CCountingSemaphore.hpp">
       <Filter>Core\include\threading</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\threading\CParkingGate.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\threading\CParkingGate.hpp">
       <Filter>Core\include\threading</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\threading\CThreadControlState.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\threading\CThreadControlState.hpp">
       <Filter>Core\include\threading</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\threading\CThreadPackage.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\threading\CThreadPackage.hpp">
       <Filter>Core\include\threading</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\threading\CWaitPredicate.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\threading\CWaitPredicate.hpp">
       <Filter>Core\include\threading</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\threading\messages\byte_view_payloads.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\threading\messages\byte_view_payloads.hpp">
       <Filter>Core\include\threading\messages</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\threading\messages\CErasedMessageTransports.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\threading\messages\CErasedMessageTransports.hpp">
       <Filter>Core\include\threading\messages</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\threading\messages\CErasedOwnerMsg.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\threading\messages\CErasedOwnerMsg.hpp">
       <Filter>Core\include\threading\messages</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\threading\messages\CErasedPodMsg.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\threading\messages\CErasedPodMsg.hpp">
       <Filter>Core\include\threading\messages</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\threading\messages\messages.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\threading\messages\messages.hpp">
       <Filter>Core\include\threading\messages</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\threading\messages\SErasedMsgHeader.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\threading\messages\SErasedMsgHeader.hpp">
       <Filter>Core\include\threading\messages</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\threading\threading.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\threading\threading.hpp">
       <Filter>Core\include\threading</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\threading\transports\TBulkTransport.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\threading\transports\TBulkTransport.hpp">
       <Filter>Core\include\threading\transports</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\threading\transports\TMpmcTransport.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\threading\transports\TMpmcTransport.hpp">
       <Filter>Core\include\threading\transports</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\threading\transports\TOwningTransport.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\threading\transports\TOwningTransport.hpp">
       <Filter>Core\include\threading\transports</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\threading\transports\TQueueTransport.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\threading\transports\TQueueTransport.hpp">
       <Filter>Core\include\threading\transports</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\threading\transports\transports.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\threading\transports\transports.hpp">
       <Filter>Core\include\threading\transports</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\threading\transports\TRingTransport.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\threading\transports\TRingTransport.hpp">
       <Filter>Core\include\threading\transports</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\text\text_diagnostics.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\text\text_diagnostics.hpp">
       <Filter>Core\include\text</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\text\text_linter.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\text\text_linter.hpp">
       <Filter>Core\include\text</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\text\utf8_string.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\text\utf8_string.hpp">
       <Filter>Core\include\text</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\types\atomic_types.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\types\atomic_types.hpp">
       <Filter>Core\include\types</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\types\fp16data_t.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\types\fp16data_t.hpp">
       <Filter>Core\include\types</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)core\data_model\live_document_node.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\data_model\live_document_node.hpp">
       <Filter>Core\include\data_model</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="$(MSBuildThisFileDirectory)core\data_model\baked_document.cpp">
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\data_model\baked_document.cpp">
       <Filter>Core\src\data_model</Filter>
     </ClCompile>
-    <ClCompile Include="$(MSBuildThisFileDirectory)core\data_model\document_baking.cpp">
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\data_model\document_baking.cpp">
       <Filter>Core\src\data_model</Filter>
     </ClCompile>
-    <ClCompile Include="$(MSBuildThisFileDirectory)core\data_model\document_promotion.cpp">
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\data_model\document_promotion.cpp">
       <Filter>Core\src\data_model</Filter>
     </ClCompile>
-    <ClCompile Include="$(MSBuildThisFileDirectory)core\data_model\document_parser.cpp">
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\data_model\document_parser.cpp">
       <Filter>Core\src\data_model</Filter>
     </ClCompile>
-    <ClCompile Include="$(MSBuildThisFileDirectory)core\data_model\document_structure.cpp">
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\data_model\document_structure.cpp">
       <Filter>Core\src\data_model</Filter>
     </ClCompile>
-    <ClCompile Include="$(MSBuildThisFileDirectory)core\data_model\document_text_lex.cpp">
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\data_model\document_text_lex.cpp">
       <Filter>Core\src\data_model</Filter>
     </ClCompile>
-    <ClCompile Include="$(MSBuildThisFileDirectory)core\data_model\document_writer.cpp">
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\data_model\document_writer.cpp">
       <Filter>Core\src\data_model</Filter>
     </ClCompile>
-    <ClCompile Include="$(MSBuildThisFileDirectory)core\data_model\live_document.cpp">
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\data_model\live_document.cpp">
       <Filter>Core\src\data_model</Filter>
     </ClCompile>
-    <ClCompile Include="$(MSBuildThisFileDirectory)core\debug\event_arguments.cpp">
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\debug\event_arguments.cpp">
       <Filter>Core\src\debug</Filter>
     </ClCompile>
-    <ClCompile Include="$(MSBuildThisFileDirectory)core\debug\log_path.cpp">
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\debug\log_path.cpp">
       <Filter>Core\src\debug</Filter>
     </ClCompile>
-    <ClCompile Include="$(MSBuildThisFileDirectory)core\debug\service.cpp">
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\debug\service.cpp">
       <Filter>Core\src\debug</Filter>
     </ClCompile>
-    <ClCompile Include="$(MSBuildThisFileDirectory)core\image\codec\tga.cpp">
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\image\codec\tga.cpp">
       <Filter>Core\src\image\codec</Filter>
     </ClCompile>
-    <ClCompile Include="$(MSBuildThisFileDirectory)core\image\image_view.cpp">
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\image\image_view.cpp">
       <Filter>Core\src\image</Filter>
     </ClCompile>
-    <ClCompile Include="$(MSBuildThisFileDirectory)core\memory\memory_context.cpp">
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\memory\memory_context.cpp">
       <Filter>Core\src\memory</Filter>
     </ClCompile>
-    <ClCompile Include="$(MSBuildThisFileDirectory)core\module\bound_module.cpp">
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\module\bound_module.cpp">
       <Filter>Core\src\module</Filter>
     </ClCompile>
-    <ClCompile Include="$(MSBuildThisFileDirectory)core\module\module_binding_context.cpp">
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\module\module_binding_context.cpp">
       <Filter>Core\src\module</Filter>
     </ClCompile>
-    <ClCompile Include="$(MSBuildThisFileDirectory)core\platform\filesystem\file.cpp">
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\platform\filesystem\file.cpp">
       <Filter>Core\src\platform\filesystem</Filter>
     </ClCompile>
-    <ClCompile Include="$(MSBuildThisFileDirectory)core\platform\filesystem\directory.cpp">
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\platform\filesystem\directory.cpp">
       <Filter>Core\src\platform\filesystem</Filter>
     </ClCompile>
-    <ClCompile Include="$(MSBuildThisFileDirectory)core\filesystem\filesystem_image.cpp">
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\filesystem\filesystem_image.cpp">
       <Filter>Core\src\filesystem</Filter>
     </ClCompile>
-    <ClCompile Include="$(MSBuildThisFileDirectory)core\platform\filesystem\internal\file_utils.cpp">
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\platform\filesystem\internal\file_utils.cpp">
       <Filter>Core\src\platform\filesystem\internal</Filter>
     </ClCompile>
-    <ClCompile Include="$(MSBuildThisFileDirectory)core\platform\filesystem\log.cpp">
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\platform\filesystem\log.cpp">
       <Filter>Core\src\platform\filesystem</Filter>
     </ClCompile>
-    <ClCompile Include="$(MSBuildThisFileDirectory)core\platform\module\binding.cpp">
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\platform\module\binding.cpp">
       <Filter>Core\src\platform\module</Filter>
     </ClCompile>
-    <ClCompile Include="$(MSBuildThisFileDirectory)core\platform\path\native_path.cpp">
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\platform\path\native_path.cpp">
       <Filter>Core\src\platform\path</Filter>
     </ClCompile>
-    <ClCompile Include="$(MSBuildThisFileDirectory)core\platform\system\debugger.cpp">
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\platform\system\debugger.cpp">
       <Filter>Core\src\platform\system</Filter>
     </ClCompile>
-    <ClCompile Include="$(MSBuildThisFileDirectory)core\platform\system\performance_counter.cpp">
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\platform\system\performance_counter.cpp">
       <Filter>Core\src\platform\system</Filter>
     </ClCompile>
-    <ClCompile Include="$(MSBuildThisFileDirectory)core\platform\system\process_priority.cpp">
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\platform\system\process_priority.cpp">
       <Filter>Core\src\platform\system</Filter>
     </ClCompile>
-    <ClCompile Include="$(MSBuildThisFileDirectory)core\platform\system\process_id.cpp">
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\platform\system\process_id.cpp">
       <Filter>Core\src\platform\system</Filter>
     </ClCompile>
-    <ClCompile Include="$(MSBuildThisFileDirectory)core\platform\threading\exclusive_lock.cpp">
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\platform\threading\exclusive_lock.cpp">
       <Filter>Core\src\platform\threading</Filter>
     </ClCompile>
-    <ClCompile Include="$(MSBuildThisFileDirectory)core\platform\threading\hw_thread_count.cpp">
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\platform\threading\hw_thread_count.cpp">
       <Filter>Core\src\platform\threading</Filter>
     </ClCompile>
-    <ClCompile Include="$(MSBuildThisFileDirectory)core\platform\threading\native_thread_id.cpp">
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\platform\threading\native_thread_id.cpp">
       <Filter>Core\src\platform\threading</Filter>
     </ClCompile>
-    <ClCompile Include="$(MSBuildThisFileDirectory)core\platform\threading\processor_relax.cpp">
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\platform\threading\processor_relax.cpp">
       <Filter>Core\src\platform\threading</Filter>
     </ClCompile>
-    <ClCompile Include="$(MSBuildThisFileDirectory)core\platform\threading\thread_lifetime.cpp">
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\platform\threading\thread_lifetime.cpp">
       <Filter>Core\src\platform\threading</Filter>
     </ClCompile>
-    <ClCompile Include="$(MSBuildThisFileDirectory)core\platform\threading\thread_naming.cpp">
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\platform\threading\thread_naming.cpp">
       <Filter>Core\src\platform\threading</Filter>
     </ClCompile>
-    <ClCompile Include="$(MSBuildThisFileDirectory)core\platform\threading\thread_priority.cpp">
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\platform\threading\thread_priority.cpp">
       <Filter>Core\src\platform\threading</Filter>
     </ClCompile>
-    <ClCompile Include="$(MSBuildThisFileDirectory)core\platform\threading\wait_word_semaphore.cpp">
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\platform\threading\wait_word_semaphore.cpp">
       <Filter>Core\src\platform\threading</Filter>
     </ClCompile>
-    <ClCompile Include="$(MSBuildThisFileDirectory)core\platform\threading\wait_word.cpp">
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\platform\threading\wait_word.cpp">
       <Filter>Core\src\platform\threading</Filter>
     </ClCompile>
-    <ClCompile Include="$(MSBuildThisFileDirectory)core\system\erased_owner_operations.cpp">
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\system\erased_owner_operations.cpp">
       <Filter>Core\src\system</Filter>
     </ClCompile>
-    <ClCompile Include="$(MSBuildThisFileDirectory)core\system\erased_owner_transport.cpp">
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\system\erased_owner_transport.cpp">
       <Filter>Core\src\system</Filter>
     </ClCompile>
-    <ClCompile Include="$(MSBuildThisFileDirectory)core\system\erased_owner.cpp">
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\system\erased_owner.cpp">
       <Filter>Core\src\system</Filter>
     </ClCompile>
-    <ClCompile Include="$(MSBuildThisFileDirectory)core\system\erased_transport_admission.cpp">
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\system\erased_transport_admission.cpp">
       <Filter>Core\src\system</Filter>
     </ClCompile>
-    <ClCompile Include="$(MSBuildThisFileDirectory)core\system\local_type_registry.cpp">
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\system\local_type_registry.cpp">
       <Filter>Core\src\system</Filter>
     </ClCompile>
-    <ClCompile Include="$(MSBuildThisFileDirectory)core\system\system_context.cpp">
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\system\system_context.cpp">
       <Filter>Core\src\system</Filter>
     </ClCompile>
-    <ClCompile Include="$(MSBuildThisFileDirectory)core\system\system_ids.cpp">
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\system\system_ids.cpp">
       <Filter>Core\src\system</Filter>
     </ClCompile>
-    <ClCompile Include="$(MSBuildThisFileDirectory)core\threading\CCountingSemaphore.cpp">
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\threading\CCountingSemaphore.cpp">
       <Filter>Core\src\threading</Filter>
     </ClCompile>
-    <ClCompile Include="$(MSBuildThisFileDirectory)core\threading\CParkingGate.cpp">
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\threading\CParkingGate.cpp">
       <Filter>Core\src\threading</Filter>
     </ClCompile>
-    <ClCompile Include="$(MSBuildThisFileDirectory)core\threading\CThreadPackage.cpp">
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\threading\CThreadPackage.cpp">
       <Filter>Core\src\threading</Filter>
     </ClCompile>
-    <ClCompile Include="$(MSBuildThisFileDirectory)core\threading\CWaitPredicate.cpp">
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\threading\CWaitPredicate.cpp">
       <Filter>Core\src\threading</Filter>
     </ClCompile>
-    <ClCompile Include="$(MSBuildThisFileDirectory)core\threading\messages\CErasedOwnerMsgTransport.cpp">
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\threading\messages\CErasedOwnerMsgTransport.cpp">
       <Filter>Core\src\threading\messages</Filter>
     </ClCompile>
-    <ClCompile Include="$(MSBuildThisFileDirectory)core\threading\messages\CErasedPodMsgTransport.cpp">
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\threading\messages\CErasedPodMsgTransport.cpp">
       <Filter>Core\src\threading\messages</Filter>
     </ClCompile>
-    <ClCompile Include="$(MSBuildThisFileDirectory)core\text\text_linter.cpp">
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\text\text_linter.cpp">
       <Filter>Core\src\text</Filter>
     </ClCompile>
-    <ClCompile Include="$(MSBuildThisFileDirectory)core\text\utf8_string.cpp">
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\text\utf8_string.cpp">
       <Filter>Core\src\text</Filter>
     </ClCompile>
-    <ClCompile Include="$(MSBuildThisFileDirectory)core\types\fp16data_t.cpp">
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\types\fp16data_t.cpp">
       <Filter>Core\src\types</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <None Include="$(MSBuildThisFileDirectory).gitignore">
+    <None Include="$(MSBuildThisFileDirectory)..\.gitignore">
       <Filter>Docs</Filter>
     </None>
-    <None Include="$(MSBuildThisFileDirectory)docs\architecture\architectural-principles.md">
+    <None Include="$(MSBuildThisFileDirectory)..\docs\architecture\architectural-principles.md">
       <Filter>Docs\architecture</Filter>
     </None>
-    <None Include="$(MSBuildThisFileDirectory)docs\README.md">
+    <None Include="$(MSBuildThisFileDirectory)..\docs\README.md">
       <Filter>Docs</Filter>
     </None>
-    <None Include="$(MSBuildThisFileDirectory)docs\backlog\consolidation_deferred_design.md">
+    <None Include="$(MSBuildThisFileDirectory)..\docs\backlog\consolidation_deferred_design.md">
       <Filter>Docs\backlog</Filter>
     </None>
-    <None Include="$(MSBuildThisFileDirectory)docs\backlog\filesystem_asset_mapping.md">
+    <None Include="$(MSBuildThisFileDirectory)..\docs\backlog\filesystem_asset_mapping.md">
       <Filter>Docs\backlog</Filter>
     </None>
-    <None Include="$(MSBuildThisFileDirectory)docs\assets\asynchronous_asset_services.md">
+    <None Include="$(MSBuildThisFileDirectory)..\docs\assets\asynchronous_asset_services.md">
       <Filter>Docs\assets</Filter>
     </None>
-    <None Include="$(MSBuildThisFileDirectory)docs\modules\asynchronous_module_lifecycle.md">
+    <None Include="$(MSBuildThisFileDirectory)..\docs\modules\asynchronous_module_lifecycle.md">
       <Filter>Docs\modules</Filter>
     </None>
-    <None Include="$(MSBuildThisFileDirectory)docs\image\image_view.md">
+    <None Include="$(MSBuildThisFileDirectory)..\docs\image\image_view.md">
       <Filter>Docs\image</Filter>
     </None>
-    <None Include="$(MSBuildThisFileDirectory)docs\data_model\README.md">
+    <None Include="$(MSBuildThisFileDirectory)..\docs\data_model\README.md">
       <Filter>Docs\data_model</Filter>
     </None>
-    <None Include="$(MSBuildThisFileDirectory)docs\data_model\document_parsing.md">
+    <None Include="$(MSBuildThisFileDirectory)..\docs\data_model\document_parsing.md">
       <Filter>Docs\data_model</Filter>
     </None>
-    <None Include="$(MSBuildThisFileDirectory)docs\data_model\document_text_format.md">
+    <None Include="$(MSBuildThisFileDirectory)..\docs\data_model\document_text_format.md">
       <Filter>Docs\data_model</Filter>
     </None>
-    <None Include="$(MSBuildThisFileDirectory)docs\backlog\current_scope_backlog.md">
+    <None Include="$(MSBuildThisFileDirectory)..\docs\backlog\current_scope_backlog.md">
       <Filter>Docs\backlog</Filter>
     </None>
-    <None Include="$(MSBuildThisFileDirectory)docs\backlog\engine_backlog.md">
+    <None Include="$(MSBuildThisFileDirectory)..\docs\backlog\engine_backlog.md">
       <Filter>Docs\backlog</Filter>
     </None>
-    <None Include="$(MSBuildThisFileDirectory)docs\architecture\codebase-ethos-primer.md">
+    <None Include="$(MSBuildThisFileDirectory)..\docs\architecture\codebase-ethos-primer.md">
       <Filter>Docs\architecture</Filter>
     </None>
-    <None Include="$(MSBuildThisFileDirectory)docs\architecture\codebase-model.md">
+    <None Include="$(MSBuildThisFileDirectory)..\docs\architecture\codebase-model.md">
       <Filter>Docs\architecture</Filter>
     </None>
-    <None Include="$(MSBuildThisFileDirectory)docs\containers\ByteBuffers.md">
+    <None Include="$(MSBuildThisFileDirectory)..\docs\containers\ByteBuffers.md">
       <Filter>Docs\containers</Filter>
     </None>
-    <None Include="$(MSBuildThisFileDirectory)docs\containers\slots\TOrderedSlots.md">
+    <None Include="$(MSBuildThisFileDirectory)..\docs\containers\slots\TOrderedSlots.md">
       <Filter>Docs\containers\slots</Filter>
     </None>
-    <None Include="$(MSBuildThisFileDirectory)docs\containers\slots\TUnorderedSlots.md">
+    <None Include="$(MSBuildThisFileDirectory)..\docs\containers\slots\TUnorderedSlots.md">
       <Filter>Docs\containers\slots</Filter>
     </None>
-    <None Include="$(MSBuildThisFileDirectory)docs\containers\StringBuffers.md">
+    <None Include="$(MSBuildThisFileDirectory)..\docs\containers\StringBuffers.md">
       <Filter>Docs\containers</Filter>
     </None>
-    <None Include="$(MSBuildThisFileDirectory)docs\containers\TOrderedCollection.md">
+    <None Include="$(MSBuildThisFileDirectory)..\docs\containers\TOrderedCollection.md">
       <Filter>Docs\containers</Filter>
     </None>
-    <None Include="$(MSBuildThisFileDirectory)docs\containers\TPodFifo.md">
+    <None Include="$(MSBuildThisFileDirectory)..\docs\containers\TPodFifo.md">
       <Filter>Docs\containers</Filter>
     </None>
-    <None Include="$(MSBuildThisFileDirectory)docs\containers\TPodVector.md">
+    <None Include="$(MSBuildThisFileDirectory)..\docs\containers\TPodVector.md">
       <Filter>Docs\containers</Filter>
     </None>
-    <None Include="$(MSBuildThisFileDirectory)docs\containers\TUnorderedCollection.md">
+    <None Include="$(MSBuildThisFileDirectory)..\docs\containers\TUnorderedCollection.md">
       <Filter>Docs\containers</Filter>
     </None>
-    <None Include="$(MSBuildThisFileDirectory)docs\debug\debug_service_substrate.md">
+    <None Include="$(MSBuildThisFileDirectory)..\docs\debug\debug_service_substrate.md">
       <Filter>Docs\debug</Filter>
     </None>
-    <None Include="$(MSBuildThisFileDirectory)docs\debug\debug_system_audit.md">
+    <None Include="$(MSBuildThisFileDirectory)..\docs\debug\debug_system_audit.md">
       <Filter>Docs\debug</Filter>
     </None>
-    <None Include="$(MSBuildThisFileDirectory)docs\debug\debug_system_interface.md">
+    <None Include="$(MSBuildThisFileDirectory)..\docs\debug\debug_system_interface.md">
       <Filter>Docs\debug</Filter>
     </None>
-    <None Include="$(MSBuildThisFileDirectory)docs\architecture\engineering-aphorisms.md">
+    <None Include="$(MSBuildThisFileDirectory)..\docs\architecture\engineering-aphorisms.md">
       <Filter>Docs\architecture</Filter>
     </None>
-    <None Include="$(MSBuildThisFileDirectory)docs\architecture\engineering-principles.md">
+    <None Include="$(MSBuildThisFileDirectory)..\docs\architecture\engineering-principles.md">
       <Filter>Docs\architecture</Filter>
     </None>
-    <None Include="$(MSBuildThisFileDirectory)docs\memory\memory_subsystem.md">
+    <None Include="$(MSBuildThisFileDirectory)..\docs\memory\memory_subsystem.md">
       <Filter>Docs\memory</Filter>
     </None>
-    <None Include="$(MSBuildThisFileDirectory)docs\architecture\origins.md">
+    <None Include="$(MSBuildThisFileDirectory)..\docs\architecture\origins.md">
       <Filter>Docs\architecture</Filter>
     </None>
-    <None Include="$(MSBuildThisFileDirectory)docs\project\attribution_policy.md">
+    <None Include="$(MSBuildThisFileDirectory)..\docs\project\attribution_policy.md">
       <Filter>Docs\project</Filter>
     </None>
-    <None Include="$(MSBuildThisFileDirectory)docs\project\completed_milestones.md">
+    <None Include="$(MSBuildThisFileDirectory)..\docs\project\completed_milestones.md">
       <Filter>Docs\project</Filter>
     </None>
-    <None Include="$(MSBuildThisFileDirectory)docs\project\future_work_notes.md">
+    <None Include="$(MSBuildThisFileDirectory)..\docs\project\future_work_notes.md">
       <Filter>Docs\project</Filter>
     </None>
-    <None Include="$(MSBuildThisFileDirectory)docs\system\erased_owner.md">
+    <None Include="$(MSBuildThisFileDirectory)..\docs\system\erased_owner.md">
       <Filter>Docs\system</Filter>
     </None>
-    <None Include="$(MSBuildThisFileDirectory)docs\system\module_bootstrap.md">
+    <None Include="$(MSBuildThisFileDirectory)..\docs\system\module_bootstrap.md">
       <Filter>Docs\system</Filter>
     </None>
-    <None Include="$(MSBuildThisFileDirectory)docs\system\type_identity.md">
+    <None Include="$(MSBuildThisFileDirectory)..\docs\system\type_identity.md">
       <Filter>Docs\system</Filter>
     </None>
-    <None Include="$(MSBuildThisFileDirectory)docs\backlog\job_framework_design.md">
+    <None Include="$(MSBuildThisFileDirectory)..\docs\backlog\job_framework_design.md">
       <Filter>Docs\backlog</Filter>
     </None>
-    <None Include="$(MSBuildThisFileDirectory)docs\threading\transports\TMpmcTransport.md">
+    <None Include="$(MSBuildThisFileDirectory)..\docs\threading\transports\TMpmcTransport.md">
       <Filter>Docs\threading\transports</Filter>
     </None>
-    <None Include="$(MSBuildThisFileDirectory)docs\threading\transports\TOwningTransport.md">
+    <None Include="$(MSBuildThisFileDirectory)..\docs\threading\transports\TOwningTransport.md">
       <Filter>Docs\threading\transports</Filter>
     </None>
-    <None Include="$(MSBuildThisFileDirectory)docs\threading\transports\TQueueTransport.md">
+    <None Include="$(MSBuildThisFileDirectory)..\docs\threading\transports\TQueueTransport.md">
       <Filter>Docs\threading\transports</Filter>
     </None>
-    <None Include="$(MSBuildThisFileDirectory)docs\threading\transports\TRingTransport.md">
+    <None Include="$(MSBuildThisFileDirectory)..\docs\threading\transports\TRingTransport.md">
       <Filter>Docs\threading\transports</Filter>
     </None>
-    <None Include="$(MSBuildThisFileDirectory)development\logical-roots\logs\.gitkeep">
+    <None Include="$(MSBuildThisFileDirectory)..\development\logical-roots\logs\.gitkeep">
       <Filter>Logs</Filter>
     </None>
-    <None Include="$(MSBuildThisFileDirectory)README.md">
+    <None Include="$(MSBuildThisFileDirectory)..\README.md">
       <Filter>Docs</Filter>
     </None>
-    <None Include="$(MSBuildThisFileDirectory)docs\data_model\data_model_design_notes.md">
+    <None Include="$(MSBuildThisFileDirectory)..\docs\data_model\data_model_design_notes.md">
       <Filter>Docs\data_model</Filter>
     </None>
-    <None Include="$(MSBuildThisFileDirectory)docs\data_model\revised_data_model.md">
+    <None Include="$(MSBuildThisFileDirectory)..\docs\data_model\revised_data_model.md">
       <Filter>Docs\data_model</Filter>
     </None>
-    <None Include="$(MSBuildThisFileDirectory)docs\data_model\baked_document_format.md">
+    <None Include="$(MSBuildThisFileDirectory)..\docs\data_model\baked_document_format.md">
       <Filter>Docs\data_model</Filter>
     </None>
   </ItemGroup>
   <ItemGroup>
-    <Text Include="LICENSE.txt">
+    <Text Include="..\LICENSE.txt">
       <Filter>Docs</Filter>
     </Text>
   </ItemGroup>

@@ -6,6 +6,14 @@ Author: Ritchie Brannan
 
 # Building and Testing
 
+## Visual Studio layout
+
+Open `MorphicEngine.sln` from the repository root. The engine's project files,
+shared items, filters, and policy build target live in `visual_studio/`.
+External projects remain under `external/`. Build outputs remain under
+`build/`, and the Host's Visual Studio debugger working directory is the
+repository root.
+
 ## Test executable
 
 `MorphicTests` is the standalone Core test executable. It is built by default

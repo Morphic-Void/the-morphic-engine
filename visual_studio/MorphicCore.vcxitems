@@ -1,0 +1,237 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup Label="Globals">
+    <MSBuildAllProjects Condition="'$(MSBuildVersion)' == '' Or '$(MSBuildVersion)' &lt; '16.0'">$(MSBuildAllProjects);$(MSBuildThisFileFullPath)</MSBuildAllProjects>
+    <HasSharedItems>true</HasSharedItems>
+    <ItemsProjectGuid>{a250136d-15bb-4a6c-a3bb-29c92a92e205}</ItemsProjectGuid>
+  </PropertyGroup>
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <AdditionalIncludeDirectories>$(MSBuildThisFileDirectory)..\core;$(MSBuildThisFileDirectory)..\;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ProjectCapability Include="SourceItemsFromImports" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\algo\validate_permutations.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\assets\asset_repository.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\bit_utils\bit_ops.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\bit_utils\bit_utils.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\bit_utils\spatial_codes.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\bit_utils\TBitField.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\containers\ByteBuffers.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\containers\containers.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\containers\slots\SlotsRankMap.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\containers\slots\TOrderedSlots.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\containers\slots\TUnorderedSlots.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\containers\StringBuffers.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\containers\TInstance.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\containers\TOrderedCollection.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\containers\TPodFifo.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\containers\TPodOrderedSlots.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\containers\TPodUnorderedSlots.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\containers\TPodVector.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\containers\TUnorderedCollection.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\data_model\baked_document.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\data_model\baked_document_format.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\data_model\data_model_types.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\data_model\document_translation.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\data_model\document_findings.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\data_model\document_parser.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\data_model\document_structure.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\data_model\document_text_lex.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\data_model\document_writer.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\data_model\live_document.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\data_model\live_document_node.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\debug\event_arguments.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\debug\log_path.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\debug\macros.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\debug\service.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\image\codec\tga.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\image\image_view.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\memory\memory_context.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\memory\memory_policies.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\memory\memory_token.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\memory\memory_view.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\module\bound_module.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\module\module_binding_context.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\module\module_binding.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\system\async_state.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\system\erased_owner_operations.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\system\erased_owner_registration.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\system\erased_owner_transport.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\system\erased_owner.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\system\erased_pod.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\system\erased_transport_admission.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\system\local_type_registration.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\system\local_type_ids.cpp.inl" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\system\local_type_ids.hpp.inl" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\system\local_type_registry.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\system\runtime_ids.def" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\system\system_context.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\system\system_erased_owner_payloads.def" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\system\system_id_registry.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\system\system_ids.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\system\system_type_ids.def" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\system\system_type_registration.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\system\thread_ids.def" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\system\transported_types.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\system\TStaticLookup.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\system\type_id_binding_category.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\system\type_registration.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\threading\CCountingSemaphore.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\threading\CParkingGate.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\threading\CThreadControlState.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\threading\CThreadPackage.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\threading\CWaitPredicate.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\threading\messages\byte_view_payloads.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\threading\messages\CErasedMessageTransports.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\threading\messages\CErasedOwnerMsg.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\threading\messages\CErasedPodMsg.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\threading\messages\messages.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\threading\messages\SErasedMsgHeader.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\threading\threading.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\threading\transports\TBulkTransport.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\threading\transports\TMpmcTransport.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\threading\transports\TOwningTransport.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\threading\transports\TQueueTransport.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\threading\transports\transports.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\threading\transports\TRingTransport.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\text\text_diagnostics.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\text\text_linter.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\text\utf8_string.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\types\atomic_types.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\types\fp16data_t.hpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\data_model\baked_document.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\data_model\document_baking.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\data_model\document_promotion.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\data_model\document_parser.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\data_model\document_structure.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\data_model\document_text_lex.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\data_model\document_writer.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\data_model\live_document.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\debug\event_arguments.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\debug\log_path.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\debug\service.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\image\codec\tga.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\image\image_view.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\memory\memory_context.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\module\bound_module.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\module\module_binding_context.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\system\erased_owner_operations.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\system\erased_owner_transport.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\system\erased_owner.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\system\erased_transport_admission.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\system\local_type_registry.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\system\system_context.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\system\system_ids.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\threading\CCountingSemaphore.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\threading\CParkingGate.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\threading\CThreadPackage.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\threading\CWaitPredicate.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\threading\messages\CErasedOwnerMsgTransport.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\threading\messages\CErasedPodMsgTransport.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\text\text_linter.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\text\utf8_string.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\types\fp16data_t.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\platform\filesystem\file.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\platform\filesystem\directory.cpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\platform\filesystem\directory.hpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\filesystem\filesystem_image.cpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\filesystem\filesystem_image.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\platform\filesystem\file.hpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\platform\filesystem\internal\file_utils.cpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\platform\filesystem\internal\file_utils.hpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\platform\filesystem\log.cpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\platform\filesystem\log.hpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\platform\module\binding.cpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\platform\module\binding.hpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\platform\path\native_path.cpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\platform\path\native_path.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\platform\platform_defines.hpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\platform\system\debugger.cpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\platform\system\debugger.hpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\platform\system\performance_counter.cpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\platform\system\performance_counter.hpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\platform\system\process_priority.cpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\platform\system\process_priority.hpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\platform\system\process_id.cpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\platform\system\process_id.hpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\platform\threading\exclusive_lock.cpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\platform\threading\exclusive_lock.hpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\platform\threading\hw_thread_count.cpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\platform\threading\hw_thread_count.hpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\platform\threading\native_thread_id.cpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\platform\threading\native_thread_id.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\platform\threading\platform_threading.hpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\platform\threading\processor_relax.cpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\platform\threading\processor_relax.hpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\platform\threading\thread_lifetime.cpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\platform\threading\thread_lifetime.hpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\platform\threading\thread_naming.cpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\platform\threading\thread_naming.hpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\platform\threading\thread_priority.cpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\platform\threading\thread_priority.hpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\platform\threading\wait_word_semaphore.cpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\platform\threading\wait_word_semaphore.hpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\platform\threading\wait_word.cpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\platform\threading\wait_word.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\platform\windows_include.hpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="$(MSBuildThisFileDirectory)..\.gitignore" />
+    <None Include="$(MSBuildThisFileDirectory)..\docs\architecture\architectural-principles.md" />
+    <None Include="$(MSBuildThisFileDirectory)..\docs\data_model\baked_document_format.md" />
+    <None Include="$(MSBuildThisFileDirectory)..\docs\README.md" />
+    <None Include="$(MSBuildThisFileDirectory)..\docs\backlog\consolidation_deferred_design.md" />
+    <None Include="$(MSBuildThisFileDirectory)..\docs\backlog\filesystem_asset_mapping.md" />
+    <None Include="$(MSBuildThisFileDirectory)..\docs\assets\asynchronous_asset_services.md" />
+    <None Include="$(MSBuildThisFileDirectory)..\docs\modules\asynchronous_module_lifecycle.md" />
+    <None Include="$(MSBuildThisFileDirectory)..\docs\image\image_view.md" />
+    <None Include="$(MSBuildThisFileDirectory)..\docs\data_model\README.md" />
+    <None Include="$(MSBuildThisFileDirectory)..\docs\data_model\document_parsing.md" />
+    <None Include="$(MSBuildThisFileDirectory)..\docs\data_model\document_text_format.md" />
+    <None Include="$(MSBuildThisFileDirectory)..\docs\backlog\current_scope_backlog.md" />
+    <None Include="$(MSBuildThisFileDirectory)..\docs\backlog\engine_backlog.md" />
+    <None Include="$(MSBuildThisFileDirectory)..\docs\architecture\codebase-ethos-primer.md" />
+    <None Include="$(MSBuildThisFileDirectory)..\docs\architecture\codebase-model.md" />
+    <None Include="$(MSBuildThisFileDirectory)..\docs\data_model\data_model_design_notes.md" />
+    <None Include="$(MSBuildThisFileDirectory)..\docs\data_model\revised_data_model.md" />
+    <None Include="$(MSBuildThisFileDirectory)..\docs\containers\ByteBuffers.md" />
+    <None Include="$(MSBuildThisFileDirectory)..\docs\containers\slots\TOrderedSlots.md" />
+    <None Include="$(MSBuildThisFileDirectory)..\docs\containers\slots\TUnorderedSlots.md" />
+    <None Include="$(MSBuildThisFileDirectory)..\docs\containers\StringBuffers.md" />
+    <None Include="$(MSBuildThisFileDirectory)..\docs\containers\TOrderedCollection.md" />
+    <None Include="$(MSBuildThisFileDirectory)..\docs\containers\TPodFifo.md" />
+    <None Include="$(MSBuildThisFileDirectory)..\docs\containers\TPodVector.md" />
+    <None Include="$(MSBuildThisFileDirectory)..\docs\containers\TUnorderedCollection.md" />
+    <None Include="$(MSBuildThisFileDirectory)..\docs\debug\debug_service_substrate.md" />
+    <None Include="$(MSBuildThisFileDirectory)..\docs\debug\debug_system_audit.md" />
+    <None Include="$(MSBuildThisFileDirectory)..\docs\debug\debug_system_interface.md" />
+    <None Include="$(MSBuildThisFileDirectory)..\docs\architecture\engineering-aphorisms.md" />
+    <None Include="$(MSBuildThisFileDirectory)..\docs\architecture\engineering-principles.md" />
+    <None Include="$(MSBuildThisFileDirectory)..\docs\memory\memory_subsystem.md" />
+    <None Include="$(MSBuildThisFileDirectory)..\docs\architecture\origins.md" />
+    <None Include="$(MSBuildThisFileDirectory)..\docs\project\attribution_policy.md" />
+    <None Include="$(MSBuildThisFileDirectory)..\docs\project\completed_milestones.md" />
+    <None Include="$(MSBuildThisFileDirectory)..\docs\project\future_work_notes.md" />
+    <None Include="$(MSBuildThisFileDirectory)..\docs\system\erased_owner.md" />
+    <None Include="$(MSBuildThisFileDirectory)..\docs\system\module_bootstrap.md" />
+    <None Include="$(MSBuildThisFileDirectory)..\docs\system\type_identity.md" />
+    <None Include="$(MSBuildThisFileDirectory)..\docs\backlog\job_framework_design.md" />
+    <None Include="$(MSBuildThisFileDirectory)..\docs\threading\transports\TMpmcTransport.md" />
+    <None Include="$(MSBuildThisFileDirectory)..\docs\threading\transports\TOwningTransport.md" />
+    <None Include="$(MSBuildThisFileDirectory)..\docs\threading\transports\TQueueTransport.md" />
+    <None Include="$(MSBuildThisFileDirectory)..\docs\threading\transports\TRingTransport.md" />
+    <None Include="$(MSBuildThisFileDirectory)..\development\logical-roots\logs\.gitkeep" />
+    <None Include="$(MSBuildThisFileDirectory)..\README.md" />
+  </ItemGroup>
+  <ItemGroup>
+    <Text Include="..\LICENSE.txt" />
+  </ItemGroup>
+</Project>
