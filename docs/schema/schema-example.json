@@ -1,86 +1,198 @@
 {
-  "format": "morphic-schema",
-  "version": 1,
+  "types": {
+    "enumerations": {
+      "BlendMode": {
+        "storage": "u8",
+        "values": {
+          "opaque": 0,
+          "solid": 0,
+          "alpha": 1,
+          "additive": 2
+        }
+      },
 
-  "enumerations": {
-    "BlendMode": {
-      "storage": "u8",
-      "values": {
-        "opaque": 0,
-        "alpha": 1,
-        "additive": 2
+      "Axis": {
+        "storage": "i8",
+        "values": {
+          "x": +0,
+          "y": +1,
+          "z": +2
+        }
       }
     },
 
-    "Axis": {
-      "storage": "i8",
-      "values": {
-        "x": 0,
-        "y": 1,
-        "z": 2
+    "structures": {
+      "Position": {
+        "detail": { "alignment": 4, "size": 12 },
+        "members": [
+          { "x": { "type": "f32" } },
+          { "y": { "type": "f32" } },
+          { "z": { "type": "f32" } }
+        ]
+      },
+
+      "Vertex": {
+        "detail": { "alignment": 4, "size": 24 },
+        "members": [
+          { "position": { "type": "Position" } },
+          {
+            "uv": {
+              "type": { "element": "f32", "count": 2 }
+            }
+          },
+          { "colour": { "type": "ColourRgba8" } }
+        ]
+      },
+
+      "ColourRgba8": {
+        "detail": { "alignment": 1, "size": 4 },
+        "members": [
+          { "r": { "type": "u8" } },
+          { "g": { "type": "u8" } },
+          { "b": { "type": "u8" } },
+          { "a": { "type": "u8", "default": 255 } }
+        ]
+      },
+
+      "Material": {
+        "detail": { "alignment": 4, "size": 8 },
+        "members": [
+          { "blend_mode": { "type": "BlendMode", "default": "alpha" } },
+          { "axis": { "type": "Axis", "default": "z" } },
+          { "visible": { "type": "b8", "default": true } },
+          { "roughness": { "type": "f32", "default": 0.5 } }
+        ]
+      },
+
+      "Vector4": {
+        "detail": { "alignment": 4, "size": 16 },
+        "members": [
+          { "x": { "type": "f32" } },
+          { "y": { "type": "f32" } },
+          { "z": { "type": "f32" } },
+          { "w": { "type": "f32" } }
+        ]
+      },
+
+      "InternalRecord": {
+        "detail": { "alignment": 16, "size": 32, "internal": true },
+        "members": [
+          { "tag": { "type": "u32", "offset": 0, "default": 0x00000001 } },
+          { "position": { "type": "Vector4", "offset": 16 } }
+        ]
+      },
+
+      "ArrayExamples": {
+        "detail": { "alignment": 16, "size": 96 },
+        "members": [
+          {
+            "uv_rows": {
+              "type": { "element": { "element": "f32", "count": 2 }, "count": 3 }
+            }
+          },
+          { "single": { "type": { "element": "u16", "count": 1 } } },
+          { "records": { "type": { "element": "InternalRecord", "count": 2 } } }
+        ]
+      }
+    },
+
+    "bit_structures": {
+      "ColourRgba10A2": {
+        "storage": "u32",
+        "members": [
+          { "r": { "mask": 0x000003FF, "type": "u32", "interpretation": "unorm" } },
+          { "g": { "mask": 0x000FFC00, "type": "u32", "interpretation": "unorm" } },
+          { "b": { "mask": 0x3FF00000, "type": "u32", "interpretation": "unorm" } },
+          { "a": { "mask": 0xC0000000, "type": "u32", "interpretation": "unorm" } }
+        ]
+      },
+
+      "SurfaceFlags": {
+        "storage": "u16",
+        "members": [
+          { "visible": { "mask": 0x0001, "type": "b8" } },
+          { "mode": { "mask": 0x000E, "type": "BlendMode" } },
+          { "axis": { "mask": 0x0070, "type": "Axis" } }
+        ]
       }
     }
   },
 
-  "structures": {
-    "Position": {
-      "layout": "explicit",
-      "size": 12,
-      "alignment": 4,
-      "members": [
-        { "name": "x", "type": "f32", "offset": 0 },
-        { "name": "y", "type": "f32", "offset": 4 },
-        { "name": "z", "type": "f32", "offset": 8 }
-      ]
+  "instances": {
+    "Vector4": {
+      "base": {
+        "declaration": [2.0, 1.0, 4.0, 7.0],
+        "specialisation": {
+          "padded": {
+            "declaration": [2.0, 1.0, 4.0]
+          },
+          "raised": {
+            "declaration": { "y": 3.0 }
+          }
+        }
+      }
     },
 
     "Vertex": {
-      "layout": "explicit",
-      "size": 24,
-      "alignment": 4,
-      "members": [
-        { "name": "position", "type": "Position", "offset": 0 },
-        {
-          "name": "uv",
-          "type": { "kind": "array", "element": "f32", "count": 2 },
-          "offset": 12
-        },
-        { "name": "colour", "type": "ColourRgba8", "offset": 20 }
-      ]
+      "base": {
+        "declaration": { "uv": [0.25, 0.75] },
+        "specialisation": {
+          "short_uv": {
+            "declaration": { "uv": [0.5] }
+          }
+        }
+      }
     },
 
-    "ColourRgba8": {
-      "layout": "explicit",
-      "size": 4,
-      "alignment": 1,
-      "members": [
-        { "name": "r", "type": "u8", "offset": 0 },
-        { "name": "g", "type": "u8", "offset": 1 },
-        { "name": "b", "type": "u8", "offset": 2 },
-        { "name": "a", "type": "u8", "offset": 3 }
-      ]
+    "Position": {
+      "origin": {
+        "declaration": [0.0, 0.0, 0.0],
+        "specialisation": {
+          "raised": {
+            "declaration": { "y": 2.0 }
+          }
+        }
+      }
+    },
+
+    "Material": {
+      "base": {
+        "declaration": { "visible": true },
+        "specialisation": {
+          "polished": {
+            "declaration": { "roughness": 0.1 },
+            "specialisation": {
+              "hidden": {
+                "declaration": { "visible": false }
+              }
+            }
+          },
+          "rough": {
+            "declaration": { "roughness": 0.9 }
+          }
+        }
+      }
     }
   },
 
-  "bit_structures": {
-    "ColourRgba10A2": {
-      "storage": "u32",
-      "unused_bits": "zero",
-      "members": [
-        { "name": "r", "bit_offset": 0, "bit_width": 10, "interpretation": "unorm" },
-        { "name": "g", "bit_offset": 10, "bit_width": 10, "interpretation": "unorm" },
-        { "name": "b", "bit_offset": 20, "bit_width": 10, "interpretation": "unorm" },
-        { "name": "a", "bit_offset": 30, "bit_width": 2, "interpretation": "unorm" }
-      ]
-    },
-
-    "SurfaceFlags": {
-      "storage": "u16",
-      "unused_bits": "zero",
-      "members": [
-        { "name": "visible", "bit_offset": 0, "bit_width": 1, "interpretation": "boolean" },
-        { "name": "mode", "bit_offset": 1, "bit_width": 3, "interpretation": { "kind": "enum", "type": "BlendMode" } },
-        { "name": "axis", "bit_offset": 4, "bit_width": 2, "interpretation": { "kind": "enum", "type": "Axis" } }
+  "data": {
+    "Vertex": {
+      "triangle": [
+        {
+          "position": [0.0, 0.0, 0.0],
+          "uv": [0.0, 0.0],
+          "colour": { "r": 255, "g": 0, "b": 0, "a": 255 }
+        },
+        {
+          "position": [1.0, 0.0, 0.0],
+          "uv": [1.0, 0.0],
+          "colour": { "r": 0, "g": 255, "b": 0, "a": 255 }
+        },
+        {
+          "position": [0.0, 1.0, 0.0],
+          "uv": [0.0, 1.0],
+          "colour": { "r": 0, "g": 0, "b": 255, "a": 255 }
+        }
       ]
     }
   }

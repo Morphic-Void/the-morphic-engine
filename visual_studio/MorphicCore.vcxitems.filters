@@ -190,6 +190,9 @@
     <Filter Include="Logs">
       <UniqueIdentifier>{a17a171a-1de9-cf11-1420-e3c7e7a5f866}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Docs\schema">
+      <UniqueIdentifier>{add2f474-9480-46d6-8107-5b0d3d6da5aa}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\algo\validate_permutations.hpp">
@@ -825,6 +828,15 @@
     </None>
     <None Include="$(MSBuildThisFileDirectory)..\docs\data_model\baked_document_format.md">
       <Filter>Docs\data_model</Filter>
+    </None>
+    <None Include="$(MSBuildThisFileDirectory)..\docs\schema\design.md">
+      <Filter>Docs\schema</Filter>
+    </None>
+    <None Include="$(MSBuildThisFileDirectory)..\docs\schema\header-survey.md">
+      <Filter>Docs\schema</Filter>
+    </None>
+    <None Include="$(MSBuildThisFileDirectory)..\docs\schema\schema-example.json">
+      <Filter>Docs\schema</Filter>
     </None>
   </ItemGroup>
   <ItemGroup>

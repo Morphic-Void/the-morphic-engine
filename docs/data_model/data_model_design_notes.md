@@ -91,11 +91,14 @@ uniform physical field if the current node layout benefits from one.
 
 ### Object-entry state
 
-An independent object-entry flag duplicates the fact already represented by a
-non-empty name and creates states which must be cross-validated. Deriving the
-state makes malformed combinations unrepresentable at the semantic level.
+Object-entry state requires a name-presence flag independent of the name ID.
+An anonymous value and an entry whose property name is the empty string both
+use canonical name ID zero, but have different object-entry meaning. Deriving
+presence from a non-empty name would lose that distinction. Integrity checks
+require anonymous values to retain the canonical empty name ID.
 
-A name always supplies object-entry meaning, regardless of the payload type.
+A present name, including an empty name, supplies object-entry meaning,
+regardless of the payload type.
 Outside an object, an anonymous containing object is implied. A named object
 payload still needs that outer containing context for its own name. Writers
 materialise the implied braces; parsers remove redundant singleton wrappers

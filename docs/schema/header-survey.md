@@ -8,6 +8,13 @@ or other Vulkan SDK header, so this report does not pretend to have sampled a
 Vulkan declaration. Vulkan cases below are future tests once a pinned header is
 available.
 
+This survey records exploratory later-stage candidates. The working design
+controls scope: explicit offsets/increased alignment enter the initial delivery
+only if deferring them would require broader retroactive changes. Packed layout
+remains deferred, union support is undecided, and ingestion follows schema
+resolution and usage work. The
+examples below do not add requirements to the first resolver delivery.
+
 The model's intended role is configuration, not a copy of renderer state. The
 survey therefore classifies source declarations by ownership: data-model
 configuration, renderer execution state, or shader reflection/validation. A
@@ -46,10 +53,12 @@ configuration; the latter two are derived execution and validation facts.
 
 ## Representational conclusions
 
-The core model already directly covers fixed-size scalar records, nested
-records, fixed arrays, resolved padding/offsets, named integer enums, explicit
-alignment, and fixed-storage packed bit ranges. This does not imply that every
-representable API record belongs in the model: its primary targets are durable
+The schema design covers fixed-size scalar records, nested records, fixed
+arrays, naturally resolved padding/offsets, named integer enums, and
+fixed-storage packed bit ranges. Increased alignment has defined semantics,
+but its initial implementation follows the working design's inclusion criterion;
+the survey does not independently require or exclude it. This does not
+imply that every representable API record belongs in the model: its primary targets are durable
 configuration and selected physical asset/upload records. Renderer descriptors
 and reflection objects are deliberately allowed to remain outside it.
 
@@ -75,10 +84,18 @@ The material gaps are:
 
 ## Requirements for constrained header ingestion
 
-An initial importer should accept only a preprocessed, pinned header view plus
-an explicit target profile. It should only be used for an allow-listed set of
-configuration or physical-data types; name/purpose extraction has a separate,
-less ambitious path. It should:
+The initial ingestion scope is defined in
+[the working design](design.md#development-time-structure-ingestion): a
+development-time tool reads a manually ordered JSON list of exact source files
+and selected structures. Prerequisite structures precede their dependants;
+there is no initial include traversal or automatic dependency ordering. This
+supersedes the survey's earlier recommendation to require a preprocessed
+header view. The SDK cases below are later coverage candidates, not a
+requirement to support complex headers in the first implementation.
+
+Ingestion remains limited to explicitly selected configuration or physical-data
+types; name/purpose extraction has a separate, less ambitious path. When the
+corresponding declaration forms are supported, it should:
 
 1. Accept selected named C-style `struct`/`enum` declarations and
    fixed-bound arrays after typedef resolution.
@@ -90,8 +107,8 @@ less ambitious path. It should:
 4. Require a per-type allow-list (or annotations) and diagnose every excluded
    member/type.
 5. Lower bitfields only through a target/compiler-specific adapter with tested
-   allocation rules. Emit schema bit offsets/widths, never C++ bitfield syntax
-   as a portable layout claim.
+   allocation rules. Emit contiguous schema masks with base-type signedness,
+   never C++ bitfield syntax as a portable layout claim.
 
 For name/purpose extraction, the importer may retain an allow-listed declared
 name, enum labels and attached documentation without claiming to have imported
@@ -105,7 +122,7 @@ deriving pointer ownership or SAL contracts; mirroring renderer API descriptors
 or shader-reflection objects; and inferring union discriminants, format-channel
 layouts, normalisation or semantic remaps from names/comments.
 
-## Recommended representative tests
+## Later ingestion test candidates
 
 1. `D3D12_RESOURCE_DESC`: enum + `u64`, `u32`, `u16` and nested
    `DXGI_SAMPLE_DESC`, with expected natural offsets and tail padding.
@@ -113,13 +130,15 @@ layouts, normalisation or semantic remaps from names/comments.
    `DXGI_FORMAT formats[8]` and its count: verify the array is not coupled
    to the count member.
 3. `D3D12_CLEAR_VALUE`: first assert a precise unsupported-union diagnostic;
-   later test both alternatives and required tag-selection rules.
+   test alternatives and tag-selection rules only if union support is adopted.
 4. `XMCOLOR`: test a canonical byte-field schema and raw-word view; ensure
    the importer never fabricates channel order from the type name.
 5. `XMU565` and `XMDECN4`: lower through an explicit MSVC/x64 fixture to
    exact bit ranges; reject an unknown ABI and test signed-field handling.
 6. A 16-byte-aligned, four-`f32` record patterned after `XMFLOAT3A`:
-   verify alignment and stride/tail padding, and reject inheritance initially.
+   reject unsupported explicit alignment initially; verify alignment and
+   stride/tail padding only if that layout mode is adopted. Inheritance may
+   remain unsupported.
 7. When a pinned Vulkan SDK header is available, add one ordinary
    `Vk*CreateInfo` record (reject pointers as appropriate), one
    `Vk*FlagBits` enum, and one authored packed format definition. Do not

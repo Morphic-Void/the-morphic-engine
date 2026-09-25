@@ -220,6 +220,9 @@
     <None Include="$(MSBuildThisFileDirectory)..\docs\project\attribution_policy.md" />
     <None Include="$(MSBuildThisFileDirectory)..\docs\project\completed_milestones.md" />
     <None Include="$(MSBuildThisFileDirectory)..\docs\project\future_work_notes.md" />
+    <None Include="$(MSBuildThisFileDirectory)..\docs\schema\design.md" />
+    <None Include="$(MSBuildThisFileDirectory)..\docs\schema\header-survey.md" />
+    <None Include="$(MSBuildThisFileDirectory)..\docs\schema\schema-example.json" />
     <None Include="$(MSBuildThisFileDirectory)..\docs\system\erased_owner.md" />
     <None Include="$(MSBuildThisFileDirectory)..\docs\system\module_bootstrap.md" />
     <None Include="$(MSBuildThisFileDirectory)..\docs\system\type_identity.md" />

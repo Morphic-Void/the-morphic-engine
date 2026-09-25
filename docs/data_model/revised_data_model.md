@@ -360,14 +360,19 @@ Bake and promote are the general route between allocation contexts.
 
 ## Baking
 
-Baking consumes a coherent live document and produces an immutable baked
-artifact. The artifact itself occupies one allocation. The baking process may
-use separately allocated scratch state and is not required to complete in one
+Baking consumes a coherent live document and produces a baked artifact with
+fixed structure. The artifact itself occupies one allocation. The baking
+process may use separately allocated scratch state and is not required to complete in one
 allocation; it should avoid unnecessary copying, allocation and memory churn.
 
-`CBakedDocumentBlock` owns the transferable immutable byte allocation.
-`CBakedDocument` is a non-owning immutable view over compatible bytes. There is
-no public mutable baked document or public baked builder.
+`CBakedDocumentBlock` owns the transferable byte allocation. `CBakedDocument`
+is a non-owning read-only view over compatible bytes. `CMutableBakedDocument`
+provides bounded editing of existing payloads without changing types, names,
+topology, or formatting metadata. It is not a structural builder; there is no
+public mutable baked builder. The attachment and setter restrictions are
+specified in [the baked-format contract](baked_document_format.md#validation-and-views).
+Consumers such as resolved schemas may require the backing bytes to remain
+unchanged throughout their use, even though this separate editing API exists.
 
 The block privately contains a validated byte buffer with exact document extent
 as its logical size. `CBakedDocument{block}` and `block.document()` construct
