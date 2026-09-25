@@ -4,11 +4,12 @@ Current working design for the schema system.  This document records decisions
 made before implementation; it is not yet a public API or file-format
 specification.
 
-This is the primary record of agreed schema decisions. The discussion agenda
-tracks remaining choices; the header survey explores later use cases. The
-reviewed JSON sample illustrates agreed grammar without expanding stage scope.
-See the [coherence audit](coherence-audit.md) for identified conflicts and
-remaining boundaries that need clarification.
+This is the primary record of schema semantics. The
+[implementation contract](implementation-contract.md) defines runtime observations,
+delivery boundaries, and acceptance checks; the header survey explores later use
+cases. The reviewed sample illustrates the design without expanding stage scope.
+The earlier audit and question agenda have been consolidated into these documents;
+their historical findings remain in Git history.
 
 ## Purpose and scope
 
@@ -31,11 +32,10 @@ execution, direct-copy remap setup, and structure-only code generation.
 
 [`schema-example.json`](schema-example.json) expands the previously accepted
 grammar with structure `detail`, explicit offsets, and short-input examples.
-It also proposes removing redundant array `kind`; the `detail.internal` spelling
-remains a candidate. Its [companion notes](schema-example-notes.md) distinguish
-those review points from agreed semantics and explain expected layouts.
-Neither document implies an implemented resolver. The
-audit retains the original sample's historical defects as review history.
+It uses `element`/`count` without redundant array `kind`, and `detail.internal`
+for the internal-layout marker. Its [companion notes](schema-example-notes.md)
+explain expected layouts and the initial-delivery boundary.
+Neither document implies an implemented resolver.
 
 The system is not intended to infer mappings automatically or become a general
 C++ compiler.  Mappings may be authored manually, while their validation and
@@ -99,8 +99,9 @@ types and descriptors rather than text reinterpreted during each operation.
 The intended representation uses variable-length sequences of slots, with
 member counts determined by the described structures.  Fixed record types
 and common access operations will be defined without exposing the entire
-storage arrangement as a fixed public structure.  Exact records and access
-contracts remain to be settled.
+storage arrangement as a fixed public structure. The implementation contract
+defines the required observations and index relationships; exact private
+record packing is chosen and reviewed during implementation.
 
 ### Resolved-schema ownership and access
 
@@ -137,9 +138,9 @@ schema. This is an additional invalidation trigger for combined documents;
 it does not require the first-stage resolver to evaluate instance data.
 
 Schema access indices are unsigned, with zero reserved for failure or an
-unmapped reference. Valid resolved-slot indices are non-zero. This is a simple
-slot-index convention, not an elaborate identity scheme; its bit width remains
-an implementation-contract detail. Resolved indices remain distinct from
+unmapped reference. Valid resolved-slot indices are non-zero. The implementation
+contract selects a 32-bit wrapper without a generation/identity mechanism.
+Resolved indices remain distinct from
 document node/name IDs.
 
 Serialisation and remapping callers mainly need to locate the appropriate
@@ -218,15 +219,18 @@ The first implementation stage resolves and inspects schemas and generates
 C++ structures as part of validation.  Instance construction and serialisation
 are outside that stage.  Resolution covers all described type categories:
 integers, floating point, booleans, enums, general/nested structures, fixed
-arrays, and bit structures.  The exact declaration validation checks remain
-to be specified.  Any compiler-based
-layout checks belong to validation tooling, separate from generated structures.
+arrays, and bit structures. Declaration validation compiles C++17 output and checks
+size, alignment, member offsets, standard layout, and trivial copyability, as
+specified in the implementation contract. Compiler-based checks belong to
+validation tooling, separate from generated structures.
 
 The initial delivery excludes a separate operation for creating a normalised
 document. Explicit member offsets and increased structure alignment should be
 included initially only if adding them later would require retroactive changes
-beyond the local scope of those features. Assess this while designing the
-resolved representation and interfaces; otherwise defer their implementation.
+beyond the local scope of those features. The implementation-contract assessment
+defers them: resolved types and members already contain size, alignment, offsets,
+and gaps, so later support changes layout calculation and export locally. The
+first delivery rejects these unsupported layout requests explicitly.
 
 ## Editor use
 
@@ -303,8 +307,9 @@ one applicable definitions document, and instance inheritance follows containmen
 The accepted sample illustrates the combined sections; separate documents
 retain their applicable sections. The layout requires no cross-instance-document base
 lookup or path-root convention: references are implicit in containment or
-explicit references to named types. Supplying the definitions context for a
-separate instance document remains an API/packaging matter.
+explicit references to named types. The evaluator receives the resolved schema
+and selected type explicitly for a separate instance document; document-local
+identifiers remain document-local.
 
 ### Definition contents
 
@@ -352,9 +357,12 @@ later extensions are recorded separately.
 
 The bulk collection name identifies the array, not its individual
 records; it does not introduce references between those records.
-Whether records use the ordinary structure defaults, and how CSV or binary
-payloads associate with these collections later, remain to be confirmed for
-this section. It does not extend the first implementation stage to
+Bulk records require every member explicitly, recursively through nested records
+and bit structures. Positional structures and fixed arrays must have their full
+declared lengths here; short-input/default completion belongs to `instances`,
+not `data`. Gaps are not members and still have no implicit fill policy.
+CSV/binary payload association is a later encoding contract. This does not extend
+the first implementation stage to
 instance construction or bulk-data processing.
 
 ### Definition validation and assembly
@@ -435,9 +443,9 @@ members of the same type as a named-component form, retaining the declared
 component names, order, and layout.  For example, an ordinary structure with
 `f32` members `x`, `y`, and `z` supplies named components as well as positional
 construction.  This recognition is based on the declared member types, not
-on naming conventions alone.  Named bitfields may support analogous
-selected-field overrides through their explicit bitfield definitions; the
-details of that extension remain to be specified.
+on naming conventions alone. Named bitfields support analogous
+selected-field overrides through their explicit bitfield definitions, preserving
+unselected fields and unused bits in an existing value.
 
 The initial pass reads the explicitly selected files without following
 `#include` directives or searching other files for definitions.  Include
@@ -557,12 +565,55 @@ expected types are errors.  Validation should produce descriptive diagnostics
 identifying the affected type/member path and the reason for rejection.
 Initially validation stops at the first error and outputs its cause, along
 with the affected member and structure where appropriate and available.  The
-exact report structure remains to be defined. Schema-resolution failure
+implementation contract specifies an allocation-free structured diagnostic with
+document locations and related ranges where available. Schema-resolution failure
 already has the empty-result contract specified under ownership and access.
 Instance failure also invalidates the schema when instances and definitions
 share the same baked document; failure in a separate instance document does not.
 
 ## Primitive physical types
+
+### Literal validation
+
+The following conversion rules make default validation concrete. They are
+implementation choices derived from the existing document numeric contract,
+the agreed permissive input policy, and the explicit `fp16data_t` exception.
+The same rules apply when later instance construction consumes document values;
+typed override compatibility is a separate check.
+
+- Integer destinations accept signed or unsigned integer payloads in range,
+  regardless of source notation. Finite floating-point payloads are accepted
+  only if integral and in range; reject fractional truncation. Check exact
+  signed/unsigned boundaries before casting, without routing 64-bit integer
+  payloads through `double`. Floating negative zero converts to integer zero.
+- `f32` and `f64` accept integer or finite floating-point payloads, allowing
+  precision rounding. Reject finite overflow and non-zero underflow to zero;
+  representable subnormals are allowed. Preserve floating signed zero.
+  The document has already rounded numeric text to its stored value; the
+  schema cannot recover digits lost in parsing.
+- `f16` uses the existing transport conversion, including its rounding,
+  underflow, and finite-clamping behaviour. Do not impose the `f32` rejection
+  policy around that conversion or bypass it with schema-specific bit packing.
+- `b8` accepts document booleans or finite numeric payloads: either sign of
+  zero becomes false and every other finite value becomes true. Do not accept
+  numeric strings or floating special strings as Boolean input.
+- Enum values use matching labels. Declaration values themselves must be
+  integral and fit the enum's integer storage. An enum must contain a label;
+  duplicate values are aliases, while duplicate labels fail.
+- Strings are not general numeric coercions. Only the explicitly listed
+  floating special spellings and enum labels have typed meaning. Null is invalid.
+
+Masks and extent metadata must represent non-negative integers and satisfy
+their additional width/count/alignment constraints. A bit field's integer
+domain must fit both its logical type and its mask width; enum labels must all
+fit that width using the enum's signedness. Boolean fields have the logical
+domain 0/1. `unorm` is recognised as an unsigned-integer field interpretation;
+its explicit default is a finite value in [0, 1]. Resolution validates that
+domain and retains the interpretation; quantisation is a later codec operation.
+Absent interpretation means the declared type's ordinary value semantics.
+Other interpretation spellings require an explicit extension, not silent fallback.
+
+### Physical vocabulary
 
 The initial primitive vocabulary is deliberately small:
 
@@ -637,21 +688,21 @@ offsets must not change declaration order.
 Overlapping member storage ranges are rejected.  Bit-structure members may
 share a storage word, but their actual bit ranges must not overlap.  An overlap
 diagnostic should identify both conflicting members and their byte or bit
-ranges.  Union support remains undecided; if introduced, it will be an explicit
+ranges. Union support is outside current scope; if introduced, it will be an explicit
 schema construct with defined rules permitting overlap among its alternatives,
 not an implicit interpretation of otherwise invalid overlapping members.
 
-Natural layout is the default and the initial implementation focus. Initial
-explicit-offset and increased-alignment support follows the delivery criterion
-above; their design is no longer an undecided need. Packed layout will not
+Natural layout is the default and initial implementation scope. Explicit offsets
+and increased alignment are deferred under the assessment above; their eventual
+semantics are defined here. Packed layout will not
 be used unless selected ingested structures demonstrate a need; the planned
 review of candidate Vulkan structures may inform that decision. The original
 sample's explicit layouts were superseded; the revised sample now illustrates
 both natural layout and the subsequently agreed explicit-offset rules.
 
 The first pass calculates member offsets and array strides from the natural
-layout rules. Include explicit offsets or increased alignment only under the
-retroactive-change criterion in the delivery scope; independent array-stride
+layout rules. Explicit offsets and increased alignment can be added without
+changing the resolved observations; independent array-stride
 overrides remain deferred. When explicit offsets are supported, every member of that
 definition must supply an offset; explicit and inferred member offsets are
 not mixed within one definition.
@@ -771,14 +822,15 @@ schema's instance model, nor do they impose a zeroing policy. Padding does not
 by itself establish layout fidelity; any claim of faithful source export must
 check resulting member offsets, alignment, and size for the selected target.
 
-The internal marker spelling remains to be finalised; a possible marker is
-`detail.internal: true`. Natural-layout declaration generation remains
+The internal marker is `detail.internal: true`; omission is equivalent to false.
+It identifies export intent, not permission to bypass layout validation.
+Natural-layout declaration generation remains
 unchanged, and padding declarations do not add generated operational code.
 
-This section records the layout rules. The expanded sample includes both
-natural and explicit layout examples. Initial inclusion of explicit offsets and increased
-alignment is conditional on avoiding broader retroactive changes; otherwise
-they are later additions. Normalised-document creation is a later operation.
+This section records the full layout rules. The expanded sample includes both
+natural and explicit layout examples. Explicit offsets and increased alignment
+are later additions under the implementation-contract assessment.
+Normalised-document creation is also a later operation.
 
 ### Gaps and external initialisation policy
 
@@ -807,11 +859,11 @@ Arrays can therefore contain primitive values, structures, or further fixed
 arrays.  A structure may contain fixed arrays in the same way as any other
 member type.
 
-The expanded sample proposes `{ "element": "f32", "count": 2 }` as an array
-descriptor, removing the previously illustrated `kind: "array"`. `count`
+The array descriptor is `{ "element": "f32", "count": 2 }`, removing the
+previously illustrated `kind: "array"`. `count`
 identifies the array and both properties are required; `element` accepts a
-named type or another array descriptor. Count 1 remains an array. This is a
-syntax simplification for review, not a change to layout or value semantics.
+named type or another array descriptor. Count 1 remains an array. The old `kind`
+property is not an alternative spelling; it is rejected as an unknown property.
 
 Zero-length arrays are rejected. There is no current exception for a trailing
 array. This restriction concerns the declared array count, not the length of
@@ -905,11 +957,10 @@ point storage, subject to the existing `fp16data_t` conversion behaviour noted
 above for `f16`.  This does not add native non-finite numbers to live or baked
 documents.
 
-Recognition is ASCII case-insensitive and otherwise exact.  The accepted set
-is to be specified explicitly, expected initially to include `nan`, `inf`,
-`+inf`, and `-inf`; whether longer `infinity` spellings are accepted remains an
-open choice.  Matching does not trim whitespace or use locale-sensitive case
-conversion.
+Recognition is ASCII case-insensitive and otherwise exact. Accept `nan`, `inf`,
+`+inf`, `-inf`, `infinity`, `+infinity`, and `-infinity`. Canonical output uses
+`nan`, `inf`, and `-inf`. No signed or payload-bearing NaN syntax is defined.
+Matching does not trim whitespace or use locale-sensitive case conversion.
 
 Strict JSON output writes these values as strings.  Relaxed diagnostic or
 authoring output may write the selected spellings unquoted.  Textual `NaN`
@@ -934,14 +985,25 @@ matching enum definition; numeric values are not accepted as enum defaults,
 even when a label has that numeric value. Any declared alias in that enum is a
 valid label. An invalid default is a schema-resolution error and leaves the
 resolved schema empty. The implicit first-declared-enum default is unchanged.
-This rule for authored defaults does not settle numeric enum input for ordinary
-instances or compatibility between distinct typed enums.
+Use labels from the matching enum for ordinary document-form instance values too.
+Numeric literals do not implicitly acquire enum identity. Typed enum values may
+supply that same enum or their matching raw underlying integer type; distinct
+enum types are not interchangeable merely because their storage or values agree.
 
 Defaults apply only within the specific structure definition that declares
 them.  They do not propagate from an enclosing structure into nested
 structures.  Each nested structure uses its own declared defaults, or the
 implicit zero/first-declared-enum defaults for members without one.  This is
 separate from an instance or override explicitly supplying nested member values.
+An enclosing member whose type is a structure cannot supply an aggregate
+`default`; reject that property rather than treating it as a local override of
+the nested type. Arrays of structures likewise use the element structure's own
+defaults. This applies to nested bit structures as well: field defaults belong
+to their own field declarations, not an enclosing aggregate default.
+Primitive/enum members and arrays of those types may supply explicit defaults;
+short array defaults complete the tail with element defaults. A bit field may
+have an explicit scalar default in its named field descriptor, validated against
+its logical type, mask width, and interpretation.
 
 Construction starts from these schema defaults and applies the values supplied
 by the instance. An omitted member uses its default. A named override instead
@@ -1005,8 +1067,10 @@ inheritance cycle in a document tree.
 Every named specialisation is independently selectable as an instance,
 including intermediate steps in a chain.  Selection uses its inherited values
 and its own overrides, while the referenced type determines valid members.
-Whether dependencies are retained after construction remains open; no live
-dependency tracking is implied by permitting chains.
+Constructed data is an independent value, with no live dependency tracking.
+The authoring document retains the inheritance tree; after an edit, a caller
+may explicitly reconstruct the affected instance. Resolved schema metadata
+does not become mutable instance provenance.
 
 Construction and overlay are separate operations.
 
@@ -1019,8 +1083,8 @@ Construction and overlay are separate operations.
   structures.
 - General arrays can be replaced in full.  Arrays of schema-defined named
   components can also have selected components overridden by name.  Named
-  bitfields may provide analogous selected-field overrides through explicit
-  bitfield definitions; their detailed rules remain open.
+  bitfields support selected-field overrides through explicit masks. Updating
+  a selected field preserves every bit outside its mask, including unused bits.
 
 For example, an overlay changing only one coordinate is:
 
@@ -1069,6 +1133,30 @@ explain that separation. The original `bit_offset`, `bit_width`, and
 
 ## Encodings and remapping
 
+### Instance operation boundary
+
+The initial instance-construction API will consume baked document values plus
+an explicit resolved-schema/type context. Text and live documents can compose
+through the existing parse/bake path; a direct text-to-instance parser or owning
+instance allocator is not required. The caller supplies destination memory with
+an explicit byte extent and alignment adequate for the resolved type.
+
+Validate the schema/type, extent, and alignment before writing. Later value
+conversion failure may leave partial destination output; the caller must discard
+it. There is no rollback requirement for construction or overrides. This is
+independent of schema invalidation: the same-document rule still applies, and
+failure in a separate instance document leaves the schema usable. No implicit
+zeroing of padding or unused bits is performed. A named-bitfield update is a
+read/modify/write under the selected mask and preserves every unselected bit.
+The caller supplies initialised containing words wherever masked writes must
+preserve existing bits; whether to clear those words first is an external policy.
+
+The operation does not retain instance memory, instance-document storage, or
+live inheritance dependencies. A caller keeps schema backing bytes alive while
+using schema operations; constructed data has the lifetime of its own storage.
+
+### Representations and bulk copies
+
 JSON, CSV, and binary are encodings of the same typed instance model, not
 separate data models.  CSV provides a predictable flattened projection of
 arrays of records; binary provides the exact physical records, offsets, stride,
@@ -1095,11 +1183,26 @@ Each bulk mapping is based on two resolved structure types describing source
 and destination array records, plus a separate description of selected member
 pairs.  It need not use every source member or fill every destination member.
 Type or size conflicts in any selected pair reject the whole mapping during
-setup, before data transfer.  The precise type-compatibility rule remains to
-be specified.  Coalescing requires contiguous corresponding source and
-destination ranges and must not overwrite unselected destination members.
-Different sources contribute through multiple mappings; handling conflicting
-writes from those mappings remains an open choice.
+setup, before data transfer. Primitives must have the same primitive type and
+size. Selected named structures, enums, and bit structures require the same
+type name and matching resolved definition; representation equality alone is
+insufficient. Compare names by text across documents, not document-local IDs.
+Array matches require matching counts, strides, and compatible element types.
+Definition matching includes member/label order, names, referenced types,
+layout, defaults, masks, and interpretations as applicable; numeric formatting
+metadata does not change type identity. Enum aliases must agree in declaration
+order. Different schemas may participate if this comparison succeeds.
+
+The enclosing source and destination record types need not have the same name:
+compatibility applies to the selected member pairs. Thus different vertex record
+types can transfer matching primitive or named-member types. Enum-to-raw-integer
+override compatibility does not grant a bulk-copy conversion.
+
+Coalescing requires contiguous corresponding source and destination ranges and
+must not overwrite unselected destination members. Multiple sources contribute
+through multiple mappings, but a combined plan rejects overlapping destination
+writes during setup, even when they would write identical bytes. Separate calls
+are independently validated operations, not an implicitly ordered combined plan.
 
 At setup, the remap constructs an execution plan that selects pre-written fast kernels
 from this mechanical shape and supplies their offsets, range sizes, strides,
@@ -1117,7 +1220,13 @@ element, the operation falls back to ordinary individual strided copies.
 A mapping leaves unselected destination members untouched.  Destination
 initialisation is separate from the partial transfer; a caller may initialise
 storage, apply defaults, or populate it through other mappings as appropriate.
-Rules for padding within selected aggregate transfers remain to be specified.
+A whole selected aggregate copies its full extent, including owned padding.
+Selecting individual members grants no permission to bridge intervening padding
+or unselected fields when coalescing. Gap initialisation remains the caller's
+policy. Individual packed fields require bit operations and are excluded from
+this byte-copy remapper; a compatible complete bit-storage value can be copied.
+Source/destination memory overlap is unsupported by the first executor and must
+be rejected before writes; it must not accidentally acquire `memmove` semantics.
 
 This admits interleaved records and simple structure-of-arrays rearrangement
 through explicitly named streams, while retaining a minimal, predictable
@@ -1133,26 +1242,22 @@ Logical JSON is not necessarily a lossless representation of every physical
 bit pattern.  Raw binary remains the lossless representation where reserved
 bits, padding, or floating-point payloads matter.
 
-## Open design questions
+## Delivery and remaining format work
 
-The prioritised [design discussion agenda](design-questions.md) distinguishes
-questions needed for the first implementation stage from later feature work.
-Its recommendations are proposals, not implementation authority.
+The [implementation contract](implementation-contract.md) records the initial
+scope, runtime/access contract, limits, diagnostics, generator behaviour, and
+acceptance checks. Exact private slot packing and the resulting occurrence-map
+coverage are implementation-review deliverables, not unresolved authoring rules.
 
-- Assess whether deferring explicit offsets or increased alignment would force
-  broader retroactive changes, to apply the agreed initial-delivery criterion.
-- Concrete resolved representation, inspection/normalisation/generation APIs,
-  limits, and diagnostic representation within the settled contracts.
-- Bulk-record omission policy and possible named-bitfield patches; ordinary
-  instance grammar and named-component patches are established by the sample.
-- The complete accepted set of floating-point special strings.
-- Remaining default-value conversion rules. Short positional/array input fills
-  from the start and defaults the remainder; nulls are rejected.
-- Target-supported explicit alignments and implementation staging; packed
-  layout and any separate array-stride override remain deferred.
-- Whether to support explicit unions, including alternative selection,
-  initialisation, and serialisation rules.
-- Binary descriptor association, identity/versioning, hashing, and packaging.
-- CSV member-path and fixed-array flattening conventions.
-- Source declaration ingestion, including the explicit ABI assumptions needed
-  to convert C++ bitfields into fixed physical layouts.
+Later stages must define their external formats before implementation: binary
+byte order and schema association; CSV paths, columns, and input policy; the
+ingestion manifest and supported source declarations; and normalised-bitfield
+codec rounding. These contracts are deliberately not invented by the first
+resolver delivery. They are listed with their stage in the implementation contract.
+No wire version, hash scheme, schema-owned instance allocator, or editor dependency
+system is implied by the current design.
+
+Unions, pointers, variable-sized fields, opaque handles/blobs, packed layout,
+independent array strides, and generated C output are unsupported in the current
+scope. Reconsider one when a concrete use case requires it; it is not a pending
+question that an initial implementation must answer.

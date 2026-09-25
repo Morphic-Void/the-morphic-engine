@@ -829,6 +829,15 @@
     <None Include="$(MSBuildThisFileDirectory)..\docs\data_model\baked_document_format.md">
       <Filter>Docs\data_model</Filter>
     </None>
+    <None Include="$(MSBuildThisFileDirectory)..\docs\schema\README.md">
+      <Filter>Docs\schema</Filter>
+    </None>
+    <None Include="$(MSBuildThisFileDirectory)..\docs\schema\implementation-contract.md">
+      <Filter>Docs\schema</Filter>
+    </None>
+    <None Include="$(MSBuildThisFileDirectory)..\docs\schema\schema-example-notes.md">
+      <Filter>Docs\schema</Filter>
+    </None>
     <None Include="$(MSBuildThisFileDirectory)..\docs\schema\design.md">
       <Filter>Docs\schema</Filter>
     </None>

@@ -8,11 +8,10 @@ Date:   25 Sep 2026
 # Reviewed schema sample
 
 [schema-example.json](schema-example.json) reconciles the original examples
-with subsequent decisions. The earlier grammar was accepted; this expanded
-revision adds the agreed layout and short-input examples and proposes removing
-the redundant array `kind` property. `detail.internal` illustrates the candidate
-internal-marker spelling, which is still for review. It is not an implemented
-resolver acceptance fixture or a specification of every future extension.
+with subsequent decisions. The expanded reviewed revision includes layout and
+short-input examples, omits redundant array `kind`, and uses `detail.internal`
+as the internal-layout marker. It is not an implemented resolver acceptance
+fixture or a specification of every future extension.
 The working [design](design.md) records agreed semantics. Showing a later feature
 here does not bring it into the initial delivery.
 
@@ -27,11 +26,11 @@ JSON parser will reject those spellings; their use is intentional.
 | Definitions | `types` contains the original `enumerations`, `structures`, and `bit_structures` category objects. Categories organise definitions without adding type namespaces. |
 | Enum | A named object with integer `storage` and a `values` object mapping labels to numbers. Property order is declaration order. |
 | Structure | A named object with an ordered `members` array of singleton named descriptor objects. |
-| Structure detail | `detail.alignment` and computed `detail.size` illustrate generated metadata. Both may be omitted on input. The candidate `detail.internal` marker identifies an internal layout for export purposes. |
+| Structure detail | `detail.alignment` and computed `detail.size` illustrate generated metadata. Both may be omitted on input. `detail.internal` identifies an internal layout for export purposes. |
 | Member | `type` is a named type or an inline array descriptor. Optional `default` supplies a validated default for that member. If any member specifies `offset`, every member of that structure must specify it. |
-| Fixed array (proposed simplification) | `{ "element": "f32", "count": 2 }`. Count identifies an array; the element descriptor can itself be an array descriptor. Count is positive and stride is computed. |
+| Fixed array | `{ "element": "f32", "count": 2 }`. Count identifies an array; the element descriptor can itself be an array descriptor. Count is positive and stride is computed. |
 | Bit structure | Integer `storage` describes the containing word; ordered named `members` select fields with non-zero contiguous `mask` values. |
-| Bit member | `type` gives the field's base/logical type: an integer, `b8`, or a named enum. Optional `interpretation` retains specialised meaning such as `unorm`. |
+| Bit member | `type` gives the field's base/logical type: an integer, `b8`, or a named enum. Optional `interpretation` retains specialised meaning such as `unorm`; optional scalar `default` belongs to this field definition. |
 | Instance | `instances` groups named instances by type. `declaration` holds supplied values, and `specialisation` holds named children inheriting from that instance. |
 | Bulk collection | `data` groups named arrays of complete records by type, without declarations or specialisation wrappers around each record. |
 
@@ -41,14 +40,14 @@ bit-member `type` field reconcile later decisions into the reviewed syntax.
 The `declaration`/`specialisation` names and parent-based inheritance are
 already agreed. Leaf instances omit `specialisation` in this form.
 
-The proposed array simplification removes only `kind`: `type` still accepts
+The array simplification removes only `kind`: `type` still accepts
 either a named type or an array descriptor containing both `element` and
 `count`. A positive integral `count` identifies an array, including count 1;
 zero is invalid, and an element without its count is incomplete. `count` is
 not moved onto the member descriptor. This keeps nesting recursive:
 `ArrayExamples.uv_rows` is an array of three arrays of two `f32` values.
 `ArrayExamples.single` remains a one-element array, not a scalar. This revision
-does not define a compatibility alias for the old `kind` spelling.
+rejects the old `kind` spelling as an unknown property.
 
 The singleton objects around members are text wrappers. The existing parser
 normalises them into named array children with descriptor payloads; the resolver
@@ -94,6 +93,8 @@ so a shifted mask need not fit the logical field type or its enum value set.
   be invalid. They are checked during schema resolution.
 - `ColourRgba8.a` defaults to 255. This is a default of `ColourRgba8` itself,
   not a parent definition propagating a default into a nested structure.
+  An aggregate `default` on `Vertex.colour` would be rejected; instance values
+  and overrides may still set its components explicitly.
 - `Position.origin` uses positional construction. Its child `raised` changes
   only `y`, producing `[0.0, 2.0, 0.0]`.
 - Positional structure input and fixed arrays may be short: values fill from
@@ -110,8 +111,8 @@ so a shifted mask need not fit the logical field type or its enum value set.
 - `Material.base` gets `alpha`, `z`, and roughness 0.5 from defaults. `polished`
   changes roughness to 0.1; its child `hidden` preserves that roughness and
   changes only visibility. Sibling `rough` inherits from `base`, not `polished`.
-- Bulk records explicitly supply all members, avoiding a decision about
-  omitted values in `data`. Their nested `Position` values use positional
+- Bulk records must explicitly supply all members, including nested members
+  and full fixed-array extents. Their nested `Position` values use positional
   form, ordinary `uv` arrays have exactly two elements, and colours use names.
 
 ## Expected layout
@@ -144,8 +145,8 @@ There are no format/version headers, bit offsets/widths, or gap-fill directives.
 
 The grammar review accepted category objects beneath `types`, the `default`
 spelling, bit-member type/interpretation separation, and the illustrated `data`
-shape. This sample does not settle bulk default omission, normalised codecs,
-or CSV/binary payload attachment. The `offset` and structure `detail`
+shape. Bulk omission is now explicitly rejected. Normalised codecs and
+CSV/binary payload attachment belong to their later stages. The `offset` and structure `detail`
 rules are recorded in [the design](design.md#explicit-offsets-and-structure-details).
 Structure size remains computed from members and alignment, rather than an
 authored size or stride override.
@@ -171,12 +172,24 @@ when ordinary source declarations cannot fully reproduce them. Generated
 declarations may include explicit padding members to account for offsets and
 total size. Those padding members do not become logical schema members; any
 claim of layout fidelity requires target-specific layout validation. The
-expanded sample illustrates the candidate marker on `InternalRecord`. Its
+expanded sample illustrates the marker on `InternalRecord`. Its
 `tag` occupies bytes 0-3; a generated declaration would need twelve bytes of
 padding before `position` at byte 16, together with alignment 16 on the
 structure. Padding belongs to `InternalRecord`, including when it is an array
 element. It never becomes an extra positional value or a named override target.
 The sample does not provide generated source or establish export mechanics.
+
+The initial-delivery assessment in the
+[implementation contract](implementation-contract.md#initial-delivery) defers
+explicit offsets and increased alignment. `InternalRecord` and its dependent
+`ArrayExamples` therefore belong to later positive-layout fixtures; an initial
+resolver must report the unsupported layout. The natural-layout definitions
+remain suitable for initial positive fixtures. The full example deliberately
+covers more than the first delivery.
+
+For tooling previews, use the existing standard-JSON writer option. For the
+numeric extensions here it emits equivalent values without explicit `+` signs
+or hexadecimal notation; Morphic output retains those presentation hints.
 
 ## Review checks performed
 

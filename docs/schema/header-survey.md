@@ -9,10 +9,10 @@ Vulkan declaration. Vulkan cases below are future tests once a pinned header is
 available.
 
 This survey records exploratory later-stage candidates. The working design
-controls scope: explicit offsets/increased alignment enter the initial delivery
-only if deferring them would require broader retroactive changes. Packed layout
-remains deferred, union support is undecided, and ingestion follows schema
-resolution and usage work. The
+controls scope. The [implementation assessment](implementation-contract.md#initial-delivery)
+defers explicit offsets/increased alignment because the resolved observations
+already support their later addition. Packed layout and unions are outside
+current scope, and ingestion follows schema resolution and usage work. The
 examples below do not add requirements to the first resolver delivery.
 
 The model's intended role is configuration, not a copy of renderer state. The
@@ -56,8 +56,8 @@ configuration; the latter two are derived execution and validation facts.
 The schema design covers fixed-size scalar records, nested records, fixed
 arrays, naturally resolved padding/offsets, named integer enums, and
 fixed-storage packed bit ranges. Increased alignment has defined semantics,
-but its initial implementation follows the working design's inclusion criterion;
-the survey does not independently require or exclude it. This does not
+but implementation is deferred under the working design's inclusion criterion;
+the survey does not independently expand that scope. This does not
 imply that every representable API record belongs in the model: its primary targets are durable
 configuration and selected physical asset/upload records. Renderer descriptors
 and reflection objects are deliberately allowed to remain outside it.
