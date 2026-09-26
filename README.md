@@ -1,5 +1,7 @@
 # Morphic Engine
 
+[![Windows CI](https://github.com/Morphic-Void/the-morphic-engine/actions/workflows/windows-ci.yml/badge.svg)](https://github.com/Morphic-Void/the-morphic-engine/actions/workflows/windows-ci.yml)
+
 Morphic Engine is a pre-1.0 C++17 foundation for building bespoke game
 technology.
 
