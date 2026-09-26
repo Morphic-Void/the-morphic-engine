@@ -85,23 +85,27 @@ under `development/logical-roots/logs/policy_validator`; ordinary test logs and
 outputs use the build directory's `test-output` child. The module test finds
 the executive library next to the `MorphicTests` executable in `bin`.
 
-## Initial local validation
+## Local validation
 
-On Ubuntu 24.04 in WSL, GCC 13.3 and Clang 18.1 both configured the committed
-source snapshot successfully. Source-extraction tests passed, and the policy
-checker built and ran with both compilers with zero errors or warnings.
+With SuiteUTF revision `fc51720c5ec3f1c0fd2face660f5fc6919ae1288`, the engine,
+modules, policy checker, and ordinary tests pass the following local checks:
 
-Both full builds stopped in the pinned SuiteUTF dependency
-(`5ddce3a2d8f1fc4785735deeab8905b9033c1d44`). Its headers and implementations
-place `[[nodiscard]]` after `inline` or `virtual`, which both Linux compilers
-reject; the first reported example is `include/utf_std.h:141`. Consequently,
-engine compilation and ordinary test execution have not yet been validated
-on Linux. The canary records this failure until the dependency is corrected
-and its pinned revision updated. No dependency or engine source was changed
-as part of setting up the canary.
+| Platform | Compiler | Configuration | Build, policy checks, and `-t1` |
+| --- | --- | --- | --- |
+| Ubuntu 24.04 in WSL, x64 | GCC 13.3 | Debug | Passed |
+| Ubuntu 24.04 in WSL, x64 | Clang 18.1 | Debug | Passed |
+| Windows, x64 | MSVC v143 | Debug | Passed |
 
-A subsequent syntax-only GCC check also confirmed the same attribute-placement
-error in the engine's `core/types/fp16data_t.hpp:62` (`constexpr [[nodiscard]]`).
-Similar declarations occur in container headers. Fixing SuiteUTF will therefore
-remove the first dependency blocker, but is not sufficient to establish a
-passing Linux engine build. These engine changes remain separate work.
+Validation used a snapshot of committed engine source plus the portability
+fixes and the updated SuiteUTF revision, excluding unrelated in-progress schema
+work. The source-extraction tests and workflow syntax checks also passed during
+canary setup. Hosted Linux runner results still need to be confirmed after push;
+the canary remains experimental and non-blocking.
+
+The initial build exposed non-portable attribute placement in SuiteUTF and
+Core declarations. SuiteUTF's update addresses its compatibility issues; the
+engine fixes move `[[nodiscard]]` before declaration specifiers, explicitly
+include `<cstring>`, correct two Windows platform guards, use standard C++17
+aligned allocation in the queue/ring tests, and make bounded TGA header byte
+conversions explicit. The existing ordinary suites, including transport and
+image tests, were run without changing the test runner or its registered suites.

@@ -722,8 +722,8 @@ CByteBuffer encode(const CByteRectConstView& view, const EncodeOptions& options)
 
         //  populate the TGA header
         std::memset(header, 0, sizeof(TGAHeader));
-        header->color_map_type = std::uint8_t{ state.use_clut ? 1u : 0u };
-        header->image_type = std::uint8_t{ (state.use_rle ? 9u : 1u) + (state.use_clut ? 0u : ((tga_element_bytes == 1u) ? 2u : 1u )) };
+        header->color_map_type = static_cast<std::uint8_t>(state.use_clut ? 1u : 0u);
+        header->image_type = static_cast<std::uint8_t>((state.use_rle ? 9u : 1u) + (state.use_clut ? 0u : ((tga_element_bytes == 1u) ? 2u : 1u )));
         if (state.use_clut)
         {
             write_le_u16(header->color_map_length, static_cast<std::uint16_t>(state.lookup_size));

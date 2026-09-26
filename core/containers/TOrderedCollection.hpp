@@ -185,7 +185,7 @@ private:
     [[nodiscard]] const T* storage_index_ptr(const std::size_t storage_index) const noexcept;
 
     void deconstruct_payload() noexcept;
-    static [[nodiscard]] bool failed_integrity_check() noexcept;
+    [[nodiscard]] static bool failed_integrity_check() noexcept;
 
     using SlotState = typename slot_data_class::SlotState;
     using SlotData = typename slot_data_class::SlotData;

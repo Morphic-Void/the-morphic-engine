@@ -9,7 +9,7 @@
 #include <cstdint>
 #include <iostream>
 #include <limits>
-#include <malloc.h>
+#include <new>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -33,12 +33,14 @@ inline std::string make_repeated_string(const char c, const std::uint32_t count)
 
 static void* MV_STD_ABI_CALL allocate_test_memory(void*, const std::size_t alignment, const std::size_t bytes) noexcept
 {
-    return _aligned_malloc(bytes, (alignment < alignof(void*)) ? alignof(void*) : alignment);
+    const std::size_t effective_alignment = (alignment < alignof(void*)) ? alignof(void*) : alignment;
+    return ::operator new(bytes, std::align_val_t{ effective_alignment }, std::nothrow);
 }
 
-static bool MV_STD_ABI_CALL deallocate_test_memory(void*, std::size_t, void* const ptr) noexcept
+static bool MV_STD_ABI_CALL deallocate_test_memory(void*, const std::size_t alignment, void* const ptr) noexcept
 {
-    _aligned_free(ptr);
+    const std::size_t effective_alignment = (alignment < alignof(void*)) ? alignof(void*) : alignment;
+    ::operator delete(ptr, std::align_val_t{ effective_alignment });
     return true;
 }
 

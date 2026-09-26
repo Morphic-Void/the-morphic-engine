@@ -59,16 +59,16 @@ public:
 
 	static constexpr fp16data_t	fromBits(const uint16_t bits) noexcept { fp16data_t h; h.setBits(bits); return h; }
 
-	constexpr [[nodiscard]] bool	sign() const noexcept { return (m_bits & 0x8000u) != 0u; }
-	constexpr [[nodiscard]] bool	isZero() const noexcept { return (m_bits & 0x7fffu) == 0x0000u; }
-	constexpr [[nodiscard]] bool	isNAN() const noexcept { return (m_bits & 0x7fffu) > 0x7c00u; }
-	constexpr [[nodiscard]] bool	isINF() const noexcept { return (m_bits & 0x7fffu) == 0x7c00u; }
-	constexpr [[nodiscard]] bool	isReal() const noexcept { return (m_bits & 0x7fffu) < 0x7c00u; }
-	constexpr [[nodiscard]] bool	isFinite() const noexcept { return (m_bits & 0x7c00u) != 0x7c00u; }
-	constexpr [[nodiscard]] bool	isPositive() const noexcept { return (m_bits & 0x8000u) == 0u; }
-	constexpr [[nodiscard]] bool	isNegative() const noexcept { return (m_bits & 0x8000u) != 0u; }
+	[[nodiscard]] constexpr bool	sign() const noexcept { return (m_bits & 0x8000u) != 0u; }
+	[[nodiscard]] constexpr bool	isZero() const noexcept { return (m_bits & 0x7fffu) == 0x0000u; }
+	[[nodiscard]] constexpr bool	isNAN() const noexcept { return (m_bits & 0x7fffu) > 0x7c00u; }
+	[[nodiscard]] constexpr bool	isINF() const noexcept { return (m_bits & 0x7fffu) == 0x7c00u; }
+	[[nodiscard]] constexpr bool	isReal() const noexcept { return (m_bits & 0x7fffu) < 0x7c00u; }
+	[[nodiscard]] constexpr bool	isFinite() const noexcept { return (m_bits & 0x7c00u) != 0x7c00u; }
+	[[nodiscard]] constexpr bool	isPositive() const noexcept { return (m_bits & 0x8000u) == 0u; }
+	[[nodiscard]] constexpr bool	isNegative() const noexcept { return (m_bits & 0x8000u) != 0u; }
 
-	constexpr [[nodiscard]] std::uint16_t	asSortable() const noexcept { return m_bits ^ (std::uint16_t(int16_t(m_bits) >> 15) | 0x8000u); }
+	[[nodiscard]] constexpr std::uint16_t	asSortable() const noexcept { return m_bits ^ (std::uint16_t(int16_t(m_bits) >> 15) | 0x8000u); }
 
 	constexpr void	endianSwap() noexcept { m_bits = (m_bits << 8) | (m_bits >> 8); }
 

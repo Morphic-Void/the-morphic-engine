@@ -17,7 +17,7 @@
 #include "platform/platform_defines.hpp"
 #include "debug/macros.hpp"
 
-#if defined(MV_PLATFORM_WINDOWS)
+#if MV_PLATFORM_WINDOWS
 #include "platform/windows_include.hpp"
 #endif
 

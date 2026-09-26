@@ -12,6 +12,8 @@
 
 #include "types/fp16data_t.hpp"
 
+#include <cstring>
+
 //!	fp16data_t class function bodies
 
 void fp16data_t::set(const std::uint32_t u, const bool clampToFinite) noexcept
@@ -186,7 +188,7 @@ void fp16data_t::set(const std::int32_t i, const bool clampToFinite) noexcept
 void fp16data_t::set(const float f, const bool clampToFinite) noexcept
 {
 	std::uint32_t ui;
-	memcpy(&ui, &f, sizeof ui);
+	std::memcpy(&ui, &f, sizeof ui);
 	std::uint32_t sign = ui & 0x80000000u;
 	ui &= 0x7fffffffu;
 	if (sign)
@@ -357,6 +359,6 @@ fp16data_t::operator float() const noexcept
 		}
 	}
 	float f;
-	memcpy(&f, &uif, sizeof f);
+	std::memcpy(&f, &uif, sizeof f);
 	return f;
 }

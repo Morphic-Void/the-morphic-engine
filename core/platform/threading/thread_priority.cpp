@@ -39,7 +39,7 @@ namespace platform::threading
 
 bool set_current_thread_priority(const EThreadPriority priority) noexcept
 {
-#if defined(MV_PLATFORM_WINDOWS)
+#if MV_PLATFORM_WINDOWS
 
     int native_priority = THREAD_PRIORITY_NORMAL;
 

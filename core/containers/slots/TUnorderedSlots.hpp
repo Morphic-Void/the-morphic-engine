@@ -235,9 +235,9 @@ public:
 
 private:
 
-    inline [[nodiscard]] bool is_safe(const bool allow_null = false) const noexcept;
-    inline [[nodiscard]] TSlotBacking& slot_backing() noexcept;
-    inline [[nodiscard]] const TSlotBacking& slot_backing() const noexcept;
+    [[nodiscard]] inline bool is_safe(const bool allow_null = false) const noexcept;
+    [[nodiscard]] inline TSlotBacking& slot_backing() noexcept;
+    [[nodiscard]] inline const TSlotBacking& slot_backing() const noexcept;
 
 private:
 

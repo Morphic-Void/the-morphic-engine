@@ -424,7 +424,7 @@ private:
     std::size_t private_find_id(const std::uint8_t* const string, const std::size_t length) noexcept;
     std::size_t private_append(const std::uint8_t* const string, const std::size_t length) noexcept;
 
-    static inline [[nodiscard]] bool failed_integrity_check() noexcept;
+    [[nodiscard]] static inline bool failed_integrity_check() noexcept;
 
     struct StringRef
     {

@@ -326,9 +326,9 @@ public:
 
 private:
 
-    inline [[nodiscard]] bool is_safe(const bool allow_null = false) const noexcept;
-    inline [[nodiscard]] TSlotBacking& slot_backing() noexcept;
-    inline [[nodiscard]] const TSlotBacking& slot_backing() const noexcept;
+    [[nodiscard]] inline bool is_safe(const bool allow_null = false) const noexcept;
+    [[nodiscard]] inline TSlotBacking& slot_backing() noexcept;
+    [[nodiscard]] inline const TSlotBacking& slot_backing() const noexcept;
 
 private:
 
@@ -406,11 +406,11 @@ private:
     //  Tree validation helpers.
     //
     //  Return subtree height on success, or -1 on failure.
-    static inline [[nodiscard]] std::int32_t failed_validate_subtree() noexcept;
+    [[nodiscard]] static inline std::int32_t failed_validate_subtree() noexcept;
     [[nodiscard]] std::int32_t private_validate_subtree(const std::int32_t slot_index, const LexCheck lex_check = LexCheck::None) const noexcept;
 
     //  Integrity-check helpers.
-    static inline [[nodiscard]] bool failed_integrity_check() noexcept;
+    [[nodiscard]] static inline bool failed_integrity_check() noexcept;
     [[nodiscard]] bool private_integrity_check() const noexcept;
 
     //  Resize implementation after precondition validation.

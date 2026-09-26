@@ -141,7 +141,7 @@ public:
         memory::CMemoryContext* const expected_source, memory::CMemoryContext* const target) noexcept;
 
 private:
-    static [[nodiscard]] bool failed_integrity_check() noexcept;
+    [[nodiscard]] static bool failed_integrity_check() noexcept;
 };
 
 //==============================================================================
