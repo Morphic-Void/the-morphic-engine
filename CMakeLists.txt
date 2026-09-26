@@ -6,16 +6,16 @@ project(MorphicEngine LANGUAGES CXX)
 
 # The native Visual Studio solution remains the Windows build entry point.
 if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
-    message(FATAL_ERROR "This experimental CMake build currently targets Linux only.")
+    message(FATAL_ERROR "This CMake build currently targets Linux only.")
 endif()
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Debug CACHE STRING "Build configuration" FORCE)
 endif()
-if(NOT CMAKE_BUILD_TYPE STREQUAL "Debug" OR CMAKE_CONFIGURATION_TYPES)
-    message(FATAL_ERROR "The initial Linux canary supports single-configuration Debug builds only.")
+if(NOT CMAKE_BUILD_TYPE MATCHES "^(Debug|Release)$" OR CMAKE_CONFIGURATION_TYPES)
+    message(FATAL_ERROR "The Linux build supports single-configuration Debug and Release builds only.")
 endif()
 if(NOT CMAKE_CXX_COMPILER_ID MATCHES "^(GNU|Clang)$")
-    message(FATAL_ERROR "The initial Linux canary supports GCC and Clang.")
+    message(FATAL_ERROR "The Linux build supports GCC and Clang.")
 endif()
 
 find_package(Python3 3.10 REQUIRED COMPONENTS Interpreter)
@@ -46,7 +46,7 @@ morphic_sources(suite_sources external/SuiteUTF/SuiteUTF.vcxproj)
 add_library(SuiteUTF STATIC ${suite_sources})
 target_include_directories(SuiteUTF PUBLIC "${CMAKE_SOURCE_DIR}/external/SuiteUTF/include")
 target_compile_options(SuiteUTF PRIVATE -fno-exceptions)
-target_compile_definitions(SuiteUTF PRIVATE _DEBUG)
+target_compile_definitions(SuiteUTF PRIVATE "$<$<CONFIG:Debug>:_DEBUG>")
 set_target_properties(SuiteUTF PROPERTIES CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN YES)
 
 morphic_sources(policy_sources visual_studio/MorphicPolicyValidator.vcxproj)
@@ -54,7 +54,7 @@ add_executable(MorphicPolicyValidator ${policy_sources})
 target_link_libraries(MorphicPolicyValidator PRIVATE Threads::Threads)
 add_custom_target(MorphicPolicyCheck
     COMMAND "$<TARGET_FILE:MorphicPolicyValidator>" --root "${CMAKE_SOURCE_DIR}"
-        --project LinuxCanary --configuration Debug --platform x64
+        --project LinuxCI --configuration "${CMAKE_BUILD_TYPE}" --platform x64
     DEPENDS MorphicPolicyValidator
     VERBATIM
 )
@@ -71,7 +71,8 @@ foreach(target IN ITEMS MorphicHost MorphicExecutive MorphicRendering MorphicTes
     endif()
     target_include_directories(${target} PRIVATE "${CMAKE_SOURCE_DIR}" "${CMAKE_SOURCE_DIR}/core")
     target_compile_definitions(${target} PRIVATE
-        _DEBUG MV_DEVELOPMENT_BUILD=1 MV_DEBUG_DEVELOPMENT_BUILD=1 MV_COMPILED_INFORMATION_LEVEL=3)
+        "$<$<CONFIG:Debug>:_DEBUG;MV_DEVELOPMENT_BUILD=1;MV_DEBUG_DEVELOPMENT_BUILD=1;MV_COMPILED_INFORMATION_LEVEL=3>"
+        "$<$<CONFIG:Release>:MV_DEVELOPMENT_BUILD=0;MV_DEBUG_DEVELOPMENT_BUILD=0;MV_COMPILED_INFORMATION_LEVEL=1>")
     target_compile_options(${target} PRIVATE -fno-exceptions)
     target_link_libraries(${target} PRIVATE SuiteUTF Threads::Threads ${CMAKE_DL_LIBS})
     # Core is compiled separately into each executable/module, as in Visual Studio.
@@ -84,6 +85,6 @@ add_dependencies(MorphicHost MorphicExecutive MorphicRendering)
 add_dependencies(MorphicTests MorphicExecutive MorphicRendering)
 
 enable_testing()
-add_test(NAME MorphicOrdinary COMMAND MorphicTests -t1 --log-tag=linux-canary
+add_test(NAME MorphicOrdinary COMMAND MorphicTests -t1 --log-tag=linux-ci
     "--output-directory=${CMAKE_BINARY_DIR}/test-output")
 set_tests_properties(MorphicOrdinary PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}" TIMEOUT 600)

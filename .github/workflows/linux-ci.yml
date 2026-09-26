@@ -1,7 +1,7 @@
 # Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited
 # License: MIT (see LICENSE file in repository root)
 
-name: Linux canary
+name: Linux CI
 
 on:
   push:
@@ -16,14 +16,15 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  canary:
-    name: Linux Debug ${{ matrix.compiler }} (experimental)
+  build-and-test:
+    name: Linux ${{ matrix.configuration }} ${{ matrix.compiler }}
     runs-on: ubuntu-24.04
-    continue-on-error: true
     timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
+        configuration: [Debug, Release]
+        compiler: [GCC, Clang]
         include:
           - compiler: GCC
             cxx: g++
@@ -34,6 +35,7 @@ jobs:
         shell: bash
     env:
       CXX: ${{ matrix.cxx }}
+      CONFIGURATION: ${{ matrix.configuration }}
 
     steps:
       - name: Check out source and dependencies
@@ -44,35 +46,35 @@ jobs:
 
       - name: Record toolchain versions
         run: |
-          mkdir -p build/linux-canary/logs
+          mkdir -p build/linux-ci/logs
           { cmake --version; ninja --version; "$CXX" --version; python3 --version; } \
-            2>&1 | tee build/linux-canary/logs/toolchain.log
+            2>&1 | tee build/linux-ci/logs/toolchain.log
 
       - name: Validate Visual Studio source extraction
         id: manifests
         run: |
           python3 -B -m unittest discover -s tools/tests -p test_cmake_sources.py -v \
-            2>&1 | tee build/linux-canary/logs/source-tests.log
+            2>&1 | tee build/linux-ci/logs/source-tests.log
 
       - name: Configure CMake
         id: configure
         run: |
-          cmake -S . -B build/linux-canary -G Ninja -DCMAKE_BUILD_TYPE=Debug \
-            2>&1 | tee build/linux-canary/logs/configure.log
+          cmake -S . -B build/linux-ci -G Ninja -DCMAKE_BUILD_TYPE="$CONFIGURATION" \
+            2>&1 | tee build/linux-ci/logs/configure.log
 
       - name: Build engine, modules, and policy checker
         id: build
         run: |
-          cmake --build build/linux-canary --parallel 2 \
-            2>&1 | tee build/linux-canary/logs/build.log
+          cmake --build build/linux-ci --parallel 2 \
+            2>&1 | tee build/linux-ci/logs/build.log
 
       - name: Run ordinary test suites
         id: tests
         run: |
-          ctest --test-dir build/linux-canary --output-on-failure --no-tests=error \
-            2>&1 | tee build/linux-canary/logs/tests.log
+          ctest --test-dir build/linux-ci --output-on-failure --no-tests=error \
+            2>&1 | tee build/linux-ci/logs/tests.log
 
-      - name: Report canary outcome
+      - name: Report CI outcome
         if: always()
         env:
           COMPILER: ${{ matrix.compiler }}
@@ -82,8 +84,7 @@ jobs:
           TEST_RESULT: ${{ steps.tests.outcome }}
         run: |
           {
-            printf '## Linux Debug %s canary\n\n' "$COMPILER"
-            printf 'Experimental and non-blocking. Check the stage results below even if the workflow is green.\n\n'
+            printf '## Linux %s %s CI\n\n' "$CONFIGURATION" "$COMPILER"
             printf '| Stage | Result |\n| --- | --- |\n'
             printf '| Source extraction tests | %s |\n' "$MANIFEST_RESULT"
             printf '| Configure | %s |\n' "$CONFIGURE_RESULT"
@@ -92,22 +93,23 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           if [[ "$MANIFEST_RESULT" != success || "$CONFIGURE_RESULT" != success ||
                 "$BUILD_RESULT" != success || "$TEST_RESULT" != success ]]; then
-            echo '::warning::Linux canary did not pass all stages; inspect the summary and diagnostics.'
+            echo '::error::Linux CI did not pass all stages; inspect the summary and diagnostics.'
+            exit 1
           fi
 
-      - name: Upload canary diagnostics
+      - name: Upload CI diagnostics
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: linux-debug-${{ matrix.compiler }}-diagnostics
+          name: linux-${{ matrix.configuration }}-${{ matrix.compiler }}-diagnostics
           path: |
-            build/linux-canary/logs/
-            build/linux-canary/sources/
-            build/linux-canary/compile_commands.json
-            build/linux-canary/CMakeCache.txt
-            build/linux-canary/CMakeFiles/CMakeConfigureLog.yaml
-            build/linux-canary/Testing/Temporary/
-            build/linux-canary/test-output/
+            build/linux-ci/logs/
+            build/linux-ci/sources/
+            build/linux-ci/compile_commands.json
+            build/linux-ci/CMakeCache.txt
+            build/linux-ci/CMakeFiles/CMakeConfigureLog.yaml
+            build/linux-ci/Testing/Temporary/
+            build/linux-ci/test-output/
             development/logical-roots/logs/policy_validator/
           if-no-files-found: warn
           retention-days: 7

@@ -1,20 +1,20 @@
 Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited
 License: MIT (see LICENSE file in repository root)
 
-# Linux canary
+# Linux CI
 
-`.github/workflows/linux-canary.yml` runs experimental x64 Debug builds with
-GCC and Clang on Ubuntu 24.04. Pushes, pull requests, and manual dispatch
-trigger it independently of Windows CI. Each job configures CMake, builds the
+`.github/workflows/linux-ci.yml` runs four x64 builds: Debug
+and Release with GCC and Clang on Ubuntu 24.04. Pushes, pull requests, and manual
+dispatch trigger it independently of Windows CI. Each job configures CMake, builds the
 engine, modules, policy checker, and tests, then runs the ordinary `-t1` suites
 through CTest if the build succeeds.
 
-The jobs use `continue-on-error: true`: Linux failures are diagnostic and do
-not fail the overall workflow. A green workflow alone therefore does not mean
-Linux passed. Read each compiler's stage results in the run summary and its
-job logs. Failed stages produce a warning annotation, and later build/test
-stages are skipped when their prerequisites fail. Do not make these
-experimental jobs required branch checks.
+All four jobs must pass for the workflow to succeed. Build, policy, and test
+failures fail the job and workflow. Read the stage results for each compiler and
+configuration in the run summary and job logs. Later build/test stages are
+skipped when their prerequisites fail; the other matrix jobs continue to run.
+Requiring these checks before merging is controlled separately by the repository's
+branch protection or ruleset settings.
 
 Each job attempts to upload seven-day diagnostics artifacts even after a
 failure: tool versions, source-extraction test results, configure/build/test
@@ -25,8 +25,8 @@ before these files exist.
 ## Build definitions
 
 The Visual Studio solution remains the Windows build entry point. The new
-root `CMakeLists.txt` is a Linux-only, single-configuration Debug build for
-GCC and Clang. It does not replace or rewrite Visual Studio files.
+root `CMakeLists.txt` supports Linux-only, single-configuration Debug and Release
+builds for GCC and Clang. It does not replace or rewrite Visual Studio files.
 
 At configuration time, `tools/cmake_sources.py` reads each target's `.vcxproj`
 and follows shared `.vcxitems` imports. It writes source manifests into the
@@ -49,12 +49,17 @@ SuiteUTF disable exceptions; the policy checker retains exception support.
 The policy checker runs before engine target compilation and policy errors
 stop the build.
 
+Debug and Release use the same engine build definitions as their Visual Studio
+counterparts. Debug enables development checks and information level 3;
+Release disables development checks and uses information level 1. CMake's
+standard Release flags enable optimization and define `NDEBUG` for all targets.
+
 The module filenames retain `MorphicExecutive.dll` and `MorphicRendering.dll`
 because current runtime paths and the ordinary module-loading test use those
 names. Their contents are Linux ELF shared libraries loaded with `dlopen`,
 not Windows binaries. Adopting conventional `.so` runtime paths is separate
 portability work. The engine acceptance run and separate Windows DLL lifecycle
-harness are not included in this canary.
+harness are not included in this workflow.
 
 ## Running locally on Linux or WSL
 
@@ -76,8 +81,10 @@ ctest --test-dir build/linux-gcc --output-on-failure --no-tests=error
 ```
 
 For Clang, use a separate `build/linux-clang` directory and
-`-DCMAKE_CXX_COMPILER=clang++`. Run each following command only if the preceding
-command succeeded. The builds use the current working-tree files, including
+`-DCMAKE_CXX_COMPILER=clang++`. For Release, choose a separate build directory
+(for example, `build/linux-gcc-release`) and use `-DCMAKE_BUILD_TYPE=Release`.
+Run each following command only if the preceding command succeeded. The builds
+use the current working-tree files, including
 uncommitted changes. GitHub uses the revision checked out for the workflow.
 
 Build products stay in the chosen build directory. Policy reports are written
@@ -93,14 +100,22 @@ modules, policy checker, and ordinary tests pass the following local checks:
 | Platform | Compiler | Configuration | Build, policy checks, and `-t1` |
 | --- | --- | --- | --- |
 | Ubuntu 24.04 in WSL, x64 | GCC 13.3 | Debug | Passed |
+| Ubuntu 24.04 in WSL, x64 | GCC 13.3 | Release | Passed |
 | Ubuntu 24.04 in WSL, x64 | Clang 18.1 | Debug | Passed |
+| Ubuntu 24.04 in WSL, x64 | Clang 18.1 | Release | Passed |
 | Windows, x64 | MSVC v143 | Debug | Passed |
 
 Validation used a snapshot of committed engine source plus the portability
 fixes and the updated SuiteUTF revision, excluding unrelated in-progress schema
 work. The source-extraction tests and workflow syntax checks also passed during
-canary setup. Hosted Linux runner results still need to be confirmed after push;
-the canary remains experimental and non-blocking.
+CI setup. Hosted Linux runner results still need to be confirmed after push.
+
+Separate local engine acceptance runs passed for both Debug compilers and GCC
+Release. Clang Release completed the 48 sequential and 32 concurrent asset
+operations, then exited with code 1 during the filesystem image exercise on
+one run; three subsequent runs passed and exited cleanly. The cause of this
+intermittent failure remains unresolved. These engine acceptance runs are not
+part of the CI ordinary test suites above.
 
 The initial build exposed non-portable attribute placement in SuiteUTF and
 Core declarations. SuiteUTF's update addresses its compatibility issues; the
