@@ -1,0 +1,79 @@
+# Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited
+# License: MIT (see LICENSE file in repository root)
+
+name: Windows CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: Windows ${{ matrix.configuration }} ${{ matrix.platform }}
+    runs-on: windows-2022
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        configuration: [Debug, Release]
+        platform: [x64, x86]
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      BUILD_CONFIGURATION: ${{ matrix.configuration }}
+      BUILD_PLATFORM: ${{ matrix.platform }}
+
+    steps:
+      - name: Check out source and dependencies
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Set up Visual Studio 2022 MSBuild
+        uses: microsoft/setup-msbuild@6fb02220983dee41ce7ae257b6f4d8f9bf5ed4ce # v2
+        with:
+          vs-version: '[17.0,18.0)'
+          msbuild-architecture: x64
+
+      - name: Check repository line endings
+        run: ./tools/check_line_endings.ps1
+
+      - name: Build solution and run policy checks
+        run: |
+          New-Item -ItemType Directory -Path build/ci -Force | Out-Null
+          & msbuild ./MorphicEngine.sln /m /t:Build `
+            "/p:Configuration=$env:BUILD_CONFIGURATION" `
+            "/p:Platform=$env:BUILD_PLATFORM" `
+            /verbosity:minimal /bl:build/ci/msbuild.binlog `
+            '/flp:LogFile=build/ci/msbuild.log;Verbosity=normal'
+          exit $LASTEXITCODE
+
+      - name: Run ordinary test suites
+        run: |
+          # The solution calls this platform x86; its projects output to Win32.
+          $outputPlatform = if ($env:BUILD_PLATFORM -eq 'x86') { 'Win32' } else { 'x64' }
+          $testExecutable = "./build/bin/$outputPlatform/$env:BUILD_CONFIGURATION/MorphicTests.exe"
+          & $testExecutable -t1 --log-tag=ci --output-directory=build/ci/tests 2>&1 |
+            Tee-Object -FilePath build/ci/tests-console.log
+          exit $LASTEXITCODE
+
+      - name: Upload build, policy, and test diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: windows-${{ matrix.configuration }}-${{ matrix.platform }}-diagnostics
+          path: |
+            build/ci/
+            development/logical-roots/logs/policy_validator/
+          if-no-files-found: warn
+          retention-days: 7
