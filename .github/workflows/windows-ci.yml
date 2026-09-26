@@ -40,7 +40,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up Visual Studio 2022 MSBuild
-        uses: microsoft/setup-msbuild@6fb02220983dee41ce7ae257b6f4d8f9bf5ed4ce # v2
+        uses: microsoft/setup-msbuild@30375c66a4eea26614e0d39710365f22f8b0af57 # v3
         with:
           vs-version: '[17.0,18.0)'
           msbuild-architecture: x64
@@ -69,7 +69,7 @@ jobs:
 
       - name: Upload build, policy, and test diagnostics
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: windows-${{ matrix.configuration }}-${{ matrix.platform }}-diagnostics
           path: |
