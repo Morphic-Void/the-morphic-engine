@@ -96,11 +96,16 @@ between document indices, name IDs, ordinals, and schema indices. Indices do not
 carry generations and are meaningful only in their owning resolution.
 
 Keep size, offset, and stride calculations in unsigned 64-bit arithmetic, with
-checked addition, multiplication, and alignment rounding. Counts and slot ranges
-use 32-bit fields. Check every narrowing and target `size_t` limit before an
-allocation or address calculation; a wider calculation is not permission to
-construct an object larger than the compilation target can address. Capacity
-exhaustion and arithmetic overflow are errors, never wrapped or truncated values.
+checked addition, multiplication, and alignment rounding. Before narrowing,
+enforce `memory::k_byte_size_ceiling` (0x80000000 bytes, inclusive) for each
+described allocation, nested offset/member end, array product and padded extent.
+Supplied size/alignment detail is also bounded. This replaces `SIZE_MAX`-only
+acceptance. Preserve the exact 2 GiB extent with unsigned storage. Counts and
+slot ranges use 32-bit fields, as do stored offsets, sizes and schema strides;
+do not import the memory token/view's 16-bit stride limit. Allocation and address
+calculations must still fit their target types. File positions and streamed totals
+are separate future quantities. Capacity exhaustion and arithmetic overflow are
+errors, never wrapped or truncated values.
 
 The owner holds sequences of type, member, enum-label, and bit-field records.
 Relationships are indices and counted ranges, never stored pointers or references
@@ -110,20 +115,35 @@ gap flag, and category-specific facts:
 | Category | Resolved facts |
 | --- | --- |
 | Primitive | Exact primitive tag, including width and signedness. |
-| Enum | Integer storage type and ordered label/value records. |
-| Structure | Ordered member range; each member has its name, type, offset, and default description. |
+| Enum | Cached physical primitive, integer storage type and ordered label/value records. |
+| Structure | Ordered member range; each member has its name, type, offset, cached full byte size, and default description. |
 | Array | Element type, positive count, and element stride. No record per ordinary array element. |
-| Bit structure | Integer storage type and ordered fields with masks, logical types, signedness, and interpretation tags. |
+| Bit structure | Cached physical primitive, integer storage type and ordered fields with masks, logical types/primitives, signedness, and interpretation tags. |
 
 Defaults need validated typed scalar values and index-based aggregate descriptions,
 not an eagerly expanded instance-sized byte buffer. Retain source document indices
 where useful for diagnostics and later normalisation. A large defaulted array
 must not force one resolved slot per element. Gap bytes are not default values.
 
-Exact record packing, private tagged unions, auxiliary lookup tables, and scratch
-storage are implementation choices. Measure their sizes in the implementation
-review before making a particular physical slot layout part of a public contract.
-Any change to the observations or lifetime rules below requires design review.
+The accepted private type layout is 32 bytes: size, stride, related type, first
+child, count, name ID and source occurrence occupy seven 32-bit words, followed
+by category, physical primitive, log2 alignment and control bytes. The three
+flags occupy control bits 0-2 and resolution state bits 3-4. Decode alignment
+with an unsigned shift over exponents 0-31. Structures and arrays retain primitive
+`none`; enum/bit categories and storage relationships remain distinct.
+
+Members occupy 24 bytes: six 32-bit words for offset, full byte size, type,
+default index, name ID and source occurrence. Size includes owned padding.
+Labels/fields/defaults/mapping pairs remain 24/32/32/8 bytes. The field's logical
+primitive occupies existing padding, independently of the containing storage
+word. Assert the actual layouts on both ABIs. Public observations remain separate
+and wide where useful; no private layout is promised as an ABI.
+
+Internal typed ranges borrow existing first/count child spans, with no side
+table, duplicate schema or persistent pointers. Validate the schema/type at
+operation entry, then access sequential records directly without repeated parent
+decoding or observation copies. The named member/label/field lookups exercise
+this path. Preserve checked public access and all lifetime/invalidation rules.
 
 ## Read-only access
 
@@ -196,15 +216,70 @@ namespace named after the bit structure. Thus fields in different bit structures
 do not collide and a mask never requires conversion to its logical enum type.
 
 Keep generated declarations in a host-selected namespace. Validate identifier
-and keyword rules for their emitted C++17 scopes; do not silently rename schema
+and keyword rules for their emitted C++17 scopes. The initial identifier syntax
+is the ASCII subset, including applicable implementation-reserved-name checks;
+reject non-ASCII declaration and namespace identifiers with `invalid_identifier`.
+This does not restrict the general document model's Unicode text and does not
+introduce a permitted-name allow-list. Do not transliterate or silently rename schema
 symbols. A type cannot redeclare a built-in schema spelling. The generator must
 avoid helper-name collisions rather than imposing a new user-name allow-list.
 Use integer literals that preserve signed minima and unsigned 64-bit maxima.
 
-Match the schema's size-based atomic alignment explicitly where the compiler's
-default member alignment differs. Compiler validation is required; no packing
-pragma or changed schema layout may hide a mismatch. A target that cannot express
-the layout must be reported as unsupported. Later explicit-layout review output
+### Numeric and type spelling
+
+Generated C++ uses the known integer value to choose notation: ordinary values
+in the inclusive range -65535 through +65535 use decimal, and values outside
+that range use hexadecimal with a `0x` prefix. Ordinary negative values retain
+their minus sign. This differs from schema-document output, whose ordinary
+32-bit and 64-bit values default to hexadecimal according to their declared
+schema type; see the design's numeric-metadata rules.
+
+Unsigned C++ initialisers retain an unsigned suffix, using the simplest suitable
+literal spelling rather than unconditional `ULL` literals and casts. Signed
+initialisers omit the unsigned suffix when directly representable. Add suffixes
+or expressions only where required for correct literal typing, particularly
+negative hexadecimal values and signed minima. Array extents are structural
+quantities rather than typed initialisers and do not need decorative suffixes.
+
+Flags and masks always use hexadecimal, padded to the full storage width (2, 4,
+8, or 16 hexadecimal digits for 8, 16, 32, or 64 bits). An unsigned 32-bit mask
+with value one is `0x00000001u`. A signed mask whose high storage bit is clear
+uses a direct signed-representable literal without `u`. If that bit is set, keep
+the visible full-width bit pattern and explicitly cast it to the signed storage
+type, for example `static_cast<std::int32_t>(0x80000000u)`.
+
+Use `std::uint8_t` and the other `std::` type names without routine leading
+global `::` qualification. Preserve qualification where an actual name collision
+requires it; do not reject otherwise valid schema names to simplify generation.
+Types declared in the generated namespace, including `b8` and array element
+types, use unqualified local names. If any member in a structure shares the
+required type or alias name, qualify references to that name within the structure
+with the generated namespace. Consider the complete member list, including
+members declared later, to preserve portable C++17 name lookup. Keep
+`::fp16data_t` for the global half type.
+
+### Declaration spacing
+
+Consecutive related single-line declarations form one group. Each structure,
+enum, or namespace forms its own group. Separate groups with exactly one blank
+line; adjacent groups share that separator rather than each adding their own.
+
+A namespace has one blank line immediately inside each brace unless its contents
+are just one group of related single-line declarations. A namespace containing
+structures, enums, or mixed declaration kinds therefore has inner padding,
+including before an initial alias group. Determine this from its complete
+contents before emitting the first declaration. A namespace containing only a
+group of mask constants or only a group of aliases remains compact inside.
+Namespace outer spacing follows the same group rule as structures and enums.
+
+### Layout fidelity
+
+For the initial natural-layout delivery, use implicit native C++ alignment for
+structures and members without unconditional `alignas` annotations. Compiler
+validation must establish fidelity to the schema's resolved layout for each
+target ABI; no packing pragma or changed schema layout may hide a mismatch.
+Targets whose native layout differs remain unsupported pending separate handling.
+Explicit layout remains deferred. Later explicit-layout review output
 may include padding members, but must distinguish approximate output from a
 layout verified for the target.
 
@@ -248,10 +323,20 @@ The following are future work boundaries, not permission to implement them now:
 | Instance construction | Apply the design's baked-input, caller-owned memory, partial-output failure, local-default, complete-bulk-record, and named-bitfield rules; define concrete function signatures and bit codec quantisation. |
 | JSON output and normalisation | Use existing strict/Morphic writer options; new schema documents reuse resolved facts. Choose instance named/positional output and omission options. |
 | Bulk remapping | Apply the design's named-type matching, overlap rejection, and padding rules; define selected nested member/array addressing, checked buffer bounds, and execution-time extents/counts. |
-| Binary and CSV | Byte order and schema association, counts/strides, padding transfer, direct-view prerequisites, CSV paths/columns/quoting, and whether review CSV is also input. |
+| Binary | Byte order and schema association, counts/strides, padding transfer, contiguous copying for matching physical layout, and direct-view prerequisites. |
 | Source ingestion | Exact-file ordered manifest, relative-path base, supported declarations/aliases, source ABI evidence, and diagnostics for unsupported constructs. |
 
 Strings, variable-sized fields, pointers, handles, blobs, unions, packed layouts,
 independent array strides, editor presentation manifests, and generated C output
 are outside the current supported model. Adding one requires a concrete use case
 and its own design; they are not missing mandatory first-stage functionality.
+
+Future operations read/convert individual named document instances into caller
+storage through the schema, or, given matching physical representation, copy
+binary instances contiguously after buffer bounds checks. Bulk data is analogous.
+Definitions and instances
+may share or use separate documents; document-local IDs remain local. There is
+no application-wide population wrapper. CSV is no longer a planned core encoding;
+a later review export may be considered independently. None of these future
+boundaries authorises instance construction, I/O, quantisation or remap work in
+the record-layout pass.

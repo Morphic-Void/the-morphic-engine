@@ -64,6 +64,9 @@
     <Filter Include="Core\include\platform\threading">
       <UniqueIdentifier>{1e933135-4d4a-62a4-20e2-dfb904ac4d90}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Core\include\schema">
+      <UniqueIdentifier>{7b2dde74-a370-4a7f-b328-423905add558}</UniqueIdentifier>
+    </Filter>
     <Filter Include="Core\include\system">
       <UniqueIdentifier>{49fcf4fe-c368-53e1-74e2-e8413def862a}</UniqueIdentifier>
     </Filter>
@@ -126,6 +129,9 @@
     </Filter>
     <Filter Include="Core\src\platform\threading">
       <UniqueIdentifier>{dfd48378-0088-07e9-ca0e-dc3d3d314f7d}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Core\src\schema">
+      <UniqueIdentifier>{b0d0c1d4-d3b1-4b3d-b6e1-2169ed69c7a7}</UniqueIdentifier>
     </Filter>
     <Filter Include="Core\src\system">
       <UniqueIdentifier>{3c6ddc2f-3cd8-ed4a-fe58-d5a01a96f631}</UniqueIdentifier>
@@ -832,6 +838,9 @@
     <None Include="$(MSBuildThisFileDirectory)..\docs\schema\README.md">
       <Filter>Docs\schema</Filter>
     </None>
+    <None Include="$(MSBuildThisFileDirectory)..\docs\schema\runtime-api.md">
+      <Filter>Docs\schema</Filter>
+    </None>
     <None Include="$(MSBuildThisFileDirectory)..\docs\schema\implementation-contract.md">
       <Filter>Docs\schema</Filter>
     </None>
@@ -852,5 +861,14 @@
     <Text Include="..\LICENSE.txt">
       <Filter>Docs</Filter>
     </Text>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\resolved_schema.hpp">
+      <Filter>Core\include\schema</Filter>
+    </ClInclude>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\resolved_schema.cpp">
+      <Filter>Core\src\schema</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\schema_declarations.cpp">
+      <Filter>Core\src\schema</Filter>
+    </ClCompile>
   </ItemGroup>
 </Project>

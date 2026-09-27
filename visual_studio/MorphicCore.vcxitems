@@ -42,6 +42,7 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\data_model\document_structure.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\data_model\document_text_lex.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\data_model\document_writer.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\resolved_schema.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\data_model\live_document.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\data_model\live_document_node.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\debug\event_arguments.hpp" />
@@ -112,6 +113,8 @@
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\data_model\document_structure.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\data_model\document_text_lex.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\data_model\document_writer.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\schema_declarations.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\resolved_schema.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\data_model\live_document.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\debug\event_arguments.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\debug\log_path.cpp" />
@@ -221,6 +224,7 @@
     <None Include="$(MSBuildThisFileDirectory)..\docs\project\completed_milestones.md" />
     <None Include="$(MSBuildThisFileDirectory)..\docs\project\future_work_notes.md" />
     <None Include="$(MSBuildThisFileDirectory)..\docs\schema\README.md" />
+    <None Include="$(MSBuildThisFileDirectory)..\docs\schema\runtime-api.md" />
     <None Include="$(MSBuildThisFileDirectory)..\docs\schema\implementation-contract.md" />
     <None Include="$(MSBuildThisFileDirectory)..\docs\schema\schema-example-notes.md" />
     <None Include="$(MSBuildThisFileDirectory)..\docs\schema\design.md" />

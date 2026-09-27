@@ -19,6 +19,15 @@ The file uses Morphic JSON numeric forms: explicit `+` on non-negative signed
 enum values, and numeric `0x` masks. These are not quoted strings. A strict
 JSON parser will reject those spellings; their use is intentional.
 
+Ordinary 8/16-bit integers use decimal; ordinary 32/64-bit integers use hexadecimal
+according to their declared type. Thus the `u32` tag default is `0x1`, whereas the
+`u8` alpha default is `255`. Masks use the full containing storage width, such as
+`0x0001` for `SurfaceFlags` and `0x000003FF` for `ColourRgba10A2`, without C++
+suffixes. Counts, offsets, sizes and alignments use decimal through 65535 and
+hexadecimal above it. Signed-domain `+` and `-` signs remain intact. Generated
+C++ declarations instead choose ordinary integer notation by value; see the
+[runtime API](runtime-api.md#c17-declarations-and-validation).
+
 ## Grammar illustrated by the sample
 
 | Construct | Spelling and meaning |
@@ -146,7 +155,7 @@ There are no format/version headers, bit offsets/widths, or gap-fill directives.
 The grammar review accepted category objects beneath `types`, the `default`
 spelling, bit-member type/interpretation separation, and the illustrated `data`
 shape. Bulk omission is now explicitly rejected. Normalised codecs and
-CSV/binary payload attachment belong to their later stages. The `offset` and structure `detail`
+binary payload attachment belong to their later stages. The `offset` and structure `detail`
 rules are recorded in [the design](design.md#explicit-offsets-and-structure-details).
 Structure size remains computed from members and alignment, rather than an
 authored size or stride override.
@@ -189,7 +198,11 @@ covers more than the first delivery.
 
 For tooling previews, use the existing standard-JSON writer option. For the
 numeric extensions here it emits equivalent values without explicit `+` signs
-or hexadecimal notation; Morphic output retains those presentation hints.
+or hexadecimal notation. Morphic output uses the existing numeric metadata to
+retain signed-domain and notation intent, but it does not preserve leading-zero
+padding. For example, a generic round trip can write `0x0001` as `0x1`; it is not
+a schema normaliser. Future schema-document output must use the document metadata
+and writer path, with full-width mask display addressed in that later work.
 
 ## Review checks performed
 

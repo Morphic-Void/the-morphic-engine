@@ -5,6 +5,10 @@ Start with [the design](design.md) for schema semantics, then inspect
 The [implementation contract](implementation-contract.md) defines the initial
 delivery, runtime observations, checks, and boundaries for subsequent work.
 
+The initial runtime and declaration generator are documented in
+[the schema API guide](runtime-api.md), including defaults, lifecycle,
+occurrence-mapping coverage and separate compiler layout validation.
+
 [The header survey](header-survey.md) is supporting research for the later
 source-ingestion stage. It does not expand current delivery scope.
 

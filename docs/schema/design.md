@@ -21,13 +21,15 @@ layout is deferred; bit structures are included in the first stage.
 
 Schema definitions and instance data are distinct.  A definition declares the
 meaning, layout, size, alignment, and members of a type.  An instance supplies
-values of a declared type.  Bulk instance data may be represented as binary or
-CSV, with JSON used for definitions, metadata, and ordinary small instances.
+values of a declared type. Bulk instance data may be represented as binary or
+document values, with JSON used for definitions, metadata, and ordinary small
+instances. CSV is not a planned core encoding; a future review export may be
+considered separately.
 
 The canonical input to schema operations is a resolved **schema
 configuration** (also described as the schema catalogue).  It contains type
 definitions and their default metadata, not ordinary instance data.  Once validated and resolved, it is the basis
-for instance validation, physical codecs, CSV projection, remap validation and
+for instance validation, physical codecs, remap validation and
 execution, direct-copy remap setup, and structure-only code generation.
 
 [`schema-example.json`](schema-example.json) expands the previously accepted
@@ -96,12 +98,51 @@ does not permit non-normal output from schema generation.
 Declaration names remain identifiers into the backing document's name table.
 Descriptive vocabulary and type-reference strings become explicit runtime
 types and descriptors rather than text reinterpreted during each operation.
-The intended representation uses variable-length sequences of slots, with
-member counts determined by the described structures.  Fixed record types
-and common access operations will be defined without exposing the entire
-storage arrangement as a fixed public structure. The implementation contract
-defines the required observations and index relationships; exact private
-record packing is chosen and reviewed during implementation.
+The owner uses variable-length sequences of fixed private records, with member
+counts determined by the described structures. Public observations are distinct
+from private storage and may expose wider quantities.
+
+The accepted private type record is 32 bytes: seven unsigned 32-bit words hold
+size, stride, related type, first child, count, name ID and source occurrence;
+four bytes hold semantic category, physical primitive, alignment exponent and
+packed flags/resolution state. The three flags occupy bits 0-2 and resolution
+state bits 3-4. Alignment is decoded as an unsigned power of two; exponent zero
+means alignment one, and supported exponents are 0 through 31. Natural-layout
+rules still determine the actual alignment; this encoding does not enable
+explicit layout increases.
+
+Primitive, enum and bit-structure records directly supply their physical
+primitive. Enums and bit structures retain their semantic category, storage
+reference and ordered children. Structures and arrays have whole-object
+primitive `none`; their member or element descriptions supply the next level.
+Bit fields directly supply their logical primitive, including enum storage,
+separately from the containing word's physical primitive.
+
+The 24-byte member record stores unsigned 32-bit offset, full byte size, type,
+default index, name ID and source occurrence. Cached size includes padding
+owned by the member's type. Labels, fields, defaults and mapping pairs remain
+24, 32, 32 and 8 bytes respectively. These layouts are implementation facts,
+not a public ABI or serialised format; no extra table or flattened schema is
+introduced.
+
+Layout arithmetic remains checked unsigned 64-bit arithmetic. An individual
+described allocation, including nested member ends, array products and tail
+padding, must fit `memory::k_byte_size_ceiling` (0x80000000 bytes, inclusive)
+before narrowing. This replaces acceptance based only on the target `size_t`
+range. The exact 2 GiB extent requires unsigned storage. Schema strides remain
+32-bit; the memory token/view's 16-bit stride field imposes no schema limit.
+Counts, document IDs and schema handles retain their existing widths. Whole-file
+positions and streamed totals are a separate future domain, not in-allocation
+offsets subject to this representation.
+
+Internal operations validate their schema/type once and use transient typed
+first/count ranges over the existing member, label or field vectors. Sequential
+access borrows the records directly without repeated parent decoding or copying
+public observations. Related type records can be reused while processing a
+member or repeated array elements. These ranges allocate no persistent side
+table and store no pointers into allocations. Clear, move, re-resolution and
+owner destruction invalidate transient access. Checked public inspection and
+future instance/buffer validation remain required.
 
 ### Resolved-schema ownership and access
 
@@ -186,10 +227,18 @@ access interface.
 **Resolved data** is instance data converted into the physical representation
 described by the resolved schema.  It is distinct from the schema's runtime
 machinery and will frequently be serialised.  Data formats include entirely
-binary blobs as the principal bulk-data path, CSV for manual review, and, in
+binary blobs as the principal bulk-data path and, in
 limited cases, document-form instances distributed as baked documents or JSON
 text.  Baking a document alone does not make it resolved schema or resolved
 data.
+
+Future instance operations select an individual named instance and read it into
+caller-supplied storage through the resolved schema. Document values require
+conversion and placement; given matching physical representation, binary values
+use a contiguous copy after buffer bounds checks. Bulk data
+follows the same distinction. Definitions and instances may share a document
+or use separate documents. No application-wide population wrapper is planned.
+These are operation boundaries, not implemented instance or I/O APIs.
 
 The system will also generate simple POD C/C++ data-structure declarations.
 Generation does not produce per-structure operational code: no serialisers,
@@ -361,7 +410,7 @@ Bulk records require every member explicitly, recursively through nested records
 and bit structures. Positional structures and fixed arrays must have their full
 declared lengths here; short-input/default completion belongs to `instances`,
 not `data`. Gaps are not members and still have no implicit fill policy.
-CSV/binary payload association is a later encoding contract. This does not extend
+Binary payload association is a later encoding contract. This does not extend
 the first implementation stage to
 instance construction or bulk-data processing.
 
@@ -369,7 +418,12 @@ instance construction or bulk-data processing.
 
 Initially no mandatory document headers (such as `format` or `version`),
 document versioning, or permitted-name whitelist are required.
-Declaration names that are not valid C++ identifiers are hard errors, and
+Initially declaration names use the ASCII subset of C++17 identifiers, with
+applicable keyword and implementation-reserved-identifier checks. Non-ASCII
+declaration names are rejected, not transliterated or renamed. This is a syntax
+restriction, not a permitted-name allow-list; general document text remains
+Unicode-capable. Generated namespace identifiers use the same initial subset.
+Declaration names outside these rules are hard errors, and
 unknown descriptor/document properties are hard errors. Vocabulary properties
 such as `default` are schema syntax, not C++ declaration names. This does not restrict
 permitted numeric spellings.  Type descriptors still require enough
@@ -405,7 +459,7 @@ its type definitions, even when packaged in the same baked document:
   proposed definitions or validate existing ones;
 - code-generation manifests select resolved configuration types and output
   options; and
-- instance, descriptor, CSV, and remap documents consume the resolved
+- instance, descriptor, and remap documents consume the resolved
   configuration without redefining its types.
 
 Source ingestion has two non-interchangeable modes.  **Import** creates a
@@ -542,14 +596,22 @@ Signed integers carry signed-domain metadata.  In text, non-negative signed
 integers use an explicit `+` (including `+0`), while negative integers use `-`.
 Unsigned integers have no sign.  Bitfield masks and similar bit-oriented values
 use hexadecimal notation with the `0x` prefix rather than the alternate `#`
-prefix.
+prefix. Masks use the full width of their storage type, including leading zeroes:
+two hexadecimal digits for 8-bit storage, four for 16-bit, eight for 32-bit, and
+sixteen for 64-bit storage. This is the containing storage width, not the width
+of the selected field. Document numbers have no C++ literal suffixes.
 
-The provisional output preference is also hexadecimal notation for unsigned
-values whose schema type is wider than `std::uint16_t`, initially `u32` and
-`u64`.  This refers to the declared schema type, not the smallest width of the
-particular value stored by the document model.  Numeric notation does not
-itself select a schema type or change its physical width.  These conventions
-govern construction and normalisation, not input spelling restrictions.
+Ordinary schema values of types `i8`, `u8`, `i16`, and `u16` use decimal notation.
+Values of types `i32`, `u32`, `i64`, and `u64` use hexadecimal notation by default,
+even when the current value is small. This refers to the declared schema type,
+not the smallest width of the particular value or the document model's internal
+numeric storage. Signed hexadecimal values retain the signed-domain sign, such
+as `+0x1` or `-0x10000`; mask notation takes precedence over ordinary value rules.
+Structural quantities such as counts, offsets, sizes, and alignments use decimal
+within the inclusive range -65535 through +65535, and hexadecimal outside it.
+Numeric notation does not itself select a schema type or change its physical
+width. These conventions govern construction and normalisation, not input
+spelling restrictions.
 Input accepts valid JSON and supported Morphic extensions under the document
 parser's acceptance policy without requiring canonical schema notation.
 For example, a decimal mask is not rejected merely for lacking a `0x` prefix,
@@ -558,6 +620,17 @@ schema field if its value is representable in that field.  Schema processing
 validates the value against its expected type before normalising its metadata.
 Canonical document metadata is emitted when constructing a new document;
 resolution does not rewrite the immutable baked input in place.
+
+Schema-document representation uses the existing `CIntegerMetadata` domain,
+notation and prefix flags and the document writer. It must not reparse formatted
+numeric strings or introduce a separate schema numeric formatter. The metadata's
+width remains the document model's smallest valid width in the selected domain;
+the declared schema type selects notation and must not be encoded by overriding
+that width. Generated C++ source has its own literal spelling requirements.
+The generic document writer does not retain leading-zero display padding, so a
+generic Morphic round trip alone does not establish the full-width mask display
+required of future schema-document output. Schema normalisation/output APIs and
+any handling needed for that display requirement remain deferred.
 
 Permissive spelling does not permit invalid schema definitions or instance
 values.  Malformed syntax, invalid layouts, and values incompatible with their
@@ -838,8 +911,8 @@ The resolved description records whether any gaps exist, without separate
 categories for unused bitfield bits and alignment padding.  The indication
 covers internal and tail padding and gaps contained in nested member types
 or array elements, so an enclosing structure exposes whether any of its
-storage contains gaps.  Exact flag placement in the resolved records remains
-an implementation choice.
+storage contains gaps. The flag occupies bit zero of the private type record's
+control byte.
 
 Zeroing unused storage is an external policy.  The schema exposes gap presence
 so a caller can decide whether to zero a structure or buffer; it does not
@@ -942,7 +1015,7 @@ completion. An object identifies values by member name and is also the form
 used for partial updates.
 
 Small sequences of complete instances may be represented as a JSON array, but
-large collections are normally expected to use a CSV or binary payload with a
+large collections are normally expected to use a binary payload with a
 separate schema-aware descriptor.
 
 ## Floating-point special spellings
@@ -1157,10 +1230,11 @@ using schema operations; constructed data has the lifetime of its own storage.
 
 ### Representations and bulk copies
 
-JSON, CSV, and binary are encodings of the same typed instance model, not
-separate data models.  CSV provides a predictable flattened projection of
-arrays of records; binary provides the exact physical records, offsets, stride,
-and alignment required by the schema.
+Document values and binary are encodings of the same typed instance model.
+Document reads convert values into caller storage through the schema; binary
+reads copy contiguous physical records with matching offsets, stride and
+representation. A future review CSV export may be considered separately; it
+is not a core encoding or planned input path.
 
 Structural remaps are directional construction rules.  They may rename or
 reorder members, select new offsets, translate enum values, apply defaults,
@@ -1246,11 +1320,12 @@ bits, padding, or floating-point payloads matter.
 
 The [implementation contract](implementation-contract.md) records the initial
 scope, runtime/access contract, limits, diagnostics, generator behaviour, and
-acceptance checks. Exact private slot packing and the resulting occurrence-map
-coverage are implementation-review deliverables, not unresolved authoring rules.
+acceptance checks. Accepted private record layouts are described above and
+verified against the actual implementation on x86/x64. Occurrence coverage is
+documented in the runtime API; neither is an unresolved authoring rule.
 
 Later stages must define their external formats before implementation: binary
-byte order and schema association; CSV paths, columns, and input policy; the
+byte order and schema association; the
 ingestion manifest and supported source declarations; and normalised-bitfield
 codec rounding. These contracts are deliberately not invented by the first
 resolver delivery. They are listed with their stage in the implementation contract.

@@ -17,6 +17,7 @@
 #include "tests/test_suites/CMemoryView_test_suite.hpp"
 #include "tests/test_suites/DebugService_test_suite.hpp"
 #include "tests/test_suites/DocumentWriter_test_suite.hpp"
+#include "tests/test_suites/Schema_test_suite.hpp"
 #include "tests/test_suites/DocumentStructure_test_suite.hpp"
 #include "tests/test_suites/DocumentParser_test_suite.hpp"
 #include "tests/test_suites/ErasedPod_test_suite.hpp"
@@ -239,6 +240,7 @@ int run_tests(ETestRunMode mode)
     cumulative_result += run_isolated_suite("BakedDocument", &run_baked_document_tests);
     cumulative_result += run_isolated_suite("BakedDocumentTransfer", &run_baked_document_transfer_tests);
     cumulative_result += run_isolated_suite("DocumentWriter", &run_document_writer_tests);
+    cumulative_result += run_isolated_suite("Schema", &run_schema_tests);
     cumulative_result += run_isolated_suite("DocumentStructure", &run_document_structure_tests);
     cumulative_result += run_isolated_suite("DocumentParser", &run_document_parser_tests);
     cumulative_result += run_isolated_suite("CMemoryToken", &run_memory_token_tests);

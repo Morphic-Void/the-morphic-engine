@@ -77,7 +77,7 @@
       "InternalRecord": {
         "detail": { "alignment": 16, "size": 32, "internal": true },
         "members": [
-          { "tag": { "type": "u32", "offset": 0, "default": 0x00000001 } },
+          { "tag": { "type": "u32", "offset": 0, "default": 0x1 } },
           { "position": { "type": "Vector4", "offset": 16 } }
         ]
       },
