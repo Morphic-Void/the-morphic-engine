@@ -195,6 +195,7 @@ bool CGenerator::literal(const SScalar& value) noexcept
             {
                 return false;
             }
+
             //  Unsuffixed hex in this range selects unsigned int on our targets.
             //  Force a signed operand before negation, including the i32 minimum.
             if ((magnitude > INT32_MAX) && (magnitude <= UINT32_MAX))
