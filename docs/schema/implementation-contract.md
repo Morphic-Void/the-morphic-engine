@@ -7,13 +7,63 @@ Date:   25 Sep 2026
 
 # Schema implementation contract
 
-This document turns the [design](design.md) into bounded implementation work.
-The design owns schema semantics; this file owns delivery boundaries, runtime
-observations, and acceptance checks. It replaces the implementation questions
-and test suggestions formerly mixed into the design discussion agenda and audit.
-It does not authorise starting an implementing task.
+This document owns delivery scope, acceptance checks, coordination and progress.
+[design.md](design.md) owns agreed semantics; [runtime-api.md](runtime-api.md)
+describes the implemented schema API. The initial-delivery sections describe the
+existing baked-only resolver. The [staged implementation plan](#staged-implementation-plan)
+covers its live/baked refactor and additions, whose private layouts and public
+interfaces may change. A written plan alone does not authorise implementation.
+
+## Delivery status
+
+The original schema resolver/generator baseline is commit `5313c85`, completed
+27 September. It is distinct from integration stage 1 below. Private record-layout
+decisions accepted on 27 September are reflected in the runtime records and limits
+contract and measured in the API guide; no separate proposal remains active.
+
+Integration stage 1 was dispatched on 29 September to implementation chat
+`01a0ecd6-4b36-7c72-8258-f9570e84a89e` (Mutable baked integer-width updates).
+Its implementation, tests and existing data-model API documentation are in scope;
+schema changes are not. Coordinator review passed on 29 September with no
+blocking findings. The user authorised its separate commit after making trivial
+whitespace-only changes: `d92dddd` (Allow baked integer mutations to update canonical width).
+
+Accepted changes are limited to `core/data_model/baked_document.cpp`,
+`core/data_model/baked_document.hpp`, `tests/test_suites/BakedDocument_test_suite.cpp`
+and `docs/data_model/baked_document_format.md`. Coordinator inspection confirmed
+domain checks before mutation, value-derived width, preservation of other flags,
+boundary/rejection coverage and the checked-view/promote/rebake regression.
+The implementation chat's Debug x64 build and ordinary test run completed with
+exit code zero: 2,793 BakedDocument assertions and all other ordinary suites passed.
+The recorded command was
+`.\tools\invoke_sandbox_build.ps1 -RunTests -TestMode 1 -LogTag=mutable-baked-width-stage1`;
+actual runner output used `development/logical-roots/test-logs/*.sandbox.p20572.log`.
+Line-ending/policy checks and `git diff --check` passed. The coordinator inspected
+the actual build/test output and did not repeat the passing matrix. The user's
+whitespace changes were preserved without retesting, as instructed. Only the four
+stage 1 files were included in that commit. The consolidated schema documentation
+forms a separate baseline for the upcoming work; schema integration has not begun.
+
+Recorded validation for the original schema baseline: Debug x64 build and ordinary `-t1`
+passed, including 1262 schema checks. Actual private layouts were asserted on
+x86/x64, and five generated fixture translation units compiled on both targets
+under C++17 with warnings as errors. The final named-union pass left generated
+headers unchanged. Ignored logs include `build/schema-scalar-union-build64.txt`,
+`build/schema-scalar-union-tests64.txt`, `build/schema-scalar-union-layout.txt`,
+and `build/schema-record-layout-generated.txt`. Logs may not exist in another
+checkout; they are evidence pointers, not inputs required to resume.
+
+The next delivery is integration stage 2: review concrete common-query,
+role-handle, resolver-adapter and ownership-result APIs before implementation.
+The semantic gap review is complete for this sequence. Source ingestion remains
+a later design stage; [header-survey.md](header-survey.md) retains its research.
 
 ## Initial delivery
+
+Completed in commit `5313c85` on 27 September 2026. This section describes that
+implemented boundary. The 28 September data-model revision changes subsequent
+deliveries, not the capabilities claimed for this baseline; see the
+[staged implementation plan](#staged-implementation-plan).
 
 Resolve and inspect every currently described type category from one baked
 definitions document, validate defaults, and generate C++17 declarations for
@@ -279,11 +329,11 @@ structures and members without unconditional `alignas` annotations. Compiler
 validation must establish fidelity to the schema's resolved layout for each
 target ABI; no packing pragma or changed schema layout may hide a mismatch.
 Targets whose native layout differs remain unsupported pending separate handling.
-Explicit layout remains deferred. Later explicit-layout review output
-may include padding members, but must distinguish approximate output from a
-layout verified for the target.
+Explicit layout remains unimplemented. Its later contract requires faithful C++
+with padding under selected compiler settings, alignment at most 128, and rejection
+of layouts that cannot meet fidelity. The review-only fallback is removed.
 
-## Acceptance checks and task handoff
+## Baseline acceptance checks
 
 Use the repository's test/build conventions. Tests should exercise outcomes and
 failure boundaries rather than mirror private record organisation:
@@ -308,35 +358,170 @@ failure boundaries rather than mirror private record organisation:
 - Exercise supported repository target configurations in the implementation
   validation plan; verify both 32-bit and 64-bit layout where supported.
 
-Implementing tasks use Astra with High reasoning, work directly in the shared
-main checkout, and run serially. The coordinator supplies a bounded brief and
-reviews each result before dispatching the next. Commit only on user instruction
-after coordinator review; pushes remain the user's responsibility.
+## Working arrangement
 
-## Subsequent deliveries
+- Repository: `D:\TheMorphicEngine`, shared `main` checkout. Work serially;
+  do not automatically create a branch or worktree.
+- Implementation chats use Astra with High reasoning. Create a separate chat
+  only when requested and give it a bounded brief with acceptance criteria.
+- Existing implementing chat: **Schema stage 1**, thread
+  `01a0d8ed-9e3e-71a2-91b7-2346a0791287`, host `local`. Retain it as an advisory
+  query resource for the follow-on coordinator, idle between questions. The user
+  authorises consultation about stage 1 implementation choices, code locations,
+  conventions and validation. Check current status before messaging it.
+- Advisory answers explain implementation history; current documentation and code
+  remain authoritative. The stage 1 chat's earlier future-work assumptions predate
+  this pivot. Route any proposed edits through the active coordinator and do not
+  let advisory queries start implementation or concurrent shared-checkout edits.
+- Authoritative coordinator: this requirements/coordination chat,
+  `01a0e758-4731-73d2-8c97-fd0eacf7aec1`, host `local`. Substantive design changes
+  return here; implementation chats do not independently redefine requirements.
+- Originating coordinator thread: `01a0d361-ff3e-70c0-9bd8-4b51b7fc8b5e`.
+  Thread titles can change; use IDs for coordination.
+- Follow `AGENTS.md`. Commits require explicit user instruction and coordinator
+  review. The user performs pushes. Preserve unrelated and manual changes.
+- Discuss substantive design choices. A consolidation plan does not authorise
+  future implementation. Avoid repeating passing test matrices without a new
+  change or unresolved concern.
 
-The following are future work boundaries, not permission to implement them now:
+Code review must preserve the established style: named namespaces rather than
+anonymous namespaces; static linkage justified separately; const on unmodified
+parameters in declarations and definitions; multiline method bodies outside the
+class; readable multiline control flow; restrained `auto`; normal file headers.
+Visual Studio `*.vcxitems` and `*.filters` retain their original encoding/BOM,
+CRLF and optional missing final newline. Other text uses LF and a final newline.
 
-| Delivery | Contract to complete when scheduled |
+## Existing implementation to reuse or revise
+
+| Evidence | Implication |
 | --- | --- |
-| Explicit layout | Offset validation, supported increased alignments, non-monotonic member placement, padding declarations, and target fidelity checks. |
-| Instance construction | Apply the design's baked-input, caller-owned memory, partial-output failure, local-default, complete-bulk-record, and named-bitfield rules; define concrete function signatures and bit codec quantisation. |
-| JSON output and normalisation | Use existing strict/Morphic writer options; new schema documents reuse resolved facts. Choose instance named/positional output and omission options. |
-| Bulk remapping | Apply the design's named-type matching, overlap rejection, and padding rules; define selected nested member/array addressing, checked buffer bounds, and execution-time extents/counts. |
-| Binary | Byte order and schema association, counts/strides, padding transfer, contiguous copying for matching physical layout, and direct-view prerequisites. |
-| Source ingestion | Exact-file ordered manifest, relative-path base, supported declarations/aliases, source ABI evidence, and diagnostics for unsupported constructs. |
+| [live_document.hpp](../../core/data_model/live_document.hpp), [baked_document.hpp](../../core/data_model/baked_document.hpp) | Already expose similar value/tree queries. Adapt those APIs without creating a second data model. |
+| [resolved_schema.cpp](../../core/schema/resolved_schema.cpp), [resolved_schema.hpp](../../core/schema/resolved_schema.hpp) | Resolver algorithm is already a helper, but input binding, observations, diagnostics and occurrence mapping use baked identities. Refactor the binding/result surface while retaining validation and layout algorithms. |
+| [data_model_types.hpp](../../core/data_model/data_model_types.hpp) | Live keys are 64-bit, baked indices 32-bit. Role handles must represent both without truncation; equivalent method names do not make raw identities interchangeable. |
+| [document_translation.hpp](../../core/data_model/document_translation.hpp), [document_promotion.cpp](../../core/data_model/document_promotion.cpp) | Existing non-consuming promote/bake fit the copy lifecycle. New schema resolution can bind to the promoted document directly. |
+| [ByteBuffers.hpp](../../core/containers/ByteBuffers.hpp) | Reuse framework copying, allocation, alignment and ownership support. Demotion's document-order packing must rewrite locators in its new output. |
+| [schema_declarations.cpp](../../core/schema/schema_declarations.cpp) | Generator uses baked name access and diagnostic locations. Refactor those reads and preserve established spelling/layout checks. |
+| [baked_document.cpp](../../core/data_model/baked_document.cpp), [BakedDocument_test_suite.cpp](../../tests/test_suites/BakedDocument_test_suite.cpp) | Stage 1 updates canonical integer width in both directions; reviewed, validated and committed separately as `d92dddd`. Reserved locator nodes can use this prerequisite once schema loaders are implemented. |
+| [Schema_test_suite.cpp](../../tests/test_suites/Schema_test_suite.cpp) | Reuse fixtures and compiler checks, revising expectations only where later decisions change semantics. The full schema sample predates locators and is not a new-loader acceptance fixture. |
 
-Strings, variable-sized fields, pointers, handles, blobs, unions, packed layouts,
-independent array strides, editor presentation manifests, and generated C output
-are outside the current supported model. Adding one requires a concrete use case
-and its own design; they are not missing mandatory first-stage functionality.
+## Staged implementation plan
 
-Future operations read/convert individual named document instances into caller
-storage through the schema, or, given matching physical representation, copy
-binary instances contiguously after buffer bounds checks. Bulk data is analogous.
-Definitions and instances
-may share or use separate documents; document-local IDs remain local. There is
-no application-wide population wrapper. CSV is no longer a planned core encoding;
-a later review export may be considered independently. None of these future
-boundaries authorises instance construction, I/O, quantisation or remap work in
-the record-layout pass.
+Stages 2-8 are planned. Stage 1 is complete and committed independently as
+`d92dddd`; its code, tests and data-model documentation exclude schema planning.
+Implementing chats receive bounded briefs from the coordinator and return changes
+and validation evidence for review. This consolidated plan is the documentation
+baseline for the upcoming schema integration.
+
+### 1. Mutable baked integer metadata — completed
+
+Change signed/unsigned integer mutation to recompute canonical width from the
+replacement value, preserving domain, notation, prefix and structural flags.
+Keep existing fixed-size payload storage and binary64 float behaviour. Update
+the existing data-model API documentation with the implementation.
+
+Completion evidence: signed and unsigned widening/narrowing across width
+boundaries, including unsigned 0xffffffff to zero; signedness rejection and
+unchanged-on-rejection behaviour; preserved formatting/structural metadata;
+successful validation and value round trips after mutation. Run the applicable
+existing data-model checks. This stage contains no schema-wrapper, locator or
+schema sample changes. Review and commit it independently before schema integration.
+
+### 2. Common query boundary and schema resolver refactor
+
+Review concrete query/handle, resolver-adapter and ownership-result signatures
+for the six wrappers before implementing the shared boundary. Separate resolution
+from baked-document ownership, introduce `CBakedSchema`/`CLiveSchema`, adapt
+generator name/occurrence access, and add schema promotion/demotion. Include
+borrowed-string lifetimes, schema reference protection and stable meanings of
+existing handles after successful unchanged re-resolution.
+
+Completion evidence: equivalent live/baked schema queries and resolution,
+preserved existing generator output for unchanged supported inputs, independent
+schema copies, unresolved schema demotion, and the agreed resolution-failure
+and reference-protection behaviour. Reuse the current resolver and generator tests.
+Actual instance/bulk consumers exercise the reference integration in stage 4.
+
+### 3. Resolved-schema semantic and layout extensions
+
+Add empty types and their omission from generated C++, authoritative explicit
+layouts with alignment up to 128, and the revised unorm default interpretation.
+Keep these changes reviewable separately from the input/ownership refactor.
+
+Completion evidence: empty/all-empty/mixed containing types, compiler-verified
+offsets/alignment/size for accepted layouts and rejection of unrepresentable
+layouts, and raw-code versus normalised-float default boundary cases. Establish
+the final resolved facts needed by payload codecs without a review-only fallback.
+
+### 4. Baked instance/bulk loading and binary backing
+
+Introduce `CBakedInstances`/`CBakedBulkData`, explicit schema binding, role queries,
+locator validation and per-document binary views. Implement the value codecs and
+materialisation from embedded declarations/hierarchy or complete bulk records.
+Bind supplied payload views or return newly materialised owners separately.
+Reconcile the sample's locator and bulk-entry grammar in this schema stage.
+
+Completion evidence: supplied-binary and embedded-only loading, reserved mutable
+locator updates using stage 1, alignment/range/count/overlap checks, independent
+specialisation snapshots, optional embedded/binary comparison, externally owned
+payload lifetimes, and failure confined to the affected logical document.
+
+### 5. Live data ownership, construction and editing
+
+Deliver this stage in two bounded packages: live bulk construction/capture first,
+then live instances and coordinated specialisation editing. Introduce the live
+wrappers with owned buffers and non-destructive promotion from baked data. Cover
+aligned appends, replacement extents, failed-append publication, unpopulated bulk
+arrays, retained instance declarations and parent-before-child update traversal.
+Add/remove override selections and capture must preserve explicit override intent.
+
+Completion evidence: independent source/destination buffers, live query parity,
+bulk resize/reuse rules, unchanged prior entries after failed append, capture of
+selected fields only, and propagation through multiple specialisation levels.
+Exercise schema-reference protection with real live consumers and integrate
+application-critical allocation-failure handling without a rollback framework.
+
+### 6. Output preparation, data demotion and reload
+
+Build separate output documents and packed payload buffers in document traversal
+order, rewriting output locators. Implement data demotion with separately returned
+document-block and payload owners. Support the agreed embedded/external choices
+independently of text/baked encoding, retaining instance hierarchy and declarations.
+
+Completion evidence: output/reload value and override-intent preservation,
+source preservation on success/failure, correct packed locators, and ownership
+transfer without invalidating views when allocation addresses remain stable.
+The current sample becomes an end-to-end fixture for its supported features.
+
+### 7. Remapping into instances and bulk arrays
+
+Implement compatible direct-member mapping, bounded-view execution and role-handle
+adapters using the same executor. Support populating stage 5's unpopulated arrays
+through one or more mappings; retain exact type/enum, record-count, overlap and
+aggregate-padding rules. This stage depends on resolved layouts and live data
+access, not inherently on output, but follows stage 6 in the proposed serial plan.
+
+Completion evidence: untouched unselected fields/records, enum-containing compound
+mismatch, explicit/minimum counts, rejected overlapping/out-of-range views before
+writes, and identical results through bounded-view and handle APIs.
+
+### 8. Optional unused-storage clearing
+
+Implement the explicit layout-driven pass, provisionally `clear_unused_storage`,
+covering nested/tail padding, unused bits and unreferenced bytes in the used buffer
+range. Preserve all addressable fields and locators; introduce no automatic
+construction zeroing. Reuse layout traversal support where appropriate.
+
+Completion evidence: idempotence, bit-for-bit preservation of addressable values,
+clearing gaps imported by aggregate copies, and identical final unused bytes after
+clearing outputs that began with different padding contents. Exercise it after
+stage 6 packing and stage 7 transfers before binary output.
+
+### Delivery discipline
+
+Each stage leaves a usable, tested boundary; stages 4-6 should not become one
+unreviewed integration change. Run checks appropriate to each change and broader
+integration checks when new boundaries are connected, without repeating passing
+matrices absent a new change or unresolved concern. Keep implementation and its
+current-API documentation together. Each implementation package needs coordinator
+review and user-authorised commits; the user pushes. Source ingestion remains
+outside this sequence.

@@ -1,15 +1,14 @@
 # Schema design
 
-Current working design for the schema system.  This document records decisions
-made before implementation; it is not yet a public API or file-format
-specification.
+This is the authoritative target specification, including the 28-29 September
+live/baked document and payload decisions. [runtime-api.md](runtime-api.md)
+describes the implemented schema API; the [implementation contract](implementation-contract.md)
+records current delivery status, stages and acceptance checks. Existing private
+records and interfaces may change to meet this design.
 
-This is the primary record of schema semantics. The
-[implementation contract](implementation-contract.md) defines runtime observations,
-delivery boundaries, and acceptance checks; the header survey explores later use
-cases. The reviewed sample illustrates the design without expanding stage scope.
-The earlier audit and question agenda have been consolidated into these documents;
-their historical findings remain in Git history.
+The [dated user answers](question-decisions-2026-09-28.md) are historical evidence.
+Their decisions have been reconciled here, including subsequent clarifications;
+implementations should follow this document rather than earlier discussion.
 
 ## Purpose and scope
 
@@ -37,39 +36,289 @@ grammar with structure `detail`, explicit offsets, and short-input examples.
 It uses `element`/`count` without redundant array `kind`, and `detail.internal`
 for the internal-layout marker. Its [companion notes](schema-example-notes.md)
 explain expected layouts and the initial-delivery boundary.
-Neither document implies an implemented resolver.
+The full example includes explicit layouts beyond the implemented resolver.
 
-The system is not intended to infer mappings automatically or become a general
-C++ compiler.  Mappings may be authored manually, while their validation and
-execution are automated.
+The first remapper automatically matches direct members by name and type.
+It does not search recursively or infer conversions. Source ingestion remains
+a constrained development tool rather than a general C++ compiler.
 
 Schema implementation code belongs in the new `core/schema/` directory.
 
 ## Authoring, resolution, and data
 
-Schema creation and structural modification use a live document.  Schema
-definitions may be distributed as Morphic JSON text or, more commonly, as
-baked documents.  Resolution operates only on a baked schema document:
+Schema creation and structural modification use a live document. Schema
+definitions may be distributed as Morphic JSON text or baked documents. The
+target design separates schema-document ownership from resolution: live and
+baked schema documents consume one resolver, able to read either data-model
+representation through a common read boundary, potentially using adapters.
+The implemented stage 1 resolver still accepts baked input only.
 
 ```text
-Live schema document -> bake -> baked schema document -> resolved schema
-Instance input + resolved schema -> resolved data
+Live or baked schema document -> common resolver -> resolved schema
+Instance document + schema access -> that document's instance byte buffer
+Bulk document + schema access -> that document's bulk byte buffer
 ```
 
 The **resolved schema** is constructed at runtime and is never serialised.
 It contains explicit types, descriptors, and resolved references for fast
-operations.  Both it and its backing baked schema document remain immutable
-for its lifetime.  The schema retains a reference to the baked document, whose
-storage may be owned by the host and must outlive the resolved schema.  Baked
-content mutation is available for non-schema uses only; schema edits require
-a new bake and resolution.
+operations. Resolution, validation and layout calculation remain shared
+algorithms. Re-resolution does not itself edit definitions; changes to the
+document can change the schema. A usable resolution must correspond to its
+definitions. Wrapper-mediated editing and inter-document reference protection
+govern definition changes as described below. An intervening bake is no longer
+a requirement of the target design.
+
+There are three logical document roles with separate user-facing interfaces:
+type definitions, instances, and bulk data. These remain logically separate even
+when loaded from one combined baked document. Each role has the same query
+interface in its live and baked forms; mutation belongs to the live form.
+Instance and bulk documents consume the common schema access interface with
+either live or baked schema backing. Concrete adapter and interface mechanics
+remain implementation design work, not a requirement for a new general framework.
+
+The wrappers layered over the data model are:
+
+| Role | Baked wrapper | Live wrapper |
+| --- | --- | --- |
+| Schema | `CBakedSchema` | `CLiveSchema` |
+| Instances | `CBakedInstances` | `CLiveInstances` |
+| Bulk data | `CBakedBulkData` | `CLiveBulkData` |
+
+The baked document block and its view are separate. The block may be owned
+locally or by the host; baked wrappers access it through views. Destroying a view
+does not itself release the block. Its owner controls disposal and must keep the
+backing alive while any remaining view needs it, including views for other logical
+roles in a combined document. Promotion and demotion preserve their source;
+callers explicitly dispose of versions and owned blocks when no longer needed.
+
+The same ownership separation applies to baked instance and bulk payloads.
+`CBakedInstances` and `CBakedBulkData` hold non-owning binary views, not owning
+byte buffers. The associated payload allocation is external to the wrapper and
+may be owned locally or by the host, independently of the baked document block.
+Destroying the wrapper releases neither allocation. Both owners must keep their
+storage alive and at stable addresses while views use it. Transferring an owner
+to the host can preserve the view when the allocation does not move; relocating
+the bytes requires rebinding views before further access.
+
+`CLiveInstances` and `CLiveBulkData` always own their associated byte buffers.
+Borrowed access to those buffers does not transfer ownership. Promotion copies
+the baked payload into live-owned storage; demotion creates new externally owned
+payload storage without taking the live source's buffer.
+
+Instance and bulk documents reference their schema through inter-document
+reference counts. These do not own or extend the schema wrapper's lifetime.
+Mutation of a referenced live schema fails without changes and triggers an
+assertion. A referenced schema cannot be moved. Attempted destruction raises a
+critical error and must be stopped before backing data is released; the system
+immediately attempts shutdown. Concrete counting and shutdown mechanics remain
+implementation design work. This replaces the earlier documentation-only policy.
+
+Callers access underlying live documents through their wrappers so editing stays
+coordinated. They can edit an unreferenced independent schema copy while existing
+documents continue using the unchanged source. No automatic data migration or
+inference of the caller's intended schema evolution is introduced.
+
+Re-resolution of unchanged definitions is permitted while the schema is referenced.
+On success it produces the same data and preserves the meanings of existing
+unversioned handles. On failure it clears the resolution; retaining old tables
+through allocation failure is not required. Access is single-threaded, including
+within a multi-threaded system. This stability applies within the same schema,
+not across independently promoted/demoted documents.
+
+Public document handles have three role types: schema, instance and bulk. Live
+and baked wrappers of one role share its public handle type, with potentially
+different internal interpretation. Handles carry no individual document identity;
+using one with another document or representation is caller error. Live handles
+survive mutation when the underlying live data-model handle survives. Borrowed
+names, strings and other document views expire after any mutation of that document.
+Binary views across buffer mutation/growth remain the caller's responsibility;
+no held-view tracking is added. Resolved names borrow document strings: a live
+schema owns its live document, while a baked schema's user manages backing lifetime.
+
+A schema can contain empty types, including in saved form. An empty type produces
+no resolved data description; a member of that type has a zero-byte resolved
+extent. A containing type whose members are all empty is itself empty. Otherwise
+the containing type remains valid, with its non-empty members supplying its data.
+Empty references do not fail resolution. Instance/bulk documents cannot reference
+a schema while it is edited; later binding fails if the data description does
+not match. Generated C++ omits empty type definitions and members whose types
+have no resolved data description; they require no physical C++ storage. The
+schema document retains those definitions and members.
+
+Malformed schema validation/resolution reports useful information for human
+review, comparable in purpose to a parsing report and suitable for `MV_REPORT`
+or similar logging. Internal node handles may construct names/paths; a public
+diagnostic handle for direct recovery is not required. Hand-authored baked input
+is the main expected source of such failures because live editing is mediated.
+
+Loading always establishes binary backing for instances and bulk data, either
+from supplied binary data or by materialising embedded document values. Each
+logical instance document has one associated byte buffer; each logical bulk
+document has its own byte buffer. These are per-document associations, not two
+global buffers shared by every document. A payload reference therefore needs
+only an offset within its associated buffer, without a per-entry buffer ID.
+Bulk counts and checked extents are still necessary. The locator contract below
+defines locations; the caller supplies the binary file association.
+
+When baked loading receives a host-owned payload, it binds a view after the
+ordinary alignment, extent and schema checks. When loading instead materialises
+embedded values, the created owning byte buffer is returned separately from the
+baked wrapper. The caller can retain it locally, save it, or transfer its ownership
+to the host. Successful publication must leave a usable wrapper together with
+an explicit owner for any newly allocated payload; ownership is never hidden in
+the baked wrapper. Failed loading cleans up temporary owned allocations without
+releasing caller-supplied backing.
+
+### Non-destructive promotion, demotion and output
+
+The starting managed representation is a baked wrapper with associated binary
+backing (loaded directly or created on load) and resolved schema access. Promotion
+constructs a new live representation and copies the associated instance/bulk
+binary backing into independent storage. The baked source, its backing data and
+its existing connections remain unchanged and usable on success or failure.
+The extra allocation and copying are intentional. Failure must not publish a
+partially constructed live result as usable; temporary destination resources
+need cleanup without consuming the source.
+
+The live document acquires all required strings during construction. Schema
+promotion may recreate the resolved schema against that live document. The
+source resolution remains available to its existing consumers. The new result
+must use the live document's strings and occurrences and must not depend on the
+old baked backing. Source handles remain scoped to the source resolution; they
+do not become handles into the new version. A schema is supplied explicitly when
+creating, promoting or demoting an instance/bulk document. Conversion does not
+inherit its source's schema reference. Ordinary schema-matching rules determine
+success during the operation, without a separate pre-validation pass. Existing
+connections are not automatically redirected.
+
+The reverse operation, demotion, creates the corresponding baked representation
+with an owned `CBakedDocumentBlock` and independent copies of associated binary
+payloads. It preserves the live source and its existing connections on success
+or failure. Ownership of the new document block and payload buffer can subsequently
+be transferred to the host; the baked query wrapper uses views over both.
+Demotion returns the wrapper, owned document block and (for instances/bulk) owned
+payload buffer as separate components. The caller manages their joint lifetime,
+and may save or transfer either backing allocation independently. Demoting
+a schema does not resolve its new baked wrapper: the caller may only want to save
+the block. Host transfer must leave the borrowed view backed by storage for its
+required lifetime. Callers dispose of either version explicitly when it is
+no longer required, after accounting for its remaining users.
+
+Instance and bulk promotion retain different document content:
+
+- An instance document retains instance declarations, specialisation data and
+  the nested organisation, together with offsets to their completed binary
+  instances. Retaining only override selections is not the agreed working form.
+- A bulk document strips embedded record values already available in its binary
+  backing, retaining the organisation, offsets and collection information needed
+  to use those records.
+
+The describing document and managed data form one coordinated working set.
+Instance declarations preserve authoring and override meaning while each binary
+instance holds its completed snapshot. Capture and editing coordinate both and
+update descendants as part of the user-facing operation, as specified under layering.
+
+Output creates a new live document, strips information irrelevant to the chosen
+form and adds information required by it. Full-document output reads binary
+values through the schema and embeds them; reference output retains offsets and
+writes the associated binary block. The working representation is preserved.
+The output document can then be written as text or baked, independently of the
+embedded/external payload choice. Instance/specialisation output always retains
+declaration information and the hierarchy needed to reconstruct complete values,
+including distribution output. Embedded instances use the existing named
+declarations and inheritance hierarchy, without an additional flattened-value
+field. Binary output stores each instance's complete independent snapshot.
+Bulk record arrays can be retained for review or omitted with binary backing.
+Both forms remain fully editable after promotion. Embedded text still includes
+locator objects so later baking has the reserved nodes needed by loading.
+
+The existing generic `document_translation::promote` already copies a borrowed
+baked document into a live document without consuming its source. Generic `bake`
+likewise produces a block while preserving its live input. These primitives can
+support the wrapper operations; wrapper-level payload copies, schema bindings
+and output preparation remain additional responsibilities. Non-destructive
+promotion/demotion supersede the earlier destructive ownership-transfer proposal.
+
+### Locators, loading and buffers
+
+Each instance/specialisation object has a sibling `locator` object alongside its
+existing contents. Each named bulk entry is an object containing `locator` and,
+when embedded records are present, `data`. A locator contains a zero-based unsigned
+32-bit `offset` into that logical document's buffer and a separate Boolean `valid`:
+
+```json
+"locator": { "offset": 0, "valid": true }
+```
+
+Optional `size` equals resolved type size (including padding) times record count.
+Stride equals resolved type size. Instance `count` defaults to one, may be present
+in baked input only as one, and is stripped from live instance documents. Bulk
+count is optional for manual editing, but absent embedded `data` requires at least
+one of `count` or `size`. Supplied size/count are checked against the type and any
+embedded array. A live bulk collection may temporarily have zero records; baked
+bulk collections may not. Valid locator extents in a buffer must not overlap.
+
+Live bulk creation can also allocate an unpopulated named array for a resolved
+type and requested record count, without embedded records or a source payload.
+It allocates the aligned extent in the document's associated buffer and records
+its locator and count/size, making the array available as a remapping destination.
+This is a live construction operation; it does not relax the baked loading rules
+below. Allocation does not promise zero-filled storage or apply schema defaults.
+The caller populates logical fields before reading or exporting them.
+
+Baked documents reserve the required locator nodes and validity flag; loading
+does not insert fields. With a supplied binary buffer, offsets must already be
+valid and the block may be immutable. Without one, embedded values are required.
+Loading materialises them using valid offsets or updates reserved offsets through
+the mutable baked interface if permitted. Existing offsets are checked against
+the embedded values. If offsets need updating and the block is not writable,
+loading fails. The agreed mutable-integer API extension recomputes canonical
+width from the replacement value, permitting widening and narrowing while
+preserving signedness, notation, prefix and structural flags. Payload slots
+remain 64-bit; document floating values remain fixed binary64. This extension is
+implemented, coordinator-reviewed and committed separately as stage 1 (`d92dddd`).
+The previous setters rejected widening and narrowing, so
+an initial 0xffffffff offset alone did not solve updates to smaller offsets.
+
+Instance/bulk buffers have 128-byte base alignment. Supplied buffers lacking it
+are rejected rather than copied into aligned storage. New entries append aligned
+extents. Larger bulk replacements append and leave old bytes unreferenced;
+same-size/smaller replacements may retain their offset. Working buffers do not
+compact, and live offsets need not follow document order. Baking creates a new
+buffer in document traversal order with matching baked locators; baked extents
+follow document order. Promotion/demotion remain non-destructive copies, even
+when output reorders payloads.
+
+Instance and bulk construction does not require a blanket zero-fill pass.
+An optional caller-invoked operation clears unaddressable storage, as described
+under gaps and storage initialisation. For deterministic binary output, invoke
+it on the final output buffer after packing and copying, so it covers the final
+alignment gaps and any padding imported by aggregate copies. It is not invoked
+implicitly during allocation, construction, promotion, demotion or output.
+
+Stored binary byte order is little-endian. The caller supplies the associated
+binary file when creating/loading the document. File matching is manual; schema
+or layout identity embedded in the file is beyond this work.
+
+When both embedded and binary representations are loaded, comparing them is an
+optional validation path for instances and bulk. Distribution can skip comparison
+for speed. With it disabled, saved binary snapshots are authoritative until an
+edit; loading does not rebuild them from declarations.
+
+Load failure is fatal only to the affected logical instance/bulk document, never
+to its resolved schema, even if their views share a physical baked block. Failed
+append leaves existing entries usable. Appended bytes may remain unreferenced,
+but no locator for the failed entry is published. Validation/preparation ordering
+for in-place edits and descendant updates is implementation work. Allocation
+failure during these updates is application-critical, without a required
+transactional rollback or recoverable partial-edit model.
 
 ### Schema-document normalisation
 
 An existing schema document can be normalised by creating a new normalised
 document. The source document remains unchanged, including when it is baked
 or backs an existing resolved schema. This is a separate document-producing
-operation; resolving a baked document does not silently rewrite it or require
+operation; resolving a live or baked document does not silently rewrite it or require
 the caller to request a normalised document first.
 
 Normalisation uses a successfully resolved schema and its backing document to
@@ -102,14 +351,9 @@ The owner uses variable-length sequences of fixed private records, with member
 counts determined by the described structures. Public observations are distinct
 from private storage and may expose wider quantities.
 
-The accepted private type record is 32 bytes: seven unsigned 32-bit words hold
-size, stride, related type, first child, count, name ID and source occurrence;
-four bytes hold semantic category, physical primitive, alignment exponent and
-packed flags/resolution state. The three flags occupy bits 0-2 and resolution
-state bits 3-4. Alignment is decoded as an unsigned power of two; exponent zero
-means alignment one, and supported exponents are 0 through 31. Natural-layout
-rules still determine the actual alignment; this encoding does not enable
-explicit layout increases.
+Current private record sizes, fields and internal range access are documented in
+the [runtime API](runtime-api.md). They are implementation facts, not a public ABI
+or serialised format and not constraints on representing live document identities.
 
 Primitive, enum and bit-structure records directly supply their physical
 primitive. Enums and bit structures retain their semantic category, storage
@@ -118,12 +362,7 @@ primitive `none`; their member or element descriptions supply the next level.
 Bit fields directly supply their logical primitive, including enum storage,
 separately from the containing word's physical primitive.
 
-The 24-byte member record stores unsigned 32-bit offset, full byte size, type,
-default index, name ID and source occurrence. Cached size includes padding
-owned by the member's type. Labels, fields, defaults and mapping pairs remain
-24, 32, 32 and 8 bytes respectively. These layouts are implementation facts,
-not a public ABI or serialised format; no extra table or flattened schema is
-introduced.
+Members expose their full byte extent, including padding owned by their type.
 
 Layout arithmetic remains checked unsigned 64-bit arithmetic. An individual
 described allocation, including nested member ends, array products and tail
@@ -146,43 +385,10 @@ future instance/buffer validation remain required.
 
 ### Resolved-schema ownership and access
 
-One class owns the resolved slot storage and contains a `CBakedDocument` view
-instance by value.  Internal schema relationships use indices rather than
-stored pointers or references, allowing the resolved storage to be relocated
-without repairing links.  The pointer held inside the baked-document view is
-the exception: it borrows the backing bytes, not a host-owned view object.
-The host must keep those bytes alive and immutable until schema use has ended;
-the lifetime and address of the original view object are irrelevant.  The
-schema releases its own slot storage and clears its contained view without
-releasing the host's document bytes.  No shared ownership layer is required.
-
-The resolved-schema class supports move construction and move assignment;
-copy construction and copy assignment are disabled.  Any future copying
-operation must be an explicit function.  Moving transfers the slot ownership
-and contained baked-document view, leaving the source empty and unusable.  Internal
-indices retain their meaning in the transferred resolution; they do not
-depend on the old schema object's address.  Move assignment invalidates the
-destination's previous resolution.
-
-Every new resolution attempt immediately invalidates the existing resolution,
-even if the new input fails validation.  Failure leaves an empty, unusable
-resolved schema with no partial resolved records or usable document binding.
-The previous resolution is not restored.  Only complete success publishes a
-usable resolution.  Reset or destruction likewise ends use of the current
-resolution.  Indices retained by callers belong to that resolution and must
-not be reused with a replacement, even if numeric slot indices are repeated.
-
-A failed instance evaluation also invalidates and clears the resolved schema
-if that instance and the definitions share the same physical baked document.
-Failure in a separate instance document does not invalidate the resolved
-schema. This is an additional invalidation trigger for combined documents;
-it does not require the first-stage resolver to evaluate instance data.
-
-Schema access indices are unsigned, with zero reserved for failure or an
-unmapped reference. Valid resolved-slot indices are non-zero. The implementation
-contract selects a 32-bit wrapper without a generation/identity mechanism.
-Resolved indices remain distinct from
-document node/name IDs.
+The target wrapper ownership, handle and re-resolution rules are specified under
+authoring and resolution above. The existing baked-only owner's move and
+invalidation behaviour is documented in [runtime-api.md](runtime-api.md); it is
+the refactoring baseline, not an alternative lifecycle contract.
 
 Serialisation and remapping callers mainly need to locate the appropriate
 resolved type description and pass it to a generic operation along with the
@@ -191,15 +397,16 @@ Temporary read-only references obtained for an operation do not introduce
 stored pointer/reference links between schema records.  The public interface
 need not expose all slot-storage details merely to invoke these operations.
 
-The editor is likely to navigate primarily through the baked schema document,
-then consult the corresponding resolved descriptions for types, sizes, offsets,
-and access to instance data.  Its writes affect the instance, not the immutable
-schema.  A secondary mapping table from baked-document slots to resolved-schema
-slots provides the correspondence.  It is constructed with the resolution,
-owned by the resolved schema, and follows the same move, invalidation, and
-failure rules as its other resolved storage.  Mapping keys identify document
-occurrences, not merely interned name strings. A lookup without a mapped
-resolved counterpart returns zero.
+The editor navigates the document through the common query interface and
+consults resolved descriptions for types, sizes, offsets and instance access.
+Instance edits affect instance data; callers perform definition edits separately
+and explicitly arrange resolution and any later use with data.
+The current mapping table uses baked occurrences. The live-capable design must
+provide equivalent document-to-resolved correspondence. Schema promotion can
+recreate this correspondence by resolving the live document. Mapping keys identify
+occurrences, not merely interned name strings.
+A lookup without a mapped resolved counterpart returns zero. Public role handles
+and diagnostic expectations follow the target rules under authoring and resolution.
 
 The baseline is that named schema elements can be mapped. Named components
 in the same-type named-component form are included in that baseline. Ordinary
@@ -232,13 +439,15 @@ limited cases, document-form instances distributed as baked documents or JSON
 text.  Baking a document alone does not make it resolved schema or resolved
 data.
 
-Future instance operations select an individual named instance and read it into
-caller-supplied storage through the resolved schema. Document values require
-conversion and placement; given matching physical representation, binary values
-use a contiguous copy after buffer bounds checks. Bulk data
-follows the same distinction. Definitions and instances may share a document
-or use separate documents. No application-wide population wrapper is planned.
-These are operation boundaries, not implemented instance or I/O APIs.
+Each instance document materialises loaded values into its associated byte buffer;
+each bulk document uses a separate associated buffer. Live wrappers own these
+buffers; baked wrappers borrow them from external owners. Selection of an individual named instance can
+then copy its contiguous physical representation into adequate caller storage, without
+reinterpreting document values on every access. Capture from application storage
+updates or appends binary values and the associated live reference document.
+Bulk records follow the same model. No application-wide population wrapper is
+planned. These interfaces and their ownership/lifetime contracts are future
+work, not implemented APIs.
 
 The system will also generate simple POD C/C++ data-structure declarations.
 Generation does not produce per-structure operational code: no serialisers,
@@ -258,11 +467,11 @@ value interpretation and signedness; a mask constant is not an enum field value.
 These constants describe the fields; instance storage remains the declared
 base storage type.  No operational code is implied by these declaration forms.
 
-JSON instance handling is expected before
-binary serialisation and deserialisation; implementation order does not make
-JSON the principal long-term bulk-data format.  Source-code ingestion remains
-a late stage.  Development is iterative, with the definition document revised
-as functionality is added.
+The next data implementation establishes binary buffers as the common runtime
+representation, with document conversion at load and output boundaries. Binary
+file packaging can be delivered separately from in-memory materialisation.
+Source-code ingestion remains a late stage. Development is iterative, with the
+definition document revised as functionality is added.
 
 The first implementation stage resolves and inspects schemas and generates
 C++ structures as part of validation.  Instance construction and serialisation
@@ -323,12 +532,12 @@ first implementation.  Editor pane construction is not part of that stage.
 
 ### Logical documents and physical packaging
 
-The input comprises one logical structure-definitions document and zero or
-more logical instance documents.  There is only one definitions document for
-the evaluation context, whether standalone or combined with instance
-definitions.  The definitions document can be resolved on its own; an instance
-document cannot be evaluated without the applicable definitions document
-being present in the evaluation context.
+The model has three logical document roles: type definitions (`types`), instances
+(`instances`), and bulk data (`data`), each with a distinct user-facing interface.
+There is one definitions catalogue for an evaluation context. Definitions can
+be resolved alone; instances and bulk data require the applicable resolved
+definitions. The three roles may share one physical document or use separate
+documents. This does not require three physical files or duplicate catalogues.
 
 Instance definitions may occupy one or several documents.  Each main instance
 branch effectively constitutes a logical document, with its root acting as
@@ -338,20 +547,23 @@ therefore does not determine the number of logical documents or namespaces.
 The earlier single-baked-document assumption does not constrain instance
 packaging.
 
-Reference ordering differs between the two logical document kinds.  Structure
+Reference ordering differs between definitions and instances. Structure
 definitions may refer to types declared later in the definitions document.
 An instance's specialisations inherit from that enclosing instance, which is
 evaluated first. There are no explicit forward instance-reference strings.
 Combining definitions and instances in one baked document does not introduce
 a different inheritance mechanism.
 
-The resolved schema still describes the one definitions document and retains
-the view of its backing baked storage.  A combined package must identify the
+The resolved schema describes the one applicable definitions document through
+the common schema interface. A combined package must identify the
 definitions portion separately from instance branches.  Multiple instance
 inputs do not create multiple structure-definition catalogues.  Document-local
 name, string, and node indices from separate baked documents must not be
 compared as shared identities; explicit type references resolve against the
 one applicable definitions document, and instance inheritance follows containment.
+Promotion preserves the old baked wrapper and its existing connections, creating
+an independent live representation. The underlying block has a separate local
+or host owner, who disposes of it only after remaining borrowers have finished.
 
 The accepted sample illustrates the combined sections; separate documents
 retain their applicable sections. The layout requires no cross-instance-document base
@@ -376,16 +588,19 @@ Built-in primitive spellings do not need to be redeclared.
 
 ### Reviewed document layout
 
-The reviewed package separates three concerns:
+The reviewed embedded-value package separates three concerns. Working instance
+documents preserve declarations and add binary offsets; working bulk documents
+can remove embedded records once backed by binary. Output projects the information
+needed for its selected form. Locator syntax is specified under loading and buffers.
 
 - `types`: structure, enum, and bit-structure definitions.
 - `instances`: entries grouped by type, with named base instances beneath each
   type and specialisations nested as children of their base. Further nesting
   can express a chain of specialisations.
-- `data`: entries grouped by type, with each named entry holding an array of
-  instances. These collections have no specialisation or override mechanism.
+- `data`: entries grouped by type, with each named entry holding a `locator` and
+  optional `data` record array. These collections have no specialisation mechanism.
 
-Within the instance tree, two container names and their relationship are now
+For embedded-value authoring input, two container names and their relationship are
 settled: `declaration` contains the instance's supplied member values, and
 `specialisation` contains named child specialisations. Each child has the same
 container arrangement, allowing further specialisation.
@@ -406,10 +621,13 @@ later extensions are recorded separately.
 
 The bulk collection name identifies the array, not its individual
 records; it does not introduce references between those records.
-Bulk records require every member explicitly, recursively through nested records
+Embedded bulk records require every member explicitly, recursively through nested records
 and bit structures. Positional structures and fixed arrays must have their full
 declared lengths here; short-input/default completion belongs to `instances`,
-not `data`. Gaps are not members and still have no implicit fill policy.
+not `data`. Gaps are not members; the caller may explicitly clear them through
+the unused-storage operation.
+Separately, the live bulk API can allocate an unpopulated array to fill later
+through remapping or other explicit writes; it requires no embedded record array.
 Binary payload association is a later encoding contract. This does not extend
 the first implementation stage to
 instance construction or bulk-data processing.
@@ -435,16 +653,15 @@ Duplicate declarations within the applicable naming domain are hard errors,
 including duplicate structure type names and duplicate members within a type.
 They are not merged or interpreted as overrides.  Repeated instance names in
 different unambiguously identified subtrees are permitted.  Forward references to types
-declared later in the baked document are allowed.  Circular type references
+declared later in the definitions document are allowed. Circular type references
 are rejected.  This is separate from the manually ordered code-ingestion list.
 
 Schema text input must reject the document parser's `name_collision_extension`
-finding before baking; the parser's default policy already excludes it.
-Resolution still checks duplicate named declarations in the baked document,
-including repeated named entries in a member array. It cannot reconstruct
-source duplicate properties that have already been merged into an ordinary
-array: the baked format does not preserve that source history. This distinction
-does not authorise merging schema declarations.
+finding before resolution or baking; the parser's default policy already
+excludes it. Resolution checks surviving duplicate named declarations in either
+document form, including repeated named entries in a member array. It cannot
+reconstruct source duplicate properties already merged into an ordinary array.
+Direct live input does not waive schema shape and declaration validation.
 
 The one definitions document may contain Morphic, DirectX, Vulkan, and other
 selected definitions.  Any authoring-time assembly produces that single
@@ -459,8 +676,9 @@ its type definitions, even when packaged in the same baked document:
   proposed definitions or validate existing ones;
 - code-generation manifests select resolved configuration types and output
   options; and
-- instance, descriptor, and remap documents consume the resolved
-  configuration without redefining its types.
+- instance and bulk documents consume the resolved configuration without
+  redefining its types. Automatic remap setup receives source and destination
+  structure definitions; it does not require an authored member-pair document.
 
 Source ingestion has two non-interchangeable modes.  **Import** creates a
 proposed definition from an allow-listed source declaration.  **Validation**
@@ -536,7 +754,7 @@ different structures may declare the same member spelling, and a name may
 also occur in an enum or other context. A reference or label string resolves
 within its known type context: named types use the one definitions catalogue
 and enum labels use the matching enum. The name-domain map does not perform
-this semantic selection. After target selection, a mapped baked occurrence can
+this semantic selection. After target selection, a mapped document occurrence can
 be connected to its runtime description. This auxiliary table does not guarantee
 a resolved slot for every occurrence or replace the resolver's own type
 relationships and lookup operations.
@@ -619,7 +837,7 @@ and a non-negative integer need not carry an explicit `+` on input to a signed
 schema field if its value is representable in that field.  Schema processing
 validates the value against its expected type before normalising its metadata.
 Canonical document metadata is emitted when constructing a new document;
-resolution does not rewrite the immutable baked input in place.
+resolution does not rewrite its live or baked input in place.
 
 Schema-document representation uses the existing `CIntegerMetadata` domain,
 notation and prefix flags and the document writer. It must not reparse formatted
@@ -641,8 +859,8 @@ with the affected member and structure where appropriate and available.  The
 implementation contract specifies an allocation-free structured diagnostic with
 document locations and related ranges where available. Schema-resolution failure
 already has the empty-result contract specified under ownership and access.
-Instance failure also invalidates the schema when instances and definitions
-share the same baked document; failure in a separate instance document does not.
+Instance/bulk load failure is confined to that logical document, including when
+its baked input shares a block with schema definitions.
 
 ## Primitive physical types
 
@@ -680,9 +898,10 @@ Masks and extent metadata must represent non-negative integers and satisfy
 their additional width/count/alignment constraints. A bit field's integer
 domain must fit both its logical type and its mask width; enum labels must all
 fit that width using the enum's signedness. Boolean fields have the logical
-domain 0/1. `unorm` is recognised as an unsigned-integer field interpretation;
-its explicit default is a finite value in [0, 1]. Resolution validates that
-domain and retains the interpretation; quantisation is a later codec operation.
+domain 0/1. `unorm` is an unsigned-integer field interpretation. Input and defaults
+accept raw integer codes or normalised floating values under the codec rules
+below; output uses stored integer codes. This replaces the stage 1 restriction
+of explicit defaults to finite normalised values in [0,1].
 Absent interpretation means the declared type's ordinary value semantics.
 Other interpretation spellings require an explicit extension, not silent fallback.
 
@@ -726,7 +945,9 @@ because it is not the preferred output name.
 A structure has one canonical declared sequence of members.  This declaration
 order is its semantic positional order.  A structure also has resolved size and
 alignment, and every member has a resolved physical offset.
-Empty structures are not supported.
+Empty types are permitted in live and saved schemas. They have no resolved data
+description and contribute zero-byte members. Generated C++ omits empty types
+and their members; non-empty containing structures retain their physical layout.
 
 The working declaration form is an array of named members, each expressed as
 a single-member object whose property name declares the member and whose
@@ -785,8 +1006,9 @@ align to multiples of their size; compounds use their members' effective
 alignment recursively. Without explicit increases, this is the size of the
 largest atomic member. Thus a nested 12-byte structure containing three `f32`
 members naturally aligns to 4 bytes, not 12. An explicit increase on a nested
-type propagates to its containing layout. Structure size is rounded to the
-effective structure alignment. Each resolved definition must
+type propagates to its containing layout. Natural-layout structure size is rounded
+to the effective structure alignment; an explicit-layout size must already be a
+valid multiple of that alignment. Each resolved definition must
 provide fixed size, alignment, offsets, and where relevant
 stride.  The member-list sequence is sufficient to establish ordinal meaning;
 a separate ordinal property is not needed unless a later source format cannot
@@ -806,29 +1028,33 @@ places it. The member's placement must respect its type's alignment, and
 overlapping member extents remain invalid. Declaration order remains semantic
 member order even when offset order differs.
 
-An optional `detail` object beside `members` contains structure-level metadata,
-replacing the earlier name `config`. Authored
+The `detail` object beside `members` contains structure-level metadata,
+replacing the earlier name `config`. It is optional for natural layout and
+required to supply size for explicit layout. Authored
 `alignment` may increase the structure's alignment requirement above
 its natural requirement, not reduce it. A containing layout must respect the
 effective alignment of a nested type, including explicit increases; the
 natural largest-atomic-member rule alone is insufficient in that case.
 
-If `detail` is absent, or is present without `alignment`, use the agreed
-natural alignment rules. Omission does not select packed layout or byte
+If `alignment` is absent, including when a natural-layout definition omits
+`detail`, use the agreed natural alignment rules. Omission does not select packed layout or byte
 alignment. Explicit alignment requirements of nested member types still apply.
 
-Generated schema documents include both `detail.alignment` and `detail.size`
-for structures, recording their effective alignment and computed total size.
-This includes documents created from source code and newly normalised schema
-documents. The input need not supply either value: that applies both to
-source-code ingestion/schema creation and to resolving a baked schema document.
-Source-code ingestion derives missing layout facts under its supported target
-layout rules; baked-document resolution derives them from the type definitions.
-Omitted alignment uses the rules above; omitted size is computed from the layout.
-A supplied size is checked against that computed result and a mismatch is a
-validation error, not a request for additional padding. These are generated
-schema-document fields, distinct from emitting C++ structure declarations;
-the resolved schema itself is still never serialised.
+Generated schema documents include both `detail.alignment` and `detail.size`,
+recording the resolved effective alignment and total extent. For natural layout,
+both remain optional on input: size is calculated and a supplied size must match
+that calculation. Source ingestion determines layout under its supported target
+rules and emits these facts; normalisation reuses the resolved facts.
+
+For explicit-offset structures, `detail.size` is required and authoritative.
+Resolution validates the supplied extent rather than deriving the structure size
+from its members. All member ranges must fit, offsets must respect member
+alignment, and ranges must not overlap. The size must be a multiple of effective
+alignment so consecutive array elements remain aligned. Extra trailing space
+belongs to the structure and contributes to its gap flag. Omitted alignment still
+uses the rules above. This replaces the earlier rule requiring an explicit-layout
+size to equal the rounded last member end. Resolved runtime records themselves
+remain non-serialisable.
 
 Accepting and validating generated `detail` metadata for natural layouts is
 part of the base schema contract. Deferring the separate normalisation operation
@@ -838,8 +1064,8 @@ criterion; it must not be confused with an explicit value equal to natural align
 
 Every successfully resolved type description contains its effective alignment
 and size regardless of whether the input supplied them. Optional document
-metadata does not mean optional runtime metadata. A normalised document makes
-those derived structure details explicit without modifying the input document.
+metadata for natural layouts does not mean optional runtime metadata. A normalised
+document records validated structure details without modifying the input document.
 
 For example, generated details for an aligned position would be:
 
@@ -854,49 +1080,39 @@ For example, generated details for an aligned position would be:
 }
 ```
 
-Structure `size` is generated metadata, computed from the members and effective
-alignment, not an independent authored extent or stride override:
+For natural layouts the size calculation remains:
 
 ```text
 size = round_up(max(member.offset + member.type.size), structure.alignment)
 ```
 
 Member ends use each member type's full resolved size, including its own
-padding; this applies recursively to nested structures and arrays. The example
-has a member extent of 12 bytes and a computed size of 16 bytes. Bytes 12-15
+padding; this applies recursively to nested structures and arrays. The explicit
+example supplies size 16 for a member extent of 12 bytes. Bytes 12-15
 are padding owned by the structure, including when it is embedded. Consecutive
 elements in an ordinary array start 16 bytes apart, and a containing structure
 cannot place another member inside that padding. The gap indication includes
-this extra tail padding.
+this extra tail padding. A supplied size of 32 would also be valid for this
+explicit layout: bytes 12-31 would belong to it and its array stride would be 32.
 
 The resolved descriptor exposes `size` as a precomputed extent for operations
-such as copying or clearing the whole structure. This does not prescribe a
-zeroing policy. Array element stride is derived from that size; `stride` is
-not a separate structure property. The earlier configurable 32-byte-stride
-interpretation is superseded. A supplied alignment sets a layout requirement;
-the supplied size records the computed result and is validated against it.
-Which explicit alignment values the target supports remains a
-validation-contract detail.
-
-The `detail` section can identify internal structures whose explicit offsets
-cannot be fully represented by ordinary generated source declarations. Such
-structures must still be exportable for review. This supersedes the earlier
-expectation that explicit-offset structures would simply be excluded from
-declaration output.
-
-Internal status concerns source export, not schema validity or runtime use.
-Review output should retain the declared members and expose their resolved
-offsets, alignment, and size; it must not imply that an approximate C++
-declaration reproduces that layout. Generated source can include explicit
-padding members between fields, and tail padding members where needed, to account for
-the declared offsets and total size. These are generated storage members, not
-logical schema members: they do not add names or positional elements to the
-schema's instance model, nor do they impose a zeroing policy. Padding does not
-by itself establish layout fidelity; any claim of faithful source export must
-check resulting member offsets, alignment, and size for the selected target.
+such as copying or clearing the whole structure. It does not impose automatic
+zeroing during construction. Array element stride is derived from that size; `stride` is
+not a separate structure property. An explicit-layout size includes all owned
+spacing, rather than introducing a separate stride override. A supplied alignment
+sets a layout requirement; a supplied explicit-layout size sets the total extent.
+Explicit structure alignment is capped at 128 bytes. Accepted explicit layouts
+must produce faithful C++ declarations under the selected compiler settings;
+reject layouts that cannot meet that contract. Generated padding can account for
+member offsets and total size, but it is not a logical schema member or an
+initialisation policy. Compiler checks establish offsets, alignment and size.
+The earlier approximate/review-only declaration path is removed. Non-monotonic
+offsets must meet the same fidelity requirement while preserving semantic member
+order; reject layouts that cannot do so instead of falling back to approximate
+output. Compiler evidence is required for the accepted layout subset.
 
 The internal marker is `detail.internal: true`; omission is equivalent to false.
-It identifies export intent, not permission to bypass layout validation.
+It permits neither bypassing validation nor falling back to review-only output.
 Natural-layout declaration generation remains
 unchanged, and padding declarations do not add generated operational code.
 
@@ -905,7 +1121,7 @@ natural and explicit layout examples. Explicit offsets and increased alignment
 are later additions under the implementation-contract assessment.
 Normalised-document creation is also a later operation.
 
-### Gaps and external initialisation policy
+### Gaps and storage initialisation
 
 The resolved description records whether any gaps exist, without separate
 categories for unused bitfield bits and alignment padding.  The indication
@@ -914,11 +1130,27 @@ or array elements, so an enclosing structure exposes whether any of its
 storage contains gaps. The flag occupies bit zero of the private type record's
 control byte.
 
-Zeroing unused storage is an external policy.  The schema exposes gap presence
-so a caller can decide whether to zero a structure or buffer; it does not
-prescribe zero, constant-fill, or other unused-storage values.  Non-zero gaps
-are not themselves invalid instance values.  Gaps are distinct from named
-members left unselected by a partial remap.
+Clearing unused storage is an optional, explicit operation. The proposed API
+name is `clear_unused_storage`; exact signatures remain implementation design
+work. It uses resolved layouts to zero internal and tail padding recursively
+through structures and arrays, and clears unused bitfield bits while preserving
+declared fields. At document-buffer scope, locator extents also identify gaps
+between records/collections and other unreferenced bytes within the used payload
+range. Unused allocation capacity is outside that range. The pass does not
+compact storage, move records or change locators.
+
+Every addressable field is preserved bit-for-bit, including fields not selected
+by a particular remap. The operation neither applies defaults nor populates
+uninitialised fields. It is idempotent and requires writable storage with valid
+layout and range information. Like remapping, it can use a layout-driven traversal;
+it does not need a second schema representation or source-value buffer.
+
+This replaces mandatory pre-construction zeroing. Unpopulated bulk arrays have
+no zero-fill guarantee. Raw copies and whole-aggregate remaps continue to copy
+source padding; running the optional pass afterward removes that unused data.
+For stable file output, run it after final packing/copying on the output buffer.
+Non-zero gaps remain legal when the caller elects not to clear them. Logical
+field initialisation remains separate from unused-storage clearing.
 
 ## Fixed arrays
 
@@ -1008,7 +1240,7 @@ For a four-component vector, `[2.0, 1.0, 4.0]` supplies `x`, `y`, and `z`;
 `w` uses its declared default or implicit zero. This supports a fourth component
 used for padding without requiring an author to spell it out. It remains a
 logical member with a default, distinct from unnamed alignment or bitfield gaps
-whose initialisation is an external policy.
+which the optional unused-storage pass can clear.
 
 An array is therefore a compact complete construction form, including default
 completion. An object identifies values by member name and is also the form
@@ -1087,8 +1319,8 @@ the short-input rule; omission from the named override is a different operation.
 values follow the chain from the structure definition through the base
 instance and each subsequent override.
 
-Default values apply to logical members.  They do not impose zeroing of gaps,
-which remains external policy, and cannot generally be implemented merely by
+Default values apply to logical members; clearing gaps is a separate optional
+operation. Defaults cannot generally be implemented merely by
 zeroing storage because enum or explicit defaults may be non-zero. Explicit
 defaults use `default` in the named member descriptor, as in the accepted sample.
 
@@ -1099,11 +1331,8 @@ this does not require an override to redeclare that type. Earlier
 specialisations do not restrict which of those members later steps may change.
 Missing bases, invalid members, and circular specialisation are hard errors.
 
-These instance errors invalidate the resolved schema only when the instance
-and definitions are in the same baked document. A failed evaluation of a
-separate instance document leaves the resolved schema valid. When invalidation
-does apply, it clears the resolved schema and its document binding under the
-same empty-result contract as a failed schema-resolution attempt.
+Instance/bulk load errors invalidate that logical document and leave its schema
+valid, regardless of whether the views share a physical baked block.
 
 Specialisation and overrides change values only.  They never change the
 target's underlying types or modify structure definitions.  Compatibility is
@@ -1140,10 +1369,23 @@ inheritance cycle in a document tree.
 Every named specialisation is independently selectable as an instance,
 including intermediate steps in a chain.  Selection uses its inherited values
 and its own overrides, while the referenced type determines valid members.
-Constructed data is an independent value, with no live dependency tracking.
-The authoring document retains the inheritance tree; after an edit, a caller
-may explicitly reconstruct the affected instance. Resolved schema metadata
-does not become mutable instance provenance.
+Each specialisation copies its base's crystallised (fully materialised) binary
+instance and replaces the parts it specialises. It occupies its own instance
+extent and is independently selectable. Editing a base updates all descendant
+specialisations recursively, parent before child, as part of the user-facing edit
+operation. This replaces the separate caller-invoked dependent-update step.
+Runtime values remain independent snapshots, not delta chains traversed during
+access. The retained document tree supplies base relationships and a recursive
+walk through lower specialisation branches discovers impacted instances.
+Retained declarations preserve override intent, including explicitly supplied
+values equal to the base. No separate dependency graph or snapshot-difference
+inference is required by this design. Capturing a complete binary value for an
+existing specialisation takes only the parts selected by its retained declaration,
+updates those parts in its complete image and recursively updates descendants.
+Removing a selected member rebuilds from the base; adding one supplies a replacement
+value. Both operations update descendants. Live document access is mediated by
+the wrappers. Failure partway through editing/updating still needs a validity
+contract. Resolved schema metadata does not become mutable instance provenance.
 
 Construction and overlay are separate operations.
 
@@ -1190,7 +1432,7 @@ converted into this mask-based description with their base-type signedness
 retained; interpreting their source allocation still requires known ABI rules.
 Interpretations may include signed or unsigned integers, enums, normalised
 values, and raw bits.  Unused bits contribute to the common gap indication;
-zeroing them remains external policy, as for alignment padding.
+the optional unused-storage pass clears them, as it does alignment padding.
 
 Packed texel formats should initially be constructed from this general
 bit-range machinery rather than introduced as primitive schema types.  Thus an
@@ -1206,44 +1448,107 @@ explain that separation. The original `bit_offset`, `bit_width`, and
 
 ## Encodings and remapping
 
-### Instance operation boundary
+### Normalised unsigned field codec
 
-The initial instance-construction API will consume baked document values plus
-an explicit resolved-schema/type context. Text and live documents can compose
-through the existing parse/bake path; a direct text-to-instance parser or owning
-instance allocator is not required. The caller supplies destination memory with
-an explicit byte extent and alignment adequate for the resolved type.
+For an `n`-bit `unorm` field, integer input/defaults are raw codes in
+`[0, 2^n - 1]`; reject out-of-range codes. Floating input/defaults use
+`floor(f * 2^n)`, clamped at the upper endpoint to `2^n - 1`. Check that endpoint
+in floating point before converting to integer. Floating values above one,
+including positive infinity, clamp to one; values below zero, including negative
+infinity, clamp to zero; NaN becomes zero. Decoding is `code / (2^n - 1)`.
+Document output uses the stored integer code. Thus integer `1` means raw code one,
+while `1.0` means normalised maximum. Raw-code and normalised-float setters are
+separate public operations. Existing floating special-string handling supplies
+non-finite document input; the data model itself retains finite numeric payloads.
 
-Validate the schema/type, extent, and alignment before writing. Later value
-conversion failure may leave partial destination output; the caller must discard
-it. There is no rollback requirement for construction or overrides. This is
-independent of schema invalidation: the same-document rule still applies, and
-failure in a separate instance document leaves the schema usable. No implicit
-zeroing of padding or unused bits is performed. A named-bitfield update is a
-read/modify/write under the selected mask and preserves every unselected bit.
-The caller supplies initialised containing words wherever masked writes must
-preserve existing bits; whether to clear those words first is an external policy.
+### Instance and bulk operation boundaries
 
-The operation does not retain instance memory, instance-document storage, or
-live inheritance dependencies. A caller keeps schema backing bytes alive while
-using schema operations; constructed data has the lifetime of its own storage.
+The instance and bulk interfaces each manage a document association and a separate
+binary byte buffer. Embedded values are converted through the resolved schema on
+load, applying instance defaults/specialisation or complete-bulk-record rules as
+appropriate. A specialisation copies a completed base and applies its changes
+into its own extent. Loading reference-form input uses the associated binary
+block with matching physical representation. Repeated access need not redo
+document conversion or layout calculation.
+
+Capture of an individual named instance updates an existing extent or appends an
+extent and updates/adds its live document entry. Bulk capture follows the same
+model for a named record array. Instance documents retain declarations as well
+as binary offsets; bulk documents need not retain embedded records. Specialisation
+capture uses the retained selection and updates descendants. Role handles, borrowed
+view lifetimes and buffer placement follow the rules above; exact signatures remain
+implementation design work.
+
+`CLiveBulkData` supports creating a named, unpopulated array by resolved type and
+record count. It uses the same aligned allocation, bounds checks and failed-append
+publication rules as other bulk creation. The resulting handle supplies a bounded
+destination view to the existing remapping executor. One or more mappings may
+populate the array; allocation does not promise zero-filled backing.
+The caller must populate required record fields before reading or exporting them.
+This construction operation does not apply schema defaults. Clearing unused
+storage does not populate logical fields left unwritten by the caller.
+
+Validate schema/type, bounds, counts and required alignment before access or
+transfer. Compatible binary instances can be copied contiguously into adequate
+application storage. There is no application-wide population wrapper. Generic
+typed-description plus pointer operations remain appropriate underneath these
+interfaces, without generated per-type serialisers.
+
+The established low-level failure rule allows partial destination output which
+the caller must discard; it does not promise rollback. Load failure affects only
+its logical data document; append failure preserves existing entries and publishes
+no failed locator. Ordering validation and preparation around in-place edits and
+recursive descendant updates is implementation work. A memory allocation failure
+during such an update is application-critical; the API need not add transactional
+rollback or a recoverable partial-edit model for that situation. Implementation
+must use the application's critical-failure handling rather than allow continued
+use of partially updated data.
+
+Named-bitfield updates preserve bits outside their selected masks. The optional
+unused-storage pass clears only bits not addressed by declared fields.
+Schema access requires its backing document to remain alive
+and its resolution to correspond to the definitions. Promotion can recreate the
+resolution against the live document; the result must no longer borrow the old
+baked document before its owner disposes of the backing block.
+Binary views across mutation/growth are caller-managed; no held-view tracking is added.
 
 ### Representations and bulk copies
 
-Document values and binary are encodings of the same typed instance model.
-Document reads convert values into caller storage through the schema; binary
-reads copy contiguous physical records with matching offsets, stride and
-representation. A future review CSV export may be considered separately; it
-is not a core encoding or planned input path.
+Document declarations and completed binary values serve coordinated roles.
+Output builds a new live document as described under promotion, demotion and
+output. Full output obtains completed values from binary; bulk references expand
+into record arrays. Reference output retains offsets and writes each associated
+block. Text versus baked output is independent of embedded versus external data.
+For baked instance/bulk output, the payload owner remains external to the baked
+wrapper, just like the document-block owner. The caller can save newly generated
+payloads or transfer them to the host without extracting storage from a wrapper.
+Export does not destructively strip the working instance declarations or require
+bulk records to remain duplicated in the working document.
 
-Structural remaps are directional construction rules.  They may rename or
-reorder members, select new offsets, translate enum values, apply defaults,
-perform numeric conversions, traverse nested structures and arrays, combine or
-split fields, draw from multiple source records, and write packed bit ranges.
-The existence of a forward map does not imply a reverse map.
+Full output for a specialisation reads its completed values from its own binary
+extent. Preserving values alone does not preserve override intent: an explicit
+override equal to the old base value cannot be recovered by comparing snapshots.
+All instance/specialisation output, including distribution, preserves named
+declarations and their inheritance hierarchy. This is the complete embedded
+representation: loading without supplied binary reconstructs inherited values
+from that hierarchy. No separate flattened-value field is required. Binary output
+retains complete independent snapshots. Both output forms remain editable after promotion.
+Embedded/binary comparison on load is optional; when disabled, binary snapshots
+remain authoritative until an edit. Loading supplied binary does not reconstruct
+it from declarations. Exact source text and alias spellings need not survive.
 
-The initial runtime remap scope is intentionally narrower.  It covers fat to
-thin and thin to fat vertex or structured records only where selected members
+Binary loading/copying assumes matching offsets, stride, byte order and primitive
+representation. Packaging must establish that association and check buffer bounds;
+stored payloads are little-endian. File association is supplied manually by the
+caller, without on-file schema/layout identity in this work. Raw copying is not
+a cross-layout or cross-endian conversion. A future review CSV
+export may be considered separately; it is not a core encoding or planned input
+path. Locators and buffer rules are specified above.
+
+### Automatic direct-member remapping
+
+The initial runtime remapper covers fat to
+thin and thin to fat vertex or structured records only where matched members
 have identical physical representation.  A validated runtime plan resolves to
 a small sequence of strided copies.  Each copy identifies source and
 destination byte offsets, a fixed contiguous compatible byte-range size,
@@ -1254,21 +1559,29 @@ numeric conversion, enum translation, packing, unpacking, or general
 per-record interpretation.
 
 Each bulk mapping is based on two resolved structure types describing source
-and destination array records, plus a separate description of selected member
-pairs.  It need not use every source member or fill every destination member.
-Type or size conflicts in any selected pair reject the whole mapping during
-setup, before data transfer. Primitives must have the same primitive type and
-size. Selected named structures, enums, and bit structures require the same
+and destination array records. Setup automatically matches direct members by
+name and type; there is no authored member-pair list or recursive member search.
+It need not use every source member or fill every destination member. Members
+without a matching name remain unmapped. The previous hard error for same-name
+type/size conflicts remains, except that nonmatching enums remain unmapped.
+Matching enums can be copied unchanged; no enum translation is performed.
+Primitives must have the same primitive type and size. Matched named structures,
+enums, and bit structures require the same
 type name and matching resolved definition; representation equality alone is
 insufficient. Compare names by text across documents, not document-local IDs.
 Array matches require matching counts, strides, and compatible element types.
+A compound containing a differing enum is wholly unmatched: it is not the same
+exact compound type. No nested partial transfer is selected.
+A compatible compound direct member is copied whole; setup does not search its
+contents for partial transfers. Recursively comparing a compound's definition
+for compatibility is distinct from recursively selecting members to transfer.
 Definition matching includes member/label order, names, referenced types,
 layout, defaults, masks, and interpretations as applicable; numeric formatting
 metadata does not change type identity. Enum aliases must agree in declaration
 order. Different schemas may participate if this comparison succeeds.
 
 The enclosing source and destination record types need not have the same name:
-compatibility applies to the selected member pairs. Thus different vertex record
+compatibility applies to the automatically matched members. Thus different vertex record
 types can transfer matching primitive or named-member types. Enum-to-raw-integer
 override compatibility does not grant a bulk-copy conversion.
 
@@ -1294,43 +1607,42 @@ element, the operation falls back to ordinary individual strided copies.
 A mapping leaves unselected destination members untouched.  Destination
 initialisation is separate from the partial transfer; a caller may initialise
 storage, apply defaults, or populate it through other mappings as appropriate.
+An unpopulated array created by `CLiveBulkData` is one such destination; remapping
+only a subset of its fields or records leaves the rest untouched for the caller
+to populate as required. The unused-storage pass does not clear unselected fields.
 A whole selected aggregate copies its full extent, including owned padding.
 Selecting individual members grants no permission to bridge intervening padding
-or unselected fields when coalescing. Gap initialisation remains the caller's
-policy. Individual packed fields require bit operations and are excluded from
+or unselected fields when coalescing. Destination initialisation remains separate;
+unused storage may be cleared explicitly after the transfer.
+Individual packed fields require bit operations and are excluded from
 this byte-copy remapper; a compatible complete bit-storage value can be copied.
 Source/destination memory overlap is unsupported by the first executor and must
 be rejected before writes; it must not accidentally acquire `memmove` semantics.
 
-This admits interleaved records and simple structure-of-arrays rearrangement
-through explicitly named streams, while retaining a minimal, predictable
-runtime cost. More complex remaps are a later design direction and could run
-at runtime through a general conversion path, but are expected primarily to
-condition data offline. Operations such as `pack_unorm8x4`, bitfield transforms, and
-enum translation are not initially candidates for specialised bulk runtime
-compilation or generated conversion code, even where an eventual optimised
-path would be desirable.  Their higher cost is an accepted escape hatch rather
-than a reason to exclude them from the schema model.
+Execution uses one record count, supplied explicitly or defaulted to the minimum
+of source and destination counts. It receives bounded current source/destination
+views and checks ranges before writes. Public bounded-view calls and handle-based
+instance/bulk calls both exist; handle calls extract views and share the executor
+without duplicating validation.
+
+Authored renaming, nested selection, numeric conversion, bitfield transforms and
+enum translation are outside this delivery, not implicit requirements for a
+general remapping engine.
 
 Logical JSON is not necessarily a lossless representation of every physical
 bit pattern.  Raw binary remains the lossless representation where reserved
 bits, padding, or floating-point payloads matter.
 
-## Delivery and remaining format work
+## Delivery and deferred scope
 
-The [implementation contract](implementation-contract.md) records the initial
-scope, runtime/access contract, limits, diagnostics, generator behaviour, and
-acceptance checks. Accepted private record layouts are described above and
-verified against the actual implementation on x86/x64. Occurrence coverage is
-documented in the runtime API; neither is an unresolved authoring rule.
+The [implementation contract](implementation-contract.md) owns the staged plan,
+code reuse evidence, validation and current progress. The [runtime API](runtime-api.md)
+owns implemented observations and measured layouts. No semantic questions remain
+open for this refactoring scope; source ingestion remains a later design stage.
 
-Later stages must define their external formats before implementation: binary
-byte order and schema association; the
-ingestion manifest and supported source declarations; and normalised-bitfield
-codec rounding. These contracts are deliberately not invented by the first
-resolver delivery. They are listed with their stage in the implementation contract.
-No wire version, hash scheme, schema-owned instance allocator, or editor dependency
-system is implied by the current design.
+No wire version, hash scheme or editor dependency system is implied. Instance
+and bulk buffers are associated with their separate interfaces, not the resolved
+schema owner; live wrappers own them and baked wrappers borrow external storage.
 
 Unions, pointers, variable-sized fields, opaque handles/blobs, packed layout,
 independent array strides, and generated C output are unsupported in the current

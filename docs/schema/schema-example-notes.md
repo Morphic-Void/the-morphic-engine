@@ -15,6 +15,14 @@ fixture or a specification of every future extension.
 The working [design](design.md) records agreed semantics. Showing a later feature
 here does not bring it into the initial delivery.
 
+This is a pre-locator authoring sample, not a current-loader acceptance fixture.
+It still needs the locator and bulk-entry-object grammar from the
+[design](design.md#locators-loading-and-buffers). Its named declarations and
+inheritance hierarchy are the intended embedded instance representation; no
+additional flattened-value field is required. Current capabilities and delivery
+status belong in the [runtime API](runtime-api.md) and
+[implementation contract](implementation-contract.md), respectively.
+
 The file uses Morphic JSON numeric forms: explicit `+` on non-negative signed
 enum values, and numeric `0x` masks. These are not quoted strings. A strict
 JSON parser will reject those spellings; their use is intentional.
@@ -35,13 +43,13 @@ C++ declarations instead choose ordinary integer notation by value; see the
 | Definitions | `types` contains the original `enumerations`, `structures`, and `bit_structures` category objects. Categories organise definitions without adding type namespaces. |
 | Enum | A named object with integer `storage` and a `values` object mapping labels to numbers. Property order is declaration order. |
 | Structure | A named object with an ordered `members` array of singleton named descriptor objects. |
-| Structure detail | `detail.alignment` and computed `detail.size` illustrate generated metadata. Both may be omitted on input. `detail.internal` identifies an internal layout for export purposes. |
+| Structure detail | Generated documents include `detail.alignment` and `detail.size`. Both are optional checked metadata for natural layout; explicit-offset layouts require an authoritative size. `detail.internal` identifies an internal layout for export purposes. |
 | Member | `type` is a named type or an inline array descriptor. Optional `default` supplies a validated default for that member. If any member specifies `offset`, every member of that structure must specify it. |
 | Fixed array | `{ "element": "f32", "count": 2 }`. Count identifies an array; the element descriptor can itself be an array descriptor. Count is positive and stride is computed. |
 | Bit structure | Integer `storage` describes the containing word; ordered named `members` select fields with non-zero contiguous `mask` values. |
 | Bit member | `type` gives the field's base/logical type: an integer, `b8`, or a named enum. Optional `interpretation` retains specialised meaning such as `unorm`; optional scalar `default` belongs to this field definition. |
 | Instance | `instances` groups named instances by type. `declaration` holds supplied values, and `specialisation` holds named children inheriting from that instance. |
-| Bulk collection | `data` groups named arrays of complete records by type, without declarations or specialisation wrappers around each record. |
+| Bulk collection | The saved sample groups named arrays of complete records by type. The revised grammar wraps each named collection in an object containing `locator` and optional `data`; records have no specialisation mechanism. |
 
 The category names, `storage`/`values`, and array `element`/`count` are
 retained from the original sample. `types`, `mask`, `default`, and the uniform
@@ -83,13 +91,15 @@ width determines the field's representable range using its underlying signedness
 
 `SurfaceFlags.axis` now has three bits (`0x0070`, bits 4-6), so the signed
 range -4 through 3 includes `Axis.z` (2). The original two-bit field did not.
-`SurfaceFlags` leaves bits 7-15 unused. Its gap flag is true, without assigning
-any fill policy to those bits. `ColourRgba10A2` covers all 32 bits with disjoint
+`SurfaceFlags` leaves bits 7-15 unused. Its gap flag is true. Under the revised
+design, an optional caller-invoked pass can clear these unused bits and alignment
+padding; construction does not require blanket zeroing. `ColourRgba10A2` covers all 32 bits with disjoint
 10/10/10/2 masks and has no gaps.
 
-The `unorm` spelling is retained from the original sample to show the intended
-interpretation descriptor. Its instance conversion and rounding rules remain
-later work; no packed instance encoding is assumed here. The type separation
+The `unorm` spelling is retained from the original sample. The revised design
+specifies floor-based floating encoding with clamping, raw integer codes for
+input/defaults/output, and conventional decoding. These codecs remain unimplemented;
+no packed instance encoding is validated by this sample. The type separation
 uses the containing storage type for generated mask constants,
 so a shifted mask need not fit the logical field type or its enum value set.
 
@@ -157,30 +167,33 @@ spelling, bit-member type/interpretation separation, and the illustrated `data`
 shape. Bulk omission is now explicitly rejected. Normalised codecs and
 binary payload attachment belong to their later stages. The `offset` and structure `detail`
 rules are recorded in [the design](design.md#explicit-offsets-and-structure-details).
-Structure size remains computed from members and alignment, rather than an
-authored size or stride override.
+Natural structure size is computed from members and alignment. An explicit-offset
+structure instead requires a supplied size, validated for fit and alignment;
+additional trailing space is allowed and belongs to the structure.
 If `detail` or its `alignment` property is omitted, the agreed natural
 alignment rules apply, respecting any explicit alignment of nested types.
 Generated schema documents include both structure `detail.alignment` and
-`detail.size`. Neither value must be explicitly supplied during code ingestion
-and schema creation, or during resolution from a baked document. All structure
+`detail.size`. Natural-layout input may omit both; explicit-offset schema creation
+must supply size and baked resolution requires it. All structure
 definitions here include them to illustrate writer output. Omitting the details
 from `Position`, for example, still resolves to size 12 and alignment 4; omitting
 `InternalRecord`'s alignment would instead remove its explicit increase.
-Resolved descriptions always contain alignment and size. A supplied size must match the computed
-layout; it is not an independent size override. The details for
+Resolved descriptions always contain alignment and size. A supplied natural-layout
+size must match the computation. `InternalRecord` supplies its explicit extent of
+32 bytes; increasing it to 48 would be valid with 16 extra owned tail bytes and
+array stride 48 (and would require updating the enclosing `ArrayExamples` size).
+The existing sample retains size 32. The details for
 `Position`, for example, are `{ "alignment": 4, "size": 12 }`.
 Normalising this sample would use its resolved schema and backing document to
 create a new document containing the generated details and canonical
 representations, leaving this input unchanged. Normalisation reuses the
 resolver's validated types and computed layout rather than repeating that work.
 
-The structure-detail extension also allows internal structures to be identified
-for export purposes. Explicit-offset layouts remain exportable for review even
-when ordinary source declarations cannot fully reproduce them. Generated
-declarations may include explicit padding members to account for offsets and
-total size. Those padding members do not become logical schema members; any
-claim of layout fidelity requires target-specific layout validation. The
+The structure-detail extension also identifies internal structures. The later
+decision removes review-only output: accepted explicit layouts must generate
+faithful C++ under selected compiler settings or be rejected, with alignment
+capped at 128. Padding members may account for offsets and total size but do not
+become logical schema members. Fidelity requires target-specific validation. The
 expanded sample illustrates the marker on `InternalRecord`. Its
 `tag` occupies bytes 0-3; a generated declaration would need twelve bytes of
 padding before `position` at byte 16, together with alignment 16 on the

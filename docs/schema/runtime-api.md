@@ -1,5 +1,12 @@
 # Resolved schema API
 
+This page describes the implemented baked-only resolver and generator introduced
+in `5313c85`. The [design](design.md) defines the target live/baked system;
+the [implementation contract](implementation-contract.md#staged-implementation-plan)
+tracks delivery. The six wrappers, live resolution, instance/bulk operations and
+explicit layouts are not implemented by this API. Its lifetime, handle and
+default rules below describe current code.
+
 `core/schema/resolved_schema.hpp` provides `schema::CResolvedSchema` and
 `schema::generate_cpp`. Resolution consumes a validated `CBakedDocument`;
 it does not parse text, construct instances, or modify the backing document.
@@ -232,7 +239,8 @@ lookup uses binary search. No fixed private slot layout is exposed as an ABI.
 
 The type record contains seven 32-bit words (size, stride, related type,
 first child, count, name ID, source occurrence) and four bytes (category,
-physical primitive, log2 alignment, packed flags/state). Alignment decoding
+physical primitive, log2 alignment, packed flags/state). The three flags occupy
+bits 0-2 and resolution state bits 3-4. Alignment decoding
 uses an unsigned shift; exponent zero means one, and exponents above 31 are
 invalid. The member record contains six 32-bit words (offset, full byte size,
 type, default index, name ID, source occurrence). Other record sizes do not grow.
@@ -244,12 +252,3 @@ directly without repeated parent decoding or copied public observations. No
 range table or persistent allocation pointer is added. Operation access expires
 on clear, move, re-resolution or owner destruction; public checked inspection
 continues to reject invalid inputs.
-
-Future instance operations select individual named instances: document values
-are read/converted through the schema into caller storage; given matching physical
-representation, binary values use contiguous copies after buffer bounds checks.
-Bulk data
-follows the same model. Definitions and instances can share or use separate
-documents. There is no application-wide population wrapper, and CSV is not a
-planned core encoding (a future review export remains possible). These are
-documented boundaries, not implemented instance, normalisation, remap or I/O APIs.
