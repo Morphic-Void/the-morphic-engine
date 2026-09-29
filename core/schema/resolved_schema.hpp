@@ -261,6 +261,9 @@ public:
     [[nodiscard]] static SRecordSizes record_sizes() noexcept;
 
 private:
+    friend class CLiveSchema;
+    void rebind_live_document(const CLiveDocument& document) noexcept;
+
     struct STypeRecord
     {
         std::uint32_t size{}, stride{};

@@ -4,14 +4,62 @@ This page describes the implemented resolver and generator introduced in
 `5313c85` and extended with live/baked document queries. The [design](design.md)
 defines the target system;
 the [implementation contract](implementation-contract.md#staged-implementation-plan)
-tracks delivery. The six wrappers, instance/bulk operations and explicit layouts
-are not implemented by this API. Its lifetime, handle and default rules below
-describe current code.
+tracks delivery. Schema wrappers are implemented; instance/bulk wrappers,
+promotion/demotion, and explicit layouts remain later work. Its lifetime, handle
+and default rules below describe current code.
 
 `schema::CSchemaDocumentQuery` exposes read-only tree, name and scalar queries
 through `CSchemaHandle` occurrences. Its internal adapter reads either a live or
 baked document. A baked query copies the non-owning view, while a live query
 borrows its document. Schema, instance and bulk role-handle types are distinct.
+
+## Schema wrappers and client bindings
+
+`schema::CBakedSchema` copies a non-owning `CBakedDocument` view. The caller keeps
+the immutable block bytes at stable addresses while the wrapper or its clients
+use them, including when a host also has a mutable alias. `schema::CLiveSchema`
+owns a `CLiveDocument` privately. Both wrappers expose `document_query()` over
+the original physical root, `types_root()` for the schema section, and a nullable
+`const CResolvedSchema*` through `resolved()`. `document_ready()` distinguishes
+available document storage from `resolved_ready()`; client operations need the
+latter. Queries are borrowed views and do not extend backing lifetime.
+
+Use `set_document()` to bind an empty baked wrapper to a ready view. Use
+`initialise()` to create an empty live document, or parse into a separate
+`CLiveDocument` and `try_adopt()` it into an empty live wrapper. `resolve()` then
+validates the current wrapped document. Failed resolution clears resolved tables
+but retains the wrapper's document for diagnosis or an unchanged-input retry.
+`reset()` stages fresh live storage before replacing the old document, so an
+allocation failure leaves the old one intact. `try_take_from()` moves an
+unreferenced wrapper into an empty destination and preserves a successful
+resolution; live transfer repairs the resolver's pointer to the moved document.
+Ordinary wrapper moves are disabled so referenced moves can fail explicitly.
+Promotion and demotion are not part of this package.
+
+`CLiveSchema::edit()` returns a borrowed editor for the current owner. It can
+append typed values, rename or erase descendants, change newline escaping, and
+replace payloads. It does not expose a mutable `CLiveDocument`, detached values,
+or reorder operations. It may create the missing `types` object at the root and
+then edits only that subtree. The `types` entry itself cannot be renamed or
+erased, but its payload can be replaced with an object to repair malformed input.
+Other root sections remain available through queries and cannot be changed by
+the schema editor. A successful or potentially mutating edit clears resolution;
+call `resolve()` again before using resolved observations. The editor is a raw
+borrow and expires when its owner moves, resets, adopts new storage, clears its
+document, or dies.
+
+`CSchemaBinding` is a move-only link held inside a client. Binding requires a
+resolved wrapper. Each schema counts its clients and holds an intrusive list of
+their embedded links, without owning those clients. Every editor mutation and
+document replacement checks that count at the time of the call. Referenced edits,
+clear/reset/replacement and wrapper transfer assert in development builds and
+return failure without changing state. Re-resolving the same unchanged input is
+allowed while clients are bound. A failed re-resolution leaves them attached but
+unusable: `resolved()` returns null until a successful retry. Client code must
+check availability on each operation and not cache resolved pointers. Schema
+destruction detaches and invalidates all links before releasing document state;
+subsequent client operations reject safely, and `release()` remains safe. Binding
+reassignment preflights the target, preserving the old link on rejection.
 
 `core/schema/resolved_schema.hpp` provides `schema::CResolvedSchema` and
 `schema::generate_cpp`. Resolution consumes a validated `CLiveDocument` or
@@ -47,7 +95,8 @@ The owner is move-only. It embeds a baked view by value and borrows immutable
 baked bytes, or borrows a live document. The source baked view object may
 disappear, but its backing bytes must remain alive. A borrowed live document
 must remain alive, unmoved and unedited while its resolution is used. The raw
-query and resolver do not provide the deferred wrapper lifetime safeguards.
+query and resolver carry no client binding checks; use the wrappers for guarded
+editing and client invalidation.
 
 `resolve(query, diagnostic)` accepts an existing `CSchemaDocumentQuery`.
 `resolve(diagnostic)` uses the retained input for an unchanged re-resolution.

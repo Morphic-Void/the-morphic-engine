@@ -76,6 +76,15 @@ Instance and bulk documents consume the common schema access interface with
 either live or baked schema backing. Concrete adapter and interface mechanics
 remain implementation design work, not a requirement for a new general framework.
 
+All role wrappers over combined documents may expose the original document root,
+including the other sections, for source navigation and diagnostics. Their
+role-specific operations act only on the data they specialise in. Schema wrappers
+provide a separate `types_root()` accessor to identify the schema section, and
+schema editing is confined to that section, including creation of a missing
+`types` entry; it cannot change instance or bulk content. The same separation
+applies to instance and bulk wrappers. Each live role wrapper owns its own
+document, rather than sharing a higher-level live document owner.
+
 The wrappers layered over the data model are:
 
 | Role | Baked wrapper | Live wrapper |

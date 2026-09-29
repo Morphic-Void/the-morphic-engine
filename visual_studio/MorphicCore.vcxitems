@@ -44,6 +44,7 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\data_model\document_writer.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\document_query.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\resolved_schema.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\schema_wrappers.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\data_model\live_document.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\data_model\live_document_node.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\debug\event_arguments.hpp" />
@@ -117,6 +118,7 @@
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\schema_declarations.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\document_query.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\resolved_schema.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\schema_wrappers.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\data_model\live_document.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\debug\event_arguments.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\debug\log_path.cpp" />

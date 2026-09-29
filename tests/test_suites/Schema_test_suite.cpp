@@ -10,6 +10,7 @@
 #include "tests/test_suites/Schema_test_suite.hpp"
 #include "schema/resolved_schema.hpp"
 #include "schema/document_query.hpp"
+#include "schema/schema_wrappers.hpp"
 #include "memory/memory_policies.hpp"
 #include "data_model/document_parser.hpp"
 #include "data_model/document_translation.hpp"
@@ -38,6 +39,9 @@ static_assert(sizeof(CSchemaIndex) == 4u);
 static_assert(!std::is_copy_constructible_v<CResolvedSchema>);
 static_assert(std::is_nothrow_move_constructible_v<CResolvedSchema>);
 static_assert(std::is_nothrow_move_assignable_v<CResolvedSchema>);
+static_assert(!std::is_copy_constructible_v<CBakedSchema> && !std::is_move_constructible_v<CBakedSchema>);
+static_assert(!std::is_copy_constructible_v<CLiveSchema> && !std::is_move_constructible_v<CLiveSchema>);
+static_assert(!std::is_copy_constructible_v<CSchemaBinding> && std::is_nothrow_move_constructible_v<CSchemaBinding>);
 
 static const char* const fixture = R"({"types":{
  "structures":{
@@ -1292,6 +1296,341 @@ static void test_live_resolution_move_failure_and_depth(TTestContext& ctx)
         }
     }
 }
+
+static bool parse_live(const std::string& text, CLiveDocument& document)
+{
+    return document_parser::parse(
+        CByteConstView{ reinterpret_cast<const std::uint8_t*>(text.data()), text.size(), 1u }, document).accepted();
+}
+
+static void test_schema_wrapper_queries_and_transfer(TTestContext& ctx)
+{
+    CBakedDocumentBlock block;
+    TEST_EXPECT(ctx, bake(fixture, block));
+    CBakedSchema baked;
+    TEST_EXPECT(ctx, baked.set_document(block.document()) && baked.document_ready() && !baked.resolved_ready());
+    const CSchemaDocumentQuery baked_query = baked.document_query();
+    TEST_EXPECT(ctx, baked_query.name(baked.types_root()) == CStringView{ "types" });
+    TEST_EXPECT(ctx, baked_query.object_child(baked_query.root(), CStringView{ "instances" }));
+    SDiagnostic diagnostic;
+    TEST_EXPECT(ctx, baked.resolve(diagnostic) && baked.resolved() != nullptr);
+    TEST_EXPECT(ctx, baked.resolved()->definition_count() != 0u);
+
+    CBakedSchema moved_baked;
+    TEST_EXPECT(ctx, moved_baked.try_take_from(std::move(baked)));
+    TEST_EXPECT(ctx, !baked.document_ready() && moved_baked.resolved_ready());
+    TEST_EXPECT(ctx, moved_baked.resolved()->find_type(CStringView{ "Vector4" }));
+
+    CLiveSchema moved_live;
+    CSchemaHandle retained_type;
+    {
+        CLiveDocument parsed;
+        TEST_EXPECT(ctx, parse_live(fixture, parsed));
+        CLiveSchema live;
+        TEST_EXPECT(ctx, live.try_adopt(std::move(parsed)) && !parsed.is_ready());
+        TEST_EXPECT(ctx, live.resolve(diagnostic));
+        const CSchemaDocumentQuery query = live.document_query();
+        retained_type = query.object_child(query.object_child(live.types_root(), CStringView{ "structures" }),
+            CStringView{ "Vector4" });
+        TEST_EXPECT(ctx, live.resolved()->map_occurrence(retained_type) == live.resolved()->find_type(CStringView{ "Vector4" }));
+        TEST_EXPECT(ctx, moved_live.try_take_from(std::move(live)) && !live.document_ready());
+    }
+    TEST_EXPECT(ctx, moved_live.document_query().name(retained_type) == CStringView{ "Vector4" });
+    TEST_EXPECT(ctx, moved_live.resolved()->map_occurrence(retained_type) ==
+        moved_live.resolved()->find_type(CStringView{ "Vector4" }));
+    TEST_EXPECT(ctx, moved_live.resolve(diagnostic));
+    TEST_EXPECT(ctx, moved_live.resolved()->find_type(CStringView{ "Vector4" }));
+}
+
+static void test_schema_wrapper_editor(TTestContext& ctx)
+{
+    CLiveSchema live;
+    TEST_EXPECT(ctx, live.initialise());
+    CLiveSchema::CEditor editor = live.edit();
+    const CSchemaHandle root = live.document_query().root();
+    const CSchemaHandle types = editor.append_object(root, CStringView{ "types" });
+    const CSchemaHandle structures = editor.append_object(types, CStringView{ "structures" });
+    const CSchemaHandle definition = editor.append_object(structures, CStringView{ "Test" });
+    const CSchemaHandle members = editor.append_array(definition, CStringView{ "members" });
+    const CSchemaHandle member = editor.append_object(members, CStringView{ "value" });
+    const CSchemaHandle type = editor.append_string(member, CStringView{ "u8" }, CStringView{ "type" });
+    TEST_EXPECT(ctx, types && structures && definition && members && member && type);
+    TEST_EXPECT(ctx, !editor.append_object(root, CStringView{ "instances" }));
+    TEST_EXPECT(ctx, !editor.set_name(types, CStringView{ "different" }) && !editor.erase(types));
+    TEST_EXPECT(ctx, !editor.append_object(root, CStringView{ "types" }));
+    const std::uint32_t before_duplicate = live.document_query().child_count(structures);
+    TEST_EXPECT(ctx, !editor.append_object(structures, CStringView{ "Test" }));
+    TEST_EXPECT(ctx, live.document_query().child_count(structures) == before_duplicate);
+    SDiagnostic diagnostic;
+    const bool resolved = live.resolve(diagnostic);
+    TEST_EXPECT(ctx, resolved);
+    if (!resolved) return;
+    const CSchemaIndex named = live.resolved()->find_type(CStringView{ "Test" });
+    SType type_info;
+    TEST_EXPECT(ctx, live.resolved()->type(named, type_info) && type_info.size == 1u);
+
+    CSchemaBinding binding;
+    TEST_EXPECT(ctx, binding.bind(live) && live.reference_count() == 1u);
+    {
+        tests::TAssertionTestScope assertions{ ctx };
+        assertions.expect_assertion(ctx, [&]
+        {
+            TEST_EXPECT(ctx, !editor.replace_string(type, CStringView{ "u16" }));
+        });
+        assertions.expect_assertion(ctx, [&]
+        {
+            TEST_EXPECT(ctx, !live.reset());
+        });
+        CLiveSchema empty;
+        assertions.expect_assertion(ctx, [&]
+        {
+            TEST_EXPECT(ctx, !empty.try_take_from(std::move(live)));
+        });
+    }
+    TEST_EXPECT(ctx, live.document_query().string_value(type) == CStringView{ "u8" } && live.resolved_ready());
+    TEST_EXPECT(ctx, live.resolve(diagnostic) && binding.is_usable());
+    TEST_EXPECT(ctx, live.resolved()->find_type(CStringView{ "Test" }) == named);
+    binding.release();
+    TEST_EXPECT(ctx, editor.replace_string(type, CStringView{ "u16" }) && !live.resolved_ready());
+    TEST_EXPECT(ctx, live.document_query().string_value(type) == CStringView{ "u16" });
+    TEST_EXPECT(ctx, live.resolve(diagnostic));
+    TEST_EXPECT(ctx, live.resolved()->type(live.resolved()->find_type(CStringView{ "Test" }), type_info) && type_info.size == 2u);
+
+    const std::string malformed = R"({"types":null,"instances":{"keep":1},"data":{"keep":2}})";
+    CLiveDocument parsed;
+    TEST_EXPECT(ctx, parse_live(malformed, parsed));
+    CLiveSchema combined;
+    TEST_EXPECT(ctx, combined.try_adopt(std::move(parsed)));
+    CLiveSchema::CEditor combined_editor = combined.edit();
+    const CSchemaDocumentQuery combined_query = combined.document_query();
+    const CSchemaHandle combined_root = combined_query.root();
+    const CSchemaHandle instances = combined_query.object_child(combined_root, CStringView{ "instances" });
+    const CSchemaHandle data = combined_query.object_child(combined_root, CStringView{ "data" });
+    TEST_EXPECT(ctx, !combined_editor.append_object(instances, CStringView{ "blocked" }));
+    TEST_EXPECT(ctx, !combined_editor.replace_object(instances));
+    TEST_EXPECT(ctx, combined_editor.replace_object(combined.types_root()));
+    TEST_EXPECT(ctx, combined.document_query().object_child(combined_root, CStringView{ "instances" }) == instances &&
+        combined.document_query().object_child(combined_root, CStringView{ "data" }) == data);
+    TEST_EXPECT(ctx, combined.resolve(diagnostic));
+}
+
+static void test_schema_wrapper_bindings(TTestContext& ctx)
+{
+    CBakedDocumentBlock block;
+    TEST_EXPECT(ctx, bake(one("\"u8\"", "1"), block));
+    SFailingAllocator failing{ 0u, SIZE_MAX };
+    memory::CMemoryAllocator allocator{ &failing, &allocate_with_failure, &tests::deallocate_test_memory };
+    memory::CMemoryContext context{ allocator };
+    {
+        tests::TMemoryContextScope scope{ &context };
+        CBakedSchema first, second;
+        SDiagnostic diagnostic;
+        TEST_EXPECT(ctx, first.set_document(block.document()) && second.set_document(block.document()));
+        TEST_EXPECT(ctx, first.resolve(diagnostic) && second.resolve(diagnostic));
+        CSchemaBinding head, middle, tail, other;
+        TEST_EXPECT(ctx, head.bind(first) && middle.bind(first) && tail.bind(first) && other.bind(second));
+        TEST_EXPECT(ctx, first.reference_count() == 3u && second.reference_count() == 1u);
+        middle = std::move(head);
+        TEST_EXPECT(ctx, !head.is_attached() && middle.is_usable() && first.reference_count() == 2u);
+        middle = std::move(middle);
+        TEST_EXPECT(ctx, middle.is_usable() && first.reference_count() == 2u);
+        other = std::move(tail);
+        TEST_EXPECT(ctx, !tail.is_attached() && first.reference_count() == 2u && second.reference_count() == 0u);
+        TEST_EXPECT(ctx, other.bind(second) && first.reference_count() == 1u && second.reference_count() == 1u);
+        middle.release();
+        TEST_EXPECT(ctx, first.reference_count() == 0u && second.reference_count() == 1u);
+
+        CSchemaBinding first_link, middle_link, next_link, last_link;
+        TEST_EXPECT(ctx, first_link.bind(first) && middle_link.bind(first) && next_link.bind(first) && last_link.bind(first));
+        middle_link.release();
+        TEST_EXPECT(ctx, first.reference_count() == 3u && first_link.is_usable() && next_link.is_usable());
+        last_link.release();
+        first_link.release();
+        TEST_EXPECT(ctx, first.reference_count() == 1u && next_link.is_usable());
+        next_link.release();
+        TEST_EXPECT(ctx, first.reference_count() == 0u);
+
+        CSchemaBinding surviving_a, surviving_b, surviving_c;
+        {
+            CBakedSchema temporary;
+            TEST_EXPECT(ctx, temporary.set_document(block.document()) && temporary.resolve(diagnostic));
+            TEST_EXPECT(ctx, surviving_a.bind(temporary) && surviving_b.bind(temporary) && surviving_c.bind(temporary));
+            TEST_EXPECT(ctx, temporary.reference_count() == 3u);
+        }
+        TEST_EXPECT(ctx, !surviving_a.is_attached() && !surviving_b.is_attached() && !surviving_c.is_attached());
+        TEST_EXPECT(ctx, !surviving_a.resolved() && !surviving_b.document_query().is_ready());
+        surviving_a.release();
+        surviving_b.release();
+        surviving_c.release();
+
+        CSchemaBinding persistent;
+        TEST_EXPECT(ctx, persistent.bind(first));
+        failing.fail_on = failing.calls;
+        TEST_EXPECT(ctx, !first.resolve(diagnostic) && diagnostic.reason == EReason::allocation_failed);
+        TEST_EXPECT(ctx, persistent.is_attached() && !persistent.is_usable() && !persistent.resolved());
+        TEST_EXPECT(ctx, persistent.document_query().is_ready() && first.reference_count() == 1u);
+        TEST_EXPECT(ctx, !other.bind(first) && other.is_usable() && second.reference_count() == 1u);
+        TEST_EXPECT(ctx, !persistent.bind(first) && persistent.is_attached());
+        failing.fail_on = SIZE_MAX;
+        TEST_EXPECT(ctx, first.resolve(diagnostic) && persistent.is_usable());
+        persistent.release();
+        other.release();
+    }
+    TEST_EXPECT(ctx, context.is_attribution_empty());
+}
+
+static void test_schema_wrapper_rejections(TTestContext& ctx)
+{
+    CBakedDocumentBlock block;
+    TEST_EXPECT(ctx, bake(one("\"u8\"", "1"), block));
+    SDiagnostic diagnostic;
+    CBakedSchema baked, baked_destination;
+    TEST_EXPECT(ctx, baked.set_document(block.document()) && baked.resolve(diagnostic));
+    CSchemaBinding baked_client;
+    TEST_EXPECT(ctx, baked_client.bind(baked));
+    {
+        tests::TAssertionTestScope assertions{ ctx };
+        assertions.expect_assertion(ctx, [&] { TEST_EXPECT(ctx, !baked.clear_resolution()); });
+        assertions.expect_assertion(ctx, [&] { TEST_EXPECT(ctx, !baked.clear()); });
+        assertions.expect_assertion(ctx, [&] { TEST_EXPECT(ctx, !baked.set_document(block.document())); });
+        assertions.expect_assertion(ctx, [&] { TEST_EXPECT(ctx, !baked_destination.try_take_from(std::move(baked))); });
+    }
+    TEST_EXPECT(ctx, baked.document_ready() && baked.resolved_ready() && baked_client.is_usable() &&
+        baked.reference_count() == 1u && !baked_destination.document_ready());
+    baked_client.release();
+    TEST_EXPECT(ctx, baked_destination.set_document(block.document()));
+    TEST_EXPECT(ctx, !baked_destination.try_take_from(std::move(baked)) && baked.document_ready() &&
+        baked_destination.document_ready());
+
+    CLiveDocument parsed, candidate;
+    const std::string input = one("\"u8\"", "1");
+    TEST_EXPECT(ctx, parse_live(input, parsed) && parse_live(input, candidate));
+    CLiveSchema live, live_destination;
+    TEST_EXPECT(ctx, live.try_adopt(std::move(parsed)) && live.resolve(diagnostic));
+    CSchemaBinding live_client;
+    TEST_EXPECT(ctx, live_client.bind(live));
+    {
+        tests::TAssertionTestScope assertions{ ctx };
+        assertions.expect_assertion(ctx, [&] { TEST_EXPECT(ctx, !live.clear_resolution()); });
+        assertions.expect_assertion(ctx, [&] { TEST_EXPECT(ctx, !live.clear()); });
+        assertions.expect_assertion(ctx, [&] { TEST_EXPECT(ctx, !live.try_adopt(std::move(candidate))); });
+    }
+    TEST_EXPECT(ctx, candidate.is_ready() && live.document_ready() && live.resolved_ready() && live_client.is_usable());
+    live_client.release();
+    TEST_EXPECT(ctx, live_destination.try_adopt(std::move(candidate)) && !candidate.is_ready());
+    CLiveDocument another;
+    TEST_EXPECT(ctx, parse_live(input, another));
+    TEST_EXPECT(ctx, !live_destination.try_adopt(std::move(another)) && another.is_ready() &&
+        live_destination.document_ready());
+    TEST_EXPECT(ctx, !live_destination.try_take_from(std::move(live)) && live.document_ready() &&
+        live_destination.document_ready() && live.resolved_ready());
+
+    const CSchemaHandle old_root = live.document_query().root();
+    {
+        SFailingAllocator failing{ 0u, 0u };
+        memory::CMemoryAllocator allocator{ &failing, &allocate_with_failure, &tests::deallocate_test_memory };
+        memory::CMemoryContext context{ allocator };
+        {
+            tests::TMemoryContextScope scope{ &context };
+            TEST_EXPECT(ctx, !live.reset());
+        }
+        TEST_EXPECT(ctx, context.is_attribution_empty());
+    }
+    TEST_EXPECT(ctx, live.document_ready() && live.resolved_ready() && live.document_query().root() == old_root);
+
+    CSchemaBinding surviving_a, surviving_b;
+    {
+        CLiveDocument temporary_document;
+        TEST_EXPECT(ctx, parse_live(input, temporary_document));
+        CLiveSchema temporary;
+        TEST_EXPECT(ctx, temporary.try_adopt(std::move(temporary_document)) && temporary.resolve(diagnostic));
+        TEST_EXPECT(ctx, surviving_a.bind(temporary) && surviving_b.bind(temporary));
+    }
+    TEST_EXPECT(ctx, !surviving_a.is_attached() && !surviving_b.is_attached() &&
+        !surviving_a.resolved() && !surviving_b.document_query().is_ready());
+    surviving_a.release();
+    surviving_b.release();
+}
+
+static void test_schema_wrapper_edit_allocations(TTestContext& ctx)
+{
+    const std::string document = one("\"u8\"", "1");
+    const std::string long_value(65536u, 'x');
+    unsigned rejected = 0u, accepted = 0u;
+    for (std::size_t failure_offset = 0u; failure_offset < 8u; ++failure_offset)
+    {
+        SFailingAllocator failing{ 0u, SIZE_MAX };
+        memory::CMemoryAllocator allocator{ &failing, &allocate_with_failure, &tests::deallocate_test_memory };
+        memory::CMemoryContext context{ allocator };
+        {
+            tests::TMemoryContextScope scope{ &context };
+            CLiveDocument parsed;
+            TEST_EXPECT(ctx, parse_live(document, parsed));
+            CLiveSchema live;
+            TEST_EXPECT(ctx, live.try_adopt(std::move(parsed)));
+            const CSchemaDocumentQuery query = live.document_query();
+            const CSchemaHandle structures = query.object_child(live.types_root(), CStringView{ "structures" });
+            const CSchemaHandle definition = query.object_child(structures, CStringView{ "Test" });
+            const CSchemaHandle members = query.object_child(definition, CStringView{ "members" });
+            const CSchemaHandle member = query.array_at(members, 0u);
+            const CSchemaHandle original = query.object_child(member, CStringView{ "default" });
+            TEST_EXPECT(ctx, original && query.value_kind(original) == EDocumentValueKind::integer);
+            const CStringView replacement{ long_value.data(), long_value.size() };
+            failing.fail_on = failing.calls + failure_offset;
+            const bool changed = live.edit().replace_string(original, replacement);
+            if (changed)
+            {
+                ++accepted;
+                TEST_EXPECT(ctx, live.document_query().string_value(original) == replacement);
+            }
+            else
+            {
+                ++rejected;
+                std::int64_t signed_value{};
+                std::uint64_t unsigned_value{};
+                TEST_EXPECT(ctx,
+                    (live.document_query().signed_integer_value(original, signed_value) && (signed_value == 1)) ||
+                    (live.document_query().unsigned_integer_value(original, unsigned_value) && (unsigned_value == 1u)));
+                TEST_EXPECT(ctx, live.document_ready());
+            }
+        }
+        TEST_EXPECT(ctx, context.is_attribution_empty());
+    }
+    TEST_EXPECT(ctx, rejected != 0u && accepted != 0u);
+
+    //  Six aggregate values including the root use twelve slots. Two scalars
+    //  bring the total to fourteen; seventeen fillers leave one of the initial
+    //  32 slots free. The new candidate fills it; detaching the old payload
+    //  must grow the node store.
+    SFailingAllocator failing{ 0u, SIZE_MAX };
+    memory::CMemoryAllocator allocator{ &failing, &allocate_with_failure, &tests::deallocate_test_memory };
+    memory::CMemoryContext context{ allocator };
+    {
+        tests::TMemoryContextScope scope{ &context };
+        CLiveSchema live;
+        TEST_EXPECT(ctx, live.initialise(32u));
+        CLiveSchema::CEditor editor = live.edit();
+        const CSchemaHandle types = editor.append_object(live.document_query().root(), CStringView{ "types" });
+        const CSchemaHandle structures = editor.append_object(types, CStringView{ "structures" });
+        const CSchemaHandle definition = editor.append_object(structures, CStringView{ "Test" });
+        const CSchemaHandle members = editor.append_array(definition, CStringView{ "members" });
+        const CSchemaHandle member = editor.append_object(members, CStringView{ "value" });
+        TEST_EXPECT(ctx, editor.append_string(member, CStringView{ "u8" }, CStringView{ "type" }));
+        const CSchemaHandle original = editor.append_signed(member, 1, CStringView{ "default" });
+        TEST_EXPECT(ctx, original);
+        for (unsigned n = 0u; n < 17u; ++n)
+        {
+            const std::string name = "padding" + std::to_string(n);
+            TEST_EXPECT(ctx, editor.append_null(member, CStringView{ name.c_str() }));
+        }
+        failing.fail_on = failing.calls;
+        TEST_EXPECT(ctx, !editor.replace_string(original, CStringView{ "u8" }));
+        TEST_EXPECT(ctx, failing.calls == failing.fail_on + 1u);
+        std::int64_t old_value{};
+        TEST_EXPECT(ctx, live.document_query().signed_integer_value(original, old_value) && old_value == 1);
+    }
+    TEST_EXPECT(ctx, context.is_attribution_empty());
+}
 }   // namespace schema_tests
 
 int run_schema_tests()
@@ -1308,6 +1647,11 @@ int run_schema_tests()
     schema_tests::test_document_read_boundary(ctx);
     schema_tests::test_live_baked_resolution_parity(ctx);
     schema_tests::test_live_resolution_move_failure_and_depth(ctx);
+    schema_tests::test_schema_wrapper_queries_and_transfer(ctx);
+    schema_tests::test_schema_wrapper_editor(ctx);
+    schema_tests::test_schema_wrapper_bindings(ctx);
+    schema_tests::test_schema_wrapper_rejections(ctx);
+    schema_tests::test_schema_wrapper_edit_allocations(ctx);
     const schema::SRecordSizes sizes = schema::CResolvedSchema::record_sizes();
     std::cout << "Schema record bytes: type=" << sizes.type << " member=" << sizes.member << " label=" << sizes.label
               << " field=" << sizes.field << " default=" << sizes.default_value << " mapping=" << sizes.mapping << '\n';

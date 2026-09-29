@@ -79,7 +79,8 @@ Wrappers, conversions, guarded edits and reference lifetimes remain outside this
 package. Coordinator review is required before a separate user-authorised commit.
 
 The resolver/generator package passed coordinator and user review on 29 September;
-the user authorised its separate commit. `CSchemaDocumentQuery` provides the public
+the user authorised its separate commit, `82d4974` (Resolve schemas through shared
+live and baked queries). `CSchemaDocumentQuery` provides the public
 borrowed schema-role read view, including diagnostic navigation after failure.
 The resolver accepts live documents, baked documents or that view; source
 observations and diagnostics use `CSchemaHandle`, while resolved slots retain
@@ -112,6 +113,51 @@ one `detail` block, and the implementation explicitly nests `detail` inside a
 single outer `schema` block. Coordinator review, a Debug x64 project compile and
 text-policy checks passed; the runtime matrix was not repeated for this cleanup.
 The subsequent header section banners were reviewed as comment-only changes.
+
+After that commit the user authorised continuation. The same stage 2 chat refreshed
+the schema-wrapper, guarded-edit and intrusive-binding API proposal against the
+implemented query/resolver boundary. Coordinator review is complete, and the
+bounded wrapper package is authorised for implementation: `CBakedSchema` and
+`CLiveSchema`, document/resolution queries, guarded editing, fallible adoption and
+transfer, and non-owning intrusive client bindings. The user confirmed that every
+role wrapper may expose a combined input's original root while operating only on
+its specialised content; schema queries also provide `types_root()`. Each live
+wrapper owns its own document. The editor rechecks bindings on every mutation;
+it remains a raw borrow rather than introducing editor-generation tracking.
+Adoption/transfer require empty destinations and preserve both inputs on failure.
+Promotion/demotion form the following package. No stage 3 semantics or
+instance/bulk wrappers are dispatched.
+
+The wrapper package passed coordinator and user review on 29 September;
+the user authorised its separate commit after adding only leading blank lines
+to the two new wrapper files. Those formatting edits were preserved without
+repeating the passing validation. The new
+`core/schema/schema_wrappers.hpp/.cpp` provides the two schema wrappers,
+`CLiveSchema::CEditor` and `CSchemaBinding`. The resolver has only a private
+live-document rebind hook for transfer. Schema edits stay within `types`, with
+object-payload replacement of the section itself supported to repair malformed
+input without changing the other sections. Document readiness and resolved
+readiness are separate. Failed unchanged re-resolution leaves clients attached
+but unusable until a successful retry. Destruction invalidates and detaches
+clients before releasing schema state; no C++ exception handling or mandatory
+panic path was added.
+
+Debug x64 and Release x64 solution builds and ordinary `-t1` tests passed, each
+with 2,657 schema checks and zero failures across the ordinary suites. Test tags
+were `stage2-wrapper-growth` (PID 16132, Debug) and `stage2-wrapper-release`
+(PID 84752, Release). Coverage includes retained-editor guards, referenced
+clear/reset/move rejection, nonempty destination rejection, binding moves and
+rebinding, destruction of live/baked schemas with surviving clients, unchanged
+re-resolution failure/retry, live pointer repair after transfer, role boundaries,
+and allocation failure during reset and payload replacement. A fixed-capacity
+fixture fills the last node slot with the replacement candidate, then fails
+allocation when detaching the old payload and verifies that the old value remains.
+The coordinator inspected actual build/test output without repeating the passing
+matrix. Release disables development assertions and exercises the explicit
+failure returns. Final indentation/comment cleanup did not require a repeated
+Debug run. Text-policy and diff checks passed; Visual Studio item/filter encoding,
+CRLF and existing missing-final-newline form were preserved. No generated-layout
+matrix was repeated because layout/generator semantics did not change.
 
 The 29 September user review rejects mandatory no-return panic as the standard
 schema lifetime response. The agreed replacement is a schema reference count plus
@@ -474,10 +520,11 @@ CRLF and optional missing final newline. Other text uses LF and a final newline.
 
 ## Staged implementation plan
 
-Stage 2's read-adapter package is committed; the resolver/generator migration is
-implemented, validated and approved by both coordinator and user for its separate
-commit. Its intrusive binding-list lifetime design is agreed for the later
-wrapper package, which has not been dispatched. Stages 3-8 are planned.
+Stage 2's read-adapter and resolver/generator packages are committed as `0addf71`
+and `82d4974`. The schema-wrapper package, including guarded editing and intrusive
+client bindings, has passed coordinator review, validation and user review, with
+its separate commit authorised. Schema promotion/demotion remains to complete
+stage 2. Stages 3-8 are planned.
 Stage 1 is complete and committed independently as
 `d92dddd`; its code, tests and data-model documentation exclude schema planning.
 Implementing chats receive bounded briefs from the coordinator and return changes

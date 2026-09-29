@@ -227,6 +227,14 @@ void CResolvedSchema::clear() noexcept
     m_mapping.deallocate();
 }
 
+void CResolvedSchema::rebind_live_document(const CLiveDocument& document) noexcept
+{
+    if (m_ready)
+    {
+        m_document = CSchemaDocumentQuery{ document };
+    }
+}
+
 const CResolvedSchema::STypeRecord* CResolvedSchema::type_record(const CSchemaIndex i) const noexcept
 {
     return is_kind(i, resolver_util::k_type, m_types.size()) ? &m_types[ordinal(i)] : nullptr;
