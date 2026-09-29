@@ -1,31 +1,33 @@
 # Resolved schema API
 
-This page describes the implemented baked-only resolver and generator introduced
-in `5313c85`. The [design](design.md) defines the target live/baked system;
+This page describes the implemented resolver and generator introduced in
+`5313c85` and extended with live/baked document queries. The [design](design.md)
+defines the target system;
 the [implementation contract](implementation-contract.md#staged-implementation-plan)
-tracks delivery. The six wrappers, live resolution, instance/bulk operations and
-explicit layouts are not implemented by this API. Its lifetime, handle and
-default rules below describe current code.
+tracks delivery. The six wrappers, instance/bulk operations and explicit layouts
+are not implemented by this API. Its lifetime, handle and default rules below
+describe current code.
 
-The first stage 2 package adds an internal `schema::detail::CDocumentRead`
-adapter over live and baked data-model queries, plus distinct schema, instance
-and bulk role-handle types. Retained baked adapters copy the non-owning view;
-live adapters borrow the live document. The resolver and generator below still
-use their baked-only API until the next integration package.
+`schema::CSchemaDocumentQuery` exposes read-only tree, name and scalar queries
+through `CSchemaHandle` occurrences. Its internal adapter reads either a live or
+baked document. A baked query copies the non-owning view, while a live query
+borrows its document. Schema, instance and bulk role-handle types are distinct.
 
 `core/schema/resolved_schema.hpp` provides `schema::CResolvedSchema` and
-`schema::generate_cpp`. Resolution consumes a validated `CBakedDocument`;
+`schema::generate_cpp`. Resolution consumes a validated `CLiveDocument` or
+`CBakedDocument`;
 it does not parse text, construct instances, or modify the backing document.
 For text input, require `document_parser::parse(...).accepted()` under a policy
-that excludes `EDocumentFinding::name_collision_extension`, then bake the live
-document. The ordinary parser policy already excludes collision extension.
+that excludes `EDocumentFinding::name_collision_extension`. The ordinary parser
+policy already excludes collision extension. Baking is optional for resolution.
 
 ```cpp
 schema::CResolvedSchema resolved;
 schema::SDiagnostic diagnostic;
 if (!resolved.resolve(block.document(), diagnostic))
 {
-    // Format diagnostic using block.document(); the resolved owner is empty.
+    // Query the occurrence using CSchemaDocumentQuery{ block.document() }.
+    // The resolved owner is empty.
     return;
 }
 const auto vector = resolved.find_type(CStringView{ "Vector4" });
@@ -42,17 +44,29 @@ if (resolved.type(vector, type))
 ```
 
 The owner is move-only. It embeds a baked view by value and borrows immutable
-document bytes; the source view object may disappear. Every resolution attempt
-clears the previous resolution immediately. Failure releases every owned table
-and clears the binding. Moving transfers indices and tables and leaves the
-source empty. Indices from a replaced resolution must not be reused; they have
-no generation or owner identity. `clear()` releases the resolution.
+baked bytes, or borrows a live document. The source baked view object may
+disappear, but its backing bytes must remain alive. A borrowed live document
+must remain alive, unmoved and unedited while its resolution is used. The raw
+query and resolver do not provide the deferred wrapper lifetime safeguards.
 
-All schema handles are distinct 32-bit `CSchemaIndex` values; zero is invalid.
-Callers must not decode their numeric values. Named lookup misses and unmapped
-occurrences return zero. Inspection methods return false for wrong record kinds,
-wrong categories, absent indices or an unready owner, leaving the output value
-unchanged. `SType.count` is the category's member, label, field or element count.
+`resolve(query, diagnostic)` accepts an existing `CSchemaDocumentQuery`.
+`resolve(diagnostic)` uses the retained input for an unchanged re-resolution.
+Every resolution attempt clears the previous tables immediately. A successful
+unchanged re-resolution preserves existing `CSchemaIndex` meanings. Changed
+definitions can change those meanings, and failure or `clear()` invalidates
+them. Failure releases every owned table and clears the input binding, so an
+unready owner cannot re-resolve without a new input. Moving transfers the
+binding, indices and tables and leaves the source empty. Indices have no
+generation or owner identity.
+
+Resolved schema record indices are 32-bit `CSchemaIndex` values; zero is invalid.
+Document occurrences use `CSchemaHandle`, which preserves the full live node key
+or baked value index and cannot be constructed from a raw key by callers. Both
+handle types are distinct. Callers must not decode their numeric values. Named
+lookup misses and unmapped occurrences return zero. Inspection methods return
+false for wrong record kinds, wrong categories, absent indices or an unready
+owner, leaving the output value unchanged. `SType.count` is the category's
+member, label, field or element count.
 `element_or_storage` is meaningful for arrays, enums and bit structures.
 `SType.stride` is element stride for an array, and the type's size otherwise.
 Built-ins have no declaration occurrence or document name ID.
@@ -100,8 +114,8 @@ Quantisation and instance construction are outside this API.
 
 ## Occurrence coverage
 
-The mapping is a sorted sparse table keyed by baked value occurrence, independent
-of interned spelling. Its lifetime follows the owner.
+The mapping is a sorted sparse table keyed by full live or baked occurrence
+identity, independent of interned spelling. Its lifetime follows the owner.
 
 | Document occurrence | Resolved result |
 | --- | --- |
@@ -141,12 +155,13 @@ report, and never leave a usable partial result.
 
 `SDiagnostic` contains the first terminal reason/stage, offending occurrence,
 enclosing definition/member occurrences where available, and an optional related
-occurrence. Locations use `CBakedValueIndex::is_valid()`, whose missing sentinel
-is distinct from schema zero. Bit overlaps additionally report both half-open
+occurrence. Locations use `CSchemaHandle::is_valid()`, whose missing value is
+distinct from schema index zero. Bit overlaps additionally report both half-open
 bit ranges with `ranges_available`. Duplicate diagnostics identify both surviving
 declarations. Diagnostics retain no document view; keep the caller's input
-alive to format names/paths after failure. Baked locations promise no source
-line/column information.
+alive and use `CSchemaDocumentQuery` to inspect names and paths after failure.
+Live and baked handles belong to their originating document. Baked locations
+promise no source line/column information.
 
 Natural layout is supported. Matching `detail.alignment` and `detail.size` are
 checked metadata; `detail.internal` is an export marker. Explicit member offsets
@@ -231,25 +246,25 @@ by the suite. They are measurements, not a serialization format or promised ABI.
 
 | Private record | Measured bytes, MSVC x86 and x64 |
 | --- | ---: |
-| Type | 32 |
-| Structure member | 24 |
-| Enum label | 24 |
-| Bit field | 32 |
-| Explicit default node | 32 |
-| Occurrence mapping pair | 8 |
+| Type | 48 |
+| Structure member | 40 |
+| Enum label | 40 |
+| Bit field | 48 |
+| Explicit default node | 48 |
+| Occurrence mapping pair | 24 |
 
 The owner stores twelve primitive records plus one record per named definition
 and inline array descriptor. Only explicit supplied defaults allocate default
 nodes. Named lookup currently scans the relevant ordered range; occurrence
 lookup uses binary search. No fixed private slot layout is exposed as an ABI.
 
-The type record contains seven 32-bit words (size, stride, related type,
-first child, count, name ID, source occurrence) and four bytes (category,
+The type record contains a 16-byte source occurrence, six 32-bit words (size,
+stride, related type, first child, count, name ID), and four bytes (category,
 physical primitive, log2 alignment, packed flags/state). The three flags occupy
 bits 0-2 and resolution state bits 3-4. Alignment decoding
 uses an unsigned shift; exponent zero means one, and exponents above 31 are
-invalid. The member record contains six 32-bit words (offset, full byte size,
-type, default index, name ID, source occurrence). Other record sizes do not grow.
+invalid. The member record contains a 16-byte source occurrence and five 32-bit
+words (offset, full byte size, type, default index, name ID).
 Actual layout assertions are compiled on x86/x64.
 
 Internal named lookups validate the starting schema/type once, then use transient

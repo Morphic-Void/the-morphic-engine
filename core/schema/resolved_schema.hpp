@@ -14,7 +14,7 @@
 #define RESOLVED_SCHEMA_HPP_INCLUDED
 
 #include "containers/TPodVector.hpp"
-#include "data_model/baked_document.hpp"
+#include "schema/document_query.hpp"
 
 namespace schema
 {
@@ -146,14 +146,13 @@ struct SScalar
     EScalar kind{ EScalar::unsigned_integer };
 };
 
-//  Document indices carry their own availability sentinel, independently of
-//  schema zero. Diagnostics borrow the caller's input even after failure clears
-//  the schema; no hidden view or ownership is retained.
+//  Document handles remain scoped to the caller's input. Diagnostics retain
+//  locations but no document storage after resolution failure.
 struct SDiagnostic
 {
     EReason reason{ EReason::none };
     EStage stage{ EStage::none };
-    CBakedValueIndex occurrence, enclosing_type, enclosing_member, related;
+    CSchemaHandle occurrence, enclosing_type, enclosing_member, related;
     bool ranges_available{};
     std::uint64_t range_begin{}, range_end{}, related_begin{}, related_end{};
 };
@@ -164,7 +163,7 @@ struct SType
     ECategory category{};
     EPrimitive primitive{};
     CPropertyNameId name;
-    CBakedValueIndex source;
+    CSchemaHandle source;
     std::uint64_t size{}, alignment{}, stride{};
     std::uint32_t count{};
     CSchemaIndex element_or_storage;
@@ -174,7 +173,7 @@ struct SType
 struct SMember
 {
     CPropertyNameId name;
-    CBakedValueIndex source;
+    CSchemaHandle source;
     CSchemaIndex type, default_description;
     std::uint64_t offset{}, size{};
 };
@@ -182,14 +181,14 @@ struct SMember
 struct SLabel
 {
     CPropertyNameId name;
-    CBakedValueIndex source;
+    CSchemaHandle source;
     SScalar value;
 };
 
 struct SField
 {
     CPropertyNameId name;
-    CBakedValueIndex source;
+    CSchemaHandle source;
     CSchemaIndex type, default_description;
     std::uint64_t mask{};
     std::uint8_t shift{}, width{};
@@ -201,7 +200,7 @@ struct SField
 struct SDefault
 {
     EDefault kind{};
-    CBakedValueIndex source;
+    CSchemaHandle source;
     SScalar scalar;
     std::uint32_t supplied_count{};
 };
@@ -225,11 +224,14 @@ public:
     CResolvedSchema(const CResolvedSchema&) = delete;
     CResolvedSchema& operator=(const CResolvedSchema&) = delete;
     [[nodiscard]] bool resolve(const CBakedDocument& document, SDiagnostic& diagnostic) noexcept;
+    [[nodiscard]] bool resolve(const CLiveDocument& document, SDiagnostic& diagnostic) noexcept;
+    [[nodiscard]] bool resolve(const CSchemaDocumentQuery& document, SDiagnostic& diagnostic) noexcept;
+    [[nodiscard]] bool resolve(SDiagnostic& diagnostic) noexcept;
     void clear() noexcept;
 
     [[nodiscard]] bool is_ready() const noexcept { return m_ready; }
 
-    [[nodiscard]] const CBakedDocument* document() const noexcept { return m_ready ? &m_document : nullptr; }
+    [[nodiscard]] CStringView name(const CPropertyNameId id) const noexcept;
 
     //  Type catalogue and checked record access
     [[nodiscard]] CSchemaIndex find_type(const CStringView& name) const noexcept;
@@ -255,7 +257,7 @@ public:
         const std::uint32_t element_ordinal, CSchemaIndex& result) const noexcept;
 
     //  Document correspondence and implementation measurements
-    [[nodiscard]] CSchemaIndex map_occurrence(const CBakedValueIndex occurrence) const noexcept;
+    [[nodiscard]] CSchemaIndex map_occurrence(const CSchemaHandle occurrence) const noexcept;
     [[nodiscard]] static SRecordSizes record_sizes() noexcept;
 
 private:
@@ -265,7 +267,7 @@ private:
         CSchemaIndex related;
         std::uint32_t first{}, count{};
         CPropertyNameId name;
-        CBakedValueIndex source;
+        CSchemaHandle source;
         ECategory category{};
         EPrimitive primitive{};
         std::uint8_t alignment_log2{}, control{};
@@ -286,7 +288,7 @@ private:
         std::uint32_t offset{}, size{};
         CSchemaIndex type, default_description;
         CPropertyNameId name;
-        CBakedValueIndex source;
+        CSchemaHandle source;
     };
 
     //  Transient ranges borrow the owner's existing vectors. Clear, move and
@@ -301,27 +303,24 @@ private:
     struct SDefaultRecord
     {
         SScalar scalar;
-        CBakedValueIndex source;
+        CSchemaHandle source;
         CSchemaIndex type;
         std::uint32_t first{}, count{};
     };
 
     struct SMapping
     {
-        CBakedValueIndex source;
+        CSchemaHandle source;
         CSchemaIndex target;
     };
 
-    static_assert(sizeof(STypeRecord) == 32u);
-    static_assert(offsetof(STypeRecord, category) == 28u);
-    static_assert(offsetof(STypeRecord, control) == 31u);
-    static_assert(sizeof(SMemberRecord) == 24u);
-    static_assert(offsetof(SMemberRecord, size) == 4u);
-    static_assert(offsetof(SMemberRecord, source) == 20u);
-    static_assert(sizeof(SLabel) == 24u);
-    static_assert(sizeof(SField) == 32u);
-    static_assert(sizeof(SDefaultRecord) == 32u);
-    static_assert(sizeof(SMapping) == 8u);
+    static_assert(sizeof(CSchemaHandle) == 16u);
+    static_assert(sizeof(STypeRecord) == 48u);
+    static_assert(sizeof(SMemberRecord) == 40u);
+    static_assert(sizeof(SLabel) == 40u);
+    static_assert(sizeof(SField) == 48u);
+    static_assert(sizeof(SDefaultRecord) == 48u);
+    static_assert(sizeof(SMapping) == 24u);
     static_assert(sizeof(SRecordRange<SMemberRecord>) == 8u);
 
     static CSchemaIndex index(const std::uint32_t kind, const std::uint32_t ordinal) noexcept;
@@ -331,7 +330,7 @@ private:
     const STypeRecord* type_record(const CSchemaIndex index) const noexcept;
     template <class T> SRecordRange<T> child_range(const CSchemaIndex type, const ECategory category, const TPodVector<T>& records) const noexcept;
     CSchemaIndex child_at(const CSchemaIndex type, const std::uint32_t ordinal, const ECategory category, const std::uint32_t kind) const noexcept;
-    CBakedDocument m_document;
+    CSchemaDocumentQuery m_document;
     TPodVector<STypeRecord> m_types;
     TPodVector<SMemberRecord> m_members;
     TPodVector<SLabel> m_labels;

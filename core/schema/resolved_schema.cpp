@@ -104,6 +104,11 @@ static bool scalar_equal(const SScalar& a, const SScalar& b) noexcept
     return false;
 }
 
+static std::uint64_t occurrence_key(const CSchemaHandle handle) noexcept
+{
+    return detail::SSchemaHandleAccess::occurrence(handle).query_value();
+}
+
 }   // namespace resolver_util
 
 //  Shared by resolution and export; identifiers are ASCII C++17 identifiers.
@@ -213,7 +218,7 @@ void CResolvedSchema::clear() noexcept
 {
     m_ready = false;
     m_definitions = 0u;
-    m_document.clear();
+    m_document = {};
     m_types.deallocate();
     m_members.deallocate();
     m_labels.deallocate();
@@ -249,6 +254,11 @@ CSchemaIndex CResolvedSchema::lookup_type(const CStringView& name) const noexcep
 CSchemaIndex CResolvedSchema::find_type(const CStringView& name) const noexcept
 {
     return m_ready ? lookup_type(name) : CSchemaIndex{};
+}
+
+CStringView CResolvedSchema::name(const CPropertyNameId id) const noexcept
+{
+    return m_ready ? m_document.property_name(id) : CStringView{};
 }
 
 std::uint32_t CResolvedSchema::definition_count() const noexcept
@@ -461,7 +471,7 @@ bool CResolvedSchema::default_element(const CSchemaIndex type, const CSchemaInde
     return true;
 }
 
-CSchemaIndex CResolvedSchema::map_occurrence(const CBakedValueIndex occurrence) const noexcept
+CSchemaIndex CResolvedSchema::map_occurrence(const CSchemaHandle occurrence) const noexcept
 {
     if (!m_ready || !occurrence)
     {
@@ -471,7 +481,7 @@ CSchemaIndex CResolvedSchema::map_occurrence(const CBakedValueIndex occurrence) 
     while (low < high)
     {
         const std::size_t mid = low + ((high - low) / 2u);
-        if (m_mapping[mid].source.query_value() < occurrence.query_value())
+        if (resolver_util::occurrence_key(m_mapping[mid].source) < resolver_util::occurrence_key(occurrence))
         {
             low = mid + 1u;
         }
@@ -508,37 +518,37 @@ private:
     using TTypeRecord = CResolvedSchema::STypeRecord;
 
     //  First-error reporting, checked storage and document shape.
-    bool fail(const EReason reason, const CBakedValueIndex at = {}, const CBakedValueIndex related = {}) noexcept;
-    template <class T> bool grow(TPodVector<T>& values, const std::uint32_t count, const CBakedValueIndex at) noexcept;
-    bool map(const CBakedValueIndex at, const CSchemaIndex target) noexcept;
-    CBakedValueIndex property(const CBakedValueIndex at, const char* const name) const noexcept;
+    bool fail(const EReason reason, const CSchemaHandle& at = {}, const CSchemaHandle& related = {}) noexcept;
+    template <class T> bool grow(TPodVector<T>& values, const std::uint32_t count, const CSchemaHandle& at) noexcept;
+    bool map(const CSchemaHandle& at, const CSchemaIndex target) noexcept;
+    CSchemaHandle property(const CSchemaHandle& at, const char* const name) const noexcept;
     bool shape(
-        const CBakedValueIndex source, const std::initializer_list<const char*> allowed,
+        const CSchemaHandle& source, const std::initializer_list<const char*> allowed,
         const std::initializer_list<const char*> required = {}) noexcept;
-    bool declarations(const CBakedValueIndex container, const ECategory category) noexcept;
-    bool names(const CBakedValueIndex container, const bool array, const CBakedValueIndex owner) noexcept;
+    bool declarations(const CSchemaHandle& container, const ECategory category) noexcept;
+    bool names(const CSchemaHandle& container, const bool array, const CSchemaHandle& owner) noexcept;
 
     //  References, scalar/default conversion and category layout.
     bool resolve_type(const CSchemaIndex type_index, const unsigned depth) noexcept;
-    bool reference(const CBakedValueIndex source, CSchemaIndex& result, const unsigned depth) noexcept;
-    bool number(const CBakedValueIndex source, const bool is_signed, const unsigned bit_width, SScalar& result) noexcept;
-    bool extent(const CBakedValueIndex at, std::uint64_t& out) noexcept;
-    bool scalar(const CSchemaIndex type, const CBakedValueIndex source, SScalar& result) noexcept;
-    bool default_record(const CSchemaIndex type, const CBakedValueIndex source, const std::uint32_t slot, const unsigned depth) noexcept;
-    bool make_default(const CSchemaIndex type, const CBakedValueIndex source, CSchemaIndex& result, const unsigned depth) noexcept;
+    bool reference(const CSchemaHandle& source, CSchemaIndex& result, const unsigned depth) noexcept;
+    bool number(const CSchemaHandle& source, const bool is_signed, const unsigned bit_width, SScalar& result) noexcept;
+    bool extent(const CSchemaHandle& at, std::uint64_t& out) noexcept;
+    bool scalar(const CSchemaIndex type, const CSchemaHandle& source, SScalar& result) noexcept;
+    bool default_record(const CSchemaIndex type, const CSchemaHandle& source, const std::uint32_t slot, const unsigned depth) noexcept;
+    bool make_default(const CSchemaIndex type, const CSchemaHandle& source, CSchemaIndex& result, const unsigned depth) noexcept;
     bool enumeration(TTypeRecord& type_record) noexcept;
     bool structure(TTypeRecord& type_record, const unsigned depth) noexcept;
     bool bit_structure(TTypeRecord& type_record, const unsigned depth) noexcept;
     bool storage(TTypeRecord& type_record) noexcept;
-    bool add(const std::uint64_t a, const std::uint64_t b, std::uint64_t& out, const CBakedValueIndex at) noexcept;
-    bool align(const std::uint64_t value, const std::uint64_t alignment, std::uint64_t& out, const CBakedValueIndex at) noexcept;
+    bool add(const std::uint64_t a, const std::uint64_t b, std::uint64_t& out, const CSchemaHandle& at) noexcept;
+    bool align(const std::uint64_t value, const std::uint64_t alignment, std::uint64_t& out, const CSchemaHandle& at) noexcept;
 
     //  Borrowed owner/input and current diagnostic context.
     CResolvedSchema& m_schema;
-    const CBakedDocument& m_document;
+    const CSchemaDocumentQuery& m_document;
     SDiagnostic& m_diagnostic;
     EStage m_stage{ EStage::declarations };
-    CBakedValueIndex m_context_type, m_context_member;
+    CSchemaHandle m_context_type, m_context_member;
 };
 
 CResolver::CResolver(CResolvedSchema& owner, SDiagnostic& diagnostic) noexcept
@@ -546,7 +556,7 @@ CResolver::CResolver(CResolvedSchema& owner, SDiagnostic& diagnostic) noexcept
 {
 }
 
-bool CResolver::fail(const EReason reason, const CBakedValueIndex at, const CBakedValueIndex related) noexcept
+bool CResolver::fail(const EReason reason, const CSchemaHandle& at, const CSchemaHandle& related) noexcept
 {
     if (m_diagnostic.reason == EReason::none)
     {
@@ -561,7 +571,7 @@ bool CResolver::fail(const EReason reason, const CBakedValueIndex at, const CBak
 }
 
 template <class T>
-bool CResolver::grow(TPodVector<T>& values, const std::uint32_t count, const CBakedValueIndex at) noexcept
+bool CResolver::grow(TPodVector<T>& values, const std::uint32_t count, const CSchemaHandle& at) noexcept
 {
     if ((count > resolver_util::k_limit - values.size()) || (count > SIZE_MAX / sizeof(T) - values.size()))
     {
@@ -577,7 +587,7 @@ bool CResolver::grow(TPodVector<T>& values, const std::uint32_t count, const CBa
     return true;
 }
 
-bool CResolver::map(const CBakedValueIndex at, const CSchemaIndex target) noexcept
+bool CResolver::map(const CSchemaHandle& at, const CSchemaIndex target) noexcept
 {
     if (!grow(m_schema.m_mapping, 1u, at))
     {
@@ -587,12 +597,12 @@ bool CResolver::map(const CBakedValueIndex at, const CSchemaIndex target) noexce
     return true;
 }
 
-CBakedValueIndex CResolver::property(const CBakedValueIndex at, const char* const name) const noexcept
+CSchemaHandle CResolver::property(const CSchemaHandle& at, const char* const name) const noexcept
 {
     return m_document.object_child(at, CStringView{ name });
 }
 
-bool CResolver::add(const std::uint64_t a, const std::uint64_t b, std::uint64_t& out, const CBakedValueIndex at) noexcept
+bool CResolver::add(const std::uint64_t a, const std::uint64_t b, std::uint64_t& out, const CSchemaHandle& at) noexcept
 {
     if ((b > UINT64_MAX - a) || (a + b > memory::k_byte_size_ceiling))
     {
@@ -602,7 +612,7 @@ bool CResolver::add(const std::uint64_t a, const std::uint64_t b, std::uint64_t&
     return true;
 }
 
-bool CResolver::align(const std::uint64_t value, const std::uint64_t alignment, std::uint64_t& out, const CBakedValueIndex at) noexcept
+bool CResolver::align(const std::uint64_t value, const std::uint64_t alignment, std::uint64_t& out, const CSchemaHandle& at) noexcept
 {
     if (!alignment || (alignment > memory::k_byte_size_ceiling) || (alignment & (alignment - 1u)))
     {
@@ -612,17 +622,17 @@ bool CResolver::align(const std::uint64_t value, const std::uint64_t alignment, 
     return add(value, padding, out, at);
 }
 
-bool CResolver::shape(const CBakedValueIndex source, const std::initializer_list<const char*> allowed, const std::initializer_list<const char*> required) noexcept
+bool CResolver::shape(const CSchemaHandle& source, const std::initializer_list<const char*> allowed, const std::initializer_list<const char*> required) noexcept
 {
     if (!source)
     {
         return fail(EReason::missing_property, source);
     }
-    if (m_document.value_type(source) != EBakedValueType::object)
+    if (m_document.value_kind(source) != EDocumentValueKind::object)
     {
         return fail(EReason::invalid_input, source);
     }
-    for (CBakedValueIndex child = m_document.first_child(source); child; child = m_document.next_sibling(child))
+    for (CSchemaHandle child = m_document.first_child(source); child; child = m_document.next_sibling(child))
     {
         bool found = false;
         for (const char* const key : allowed)
@@ -636,7 +646,7 @@ bool CResolver::shape(const CBakedValueIndex source, const std::initializer_list
         {
             return fail(EReason::unknown_property, child);
         }
-        for (CBakedValueIndex prior = m_document.first_child(source); prior != child; prior = m_document.next_sibling(prior))
+        for (CSchemaHandle prior = m_document.first_child(source); prior != child; prior = m_document.next_sibling(prior))
         {
             if (m_document.name_id(prior) == m_document.name_id(child))
             {
@@ -654,21 +664,21 @@ bool CResolver::shape(const CBakedValueIndex source, const std::initializer_list
     return true;
 }
 
-bool CResolver::names(const CBakedValueIndex container, const bool array, const CBakedValueIndex owner) noexcept
+bool CResolver::names(const CSchemaHandle& container, const bool array, const CSchemaHandle& owner) noexcept
 {
     (void)owner;
-    if ((m_document.value_type(container) != (array ? EBakedValueType::array : EBakedValueType::object)) ||
+    if ((m_document.value_kind(container) != (array ? EDocumentValueKind::array : EDocumentValueKind::object)) ||
         (m_document.child_count(container) == 0u))
     {
         return fail(EReason::invalid_input, container);
     }
-    for (CBakedValueIndex declaration = m_document.first_child(container); declaration; declaration = m_document.next_sibling(declaration))
+    for (CSchemaHandle declaration = m_document.first_child(container); declaration; declaration = m_document.next_sibling(declaration))
     {
         if (!valid_identifier(m_document.name(declaration)))
         {
             return fail(EReason::invalid_identifier, declaration);
         }
-        for (CBakedValueIndex prior = m_document.first_child(container); prior != declaration;
+        for (CSchemaHandle prior = m_document.first_child(container); prior != declaration;
             prior = m_document.next_sibling(prior))
         {
             if (m_document.name_id(prior) == m_document.name_id(declaration))
@@ -680,13 +690,13 @@ bool CResolver::names(const CBakedValueIndex container, const bool array, const 
     return true;
 }
 
-bool CResolver::declarations(const CBakedValueIndex container, const ECategory category) noexcept
+bool CResolver::declarations(const CSchemaHandle& container, const ECategory category) noexcept
 {
-    if (m_document.value_type(container) != EBakedValueType::object)
+    if (m_document.value_kind(container) != EDocumentValueKind::object)
     {
         return fail(EReason::invalid_input, container);
     }
-    for (CBakedValueIndex declaration = m_document.first_child(container); declaration; declaration = m_document.next_sibling(declaration))
+    for (CSchemaHandle declaration = m_document.first_child(container); declaration; declaration = m_document.next_sibling(declaration))
     {
         m_context_type = declaration;
         if (!valid_identifier(m_document.name(declaration)))
@@ -724,13 +734,13 @@ bool CResolver::run() noexcept
     }
     for (const char* const name : { "instances", "data" })
     {
-        const CBakedValueIndex section = property(m_document.root(), name);
-        if (section && (m_document.value_type(section) != EBakedValueType::object))
+        const CSchemaHandle section = property(m_document.root(), name);
+        if (section && (m_document.value_kind(section) != EDocumentValueKind::object))
         {
             return fail(EReason::invalid_input, section);
         }
     }
-    const CBakedValueIndex types = property(m_document.root(), "types");
+    const CSchemaHandle types = property(m_document.root(), "types");
     if (!shape(types, { "enumerations", "structures", "bit_structures" }))
     {
         return false;
@@ -750,7 +760,7 @@ bool CResolver::run() noexcept
         }
         primitive_record.set_state(2u);
     }
-    for (CBakedValueIndex declaration_group = m_document.first_child(types); declaration_group; declaration_group = m_document.next_sibling(declaration_group))
+    for (CSchemaHandle declaration_group = m_document.first_child(types); declaration_group; declaration_group = m_document.next_sibling(declaration_group))
     {
         const ECategory category = resolver_util::equal(m_document.name(declaration_group), "enumerations") ? ECategory::enumeration :
             (resolver_util::equal(m_document.name(declaration_group), "structures") ? ECategory::structure : ECategory::bit_structure);
@@ -771,13 +781,13 @@ bool CResolver::run() noexcept
         std::sort(m_schema.m_mapping.data(), (m_schema.m_mapping.data() + m_schema.m_mapping.size()),
             [](const CResolvedSchema::SMapping& a, const CResolvedSchema::SMapping& b)
             {
-                return a.source.query_value() < b.source.query_value();
+                return resolver_util::occurrence_key(a.source) < resolver_util::occurrence_key(b.source);
             });
     }
     return true;
 }
 
-bool CResolver::number(const CBakedValueIndex source, const bool is_signed, const unsigned bit_width, SScalar& result) noexcept
+bool CResolver::number(const CSchemaHandle& source, const bool is_signed, const unsigned bit_width, SScalar& result) noexcept
 {
     SScalar value;
     std::int64_t signed_value{};
@@ -839,7 +849,7 @@ bool CResolver::number(const CBakedValueIndex source, const bool is_signed, cons
     return true;
 }
 
-bool CResolver::extent(const CBakedValueIndex at, std::uint64_t& out) noexcept
+bool CResolver::extent(const CSchemaHandle& at, std::uint64_t& out) noexcept
 {
     SScalar value;
     if (!number(at, false, 64u, value))
@@ -852,7 +862,7 @@ bool CResolver::extent(const CBakedValueIndex at, std::uint64_t& out) noexcept
 
 bool CResolver::storage(TTypeRecord& type_record) noexcept
 {
-    const CBakedValueIndex storage_source = property(type_record.source, "storage");
+    const CSchemaHandle storage_source = property(type_record.source, "storage");
     type_record.related = m_schema.lookup_type(m_document.string_value(storage_source));
     const TTypeRecord* const storage_record = m_schema.type_record(type_record.related);
     if (!storage_record || (storage_record->category != ECategory::primitive) || !resolver_util::integer(storage_record->primitive))
@@ -872,7 +882,7 @@ bool CResolver::enumeration(TTypeRecord& type_record) noexcept
     {
         return false;
     }
-    const CBakedValueIndex values = property(type_record.source, "values");
+    const CSchemaHandle values = property(type_record.source, "values");
     if (!names(values, false, type_record.source))
     {
         return false;
@@ -885,7 +895,7 @@ bool CResolver::enumeration(TTypeRecord& type_record) noexcept
     }
     const EPrimitive primitive = type_record.primitive;
     std::uint32_t label_slot = type_record.first;
-    for (CBakedValueIndex label_source = m_document.first_child(values); label_source; label_source = m_document.next_sibling(label_source), ++label_slot)
+    for (CSchemaHandle label_source = m_document.first_child(values); label_source; label_source = m_document.next_sibling(label_source), ++label_slot)
     {
         SLabel& label = m_schema.m_labels[label_slot];
         label.name = m_document.name_id(label_source);
@@ -899,60 +909,86 @@ bool CResolver::enumeration(TTypeRecord& type_record) noexcept
     return true;
 }
 
-bool CResolver::reference(const CBakedValueIndex source, CSchemaIndex& result, const unsigned depth) noexcept
+bool CResolver::reference(const CSchemaHandle& source, CSchemaIndex& result, const unsigned depth) noexcept
 {
     m_stage = EStage::references;
-    if (depth >= resolver_util::k_max_resolution_depth)
+    const CSchemaHandle origin = source;
+    CSchemaHandle current = origin;
+    unsigned current_depth = depth;
+    while (true)
     {
-        return fail(EReason::storage_limit, source);
-    }
-    if (m_document.value_type(source) == EBakedValueType::string)
-    {
-        result = m_schema.lookup_type(m_document.string_value(source));
-        if (!result)
+        if (current_depth >= resolver_util::k_max_resolution_depth)
         {
-            return fail(EReason::unknown_type, source);
+            return fail(EReason::storage_limit, current);
         }
-        return map(source, result) && resolve_type(result, (depth + 1u));
+        if (m_document.value_kind(current) == EDocumentValueKind::string)
+        {
+            result = m_schema.lookup_type(m_document.string_value(current));
+            if (!result)
+            {
+                return fail(EReason::unknown_type, current);
+            }
+            if (!map(current, result) || !resolve_type(result, (current_depth + 1u)))
+            {
+                return false;
+            }
+            break;
+        }
+        if (!shape(current, { "element", "count" }, { "element", "count" }))
+        {
+            return false;
+        }
+        std::uint64_t count{};
+        if (!extent(property(current, "count"), count))
+        {
+            return false;
+        }
+        if ((count == 0u) || (count > UINT32_MAX))
+        {
+            return fail(EReason::invalid_range, property(current, "count"));
+        }
+        current = property(current, "element");
+        ++current_depth;
     }
-    if (!shape(source, { "element", "count" }, { "element", "count" }))
+
+    //  Each nested descriptor is an element child of its containing descriptor.
+    //  Walk back outward, retaining the original inner-before-outer slot order.
+    while (current != origin)
     {
-        return false;
+        const CSchemaHandle descriptor = m_document.parent(current);
+        std::uint64_t count{};
+        if (!extent(property(descriptor, "count"), count))
+        {
+            return false;
+        }
+        TTypeRecord array_record;
+        array_record.category = ECategory::array;
+        array_record.source = descriptor;
+        array_record.count = static_cast<std::uint32_t>(count);
+        array_record.related = result;
+        const TTypeRecord element = *m_schema.type_record(result);
+        if ((count > UINT64_MAX / element.size) || (count * element.size > memory::k_byte_size_ceiling))
+        {
+            return fail(EReason::storage_limit, descriptor);
+        }
+        array_record.size = static_cast<std::uint32_t>(count * element.size);
+        array_record.alignment_log2 = element.alignment_log2;
+        array_record.stride = element.size;
+        array_record.set_flag(TTypeRecord::k_gaps, element.flag(TTypeRecord::k_gaps));
+        array_record.set_state(2u);
+        if (!grow(m_schema.m_types, 1u, descriptor))
+        {
+            return false;
+        }
+        m_schema.m_types.last() = array_record;
+        result = m_schema.index(resolver_util::k_type, static_cast<std::uint32_t>(m_schema.m_types.size() - 1u));
+        if (!map(descriptor, result))
+        {
+            return false;
+        }
+        current = descriptor;
     }
-    std::uint64_t count{};
-    if (!extent(property(source, "count"), count))
-    {
-        return false;
-    }
-    if ((count == 0u) || (count > UINT32_MAX))
-    {
-        return fail(EReason::invalid_range, property(source, "count"));
-    }
-    TTypeRecord array_record;
-    array_record.category = ECategory::array;
-    array_record.source = source;
-    array_record.count = static_cast<std::uint32_t>(count);
-    if (!reference(property(source, "element"), array_record.related, (depth + 1u)))
-    {
-        return false;
-    }
-    const TTypeRecord element = *m_schema.type_record(array_record.related);
-    if ((count > UINT64_MAX / element.size) || (count * element.size > memory::k_byte_size_ceiling))
-    {
-        return fail(EReason::storage_limit, source);
-    }
-    array_record.size = static_cast<std::uint32_t>(count * element.size);
-    array_record.alignment_log2 = element.alignment_log2;
-    array_record.stride = element.size;
-    array_record.set_flag(TTypeRecord::k_gaps, element.flag(TTypeRecord::k_gaps));
-    array_record.set_state(2u);
-    if (!grow(m_schema.m_types, 1u, source))
-    {
-        return false;
-    }
-    m_schema.m_types.last() = array_record;
-    result = m_schema.index(resolver_util::k_type, static_cast<std::uint32_t>(m_schema.m_types.size() - 1u));
-    return map(source, result);
+    return true;
 }
 
 bool CResolver::resolve_type(const CSchemaIndex type_index, const unsigned depth) noexcept
@@ -972,7 +1008,7 @@ bool CResolver::resolve_type(const CSchemaIndex type_index, const unsigned depth
         return fail(EReason::storage_limit, type_record.source);
     }
     m_schema.m_types[slot].set_state(1u);
-    const CBakedValueIndex old_type = m_context_type, old_member = m_context_member;
+    const CSchemaHandle old_type = m_context_type, old_member = m_context_member;
     m_context_type = type_record.source;
     m_context_member = {};
     m_stage = EStage::declarations;
@@ -995,7 +1031,7 @@ bool CResolver::structure(TTypeRecord& type_record, const unsigned depth) noexce
     {
         return false;
     }
-    const CBakedValueIndex members = property(type_record.source, "members");
+    const CSchemaHandle members = property(type_record.source, "members");
     if (!names(members, true, type_record.source))
     {
         return false;
@@ -1010,7 +1046,7 @@ bool CResolver::structure(TTypeRecord& type_record, const unsigned depth) noexce
     }
     std::uint32_t member_slot = type_record.first;
     CSchemaIndex component;
-    for (CBakedValueIndex member_source = m_document.first_child(members); member_source; member_source = m_document.next_sibling(member_source), ++member_slot)
+    for (CSchemaHandle member_source = m_document.first_child(members); member_source; member_source = m_document.next_sibling(member_source), ++member_slot)
     {
         m_context_member = member_source;
         m_stage = EStage::declarations;
@@ -1018,7 +1054,7 @@ bool CResolver::structure(TTypeRecord& type_record, const unsigned depth) noexce
         {
             return false;
         }
-        const CBakedValueIndex offset = property(member_source, "offset");
+        const CSchemaHandle offset = property(member_source, "offset");
         if (offset)
         {
             return fail(EReason::unsupported_feature, offset);
@@ -1070,21 +1106,21 @@ bool CResolver::structure(TTypeRecord& type_record, const unsigned depth) noexce
     }
     type_record.size = type_record.stride = static_cast<std::uint32_t>(padded_size);
     type_record.set_flag(TTypeRecord::k_gaps, (type_record.flag(TTypeRecord::k_gaps) || (raw_size != padded_size)));
-    const CBakedValueIndex detail = property(type_record.source, "detail");
+    const CSchemaHandle detail = property(type_record.source, "detail");
     if (detail)
     {
         if (!shape(detail, { "size", "alignment", "internal" }))
         {
             return false;
         }
-        const CBakedValueIndex internal_source = property(detail, "internal");
+        const CSchemaHandle internal_source = property(detail, "internal");
         bool internal{};
         if (internal_source && !m_document.boolean_value(internal_source, internal))
         {
             return fail(EReason::invalid_input, internal_source);
         }
         type_record.set_flag(TTypeRecord::k_internal, internal);
-        const CBakedValueIndex alignment_source = property(detail, "alignment");
+        const CSchemaHandle alignment_source = property(detail, "alignment");
         if (alignment_source)
         {
             std::uint64_t declared_value{};
@@ -1105,7 +1141,7 @@ bool CResolver::structure(TTypeRecord& type_record, const unsigned depth) noexce
                 return fail(EReason::unsupported_feature, alignment_source);
             }
         }
-        const CBakedValueIndex size_source = property(detail, "size");
+        const CSchemaHandle size_source = property(detail, "size");
         if (size_source)
         {
             std::uint64_t declared_value{};
@@ -1126,7 +1162,7 @@ bool CResolver::structure(TTypeRecord& type_record, const unsigned depth) noexce
     return true;
 }
 
-bool CResolver::scalar(const CSchemaIndex type, const CBakedValueIndex source, SScalar& result) noexcept
+bool CResolver::scalar(const CSchemaIndex type, const CSchemaHandle& source, SScalar& result) noexcept
 {
     const TTypeRecord type_record = *m_schema.type_record(type);
     if (type_record.category == ECategory::enumeration)
@@ -1134,7 +1170,7 @@ bool CResolver::scalar(const CSchemaIndex type, const CBakedValueIndex source, S
         for (std::uint32_t label_ordinal = 0u; label_ordinal < type_record.count; ++label_ordinal)
         {
             const SLabel& label = m_schema.m_labels[type_record.first + label_ordinal];
-            if ((m_document.value_type(source) == EBakedValueType::string) &&
+            if ((m_document.value_kind(source) == EDocumentValueKind::string) &&
                 resolver_util::equal(m_document.string_value(source), m_document.property_name(label.name)))
             {
                 result = label.value;
@@ -1171,7 +1207,7 @@ bool CResolver::scalar(const CSchemaIndex type, const CBakedValueIndex source, S
     {
         floating_value = boolean ? 1.0 : 0.0;
     }
-    else if ((type_record.primitive != EPrimitive::b8) && (m_document.value_type(source) == EBakedValueType::string))
+    else if ((type_record.primitive != EPrimitive::b8) && (m_document.value_kind(source) == EDocumentValueKind::string))
     {
         const CStringView text = m_document.string_value(source);
         char lower[10]{};
@@ -1243,7 +1279,7 @@ bool CResolver::scalar(const CSchemaIndex type, const CBakedValueIndex source, S
     return true;
 }
 
-bool CResolver::make_default(const CSchemaIndex type, const CBakedValueIndex source, CSchemaIndex& result, const unsigned depth) noexcept
+bool CResolver::make_default(const CSchemaIndex type, const CSchemaHandle& source, CSchemaIndex& result, const unsigned depth) noexcept
 {
     if (!source)
     {
@@ -1259,7 +1295,7 @@ bool CResolver::make_default(const CSchemaIndex type, const CBakedValueIndex sou
     return true;
 }
 
-bool CResolver::default_record(const CSchemaIndex type, const CBakedValueIndex source, const std::uint32_t slot, const unsigned depth) noexcept
+bool CResolver::default_record(const CSchemaIndex type, const CSchemaHandle& source, const std::uint32_t slot, const unsigned depth) noexcept
 {
     if (depth >= resolver_util::k_max_resolution_depth)
     {
@@ -1280,7 +1316,7 @@ bool CResolver::default_record(const CSchemaIndex type, const CBakedValueIndex s
         {
             return fail(EReason::invalid_default, source);
         }
-        if ((m_document.value_type(source) != EBakedValueType::array) || (m_document.child_count(source) > type_record.count))
+        if ((m_document.value_kind(source) != EDocumentValueKind::array) || (m_document.child_count(source) > type_record.count))
         {
             return fail(EReason::invalid_default, source);
         }
@@ -1290,9 +1326,9 @@ bool CResolver::default_record(const CSchemaIndex type, const CBakedValueIndex s
         {
             return false;
         }
+        CSchemaHandle child = m_document.first_child(source);
         for (std::uint32_t element_ordinal = 0u; element_ordinal < default_info.count; ++element_ordinal)
         {
-            const CBakedValueIndex child = m_document.array_at(source, element_ordinal);
             if (m_document.is_object_entry(child))
             {
                 return fail(EReason::invalid_default, child);
@@ -1301,6 +1337,7 @@ bool CResolver::default_record(const CSchemaIndex type, const CBakedValueIndex s
             {
                 return false;
             }
+            child = m_document.next_sibling(child);
         }
     }
     else if (!scalar(type, source, default_info.scalar))
@@ -1317,7 +1354,7 @@ bool CResolver::bit_structure(TTypeRecord& type_record, const unsigned depth) no
     {
         return false;
     }
-    const CBakedValueIndex members = property(type_record.source, "members");
+    const CSchemaHandle members = property(type_record.source, "members");
     if (!names(members, true, type_record.source))
     {
         return false;
@@ -1330,7 +1367,7 @@ bool CResolver::bit_structure(TTypeRecord& type_record, const unsigned depth) no
     }
     std::uint64_t used{};
     std::uint32_t field_slot = type_record.first;
-    for (CBakedValueIndex field_source = m_document.first_child(members); field_source; field_source = m_document.next_sibling(field_source), ++field_slot)
+    for (CSchemaHandle field_source = m_document.first_child(members); field_source; field_source = m_document.next_sibling(field_source), ++field_slot)
     {
         m_context_member = field_source;
         m_stage = EStage::declarations;
@@ -1341,7 +1378,7 @@ bool CResolver::bit_structure(TTypeRecord& type_record, const unsigned depth) no
         SField field;
         field.name = m_document.name_id(field_source);
         field.source = field_source;
-        if (m_document.value_type(property(field_source, "type")) != EBakedValueType::string)
+        if (m_document.value_kind(property(field_source, "type")) != EDocumentValueKind::string)
         {
             return fail(EReason::invalid_input, property(field_source, "type"));
         }
@@ -1409,7 +1446,7 @@ bool CResolver::bit_structure(TTypeRecord& type_record, const unsigned depth) no
                 }
             }
         }
-        const CBakedValueIndex interpretation_source = property(field_source, "interpretation");
+        const CSchemaHandle interpretation_source = property(field_source, "interpretation");
         if (interpretation_source)
         {
             if (!resolver_util::equal(m_document.string_value(interpretation_source), "unorm"))
@@ -1422,7 +1459,7 @@ bool CResolver::bit_structure(TTypeRecord& type_record, const unsigned depth) no
             }
             field.interpretation = EInterpretation::unorm;
         }
-        const CBakedValueIndex def = property(field_source, "default");
+        const CSchemaHandle def = property(field_source, "default");
         m_stage = EStage::defaults;
         if ((field.interpretation == EInterpretation::unorm) && def)
         {
@@ -1468,8 +1505,23 @@ bool CResolver::bit_structure(TTypeRecord& type_record, const unsigned depth) no
 }
 
 bool CResolvedSchema::resolve(const CBakedDocument& document, SDiagnostic& diagnostic) noexcept
-{   //  Copy first: the caller may pass this owner's current contained view.
-    const CBakedDocument input = document;
+{
+    return resolve(CSchemaDocumentQuery{ document }, diagnostic);
+}
+
+bool CResolvedSchema::resolve(const CLiveDocument& document, SDiagnostic& diagnostic) noexcept
+{
+    return resolve(CSchemaDocumentQuery{ document }, diagnostic);
+}
+
+bool CResolvedSchema::resolve(SDiagnostic& diagnostic) noexcept
+{
+    return resolve(m_document, diagnostic);
+}
+
+bool CResolvedSchema::resolve(const CSchemaDocumentQuery& document, SDiagnostic& diagnostic) noexcept
+{   //  Copy first: the caller may pass this owner's current retained query.
+    const CSchemaDocumentQuery input = document;
     clear();
     diagnostic = {};
     m_document = input;

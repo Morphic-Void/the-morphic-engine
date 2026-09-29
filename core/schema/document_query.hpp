@@ -26,6 +26,11 @@ class CBakedInstances;
 class CLiveInstances;
 class CBakedBulkData;
 class CLiveBulkData;
+class CSchemaHandle;
+
+//==============================================================================
+//  Document value kinds
+//==============================================================================
 
 enum class EDocumentValueKind : std::uint8_t
 {
@@ -39,6 +44,10 @@ enum class EDocumentValueKind : std::uint8_t
     array,
     object
 };
+
+//==============================================================================
+//  Internal document identities and read adapter
+//==============================================================================
 
 namespace detail
 {
@@ -57,6 +66,28 @@ struct SOccurrence
     [[nodiscard]] constexpr bool is_valid() const noexcept { return live.is_valid() != baked.is_valid(); }
     [[nodiscard]] constexpr bool is_live() const noexcept { return live.is_valid() && !baked.is_valid(); }
     [[nodiscard]] constexpr bool is_baked() const noexcept { return baked.is_valid() && !live.is_valid(); }
+    [[nodiscard]] constexpr std::uint64_t query_value() const noexcept
+    {
+        return is_live() ? live.query_value() : (is_baked() ? baked.query_value() : 0u);
+    }
+};
+
+[[nodiscard]] constexpr bool operator==(const SOccurrence lhs, const SOccurrence rhs) noexcept
+{
+    return (lhs.live == rhs.live) && (lhs.baked == rhs.baked);
+}
+
+[[nodiscard]] constexpr bool operator!=(const SOccurrence lhs, const SOccurrence rhs) noexcept
+{
+    return !(lhs == rhs);
+}
+
+//  Resolver and role adapters use this bridge; raw identities stay out of the
+//  public schema-handle construction surface.
+struct SSchemaHandleAccess
+{
+    [[nodiscard]] static constexpr CSchemaHandle make(const SOccurrence occurrence) noexcept;
+    [[nodiscard]] static constexpr SOccurrence occurrence(const CSchemaHandle handle) noexcept;
 };
 
 class CDocumentRead
@@ -95,11 +126,15 @@ private:
     [[nodiscard]] bool baked_value(const SOccurrence value) const noexcept;
 
     const CLiveDocument* m_live{ nullptr };
-    CBakedDocument m_baked; // Copy of the non-owning view, never a caller-view pointer.
+    CBakedDocument m_baked; //  Copy of the non-owning view, never a caller-view pointer.
     EBacking m_backing{ EBacking::none };
 };
 
 }   // namespace detail
+
+//==============================================================================
+//  Schema document handle
+//==============================================================================
 
 class CSchemaHandle
 {
@@ -110,10 +145,76 @@ public:
 
 private:
     explicit constexpr CSchemaHandle(const detail::SOccurrence occurrence) noexcept : m_occurrence(occurrence) {}
+    friend struct detail::SSchemaHandleAccess;
     friend class CBakedSchema;
     friend class CLiveSchema;
     detail::SOccurrence m_occurrence;
 };
+
+[[nodiscard]] constexpr bool operator==(const CSchemaHandle lhs, const CSchemaHandle rhs) noexcept;
+[[nodiscard]] constexpr bool operator!=(const CSchemaHandle lhs, const CSchemaHandle rhs) noexcept;
+
+constexpr CSchemaHandle detail::SSchemaHandleAccess::make(const detail::SOccurrence occurrence) noexcept
+{
+    return CSchemaHandle{ occurrence };
+}
+
+constexpr detail::SOccurrence detail::SSchemaHandleAccess::occurrence(const CSchemaHandle handle) noexcept
+{
+    return handle.m_occurrence;
+}
+
+[[nodiscard]] constexpr bool operator==(const CSchemaHandle lhs, const CSchemaHandle rhs) noexcept
+{
+    return detail::SSchemaHandleAccess::occurrence(lhs) == detail::SSchemaHandleAccess::occurrence(rhs);
+}
+
+[[nodiscard]] constexpr bool operator!=(const CSchemaHandle lhs, const CSchemaHandle rhs) noexcept
+{
+    return !(lhs == rhs);
+}
+
+//==============================================================================
+//  Schema document query
+//==============================================================================
+
+//  Borrowed schema-role read view. A baked query retains its view object by
+//  value; the caller keeps the block bytes alive. A live query borrows its
+//  document. Handles are meaningful only with their originating document.
+class CSchemaDocumentQuery
+{
+public:
+    CSchemaDocumentQuery() noexcept = default;
+    explicit CSchemaDocumentQuery(const CLiveDocument& document) noexcept;
+    explicit CSchemaDocumentQuery(const CBakedDocument& document) noexcept;
+
+    [[nodiscard]] bool is_ready() const noexcept;
+    [[nodiscard]] CSchemaHandle root() const noexcept;
+    [[nodiscard]] bool contains(const CSchemaHandle value) const noexcept;
+    [[nodiscard]] EDocumentValueKind value_kind(const CSchemaHandle value) const noexcept;
+    [[nodiscard]] CSchemaHandle object_child(const CSchemaHandle object, const CStringView& name) const noexcept;
+    [[nodiscard]] CSchemaHandle parent(const CSchemaHandle value) const noexcept;
+    [[nodiscard]] CSchemaHandle first_child(const CSchemaHandle value) const noexcept;
+    [[nodiscard]] CSchemaHandle next_sibling(const CSchemaHandle value) const noexcept;
+    [[nodiscard]] CSchemaHandle array_at(const CSchemaHandle value, const std::uint32_t ordinal) const noexcept;
+    [[nodiscard]] std::uint32_t child_count(const CSchemaHandle value) const noexcept;
+    [[nodiscard]] bool is_object_entry(const CSchemaHandle value) const noexcept;
+    [[nodiscard]] CPropertyNameId name_id(const CSchemaHandle value) const noexcept;
+    [[nodiscard]] CStringView name(const CSchemaHandle value) const noexcept;
+    [[nodiscard]] CStringView property_name(const CPropertyNameId id) const noexcept;
+    [[nodiscard]] CStringView string_value(const CSchemaHandle value) const noexcept;
+    [[nodiscard]] bool boolean_value(const CSchemaHandle value, bool& result) const noexcept;
+    [[nodiscard]] bool signed_integer_value(const CSchemaHandle value, std::int64_t& result) const noexcept;
+    [[nodiscard]] bool unsigned_integer_value(const CSchemaHandle value, std::uint64_t& result) const noexcept;
+    [[nodiscard]] bool floating_point_value(const CSchemaHandle value, double& result) const noexcept;
+
+private:
+    detail::CDocumentRead m_query;
+};
+
+//==============================================================================
+//  Instance and bulk document handles
+//==============================================================================
 
 class CInstanceHandle
 {

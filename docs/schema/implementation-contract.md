@@ -10,7 +10,7 @@ Date:   25 Sep 2026
 This document owns delivery scope, acceptance checks, coordination and progress.
 [design.md](design.md) owns agreed semantics; [runtime-api.md](runtime-api.md)
 describes the implemented schema API. The initial-delivery sections describe the
-existing baked-only resolver. The [staged implementation plan](#staged-implementation-plan)
+original baked-only resolver. The [staged implementation plan](#staged-implementation-plan)
 covers its live/baked refactor and additions, whose private layouts and public
 interfaces may change. A written plan alone does not authorise implementation.
 
@@ -42,7 +42,7 @@ Line-ending/policy checks and `git diff --check` passed. The coordinator inspect
 the actual build/test output and did not repeat the passing matrix. The user's
 whitespace changes were preserved without retesting, as instructed. Only the four
 stage 1 files were included in that commit. The consolidated schema documentation
-forms a separate baseline for the upcoming work; schema integration has not begun.
+forms a separate baseline for the subsequent schema integration work.
 
 Recorded validation for the original schema baseline: Debug x64 build and ordinary `-t1`
 passed, including 1262 schema checks. Actual private layouts were asserted on
@@ -70,8 +70,48 @@ Final test invocation was `MorphicTests.exe -t1 --log-tag=stage2-query-boundary-
 runner logs use `development/logical-roots/test-logs/*.stage2-query-boundary-final.p22080.log`.
 Coordinator review verified the implementation and actual test output. The user's
 subsequent whitespace/line-break edits were preserved without repeating tests.
-This is a separate commit boundary before resolver migration; the next package
-adapts resolver occurrences and generator name access to the shared read adapter.
+The package was committed separately as `0addf71` (Add shared schema document
+queries and role handles). The user then authorised the next bounded package,
+dispatched to the same implementation chat: adapt resolver traversal, source
+occurrences, diagnostics, mappings and generator name access to the shared read
+adapter, with live/baked resolution parity and unchanged generated output.
+Wrappers, conversions, guarded edits and reference lifetimes remain outside this
+package. Coordinator review is required before a separate user-authorised commit.
+
+The resolver/generator package passed coordinator and user review on 29 September;
+the user authorised its separate commit. `CSchemaDocumentQuery` provides the public
+borrowed schema-role read view, including diagnostic navigation after failure.
+The resolver accepts live documents, baked documents or that view; source
+observations and diagnostics use `CSchemaHandle`, while resolved slots retain
+`CSchemaIndex`. Baked views are copied by value and live documents remain borrowed.
+Unchanged re-resolution preserves slot meanings; failure clears tables and input.
+
+Coordinator review caught the missing public diagnostic query path and a
+quadratic live array-default walk. The final implementation supplies that query
+path and walks defaults sequentially. Wider handles also exposed native Debug
+stack overflows: iterative inline-array reference traversal and const-reference
+internal handle parameters preserve the original depth limit, validation order
+and inner-before-outer record allocation. No dependency prepass, stack-setting
+change or C++ exception handling was introduced.
+
+Debug x64 and x86 builds and ordinary tests passed with 2,478 schema checks and
+4,626 live-document checks on each target, with zero failures. The exact accepted
+and rejected nesting boundaries (128/129 named definitions and 254/255 inline
+arrays) are covered in both representations, including accepted nested-default
+leaf access. Final test tags were `stage2-depth-boundaries` (PID 80096, x64) and
+`stage2-depth-boundaries-x86` (PID 23076); runner logs remain under
+`development/logical-roots/test-logs/`. All five generated headers match the
+`stage2-query-boundary-final.p22080` baseline byte for byte, and their C++17 layout
+translation units compile on x86 and x64. Private record-size assertions pass on
+both targets. Line-ending checks and `git diff --check` passed. The coordinator
+inspected the actual validation output without repeating the passing matrix.
+
+The user's subsequent review requested namespace grouping changes and included
+minor whitespace edits. Those edits were preserved. The query header now has
+one `detail` block, and the implementation explicitly nests `detail` inside a
+single outer `schema` block. Coordinator review, a Debug x64 project compile and
+text-policy checks passed; the runtime matrix was not repeated for this cleanup.
+The subsequent header section banners were reviewed as comment-only changes.
 
 The 29 September user review rejects mandatory no-return panic as the standard
 schema lifetime response. The agreed replacement is a schema reference count plus
@@ -412,6 +452,10 @@ Code review must preserve the established style: named namespaces rather than
 anonymous namespaces; static linkage justified separately; const on unmodified
 parameters in declarations and definitions; multiline method bodies outside the
 class; readable multiline control flow; restrained `auto`; normal file headers.
+Keep related declarations together in a single namespace block where practical.
+Nest `detail` explicitly inside the enclosing namespace rather than opening
+separate `schema::detail` and `schema` blocks in the same implementation file.
+C++ remains exception-free; failures use return values and diagnostics.
 Visual Studio `*.vcxitems` and `*.filters` retain their original encoding/BOM,
 CRLF and optional missing final newline. Other text uses LF and a final newline.
 
@@ -420,19 +464,20 @@ CRLF and optional missing final newline. Other text uses LF and a final newline.
 | Evidence | Implication |
 | --- | --- |
 | [live_document.hpp](../../core/data_model/live_document.hpp), [baked_document.hpp](../../core/data_model/baked_document.hpp) | Already expose similar value/tree queries. Adapt those APIs without creating a second data model. |
-| [resolved_schema.cpp](../../core/schema/resolved_schema.cpp), [resolved_schema.hpp](../../core/schema/resolved_schema.hpp) | Resolver algorithm is already a helper, but input binding, observations, diagnostics and occurrence mapping use baked identities. Refactor the binding/result surface while retaining validation and layout algorithms. |
+| [resolved_schema.cpp](../../core/schema/resolved_schema.cpp), [resolved_schema.hpp](../../core/schema/resolved_schema.hpp) | The reviewed stage 2 package routes input binding, observations, diagnostics and occurrence mapping through the common query boundary. Reuse that resolver in the schema wrappers while retaining validation and layout behavior. |
 | [data_model_types.hpp](../../core/data_model/data_model_types.hpp) | Live keys are 64-bit, baked indices 32-bit. Role handles must represent both without truncation; equivalent method names do not make raw identities interchangeable. |
 | [document_translation.hpp](../../core/data_model/document_translation.hpp), [document_promotion.cpp](../../core/data_model/document_promotion.cpp) | Existing non-consuming promote/bake fit the copy lifecycle. New schema resolution can bind to the promoted document directly. |
 | [ByteBuffers.hpp](../../core/containers/ByteBuffers.hpp) | Reuse framework copying, allocation, alignment and ownership support. Demotion's document-order packing must rewrite locators in its new output. |
-| [schema_declarations.cpp](../../core/schema/schema_declarations.cpp) | Generator uses baked name access and diagnostic locations. Refactor those reads and preserve established spelling/layout checks. |
+| [schema_declarations.cpp](../../core/schema/schema_declarations.cpp) | The reviewed stage 2 package uses representation-neutral names and diagnostic locations. Generated output and established spelling/layout checks remain unchanged. |
 | [baked_document.cpp](../../core/data_model/baked_document.cpp), [BakedDocument_test_suite.cpp](../../tests/test_suites/BakedDocument_test_suite.cpp) | Stage 1 updates canonical integer width in both directions; reviewed, validated and committed separately as `d92dddd`. Reserved locator nodes can use this prerequisite once schema loaders are implemented. |
 | [Schema_test_suite.cpp](../../tests/test_suites/Schema_test_suite.cpp) | Reuse fixtures and compiler checks, revising expectations only where later decisions change semantics. The full schema sample predates locators and is not a new-loader acceptance fixture. |
 
 ## Staged implementation plan
 
-Stage 2's read-adapter package is complete and reviewed; resolver migration is
-next. Its intrusive binding-list lifetime design is agreed for the later wrapper
-package. Stages 3-8 are planned.
+Stage 2's read-adapter package is committed; the resolver/generator migration is
+implemented, validated and approved by both coordinator and user for its separate
+commit. Its intrusive binding-list lifetime design is agreed for the later
+wrapper package, which has not been dispatched. Stages 3-8 are planned.
 Stage 1 is complete and committed independently as
 `d92dddd`; its code, tests and data-model documentation exclude schema planning.
 Implementing chats receive bounded briefs from the coordinator and return changes

@@ -51,7 +51,7 @@ private:
     const CResolvedSchema& m_schema;
     CStringView m_namespace;
     SDiagnostic& m_diagnostic;
-    CBakedValueIndex m_current_type, m_current_member;
+    CSchemaHandle m_current_type, m_current_member;
     TPodVector<char> m_bytes;
     TPodVector<std::uint8_t> m_emitted;
     bool m_global_std_shadow{};
@@ -272,7 +272,7 @@ bool CGenerator::type_name(const CSchemaIndex type_index) noexcept
     {
         return type_name(type_info.element_or_storage);
     }
-    return local_type_name(m_schema.document()->property_name(type_info.name));
+    return local_type_name(m_schema.name(type_info.name));
 }
 
 bool CGenerator::extents(const CSchemaIndex type_index) noexcept
@@ -360,7 +360,8 @@ bool CGenerator::definition(const std::uint32_t definition_ordinal, const unsign
     }
     m_current_type = type_info.source;
     m_current_member = {};
-    const CStringView name = m_schema.document()->property_name(type_info.name);
+    const CStringView name = m_schema.name(type_info.name);
+
     //  Dependencies have already emitted their groups. Add one shared separator
     //  before this definition; the outer namespace always begins with an alias.
     if (!text("\n"))
@@ -380,7 +381,7 @@ bool CGenerator::definition(const std::uint32_t definition_ordinal, const unsign
             {
                 return fail(EReason::invalid_input);
             }
-            if (!text("    ") || !text(m_schema.document()->property_name(label.name)) || !text(" = ") ||
+            if (!text("    ") || !text(m_schema.name(label.name)) || !text(" = ") ||
                 !literal(label.value) || !text(",\n"))
             {
                 return false;
@@ -411,7 +412,7 @@ bool CGenerator::definition(const std::uint32_t definition_ordinal, const unsign
             }
             m_current_member = field.source;
             if (!text("inline constexpr ") || !type_name(type_info.element_or_storage) || !text(" ") ||
-                !text(m_schema.document()->property_name(field.name)) || !text(" = ") ||
+                !text(m_schema.name(field.name)) || !text(" = ") ||
                 !mask(field.mask, storage) || !text(";\n"))
             {
                 return false;
@@ -439,7 +440,7 @@ bool CGenerator::definition(const std::uint32_t definition_ordinal, const unsign
             }
             m_current_member = member.source;
             if (!text("    ") || !type_name(member.type) || !text(" ") ||
-                !text(m_schema.document()->property_name(member.name)) || !extents(member.type) || !text(";\n"))
+                !text(m_schema.name(member.name)) || !extents(member.type) || !text(";\n"))
             {
                 return false;
             }

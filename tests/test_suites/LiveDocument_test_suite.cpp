@@ -19,6 +19,7 @@
 
 #include "data_model/live_document.hpp"
 #include "schema/document_query.hpp"
+#include "schema/resolved_schema.hpp"
 #include "memory/memory_context.hpp"
 #include "tests/support/test_allocator.hpp"
 #include "tests/support/test_context.hpp"
@@ -2051,6 +2052,33 @@ void test_schema_document_query_wide_live_key(TTestContext& ctx)
     const schema::detail::SOccurrence occurrence{ key };
     TEST_EXPECT(ctx, occurrence.live.query_value() == key.query_value() && !occurrence.baked.is_valid());
     TEST_EXPECT(ctx, query.contains(occurrence) && query.value_kind(occurrence) == schema::EDocumentValueKind::null_value);
+
+    CLiveDocument schema_document;
+    TEST_EXPECT(ctx, schema_document.initialise());
+    TEST_EXPECT(ctx, schema_document.set_root_type(ELiveValueType::object));
+    const CNodeKey types = schema_document.create_object(CStringView{ "types" });
+    TEST_EXPECT(ctx, schema_document.append_child(schema_document.root(), types).succeeded());
+    const CNodeKey structures = schema_document.create_object(CStringView{ "structures" });
+    TEST_EXPECT(ctx, schema_document.append_child(types, structures).succeeded());
+    SLiveDocumentTestAccess::set_next_monotonic_node_key(schema_document, UINT64_C(0x100000001));
+    const CNodeKey definition = schema_document.create_object(CStringView{ "High" });
+    TEST_EXPECT(ctx, definition.query_value() > UINT32_MAX);
+    TEST_EXPECT(ctx, schema_document.append_child(structures, definition).succeeded());
+    const CNodeKey members = schema_document.create_array(CStringView{ "members" });
+    TEST_EXPECT(ctx, schema_document.append_child(definition, members).succeeded());
+    const CNodeKey member = schema_document.create_object(CStringView{ "value" });
+    TEST_EXPECT(ctx, schema_document.append_child(members, member).succeeded());
+    const CNodeKey type = schema_document.create_string(CStringView{ "u8" }, CStringView{ "type" });
+    TEST_EXPECT(ctx, schema_document.append_child(member, type).succeeded());
+    schema::CResolvedSchema resolved;
+    schema::SDiagnostic diagnostic;
+    TEST_EXPECT(ctx, resolved.resolve(schema_document, diagnostic));
+    const schema::CSchemaDocumentQuery schema_query{ schema_document };
+    const schema::CSchemaHandle role_definition = schema_query.object_child(
+        schema_query.object_child(schema_query.object_child(schema_query.root(), CStringView{ "types" }),
+            CStringView{ "structures" }), CStringView{ "High" });
+    TEST_EXPECT(ctx, schema_query.contains(role_definition));
+    TEST_EXPECT(ctx, resolved.map_occurrence(role_definition) == resolved.find_type(CStringView{ "High" }));
 }
 } // namespace
 

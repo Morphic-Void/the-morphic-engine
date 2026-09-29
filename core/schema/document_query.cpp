@@ -11,7 +11,10 @@
 #include "schema/document_query.hpp"
 #include "data_model/live_document.hpp"
 
-namespace schema::detail
+namespace schema
+{
+
+namespace detail
 {
 
 CDocumentRead::CDocumentRead(const CLiveDocument& document) noexcept : m_live(&document), m_backing(EBacking::live)
@@ -200,4 +203,109 @@ CStringView CDocumentRead::string_value(const SOccurrence value) const noexcept
         (baked_value(value) ? m_baked.string_value(value.baked) : CStringView{});
 }
 
-}   // namespace schema::detail
+}   // namespace detail
+
+CSchemaDocumentQuery::CSchemaDocumentQuery(const CLiveDocument& document) noexcept : m_query(document)
+{
+}
+
+CSchemaDocumentQuery::CSchemaDocumentQuery(const CBakedDocument& document) noexcept : m_query(document)
+{
+}
+
+bool CSchemaDocumentQuery::is_ready() const noexcept
+{
+    return m_query.is_ready();
+}
+
+CSchemaHandle CSchemaDocumentQuery::root() const noexcept
+{
+    return detail::SSchemaHandleAccess::make(m_query.root());
+}
+
+bool CSchemaDocumentQuery::contains(const CSchemaHandle value) const noexcept
+{
+    return m_query.contains(detail::SSchemaHandleAccess::occurrence(value));
+}
+
+EDocumentValueKind CSchemaDocumentQuery::value_kind(const CSchemaHandle value) const noexcept
+{
+    return m_query.value_kind(detail::SSchemaHandleAccess::occurrence(value));
+}
+
+CSchemaHandle CSchemaDocumentQuery::object_child(const CSchemaHandle object, const CStringView& name) const noexcept
+{
+    return detail::SSchemaHandleAccess::make(m_query.object_child(detail::SSchemaHandleAccess::occurrence(object), name));
+}
+
+CSchemaHandle CSchemaDocumentQuery::parent(const CSchemaHandle value) const noexcept
+{
+    return detail::SSchemaHandleAccess::make(m_query.parent(detail::SSchemaHandleAccess::occurrence(value)));
+}
+
+CSchemaHandle CSchemaDocumentQuery::first_child(const CSchemaHandle value) const noexcept
+{
+    return detail::SSchemaHandleAccess::make(m_query.first_child(detail::SSchemaHandleAccess::occurrence(value)));
+}
+
+CSchemaHandle CSchemaDocumentQuery::next_sibling(const CSchemaHandle value) const noexcept
+{
+    return detail::SSchemaHandleAccess::make(m_query.next_sibling(detail::SSchemaHandleAccess::occurrence(value)));
+}
+
+CSchemaHandle CSchemaDocumentQuery::array_at(const CSchemaHandle value, const std::uint32_t ordinal) const noexcept
+{
+    return detail::SSchemaHandleAccess::make(m_query.array_at(detail::SSchemaHandleAccess::occurrence(value), ordinal));
+}
+
+std::uint32_t CSchemaDocumentQuery::child_count(const CSchemaHandle value) const noexcept
+{
+    return m_query.child_count(detail::SSchemaHandleAccess::occurrence(value));
+}
+
+bool CSchemaDocumentQuery::is_object_entry(const CSchemaHandle value) const noexcept
+{
+    return m_query.is_object_entry(detail::SSchemaHandleAccess::occurrence(value));
+}
+
+CPropertyNameId CSchemaDocumentQuery::name_id(const CSchemaHandle value) const noexcept
+{
+    return m_query.name_id(detail::SSchemaHandleAccess::occurrence(value));
+}
+
+CStringView CSchemaDocumentQuery::name(const CSchemaHandle value) const noexcept
+{
+    return m_query.name(detail::SSchemaHandleAccess::occurrence(value));
+}
+
+CStringView CSchemaDocumentQuery::property_name(const CPropertyNameId id) const noexcept
+{
+    return m_query.property_name(id);
+}
+
+CStringView CSchemaDocumentQuery::string_value(const CSchemaHandle value) const noexcept
+{
+    return m_query.string_value(detail::SSchemaHandleAccess::occurrence(value));
+}
+
+bool CSchemaDocumentQuery::boolean_value(const CSchemaHandle value, bool& result) const noexcept
+{
+    return m_query.boolean_value(detail::SSchemaHandleAccess::occurrence(value), result);
+}
+
+bool CSchemaDocumentQuery::signed_integer_value(const CSchemaHandle value, std::int64_t& result) const noexcept
+{
+    return m_query.signed_integer_value(detail::SSchemaHandleAccess::occurrence(value), result);
+}
+
+bool CSchemaDocumentQuery::unsigned_integer_value(const CSchemaHandle value, std::uint64_t& result) const noexcept
+{
+    return m_query.unsigned_integer_value(detail::SSchemaHandleAccess::occurrence(value), result);
+}
+
+bool CSchemaDocumentQuery::floating_point_value(const CSchemaHandle value, double& result) const noexcept
+{
+    return m_query.floating_point_value(detail::SSchemaHandleAccess::occurrence(value), result);
+}
+
+}   // namespace schema

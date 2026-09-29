@@ -22,6 +22,7 @@
 #include "platform/filesystem/internal/file_utils.hpp"
 #include "platform/path/native_path.hpp"
 #include <cmath>
+#include <cstring>
 #include <cstdio>
 #include <iostream>
 #include <sstream>
@@ -80,7 +81,7 @@ static bool resolve(TTestContext& ctx, const std::string& text, CBakedDocumentBl
     if (!ok)
     {
         std::cerr << "Schema unexpected failure: reason " << static_cast<unsigned>(error.reason) << " stage "
-                  << static_cast<unsigned>(error.stage) << " occurrence " << error.occurrence.query_value() << '\n';
+                  << static_cast<unsigned>(error.stage) << " occurrence valid " << error.occurrence.is_valid() << '\n';
     }
     TEST_EXPECT(ctx, ok);
     return ok;
@@ -109,7 +110,7 @@ static void expect_failure(TTestContext& ctx, const std::string& text, const ERe
     TEST_EXPECT(ctx, bake(text, block));
     SDiagnostic error;
     TEST_EXPECT(ctx, !s.resolve(block.document(), error));
-    TEST_EXPECT(ctx, !s.is_ready() && s.document() == nullptr && s.definition_count() == 0u);
+    TEST_EXPECT(ctx, !s.is_ready() && s.definition_count() == 0u);
     TEST_EXPECT(ctx, error.reason != EReason::none && error.stage != EStage::none);
     if (reason != EReason::none)
     {
@@ -150,7 +151,7 @@ static std::string write_validation(TTestContext& ctx, const CResolvedSchema& s,
     checks << "static_assert(std::is_standard_layout_v<fp16data_t> && std::is_trivially_copyable_v<fp16data_t>);\n";
     const auto spelling = [&](const CPropertyNameId id)
     {
-        const CStringView name = s.document()->property_name(id);
+        const CStringView name = s.name(id);
         return std::string(reinterpret_cast<const char*>(name.string()), name.length());
     };
     const char* const primitives[] = { "", "std::int8_t", "std::int16_t", "std::int32_t", "std::int64_t",
@@ -303,7 +304,7 @@ static void test_success(TTestContext& ctx)
     TEST_EXPECT(ctx, first_default(ctx, s, "Atoms", "i").scalar.value.unsigned_value == fp16data_t{ 1e100 }.getBits());
     TEST_EXPECT(ctx, std::signbit(first_default(ctx, s, "Vector4", "y").scalar.value.floating_value));
     TEST_EXPECT(ctx, std::isnan(first_default(ctx, s, "Atoms", "k").scalar.value.floating_value));
-    TEST_EXPECT(ctx, !s.map_occurrence(block.document().root()));
+    TEST_EXPECT(ctx, !s.map_occurrence(CSchemaDocumentQuery{ block.document() }.root()));
     TEST_EXPECT(ctx, !s.find_type(CStringView{ "missing" }));
     const std::string declarations = write_validation(ctx, s);
     const std::size_t mode_position = declarations.find("enum class Mode");
@@ -331,7 +332,7 @@ static void test_success(TTestContext& ctx)
         TEST_EXPECT(ctx, error.reason == EReason::invalid_identifier && !output.is_ready());
     }
     CResolvedSchema moved{ std::move(s) };
-    TEST_EXPECT(ctx, !s.is_ready() && !s.document() && moved.type(vector, t));
+    TEST_EXPECT(ctx, !s.is_ready() && moved.type(vector, t));
     CBakedDocumentBlock replacement;
     TEST_EXPECT(ctx, bake(one("\"u8\"", "7"), replacement));
     SDiagnostic replacement_error;
@@ -339,14 +340,13 @@ static void test_success(TTestContext& ctx)
     s = std::move(moved);
     TEST_EXPECT(ctx, !moved.is_ready() && s.type(vector, t) && s.definition_count() == 11u);
     SDiagnostic error;
-    const CBakedDocument* const borrowed = s.document();
-    TEST_EXPECT(ctx, s.resolve(*borrowed, error));
+    TEST_EXPECT(ctx, s.resolve(error));
     CBakedDocumentBlock invalid;
     TEST_EXPECT(ctx, bake(one("\"missing\"", ""), invalid));
     TEST_EXPECT(ctx, !s.resolve(invalid.document(), error));
-    TEST_EXPECT(ctx, !s.is_ready() && !s.document() && !s.type(vector, t));
+    TEST_EXPECT(ctx, !s.is_ready() && !s.type(vector, t));
     TEST_EXPECT(ctx, error.occurrence && error.enclosing_type && error.enclosing_member);
-    TEST_EXPECT(ctx, invalid.document().contains(error.occurrence));
+    TEST_EXPECT(ctx, CSchemaDocumentQuery{ invalid.document() }.contains(error.occurrence));
     CByteBuffer output;
     TEST_EXPECT(ctx, !generate_cpp(s, CStringView{ "valid" }, output, error) && !output.is_ready());
 }
@@ -548,8 +548,8 @@ static void test_scalars_and_limits(TTestContext& ctx)
 static void test_record_layout(TTestContext& ctx)
 {
     const SRecordSizes sizes = CResolvedSchema::record_sizes();
-    TEST_EXPECT(ctx, (sizes.type == 32u) && (sizes.member == 24u) && (sizes.label == 24u) &&
-        (sizes.field == 32u) && (sizes.default_value == 32u) && (sizes.mapping == 8u));
+    TEST_EXPECT(ctx, (sizes.type == 48u) && (sizes.member == 40u) && (sizes.label == 40u) &&
+        (sizes.field == 48u) && (sizes.default_value == 48u) && (sizes.mapping == 24u));
 
     CBakedDocumentBlock block;
     CResolvedSchema schema;
@@ -657,7 +657,7 @@ static void test_record_layout(TTestContext& ctx)
                 SType member_type;
                 TEST_EXPECT(ctx, schema.member(member_index, member) && schema.type(member.type, member_type));
                 TEST_EXPECT(ctx, (member.size == member_type.size) && ((member.offset + member.size) <= type.size));
-                TEST_EXPECT(ctx, schema.find_member(type_index, schema.document()->property_name(member.name)) == member_index);
+                TEST_EXPECT(ctx, schema.find_member(type_index, schema.name(member.name)) == member_index);
                 TEST_EXPECT(ctx, !schema.find_member(member_index, CStringView{ "x" }));
             }
             else if (type.category == ECategory::enumeration)
@@ -665,7 +665,7 @@ static void test_record_layout(TTestContext& ctx)
                 const CSchemaIndex label_index = schema.label_at(type_index, child_ordinal);
                 SLabel label;
                 TEST_EXPECT(ctx, schema.label(label_index, label));
-                TEST_EXPECT(ctx, schema.find_label(type_index, schema.document()->property_name(label.name)) == label_index);
+                TEST_EXPECT(ctx, schema.find_label(type_index, schema.name(label.name)) == label_index);
                 SLabel first_label;
                 TEST_EXPECT(ctx, schema.label(schema.first_label_for_value(type_index, label.value), first_label));
                 TEST_EXPECT(ctx, first_label.value.kind == label.value.kind);
@@ -678,7 +678,7 @@ static void test_record_layout(TTestContext& ctx)
                 SType logical;
                 TEST_EXPECT(ctx, schema.field(field_index, field) && schema.type(field.type, logical));
                 TEST_EXPECT(ctx, (field.primitive == logical.primitive) && (field.primitive != EPrimitive::none));
-                TEST_EXPECT(ctx, schema.find_field(type_index, schema.document()->property_name(field.name)) == field_index);
+                TEST_EXPECT(ctx, schema.find_field(type_index, schema.name(field.name)) == field_index);
                 TEST_EXPECT(ctx, !schema.find_field(field_index, CStringView{ "x" }));
             }
         }
@@ -698,7 +698,7 @@ static void test_record_layout(TTestContext& ctx)
     TEST_EXPECT(ctx, !moved.is_ready() && !moved.type(vector, physical) && !moved.find_member(vector, CStringView{ "x" }));
     TEST_EXPECT(ctx, !moved.find_field(flags, CStringView{ "axis" }) && !moved.find_label({}, CStringView{ "first" }));
     TEST_EXPECT(ctx, !moved.first_label_for_value({}, SScalar{}));
-    TEST_EXPECT(ctx, diagnostic.occurrence && invalid.document().contains(diagnostic.occurrence));
+    TEST_EXPECT(ctx, diagnostic.occurrence && CSchemaDocumentQuery{ invalid.document() }.contains(diagnostic.occurrence));
     TEST_EXPECT(ctx, moved.resolve(block.document(), diagnostic));
     moved.clear();
     TEST_EXPECT(ctx, !moved.find_member(vector, CStringView{ "x" }) && !moved.find_field(flags, CStringView{ "axis" }));
@@ -734,11 +734,23 @@ static void test_review_regressions(TTestContext& ctx)
         }
         TEST_EXPECT(ctx, named.is_valid() && doc.is_object_entry(named));
         TEST_EXPECT(ctx, doc.name(named).length() == 0u);
+        const CSchemaDocumentQuery query{ doc };
+        const CSchemaHandle role_types = query.object_child(query.root(), CStringView{ "types" });
+        const CSchemaHandle role_structures = query.object_child(role_types, CStringView{ "structures" });
+        const CSchemaHandle role_definition = query.object_child(role_structures, CStringView{ "Test" });
+        const CSchemaHandle role_members = query.object_child(role_definition, CStringView{ "members" });
+        const CSchemaHandle role_member = query.array_at(role_members, 0u);
+        const CSchemaHandle role_value = query.object_child(role_member, CStringView{ "default" });
+        CSchemaHandle role_named = query.array_at(role_value, 0u);
+        if (test.descend)
+        {
+            role_named = query.array_at(role_named, 0u);
+        }
         CResolvedSchema s;
         SDiagnostic error;
         TEST_EXPECT(ctx, !s.resolve(doc, error));
-        TEST_EXPECT(ctx, error.reason == EReason::invalid_default && error.occurrence == named);
-        TEST_EXPECT(ctx, !s.is_ready() && s.document() == nullptr);
+        TEST_EXPECT(ctx, error.reason == EReason::invalid_default && error.occurrence == role_named);
+        TEST_EXPECT(ctx, !s.is_ready());
     }
     {
         CBakedDocumentBlock block;
@@ -933,7 +945,7 @@ static void test_allocations(TTestContext& ctx)
             success = s.resolve(block.document(), error);
             if (!success)
             {
-                TEST_EXPECT(ctx, error.reason == EReason::allocation_failed && !s.is_ready() && !s.document());
+                TEST_EXPECT(ctx, error.reason == EReason::allocation_failed && !s.is_ready());
             }
         }
         TEST_EXPECT(ctx, memory_context.is_attribution_empty());
@@ -1068,6 +1080,218 @@ static void test_document_read_boundary(TTestContext& ctx)
     TEST_EXPECT(ctx, live_query.value_kind(detail::SOccurrence{ empty }) == EDocumentValueKind::empty);
     TEST_EXPECT(ctx, !baked_query.object_child(baked_object, CStringView{ "pending" }).is_valid());
 }
+
+static void test_live_baked_resolution_parity(TTestContext& ctx)
+{
+    CLiveDocument live_document;
+    const std::size_t length = std::strlen(fixture);
+    const CDocumentReport parsed = document_parser::parse(
+        CByteConstView{ reinterpret_cast<const std::uint8_t*>(fixture), length, 1u }, live_document);
+    TEST_EXPECT(ctx, parsed.accepted());
+    CBakedDocumentBlock block;
+    TEST_EXPECT(ctx, document_translation::bake(live_document, block));
+    CResolvedSchema live_schema, baked_schema;
+    SDiagnostic live_error, baked_error;
+    TEST_EXPECT(ctx, live_schema.resolve(live_document, live_error));
+    TEST_EXPECT(ctx, baked_schema.resolve(block.document(), baked_error));
+    TEST_EXPECT(ctx, live_schema.definition_count() == baked_schema.definition_count());
+    const CSchemaDocumentQuery live_query{ live_document };
+    const CSchemaDocumentQuery baked_query{ block.document() };
+    for (std::uint32_t ordinal = 0u; ordinal < live_schema.definition_count(); ++ordinal)
+    {
+        const CSchemaIndex live_index = live_schema.definition_at(ordinal);
+        const CSchemaIndex baked_index = baked_schema.definition_at(ordinal);
+        SType live_type, baked_type;
+        TEST_EXPECT(ctx, live_index == baked_index && live_schema.type(live_index, live_type) &&
+            baked_schema.type(baked_index, baked_type));
+        TEST_EXPECT(ctx, live_type.category == baked_type.category && live_type.primitive == baked_type.primitive &&
+            live_type.size == baked_type.size && live_type.alignment == baked_type.alignment &&
+            live_type.stride == baked_type.stride && live_type.count == baked_type.count);
+        TEST_EXPECT(ctx, live_schema.name(live_type.name) == baked_schema.name(baked_type.name));
+        TEST_EXPECT(ctx, live_query.contains(live_type.source) && baked_query.contains(baked_type.source));
+        TEST_EXPECT(ctx, live_schema.map_occurrence(live_type.source) == live_index &&
+            baked_schema.map_occurrence(baked_type.source) == baked_index);
+    }
+    const CSchemaIndex vector = live_schema.find_type(CStringView{ "Vector4" });
+    const CSchemaIndex member = live_schema.find_member(vector, CStringView{ "y" });
+    SMember live_member, baked_member;
+    TEST_EXPECT(ctx, live_schema.member(member, live_member) && baked_schema.member(member, baked_member));
+    TEST_EXPECT(ctx, live_member.offset == baked_member.offset && live_member.size == baked_member.size &&
+        live_schema.map_occurrence(live_member.source) == member && baked_schema.map_occurrence(baked_member.source) == member);
+    CByteBuffer live_cpp, baked_cpp;
+    TEST_EXPECT(ctx, generate_cpp(live_schema, CStringView{ "schema_fixture" }, live_cpp, live_error));
+    TEST_EXPECT(ctx, generate_cpp(baked_schema, CStringView{ "schema_fixture" }, baked_cpp, baked_error));
+    TEST_EXPECT(ctx, live_cpp.size() == baked_cpp.size() &&
+        std::memcmp(live_cpp.data(), baked_cpp.data(), live_cpp.size()) == 0);
+
+    const CSchemaHandle source = live_member.source;
+    const std::uint64_t old_size = live_member.size;
+    TEST_EXPECT(ctx, live_schema.resolve(live_error));
+    TEST_EXPECT(ctx, live_schema.member(member, live_member) && live_member.source == source &&
+        live_member.size == old_size && live_schema.map_occurrence(source) == member);
+    TEST_EXPECT(ctx, baked_schema.resolve(baked_error));
+    TEST_EXPECT(ctx, baked_schema.member(member, baked_member) && baked_schema.map_occurrence(baked_member.source) == member);
+
+    const std::string bad = one("\"missing\"", "");
+    CLiveDocument bad_live;
+    const CDocumentReport bad_parsed = document_parser::parse(
+        CByteConstView{ reinterpret_cast<const std::uint8_t*>(bad.data()), bad.size(), 1u }, bad_live);
+    TEST_EXPECT(ctx, bad_parsed.accepted());
+    CBakedDocumentBlock bad_block;
+    TEST_EXPECT(ctx, document_translation::bake(bad_live, bad_block));
+    TEST_EXPECT(ctx, !live_schema.resolve(bad_live, live_error) && !baked_schema.resolve(bad_block.document(), baked_error));
+    TEST_EXPECT(ctx, !live_schema.is_ready() && !baked_schema.is_ready());
+    TEST_EXPECT(ctx, live_error.reason == baked_error.reason && live_error.stage == baked_error.stage);
+    const CSchemaDocumentQuery bad_live_query{ bad_live };
+    const CSchemaDocumentQuery bad_baked_query{ bad_block.document() };
+    TEST_EXPECT(ctx, bad_live_query.contains(live_error.occurrence) &&
+        bad_baked_query.contains(baked_error.occurrence));
+    TEST_EXPECT(ctx, bad_live_query.string_value(live_error.occurrence) == CStringView{ "missing" } &&
+        bad_baked_query.string_value(baked_error.occurrence) == CStringView{ "missing" });
+    TEST_EXPECT(ctx, bad_live_query.parent(live_error.occurrence) == live_error.enclosing_member &&
+        bad_baked_query.parent(baked_error.occurrence) == baked_error.enclosing_member);
+    TEST_EXPECT(ctx, bad_live_query.name(live_error.enclosing_member) == CStringView{ "value" } &&
+        bad_baked_query.name(baked_error.enclosing_member) == CStringView{ "value" });
+    TEST_EXPECT(ctx, bad_live_query.name(live_error.enclosing_type) == CStringView{ "Test" } &&
+        bad_baked_query.name(baked_error.enclosing_type) == CStringView{ "Test" });
+    TEST_EXPECT(ctx, !live_schema.map_occurrence(source) && !live_schema.member(member, live_member));
+}
+
+static void test_live_resolution_move_failure_and_depth(TTestContext& ctx)
+{
+    const std::string nested_default = one(
+        R"({"element":{"element":"u8","count":2},"count":2})", "[[1],[2,3]]");
+    CLiveDocument live;
+    const CDocumentReport parsed = document_parser::parse(
+        CByteConstView{ reinterpret_cast<const std::uint8_t*>(nested_default.data()), nested_default.size(), 1u }, live);
+    TEST_EXPECT(ctx, parsed.accepted());
+    CBakedDocumentBlock block;
+    TEST_EXPECT(ctx, document_translation::bake(live, block));
+    CResolvedSchema live_schema, baked_schema;
+    SDiagnostic live_error, baked_error;
+    TEST_EXPECT(ctx, live_schema.resolve(live, live_error) && baked_schema.resolve(block.document(), baked_error));
+    const CSchemaIndex type = live_schema.find_type(CStringView{ "Test" });
+    const CSchemaIndex member_index = live_schema.find_member(type, CStringView{ "value" });
+    SMember live_member, baked_member;
+    TEST_EXPECT(ctx, live_schema.member(member_index, live_member) && baked_schema.member(member_index, baked_member));
+    CSchemaIndex live_inner, baked_inner;
+    TEST_EXPECT(ctx, live_schema.default_element(live_member.type, live_member.default_description, 1u, live_inner) &&
+        baked_schema.default_element(baked_member.type, baked_member.default_description, 1u, baked_inner));
+    SDefault live_default, baked_default;
+    SType array_type;
+    TEST_EXPECT(ctx, live_schema.type(live_member.type, array_type));
+    TEST_EXPECT(ctx, live_schema.default_value(array_type.element_or_storage, live_inner, live_default) &&
+        baked_schema.default_value(array_type.element_or_storage, baked_inner, baked_default));
+    TEST_EXPECT(ctx, live_default.supplied_count == 2u && baked_default.supplied_count == 2u);
+    CSchemaIndex live_leaf, baked_leaf;
+    TEST_EXPECT(ctx, live_schema.default_element(array_type.element_or_storage, live_inner, 1u, live_leaf) &&
+        baked_schema.default_element(array_type.element_or_storage, baked_inner, 1u, baked_leaf));
+    SType scalar_type;
+    TEST_EXPECT(ctx, live_schema.type(array_type.element_or_storage, scalar_type));
+    TEST_EXPECT(ctx, live_schema.default_value(scalar_type.element_or_storage, live_leaf, live_default) &&
+        baked_schema.default_value(scalar_type.element_or_storage, baked_leaf, baked_default));
+    TEST_EXPECT(ctx, live_default.scalar.value.unsigned_value == 3u && baked_default.scalar.value.unsigned_value == 3u);
+
+    const CSchemaHandle source = live_member.source;
+    CResolvedSchema moved{ std::move(live_schema) };
+    TEST_EXPECT(ctx, !live_schema.is_ready() && moved.name(live_member.name) == CStringView{ "value" });
+    TEST_EXPECT(ctx, moved.map_occurrence(source) == member_index && moved.resolve(live_error));
+    TEST_EXPECT(ctx, moved.member(member_index, live_member) && live_member.source == source);
+    {
+        SFailingAllocator failing{ 0u, SIZE_MAX };
+        memory::CMemoryAllocator allocator{ &failing, &allocate_with_failure, &tests::deallocate_test_memory };
+        memory::CMemoryContext context{ allocator };
+        {
+            tests::TMemoryContextScope scope{ &context };
+            CResolvedSchema failure_schema;
+            TEST_EXPECT(ctx, failure_schema.resolve(live, live_error));
+            failing.fail_on = failing.calls;
+            TEST_EXPECT(ctx, !failure_schema.resolve(live_error));
+            TEST_EXPECT(ctx, live_error.reason == EReason::allocation_failed && !failure_schema.is_ready());
+        }
+        TEST_EXPECT(ctx, context.is_attribution_empty());
+    }
+
+    for (const unsigned definition_count : { 128u, 129u })
+    {
+        std::string named_types;
+        for (unsigned n = 0u; n < definition_count; ++n)
+        {
+            if (n != 0u)
+            {
+                named_types += ',';
+            }
+            named_types += "\"T" + std::to_string(n) + "\":{\"members\":[{\"next\":{\"type\":\"";
+            named_types += (n + 1u == definition_count) ? "u8" : ("T" + std::to_string(n + 1u));
+            named_types += "\"}}]}";
+        }
+        const std::string named_chain = "{\"types\":{\"structures\":{" + named_types + "}}}";
+        CLiveDocument deep_live;
+        const CDocumentReport named_parsed = document_parser::parse(
+            CByteConstView{ reinterpret_cast<const std::uint8_t*>(named_chain.data()), named_chain.size(), 1u }, deep_live);
+        TEST_EXPECT(ctx, named_parsed.accepted());
+        CBakedDocumentBlock deep_block;
+        TEST_EXPECT(ctx, document_translation::bake(deep_live, deep_block));
+        if (definition_count == 128u)
+        {
+            TEST_EXPECT(ctx, moved.resolve(deep_live, live_error) && baked_schema.resolve(deep_block.document(), baked_error));
+            TEST_EXPECT(ctx, moved.definition_count() == definition_count && baked_schema.definition_count() == definition_count);
+        }
+        else
+        {
+            TEST_EXPECT(ctx, !moved.resolve(deep_live, live_error) && live_error.reason == EReason::storage_limit);
+            TEST_EXPECT(ctx, !baked_schema.resolve(deep_block.document(), baked_error) && baked_error.reason == EReason::storage_limit);
+        }
+    }
+
+    for (const unsigned array_depth : { 254u, 255u })
+    {
+        std::string nested_type = "\"u8\"";
+        std::string nested_values = "1";
+        for (unsigned n = 0u; n < array_depth; ++n)
+        {
+            nested_type = "{\"element\":" + nested_type + ",\"count\":1}";
+            nested_values = '[' + nested_values + ']';
+        }
+        const std::string deep_default = one(nested_type, nested_values);
+        CLiveDocument default_live;
+        const CDocumentReport default_parsed = document_parser::parse(
+            CByteConstView{ reinterpret_cast<const std::uint8_t*>(deep_default.data()), deep_default.size(), 1u }, default_live);
+        TEST_EXPECT(ctx, default_parsed.accepted());
+        CBakedDocumentBlock default_block;
+        TEST_EXPECT(ctx, document_translation::bake(default_live, default_block));
+        if (array_depth == 254u)
+        {
+            TEST_EXPECT(ctx, moved.resolve(default_live, live_error) && baked_schema.resolve(default_block.document(), baked_error));
+            for (CResolvedSchema* resolved : { &moved, &baked_schema })
+            {
+                const CSchemaIndex root_type = resolved->find_type(CStringView{ "Test" });
+                const CSchemaIndex root_member = resolved->find_member(root_type, CStringView{ "value" });
+                SMember leaf_member;
+                TEST_EXPECT(ctx, resolved->member(root_member, leaf_member));
+                CSchemaIndex leaf_type = leaf_member.type;
+                CSchemaIndex leaf_default = leaf_member.default_description;
+                for (unsigned n = 0u; n < array_depth; ++n)
+                {
+                    SType description;
+                    CSchemaIndex child_default;
+                    TEST_EXPECT(ctx, resolved->type(leaf_type, description) && description.category == ECategory::array);
+                    TEST_EXPECT(ctx, resolved->default_element(leaf_type, leaf_default, 0u, child_default));
+                    leaf_type = description.element_or_storage;
+                    leaf_default = child_default;
+                }
+                SDefault leaf;
+                TEST_EXPECT(ctx, resolved->default_value(leaf_type, leaf_default, leaf));
+                TEST_EXPECT(ctx, leaf.scalar.value.unsigned_value == 1u);
+            }
+        }
+        else
+        {
+            TEST_EXPECT(ctx, !moved.resolve(default_live, live_error) && live_error.reason == EReason::storage_limit);
+            TEST_EXPECT(ctx, !baked_schema.resolve(default_block.document(), baked_error) && baked_error.reason == EReason::storage_limit);
+        }
+    }
+}
 }   // namespace schema_tests
 
 int run_schema_tests()
@@ -1082,6 +1306,8 @@ int run_schema_tests()
     schema_tests::test_local_type_references(ctx);
     schema_tests::test_allocations(ctx);
     schema_tests::test_document_read_boundary(ctx);
+    schema_tests::test_live_baked_resolution_parity(ctx);
+    schema_tests::test_live_resolution_move_failure_and_depth(ctx);
     const schema::SRecordSizes sizes = schema::CResolvedSchema::record_sizes();
     std::cout << "Schema record bytes: type=" << sizes.type << " member=" << sizes.member << " label=" << sizes.label
               << " field=" << sizes.field << " default=" << sizes.default_value << " mapping=" << sizes.mapping << '\n';
