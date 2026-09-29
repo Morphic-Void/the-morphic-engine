@@ -18,6 +18,7 @@
 #include <utility>
 
 #include "data_model/live_document.hpp"
+#include "schema/document_query.hpp"
 #include "memory/memory_context.hpp"
 #include "tests/support/test_allocator.hpp"
 #include "tests/support/test_context.hpp"
@@ -2039,6 +2040,18 @@ void test_move_reset_and_retained_attribution(TTestContext& ctx)
     TEST_EXPECT(ctx, other_context.is_attribution_empty());
 }
 
+void test_schema_document_query_wide_live_key(TTestContext& ctx)
+{
+    CLiveDocument document;
+    TEST_EXPECT(ctx, document.initialise());
+    SLiveDocumentTestAccess::set_next_monotonic_node_key(document, UINT64_C(0x100000001));
+    const CNodeKey key = document.create_null();
+    TEST_EXPECT(ctx, key.is_valid() && key.query_value() > UINT32_MAX);
+    const schema::detail::CDocumentRead query{ document };
+    const schema::detail::SOccurrence occurrence{ key };
+    TEST_EXPECT(ctx, occurrence.live.query_value() == key.query_value() && !occurrence.baked.is_valid());
+    TEST_EXPECT(ctx, query.contains(occurrence) && query.value_kind(occurrence) == schema::EDocumentValueKind::null_value);
+}
 } // namespace
 
 namespace live_document_phase2_tests
@@ -2309,6 +2322,7 @@ int run_live_document_tests()
     test_analysis_allocation_failure_and_attribution(ctx);
     test_move_reset_and_retained_attribution(ctx);
     test_complete_document_reattribution(ctx);
+    test_schema_document_query_wide_live_key(ctx);
 
     std::cout << "LiveDocument: " << ctx.passed << " passed, " << ctx.failed << " failed\n";
     return (ctx.failed == 0) ? 0 : 1;

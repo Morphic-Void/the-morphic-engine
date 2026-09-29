@@ -108,10 +108,20 @@ payload storage without taking the live source's buffer.
 Instance and bulk documents reference their schema through inter-document
 reference counts. These do not own or extend the schema wrapper's lifetime.
 Mutation of a referenced live schema fails without changes and triggers an
-assertion. A referenced schema cannot be moved. Attempted destruction raises a
-critical error and must be stopped before backing data is released; the system
-immediately attempts shutdown. Concrete counting and shutdown mechanics remain
-implementation design work. This replaces the earlier documentation-only policy.
+assertion. A referenced schema cannot be moved. Failure should leave a safely
+rejected or unusable state, with dependent processing prevented. A no-return panic
+is an absolute last resort, not the prescribed response to a schema failure.
+The 29 September review supersedes the earlier mandatory shutdown rule for
+referenced destruction. Each schema keeps a reference count and an intrusive
+linked list of its client bindings; the links reside in the participating clients.
+No separately allocated registry or shared lifetime sentinel is required.
+Before destruction releases schema state, it invalidates and detaches those
+bindings. Later schema-dependent client operations reject an invalid binding
+without dereferencing the destroyed schema or using stale resolved data. Releasing
+an already invalidated binding is safe. Client registration, release and any
+permitted client transfer maintain the list and count together. This mechanism
+does not own the clients or extend the schema's lifetime. Borrowed raw views still
+obey their existing lifetime rules; invalidation cannot repair a retained raw view.
 
 Callers access underlying live documents through their wrappers so editing stays
 coordinated. They can edit an unreferenced independent schema copy while existing
@@ -1502,7 +1512,8 @@ recursive descendant updates is implementation work. A memory allocation failure
 during such an update is application-critical; the API need not add transactional
 rollback or a recoverable partial-edit model for that situation. Implementation
 must use the application's critical-failure handling rather than allow continued
-use of partially updated data.
+use of partially updated data. Critical severity does not by itself require a
+no-return panic when a safe no-further-processing state can be established.
 
 Named-bitfield updates preserve bits outside their selected masks. The optional
 unused-storage pass clears only bits not addressed by declared fields.
@@ -1637,8 +1648,9 @@ bits, padding, or floating-point payloads matter.
 
 The [implementation contract](implementation-contract.md) owns the staged plan,
 code reuse evidence, validation and current progress. The [runtime API](runtime-api.md)
-owns implemented observations and measured layouts. No semantic questions remain
-open for this refactoring scope; source ingestion remains a later design stage.
+owns implemented observations and measured layouts. Stage 2 uses the agreed
+intrusive client-binding list for safe invalidation on schema destruction.
+Source ingestion remains a later design stage.
 
 No wire version, hash scheme or editor dependency system is implied. Instance
 and bulk buffers are associated with their separate interfaces, not the resolved

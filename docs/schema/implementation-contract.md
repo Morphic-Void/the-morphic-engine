@@ -53,9 +53,33 @@ headers unchanged. Ignored logs include `build/schema-scalar-union-build64.txt`,
 and `build/schema-record-layout-generated.txt`. Logs may not exist in another
 checkout; they are evidence pointers, not inputs required to resume.
 
-The next delivery is integration stage 2: review concrete common-query,
-role-handle, resolver-adapter and ownership-result APIs before implementation.
-The semantic gap review is complete for this sequence. Source ingestion remains
+Integration stage 2 began on 29 September with a read-only API proposal assigned
+to chat `01a0ecea-0053-73a3-b945-cf04a6399533`
+(Schema stage 2 — query and resolver refactor). After reviewing and refining the
+proposal, the coordinator authorised the first bounded code package: the internal
+live/baked read adapter, three public document-role handle types and parity tests.
+Baked adapters retain a view by value; live adapters borrow their live document.
+The full live key is preserved, and invalid handles are well-defined. Resolver
+migration, wrappers and conversions are not part of this first package.
+The adapter package is complete and passed coordinator and user review on
+29 September. It adds `core/schema/document_query.hpp/.cpp`, parity/invalid-query
+tests in the schema suite, and a greater-than-32-bit live-key test using the
+existing live-document test access. The Debug x64 build and ordinary suites
+passed: 1,342 schema checks and 4,614 live-document checks, with zero failures.
+Final test invocation was `MorphicTests.exe -t1 --log-tag=stage2-query-boundary-final`;
+runner logs use `development/logical-roots/test-logs/*.stage2-query-boundary-final.p22080.log`.
+Coordinator review verified the implementation and actual test output. The user's
+subsequent whitespace/line-break edits were preserved without repeating tests.
+This is a separate commit boundary before resolver migration; the next package
+adapts resolver occurrences and generator name access to the shared read adapter.
+
+The 29 September user review rejects mandatory no-return panic as the standard
+schema lifetime response. The agreed replacement is a schema reference count plus
+an intrusive linked list with links stored in each client binding. Destruction
+invalidates and detaches those bindings before releasing schema state; later
+schema-dependent operations fail safely. Referenced edits/moves remain rejected
+unchanged. Implementation follows in the wrapper/reference package, not the first
+adapter package. Other agreed contracts remain in place. Source ingestion remains
 a later design stage; [header-survey.md](header-survey.md) retains its research.
 
 ## Initial delivery
@@ -406,7 +430,10 @@ CRLF and optional missing final newline. Other text uses LF and a final newline.
 
 ## Staged implementation plan
 
-Stages 2-8 are planned. Stage 1 is complete and committed independently as
+Stage 2's read-adapter package is complete and reviewed; resolver migration is
+next. Its intrusive binding-list lifetime design is agreed for the later wrapper
+package. Stages 3-8 are planned.
+Stage 1 is complete and committed independently as
 `d92dddd`; its code, tests and data-model documentation exclude schema planning.
 Implementing chats receive bounded briefs from the coordinator and return changes
 and validation evidence for review. This consolidated plan is the documentation
@@ -432,7 +459,9 @@ Review concrete query/handle, resolver-adapter and ownership-result signatures
 for the six wrappers before implementing the shared boundary. Separate resolution
 from baked-document ownership, introduce `CBakedSchema`/`CLiveSchema`, adapt
 generator name/occurrence access, and add schema promotion/demotion. Include
-borrowed-string lifetimes, schema reference protection and stable meanings of
+borrowed-string lifetimes, schema reference protection through a count and
+intrusive client-binding list, safe binding invalidation on schema destruction,
+and stable meanings of
 existing handles after successful unchanged re-resolution.
 
 Completion evidence: equivalent live/baked schema queries and resolution,

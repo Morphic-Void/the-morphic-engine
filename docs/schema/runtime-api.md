@@ -7,6 +7,12 @@ tracks delivery. The six wrappers, live resolution, instance/bulk operations and
 explicit layouts are not implemented by this API. Its lifetime, handle and
 default rules below describe current code.
 
+The first stage 2 package adds an internal `schema::detail::CDocumentRead`
+adapter over live and baked data-model queries, plus distinct schema, instance
+and bulk role-handle types. Retained baked adapters copy the non-owning view;
+live adapters borrow the live document. The resolver and generator below still
+use their baked-only API until the next integration package.
+
 `core/schema/resolved_schema.hpp` provides `schema::CResolvedSchema` and
 `schema::generate_cpp`. Resolution consumes a validated `CBakedDocument`;
 it does not parse text, construct instances, or modify the backing document.

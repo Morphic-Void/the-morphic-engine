@@ -9,6 +9,7 @@
 
 #include "tests/test_suites/Schema_test_suite.hpp"
 #include "schema/resolved_schema.hpp"
+#include "schema/document_query.hpp"
 #include "memory/memory_policies.hpp"
 #include "data_model/document_parser.hpp"
 #include "data_model/document_translation.hpp"
@@ -963,6 +964,110 @@ static void test_allocations(TTestContext& ctx)
     }
     TEST_EXPECT(ctx, success);
 }
+
+static void test_document_read_boundary(TTestContext& ctx)
+{
+    static_assert(!std::is_same_v<CSchemaHandle, CInstanceHandle>);
+    static_assert(!std::is_same_v<CSchemaHandle, CBulkHandle>);
+    static_assert(!std::is_same_v<CInstanceHandle, CBulkHandle>);
+    TEST_EXPECT(ctx, !CSchemaHandle{}.is_valid() && !CInstanceHandle{}.is_valid() && !CBulkHandle{}.is_valid());
+    TEST_EXPECT(ctx, !detail::SOccurrence{}.is_valid());
+
+    const std::string source = R"({"object":{"null":null,"boolean":true,"signed":-4,"unsigned":4294967295,"float":1.5,"string":"value","array":[3,false]}})";
+    CLiveDocument live;
+    const CDocumentReport report = document_parser::parse(
+        CByteConstView{ reinterpret_cast<const std::uint8_t*>(source.data()), source.size(), 1u }, live);
+    TEST_EXPECT(ctx, report.accepted());
+    const CNodeKey named_object = live.object_child(live.root(), CStringView{ "object" });
+    const CNodeKey named_string = live.object_child(named_object, CStringView{ "string" });
+    TEST_EXPECT(ctx, live.set_newline_escaping_suppressed(named_string, true));
+    CBakedDocumentBlock block;
+    TEST_EXPECT(ctx, document_translation::bake(live, block));
+    const detail::CDocumentRead live_query{ live };
+    detail::CDocumentRead baked_query;
+    {
+        const CBakedDocument short_lived_view = block.document();
+        baked_query = detail::CDocumentRead{ short_lived_view };
+    }
+    TEST_EXPECT(ctx, live_query.is_ready() && baked_query.is_ready());
+    const detail::SOccurrence live_root = live_query.root();
+    const detail::SOccurrence baked_root = baked_query.root();
+    TEST_EXPECT(ctx, live_root.is_live() && baked_root.is_baked());
+    detail::SOccurrence ambiguous = live_root;
+    ambiguous.baked = baked_root.baked;
+    TEST_EXPECT(ctx, !ambiguous.is_valid() && !live_query.contains(ambiguous) && !baked_query.contains(ambiguous));
+    TEST_EXPECT(ctx, live_query.value_kind(live_root) == EDocumentValueKind::object);
+    TEST_EXPECT(ctx, baked_query.value_kind(baked_root) == EDocumentValueKind::object);
+    TEST_EXPECT(ctx, !live_query.contains(baked_root) && !baked_query.contains(live_root));
+    TEST_EXPECT(ctx, live_query.value_kind(baked_root) == EDocumentValueKind::invalid);
+    TEST_EXPECT(ctx, baked_query.value_kind(live_root) == EDocumentValueKind::invalid);
+
+    const detail::SOccurrence live_object = live_query.object_child(live_root, CStringView{ "object" });
+    const detail::SOccurrence baked_object = baked_query.object_child(baked_root, CStringView{ "object" });
+    TEST_EXPECT(ctx, live_query.contains(live_object) && baked_query.contains(baked_object));
+    TEST_EXPECT(ctx, live_query.name(live_object) == baked_query.name(baked_object));
+    TEST_EXPECT(ctx, live_query.property_name(live_query.name_id(live_object)) ==
+        baked_query.property_name(baked_query.name_id(baked_object)));
+    TEST_EXPECT(ctx, live_query.is_object_entry(live_object) && baked_query.is_object_entry(baked_object));
+    TEST_EXPECT(ctx, live_query.parent(live_object).live == live_root.live);
+    TEST_EXPECT(ctx, baked_query.parent(baked_object).baked == baked_root.baked);
+    TEST_EXPECT(ctx, live_query.child_count(live_object) == baked_query.child_count(baked_object));
+
+    detail::SOccurrence live_child = live_query.first_child(live_object);
+    detail::SOccurrence baked_child = baked_query.first_child(baked_object);
+    for (std::uint32_t ordinal = 0u; ordinal < live_query.child_count(live_object); ++ordinal)
+    {
+        TEST_EXPECT(ctx, live_child.is_live() && baked_child.is_baked());
+        TEST_EXPECT(ctx, live_query.name(live_child) == baked_query.name(baked_child));
+        TEST_EXPECT(ctx, live_query.value_kind(live_child) == baked_query.value_kind(baked_child));
+        const CStringView name = live_query.name(live_child);
+        TEST_EXPECT(ctx, live_query.object_child(live_object, name).live == live_child.live);
+        TEST_EXPECT(ctx, baked_query.object_child(baked_object, name).baked == baked_child.baked);
+        live_child = live_query.next_sibling(live_child);
+        baked_child = baked_query.next_sibling(baked_child);
+    }
+    TEST_EXPECT(ctx, !live_child.is_valid() && !baked_child.is_valid());
+
+    const auto live_value = [&](const char* const name) { return live_query.object_child(live_object, CStringView{ name }); };
+    const auto baked_value = [&](const char* const name) { return baked_query.object_child(baked_object, CStringView{ name }); };
+    bool boolean = false;
+    TEST_EXPECT(ctx, live_query.boolean_value(live_value("boolean"), boolean) && boolean);
+    boolean = false;
+    TEST_EXPECT(ctx, baked_query.boolean_value(baked_value("boolean"), boolean) && boolean);
+    std::int64_t signed_value = 0;
+    TEST_EXPECT(ctx, live_query.signed_integer_value(live_value("signed"), signed_value) && signed_value == -4);
+    TEST_EXPECT(ctx, baked_query.signed_integer_value(baked_value("signed"), signed_value) && signed_value == -4);
+    std::uint64_t unsigned_value = 0u;
+    TEST_EXPECT(ctx, live_query.unsigned_integer_value(live_value("unsigned"), unsigned_value) && unsigned_value == 4294967295u);
+    TEST_EXPECT(ctx, baked_query.unsigned_integer_value(baked_value("unsigned"), unsigned_value) && unsigned_value == 4294967295u);
+    CIntegerMetadata live_metadata, baked_metadata;
+    TEST_EXPECT(ctx, live_query.integer_metadata(live_value("unsigned"), live_metadata));
+    TEST_EXPECT(ctx, baked_query.integer_metadata(baked_value("unsigned"), baked_metadata));
+    TEST_EXPECT(ctx, live_metadata == baked_metadata);
+    double floating = 0.0;
+    TEST_EXPECT(ctx, live_query.floating_point_value(live_value("float"), floating) && floating == 1.5);
+    TEST_EXPECT(ctx, baked_query.floating_point_value(baked_value("float"), floating) && floating == 1.5);
+    TEST_EXPECT(ctx, live_query.string_value(live_value("string")) == baked_query.string_value(baked_value("string")));
+    TEST_EXPECT(ctx, live_query.suppresses_newline_escaping(live_value("string")) &&
+        baked_query.suppresses_newline_escaping(baked_value("string")));
+    TEST_EXPECT(ctx, !live_query.suppresses_newline_escaping(live_value("signed")) &&
+        !baked_query.suppresses_newline_escaping(baked_value("signed")));
+    const detail::SOccurrence live_array = live_value("array");
+    const detail::SOccurrence baked_array = baked_value("array");
+    TEST_EXPECT(ctx, live_query.child_count(live_array) == 2u && baked_query.child_count(baked_array) == 2u);
+    TEST_EXPECT(ctx, live_query.value_kind(live_query.array_at(live_array, 0u)) == EDocumentValueKind::integer);
+    TEST_EXPECT(ctx, baked_query.value_kind(baked_query.array_at(baked_array, 1u)) == EDocumentValueKind::boolean);
+    TEST_EXPECT(ctx, !live_query.array_at(live_array, 2u).is_valid() && !baked_query.array_at(baked_array, 2u).is_valid());
+
+    boolean = true;
+    TEST_EXPECT(ctx, !live_query.boolean_value(baked_value("boolean"), boolean) && boolean);
+    TEST_EXPECT(ctx, !baked_query.boolean_value(live_value("boolean"), boolean) && boolean);
+    TEST_EXPECT(ctx, !detail::CDocumentRead{}.root().is_valid());
+    const CNodeKey empty = live.create_empty(CStringView{ "pending" });
+    TEST_EXPECT(ctx, live.append_child(live_object.live, empty).succeeded());
+    TEST_EXPECT(ctx, live_query.value_kind(detail::SOccurrence{ empty }) == EDocumentValueKind::empty);
+    TEST_EXPECT(ctx, !baked_query.object_child(baked_object, CStringView{ "pending" }).is_valid());
+}
 }   // namespace schema_tests
 
 int run_schema_tests()
@@ -976,6 +1081,7 @@ int run_schema_tests()
     schema_tests::test_representation(ctx);
     schema_tests::test_local_type_references(ctx);
     schema_tests::test_allocations(ctx);
+    schema_tests::test_document_read_boundary(ctx);
     const schema::SRecordSizes sizes = schema::CResolvedSchema::record_sizes();
     std::cout << "Schema record bytes: type=" << sizes.type << " member=" << sizes.member << " label=" << sizes.label
               << " field=" << sizes.field << " default=" << sizes.default_value << " mapping=" << sizes.mapping << '\n';
