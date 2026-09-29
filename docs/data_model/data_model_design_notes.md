@@ -307,11 +307,18 @@ passive physical-layout record rather than acquiring view-policy methods.
 Baking and promotion are peers in `document_translation`, not member functions
 of either representation. The live document therefore need not include or
 understand the baked representation, and the baked document need not construct
-or understand live storage. Baking consumes only public live observations;
-promotion consumes only the checked baked query surface and public live
-construction. Narrow friendship exists only to publish a completed owning
-baked block; promotion publishes its successfully staged live document through
-the ordinary move-assignment surface.
+or understand live storage. Baking uses public live observations for structure
+and payload, with narrow friendship for value flags and selected-root-member
+analysis. Promotion uses the checked baked query surface, narrow record access
+for flags, and public live construction. Both publish only completed output;
+promotion uses ordinary live-document move assignment.
+
+`bake_root_member` and `promote_root_member` copy an object root together with
+at most one named direct member and its subtree. If that member is absent, the
+result has an empty object root. These helpers retain only strings referenced
+by the copied values. The existing whole-document functions keep their full
+copy behavior. All four translations replace their destination on success and
+leave it unchanged on failure.
 
 ## Writer and parser baseline
 

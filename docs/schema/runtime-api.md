@@ -4,8 +4,8 @@ This page describes the implemented resolver and generator introduced in
 `5313c85` and extended with live/baked document queries. The [design](design.md)
 defines the target system;
 the [implementation contract](implementation-contract.md#staged-implementation-plan)
-tracks delivery. Schema wrappers are implemented; instance/bulk wrappers,
-promotion/demotion, and explicit layouts remain later work. Its lifetime, handle
+tracks delivery. Schema wrappers and their promotion/demotion are implemented;
+instance/bulk wrappers and explicit layouts remain later work. Its lifetime, handle
 and default rules below describe current code.
 
 `schema::CSchemaDocumentQuery` exposes read-only tree, name and scalar queries
@@ -34,7 +34,24 @@ allocation failure leaves the old one intact. `try_take_from()` moves an
 unreferenced wrapper into an empty destination and preserves a successful
 resolution; live transfer repairs the resolver's pointer to the moved document.
 Ordinary wrapper moves are disabled so referenced moves can fail explicitly.
-Promotion and demotion are not part of this package.
+
+`CBakedSchema::promote()` creates a separate live schema from the source's
+`types` section, resolving the new copy before publication. The baked source may
+be unresolved; its document and client bindings are preserved. Promotion requires
+an empty destination; failure leaves it unchanged. A resolver failure reports
+its reason and stage,
+but clears occurrence handles and ranges because its temporary live document is
+discarded. Translation failure reports `translation_failed`; invalid source or
+occupied destination reports `invalid_input`.
+
+`CLiveSchema::demote()` creates a separately owned `CBakedDocumentBlock` and an
+unresolved `CBakedSchema` view over it. The source need only have a ready document,
+so an incomplete editable schema can be saved without resolving it. Both outputs
+must be empty. Keep the block's backing allocation alive at a stable address
+while the baked wrapper or its clients use it; the owner object can move or be
+transferred. Both conversions retain only the `types` root member;
+`instances` and `data` in a combined source are untouched and are absent from
+the new document. Neither conversion carries client bindings into the result.
 
 `CLiveSchema::edit()` returns a borrowed editor for the current owner. It can
 append typed values, rename or erase descendants, change newline escaping, and

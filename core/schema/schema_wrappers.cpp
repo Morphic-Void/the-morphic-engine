@@ -14,6 +14,7 @@
 #include <limits>
 #include <utility>
 
+#include "data_model/document_translation.hpp"
 #include "debug/macros.hpp"
 
 namespace schema
@@ -237,6 +238,49 @@ bool CBakedSchema::clear() noexcept
     return true;
 }
 
+bool CBakedSchema::promote(CLiveSchema& destination, SDiagnostic& diagnostic) const noexcept
+{
+    diagnostic = {};
+    if (!document_ready() || !destination.document_empty() || (destination.reference_count() != 0u))
+    {
+        diagnostic.reason = EReason::invalid_input;
+        return false;
+    }
+
+    CLiveDocument document;
+    if (!document_translation::promote_root_member(m_document, CStringView{ "types" }, document))
+    {
+        diagnostic.reason = EReason::translation_failed;
+        return false;
+    }
+
+    CLiveSchema staged;
+    if (!staged.try_adopt(std::move(document)))
+    {
+        diagnostic.reason = EReason::translation_failed;
+        return false;
+    }
+    if (!staged.resolve(diagnostic))
+    {
+        diagnostic.occurrence = {};
+        diagnostic.enclosing_type = {};
+        diagnostic.enclosing_member = {};
+        diagnostic.related = {};
+        diagnostic.ranges_available = false;
+        diagnostic.range_begin = 0u;
+        diagnostic.range_end = 0u;
+        diagnostic.related_begin = 0u;
+        diagnostic.related_end = 0u;
+        return false;
+    }
+    if (!destination.try_take_from(std::move(staged)))
+    {
+        diagnostic.reason = EReason::invalid_input;
+        return false;
+    }
+    return true;
+}
+
 CSchemaDocumentQuery CBakedSchema::document_query() const noexcept
 {
     return CSchemaDocumentQuery{ m_document };
@@ -368,6 +412,31 @@ bool CLiveSchema::clear() noexcept
     m_resolution.clear();
     m_document.deallocate();
     m_bindings.query = {};
+    return true;
+}
+
+bool CLiveSchema::demote(CBakedDocumentBlock& destination_block, CBakedSchema& destination_schema) const noexcept
+{
+    if (!document_ready() ||
+        (destination_block.memory_attribution().source_state != memory::EMemorySourceState::empty) ||
+        destination_schema.document_ready() || destination_schema.resolved_ready() ||
+        (destination_schema.reference_count() != 0u))
+    {
+        return false;
+    }
+
+    CBakedDocumentBlock staged_block;
+    if (!document_translation::bake_root_member(m_document, CStringView{ "types" }, staged_block))
+    {
+        return false;
+    }
+    CBakedSchema staged_schema;
+    if (!staged_schema.set_document(staged_block.document()) ||
+        !destination_schema.try_take_from(std::move(staged_schema)))
+    {
+        return false;
+    }
+    destination_block = std::move(staged_block);
     return true;
 }
 

@@ -112,6 +112,16 @@ bool CLiveDocument::visit_subtree(const LiveNodeSlot subtree_root, TVisitor&& vi
 
 bool CLiveDocument::analyse(SLiveDocumentAnalysis& result, SLiveDocumentStringAnalysis* const strings) const noexcept
 {
+    return analyse_common(CNodeKey{}, false, result, strings);
+}
+
+bool CLiveDocument::analyse_root_member(const CNodeKey member, SLiveDocumentAnalysis& result, SLiveDocumentStringAnalysis& strings) const noexcept
+{
+    return analyse_common(member, true, result, &strings);
+}
+
+bool CLiveDocument::analyse_common(const CNodeKey member, const bool selected, SLiveDocumentAnalysis& result, SLiveDocumentStringAnalysis* const strings) const noexcept
+{
     result = SLiveDocumentAnalysis{};
     if (strings != nullptr)
     {
@@ -144,8 +154,7 @@ bool CLiveDocument::analyse(SLiveDocumentAnalysis& result, SLiveDocumentStringAn
     }
 
     SLiveDocumentAnalysis measured;
-    const bool success = visit_subtree(node_slot(m_root),
-        [&measured, strings](const LiveNodeSlot, const CLiveNode& value, const CLiveNode*) noexcept
+    const auto measure = [&measured, strings](const LiveNodeSlot, const CLiveNode& value, const CLiveNode*) noexcept
         {
             ++measured.value_count;
             if (value.value_type() == ELiveValueType::empty)
@@ -173,7 +182,21 @@ bool CLiveDocument::analyse(SLiveDocumentAnalysis& result, SLiveDocumentStringAn
                 }
             }
             return true;
-        });
+        };
+    bool success = false;
+    if (selected)
+    {
+        const CLiveNode* const root_value = value_node(m_root);
+        success = (root_value != nullptr) && measure(node_slot(m_root), *root_value, nullptr);
+        if (success && member.is_valid())
+        {
+            success = visit_subtree(node_slot(member), measure);
+        }
+    }
+    else
+    {
+        success = visit_subtree(node_slot(m_root), measure);
+    }
     if (!success)
     {
         return false;

@@ -200,7 +200,9 @@ partially constructed live result as usable; temporary destination resources
 need cleanup without consuming the source.
 
 The live document acquires all required strings during construction. Schema
-promotion may recreate the resolved schema against that live document. The
+promotion recreates the resolved schema against that live document and succeeds
+only after resolution succeeds. Its baked source need not already be resolved;
+an unresolved but valid schema can produce a resolved live result. The
 source resolution remains available to its existing consumers. The new result
 must use the live document's strings and occurrences and must not depend on the
 old baked backing. Source handles remain scoped to the source resolution; they
@@ -222,6 +224,15 @@ a schema does not resolve its new baked wrapper: the caller may only want to sav
 the block. Host transfer must leave the borrowed view backed by storage for its
 required lifetime. Callers dispose of either version explicitly when it is
 no longer required, after accounting for its remaining users.
+
+Schema promotion and demotion copy only the `types` section into an independent
+document with its own root object. Instance and bulk sections of a combined
+source are not included in that schema result; the combined source remains
+unchanged. Demotion does not require the live schema to be resolved, but its
+schema document content must be representable in the baked data model. Conversion
+requires empty destinations and preserves source and destinations on failure;
+it does not publish a partly constructed result. Diagnostics from failed
+promotion must not retain handles into a destroyed temporary live document.
 
 Instance and bulk promotion retain different document content:
 

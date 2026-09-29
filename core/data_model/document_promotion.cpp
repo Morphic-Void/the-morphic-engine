@@ -21,6 +21,7 @@ class CLiveDocumentPromoter
 {
 public:
     explicit CLiveDocumentPromoter(const CBakedDocument& source) noexcept;
+    CLiveDocumentPromoter(const CBakedDocument& source, const CStringView& member_name) noexcept;
 
     [[nodiscard]] bool build() noexcept;
     [[nodiscard]] CLiveDocument take_document() noexcept;
@@ -37,12 +38,20 @@ private:
     [[nodiscard]] CNodeKey create_value(const CBakedValueIndex source) noexcept;
 
     const CBakedDocument& m_source;
+    CStringView m_member_name;
+    CBakedValueIndex m_selected_member;
+    bool m_select_root_member{ false };
     CLiveDocument m_destination;
     TPodVector<SPromotedValue> m_values;
     std::uint32_t m_live_node_count{ 0u };
 };
 
 CLiveDocumentPromoter::CLiveDocumentPromoter(const CBakedDocument& source) noexcept : m_source(source)
+{
+}
+
+CLiveDocumentPromoter::CLiveDocumentPromoter(const CBakedDocument& source, const CStringView& member_name) noexcept :
+    m_source(source), m_member_name(member_name), m_select_root_member(true)
 {
 }
 
@@ -59,7 +68,7 @@ bool CLiveDocumentPromoter::build() noexcept
     {
         return false;
     }
-    for (std::uint32_t index = 1u; index < m_source.value_count(); ++index)
+    for (std::uint32_t index = 1u; index < m_values.size(); ++index)
     {
         SPromotedValue& value = m_values[index];
         value.destination = create_value(value.source);
@@ -85,14 +94,30 @@ CLiveDocument CLiveDocumentPromoter::take_document() noexcept
 
 bool CLiveDocumentPromoter::prepare_values() noexcept
 {
-    if (!m_values.resize(m_source.value_count()))
+    if (m_select_root_member)
+    {
+        if (m_source.value_type(m_source.root()) != EBakedValueType::object)
+        {
+            return false;
+        }
+        m_selected_member = m_source.object_child(m_source.root(), m_member_name);
+        if (!m_values.push_back(SPromotedValue{
+            m_source.root(), CNodeKey{}, std::numeric_limits<std::uint32_t>::max() }))
+        {
+            return false;
+        }
+    }
+    else if (!m_values.resize(m_source.value_count()))
     {
         return false;
     }
 
-    m_values[0u] = SPromotedValue{ m_source.root(), CNodeKey{}, std::numeric_limits<std::uint32_t>::max() };
+    if (!m_select_root_member)
+    {
+        m_values[0u] = SPromotedValue{ m_source.root(), CNodeKey{}, std::numeric_limits<std::uint32_t>::max() };
+    }
     std::uint32_t next_value = 1u;
-    std::uint64_t live_node_count = m_source.value_count();
+    std::uint64_t live_node_count = m_select_root_member ? 1u : m_source.value_count();
     for (std::uint32_t index = 0u; index < next_value; ++index)
     {
         const EBakedValueType type = m_source.value_type(m_values[index].source);
@@ -100,16 +125,33 @@ bool CLiveDocumentPromoter::prepare_values() noexcept
         {
             ++live_node_count;
         }
-        for (CBakedValueIndex child = m_source.first_child(m_values[index].source); child.is_valid(); child = m_source.next_sibling(child))
+        CBakedValueIndex child = (m_select_root_member && (index == 0u)) ?
+            m_selected_member : m_source.first_child(m_values[index].source);
+        for (; child.is_valid(); child = (m_select_root_member && (index == 0u)) ?
+            CBakedValueIndex{} : m_source.next_sibling(child))
         {
             if (next_value >= m_source.value_count())
             {
                 return false;
             }
-            m_values[next_value++] = SPromotedValue{ child, CNodeKey{}, index };
+            const SPromotedValue promoted{ child, CNodeKey{}, index };
+            if (m_select_root_member)
+            {
+                if (!m_values.push_back(promoted))
+                {
+                    return false;
+                }
+                ++live_node_count;
+            }
+            else
+            {
+                m_values[next_value] = promoted;
+            }
+            ++next_value;
         }
     }
-    if ((next_value != m_source.value_count()) || (live_node_count > std::numeric_limits<std::uint32_t>::max()))
+    if ((!m_select_root_member && (next_value != m_source.value_count())) ||
+        (live_node_count > std::numeric_limits<std::uint32_t>::max()))
     {
         return false;
     }
@@ -177,6 +219,18 @@ CNodeKey CLiveDocumentPromoter::create_value(const CBakedValueIndex source) noex
 bool document_translation::promote(const CBakedDocument& source, CLiveDocument& destination) noexcept
 {
     CLiveDocumentPromoter promoter{ source };
+    if (!promoter.build())
+    {
+        return false;
+    }
+
+    destination = promoter.take_document();
+    return true;
+}
+
+bool document_translation::promote_root_member(const CBakedDocument& source, const CStringView& member_name, CLiveDocument& destination) noexcept
+{
+    CLiveDocumentPromoter promoter{ source, member_name };
     if (!promoter.build())
     {
         return false;

@@ -232,6 +232,8 @@ private:
     //  Iterative observation and checked audit share const preorder navigation.
     template<typename TVisitor>
     [[nodiscard]] bool visit_subtree(const LiveNodeSlot subtree_root, TVisitor&& visitor) const noexcept;
+    [[nodiscard]] bool analyse_root_member(const CNodeKey member, SLiveDocumentAnalysis& result, SLiveDocumentStringAnalysis& strings) const noexcept;
+    [[nodiscard]] bool analyse_common(const CNodeKey member, const bool selected, SLiveDocumentAnalysis& result, SLiveDocumentStringAnalysis* const strings) const noexcept;
     [[nodiscard]] bool subtree_next(const LiveNodeSlot subtree_root, LiveNodeSlot current, LiveNodeSlot& next) const noexcept;
     [[nodiscard]] bool audit_subtree_checked(const LiveNodeSlot subtree_root, std::uint64_t& records) const noexcept;
 

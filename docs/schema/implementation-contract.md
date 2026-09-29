@@ -128,8 +128,9 @@ Adoption/transfer require empty destinations and preserve both inputs on failure
 Promotion/demotion form the following package. No stage 3 semantics or
 instance/bulk wrappers are dispatched.
 
-The wrapper package passed coordinator and user review on 29 September;
-the user authorised its separate commit after adding only leading blank lines
+The wrapper package passed coordinator and user review on 29 September and was
+committed as `0289c6b` (Add schema wrappers with guarded editing and client bindings).
+The user authorised that separate commit after adding only leading blank lines
 to the two new wrapper files. Those formatting edits were preserved without
 repeating the passing validation. The new
 `core/schema/schema_wrappers.hpp/.cpp` provides the two schema wrappers,
@@ -158,6 +159,31 @@ failure returns. Final indentation/comment cleanup did not require a repeated
 Debug run. Text-policy and diff checks passed; Visual Studio item/filter encoding,
 CRLF and existing missing-final-newline form were preserved. No generated-layout
 matrix was repeated because layout/generator semantics did not change.
+
+The user then authorised continuation and confirmed that schema conversion copies
+only `types` and always resolves the promoted live result before publication.
+The same implementation chat completed the remaining stage 2 package: schema
+promotion/demotion and narrow root-member selection in the existing data-model
+translators. Whole-document
+translation behavior is preserved. Outputs are independent copies; source
+bindings survive, occupied outputs are rejected unchanged, and demotion produces
+a separate owned block and unresolved baked wrapper. Stage 3 semantics and
+instance/bulk conversions are not dispatched.
+
+The conversion package passed coordinator and user review on 29 September, and
+the user authorised its separate commit. The user's whitespace edits and rename from
+`analyse_impl` to `analyse_common` were preserved; the coordinator checked the
+declaration, definition and call sites without repeating the passing test matrix.
+Review checked staged publication, independent
+string ownership, safe failure diagnostics and preservation of source bindings.
+The added combined-live demotion test destroys the source before resolving and
+reading the output's type name and default. Allocation sweeps cover translation
+and resolution failure without leaks or partially published destinations.
+Debug x64 and Release x64 solution builds and ordinary `-t1` suites passed:
+`stage2-schema-conversion-debug-reviewed` (PID 80792) and
+`stage2-schema-conversion-release-reviewed` (PID 85424), each with 2,827 schema
+checks and zero failures throughout. Layout/generator semantics are unchanged,
+so the generated-layout matrix was not repeated.
 
 The 29 September user review rejects mandatory no-return panic as the standard
 schema lifetime response. The agreed replacement is a schema reference count plus
@@ -522,9 +548,9 @@ CRLF and optional missing final newline. Other text uses LF and a final newline.
 
 Stage 2's read-adapter and resolver/generator packages are committed as `0addf71`
 and `82d4974`. The schema-wrapper package, including guarded editing and intrusive
-client bindings, has passed coordinator review, validation and user review, with
-its separate commit authorised. Schema promotion/demotion remains to complete
-stage 2. Stages 3-8 are planned.
+client bindings, is committed as `0289c6b`. Schema promotion/demotion completes
+stage 2's implementation and has passed coordinator review, validation and user
+review, with its separate commit authorised. Stages 3-8 are planned.
 Stage 1 is complete and committed independently as
 `d92dddd`; its code, tests and data-model documentation exclude schema planning.
 Implementing chats receive bounded briefs from the coordinator and return changes

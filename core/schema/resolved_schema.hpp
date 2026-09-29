@@ -130,7 +130,8 @@ enum class EReason : std::uint8_t
     invalid_layout,
     unsupported_feature,
     storage_limit,
-    allocation_failed
+    allocation_failed,
+    translation_failed
 };
 
 union SScalarValue

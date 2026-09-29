@@ -22,6 +22,7 @@ class CBakedDocumentBaker
 {
 public:
     explicit CBakedDocumentBaker(const CLiveDocument& source) noexcept;
+    CBakedDocumentBaker(const CLiveDocument& source, const CStringView& member_name) noexcept;
 
     [[nodiscard]] bool build() noexcept;
     void publish(CBakedDocumentBlock& destination) noexcept;
@@ -61,6 +62,9 @@ private:
     [[nodiscard]] bool validate_output() noexcept;
 
     const CLiveDocument& m_source;
+    CStringView m_member_name;
+    CNodeKey m_selected_member;
+    bool m_select_root_member{ false };
     SLiveDocumentAnalysis m_analysis;
     SLiveDocumentStringAnalysis m_string_analysis;
     SStringDomain m_property_names;
@@ -73,6 +77,13 @@ private:
 };
 
 CBakedDocumentBaker::CBakedDocumentBaker(const CLiveDocument& source) noexcept : m_source(source),
+    m_property_names{ EStringDomain::property_names, &m_string_analysis.property_name_references },
+    m_string_values{ EStringDomain::string_values, &m_string_analysis.string_value_references }
+{
+}
+
+CBakedDocumentBaker::CBakedDocumentBaker(const CLiveDocument& source, const CStringView& member_name) noexcept :
+    m_source(source), m_member_name(member_name), m_select_root_member(true),
     m_property_names{ EStringDomain::property_names, &m_string_analysis.property_name_references },
     m_string_values{ EStringDomain::string_values, &m_string_analysis.string_value_references }
 {
@@ -92,7 +103,23 @@ bool CBakedDocumentBaker::build() noexcept
 
 bool CBakedDocumentBaker::prepare() noexcept
 {
-    if (!m_source.check_integrity() || !m_source.analyse(m_analysis, &m_string_analysis))
+    if (!m_source.check_integrity())
+    {
+        return false;
+    }
+    if (m_select_root_member)
+    {
+        if (m_source.value_type(m_source.root()) != ELiveValueType::object)
+        {
+            return false;
+        }
+        m_selected_member = m_source.object_child(m_source.root(), m_member_name);
+        if (!m_source.analyse_root_member(m_selected_member, m_analysis, m_string_analysis))
+        {
+            return false;
+        }
+    }
+    else if (!m_source.analyse(m_analysis, &m_string_analysis))
     {
         return false;
     }
@@ -232,8 +259,8 @@ bool CBakedDocumentBaker::emit_values() noexcept
         {
             return false;
         }
-
-        const std::uint32_t child_count = m_source.child_count(value);
+        const std::uint32_t child_count = (m_select_root_member && (index == 0u)) ?
+            (m_selected_member.is_valid() ? 1u : 0u) : m_source.child_count(value);
         if (child_count == 0u)
         {
             continue;
@@ -245,7 +272,7 @@ bool CBakedDocumentBaker::emit_values() noexcept
 
         record.first_child_index = next_value;
         record.child_count = child_count;
-        CNodeKey child = m_source.first_child(value);
+        CNodeKey child = (m_select_root_member && (index == 0u)) ? m_selected_member : m_source.first_child(value);
         for (std::uint32_t ordinal = 0u; ordinal < child_count; ++ordinal)
         {
             if (!child.is_valid())
@@ -386,6 +413,18 @@ void CBakedDocumentBaker::publish(CBakedDocumentBlock& destination) noexcept
 bool document_translation::bake(const CLiveDocument& source, CBakedDocumentBlock& destination) noexcept
 {
     CBakedDocumentBaker baker{ source };
+    if (!baker.build())
+    {
+        return false;
+    }
+
+    baker.publish(destination);
+    return true;
+}
+
+bool document_translation::bake_root_member(const CLiveDocument& source, const CStringView& member_name, CBakedDocumentBlock& destination) noexcept
+{
+    CBakedDocumentBaker baker{ source, member_name };
     if (!baker.build())
     {
         return false;

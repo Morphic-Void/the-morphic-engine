@@ -1631,6 +1631,242 @@ static void test_schema_wrapper_edit_allocations(TTestContext& ctx)
     }
     TEST_EXPECT(ctx, context.is_attribution_empty());
 }
+
+static bool baked_has_string(const CBakedDocument& document, const CStringView& sought) noexcept
+{
+    for (std::uint32_t rank = 1u; rank <= document.string_value_count(); ++rank)
+    {
+        if (document.string_value(document.string_value_id_at_rank(rank)) == sought)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+static void test_schema_root_member_translation(TTestContext& ctx)
+{
+    const std::string middle = R"({"instances":{"private":"instance-secret"},"types":{"number":4294967295,"text":"selected"},"data":{"private":"data-secret"}})";
+    const std::string last = R"({"data":{"private":"data-secret"},"instances":{"private":"instance-secret"},"types":{"number":4294967295,"text":"selected"}})";
+    for (const std::string& input : { middle, last })
+    {
+        CLiveDocument live;
+        TEST_EXPECT(ctx, parse_live(input, live));
+        const CNodeKey source_types = live.object_child(live.root(), CStringView{ "types" });
+        const CNodeKey source_number = live.object_child(source_types, CStringView{ "number" });
+        const CNodeKey source_text = live.object_child(source_types, CStringView{ "text" });
+        TEST_EXPECT(ctx, live.set_newline_escaping_suppressed(source_text, true));
+        CIntegerMetadata original_metadata;
+        TEST_EXPECT(ctx, live.integer_metadata(source_number, original_metadata));
+
+        CBakedDocumentBlock projected_block;
+        TEST_EXPECT(ctx, document_translation::bake_root_member(live, CStringView{ "types" }, projected_block));
+        const CBakedDocument projected = projected_block.document();
+        const CBakedValueIndex projected_root = projected.root();
+        const CBakedValueIndex projected_types = projected.object_child(projected_root, CStringView{ "types" });
+        const CBakedValueIndex projected_number = projected.object_child(projected_types, CStringView{ "number" });
+        const CBakedValueIndex projected_text = projected.object_child(projected_types, CStringView{ "text" });
+        CIntegerMetadata baked_metadata;
+        TEST_EXPECT(ctx, projected.check_integrity() && projected.value_count() == 4u &&
+            projected.child_count(projected_root) == 1u && projected_types.is_valid());
+        TEST_EXPECT(ctx, !projected.object_child(projected_root, CStringView{ "instances" }) &&
+            !projected.object_child(projected_root, CStringView{ "data" }));
+        TEST_EXPECT(ctx, !baked_has_string(projected, CStringView{ "instance-secret" }) &&
+            !baked_has_string(projected, CStringView{ "data-secret" }) &&
+            baked_has_string(projected, CStringView{ "selected" }));
+        TEST_EXPECT(ctx, projected.integer_metadata(projected_number, baked_metadata) &&
+            baked_metadata == original_metadata && projected.suppresses_newline_escaping(projected_text));
+        TEST_EXPECT(ctx, !projected.previous_sibling(projected_types) && !projected.next_sibling(projected_types));
+
+        CBakedDocumentBlock full_block;
+        TEST_EXPECT(ctx, document_translation::bake(live, full_block));
+        CLiveDocument projected_live;
+        TEST_EXPECT(ctx, document_translation::promote_root_member(
+            full_block.document(), CStringView{ "types" }, projected_live));
+        TEST_EXPECT(ctx, projected_live.check_integrity() && projected_live.child_count(projected_live.root()) == 1u);
+        const CNodeKey live_types = projected_live.object_child(projected_live.root(), CStringView{ "types" });
+        const CNodeKey live_number = projected_live.object_child(live_types, CStringView{ "number" });
+        const CNodeKey live_text = projected_live.object_child(live_types, CStringView{ "text" });
+        CIntegerMetadata live_metadata;
+        TEST_EXPECT(ctx, projected_live.integer_metadata(live_number, live_metadata) &&
+            live_metadata == original_metadata && projected_live.suppresses_newline_escaping(live_text));
+        TEST_EXPECT(ctx, !projected_live.object_child(projected_live.root(), CStringView{ "instances" }) &&
+            !projected_live.object_child(projected_live.root(), CStringView{ "data" }));
+    }
+
+    CLiveDocument missing;
+    TEST_EXPECT(ctx, parse_live(R"({"instances":{"value":null}})", missing));
+    const CNodeKey unrelated = missing.create_empty(CStringView{ "unfinished" });
+    TEST_EXPECT(ctx, missing.append_child(missing.root(), unrelated).succeeded());
+    CBakedDocumentBlock root_only;
+    TEST_EXPECT(ctx, document_translation::bake_root_member(missing, CStringView{ "types" }, root_only));
+    TEST_EXPECT(ctx, root_only.document().check_integrity() && root_only.document().value_count() == 1u &&
+        root_only.document().child_count(root_only.document().root()) == 0u);
+    CLiveDocument restored;
+    TEST_EXPECT(ctx, document_translation::promote_root_member(root_only.document(), CStringView{ "types" }, restored));
+    TEST_EXPECT(ctx, restored.check_integrity() && restored.child_count(restored.root()) == 0u);
+}
+
+static void test_schema_conversion(TTestContext& ctx)
+{
+    const std::string combined = R"({"instances":{"private":"instance-secret"},"types":{"structures":{"Test":{"members":[{"value":{"type":"u32","default":4294967295}}]}}},"data":{"private":"data-secret"}})";
+    SDiagnostic diagnostic;
+    CLiveSchema promoted;
+    {
+        CBakedDocumentBlock source_block;
+        TEST_EXPECT(ctx, bake(combined, source_block));
+        CBakedSchema source;
+        TEST_EXPECT(ctx, source.set_document(source_block.document()));
+        TEST_EXPECT(ctx, !source.resolved_ready() && source.promote(promoted, diagnostic));
+        TEST_EXPECT(ctx, promoted.document_ready() && promoted.resolved_ready() &&
+            !source.resolved_ready() && source.reference_count() == 0u && promoted.reference_count() == 0u);
+        TEST_EXPECT(ctx, promoted.document_query().child_count(promoted.document_query().root()) == 1u &&
+            !promoted.document_query().object_child(promoted.document_query().root(), CStringView{ "instances" }));
+        TEST_EXPECT(ctx, source.resolve(diagnostic));
+        CSchemaBinding source_client;
+        TEST_EXPECT(ctx, source_client.bind(source) && source.reference_count() == 1u);
+        CLiveSchema other;
+        TEST_EXPECT(ctx, source.promote(other, diagnostic) && other.resolved_ready() &&
+            source_client.is_usable() && source.reference_count() == 1u && other.reference_count() == 0u);
+    }
+    TEST_EXPECT(ctx, promoted.resolved_ready() &&
+        promoted.resolved()->find_type(CStringView{ "Test" }).is_valid());
+
+    CSchemaBinding live_client;
+    TEST_EXPECT(ctx, live_client.bind(promoted) && promoted.reference_count() == 1u);
+    CBakedDocumentBlock demoted_block;
+    CBakedSchema demoted;
+    TEST_EXPECT(ctx, promoted.demote(demoted_block, demoted));
+    TEST_EXPECT(ctx, demoted_block.is_ready() && demoted.document_ready() && !demoted.resolved_ready() &&
+        demoted.reference_count() == 0u && live_client.is_usable() && promoted.reference_count() == 1u);
+    TEST_EXPECT(ctx, demoted_block.document().child_count(demoted_block.document().root()) == 1u &&
+        !baked_has_string(demoted_block.document(), CStringView{ "instance-secret" }));
+    TEST_EXPECT(ctx, demoted.resolve(diagnostic) && demoted.resolved()->find_type(CStringView{ "Test" }).is_valid());
+
+    CBakedDocumentBlock combined_demoted_block;
+    CBakedSchema combined_demoted;
+    {
+        CLiveDocument parsed;
+        TEST_EXPECT(ctx, parse_live(combined, parsed));
+        CLiveSchema combined_live;
+        TEST_EXPECT(ctx, combined_live.try_adopt(std::move(parsed)));
+        TEST_EXPECT(ctx, combined_live.demote(combined_demoted_block, combined_demoted));
+    }
+    TEST_EXPECT(ctx, combined_demoted_block.document().child_count(combined_demoted_block.document().root()) == 1u &&
+        !baked_has_string(combined_demoted_block.document(), CStringView{ "instance-secret" }) &&
+        !baked_has_string(combined_demoted_block.document(), CStringView{ "data-secret" }));
+    TEST_EXPECT(ctx, combined_demoted.resolve(diagnostic) &&
+        combined_demoted.resolved()->find_type(CStringView{ "Test" }).is_valid());
+    const SDefault copied_default = first_default(ctx, *combined_demoted.resolved(), "Test", "value");
+    TEST_EXPECT(ctx, copied_default.scalar.value.unsigned_value == 4294967295u);
+
+    CLiveSchema occupied_live;
+    TEST_EXPECT(ctx, occupied_live.initialise());
+    const CSchemaHandle occupied_root = occupied_live.document_query().root();
+    TEST_EXPECT(ctx, !demoted.promote(occupied_live, diagnostic) && diagnostic.reason == EReason::invalid_input &&
+        occupied_live.document_query().root() == occupied_root && !occupied_live.resolved_ready());
+    CBakedDocumentBlock occupied_block;
+    TEST_EXPECT(ctx, bake(one("\"u8\"", "1"), occupied_block));
+    const std::uint8_t* const occupied_bytes = occupied_block.bytes().data();
+    CBakedSchema empty_output;
+    TEST_EXPECT(ctx, !promoted.demote(occupied_block, empty_output) &&
+        occupied_block.bytes().data() == occupied_bytes && !empty_output.document_ready());
+    CBakedSchema occupied_schema;
+    TEST_EXPECT(ctx, occupied_schema.set_document(occupied_block.document()));
+    CBakedDocumentBlock empty_block;
+    TEST_EXPECT(ctx, !promoted.demote(empty_block, occupied_schema) && !empty_block.is_ready() &&
+        occupied_schema.document_ready());
+
+    CBakedDocumentBlock malformed_block;
+    TEST_EXPECT(ctx, bake(one("\"MissingType\"", ""), malformed_block));
+    CBakedSchema malformed;
+    TEST_EXPECT(ctx, malformed.set_document(malformed_block.document()));
+    CLiveSchema rejected;
+    TEST_EXPECT(ctx, !malformed.promote(rejected, diagnostic) && diagnostic.reason == EReason::unknown_type &&
+        diagnostic.stage != EStage::none && !diagnostic.occurrence && !diagnostic.enclosing_type &&
+        !diagnostic.enclosing_member && !diagnostic.related && !diagnostic.ranges_available &&
+        !rejected.document_ready() && malformed.document_ready());
+
+    CLiveSchema unfinished;
+    TEST_EXPECT(ctx, unfinished.initialise());
+    CBakedDocumentBlock unfinished_block;
+    CBakedSchema unfinished_baked;
+    TEST_EXPECT(ctx, unfinished.demote(unfinished_block, unfinished_baked) &&
+        unfinished_block.document().value_count() == 1u && !unfinished_baked.resolved_ready());
+    CLiveSchema failed_repromotion;
+    TEST_EXPECT(ctx, !unfinished_baked.promote(failed_repromotion, diagnostic) &&
+        diagnostic.reason != EReason::none && !failed_repromotion.document_ready());
+}
+
+static void test_schema_conversion_allocations(TTestContext& ctx)
+{
+    const std::string input = one("\"u8\"", "1");
+    bool translation_failure = false, resolution_failure = false, promotion_success = false;
+    for (std::size_t offset = 0u; offset < 128u && !promotion_success; ++offset)
+    {
+        SFailingAllocator failing{ 0u, SIZE_MAX };
+        memory::CMemoryAllocator allocator{ &failing, &allocate_with_failure, &tests::deallocate_test_memory };
+        memory::CMemoryContext context{ allocator };
+        {
+            tests::TMemoryContextScope scope{ &context };
+            CBakedDocumentBlock block;
+            TEST_EXPECT(ctx, bake(input, block));
+            CBakedSchema source;
+            CLiveSchema destination;
+            TEST_EXPECT(ctx, source.set_document(block.document()));
+            failing.fail_on = failing.calls + offset;
+            SDiagnostic diagnostic;
+            promotion_success = source.promote(destination, diagnostic);
+            if (promotion_success)
+            {
+                TEST_EXPECT(ctx, destination.resolved_ready() && diagnostic.reason == EReason::none);
+            }
+            else
+            {
+                translation_failure |= diagnostic.reason == EReason::translation_failed;
+                resolution_failure |= diagnostic.reason == EReason::allocation_failed;
+                TEST_EXPECT(ctx, (diagnostic.reason == EReason::translation_failed ||
+                    diagnostic.reason == EReason::allocation_failed) && !destination.document_ready() &&
+                    source.document_ready() && !diagnostic.occurrence && !diagnostic.enclosing_type &&
+                    !diagnostic.enclosing_member && !diagnostic.related && !diagnostic.ranges_available);
+            }
+        }
+        TEST_EXPECT(ctx, context.is_attribution_empty());
+    }
+    TEST_EXPECT(ctx, translation_failure && resolution_failure && promotion_success);
+
+    bool demotion_failure = false, demotion_success = false;
+    for (std::size_t offset = 0u; offset < 128u && !demotion_success; ++offset)
+    {
+        SFailingAllocator failing{ 0u, SIZE_MAX };
+        memory::CMemoryAllocator allocator{ &failing, &allocate_with_failure, &tests::deallocate_test_memory };
+        memory::CMemoryContext context{ allocator };
+        {
+            tests::TMemoryContextScope scope{ &context };
+            CLiveDocument parsed;
+            TEST_EXPECT(ctx, parse_live(input, parsed));
+            CLiveSchema source;
+            TEST_EXPECT(ctx, source.try_adopt(std::move(parsed)));
+            CBakedDocumentBlock destination_block;
+            CBakedSchema destination_schema;
+            failing.fail_on = failing.calls + offset;
+            demotion_success = source.demote(destination_block, destination_schema);
+            if (demotion_success)
+            {
+                TEST_EXPECT(ctx, destination_block.is_ready() && destination_schema.document_ready() &&
+                    !destination_schema.resolved_ready());
+            }
+            else
+            {
+                demotion_failure = true;
+                TEST_EXPECT(ctx, source.document_ready() && !destination_block.is_ready() &&
+                    !destination_schema.document_ready());
+            }
+        }
+        TEST_EXPECT(ctx, context.is_attribution_empty());
+    }
+    TEST_EXPECT(ctx, demotion_failure && demotion_success);
+}
 }   // namespace schema_tests
 
 int run_schema_tests()
@@ -1652,6 +1888,9 @@ int run_schema_tests()
     schema_tests::test_schema_wrapper_bindings(ctx);
     schema_tests::test_schema_wrapper_rejections(ctx);
     schema_tests::test_schema_wrapper_edit_allocations(ctx);
+    schema_tests::test_schema_root_member_translation(ctx);
+    schema_tests::test_schema_conversion(ctx);
+    schema_tests::test_schema_conversion_allocations(ctx);
     const schema::SRecordSizes sizes = schema::CResolvedSchema::record_sizes();
     std::cout << "Schema record bytes: type=" << sizes.type << " member=" << sizes.member << " label=" << sizes.label
               << " field=" << sizes.field << " default=" << sizes.default_value << " mapping=" << sizes.mapping << '\n';
