@@ -457,11 +457,13 @@ bool CMutableBakedDocument::set_signed_integer_value(const CBakedValueIndex valu
 {
     SBakedValueRecord* const record = writable_value_record(value, EBakedValueType::integer);
     CIntegerMetadata metadata;
-    if ((record == nullptr) || !m_baked.integer_metadata(value, metadata) ||
-        !live_integer_metadata_matches_signed(replacement, metadata))
+    if ((record == nullptr) || !m_baked.integer_metadata(value, metadata) || (metadata.domain != EIntegerDomain::signed_value))
     {
         return false;
     }
+    metadata.width = live_signed_integer_smallest_width(replacement);
+    record->value_flags = (record->value_flags & ~document_value_flags::k_integer_metadata_flags) |
+        document_value_flags::encode_integer_metadata(metadata);
     record->payload_bits = live_signed_integer_bits(replacement);
     return true;
 }
@@ -470,11 +472,13 @@ bool CMutableBakedDocument::set_unsigned_integer_value(const CBakedValueIndex va
 {
     SBakedValueRecord* const record = writable_value_record(value, EBakedValueType::integer);
     CIntegerMetadata metadata;
-    if ((record == nullptr) || !m_baked.integer_metadata(value, metadata) ||
-        !live_integer_metadata_matches_unsigned(replacement, metadata))
+    if ((record == nullptr) || !m_baked.integer_metadata(value, metadata) || (metadata.domain != EIntegerDomain::unsigned_value))
     {
         return false;
     }
+    metadata.width = live_unsigned_integer_smallest_width(replacement);
+    record->value_flags = (record->value_flags & ~document_value_flags::k_integer_metadata_flags) |
+        document_value_flags::encode_integer_metadata(metadata);
     record->payload_bits = replacement;
     return true;
 }
@@ -498,6 +502,7 @@ bool CMutableBakedDocument::set_string_value(const CBakedValueIndex value, const
     {
         return false;
     }
+
     //  Every non-empty table entry must retain at least one value reference.
     //  Removing its final reference would require rebuilding the string table.
     if ((record->payload_bits != 0u) && (record->payload_bits != replacement.query_value()))

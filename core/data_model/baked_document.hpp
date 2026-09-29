@@ -175,9 +175,9 @@ public:
     //  rebinding the editor through this accessor; a copy may be rebound independently.
     [[nodiscard]] const CBakedDocument& baked() const noexcept { return m_baked; }
 
-    //  Update only existing payloads, preserving types, integer metadata and all
-    //  topology/formatting flags. Invalid types, ranges and IDs return false.
-    //  Integer widths must remain canonical, so narrowing is also rejected.
+    //  Update only existing values, preserving types and topology/formatting
+    //  flags. Integer setters recompute canonical width while retaining domain,
+    //  notation and prefix. Invalid types, values and IDs return false.
     //  String IDs refer to this document's existing string-value table, including
     //  the canonical empty string. Stored text is never modified or added; a
     //  non-empty string's final reference cannot be removed (checked by a scan).

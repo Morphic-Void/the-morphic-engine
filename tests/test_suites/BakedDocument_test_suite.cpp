@@ -287,11 +287,8 @@ void test_fixed_layout_value_editing(TTestContext& ctx)
         TEST_EXPECT(ctx, !result);
         expect_unchanged();
     };
-    reject(editable.set_signed_integer_value(integer, 128));
-    reject(editable.set_signed_integer_value(integer, -129));
     reject(editable.set_unsigned_integer_value(integer, 1u));
     reject(editable.set_signed_integer_value(unsigned_integer, 1));
-    reject(editable.set_unsigned_integer_value(unsigned_integer, 1u)); // Would narrow the metadata.
     reject(editable.set_floating_point_value(floating, std::numeric_limits<double>::infinity()));
     reject(editable.set_floating_point_value(floating, std::numeric_limits<double>::quiet_NaN()));
     reject(editable.set_string_value(string, CStringValueId{}));
@@ -369,6 +366,128 @@ void test_fixed_layout_value_editing(TTestContext& ctx)
     TEST_EXPECT(ctx, !copied.reset(other_fixture.bytes.view()));
     TEST_EXPECT(ctx, !copied.baked().is_ready() && !copied.is_ready());
     reject_unattached(copied);
+}
+
+void test_mutable_integer_widths(TTestContext& ctx)
+{
+    SBakedFixture fixture;
+    TEST_EXPECT(ctx, fixture.initialise());
+    CIntegerMetadata signed_metadata{
+        EIntegerDomain::signed_value, EIntegerWidth::bits_8,
+        EIntegerNotation::hexadecimal, EIntegerPrefix::alternate };
+    CIntegerMetadata unsigned_metadata{
+        EIntegerDomain::unsigned_value, EIntegerWidth::bits_64,
+        EIntegerNotation::binary, EIntegerPrefix::standard };
+    fixture.values()[3u].value_flags |= document_value_flags::encode_integer_metadata(signed_metadata);
+    fixture.values()[7u].value_type = EBakedValueType::integer;
+    fixture.values()[7u].payload_bits = std::numeric_limits<std::uint64_t>::max();
+    fixture.values()[7u].value_flags |= document_value_flags::encode_integer_metadata(unsigned_metadata);
+
+    CMutableBakedDocument editable{ fixture.bytes.view() };
+    const CBakedDocument& document = editable.baked();
+    TEST_EXPECT(ctx, document.is_ready());
+    if (!document.is_ready()) return;
+    const CBakedValueIndex signed_value = document.object_child(document.root(), text("c"));
+    const CBakedValueIndex array = document.object_child(document.root(), text("f"));
+    const CBakedValueIndex unsigned_value = document.array_at(array, 0u);
+    const std::uint16_t signed_flags = fixture.values()[3u].value_flags;
+    const std::uint16_t unsigned_flags = fixture.values()[7u].value_flags;
+    const std::vector<std::uint8_t> original(fixture.bytes.data(), fixture.bytes.data() + fixture.bytes.size());
+
+    struct SSignedCase { std::int64_t value; EIntegerWidth width; };
+    const SSignedCase signed_cases[]{
+        { 128, EIntegerWidth::bits_16 }, { 127, EIntegerWidth::bits_8 },
+        { -129, EIntegerWidth::bits_16 }, { -128, EIntegerWidth::bits_8 },
+        { 32768, EIntegerWidth::bits_32 }, { 32767, EIntegerWidth::bits_16 },
+        { -32769, EIntegerWidth::bits_32 }, { -32768, EIntegerWidth::bits_16 },
+        { INT64_C(2147483648), EIntegerWidth::bits_64 },
+        { INT64_C(2147483647), EIntegerWidth::bits_32 },
+        { -INT64_C(2147483649), EIntegerWidth::bits_64 },
+        { -INT64_C(2147483648), EIntegerWidth::bits_32 },
+        { std::numeric_limits<std::int64_t>::min(), EIntegerWidth::bits_64 },
+        { std::numeric_limits<std::int64_t>::max(), EIntegerWidth::bits_64 },
+        { 0, EIntegerWidth::bits_8 } };
+    for (const SSignedCase test : signed_cases)
+    {
+        TEST_EXPECT(ctx, editable.set_signed_integer_value(signed_value, test.value));
+        std::int64_t read = 0;
+        CIntegerMetadata metadata;
+        TEST_EXPECT(ctx, document.signed_integer_value(signed_value, read) && read == test.value);
+        TEST_EXPECT(ctx, document.integer_metadata(signed_value, metadata));
+        signed_metadata.width = test.width;
+        TEST_EXPECT(ctx, metadata == signed_metadata);
+        TEST_EXPECT(ctx, document.check_integrity());
+    }
+
+    struct SUnsignedCase { std::uint64_t value; EIntegerWidth width; };
+    const SUnsignedCase unsigned_cases[]{
+        { UINT64_C(0xffffffff), EIntegerWidth::bits_32 },
+        { 0u, EIntegerWidth::bits_8 },
+        { UINT64_C(0x100), EIntegerWidth::bits_16 },
+        { UINT64_C(0xff), EIntegerWidth::bits_8 },
+        { UINT64_C(0x10000), EIntegerWidth::bits_32 },
+        { UINT64_C(0xffff), EIntegerWidth::bits_16 },
+        { UINT64_C(0x100000000), EIntegerWidth::bits_64 },
+        { UINT64_C(0xffffffff), EIntegerWidth::bits_32 },
+        { std::numeric_limits<std::uint64_t>::max(), EIntegerWidth::bits_64 },
+        { 0u, EIntegerWidth::bits_8 } };
+    for (const SUnsignedCase test : unsigned_cases)
+    {
+        TEST_EXPECT(ctx, editable.set_unsigned_integer_value(unsigned_value, test.value));
+        std::uint64_t read = 0u;
+        CIntegerMetadata metadata;
+        TEST_EXPECT(ctx, document.unsigned_integer_value(unsigned_value, read) && read == test.value);
+        TEST_EXPECT(ctx, document.integer_metadata(unsigned_value, metadata));
+        unsigned_metadata.width = test.width;
+        TEST_EXPECT(ctx, metadata == unsigned_metadata);
+        TEST_EXPECT(ctx, document.check_integrity());
+    }
+
+    TEST_EXPECT(ctx, fixture.values()[3u].value_flags ==
+        ((signed_flags & ~document_value_flags::k_integer_metadata_flags) |
+            document_value_flags::encode_integer_metadata(signed_metadata)));
+    TEST_EXPECT(ctx, fixture.values()[7u].value_flags ==
+        ((unsigned_flags & ~document_value_flags::k_integer_metadata_flags) |
+            document_value_flags::encode_integer_metadata(unsigned_metadata)));
+    for (std::size_t offset = 0u; offset < original.size(); ++offset)
+    {
+        const auto may_change = [&](const std::size_t index)
+        {
+            const std::size_t record = k_values_offset + index * sizeof(SBakedValueRecord);
+            return ((offset >= record) && (offset < record + sizeof(std::uint64_t))) ||
+                ((offset >= record + offsetof(SBakedValueRecord, value_flags)) &&
+                    (offset < record + offsetof(SBakedValueRecord, value_flags) + sizeof(std::uint16_t)));
+        };
+        if (!may_change(3u) && !may_change(7u)) TEST_EXPECT(ctx, fixture.bytes.data()[offset] == original[offset]);
+    }
+    TEST_EXPECT(ctx, document.name(signed_value) == text("c"));
+    TEST_EXPECT(ctx, document.parent(signed_value) == document.root());
+    TEST_EXPECT(ctx, document.previous_sibling(signed_value) == document.object_child(document.root(), text("b")));
+    TEST_EXPECT(ctx, document.next_sibling(signed_value) == document.object_child(document.root(), text("d")));
+    TEST_EXPECT(ctx, document.first_child(array) == unsigned_value && document.last_child(array) == unsigned_value);
+    TEST_EXPECT(ctx, document.parent(unsigned_value) == array);
+    TEST_EXPECT(ctx, !document.previous_sibling(unsigned_value).is_valid() && !document.next_sibling(unsigned_value).is_valid());
+
+    const std::vector<std::uint8_t> edited(fixture.bytes.data(), fixture.bytes.data() + fixture.bytes.size());
+    TEST_EXPECT(ctx, !editable.set_unsigned_integer_value(signed_value, 1u));
+    TEST_EXPECT(ctx, !editable.set_signed_integer_value(unsigned_value, 1));
+    TEST_EXPECT(ctx, !editable.set_signed_integer_value(array, 1));
+    TEST_EXPECT(ctx, !editable.set_unsigned_integer_value(CBakedValueIndex{}, 1u));
+    TEST_EXPECT(ctx, std::memcmp(fixture.bytes.data(), edited.data(), edited.size()) == 0);
+
+    CBakedDocument checked{ fixture.bytes.data(), fixture.bytes.size() };
+    TEST_EXPECT(ctx, checked.check_integrity());
+    CLiveDocument promoted;
+    TEST_EXPECT(ctx, document_translation::promote(checked, promoted));
+    TEST_EXPECT(ctx, promoted.check_integrity());
+    CBakedDocumentBlock rebaked;
+    TEST_EXPECT(ctx, document_translation::bake(promoted, rebaked));
+    TEST_EXPECT(ctx, rebaked.document().check_integrity());
+    TEST_EXPECT(ctx, rebaked.bytes().size() == fixture.bytes.size());
+    if (rebaked.bytes().size() == fixture.bytes.size())
+    {
+        TEST_EXPECT(ctx, std::memcmp(rebaked.bytes().data(), fixture.bytes.data(), fixture.bytes.size()) == 0);
+    }
 }
 
 void test_existing_string_reassignment(TTestContext& ctx)
@@ -1511,6 +1630,7 @@ int run_baked_document_tests()
 {
     TTestContext ctx;
     test_fixed_layout_value_editing(ctx);
+    test_mutable_integer_widths(ctx);
     test_existing_string_reassignment(ctx);
     test_checked_binding_and_foundational_observations(ctx);
     baked_document_phase2_tests::test_shared_integer_flags_round_trip(ctx);

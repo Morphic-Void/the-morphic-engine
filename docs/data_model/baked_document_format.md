@@ -248,13 +248,16 @@ be rebound externally.
 
 The editor's typed setters `set_boolean_value`, `set_signed_integer_value`,
 `set_unsigned_integer_value`, `set_floating_point_value` and `set_string_value`
-modify only an existing value's payload bits. They return `false` for invalid
+modify only an existing value's payload bits, except that integer setters also
+update its canonical width metadata. They return `false` for invalid
 indices, mismatched types or unsupported payloads, without modifying bytes.
-Types, names, topology, counts, offsets and formatting flags remain unchanged.
+Types, names, topology, counts and offsets remain unchanged. Integer domain,
+notation and prefix, and all structural and other formatting flags are preserved.
 There is no entry creation, removal, renaming or container resizing API.
-Integer domain, width and notation are preserved. Width must remain the
-canonical smallest width, so both widening and narrowing are rejected.
-Floating-point replacements must be finite.
+Signed and unsigned integer setters recompute the canonical smallest width from
+the replacement value, allowing both widening and narrowing in the stored domain.
+The 64-bit payload storage and physical record size do not change. Floating-point
+values remain binary64 and replacements must be finite.
 
 String replacement takes a `CStringValueId` from this document's existing
 string-value table, including its canonical empty string. IDs are document-local;
