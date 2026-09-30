@@ -449,6 +449,11 @@ static void test_success(TTestContext& ctx)
     TEST_EXPECT(ctx, field.mask == 112u && field.shift == 4u && field.width == 3u && field.signed_value);
     TEST_EXPECT(ctx,
         s.map_occurrence(field.source) == s.find_field(s.find_type(CStringView{ "Flags" }), CStringView{ "axis" }));
+    TEST_EXPECT(ctx, s.field(s.find_field(s.find_type(CStringView{ "Flags" }), CStringView{ "normal" }), field));
+    SDefault normal_default;
+    TEST_EXPECT(ctx, field.interpretation == EInterpretation::unorm &&
+        s.default_value(field.type, field.default_description, normal_default) &&
+        normal_default.scalar.kind == EScalar::unsigned_integer && normal_default.scalar.value.unsigned_value == 2u);
     TEST_EXPECT(ctx, s.type(s.find_type(CStringView{ "SignedMask" }), t) && !t.gaps);
     TEST_EXPECT(ctx, first_default(ctx, s, "Atoms", "g").scalar.value.signed_value == INT64_MIN);
     TEST_EXPECT(ctx, first_default(ctx, s, "Atoms", "h").scalar.value.unsigned_value == UINT64_MAX);
@@ -744,10 +749,9 @@ static void test_failures(TTestContext& ctx)
         EReason::invalid_layout);
     expect_failure(
         ctx, bit_prefix + "{\"x\":{\"type\":\"i8\",\"mask\":3,\"default\":2}}]}}}}", EReason::invalid_default);
-    expect_failure(ctx,
-        bit_prefix + "{\"x\":{\"type\":\"u8\",\"mask\":3,\"interpretation\":\"unorm\",\"default\":1.01}}]}}}}",
-        EReason::invalid_default);
     expect_failure(ctx, bit_prefix + "{\"x\":{\"type\":\"u8\",\"mask\":3,\"interpretation\":\"snorm\"}}]}}}}",
+        EReason::invalid_range);
+    expect_failure(ctx, bit_prefix + "{\"x\":{\"type\":\"u8\",\"mask\":3,\"interpretation\":\"other\"}}]}}}}",
         EReason::unsupported_feature);
     CBakedDocumentBlock collision;
     TEST_EXPECT(ctx, !bake("{\"types\":{},\"types\":{}}", collision));
@@ -827,6 +831,315 @@ static void test_schema_sample(TTestContext& ctx)
         resolved.member(resolved.find_member(arrays, CStringView{ "records" }), records) &&
         records.offset == 32u && resolved.type(records.type, records_type) && records_type.stride == 32u);
     write_validation(ctx, resolved, "schema_sample");
+}
+
+static void test_unorm_defaults(TTestContext& ctx)
+{
+    const auto input = [](const char* const storage, const char* const logical, const char* const mask,
+        const char* const value)
+    {
+        return std::string("{\"types\":{\"bit_structures\":{\"Bits\":{\"storage\":\"") + storage +
+            "\",\"members\":[{\"code\":{\"type\":\"" + logical + "\",\"mask\":" + mask +
+            ",\"interpretation\":\"unorm\"" + (value ? std::string(",\"default\":") + value : "") +
+            "}}]}}}}";
+    };
+    struct SCase
+    {
+        const char* storage;
+        const char* logical;
+        const char* mask;
+        const char* value;
+        std::uint64_t code;
+    };
+    const SCase accepted[] = {
+        { "u8", "u8", "3", nullptr, 0u },
+        { "u8", "u8", "3", "0", 0u },
+        { "u8", "u8", "3", "1", 1u },
+        { "u8", "u8", "3", "3", 3u },
+        { "u8", "u8", "3", "0.0", 0u },
+        { "u8", "u8", "3", "0.24999999999999997", 1u },
+        { "u8", "u8", "3", "0.25", 1u },
+        { "u8", "u8", "3", "0.5", 2u },
+        { "u8", "u8", "3", "0.75", 2u },
+        { "u8", "u8", "3", "1.0", 3u },
+        { "u8", "u8", "3", "1.01", 3u },
+        { "u8", "u8", "3", "-0.1", 0u },
+        { "u8", "u8", "3", "-0.0", 0u },
+        { "u8", "u8", "3", "\"NaN\"", 0u },
+        { "u8", "u8", "3", "\"+INF\"", 3u },
+        { "u8", "u8", "3", "\"-INFINITY\"", 0u },
+        { "u8", "u8", "1", "0.49999999999999994", 0u },
+        { "u8", "u8", "1", "0.5", 1u },
+        { "u8", "u8", "0xFF", "0.5", 128u },
+        { "u8", "u8", "0xFF", "0.75", 191u },
+        { "u8", "u8", "0xFF", "1.0", 255u },
+        { "u8", "u8", "0xF0", "0.5", 8u },
+        { "u16", "u8", "0x3ff", "0.1", 102u },
+        { "u64", "u64", "18446744073709551615", "18446744073709551615", UINT64_MAX },
+        { "u64", "u64", "18446744073709551615", "0.5", UINT64_C(0x8000000000000000) },
+        { "u64", "u64", "18446744073709551615", "0.75", UINT64_C(0xbfffffffffffffff) },
+        { "u64", "u64", "18446744073709551615", "0.9999999999999999", UINT64_MAX - 2048u },
+        { "u64", "u64", "18446744073709551615", "1.0", UINT64_MAX },
+        { "u64", "u64", "18446744073709551615", "18446744073709551616.0", UINT64_MAX },
+        { "u64", "u64", "18446744073709551615", "2.710505431213761e-20", 0u },
+        { "u64", "u64", "18446744073709551615", "2.7105054312137617e-20", 1u },
+        { "u64", "u64", "18446744073709551615", "1e-20", 0u },
+        { "u64", "u64", "18446744073709551615", "1e-19", 2u }
+    };
+    for (const SCase& test : accepted)
+    {
+        const std::string source = input(test.storage, test.logical, test.mask, test.value);
+        CBakedDocumentBlock block;
+        CResolvedSchema baked;
+        if (!resolve(ctx, source, block, baked))
+        {
+            continue;
+        }
+        const CSchemaIndex type = baked.find_type(CStringView{ "Bits" });
+        const CSchemaIndex index = baked.find_field(type, CStringView{ "code" });
+        SField field;
+        SDefault value;
+        TEST_EXPECT(ctx, baked.field(index, field) && field.interpretation == EInterpretation::unorm &&
+            baked.map_occurrence(field.source) == index &&
+            baked.default_value(field.type, field.default_description, value) &&
+            value.scalar.kind == EScalar::unsigned_integer && value.scalar.value.unsigned_value == test.code);
+        const CSchemaDocumentQuery query{ block.document() };
+        const CSchemaHandle default_source = query.object_child(field.source, CStringView{ "default" });
+        TEST_EXPECT(ctx, test.value ? value.source == default_source : !value.source);
+
+        CLiveDocument live_document;
+        const CDocumentReport report = document_parser::parse(
+            CByteConstView{ reinterpret_cast<const std::uint8_t*>(source.data()), source.size(), 1u }, live_document);
+        TEST_EXPECT(ctx, report.accepted());
+        CResolvedSchema live;
+        SDiagnostic diagnostic;
+        TEST_EXPECT(ctx, live.resolve(live_document, diagnostic));
+        SField live_field;
+        SDefault live_value;
+        const CSchemaIndex live_type = live.find_type(CStringView{ "Bits" });
+        const CSchemaIndex live_index = live.find_field(live_type, CStringView{ "code" });
+        TEST_EXPECT(ctx, live.field(live_index, live_field) &&
+            live.map_occurrence(live_field.source) == live_index &&
+            live_field.width == field.width && live_field.shift == field.shift &&
+            live.default_value(live_field.type, live_field.default_description, live_value) &&
+            live_value.scalar.kind == EScalar::unsigned_integer &&
+            live_value.scalar.value.unsigned_value == value.scalar.value.unsigned_value);
+    }
+
+    struct SInvalid
+    {
+        const char* storage;
+        const char* logical;
+        const char* mask;
+        const char* value;
+    };
+    const SInvalid rejected[] = {
+        { "u8", "u8", "3", "-1" },
+        { "u8", "u8", "3", "4" },
+        { "u8", "u8", "3", "256" },
+        { "u16", "u8", "0x3ff", "256" },
+        { "u16", "u8", "0x3ff", "0.5" },
+        { "u8", "u8", "3", "\"0.5\"" },
+        { "u8", "u8", "3", "\"nan(1)\"" },
+        { "u8", "u8", "3", "true" },
+        { "u8", "u8", "3", "null" }
+    };
+    for (const SInvalid& test : rejected)
+    {
+        const std::string source = input(test.storage, test.logical, test.mask, test.value);
+        CBakedDocumentBlock block;
+        TEST_EXPECT(ctx, bake(source, block));
+        const CSchemaDocumentQuery query{ block.document() };
+        const CSchemaHandle types = query.object_child(query.root(), CStringView{ "types" });
+        const CSchemaHandle bits = query.object_child(query.object_child(types, CStringView{ "bit_structures" }),
+            CStringView{ "Bits" });
+        const CSchemaHandle member = query.array_at(query.object_child(bits, CStringView{ "members" }), 0u);
+        const CSchemaHandle def = query.object_child(member, CStringView{ "default" });
+        CResolvedSchema schema;
+        SDiagnostic diagnostic;
+        TEST_EXPECT(ctx, !schema.resolve(block.document(), diagnostic) &&
+            diagnostic.stage == EStage::defaults && diagnostic.occurrence == def &&
+            (diagnostic.reason == EReason::invalid_range || diagnostic.reason == EReason::invalid_default));
+
+        CLiveDocument live_document;
+        const CDocumentReport report = document_parser::parse(
+            CByteConstView{ reinterpret_cast<const std::uint8_t*>(source.data()), source.size(), 1u }, live_document);
+        TEST_EXPECT(ctx, report.accepted());
+        CResolvedSchema live;
+        SDiagnostic live_diagnostic;
+        const CSchemaDocumentQuery live_query{ live_document };
+        const CSchemaHandle live_types = live_query.object_child(live_query.root(), CStringView{ "types" });
+        const CSchemaHandle live_bits = live_query.object_child(
+            live_query.object_child(live_types, CStringView{ "bit_structures" }), CStringView{ "Bits" });
+        const CSchemaHandle live_member = live_query.array_at(
+            live_query.object_child(live_bits, CStringView{ "members" }), 0u);
+        const CSchemaHandle live_def = live_query.object_child(live_member, CStringView{ "default" });
+        TEST_EXPECT(ctx, !live.resolve(live_document, live_diagnostic) &&
+            live_diagnostic.reason == diagnostic.reason && live_diagnostic.stage == diagnostic.stage &&
+            live_diagnostic.occurrence == live_def);
+    }
+    expect_failure(ctx, input("u8", "i8", "3", "0.5"), EReason::invalid_range);
+    expect_failure(ctx, input("u8", "b8", "1", "0.5"), EReason::invalid_range);
+    expect_failure(ctx, R"({"types":{"enumerations":{"Mode":{"storage":"u8","values":{"one":1}}},
+        "bit_structures":{"Bits":{"storage":"u8","members":[{"code":{"type":"Mode",
+        "mask":3,"interpretation":"unorm","default":0.5}}]}}}})", EReason::invalid_range);
+}
+
+static void test_snorm_defaults(TTestContext& ctx)
+{
+    const auto input = [](const char* const storage, const char* const logical, const char* const mask,
+        const char* const value)
+    {
+        return std::string("{\"types\":{\"bit_structures\":{\"Bits\":{\"storage\":\"") + storage +
+            "\",\"members\":[{\"code\":{\"type\":\"" + logical + "\",\"mask\":" + mask +
+            ",\"interpretation\":\"snorm\"" + (value ? std::string(",\"default\":") + value : "") +
+            "}}]}}}}";
+    };
+    struct SCase
+    {
+        const char* storage;
+        const char* logical;
+        const char* mask;
+        const char* value;
+        std::int64_t code;
+    };
+    const SCase accepted[] = {
+        { "i8", "i8", "3", nullptr, 0 },
+        { "i8", "i8", "3", "-2", -2 },
+        { "i8", "i8", "3", "-1", -1 },
+        { "i8", "i8", "3", "1", 1 },
+        { "i8", "i8", "3", "-1.0", -1 },
+        { "i8", "i8", "3", "-0.5", -1 },
+        { "i8", "i8", "3", "-0.49999999999999994", 0 },
+        { "i8", "i8", "3", "0.5", 1 },
+        { "i8", "i8", "3", "1.0", 1 },
+        { "i8", "i8", "3", "\"NaN\"", 0 },
+        { "i8", "i8", "3", "\"INF\"", 1 },
+        { "i8", "i8", "3", "\"-INF\"", -1 },
+        { "i8", "i8", "0xF0", "0.5", 4 },
+        { "i8", "i8", "0xF0", "-0.5", -4 },
+        { "i8", "i8", "0xFF", "-128", -128 },
+        { "i8", "i8", "0xFF", "127", 127 },
+        { "i8", "i8", "0xFF", "-1.0", -127 },
+        { "u8", "i8", "0xFF", "-1.0", -127 },
+        { "i8", "i8", "0xFF", "-0.0", 0 },
+        { "i8", "i8", "0xFF", "0.5", 64 },
+        { "i8", "i8", "0xFF", "-0.5", -64 },
+        { "i8", "i8", "0xFF", "0.75", 95 },
+        { "i8", "i8", "0xFF", "-0.75", -95 },
+        { "i8", "i8", "0xFF", "1.01", 127 },
+        { "i8", "i8", "0xFF", "-1.01", -127 },
+        { "i64", "i64", "18446744073709551615", "-9223372036854775808", INT64_MIN },
+        { "i64", "i64", "18446744073709551615", "9223372036854775807", INT64_MAX },
+        { "i64", "i64", "18446744073709551615", "0.5", INT64_C(0x4000000000000000) },
+        { "i64", "i64", "18446744073709551615", "-0.5", -INT64_C(0x4000000000000000) },
+        { "i64", "i64", "18446744073709551615", "0.75", INT64_C(0x5fffffffffffffff) },
+        { "i64", "i64", "18446744073709551615", "-0.75", -INT64_C(0x5fffffffffffffff) },
+        { "i64", "i64", "18446744073709551615", "0.9999999999999999", INT64_MAX - 1024 },
+        { "i64", "i64", "18446744073709551615", "-0.9999999999999999", -INT64_MAX + 1024 },
+        { "i64", "i64", "18446744073709551615", "-1.0", -INT64_MAX },
+        { "i64", "i64", "18446744073709551615", "5.421010862427522e-20", 0 },
+        { "i64", "i64", "18446744073709551615", "5.421010862427523e-20", 1 },
+        { "i64", "i64", "18446744073709551615", "-5.421010862427523e-20", -1 }
+    };
+    for (const SCase& test : accepted)
+    {
+        const std::string source = input(test.storage, test.logical, test.mask, test.value);
+        CBakedDocumentBlock block;
+        CResolvedSchema baked;
+        if (!resolve(ctx, source, block, baked))
+        {
+            continue;
+        }
+        const CSchemaIndex type = baked.find_type(CStringView{ "Bits" });
+        const CSchemaIndex index = baked.find_field(type, CStringView{ "code" });
+        SField field;
+        SDefault value;
+        TEST_EXPECT(ctx, baked.field(index, field) && field.interpretation == EInterpretation::snorm &&
+            baked.map_occurrence(field.source) == index &&
+            baked.default_value(field.type, field.default_description, value) &&
+            value.scalar.kind == EScalar::signed_integer && value.scalar.value.signed_value == test.code);
+        const CSchemaDocumentQuery query{ block.document() };
+        const CSchemaHandle default_source = query.object_child(field.source, CStringView{ "default" });
+        TEST_EXPECT(ctx, test.value ? value.source == default_source : !value.source);
+
+        CLiveDocument live_document;
+        const CDocumentReport report = document_parser::parse(
+            CByteConstView{ reinterpret_cast<const std::uint8_t*>(source.data()), source.size(), 1u }, live_document);
+        TEST_EXPECT(ctx, report.accepted());
+        CResolvedSchema live;
+        SDiagnostic diagnostic;
+        TEST_EXPECT(ctx, live.resolve(live_document, diagnostic));
+        SField live_field;
+        SDefault live_value;
+        const CSchemaIndex live_type = live.find_type(CStringView{ "Bits" });
+        const CSchemaIndex live_index = live.find_field(live_type, CStringView{ "code" });
+        TEST_EXPECT(ctx, live.field(live_index, live_field) &&
+            live.map_occurrence(live_field.source) == live_index &&
+            live_field.width == field.width && live_field.shift == field.shift &&
+            live.default_value(live_field.type, live_field.default_description, live_value) &&
+            live_value.scalar.kind == EScalar::signed_integer &&
+            live_value.scalar.value.signed_value == value.scalar.value.signed_value);
+    }
+
+    struct SInvalid
+    {
+        const char* storage;
+        const char* logical;
+        const char* mask;
+        const char* value;
+    };
+    const SInvalid rejected[] = {
+        { "i8", "i8", "3", "-3" },
+        { "i8", "i8", "3", "2" },
+        { "i8", "i8", "0xFF", "-129" },
+        { "i8", "i8", "0xFF", "128" },
+        { "i16", "i8", "0xFFFF", "1.0" },
+        { "i8", "i8", "3", "\"0.5\"" },
+        { "i8", "i8", "3", "\"nan(1)\"" },
+        { "i8", "i8", "3", "true" },
+        { "i8", "i8", "3", "null" }
+    };
+    for (const SInvalid& test : rejected)
+    {
+        const std::string source = input(test.storage, test.logical, test.mask, test.value);
+        CBakedDocumentBlock block;
+        TEST_EXPECT(ctx, bake(source, block));
+        const CSchemaDocumentQuery query{ block.document() };
+        const CSchemaHandle types = query.object_child(query.root(), CStringView{ "types" });
+        const CSchemaHandle bits = query.object_child(query.object_child(types, CStringView{ "bit_structures" }),
+            CStringView{ "Bits" });
+        const CSchemaHandle member = query.array_at(query.object_child(bits, CStringView{ "members" }), 0u);
+        const CSchemaHandle def = query.object_child(member, CStringView{ "default" });
+        CResolvedSchema schema;
+        SDiagnostic diagnostic;
+        TEST_EXPECT(ctx, !schema.resolve(block.document(), diagnostic) &&
+            diagnostic.stage == EStage::defaults && diagnostic.occurrence == def &&
+            (diagnostic.reason == EReason::invalid_range || diagnostic.reason == EReason::invalid_default));
+
+        CLiveDocument live_document;
+        const CDocumentReport report = document_parser::parse(
+            CByteConstView{ reinterpret_cast<const std::uint8_t*>(source.data()), source.size(), 1u }, live_document);
+        TEST_EXPECT(ctx, report.accepted());
+        CResolvedSchema live;
+        SDiagnostic live_diagnostic;
+        const CSchemaDocumentQuery live_query{ live_document };
+        const CSchemaHandle live_types = live_query.object_child(live_query.root(), CStringView{ "types" });
+        const CSchemaHandle live_bits = live_query.object_child(
+            live_query.object_child(live_types, CStringView{ "bit_structures" }), CStringView{ "Bits" });
+        const CSchemaHandle live_member = live_query.array_at(
+            live_query.object_child(live_bits, CStringView{ "members" }), 0u);
+        const CSchemaHandle live_def = live_query.object_child(live_member, CStringView{ "default" });
+        TEST_EXPECT(ctx, !live.resolve(live_document, live_diagnostic) &&
+            live_diagnostic.reason == diagnostic.reason && live_diagnostic.stage == diagnostic.stage &&
+            live_diagnostic.occurrence == live_def);
+    }
+    expect_failure(ctx, input("i8", "i8", "1", "0.5"), EReason::invalid_range);
+    expect_failure(ctx, input("u8", "u8", "3", "0.5"), EReason::invalid_range);
+    expect_failure(ctx, input("i8", "b8", "3", "0.5"), EReason::invalid_range);
+    expect_failure(ctx, R"({"types":{"enumerations":{"Mode":{"storage":"i8","values":{"one":1}}},
+        "bit_structures":{"Bits":{"storage":"i8","members":[{"code":{"type":"Mode",
+        "mask":3,"interpretation":"snorm","default":0.5}}]}}}})", EReason::invalid_range);
 }
 
 static void test_scalars_and_limits(TTestContext& ctx)
@@ -2218,6 +2531,8 @@ int run_schema_tests()
     schema_tests::test_explicit_layout(ctx);
     schema_tests::test_failures(ctx);
     schema_tests::test_schema_sample(ctx);
+    schema_tests::test_unorm_defaults(ctx);
+    schema_tests::test_snorm_defaults(ctx);
     schema_tests::test_scalars_and_limits(ctx);
     schema_tests::test_record_layout(ctx);
     schema_tests::test_review_regressions(ctx);

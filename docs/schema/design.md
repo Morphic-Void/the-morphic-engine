@@ -938,10 +938,12 @@ Masks and extent metadata must represent non-negative integers and satisfy
 their additional width/count/alignment constraints. A bit field's integer
 domain must fit both its logical type and its mask width; enum labels must all
 fit that width using the enum's signedness. Boolean fields have the logical
-domain 0/1. `unorm` is an unsigned-integer field interpretation. Input and defaults
-accept raw integer codes or normalised floating values under the codec rules
-below; output uses stored integer codes. This replaces the stage 1 restriction
-of explicit defaults to finite normalised values in [0,1].
+domain 0/1. `unorm` requires an unsigned integer primitive; `snorm` requires a
+signed integer primitive and at least two mask bits. Neither interpretation
+applies to enums or Boolean fields. Input and defaults accept raw integer codes
+or normalised floating values under the codec rules below; output uses stored
+integer codes. This replaces the stage 1 restriction of explicit defaults to
+finite normalised values in [0,1].
 Absent interpretation means the declared type's ordinary value semantics.
 Other interpretation spellings require an explicit extension, not silent fallback.
 
@@ -1489,18 +1491,44 @@ explain that separation. The original `bit_offset`, `bit_width`, and
 
 ## Encodings and remapping
 
-### Normalised unsigned field codec
+### Normalised field codecs
+
+The 30 September decision replaces `floor(f * 2^n)` with GPU-style normalised
+scaling and nearest rounding, and adds signed normalisation. Rounding is
+deterministic: nearest integer, with halfway cases rounded away from zero.
 
 For an `n`-bit `unorm` field, integer input/defaults are raw codes in
-`[0, 2^n - 1]`; reject out-of-range codes. Floating input/defaults use
-`floor(f * 2^n)`, clamped at the upper endpoint to `2^n - 1`. Check that endpoint
-in floating point before converting to integer. Floating values above one,
-including positive infinity, clamp to one; values below zero, including negative
-infinity, clamp to zero; NaN becomes zero. Decoding is `code / (2^n - 1)`.
-Document output uses the stored integer code. Thus integer `1` means raw code one,
-while `1.0` means normalised maximum. Raw-code and normalised-float setters are
-separate public operations. Existing floating special-string handling supplies
-non-finite document input; the data model itself retains finite numeric payloads.
+`[0, 2^n - 1]`. Floating input/defaults encode as
+`round(clamp(f, 0, 1) * (2^n - 1))`. Decoding is `code / (2^n - 1)`.
+UNORM supports mask widths from one through 64 bits.
+
+For an `n`-bit `snorm` field, integer input/defaults are raw signed codes in
+`[-2^(n-1), 2^(n-1) - 1]`. Floating input/defaults encode as
+`round(clamp(f, -1, 1) * (2^(n-1) - 1))`. Decoding is
+`max(code / (2^(n-1) - 1), -1)`. SNORM supports mask widths from two through 64
+bits. Preserve the most-negative raw code: for eight bits, both -128 and -127
+decode to -1.0, while floating -1.0 encodes to -127.
+
+NaN becomes zero before clamping; infinities clamp to the corresponding endpoint.
+Both raw and encoded codes must fit the logical primitive as well as the mask
+width; reject out-of-range codes. Endpoint and rounding arithmetic must avoid
+out-of-range casts and signed overflow, including at 64 bits where the positive
+integer maximum is not exactly representable in binary64.
+
+Resolved defaults and document output use unshifted integer codes, unsigned for
+UNORM and signed for SNORM. Thus integer `1` means raw code one, while `1.0`
+means normalised maximum; integer `-1` is a raw SNORM code, while `-1.0` means
+the negative normalised endpoint. Implicit zero retains the logical signedness.
+Raw-code and normalised-float setters are separate public operations. Existing
+floating special-string handling supplies non-finite document input; the data
+model itself retains finite numeric payloads.
+
+The scaling follows the GPU normalised representations described by
+[Vulkan fixed-point conversions](https://registry.khronos.org/vulkan/specs/latest/html/vkspec.html#fundamentals-fixedfpconv).
+Our explicit tie rule follows
+[Direct3D normalised conversions](https://microsoft.github.io/DirectX-Specs/d3d/archive/D3D11_3_FunctionalSpec.htm);
+it defines this encoder's deterministic result without promising bit-identical
+results from every hardware conversion permitted by those APIs.
 
 ### Instance and bulk operation boundaries
 

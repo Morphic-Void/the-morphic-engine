@@ -98,8 +98,10 @@ padding; construction does not require blanket zeroing. `ColourRgba10A2` covers 
 10/10/10/2 masks and has no gaps.
 
 The `unorm` spelling is retained from the original sample. The revised design
-specifies floor-based floating encoding with clamping, raw integer codes for
-input/defaults/output, and conventional decoding. These codecs remain unimplemented;
+uses nearest floating quantisation with ties away from zero and clamping for
+`unorm` and `snorm`, raw integer codes for input/defaults/output, and conventional
+decoding. Schema-default quantisation is implemented; instance and bulk codecs
+and decoding remain future work, so
 no packed instance encoding is validated by this sample. The type separation
 uses the containing storage type for generated mask constants,
 so a shifted mask need not fit the logical field type or its enum value set.

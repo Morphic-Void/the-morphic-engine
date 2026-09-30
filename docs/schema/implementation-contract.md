@@ -565,8 +565,24 @@ semantic member-order preservation, physical-order C++ declarations, and
 compiler-checked padding/alignment. Coordinator review and validation passed.
 The user completed manual review on 30 September and authorised the separate
 commit after making only whitespace changes. Those edits were preserved without
-repeating the passing validation. Revised unorm defaults remain a separate
-package and are not yet dispatched.
+repeating the passing validation. The package is committed as `271d519`
+(Support explicit schema layouts and faithful C++ declarations).
+The user then authorised continuation, and the same implementing chat completed
+revised unorm schema defaults as the final bounded stage 3 package. Coordinator
+review and validation passed. The user reviewed the code on 30 September and
+requested only a blank line before the conversion comment, which was added.
+Before commit, the user reopened the quantisation decision to discuss GPU
+normalised-format conventions and snorm support. The user then approved nearest
+rounding with ties away from zero, scaling by the normalised maximum, and signed
+normalisation with preserved raw signed minima. The same implementing chat
+completed this revision within the same package. Coordinator review and
+validation passed. The user completed manual review on 30 September with no
+changes and authorised the separate commit. Passing validation was not repeated.
+Integer defaults are raw codes; floating defaults use the agreed quantisation
+and clamping rules, with resolved defaults stored as unsigned UNORM or signed
+SNORM integer codes. SNORM requires a signed primitive and at least two mask bits.
+Resolver changes, tests and current API documentation are in scope. Instance/bulk
+codecs, wrappers, setters and output remain later work.
 The user confirmed that empty types retain queryable identities and zero-byte
 member records, preserving names, semantic order and document-to-schema mappings
 while contributing no physical storage or generated C++ declarations.
@@ -617,6 +633,52 @@ byte-for-byte identical to the committed empty-type baseline. Diff and
 text-policy checks passed. No passing validation matrix was repeated after
 the final review.
 
+The initially reviewed unorm package distinguished integer raw codes from normalised floating
+defaults and stores canonical unshifted unsigned codes. Quantisation uses the
+mask width; the result must fit both that width and the logical unsigned
+primitive. Endpoint checks precede integer conversion, including at width 64.
+Floating special strings reuse the existing parser: NaN and negative infinity
+produce zero, while positive infinity produces the mask-width maximum subject
+to the logical-type range check. Source occurrences, field interpretation and
+implicit zero remain available without changing public APIs or record layouts.
+
+Coordinator review confirmed live/baked acceptance and rejection parity,
+quantisation thresholds, shifted masks, 1-bit and 64-bit boundaries, logical-type
+range checks and preservation of non-unorm field behaviour. The existing
+allocation-failure fixture includes a unorm default and exercises the unchanged
+publication path. Debug x64 and Release x64 solution builds and ordinary `-t1`
+suites passed, each with 3,432 schema checks and zero failures throughout:
+`stage3-unorm-dbg64` (PID 30644) and `stage3-unorm-rel64` (PID 77080).
+The coordinator inspected actual build/test output and header comparisons.
+All eight generated headers are byte-for-byte identical to
+`stage3-layout-cached-dbg64.p57464`, so the passing compiler layout matrix was
+not repeated. Diff and text-policy checks passed. Current API and sample notes
+distinguish schema-default quantisation from later payload codecs. This evidence
+predates the rounding revision and SNORM extension described below.
+
+The revised package scales floating defaults by the normalised maximum and
+rounds to nearest with ties away from zero. It adds SNORM for signed integer
+primitives with at least two mask bits, retaining raw signed minima while
+encoding floating -1 as the negative normalised maximum. Canonical defaults
+remain unshifted integer codes, with signedness matching the interpretation.
+Code comments explain GPU reconstruction, the duplicate SNORM negative endpoint,
+the chosen rounding policy and the exact 64-bit arithmetic, with links to the
+Direct3D and Vulkan specifications. Existing resolved record sizes and the
+allocation/publication path are unchanged.
+
+Coordinator review covered live/baked parity, raw and floating defaults, shifted
+masks, signed fields within unsigned storage, logical-type limits, special
+values, invalid interpretations, and 64-bit rounding boundaries. An independent
+exact-rational diagnostic checked the rounding algorithm against 65,341 directed
+and random binary64 cases across widths 1-64. Debug x64, Release x64 and Debug
+x86 solution builds and ordinary `-t1` suites passed, each with 3,794 schema
+checks and zero failures throughout: `stage3-normalized-final-dbg64` (PID 55308),
+`stage3-normalized-final-rel64` (PID 15548) and
+`stage3-normalized-final-dbg32` (PID 41200). The coordinator inspected actual
+build/test output. All eight generated headers remain byte-for-byte identical
+to `stage3-layout-cached-dbg64.p57464`, so the passing compiler layout matrix
+was not repeated. Diff and text-policy checks passed.
+
 Stages 4-8 remain planned.
 Stage 1 is complete and committed independently as
 `d92dddd`; its code, tests and data-model documentation exclude schema planning.
@@ -658,7 +720,7 @@ Actual instance/bulk consumers exercise the reference integration in stage 4.
 ### 3. Resolved-schema semantic and layout extensions
 
 Add empty types and their omission from generated C++, authoritative explicit
-layouts with alignment up to 128, and the revised unorm default interpretation.
+layouts with alignment up to 128, and GPU-style unorm/snorm default interpretation.
 Keep these changes reviewable separately from the input/ownership refactor.
 
 Completion evidence: empty/all-empty/mixed containing types, compiler-verified

@@ -65,6 +65,34 @@ static std::uint64_t max_unsigned(const unsigned width) noexcept
     return width == 64u ? UINT64_MAX : (UINT64_C(1) << width) - 1u;
 }
 
+//  UNORM reconstructs code/(2^n-1); SNORM reconstructs max(code/(2^(n-1)-1),-1).
+//  Thus n=8 uses 255 or 127, and both raw -128 and -127 decode to -1 while
+//  floating -1 encodes -127. Nearest with ties away from zero is our encoder
+//  rule, consistent with D3D 3.2.3; Vulkan allows conversion rounding latitude.
+//  See https://microsoft.github.io/DirectX-Specs/d3d/archive/D3D11_3_FunctionalSpec.htm
+//  and https://docs.vulkan.org/spec/latest/chapters/fundamentals.html#fundamentals-fixedfpconv
+static std::uint64_t nearest_normalised_magnitude(const double magnitude, const unsigned bits) noexcept
+{
+    //  Precondition: 0 < magnitude < 1 and 1 <= bits <= 64. Scaling by a power
+    //  of two is exact; multiplying by (2^bits-1) in double loses low code bits.
+    const double scaled = std::ldexp(magnitude, bits);
+    const double whole = std::floor(scaled);
+    const double fraction = scaled - whole;
+    std::uint64_t code = static_cast<std::uint64_t>(whole); //  scaled < 2^64.
+
+    //  Exact target is whole + fraction - magnitude. Compare around half without
+    //  rounding that subtraction across the tie boundary.
+    if ((fraction >= 0.5) && ((fraction - 0.5) >= magnitude))
+    {
+        ++code;
+    }
+    else if ((magnitude > 0.5) && (fraction < (magnitude - 0.5)))
+    {
+        --code;
+    }
+    return code;
+}
+
 static bool fits(const SScalar& value, const bool is_signed, const unsigned width) noexcept
 {
     if (is_signed)
@@ -1570,26 +1598,67 @@ bool CResolver::bit_structure(TTypeRecord& type_record, const unsigned depth) no
         const CSchemaHandle interpretation_source = property(field_source, "interpretation");
         if (interpretation_source)
         {
-            if (!resolver_util::equal(m_document.string_value(interpretation_source), "unorm"))
+            const CStringView interpretation = m_document.string_value(interpretation_source);
+            if (resolver_util::equal(interpretation, "unorm"))
+            {
+                field.interpretation = EInterpretation::unorm;
+            }
+            else if (resolver_util::equal(interpretation, "snorm"))
+            {
+                field.interpretation = EInterpretation::snorm;
+            }
+            else
             {
                 return fail(EReason::unsupported_feature, interpretation_source);
             }
-            if ((logical.category != ECategory::primitive) || !resolver_util::integer(logical.primitive) || field.signed_value)
+            if ((logical.category != ECategory::primitive) || !resolver_util::integer(logical.primitive) ||
+                (field.signed_value != (field.interpretation == EInterpretation::snorm)) ||
+                ((field.interpretation == EInterpretation::snorm) && (field.width < 2u)))
             {
                 return fail(EReason::invalid_range, interpretation_source);
             }
-            field.interpretation = EInterpretation::unorm;
         }
         const CSchemaHandle def = property(field_source, "default");
         m_stage = EStage::defaults;
-        if ((field.interpretation == EInterpretation::unorm) && def)
+        if ((field.interpretation != EInterpretation::ordinary) && def)
         {
             SScalar value;
-            if (!scalar(m_schema.index(resolver_util::k_type, (static_cast<std::uint32_t>(EPrimitive::f64) - 1u)), def, value))
+            if (m_document.value_kind(def) == EDocumentValueKind::integer)
             {
-                return false;
+                if (!scalar(field.type, def, value))
+                {
+                    return false;
+                }
             }
-            if (!std::isfinite(value.value.floating_value) || (value.value.floating_value < 0.0) || (value.value.floating_value > 1.0))
+            else
+            {
+                if (!scalar(m_schema.index(resolver_util::k_type, (static_cast<std::uint32_t>(EPrimitive::f64) - 1u)), def, value))
+                {
+                    return false;
+                }
+                const double floating_value = value.value.floating_value;
+
+                //  Check endpoints before casts: double(UINT64_MAX) rounds to 2^64,
+                //  and double(INT64_MAX) rounds to 2^63. Internal magnitudes fit.
+                if (field.interpretation == EInterpretation::unorm)
+                {
+                    value.kind = EScalar::unsigned_integer;
+                    value.value.unsigned_value = std::isnan(floating_value) || (floating_value <= 0.0) ? 0u :
+                        (floating_value >= 1.0 ? resolver_util::max_unsigned(field.width) :
+                            resolver_util::nearest_normalised_magnitude(floating_value, field.width));
+                }
+                else
+                {
+                    const std::uint64_t magnitude = std::isnan(floating_value) || (floating_value == 0.0) ? 0u :
+                        (std::abs(floating_value) >= 1.0 ? resolver_util::max_unsigned(field.width - 1u) :
+                            resolver_util::nearest_normalised_magnitude(std::abs(floating_value), field.width - 1u));
+                    value.kind = EScalar::signed_integer;
+                    value.value.signed_value = floating_value < 0.0 ?
+                        -static_cast<std::int64_t>(magnitude) : static_cast<std::int64_t>(magnitude);
+                }
+            }
+            if (!resolver_util::fits(value, field.signed_value, static_cast<unsigned>(logical.size * 8u)) ||
+                !resolver_util::fits(value, field.signed_value, field.width))
             {
                 return fail(EReason::invalid_default, def);
             }

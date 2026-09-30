@@ -137,17 +137,20 @@ subsequent reconciliation with [design.md](design.md), the
 
 ## Value codecs, explicit layouts, and remapping
 
-- Encoding an `n`-bit `unorm` from floating `f` uses
-  `floor(f * 2^n)` and clamps the upper endpoint to `2^n - 1`.
-  Check the upper endpoint in floating point before casting to avoid an
-  out-of-range integer intermediate. Decoding uses the conventional
-  `code / (2^n - 1)`.
-- `unorm` embedded output uses the stored integer code. Input and schema
-  defaults accept either integer codes or floating values. An integer literal
-  means a raw code; `1.0` means normalised maximum. Out-of-range integer codes
-  are rejected. Floating values above one, including positive infinity, clamp
-  to one; values below zero, including negative infinity, clamp to zero; NaN
-  becomes zero. Public setters for raw codes and normalised floats are separate.
+- Revised by the user on 30 September: the original `floor(f * 2^n)` UNORM
+  quantisation is superseded by nearest rounding, ties away from zero, of
+  `clamp(f, 0, 1) * (2^n - 1)`. Decoding remains `code / (2^n - 1)`.
+- The same revision adds SNORM: encode floating input as nearest, ties away
+  from zero, of `clamp(f, -1, 1) * (2^(n-1) - 1)`. Decode using
+  `max(code / (2^(n-1) - 1), -1)`. Require a signed integer primitive and at
+  least two mask bits. Preserve the most-negative raw signed code even though
+  floating -1.0 encodes to the negative of the positive maximum.
+- Normalised input and schema defaults accept raw integer codes or floating
+  values. Store/output unshifted unsigned codes for UNORM and signed codes for
+  SNORM; both must fit the logical type and mask width. Integer `1` means raw
+  code one; `1.0` means normalised maximum. NaN becomes zero, and infinities
+  clamp to their endpoint. Guard conversion and rounding at 64-bit boundaries.
+  Public setters for raw codes and normalised floats remain separate operations.
 - Explicit structure alignment is capped at 128 bytes. Accepted explicit
   layouts generate faithful C++ declarations using padding members under the
   selected compiler settings. The legacy review-only declaration path is

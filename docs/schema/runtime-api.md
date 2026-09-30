@@ -184,9 +184,22 @@ arrays without materialising the declared extent. No gap bytes are defaulted.
 Boolean and half values use `value.unsigned_value` for 0/1 or the
 existing `fp16data_t` bits. Finite `f32` values are rounded to float and observed
 as double. Enum defaults carry their underlying signed/unsigned integer domain.
-Explicit `unorm` field defaults are floating values in [0,1]; interpretation
-remains on the field. Its implicit numeric zero has the same logical meaning.
-Quantisation and instance construction are outside this API.
+Explicit `unorm` and `snorm` field defaults accept integer raw codes or
+normalised floating values. Floating values clamp to [0,1] or [-1,1], then round
+to the nearest integer after scaling by `2^width - 1` or `2^(width-1) - 1`;
+ties round away from zero. NaN becomes zero, and infinities clamp to endpoints.
+UNORM requires an unsigned integer primitive and at least one mask bit; SNORM
+requires a signed integer primitive and at least two mask bits. Enums and `b8`
+cannot carry either interpretation.
+These scales match eventual reconstruction as `code/(2^width-1)` for UNORM and
+`max(code/(2^(width-1)-1),-1)` for SNORM.
+Integer `1` remains raw code one, while floating `1.0` reaches the positive
+maximum. A raw SNORM signed minimum is valid, although floating `-1.0` encodes
+the negative of the positive maximum. `SScalar` stores an unshifted unsigned
+integer for UNORM or signed integer for SNORM, checked against both the mask
+width and logical primitive. The source occurrence and field interpretation
+remain available; implicit default is signed or unsigned zero as appropriate.
+Instance construction and decoding remain outside this API.
 
 ## Occurrence coverage
 

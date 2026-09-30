@@ -86,7 +86,8 @@ enum class EPrimitive : std::uint8_t
 enum class EInterpretation : std::uint8_t
 {
     ordinary = 0,
-    unorm
+    unorm,
+    snorm
 };
 
 enum class EScalar : std::uint8_t
