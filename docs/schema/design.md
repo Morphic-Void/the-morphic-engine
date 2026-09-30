@@ -164,6 +164,16 @@ not match. Generated C++ omits empty type definitions and members whose types
 have no resolved data description; they require no physical C++ storage. The
 schema document retains those definitions and members.
 
+Empty types retain queryable resolved type identities and zero-byte member
+records. Name lookup, semantic member order and document-to-schema mappings
+remain available. Having no resolved data description means that the type
+contributes no physical storage; it does not remove its identity from queries.
+An empty type has size and stride zero and alignment one. Metadata requesting
+positive size or stronger alignment is invalid, including for a structure whose
+members are all empty. Empty members do not add alignment or padding to their
+containers. Arrays with a positive count of empty elements are also empty;
+the positive-count rule itself is unchanged.
+
 Malformed schema validation/resolution reports useful information for human
 review, comparable in purpose to a parsing report and suitable for `MV_REPORT`
 or similar logging. Internal node handles may construct names/paths; a public
@@ -1136,10 +1146,13 @@ must produce faithful C++ declarations under the selected compiler settings;
 reject layouts that cannot meet that contract. Generated padding can account for
 member offsets and total size, but it is not a logical schema member or an
 initialisation policy. Compiler checks establish offsets, alignment and size.
-The earlier approximate/review-only declaration path is removed. Non-monotonic
-offsets must meet the same fidelity requirement while preserving semantic member
-order; reject layouts that cannot do so instead of falling back to approximate
-output. Compiler evidence is required for the accepted layout subset.
+The earlier approximate/review-only declaration path is removed. Generated C++
+fields may be emitted in physical offset order when offsets are non-monotonic
+in the schema. Schema queries, member ordinals and document positional values
+retain schema declaration order. C++ aggregate initialiser order therefore need
+not match document positional order. Reject layouts that cannot meet physical
+fidelity instead of falling back to approximate output. Compiler evidence is
+required for the accepted layout subset.
 
 The internal marker is `detail.internal: true`; omission is equivalent to false.
 It permits neither bypassing validation nor falling back to review-only output.

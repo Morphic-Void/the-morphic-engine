@@ -166,6 +166,10 @@ static std::string write_validation(TTestContext& ctx, const CResolvedSchema& s,
         const CSchemaIndex id = s.definition_at(n);
         SType t;
         TEST_EXPECT(ctx, s.type(id, t));
+        if (t.size == 0u)
+        {
+            continue;
+        }
         const std::string type_name = "schema_fixture::" + spelling(t.name);
         if (t.category != ECategory::bit_structure)
         {
@@ -182,6 +186,10 @@ static std::string write_validation(TTestContext& ctx, const CResolvedSchema& s,
                 SType mt;
                 TEST_EXPECT(ctx, s.member(s.member_at(id, m), member));
                 TEST_EXPECT(ctx, s.type(member.type, mt));
+                if (mt.size == 0u)
+                {
+                    continue;
+                }
                 const std::string name = spelling(member.name);
                 checks << "static_assert(offsetof(" << type_name << ", " << name << ") == " << member.offset << ");\n";
                 checks << "static_assert(sizeof(" << type_name << "::" << name << ") == " << member.size << ");\n";
@@ -244,6 +252,140 @@ static std::string write_validation(TTestContext& ctx, const CResolvedSchema& s,
     write_file(checks_path, check_text.data(), check_text.size());
     std::cout << "Schema layout validation source: " << checks_path << '\n';
     return declarations;
+}
+
+static void test_empty_types(TTestContext& ctx)
+{
+    const std::string input = R"({"types":{"structures":{
+        "Empty":{"detail":{"size":0,"alignment":1},"members":[]},
+        "NestedEmpty":{"members":[{"part":{"type":"Empty"}},
+            {"grid":{"type":{"element":{"element":"Empty","count":2},"count":3}}}]},
+        "Mixed":{"members":[{"prefix":{"type":"u8"}},
+            {"marker":{"type":"NestedEmpty"}},
+            {"row":{"type":{"element":"Empty","count":4}}},
+            {"tail":{"type":"u16"}}]}
+    }}})";
+    CBakedDocumentBlock block;
+    CResolvedSchema resolved;
+    if (!resolve(ctx, input, block, resolved))
+    {
+        return;
+    }
+
+    const CSchemaIndex empty = resolved.find_type(CStringView{ "Empty" });
+    const CSchemaIndex nested = resolved.find_type(CStringView{ "NestedEmpty" });
+    const CSchemaIndex mixed = resolved.find_type(CStringView{ "Mixed" });
+    SType empty_type, nested_type, mixed_type;
+    TEST_EXPECT(ctx, resolved.definition_count() == 3u && empty && nested && mixed &&
+        resolved.definition_at(0u) == empty && resolved.definition_at(1u) == nested &&
+        resolved.definition_at(2u) == mixed);
+    TEST_EXPECT(ctx, resolved.type(empty, empty_type) && resolved.type(nested, nested_type) &&
+        resolved.type(mixed, mixed_type));
+    TEST_EXPECT(ctx, empty_type.size == 0u && empty_type.stride == 0u && empty_type.alignment == 1u &&
+        empty_type.count == 0u && nested_type.size == 0u && nested_type.stride == 0u &&
+        nested_type.alignment == 1u && nested_type.count == 2u);
+    TEST_EXPECT(ctx, mixed_type.size == 4u && mixed_type.alignment == 2u && mixed_type.count == 4u && mixed_type.gaps);
+
+    const CSchemaDocumentQuery query{ block.document() };
+    const CSchemaHandle structures = query.object_child(query.object_child(query.root(), CStringView{ "types" }),
+        CStringView{ "structures" });
+    TEST_EXPECT(ctx, resolved.map_occurrence(query.object_child(structures, CStringView{ "Empty" })) == empty &&
+        resolved.map_occurrence(query.object_child(structures, CStringView{ "NestedEmpty" })) == nested &&
+        resolved.map_occurrence(query.object_child(structures, CStringView{ "Mixed" })) == mixed);
+
+    const std::uint64_t mixed_offsets[] = { 0u, 1u, 1u, 2u };
+    const std::uint64_t mixed_sizes[] = { 1u, 0u, 0u, 2u };
+    for (std::uint32_t ordinal = 0u; ordinal < mixed_type.count; ++ordinal)
+    {
+        const CSchemaIndex member_index = resolved.member_at(mixed, ordinal);
+        SMember member;
+        TEST_EXPECT(ctx, resolved.member(member_index, member) && member.offset == mixed_offsets[ordinal] &&
+            member.size == mixed_sizes[ordinal] && resolved.map_occurrence(member.source) == member_index);
+        TEST_EXPECT(ctx, resolved.find_member(mixed, resolved.name(member.name)) == member_index);
+    }
+    for (std::uint32_t ordinal = 0u; ordinal < nested_type.count; ++ordinal)
+    {
+        const CSchemaIndex member_index = resolved.member_at(nested, ordinal);
+        SMember member;
+        TEST_EXPECT(ctx, resolved.member(member_index, member) && member.offset == 0u && member.size == 0u &&
+            resolved.map_occurrence(member.source) == member_index);
+    }
+    SMember grid, row;
+    SType grid_type, grid_element, row_type;
+    TEST_EXPECT(ctx, resolved.member(resolved.find_member(nested, CStringView{ "grid" }), grid) &&
+        resolved.type(grid.type, grid_type) && resolved.type(grid_type.element_or_storage, grid_element));
+    TEST_EXPECT(ctx, grid_type.category == ECategory::array && grid_type.count == 3u && grid_type.size == 0u &&
+        grid_type.stride == 0u && grid_element.count == 2u && grid_element.size == 0u &&
+        grid_element.stride == 0u);
+    TEST_EXPECT(ctx, resolved.member(resolved.find_member(mixed, CStringView{ "row" }), row) &&
+        resolved.type(row.type, row_type) && row_type.count == 4u && row_type.size == 0u && row_type.stride == 0u);
+
+    const std::string declarations = write_validation(ctx, resolved, "schema_empty");
+    TEST_EXPECT(ctx, declarations.find("struct Mixed") != std::string::npos &&
+        declarations.find("struct Empty") == std::string::npos &&
+        declarations.find("struct NestedEmpty") == std::string::npos &&
+        declarations.find(" marker;") == std::string::npos && declarations.find(" row[") == std::string::npos &&
+        declarations.find(" prefix;") != std::string::npos && declarations.find(" tail;") != std::string::npos);
+
+    CLiveDocument live_document;
+    const CDocumentReport report = document_parser::parse(
+        CByteConstView{ reinterpret_cast<const std::uint8_t*>(input.data()), input.size(), 1u }, live_document);
+    TEST_EXPECT(ctx, report.accepted());
+    CResolvedSchema live_resolved;
+    SDiagnostic live_diagnostic;
+    TEST_EXPECT(ctx, live_resolved.resolve(live_document, live_diagnostic));
+    const CSchemaIndex live_mixed = live_resolved.find_type(CStringView{ "Mixed" });
+    SType live_empty_type, live_mixed_type;
+    TEST_EXPECT(ctx, live_resolved.type(live_resolved.find_type(CStringView{ "Empty" }), live_empty_type) &&
+        live_resolved.type(live_mixed, live_mixed_type) && live_empty_type.size == 0u &&
+        live_mixed_type.size == mixed_type.size && live_mixed_type.alignment == mixed_type.alignment);
+    const CSchemaDocumentQuery live_query{ live_document };
+    const CSchemaHandle live_structures = live_query.object_child(
+        live_query.object_child(live_query.root(), CStringView{ "types" }), CStringView{ "structures" });
+    TEST_EXPECT(ctx, live_resolved.map_occurrence(live_query.object_child(live_structures, CStringView{ "Empty" })) ==
+        live_resolved.find_type(CStringView{ "Empty" }));
+    for (std::uint32_t ordinal = 0u; ordinal < live_mixed_type.count; ++ordinal)
+    {
+        const CSchemaIndex index = live_resolved.member_at(live_mixed, ordinal);
+        SMember member;
+        TEST_EXPECT(ctx, live_resolved.member(index, member) && member.offset == mixed_offsets[ordinal] &&
+            member.size == mixed_sizes[ordinal] && live_resolved.map_occurrence(member.source) == index &&
+            live_resolved.find_member(live_mixed, live_resolved.name(member.name)) == index);
+    }
+    CByteBuffer live_output;
+    TEST_EXPECT(ctx, generate_cpp(live_resolved, CStringView{ "schema_fixture" }, live_output, live_diagnostic));
+    TEST_EXPECT(ctx, live_output.is_ready() && live_output.size() == declarations.size() + 1u &&
+        std::memcmp(live_output.data(), declarations.data(), declarations.size()) == 0);
+
+    CBakedDocumentBlock alias_block;
+    CResolvedSchema alias_only;
+    if (resolve(ctx, R"({"types":{"structures":{"std":{"members":[]}}}})", alias_block, alias_only))
+    {
+        CByteBuffer output;
+        SDiagnostic diagnostic;
+        TEST_EXPECT(ctx, generate_cpp(alias_only, CStringView{ "schema_fixture" }, output, diagnostic));
+        const std::string text{ reinterpret_cast<const char*>(output.data()), output.size() - 1u };
+        TEST_EXPECT(ctx, text.find("struct std") == std::string::npos &&
+            text.find("using b8 = std::int8_t;\n}") != std::string::npos &&
+            text.find("using b8 = ::std::int8_t") == std::string::npos);
+    }
+
+    expect_failure(ctx, R"({"types":{"structures":{"Bad":{"detail":{"size":1},"members":[]}}}})", EReason::invalid_layout);
+    expect_failure(ctx, R"({"types":{"structures":{"Bad":{"detail":{"alignment":2},"members":[]}}}})", EReason::invalid_layout);
+    expect_failure(ctx, R"({"types":{"structures":{"Empty":{"members":[]},"All":{"detail":{"size":1},"members":[{"part":{"type":"Empty"}}]}}}})",
+        EReason::invalid_layout);
+    expect_failure(ctx, R"({"types":{"structures":{"Empty":{"members":[]},"All":{"detail":{"alignment":2},"members":[{"part":{"type":"Empty"}}]}}}})",
+        EReason::invalid_layout);
+    expect_failure(ctx, R"({"types":{"structures":{"Bad":{"members":{}}}}})", EReason::invalid_input);
+    expect_failure(ctx, R"({"types":{"structures":{"Bad":{}}}})", EReason::missing_property);
+    expect_failure(ctx, R"({"types":{"structures":{"Empty":{"members":[]},"Outer":{"members":[{"value":{"type":"Empty","default":{}}}]}}}})",
+        EReason::invalid_default);
+    expect_failure(ctx, R"({"types":{"structures":{"Empty":{"members":[]},"Outer":{"members":[{"value":{"type":{"element":"Empty","count":2},"default":[]}}]}}}})",
+        EReason::invalid_default);
+    expect_failure(ctx, R"({"types":{"structures":{"Empty":{"members":[]},"Outer":{"members":[{"value":{"type":{"element":"Empty","count":0}}}]}}}})",
+        EReason::invalid_range);
+    expect_failure(ctx, R"({"types":{"enumerations":{"Bad":{"storage":"u8","values":{}}}}})", EReason::invalid_input);
+    expect_failure(ctx, R"({"types":{"bit_structures":{"Bad":{"storage":"u8","members":[]}}}})", EReason::invalid_input);
 }
 
 static void test_success(TTestContext& ctx)
@@ -360,7 +502,6 @@ static void test_failures(TTestContext& ctx)
     expect_failure(ctx, "{}", EReason::missing_property);
     expect_failure(ctx, "{\"types\":{},\"unknown\":{}}", EReason::unknown_property);
     expect_failure(ctx, "{\"types\":{},\"instances\":null}", EReason::invalid_input);
-    expect_failure(ctx, "{\"types\":{\"structures\":{\"Test\":{\"members\":[]}}}}", EReason::invalid_input);
     expect_failure(ctx, one("\"missing\"", ""), EReason::unknown_type);
     expect_failure(ctx, one("\"Test\"", ""), EReason::cycle);
     expect_failure(ctx, one("{\"element\":\"u8\",\"count\":0}", ""), EReason::invalid_range);
@@ -1873,6 +2014,7 @@ int run_schema_tests()
 {
     tests::TTestContext ctx;
     schema_tests::test_success(ctx);
+    schema_tests::test_empty_types(ctx);
     schema_tests::test_failures(ctx);
     schema_tests::test_scalars_and_limits(ctx);
     schema_tests::test_record_layout(ctx);

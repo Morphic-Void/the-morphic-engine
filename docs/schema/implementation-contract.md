@@ -548,9 +548,38 @@ CRLF and optional missing final newline. Other text uses LF and a final newline.
 
 Stage 2's read-adapter and resolver/generator packages are committed as `0addf71`
 and `82d4974`. The schema-wrapper package, including guarded editing and intrusive
-client bindings, is committed as `0289c6b`. Schema promotion/demotion completes
-stage 2's implementation and has passed coordinator review, validation and user
-review, with its separate commit authorised. Stages 3-8 are planned.
+client bindings, is committed as `0289c6b`. Schema promotion/demotion completed
+stage 2 in `dd553fa`, after coordinator review, validation and user review. The
+user reported pushing all pending commits on 29 September.
+On 30 September the user authorised continuation. Stage 3 design assessment with
+the existing implementing chat is complete, and its first package has passed
+coordinator review and validation: empty type identities and zero-byte members,
+array propagation, generator omission and compiler-checked tests. The user
+completed manual review on 30 September and authorised the separate commit.
+Their whitespace and line-break edits were preserved without repeating the
+passing validation. Explicit layouts and revised unorm defaults remain
+separate packages and are not yet dispatched.
+The user confirmed that empty types retain queryable identities and zero-byte
+member records, preserving names, semantic order and document-to-schema mappings
+while contributing no physical storage or generated C++ declarations.
+Empty types have size and stride zero and alignment one; metadata requesting
+positive size or stronger alignment is rejected. For the later explicit-layout
+package, the user permits C++ field declarations in physical offset order while
+schema queries and document positional values retain schema declaration order.
+The first package also aligns generated-C++ validation with the project's
+exception-disabled compiler settings. No C++ language exceptions are permitted.
+Debug x64 and Release x64 solution builds and ordinary `-t1` suites passed:
+`stage3-empty-debug-reviewed` (PID 38536) and `stage3-empty-release-reviewed`
+(PID 69168), each with 2,930 schema checks and zero failures throughout.
+All six generated assertion fixtures from `stage3-empty-debug` (PID 59452),
+including `schema_empty_layout`, compiled for x86 and x64 with the updated
+validation script. Subsequent additions tested live/baked parity and invalid
+metadata on all-empty containing types without changing resolver, generator or
+assertion emission, so the passing compiler matrix was not repeated.
+Coordinator review confirmed lookup/mapping and semantic member preservation,
+zero-size array arithmetic, omission of empty declarations and correct handling
+of an omitted type named `std`. Diff and text-policy checks passed.
+Stages 4-8 remain planned.
 Stage 1 is complete and committed independently as
 `d92dddd`; its code, tests and data-model documentation exclude schema planning.
 Implementing chats receive bounded briefs from the coordinator and return changes

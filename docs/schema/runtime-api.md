@@ -153,6 +153,16 @@ signed/unsigned integer values and returns the first alias in declaration order.
 non-array primitive type. Layout observations always come from stored resolved
 facts: size, alignment, offsets, strides and recursive gap presence.
 
+An empty structure uses `members: []`, resolves with size and stride zero and
+alignment one, and retains a queryable type index and document mapping. A
+structure whose members are all empty is also empty. Its zero-byte members keep
+their declaration order, names, indices, mappings and natural cursor offsets.
+Arrays of empty elements require a positive count and have zero size and stride.
+Generated C++ omits empty type definitions and zero-byte members; its physical
+declarations therefore need not list every queryable member. Empty structures
+accept canonical `detail.size: 0` and `detail.alignment: 1`; metadata requesting
+storage or stronger alignment is invalid.
+
 ## Defaults
 
 Member/field `default_description` is zero when no explicit default was supplied.

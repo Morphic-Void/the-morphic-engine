@@ -85,8 +85,18 @@ bool CGenerator::run(CByteBuffer& output) noexcept
             return fail(EReason::allocation_failed);
         }
     }
-    m_global_std_shadow = m_schema.find_type(CStringView{ "std" }).is_valid();
-    const bool mixed_namespace = m_schema.definition_count() != 0u;
+    m_global_std_shadow = false;
+    bool mixed_namespace = false;
+    for (std::uint32_t definition_ordinal = 0u; definition_ordinal < m_schema.definition_count(); ++definition_ordinal)
+    {
+        SType type_info;
+        if (!m_schema.type(m_schema.definition_at(definition_ordinal), type_info))
+        {
+            return fail(EReason::invalid_input);
+        }
+        mixed_namespace |= type_info.size != 0u;
+        m_global_std_shadow |= (type_info.size != 0u) && (m_schema.name(type_info.name) == CStringView{ "std" });
+    }
     if (!text("#pragma once\n#include <cstdint>\n#include \"types/fp16data_t.hpp\"\n\nnamespace ") ||
         !text(m_namespace) || !text("\n{\n"))
     {
@@ -300,6 +310,10 @@ bool CGenerator::dependency(const CSchemaIndex type_index, const unsigned depth)
     {
         return fail(EReason::storage_limit);
     }
+    if (type_info.size == 0u)
+    {
+        return true;
+    }
     if (type_info.category == ECategory::primitive)
     {
         return true;
@@ -334,6 +348,11 @@ bool CGenerator::definition(const std::uint32_t definition_ordinal, const unsign
     {
         return fail(EReason::invalid_input);
     }
+    if (type_info.size == 0u)
+    {
+        m_emitted[definition_ordinal] = 1u;
+        return true;
+    }
     m_current_type = type_info.source;
     m_current_member = {};
     if (type_info.category == ECategory::structure)
@@ -341,7 +360,11 @@ bool CGenerator::definition(const std::uint32_t definition_ordinal, const unsign
         for (std::uint32_t child_ordinal = 0u; child_ordinal < type_info.count; ++child_ordinal)
         {
             SMember member;
-            if (!m_schema.member(m_schema.member_at(type_index, child_ordinal), member) || !dependency(member.type, (depth + 1u)))
+            if (!m_schema.member(m_schema.member_at(type_index, child_ordinal), member))
+            {
+                return fail(EReason::invalid_input);
+            }
+            if ((member.size != 0u) && !dependency(member.type, (depth + 1u)))
             {
                 return false;
             }
@@ -437,6 +460,10 @@ bool CGenerator::definition(const std::uint32_t definition_ordinal, const unsign
             if (!m_schema.member(m_schema.member_at(type_index, child_ordinal), member))
             {
                 return fail(EReason::invalid_input);
+            }
+            if (member.size == 0u)
+            {
+                continue;
             }
             m_current_member = member.source;
             if (!text("    ") || !type_name(member.type) || !text(" ") ||

@@ -31,7 +31,9 @@ New-Item -ItemType Directory -Path $outputRoot -Force | Out-Null
 foreach ($platform in $Platforms) {
     $compiler = Join-Path $compilerRoot "bin\Hostx64\$platform\cl.exe"
     $object = Join-Path $outputRoot (([IO.Path]::GetFileNameWithoutExtension($sourcePath)) + ".$platform.obj")
-    $arguments = @('/nologo', '/c', '/std:c++17', '/permissive-', '/EHsc', '/W4', '/WX',
+    # Match the engine projects: C++ exceptions are disabled; STL warning C4530
+    # is suppressed there when headers are compiled without exception handling.
+    $arguments = @('/nologo', '/c', '/std:c++17', '/permissive-', '/wd4530', '/W4', '/WX',
         "/I$repositoryRoot\core", "/I$compilerRoot\include", "/I$sdkInclude\ucrt", "/Fo$object", $sourcePath)
     Write-Host "Schema C++17 layout validation: $platform"
     & $compiler @arguments

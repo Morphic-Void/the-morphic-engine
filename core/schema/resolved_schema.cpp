@@ -25,6 +25,7 @@ namespace schema
 
 namespace resolver_util
 {
+
 //  Scalar helpers and index constants are local to this translation unit.
 static constexpr unsigned k_index_kind_shift = 29u;
 static constexpr std::uint32_t k_limit = (std::uint32_t{ 1u } << k_index_kind_shift) - 1u;
@@ -534,7 +535,7 @@ private:
         const CSchemaHandle& source, const std::initializer_list<const char*> allowed,
         const std::initializer_list<const char*> required = {}) noexcept;
     bool declarations(const CSchemaHandle& container, const ECategory category) noexcept;
-    bool names(const CSchemaHandle& container, const bool array, const CSchemaHandle& owner) noexcept;
+    bool names(const CSchemaHandle& container, const bool array, const CSchemaHandle& owner, const bool allow_empty = false) noexcept;
 
     //  References, scalar/default conversion and category layout.
     bool resolve_type(const CSchemaIndex type_index, const unsigned depth) noexcept;
@@ -672,11 +673,11 @@ bool CResolver::shape(const CSchemaHandle& source, const std::initializer_list<c
     return true;
 }
 
-bool CResolver::names(const CSchemaHandle& container, const bool array, const CSchemaHandle& owner) noexcept
+bool CResolver::names(const CSchemaHandle& container, const bool array, const CSchemaHandle& owner, const bool allow_empty) noexcept
 {
     (void)owner;
     if ((m_document.value_kind(container) != (array ? EDocumentValueKind::array : EDocumentValueKind::object)) ||
-        (m_document.child_count(container) == 0u))
+        (!allow_empty && (m_document.child_count(container) == 0u)))
     {
         return fail(EReason::invalid_input, container);
     }
@@ -975,7 +976,7 @@ bool CResolver::reference(const CSchemaHandle& source, CSchemaIndex& result, con
         array_record.count = static_cast<std::uint32_t>(count);
         array_record.related = result;
         const TTypeRecord element = *m_schema.type_record(result);
-        if ((count > UINT64_MAX / element.size) || (count * element.size > memory::k_byte_size_ceiling))
+        if ((element.size != 0u) && ((count > UINT64_MAX / element.size) || (count * element.size > memory::k_byte_size_ceiling)))
         {
             return fail(EReason::storage_limit, descriptor);
         }
@@ -1040,14 +1041,14 @@ bool CResolver::structure(TTypeRecord& type_record, const unsigned depth) noexce
         return false;
     }
     const CSchemaHandle members = property(type_record.source, "members");
-    if (!names(members, true, type_record.source))
+    if (!names(members, true, type_record.source, true))
     {
         return false;
     }
     type_record.first = static_cast<std::uint32_t>(m_schema.m_members.size());
     type_record.count = m_document.child_count(members);
     type_record.alignment_log2 = 0u;
-    type_record.set_flag(TTypeRecord::k_named_components, true);
+    type_record.set_flag(TTypeRecord::k_named_components, type_record.count != 0u);
     if (!grow(m_schema.m_members, type_record.count, members))
     {
         return false;
@@ -1141,6 +1142,10 @@ bool CResolver::structure(TTypeRecord& type_record, const unsigned depth) noexce
                 return fail(EReason::storage_limit, alignment_source);
             }
             if (!declared_value || (declared_value & (declared_value - 1u)) || (declared_value < type_record.alignment()))
+            {
+                return fail(EReason::invalid_layout, alignment_source);
+            }
+            if ((type_record.size == 0u) && (declared_value != 1u))
             {
                 return fail(EReason::invalid_layout, alignment_source);
             }
