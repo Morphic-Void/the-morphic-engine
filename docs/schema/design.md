@@ -807,7 +807,7 @@ The current reference model is:
   selected values, potentially through a chain of specialisations. It does not
   need a reference string to establish this relationship.
 
-The second use builds on the named-overlay rules below.  Instance names may
+The second use builds on the specialisation rules below. Instance names may
 recur in different subtrees; their containing branches distinguish them.
 An override's enclosing instance establishes its base through the
 `specialisation` container; `declaration` holds changed values. No base-name
@@ -1222,19 +1222,20 @@ schema, not retained as a schema array type.
 
 ### Named-component forms
 
-A general array supports replacement in full.  An array of schema-defined
-named components supports either replacement in full or overrides of selected
-components by name.  The schema establishes the component names and their
+A general array accepts positional values. An array of schema-defined
+named components also supports overrides of selected components by name.
+The schema establishes the component names and their
 order; names are not inferred from arbitrary array contents.  A structure of
 same-type, non-array base members can supply this form, as in a vector with
 named `x`, `y`, and `z` components.  Recognising that form does not change its
 declared physical layout.
 
-For example, a complete positional vector value can be replaced by a new
-array, with any omitted tail completed from defaults, or a named override can
-change only `y`, retaining the other components. This does not introduce
-positional patch operations, placeholder values, or a general indexed-array
-patch syntax. The accepted sample recognises
+For base construction, an omitted positional tail is completed from defaults.
+For a specialisation, supplied positions select values in the independent
+alternative and the omitted tail inherits from its base. A named declaration
+can select only `y`, retaining the other inherited components. Neither form
+modifies the base. This does not introduce placeholder values or a general
+indexed-array patch syntax. The accepted sample recognises
 the form from same-type, non-array primitive members without an extra marker,
 and uses a named `declaration` object for selected-component overrides.
 
@@ -1262,7 +1263,7 @@ The reviewed named-instance form is:
 }
 ```
 
-A structure accepts either named-object or positional-array construction:
+A base instance accepts either named-object or positional-array construction:
 
 ```json
 { "x": 0.0, "y": 0.2, "z": 0.7 }
@@ -1285,9 +1286,10 @@ used for padding without requiring an author to spell it out. It remains a
 logical member with a default, distinct from unnamed alignment or bitfield gaps
 which the optional unused-storage pass can clear.
 
-An array is therefore a compact complete construction form, including default
-completion. An object identifies values by member name and is also the form
-used for partial updates.
+An array is therefore a compact construction form, including default completion
+for a base instance. In a specialisation, its supplied prefix instead selects
+alternative values and omitted positions inherit. An object identifies selected
+values by member name. The specialisation rules below apply recursively.
 
 Small sequences of complete instances may be represented as a JSON array, but
 large collections are normally expected to use a binary payload with a
@@ -1353,14 +1355,16 @@ short array defaults complete the tail with element defaults. A bit field may
 have an explicit scalar default in its named field descriptor, validated against
 its logical type, mask width, and interpretation.
 
-Construction starts from these schema defaults and applies the values supplied
-by the instance. An omitted member uses its default. A named override instead
-starts from the values already established by its enclosing base: omitted
-members are unchanged, and defaults are not reapplied at each step. If a supplied
-member value is a positional replacement, its missing tail uses defaults under
-the short-input rule; omission from the named override is a different operation. The effective
+Base construction starts from these schema defaults and applies the values
+supplied by the instance. An omitted member uses its default. A specialisation
+instead starts from an independent copy of the values established by its
+enclosing base: omitted members or positional elements inherit, and defaults
+are not reapplied at each step. This applies recursively to nested structures
+and fixed arrays. The user confirmed this rule on 30 September, superseding
+the earlier positional-replacement rule for specialisations. The effective
 values follow the chain from the structure definition through the base
-instance and each subsequent override.
+instance and each subsequent specialisation; creating an alternative does
+not modify any earlier instance in that chain.
 
 Default values apply to logical members; clearing gaps is a separate optional
 operation. Defaults cannot generally be implemented merely by
@@ -1418,7 +1422,10 @@ extent and is independently selectable. Editing a base updates all descendant
 specialisations recursively, parent before child, as part of the user-facing edit
 operation. This replaces the separate caller-invoked dependent-update step.
 Runtime values remain independent snapshots, not delta chains traversed during
-access. The retained document tree supplies base relationships and a recursive
+access. A specialisation's immediate parent supplies its fully realised value,
+including every specialisation earlier in the chain. Inheritance never skips
+back to the original instance or schema defaults when that parent is itself
+specialised. The retained document tree supplies base relationships and a recursive
 walk through lower specialisation branches discovers impacted instances.
 Retained declarations preserve override intent, including explicitly supplied
 values equal to the base. No separate dependency graph or snapshot-difference
@@ -1430,35 +1437,37 @@ value. Both operations update descendants. Live document access is mediated by
 the wrappers. Failure partway through editing/updating still needs a validity
 contract. Resolved schema metadata does not become mutable instance provenance.
 
-Construction and overlay are separate operations.
+Base construction and specialisation are separate operations.
 
 - Complete construction establishes every member from supplied values or the
   explicit/implicit schema defaults.  Omission alone does not make an instance
   incomplete.
-- An overlay applies to an already complete, validated instance.
-- Overlays use named objects.  Omitted members retain their base values;
-  supplied members replace them.  Nested named objects can patch nested
-  structures.
-- General arrays can be replaced in full.  Arrays of schema-defined named
-  components can also have selected components overridden by name.  Named
-  bitfields support selected-field overrides through explicit masks. Updating
-  a selected field preserves every bit outside its mask, including unused bits.
+- A specialisation creates an independent alternative from an already complete,
+  validated base instance. Its declarations never modify that base.
+- Named objects select members; positional arrays select a prefix in semantic
+  declaration order. Omitted members/elements retain their inherited values.
+  The same rules apply recursively within nested structures and fixed arrays.
+- Schema-defined named components may be selected by name. Named bitfields
+  support selected-field overrides through explicit masks. Writing a selected
+  field in the alternative preserves every bit outside its mask, including
+  unused bits.
 
-For example, an overlay changing only one coordinate is:
+For example, an alternative differing in only one coordinate declares:
 
 ```json
 { "position": { "y": 0.2 } }
 ```
 
-This named overlay changes only the selected member. Positional arrays instead
-construct or replace a complete value, with a short input completed from
-defaults; they do not retain previous trailing values as a partial update would.
+This declaration selects only the alternative's `y` member. A positional
+specialisation `[2.0, 1.0, 4.0]` of base `[2.0, 1.0, 4.0, 7.0]` retains
+the inherited fourth value, producing `[2.0, 1.0, 4.0, 7.0]`. The supplied
+positions remain explicit selections even when equal to their base values.
 Selected component overrides use the names supplied by the schema. Null
 placeholders remain invalid.
 
 Semantic coordinate names such as `x`, `y`, and `z` should be represented by a
 named `Position` structure rather than only as `array<f32, 3>`.  That structure
-may still be constructed positionally, while retaining named overlay paths.
+may still be constructed positionally, while retaining named specialisation paths.
 
 ## Bit ranges and packed formats
 

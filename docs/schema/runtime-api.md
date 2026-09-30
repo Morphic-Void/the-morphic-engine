@@ -199,7 +199,41 @@ the negative of the positive maximum. `SScalar` stores an unshifted unsigned
 integer for UNORM or signed integer for SNORM, checked against both the mask
 width and logical primitive. The source occurrence and field interpretation
 remain available; implicit default is signed or unsigned zero as appropriate.
-Instance construction and decoding remain outside this API.
+Public instance-role construction and decoding remain outside the resolved
+schema API.
+
+## Internal value construction (stage 4a)
+
+`core/schema/value_codec.hpp` exposes synchronous internal operations over a
+ready `CResolvedSchema` and a representation-neutral `detail::CDocumentRead`:
+
+```cpp
+detail::construct_value(schema, document, type, declaration, destination,
+    destination_size, detail::EConstructionMode::instance, diagnostic);
+detail::construct_alternative(schema, document, type, declaration, base,
+    base_size, destination, destination_size, diagnostic);
+```
+
+`complete_bulk` mode requires every recursively addressable member, bit field
+and array position. Instance mode fills omitted values from schema defaults;
+short positional input uses defaults, including an explicit array-default
+prefix. An alternative copies its immediate parent's complete bytes into a
+separate destination, then changes selected values. Positional input selects
+its supplied prefix at every nesting level; omitted positions inherit. Named
+input selects members or fields. Explicitly supplied values remain selections
+even when equal to the parent. Neither operation changes the parent.
+
+Both byte spans are bounded separately and must cover the resolved type size
+and alignment. Positive overlap is rejected before copying. Zero-byte types
+accept null, zero-length spans, while still validating supplied declarations.
+Stored scalars and bit words are little-endian. Construction writes logical
+values without clearing structure/array gaps. A newly constructed bit word is
+initialised as a unit; an alternative retains all inherited bytes and bits
+outside selected masks. On conversion failure the destination may be partially
+changed and must be discarded; the source stays unchanged. The codec neither
+allocates nor binds a schema. Future role wrappers must check their schema
+binding before each call. Callers and owners must keep borrowed baked document
+and payload backing alive at stable addresses under each role's ownership rules.
 
 ## Occurrence coverage
 

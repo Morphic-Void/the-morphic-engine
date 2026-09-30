@@ -1,0 +1,523 @@
+
+//  Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited
+//  License: MIT (see LICENSE file in repository root)
+//
+//  File:    value_codec.cpp
+//  Authors: Ritchie Brannan / OpenAI Codex
+//  Date:    30 Sep 26
+//
+//  Construct values in resolved physical layouts without touching padding.
+
+#include "schema/value_codec.hpp"
+#include "schema/value_conversion.hpp"
+
+#include <cmath>
+#include <cstring>
+#include <cstdint>
+
+namespace schema::detail
+{
+
+enum class EWriteMode : std::uint8_t { instance, bulk, alternative };
+constexpr unsigned k_max_value_depth = 256u;
+
+[[nodiscard]] static bool equal_name(const CStringView a, const CStringView b) noexcept
+{
+    return a.length() == b.length() && (a.length() == 0u || std::memcmp(a.string(), b.string(), a.length()) == 0);
+}
+
+[[nodiscard]] static std::uint64_t read_little_endian(const std::uint8_t* const bytes, const std::size_t size) noexcept
+{
+    std::uint64_t value{};
+    for (std::size_t i = 0u; i < size; ++i)
+    {
+        value |= static_cast<std::uint64_t>(bytes[i]) << (i * 8u);
+    }
+    return value;
+}
+
+static void write_little_endian(std::uint8_t* const bytes, const std::size_t size, const std::uint64_t value) noexcept
+{
+    for (std::size_t i = 0u; i < size; ++i)
+    {
+        bytes[i] = static_cast<std::uint8_t>(value >> (i * 8u));
+    }
+}
+
+[[nodiscard]] static std::uint64_t scalar_bits(const SScalar& scalar, const EPrimitive primitive) noexcept
+{
+    if (primitive == EPrimitive::f64)
+    {
+        std::uint64_t bits{};
+        std::memcpy(&bits, &scalar.value.floating_value, sizeof(bits));
+        return bits;
+    }
+    if (primitive == EPrimitive::f32)
+    {
+        const float narrowed = static_cast<float>(scalar.value.floating_value);
+        std::uint32_t bits{};
+        std::memcpy(&bits, &narrowed, sizeof(bits));
+        return bits;
+    }
+    return scalar.kind == EScalar::signed_integer ?
+        static_cast<std::uint64_t>(scalar.value.signed_value) : scalar.value.unsigned_value;
+}
+
+class CValueWriter
+{
+public:
+    CValueWriter(const CResolvedSchema& schema, const CDocumentRead& document, SValueDiagnostic& diagnostic) noexcept
+        : m_schema(schema), m_document(document), m_diagnostic(diagnostic) {}
+
+    [[nodiscard]] bool write(const CSchemaIndex type, const CSchemaIndex description, const SOccurrence source,
+        std::uint8_t* const destination, const std::size_t destination_size, const EWriteMode mode,
+        const unsigned depth) noexcept;
+
+    [[nodiscard]] bool fail(const EReason reason, const SOccurrence source, const CSchemaIndex type) noexcept
+    {
+        if (m_diagnostic.reason == EReason::none)
+        {
+            m_diagnostic = { reason, source, type };
+        }
+        return false;
+    }
+
+private:
+    [[nodiscard]] bool validate_object(const CSchemaIndex type, const SOccurrence source, const ECategory category) noexcept;
+    [[nodiscard]] bool validate_positional(const CSchemaIndex type, const SOccurrence source) noexcept;
+    [[nodiscard]] bool scalar(const CSchemaIndex type, const SOccurrence source, SScalar& result) noexcept;
+    [[nodiscard]] bool field_scalar(const SField& field, const SOccurrence source, SScalar& result) noexcept;
+    [[nodiscard]] bool structure(const CSchemaIndex type, const SType& layout, const SOccurrence source,
+        std::uint8_t* const destination, const std::size_t destination_size, const EWriteMode mode, const unsigned depth) noexcept;
+    [[nodiscard]] bool array(const CSchemaIndex type, const CSchemaIndex description, const SType& layout, const SOccurrence source,
+        std::uint8_t* const destination, const std::size_t destination_size, const EWriteMode mode, const unsigned depth) noexcept;
+    [[nodiscard]] bool bit_structure(const CSchemaIndex type, const SType& layout, const SOccurrence source,
+        std::uint8_t* const destination, const EWriteMode mode) noexcept;
+
+    const CResolvedSchema& m_schema;
+    const CDocumentRead& m_document;
+    SValueDiagnostic& m_diagnostic;
+};
+
+bool CValueWriter::validate_object(const CSchemaIndex type, const SOccurrence source, const ECategory category) noexcept
+{
+    for (SOccurrence child = m_document.first_child(source); child.is_valid(); child = m_document.next_sibling(child))
+    {
+        if (!m_document.is_object_entry(child))
+        {
+            return fail(EReason::invalid_input, child, type);
+        }
+        const CStringView name = m_document.name(child);
+        const CSchemaIndex selected = category == ECategory::bit_structure ?
+            m_schema.find_field(type, name) : m_schema.find_member(type, name);
+        if (!selected)
+        {
+            return fail(EReason::unknown_property, child, type);
+        }
+        for (SOccurrence previous = m_document.first_child(source); previous != child;
+            previous = m_document.next_sibling(previous))
+        {
+            if (equal_name(name, m_document.name(previous)))
+            {
+                return fail(EReason::duplicate_declaration, child, type);
+            }
+        }
+    }
+    return true;
+}
+
+bool CValueWriter::validate_positional(const CSchemaIndex type, const SOccurrence source) noexcept
+{
+    for (SOccurrence child = m_document.first_child(source); child.is_valid(); child = m_document.next_sibling(child))
+    {
+        if (m_document.is_object_entry(child))
+        {
+            return fail(EReason::invalid_input, child, type);
+        }
+    }
+    return true;
+}
+
+bool CValueWriter::scalar(const CSchemaIndex type, const SOccurrence source, SScalar& result) noexcept
+{
+    SType layout;
+    if (!m_schema.type(type, layout))
+    {
+        return fail(EReason::unknown_type, source, type);
+    }
+    if (layout.category == ECategory::enumeration)
+    {
+        if (m_document.value_kind(source) != EDocumentValueKind::string)
+        {
+            return fail(EReason::invalid_input, source, type);
+        }
+        const CSchemaIndex label_index = m_schema.find_label(type, m_document.string_value(source));
+        SLabel label;
+        if (!label_index || !m_schema.label(label_index, label))
+        {
+            return fail(EReason::invalid_input, source, type);
+        }
+        result = label.value;
+        return true;
+    }
+    if (layout.category != ECategory::primitive)
+    {
+        return fail(EReason::invalid_input, source, type);
+    }
+    EReason reason{ EReason::none };
+    if (!convert_primitive(m_document, source, layout.primitive, static_cast<unsigned>(layout.size), result, reason))
+    {
+        return fail(reason == EReason::invalid_default ? EReason::invalid_input : reason, source, type);
+    }
+    return true;
+}
+
+bool CValueWriter::field_scalar(const SField& field, const SOccurrence source, SScalar& result) noexcept
+{
+    if ((field.interpretation == EInterpretation::ordinary) ||
+        (m_document.value_kind(source) == EDocumentValueKind::integer))
+    {
+        if (!scalar(field.type, source, result))
+        {
+            return false;
+        }
+    }
+    else
+    {
+        EReason reason{ EReason::none };
+        if (!convert_normalised(m_document, source, field.interpretation, field.width, result, reason))
+        {
+            return fail(reason == EReason::invalid_default ? EReason::invalid_input : reason, source, field.type);
+        }
+    }
+    SType logical;
+    if (!m_schema.type(field.type, logical) ||
+        !fits_scalar(result, field.signed_value, static_cast<unsigned>(logical.size * 8u)) ||
+        !fits_scalar(result, field.signed_value, field.width))
+    {
+        return fail(EReason::invalid_range, source, field.type);
+    }
+    return true;
+}
+
+bool CValueWriter::structure(const CSchemaIndex type, const SType& layout, const SOccurrence source,
+    std::uint8_t* const destination, const std::size_t destination_size, const EWriteMode mode, const unsigned depth) noexcept
+{
+    const EDocumentValueKind kind = source.is_valid() ? m_document.value_kind(source) : EDocumentValueKind::invalid;
+    if (source.is_valid() && (kind != EDocumentValueKind::object) && (kind != EDocumentValueKind::array))
+    {
+        return fail(EReason::invalid_input, source, type);
+    }
+    if ((kind == EDocumentValueKind::object) && !validate_object(type, source, ECategory::structure))
+    {
+        return false;
+    }
+    if ((kind == EDocumentValueKind::array) && !validate_positional(type, source))
+    {
+        return false;
+    }
+    const std::uint32_t supplied = source.is_valid() ? m_document.child_count(source) : 0u;
+    if ((kind == EDocumentValueKind::array) && (supplied > layout.count))
+    {
+        return fail(EReason::invalid_range, source, type);
+    }
+    if ((mode == EWriteMode::bulk) &&
+        (!source.is_valid() || (supplied != layout.count)))
+    {
+        return fail(EReason::missing_property, source, type);
+    }
+    SOccurrence positional = kind == EDocumentValueKind::array ? m_document.first_child(source) : SOccurrence{};
+    for (std::uint32_t ordinal = 0u; ordinal < layout.count; ++ordinal)
+    {
+        const CSchemaIndex member_index = m_schema.member_at(type, ordinal);
+        SMember member;
+        if (!m_schema.member(member_index, member) || (member.offset > destination_size) ||
+            (member.size > destination_size - static_cast<std::size_t>(member.offset)))
+        {
+            return fail(EReason::invalid_layout, source, type);
+        }
+        const SOccurrence child = kind == EDocumentValueKind::object ?
+            m_document.object_child(source, m_schema.name(member.name)) :
+            ((kind == EDocumentValueKind::array) && (ordinal < supplied) ? positional : SOccurrence{});
+        if (positional.is_valid() && (kind == EDocumentValueKind::array))
+        {
+            positional = m_document.next_sibling(positional);
+        }
+        if ((mode == EWriteMode::bulk) && !child.is_valid())
+        {
+            return fail(EReason::missing_property, source, member.type);
+        }
+        if ((mode == EWriteMode::alternative) && !child.is_valid())
+        {
+            continue;
+        }
+        std::uint8_t* const member_destination = destination ? destination + member.offset : nullptr;
+        if (!write(member.type, member.default_description, child, member_destination,
+            static_cast<std::size_t>(member.size), mode, depth + 1u))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool CValueWriter::array(const CSchemaIndex type, const CSchemaIndex description, const SType& layout, const SOccurrence source,
+    std::uint8_t* const destination, const std::size_t destination_size, const EWriteMode mode, const unsigned depth) noexcept
+{
+    if (source.is_valid() && (m_document.value_kind(source) != EDocumentValueKind::array))
+    {
+        return fail(EReason::invalid_input, source, type);
+    }
+    if (source.is_valid() && !validate_positional(type, source))
+    {
+        return false;
+    }
+    const std::uint32_t supplied = source.is_valid() ? m_document.child_count(source) : 0u;
+    if (supplied > layout.count)
+    {
+        return fail(EReason::invalid_range, source, type);
+    }
+    if ((mode == EWriteMode::bulk) && (supplied != layout.count))
+    {
+        return fail(EReason::missing_property, source, type);
+    }
+    SType element;
+    if (!m_schema.type(layout.element_or_storage, element))
+    {
+        return fail(EReason::unknown_type, source, type);
+    }
+
+    //  Omitted zero-byte elements need no physical default work. Authored
+    //  elements still pass through recursive shape and count validation.
+    const std::uint32_t visited = (mode == EWriteMode::bulk || element.size != 0u) ?
+        (mode == EWriteMode::alternative ? supplied : layout.count) : supplied;
+    SOccurrence positional = source.is_valid() ? m_document.first_child(source) : SOccurrence{};
+    for (std::uint32_t ordinal = 0u; ordinal < visited; ++ordinal)
+    {
+        const SOccurrence child = ordinal < supplied ? positional : SOccurrence{};
+        if (positional.is_valid())
+        {
+            positional = m_document.next_sibling(positional);
+        }
+        if (!child.is_valid() && (mode == EWriteMode::alternative))
+        {
+            continue;
+        }
+        CSchemaIndex element_default;
+        if ((mode != EWriteMode::bulk) &&
+            !m_schema.default_element(type, description, ordinal, element_default))
+        {
+            return fail(EReason::invalid_default, source, type);
+        }
+        const std::uint64_t offset = layout.stride * static_cast<std::uint64_t>(ordinal);
+        if ((offset > destination_size) || (element.size > destination_size - static_cast<std::size_t>(offset)))
+        {
+            return fail(EReason::invalid_layout, child, type);
+        }
+        std::uint8_t* const element_destination = destination ? destination + static_cast<std::size_t>(offset) : nullptr;
+        if (!write(layout.element_or_storage, element_default, child, element_destination,
+            static_cast<std::size_t>(element.size), mode, depth + 1u))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool CValueWriter::bit_structure(const CSchemaIndex type, const SType& layout, const SOccurrence source,
+    std::uint8_t* const destination, const EWriteMode mode) noexcept
+{
+    const EDocumentValueKind kind = source.is_valid() ? m_document.value_kind(source) : EDocumentValueKind::invalid;
+    if (source.is_valid() && (kind != EDocumentValueKind::object) && (kind != EDocumentValueKind::array))
+    {
+        return fail(EReason::invalid_input, source, type);
+    }
+    if ((kind == EDocumentValueKind::object) && !validate_object(type, source, ECategory::bit_structure))
+    {
+        return false;
+    }
+    if ((kind == EDocumentValueKind::array) && !validate_positional(type, source))
+    {
+        return false;
+    }
+    const std::uint32_t supplied = source.is_valid() ? m_document.child_count(source) : 0u;
+    if ((kind == EDocumentValueKind::array) && (supplied > layout.count))
+    {
+        return fail(EReason::invalid_range, source, type);
+    }
+    if ((mode == EWriteMode::bulk) && (!source.is_valid() || (supplied != layout.count)))
+    {
+        return fail(EReason::missing_property, source, type);
+    }
+    std::uint64_t word = mode == EWriteMode::alternative ?
+        read_little_endian(destination, static_cast<std::size_t>(layout.size)) : 0u;
+    SOccurrence positional = kind == EDocumentValueKind::array ? m_document.first_child(source) : SOccurrence{};
+    for (std::uint32_t ordinal = 0u; ordinal < layout.count; ++ordinal)
+    {
+        SField field;
+        if (!m_schema.field(m_schema.field_at(type, ordinal), field))
+        {
+            return fail(EReason::invalid_layout, source, type);
+        }
+        const SOccurrence child = kind == EDocumentValueKind::object ?
+            m_document.object_child(source, m_schema.name(field.name)) :
+            ((kind == EDocumentValueKind::array) && (ordinal < supplied) ? positional : SOccurrence{});
+        if (positional.is_valid() && (kind == EDocumentValueKind::array))
+        {
+            positional = m_document.next_sibling(positional);
+        }
+        if ((mode == EWriteMode::bulk) && !child.is_valid())
+        {
+            return fail(EReason::missing_property, source, field.type);
+        }
+        if ((mode == EWriteMode::alternative) && !child.is_valid())
+        {
+            continue;
+        }
+        SScalar value;
+        if (child.is_valid())
+        {
+            if (!field_scalar(field, child, value))
+            {
+                return false;
+            }
+        }
+        else
+        {
+            SDefault default_value;
+            if (!m_schema.default_value(field.type, field.default_description, default_value))
+            {
+                return fail(EReason::invalid_default, source, field.type);
+            }
+            value = default_value.scalar;
+        }
+        const std::uint64_t bits = scalar_bits(value, field.primitive);
+        word = (word & ~field.mask) | ((bits << field.shift) & field.mask);
+    }
+    write_little_endian(destination, static_cast<std::size_t>(layout.size), word);
+    return true;
+}
+
+bool CValueWriter::write(const CSchemaIndex type, const CSchemaIndex description, const SOccurrence source,
+    std::uint8_t* const destination, const std::size_t destination_size, const EWriteMode mode, const unsigned depth) noexcept
+{
+    if (depth >= k_max_value_depth)
+    {
+        return fail(EReason::storage_limit, source, type);
+    }
+    SType layout;
+    if (!m_schema.type(type, layout))
+    {
+        return fail(EReason::unknown_type, source, type);
+    }
+    if ((layout.size > destination_size) || ((layout.size != 0u) && !destination))
+    {
+        return fail(EReason::invalid_range, source, type);
+    }
+    if ((mode == EWriteMode::alternative) && !source.is_valid())
+    {
+        return true;
+    }
+    switch (layout.category)
+    {
+        case ECategory::primitive:
+        case ECategory::enumeration:
+        {
+            if ((mode == EWriteMode::bulk) && !source.is_valid())
+            {
+                return fail(EReason::missing_property, source, type);
+            }
+            SScalar value;
+            if (source.is_valid())
+            {
+                if (!scalar(type, source, value))
+                {
+                    return false;
+                }
+            }
+            else
+            {
+                SDefault default_value;
+                if (!m_schema.default_value(type, description, default_value))
+                {
+                    return fail(EReason::invalid_default, source, type);
+                }
+                value = default_value.scalar;
+            }
+            write_little_endian(destination, static_cast<std::size_t>(layout.size), scalar_bits(value, layout.primitive));
+            return true;
+        }
+        case ECategory::structure:
+            return structure(type, layout, source, destination, destination_size, mode, depth);
+        case ECategory::array:
+            return array(type, description, layout, source, destination, destination_size, mode, depth);
+        case ECategory::bit_structure:
+            return bit_structure(type, layout, source, destination, mode);
+        default:
+            return fail(EReason::unknown_type, source, type);
+    }
+}
+
+[[nodiscard]] static bool preflight(const CResolvedSchema& schema, const CDocumentRead& document,
+    const CSchemaIndex type, const SOccurrence declaration, const std::uint8_t* const bytes,
+    const std::size_t byte_count, SValueDiagnostic& diagnostic, SType& layout) noexcept
+{
+    diagnostic = {};
+    if (!schema.is_ready() || !document.is_ready() || (declaration.is_valid() && !document.contains(declaration)) ||
+        !schema.type(type, layout))
+    {
+        diagnostic = { EReason::invalid_input, declaration, type };
+        return false;
+    }
+    if ((byte_count < layout.size) || ((layout.size != 0u) &&
+        (!bytes || ((reinterpret_cast<std::uintptr_t>(bytes) & (layout.alignment - 1u)) != 0u))))
+    {
+        diagnostic = { EReason::invalid_range, declaration, type };
+        return false;
+    }
+    return true;
+}
+
+bool construct_value(const CResolvedSchema& schema, const CDocumentRead& document, const CSchemaIndex type,
+    const SOccurrence declaration, std::uint8_t* const destination, const std::size_t destination_size,
+    const EConstructionMode mode, SValueDiagnostic& diagnostic) noexcept
+{
+    SType layout;
+    if (!preflight(schema, document, type, declaration, destination, destination_size, diagnostic, layout))
+    {
+        return false;
+    }
+    CValueWriter writer{ schema, document, diagnostic };
+    return writer.write(type, {}, declaration, destination, static_cast<std::size_t>(layout.size),
+        mode == EConstructionMode::complete_bulk ? EWriteMode::bulk : EWriteMode::instance, 0u);
+}
+
+bool construct_alternative(const CResolvedSchema& schema, const CDocumentRead& document, const CSchemaIndex type,
+    const SOccurrence declaration, const std::uint8_t* const base, const std::size_t base_size,
+    std::uint8_t* const destination, const std::size_t destination_size, SValueDiagnostic& diagnostic) noexcept
+{
+    SType layout;
+    if (!preflight(schema, document, type, declaration, base, base_size, diagnostic, layout) ||
+        !preflight(schema, document, type, declaration, destination, destination_size, diagnostic, layout))
+    {
+        return false;
+    }
+    const std::uintptr_t source_address = reinterpret_cast<std::uintptr_t>(base);
+    const std::uintptr_t destination_address = reinterpret_cast<std::uintptr_t>(destination);
+    if ((base_size != 0u) && (destination_size != 0u) &&
+        (source_address <= destination_address ?
+            ((destination_address - source_address) < base_size) :
+            ((source_address - destination_address) < destination_size)))
+    {
+        diagnostic = { EReason::invalid_range, declaration, type };
+        return false;
+    }
+    if (layout.size != 0u)
+    {
+        std::memcpy(destination, base, static_cast<std::size_t>(layout.size));
+    }
+    CValueWriter writer{ schema, document, diagnostic };
+    return writer.write(type, {}, declaration, destination, static_cast<std::size_t>(layout.size), EWriteMode::alternative, 0u);
+}
+
+}   // namespace schema::detail

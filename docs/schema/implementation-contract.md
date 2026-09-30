@@ -578,6 +578,8 @@ normalisation with preserved raw signed minima. The same implementing chat
 completed this revision within the same package. Coordinator review and
 validation passed. The user completed manual review on 30 September with no
 changes and authorised the separate commit. Passing validation was not repeated.
+The package is committed as `a53c762` (Support GPU-style UNORM and SNORM schema
+defaults), completing stage 3.
 Integer defaults are raw codes; floating defaults use the agreed quantisation
 and clamping rules, with resolved defaults stored as unsigned UNORM or signed
 SNORM integer codes. SNORM requires a signed primitive and at least two mask bits.
@@ -679,7 +681,54 @@ build/test output. All eight generated headers remain byte-for-byte identical
 to `stage3-layout-cached-dbg64.p57464`, so the passing compiler layout matrix
 was not repeated. Diff and text-policy checks passed.
 
-Stages 4-8 remain planned.
+The user confirmed the scope of stage 4 on 30 September and authorised
+continuation. The coordinator and existing implementing chat divided the work
+into bounded packages for shared value construction, baked bulk loading, and
+baked instance loading. The first package is implemented and coordinator-reviewed:
+internal value construction and independent-alternative codecs, sharing scalar
+conversion with schema resolution. User manual review is complete and its separate
+commit was authorised on 30 September, including the user's whitespace/line-break edits.
+The two loader packages and stages 5-8 remain planned.
+During that review, the user clarified that specialisations are independent
+alternatives and short positional declarations inherit omitted values from
+their base. Base construction still completes omitted values from defaults;
+bulk records remain complete. The design and sample notes now reflect this
+distinction, including positional selection intent for later capture and edits.
+
+Stage 4a validation covers live/baked declaration input, nested default completion,
+complete bulk records, multi-level alternatives, explicitly selected values equal
+to their original parent, source preservation, bounds/alignment/overlap rejection,
+and named positional-entry rejection. Physical checks compare a complete
+little-endian byte image for a nonmonotonic explicit layout, including preserved
+padding, signed integers, half and double values. Bit-field checks include signed
+64-bit storage, shifted UNORM/SNORM codes, raw signed minima and preservation of
+unselected bits. Empty-type tests retain declaration validation and avoid iterating
+over a large omitted zero-byte array. Positional traversal uses sibling cursors
+instead of repeated indexed lookup on live documents. No codec allocation,
+ownership wrapper, live editing, output or remapping API is introduced.
+
+Debug x64, Release x64 and Debug x86 solution builds and ordinary `-t1` suites
+passed with 3,873 schema checks and zero failures throughout:
+`stage4a-final-dbg64` (PID 70968), `stage4a-final-rel64` (PID 72948) and
+`stage4a-final-dbg32` (PID 84104). The coordinator inspected actual build/test
+output. The x86 build initially exposed test-helper size-conversion warnings;
+checked fixture-size narrowing removed them, and the final x86 build has no new
+warnings. The passing x64 runs were not repeated for that test-only correction.
+Final review also made the exercised fixture-size guard an explicit test assertion;
+the recorded runtime counts precede that assertion, without a production-code change.
+Generated declarations and resolved record layouts are unchanged, so the compiler
+layout matrix was not repeated. The existing GPU explanation accompanies the
+shared conversion helper. Visual Studio item/filter files retain their original
+CRLF, BOM and final-newline state.
+Diff and tracked text-policy checks passed; the three new source/header files
+were separately checked for LF, final newlines and trailing whitespace.
+
+The user's review also aligned declaration/definition const decoration and removed
+the codec's anonymous namespace. The existing meaningful `schema::detail` grouping
+remains, with translation-unit helpers declared `static`. Coordinator review,
+a targeted Debug x64 build and text-policy checks passed for these corrections;
+the runtime matrix was not repeated. Subsequent user edits were whitespace only.
+
 Stage 1 is complete and committed independently as
 `d92dddd`; its code, tests and data-model documentation exclude schema planning.
 Implementing chats receive bounded briefs from the coordinator and return changes
@@ -735,6 +784,23 @@ locator validation and per-document binary views. Implement the value codecs and
 materialisation from embedded declarations/hierarchy or complete bulk records.
 Bind supplied payload views or return newly materialised owners separately.
 Reconcile the sample's locator and bulk-entry grammar in this schema stage.
+
+Deliver this stage in three bounded packages:
+
+1. Shared internal value codecs: construct base values with defaults, require
+   complete bulk records, and construct independent alternatives from completed
+   parent snapshots. Share scalar conversion with resolution; check bounded
+   storage, alignment and alternative-source overlap, including zero-byte types.
+   Preserve source data and schema semantic order; leave byte padding untouched
+   during construction and preserve inherited padding/unselected bits in alternatives.
+   On conversion failure, partial low-level destination data must be discarded.
+2. Baked bulk loading: role queries, explicit schema binding, locator validation,
+   supplied payload views and separately returned materialised payload owners.
+   Settle zero-byte record count inference and logical embedded/binary comparison
+   before implementing those paths; reconcile the sample's bulk-entry grammar.
+3. Baked instance loading: hierarchy traversal and independent snapshots built
+   parent before child, role queries and the same locator/ownership rules.
+   Reconcile the sample's reserved instance and specialisation locators.
 
 Completion evidence: supplied-binary and embedded-only loading, reserved mutable
 locator updates using stage 1, alignment/range/count/overlap checks, independent

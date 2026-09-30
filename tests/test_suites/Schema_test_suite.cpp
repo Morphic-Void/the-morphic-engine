@@ -11,6 +11,7 @@
 #include "schema/resolved_schema.hpp"
 #include "schema/document_query.hpp"
 #include "schema/schema_wrappers.hpp"
+#include "schema/value_codec.hpp"
 #include "memory/memory_policies.hpp"
 #include "data_model/document_parser.hpp"
 #include "data_model/document_translation.hpp"
@@ -2521,6 +2522,228 @@ static void test_schema_conversion_allocations(TTestContext& ctx)
     }
     TEST_EXPECT(ctx, demotion_failure && demotion_success);
 }
+
+static void test_value_codec(TTestContext& ctx)
+{
+    CBakedDocumentBlock schema_block;
+    CResolvedSchema resolved;
+    if (!resolve(ctx, fixture, schema_block, resolved))
+    {
+        return;
+    }
+    const CSchemaIndex vector = resolved.find_type(CStringView{ "Vector4" });
+    const CSchemaIndex arrays = resolved.find_type(CStringView{ "Arrays" });
+    const CSchemaIndex flags = resolved.find_type(CStringView{ "Flags" });
+    SType vector_type, arrays_type, flags_type;
+    TEST_EXPECT(ctx, resolved.type(vector, vector_type) && resolved.type(arrays, arrays_type) &&
+        resolved.type(flags, flags_type));
+    const bool fixture_sizes_valid = vector_type.size != 0u && arrays_type.size != 0u &&
+        flags_type.size != 0u && vector_type.size <= 512u && arrays_type.size <= 512u &&
+        flags_type.size <= 512u;
+    TEST_EXPECT(ctx, fixture_sizes_valid);
+    if (!fixture_sizes_valid)
+    {
+        return;
+    }
+    const std::size_t vector_size = static_cast<std::size_t>(vector_type.size);
+    const std::size_t arrays_size = static_cast<std::size_t>(arrays_type.size);
+    const std::size_t flags_size = static_cast<std::size_t>(flags_type.size);
+
+    const std::string values = R"({"base":[2,1,4,7],"named":{"y":3},"positional":[9],
+        "equal":{"x":2},"bulk":[2,1,4,7],"short":[2,1,4],"unknown":{"q":1},
+        "null":[null],"excess":[1,2,3,4,5],"arrayBase":{"rows":[[4]]},
+        "arrayAlternative":{"rows":[[5]]},"bits":{"visible":false},
+        "namedPosition":[{"x":1}],"namedNested":{"rows":[{"x":1}]},
+        "namedBits":[{"visible":false}]})";
+    CBakedDocumentBlock data_block;
+    CLiveDocument live;
+    TEST_EXPECT(ctx, bake(values, data_block) && parse_live(values, live));
+    if (!data_block.is_ready() || !live.is_ready())
+    {
+        return;
+    }
+    const auto exercise = [&](const detail::CDocumentRead& document)
+    {
+        const auto at = [&](const char* const name) noexcept
+        {
+            return document.object_child(document.root(), CStringView{ name });
+        };
+        alignas(128) std::uint8_t base[512], parent[512], child[512], equal[512];
+        std::memset(base, 0xa5, sizeof(base));
+        std::memset(parent, 0xa5, sizeof(parent));
+        std::memset(child, 0xa5, sizeof(child));
+        std::memset(equal, 0xa5, sizeof(equal));
+        detail::SValueDiagnostic diagnostic;
+        const auto construct = [&](CSchemaIndex type, detail::SOccurrence source, std::uint8_t* out,
+            std::size_t size, detail::EConstructionMode mode)
+        {
+            return detail::construct_value(resolved, document, type, source, out, size, mode, diagnostic);
+        };
+        const auto alternative = [&](CSchemaIndex type, detail::SOccurrence source,
+            const std::uint8_t* from, std::size_t from_size, std::uint8_t* out, std::size_t out_size)
+        {
+            return detail::construct_alternative(resolved, document, type, source,
+                from, from_size, out, out_size, diagnostic);
+        };
+        const auto component = [](const std::uint8_t* bytes, const std::size_t index)
+        {
+            float value{};
+            std::memcpy(&value, bytes + index * sizeof(float), sizeof(value));
+            return value;
+        };
+        TEST_EXPECT(ctx, construct(vector, at("base"), base, vector_size, detail::EConstructionMode::instance));
+        TEST_EXPECT(ctx, component(base, 0u) == 2.0f && component(base, 1u) == 1.0f &&
+            component(base, 2u) == 4.0f && component(base, 3u) == 7.0f);
+        TEST_EXPECT(ctx, alternative(vector, at("named"), base, vector_size, parent, vector_size));
+        TEST_EXPECT(ctx, alternative(vector, at("positional"), parent, vector_size, child, vector_size));
+        TEST_EXPECT(ctx, component(child, 0u) == 9.0f && component(child, 1u) == 3.0f &&
+            component(child, 2u) == 4.0f && component(child, 3u) == 7.0f);
+        TEST_EXPECT(ctx, component(base, 1u) == 1.0f && component(parent, 0u) == 2.0f &&
+            component(parent, 3u) == 7.0f);
+        TEST_EXPECT(ctx, alternative(vector, at("equal"), base, vector_size, equal, vector_size) &&
+            std::memcmp(base, equal, vector_size) == 0);
+        std::memcpy(parent, base, vector_size);
+        const float changed_x = 9.0f;
+        std::memcpy(parent, &changed_x, sizeof(changed_x));
+        //  A new parent changed x; the retained equal selection still supplies 2.
+        TEST_EXPECT(ctx, alternative(vector, at("equal"), parent, vector_size, equal, vector_size) &&
+            component(parent, 0u) == 9.0f && component(equal, 0u) == 2.0f);
+        TEST_EXPECT(ctx, construct(vector, at("short"), equal, vector_size, detail::EConstructionMode::instance) &&
+            component(equal, 3u) == 0.0f);
+        TEST_EXPECT(ctx, construct(vector, at("bulk"), equal, vector_size, detail::EConstructionMode::complete_bulk));
+        TEST_EXPECT(ctx, !construct(vector, at("short"), equal, vector_size, detail::EConstructionMode::complete_bulk) &&
+            diagnostic.reason == EReason::missing_property);
+        TEST_EXPECT(ctx, !construct(vector, at("unknown"), equal, vector_size, detail::EConstructionMode::instance) &&
+            diagnostic.reason == EReason::unknown_property);
+        TEST_EXPECT(ctx, !construct(vector, at("null"), equal, vector_size, detail::EConstructionMode::instance) &&
+            diagnostic.reason == EReason::invalid_input);
+        TEST_EXPECT(ctx, !construct(vector, at("excess"), equal, vector_size, detail::EConstructionMode::instance) &&
+            diagnostic.reason == EReason::invalid_range);
+        TEST_EXPECT(ctx, !construct(vector, at("namedPosition"), equal, vector_size,
+            detail::EConstructionMode::instance) && diagnostic.reason == EReason::invalid_input);
+        TEST_EXPECT(ctx, !construct(vector, at("base"), equal, vector_size - 1u, detail::EConstructionMode::instance) &&
+            diagnostic.reason == EReason::invalid_range);
+        TEST_EXPECT(ctx, !construct(vector, at("base"), equal + 1u, vector_size, detail::EConstructionMode::instance) &&
+            diagnostic.reason == EReason::invalid_range);
+        std::uint8_t before[sizeof(base)];
+        std::memcpy(before, base, sizeof(base));
+        TEST_EXPECT(ctx, !alternative(vector, at("named"), base, vector_size, base + 4u, vector_size) &&
+            diagnostic.reason == EReason::invalid_range && std::memcmp(base, before, sizeof(base)) == 0);
+        TEST_EXPECT(ctx, !alternative(vector, at("named"), base, vector_size - 1u, parent, vector_size) &&
+            diagnostic.reason == EReason::invalid_range);
+
+        TEST_EXPECT(ctx, construct(arrays, at("arrayBase"), base, arrays_size, detail::EConstructionMode::instance));
+        TEST_EXPECT(ctx, component(base, 0u) == 4.0f && component(base, 1u) == 0.0f &&
+            component(base, 2u) == 2.0f && component(base, 3u) == 3.0f);
+        TEST_EXPECT(ctx, alternative(arrays, at("arrayAlternative"), base, arrays_size,
+            parent, arrays_size));
+        TEST_EXPECT(ctx, component(parent, 0u) == 5.0f && component(parent, 1u) == 0.0f &&
+            component(parent, 2u) == 2.0f && component(parent, 3u) == 3.0f);
+        TEST_EXPECT(ctx, !construct(arrays, at("namedNested"), equal, arrays_size,
+            detail::EConstructionMode::instance) && diagnostic.reason == EReason::invalid_input);
+
+        TEST_EXPECT(ctx, construct(flags, {}, base, flags_size, detail::EConstructionMode::instance));
+        base[1] |= 0x80u; //  An unaddressed bit must survive a selected-field alternative.
+        TEST_EXPECT(ctx, alternative(flags, at("bits"), base, flags_size, parent, flags_size));
+        TEST_EXPECT(ctx, (base[0] & 1u) == 1u && (parent[0] & 1u) == 0u &&
+            (parent[0] & 0xfeu) == (base[0] & 0xfeu) && parent[1] == base[1]);
+        TEST_EXPECT(ctx, !construct(flags, at("namedBits"), equal, flags_size,
+            detail::EConstructionMode::instance) && diagnostic.reason == EReason::invalid_input);
+    };
+    exercise(detail::CDocumentRead{ data_block.document() });
+    exercise(detail::CDocumentRead{ live });
+
+    const std::string wire_schema = R"({"types":{
+        "structures":{
+            "Wire":{"detail":{"alignment":8,"size":24},"members":[
+                {"tail":{"type":"i16","offset":8}},
+                {"head":{"type":"u16","offset":0}},
+                {"half":{"type":"f16","offset":4}},
+                {"wide":{"type":"f64","offset":16}}]},
+            "Inner":{"members":[{"a":{"type":"u8"}},{"b":{"type":"u8"}}]},
+            "Outer":{"members":[{"inner":{"type":"Inner"}}]}},
+        "bit_structures":{
+            "Full":{"storage":"u64","members":[
+                {"negative":{"type":"i64","mask":18446744073709551615}}]},
+            "Norm":{"storage":"u16","members":[
+                {"u":{"type":"u8","mask":15,"interpretation":"unorm"}},
+                {"s":{"type":"i8","mask":240,"interpretation":"snorm"}}]}}}})";
+    const std::string wire_values = R"({"wire":[-2,4660,1.0,1.0],"wireAlternative":[-1],
+        "full":{"negative":-9223372036854775808},
+        "norm":{"u":1.0,"s":-1.0},"normRaw":{"u":15,"s":-8},
+        "incomplete":{"inner":{"a":1}},"complete":{"inner":{"a":1,"b":2}}})";
+    CBakedDocumentBlock wire_schema_block, wire_data_block;
+    CResolvedSchema wire_resolved;
+    const bool wire_schema_ready = resolve(ctx, wire_schema, wire_schema_block, wire_resolved);
+    TEST_EXPECT(ctx, bake(wire_values, wire_data_block));
+    if (wire_schema_ready && wire_data_block.is_ready())
+    {
+        const detail::CDocumentRead document{ wire_data_block.document() };
+        const auto at = [&](const char* const name) noexcept
+        {
+            return document.object_child(document.root(), CStringView{ name });
+        };
+        const auto type = [&](const char* const name) noexcept { return wire_resolved.find_type(CStringView{ name }); };
+        detail::SValueDiagnostic diagnostic;
+        alignas(128) std::uint8_t bytes[64], alternative[64];
+        std::memset(bytes, 0xa5, sizeof(bytes));
+        TEST_EXPECT(ctx, detail::construct_value(wire_resolved, document, type("Wire"), at("wire"),
+            bytes, 24u, detail::EConstructionMode::instance, diagnostic));
+        const std::uint8_t expected_wire[24] = {
+            0x34u, 0x12u, 0xa5u, 0xa5u, 0x00u, 0x3cu, 0xa5u, 0xa5u,
+            0xfeu, 0xffu, 0xa5u, 0xa5u, 0xa5u, 0xa5u, 0xa5u, 0xa5u,
+            0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0xf0u, 0x3fu };
+        TEST_EXPECT(ctx, std::memcmp(bytes, expected_wire, sizeof(expected_wire)) == 0);
+        TEST_EXPECT(ctx, detail::construct_alternative(wire_resolved, document, type("Wire"),
+            at("wireAlternative"), bytes, 24u, alternative, 24u, diagnostic) &&
+            alternative[8] == 0xffu && alternative[9] == 0xffu &&
+            alternative[0] == 0x34u && alternative[10] == 0xa5u && bytes[8] == 0xfeu);
+        TEST_EXPECT(ctx, detail::construct_value(wire_resolved, document, type("Full"), at("full"),
+            bytes, 8u, detail::EConstructionMode::complete_bulk, diagnostic));
+        bool full_width = bytes[7] == 0x80u;
+        for (unsigned i = 0u; i < 7u; ++i) full_width &= bytes[i] == 0u;
+        TEST_EXPECT(ctx, full_width);
+        TEST_EXPECT(ctx, detail::construct_value(wire_resolved, document, type("Norm"), at("norm"),
+            bytes, 2u, detail::EConstructionMode::complete_bulk, diagnostic) &&
+            bytes[0] == 0x9fu && bytes[1] == 0u);
+        TEST_EXPECT(ctx, detail::construct_value(wire_resolved, document, type("Norm"), at("normRaw"),
+            bytes, 2u, detail::EConstructionMode::complete_bulk, diagnostic) && bytes[0] == 0x8fu);
+        TEST_EXPECT(ctx, !detail::construct_value(wire_resolved, document, type("Outer"), at("incomplete"),
+            bytes, 2u, detail::EConstructionMode::complete_bulk, diagnostic) &&
+            diagnostic.reason == EReason::missing_property);
+        TEST_EXPECT(ctx, detail::construct_value(wire_resolved, document, type("Outer"), at("complete"),
+            bytes, 2u, detail::EConstructionMode::complete_bulk, diagnostic) &&
+            bytes[0] == 1u && bytes[1] == 2u);
+    }
+
+    const std::string empty_schema = R"({"types":{"structures":{
+        "Empty":{"members":[]},"Huge":{"members":[{"items":{
+        "type":{"element":"Empty","count":100000000}}}]},
+        "Small":{"members":[{"items":{"type":{"element":"Empty","count":2}}}]}}}})";
+    CBakedDocumentBlock empty_block, empty_data;
+    CResolvedSchema empty_resolved;
+    if (resolve(ctx, empty_schema, empty_block, empty_resolved))
+    {
+        TEST_EXPECT(ctx, bake(R"({"value":{"items":[]},"bad":{"items":[null]},
+            "shape":{"items":null},"excess":{"items":[{},{},{}]}})", empty_data));
+        const detail::CDocumentRead document{ empty_data.document() };
+        const CSchemaIndex huge = empty_resolved.find_type(CStringView{ "Huge" });
+        detail::SValueDiagnostic diagnostic;
+        TEST_EXPECT(ctx, detail::construct_value(empty_resolved, document, huge,
+            document.object_child(document.root(), CStringView{ "value" }), nullptr, 0u,
+            detail::EConstructionMode::instance, diagnostic));
+        TEST_EXPECT(ctx, !detail::construct_value(empty_resolved, document, huge,
+            document.object_child(document.root(), CStringView{ "bad" }), nullptr, 0u,
+            detail::EConstructionMode::instance, diagnostic) && diagnostic.reason == EReason::invalid_input);
+        TEST_EXPECT(ctx, !detail::construct_value(empty_resolved, document, huge,
+            document.object_child(document.root(), CStringView{ "shape" }), nullptr, 0u,
+            detail::EConstructionMode::instance, diagnostic) && diagnostic.reason == EReason::invalid_input);
+        TEST_EXPECT(ctx, !detail::construct_value(empty_resolved, document,
+            empty_resolved.find_type(CStringView{ "Small" }),
+            document.object_child(document.root(), CStringView{ "excess" }), nullptr, 0u,
+            detail::EConstructionMode::instance, diagnostic) && diagnostic.reason == EReason::invalid_range);
+    }
+}
 }   // namespace schema_tests
 
 int run_schema_tests()
@@ -2550,6 +2773,7 @@ int run_schema_tests()
     schema_tests::test_schema_root_member_translation(ctx);
     schema_tests::test_schema_conversion(ctx);
     schema_tests::test_schema_conversion_allocations(ctx);
+    schema_tests::test_value_codec(ctx);
     const schema::SRecordSizes sizes = schema::CResolvedSchema::record_sizes();
     std::cout << "Schema record bytes: type=" << sizes.type << " member=" << sizes.member << " label=" << sizes.label
               << " field=" << sizes.field << " default=" << sizes.default_value << " mapping=" << sizes.mapping << '\n';

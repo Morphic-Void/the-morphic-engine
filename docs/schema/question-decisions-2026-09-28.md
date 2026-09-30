@@ -108,6 +108,17 @@ subsequent reconciliation with [design.md](design.md), the
 
 ## Capture, specialisations, and output
 
+- Clarified by the user on 30 September: a specialisation is an independent
+  alternative, not an operation replacing or modifying its base. Positional
+  declarations select their supplied prefix and omitted positions inherit.
+  Thus base `[2, 1, 4, 7]` with alternative declaration `[2, 1, 4]` produces
+  `[2, 1, 4, 7]` for the alternative as well. This supersedes the earlier
+  positional-replacement/default-tail rule for specialisations. The rule
+  applies recursively, like named selection; base construction still uses
+  defaults for omitted input and embedded bulk records must still be complete.
+  The base is the immediate parent's fully realised description, incorporating
+  the entire chain of earlier specialisations; inherited values do not revert
+  to the original instance or schema defaults.
 - A specialisation is an independently selectable alternative instance. Its
   document declaration retains its parent relationship and only its selected
   modifications; its binary image is complete.

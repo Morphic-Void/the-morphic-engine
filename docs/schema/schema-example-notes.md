@@ -119,13 +119,13 @@ so a shifted mask need not fit the logical field type or its enum value set.
   and overrides may still set its components explicitly.
 - `Position.origin` uses positional construction. Its child `raised` changes
   only `y`, producing `[0.0, 2.0, 0.0]`.
-- Positional structure input and fixed arrays may be short: values fill from
-  the start and remaining members/elements use defaults. `Vector4.base.padded`
-  supplies `[2.0, 1.0, 4.0]` and becomes `[2.0, 1.0, 4.0, 0.0]`, replacing
-  the inherited fourth value of 7. Its sibling `raised` supplies only named
+- Positional structure input and fixed arrays may be short. Base construction
+  completes omitted members/elements from defaults; specialisations inherit
+  them from their base. `Vector4.base.padded` supplies `[2.0, 1.0, 4.0]` and
+  becomes `[2.0, 1.0, 4.0, 7.0]`. Its sibling `raised` supplies only named
   `y` and becomes `[2.0, 3.0, 4.0, 7.0]`, retaining the other values.
-- `Vertex.base.short_uv` replaces the complete ordinary array with `[0.5]`;
-  its effective `uv` is `[0.5, 0.0]`, not `[0.5, 0.75]`. The inherited
+- `Vertex.base.short_uv` supplies the first array element with `[0.5]`;
+  its effective `uv` is `[0.5, 0.75]`. The inherited
   `position` and `colour` are unchanged. The base's omitted `colour` uses
   `ColourRgba8` defaults, including alpha 255. Declared array count and
   structure size are unchanged by short input.
@@ -226,7 +226,10 @@ An independent check read the saved sample, converted its numeric extensions
 to strict JSON spellings in memory, and checked type references, default
 values, array extents, supplied instance member names/values, mask contiguity
 and overlap, enum field ranges, and the layouts above, including explicit offsets,
-increased alignment, nested array strides, and short positional replacement.
+increased alignment, nested array strides, and the then-current short-input rules.
 These checks passed for all eleven definitions, eleven instance declarations,
 and the three bulk records. This was not a run of the engine's Morphic parser,
-schema resolver, or C++ declaration generator.
+schema resolver, or C++ declaration generator. The user's 30 September
+clarification supersedes that check's positional-specialisation expectations:
+omitted values inherit, and every specialisation is an independent alternative
+which leaves its base unchanged. The examples above reflect that clarification.
