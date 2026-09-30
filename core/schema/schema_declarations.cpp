@@ -10,6 +10,7 @@
 
 #include "schema/resolved_schema.hpp"
 
+#include <algorithm>
 #include <charconv>
 #include <cstring>
 #include <utility>
@@ -45,6 +46,12 @@ private:
     bool type_name(const CSchemaIndex type_index) noexcept;
     bool extents(const CSchemaIndex type_index) noexcept;
     bool dependency(const CSchemaIndex type_index, const unsigned depth) noexcept;
+    bool native_structure_layout(const CSchemaIndex type_index, const SType& type_info,
+        bool& matches, std::uint64_t& natural_alignment, bool& inherited_increase) noexcept;
+    bool has_increased_alignment(const CSchemaIndex type_index, bool& result) noexcept;
+    bool emit_member(const SMember& member) noexcept;
+    bool emit_padding(const std::uint64_t count) noexcept;
+    bool emit_structure_members(const CSchemaIndex type_index, const SType& type_info, const bool physical_order) noexcept;
     bool definition(const std::uint32_t definition_ordinal, const unsigned depth) noexcept;
 
     //  Borrowed input and per-run output state.
@@ -53,9 +60,10 @@ private:
     SDiagnostic& m_diagnostic;
     CSchemaHandle m_current_type, m_current_member;
     TPodVector<char> m_bytes;
-    TPodVector<std::uint8_t> m_emitted;
+    TPodVector<std::uint8_t> m_emitted; //  0 pending, 1 emitted, 2 emitted with own or inherited increased alignment.
     bool m_global_std_shadow{};
     CSchemaIndex m_enclosing_structure;
+    std::uint64_t m_next_padding_name{};
 };
 
 CGenerator::CGenerator(const CResolvedSchema& schema, const CStringView& namespace_name, SDiagnostic& error) noexcept
@@ -332,6 +340,188 @@ bool CGenerator::dependency(const CSchemaIndex type_index, const unsigned depth)
     return fail(EReason::invalid_input);
 }
 
+bool CGenerator::has_increased_alignment(const CSchemaIndex type_index, bool& result) noexcept
+{
+    CSchemaIndex current = type_index;
+    SType type_info;
+    do
+    {
+        if (!m_schema.type(current, type_info))
+        {
+            return fail(EReason::invalid_input);
+        }
+        if (type_info.category == ECategory::array)
+        {
+            current = type_info.element_or_storage;
+        }
+    } while (type_info.category == ECategory::array);
+    result = false;
+    if (type_info.category != ECategory::structure)
+    {
+        return true;
+    }
+    for (std::uint32_t ordinal = 0u; ordinal < m_schema.definition_count(); ++ordinal)
+    {
+        if (m_schema.definition_at(ordinal) == current)
+        {
+            if (!m_emitted[ordinal])
+            {
+                return fail(EReason::invalid_input);
+            }
+            result = m_emitted[ordinal] == 2u;
+            return true;
+        }
+    }
+    return fail(EReason::invalid_input);
+}
+
+bool CGenerator::native_structure_layout(const CSchemaIndex type_index, const SType& type_info,
+    bool& matches, std::uint64_t& natural_alignment, bool& inherited_increase) noexcept
+{
+    matches = true;
+    inherited_increase = false;
+    natural_alignment = 1u;
+    std::uint64_t cursor = 0u;
+    for (std::uint32_t ordinal = 0u; ordinal < type_info.count; ++ordinal)
+    {
+        SMember member;
+        if (!m_schema.member(m_schema.member_at(type_index, ordinal), member))
+        {
+            return fail(EReason::invalid_input);
+        }
+        if (member.size == 0u)
+        {
+            continue;
+        }
+        SType member_type;
+        if (!m_schema.type(member.type, member_type))
+        {
+            return fail(EReason::invalid_input);
+        }
+        natural_alignment = std::max(natural_alignment, member_type.alignment);
+        const std::uint64_t aligned = (cursor + member_type.alignment - 1u) & ~(member_type.alignment - 1u);
+        bool child_increased{};
+        if (!has_increased_alignment(member.type, child_increased))
+        {
+            return false;
+        }
+        inherited_increase |= child_increased;
+        //  MSVC warns on implicit padding caused by a nested alignas type under /WX.
+        matches &= !child_increased || (aligned == cursor);
+        matches &= (aligned == member.offset) && (aligned + member.size <= memory::k_byte_size_ceiling);
+        cursor = aligned + member.size;
+    }
+    const std::uint64_t rounded = (cursor + natural_alignment - 1u) & ~(natural_alignment - 1u);
+    matches &= !inherited_increase || (rounded == cursor);
+    matches &= (natural_alignment == type_info.alignment) && (rounded == type_info.size);
+    return true;
+}
+
+bool CGenerator::emit_member(const SMember& member) noexcept
+{
+    m_current_member = member.source;
+    return text("    ") && type_name(member.type) && text(" ") &&
+        text(m_schema.name(member.name)) && extents(member.type) && text(";\n");
+}
+
+bool CGenerator::emit_padding(const std::uint64_t count) noexcept
+{
+    if (count == 0u)
+    {
+        return true;
+    }
+    m_current_member = {};
+    constexpr char prefix[] = "morphic_padding_";
+    char name_buffer[sizeof(prefix) + 16u];
+    std::memcpy(name_buffer, prefix, sizeof(prefix) - 1u);
+    for (; m_next_padding_name <= UINT32_MAX; ++m_next_padding_name)
+    {
+        char* const number_begin = name_buffer + sizeof(prefix) - 1u;
+        const std::to_chars_result converted = std::to_chars(
+            number_begin, name_buffer + sizeof(name_buffer), m_next_padding_name);
+        const CStringView candidate{ name_buffer, static_cast<std::size_t>(converted.ptr - name_buffer) };
+        if (m_schema.find_type(candidate) || m_schema.find_member(m_enclosing_structure, candidate) ||
+            (candidate == m_namespace))
+        {
+            continue;
+        }
+        ++m_next_padding_name;
+        return text("    ") && primitive(EPrimitive::u8) && text(" ") && text(candidate) &&
+            text("[") && number(count) && text("];\n");
+    }
+    return fail(EReason::storage_limit);
+}
+
+bool CGenerator::emit_structure_members(const CSchemaIndex type_index, const SType& type_info, const bool physical_order) noexcept
+{
+    if (!physical_order)
+    {
+        for (std::uint32_t ordinal = 0u; ordinal < type_info.count; ++ordinal)
+        {
+            SMember member;
+            if (!m_schema.member(m_schema.member_at(type_index, ordinal), member))
+            {
+                return fail(EReason::invalid_input);
+            }
+            if ((member.size != 0u) && !emit_member(member))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    std::uint32_t physical_count = 0u;
+    for (std::uint32_t ordinal = 0u; ordinal < type_info.count; ++ordinal)
+    {
+        SMember member;
+        if (!m_schema.member(m_schema.member_at(type_index, ordinal), member))
+        {
+            return fail(EReason::invalid_input);
+        }
+        physical_count += member.size != 0u;
+    }
+    std::uint64_t cursor = 0u;
+    m_next_padding_name = 0u;
+    for (std::uint32_t emitted = 0u; emitted < physical_count; ++emitted)
+    {
+        SMember next;
+        bool found = false;
+        for (std::uint32_t ordinal = 0u; ordinal < type_info.count; ++ordinal)
+        {
+            SMember candidate;
+            if (!m_schema.member(m_schema.member_at(type_index, ordinal), candidate))
+            {
+                return fail(EReason::invalid_input);
+            }
+            if ((candidate.size != 0u) && (candidate.offset >= cursor) &&
+                (!found || (candidate.offset < next.offset)))
+            {
+                next = candidate;
+                found = true;
+            }
+        }
+        if (!found || (next.offset > type_info.size) || (next.size > type_info.size - next.offset))
+        {
+            return fail(EReason::invalid_layout);
+        }
+        if ((next.offset > cursor) && !emit_padding(next.offset - cursor))
+        {
+            return false;
+        }
+        if (!emit_member(next))
+        {
+            return false;
+        }
+        cursor = next.offset + next.size;
+    }
+    if (cursor > type_info.size)
+    {
+        return fail(EReason::invalid_layout);
+    }
+    return emit_padding(type_info.size - cursor);
+}
+
 bool CGenerator::definition(const std::uint32_t definition_ordinal, const unsigned depth) noexcept
 {
     if (m_emitted[definition_ordinal])
@@ -391,6 +581,7 @@ bool CGenerator::definition(const std::uint32_t definition_ordinal, const unsign
     {
         return false;
     }
+    bool contains_increased_alignment = false;
     if (type_info.category == ECategory::enumeration)
     {
         if (!text("enum class ") || !text(name) || !text(" : ") || !type_name(type_info.element_or_storage) || !text("\n{\n"))
@@ -449,28 +640,25 @@ bool CGenerator::definition(const std::uint32_t definition_ordinal, const unsign
     }
     else
     {
-        if (!text("struct ") || !text(name) || !text("\n{\n"))
+        bool native_layout{};
+        std::uint64_t natural_alignment{};
+        bool inherited_increase{};
+        if (!native_structure_layout(type_index, type_info, native_layout, natural_alignment, inherited_increase))
+        {
+            return false;
+        }
+        contains_increased_alignment = inherited_increase || (type_info.alignment > natural_alignment);
+        if (!text("struct ") ||
+            ((type_info.alignment > natural_alignment) &&
+                (!text("alignas(") || !number(type_info.alignment) || !text(") "))) ||
+            !text(name) || !text("\n{\n"))
         {
             return false;
         }
         m_enclosing_structure = type_index;
-        for (std::uint32_t child_ordinal = 0u; child_ordinal < type_info.count; ++child_ordinal)
+        if (!emit_structure_members(type_index, type_info, !native_layout))
         {
-            SMember member;
-            if (!m_schema.member(m_schema.member_at(type_index, child_ordinal), member))
-            {
-                return fail(EReason::invalid_input);
-            }
-            if (member.size == 0u)
-            {
-                continue;
-            }
-            m_current_member = member.source;
-            if (!text("    ") || !type_name(member.type) || !text(" ") ||
-                !text(m_schema.name(member.name)) || !extents(member.type) || !text(";\n"))
-            {
-                return false;
-            }
+            return false;
         }
         m_enclosing_structure = {};
         m_current_member = {};
@@ -479,7 +667,7 @@ bool CGenerator::definition(const std::uint32_t definition_ordinal, const unsign
             return false;
         }
     }
-    m_emitted[definition_ordinal] = 1u;
+    m_emitted[definition_ordinal] = contains_increased_alignment ? 2u : 1u;
     return true;
 }
 

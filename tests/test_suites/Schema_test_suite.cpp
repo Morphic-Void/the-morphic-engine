@@ -113,7 +113,12 @@ static void expect_failure(TTestContext& ctx, const std::string& text, const ERe
     CResolvedSchema s;
     TEST_EXPECT(ctx, bake(text, block));
     SDiagnostic error;
-    TEST_EXPECT(ctx, !s.resolve(block.document(), error));
+    const bool accepted = s.resolve(block.document(), error);
+    if (accepted)
+    {
+        std::cerr << "Schema unexpectedly accepted: " << text.substr(0u, 220u) << '\n';
+    }
+    TEST_EXPECT(ctx, !accepted);
     TEST_EXPECT(ctx, !s.is_ready() && s.definition_count() == 0u);
     TEST_EXPECT(ctx, error.reason != EReason::none && error.stage != EStage::none);
     if (reason != EReason::none)
@@ -497,8 +502,185 @@ static void test_success(TTestContext& ctx)
     TEST_EXPECT(ctx, !generate_cpp(s, CStringView{ "valid" }, output, error) && !output.is_ready());
 }
 
+static void test_explicit_layout(TTestContext& ctx)
+{
+    const std::string input = R"({"types":{"structures":{
+        "Empty":{"members":[]},
+        "morphic_padding_1":{"members":[{"value":{"type":"u8"}}]},
+        "Inner":{"detail":{"alignment":16,"size":32},"members":[
+            {"tag":{"type":"u32","offset":0}},
+            {"payload":{"type":"u64","offset":16}}]},
+        "Outer":{"detail":{"alignment":32,"size":128},"members":[
+            {"last":{"type":"u32","offset":112,"default":7}},
+            {"marker":{"type":"Empty","offset":128}},
+            {"rows":{"type":{"element":"Inner","count":2},"offset":32}},
+            {"first":{"type":"u8","offset":0}},
+            {"morphic_padding_0":{"type":"u8","offset":1}}]},
+        "Natural":{"detail":{"alignment":16,"size":16},"members":[
+            {"value":{"type":"u32"}}]},
+        "Aligned":{"detail":{"alignment":128,"size":128},"members":[
+            {"value":{"type":"u8"}}]},
+        "AllEmpty":{"detail":{"size":0},"members":[
+            {"marker":{"type":"Empty","offset":0}}]},
+        "Dense":{"detail":{"size":8},"members":[
+            {"tail":{"type":"u32","offset":4}},
+            {"head":{"type":"u32","offset":0}}]},
+        "Leading":{"detail":{"size":16},"members":[
+            {"value":{"type":"u32","offset":4}}]},
+        "LowChild":{"detail":{"alignment":4,"size":4},"members":[
+            {"value":{"type":"u8"}}]},
+        "LowPrefix":{"members":[{"prefix":{"type":"u8"}},
+            {"child":{"type":"LowChild"}}]},
+        "LowTail":{"members":[{"child":{"type":"LowChild"}},
+            {"suffix":{"type":"u8"}}]},
+        "LowProp":{"members":[{"prefix":{"type":"u8"}},
+            {"tail":{"type":"LowTail"}}]}
+    }}})";
+    CBakedDocumentBlock block;
+    CResolvedSchema resolved;
+    if (!resolve(ctx, input, block, resolved))
+    {
+        return;
+    }
+    const CSchemaIndex outer = resolved.find_type(CStringView{ "Outer" });
+    const CSchemaIndex inner = resolved.find_type(CStringView{ "Inner" });
+    SType outer_type, inner_type, natural_type, aligned_type, empty_type;
+    TEST_EXPECT(ctx, resolved.type(outer, outer_type) && outer_type.size == 128u &&
+        outer_type.stride == 128u && outer_type.alignment == 32u && outer_type.gaps);
+    TEST_EXPECT(ctx, resolved.type(inner, inner_type) && inner_type.size == 32u &&
+        inner_type.stride == 32u && inner_type.alignment == 16u && inner_type.gaps);
+    TEST_EXPECT(ctx, resolved.type(resolved.find_type(CStringView{ "Natural" }), natural_type) &&
+        natural_type.size == 16u && natural_type.alignment == 16u && natural_type.gaps);
+    TEST_EXPECT(ctx, resolved.type(resolved.find_type(CStringView{ "Aligned" }), aligned_type) &&
+        aligned_type.size == 128u && aligned_type.alignment == 128u && aligned_type.gaps);
+    TEST_EXPECT(ctx, resolved.type(resolved.find_type(CStringView{ "AllEmpty" }), empty_type) &&
+        empty_type.size == 0u && empty_type.stride == 0u && empty_type.alignment == 1u && !empty_type.gaps);
+    SType dense_type;
+    TEST_EXPECT(ctx, resolved.type(resolved.find_type(CStringView{ "Dense" }), dense_type) &&
+        dense_type.size == 8u && dense_type.alignment == 4u && !dense_type.gaps);
+    SType leading_type;
+    TEST_EXPECT(ctx, resolved.type(resolved.find_type(CStringView{ "Leading" }), leading_type) &&
+        leading_type.size == 16u && leading_type.alignment == 4u && leading_type.gaps);
+    const char* const names[] = { "last", "marker", "rows", "first", "morphic_padding_0" };
+    const std::uint64_t offsets[] = { 112u, 128u, 32u, 0u, 1u };
+    for (std::uint32_t ordinal = 0u; ordinal < outer_type.count; ++ordinal)
+    {
+        const CSchemaIndex member_index = resolved.member_at(outer, ordinal);
+        SMember member;
+        TEST_EXPECT(ctx, resolved.member(member_index, member) &&
+            resolved.name(member.name) == CStringView{ names[ordinal] } &&
+            member.offset == offsets[ordinal] &&
+            resolved.find_member(outer, CStringView{ names[ordinal] }) == member_index &&
+            resolved.map_occurrence(member.source) == member_index);
+    }
+    SMember last, rows;
+    SType array_type;
+    TEST_EXPECT(ctx, resolved.member(resolved.find_member(outer, CStringView{ "last" }), last) &&
+        resolved.member(resolved.find_member(outer, CStringView{ "rows" }), rows) &&
+        resolved.type(rows.type, array_type) && array_type.size == 64u && array_type.stride == 32u);
+    SDefault value;
+    TEST_EXPECT(ctx, resolved.default_value(last.type, last.default_description, value) &&
+        value.scalar.value.unsigned_value == 7u);
+
+    const std::string declarations = write_validation(ctx, resolved, "schema_explicit");
+    const std::size_t first = declarations.find(" first;");
+    const std::size_t rows_pos = declarations.find(" rows[2];");
+    const std::size_t last_pos = declarations.find(" last;");
+    TEST_EXPECT(ctx, first != std::string::npos && rows_pos != std::string::npos &&
+        last_pos != std::string::npos && first < rows_pos && rows_pos < last_pos);
+    TEST_EXPECT(ctx, declarations.find("struct alignas(32) Outer") != std::string::npos &&
+        declarations.find("struct alignas(16) Inner") != std::string::npos &&
+        declarations.find("struct alignas(16) Natural") != std::string::npos &&
+        declarations.find("struct alignas(128) Aligned") != std::string::npos &&
+        declarations.find("morphic_padding_2[") != std::string::npos &&
+        declarations.find(" morphic_padding_0;") != std::string::npos &&
+        declarations.find("struct AllEmpty") == std::string::npos);
+    const std::size_t dense = declarations.find("struct Dense\n");
+    TEST_EXPECT(ctx, dense != std::string::npos && declarations.find(" head;", dense) <
+        declarations.find(" tail;", dense));
+    const std::size_t leading = declarations.find("struct Leading\n");
+    TEST_EXPECT(ctx, leading != std::string::npos && declarations.find("morphic_padding_0[4]", leading) <
+        declarations.find(" value;", leading));
+    const std::size_t low_prefix = declarations.find("struct LowPrefix\n");
+    const std::size_t low_tail = declarations.find("struct LowTail\n");
+    const std::size_t low_prop = declarations.find("struct LowProp\n");
+    TEST_EXPECT(ctx, low_prefix != std::string::npos &&
+        declarations.find("morphic_padding_0[3]", low_prefix) < declarations.find(" child;", low_prefix));
+    TEST_EXPECT(ctx, low_tail != std::string::npos &&
+        declarations.find(" suffix;", low_tail) < declarations.find("morphic_padding_0[3]", low_tail));
+    TEST_EXPECT(ctx, low_prop != std::string::npos &&
+        declarations.find("morphic_padding_0[3]", low_prop) < declarations.find(" tail;", low_prop));
+
+    CLiveDocument live_document;
+    const CDocumentReport report = document_parser::parse(
+        CByteConstView{ reinterpret_cast<const std::uint8_t*>(input.data()), input.size(), 1u }, live_document);
+    TEST_EXPECT(ctx, report.accepted());
+    CResolvedSchema live_resolved;
+    SDiagnostic diagnostic;
+    TEST_EXPECT(ctx, live_resolved.resolve(live_document, diagnostic));
+    SType live_outer;
+    const CSchemaIndex live_index = live_resolved.find_type(CStringView{ "Outer" });
+    TEST_EXPECT(ctx, live_resolved.type(live_index, live_outer) && live_outer.size == outer_type.size &&
+        live_outer.alignment == outer_type.alignment && live_outer.gaps == outer_type.gaps);
+    for (std::uint32_t ordinal = 0u; ordinal < outer_type.count; ++ordinal)
+    {
+        SMember member;
+        TEST_EXPECT(ctx, live_resolved.member(live_resolved.member_at(live_index, ordinal), member) &&
+            live_resolved.name(member.name) == CStringView{ names[ordinal] } && member.offset == offsets[ordinal]);
+    }
+    CByteBuffer live_output;
+    TEST_EXPECT(ctx, generate_cpp(live_resolved, CStringView{ "schema_fixture" }, live_output, diagnostic) &&
+        live_output.is_ready() && live_output.size() == declarations.size() + 1u &&
+        std::memcmp(live_output.data(), declarations.data(), declarations.size()) == 0);
+}
+
 static void test_failures(TTestContext& ctx)
 {
+    const auto layout = [](const std::string& detail, const std::string& members)
+    {
+        return "{\"types\":{\"structures\":{\"Test\":{\"detail\":{" + detail +
+            "},\"members\":[" + members + "]}}}}";
+    };
+    const std::string first = R"({"first":{"type":"u32","offset":0}})";
+    const std::string second = R"({"second":{"type":"u32","offset":4}})";
+    expect_failure(ctx, layout("\"alignment\":4", first), EReason::missing_property);
+    expect_failure(ctx, layout("\"size\":8", first + R"(,{"second":{"type":"u32"}})"), EReason::invalid_layout);
+    expect_failure(ctx, layout("\"size\":8", R"({"first":{"type":"u32"}},)" + second), EReason::invalid_layout);
+    expect_failure(ctx, layout("\"size\":8", R"({"first":{"type":"u32","offset":2}})"), EReason::invalid_layout);
+    expect_failure(ctx, layout("\"size\":6", first), EReason::invalid_layout);
+    expect_failure(ctx, layout("\"size\":0", first), EReason::invalid_layout);
+    expect_failure(ctx, layout("\"size\":4", first + "," + second), EReason::invalid_layout);
+    expect_failure(ctx, layout("\"size\":8", first + R"(,{"second":{"type":"u32","offset":0}})"),
+        EReason::invalid_layout);
+    expect_failure(ctx, layout("\"size\":8", R"({"first":{"type":"u64","offset":0}},)" + second),
+        EReason::invalid_layout);
+    expect_failure(ctx, layout("\"size\":8", R"({"first":{"type":"u64","offset":2147483647}})"),
+        EReason::invalid_layout);
+    expect_failure(ctx, layout("\"size\":8", R"({"first":{"type":"u8","offset":2147483648}})"),
+        EReason::storage_limit);
+    expect_failure(ctx, layout("\"size\":8,\"alignment\":3", first), EReason::invalid_layout);
+    expect_failure(ctx, layout("\"size\":8,\"alignment\":2", first), EReason::invalid_layout);
+    expect_failure(ctx, layout("\"size\":256,\"alignment\":256", first), EReason::unsupported_feature);
+    expect_failure(ctx, layout("\"size\":8", R"({"empty":{"type":{"element":"u8","count":0},"offset":8}})"),
+        EReason::invalid_range);
+    expect_failure(ctx, layout("\"size\":8", R"({"empty":{"type":"u8","offset":9}})"), EReason::invalid_layout);
+    expect_failure(ctx, R"({"types":{"structures":{"Empty":{"members":[]},"Test":{"detail":{"size":0},
+        "members":[{"marker":{"type":"Empty","offset":1}}]}}}})", EReason::invalid_layout);
+    expect_failure(ctx, R"({"types":{"structures":{
+        "Inner":{"detail":{"size":32},"members":[{"tag":{"type":"u32","offset":0}},
+            {"payload":{"type":"u64","offset":16}}]},
+        "Test":{"detail":{"size":40},"members":[{"inner":{"type":"Inner","offset":0}},
+            {"second":{"type":"u8","offset":24}}]}
+    }}})", EReason::invalid_layout);
+    {
+        CBakedDocumentBlock block;
+        TEST_EXPECT(ctx, bake(layout("\"size\":8", first + R"(,{"second":{"type":"u16","offset":2}})"), block));
+        CResolvedSchema schema;
+        SDiagnostic error;
+        TEST_EXPECT(ctx, !schema.resolve(block.document(), error) && error.reason == EReason::invalid_layout &&
+            error.related && error.ranges_available && error.range_begin == 2u && error.range_end == 4u &&
+            error.related_begin == 0u && error.related_end == 4u);
+    }
     expect_failure(ctx, "{}", EReason::missing_property);
     expect_failure(ctx, "{\"types\":{},\"unknown\":{}}", EReason::unknown_property);
     expect_failure(ctx, "{\"types\":{},\"instances\":null}", EReason::invalid_input);
@@ -518,13 +700,10 @@ static void test_failures(TTestContext& ctx)
             "{\"types\":{\"structures\":{\"" + std::string(name) + "\":{\"members\":[{\"x\":{\"type\":\"u8\"}}]}}}}";
         expect_failure(ctx, text);
     }
-    for (const char* const member : { "\"offset\":0", "\"strange\":0" })
-    {
-        expect_failure(ctx, "{\"types\":{\"structures\":{\"Test\":{\"members\":[{\"x\":{\"type\":\"u8\"," +
-                                std::string(member) + "}}]}}}}");
-    }
+    expect_failure(ctx, "{\"types\":{\"structures\":{\"Test\":{\"members\":[{\"x\":{\"type\":\"u8\",\"strange\":0}}]}}}}",
+        EReason::unknown_property);
     for (const char* const detail :
-        { "\"alignment\":2", "\"alignment\":0", "\"alignment\":3", "\"size\":2", "\"internal\":1", "\"other\":0" })
+        { "\"alignment\":0", "\"alignment\":3", "\"size\":2", "\"internal\":1", "\"other\":0" })
     {
         expect_failure(ctx, "{\"types\":{\"structures\":{\"Test\":{\"detail\":{" + std::string(detail) +
                                 "},\"members\":[{\"x\":{\"type\":\"u8\"}}]}}}}");
@@ -609,24 +788,45 @@ static void test_failures(TTestContext& ctx)
         TEST_EXPECT(ctx, error.ranges_available && error.related && error.range_begin == 2u && error.range_end == 4u &&
                              error.related_begin == 1u && error.related_end == 3u);
     }
+}
+
+static void test_schema_sample(TTestContext& ctx)
+{
+    const std::string path = test_environment::repository_path("docs/schema/schema-example.json");
+    std::FILE* const file = platform::filesystem::openFile(
+        platform::path::makeNativePath(path.c_str()), platform::filesystem::EOpenMode::BinaryRead);
+    TEST_EXPECT(ctx, file != nullptr);
+    if (!file)
     {
-        const std::string path = test_environment::repository_path("docs/schema/schema-example.json");
-        std::FILE* const file = platform::filesystem::openFile(
-            platform::path::makeNativePath(path.c_str()), platform::filesystem::EOpenMode::BinaryRead);
-        TEST_EXPECT(ctx, file != nullptr);
-        if (file)
-        {
-            std::string sample;
-            char buffer[4096];
-            std::size_t count;
-            while ((count = std::fread(buffer, 1u, sizeof(buffer), file)) != 0u)
-            {
-                sample.append(buffer, count);
-            }
-            TEST_EXPECT(ctx, std::fclose(file) == 0);
-            expect_failure(ctx, sample, EReason::unsupported_feature);
-        }
+        return;
     }
+    std::string sample;
+    char buffer[4096];
+    std::size_t count;
+    while ((count = std::fread(buffer, 1u, sizeof(buffer), file)) != 0u)
+    {
+        sample.append(buffer, count);
+    }
+    TEST_EXPECT(ctx, std::fclose(file) == 0);
+    CBakedDocumentBlock block;
+    CResolvedSchema resolved;
+    if (!resolve(ctx, sample, block, resolved))
+    {
+        return;
+    }
+    const CSchemaIndex internal = resolved.find_type(CStringView{ "InternalRecord" });
+    const CSchemaIndex arrays = resolved.find_type(CStringView{ "ArrayExamples" });
+    SType type;
+    SMember position, records;
+    SType records_type;
+    TEST_EXPECT(ctx, resolved.type(internal, type) && type.size == 32u && type.alignment == 16u &&
+        type.internal && type.gaps);
+    TEST_EXPECT(ctx, resolved.member(resolved.find_member(internal, CStringView{ "position" }), position) &&
+        position.offset == 16u);
+    TEST_EXPECT(ctx, resolved.type(arrays, type) && type.size == 96u && type.alignment == 16u &&
+        resolved.member(resolved.find_member(arrays, CStringView{ "records" }), records) &&
+        records.offset == 32u && resolved.type(records.type, records_type) && records_type.stride == 32u);
+    write_validation(ctx, resolved, "schema_sample");
 }
 
 static void test_scalars_and_limits(TTestContext& ctx)
@@ -2015,7 +2215,9 @@ int run_schema_tests()
     tests::TTestContext ctx;
     schema_tests::test_success(ctx);
     schema_tests::test_empty_types(ctx);
+    schema_tests::test_explicit_layout(ctx);
     schema_tests::test_failures(ctx);
+    schema_tests::test_schema_sample(ctx);
     schema_tests::test_scalars_and_limits(ctx);
     schema_tests::test_record_layout(ctx);
     schema_tests::test_review_regressions(ctx);

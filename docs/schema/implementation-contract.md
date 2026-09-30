@@ -557,14 +557,22 @@ coordinator review and validation: empty type identities and zero-byte members,
 array propagation, generator omission and compiler-checked tests. The user
 completed manual review on 30 September and authorised the separate commit.
 Their whitespace and line-break edits were preserved without repeating the
-passing validation. Explicit layouts and revised unorm defaults remain
-separate packages and are not yet dispatched.
+passing validation. This package is committed as `9e0d596` (Support queryable
+empty schema types without physical storage). The user then authorised
+continuation, and the same implementing chat completed the explicit-layout
+package: authored offsets and extent validation, effective alignment up to 128,
+semantic member-order preservation, physical-order C++ declarations, and
+compiler-checked padding/alignment. Coordinator review and validation passed.
+The user completed manual review on 30 September and authorised the separate
+commit after making only whitespace changes. Those edits were preserved without
+repeating the passing validation. Revised unorm defaults remain a separate
+package and are not yet dispatched.
 The user confirmed that empty types retain queryable identities and zero-byte
 member records, preserving names, semantic order and document-to-schema mappings
 while contributing no physical storage or generated C++ declarations.
 Empty types have size and stride zero and alignment one; metadata requesting
-positive size or stronger alignment is rejected. For the later explicit-layout
-package, the user permits C++ field declarations in physical offset order while
+positive size or stronger alignment is rejected. For explicit layouts,
+the user permits C++ field declarations in physical offset order while
 schema queries and document positional values retain schema declaration order.
 The first package also aligns generated-C++ validation with the project's
 exception-disabled compiler settings. No C++ language exceptions are permitted.
@@ -579,6 +587,36 @@ assertion emission, so the passing compiler matrix was not repeated.
 Coordinator review confirmed lookup/mapping and semantic member preservation,
 zero-size array arithmetic, omission of empty declarations and correct handling
 of an omitted type named `std`. Diff and text-policy checks passed.
+
+The explicit-layout package preserves declaration order for member indices,
+defaults, lookup and source mappings. It validates all-or-none offsets, supplied
+extents, alignment, nested padding ownership and overlapping positive ranges;
+overlap diagnostics identify both members and byte ranges. Zero-byte members
+retain their authored offsets without occupying storage. The full sample's
+`types` section now resolves and generates faithful C++; its instance/bulk
+grammar and payload validation remain later work.
+
+Review and validation addressed two regressions. The nonrecursive layout pass
+is separate from recursive member resolution so the existing Debug nesting
+boundaries remain usable. Generated declarations explicitly fill gaps and tail
+space caused by inherited alignment, including increases below eight bytes,
+without suppressing compiler warnings. The generator records inherited
+alignment in its existing per-run emission state instead of repeatedly walking
+shared dependency subtrees. Public APIs and resolved record layouts are unchanged.
+
+Debug x64, Release x64 and Debug x86 solution builds and ordinary `-t1` suites
+passed, each with 3,195 schema checks and zero failures throughout. Final tags
+were `stage3-layout-cached-dbg64` (PID 57464), `stage3-layout-final-rel64`
+(PID 70292) and `stage3-layout-final-dbg32` (PID 75352). All eight generated
+assertion fixtures from the final Debug x64 run compiled on x86 and x64 under
+C++17 with warnings as errors and C++ exceptions disabled. These include
+leading/tail gaps, nonmonotonic offsets, nested array stride, padding-name
+collisions, alignment 128, and low-alignment inheritance. The coordinator
+inspected actual validation output; all six existing generated headers remain
+byte-for-byte identical to the committed empty-type baseline. Diff and
+text-policy checks passed. No passing validation matrix was repeated after
+the final review.
+
 Stages 4-8 remain planned.
 Stage 1 is complete and committed independently as
 `d92dddd`; its code, tests and data-model documentation exclude schema planning.

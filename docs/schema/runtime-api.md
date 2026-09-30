@@ -5,7 +5,7 @@ This page describes the implemented resolver and generator introduced in
 defines the target system;
 the [implementation contract](implementation-contract.md#staged-implementation-plan)
 tracks delivery. Schema wrappers and their promotion/demotion are implemented;
-instance/bulk wrappers and explicit layouts remain later work. Its lifetime, handle
+instance/bulk wrappers remain later work. Its lifetime, handle
 and default rules below describe current code.
 
 `schema::CSchemaDocumentQuery` exposes read-only tree, name and scalar queries
@@ -239,9 +239,15 @@ alive and use `CSchemaDocumentQuery` to inspect names and paths after failure.
 Live and baked handles belong to their originating document. Baked locations
 promise no source line/column information.
 
-Natural layout is supported. Matching `detail.alignment` and `detail.size` are
-checked metadata; `detail.internal` is an export marker. Explicit member offsets
-and increased alignment fail with `unsupported_feature`. Only package shape and
+Natural layout is supported. A supplied `detail.size` must match its computed
+extent; `detail.internal` is an export marker. Optional increased
+alignment must be a power of two no greater than 128 and no smaller than the
+natural member alignment. An explicit-offset structure must provide an offset
+for every member and `detail.size`. The resolver checks alignment, bounds, and
+positive extent overlap, including padding owned by nested types. Zero-byte
+members may sit at the declared size. Member records stay in declaration order;
+their physical offsets may be nonmonotonic. A structure with only zero-byte
+members remains size zero and alignment one. Only package shape and
 `types` are validated in a combined document; `instances` and `data` values are
 deliberately not evaluated.
 
@@ -253,10 +259,13 @@ Output uses dependency order, enum classes, nested C arrays, an int8 `b8` alias,
 the existing global `fp16data_t`, and typed bit-mask constants in a namespace per
 bit structure. Data members representing bit structures use their storage type.
 No constructors, functions, assertions or default member initialisers are emitted.
-Structures and members use implicit native C++ alignment, without `alignas`
-annotations. Compiler validation must establish that the target's native layout
-matches the resolved schema. The internal marker does not suppress declarations
-or validation.
+Natural structures whose compiler layout already matches use implicit C++
+alignment. For other accepted layouts, the generator emits `alignas` when the
+structure needs increased alignment, byte-array padding for gaps and tail space,
+and fields in physical offset order. Synthetic padding names avoid collisions
+with schema names. Schema member order and lookup remain in declaration order.
+Compiler validation establishes that the target layout matches the resolved
+schema. The internal marker does not suppress declarations or validation.
 
 Generated C++ integers use decimal for values from -65535 through +65535,
 and hexadecimal outside that range. Unsigned initialisers use `u`; signed
@@ -300,7 +309,8 @@ type retains its `::fp16data_t` spelling. Failures
 release all output. Output storage must not own the borrowed schema bytes.
 
 `Schema_test_suite` writes generated headers and separate compiler-validation
-translation units for the runtime, representation and name-collision fixtures
+translation units for the runtime, explicit layout, reviewed sample,
+representation and name-collision fixtures
 to the normal process/tag-qualified test-output directory. It prints each exact
 source path. Compile each file with:
 
@@ -312,10 +322,9 @@ The tool compiles independently for x86 and x64 with C++17 and warnings as error
 Assertions compare resolved size, alignment, member offsets/sizes, array extents,
 enum underlying types/values, mask types/values, standard layout and trivial
 copyability, including `fp16data_t`. Support requires successful compiler fidelity
-validation for the target ABI; an ABI whose native layout differs remains
-unsupported pending separate handling. Explicit layout is still deferred.
-The full design sample remains an unsupported-layout fixture;
-the runtime suite's natural-layout catalogue supplies positive compiler checks.
+validation for the target ABI. The full design sample is a positive schema
+resolution and C++ layout fixture; its instance and bulk content is still outside
+this resolver's validation scope.
 
 Record sizes are available through `record_sizes()` for review and are printed
 by the suite. They are measurements, not a serialization format or promised ABI.

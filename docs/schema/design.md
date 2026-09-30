@@ -35,8 +35,8 @@ execution, direct-copy remap setup, and structure-only code generation.
 grammar with structure `detail`, explicit offsets, and short-input examples.
 It uses `element`/`count` without redundant array `kind`, and `detail.internal`
 for the internal-layout marker. Its [companion notes](schema-example-notes.md)
-explain expected layouts and the initial-delivery boundary.
-The full example includes explicit layouts beyond the implemented resolver.
+explain expected layouts and the delivery boundary. Current resolver and generator
+capabilities are recorded in the [runtime API](runtime-api.md).
 
 The first remapper automatically matches direct members by name and type.
 It does not search recursively or infer conversions. Source ingestion remains
@@ -1003,10 +1003,8 @@ value describes it:
 ```
 
 Array order establishes member indices, while names support named access.
-An explicit default belongs in the named member's description object, alongside
-its type.  Future explicit offsets also belong in that same object.  The first
-pass still calculates offsets; recording their future location does not add
-explicit layout to its scope.
+An explicit default and an optional explicit offset belong in the named member's
+description object, alongside its type.
 The replacement `schema-example.json` uses this ordered named-member text form.
 Under the document model's singleton normalisation, these wrappers become
 named children of the `members` array, retaining the descriptor payload.
@@ -1016,8 +1014,8 @@ anonymous wrapper object to survive parsing. See the
 
 Offsets do *not* determine positional construction order.  Natural layout may
 leave padding; padding is not a member and never consumes a positional
-initializer position.  If explicit layout is introduced later, non-monotonic
-offsets must not change declaration order.
+initializer position. Non-monotonic explicit offsets do not change schema
+declaration order.
 
 Overlapping member storage ranges are rejected.  Bit-structure members may
 share a storage word, but their actual bit ranges must not overlap.  An overlap
@@ -1026,20 +1024,17 @@ ranges. Union support is outside current scope; if introduced, it will be an exp
 schema construct with defined rules permitting overlap among its alternatives,
 not an implicit interpretation of otherwise invalid overlapping members.
 
-Natural layout is the default and initial implementation scope. Explicit offsets
-and increased alignment are deferred under the assessment above; their eventual
-semantics are defined here. Packed layout will not
+Natural layout is the default. Explicit offsets and increased alignment obey
+the rules below. Packed layout will not
 be used unless selected ingested structures demonstrate a need; the planned
 review of candidate Vulkan structures may inform that decision. The original
 sample's explicit layouts were superseded; the revised sample now illustrates
 both natural layout and the subsequently agreed explicit-offset rules.
 
-The first pass calculates member offsets and array strides from the natural
-layout rules. Explicit offsets and increased alignment can be added without
-changing the resolved observations; independent array-stride
-overrides remain deferred. When explicit offsets are supported, every member of that
-definition must supply an offset; explicit and inferred member offsets are
-not mixed within one definition.
+Natural layout calculates member offsets and array strides. Explicit layout
+retains the same resolved observations; independent array-stride overrides remain
+deferred. If any member supplies an explicit offset, every member of that
+definition must supply one; explicit and inferred offsets are not mixed.
 
 Natural alignment follows the current compilation target. Simple members
 align to multiples of their size; compounds use their members' effective
@@ -1096,11 +1091,14 @@ uses the rules above. This replaces the earlier rule requiring an explicit-layou
 size to equal the rounded last member end. Resolved runtime records themselves
 remain non-serialisable.
 
+Only positive-size member ranges participate in overlap checks. An empty member
+retains its authored offset between zero and the structure size, inclusive, but
+occupies no bytes and does not introduce a gap.
+
 Accepting and validating generated `detail` metadata for natural layouts is
 part of the base schema contract. Deferring the separate normalisation operation
-does not defer that input form or computing its values. Support for alignment
-increases beyond the natural requirement follows the explicit-layout delivery
-criterion; it must not be confused with an explicit value equal to natural alignment.
+does not defer that input form or computing its values. A supplied alignment can
+equal the natural requirement or increase it, subject to the alignment rules.
 
 Every successfully resolved type description contains its effective alignment
 and size regardless of whether the input supplied them. Optional document
@@ -1160,9 +1158,9 @@ Natural-layout declaration generation remains
 unchanged, and padding declarations do not add generated operational code.
 
 This section records the full layout rules. The expanded sample includes both
-natural and explicit layout examples. Explicit offsets and increased alignment
-are later additions under the implementation-contract assessment.
-Normalised-document creation is also a later operation.
+natural and explicit layout examples. The initial-delivery assessment deferred
+explicit offsets and increased alignment to integration stage 3.
+Normalised-document creation remains a later operation.
 
 ### Gaps and storage initialisation
 

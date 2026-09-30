@@ -547,6 +547,7 @@ private:
     bool make_default(const CSchemaIndex type, const CSchemaHandle& source, CSchemaIndex& result, const unsigned depth) noexcept;
     bool enumeration(TTypeRecord& type_record) noexcept;
     bool structure(TTypeRecord& type_record, const unsigned depth) noexcept;
+    bool structure_layout(TTypeRecord& type_record, const bool explicit_offsets, const bool has_storage) noexcept;
     bool bit_structure(TTypeRecord& type_record, const unsigned depth) noexcept;
     bool storage(TTypeRecord& type_record) noexcept;
     bool add(const std::uint64_t a, const std::uint64_t b, std::uint64_t& out, const CSchemaHandle& at) noexcept;
@@ -1055,6 +1056,9 @@ bool CResolver::structure(TTypeRecord& type_record, const unsigned depth) noexce
     }
     std::uint32_t member_slot = type_record.first;
     CSchemaIndex component;
+    bool explicit_offsets = false;
+    CSchemaHandle first_member;
+    bool has_storage = false;
     for (CSchemaHandle member_source = m_document.first_child(members); member_source; member_source = m_document.next_sibling(member_source), ++member_slot)
     {
         m_context_member = member_source;
@@ -1064,9 +1068,14 @@ bool CResolver::structure(TTypeRecord& type_record, const unsigned depth) noexce
             return false;
         }
         const CSchemaHandle offset = property(member_source, "offset");
-        if (offset)
+        if (member_slot == type_record.first)
         {
-            return fail(EReason::unsupported_feature, offset);
+            explicit_offsets = offset.is_valid();
+            first_member = member_source;
+        }
+        else if (offset.is_valid() != explicit_offsets)
+        {
+            return fail(EReason::invalid_layout, offset ? offset : member_source, first_member);
         }
         CResolvedSchema::SMemberRecord member;
         member.name = m_document.name_id(member_source);
@@ -1077,18 +1086,24 @@ bool CResolver::structure(TTypeRecord& type_record, const unsigned depth) noexce
         }
         const TTypeRecord member_type = *m_schema.type_record(member.type);
         m_stage = EStage::layout;
-        std::uint64_t member_offset{}, member_end{};
-        if (!align(type_record.size, member_type.alignment(), member_offset, member_source) ||
-            !add(member_offset, member_type.size, member_end, member_source))
+        if (offset)
         {
-            return false;
+            std::uint64_t member_offset{};
+            if (!extent(offset, member_offset))
+            {
+                return false;
+            }
+            if (member_offset > memory::k_byte_size_ceiling)
+            {
+                return fail(EReason::storage_limit, offset);
+            }
+            member.offset = static_cast<std::uint32_t>(member_offset);
         }
-        member.offset = static_cast<std::uint32_t>(member_offset);
         member.size = member_type.size;
         type_record.set_flag(TTypeRecord::k_gaps,
-            (type_record.flag(TTypeRecord::k_gaps) || member_type.flag(TTypeRecord::k_gaps) || (member_offset != type_record.size)));
-        type_record.size = static_cast<std::uint32_t>(member_end);
+            type_record.flag(TTypeRecord::k_gaps) || member_type.flag(TTypeRecord::k_gaps));
         type_record.alignment_log2 = std::max(type_record.alignment_log2, member_type.alignment_log2);
+        has_storage |= member.size != 0u;
         if (member_slot == type_record.first)
         {
             component = member.type;
@@ -1106,16 +1121,15 @@ bool CResolver::structure(TTypeRecord& type_record, const unsigned depth) noexce
         }
     }
     m_context_member = {};
+    return structure_layout(type_record, explicit_offsets, has_storage);
+}
+
+bool CResolver::structure_layout(TTypeRecord& type_record, const bool explicit_offsets, const bool has_storage) noexcept
+{
     m_stage = EStage::layout;
-    const std::uint64_t raw_size = type_record.size;
-    std::uint64_t padded_size{};
-    if (!align(raw_size, type_record.alignment(), padded_size, type_record.source))
-    {
-        return false;
-    }
-    type_record.size = type_record.stride = static_cast<std::uint32_t>(padded_size);
-    type_record.set_flag(TTypeRecord::k_gaps, (type_record.flag(TTypeRecord::k_gaps) || (raw_size != padded_size)));
     const CSchemaHandle detail = property(type_record.source, "detail");
+    CSchemaHandle size_source;
+    std::uint64_t declared_size{};
     if (detail)
     {
         if (!shape(detail, { "size", "alignment", "internal" }))
@@ -1145,31 +1159,125 @@ bool CResolver::structure(TTypeRecord& type_record, const unsigned depth) noexce
             {
                 return fail(EReason::invalid_layout, alignment_source);
             }
-            if ((type_record.size == 0u) && (declared_value != 1u))
+            if (!has_storage && (declared_value != 1u))
             {
                 return fail(EReason::invalid_layout, alignment_source);
             }
-            if (declared_value > type_record.alignment())
+            if (declared_value > 128u)
             {
                 return fail(EReason::unsupported_feature, alignment_source);
             }
+            while (type_record.alignment() < declared_value)
+            {
+                ++type_record.alignment_log2;
+            }
         }
-        const CSchemaHandle size_source = property(detail, "size");
+        size_source = property(detail, "size");
         if (size_source)
         {
-            std::uint64_t declared_value{};
-            if (!extent(size_source, declared_value))
+            if (!extent(size_source, declared_size))
             {
                 return false;
             }
-            if (declared_value > memory::k_byte_size_ceiling)
+            if (declared_size > memory::k_byte_size_ceiling)
             {
                 return fail(EReason::storage_limit, size_source);
             }
-            if (declared_value != type_record.size)
+            if (!has_storage && (declared_size != 0u))
             {
                 return fail(EReason::invalid_layout, size_source);
             }
+        }
+    }
+    if (explicit_offsets && !size_source)
+    {
+        return fail(EReason::missing_property, detail ? detail : type_record.source);
+    }
+
+    //  In explicit mode cursor totals occupied member extents; offsets set their positions independently.
+    std::uint64_t cursor = 0u;
+    for (std::uint32_t ordinal = 0u; ordinal < type_record.count; ++ordinal)
+    {
+        CResolvedSchema::SMemberRecord& member = m_schema.m_members[type_record.first + ordinal];
+        const TTypeRecord member_type = *m_schema.type_record(member.type);
+        m_context_member = member.source;
+        std::uint64_t member_offset = member.offset, member_end{};
+        if (!explicit_offsets)
+        {
+            if (!align(cursor, member_type.alignment(), member_offset, member.source))
+            {
+                return false;
+            }
+            member.offset = static_cast<std::uint32_t>(member_offset);
+            type_record.set_flag(TTypeRecord::k_gaps,
+                type_record.flag(TTypeRecord::k_gaps) || (member_offset != cursor));
+        }
+        else if ((member_offset & (member_type.alignment() - 1u)) != 0u)
+        {
+            return fail(EReason::invalid_layout, property(member.source, "offset"));
+        }
+        if (!add(member_offset, member.size, member_end, member.source))
+        {
+            return false;
+        }
+        if (explicit_offsets)
+        {
+            if (member_end > declared_size)
+            {
+                return fail(EReason::invalid_layout, member.source);
+            }
+            if (member.size != 0u)
+            {
+                for (std::uint32_t prior_ordinal = 0u; prior_ordinal < ordinal; ++prior_ordinal)
+                {
+                    const CResolvedSchema::SMemberRecord& prior = m_schema.m_members[type_record.first + prior_ordinal];
+                    const std::uint64_t prior_end = static_cast<std::uint64_t>(prior.offset) + prior.size;
+                    if ((prior.size != 0u) && (member_offset < prior_end) && (prior.offset < member_end))
+                    {
+                        fail(EReason::invalid_layout, member.source, prior.source);
+                        m_diagnostic.ranges_available = true;
+                        m_diagnostic.range_begin = member_offset;
+                        m_diagnostic.range_end = member_end;
+                        m_diagnostic.related_begin = prior.offset;
+                        m_diagnostic.related_end = prior_end;
+                        return false;
+                    }
+                }
+            }
+            if (!add(cursor, member.size, cursor, member.source))
+            {
+                return false;
+            }
+        }
+        else
+        {
+            cursor = member_end;
+        }
+    }
+    m_context_member = {};
+    if (explicit_offsets)
+    {
+        if ((declared_size & (type_record.alignment() - 1u)) != 0u)
+        {
+            return fail(EReason::invalid_layout, size_source);
+        }
+        type_record.set_flag(TTypeRecord::k_gaps,
+            type_record.flag(TTypeRecord::k_gaps) || (cursor != declared_size));
+        type_record.size = type_record.stride = static_cast<std::uint32_t>(declared_size);
+    }
+    else
+    {
+        std::uint64_t padded_size{};
+        if (!align(cursor, type_record.alignment(), padded_size, type_record.source))
+        {
+            return false;
+        }
+        type_record.size = type_record.stride = static_cast<std::uint32_t>(padded_size);
+        type_record.set_flag(TTypeRecord::k_gaps,
+            type_record.flag(TTypeRecord::k_gaps) || (cursor != padded_size));
+        if (size_source && (declared_size != padded_size))
+        {
+            return fail(EReason::invalid_layout, size_source);
         }
     }
     return true;

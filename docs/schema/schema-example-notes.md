@@ -10,12 +10,13 @@ Date:   25 Sep 2026
 [schema-example.json](schema-example.json) reconciles the original examples
 with subsequent decisions. The expanded reviewed revision includes layout and
 short-input examples, omits redundant array `kind`, and uses `detail.internal`
-as the internal-layout marker. It is not an implemented resolver acceptance
-fixture or a specification of every future extension.
+as the internal-layout marker. Its `types` section is an implemented resolver
+and C++ compiler acceptance fixture, while the later instance and bulk sections
+remain an authoring example rather than a specification of every extension.
 The working [design](design.md) records agreed semantics. Showing a later feature
 here does not bring it into the initial delivery.
 
-This is a pre-locator authoring sample, not a current-loader acceptance fixture.
+This is a pre-locator authoring sample, not a complete current-loader fixture.
 It still needs the locator and bulk-entry-object grammar from the
 [design](design.md#locators-loading-and-buffers). Its named declarations and
 inheritance hierarchy are the intended embedded instance representation; no
@@ -137,7 +138,7 @@ so a shifted mask need not fit the logical field type or its enum value set.
 ## Expected layout
 
 These expectations follow the agreed size-based atomic alignment rules. They
-are review calculations, not compiler test results. Structure `detail` values
+are checked by compiler-validation fixtures on x86 and x64. Structure `detail` values
 in the sample report these sizes and alignments; `InternalRecord` additionally
 requests increased alignment and explicit member offsets.
 
@@ -195,19 +196,19 @@ faithful C++ under selected compiler settings or be rejected, with alignment
 capped at 128. Padding members may account for offsets and total size but do not
 become logical schema members. Fidelity requires target-specific validation. The
 expanded sample illustrates the marker on `InternalRecord`. Its
-`tag` occupies bytes 0-3; a generated declaration would need twelve bytes of
+`tag` occupies bytes 0-3; the generated declaration uses twelve bytes of
 padding before `position` at byte 16, together with alignment 16 on the
 structure. Padding belongs to `InternalRecord`, including when it is an array
 element. It never becomes an extra positional value or a named override target.
-The sample does not provide generated source or establish export mechanics.
+The test suite generates and compiles the declarations, but the sample does not
+establish export mechanics.
 
 The initial-delivery assessment in the
-[implementation contract](implementation-contract.md#initial-delivery) defers
-explicit offsets and increased alignment. `InternalRecord` and its dependent
-`ArrayExamples` therefore belong to later positive-layout fixtures; an initial
-resolver must report the unsupported layout. The natural-layout definitions
-remain suitable for initial positive fixtures. The full example deliberately
-covers more than the first delivery.
+[implementation contract](implementation-contract.md#initial-delivery) deferred
+explicit offsets and increased alignment. The later layout stage now resolves
+and compiler-checks `InternalRecord` and its dependent `ArrayExamples` on x86
+and x64. Payload loaders remain future work; the full example deliberately
+covers more than schema resolution.
 
 For tooling previews, use the existing standard-JSON writer option. For the
 numeric extensions here it emits equivalent values without explicit `+` signs
