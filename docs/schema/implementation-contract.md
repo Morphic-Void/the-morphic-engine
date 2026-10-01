@@ -703,10 +703,18 @@ passing validation matrix. The user then authorised continuation into baked
 instance loading. Coordinator review approved the hierarchy/API proposal and
 dispatched the instance package after the user confirmed that omitted declarations
 mean defaults for bases and unchanged inheritance for specialisations. One wrapper
-covers the complete `instances` section. Stage 4c is implemented and has passed
-coordinator review, validation and user manual review. The user authorised its
-commit on 1 October, including the final formatting changes.
-Stages 5-8 remain planned.
+covers the complete `instances` section. Stage 4c passed coordinator review,
+validation and user manual review and was committed on 1 October as `3cccf6d`
+(Add baked instance loading and specialisation snapshots), including the user's
+final formatting changes. The user then authorised continuation and explicitly
+requested a fresh implementing chat for stage 5. Coordinator review approved its
+bounded proposal for live bulk ownership, construction and capture (stage 5a).
+The user confirmed that bulk promotion against a different schema requires
+matching structure and value interpretation, while allowing different defaults.
+With that decision recorded, the coordinator dispatched the implementation.
+The coordinator and user completed the requested promotion/default debrief;
+the user confirmed that the implementation matches the intended behaviour.
+Stages 5b-8 remain planned.
 The intended handoff to a fresh implementing chat is at stage 5, after completion
 of the baked loaders, with this coordinator retaining requirements and review.
 During that review, the user clarified that specialisations are independent
@@ -818,6 +826,46 @@ Diff and tracked text-policy checks passed, with separate checks of the new file
 The user's final line-break and expression-grouping changes were reviewed and
 preserved. They do not change behaviour; the passing validation matrix was not
 repeated. The final diff check passed.
+
+Stage 5a introduces `CLiveBulkData` with an owned live document, an owned aligned
+working payload and the existing client-held schema binding. The reviewed API
+supports complete-record construction, raw binary capture/replacement, unpopulated
+arrays, bounded mutable entry views, rename and erase. Creation rejects duplicate
+names within a type group; capture replaces a matching entry while preserving its
+handle. Larger replacements append storage; smaller replacements can reuse it.
+Zero-count live entries and positive counts of zero-byte records retain explicit
+metadata. No operation implicitly compacts or clears unused storage.
+
+Promotion builds only the bulk role's live metadata and independently copies its
+authoritative binary payload. Embedded record arrays are omitted, and counts are
+made explicit. The supplied schema is bound independently and referenced types
+are checked for the user-approved structure/interpretation compatibility, ignoring
+defaults and export-only internal flags. Promotion and capture apply no defaults;
+complete-record construction rejects omitted fields, and unpopulated creation
+leaves logical fields for the caller to populate. These facts form the requested
+promotion/default debrief before proceeding to live instances.
+
+Initial coordinator review corrected overstated alignment in mutable subviews,
+repeated comparison of shared type pairs, and detached-node cleanup after failed
+construction, including an early range-validation exit. Final coordinator review
+has no outstanding findings. Focused tests cover independent promotion ownership,
+authoritative binary values, different destination defaults, incompatible schemas,
+live/baked record input, zero counts and zero-byte types, bounded alignment,
+self-capture across buffer growth, schema lifetime and allocation-failure
+preservation for creation, replacement and promotion.
+
+Final Debug x64, Release x64 and Debug x86 solution builds and ordinary `-t1`
+suites passed with 4,552 schema checks and zero failures throughout:
+`stage5a-final-dbg64` (PID 82084), `stage5a-final-rel64` (PID 81336), and
+`stage5a-final-dbg32` (PID 79236). The coordinator inspected actual native build
+exit statuses and test output; no new compiler diagnostics appeared. Generated
+layouts and resolved record sizes are unchanged, so the compiler layout matrix
+was not repeated. Diff and tracked text-policy checks passed, with separate
+checks of the new sources and preserved Visual Studio file conventions.
+Stage 5a passed user manual review and the requested promotion/default debrief.
+The user's final line-break and ternary-parenthesisation changes were reviewed
+and preserved without repeating the passing validation matrix. The user authorised
+the commit on 1 October. Stage 5b has not begun.
 
 Stage 1 is complete and committed independently as
 `d92dddd`; its code, tests and data-model documentation exclude schema planning.

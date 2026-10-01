@@ -5,7 +5,8 @@ This page describes the implemented resolver and generator introduced in
 defines the target system;
 the [implementation contract](implementation-contract.md#staged-implementation-plan)
 tracks delivery. Schema wrappers, their promotion/demotion, and the baked
-instance and bulk roles are implemented; live data wrappers remain later work.
+instance and bulk roles and the live bulk role are implemented; live instances
+remain later work.
 The lifetime, handle and default rules below describe current code.
 
 `schema::CSchemaDocumentQuery` exposes read-only tree, name and scalar queries
@@ -276,6 +277,62 @@ zero-byte-only payload can use the canonical empty view. Moving the owner keeps
 the payload address stable; destroying or reallocating it invalidates the view.
 `SBulkDiagnostic` reports the first failure reason and a bulk occurrence when
 available. Failure leaves the role unready.
+
+## Live bulk role (stage 5a)
+
+`CLiveBulkData` owns its live document and one 128-byte-aligned working payload.
+`initialise()` takes a resolved baked or live schema explicitly and creates an
+empty `data` section. `CBakedBulkData::promote(destination, schema, diagnostic)`
+requires a loaded, usable source and an empty destination. It copies only the
+bulk section into an independent live document and copies the complete associated
+payload into independent storage. Embedded record arrays are omitted; each entry
+retains explicit `count`, `size`, valid offset, type group and name. The binary
+bytes, including padding, are authoritative and are never reconstructed from
+embedded records during promotion. The source document, payload and connections
+are unchanged. Promotion checks referenced types against the explicitly supplied
+schema by recursive structure and value interpretation: names, member and label
+order, physical layout, primitive and array types, enum values, and bit fields
+must agree. Defaults and unused definitions may differ. An incompatible schema
+reports `incompatible_schema` without publishing a destination.
+
+`document_query()` reads the live document's original root through `CBulkHandle`
+occurrences. `data_root()`, `find_entry()` and `entry()` mirror the baked role;
+`mutable_entry()` returns matching metadata and a bounded `CByteView`. Zero-byte
+entries have a canonical empty view and may have positive or zero record counts.
+Both schemas' binding lifetimes follow the existing intrusive-link rules: schema
+destruction or failed unchanged re-resolution disables entry access. A
+successful unchanged retry restores access after failed re-resolution; schema
+destruction detaches the binding and requires an explicit new association.
+Document queries remain safe during
+schema unavailability. Views borrow the wrapper; document views may expire after
+document mutation and binary views may expire after buffer growth. A retained
+entry handle remains meaningful while its entry node survives.
+
+`create_records(type, name, source_query, records_array, diagnostic)` accepts a
+record array in a baked or live `CBulkDocumentQuery`, rejects named outer array
+positions, and constructs every record in `complete_bulk` mode. Every declared
+member and array element must be supplied, including zero-byte types; schema
+defaults do not fill omissions. It rejects a
+duplicate name in the type group. `capture(type, name, source, count, diagnostic)`
+copies bounded raw bytes with the resolved type's physical alignment; it creates
+or replaces a named array without interpreting values or applying defaults.
+The caller guarantees compatible little-endian physical representation. It is
+safe to capture from the wrapper's own payload, including when growth moves the
+buffer. `create_unpopulated(type, name, count, diagnostic)` rejects duplicates,
+allocates an aligned extent without applying defaults or promising zero fill,
+and permits count zero. The caller must populate required fields before reading
+or exporting such an entry. Neither promotion nor later raw capture substitutes
+destination-schema defaults for authoritative bytes.
+
+Larger replacements append an aligned extent and leave old bytes unreferenced;
+same-size or smaller replacements may reuse the old extent. A zero-extent
+replacement uses offset zero. `rename_entry()` checks sibling collisions and
+preserves the entry handle; `erase_entry()` invalidates its handle without
+compacting the payload. Failed construction or append publishes no failed locator
+and leaves earlier entries usable. A post-mutation failure that cannot preserve
+that state disables the live role and reports a critical event. `clear()`
+releases its document, payload and schema link. Demotion, packed output and
+remapping remain later stages.
 
 ## Baked instance role (stage 4c)
 

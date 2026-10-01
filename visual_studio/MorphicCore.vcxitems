@@ -48,6 +48,7 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\value_codec.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\schema_wrappers.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\baked_bulk_data.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\live_bulk_data.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\baked_instances.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\data_model\live_document.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\data_model\live_document_node.hpp" />
@@ -125,6 +126,7 @@
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\value_codec.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\schema_wrappers.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\baked_bulk_data.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\live_bulk_data.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\baked_instances.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\data_model\live_document.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\debug\event_arguments.cpp" />

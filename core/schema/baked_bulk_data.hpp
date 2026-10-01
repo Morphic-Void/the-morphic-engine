@@ -32,6 +32,7 @@ enum class EBulkLoadReason : std::uint8_t
     overlap,
     incomplete_record,
     embedded_mismatch,
+    incompatible_schema,
     allocation_failed
 };
 
@@ -72,6 +73,8 @@ public:
     //  unallocated on entry; neither backing allocation belongs to this wrapper.
     [[nodiscard]] bool load_supplied(const CByteConstView& payload, const bool compare_embedded, SBulkDiagnostic& diagnostic) noexcept;
     [[nodiscard]] bool materialise(CByteBuffer& returned_owner, SBulkDiagnostic& diagnostic) noexcept;
+    [[nodiscard]] bool promote(class CLiveBulkData& destination, CBakedSchema& schema, SBulkDiagnostic& diagnostic) const noexcept;
+    [[nodiscard]] bool promote(class CLiveBulkData& destination, CLiveSchema& schema, SBulkDiagnostic& diagnostic) const noexcept;
 
     [[nodiscard]] bool document_ready() const noexcept { return m_document.is_ready(); }
     [[nodiscard]] bool loaded_ready() const noexcept { return m_loaded && m_binding.is_usable(); }
@@ -83,6 +86,7 @@ public:
     void clear() noexcept;
 
 private:
+    friend class CLiveBulkData;
     struct SRecord
     {
         CBakedValueIndex entry, data, offset_node, valid_node;

@@ -222,6 +222,15 @@ inherit its source's schema reference. Ordinary schema-matching rules determine
 success during the operation, without a separate pre-validation pass. Existing
 connections are not automatically redirected.
 
+Confirmed on 1 October for bulk promotion with an explicitly supplied different
+schema: referenced types must match in structure and value interpretation.
+Compare type and field names by text, member order, physical layout, primitive
+types, array counts, enum labels/values and bit masks/interpretations recursively.
+Different defaults are permitted because promotion copies existing binary values
+without applying defaults. Unrelated types in either catalogue need not match.
+This does not change the stricter default-sensitive definition matching specified
+for remapping below.
+
 The reverse operation, demotion, creates the corresponding baked representation
 with an owned `CBakedDocumentBlock` and independent copies of associated binary
 payloads. It preserves the live source and its existing connections on success

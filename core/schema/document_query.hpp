@@ -386,6 +386,7 @@ public:
     [[nodiscard]] bool floating_point_value(const CBulkHandle value, double& result) const noexcept;
 
 private:
+    friend class CLiveBulkData;
     detail::CDocumentRead m_query;
 };
 

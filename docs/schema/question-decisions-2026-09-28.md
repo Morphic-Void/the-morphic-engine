@@ -22,6 +22,12 @@ subsequent reconciliation with [design.md](design.md), the
   promoted, or demoted. Conversion does not inherit the source's schema
   reference. Normal schema-matching rules determine success or failure during
   the operation; there is no separate pre-validation pass.
+- Clarified on 1 October for bulk promotion using a different schema: referenced
+  types must agree in names, member order, physical layout, primitive types,
+  array counts, enum labels/values and bit masks/interpretations. Compare names
+  across documents by text. Defaults may differ because existing binary values
+  are copied; unrelated catalogue types need not agree. This does not revise
+  the separate default-sensitive remapping rule.
 - Documents reference their schema through inter-document reference counts.
   Referencing documents do not own or extend the schema wrapper's lifetime.
   Attempting to mutate a referenced live schema fails without changes and
