@@ -307,6 +307,7 @@ public:
     [[nodiscard]] bool floating_point_value(const CInstanceHandle value, double& result) const noexcept;
 
 private:
+    friend class CLiveInstances;
     detail::CDocumentRead m_query;
 };
 

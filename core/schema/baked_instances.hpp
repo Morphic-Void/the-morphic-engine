@@ -32,7 +32,8 @@ enum class EInstanceLoadReason : std::uint8_t
     overlap,
     invalid_declaration,
     embedded_mismatch,
-    allocation_failed
+    allocation_failed,
+    incompatible_schema
 };
 
 struct SInstanceDiagnostic
@@ -71,6 +72,8 @@ public:
     [[nodiscard]] bool load_supplied(const CByteConstView& payload, const bool compare_embedded,
         SInstanceDiagnostic& diagnostic) noexcept;
     [[nodiscard]] bool materialise(CByteBuffer& returned_owner, SInstanceDiagnostic& diagnostic) noexcept;
+    [[nodiscard]] bool promote(class CLiveInstances& destination, CBakedSchema& schema, SInstanceDiagnostic& diagnostic) const noexcept;
+    [[nodiscard]] bool promote(class CLiveInstances& destination, CLiveSchema& schema, SInstanceDiagnostic& diagnostic) const noexcept;
 
     [[nodiscard]] bool document_ready() const noexcept { return m_document.is_ready(); }
     [[nodiscard]] bool loaded_ready() const noexcept { return m_loaded && m_binding.is_usable(); }
@@ -86,6 +89,7 @@ public:
     void clear() noexcept;
 
 private:
+    friend class CLiveInstances;
     static constexpr std::uint32_t k_no_parent = UINT32_MAX;
 
     struct SRecord

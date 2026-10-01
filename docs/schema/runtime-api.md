@@ -376,6 +376,66 @@ failed re-resolution makes loaded entry access unusable while document queries
 remain available. Load failure leaves this role unready and does not invalidate
 the schema or another role sharing the physical block.
 
+## Live instance role (stage 5b)
+
+`CLiveInstances` owns a live `instances` document, a schema binding and one
+128-byte-aligned payload of independent complete snapshots. `initialise(schema)`
+creates an empty role against an explicitly resolved baked or live schema.
+`CBakedInstances::promote(destination, schema, diagnostic)` requires a loaded
+source and empty destination. It copies the instance section and the entire
+associated payload into independent storage without rebuilding binary values
+from declarations. The promoted document retains names, declaration selection
+shapes and hierarchy, and drops legacy `locator.count`. Promotion compares
+referenced types and their effective defaults with the destination schema;
+unrelated definitions may differ. Incompatible promotion leaves both roles
+unchanged and reports `incompatible_schema`.
+
+The live role has the baked role's `document_query()`, `instances_root()`,
+`find_base()`, `find_specialisation()`, `first_specialisation()`,
+`next_specialisation()`, `parent_instance()` and `entry()` observations.
+`payload_view()` borrows the owner. Entry handles remain valid while their
+nodes survive; payload pointers can change when the buffer grows. The live
+document query stays available if the schema binding becomes unusable. Failed
+unchanged re-resolution gates entry access until a successful retry. Destroying
+the schema detaches the binding permanently; the role must be cleared and
+initialised again with a schema.
+
+`create_base(type, name, source_query, declaration, diagnostic)` constructs a
+complete base from a declaration in a baked or live instance query; omitted
+values use schema defaults. `create_specialisation(parent, name, source_query,
+declaration, diagnostic)` starts with the immediate parent's complete snapshot
+and applies only explicit selections. A missing declaration means no
+selections. Both operations retain the declaration, reject duplicate sibling
+names and append one independently addressed extent.
+
+`capture_base(type, name, complete, diagnostic)` creates or replaces a base
+from aligned physical bytes and emits a complete canonical declaration.
+`capture_specialisation(instance, complete, diagnostic)` copies only the
+parts selected by that specialisation's retained declaration; unselected
+bytes, padding and bits stay as they were in the target snapshot. Binary bytes
+remain authoritative, including floating NaN payloads and unused bitfield
+bits. Unknown captured enum codes fail because declarations use
+labels; aliases use the first declared label. Captured NaN declarations use
+the canonical `nan` spelling. Both capture operations update descendants
+parent before child: each descendant inherits its updated immediate parent's
+complete bytes, including padding and unused bits,
+then its previously selected binary values are overlaid and its declaration
+is synchronised to those values. Explicit selections equal to the parent and
+empty aggregate selections remain explicit.
+
+`set_selection(instance, steps, count, source_query, value, diagnostic)` and
+`remove_selection(instance, steps, count, diagnostic)` edit a specialisation.
+Each step names a structure member or bitfield, or gives a fixed-array index.
+An empty set path replaces the whole declaration. A nested edit retains other
+selected binary values even when their old declaration text disagrees with
+the snapshot. Positional structure declarations may become named objects for
+an interior member edit. Fixed arrays permit adding only the next selected
+prefix element and removing only the selected tail element. Edits then rebuild
+the target and its descendants. Failed validation or staging preserves
+existing entries; an unrecoverable failure after publication disables the
+role and reports a critical event. `clear()` releases the owned document,
+payload and binding.
+
 ## Occurrence coverage
 
 The mapping is a sorted sparse table keyed by full live or baked occurrence

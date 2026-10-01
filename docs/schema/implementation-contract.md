@@ -714,7 +714,20 @@ matching structure and value interpretation, while allowing different defaults.
 With that decision recorded, the coordinator dispatched the implementation.
 The coordinator and user completed the requested promotion/default debrief;
 the user confirmed that the implementation matches the intended behaviour.
-Stages 5b-8 remain planned.
+Stage 5a was committed as `f3bc3ac` (Add live bulk construction and non-consuming
+promotion). The user authorised continuation into stage 5b with the existing
+implementing chat. Its API proposal passed coordinator review. The user confirmed that
+instance promotion requires matching defaults as well as structure and value
+interpretation for referenced types; copied snapshots are not rebuilt.
+The user also confirmed that descendant updates preserve selected binary values
+and synchronise declarations, while unselected values inherit the updated parent.
+The coordinator dispatched the bounded live-instance implementation, including
+construction, promotion, capture and coordinated selection edits. Base capture
+records a complete declaration; specialisation capture retains existing selection
+shape. Positional structures may become named declarations for interior edits;
+fixed arrays retain prefix-only selections. Stage 5b has passed coordinator review,
+validation and user manual review; the user authorised its commit on 1 October.
+Stages 6-8 remain planned.
 The intended handoff to a fresh implementing chat is at stage 5, after completion
 of the baked loaders, with this coordinator retaining requirements and review.
 During that review, the user clarified that specialisations are independent
@@ -865,7 +878,46 @@ checks of the new sources and preserved Visual Studio file conventions.
 Stage 5a passed user manual review and the requested promotion/default debrief.
 The user's final line-break and ternary-parenthesisation changes were reviewed
 and preserved without repeating the passing validation matrix. The user authorised
-the commit on 1 October. Stage 5b has not begun.
+the commit on 1 October. Stage 5b is implemented and has passed user manual review.
+
+Stage 5b adds `CLiveInstances` with an owned document and aligned payload, common
+instance queries, independent promotion, base/specialisation construction,
+binary capture and coordinated selection edits. Promotion retains declarations
+and hierarchy, strips instance locator counts, copies authoritative snapshots
+and checks referenced types including effective defaults. Base capture records
+a complete declaration. Specialisation capture preserves the existing selection
+shape and copies only selected fields. Descendant updates inherit their immediate
+parent and retain their own selected binary values, synchronising declarations.
+Selection edits preserve other selected values even when their original literals
+are stale, without losing exact binary encodings through document conversion.
+
+Coordinator review corrected initialisation state, effective-default comparison,
+failed-append cleanup, unintended allocation zeroing, positional edits inside
+arrays, temporary diagnostic handles and selected-value preservation. Fixed
+arrays retain prefix-only selection; positional structures may be converted to
+named declarations without moving their enclosing array position. Final review
+has no outstanding findings. Boundary tests cover promotion, append and coordinated
+edit allocation failures; explicit equal-to-parent selections; stale literals;
+exact NaN and Boolean encodings; bit masks; nested positional edits; rejected
+fixed-array holes and interior removals; empty selections; effective scalar and
+array defaults; self-capture across buffer growth; and schema lifetime/re-resolution.
+
+Debug x64, Release x64 and Debug x86 solution builds and ordinary `-t1` suites
+passed with 4,984 schema checks and zero failures throughout:
+`stage5b-boundaries-1515` (PID 77240, retained as the final Debug x64 run),
+`stage5b-final-rel64-1524` (PID 81520), and
+`stage5b-final-dbg32-1525` (PID 81172). The coordinator inspected actual native
+build/test exit statuses and output; no new compiler diagnostics appeared.
+Generated layouts and resolved record sizes are unchanged, so the compiler layout
+matrix was not repeated. Diff and tracked text-policy checks passed, with separate
+checks of the new sources and preserved Visual Studio CRLF, BOM and final-newline
+state. User review requested explicit condition grouping, braced control-flow
+bodies and a simpler compatibility loop. These presentation changes were reviewed
+against saved source copies; the loop now uses a named child count. A targeted
+Debug x64 solution build passed, with final parenthesis-only touch-ups checked by
+diff review. The passing runtime/platform matrix was not repeated. The user's
+final formatting changes and the parameter-grouping consistency pass preserve
+behaviour. User review is complete, with commit authorised on 1 October.
 
 Stage 1 is complete and committed independently as
 `d92dddd`; its code, tests and data-model documentation exclude schema planning.
@@ -997,6 +1049,14 @@ clearing outputs that began with different padding contents. Exercise it after
 stage 6 packing and stage 7 transfers before binary output.
 
 ### Delivery discipline
+
+Future implementation briefs should retain the user's clarified style rules:
+brace control-flow bodies, explicitly group compound subconditions and keep
+complex loop conditions readable through named local values where appropriate.
+In multi-parameter calls, parenthesise arguments containing operations, especially
+ternaries, to distinguish the arguments visually. Do not add redundant outer
+parentheses to single-parameter calls, whose call delimiters already suffice.
+Preserve the user's manual line breaks and spacing.
 
 Each stage leaves a usable, tested boundary; stages 4-6 should not become one
 unreviewed integration change. Run checks appropriate to each change and broader

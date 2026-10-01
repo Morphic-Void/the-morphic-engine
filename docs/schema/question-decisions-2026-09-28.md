@@ -28,6 +28,10 @@ subsequent reconciliation with [design.md](design.md), the
   across documents by text. Defaults may differ because existing binary values
   are copied; unrelated catalogue types need not agree. This does not revise
   the separate default-sensitive remapping rule.
+- Confirmed on 1 October: instance promotion additionally requires matching
+  defaults for referenced types, since retained declaration omissions affect
+  later rebuilding. Promotion preserves authoritative binary snapshots without
+  rebuilding them or applying defaults.
 - Documents reference their schema through inter-document reference counts.
   Referencing documents do not own or extend the schema wrapper's lifetime.
   Attempting to mutate a referenced live schema fails without changes and
@@ -149,6 +153,10 @@ subsequent reconciliation with [design.md](design.md), the
   descendant specialisations in the document tree, parent before child. The
   recursion may use an internal helper but is part of the user-facing edit
   operation, not a separate caller step.
+- Confirmed on 1 October: descendant updates preserve selected binary values
+  and synchronise retained declarations to those values, including when saved
+  binary disagrees with the original declaration. Unselected values inherit
+  from the updated immediate parent; equal-to-parent selections remain explicit.
 - Removing a selected specialisation member rebuilds that image from its base
   and updates descendants. Adding a selected member supplies a replacement
   value and also updates descendants. Callers access underlying live documents

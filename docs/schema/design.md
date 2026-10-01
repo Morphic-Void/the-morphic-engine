@@ -231,6 +231,11 @@ without applying defaults. Unrelated types in either catalogue need not match.
 This does not change the stricter default-sensitive definition matching specified
 for remapping below.
 
+Instance promotion also requires matching defaults for the referenced types.
+Confirmed on 1 October: retained declarations may omit values, so different
+defaults could change an instance during a later rebuild. Promotion still copies
+the authoritative snapshots without reconstructing them or applying defaults.
+
 The reverse operation, demotion, creates the corresponding baked representation
 with an owned `CBakedDocumentBlock` and independent copies of associated binary
 payloads. It preserves the live source and its existing connections on success
@@ -1454,6 +1459,12 @@ values equal to the base. No separate dependency graph or snapshot-difference
 inference is required by this design. Capturing a complete binary value for an
 existing specialisation takes only the parts selected by its retained declaration,
 updates those parts in its complete image and recursively updates descendants.
+Confirmed on 1 October: descendant updates preserve each descendant's selected
+binary values and synchronise its retained declaration to those values. This
+also applies when a saved snapshot disagrees with the authored declaration:
+an explicit selection declaring `x = 3` but holding authoritative binary `x = 9`
+retains `9` after an ancestor edit. Unselected values inherit from the updated
+immediate parent. Selection intent is never inferred from value differences.
 Removing a selected member rebuilds from the base; adding one supplies a replacement
 value. Both operations update descendants. Live document access is mediated by
 the wrappers. Failure partway through editing/updating still needs a validity
