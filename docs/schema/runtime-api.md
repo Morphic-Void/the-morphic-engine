@@ -4,16 +4,16 @@ This page describes the implemented resolver and generator introduced in
 `5313c85` and extended with live/baked document queries. The [design](design.md)
 defines the target system;
 the [implementation contract](implementation-contract.md#staged-implementation-plan)
-tracks delivery. Schema wrappers, their promotion/demotion, and the baked bulk
-role are implemented; instance and live bulk wrappers remain later work. Its lifetime, handle
-and default rules below describe current code.
+tracks delivery. Schema wrappers, their promotion/demotion, and the baked
+instance and bulk roles are implemented; live data wrappers remain later work.
+The lifetime, handle and default rules below describe current code.
 
 `schema::CSchemaDocumentQuery` exposes read-only tree, name and scalar queries
 through `CSchemaHandle` occurrences. Its internal adapter reads either a live or
 baked document. A baked query copies the non-owning view, while a live query
-borrows its document. `CBulkDocumentQuery` offers the same original-root read
-surface with `CBulkHandle` occurrences. Schema, instance and bulk role-handle
-types are distinct.
+borrows its document. `CInstanceDocumentQuery` and `CBulkDocumentQuery` offer the
+same original-root read surface with their distinct role handles. Schema,
+instance and bulk role-handle types are distinct.
 
 ## Schema wrappers and client bindings
 
@@ -233,7 +233,7 @@ values without clearing structure/array gaps. A newly constructed bit word is
 initialised as a unit; an alternative retains all inherited bytes and bits
 outside selected masks. On conversion failure the destination may be partially
 changed and must be discarded; the source stays unchanged. The codec neither
-allocates nor binds a schema. Future role wrappers must check their schema
+allocates nor binds a schema. Role wrappers check their schema
 binding before each call. Callers and owners must keep borrowed baked document
 and payload backing alive at stable addresses under each role's ownership rules.
 
@@ -276,6 +276,48 @@ zero-byte-only payload can use the canonical empty view. Moving the owner keeps
 the payload address stable; destroying or reallocating it invalidates the view.
 `SBulkDiagnostic` reports the first failure reason and a bulk occurrence when
 available. Failure leaves the role unready.
+
+## Baked instance role (stage 4c)
+
+`CBakedInstances` attaches a borrowed immutable or mutable baked document view
+and separately binds a resolved `CBakedSchema` or `CLiveSchema`. One wrapper
+loads the complete `instances` section into one associated payload; nested base
+branches are naming scopes within that role. `CInstanceDocumentQuery` exposes
+the original physical root, while `instances_root()` selects the role section.
+`find_base(type, name)` selects a named base. `find_specialisation(parent, name)`,
+`first_specialisation()`, `next_specialisation()` and `parent_instance()` navigate
+the validated hierarchy. `entry()` exposes the type, immediate parent, retained
+declaration handle, offset, byte extent and borrowed complete snapshot.
+
+Each base and specialisation object reserves a `locator` with unsigned 32-bit
+`offset` and Boolean `valid`. Optional `count` must be one; optional `size`
+must equal the resolved type size, including zero. Optional `declaration` holds
+the supplied values or selected modifications. Its absence means no selected
+values: a base uses schema defaults and a specialisation inherits its complete
+immediate parent unchanged. Explicit null is invalid. `specialisation` holds
+named child objects, and every child inherits its enclosing instance's type.
+
+`load_supplied(payload, compare_embedded, diagnostic)` borrows a physically
+128-byte-aligned nonempty payload. Valid baked locators must describe extents
+in parent-before-child depth-first hierarchy order, independent of the order
+of `locator`, `declaration` and `specialisation` properties. Extents require
+type alignment, no overlap and checked bounds. With
+comparison disabled, the supplied complete snapshots are authoritative and
+declarations are not converted. With comparison enabled, the loader constructs
+base and descendant snapshots in separate scratch storage, parent before child,
+then compares addressable encoded fields against the supplied payload. Expected
+children never use supplied parent bytes. Comparison follows the encoded rules
+described for the bulk role.
+
+`materialise(returned_owner, diagnostic)` takes an unallocated output buffer,
+constructs each base with defaults and each child as an independent alternative
+from its completed immediate parent, then publishes unset reserved locators
+through a mutable view. It returns the payload owner separately and borrows its
+stable allocation. A zero-byte-only role may use an empty payload and null
+entry byte pointers. `clear()` releases the binding and views. Schema loss or
+failed re-resolution makes loaded entry access unusable while document queries
+remain available. Load failure leaves this role unready and does not invalidate
+the schema or another role sharing the physical block.
 
 ## Occurrence coverage
 
@@ -412,8 +454,8 @@ Assertions compare resolved size, alignment, member offsets/sizes, array extents
 enum underlying types/values, mask types/values, standard layout and trivial
 copyability, including `fp16data_t`. Support requires successful compiler fidelity
 validation for the target ABI. The full design sample is a positive schema
-resolution and C++ layout fixture; its instance and bulk content is still outside
-this resolver's validation scope.
+resolution and C++ layout fixture. The role-loader tests exercise its instance
+and bulk sections separately; those remain outside the resolver's validation scope.
 
 Record sizes are available through `record_sizes()` for review and are printed
 by the suite. They are measurements, not a serialization format or promised ABI.

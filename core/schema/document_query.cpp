@@ -308,6 +308,109 @@ bool CSchemaDocumentQuery::floating_point_value(const CSchemaHandle value, doubl
     return m_query.floating_point_value(detail::SSchemaHandleAccess::occurrence(value), result);
 }
 
+CInstanceDocumentQuery::CInstanceDocumentQuery(const CLiveDocument& document) noexcept : m_query(document)
+{
+}
+
+CInstanceDocumentQuery::CInstanceDocumentQuery(const CBakedDocument& document) noexcept : m_query(document)
+{
+}
+
+bool CInstanceDocumentQuery::is_ready() const noexcept
+{
+    return m_query.is_ready();
+}
+
+CInstanceHandle CInstanceDocumentQuery::root() const noexcept
+{
+    return detail::SInstanceHandleAccess::make(m_query.root());
+}
+
+bool CInstanceDocumentQuery::contains(const CInstanceHandle value) const noexcept
+{
+    return m_query.contains(detail::SInstanceHandleAccess::occurrence(value));
+}
+
+EDocumentValueKind CInstanceDocumentQuery::value_kind(const CInstanceHandle value) const noexcept
+{
+    return m_query.value_kind(detail::SInstanceHandleAccess::occurrence(value));
+}
+
+CInstanceHandle CInstanceDocumentQuery::object_child(const CInstanceHandle object, const CStringView& name) const noexcept
+{
+    return detail::SInstanceHandleAccess::make(m_query.object_child(detail::SInstanceHandleAccess::occurrence(object), name));
+}
+
+CInstanceHandle CInstanceDocumentQuery::parent(const CInstanceHandle value) const noexcept
+{
+    return detail::SInstanceHandleAccess::make(m_query.parent(detail::SInstanceHandleAccess::occurrence(value)));
+}
+
+CInstanceHandle CInstanceDocumentQuery::first_child(const CInstanceHandle value) const noexcept
+{
+    return detail::SInstanceHandleAccess::make(m_query.first_child(detail::SInstanceHandleAccess::occurrence(value)));
+}
+
+CInstanceHandle CInstanceDocumentQuery::next_sibling(const CInstanceHandle value) const noexcept
+{
+    return detail::SInstanceHandleAccess::make(m_query.next_sibling(detail::SInstanceHandleAccess::occurrence(value)));
+}
+
+CInstanceHandle CInstanceDocumentQuery::array_at(const CInstanceHandle value, const std::uint32_t ordinal) const noexcept
+{
+    return detail::SInstanceHandleAccess::make(m_query.array_at(detail::SInstanceHandleAccess::occurrence(value), ordinal));
+}
+
+std::uint32_t CInstanceDocumentQuery::child_count(const CInstanceHandle value) const noexcept
+{
+    return m_query.child_count(detail::SInstanceHandleAccess::occurrence(value));
+}
+
+bool CInstanceDocumentQuery::is_object_entry(const CInstanceHandle value) const noexcept
+{
+    return m_query.is_object_entry(detail::SInstanceHandleAccess::occurrence(value));
+}
+
+CPropertyNameId CInstanceDocumentQuery::name_id(const CInstanceHandle value) const noexcept
+{
+    return m_query.name_id(detail::SInstanceHandleAccess::occurrence(value));
+}
+
+CStringView CInstanceDocumentQuery::name(const CInstanceHandle value) const noexcept
+{
+    return m_query.name(detail::SInstanceHandleAccess::occurrence(value));
+}
+
+CStringView CInstanceDocumentQuery::property_name(const CPropertyNameId id) const noexcept
+{
+    return m_query.property_name(id);
+}
+
+CStringView CInstanceDocumentQuery::string_value(const CInstanceHandle value) const noexcept
+{
+    return m_query.string_value(detail::SInstanceHandleAccess::occurrence(value));
+}
+
+bool CInstanceDocumentQuery::boolean_value(const CInstanceHandle value, bool& result) const noexcept
+{
+    return m_query.boolean_value(detail::SInstanceHandleAccess::occurrence(value), result);
+}
+
+bool CInstanceDocumentQuery::signed_integer_value(const CInstanceHandle value, std::int64_t& result) const noexcept
+{
+    return m_query.signed_integer_value(detail::SInstanceHandleAccess::occurrence(value), result);
+}
+
+bool CInstanceDocumentQuery::unsigned_integer_value(const CInstanceHandle value, std::uint64_t& result) const noexcept
+{
+    return m_query.unsigned_integer_value(detail::SInstanceHandleAccess::occurrence(value), result);
+}
+
+bool CInstanceDocumentQuery::floating_point_value(const CInstanceHandle value, double& result) const noexcept
+{
+    return m_query.floating_point_value(detail::SInstanceHandleAccess::occurrence(value), result);
+}
+
 CBulkDocumentQuery::CBulkDocumentQuery(const CLiveDocument& document) noexcept : m_query(document)
 {
 }

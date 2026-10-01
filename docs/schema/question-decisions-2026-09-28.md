@@ -11,6 +11,10 @@ subsequent reconciliation with [design.md](design.md), the
 - Schema, instance, and bulk data are separate logical documents. Failure to
   load an instance or bulk document is fatal to that logical document, not to
   its resolved schema, even when views share a physical baked block.
+- Clarified on 1 October: one instance wrapper and one associated byte buffer
+  cover the entire `instances` section. Branches provide naming scopes within
+  it; they are not independently loaded documents. Separate instance documents
+  each have their own wrapper and buffer.
 - Adding new data is an isolated operation. If an append fails, existing entries
   remain usable. Bytes already appended may remain unreferenced, provided no
   locator for the failed entry is published.
@@ -21,9 +25,11 @@ subsequent reconciliation with [design.md](design.md), the
 - Documents reference their schema through inter-document reference counts.
   Referencing documents do not own or extend the schema wrapper's lifetime.
   Attempting to mutate a referenced live schema fails without changes and
-  triggers an assertion. A referenced schema cannot be moved. Attempting to
-  destroy one raises a critical error and must be stopped before its backing
-  data is released; the system should immediately attempt shutdown.
+  triggers an assertion. A referenced schema cannot be moved. Revised on
+  29 September: destruction invalidates and detaches client bindings through
+  their intrusive list before releasing schema state. Subsequent dependent
+  operations fail safely. A no-return panic is a last resort, not a required
+  response; this supersedes the original mandatory shutdown rule.
 - Re-resolution of unchanged definitions is permitted while documents refer to
   the schema. Successful re-resolution gives the same data and preserves the
   meanings of existing unversioned handles. A failed re-resolution clears the
@@ -50,11 +56,11 @@ subsequent reconciliation with [design.md](design.md), the
   into the resolution. A live schema wrapper owns its underlying live document.
   A baked schema borrows string storage whose lifetime its user manages.
 - A live schema may temporarily contain an empty type during construction.
-  Empty types have no resolution, are skipped without failing document-level
-  resolution, and cannot be serialised. Complete types in the same schema can
-  resolve. Construction should prevent a complete type from referring to an
-  empty type; if such a reference nevertheless occurs, the empty reference is
-  ignored rather than failing resolution.
+  Revised on 30 September: empty types retain queryable resolved identities and
+  zero-byte member records, with size zero and alignment one. References to
+  them are valid, and a structure containing only empty members is itself
+  empty. Generated C++ omits empty types and members. This supersedes the
+  original unresolved/ignored-empty-reference proposal.
 - Malformed schema validation or resolution fails with useful information for
   human review, comparable in purpose to a data-model parsing report and
   suitable for `MV_REPORT` or similar logging. A node handle may be used
@@ -63,6 +69,11 @@ subsequent reconciliation with [design.md](design.md), the
   source of these failures because live schema editing is mediated.
 
 ## Locators, loading, and binary buffers
+
+- Clarified on 1 October: an omitted instance `declaration` means no selected
+  values. A base uses schema defaults; a specialisation inherits its complete
+  parent unchanged. Optional comparison reconstructs that same meaning;
+  omission never indicates discarded or unknown declaration intent.
 
 - Instance and specialisation objects gain a sibling `locator` object beside
   their existing contents. Each named bulk entry becomes an object with
@@ -185,8 +196,9 @@ subsequent reconciliation with [design.md](design.md), the
 
 - Source ingestion is a separate follow-up task. Selected files, supported
   declarations, and target-layout evidence remain for that discussion.
-- Exact public C++ signatures, record layouts, and the mechanics of reference
-  counting and critical shutdown remain implementation design work.
+- Exact public C++ signatures and private record layouts remain implementation
+  design work for undelivered stages. Schema binding lifetime mechanics are
+  implemented; the revised invalidation rule above governs dependent documents.
 - The baked document format and existing schema documents must be reconciled
   with reserved mutable locators, the revised live edit/reference rules,
   automatic descendant updates, empty live types, and faithful explicit-layout

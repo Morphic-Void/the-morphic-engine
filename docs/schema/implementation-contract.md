@@ -542,7 +542,7 @@ CRLF and optional missing final newline. Other text uses LF and a final newline.
 | [ByteBuffers.hpp](../../core/containers/ByteBuffers.hpp) | Reuse framework copying, allocation, alignment and ownership support. Demotion's document-order packing must rewrite locators in its new output. |
 | [schema_declarations.cpp](../../core/schema/schema_declarations.cpp) | The reviewed stage 2 package uses representation-neutral names and diagnostic locations. Generated output and established spelling/layout checks remain unchanged. |
 | [baked_document.cpp](../../core/data_model/baked_document.cpp), [BakedDocument_test_suite.cpp](../../tests/test_suites/BakedDocument_test_suite.cpp) | Stage 1 updates canonical integer width in both directions; reviewed, validated and committed separately as `d92dddd`. Reserved locator nodes can use this prerequisite once schema loaders are implemented. |
-| [Schema_test_suite.cpp](../../tests/test_suites/Schema_test_suite.cpp) | Reuse fixtures and compiler checks, revising expectations only where later decisions change semantics. Stage 4b updates and validates the sample's bulk section; its instance section still awaits locator integration. |
+| [Schema_test_suite.cpp](../../tests/test_suites/Schema_test_suite.cpp) | Reuse fixtures and compiler checks, revising expectations only where later decisions change semantics. Stages 4b and 4c integrate the sample's bulk and instance locators and exercise their materialisation. |
 
 ## Staged implementation plan
 
@@ -696,9 +696,17 @@ views, separately returned materialised owners, reserved locators and optional
 encoded-field comparison. The user confirmed positive explicit counts for
 zero-byte types without embedded records and encoded comparison excluding unused
 storage, with all NaNs equal. The baked bulk package passed coordinator and user
-review; its separate commit was authorised on 1 October. The user's line-break
-and explicit expression-grouping changes were preserved without repeating the
-passing validation matrix. Baked instance loading and stages 5-8 remain planned.
+review and was committed on 1 October as `46a37b7` (Add baked bulk loading with
+external payload ownership). The user's line-break and explicit expression-grouping
+changes were preserved without repeating the
+passing validation matrix. The user then authorised continuation into baked
+instance loading. Coordinator review approved the hierarchy/API proposal and
+dispatched the instance package after the user confirmed that omitted declarations
+mean defaults for bases and unchanged inheritance for specialisations. One wrapper
+covers the complete `instances` section. Stage 4c is implemented and has passed
+coordinator review, validation and user manual review. The user authorised its
+commit on 1 October, including the final formatting changes.
+Stages 5-8 remain planned.
 The intended handoff to a fresh implementing chat is at stage 5, after completion
 of the baked loaders, with this coordinator retaining requirements and review.
 During that review, the user clarified that specialisations are independent
@@ -773,6 +781,43 @@ and preserved Visual Studio CRLF, BOM and final-newline state.
 A later review may reconsider inlining small document-query forwarding functions
 and splitting the query files once the instance interface is present. These are
 deferred observations, not changes required for the baked bulk package.
+
+Stage 4c adds `CBakedInstances` and `CInstanceDocumentQuery`. One wrapper covers
+the complete `instances` section and borrows one payload buffer. Its original-root
+queries coexist with validated base, child, sibling and parent navigation. Each
+entry exposes its retained declaration and independent completed snapshot.
+An omitted declaration selects no values: bases use defaults and children inherit
+their complete immediate parent. Both baked and live schema bindings are supported.
+
+Planning traverses the hierarchy with an explicit frame stack, producing parents
+before children independently of the placement of declaration and locator
+properties. Materialisation stages allocation and all conversions before publishing
+reserved locators. Optional supplied-payload comparison constructs a separate
+expected hierarchy; it never derives expected children from supplied parent bytes.
+The shared codec retains its encoded-field comparison and unused-storage rules.
+
+The sample now reserves instance and specialisation locators and is materialised
+by the suite. Focused checks cover inherited positional tails, independent siblings,
+repeated names in distinct branches, omitted declarations, empty snapshots, deep
+hierarchies, ownership transfer, schema invalidation, invalid input, locator-width
+changes and staged failure. Coordinator review added frame-stack and comparison
+allocation failures and a bad descendant after a valid base, checking that failure
+publishes neither locator. These checks extend the existing shared-codec coverage.
+
+Final Debug x64, Release x64 and Debug x86 solution builds and ordinary `-t1`
+suites passed with 4,190 schema checks and zero failures throughout:
+`instance-stage4c-targeted6` (PID 80636, retained as the final Debug x64 run),
+`instance-stage4c-final-rel64` (PID 73280), and
+`instance-stage4c-final-dbg32` (PID 78508). Coordinator review inspected actual
+build/test output; no new warnings appeared. Combined-document failure isolation
+and failed/successful unchanged schema re-resolution are covered. Generated layouts
+and resolved record sizes are unchanged, so the compiler layout matrix was not
+repeated. New sources retain LF and final newlines; Visual Studio item/filter
+files retain CRLF, their original BOM state and no final newline.
+Diff and tracked text-policy checks passed, with separate checks of the new files.
+The user's final line-break and expression-grouping changes were reviewed and
+preserved. They do not change behaviour; the passing validation matrix was not
+repeated. The final diff check passed.
 
 Stage 1 is complete and committed independently as
 `d92dddd`; its code, tests and data-model documentation exclude schema planning.

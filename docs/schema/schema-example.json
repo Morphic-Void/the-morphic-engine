@@ -121,12 +121,15 @@
   "instances": {
     "Vector4": {
       "base": {
+        "locator": { "offset": 0, "valid": false },
         "declaration": [2.0, 1.0, 4.0, 7.0],
         "specialisation": {
           "padded": {
+            "locator": { "offset": 0, "valid": false },
             "declaration": [2.0, 1.0, 4.0]
           },
           "raised": {
+            "locator": { "offset": 0, "valid": false },
             "declaration": { "y": 3.0 }
           }
         }
@@ -135,9 +138,11 @@
 
     "Vertex": {
       "base": {
+        "locator": { "offset": 0, "valid": false },
         "declaration": { "uv": [0.25, 0.75] },
         "specialisation": {
           "short_uv": {
+            "locator": { "offset": 0, "valid": false },
             "declaration": { "uv": [0.5] }
           }
         }
@@ -146,9 +151,11 @@
 
     "Position": {
       "origin": {
+        "locator": { "offset": 0, "valid": false },
         "declaration": [0.0, 0.0, 0.0],
         "specialisation": {
           "raised": {
+            "locator": { "offset": 0, "valid": false },
             "declaration": { "y": 2.0 }
           }
         }
@@ -157,17 +164,21 @@
 
     "Material": {
       "base": {
+        "locator": { "offset": 0, "valid": false },
         "declaration": { "visible": true },
         "specialisation": {
           "polished": {
+            "locator": { "offset": 0, "valid": false },
             "declaration": { "roughness": 0.1 },
             "specialisation": {
               "hidden": {
+                "locator": { "offset": 0, "valid": false },
                 "declaration": { "visible": false }
               }
             }
           },
           "rough": {
+            "locator": { "offset": 0, "valid": false },
             "declaration": { "roughness": 0.9 }
           }
         }

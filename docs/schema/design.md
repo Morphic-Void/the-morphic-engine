@@ -587,13 +587,13 @@ be resolved alone; instances and bulk data require the applicable resolved
 definitions. The three roles may share one physical document or use separate
 documents. This does not require three physical files or duplicate catalogues.
 
-Instance definitions may occupy one or several documents.  Each main instance
-branch effectively constitutes a logical document, with its root acting as
-that branch's namespace.  These logical documents may share one baked document
-or be stored in separate baked documents.  The physical baked-document count
-therefore does not determine the number of logical documents or namespaces.
-The earlier single-baked-document assumption does not constrain instance
-packaging.
+Instance definitions may occupy one or several documents. Confirmed on 1 October:
+one instance wrapper and its associated byte buffer cover the complete `instances`
+section, including all base instances and specialisation branches. Each branch
+provides a naming scope within that logical document, not an independently loaded
+document or buffer. Separate instance documents each have their own wrapper and
+buffer. A combined baked document may still carry schema, instance and bulk roles.
+This supersedes the earlier description of each main branch as a logical document.
 
 Reference ordering differs between definitions and instances. Structure
 definitions may refer to types declared later in the definitions document.
@@ -1373,6 +1373,11 @@ the earlier positional-replacement rule for specialisations. The effective
 values follow the chain from the structure definition through the base
 instance and each subsequent specialisation; creating an alternative does
 not modify any earlier instance in that chain.
+
+Confirmed on 1 October: an omitted `declaration` means no selected values. A
+base instance therefore uses its schema defaults; a specialisation inherits its
+complete parent unchanged. Optional embedded/binary comparison uses the same
+meaning. Omission never denotes unknown or discarded declaration intent.
 
 Default values apply to logical members; clearing gaps is a separate optional
 operation. Defaults cannot generally be implemented merely by

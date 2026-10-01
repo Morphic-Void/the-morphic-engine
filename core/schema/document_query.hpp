@@ -31,6 +31,7 @@ class CLiveInstances;
 class CBakedBulkData;
 class CLiveBulkData;
 class CSchemaHandle;
+class CInstanceHandle;
 class CBulkHandle;
 
 //==============================================================================
@@ -93,6 +94,12 @@ struct SSchemaHandleAccess
 {
     [[nodiscard]] static constexpr CSchemaHandle make(const SOccurrence occurrence) noexcept;
     [[nodiscard]] static constexpr SOccurrence occurrence(const CSchemaHandle handle) noexcept;
+};
+
+struct SInstanceHandleAccess
+{
+    [[nodiscard]] static constexpr CInstanceHandle make(const SOccurrence occurrence) noexcept;
+    [[nodiscard]] static constexpr SOccurrence occurrence(const CInstanceHandle handle) noexcept;
 };
 
 struct SBulkHandleAccess
@@ -237,9 +244,70 @@ public:
 
 private:
     explicit constexpr CInstanceHandle(const detail::SOccurrence occurrence) noexcept : m_occurrence(occurrence) {}
+    friend struct detail::SInstanceHandleAccess;
     friend class CBakedInstances;
     friend class CLiveInstances;
     detail::SOccurrence m_occurrence;
+};
+
+[[nodiscard]] constexpr bool operator==(const CInstanceHandle lhs, const CInstanceHandle rhs) noexcept;
+[[nodiscard]] constexpr bool operator!=(const CInstanceHandle lhs, const CInstanceHandle rhs) noexcept;
+
+constexpr CInstanceHandle detail::SInstanceHandleAccess::make(const detail::SOccurrence occurrence) noexcept
+{
+    return CInstanceHandle{ occurrence };
+}
+
+constexpr detail::SOccurrence detail::SInstanceHandleAccess::occurrence(const CInstanceHandle handle) noexcept
+{
+    return handle.m_occurrence;
+}
+
+[[nodiscard]] constexpr bool operator==(const CInstanceHandle lhs, const CInstanceHandle rhs) noexcept
+{
+    return detail::SInstanceHandleAccess::occurrence(lhs) == detail::SInstanceHandleAccess::occurrence(rhs);
+}
+
+[[nodiscard]] constexpr bool operator!=(const CInstanceHandle lhs, const CInstanceHandle rhs) noexcept
+{
+    return !(lhs == rhs);
+}
+
+//==============================================================================
+//  Instance document query
+//==============================================================================
+
+//  Read-only original-root query with instance-specific handles. Baked backing
+//  is borrowed; handles and returned strings require their originating document.
+class CInstanceDocumentQuery
+{
+public:
+    CInstanceDocumentQuery() noexcept = default;
+    explicit CInstanceDocumentQuery(const CLiveDocument& document) noexcept;
+    explicit CInstanceDocumentQuery(const CBakedDocument& document) noexcept;
+
+    [[nodiscard]] bool is_ready() const noexcept;
+    [[nodiscard]] CInstanceHandle root() const noexcept;
+    [[nodiscard]] bool contains(const CInstanceHandle value) const noexcept;
+    [[nodiscard]] EDocumentValueKind value_kind(const CInstanceHandle value) const noexcept;
+    [[nodiscard]] CInstanceHandle object_child(const CInstanceHandle object, const CStringView& name) const noexcept;
+    [[nodiscard]] CInstanceHandle parent(const CInstanceHandle value) const noexcept;
+    [[nodiscard]] CInstanceHandle first_child(const CInstanceHandle value) const noexcept;
+    [[nodiscard]] CInstanceHandle next_sibling(const CInstanceHandle value) const noexcept;
+    [[nodiscard]] CInstanceHandle array_at(const CInstanceHandle value, const std::uint32_t ordinal) const noexcept;
+    [[nodiscard]] std::uint32_t child_count(const CInstanceHandle value) const noexcept;
+    [[nodiscard]] bool is_object_entry(const CInstanceHandle value) const noexcept;
+    [[nodiscard]] CPropertyNameId name_id(const CInstanceHandle value) const noexcept;
+    [[nodiscard]] CStringView name(const CInstanceHandle value) const noexcept;
+    [[nodiscard]] CStringView property_name(const CPropertyNameId id) const noexcept;
+    [[nodiscard]] CStringView string_value(const CInstanceHandle value) const noexcept;
+    [[nodiscard]] bool boolean_value(const CInstanceHandle value, bool& result) const noexcept;
+    [[nodiscard]] bool signed_integer_value(const CInstanceHandle value, std::int64_t& result) const noexcept;
+    [[nodiscard]] bool unsigned_integer_value(const CInstanceHandle value, std::uint64_t& result) const noexcept;
+    [[nodiscard]] bool floating_point_value(const CInstanceHandle value, double& result) const noexcept;
+
+private:
+    detail::CDocumentRead m_query;
 };
 
 //==============================================================================
