@@ -11,15 +11,13 @@ Date:   25 Sep 2026
 with subsequent decisions. The expanded reviewed revision includes layout and
 short-input examples, omits redundant array `kind`, and uses `detail.internal`
 as the internal-layout marker. Its `types` section is an implemented resolver
-and C++ compiler acceptance fixture, while the later instance and bulk sections
-remain an authoring example rather than a specification of every extension.
+and C++ compiler acceptance fixture. The baked bulk section now illustrates
+materialisation; the instance section remains an authoring example.
 The working [design](design.md) records agreed semantics. Showing a later feature
 here does not bring it into the initial delivery.
 
-This is a pre-locator authoring sample, not a complete current-loader fixture.
-It still needs the locator and bulk-entry-object grammar from the
-[design](design.md#locators-loading-and-buffers). Its named declarations and
-inheritance hierarchy are the intended embedded instance representation; no
+The bulk collection uses an unset locator for materialisation. Named declarations
+and inheritance form the intended embedded instance representation; no
 additional flattened-value field is required. Current capabilities and delivery
 status belong in the [runtime API](runtime-api.md) and
 [implementation contract](implementation-contract.md), respectively.
@@ -50,7 +48,7 @@ C++ declarations instead choose ordinary integer notation by value; see the
 | Bit structure | Integer `storage` describes the containing word; ordered named `members` select fields with non-zero contiguous `mask` values. |
 | Bit member | `type` gives the field's base/logical type: an integer, `b8`, or a named enum. Optional `interpretation` retains specialised meaning such as `unorm`; optional scalar `default` belongs to this field definition. |
 | Instance | `instances` groups named instances by type. `declaration` holds supplied values, and `specialisation` holds named children inheriting from that instance. |
-| Bulk collection | The saved sample groups named arrays of complete records by type. The revised grammar wraps each named collection in an object containing `locator` and optional `data`; records have no specialisation mechanism. |
+| Bulk collection | `data` groups named collections by type. Each collection is an object with a `locator` and optional `data` array of complete unnamed records. The sample's unset locator reserves `offset`, `valid`, and `count` for materialisation. Records have no specialisation mechanism. |
 
 The category names, `storage`/`values`, and array `element`/`count` are
 retained from the original sample. `types`, `mask`, `default`, and the uniform
@@ -74,8 +72,9 @@ baking rather than relying on recovery of duplicate-property history later.
 
 Named-component structures such as `Position` are recognised from their
 same-type, non-array primitive members, without a new marker in this form.
-`Vertex.uv` remains an ordinary fixed array, replaced in full rather than
-patched by index. Schema member order is preserved in either case.
+`Vertex.uv` remains an ordinary fixed array. A short base declaration fills its
+tail from defaults; a short specialisation retains the inherited tail. Schema
+member order is preserved in either case.
 
 ## Bitfield interpretation
 
@@ -100,9 +99,8 @@ padding; construction does not require blanket zeroing. `ColourRgba10A2` covers 
 The `unorm` spelling is retained from the original sample. The revised design
 uses nearest floating quantisation with ties away from zero and clamping for
 `unorm` and `snorm`, raw integer codes for input/defaults/output, and conventional
-decoding. Schema-default quantisation is implemented; instance and bulk codecs
-and decoding remain future work, so
-no packed instance encoding is validated by this sample. The type separation
+decoding. Schema-default quantisation and the baked bulk construction codec are
+implemented; instance and live bulk roles and decoding remain future work. The type separation
 uses the containing storage type for generated mask constants,
 so a shifted mask need not fit the logical field type or its enum value set.
 
@@ -167,8 +165,8 @@ There are no format/version headers, bit offsets/widths, or gap-fill directives.
 
 The grammar review accepted category objects beneath `types`, the `default`
 spelling, bit-member type/interpretation separation, and the illustrated `data`
-shape. Bulk omission is now explicitly rejected. Normalised codecs and
-binary payload attachment belong to their later stages. The `offset` and structure `detail`
+shape. Bulk omission is now explicitly rejected. Baked bulk payload loading is
+implemented. The `offset` and structure `detail`
 rules are recorded in [the design](design.md#explicit-offsets-and-structure-details).
 Natural structure size is computed from members and alignment. An explicit-offset
 structure instead requires a supplied size, validated for fit and alignment;
@@ -209,8 +207,8 @@ The initial-delivery assessment in the
 [implementation contract](implementation-contract.md#initial-delivery) deferred
 explicit offsets and increased alignment. The later layout stage now resolves
 and compiler-checks `InternalRecord` and its dependent `ArrayExamples` on x86
-and x64. Payload loaders remain future work; the full example deliberately
-covers more than schema resolution.
+and x64. The baked bulk loader can materialise `Vertex.triangle`; the full
+example deliberately covers more than schema resolution.
 
 For tooling previews, use the existing standard-JSON writer option. For the
 numeric extensions here it emits equivalent values without explicit `+` signs

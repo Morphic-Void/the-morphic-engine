@@ -876,6 +876,9 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\schema_wrappers.hpp">
       <Filter>Core\include\schema</Filter>
     </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\baked_bulk_data.hpp">
+      <Filter>Core\include\schema</Filter>
+    </ClInclude>
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\document_query.cpp">
       <Filter>Core\src\schema</Filter>
     </ClCompile>
@@ -886,6 +889,9 @@
       <Filter>Core\src\schema</Filter>
     </ClCompile>
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\schema_wrappers.cpp">
+      <Filter>Core\src\schema</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\baked_bulk_data.cpp">
       <Filter>Core\src\schema</Filter>
     </ClCompile>
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\schema_declarations.cpp">

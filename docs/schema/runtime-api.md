@@ -4,14 +4,16 @@ This page describes the implemented resolver and generator introduced in
 `5313c85` and extended with live/baked document queries. The [design](design.md)
 defines the target system;
 the [implementation contract](implementation-contract.md#staged-implementation-plan)
-tracks delivery. Schema wrappers and their promotion/demotion are implemented;
-instance/bulk wrappers remain later work. Its lifetime, handle
+tracks delivery. Schema wrappers, their promotion/demotion, and the baked bulk
+role are implemented; instance and live bulk wrappers remain later work. Its lifetime, handle
 and default rules below describe current code.
 
 `schema::CSchemaDocumentQuery` exposes read-only tree, name and scalar queries
 through `CSchemaHandle` occurrences. Its internal adapter reads either a live or
 baked document. A baked query copies the non-owning view, while a live query
-borrows its document. Schema, instance and bulk role-handle types are distinct.
+borrows its document. `CBulkDocumentQuery` offers the same original-root read
+surface with `CBulkHandle` occurrences. Schema, instance and bulk role-handle
+types are distinct.
 
 ## Schema wrappers and client bindings
 
@@ -234,6 +236,46 @@ changed and must be discarded; the source stays unchanged. The codec neither
 allocates nor binds a schema. Future role wrappers must check their schema
 binding before each call. Callers and owners must keep borrowed baked document
 and payload backing alive at stable addresses under each role's ownership rules.
+
+## Baked bulk role (stage 4b)
+
+`CBakedBulkData` attaches to an immutable `CBakedDocument` view or a
+`CMutableBakedDocument` view. Both borrow their block bytes. Bind a resolved
+`CBakedSchema` or `CLiveSchema` separately with `bind_schema()`. The schema
+owner invalidates the binding on destruction; `loaded_ready()` then becomes
+false. `clear()` releases the binding, records and payload view. The wrapper
+never owns the external payload. `document_query()` reads the original root;
+`data_root()` selects its bulk section. `find_entry()` and `entry()` expose
+validated type, count, offset, stride, byte extent and borrowed byte pointer.
+
+Each `data.<type>.<name>` entry is an object with a required `locator` and
+optional embedded `data` array. The locator reserves unsigned 32-bit `offset`
+and boolean `valid`; optional `count` and `size` must agree with the embedded
+length and resolved type size. A positive count is required. Without embedded
+data, count may be inferred from nonzero type size and supplied size; a zero-byte
+type without embedded data needs an explicit count. Record stride is the resolved type size.
+Outer array positions are unnamed, and embedded materialisation requires
+complete values at every nested level.
+
+`load_supplied(payload, compare_embedded, diagnostic)` validates the locators,
+then borrows an existing payload. Nonempty payloads need a physically
+128-byte-aligned base. Valid extents must be in document order, nonoverlapping,
+within the supplied view and aligned for their type. With comparison enabled,
+each embedded record is encoded and compared over addressable fields. Padding
+and unused bit fields are ignored; distinct raw codes and signed zero remain
+distinct, while all NaN encodings compare equal. With comparison disabled, the
+entry and locator structure is still checked without encoding values.
+
+`materialise(returned_owner, diagnostic)` requires embedded data for every
+entry and an unallocated output `CByteBuffer`. It plans extents, allocates an
+aligned payload and constructs complete records before updating any reserved
+locator. Unset offsets are computed in document order and published through a
+mutable document view with `valid: true`; a read-only view cannot publish them.
+The caller receives the owner, while the wrapper keeps a non-owning view. A
+zero-byte-only payload can use the canonical empty view. Moving the owner keeps
+the payload address stable; destroying or reallocating it invalidates the view.
+`SBulkDiagnostic` reports the first failure reason and a bulk occurrence when
+available. Failure leaves the role unready.
 
 ## Occurrence coverage
 

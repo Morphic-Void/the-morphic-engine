@@ -294,7 +294,10 @@ Optional `size` equals resolved type size (including padding) times record count
 Stride equals resolved type size. Instance `count` defaults to one, may be present
 in baked input only as one, and is stripped from live instance documents. Bulk
 count is optional for manual editing, but absent embedded `data` requires at least
-one of `count` or `size`. Supplied size/count are checked against the type and any
+one of `count` or `size`. For a zero-byte resolved type, absent embedded `data`
+requires an explicit positive `count`: `size: 0` cannot determine the record count.
+An embedded array supplies its count even when its records occupy no bytes.
+Supplied size/count are checked against the type and any
 embedded array. A live bulk collection may temporarily have zero records; baked
 bulk collections may not. Valid locator extents in a buffer must not overlap.
 
@@ -344,6 +347,11 @@ When both embedded and binary representations are loaded, comparing them is an
 optional validation path for instances and bulk. Distribution can skip comparison
 for speed. With it disabled, saved binary snapshots are authoritative until an
 edit; loading does not rebuild them from declarations.
+Comparison converts embedded values to their destination encodings and compares
+addressable fields, ignoring byte padding and unused bits. Encoded values must
+match exactly, including signed zero and distinct SNORM codes, except that all
+NaN encodings compare equal because document text does not express NaN payloads.
+No floating-point tolerance or decoded-value equivalence is applied.
 
 Load failure is fatal only to the affected logical instance/bulk document, never
 to its resolved schema, even if their views share a physical baked block. Failed

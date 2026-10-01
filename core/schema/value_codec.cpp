@@ -44,6 +44,24 @@ static void write_little_endian(std::uint8_t* const bytes, const std::size_t siz
     }
 }
 
+[[nodiscard]] static bool is_nan_bits(const EPrimitive primitive, const std::uint64_t bits) noexcept
+{
+    if (primitive == EPrimitive::f16)
+    {
+        return ((bits & 0x7c00u) == 0x7c00u) && ((bits & 0x03ffu) != 0u);
+    }
+    if (primitive == EPrimitive::f32)
+    {
+        return ((bits & 0x7f800000u) == 0x7f800000u) && ((bits & 0x007fffffu) != 0u);
+    }
+    if (primitive == EPrimitive::f64)
+    {
+        return ((bits & UINT64_C(0x7ff0000000000000)) == UINT64_C(0x7ff0000000000000)) &&
+            ((bits & UINT64_C(0x000fffffffffffff)) != 0u);
+    }
+    return false;
+}
+
 [[nodiscard]] static std::uint64_t scalar_bits(const SScalar& scalar, const EPrimitive primitive) noexcept
 {
     if (primitive == EPrimitive::f64)
@@ -478,6 +496,85 @@ bool CValueWriter::write(const CSchemaIndex type, const CSchemaIndex description
     return true;
 }
 
+[[nodiscard]] static bool compare_encoded_value(const CResolvedSchema& schema, const CSchemaIndex type,
+    const std::uint8_t* const expected, const std::uint8_t* const actual,
+    const std::size_t available, const unsigned depth) noexcept
+{
+    SType layout;
+    if ((depth >= k_max_value_depth) || !schema.type(type, layout) || (layout.size > available))
+    {
+        return false;
+    }
+    if (layout.size == 0u)
+    {
+        return true;
+    }
+    if (!expected || !actual)
+    {
+        return false;
+    }
+    if ((layout.category == ECategory::primitive) || (layout.category == ECategory::enumeration))
+    {
+        const std::uint64_t left = read_little_endian(expected, static_cast<std::size_t>(layout.size));
+        const std::uint64_t right = read_little_endian(actual, static_cast<std::size_t>(layout.size));
+        return (left == right) || (is_nan_bits(layout.primitive, left) && is_nan_bits(layout.primitive, right));
+    }
+    if (layout.category == ECategory::bit_structure)
+    {
+        const std::uint64_t differing =
+            read_little_endian(expected, static_cast<std::size_t>(layout.size)) ^
+            read_little_endian(actual, static_cast<std::size_t>(layout.size));
+        for (std::uint32_t ordinal = 0u; ordinal < layout.count; ++ordinal)
+        {
+            SField field;
+            if (!schema.field(schema.field_at(type, ordinal), field) || ((differing & field.mask) != 0u))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+    if (layout.category == ECategory::structure)
+    {
+        for (std::uint32_t ordinal = 0u; ordinal < layout.count; ++ordinal)
+        {
+            SMember member;
+            if (!schema.member(schema.member_at(type, ordinal), member) ||
+                (member.offset > available) || (member.size > (available - member.offset)) ||
+                !compare_encoded_value(schema, member.type, (expected + member.offset), (actual + member.offset),
+                    static_cast<std::size_t>(member.size), (depth + 1u)))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+    if (layout.category == ECategory::array)
+    {
+        SType element;
+        if (!schema.type(layout.element_or_storage, element))
+        {
+            return false;
+        }
+        if (element.size == 0u)
+        {
+            return true;
+        }
+        for (std::uint32_t ordinal = 0u; ordinal < layout.count; ++ordinal)
+        {
+            const std::uint64_t offset = layout.stride * static_cast<std::uint64_t>(ordinal);
+            if ((offset > available) || (element.size > (available - offset)) ||
+                !compare_encoded_value(schema, layout.element_or_storage, (expected + offset), (actual + offset),
+                    static_cast<std::size_t>(element.size), (depth + 1u)))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+    return false;
+}
+
 bool construct_value(const CResolvedSchema& schema, const CDocumentRead& document, const CSchemaIndex type,
     const SOccurrence declaration, std::uint8_t* const destination, const std::size_t destination_size,
     const EConstructionMode mode, SValueDiagnostic& diagnostic) noexcept
@@ -489,7 +586,7 @@ bool construct_value(const CResolvedSchema& schema, const CDocumentRead& documen
     }
     CValueWriter writer{ schema, document, diagnostic };
     return writer.write(type, {}, declaration, destination, static_cast<std::size_t>(layout.size),
-        mode == EConstructionMode::complete_bulk ? EWriteMode::bulk : EWriteMode::instance, 0u);
+        ((mode == EConstructionMode::complete_bulk) ? EWriteMode::bulk : EWriteMode::instance), 0u);
 }
 
 bool construct_alternative(const CResolvedSchema& schema, const CDocumentRead& document, const CSchemaIndex type,
@@ -518,6 +615,15 @@ bool construct_alternative(const CResolvedSchema& schema, const CDocumentRead& d
     }
     CValueWriter writer{ schema, document, diagnostic };
     return writer.write(type, {}, declaration, destination, static_cast<std::size_t>(layout.size), EWriteMode::alternative, 0u);
+}
+
+bool compare_encoded(const CResolvedSchema& schema, const CSchemaIndex type,
+    const std::uint8_t* const expected, const std::size_t expected_size,
+    const std::uint8_t* const actual, const std::size_t actual_size) noexcept
+{
+    SType layout;
+    return schema.type(type, layout) && (layout.size <= expected_size) && (layout.size <= actual_size) &&
+        compare_encoded_value(schema, type, expected, actual, static_cast<std::size_t>(layout.size), 0u);
 }
 
 }   // namespace schema::detail

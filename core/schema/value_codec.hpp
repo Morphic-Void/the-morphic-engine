@@ -42,6 +42,12 @@ struct SValueDiagnostic
     const std::size_t base_size, std::uint8_t* const destination, const std::size_t destination_size,
     SValueDiagnostic& diagnostic) noexcept;
 
+//  Compare encoded addressable fields only. Padding and unused bit positions
+//  are ignored; NaN payloads are equivalent, while other encodings are exact.
+[[nodiscard]] bool compare_encoded(const CResolvedSchema& schema, const CSchemaIndex type,
+    const std::uint8_t* const expected, const std::size_t expected_size,
+    const std::uint8_t* const actual, const std::size_t actual_size) noexcept;
+
 }   // namespace schema::detail
 
 #endif // SCHEMA_VALUE_CODEC_HPP_INCLUDED

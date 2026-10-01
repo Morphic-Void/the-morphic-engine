@@ -79,7 +79,10 @@ subsequent reconciliation with [design.md](design.md), the
   it only with value one. Bulk count is optional to support manual editing; if
   the embedded `data` array is absent, at least one of `count` or `size` is
   required. Present count and size values are checked against the resolved type
-  and, when available, the embedded record array.
+  and, when available, the embedded record array. Clarified on 1 October: a
+  zero-byte resolved type requires an explicit positive `count` when embedded
+  records are absent; `size: 0` alone is insufficient. An embedded array supplies
+  its record count even when the records occupy no bytes.
 - The baked format must reserve the appropriate locator nodes and validity
   flag so loading need not insert fields. With a supplied byte buffer, baked
   offsets must already be valid; the baked block may be immutable. Without a
@@ -141,8 +144,12 @@ subsequent reconciliation with [design.md](design.md), the
   objects. Baking a document loaded from that text must have the reserved
   locator nodes available for offsets created while loading embedded values.
 - When both embedded and binary representations are loaded, comparison is an
-  optional validation path for both instance and bulk documents. Distributed
-  data can skip it for speed. With validation disabled, existing binary
+  optional validation path for both instance and bulk documents. The
+  comparison uses destination-encoded field values, ignoring padding and unused
+  bits. Clarified on 1 October: encoded values compare exactly (including signed
+  zero and distinct SNORM codes), except that all NaN encodings compare equal;
+  document text cannot express NaN payloads. No numeric tolerance is applied.
+  Distributed data can skip it for speed. With validation disabled, existing binary
   snapshots are authoritative until an edit; load does not rebuild them from
   declarations.
 

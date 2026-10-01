@@ -11,6 +11,7 @@
 #include "schema/resolved_schema.hpp"
 #include "schema/document_query.hpp"
 #include "schema/schema_wrappers.hpp"
+#include "schema/baked_bulk_data.hpp"
 #include "schema/value_codec.hpp"
 #include "memory/memory_policies.hpp"
 #include "data_model/document_parser.hpp"
@@ -43,6 +44,7 @@ static_assert(std::is_nothrow_move_assignable_v<CResolvedSchema>);
 static_assert(!std::is_copy_constructible_v<CBakedSchema> && !std::is_move_constructible_v<CBakedSchema>);
 static_assert(!std::is_copy_constructible_v<CLiveSchema> && !std::is_move_constructible_v<CLiveSchema>);
 static_assert(!std::is_copy_constructible_v<CSchemaBinding> && std::is_nothrow_move_constructible_v<CSchemaBinding>);
+static_assert(!std::is_copy_constructible_v<CBakedBulkData> && !std::is_move_constructible_v<CBakedBulkData>);
 
 static const char* const fixture = R"({"types":{
  "structures":{
@@ -832,6 +834,18 @@ static void test_schema_sample(TTestContext& ctx)
         resolved.member(resolved.find_member(arrays, CStringView{ "records" }), records) &&
         records.offset == 32u && resolved.type(records.type, records_type) && records_type.stride == 32u);
     write_validation(ctx, resolved, "schema_sample");
+    CBakedSchema sample_schema;
+    SDiagnostic schema_error;
+    CMutableBakedDocument mutable_document{ block };
+    CBakedBulkData bulk;
+    CByteBuffer payload;
+    SBulkDiagnostic bulk_error;
+    TEST_EXPECT(ctx, sample_schema.set_document(block.document()) && sample_schema.resolve(schema_error));
+    TEST_EXPECT(ctx, bulk.set_document(mutable_document) && bulk.bind_schema(sample_schema));
+    TEST_EXPECT(ctx, bulk.materialise(payload, bulk_error));
+    SBulkEntryView triangle;
+    TEST_EXPECT(ctx, bulk.entry(bulk.find_entry(CStringView{ "Vertex" }, CStringView{ "triangle" }), triangle) &&
+        triangle.count == 3u && triangle.stride == 24u && triangle.byte_count == 72u && triangle.bytes != nullptr);
 }
 
 static void test_unorm_defaults(TTestContext& ctx)
@@ -2744,6 +2758,301 @@ static void test_value_codec(TTestContext& ctx)
             detail::EConstructionMode::instance, diagnostic) && diagnostic.reason == EReason::invalid_range);
     }
 }
+
+static void test_baked_bulk(TTestContext& ctx)
+{
+    const std::string definitions = R"("types":{"structures":{
+        "Pair":{"members":[{"a":{"type":"u8"}},{"b":{"type":"u8"}}]},
+        "Aligned":{"members":[{"value":{"type":"u16"}}]},
+        "Empty":{"members":[]},
+        "Nested":{"members":[{"pair":{"type":"Pair"}},
+            {"values":{"type":{"element":"u8","count":2}}}]}}})";
+    const std::string supplied_text = "{" + definitions + R"(,"instances":{"keep":1},"data":{
+        "Pair":{"first":{"locator":{"offset":0,"valid":true,"count":2},
+            "data":[{"a":1,"b":2},{"a":3,"b":4}]},
+            "second":{"locator":{"offset":4,"valid":true,"size":2}}}}})";
+    CBakedDocumentBlock supplied_block;
+    TEST_EXPECT(ctx, bake(supplied_text, supplied_block));
+    CBakedSchema baked_schema;
+    SDiagnostic schema_error;
+    TEST_EXPECT(ctx, baked_schema.set_document(supplied_block.document()) && baked_schema.resolve(schema_error));
+    CBakedBulkData supplied;
+    TEST_EXPECT(ctx, supplied.set_document(supplied_block.document()) && supplied.bind_schema(baked_schema));
+    const CBulkDocumentQuery query = supplied.document_query();
+    TEST_EXPECT(ctx, query.is_ready() && query.root() && query.name(supplied.data_root()) == CStringView{ "data" });
+    TEST_EXPECT(ctx, query.object_child(query.root(), CStringView{ "instances" }));
+    TEST_EXPECT(ctx, query.object_child(query.root(), CStringView{ "types" }));
+    alignas(128) std::uint8_t bytes[128] = { 1u, 2u, 3u, 4u, 5u, 6u };
+    SBulkDiagnostic error;
+    TEST_EXPECT(ctx, supplied.load_supplied(CByteConstView{ bytes, 6u, 128u }, true, error));
+    const CBulkHandle first = supplied.find_entry(CStringView{ "Pair" }, CStringView{ "first" });
+    const CBulkHandle second = supplied.find_entry(CStringView{ "Pair" }, CStringView{ "second" });
+    SBulkEntryView first_view, second_view;
+    TEST_EXPECT(ctx, supplied.entry(first, first_view) && first_view.count == 2u &&
+        first_view.stride == 2u && first_view.byte_count == 4u && first_view.bytes == bytes);
+    TEST_EXPECT(ctx, supplied.entry(second, second_view) && second_view.count == 1u &&
+        second_view.offset == 4u && second_view.bytes == bytes + 4u);
+    TEST_EXPECT(ctx, query.parent(first) == query.object_child(supplied.data_root(), CStringView{ "Pair" }));
+    bytes[0] = 9u;
+    TEST_EXPECT(ctx, !supplied.load_supplied(CByteConstView{ bytes, 6u, 128u }, true, error) &&
+        error.reason == EBulkLoadReason::embedded_mismatch && !supplied.loaded_ready());
+    TEST_EXPECT(ctx, supplied.load_supplied(CByteConstView{ bytes, 6u, 128u }, false, error));
+    TEST_EXPECT(ctx, supplied.entry(first, first_view) && first_view.bytes[0] == 9u);
+    CBakedBulkData misaligned;
+    TEST_EXPECT(ctx, misaligned.set_document(supplied_block.document()) && misaligned.bind_schema(baked_schema));
+    TEST_EXPECT(ctx, !misaligned.load_supplied(CByteConstView{ bytes + 1u, 6u, 1u }, false, error) &&
+        error.reason == EBulkLoadReason::invalid_range);
+    supplied.clear();
+    TEST_EXPECT(ctx, !supplied.document_ready() && !supplied.loaded_ready());
+
+    const std::string material_text = "{" + definitions + R"(,"data":{"Pair":{
+        "first":{"locator":{"offset":4294967295,"valid":false,"count":2},
+            "data":[{"a":1,"b":2},{"a":3,"b":4}]},
+        "second":{"locator":{"offset":0,"valid":false},"data":[{"a":5,"b":6}]}},
+        "Nested":{"record":{"locator":{"offset":0,"valid":false},
+            "data":[{"pair":{"a":7,"b":8},"values":[9,10]}]}}}})";
+    CBakedDocumentBlock material_block;
+    TEST_EXPECT(ctx, bake(material_text, material_block));
+    CMutableBakedDocument mutable_document{ material_block };
+    CBakedBulkData material;
+    TEST_EXPECT(ctx, material.set_document(mutable_document) && material.bind_schema(baked_schema));
+    CByteBuffer owner;
+    TEST_EXPECT(ctx, material.materialise(owner, error) && material.loaded_ready());
+    const CBulkHandle second_material = material.find_entry(CStringView{ "Pair" }, CStringView{ "second" });
+    SBulkEntryView material_view;
+    TEST_EXPECT(ctx, material.entry(second_material, material_view) && material_view.offset == 4u &&
+        material_view.bytes[0] == 5u && material_view.bytes[1] == 6u);
+    const CBulkHandle nested = material.find_entry(CStringView{ "Nested" }, CStringView{ "record" });
+    TEST_EXPECT(ctx, material.entry(nested, material_view) && material_view.offset == 6u &&
+        material_view.byte_count == 4u && material_view.bytes[0] == 7u &&
+        material_view.bytes[1] == 8u && material_view.bytes[2] == 9u && material_view.bytes[3] == 10u);
+    const CBakedDocument changed = material_block.document();
+    const CBakedValueIndex locator = changed.object_child(
+        changed.object_child(changed.object_child(changed.root(), CStringView{ "data" }), CStringView{ "Pair" }),
+        CStringView{ "second" });
+    const CBakedValueIndex locator_value = changed.object_child(locator, CStringView{ "locator" });
+    std::uint64_t updated_offset{};
+    bool updated_valid{};
+    TEST_EXPECT(ctx, changed.unsigned_integer_value(changed.object_child(locator_value, CStringView{ "offset" }), updated_offset) &&
+        changed.boolean_value(changed.object_child(locator_value, CStringView{ "valid" }), updated_valid) &&
+        updated_offset == 4u && updated_valid);
+    const std::uint8_t* const original_bytes = material.payload_view().data();
+    CByteBuffer moved_owner{ std::move(owner) };
+    TEST_EXPECT(ctx, material.payload_view().data() == original_bytes && moved_owner.const_view().data() == original_bytes);
+    material.clear();
+    TEST_EXPECT(ctx, moved_owner.const_view().data() == original_bytes);
+
+    const std::string readonly_text = "{" + definitions + R"(,"data":{"Pair":{
+        "ready":{"locator":{"offset":0,"valid":true,"count":1},"data":[[11,12]]}}}})";
+    CBakedDocumentBlock readonly_block;
+    TEST_EXPECT(ctx, bake(readonly_text, readonly_block));
+    CBakedBulkData readonly_material;
+    TEST_EXPECT(ctx, readonly_material.set_document(readonly_block.document()) &&
+        readonly_material.bind_schema(baked_schema));
+    CByteBuffer readonly_owner;
+    TEST_EXPECT(ctx, readonly_material.materialise(readonly_owner, error));
+    TEST_EXPECT(ctx, readonly_material.entry(readonly_material.find_entry(CStringView{ "Pair" },
+        CStringView{ "ready" }), material_view) && material_view.byte_count == 2u &&
+        material_view.bytes[0] == 11u && material_view.bytes[1] == 12u);
+    for (std::size_t failure_offset = 0u; failure_offset < 2u; ++failure_offset)
+    {
+        SFailingAllocator failing{ 0u, SIZE_MAX };
+        memory::CMemoryAllocator allocator{ &failing, &allocate_with_failure, &tests::deallocate_test_memory };
+        memory::CMemoryContext context{ allocator };
+        {
+            tests::TMemoryContextScope scope{ &context };
+            CBakedBulkData attempt;
+            TEST_EXPECT(ctx, attempt.set_document(readonly_block.document()) && attempt.bind_schema(baked_schema));
+            CByteBuffer output;
+            failing.fail_on = failing.calls + failure_offset;
+            SBulkDiagnostic allocation_error;
+            TEST_EXPECT(ctx, !attempt.materialise(output, allocation_error) &&
+                allocation_error.reason == EBulkLoadReason::allocation_failed &&
+                !attempt.loaded_ready() && !output.is_ready());
+        }
+        TEST_EXPECT(ctx, context.is_attribution_empty());
+    }
+
+    const std::string empty_text = "{" + definitions + R"(,"data":{"Empty":{
+        "many":{"locator":{"offset":0,"valid":true,"count":4294967295,"size":0}},
+        "missing_count":{"locator":{"offset":0,"valid":true,"size":0}}}}})";
+    CBakedDocumentBlock empty_block;
+    TEST_EXPECT(ctx, bake(empty_text, empty_block));
+    CBakedBulkData empty_bulk;
+    TEST_EXPECT(ctx, empty_bulk.set_document(empty_block.document()) && empty_bulk.bind_schema(baked_schema));
+    TEST_EXPECT(ctx, !empty_bulk.load_supplied(CByteConstView{}, false, error) &&
+        error.reason == EBulkLoadReason::invalid_count);
+    const std::string empty_valid_text = "{" + definitions + R"(,"data":{"Empty":{
+        "many":{"locator":{"offset":0,"valid":true,"count":4294967295,"size":0}}}}})";
+    CBakedDocumentBlock empty_valid_block;
+    TEST_EXPECT(ctx, bake(empty_valid_text, empty_valid_block));
+    CBakedBulkData empty_valid;
+    TEST_EXPECT(ctx, empty_valid.set_document(empty_valid_block.document()) && empty_valid.bind_schema(baked_schema));
+    TEST_EXPECT(ctx, empty_valid.load_supplied(CByteConstView{}, false, error));
+    TEST_EXPECT(ctx, empty_valid.entry(empty_valid.find_entry(CStringView{ "Empty" }, CStringView{ "many" }), material_view) &&
+        material_view.count == UINT32_MAX && material_view.byte_count == 0u && material_view.bytes == nullptr);
+    const std::string empty_embedded_text = "{" + definitions + R"(,"data":{"Empty":{
+        "one":{"locator":{"offset":0,"valid":false},"data":[{}]}}}})";
+    CBakedDocumentBlock empty_embedded_block;
+    TEST_EXPECT(ctx, bake(empty_embedded_text, empty_embedded_block));
+    CMutableBakedDocument empty_mutable{ empty_embedded_block };
+    CBakedBulkData empty_material;
+    TEST_EXPECT(ctx, empty_material.set_document(empty_mutable) && empty_material.bind_schema(baked_schema));
+    CByteBuffer empty_owner;
+    TEST_EXPECT(ctx, empty_material.materialise(empty_owner, error) && empty_material.loaded_ready());
+    TEST_EXPECT(ctx, empty_material.entry(empty_material.find_entry(CStringView{ "Empty" },
+        CStringView{ "one" }), material_view) && material_view.count == 1u &&
+        material_view.byte_count == 0u && material_view.bytes == nullptr);
+
+    std::string wide_values;
+    for (unsigned index = 0u; index < 256u; ++index)
+    {
+        if (index != 0u) wide_values += ',';
+        wide_values += '0';
+    }
+    const std::string wide_text = R"({"types":{"structures":{
+        "Wide":{"members":[{"values":{"type":{"element":"u8","count":256}}}]},
+        "Pair":{"members":[{"a":{"type":"u8"}},{"b":{"type":"u8"}}]}}},
+        "data":{"Wide":{"first":{"locator":{"offset":0,"valid":true},
+            "data":[[[)" + wide_values + R"(]]]}},
+            "Pair":{"second":{"locator":{"offset":0,"valid":false},"data":[[1,2]]}}}})";
+    CBakedDocumentBlock wide_block;
+    TEST_EXPECT(ctx, bake(wide_text, wide_block));
+    CBakedSchema wide_schema;
+    TEST_EXPECT(ctx, wide_schema.set_document(wide_block.document()) && wide_schema.resolve(schema_error));
+    CMutableBakedDocument wide_mutable{ wide_block };
+    CBakedBulkData wide_bulk;
+    TEST_EXPECT(ctx, wide_bulk.set_document(wide_mutable) && wide_bulk.bind_schema(wide_schema));
+    CByteBuffer wide_owner;
+    TEST_EXPECT(ctx, wide_bulk.materialise(wide_owner, error));
+    const CBulkHandle wide_second = wide_bulk.find_entry(CStringView{ "Pair" }, CStringView{ "second" });
+    TEST_EXPECT(ctx, wide_bulk.entry(wide_second, material_view) && material_view.offset == 256u &&
+        material_view.bytes[0] == 1u && material_view.bytes[1] == 2u);
+
+    const auto reject_supplied = [&](const std::string& data, const EBulkLoadReason reason)
+    {
+        CBakedDocumentBlock block;
+        TEST_EXPECT(ctx, bake("{" + definitions + ",\"data\":" + data + "}", block));
+        CBakedBulkData bulk;
+        TEST_EXPECT(ctx, bulk.set_document(block.document()) && bulk.bind_schema(baked_schema));
+        SBulkDiagnostic diagnostic;
+        TEST_EXPECT(ctx, !bulk.load_supplied(CByteConstView{ bytes, 6u, 128u }, false, diagnostic) &&
+            diagnostic.reason == reason && !bulk.loaded_ready());
+    };
+    reject_supplied(R"({"Pair":{"bad":{"data":[{"a":1,"b":2}]}}})", EBulkLoadReason::missing_property);
+    reject_supplied(R"({"Pair":{"bad":{"locator":{"offset":0,"valid":true,"count":1},"extra":0}}})",
+        EBulkLoadReason::unknown_property);
+    reject_supplied(R"({"Absent":{"bad":{"locator":{"offset":0,"valid":true,"count":1}}}})",
+        EBulkLoadReason::unknown_type);
+    reject_supplied(R"({"Pair":{"bad":{"locator":{"offset":0,"valid":true,"count":1},
+        "data":[{"a":1,"b":2},{"a":3,"b":4}]}}})", EBulkLoadReason::invalid_count);
+    reject_supplied(R"({"Pair":{"bad":{"locator":{"offset":0,"valid":true,"count":1,"size":3}}}})",
+        EBulkLoadReason::invalid_range);
+    reject_supplied(R"({"Pair":{"a":{"locator":{"offset":0,"valid":true,"count":2}},
+        "b":{"locator":{"offset":2,"valid":true,"count":1}}}})", EBulkLoadReason::overlap);
+    reject_supplied(R"({"Pair":{"bad":{"locator":{"offset":6,"valid":true,"count":1}}}})",
+        EBulkLoadReason::invalid_range);
+    reject_supplied(R"({"Aligned":{"bad":{"locator":{"offset":1,"valid":true,"count":1}}}})",
+        EBulkLoadReason::invalid_range);
+    reject_supplied(R"({"Pair":{"bad":{"locator":{"offset":0,"valid":false,"count":1}}}})",
+        EBulkLoadReason::invalid_locator);
+    reject_supplied(R"({"Pair":{"bad":{"locator":{"offset":0,"valid":true,"count":1},
+        "data":[{"a":1}]}}})", EBulkLoadReason::invalid_input);
+    reject_supplied(R"({"Pair":{"bad":{"locator":{"offset":0,"valid":true,"count":1},
+        "data":[{"": [1,2]}]}}})", EBulkLoadReason::invalid_input);
+    reject_supplied(R"({"Pair":{"bad":{"locator":{"offset":0,"valid":true,"count":4294967295}}}})",
+        EBulkLoadReason::invalid_count);
+    const std::string unchecked_text = "{" + definitions + R"(,"data":{"Pair":{"partial":{
+        "locator":{"offset":0,"valid":true,"count":1},"data":[[1]]}}}})";
+    CBakedDocumentBlock unchecked_block;
+    TEST_EXPECT(ctx, bake(unchecked_text, unchecked_block));
+    CBakedBulkData unchecked_bulk;
+    TEST_EXPECT(ctx, unchecked_bulk.set_document(unchecked_block.document()) &&
+        unchecked_bulk.bind_schema(baked_schema));
+    TEST_EXPECT(ctx, unchecked_bulk.load_supplied(CByteConstView{ bytes, 6u, 128u }, false, error));
+    TEST_EXPECT(ctx, !unchecked_bulk.load_supplied(CByteConstView{ bytes, 6u, 128u }, true, error) &&
+        error.reason == EBulkLoadReason::incomplete_record);
+
+    const std::string incomplete_text = "{" + definitions + R"(,"data":{"Pair":{"bad":{
+        "locator":{"offset":4294967295,"valid":false},"data":[[1]]}}}})";
+    CBakedDocumentBlock incomplete_block;
+    TEST_EXPECT(ctx, bake(incomplete_text, incomplete_block));
+    CBakedBulkData readonly_bulk;
+    TEST_EXPECT(ctx, readonly_bulk.set_document(incomplete_block.document()) && readonly_bulk.bind_schema(baked_schema));
+    CByteBuffer rejected_owner;
+    const bool readonly_result = readonly_bulk.materialise(rejected_owner, error);
+    TEST_EXPECT(ctx, !readonly_result && error.reason == EBulkLoadReason::invalid_locator && !rejected_owner.is_ready());
+    CMutableBakedDocument incomplete_mutable{ incomplete_block };
+    CBakedBulkData incomplete_bulk;
+    TEST_EXPECT(ctx, incomplete_bulk.set_document(incomplete_mutable) && incomplete_bulk.bind_schema(baked_schema));
+    const bool incomplete_result = incomplete_bulk.materialise(rejected_owner, error);
+    TEST_EXPECT(ctx, !incomplete_result && error.reason == EBulkLoadReason::incomplete_record && !rejected_owner.is_ready());
+    const CBakedDocument unchanged = incomplete_block.document();
+    const CBakedValueIndex bad_locator = unchanged.object_child(unchanged.object_child(
+        unchanged.object_child(unchanged.object_child(unchanged.root(), CStringView{ "data" }),
+            CStringView{ "Pair" }), CStringView{ "bad" }), CStringView{ "locator" });
+    bool valid_after_failure{};
+    TEST_EXPECT(ctx, unchanged.boolean_value(unchanged.object_child(bad_locator, CStringView{ "valid" }),
+        valid_after_failure) && !valid_after_failure);
+
+    CBakedBulkData invalidated;
+    {
+        CBakedSchema temporary;
+        TEST_EXPECT(ctx, temporary.set_document(supplied_block.document()) && temporary.resolve(schema_error));
+        TEST_EXPECT(ctx, invalidated.set_document(supplied_block.document()) && invalidated.bind_schema(temporary));
+        TEST_EXPECT(ctx, invalidated.load_supplied(CByteConstView{ bytes, 6u, 128u }, false, error));
+    }
+    TEST_EXPECT(ctx, !invalidated.loaded_ready() && !invalidated.find_entry(CStringView{ "Pair" }, CStringView{ "first" }));
+    invalidated.clear();
+
+    CLiveDocument parsed_schema;
+    TEST_EXPECT(ctx, parse_live(supplied_text, parsed_schema));
+    CLiveSchema live_schema;
+    TEST_EXPECT(ctx, live_schema.try_adopt(std::move(parsed_schema)) && live_schema.resolve(schema_error));
+    CBakedBulkData live_bound;
+    TEST_EXPECT(ctx, live_bound.set_document(supplied_block.document()) && live_bound.bind_schema(live_schema));
+    TEST_EXPECT(ctx, live_bound.load_supplied(CByteConstView{ bytes, 6u, 128u }, false, error));
+}
+
+static void test_bulk_encoded_comparison(TTestContext& ctx)
+{
+    const std::string text = R"({"types":{
+        "structures":{"Padded":{"members":[{"a":{"type":"u8"}},{"b":{"type":"u32"}}]}},
+        "bit_structures":{
+            "Bits":{"storage":"u16","members":[{"flag":{"type":"b8","mask":1}}]},
+            "Norm":{"storage":"u8","members":[{"value":{
+                "type":"i8","mask":3,"interpretation":"snorm"}}]}}}})";
+    CBakedDocumentBlock block;
+    CResolvedSchema resolved;
+    if (!resolve(ctx, text, block, resolved)) return;
+    const auto same = [&](const char* const type, const std::uint8_t* const left,
+        const std::uint8_t* const right, const std::size_t size)
+    {
+        return detail::compare_encoded(resolved, resolved.find_type(CStringView{ type }),
+            left, size, right, size);
+    };
+    const std::uint8_t plus_zero[4] = { 0u, 0u, 0u, 0u };
+    const std::uint8_t minus_zero[4] = { 0u, 0u, 0u, 0x80u };
+    const std::uint8_t nan_a[4] = { 1u, 0u, 0xc0u, 0x7fu };
+    const std::uint8_t nan_b[4] = { 2u, 0u, 0x80u, 0xffu };
+    TEST_EXPECT(ctx, !same("f32", plus_zero, minus_zero, 4u));
+    TEST_EXPECT(ctx, same("f32", nan_a, nan_b, 4u));
+    const std::uint8_t half_a[2] = { 1u, 0x7eu }, half_b[2] = { 2u, 0xfeu };
+    TEST_EXPECT(ctx, same("f16", half_a, half_b, 2u));
+    const std::uint8_t double_a[8] = { 1u, 0u, 0u, 0u, 0u, 0u, 0xf8u, 0x7fu };
+    const std::uint8_t double_b[8] = { 2u, 0u, 0u, 0u, 0u, 0u, 0xf0u, 0xffu };
+    TEST_EXPECT(ctx, same("f64", double_a, double_b, 8u));
+    const std::uint8_t bool_a[1] = { 1u }, bool_b[1] = { 2u };
+    TEST_EXPECT(ctx, !same("b8", bool_a, bool_b, 1u));
+    const std::uint8_t bits_a[2] = { 1u, 0u }, bits_b[2] = { 1u, 0x80u };
+    TEST_EXPECT(ctx, same("Bits", bits_a, bits_b, 2u));
+    TEST_EXPECT(ctx, !same("Bits", bits_a, plus_zero, 2u));
+    const std::uint8_t norm_a[1] = { 2u }, norm_b[1] = { 3u };
+    TEST_EXPECT(ctx, !same("Norm", norm_a, norm_b, 1u));
+    const std::uint8_t padded_a[8] = { 1u, 0u, 0u, 0u, 2u, 0u, 0u, 0u };
+    const std::uint8_t padded_b[8] = { 1u, 255u, 255u, 255u, 2u, 0u, 0u, 0u };
+    TEST_EXPECT(ctx, same("Padded", padded_a, padded_b, 8u));
+}
 }   // namespace schema_tests
 
 int run_schema_tests()
@@ -2774,6 +3083,8 @@ int run_schema_tests()
     schema_tests::test_schema_conversion(ctx);
     schema_tests::test_schema_conversion_allocations(ctx);
     schema_tests::test_value_codec(ctx);
+    schema_tests::test_baked_bulk(ctx);
+    schema_tests::test_bulk_encoded_comparison(ctx);
     const schema::SRecordSizes sizes = schema::CResolvedSchema::record_sizes();
     std::cout << "Schema record bytes: type=" << sizes.type << " member=" << sizes.member << " label=" << sizes.label
               << " field=" << sizes.field << " default=" << sizes.default_value << " mapping=" << sizes.mapping << '\n';

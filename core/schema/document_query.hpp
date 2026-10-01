@@ -20,6 +20,10 @@ class CLiveDocument;
 namespace schema
 {
 
+//==============================================================================
+//  Role and handle declarations
+//==============================================================================
+
 class CBakedSchema;
 class CLiveSchema;
 class CBakedInstances;
@@ -27,6 +31,7 @@ class CLiveInstances;
 class CBakedBulkData;
 class CLiveBulkData;
 class CSchemaHandle;
+class CBulkHandle;
 
 //==============================================================================
 //  Document value kinds
@@ -82,7 +87,7 @@ struct SOccurrence
     return !(lhs == rhs);
 }
 
-//  Resolver and role adapters use this bridge; raw identities stay out of the
+//  Resolver and role adapters use these bridges; raw identities stay out of the
 //  public schema-handle construction surface.
 struct SSchemaHandleAccess
 {
@@ -90,6 +95,13 @@ struct SSchemaHandleAccess
     [[nodiscard]] static constexpr SOccurrence occurrence(const CSchemaHandle handle) noexcept;
 };
 
+struct SBulkHandleAccess
+{
+    [[nodiscard]] static constexpr CBulkHandle make(const SOccurrence occurrence) noexcept;
+    [[nodiscard]] static constexpr SOccurrence occurrence(const CBulkHandle handle) noexcept;
+};
+
+//  One read adapter for either document representation.
 class CDocumentRead
 {
 public:
@@ -213,7 +225,7 @@ private:
 };
 
 //==============================================================================
-//  Instance and bulk document handles
+//  Instance document handle
 //==============================================================================
 
 class CInstanceHandle
@@ -230,6 +242,10 @@ private:
     detail::SOccurrence m_occurrence;
 };
 
+//==============================================================================
+//  Bulk document handle
+//==============================================================================
+
 class CBulkHandle
 {
 public:
@@ -239,9 +255,70 @@ public:
 
 private:
     explicit constexpr CBulkHandle(const detail::SOccurrence occurrence) noexcept : m_occurrence(occurrence) {}
+    friend struct detail::SBulkHandleAccess;
     friend class CBakedBulkData;
     friend class CLiveBulkData;
     detail::SOccurrence m_occurrence;
+};
+
+[[nodiscard]] constexpr bool operator==(const CBulkHandle lhs, const CBulkHandle rhs) noexcept;
+[[nodiscard]] constexpr bool operator!=(const CBulkHandle lhs, const CBulkHandle rhs) noexcept;
+
+constexpr CBulkHandle detail::SBulkHandleAccess::make(const detail::SOccurrence occurrence) noexcept
+{
+    return CBulkHandle{ occurrence };
+}
+
+constexpr detail::SOccurrence detail::SBulkHandleAccess::occurrence(const CBulkHandle handle) noexcept
+{
+    return handle.m_occurrence;
+}
+
+[[nodiscard]] constexpr bool operator==(const CBulkHandle lhs, const CBulkHandle rhs) noexcept
+{
+    return detail::SBulkHandleAccess::occurrence(lhs) == detail::SBulkHandleAccess::occurrence(rhs);
+}
+
+[[nodiscard]] constexpr bool operator!=(const CBulkHandle lhs, const CBulkHandle rhs) noexcept
+{
+    return !(lhs == rhs);
+}
+
+//==============================================================================
+//  Bulk document query
+//==============================================================================
+
+//  Read-only original-root query with bulk-specific handles. Baked backing is
+//  borrowed; handles and returned strings require their originating document.
+class CBulkDocumentQuery
+{
+public:
+    CBulkDocumentQuery() noexcept = default;
+    explicit CBulkDocumentQuery(const CLiveDocument& document) noexcept;
+    explicit CBulkDocumentQuery(const CBakedDocument& document) noexcept;
+
+    [[nodiscard]] bool is_ready() const noexcept;
+    [[nodiscard]] CBulkHandle root() const noexcept;
+    [[nodiscard]] bool contains(const CBulkHandle value) const noexcept;
+    [[nodiscard]] EDocumentValueKind value_kind(const CBulkHandle value) const noexcept;
+    [[nodiscard]] CBulkHandle object_child(const CBulkHandle object, const CStringView& name) const noexcept;
+    [[nodiscard]] CBulkHandle parent(const CBulkHandle value) const noexcept;
+    [[nodiscard]] CBulkHandle first_child(const CBulkHandle value) const noexcept;
+    [[nodiscard]] CBulkHandle next_sibling(const CBulkHandle value) const noexcept;
+    [[nodiscard]] CBulkHandle array_at(const CBulkHandle value, const std::uint32_t ordinal) const noexcept;
+    [[nodiscard]] std::uint32_t child_count(const CBulkHandle value) const noexcept;
+    [[nodiscard]] bool is_object_entry(const CBulkHandle value) const noexcept;
+    [[nodiscard]] CPropertyNameId name_id(const CBulkHandle value) const noexcept;
+    [[nodiscard]] CStringView name(const CBulkHandle value) const noexcept;
+    [[nodiscard]] CStringView property_name(const CPropertyNameId id) const noexcept;
+    [[nodiscard]] CStringView string_value(const CBulkHandle value) const noexcept;
+    [[nodiscard]] bool boolean_value(const CBulkHandle value, bool& result) const noexcept;
+    [[nodiscard]] bool signed_integer_value(const CBulkHandle value, std::int64_t& result) const noexcept;
+    [[nodiscard]] bool unsigned_integer_value(const CBulkHandle value, std::uint64_t& result) const noexcept;
+    [[nodiscard]] bool floating_point_value(const CBulkHandle value, double& result) const noexcept;
+
+private:
+    detail::CDocumentRead m_query;
 };
 
 }   // namespace schema

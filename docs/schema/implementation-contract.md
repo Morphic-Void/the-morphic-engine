@@ -542,7 +542,7 @@ CRLF and optional missing final newline. Other text uses LF and a final newline.
 | [ByteBuffers.hpp](../../core/containers/ByteBuffers.hpp) | Reuse framework copying, allocation, alignment and ownership support. Demotion's document-order packing must rewrite locators in its new output. |
 | [schema_declarations.cpp](../../core/schema/schema_declarations.cpp) | The reviewed stage 2 package uses representation-neutral names and diagnostic locations. Generated output and established spelling/layout checks remain unchanged. |
 | [baked_document.cpp](../../core/data_model/baked_document.cpp), [BakedDocument_test_suite.cpp](../../tests/test_suites/BakedDocument_test_suite.cpp) | Stage 1 updates canonical integer width in both directions; reviewed, validated and committed separately as `d92dddd`. Reserved locator nodes can use this prerequisite once schema loaders are implemented. |
-| [Schema_test_suite.cpp](../../tests/test_suites/Schema_test_suite.cpp) | Reuse fixtures and compiler checks, revising expectations only where later decisions change semantics. The full schema sample predates locators and is not a new-loader acceptance fixture. |
+| [Schema_test_suite.cpp](../../tests/test_suites/Schema_test_suite.cpp) | Reuse fixtures and compiler checks, revising expectations only where later decisions change semantics. Stage 4b updates and validates the sample's bulk section; its instance section still awaits locator integration. |
 
 ## Staged implementation plan
 
@@ -686,9 +686,21 @@ continuation. The coordinator and existing implementing chat divided the work
 into bounded packages for shared value construction, baked bulk loading, and
 baked instance loading. The first package is implemented and coordinator-reviewed:
 internal value construction and independent-alternative codecs, sharing scalar
-conversion with schema resolution. User manual review is complete and its separate
-commit was authorised on 30 September, including the user's whitespace/line-break edits.
-The two loader packages and stages 5-8 remain planned.
+conversion with schema resolution. User manual review is complete and the package
+was committed on 30 September as `d2d1a96` (Add shared schema value construction
+and alternative codecs), including the user's whitespace/line-break edits.
+On 1 October the user authorised continuation. Coordinator review approved the
+baked bulk loading proposal and dispatched it to the existing implementing chat:
+`CBakedBulkData`, shared role queries, explicit schema binding, supplied payload
+views, separately returned materialised owners, reserved locators and optional
+encoded-field comparison. The user confirmed positive explicit counts for
+zero-byte types without embedded records and encoded comparison excluding unused
+storage, with all NaNs equal. The baked bulk package passed coordinator and user
+review; its separate commit was authorised on 1 October. The user's line-break
+and explicit expression-grouping changes were preserved without repeating the
+passing validation matrix. Baked instance loading and stages 5-8 remain planned.
+The intended handoff to a fresh implementing chat is at stage 5, after completion
+of the baked loaders, with this coordinator retaining requirements and review.
 During that review, the user clarified that specialisations are independent
 alternatives and short positional declarations inherit omitted values from
 their base. Base construction still completes omitted values from defaults;
@@ -728,6 +740,39 @@ the codec's anonymous namespace. The existing meaningful `schema::detail` groupi
 remains, with translation-unit helpers declared `static`. Coordinator review,
 a targeted Debug x64 build and text-policy checks passed for these corrections;
 the runtime matrix was not repeated. Subsequent user edits were whitespace only.
+
+Stage 4b adds `CBakedBulkData` and `CBulkDocumentQuery`. It keeps original-root
+document navigation separate from validated bulk entry access, binds either
+baked or live schema wrappers, and invalidates schema-dependent access safely
+when that schema is destroyed. Supplied payloads remain borrowed; materialisation
+returns an independent `CByteBuffer` owner and borrows its stable address. The
+loader checks grammar, counts, sizes, alignment, ordered nonoverlapping extents
+and reserved locators before publishing usable data. Materialisation performs
+allocation and complete-record conversion before updating unset locators.
+
+Coordinator review added rejection of named outer record-array positions,
+including empty names, and corrected stale fixed-array and zero-byte-count prose.
+Tests cover supplied and materialised backing, immutable valid locators, mixed
+valid/unset locators, widening past 255 and narrowing reserved offsets, zero-byte
+count inference, malformed inputs, alignment/range/count rejection, ownership
+transfer and schema invalidation. Allocation failures at record planning and
+payload allocation leave no usable partial result or outstanding attribution.
+Encoded comparison covers f16/f32/f64 NaN variants, signed zero, distinct b8 and
+SNORM codes, structure padding and unused bit positions. The updated sample's
+`Vertex.triangle` bulk entry is materialised by the schema suite.
+
+Final Debug x64, Release x64 and Debug x86 solution builds and ordinary `-t1`
+suites passed with 3,993 schema checks and zero failures throughout:
+`bulk-stage4b-final-dbg64` (PID 79432), `bulk-stage4b-final-rel64` (PID 49956),
+and `bulk-stage4b-final-dbg32` (PID 75768). Coordinator review inspected actual
+build/test output; no new warnings appeared. Generated layouts and resolved
+record sizes are unchanged, so the compiler layout matrix was not repeated.
+Diff and text-policy checks passed, including separate checks of the new files
+and preserved Visual Studio CRLF, BOM and final-newline state.
+
+A later review may reconsider inlining small document-query forwarding functions
+and splitting the query files once the instance interface is present. These are
+deferred observations, not changes required for the baked bulk package.
 
 Stage 1 is complete and committed independently as
 `d92dddd`; its code, tests and data-model documentation exclude schema planning.
@@ -796,8 +841,8 @@ Deliver this stage in three bounded packages:
    On conversion failure, partial low-level destination data must be discarded.
 2. Baked bulk loading: role queries, explicit schema binding, locator validation,
    supplied payload views and separately returned materialised payload owners.
-   Settle zero-byte record count inference and logical embedded/binary comparison
-   before implementing those paths; reconcile the sample's bulk-entry grammar.
+   Use the agreed zero-byte count and encoded-field comparison rules; reconcile
+   the sample's bulk-entry grammar.
 3. Baked instance loading: hierarchy traversal and independent snapshots built
    parent before child, role queries and the same locator/ownership rules.
    Reconcile the sample's reserved instance and specialisation locators.

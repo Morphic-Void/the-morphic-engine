@@ -308,4 +308,107 @@ bool CSchemaDocumentQuery::floating_point_value(const CSchemaHandle value, doubl
     return m_query.floating_point_value(detail::SSchemaHandleAccess::occurrence(value), result);
 }
 
+CBulkDocumentQuery::CBulkDocumentQuery(const CLiveDocument& document) noexcept : m_query(document)
+{
+}
+
+CBulkDocumentQuery::CBulkDocumentQuery(const CBakedDocument& document) noexcept : m_query(document)
+{
+}
+
+bool CBulkDocumentQuery::is_ready() const noexcept
+{
+    return m_query.is_ready();
+}
+
+CBulkHandle CBulkDocumentQuery::root() const noexcept
+{
+    return detail::SBulkHandleAccess::make(m_query.root());
+}
+
+bool CBulkDocumentQuery::contains(const CBulkHandle value) const noexcept
+{
+    return m_query.contains(detail::SBulkHandleAccess::occurrence(value));
+}
+
+EDocumentValueKind CBulkDocumentQuery::value_kind(const CBulkHandle value) const noexcept
+{
+    return m_query.value_kind(detail::SBulkHandleAccess::occurrence(value));
+}
+
+CBulkHandle CBulkDocumentQuery::object_child(const CBulkHandle object, const CStringView& name) const noexcept
+{
+    return detail::SBulkHandleAccess::make(m_query.object_child(detail::SBulkHandleAccess::occurrence(object), name));
+}
+
+CBulkHandle CBulkDocumentQuery::parent(const CBulkHandle value) const noexcept
+{
+    return detail::SBulkHandleAccess::make(m_query.parent(detail::SBulkHandleAccess::occurrence(value)));
+}
+
+CBulkHandle CBulkDocumentQuery::first_child(const CBulkHandle value) const noexcept
+{
+    return detail::SBulkHandleAccess::make(m_query.first_child(detail::SBulkHandleAccess::occurrence(value)));
+}
+
+CBulkHandle CBulkDocumentQuery::next_sibling(const CBulkHandle value) const noexcept
+{
+    return detail::SBulkHandleAccess::make(m_query.next_sibling(detail::SBulkHandleAccess::occurrence(value)));
+}
+
+CBulkHandle CBulkDocumentQuery::array_at(const CBulkHandle value, const std::uint32_t ordinal) const noexcept
+{
+    return detail::SBulkHandleAccess::make(m_query.array_at(detail::SBulkHandleAccess::occurrence(value), ordinal));
+}
+
+std::uint32_t CBulkDocumentQuery::child_count(const CBulkHandle value) const noexcept
+{
+    return m_query.child_count(detail::SBulkHandleAccess::occurrence(value));
+}
+
+bool CBulkDocumentQuery::is_object_entry(const CBulkHandle value) const noexcept
+{
+    return m_query.is_object_entry(detail::SBulkHandleAccess::occurrence(value));
+}
+
+CPropertyNameId CBulkDocumentQuery::name_id(const CBulkHandle value) const noexcept
+{
+    return m_query.name_id(detail::SBulkHandleAccess::occurrence(value));
+}
+
+CStringView CBulkDocumentQuery::name(const CBulkHandle value) const noexcept
+{
+    return m_query.name(detail::SBulkHandleAccess::occurrence(value));
+}
+
+CStringView CBulkDocumentQuery::property_name(const CPropertyNameId id) const noexcept
+{
+    return m_query.property_name(id);
+}
+
+CStringView CBulkDocumentQuery::string_value(const CBulkHandle value) const noexcept
+{
+    return m_query.string_value(detail::SBulkHandleAccess::occurrence(value));
+}
+
+bool CBulkDocumentQuery::boolean_value(const CBulkHandle value, bool& result) const noexcept
+{
+    return m_query.boolean_value(detail::SBulkHandleAccess::occurrence(value), result);
+}
+
+bool CBulkDocumentQuery::signed_integer_value(const CBulkHandle value, std::int64_t& result) const noexcept
+{
+    return m_query.signed_integer_value(detail::SBulkHandleAccess::occurrence(value), result);
+}
+
+bool CBulkDocumentQuery::unsigned_integer_value(const CBulkHandle value, std::uint64_t& result) const noexcept
+{
+    return m_query.unsigned_integer_value(detail::SBulkHandleAccess::occurrence(value), result);
+}
+
+bool CBulkDocumentQuery::floating_point_value(const CBulkHandle value, double& result) const noexcept
+{
+    return m_query.floating_point_value(detail::SBulkHandleAccess::occurrence(value), result);
+}
+
 }   // namespace schema
