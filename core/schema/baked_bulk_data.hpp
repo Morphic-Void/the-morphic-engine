@@ -33,6 +33,7 @@ enum class EBulkLoadReason : std::uint8_t
     incomplete_record,
     embedded_mismatch,
     incompatible_schema,
+    unrepresentable_value,
     allocation_failed
 };
 
@@ -87,6 +88,7 @@ public:
 
 private:
     friend class CLiveBulkData;
+    void take_from(CBakedBulkData& source) noexcept;
     struct SRecord
     {
         CBakedValueIndex entry, data, offset_node, valid_node;

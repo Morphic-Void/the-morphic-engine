@@ -1649,6 +1649,18 @@ Embedded/binary comparison on load is optional; when disabled, binary snapshots
 remain authoritative until an edit. Loading supplied binary does not reconstruct
 it from declarations. Exact source text and alias spellings need not survive.
 
+Embedded instance output rejects authoritative snapshots whose unselected values
+disagree with the values inherited through their declarations. It reports a
+diagnostic without adding selections or changing saved values; the source remains
+unchanged and binary-backed output remains available. This preserves selection
+intent within the existing hierarchy grammar.
+
+For both roles, embedded output must round-trip under the existing encoded-field
+comparison rule: NaNs compare equal, while padding and unused bits are ignored.
+Noncanonical Boolean codes and enum codes without labels cannot be embedded
+faithfully under that rule and are rejected with a diagnostic. Binary-backed
+output can preserve them, including their exact encodings.
+
 Binary loading/copying assumes matching offsets, stride, byte order and primitive
 representation. Packaging must establish that association and check buffer bounds;
 stored payloads are little-endian. File association is supplied manually by the

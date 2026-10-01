@@ -727,7 +727,17 @@ records a complete declaration; specialisation capture retains existing selectio
 shape. Positional structures may become named declarations for interior edits;
 fixed arrays retain prefix-only selections. Stage 5b has passed coordinator review,
 validation and user manual review; the user authorised its commit on 1 October.
-Stages 6-8 remain planned.
+Stage 5b was committed as `4386e06`. The user authorised continuation into stage 6;
+the existing implementer's bounded output/demotion proposal passed coordinator
+review. Stage 6a bulk output and demotion has passed coordinator review,
+validation and user manual review, with commit authorised on 1 October;
+stage 6b instances remains pending.
+The user
+confirmed that embedded instance output must reject inconsistent unselected
+inherited values rather than change selection intent, and embedded output uses
+the existing encoded-field comparison rule (NaNs equal, padding/unused bits ignored).
+Values without a faithful embedded spelling are rejected; external output remains
+available. Stages 7-9 remain planned.
 The intended handoff to a fresh implementing chat is at stage 5, after completion
 of the baked loaders, with this coordinator retaining requirements and review.
 During that review, the user clarified that specialisations are independent
@@ -919,6 +929,42 @@ diff review. The passing runtime/platform matrix was not repeated. The user's
 final formatting changes and the parameter-grouping consistency pass preserve
 behaviour. User review is complete, with commit authorised on 1 October.
 
+Stage 6a adds independent bulk output preparation and non-destructive demotion,
+with an explicit destination schema, a live output document or owned baked block,
+and a separately owned packed payload. Both embedded and external forms retain
+reserved locators. Packing follows document traversal order, preserves internal
+record padding and leaves new alignment gaps for the optional stage 8 pass.
+Embedded records are decoded and re-encoded to check the agreed field fidelity.
+Source state and caller destinations are preserved on failure; successful demotion
+publishes a loaded non-owning role only after all staged work succeeds.
+
+Integration review found two boundaries: zero-byte extents at offset zero must
+not reset the loader's packing cursor, and anonymous singleton compounds inside
+record arrays must use positional form to survive the parser's existing singleton
+normalisation. Tests cover both structures and bit structures recursively through
+arrays; no parser grammar change is required. Tests also cover interleaved type
+insertion, replacement/erasure holes, alignment gaps, internal padding, empty
+collections versus zero-count entries, both schema forms, default differences,
+incompatible enum meanings, occupied destinations, owner transfer, source
+independence, and 48 preparation / 80 demotion allocation-failure points. Strict
+JSON and Morphic output are parsed, baked and reloaded, including signed zero,
+NaNs, raw SNORM codes and enum aliases; noncanonical Boolean and unlabelled enum
+codes are rejected only for embedded output.
+
+Debug x64, Release x64 and Debug x86 solution builds and ordinary `-t1` suites
+passed with 5,477 schema checks and zero failures throughout:
+`stage6a-final-dbg64` (PID 83944), `stage6a-final-rel64` (PID 77204), and
+`stage6a-final-dbg32` (PID 82792). The coordinator inspected actual native build
+and test exits and output; all returned zero with no new compiler diagnostics.
+The delayed x86 tool result was recovered without repeating its passing run.
+Resolved record sizes and generated layouts are unchanged, so the compiler layout
+matrix was not repeated. Final expression-parenthesisation changes were reviewed
+without repeating the passing platform matrix. Diff/text checks passed, including
+the new header and preserved Visual Studio CRLF, BOM and final-newline conventions.
+The user's final changes were line breaks only. Stage 6a has passed user manual
+review, with commit authorised on 1 October. Instance output and its
+hierarchy/selection checks remain stage 6b.
+
 Stage 1 is complete and committed independently as
 `d92dddd`; its code, tests and data-model documentation exclude schema planning.
 Implementing chats receive bounded briefs from the coordinator and return changes
@@ -1014,6 +1060,9 @@ application-critical allocation-failure handling without a rollback framework.
 
 ### 6. Output preparation, data demotion and reload
 
+Deliver bulk output/demotion/reload first (6a), then the corresponding instance
+hierarchy and selection-preservation work (6b), each with its own review boundary.
+
 Build separate output documents and packed payload buffers in document traversal
 order, rewriting output locators. Implement data demotion with separately returned
 document-block and payload owners. Support the agreed embedded/external choices
@@ -1047,6 +1096,21 @@ Completion evidence: idempotence, bit-for-bit preservation of addressable values
 clearing gaps imported by aggregate copies, and identical final unused bytes after
 clearing outputs that began with different padding contents. Exercise it after
 stage 6 packing and stage 7 transfers before binary output.
+
+### 9. Consistency and coherence review
+
+After the optional unused-storage stage, review the completed system for
+consistency and coherence. Pay particular attention to the authority of binary
+versus document data across loading, promotion, editing, capture, output,
+demotion and reload, including defaults and specialisation selection intent.
+Other provisional areas include code style, API consistency and agreement between
+implementation and documentation. Review file organisation and responsibility
+boundaries as well, including whether small shared headers such as
+`data_output.hpp` justify a separate file or belong with related declarations.
+
+Discuss the detailed scope and acceptance criteria with the user when this stage
+is reached. This entry reserves the review stage; it does not authorise starting
+the review or preselect any resulting refactoring.
 
 ### Delivery discipline
 

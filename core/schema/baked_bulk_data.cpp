@@ -19,6 +19,20 @@
 namespace schema
 {
 
+void CBakedBulkData::take_from(CBakedBulkData& source) noexcept
+{
+    m_document = source.m_document;
+    m_mutable = source.m_mutable;
+    m_binding = std::move(source.m_binding);
+    m_payload = source.m_payload;
+    m_records = std::move(source.m_records);
+    m_loaded = source.m_loaded;
+    source.m_document.clear();
+    source.m_mutable.clear();
+    source.m_payload = {};
+    source.m_loaded = false;
+}
+
 [[nodiscard]] static bool bulk_name_is(const CStringView name, const char* const literal) noexcept
 {
     const CStringView expected{ literal };
@@ -312,12 +326,13 @@ bool CBakedBulkData::plan(const bool supplied, const std::size_t payload_size,
                     return fail(diagnostic, EBulkLoadReason::invalid_range, locator);
                 }
             }
-            if ((offset < cursor) || (offset > UINT32_MAX) ||
+            if (((offset < cursor) && ((extent != 0u) || (offset != 0u))) || (offset > UINT32_MAX) ||
                 (offset > memory::k_byte_size_ceiling) ||
                 ((offset & (layout.alignment - 1u)) != 0u) ||
                 (extent > (memory::k_byte_size_ceiling - offset)))
             {
-                return fail(diagnostic, offset < cursor ? EBulkLoadReason::overlap : EBulkLoadReason::invalid_range, locator);
+                return fail(diagnostic, (((offset < cursor) && ((extent != 0u) || (offset != 0u))) ?
+                    EBulkLoadReason::overlap : EBulkLoadReason::invalid_range), locator);
             }
             const std::uint64_t end = offset + extent;
             if (supplied && (end > payload_size))
@@ -340,7 +355,10 @@ bool CBakedBulkData::plan(const bool supplied, const std::size_t payload_size,
             {
                 return fail(diagnostic, EBulkLoadReason::allocation_failed, entry);
             }
-            cursor = end;
+            if ((extent != 0u) || (offset != 0u))
+            {
+                cursor = end;
+            }
         }
     }
     total_size = static_cast<std::size_t>(cursor);

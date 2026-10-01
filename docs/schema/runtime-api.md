@@ -331,8 +331,47 @@ preserves the entry handle; `erase_entry()` invalidates its handle without
 compacting the payload. Failed construction or append publishes no failed locator
 and leaves earlier entries usable. A post-mutation failure that cannot preserve
 that state disables the live role and reports a critical event. `clear()`
-releases its document, payload and schema link. Demotion, packed output and
-remapping remain later stages.
+releases its document, payload and schema link. Remapping remains a later stage.
+
+## Bulk output and demotion (stage 6a)
+
+`CLiveBulkData::prepare_output(document, payload, destination_schema, form,
+diagnostic)` creates a separate live document and 128-byte-aligned packed payload.
+The destination schema is an explicitly resolved baked or live schema. Referenced
+types must match the source in structure and value interpretation; defaults may
+differ. Both destinations must be empty. `EDataOutputForm::embedded` adds complete
+record arrays decoded from binary; `external` omits them. Both forms retain valid
+reserved locators with positive counts. Text versus baked document encoding is a
+separate caller choice. An entirely empty bulk collection is valid, while a named
+zero-count entry is not output-ready.
+
+Packing traverses the live document rather than record creation history, aligns
+each nonempty extent to its resolved type and rewrites the output offsets. It
+copies complete record bytes, including internal padding, and drops unreferenced
+working extents without clearing newly created gaps. Zero-byte entries retain
+their positive count and use offset zero, including between nonempty entries.
+The output payload is independent of the source even in embedded form; a caller
+writing embedded-only text need not save it as a sidecar.
+
+Embedded records are constructed in the existing complete-value grammar and
+checked by re-encoding them against the source under `compare_encoded` rules:
+NaN encodings compare equal, while signed zero and distinct normalised integer
+codes remain distinct; padding and unused bits are ignored. An unlabelled enum
+code or noncanonical Boolean byte reports `unrepresentable_value` without
+publishing output. One-member structures and bit structures in arrays use their
+positional form because text parsing unwraps anonymous singleton objects there.
+External form retains the authoritative binary bytes without decoding them.
+
+`demote(block, payload, role, destination_schema, form, diagnostic)` prepares
+the output, bakes its document and returns a loaded `CBakedBulkData` role together
+with separate document-block and payload owners. The role borrows both owners;
+moving either owner preserves its allocation address and views, while destroying
+or reallocating one invalidates the corresponding view. The source and all
+destinations remain unchanged on failure. On success, the new role contributes
+one binding to the explicit destination schema. Reload external output with
+`load_supplied` and its associated payload; reload embedded-only output with
+`materialise` after parsing and baking the document. The caller still ensures
+unpopulated live arrays have all required addressable fields filled before output.
 
 ## Baked instance role (stage 4c)
 

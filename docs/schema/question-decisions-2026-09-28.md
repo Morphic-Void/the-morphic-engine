@@ -165,6 +165,17 @@ subsequent reconciliation with [design.md](design.md), the
   complete saved values, including distribution output. Bulk embedded `data`
   arrays may be retained for review or omitted when binary backing exists.
   Either form remains fully editable after promotion to a live wrapper.
+- Confirmed on 1 October for embedded instance output: reject a snapshot that
+  disagrees with an inherited value left unselected by its declaration. For
+  example, a parent with `x = 1` and an unselected child snapshot with `x = 9`
+  cannot be represented by the existing hierarchy without changing selection
+  intent. Report a diagnostic rather than adding a selection or changing the
+  saved value. Binary-backed output remains available.
+- Confirmed on 1 October for both data roles: embedded output uses the existing
+  encoded-field comparison rule for round-trip fidelity, treating NaNs as equal
+  and ignoring padding and unused bits. Reject values that cannot round-trip
+  under that rule, including noncanonical Boolean codes and unlabelled enum
+  codes. Binary-backed output preserves those encodings.
 - Text output with embedded instance or bulk values still includes locator
   objects. Baking a document loaded from that text must have the reserved
   locator nodes available for offsets created while loading embedded values.

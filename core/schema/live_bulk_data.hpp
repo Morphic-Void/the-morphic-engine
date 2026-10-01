@@ -14,6 +14,7 @@
 #define SCHEMA_LIVE_BULK_DATA_HPP_INCLUDED
 
 #include "schema/baked_bulk_data.hpp"
+#include "schema/data_output.hpp"
 
 namespace schema
 {
@@ -58,6 +59,15 @@ public:
     [[nodiscard]] bool rename_entry(const CBulkHandle handle, const CStringView& name) noexcept;
     [[nodiscard]] bool erase_entry(const CBulkHandle handle) noexcept;
 
+    [[nodiscard]] bool prepare_output(CLiveDocument& document, CByteBuffer& payload,
+        CBakedSchema& destination_schema, const EDataOutputForm form, SBulkDiagnostic& diagnostic) const noexcept;
+    [[nodiscard]] bool prepare_output(CLiveDocument& document, CByteBuffer& payload,
+        CLiveSchema& destination_schema, const EDataOutputForm form, SBulkDiagnostic& diagnostic) const noexcept;
+    [[nodiscard]] bool demote(CBakedDocumentBlock& block, CByteBuffer& payload, CBakedBulkData& role,
+        CBakedSchema& destination_schema, const EDataOutputForm form, SBulkDiagnostic& diagnostic) const noexcept;
+    [[nodiscard]] bool demote(CBakedDocumentBlock& block, CByteBuffer& payload, CBakedBulkData& role,
+        CLiveSchema& destination_schema, const EDataOutputForm form, SBulkDiagnostic& diagnostic) const noexcept;
+
 private:
     friend class CBakedBulkData;
 
@@ -74,6 +84,11 @@ private:
         const CByteConstView& source, const std::uint32_t count, const bool unpopulated,
         const bool replace, SBulkDiagnostic& diagnostic) noexcept;
     [[nodiscard]] bool promote_from(const CBakedBulkData& source, SBulkDiagnostic& diagnostic) noexcept;
+    [[nodiscard]] bool prepare_output_to(CLiveDocument& document, CByteBuffer& payload,
+        const CResolvedSchema& destination_schema, const EDataOutputForm form, SBulkDiagnostic& diagnostic) const noexcept;
+    template <class TSchema>
+    [[nodiscard]] bool demote_to(CBakedDocumentBlock& block, CByteBuffer& payload, CBakedBulkData& role,
+        TSchema& destination_schema, const EDataOutputForm form, SBulkDiagnostic& diagnostic) const noexcept;
     void take_from(CLiveBulkData& source) noexcept;
     void disable() noexcept;
 

@@ -48,6 +48,7 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\value_codec.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\schema_wrappers.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\baked_bulk_data.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\data_output.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\live_bulk_data.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\baked_instances.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\live_instances.hpp" />

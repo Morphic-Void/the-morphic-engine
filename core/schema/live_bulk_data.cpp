@@ -10,9 +10,12 @@
 
 #include "schema/live_bulk_data.hpp"
 #include "schema/value_codec.hpp"
+#include "data_model/document_translation.hpp"
 #include "memory/memory_policies.hpp"
 #include "debug/macros.hpp"
+#include "types/fp16data_t.hpp"
 
+#include <cmath>
 #include <cstring>
 #include <limits>
 #include <utility>
@@ -760,6 +763,452 @@ bool CBakedBulkData::promote(CLiveBulkData& destination, CLiveSchema& schema, SB
     }
     destination.take_from(staged);
     return true;
+}
+
+//  Output helpers keep all construction within the staged document.
+
+struct SBulkOutputRecord
+{
+    CNodeKey source, destination;
+    CSchemaIndex type;
+    const std::uint8_t* bytes{};
+    std::uint32_t count{}, offset{}, extent{};
+};
+
+[[nodiscard]] static std::uint64_t output_bits(const std::uint8_t* const bytes, const std::size_t size) noexcept
+{
+    std::uint64_t value{};
+    for (std::size_t index = 0u; index < size; ++index)
+    {
+        value |= static_cast<std::uint64_t>(bytes[index]) << (index * 8u);
+    }
+    return value;
+}
+
+[[nodiscard]] static bool output_signed_primitive(const EPrimitive primitive) noexcept
+{
+    return (primitive == EPrimitive::i8) || (primitive == EPrimitive::i16) ||
+        (primitive == EPrimitive::i32) || (primitive == EPrimitive::i64);
+}
+
+[[nodiscard]] static std::int64_t output_signed(const std::uint64_t bits, const unsigned width) noexcept
+{
+    if (width == 64u)
+    {
+        return static_cast<std::int64_t>(bits);
+    }
+    const std::uint64_t sign = std::uint64_t{ 1u } << (width - 1u);
+    return static_cast<std::int64_t>((bits ^ sign) - sign);
+}
+
+[[nodiscard]] static CNodeKey output_scalar(CLiveDocument& document, const CResolvedSchema& schema,
+    const CSchemaIndex type, const std::uint64_t bits, const unsigned width,
+    const CStringView& name, EBulkLoadReason& reason) noexcept
+{
+    SType layout;
+    if (!schema.type(type, layout))
+    {
+        reason = EBulkLoadReason::incompatible_schema;
+        return {};
+    }
+    if (layout.category == ECategory::enumeration)
+    {
+        SScalar value;
+        value.kind = output_signed_primitive(layout.primitive) ? EScalar::signed_integer : EScalar::unsigned_integer;
+        if (value.kind == EScalar::signed_integer)
+        {
+            value.value.signed_value = output_signed(bits, width);
+        }
+        else
+        {
+            value.value.unsigned_value = bits;
+        }
+        SLabel label;
+        const CSchemaIndex found = schema.first_label_for_value(type, value);
+        if (!found || !schema.label(found, label))
+        {
+            reason = EBulkLoadReason::unrepresentable_value;
+            return {};
+        }
+        return document.create_string(schema.name(label.name), name);
+    }
+    if (layout.category != ECategory::primitive)
+    {
+        reason = EBulkLoadReason::incompatible_schema;
+        return {};
+    }
+    if (output_signed_primitive(layout.primitive))
+    {
+        return document.create_signed_integer(output_signed(bits, width), name);
+    }
+    if (layout.primitive == EPrimitive::b8)
+    {
+        return document.create_boolean((bits != 0u), name);
+    }
+    if ((layout.primitive == EPrimitive::f16) || (layout.primitive == EPrimitive::f32) ||
+        (layout.primitive == EPrimitive::f64))
+    {
+        double value{};
+        if (layout.primitive == EPrimitive::f16)
+        {
+            value = static_cast<double>(fp16data_t::fromBits(static_cast<std::uint16_t>(bits)));
+        }
+        else if (layout.primitive == EPrimitive::f32)
+        {
+            const std::uint32_t raw = static_cast<std::uint32_t>(bits);
+            float converted{};
+            std::memcpy(&converted, &raw, sizeof(converted));
+            value = converted;
+        }
+        else
+        {
+            std::memcpy(&value, &bits, sizeof(value));
+        }
+        if (std::isnan(value))
+        {
+            return document.create_string(CStringView{ "nan" }, name);
+        }
+        if (std::isinf(value))
+        {
+            return document.create_string(CStringView{ (value < 0.0) ? "-inf" : "inf" }, name);
+        }
+        return document.create_floating_point(value, name);
+    }
+    return document.create_unsigned_integer(bits, name);
+}
+
+[[nodiscard]] static CNodeKey output_value(CLiveDocument& document, const CResolvedSchema& schema,
+    const CSchemaIndex type, const std::uint8_t* const bytes, const CStringView& name,
+    const bool in_array, const unsigned depth, EBulkLoadReason& reason) noexcept
+{
+    SType layout;
+    if ((depth >= 256u) || !schema.type(type, layout))
+    {
+        reason = EBulkLoadReason::incompatible_schema;
+        return {};
+    }
+    if ((layout.category == ECategory::primitive) || (layout.category == ECategory::enumeration))
+    {
+        const CNodeKey scalar = output_scalar(document, schema, type,
+            output_bits(bytes, static_cast<std::size_t>(layout.size)),
+            static_cast<unsigned>(layout.size * 8u), name, reason);
+        if (!scalar && (reason == EBulkLoadReason::none))
+        {
+            reason = EBulkLoadReason::allocation_failed;
+        }
+        return scalar;
+    }
+
+    //  Text parsing unwraps an anonymous one-member object in an array.
+    //  Positional aggregates keep complete bulk records anonymous on reload.
+    const bool positional = in_array && (layout.count == 1u) &&
+        ((layout.category == ECategory::structure) || (layout.category == ECategory::bit_structure));
+    const bool array = (layout.category == ECategory::array) || positional;
+    const CNodeKey result = array ? document.create_array(name) : document.create_object(name);
+    if (!result)
+    {
+        reason = EBulkLoadReason::allocation_failed;
+        return {};
+    }
+    for (std::uint32_t index = 0u; index < layout.count; ++index)
+    {
+        CNodeKey child;
+        if (layout.category == ECategory::structure)
+        {
+            SMember member;
+            if (!schema.member(schema.member_at(type, index), member))
+            {
+                reason = EBulkLoadReason::incompatible_schema;
+            }
+            else
+            {
+                child = output_value(document, schema, member.type,
+                    (bytes ? (bytes + member.offset) : nullptr),
+                    (positional ? CStringView{} : schema.name(member.name)), positional, (depth + 1u), reason);
+            }
+        }
+        else if (layout.category == ECategory::array)
+        {
+            child = output_value(document, schema, layout.element_or_storage,
+                (bytes ? (bytes + (layout.stride * index)) : nullptr), {}, true, (depth + 1u), reason);
+        }
+        else if (layout.category == ECategory::bit_structure)
+        {
+            SField field;
+            if (!schema.field(schema.field_at(type, index), field))
+            {
+                reason = EBulkLoadReason::incompatible_schema;
+            }
+            else
+            {
+                const std::uint64_t bits =
+                    (output_bits(bytes, static_cast<std::size_t>(layout.size)) & field.mask) >> field.shift;
+                child = output_scalar(document, schema, field.type, bits, field.width,
+                    (positional ? CStringView{} : schema.name(field.name)), reason);
+            }
+        }
+        else
+        {
+            reason = EBulkLoadReason::incompatible_schema;
+        }
+        if (!child || !append_node(document, result, child))
+        {
+            if (reason == EBulkLoadReason::none)
+            {
+                reason = EBulkLoadReason::allocation_failed;
+            }
+            (void)document.erase(result);
+            return {};
+        }
+    }
+    return result;
+}
+
+bool CLiveBulkData::prepare_output_to(CLiveDocument& document, CByteBuffer& payload,
+    const CResolvedSchema& destination_schema, const EDataOutputForm form,
+    SBulkDiagnostic& diagnostic) const noexcept
+{
+    diagnostic = {};
+    const CResolvedSchema* const source_schema = m_binding.resolved();
+    if (!loaded_ready() || !source_schema || document.is_ready() || payload.is_ready() ||
+        ((form != EDataOutputForm::embedded) && (form != EDataOutputForm::external)))
+    {
+        diagnostic.reason = EBulkLoadReason::invalid_input;
+        return false;
+    }
+    CLiveDocument staged_document;
+    const CNodeKey staged_root = (staged_document.initialise() &&
+        staged_document.set_root_type(ELiveValueType::object)) ? staged_document.root() : CNodeKey{};
+    const CNodeKey data = staged_root ? staged_document.create_object(CStringView{ "data" }) : CNodeKey{};
+    if (!staged_root || !append_node(staged_document, staged_root, data))
+    {
+        diagnostic.reason = EBulkLoadReason::allocation_failed;
+        return false;
+    }
+    TPodVector<SBulkOutputRecord> records;
+    std::uint64_t cursor{};
+    const CNodeKey source_data = detail::SBulkHandleAccess::occurrence(data_root()).live;
+    for (CNodeKey group = m_document.first_child(source_data); group; group = m_document.next_sibling(group))
+    {
+        if (!m_document.first_child(group))
+        {
+            continue;
+        }
+        const CStringView type_name = m_document.name(group);
+        const CSchemaIndex source_type = source_schema->find_type(type_name);
+        const CSchemaIndex destination_type = destination_schema.find_type(type_name);
+        bool allocation_failed{};
+        if (!source_type || !destination_type ||
+            !same_type_representation(*source_schema, destination_schema, source_type, destination_type, allocation_failed))
+        {
+            diagnostic.reason = allocation_failed ? EBulkLoadReason::allocation_failed : EBulkLoadReason::incompatible_schema;
+            diagnostic.occurrence = detail::SBulkHandleAccess::make(detail::SOccurrence{ group });
+            return false;
+        }
+        SType layout;
+        if (!destination_schema.type(destination_type, layout))
+        {
+            diagnostic.reason = EBulkLoadReason::incompatible_schema;
+            diagnostic.occurrence = detail::SBulkHandleAccess::make(detail::SOccurrence{ group });
+            return false;
+        }
+        const CNodeKey output_group = staged_document.create_object(type_name);
+        if (!append_node(staged_document, data, output_group))
+        {
+            diagnostic.reason = EBulkLoadReason::allocation_failed;
+            return false;
+        }
+        for (CNodeKey entry = m_document.first_child(group); entry; entry = m_document.next_sibling(entry))
+        {
+            const SRecord* source_record = nullptr;
+            for (std::size_t index = 0u; index < m_records.size(); ++index)
+            {
+                if (m_records[index].entry == entry)
+                {
+                    source_record = &m_records[index];
+                    break;
+                }
+            }
+            SBulkEntryView value;
+            if (!source_record || !observe(*source_record, value) || (value.count == 0u) || (value.byte_count > UINT32_MAX))
+            {
+                diagnostic.reason = EBulkLoadReason::invalid_input;
+                diagnostic.occurrence = detail::SBulkHandleAccess::make(detail::SOccurrence{ entry });
+                return false;
+            }
+            std::uint64_t offset{};
+            if (value.byte_count != 0u)
+            {
+                offset = (cursor + layout.alignment - 1u) & ~(layout.alignment - 1u);
+                if ((offset > UINT32_MAX) || (value.byte_count > (UINT32_MAX - offset)) ||
+                    (offset > memory::k_byte_size_ceiling) ||
+                    (value.byte_count > (memory::k_byte_size_ceiling - offset)))
+                {
+                    diagnostic.reason = EBulkLoadReason::invalid_range;
+                    diagnostic.occurrence = detail::SBulkHandleAccess::make(detail::SOccurrence{ entry });
+                    return false;
+                }
+                cursor = offset + value.byte_count;
+            }
+            const CNodeKey output_entry = staged_document.create_object(m_document.name(entry));
+            const CNodeKey locator = make_locator(staged_document, static_cast<std::uint32_t>(offset),
+                value.count, value.byte_count);
+            if (!output_entry || !append_node(staged_document, output_entry, locator) ||
+                !append_node(staged_document, output_group, output_entry) ||
+                !records.push_back({ entry, output_entry, destination_type, value.bytes,
+                    value.count, static_cast<std::uint32_t>(offset), static_cast<std::uint32_t>(value.byte_count) }))
+            {
+                diagnostic.reason = EBulkLoadReason::allocation_failed;
+                return false;
+            }
+        }
+    }
+    CByteBuffer staged_payload;
+    if ((cursor != 0u) && (!staged_payload.allocate(static_cast<std::size_t>(cursor), 128u) ||
+        !staged_payload.set_size(static_cast<std::size_t>(cursor))))
+    {
+        diagnostic.reason = EBulkLoadReason::allocation_failed;
+        return false;
+    }
+    for (std::size_t index = 0u; index < records.size(); ++index)
+    {
+        const SBulkOutputRecord& record = records[index];
+        if (record.extent != 0u)
+        {
+            std::memcpy((staged_payload.data() + record.offset), record.bytes, record.extent);
+        }
+    }
+    if (form == EDataOutputForm::embedded)
+    {
+        for (std::size_t index = 0u; index < records.size(); ++index)
+        {
+            const SBulkOutputRecord& record = records[index];
+            const CNodeKey array = staged_document.create_array(CStringView{ "data" });
+            if (!append_node(staged_document, record.destination, array))
+            {
+                diagnostic.reason = EBulkLoadReason::allocation_failed;
+                return false;
+            }
+            SType layout;
+            if (!destination_schema.type(record.type, layout))
+            {
+                diagnostic.reason = EBulkLoadReason::incompatible_schema;
+                diagnostic.occurrence = detail::SBulkHandleAccess::make(detail::SOccurrence{ record.source });
+                return false;
+            }
+            CByteBuffer encoded;
+            if ((layout.size != 0u) && (!encoded.allocate(static_cast<std::size_t>(layout.size), 128u) ||
+                !encoded.set_size(static_cast<std::size_t>(layout.size))))
+            {
+                diagnostic.reason = EBulkLoadReason::allocation_failed;
+                return false;
+            }
+            for (std::uint32_t ordinal = 0u; ordinal < record.count; ++ordinal)
+            {
+                const std::uint8_t* const original = (layout.size != 0u) ?
+                    (staged_payload.data() + record.offset + (layout.size * ordinal)) : nullptr;
+                EBulkLoadReason reason{ EBulkLoadReason::none };
+                const CNodeKey item = output_value(staged_document, destination_schema, record.type,
+                    original, {}, true, 0u, reason);
+                if (!item || !append_node(staged_document, array, item))
+                {
+                    diagnostic.reason = (reason == EBulkLoadReason::none) ? EBulkLoadReason::allocation_failed : reason;
+                    diagnostic.occurrence = detail::SBulkHandleAccess::make(detail::SOccurrence{ record.source });
+                    return false;
+                }
+                const detail::CDocumentRead read{ staged_document };
+                detail::SValueDiagnostic value_error;
+                if (!detail::construct_value(destination_schema, read, record.type,
+                    detail::SOccurrence{ item }, encoded.data(), static_cast<std::size_t>(layout.size),
+                    detail::EConstructionMode::complete_bulk, value_error) ||
+                    !detail::compare_encoded(destination_schema, record.type, original,
+                        static_cast<std::size_t>(layout.size), encoded.data(), static_cast<std::size_t>(layout.size)))
+                {
+                    diagnostic.reason = EBulkLoadReason::unrepresentable_value;
+                    diagnostic.occurrence = detail::SBulkHandleAccess::make(detail::SOccurrence{ record.source });
+                    return false;
+                }
+            }
+        }
+    }
+    document = std::move(staged_document);
+    payload = std::move(staged_payload);
+    return true;
+}
+
+bool CLiveBulkData::prepare_output(CLiveDocument& document, CByteBuffer& payload,
+    CBakedSchema& destination_schema, const EDataOutputForm form, SBulkDiagnostic& diagnostic) const noexcept
+{
+    if (!destination_schema.resolved_ready())
+    {
+        diagnostic = { EBulkLoadReason::invalid_input, {} };
+        return false;
+    }
+    return prepare_output_to(document, payload, *destination_schema.resolved(), form, diagnostic);
+}
+
+bool CLiveBulkData::prepare_output(CLiveDocument& document, CByteBuffer& payload,
+    CLiveSchema& destination_schema, const EDataOutputForm form, SBulkDiagnostic& diagnostic) const noexcept
+{
+    if (!destination_schema.resolved_ready())
+    {
+        diagnostic = { EBulkLoadReason::invalid_input, {} };
+        return false;
+    }
+    return prepare_output_to(document, payload, *destination_schema.resolved(), form, diagnostic);
+}
+
+template <class TSchema>
+bool CLiveBulkData::demote_to(CBakedDocumentBlock& block, CByteBuffer& payload, CBakedBulkData& role,
+    TSchema& destination_schema, const EDataOutputForm form, SBulkDiagnostic& diagnostic) const noexcept
+{
+    diagnostic = {};
+    if (block.is_ready() || payload.is_ready() || role.document_ready() ||
+        role.m_binding.is_attached() || !destination_schema.resolved_ready())
+    {
+        diagnostic.reason = EBulkLoadReason::invalid_input;
+        return false;
+    }
+    CLiveDocument prepared;
+    CByteBuffer prepared_payload;
+    if (!prepare_output(prepared, prepared_payload, destination_schema, form, diagnostic))
+    {
+        return false;
+    }
+    CBakedDocumentBlock prepared_block;
+    if (!document_translation::bake(prepared, prepared_block))
+    {
+        diagnostic.reason = EBulkLoadReason::allocation_failed;
+        return false;
+    }
+    CBakedBulkData prepared_role;
+    if (!prepared_role.set_document(prepared_block.document()) ||
+        !prepared_role.bind_schema(destination_schema) ||
+        !prepared_role.load_supplied(prepared_payload.const_view(), false, diagnostic))
+    {
+        if (diagnostic.reason == EBulkLoadReason::none)
+        {
+            diagnostic.reason = EBulkLoadReason::invalid_input;
+        }
+        diagnostic.occurrence = {};
+        return false;
+    }
+    block = std::move(prepared_block);
+    payload = std::move(prepared_payload);
+    role.take_from(prepared_role);
+    return true;
+}
+
+bool CLiveBulkData::demote(CBakedDocumentBlock& block, CByteBuffer& payload, CBakedBulkData& role,
+    CBakedSchema& destination_schema, const EDataOutputForm form, SBulkDiagnostic& diagnostic) const noexcept
+{
+    return demote_to(block, payload, role, destination_schema, form, diagnostic);
+}
+
+bool CLiveBulkData::demote(CBakedDocumentBlock& block, CByteBuffer& payload, CBakedBulkData& role,
+    CLiveSchema& destination_schema, const EDataOutputForm form, SBulkDiagnostic& diagnostic) const noexcept
+{
+    return demote_to(block, payload, role, destination_schema, form, diagnostic);
 }
 
 }   // namespace schema

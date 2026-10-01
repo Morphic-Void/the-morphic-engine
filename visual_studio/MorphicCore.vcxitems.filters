@@ -879,6 +879,9 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\baked_bulk_data.hpp">
       <Filter>Core\include\schema</Filter>
     </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\data_output.hpp">
+      <Filter>Core\include\schema</Filter>
+    </ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\live_bulk_data.hpp">
       <Filter>Core\include\schema</Filter>
     </ClInclude>
