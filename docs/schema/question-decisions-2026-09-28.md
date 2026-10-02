@@ -220,13 +220,43 @@ subsequent reconciliation with [design.md](design.md), the
   layouts generate faithful C++ declarations using padding members under the
   selected compiler settings. The legacy review-only declaration path is
   removed; layouts that cannot meet the faithful contract are rejected.
-- In direct-member remapping, a compound containing a differing enum is wholly
-  unmatched because it is not the same exact compound type.
-- Remapping uses one record count, supplied explicitly or defaulted to the
-  minimum of source and destination counts. Execution takes bounded current
-  source and destination views and checks ranges before writing. Public view
-  calls and handle-based instance/bulk calls both exist; handle calls extract
-  views and share the underlying executor without duplicating validation.
+- Clarified by the user on 2 October: direct-member remapping collects semantic
+  and exact-type matches for unchanged binary copies. Missing members and all
+  type mismatches simply remain unmapped, including same-name primitive, enum,
+  array and compound differences. Partial and completely empty plans are valid.
+  This supersedes the earlier hard-error rule for non-enum mismatches and the
+  special treatment of enum differences. Once a compound is known to differ in
+  type, do not inspect its contents to classify the mismatch or find submatches.
+  Memory-operation validity is separate from finding matching data; offsets and
+  strides may differ between source and destination.
+- Simplified by the user during usage review on 2 October: remapping derives
+  complete record capacities from bounded current views and stored layouts,
+  processing their minimum through one `execute` operation. Callers narrow
+  views to restrict the transfer. Remove per-view and requested record counts,
+  copied-count output, `execute_min` and execution diagnostics. Execution returns
+  success/failure; `initialise` retains its diagnostic. Zero-byte types impose
+  no storage limit, and entirely zero-byte transfers are successful no-ops
+  without a reported logical count. Handle-based instance/bulk calls will
+  extract views and share the executor without duplicating validation.
+- On 2 October the user confirmed that remapping into a live base instance or
+  specialisation changes only the destination binary snapshot. Declarations,
+  selections and descendant snapshots remain unchanged. Mapped fields need not
+  already be selected. This is a binary transfer, not a capture or coordinated
+  instance edit. Existing embedded-output checks may reject a resulting mismatch
+  with omitted/defaulted or inherited values; binary-backed output remains
+  available.
+
+- The user subsequently confirmed that fast runtime binary updates are the primary
+  remapping use case. A separate explicit refresh is the intended direction for
+  creating document forms from remapped results, with scope and conflict handling
+  controlled by refresh parameters. Exact refresh policies and hierarchy effects
+  remain to be discussed; this does not authorise adding refresh to the binary
+  remapping implementation.
+- The primary remapping path reads baked or live data and fills application-owned
+  buffers outside the schema system. Those destinations require a described
+  layout, not a destination document. Writing into live backing within the schema
+  system is also supported through the same executor. Both paths leave document
+  updates and reconciliation to separate operations.
 
 ## Deferred or remaining questions
 

@@ -15,6 +15,7 @@
 #include "schema/live_bulk_data.hpp"
 #include "schema/baked_instances.hpp"
 #include "schema/live_instances.hpp"
+#include "schema/data_remap.hpp"
 #include "schema/value_codec.hpp"
 #include "memory/memory_policies.hpp"
 #include "data_model/document_parser.hpp"
@@ -50,6 +51,7 @@ static_assert(!std::is_copy_constructible_v<CLiveSchema> && !std::is_move_constr
 static_assert(!std::is_copy_constructible_v<CSchemaBinding> && std::is_nothrow_move_constructible_v<CSchemaBinding>);
 static_assert(!std::is_copy_constructible_v<CBakedBulkData> && !std::is_move_constructible_v<CBakedBulkData>);
 static_assert(!std::is_copy_constructible_v<CLiveBulkData> && !std::is_move_constructible_v<CLiveBulkData>);
+static_assert(!std::is_copy_constructible_v<CDataRemapPlan> && std::is_nothrow_move_constructible_v<CDataRemapPlan>);
 
 static const char* const fixture = R"({"types":{
  "structures":{
@@ -5479,6 +5481,530 @@ static void test_live_bulk_failures_and_matching(TTestContext& ctx)
         many) && many.count == UINT32_MAX && many.byte_count == 0u);
 }
 
+static void test_data_remap(TTestContext& ctx)
+{
+    const std::string source_text = R"({"types":{"structures":{
+        "Empty":{"detail":{"size":0},"members":[]},
+        "Src":{"detail":{"size":8,"alignment":2},"members":[
+            {"b":{"type":"u16","offset":0}},{"a":{"type":"u8","offset":4}},
+            {"marker":{"type":"Empty","offset":8}}]},
+        "SrcC":{"members":[{"c":{"type":"u32"}}]},
+        "None":{"members":[{"q":{"type":"u8"}}]},
+        "Zero":{"detail":{"size":0},"members":[{"marker":{"type":"Empty","offset":0}}]}
+    }}})";
+    const std::string destination_text = R"({"types":{"structures":{
+        "Dummy":{"members":[{"x":{"type":"u64"}}]},
+        "Empty":{"detail":{"size":0},"members":[]},
+        "Dest":{"detail":{"size":12,"alignment":4},"members":[
+            {"a":{"type":"u8","offset":0}},{"b":{"type":"u16","offset":4}},
+            {"c":{"type":"u32","offset":8}},{"marker":{"type":"Empty","offset":12}}]},
+        "Zero":{"detail":{"size":0},"members":[{"marker":{"type":"Empty","offset":0}}]}
+    }}})";
+    CBakedDocumentBlock source_block, destination_block;
+    CResolvedSchema source_schema, destination_schema;
+    if (!resolve(ctx, source_text, source_block, source_schema) ||
+        !resolve(ctx, destination_text, destination_block, destination_schema))
+    {
+        return;
+    }
+    const SRemapSourceType input_types[] = {
+        { &source_schema, source_schema.find_type(CStringView{ "Src" }) },
+        { &source_schema, source_schema.find_type(CStringView{ "SrcC" }) }
+    };
+    CDataRemapPlan plan;
+    SRemapDiagnostic error;
+    TEST_EXPECT(ctx, plan.initialise(input_types, 2u, destination_schema,
+        destination_schema.find_type(CStringView{ "Dest" }), error));
+    TEST_EXPECT(ctx, plan.is_ready() && plan.source_count() == 2u &&
+        plan.matched_member_count() == 4u && plan.copy_range_count() == 3u);
+
+    alignas(8) std::uint8_t source_a[16]{};
+    alignas(8) std::uint8_t source_c[8]{};
+    alignas(8) std::uint8_t target[36];
+    source_a[0] = 0x11u; source_a[1] = 0x22u; source_a[4] = 0x33u;
+    source_a[8] = 0x44u; source_a[9] = 0x55u; source_a[12] = 0x66u;
+    source_c[0] = 0x71u; source_c[1] = 0x72u; source_c[2] = 0x73u; source_c[3] = 0x74u;
+    source_c[4] = 0x81u; source_c[5] = 0x82u; source_c[6] = 0x83u; source_c[7] = 0x84u;
+    std::memset(target, 0xcc, sizeof(target));
+    const CByteConstView inputs[] = {
+        CByteConstView{ source_a, sizeof(source_a), 2u },
+        CByteConstView{ source_c, sizeof(source_c), 4u }
+    };
+    TEST_EXPECT(ctx, plan.execute(inputs, 2u, CByteView{ target, sizeof(target), 4u }));
+    for (std::size_t i = 0u; i < 2u; ++i)
+    {
+        const std::size_t d = i * 12u;
+        TEST_EXPECT(ctx, target[d] == source_a[(i * 8u) + 4u] &&
+            target[d + 4u] == source_a[i * 8u] && target[d + 5u] == source_a[(i * 8u) + 1u] &&
+            std::memcmp(target + d + 8u, source_c + (i * 4u), 4u) == 0);
+        TEST_EXPECT(ctx, target[d + 1u] == 0xccu && target[d + 2u] == 0xccu &&
+            target[d + 3u] == 0xccu && target[d + 6u] == 0xccu && target[d + 7u] == 0xccu);
+    }
+    for (std::size_t i = 24u; i < sizeof(target); ++i)
+    {
+        TEST_EXPECT(ctx, target[i] == 0xccu);
+    }
+    std::uint8_t saved[sizeof(target)];
+    std::memcpy(saved, target, sizeof(target));
+    std::memset(target, 0xcc, sizeof(target));
+    TEST_EXPECT(ctx, plan.execute(inputs, 2u, CByteView{ target, 23u, 4u }) &&
+        std::memcmp(target, saved, 12u) == 0);
+    for (std::size_t i = 12u; i < sizeof(target); ++i)
+    {
+        TEST_EXPECT(ctx, target[i] == 0xccu);
+    }
+    std::memcpy(target, saved, sizeof(target));
+    TEST_EXPECT(ctx, !plan.execute(inputs, 2u, CByteView{ target + 1u, 24u, 1u }) &&
+        std::memcmp(saved, target, sizeof(target)) == 0);
+    const CByteConstView aliased[] = {
+        CByteConstView{ target, sizeof(target), 4u }, inputs[1]
+    };
+    TEST_EXPECT(ctx, !plan.execute(aliased, 2u, CByteView{ target, sizeof(target), 4u }) &&
+        std::memcmp(saved, target, sizeof(target)) == 0);
+    const CByteConstView misaligned_second[] = {
+        inputs[0], CByteConstView{ source_c + 1u, 7u, 1u }
+    };
+    TEST_EXPECT(ctx, !plan.execute(misaligned_second, 2u, CByteView{ target, sizeof(target), 4u }) &&
+        std::memcmp(saved, target, sizeof(target)) == 0);
+    const CByteConstView short_second[] = {
+        inputs[0], CByteConstView{ source_c, 7u, 4u }
+    };
+    std::memset(target, 0xcc, sizeof(target));
+    TEST_EXPECT(ctx, plan.execute(short_second, 2u, CByteView{ target, sizeof(target), 4u }) &&
+        std::memcmp(target, saved, 12u) == 0);
+    for (std::size_t i = 12u; i < sizeof(target); ++i)
+    {
+        TEST_EXPECT(ctx, target[i] == 0xccu);
+    }
+    std::memcpy(target, saved, sizeof(target));
+    const CByteConstView shorter_than_record[] = {
+        inputs[0], CByteConstView{ source_c, 3u, 4u }
+    };
+    TEST_EXPECT(ctx, plan.execute(shorter_than_record, 2u, CByteView{ target, sizeof(target), 4u }) &&
+        std::memcmp(saved, target, sizeof(target)) == 0);
+    const CByteConstView reset_invalid[] = {
+        inputs[0], CByteConstView{ nullptr, 8u, 4u }
+    };
+    TEST_EXPECT(ctx, reset_invalid[1].is_empty() &&
+        plan.execute(reset_invalid, 2u, CByteView{ target, sizeof(target), 4u }) &&
+        std::memcmp(saved, target, sizeof(target)) == 0);
+    TEST_EXPECT(ctx, !plan.execute(inputs, 1u, CByteView{ target, sizeof(target), 4u }) &&
+        std::memcmp(saved, target, sizeof(target)) == 0);
+    {
+        SFailingAllocator failing{ 0u, 0u };
+        memory::CMemoryAllocator allocator{ &failing, &allocate_with_failure, &tests::deallocate_test_memory };
+        memory::CMemoryContext context{ allocator };
+        {
+            tests::TMemoryContextScope scope{ &context };
+            TEST_EXPECT(ctx, plan.execute(inputs, 2u, CByteView{ target, sizeof(target), 4u }));
+            TEST_EXPECT(ctx, failing.calls == 0u);
+        }
+        TEST_EXPECT(ctx, context.is_attribution_empty());
+    }
+
+    {
+        SFailingAllocator failing{ 0u, 0u };
+        memory::CMemoryAllocator allocator{ &failing, &allocate_with_failure, &tests::deallocate_test_memory };
+        memory::CMemoryContext context{ allocator };
+        {
+            tests::TMemoryContextScope scope{ &context };
+            CDataRemapPlan failure;
+            TEST_EXPECT(ctx, !failure.initialise(input_types, 2u, destination_schema,
+                destination_schema.find_type(CStringView{ "Dest" }), error) &&
+                error.reason == ERemapReason::allocation_failed && !failure.is_ready());
+        }
+        TEST_EXPECT(ctx, context.is_attribution_empty());
+    }
+
+    const SRemapSourceType duplicate_types[] = { input_types[0], input_types[0] };
+    TEST_EXPECT(ctx, !plan.initialise(duplicate_types, 2u, destination_schema,
+        destination_schema.find_type(CStringView{ "Dest" }), error) &&
+        error.reason == ERemapReason::overlap && !plan.is_ready());
+    const SRemapSourceType zero_and_populated[] = {
+        { &source_schema, source_schema.find_type(CStringView{ "Zero" }) }, input_types[1]
+    };
+    TEST_EXPECT(ctx, plan.initialise(zero_and_populated, 2u, destination_schema,
+        destination_schema.find_type(CStringView{ "Dest" }), error) &&
+        plan.matched_member_count() == 2u && plan.copy_range_count() == 1u);
+    const CByteConstView mixed_inputs[] = { {}, inputs[1] };
+    std::memset(target, 0xcc, sizeof(target));
+    TEST_EXPECT(ctx, plan.execute(mixed_inputs, 2u, CByteView{ target, sizeof(target), 4u }));
+    for (std::size_t i = 0u; i < sizeof(target); ++i)
+    {
+        const bool copied_c = ((i >= 8u) && (i < 12u)) || ((i >= 20u) && (i < 24u));
+        const std::uint8_t expected = copied_c ? source_c[(i % 12u) - 8u + ((i / 12u) * 4u)] : 0xccu;
+        TEST_EXPECT(ctx, target[i] == expected);
+    }
+    std::memcpy(target, saved, sizeof(target));
+    const SRemapSourceType unmatched{ &source_schema, source_schema.find_type(CStringView{ "None" }) };
+    TEST_EXPECT(ctx, plan.initialise(&unmatched, 1u, destination_schema,
+        destination_schema.find_type(CStringView{ "Dest" }), error) &&
+        plan.matched_member_count() == 0u && plan.copy_range_count() == 0u);
+    const CByteConstView empty_input{};
+    TEST_EXPECT(ctx, plan.execute(&empty_input, 1u, CByteView{ target, sizeof(target), 4u }) &&
+        std::memcmp(saved, target, sizeof(target)) == 0);
+
+    const SRemapSourceType zero_type{ &source_schema, source_schema.find_type(CStringView{ "Zero" }) };
+    TEST_EXPECT(ctx, plan.initialise(&zero_type, 1u, destination_schema,
+        destination_schema.find_type(CStringView{ "Zero" }), error) &&
+        plan.matched_member_count() == 1u && plan.copy_range_count() == 0u);
+    const CByteConstView zero_input{};
+    TEST_EXPECT(ctx, plan.execute(&zero_input, 1u, {}));
+    CDataRemapPlan moved{ std::move(plan) };
+    TEST_EXPECT(ctx, moved.is_ready() && !plan.is_ready() && plan.source_count() == 0u);
+}
+
+static void test_data_remap_matching(TTestContext& ctx)
+{
+    const std::string source_text = R"({"types":{
+        "structures":{
+            "Inner":{"detail":{"size":8,"alignment":4},"members":[{"x":{"type":"u8","offset":0}}]},
+            "Compound":{"members":[{"mode":{"type":"Mode"}},{"value":{"type":"u8"}}]},
+            "Source":{"members":[{"scalar":{"type":"u8"}},{"mode":{"type":"Mode"}},
+                {"compound":{"type":"Compound"}},{"inner":{"type":"Inner"}},
+                {"array":{"type":{"element":"u8","count":2}}}]}
+        },"enumerations":{"Mode":{"storage":"u8","values":{"first":1,"last":2}}}}})";
+    const std::string destination_text = R"({"types":{
+        "structures":{
+            "Inner":{"detail":{"size":8,"alignment":4},"members":[{"x":{"type":"u8","offset":0}}]},
+            "Compound":{"members":[{"mode":{"type":"Mode"}},{"value":{"type":"u8"}}]},
+            "Destination":{"members":[{"scalar":{"type":"u8"}},{"mode":{"type":"Mode"}},
+                {"compound":{"type":"Compound"}},{"inner":{"type":"Inner"}},
+                {"array":{"type":{"element":"u8","count":2}}}]}
+        },"enumerations":{"Mode":{"storage":"u8","values":{"first":1,"last":3}}}}})";
+    CBakedDocumentBlock source_block, destination_block;
+    CResolvedSchema source, destination;
+    if (!resolve(ctx, source_text, source_block, source) ||
+        !resolve(ctx, destination_text, destination_block, destination))
+    {
+        return;
+    }
+    const SRemapSourceType input{ &source, source.find_type(CStringView{ "Source" }) };
+    CDataRemapPlan plan;
+    SRemapDiagnostic error;
+    TEST_EXPECT(ctx, plan.initialise(&input, 1u, destination,
+        destination.find_type(CStringView{ "Destination" }), error));
+    TEST_EXPECT(ctx, plan.matched_member_count() == 3u && plan.copy_range_count() == 2u);
+    SType source_type, destination_type;
+    TEST_EXPECT(ctx, source.type(input.type, source_type) &&
+        destination.type(destination.find_type(CStringView{ "Destination" }), destination_type));
+    CByteBuffer source_bytes, destination_bytes;
+    TEST_EXPECT(ctx, source_bytes.allocate(static_cast<std::size_t>(source_type.size),
+        static_cast<std::size_t>(source_type.alignment)) &&
+        source_bytes.set_size(static_cast<std::size_t>(source_type.size)) &&
+        destination_bytes.allocate(static_cast<std::size_t>(destination_type.size),
+        static_cast<std::size_t>(destination_type.alignment)) &&
+        destination_bytes.set_size(static_cast<std::size_t>(destination_type.size)));
+    source_bytes.zero_fill();
+    std::memset(destination_bytes.data(), 0xcc, destination_bytes.size());
+    SMember source_inner, destination_inner;
+    TEST_EXPECT(ctx, source.member(source.find_member(input.type, CStringView{ "inner" }), source_inner) &&
+        destination.member(destination.find_member(destination.find_type(CStringView{ "Destination" }),
+            CStringView{ "inner" }), destination_inner));
+    for (std::size_t i = 0u; i < static_cast<std::size_t>(source_inner.size); ++i)
+    {
+        source_bytes.data()[static_cast<std::size_t>(source_inner.offset) + i] = static_cast<std::uint8_t>(0x40u + i);
+    }
+    const CByteConstView source_view = source_bytes.const_view();
+    TEST_EXPECT(ctx, plan.execute(&source_view, 1u, destination_bytes.view()));
+    TEST_EXPECT(ctx, std::memcmp(source_bytes.data() + source_inner.offset,
+        destination_bytes.data() + destination_inner.offset, static_cast<std::size_t>(source_inner.size)) == 0);
+    SMember dm, dc;
+    TEST_EXPECT(ctx, destination.member(destination.find_member(destination.find_type(CStringView{ "Destination" }),
+        CStringView{ "mode" }), dm) && destination.member(destination.find_member(
+        destination.find_type(CStringView{ "Destination" }), CStringView{ "compound" }), dc));
+    TEST_EXPECT(ctx, destination_bytes.data()[static_cast<std::size_t>(dm.offset)] == 0xccu &&
+        destination_bytes.data()[static_cast<std::size_t>(dc.offset)] == 0xccu);
+
+    const std::string mismatched_destination = R"({"types":{"structures":{
+        "Compound":{"members":[{"mode":{"type":"Mode"}},{"value":{"type":"i8"}}]},
+        "Destination":{"members":[{"mode":{"type":"Mode"}},{"compound":{"type":"Compound"}},
+            {"scalar":{"type":"u16"}}]}
+        },"enumerations":{"Mode":{"storage":"u8","values":{"first":1,"last":3}}}}})";
+    CBakedDocumentBlock mismatched_block;
+    CResolvedSchema mismatched;
+    if (resolve(ctx, mismatched_destination, mismatched_block, mismatched))
+    {
+        const CSchemaIndex destination_index = mismatched.find_type(CStringView{ "Destination" });
+        TEST_EXPECT(ctx, plan.initialise(&input, 1u, mismatched, destination_index, error) &&
+            plan.is_ready() && plan.matched_member_count() == 0u && plan.copy_range_count() == 0u);
+        SType layout;
+        TEST_EXPECT(ctx, mismatched.type(destination_index, layout));
+        CByteBuffer untouched;
+        TEST_EXPECT(ctx, untouched.allocate(static_cast<std::size_t>(layout.size),
+            static_cast<std::size_t>(layout.alignment)) &&
+            untouched.set_size(static_cast<std::size_t>(layout.size)));
+        std::memset(untouched.data(), 0xcc, untouched.size());
+        TEST_EXPECT(ctx, plan.execute(&source_view, 1u, untouched.view()));
+        for (std::size_t i = 0u; i < untouched.size(); ++i)
+        {
+            TEST_EXPECT(ctx, untouched.data()[i] == 0xccu);
+        }
+    }
+    const std::string default_source = R"({"types":{"structures":{
+        "Inner":{"members":[{"x":{"type":"u8","default":1}}]},
+        "Source":{"members":[{"inner":{"type":"Inner"}}]}}}})";
+    const std::string default_destination = R"({"types":{"structures":{
+        "Inner":{"members":[{"x":{"type":"u8","default":2}}]},
+        "Destination":{"members":[{"inner":{"type":"Inner"}}]}}}})";
+    CBakedDocumentBlock default_source_block, default_destination_block;
+    CResolvedSchema ds, dd;
+    if (resolve(ctx, default_source, default_source_block, ds) &&
+        resolve(ctx, default_destination, default_destination_block, dd))
+    {
+        const SRemapSourceType default_input{ &ds, ds.find_type(CStringView{ "Source" }) };
+        TEST_EXPECT(ctx, plan.initialise(&default_input, 1u, dd,
+            dd.find_type(CStringView{ "Destination" }), error) &&
+            plan.matched_member_count() == 0u && plan.copy_range_count() == 0u);
+    }
+
+    const std::string category_destination = R"({"types":{"structures":{
+        "Destination":{"members":[{"inner":{"type":"u64"}}]}}}})";
+    CBakedDocumentBlock category_block;
+    CResolvedSchema category;
+    if (resolve(ctx, category_destination, category_block, category))
+    {
+        TEST_EXPECT(ctx, plan.initialise(&input, 1u, category,
+            category.find_type(CStringView{ "Destination" }), error) &&
+            plan.matched_member_count() == 0u && plan.copy_range_count() == 0u);
+    }
+}
+
+static void test_data_remap_kernels(TTestContext& ctx)
+{
+    const std::string text = R"({"types":{"structures":{
+        "One":{"members":[{"a":{"type":"u8"}}]},
+        "Two":{"detail":{"size":2},"members":[{"a":{"type":"u8","offset":0}}]},
+        "Three":{"detail":{"size":3},"members":[
+            {"a":{"type":"u8","offset":0}},{"b":{"type":"u8","offset":1}},
+            {"c":{"type":"u8","offset":2}}]},
+        "Four":{"detail":{"size":4},"members":[
+            {"a":{"type":"u8","offset":0}},{"b":{"type":"u8","offset":1}},
+            {"c":{"type":"u8","offset":2}}]},
+        "ArrayTwo":{"members":[{"array":{"type":{"element":"u8","count":2}}}]},
+        "ArrayThree":{"members":[{"array":{"type":{"element":"u8","count":3}}}]},
+        "VectorSource":{"members":[{"vector":{"type":{"element":"u32","count":4}}}]},
+        "VectorDestination":{"detail":{"size":32,"alignment":16},"members":[
+            {"vector":{"type":{"element":"u32","count":4},"offset":0}}]},
+        "Reordered":{"detail":{"size":12,"alignment":4},"members":[
+            {"a":{"type":"u32","offset":8}},{"b":{"type":"u32","offset":0}},
+            {"c":{"type":"u32","offset":4}}]}
+    }}})";
+    CBakedDocumentBlock block;
+    CResolvedSchema schema;
+    if (!resolve(ctx, text, block, schema))
+    {
+        return;
+    }
+    CDataRemapPlan plan;
+    SRemapDiagnostic error;
+    const auto initialise = [&](const char* const source_name, const char* const destination_name)
+    {
+        const SRemapSourceType input{ &schema, schema.find_type(CStringView{ source_name }) };
+        return plan.initialise(&input, 1u, schema, schema.find_type(CStringView{ destination_name }), error);
+    };
+    const std::uint8_t one_source[2]{ 0x21u, 0x42u };
+    const std::uint8_t two_source[4]{ 0x21u, 0xeeu, 0x42u, 0xeeu };
+    std::uint8_t target[8];
+    const auto execute = [&](const std::uint8_t* const bytes, const std::size_t source_size,
+        const std::size_t destination_size)
+    {
+        std::memset(target, 0xcc, sizeof(target));
+        const CByteConstView input{ bytes, source_size, 1u };
+        return plan.execute(&input, 1u, CByteView{ target, destination_size, 1u });
+    };
+    TEST_EXPECT(ctx, initialise("One", "One") && execute(one_source, 2u, 2u) &&
+        target[0] == 0x21u && target[1] == 0x42u);
+    TEST_EXPECT(ctx, initialise("One", "Two") && execute(one_source, 2u, 4u) &&
+        target[0] == 0x21u && target[1] == 0xccu && target[2] == 0x42u && target[3] == 0xccu);
+    TEST_EXPECT(ctx, initialise("Two", "One") && execute(two_source, 4u, 2u) &&
+        target[0] == 0x21u && target[1] == 0x42u);
+    TEST_EXPECT(ctx, initialise("Two", "Two") && execute(two_source, 4u, 4u) &&
+        target[0] == 0x21u && target[1] == 0xccu && target[2] == 0x42u && target[3] == 0xccu);
+    const std::uint8_t three_source[6]{ 1u, 2u, 3u, 4u, 5u, 6u };
+    TEST_EXPECT(ctx, initialise("Three", "Four") && plan.matched_member_count() == 3u &&
+        plan.copy_range_count() == 1u && execute(three_source, 6u, 8u) &&
+        target[0] == 1u && target[1] == 2u && target[2] == 3u && target[3] == 0xccu &&
+        target[4] == 4u && target[5] == 5u && target[6] == 6u && target[7] == 0xccu);
+    TEST_EXPECT(ctx, initialise("ArrayTwo", "ArrayThree") &&
+        plan.is_ready() && plan.matched_member_count() == 0u && plan.copy_range_count() == 0u);
+    alignas(4) const std::uint8_t reordered_source[12]{ 1u, 2u, 3u, 4u, 5u, 6u, 7u, 8u, 9u, 10u, 11u, 12u };
+    alignas(4) std::uint8_t reordered_target[12]{};
+    const CByteConstView reordered_view{ reordered_source, 12u, 4u };
+    TEST_EXPECT(ctx, initialise("Reordered", "Reordered") && plan.matched_member_count() == 3u &&
+        plan.copy_range_count() == 1u && plan.execute(&reordered_view, 1u,
+            CByteView{ reordered_target, 12u, 4u }) &&
+        std::memcmp(reordered_source, reordered_target, 12u) == 0);
+    alignas(16) std::uint8_t vector_source[32];
+    alignas(16) std::uint8_t vector_target[64];
+    for (std::size_t i = 0u; i < sizeof(vector_source); ++i)
+    {
+        vector_source[i] = static_cast<std::uint8_t>(i + 1u);
+    }
+    std::memset(vector_target, 0xcc, sizeof(vector_target));
+    const CByteConstView vector_view{ vector_source, 32u, 4u };
+    TEST_EXPECT(ctx, initialise("VectorSource", "VectorDestination") &&
+        plan.execute(&vector_view, 1u, CByteView{ vector_target, 64u, 16u }) &&
+        std::memcmp(vector_source, vector_target, 16u) == 0 &&
+        std::memcmp(vector_source + 16u, vector_target + 32u, 16u) == 0);
+    for (std::size_t i = 16u; i < 32u; ++i)
+    {
+        TEST_EXPECT(ctx, vector_target[i] == 0xccu && vector_target[i + 32u] == 0xccu);
+    }
+
+    CDataRemapPlan detached;
+    {
+        const std::string temporary_text = R"({"types":{
+            "structures":{
+                "Source":{"members":[{"bits":{"type":"Bits"}}]},
+                "Destination":{"members":[{"bits":{"type":"Bits"}}]}
+            },"bit_structures":{"Bits":{"storage":"u8","members":[
+                {"flag":{"type":"b8","mask":1}}]}}}})";
+        CBakedDocumentBlock temporary_block;
+        CResolvedSchema temporary;
+        if (!resolve(ctx, temporary_text, temporary_block, temporary))
+        {
+            return;
+        }
+        const SRemapSourceType input{ &temporary, temporary.find_type(CStringView{ "Source" }) };
+        TEST_EXPECT(ctx, detached.initialise(&input, 1u, temporary,
+            temporary.find_type(CStringView{ "Destination" }), error));
+    }
+    const std::uint8_t bit_source[]{ 0xf3u };
+    std::uint8_t bit_destination{};
+    const CByteConstView bit_view{ bit_source, 1u, 1u };
+    TEST_EXPECT(ctx, detached.execute(&bit_view, 1u, CByteView{ &bit_destination, 1u, 1u }) &&
+        bit_destination == 0xf3u);
+}
+
+static void test_data_remap_type_exclusions(TTestContext& ctx)
+{
+    const std::string category_text = R"({"types":{"structures":{
+        "Wrapper":{"members":[{"x":{"type":"u8"}}]},
+        "Source":{"members":[{"item":{"type":"Wrapper"}},{"keep":{"type":"u8"}}]},
+        "Destination":{"members":[{"item":{"type":"u8"}},{"keep":{"type":"u8"}}]}
+    }}})";
+    CBakedDocumentBlock category_block;
+    CResolvedSchema category;
+    if (!resolve(ctx, category_text, category_block, category))
+    {
+        return;
+    }
+    const SRemapSourceType source{ &category, category.find_type(CStringView{ "Source" }) };
+    CDataRemapPlan plan;
+    SRemapDiagnostic error;
+    TEST_EXPECT(ctx, plan.initialise(&source, 1u, category,
+        category.find_type(CStringView{ "Destination" }), error) &&
+        plan.matched_member_count() == 1u && plan.copy_range_count() == 1u);
+    const std::uint8_t source_bytes[]{ 0x44u, 0x55u };
+    std::uint8_t destination_bytes[]{ 0xccu, 0xccu };
+    const CByteConstView input{ source_bytes, 2u, 1u };
+    TEST_EXPECT(ctx, plan.execute(&input, 1u, CByteView{ destination_bytes, 2u, 1u }) &&
+        destination_bytes[0] == 0xccu && destination_bytes[1] == 0x55u);
+
+    const std::string source_text = R"({"types":{"structures":{
+        "Inner":{"members":[{"x":{"type":"u8"}}]},
+        "Source":{"members":[{"item":{"type":"Inner"}}]}
+    }}})";
+    const std::string destination_text = R"({"types":{"structures":{
+        "Inner":{"detail":{"size":2},"members":[{"x":{"type":"u8","offset":0}}]},
+        "Destination":{"members":[{"item":{"type":"Inner"}}]}
+    }}})";
+    CBakedDocumentBlock source_block, destination_block;
+    CResolvedSchema source_schema, destination_schema;
+    if (!resolve(ctx, source_text, source_block, source_schema) ||
+        !resolve(ctx, destination_text, destination_block, destination_schema))
+    {
+        return;
+    }
+    const SRemapSourceType changed{ &source_schema, source_schema.find_type(CStringView{ "Source" }) };
+    SFailingAllocator failing{ 0u, 1u };
+    memory::CMemoryAllocator allocator{ &failing, &allocate_with_failure, &tests::deallocate_test_memory };
+    memory::CMemoryContext context{ allocator };
+    {
+        tests::TMemoryContextScope scope{ &context };
+        CDataRemapPlan empty;
+        TEST_EXPECT(ctx, empty.initialise(&changed, 1u, destination_schema,
+            destination_schema.find_type(CStringView{ "Destination" }), error) &&
+            empty.matched_member_count() == 0u && empty.copy_range_count() == 0u);
+        TEST_EXPECT(ctx, failing.calls == 1u);
+    }
+    TEST_EXPECT(ctx, context.is_attribution_empty());
+}
+
+static void test_data_remap_wide_enum(TTestContext& ctx)
+{
+    const std::string source_text = R"({"types":{
+        "structures":{
+            "Nested":{"members":[{"mode":{"type":"Mode"}},{"tail":{"type":"u8"}}]},
+            "Source":{"members":[{"nested":{"type":"Nested"}},
+                {"array":{"type":{"element":"Mode","count":2}}},
+                {"bits":{"type":"Bits"}},{"plain":{"type":"u8"}}]}
+        },"enumerations":{"Mode":{"storage":"u8","values":{"first":1}}},
+        "bit_structures":{"Bits":{"storage":"u16","members":[
+            {"mode":{"type":"Mode","mask":14}}]}}}})";
+    const std::string destination_text = R"({"types":{
+        "structures":{
+            "Nested":{"members":[{"mode":{"type":"Mode"}},{"tail":{"type":"u8"}}]},
+            "Destination":{"members":[{"nested":{"type":"Nested"}},
+                {"array":{"type":{"element":"Mode","count":2}}},
+                {"bits":{"type":"Bits"}},{"plain":{"type":"u8"}}]}
+        },"enumerations":{"Mode":{"storage":"u16","values":{"first":1}}},
+        "bit_structures":{"Bits":{"storage":"u16","members":[
+            {"mode":{"type":"Mode","mask":14}}]}}}})";
+    CBakedDocumentBlock source_block, destination_block;
+    CResolvedSchema source, destination;
+    if (!resolve(ctx, source_text, source_block, source) ||
+        !resolve(ctx, destination_text, destination_block, destination))
+    {
+        return;
+    }
+    const SRemapSourceType input{ &source, source.find_type(CStringView{ "Source" }) };
+    CDataRemapPlan plan;
+    SRemapDiagnostic error;
+    TEST_EXPECT(ctx, plan.initialise(&input, 1u, destination,
+        destination.find_type(CStringView{ "Destination" }), error) &&
+        plan.matched_member_count() == 1u && plan.copy_range_count() == 1u);
+    SType st, dt;
+    SMember sm, dm;
+    TEST_EXPECT(ctx, source.type(input.type, st) &&
+        destination.type(destination.find_type(CStringView{ "Destination" }), dt) &&
+        source.member(source.find_member(input.type, CStringView{ "plain" }), sm) &&
+        destination.member(destination.find_member(destination.find_type(CStringView{ "Destination" }),
+            CStringView{ "plain" }), dm));
+    CByteBuffer source_bytes, destination_bytes;
+    TEST_EXPECT(ctx, source_bytes.allocate(static_cast<std::size_t>(st.size),
+        static_cast<std::size_t>(st.alignment)) &&
+        source_bytes.set_size(static_cast<std::size_t>(st.size)) &&
+        destination_bytes.allocate(static_cast<std::size_t>(dt.size),
+        static_cast<std::size_t>(dt.alignment)) &&
+        destination_bytes.set_size(static_cast<std::size_t>(dt.size)));
+    source_bytes.zero_fill();
+    source_bytes.data()[static_cast<std::size_t>(sm.offset)] = 0x5au;
+    std::memset(destination_bytes.data(), 0xcc, destination_bytes.size());
+    const CByteConstView view = source_bytes.const_view();
+    TEST_EXPECT(ctx, plan.execute(&view, 1u, destination_bytes.view()));
+    for (std::size_t i = 0u; i < destination_bytes.size(); ++i)
+    {
+        TEST_EXPECT(ctx, destination_bytes.data()[i] == (i == dm.offset ? 0x5au : 0xccu));
+    }
+
+    const std::string changed_compound_text = R"({"types":{
+        "structures":{
+            "Nested":{"members":[{"mode":{"type":"Mode"}},{"tail":{"type":"i8"}}]},
+            "Destination":{"members":[{"nested":{"type":"Nested"}},
+                {"array":{"type":{"element":"Mode","count":2}}},{"plain":{"type":"u8"}}]}
+        },"enumerations":{"Mode":{"storage":"u16","values":{"first":1}}}}})";
+    CBakedDocumentBlock changed_compound_block;
+    CResolvedSchema changed_compound;
+    if (resolve(ctx, changed_compound_text, changed_compound_block, changed_compound))
+    {
+        TEST_EXPECT(ctx, plan.initialise(&input, 1u, changed_compound,
+            changed_compound.find_type(CStringView{ "Destination" }), error) &&
+            plan.matched_member_count() == 1u && plan.copy_range_count() == 1u);
+    }
+}
+
 }   // namespace schema_tests
 
 int run_schema_tests()
@@ -5525,6 +6051,11 @@ int run_schema_tests()
     schema_tests::test_baked_instance_boundaries(ctx);
     schema_tests::test_baked_instance_staging(ctx);
     schema_tests::test_bulk_encoded_comparison(ctx);
+    schema_tests::test_data_remap(ctx);
+    schema_tests::test_data_remap_matching(ctx);
+    schema_tests::test_data_remap_kernels(ctx);
+    schema_tests::test_data_remap_type_exclusions(ctx);
+    schema_tests::test_data_remap_wide_enum(ctx);
     const schema::SRecordSizes sizes = schema::CResolvedSchema::record_sizes();
     std::cout << "Schema record bytes: type=" << sizes.type << " member=" << sizes.member << " label=" << sizes.label
               << " field=" << sizes.field << " default=" << sizes.default_value << " mapping=" << sizes.mapping << '\n';

@@ -734,13 +734,24 @@ validation and user manual review and was committed as `80c5681` on 1 October.
 Stage 6b instances was authorised to continue on 2 October and has passed
 coordinator review, validation and user manual review. The user made only
 line-break changes and authorised the commit, including the later review notes,
-on 2 October.
+on 2 October. Stage 6b was committed as `1fdd9e8`.
 The user
 confirmed that embedded instance output must reject inconsistent unselected
 inherited values rather than change selection intent, and embedded output uses
 the existing encoded-field comparison rule (NaNs equal, padding/unused bits ignored).
 Values without a faithful embedded spelling are rejected; external output remains
-available. Stages 7-9 remain planned.
+available. The user authorised continuation into stage 7 on 2 October. The
+coordinator approved a first bounded slice covering direct-member plan setup and
+bounded-view execution, followed by review before adding role-handle adapters.
+The user clarified that all missing or differently typed members remain unmapped,
+and zero matches form a valid plan. The authorised stage 7a correction is complete
+and has passed coordinator review and validation. During usage review the user
+authorised simplifying execution to bounded views and a Boolean result, deriving
+the minimum complete record capacity instead of accepting counts. Construction
+diagnostics remain; execution diagnostics, copied-count output and `execute_min`
+are removed. This simplification has passed coordinator review and validation.
+Stage 7a was committed after user review; role-handle adapters have not been started.
+Stages 8-9 remain planned.
 On 2 October the user confirmed that embedded output must also reject omitted
 base fields whose saved values disagree with schema defaults, preserving omission
 rather than adding selections. Binary-backed output remains available.
@@ -1133,15 +1144,78 @@ The current sample becomes an end-to-end fixture for its supported features.
 
 ### 7. Remapping into instances and bulk arrays
 
+Stage 7a provides `CDataRemapPlan`, owning only its execution layouts and copy
+ranges. Setup matches direct members, compares exact referenced definitions,
+rejects overlapping destination writes, coalesces physical adjacency and selects
+copy paths. Execution takes current bounded views and performs no allocations,
+schema traversal, type conversion or document mutation. All missing or differently
+typed direct members remain unmapped; partial and empty plans are valid. There is
+no special enum policy and no failure for ordinary type mismatches. A compound
+already excluded by its type is skipped without inspecting descendants. Only
+otherwise possible matches need definition equality checks, which stop at the
+first difference. Execution derives the minimum complete record capacity from
+the supplied byte views and stored layouts, with no supplied record counts,
+copied-count output or diagnostic. Callers narrow views to limit work. A single
+`execute` returns success/failure; setup retains diagnostics. Zero-byte types
+impose no storage limit and all-empty transfers are successful no-ops.
+Role-handle adapters remain a later slice.
+
+Coordinator review verified immediate exclusion of incompatible types, successful
+partial and empty plans, removal of enum-specific mismatch policy and unchanged
+binary-copy execution. It also covered repeated traversal of shared definitions,
+moved-from plan state, physical coalescing and setup-selected copy paths.
+Tests cover external buffers, capacities derived from bounded views, untouched fields
+and padding, aggregate padding copies, preflight failures before writes,
+allocation failures during setup, allocation-free execution, empty types,
+no-match plans, schema disposal and 16-byte fields in larger destination records.
+Additional regressions cover same-size composite/scalar exclusion while retaining
+other matches, differently sized compounds skipped before descendant comparison,
+and successful empty plans for former semantic-failure cases.
+
+Usage review simplified the executor to a single Boolean operation with no
+record-count arguments or execution diagnostics. Regressions cover narrowed
+views, incomplete trailing records, shorter-than-one-record no-ops, and mixed
+zero-byte and populated sources. Existing byte views reset invalid raw
+construction to empty; the executor sees zero capacity for a nonempty type
+and cannot recover that discarded construction request. All views are checked
+before writes; active source/destination overlap is rejected when copying.
+
+The simplified implementation passed Debug x64, Release x64 and Debug x86
+solution builds and ordinary `-t1` suites with 5,907 schema checks and zero
+failures throughout: `remap-view-final-dbg64` (PID 49488),
+`remap-view-final-rel64` (PID 33224), and `remap-view-final-dbg32` (PID 7636).
+The coordinator inspected native build/test
+results, all returning zero. Diff and line-ending checks passed; Visual Studio
+file encoding and EOF conventions are preserved. Resolved layouts are unchanged,
+so the generated-layout compiler matrix was not repeated. The first pass was
+committed after user review.
+
 Implement compatible direct-member mapping, bounded-view execution and role-handle
-adapters using the same executor. Support populating stage 5's unpopulated arrays
+adapters using the same executor. The primary path reads baked or live instance
+or bulk data into application-owned destination buffers, with no destination
+document required. Live instance and bulk destinations are additional adapters.
+Support populating stage 5's unpopulated arrays
 through one or more mappings; retain exact type/enum, record-count, overlap and
 aggregate-padding rules. This stage depends on resolved layouts and live data
 access, not inherently on output, but follows stage 6 in the proposed serial plan.
 
-Completion evidence: untouched unselected fields/records, enum-containing compound
-mismatch, explicit/minimum counts, rejected overlapping/out-of-range views before
-writes, and identical results through bounded-view and handle APIs.
+The user confirmed that instance destinations, both bases and specialisations,
+receive binary-only writes. Declarations, selection intent and descendants remain
+unchanged, including when a mapped field was previously unselected. Handle
+adapters use the common executor without invoking capture or coordinated editing.
+Existing embedded-output checks still reject unrepresentable omitted/inherited
+values; binary-backed output remains available.
+
+Fast runtime updates are the primary use case. The user agreed that document
+refresh after remapping is a separate operation for the secondary document-form
+workflow. Discuss refresh scope, conflict parameters and hierarchy effects before
+its implementation; the current binary remapper does not perform reconciliation.
+
+Completion evidence: untouched unmapped fields and records beyond the chosen count,
+mixed-match and no-match plans across type categories, capacities inferred from
+views including narrowed views and incomplete trailing records, rejected invalid
+or overlapping views before writes, and identical results through bounded-view
+and handle APIs.
 
 ### 8. Optional unused-storage clearing
 

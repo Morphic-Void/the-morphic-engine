@@ -4,9 +4,9 @@ This page describes the implemented resolver and generator introduced in
 `5313c85` and extended with live/baked document queries. The [design](design.md)
 defines the target system;
 the [implementation contract](implementation-contract.md#staged-implementation-plan)
-tracks delivery. Schema wrappers, their promotion/demotion, and the baked
-instance and bulk roles and the live bulk role are implemented; live instances
-remain later work.
+tracks delivery. Schema wrappers, their promotion/demotion, and the baked and
+live instance and bulk roles are implemented. The direct-member bounded remap
+core is available; role-handle adapters remain later work.
 The lifetime, handle and default rules below describe current code.
 
 `schema::CSchemaDocumentQuery` exposes read-only tree, name and scalar queries
@@ -507,6 +507,59 @@ materialised without a supplied payload. A parser-normalised named singleton
 inside an array or positional compound is interpreted as a selection of that
 compound's named member. This is contextual to a compound element; named
 scalar-array elements and unknown members remain invalid.
+
+## Bounded direct-member remap (stage 7a)
+
+`CDataRemapPlan::initialise()` accepts one or more source resolved structure
+types and a destination resolved structure type. It matches direct members by
+name and exact type; the root structure names may differ. Exact type comparison
+includes category, physical layout, array count, named compound definitions,
+ordered fields or labels, and effective defaults. A same-name member with any
+type difference is left unmatched. This includes primitive, enum, array and
+compound differences; no conversion or nested partial match is attempted.
+The comparator skips a differing aggregate as soon as its own type identity or
+layout differs, without inspecting its descendants. Both partial and entirely
+empty plans are valid. A zero-byte exact member contributes to
+`matched_member_count()` but creates no copy range. `copy_range_count()` reports
+ranges after safe adjacency coalescing. Genuine invalid input and allocation
+failures, and overlapping destination writes from combined sources, fail setup.
+
+The plan owns the root layouts and ranges required for execution. It retains no
+schema or document pointer, so resolved schemas may be cleared or destroyed
+after setup. Reinitialising clears an existing plan first; failed setup leaves
+it unready. The primary destination is an application-owned `CByteView`; it
+need not be a schema role or document.
+`execute()` takes an array of bounded source byte views in plan slot order and
+one bounded mutable destination byte view. It derives each nonempty type's
+complete-record capacity from its byte extent: zero when the extent is smaller
+than the record size, otherwise `1 + (bytes - size) / stride`. It copies the
+minimum capacity across the destination and all nonempty sources. Narrow a
+view to limit the work. Zero-byte types do not constrain this byte-copy count;
+an all-empty plan succeeds as a no-op without a logical record count.
+
+Supply buffers in the source-slot and destination type representations selected
+at setup; preflight checks memory, alignment and bounds, not the semantic
+identity of arbitrary bytes. All supplied views are checked before writes, and
+active source/destination storage overlap is rejected when copies are planned.
+A failed preflight leaves the destination untouched. `CByteView` and
+`CByteConstView` reset an invalid raw construction, including a null pointer
+with a nonzero extent, to a canonical empty view. Execution sees that empty
+view as zero capacity for a nonempty type and cannot recover the discarded
+construction request. Execution has no diagnostic output and does not allocate,
+traverse schemas, apply defaults, change selections, or update documents.
+Unmatched destination bytes and records beyond the derived count remain
+untouched. Whole matched aggregates copy their owned padding; gaps between
+matched members are not copied. No-match plans are valid no-ops after view
+preflight.
+
+Setup selects contiguous bulk, contiguous-source, contiguous-destination or
+strided copy paths after coalescing. Non-bulk paths use fixed 1, 2, 4, 8 and
+16-byte copies where possible, with a runtime-size fallback. These are
+prewritten scalar copy paths; no benchmark or platform-specific vectorisation
+claim is made. Future role-handle adapters may extract baked or live source
+views and use the same executor to fill external buffers or live destination
+binary snapshots. Declaration refresh and conflict reconciliation are separate
+future operations.
 
 ## Occurrence coverage
 

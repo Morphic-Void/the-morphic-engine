@@ -1696,7 +1696,8 @@ thin and thin to fat vertex or structured records only where matched members
 have identical physical representation.  A validated runtime plan resolves to
 a small sequence of strided copies.  Each copy identifies source and
 destination byte offsets, a fixed contiguous compatible byte-range size,
-source and destination strides, and an element count.  A range may cover one
+source and destination strides; execution derives the element count from its
+bounded views. A range may cover one
 member or several consecutive physically compatible members in either record;
 remap setup coalesces adjacent copies where doing so is safe.  It performs no
 numeric conversion, enum translation, packing, unpacking, or general
@@ -1706,19 +1707,20 @@ Each bulk mapping is based on two resolved structure types describing source
 and destination array records. Setup automatically matches direct members by
 name and type; there is no authored member-pair list or recursive member search.
 It need not use every source member or fill every destination member. Members
-without a matching name remain unmapped. The previous hard error for same-name
-type/size conflicts remains, except that nonmatching enums remain unmapped.
+without a matching name or exact type remain unmapped. This is expected, not a
+semantic failure: partial plans and plans with no matches are valid. The same
+rule applies to every type category; enums need no separate mismatch policy.
 Matching enums can be copied unchanged; no enum translation is performed.
 Primitives must have the same primitive type and size. Matched named structures,
 enums, and bit structures require the same
 type name and matching resolved definition; representation equality alone is
 insufficient. Compare names by text across documents, not document-local IDs.
 Array matches require matching counts, strides, and compatible element types.
-A compound containing a differing enum is wholly unmatched: it is not the same
-exact compound type. No nested partial transfer is selected.
-A compatible compound direct member is copied whole; setup does not search its
-contents for partial transfers. Recursively comparing a compound's definition
-for compatibility is distinct from recursively selecting members to transfer.
+A compound already excluded by a difference in type category, name, size or
+layout is skipped whole, without examining its contents to classify the mismatch
+or find partial transfers. A compatible compound direct member is copied whole.
+When equality of otherwise possible matches requires comparing definitions,
+stop at the first difference; this is an equality check, not nested selection.
 Definition matching includes member/label order, names, referenced types,
 layout, defaults, masks, and interpretations as applicable; numeric formatting
 metadata does not change type identity. Enum aliases must agree in declaration
@@ -1736,8 +1738,9 @@ writes during setup, even when they would write identical bytes. Separate calls
 are independently validated operations, not an implicitly ordered combined plan.
 
 At setup, the remap constructs an execution plan that selects pre-written fast kernels
-from this mechanical shape and supplies their offsets, range sizes, strides,
-and counts.  It does not generate code for an individual schema.  The important
+from this mechanical shape and stores their offsets, range sizes and strides.
+Execution supplies the derived count. It does not generate code for an individual
+schema. The important
 kernel cases are a source stride equal to the
 range size (sequential source loads and strided destination writes), or a
 destination stride equal to the range size (strided source reads and
@@ -1763,11 +1766,38 @@ this byte-copy remapper; a compatible complete bit-storage value can be copied.
 Source/destination memory overlap is unsupported by the first executor and must
 be rejected before writes; it must not accidentally acquire `memmove` semantics.
 
-Execution uses one record count, supplied explicitly or defaulted to the minimum
-of source and destination counts. It receives bounded current source/destination
-views and checks ranges before writes. Public bounded-view calls and handle-based
-instance/bulk calls both exist; handle calls extract views and share the executor
-without duplicating validation.
+Execution receives bounded current source/destination views and derives their
+complete record capacities from the stored sizes and strides. A single `execute`
+operation processes the minimum capacity; callers narrow views to restrict the
+transfer. There are no supplied record counts, copied-count output or execution
+diagnostic: execution returns success/failure after checking memory validity
+before any writes. Zero-byte types impose no storage limit, and an entirely
+zero-byte transfer is a successful no-op without a logical count. Setup retains
+diagnostics for actionable construction failures. Handle-based instance/bulk
+calls will extract views and share the executor without duplicating validation.
+
+Remapping into a live instance, whether a base or specialisation, changes only
+that instance's binary snapshot. It does not change declarations or selection
+intent, restrict writes to selected fields, or update descendant snapshots.
+Handle adapters therefore perform the same binary transfer as bounded-view
+execution, without invoking capture or coordinated editing. Embedded output
+continues to enforce selection-preserving reconstruction and may reject a
+snapshot that now differs in an omitted/defaulted or inherited field.
+Binary-backed output remains available.
+
+The primary destination is an application-owned data buffer outside the schema
+system, with its representation described by the destination resolved layout;
+it requires no instance or bulk document. Sources may be baked or live instances
+or bulk data. Writing into live instance or bulk backing within the schema system
+is an additional destination path through the same bounded binary executor.
+
+Fast runtime binary updates are the primary remapping use case. Creating new
+document forms from remapped results is a separate workflow: an explicit refresh
+operation would reconcile descriptions with binary data after the transfers.
+Refresh scope and conflict handling must be specified by its parameters, rather
+than implicitly changing remap behaviour. Exact policies and hierarchy handling
+remain for discussion before refresh implementation; they are not part of the
+binary executor.
 
 Authored renaming, nested selection, numeric conversion, bitfield transforms and
 enum translation are outside this delivery, not implicit requirements for a
