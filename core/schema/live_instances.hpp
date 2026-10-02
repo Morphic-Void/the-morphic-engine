@@ -28,6 +28,16 @@ struct SInstanceSelectionStep
     std::uint32_t element{};
 };
 
+struct SMutableInstanceEntryView
+{
+    CSchemaIndex type;
+    CInstanceHandle parent;
+    CInstanceHandle declaration;
+    std::uint32_t offset{};
+    std::uint64_t byte_count{};
+    CByteView bytes; // Canonical empty view for a zero-byte snapshot.
+};
+
 class CLiveInstances
 {
 public:
@@ -52,6 +62,7 @@ public:
     [[nodiscard]] CInstanceHandle next_specialisation(const CInstanceHandle current) const noexcept;
     [[nodiscard]] CInstanceHandle parent_instance(const CInstanceHandle instance) const noexcept;
     [[nodiscard]] bool entry(const CInstanceHandle instance, SInstanceEntryView& result) const noexcept;
+    [[nodiscard]] bool mutable_entry(const CInstanceHandle instance, SMutableInstanceEntryView& result) noexcept;
     [[nodiscard]] CByteConstView payload_view() const noexcept { return loaded_ready() ? m_payload.const_view() : CByteConstView{}; }
 
     [[nodiscard]] CInstanceHandle create_base(const CStringView& type, const CStringView& name,

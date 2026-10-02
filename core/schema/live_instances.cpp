@@ -484,6 +484,27 @@ bool CLiveInstances::entry(const CInstanceHandle handle, SInstanceEntryView& res
     return true;
 }
 
+bool CLiveInstances::mutable_entry(const CInstanceHandle handle, SMutableInstanceEntryView& result) noexcept
+{
+    SInstanceEntryView value;
+    if (!entry(handle, value))
+    {
+        return false;
+    }
+    SMutableInstanceEntryView mutable_value;
+    mutable_value.type = value.type;
+    mutable_value.parent = value.parent;
+    mutable_value.declaration = value.declaration;
+    mutable_value.offset = value.offset;
+    mutable_value.byte_count = value.byte_count;
+    if (value.byte_count != 0u)
+    {
+        mutable_value.bytes = m_payload.view().subview(value.offset, static_cast<std::size_t>(value.byte_count));
+    }
+    result = mutable_value;
+    return true;
+}
+
 CInstanceHandle CLiveInstances::append_instance(const CSchemaIndex type, const std::uint32_t parent,
     const CStringView& type_name, const CStringView& name, const detail::CDocumentRead& source,
     const detail::SOccurrence declaration, const CByteConstView& complete,

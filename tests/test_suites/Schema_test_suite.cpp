@@ -5770,6 +5770,253 @@ static void test_data_remap_matching(TTestContext& ctx)
     }
 }
 
+static void test_data_remap_role_views(TTestContext& ctx)
+{
+    const std::string definitions = R"({"types":{"structures":{
+        "SourceA":{"members":[{"a":{"type":"u8"}}]},
+        "SourceB":{"members":[{"b":{"type":"u8"}}]},
+        "Destination":{"members":[{"a":{"type":"u8"}},{"b":{"type":"u8"}},
+            {"keep":{"type":"u8"}}]},
+        "Empty":{"members":[]}}}})";
+    CBakedDocumentBlock schema_block;
+    CBakedSchema schema;
+    SDiagnostic schema_error;
+    const bool schema_ready = bake(definitions, schema_block) && schema.set_document(schema_block.document()) &&
+        schema.resolve(schema_error);
+    TEST_EXPECT(ctx, schema_ready);
+    if (!schema_ready)
+    {
+        return;
+    }
+    const CResolvedSchema* const resolved = schema.resolved();
+    const CSchemaIndex source_a_type = resolved->find_type(CStringView{ "SourceA" });
+    const CSchemaIndex source_b_type = resolved->find_type(CStringView{ "SourceB" });
+    const CSchemaIndex destination_type = resolved->find_type(CStringView{ "Destination" });
+    const CSchemaIndex empty_type = resolved->find_type(CStringView{ "Empty" });
+    const SRemapSourceType types[] = { { resolved, source_a_type }, { resolved, source_b_type } };
+    CDataRemapPlan plan;
+    SRemapDiagnostic remap_error;
+    const bool plan_ready = plan.initialise(types, 2u, *resolved, destination_type, remap_error);
+    TEST_EXPECT(ctx, plan_ready && plan.matched_member_count() == 2u);
+    if (!plan_ready)
+    {
+        return;
+    }
+
+    CBakedDocumentBlock bulk_block;
+    CBakedBulkData baked_bulk;
+    SBulkDiagnostic bulk_error;
+    alignas(128) std::uint8_t baked_bulk_bytes[128]{ 0x11u, 0x22u };
+    const bool baked_bulk_document = bake(R"({"data":{"SourceA":{"array":{
+        "locator":{"offset":0,"valid":true},"data":[1,2]}}}})", bulk_block);
+    TEST_EXPECT(ctx, baked_bulk_document);
+    const bool baked_bulk_bound = baked_bulk_document && baked_bulk.set_document(bulk_block.document()) &&
+        baked_bulk.bind_schema(schema);
+    TEST_EXPECT(ctx, baked_bulk_bound);
+    const bool baked_bulk_ready = baked_bulk_bound &&
+        baked_bulk.load_supplied(CByteConstView{ baked_bulk_bytes, 2u, 128u }, false, bulk_error);
+    TEST_EXPECT(ctx, baked_bulk_ready);
+    CLiveBulkData live_bulk;
+    alignas(128) std::uint8_t live_bulk_bytes[128]{ 0x31u, 0x32u };
+    const bool live_bulk_ready = live_bulk.initialise(schema) && live_bulk.capture(CStringView{ "SourceB" },
+        CStringView{ "array" }, CByteConstView{ live_bulk_bytes, 2u, 128u }, 2u, bulk_error);
+    TEST_EXPECT(ctx, live_bulk_ready);
+    if (!baked_bulk_ready || !live_bulk_ready)
+    {
+        return;
+    }
+    const CBulkHandle baked_bulk_handle = baked_bulk.find_entry(CStringView{ "SourceA" }, CStringView{ "array" });
+    const CBulkHandle live_bulk_handle = live_bulk.find_entry(CStringView{ "SourceB" }, CStringView{ "array" });
+    SBulkEntryView baked_bulk_entry, live_bulk_entry;
+    const bool bulk_entries_ready = baked_bulk.entry(baked_bulk_handle, baked_bulk_entry) &&
+        live_bulk.entry(live_bulk_handle, live_bulk_entry) &&
+        (baked_bulk_entry.type == source_a_type) && (live_bulk_entry.type == source_b_type);
+    TEST_EXPECT(ctx, bulk_entries_ready);
+    if (!bulk_entries_ready)
+    {
+        return;
+    }
+    const CByteConstView bulk_sources[] = {
+        CByteConstView{ baked_bulk_entry.bytes, static_cast<std::size_t>(baked_bulk_entry.byte_count) },
+        CByteConstView{ live_bulk_entry.bytes, static_cast<std::size_t>(live_bulk_entry.byte_count) }
+    };
+    std::uint8_t external[9];
+    std::memset(external, 0xcc, sizeof(external));
+    TEST_EXPECT(ctx, plan.execute(bulk_sources, 2u, CByteView{ external, sizeof(external) }) &&
+        external[0] == 0x11u && external[1] == 0x31u && external[2] == 0xccu &&
+        external[3] == 0x22u && external[4] == 0x32u && external[5] == 0xccu &&
+        external[6] == 0xccu && external[7] == 0xccu && external[8] == 0xccu);
+
+    const CBulkHandle unpopulated = live_bulk.create_unpopulated(CStringView{ "Destination" },
+        CStringView{ "output" }, 3u, bulk_error);
+    SMutableBulkEntryView bulk_destination;
+    const bool bulk_destination_ready = unpopulated && live_bulk.mutable_entry(unpopulated, bulk_destination) &&
+        (bulk_destination.type == destination_type) && (bulk_destination.count == 3u);
+    TEST_EXPECT(ctx, bulk_destination_ready);
+    if (!bulk_destination_ready)
+    {
+        return;
+    }
+    SBulkEntryView current_bulk_source;
+    const bool current_source_ready = live_bulk.entry(live_bulk_handle, current_bulk_source) &&
+        (current_bulk_source.type == source_b_type);
+    TEST_EXPECT(ctx, current_source_ready);
+    if (!current_source_ready)
+    {
+        return;
+    }
+    const CByteConstView current_sources[] = {
+        bulk_sources[0], CByteConstView{ current_bulk_source.bytes, static_cast<std::size_t>(current_bulk_source.byte_count) }
+    };
+    std::memset(bulk_destination.bytes.data(), 0xcc, bulk_destination.bytes.size());
+    TEST_EXPECT(ctx, plan.execute(current_sources, 2u, bulk_destination.bytes) &&
+        bulk_destination.bytes.data()[0] == 0x11u && bulk_destination.bytes.data()[1] == 0x31u &&
+        bulk_destination.bytes.data()[2] == 0xccu && bulk_destination.bytes.data()[3] == 0x22u &&
+        bulk_destination.bytes.data()[4] == 0x32u && bulk_destination.bytes.data()[8] == 0xccu);
+
+    alignas(128) std::uint8_t replacement[128]{};
+    replacement[0] = 0x41u;
+    replacement[1] = 0x42u;
+    replacement[2] = 0x43u;
+    TEST_EXPECT(ctx, live_bulk.capture(CStringView{ "SourceB" }, CStringView{ "array" },
+        CByteConstView{ replacement, 128u, 128u }, 128u, bulk_error) == live_bulk_handle);
+    SBulkEntryView refreshed_bulk;
+    TEST_EXPECT(ctx, live_bulk.entry(live_bulk_handle, refreshed_bulk) &&
+        refreshed_bulk.type == source_b_type && refreshed_bulk.count == 128u &&
+        refreshed_bulk.bytes == live_bulk.payload_view().data() + refreshed_bulk.offset);
+    const CByteConstView refreshed_sources[] = {
+        bulk_sources[0], CByteConstView{ refreshed_bulk.bytes, static_cast<std::size_t>(refreshed_bulk.byte_count) }
+    };
+    std::memset(external, 0xcc, sizeof(external));
+    TEST_EXPECT(ctx, plan.execute(refreshed_sources, 2u, CByteView{ external, sizeof(external) }) &&
+        external[0] == 0x11u && external[1] == 0x41u && external[3] == 0x22u && external[4] == 0x42u);
+    SMutableBulkEntryView refreshed_destination;
+    TEST_EXPECT(ctx, live_bulk.mutable_entry(unpopulated, refreshed_destination) &&
+        refreshed_destination.bytes.data() == live_bulk.payload_view().data() + refreshed_destination.offset);
+
+    CBakedDocumentBlock instance_block;
+    CBakedInstances baked_instances;
+    SInstanceDiagnostic instance_error;
+    alignas(128) std::uint8_t baked_instance_bytes[128]{ 0x71u };
+    const bool baked_instance_ready = bake(R"({"instances":{"SourceA":{"one":{
+        "locator":{"offset":0,"valid":true}}}}})", instance_block) &&
+        baked_instances.set_document(instance_block.document()) && baked_instances.bind_schema(schema) &&
+        baked_instances.load_supplied(CByteConstView{ baked_instance_bytes, 1u, 128u }, false, instance_error);
+    TEST_EXPECT(ctx, baked_instance_ready);
+    CLiveInstances live_instances;
+    alignas(128) std::uint8_t live_instance_bytes[128]{ 0x81u };
+    alignas(128) std::uint8_t destination_bytes[128]{ 0xccu, 0xccu, 0xccu };
+    const bool live_instance_ready = live_instances.initialise(schema) &&
+        live_instances.capture_base(CStringView{ "SourceB" }, CStringView{ "source" },
+            CByteConstView{ live_instance_bytes, 1u, 128u }, instance_error) &&
+        live_instances.capture_base(CStringView{ "Destination" }, CStringView{ "base" },
+            CByteConstView{ destination_bytes, 3u, 128u }, instance_error);
+    TEST_EXPECT(ctx, live_instance_ready);
+    if (!baked_instance_ready || !live_instance_ready)
+    {
+        return;
+    }
+    CLiveDocument declarations;
+    TEST_EXPECT(ctx, parse_live(R"({"child":{"keep":9},"grand":{"keep":7}})", declarations));
+    const CInstanceDocumentQuery declaration_query{ declarations };
+    const CInstanceHandle base = live_instances.find_base(CStringView{ "Destination" }, CStringView{ "base" });
+    const CInstanceHandle child = live_instances.create_specialisation(base, CStringView{ "child" },
+        declaration_query, declaration_query.object_child(declaration_query.root(), CStringView{ "child" }), instance_error);
+    const CInstanceHandle grand = live_instances.create_specialisation(child, CStringView{ "grand" },
+        declaration_query, declaration_query.object_child(declaration_query.root(), CStringView{ "grand" }), instance_error);
+    TEST_EXPECT(ctx, base && child && grand);
+    if (!base || !child || !grand)
+    {
+        return;
+    }
+    SInstanceEntryView baked_source, live_source, child_before, grand_before;
+    const bool instance_entries_ready = baked_instances.entry(baked_instances.find_base(
+        CStringView{ "SourceA" }, CStringView{ "one" }), baked_source) &&
+        live_instances.entry(live_instances.find_base(CStringView{ "SourceB" }, CStringView{ "source" }), live_source) &&
+        live_instances.entry(child, child_before) && live_instances.entry(grand, grand_before) &&
+        (baked_source.type == source_a_type) && (live_source.type == source_b_type);
+    TEST_EXPECT(ctx, instance_entries_ready);
+    if (!instance_entries_ready)
+    {
+        return;
+    }
+    std::uint8_t child_saved[3], grand_saved[3];
+    std::memcpy(child_saved, child_before.bytes, sizeof(child_saved));
+    std::memcpy(grand_saved, grand_before.bytes, sizeof(grand_saved));
+    const CInstanceHandle child_declaration = child_before.declaration;
+    const CInstanceHandle grand_declaration = grand_before.declaration;
+    const CInstanceDocumentQuery instance_query = live_instances.document_query();
+    std::uint64_t child_selected{}, grand_selected{};
+    TEST_EXPECT(ctx, instance_query.unsigned_integer_value(instance_query.object_child(
+        child_declaration, CStringView{ "keep" }), child_selected) && child_selected == 9u &&
+        instance_query.unsigned_integer_value(instance_query.object_child(
+            grand_declaration, CStringView{ "keep" }), grand_selected) && grand_selected == 7u &&
+        !instance_query.object_child(child_declaration, CStringView{ "a" }) &&
+        !instance_query.object_child(child_declaration, CStringView{ "b" }) &&
+        !instance_query.object_child(grand_declaration, CStringView{ "a" }) &&
+        !instance_query.object_child(grand_declaration, CStringView{ "b" }));
+    const CByteConstView instance_sources[] = {
+        CByteConstView{ baked_source.bytes, static_cast<std::size_t>(baked_source.byte_count) },
+        CByteConstView{ live_source.bytes, static_cast<std::size_t>(live_source.byte_count) }
+    };
+    SMutableInstanceEntryView writable;
+    const bool base_ready = live_instances.mutable_entry(base, writable) && (writable.type == destination_type) &&
+        !writable.parent && writable.declaration && (writable.byte_count == 3u) && writable.bytes.is_ready();
+    TEST_EXPECT(ctx, base_ready);
+    if (!base_ready)
+    {
+        return;
+    }
+    const CInstanceHandle base_declaration = writable.declaration;
+    std::uint64_t base_a{}, base_b{}, base_keep{};
+    TEST_EXPECT(ctx, instance_query.unsigned_integer_value(instance_query.object_child(
+        base_declaration, CStringView{ "a" }), base_a) && base_a == 0xccu &&
+        instance_query.unsigned_integer_value(instance_query.object_child(
+            base_declaration, CStringView{ "b" }), base_b) && base_b == 0xccu &&
+        instance_query.unsigned_integer_value(instance_query.object_child(
+            base_declaration, CStringView{ "keep" }), base_keep) && base_keep == 0xccu);
+    TEST_EXPECT(ctx, plan.execute(instance_sources, 2u, writable.bytes) &&
+        writable.bytes.data()[0] == 0x71u && writable.bytes.data()[1] == 0x81u &&
+        writable.bytes.data()[2] == 0xccu &&
+        instance_query.unsigned_integer_value(instance_query.object_child(
+            base_declaration, CStringView{ "a" }), base_a) && base_a == 0xccu &&
+        instance_query.unsigned_integer_value(instance_query.object_child(
+            base_declaration, CStringView{ "b" }), base_b) && base_b == 0xccu &&
+        instance_query.unsigned_integer_value(instance_query.object_child(
+            base_declaration, CStringView{ "keep" }), base_keep) && base_keep == 0xccu);
+    SInstanceEntryView child_after, grand_after;
+    TEST_EXPECT(ctx, live_instances.entry(child, child_after) && live_instances.entry(grand, grand_after) &&
+        std::memcmp(child_after.bytes, child_saved, sizeof(child_saved)) == 0 &&
+        std::memcmp(grand_after.bytes, grand_saved, sizeof(grand_saved)) == 0);
+    TEST_EXPECT(ctx, live_instances.mutable_entry(child, writable) && writable.type == destination_type &&
+        writable.parent == base && writable.declaration == child_declaration &&
+        plan.execute(instance_sources, 2u, writable.bytes));
+    TEST_EXPECT(ctx, live_instances.entry(child, child_after) && live_instances.entry(grand, grand_after) &&
+        child_after.bytes[0] == 0x71u && child_after.bytes[1] == 0x81u && child_after.bytes[2] == 9u &&
+        child_after.declaration == child_declaration &&
+        std::memcmp(grand_after.bytes, grand_saved, sizeof(grand_saved)) == 0 &&
+        grand_after.declaration == grand_declaration &&
+        instance_query.unsigned_integer_value(instance_query.object_child(
+            child_after.declaration, CStringView{ "keep" }), child_selected) && child_selected == 9u &&
+        instance_query.unsigned_integer_value(instance_query.object_child(
+            grand_after.declaration, CStringView{ "keep" }), grand_selected) && grand_selected == 7u &&
+        !instance_query.object_child(child_after.declaration, CStringView{ "a" }) &&
+        !instance_query.object_child(child_after.declaration, CStringView{ "b" }) &&
+        !instance_query.object_child(grand_after.declaration, CStringView{ "a" }) &&
+        !instance_query.object_child(grand_after.declaration, CStringView{ "b" }));
+    const SMutableInstanceEntryView retained = writable;
+    TEST_EXPECT(ctx, !live_instances.mutable_entry({}, writable) && writable.bytes.data() == retained.bytes.data() &&
+        writable.declaration == retained.declaration &&
+        !live_instances.mutable_entry(baked_instances.find_base(CStringView{ "SourceA" }, CStringView{ "one" }), writable));
+    const CInstanceHandle empty = live_instances.capture_base(CStringView{ "Empty" }, CStringView{ "zero" }, {}, instance_error);
+    TEST_EXPECT(ctx, empty && live_instances.mutable_entry(empty, writable) && writable.type == empty_type &&
+        writable.byte_count == 0u && writable.bytes.is_empty() && writable.bytes.data() == nullptr);
+    const SMutableInstanceEntryView empty_saved = writable;
+    live_instances.clear();
+    TEST_EXPECT(ctx, !live_instances.mutable_entry(empty, writable) && writable.type == empty_saved.type &&
+        writable.byte_count == empty_saved.byte_count && writable.bytes.is_empty());
+}
+
 static void test_data_remap_kernels(TTestContext& ctx)
 {
     const std::string text = R"({"types":{"structures":{
@@ -6052,6 +6299,7 @@ int run_schema_tests()
     schema_tests::test_baked_instance_staging(ctx);
     schema_tests::test_bulk_encoded_comparison(ctx);
     schema_tests::test_data_remap(ctx);
+    schema_tests::test_data_remap_role_views(ctx);
     schema_tests::test_data_remap_matching(ctx);
     schema_tests::test_data_remap_kernels(ctx);
     schema_tests::test_data_remap_type_exclusions(ctx);

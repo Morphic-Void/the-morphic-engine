@@ -5,8 +5,8 @@ This page describes the implemented resolver and generator introduced in
 defines the target system;
 the [implementation contract](implementation-contract.md#staged-implementation-plan)
 tracks delivery. Schema wrappers, their promotion/demotion, and the baked and
-live instance and bulk roles are implemented. The direct-member bounded remap
-core is available; role-handle adapters remain later work.
+live instance and bulk roles are implemented. The bounded direct-member remap
+core works with their entry views, including mutable live destinations.
 The lifetime, handle and default rules below describe current code.
 
 `schema::CSchemaDocumentQuery` exposes read-only tree, name and scalar queries
@@ -556,10 +556,63 @@ Setup selects contiguous bulk, contiguous-source, contiguous-destination or
 strided copy paths after coalescing. Non-bulk paths use fixed 1, 2, 4, 8 and
 16-byte copies where possible, with a runtime-size fallback. These are
 prewritten scalar copy paths; no benchmark or platform-specific vectorisation
-claim is made. Future role-handle adapters may extract baked or live source
-views and use the same executor to fill external buffers or live destination
-binary snapshots. Declaration refresh and conflict reconciliation are separate
+claim is made. Declaration refresh and conflict reconciliation are separate
 future operations.
+
+## Role entry views for remapping (stage 7b)
+
+`CBakedInstances::entry()`, `CLiveInstances::entry()`, `CBakedBulkData::entry()`
+and `CLiveBulkData::entry()` provide type, bytes and byte extent for read-only
+sources. Construct `CByteConstView` from the returned bytes and extent.
+`CLiveBulkData::mutable_entry()` provides a bounded destination view, including
+for entries created with `create_unpopulated()`. `CLiveInstances::mutable_entry()`
+provides the same access for a base or specialisation snapshot, with type,
+parent, declaration and offset metadata. A zero-byte snapshot has a canonical
+empty mutable view. Failed mutable lookup leaves its output argument unchanged.
+The primary destination remains an application-owned buffer; these role methods
+only expose storage to the existing executor.
+
+For example, after constructing a plan from the expected resolved types and
+creating any live destination entry, read both sources afresh:
+
+```cpp
+SBulkEntryView a, b;
+if (baked_bulk.entry(baked_handle, a) && live_bulk.entry(live_handle, b) &&
+    (a.type == expected_a) && (b.type == expected_b))
+{
+    const CByteConstView sources[] = {
+        CByteConstView{ a.bytes, static_cast<std::size_t>(a.byte_count) },
+        CByteConstView{ b.bytes, static_cast<std::size_t>(b.byte_count) }
+    };
+    const bool filled_external = plan.execute(sources, 2u, application_buffer.view());
+    SMutableBulkEntryView target;
+    if (live_bulk.mutable_entry(target_handle, target) && (target.type == expected_destination))
+    {
+        const bool filled_live_bulk = plan.execute(sources, 2u, target.bytes);
+    }
+}
+```
+
+An instance entry uses the same source-view construction. A nonzero-byte
+instance source contributes one complete record, so it limits a combined
+transfer to one record; a zero-byte type imposes no byte-copy limit. A live
+instance destination uses `SMutableInstanceEntryView::bytes` with the same
+`execute()` call. Its binary snapshot changes without editing declarations,
+selection intent or descendant snapshots, including when a mapped field was
+previously unselected. Embedded output may still reject inconsistent document
+values; binary-backed output remains available.
+
+Keep the plan associated with the role objects, their bound schemas and the
+type indices supplied at setup. Check entry types before execution, and rebuild
+the association if a role is rebound. Type-index equality alone does not prove
+that two different schemas describe the same type. Role entry lookup requires a
+loaded role and a handle present in its current records, but handles do not
+carry a globally unique role identity; retain each handle with its originating
+role. Baked roles borrow their document and payload, while live roles own their
+payload. A live role operation can relocate that payload, so retrieve all entry
+views after creation, capture or another possible relocation and execute before
+mutating the roles again. The executor itself performs no allocation, schema
+traversal or document edit.
 
 ## Occurrence coverage
 

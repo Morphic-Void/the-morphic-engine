@@ -750,8 +750,15 @@ authorised simplifying execution to bounded views and a Boolean result, deriving
 the minimum complete record capacity instead of accepting counts. Construction
 diagnostics remain; execution diagnostics, copied-count output and `execute_min`
 are removed. This simplification has passed coordinator review and validation.
-Stage 7a was committed after user review; role-handle adapters have not been started.
-Stages 8-9 remain planned.
+Stage 7a was committed after user review as `3425e71`. The user authorised
+continuing through stage 7b and stage 8 on 2 October, retaining the staged
+coordinator review, user manual review and explicit commit checkpoints. Stage 7b
+has completed the coordinator-reviewed minimal adapter package: reuse existing
+entry views and add mutable live-instance access. It was validated and committed
+after coordinator and user review. Stage 8 remains an explicitly
+user-invoked unused-storage operation, with no automatic clearing. After stage 8,
+prepare a coordinator handover before stage 9; the user is considering a fresh
+coordinator for that review. Stage 9 has not been authorised to start.
 On 2 October the user confirmed that embedded output must also reject omitted
 base fields whose saved values disagree with schema defaults, preserving omission
 rather than adding selections. Binary-backed output remains available.
@@ -1158,7 +1165,7 @@ the supplied byte views and stored layouts, with no supplied record counts,
 copied-count output or diagnostic. Callers narrow views to limit work. A single
 `execute` returns success/failure; setup retains diagnostics. Zero-byte types
 impose no storage limit and all-empty transfers are successful no-ops.
-Role-handle adapters remain a later slice.
+Role access is completed in stage 7b below.
 
 Coordinator review verified immediate exclusion of incompatible types, successful
 partial and empty plans, removal of enum-specific mismatch policy and unchanged
@@ -1190,12 +1197,38 @@ file encoding and EOF conventions are preserved. Resolved layouts are unchanged,
 so the generated-layout compiler matrix was not repeated. The first pass was
 committed after user review.
 
-Implement compatible direct-member mapping, bounded-view execution and role-handle
-adapters using the same executor. The primary path reads baked or live instance
+Stage 7b reuses the existing const instance/bulk entry APIs and mutable bulk
+entry API, adding `SMutableInstanceEntryView` and `CLiveInstances::mutable_entry`
+for the missing live-instance destination path. Callers obtain current bounded
+views and invoke the existing executor directly; no remap-specific wrapper or
+parallel validation layer is required. Keep each plan associated with its source
+and destination schema representations. Type indices are local to their resolved
+schema, and handles require their originating role; existing lookup does not
+provide globally unique document provenance. Reacquire entry views after any
+operation that may relocate payload storage and do not mutate roles between view
+acquisition and execution. Test these paths and document representative use.
+
+Stage 7b coordinator review is complete. The new mutable accessor follows the
+existing bulk pattern, preserving its output argument on failure and returning
+an empty view for zero-byte snapshots. Tests cover combined baked/live bulk and
+instance sources, external and live destinations, fresh views after payload
+growth, and binary-only base/specialisation writes. Saved descendant bytes and
+declaration-content checks verify that neither descendants nor selection intent
+change. Invalid local handle state and access after clear fail as expected;
+these tests do not imply global handle provenance.
+
+The final Debug x64 solution build and ordinary `-t1` run passed with 5,937
+schema checks and zero failures (`remap-role-final-dbg64`, PID 8396). The
+coordinator inspected native build and test results, both returning zero.
+Policy, diff and line-ending checks passed. No remap layout/arithmetic change
+required repeating the earlier Release x64/Debug x86 matrix. The package was
+committed after user review.
+
+The primary path reads baked or live instance
 or bulk data into application-owned destination buffers, with no destination
 document required. Live instance and bulk destinations are additional adapters.
 Support populating stage 5's unpopulated arrays
-through one or more mappings; retain exact type/enum, record-count, overlap and
+through one or more mappings; retain exact type/enum, view-capacity, overlap and
 aggregate-padding rules. This stage depends on resolved layouts and live data
 access, not inherently on output, but follows stage 6 in the proposed serial plan.
 
@@ -1208,8 +1241,9 @@ values; binary-backed output remains available.
 
 Fast runtime updates are the primary use case. The user agreed that document
 refresh after remapping is a separate operation for the secondary document-form
-workflow. Discuss refresh scope, conflict parameters and hierarchy effects before
-its implementation; the current binary remapper does not perform reconciliation.
+workflow. Its discussion is deferred until stage 9, after the post-implementation
+review and consolidation of coherence, consistency and code. The current binary
+remapper does not perform reconciliation.
 
 Completion evidence: untouched unmapped fields and records beyond the chosen count,
 mixed-match and no-match plans across type categories, capacities inferred from
@@ -1229,10 +1263,12 @@ clearing gaps imported by aggregate copies, and identical final unused bytes aft
 clearing outputs that began with different padding contents. Exercise it after
 stage 6 packing and stage 7 transfers before binary output.
 
-### 9. Consistency and coherence review
+### 9. Post-implementation review and consolidation
 
-After the optional unused-storage stage, review the completed system for
-consistency and coherence. Pay particular attention to the authority of binary
+After the optional unused-storage stage, review and consolidate the completed
+implementation for consistency, coherence and code quality. This concerns the
+resulting design, code, APIs and documentation; it is not an investigation of
+the development process. Pay particular attention to the authority of binary
 versus document data across loading, promotion, editing, capture, output,
 demotion and reload, including defaults and specialisation selection intent.
 Other provisional areas include code style, API consistency and agreement between
@@ -1246,6 +1282,40 @@ requirement. Review functions with long parameter lists for opportunities to
 improve decomposition and responsibility boundaries, or to hold common context
 in an appropriate class or structure. The aim is to identify shared context and
 coherent responsibilities, rather than merely bundle arguments together.
+
+Review consistency of parser-normalised singleton compound forms across bulk
+records and instance selections. The stage 7b fixture found that baked bulk
+loading rejects named record entries produced from `[{a:1},{a:2}]`, while
+`[1,2]` works for that single-member record type. Its record-array validation
+rejects named elements before value construction. Compare this existing
+restriction with the accepted singleton-selection support and documented input
+forms before deciding whether to align behavior or clarify the boundary.
+
+After completing the post-implementation review and consolidation,
+discuss explicit reconciliation of a live document's description after binary
+updates to its backing. This is deferred follow-up work, not a stage 7c delivery.
+It remains separate from remap execution; external application-owned destinations
+need no document reconciliation.
+
+Resolve scope and conflict parameters: selected versus omitted/inherited instance
+values, disagreements with defaults or ancestors, whether reconciliation may
+change selection intent, and effects on descendant declarations and snapshots.
+Establish the corresponding bulk-document behavior without restoring embedded
+bulk values that the live representation deliberately omits. Consider reuse of
+capture and output machinery without assuming their existing policies fit.
+Agree implementation scope and acceptance criteria after this discussion,
+including subsequent editing and output/reload, preservation of unrelated data
+and failure behavior. No reconciliation implementation is authorised yet.
+
+Discuss float-to-fp16 conversion as a concrete user workflow. Inventory the
+existing paths: explicit conversion through `fp16data_t` into destination
+buffers, construction from numeric document values under an `f16` schema, and
+capture of already converted buffers. Assess the ergonomics of converting
+strided fields or arrays and whether a separately explicit schema-guided
+conversion facility is justified. Review conversion policy, including rounding
+and exceptional values, against the existing codec before choosing an API.
+This discussion does not authorise implementation or relax the exact-type,
+binary-copy-only contract of `CDataRemapPlan`.
 
 Discuss the detailed scope and acceptance criteria with the user when this stage
 is reached. This entry reserves the review stage; it does not authorise starting

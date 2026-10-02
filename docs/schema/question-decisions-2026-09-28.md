@@ -257,6 +257,18 @@ subsequent reconciliation with [design.md](design.md), the
   layout, not a destination document. Writing into live backing within the schema
   system is also supported through the same executor. Both paths leave document
   updates and reconciliation to separate operations.
+- After stage 7a was committed, the user requested an explicit planned task for
+  reconciling the document when binary updates target live backing. The user
+  subsequently deferred its discussion until stage 9, after the
+  post-implementation review and consolidation of coherence, consistency and
+  code. The user clarified that this review concerns the resulting system, not
+  an investigation of the development process. It is not a stage 7c delivery;
+  scope, conflict policies and implementation remain pending that discussion.
+  It remains separate from remap execution.
+- The user also requested a stage 9 discussion of float-to-fp16 conversion,
+  existing user pathways and whether a schema infrastructure extension is
+  justified. This is a review topic, not approval for conversion implementation
+  or a change to exact-type binary remapping.
 
 ## Deferred or remaining questions
 
