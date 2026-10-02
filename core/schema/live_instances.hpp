@@ -14,6 +14,7 @@
 #define SCHEMA_LIVE_INSTANCES_HPP_INCLUDED
 
 #include "schema/baked_instances.hpp"
+#include "schema/data_output.hpp"
 
 namespace schema
 {
@@ -67,6 +68,15 @@ public:
     [[nodiscard]] bool remove_selection(const CInstanceHandle instance, const SInstanceSelectionStep* const steps,
         const std::size_t step_count, SInstanceDiagnostic& diagnostic) noexcept;
 
+    [[nodiscard]] bool prepare_output(CLiveDocument& document, CByteBuffer& payload,
+        CBakedSchema& destination_schema, const EDataOutputForm form, SInstanceDiagnostic& diagnostic) const noexcept;
+    [[nodiscard]] bool prepare_output(CLiveDocument& document, CByteBuffer& payload,
+        CLiveSchema& destination_schema, const EDataOutputForm form, SInstanceDiagnostic& diagnostic) const noexcept;
+    [[nodiscard]] bool demote(CBakedDocumentBlock& block, CByteBuffer& payload, CBakedInstances& role,
+        CBakedSchema& destination_schema, const EDataOutputForm form, SInstanceDiagnostic& diagnostic) const noexcept;
+    [[nodiscard]] bool demote(CBakedDocumentBlock& block, CByteBuffer& payload, CBakedInstances& role,
+        CLiveSchema& destination_schema, const EDataOutputForm form, SInstanceDiagnostic& diagnostic) const noexcept;
+
 private:
     friend class CBakedInstances;
     static constexpr std::uint32_t k_no_parent = UINT32_MAX;
@@ -86,6 +96,15 @@ private:
         const detail::SOccurrence declaration, const CByteConstView& complete, SInstanceDiagnostic& diagnostic) noexcept;
     [[nodiscard]] bool edit_existing(const std::uint32_t index, const CNodeKey selection,
         const CByteConstView& complete, const bool full_declaration, SInstanceDiagnostic& diagnostic) noexcept;
+    [[nodiscard]] CNodeKey output_declaration(CLiveDocument& target, const SRecord& record,
+        const CResolvedSchema& schema, const CSchemaIndex destination_type,
+        EInstanceLoadReason& reason) const noexcept;
+    [[nodiscard]] bool prepare_output_to(CLiveDocument& document, CByteBuffer& payload,
+        const CResolvedSchema& destination_schema, const EDataOutputForm form,
+        SInstanceDiagnostic& diagnostic) const noexcept;
+    template <class TSchema>
+    [[nodiscard]] bool demote_to(CBakedDocumentBlock& block, CByteBuffer& payload, CBakedInstances& role,
+        TSchema& destination_schema, const EDataOutputForm form, SInstanceDiagnostic& diagnostic) const noexcept;
     void take_from(CLiveInstances& source) noexcept;
     void disable() noexcept;
 

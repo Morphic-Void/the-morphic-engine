@@ -32,6 +32,7 @@ enum class EInstanceLoadReason : std::uint8_t
     overlap,
     invalid_declaration,
     embedded_mismatch,
+    unrepresentable_value,
     allocation_failed,
     incompatible_schema
 };
@@ -116,6 +117,7 @@ private:
         SInstanceDiagnostic& diagnostic) const noexcept;
     [[nodiscard]] bool compare_embedded(const TPodVector<SRecord>& records, const CByteConstView& payload,
         const std::size_t scratch_size, SInstanceDiagnostic& diagnostic) const noexcept;
+    void take_from(CBakedInstances& source) noexcept;
 
     CBakedDocument m_document;
     CMutableBakedDocument m_mutable;

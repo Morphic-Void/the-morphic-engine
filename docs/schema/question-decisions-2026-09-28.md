@@ -171,6 +171,17 @@ subsequent reconciliation with [design.md](design.md), the
   cannot be represented by the existing hierarchy without changing selection
   intent. Report a diagnostic rather than adding a selection or changing the
   saved value. Binary-backed output remains available.
+- Confirmed on 2 October: the same rule applies to omitted base-instance fields.
+  If a base omits `x`, its schema default is `1`, and its authoritative snapshot
+  contains `9`, embedded output fails rather than adding a selection. Preserve
+  the omission; binary-backed output remains available.
+- Confirmed on 2 October: schema handling recognises the text parser's existing
+  singleton-object normalisation within arrays. For an element structure with
+  members `a` and `b`, `[{b:9}]` still selects only `b` after the parser unwraps
+  its object; `a` remains inherited. Preserve that intent through loading,
+  promotion, output and later edits, including corresponding bit-structure
+  selections. Do not change the text parser or restrict these selections to
+  baked output. Named entries for scalar array elements remain invalid.
 - Confirmed on 1 October for both data roles: embedded output uses the existing
   encoded-field comparison rule for round-trip fidelity, treating NaNs as equal
   and ignoring padding and unused bits. Reject values that cannot round-trip

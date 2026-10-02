@@ -89,7 +89,7 @@ public:
 
     [[nodiscard]] bool write(const CSchemaIndex type, const CSchemaIndex description, const SOccurrence source,
         std::uint8_t* const destination, const std::size_t destination_size, const EWriteMode mode,
-        const unsigned depth) noexcept;
+        const unsigned depth, const bool singleton_element = false) noexcept;
 
     [[nodiscard]] bool fail(const EReason reason, const SOccurrence source, const CSchemaIndex type) noexcept
     {
@@ -106,11 +106,12 @@ private:
     [[nodiscard]] bool scalar(const CSchemaIndex type, const SOccurrence source, SScalar& result) noexcept;
     [[nodiscard]] bool field_scalar(const SField& field, const SOccurrence source, SScalar& result) noexcept;
     [[nodiscard]] bool structure(const CSchemaIndex type, const SType& layout, const SOccurrence source,
-        std::uint8_t* const destination, const std::size_t destination_size, const EWriteMode mode, const unsigned depth) noexcept;
+        std::uint8_t* const destination, const std::size_t destination_size, const EWriteMode mode,
+        const unsigned depth, const bool singleton_element) noexcept;
     [[nodiscard]] bool array(const CSchemaIndex type, const CSchemaIndex description, const SType& layout, const SOccurrence source,
         std::uint8_t* const destination, const std::size_t destination_size, const EWriteMode mode, const unsigned depth) noexcept;
     [[nodiscard]] bool bit_structure(const CSchemaIndex type, const SType& layout, const SOccurrence source,
-        std::uint8_t* const destination, const EWriteMode mode) noexcept;
+        std::uint8_t* const destination, const EWriteMode mode, const bool singleton_element) noexcept;
 
     const CResolvedSchema& m_schema;
     const CDocumentRead& m_document;
@@ -219,23 +220,26 @@ bool CValueWriter::field_scalar(const SField& field, const SOccurrence source, S
 }
 
 bool CValueWriter::structure(const CSchemaIndex type, const SType& layout, const SOccurrence source,
-    std::uint8_t* const destination, const std::size_t destination_size, const EWriteMode mode, const unsigned depth) noexcept
+    std::uint8_t* const destination, const std::size_t destination_size, const EWriteMode mode,
+    const unsigned depth, const bool singleton_element) noexcept
 {
     const EDocumentValueKind kind = source.is_valid() ? m_document.value_kind(source) : EDocumentValueKind::invalid;
-    if (source.is_valid() && (kind != EDocumentValueKind::object) && (kind != EDocumentValueKind::array))
+    if (source.is_valid() && !singleton_element &&
+        (kind != EDocumentValueKind::object) && (kind != EDocumentValueKind::array))
     {
         return fail(EReason::invalid_input, source, type);
     }
-    if ((kind == EDocumentValueKind::object) && !validate_object(type, source, ECategory::structure))
+    if (singleton_element && !m_schema.find_member(type, m_document.name(source)))
+    {
+        return fail(EReason::unknown_property, source, type);
+    }
+    if (!singleton_element && (kind == EDocumentValueKind::object) &&
+        !validate_object(type, source, ECategory::structure))
     {
         return false;
     }
-    if ((kind == EDocumentValueKind::array) && !validate_positional(type, source))
-    {
-        return false;
-    }
-    const std::uint32_t supplied = source.is_valid() ? m_document.child_count(source) : 0u;
-    if ((kind == EDocumentValueKind::array) && (supplied > layout.count))
+    const std::uint32_t supplied = singleton_element ? 1u : (source.is_valid() ? m_document.child_count(source) : 0u);
+    if (!singleton_element && (kind == EDocumentValueKind::array) && (supplied > layout.count))
     {
         return fail(EReason::invalid_range, source, type);
     }
@@ -244,7 +248,8 @@ bool CValueWriter::structure(const CSchemaIndex type, const SType& layout, const
     {
         return fail(EReason::missing_property, source, type);
     }
-    SOccurrence positional = kind == EDocumentValueKind::array ? m_document.first_child(source) : SOccurrence{};
+    SOccurrence positional = (!singleton_element && (kind == EDocumentValueKind::array)) ?
+        m_document.first_child(source) : SOccurrence{};
     for (std::uint32_t ordinal = 0u; ordinal < layout.count; ++ordinal)
     {
         const CSchemaIndex member_index = m_schema.member_at(type, ordinal);
@@ -254,12 +259,28 @@ bool CValueWriter::structure(const CSchemaIndex type, const SType& layout, const
         {
             return fail(EReason::invalid_layout, source, type);
         }
-        const SOccurrence child = kind == EDocumentValueKind::object ?
+        const bool selected_singleton = singleton_element &&
+            equal_name(m_document.name(source), m_schema.name(member.name));
+        const SOccurrence child = selected_singleton ? source :
+            (!singleton_element && (kind == EDocumentValueKind::object)) ?
             m_document.object_child(source, m_schema.name(member.name)) :
-            ((kind == EDocumentValueKind::array) && (ordinal < supplied) ? positional : SOccurrence{});
-        if (positional.is_valid() && (kind == EDocumentValueKind::array))
+            ((!singleton_element && (kind == EDocumentValueKind::array) && (ordinal < supplied)) ?
+                positional : SOccurrence{});
+        if (positional.is_valid() && !singleton_element && (kind == EDocumentValueKind::array))
         {
             positional = m_document.next_sibling(positional);
+        }
+        const bool child_singleton = !singleton_element && (kind == EDocumentValueKind::array) &&
+            child.is_valid() && m_document.is_object_entry(child);
+        if (child_singleton)
+        {
+            SType member_layout;
+            if (!m_schema.type(member.type, member_layout) ||
+                ((member_layout.category != ECategory::structure) &&
+                    (member_layout.category != ECategory::bit_structure)))
+            {
+                return fail(EReason::invalid_input, child, member.type);
+            }
         }
         if ((mode == EWriteMode::bulk) && !child.is_valid())
         {
@@ -271,7 +292,7 @@ bool CValueWriter::structure(const CSchemaIndex type, const SType& layout, const
         }
         std::uint8_t* const member_destination = destination ? destination + member.offset : nullptr;
         if (!write(member.type, member.default_description, child, member_destination,
-            static_cast<std::size_t>(member.size), mode, depth + 1u))
+            static_cast<std::size_t>(member.size), mode, (depth + 1u), child_singleton))
         {
             return false;
         }
@@ -286,9 +307,21 @@ bool CValueWriter::array(const CSchemaIndex type, const CSchemaIndex description
     {
         return fail(EReason::invalid_input, source, type);
     }
-    if (source.is_valid() && !validate_positional(type, source))
+    SType element;
+    if (!m_schema.type(layout.element_or_storage, element))
     {
-        return false;
+        return fail(EReason::unknown_type, source, type);
+    }
+    if (source.is_valid())
+    {
+        for (SOccurrence child = m_document.first_child(source); child.is_valid(); child = m_document.next_sibling(child))
+        {
+            if (m_document.is_object_entry(child) &&
+                ((element.category != ECategory::structure) && (element.category != ECategory::bit_structure)))
+            {
+                return fail(EReason::invalid_input, child, type);
+            }
+        }
     }
     const std::uint32_t supplied = source.is_valid() ? m_document.child_count(source) : 0u;
     if (supplied > layout.count)
@@ -299,12 +332,6 @@ bool CValueWriter::array(const CSchemaIndex type, const CSchemaIndex description
     {
         return fail(EReason::missing_property, source, type);
     }
-    SType element;
-    if (!m_schema.type(layout.element_or_storage, element))
-    {
-        return fail(EReason::unknown_type, source, type);
-    }
-
     //  Omitted zero-byte elements need no physical default work. Authored
     //  elements still pass through recursive shape and count validation.
     const std::uint32_t visited = (mode == EWriteMode::bulk || element.size != 0u) ?
@@ -334,7 +361,8 @@ bool CValueWriter::array(const CSchemaIndex type, const CSchemaIndex description
         }
         std::uint8_t* const element_destination = destination ? destination + static_cast<std::size_t>(offset) : nullptr;
         if (!write(layout.element_or_storage, element_default, child, element_destination,
-            static_cast<std::size_t>(element.size), mode, depth + 1u))
+            static_cast<std::size_t>(element.size), mode, (depth + 1u),
+            (child.is_valid() && m_document.is_object_entry(child))))
         {
             return false;
         }
@@ -343,23 +371,30 @@ bool CValueWriter::array(const CSchemaIndex type, const CSchemaIndex description
 }
 
 bool CValueWriter::bit_structure(const CSchemaIndex type, const SType& layout, const SOccurrence source,
-    std::uint8_t* const destination, const EWriteMode mode) noexcept
+    std::uint8_t* const destination, const EWriteMode mode, const bool singleton_element) noexcept
 {
     const EDocumentValueKind kind = source.is_valid() ? m_document.value_kind(source) : EDocumentValueKind::invalid;
-    if (source.is_valid() && (kind != EDocumentValueKind::object) && (kind != EDocumentValueKind::array))
+    if (source.is_valid() && !singleton_element &&
+        (kind != EDocumentValueKind::object) && (kind != EDocumentValueKind::array))
     {
         return fail(EReason::invalid_input, source, type);
     }
-    if ((kind == EDocumentValueKind::object) && !validate_object(type, source, ECategory::bit_structure))
+    if (singleton_element && !m_schema.find_field(type, m_document.name(source)))
+    {
+        return fail(EReason::unknown_property, source, type);
+    }
+    if (!singleton_element && (kind == EDocumentValueKind::object) &&
+        !validate_object(type, source, ECategory::bit_structure))
     {
         return false;
     }
-    if ((kind == EDocumentValueKind::array) && !validate_positional(type, source))
+    if (!singleton_element && (kind == EDocumentValueKind::array) && !validate_positional(type, source))
     {
         return false;
     }
-    const std::uint32_t supplied = source.is_valid() ? m_document.child_count(source) : 0u;
-    if ((kind == EDocumentValueKind::array) && (supplied > layout.count))
+    const std::uint32_t supplied = singleton_element ? 1u :
+        (source.is_valid() ? m_document.child_count(source) : 0u);
+    if (!singleton_element && (kind == EDocumentValueKind::array) && (supplied > layout.count))
     {
         return fail(EReason::invalid_range, source, type);
     }
@@ -369,7 +404,8 @@ bool CValueWriter::bit_structure(const CSchemaIndex type, const SType& layout, c
     }
     std::uint64_t word = mode == EWriteMode::alternative ?
         read_little_endian(destination, static_cast<std::size_t>(layout.size)) : 0u;
-    SOccurrence positional = kind == EDocumentValueKind::array ? m_document.first_child(source) : SOccurrence{};
+    SOccurrence positional = (!singleton_element && (kind == EDocumentValueKind::array)) ?
+        m_document.first_child(source) : SOccurrence{};
     for (std::uint32_t ordinal = 0u; ordinal < layout.count; ++ordinal)
     {
         SField field;
@@ -377,10 +413,14 @@ bool CValueWriter::bit_structure(const CSchemaIndex type, const SType& layout, c
         {
             return fail(EReason::invalid_layout, source, type);
         }
-        const SOccurrence child = kind == EDocumentValueKind::object ?
+        const bool selected_singleton = singleton_element &&
+            equal_name(m_document.name(source), m_schema.name(field.name));
+        const SOccurrence child = selected_singleton ? source :
+            (!singleton_element && (kind == EDocumentValueKind::object)) ?
             m_document.object_child(source, m_schema.name(field.name)) :
-            ((kind == EDocumentValueKind::array) && (ordinal < supplied) ? positional : SOccurrence{});
-        if (positional.is_valid() && (kind == EDocumentValueKind::array))
+            ((!singleton_element && (kind == EDocumentValueKind::array) && (ordinal < supplied)) ?
+                positional : SOccurrence{});
+        if (positional.is_valid() && !singleton_element && (kind == EDocumentValueKind::array))
         {
             positional = m_document.next_sibling(positional);
         }
@@ -417,7 +457,8 @@ bool CValueWriter::bit_structure(const CSchemaIndex type, const SType& layout, c
 }
 
 bool CValueWriter::write(const CSchemaIndex type, const CSchemaIndex description, const SOccurrence source,
-    std::uint8_t* const destination, const std::size_t destination_size, const EWriteMode mode, const unsigned depth) noexcept
+    std::uint8_t* const destination, const std::size_t destination_size, const EWriteMode mode,
+    const unsigned depth, const bool singleton_element) noexcept
 {
     if (depth >= k_max_value_depth)
     {
@@ -466,11 +507,11 @@ bool CValueWriter::write(const CSchemaIndex type, const CSchemaIndex description
             return true;
         }
         case ECategory::structure:
-            return structure(type, layout, source, destination, destination_size, mode, depth);
+            return structure(type, layout, source, destination, destination_size, mode, depth, singleton_element);
         case ECategory::array:
             return array(type, description, layout, source, destination, destination_size, mode, depth);
         case ECategory::bit_structure:
-            return bit_structure(type, layout, source, destination, mode);
+            return bit_structure(type, layout, source, destination, mode, singleton_element);
         default:
             return fail(EReason::unknown_type, source, type);
     }

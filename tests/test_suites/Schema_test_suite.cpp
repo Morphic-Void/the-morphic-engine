@@ -881,6 +881,26 @@ static void test_schema_sample(TTestContext& ctx)
     TEST_EXPECT(ctx, vector_w == 7.0f && padded_w == 7.0f &&
         base_uv_tail == 0.75f && short_uv_tail == 0.75f &&
         vector_view.bytes != padded_view.bytes && vertex_view.bytes != short_view.bytes);
+    CLiveInstances live_instances;
+    TEST_EXPECT(ctx, instances.promote(live_instances, sample_schema, instance_error));
+    for (const EDataOutputForm form : { EDataOutputForm::embedded, EDataOutputForm::external })
+    {
+        CBakedDocumentBlock output_block;
+        CByteBuffer output_payload;
+        CBakedInstances output_role;
+        TEST_EXPECT(ctx, live_instances.demote(output_block, output_payload, output_role,
+            sample_schema, form, instance_error));
+        SInstanceEntryView output_view;
+        const CInstanceHandle output_vector = output_role.find_base(CStringView{ "Vector4" }, CStringView{ "base" });
+        TEST_EXPECT(ctx, output_role.loaded_ready() && output_role.entry(output_vector, output_view) &&
+            output_view.byte_count == vector_view.byte_count &&
+            detail::compare_encoded(*sample_schema.resolved(), output_view.type,
+                vector_view.bytes, static_cast<std::size_t>(vector_view.byte_count),
+                output_view.bytes, static_cast<std::size_t>(output_view.byte_count)));
+        CBakedInstances reloaded;
+        TEST_EXPECT(ctx, reloaded.set_document(output_block.document()) && reloaded.bind_schema(sample_schema) &&
+            reloaded.load_supplied(output_payload.const_view(), form == EDataOutputForm::embedded, instance_error));
+    }
 }
 
 static void test_unorm_defaults(TTestContext& ctx)
@@ -3352,6 +3372,534 @@ static void test_live_instances(TTestContext& ctx)
         bag_view.declaration && live.capture_specialisation(empty_child, {}, error));
 }
 
+static void test_live_instance_output(TTestContext& ctx)
+{
+    const std::string definitions = R"({"types":{"structures":{
+        "Pair":{"members":[{"a":{"type":"u8"}},{"b":{"type":"u8"}}]},
+        "Bag":{"members":[{"rows":{"type":{"element":"Pair","count":2}}}]},
+        "Container":{"members":[{"pair":{"type":"Pair"}},{"tail":{"type":"u8"}}]},
+        "Inner":{"members":[{"b":{"type":"u8"}},{"c":{"type":"u8"}}]},
+        "Outer":{"members":[{"a":{"type":"u8"}},{"b":{"type":"Inner"}}]},
+        "NestedBag":{"members":[{"rows":{"type":{"element":"Outer","count":1}}}]},
+        "BitBag":{"members":[{"rows":{"type":{"element":"Bits","count":1}}}]},
+        "ScalarBag":{"members":[{"rows":{"type":{"element":"u8","count":1}}}]},
+        "Empty":{"members":[]}},"bit_structures":{"Bits":{"storage":"u8",
+            "members":[{"lo":{"type":"u8","mask":15}},{"hi":{"type":"u8","mask":240}}]}}}})";
+    CBakedDocumentBlock schema_block;
+    CBakedSchema schema;
+    SDiagnostic schema_error;
+    TEST_EXPECT(ctx, bake(definitions, schema_block) && schema.set_document(schema_block.document()) &&
+        schema.resolve(schema_error));
+    CLiveDocument values;
+    TEST_EXPECT(ctx, parse_live(R"({"base":{"rows":[{"a":1,"b":2}]},
+        "selection":{"rows":[{"b":9}]},"first":{"rows":[{"a":6}]},
+        "equal":{"rows":[{"b":2}]},"empty":{"rows":[]},
+        "other":{"a":4,"b":5}})", values));
+    const CInstanceDocumentQuery values_query{ values };
+    CLiveInstances live;
+    TEST_EXPECT(ctx, live.initialise(schema));
+    SInstanceDiagnostic error;
+    const CInstanceHandle bag = live.create_base(CStringView{ "Bag" }, CStringView{ "bag" }, values_query,
+        values_query.object_child(values_query.root(), CStringView{ "base" }), error);
+    const CInstanceHandle variant = live.create_specialisation(bag, CStringView{ "variant" }, values_query,
+        values_query.object_child(values_query.root(), CStringView{ "selection" }), error);
+    const CInstanceHandle first = live.create_specialisation(bag, CStringView{ "first" }, values_query,
+        values_query.object_child(values_query.root(), CStringView{ "first" }), error);
+    const CInstanceHandle equal = live.create_specialisation(bag, CStringView{ "equal" }, values_query,
+        values_query.object_child(values_query.root(), CStringView{ "equal" }), error);
+    const CInstanceHandle empty_selection = live.create_specialisation(bag, CStringView{ "empty" }, values_query,
+        values_query.object_child(values_query.root(), CStringView{ "empty" }), error);
+    SInstanceEntryView view;
+    TEST_EXPECT(ctx, bag && variant && first && equal && empty_selection &&
+        live.entry(variant, view) && view.byte_count == 4u &&
+        view.bytes[0] == 1u && view.bytes[1] == 9u);
+
+    const auto exercise = [&](const EDataOutputForm form)
+    {
+        CLiveDocument prepared;
+        CByteBuffer payload;
+        TEST_EXPECT(ctx, live.prepare_output(prepared, payload, schema, form, error));
+        if (!prepared.is_ready())
+        {
+            return;
+        }
+        CBakedDocumentBlock block;
+        TEST_EXPECT(ctx, document_translation::bake(prepared, block));
+        const CDocumentWriteResult written = document_writer::write(block.document());
+        TEST_EXPECT(ctx, written.report.succeeded());
+        CDocumentWriteOptions strict_options;
+        strict_options.mode = EDocumentWriteMode::strict_json;
+        const CDocumentWriteResult strict_written = document_writer::write(block.document(), strict_options);
+        TEST_EXPECT(ctx, strict_written.report.succeeded());
+        const std::string text{ reinterpret_cast<const char*>(written.output.data()),
+            written.report.logical_text_byte_size };
+        const std::string strict_text{ reinterpret_cast<const char*>(strict_written.output.data()),
+            strict_written.report.logical_text_byte_size };
+        CBakedDocumentBlock reparsed;
+        TEST_EXPECT(ctx, bake(text, reparsed));
+        CBakedDocumentBlock strict_reparsed;
+        TEST_EXPECT(ctx, bake(strict_text, strict_reparsed));
+        CBakedInstances reload;
+        TEST_EXPECT(ctx, reload.set_document(reparsed.document()) && reload.bind_schema(schema) &&
+            reload.load_supplied(payload.const_view(), form == EDataOutputForm::embedded, error));
+        CBakedInstances strict_reload;
+        TEST_EXPECT(ctx, strict_reload.set_document(strict_reparsed.document()) &&
+            strict_reload.bind_schema(schema) &&
+            strict_reload.load_supplied(payload.const_view(), form == EDataOutputForm::embedded, error));
+        if (form == EDataOutputForm::embedded)
+        {
+            CBakedInstances material;
+            CByteBuffer material_owner;
+            TEST_EXPECT(ctx, material.set_document(reparsed.document()) && material.bind_schema(schema) &&
+                material.materialise(material_owner, error));
+            SInstanceEntryView material_view;
+            const CInstanceHandle material_base = material.find_base(CStringView{ "Bag" }, CStringView{ "bag" });
+            TEST_EXPECT(ctx, material.entry(material.find_specialisation(material_base,
+                CStringView{ "variant" }), material_view) &&
+                material_view.bytes[0] == 1u && material_view.bytes[1] == 9u);
+        }
+        CLiveInstances promoted;
+        TEST_EXPECT(ctx, reload.promote(promoted, schema, error));
+        const CInstanceHandle reloaded_base = promoted.find_base(CStringView{ "Bag" }, CStringView{ "bag" });
+        const CInstanceHandle reloaded_child = promoted.find_specialisation(reloaded_base, CStringView{ "variant" });
+        const CInstanceHandle reloaded_first = promoted.find_specialisation(reloaded_base, CStringView{ "first" });
+        const CInstanceHandle reloaded_equal = promoted.find_specialisation(reloaded_base, CStringView{ "equal" });
+        const CInstanceHandle reloaded_empty = promoted.find_specialisation(reloaded_base, CStringView{ "empty" });
+        alignas(128) std::uint8_t changed[128] = { 7u, 8u, 0u, 0u };
+        TEST_EXPECT(ctx, promoted.capture_base(CStringView{ "Bag" }, CStringView{ "bag" },
+            CByteConstView{ changed, 4u, 128u }, error) == reloaded_base);
+        SInstanceEntryView reloaded_view;
+        TEST_EXPECT(ctx, promoted.entry(reloaded_child, reloaded_view) &&
+            reloaded_view.bytes[0] == 7u && reloaded_view.bytes[1] == 9u);
+        TEST_EXPECT(ctx, promoted.entry(reloaded_first, reloaded_view) &&
+            reloaded_view.bytes[0] == 6u && reloaded_view.bytes[1] == 8u);
+        TEST_EXPECT(ctx, promoted.entry(reloaded_equal, reloaded_view) &&
+            reloaded_view.bytes[0] == 7u && reloaded_view.bytes[1] == 2u);
+        const CInstanceDocumentQuery promoted_query = promoted.document_query();
+        TEST_EXPECT(ctx, promoted.entry(reloaded_empty, reloaded_view) &&
+            reloaded_view.bytes[0] == 7u && reloaded_view.bytes[1] == 8u &&
+            promoted_query.value_kind(promoted_query.object_child(reloaded_view.declaration,
+                CStringView{ "rows" })) == EDocumentValueKind::array &&
+            promoted_query.child_count(promoted_query.object_child(reloaded_view.declaration,
+                CStringView{ "rows" })) == 0u);
+    };
+    exercise(EDataOutputForm::embedded);
+    exercise(EDataOutputForm::external);
+
+    CLiveDocument compound_values;
+    TEST_EXPECT(ctx, parse_live(R"({"base":{"rows":[{"a":1,"b":{"b":2,"c":3}}]},
+        "nested":{"rows":[{"b":{"c":9}}]},"positional":{"rows":[{"b":[7]}]},
+        "bits":{"rows":[{"lo":1,"hi":2}]},"bit_child":{"rows":[{"hi":3}]},
+        "invalid":{"rows":[{"x":9}]},"unknown":{"rows":[{"q":9}]},
+        "positional_compound":[{"b":9}]})", compound_values));
+    const CInstanceDocumentQuery compound_query{ compound_values };
+    const auto compound_at = [&](const char* const name)
+    {
+        return compound_query.object_child(compound_query.root(), CStringView{ name });
+    };
+    const CInstanceHandle nested_base = live.create_base(CStringView{ "NestedBag" }, CStringView{ "base" },
+        compound_query, compound_at("base"), error);
+    const CInstanceHandle nested_child = live.create_specialisation(nested_base, CStringView{ "nested" },
+        compound_query, compound_at("nested"), error);
+    const CInstanceHandle positional_child = live.create_specialisation(nested_base, CStringView{ "positional" },
+        compound_query, compound_at("positional"), error);
+    TEST_EXPECT(ctx, nested_base && nested_child && positional_child &&
+        live.entry(nested_child, view) && view.bytes[0] == 1u && view.bytes[1] == 2u && view.bytes[2] == 9u &&
+        live.entry(positional_child, view) && view.bytes[0] == 1u && view.bytes[1] == 7u && view.bytes[2] == 3u);
+    CLiveDocument scalar_value;
+    TEST_EXPECT(ctx, parse_live(R"({"value":11})", scalar_value));
+    const CInstanceDocumentQuery scalar_query{ scalar_value };
+    const SInstanceSelectionStep nested_path[] = {
+        { EInstanceSelectionStepKind::member, CStringView{ "rows" }, 0u },
+        { EInstanceSelectionStepKind::element, {}, 0u },
+        { EInstanceSelectionStepKind::member, CStringView{ "b" }, 0u },
+        { EInstanceSelectionStepKind::member, CStringView{ "b" }, 0u }
+    };
+    TEST_EXPECT(ctx, live.set_selection(nested_child, nested_path, 4u, scalar_query,
+        scalar_query.object_child(scalar_query.root(), CStringView{ "value" }), error) &&
+        live.entry(nested_child, view) && view.bytes[1] == 11u && view.bytes[2] == 9u);
+    TEST_EXPECT(ctx, live.remove_selection(nested_child, nested_path, 4u, error) &&
+        live.entry(nested_child, view) && view.bytes[1] == 2u && view.bytes[2] == 9u);
+    alignas(128) std::uint8_t captured_positional[128] = { 8u, 10u, 11u };
+    TEST_EXPECT(ctx, live.capture_specialisation(positional_child,
+        CByteConstView{ captured_positional, 3u, 128u }, error) &&
+        live.entry(positional_child, view) && view.bytes[0] == 1u && view.bytes[1] == 10u && view.bytes[2] == 3u);
+    alignas(128) std::uint8_t changed_nested[128] = { 4u, 5u, 6u };
+    TEST_EXPECT(ctx, live.capture_base(CStringView{ "NestedBag" }, CStringView{ "base" },
+        CByteConstView{ changed_nested, 3u, 128u }, error) == nested_base &&
+        live.entry(nested_child, view) && view.bytes[0] == 4u && view.bytes[1] == 5u && view.bytes[2] == 9u &&
+        live.entry(positional_child, view) && view.bytes[0] == 4u && view.bytes[1] == 10u && view.bytes[2] == 6u);
+    const CInstanceHandle bit_base = live.create_base(CStringView{ "BitBag" }, CStringView{ "base" },
+        compound_query, compound_at("bits"), error);
+    const CInstanceHandle bit_child = live.create_specialisation(bit_base, CStringView{ "child" },
+        compound_query, compound_at("bit_child"), error);
+    alignas(128) std::uint8_t changed_bits[128] = { 0x45u };
+    TEST_EXPECT(ctx, bit_base && bit_child && live.capture_base(CStringView{ "BitBag" }, CStringView{ "base" },
+        CByteConstView{ changed_bits, 1u, 128u }, error) == bit_base &&
+        live.entry(bit_child, view) && view.bytes[0] == 0x35u);
+    TEST_EXPECT(ctx, !live.create_base(CStringView{ "ScalarBag" }, CStringView{ "invalid" },
+        compound_query, compound_at("invalid"), error) &&
+        error.reason == EInstanceLoadReason::invalid_declaration);
+    TEST_EXPECT(ctx, !live.create_base(CStringView{ "NestedBag" }, CStringView{ "unknown" },
+        compound_query, compound_at("unknown"), error) &&
+        error.reason == EInstanceLoadReason::invalid_declaration);
+    const CInstanceHandle positional_compound = live.create_base(CStringView{ "Container" },
+        CStringView{ "positional" }, compound_query, compound_at("positional_compound"), error);
+    TEST_EXPECT(ctx, positional_compound && live.entry(positional_compound, view) &&
+        view.bytes[0] == 0u && view.bytes[1] == 9u && view.bytes[2] == 0u);
+}
+
+static void test_live_instance_output_boundaries(TTestContext& ctx)
+{
+    const std::string definitions = R"({"types":{"structures":{
+        "Pair":{"members":[{"a":{"type":"u8"}},{"b":{"type":"u8"}}]},
+        "Empty":{"members":[]},
+        "Odd":{"members":[{"value":{"type":"u8"}}]},
+        "Wide":{"detail":{"alignment":4,"size":4},
+            "members":[{"value":{"type":"u32"}}]}}}})";
+    CBakedDocumentBlock schema_block;
+    CBakedSchema schema;
+    SDiagnostic schema_error;
+    TEST_EXPECT(ctx, bake(definitions, schema_block) && schema.set_document(schema_block.document()) &&
+        schema.resolve(schema_error));
+    CLiveInstances order;
+    SInstanceDiagnostic error;
+    alignas(128) std::uint8_t first_bytes[128] = { 1u, 2u };
+    alignas(128) std::uint8_t second_bytes[128] = { 3u, 4u };
+    const CInstanceHandle first = order.initialise(schema) ? order.capture_base(CStringView{ "Pair" },
+        CStringView{ "first" }, CByteConstView{ first_bytes, 2u, 128u }, error) : CInstanceHandle{};
+    const CInstanceHandle second = order.capture_base(CStringView{ "Pair" }, CStringView{ "second" },
+        CByteConstView{ second_bytes, 2u, 128u }, error);
+    CLiveDocument values;
+    TEST_EXPECT(ctx, parse_live(R"({"selection":{"b":9}})", values));
+    const CInstanceDocumentQuery query{ values };
+    const CInstanceHandle child = order.create_specialisation(first, CStringView{ "same" }, query,
+        query.object_child(query.root(), CStringView{ "selection" }), error);
+    const CInstanceHandle other_child = order.create_specialisation(second, CStringView{ "same" }, query,
+        query.object_child(query.root(), CStringView{ "selection" }), error);
+    const CInstanceHandle empty = order.capture_base(CStringView{ "Empty" }, CStringView{ "zero" }, {}, error);
+    alignas(128) std::uint8_t odd_bytes[128] = { 5u };
+    alignas(128) std::uint8_t wide_bytes[128] = { 6u, 0u, 0u, 0u };
+    const CInstanceHandle odd = order.capture_base(CStringView{ "Odd" }, CStringView{ "odd" },
+        CByteConstView{ odd_bytes, 1u, 128u }, error);
+    const CInstanceHandle wide = order.capture_base(CStringView{ "Wide" }, CStringView{ "wide" },
+        CByteConstView{ wide_bytes, 4u, 128u }, error);
+    TEST_EXPECT(ctx, first && second && child && other_child && empty && odd && wide);
+    CBakedDocumentBlock block;
+    CByteBuffer payload;
+    CBakedInstances demoted;
+    TEST_EXPECT(ctx, order.demote(block, payload, demoted, schema, EDataOutputForm::embedded, error));
+    const CInstanceHandle baked_first = demoted.find_base(CStringView{ "Pair" }, CStringView{ "first" });
+    const CInstanceHandle baked_second = demoted.find_base(CStringView{ "Pair" }, CStringView{ "second" });
+    SInstanceEntryView view;
+    TEST_EXPECT(ctx, demoted.entry(baked_first, view) && view.offset == 0u &&
+        demoted.entry(demoted.find_specialisation(baked_first, CStringView{ "same" }), view) &&
+        view.offset == 2u && view.bytes[1] == 9u &&
+        demoted.entry(baked_second, view) && view.offset == 4u &&
+        demoted.entry(demoted.find_base(CStringView{ "Empty" }, CStringView{ "zero" }), view) &&
+        view.offset == 0u && view.byte_count == 0u && view.bytes == nullptr &&
+        demoted.entry(demoted.find_base(CStringView{ "Odd" }, CStringView{ "odd" }), view) &&
+        view.offset == 8u &&
+        demoted.entry(demoted.find_base(CStringView{ "Wide" }, CStringView{ "wide" }), view) &&
+        view.offset == 12u && payload.size() == 16u);
+    const std::uint8_t* const payload_data = payload.data();
+    order.clear();
+    CByteBuffer moved_payload{ std::move(payload) };
+    CBakedDocumentBlock moved_block{ std::move(block) };
+    TEST_EXPECT(ctx, demoted.loaded_ready() && demoted.payload_view().data() == payload_data &&
+        demoted.entry(baked_first, view) && view.bytes[0] == 1u &&
+        moved_payload.data() == payload_data && moved_block.is_ready());
+    CBakedDocumentBlock legacy_empty_block;
+    TEST_EXPECT(ctx, bake(R"({"instances":{"Pair":{"one":{"locator":{"offset":0,"valid":true}}},
+        "Empty":{"zero":{"locator":{"offset":2,"valid":true}}}}})", legacy_empty_block));
+    CBakedInstances legacy_empty;
+    TEST_EXPECT(ctx, legacy_empty.set_document(legacy_empty_block.document()) && legacy_empty.bind_schema(schema) &&
+        legacy_empty.load_supplied(CByteConstView{ first_bytes, 2u, 128u }, false, error));
+
+    const std::string stale_text = R"({"instances":{"Pair":{"base":{
+        "locator":{"offset":0,"valid":true},"declaration":{"a":1,"b":2},
+        "specialisation":{"child":{"locator":{"offset":2,"valid":true},
+            "declaration":{"b":4}}}}}}})";
+    CBakedDocumentBlock stale_block;
+    TEST_EXPECT(ctx, bake(stale_text, stale_block));
+    alignas(128) std::uint8_t stale_bytes[128] = { 1u, 2u, 1u, 9u };
+    CBakedInstances stale;
+    CLiveInstances stale_live;
+    TEST_EXPECT(ctx, stale.set_document(stale_block.document()) && stale.bind_schema(schema) &&
+        stale.load_supplied(CByteConstView{ stale_bytes, 4u, 128u }, false, error) &&
+        stale.promote(stale_live, schema, error));
+    CLiveDocument embedded;
+    CByteBuffer embedded_payload;
+    TEST_EXPECT(ctx, stale_live.prepare_output(embedded, embedded_payload, schema,
+        EDataOutputForm::embedded, error));
+    const CNodeKey instances = embedded.object_child(embedded.root(), CStringView{ "instances" });
+    const CNodeKey group = embedded.object_child(instances, CStringView{ "Pair" });
+    const CNodeKey base = embedded.object_child(group, CStringView{ "base" });
+    const CNodeKey specialisations = embedded.object_child(base, CStringView{ "specialisation" });
+    const CNodeKey output_child = embedded.object_child(specialisations, CStringView{ "child" });
+    const CNodeKey declaration = embedded.object_child(output_child, CStringView{ "declaration" });
+    std::uint64_t selected{};
+    TEST_EXPECT(ctx, embedded.unsigned_integer_value(embedded.object_child(declaration, CStringView{ "b" }),
+        selected) && selected == 9u && !embedded.object_child(declaration, CStringView{ "a" }));
+    alignas(128) std::uint8_t child_mismatch_bytes[128] = { 1u, 2u, 7u, 9u };
+    CBakedInstances child_mismatch;
+    CLiveInstances child_mismatch_live;
+    TEST_EXPECT(ctx, child_mismatch.set_document(stale_block.document()) && child_mismatch.bind_schema(schema) &&
+        child_mismatch.load_supplied(CByteConstView{ child_mismatch_bytes, 4u, 128u }, false, error) &&
+        child_mismatch.promote(child_mismatch_live, schema, error));
+    CLiveDocument rejected_child;
+    CByteBuffer rejected_child_payload;
+    TEST_EXPECT(ctx, !child_mismatch_live.prepare_output(rejected_child, rejected_child_payload, schema,
+        EDataOutputForm::embedded, error) && error.reason == EInstanceLoadReason::unrepresentable_value &&
+        error.occurrence == child_mismatch_live.find_specialisation(
+            child_mismatch_live.find_base(CStringView{ "Pair" }, CStringView{ "base" }), CStringView{ "child" }) &&
+        !rejected_child.is_ready() && !rejected_child_payload.is_ready());
+    TEST_EXPECT(ctx, child_mismatch_live.prepare_output(rejected_child, rejected_child_payload, schema,
+        EDataOutputForm::external, error) && rejected_child_payload.size() == 4u &&
+        rejected_child_payload.data()[2] == 7u && rejected_child_payload.data()[3] == 9u);
+
+    const std::string omitted_text = R"({"instances":{"Pair":{"base":{
+        "locator":{"offset":0,"valid":true},"declaration":{"a":1}}}}})";
+    CBakedDocumentBlock omitted_block;
+    TEST_EXPECT(ctx, bake(omitted_text, omitted_block));
+    alignas(128) std::uint8_t omitted_bytes[128] = { 1u, 7u };
+    CBakedInstances omitted;
+    CLiveInstances omitted_live;
+    TEST_EXPECT(ctx, omitted.set_document(omitted_block.document()) && omitted.bind_schema(schema) &&
+        omitted.load_supplied(CByteConstView{ omitted_bytes, 2u, 128u }, false, error) &&
+        omitted.promote(omitted_live, schema, error));
+    CLiveDocument rejected;
+    CByteBuffer rejected_payload;
+    TEST_EXPECT(ctx, !omitted_live.prepare_output(rejected, rejected_payload, schema,
+        EDataOutputForm::embedded, error) &&
+        error.reason == EInstanceLoadReason::unrepresentable_value && error.occurrence &&
+        !rejected.is_ready() && !rejected_payload.is_ready());
+    TEST_EXPECT(ctx, omitted_live.prepare_output(rejected, rejected_payload, schema,
+        EDataOutputForm::external, error) && rejected.is_ready() && rejected_payload.is_ready());
+    std::string shifted_definitions = definitions;
+    shifted_definitions.insert(shifted_definitions.find("\"Pair\""), "\"Ahead\":{\"members\":[]},");
+    CBakedDocumentBlock shifted_block;
+    CBakedSchema shifted_schema;
+    TEST_EXPECT(ctx, bake(shifted_definitions, shifted_block) &&
+        shifted_schema.set_document(shifted_block.document()) && shifted_schema.resolve(schema_error) &&
+        schema.resolved()->find_type(CStringView{ "Pair" }) !=
+            shifted_schema.resolved()->find_type(CStringView{ "Pair" }));
+    CLiveDocument shifted_output;
+    CByteBuffer shifted_payload;
+    TEST_EXPECT(ctx, stale_live.prepare_output(shifted_output, shifted_payload, shifted_schema,
+        EDataOutputForm::embedded, error));
+    std::string changed_definitions = definitions;
+    const std::size_t field = changed_definitions.find("\"a\":{\"type\":\"u8\"}");
+    TEST_EXPECT(ctx, field != std::string::npos);
+    changed_definitions.replace(field, std::strlen("\"a\":{\"type\":\"u8\"}"),
+        "\"a\":{\"type\":\"u8\",\"default\":1}");
+    CBakedDocumentBlock changed_block;
+    CBakedSchema changed_schema;
+    TEST_EXPECT(ctx, bake(changed_definitions, changed_block) &&
+        changed_schema.set_document(changed_block.document()) && changed_schema.resolve(schema_error));
+    CLiveDocument incompatible_output;
+    CByteBuffer incompatible_payload;
+    TEST_EXPECT(ctx, !stale_live.prepare_output(incompatible_output, incompatible_payload, changed_schema,
+        EDataOutputForm::embedded, error) && error.reason == EInstanceLoadReason::incompatible_schema &&
+        !incompatible_output.is_ready() && !incompatible_payload.is_ready());
+
+    const std::string scalar_definitions = R"({"types":{"structures":{"ScalarBag":{"members":[
+        {"rows":{"type":{"element":"u8","count":1}}}]}}}})";
+    CBakedDocumentBlock scalar_schema_block, scalar_source_block;
+    CBakedSchema scalar_schema;
+    TEST_EXPECT(ctx, bake(scalar_definitions, scalar_schema_block) &&
+        scalar_schema.set_document(scalar_schema_block.document()) && scalar_schema.resolve(schema_error) &&
+        bake(R"({"instances":{"ScalarBag":{"base":{"locator":{"offset":0,"valid":true},
+            "declaration":{"rows":[1]},
+            "specialisation":{"child":{"locator":{"offset":1,"valid":true},
+                "declaration":{"rows":[{"x":9}]}}}}}}})", scalar_source_block));
+    alignas(128) std::uint8_t scalar_bytes[128] = { 1u, 9u };
+    CBakedInstances scalar_source;
+    CLiveInstances scalar_live;
+    TEST_EXPECT(ctx, scalar_source.set_document(scalar_source_block.document()) &&
+        scalar_source.bind_schema(scalar_schema) &&
+        scalar_source.load_supplied(CByteConstView{ scalar_bytes, 2u, 128u }, false, error) &&
+        scalar_source.promote(scalar_live, scalar_schema, error));
+    CLiveDocument scalar_output;
+    CByteBuffer scalar_payload;
+    TEST_EXPECT(ctx, !scalar_live.prepare_output(scalar_output, scalar_payload, scalar_schema,
+        EDataOutputForm::embedded, error) && error.reason == EInstanceLoadReason::unrepresentable_value &&
+        error.occurrence == scalar_live.find_specialisation(
+            scalar_live.find_base(CStringView{ "ScalarBag" }, CStringView{ "base" }), CStringView{ "child" }) &&
+        !scalar_output.is_ready() && !scalar_payload.is_ready());
+    alignas(128) std::uint8_t scalar_changed[128] = { 7u };
+    TEST_EXPECT(ctx, !scalar_live.capture_base(CStringView{ "ScalarBag" }, CStringView{ "base" },
+        CByteConstView{ scalar_changed, 1u, 128u }, error) &&
+        error.reason == EInstanceLoadReason::invalid_declaration);
+
+    const std::string scalar_edge_definitions = R"({"types":{"enumerations":{
+        "Mode":{"storage":"u8","values":{"normal":2}}},"structures":{
+        "ScalarEdge":{"members":[{"flag":{"type":"b8"}},{"mode":{"type":"Mode"}}]}}}})";
+    CBakedDocumentBlock edge_schema_block, edge_source_block;
+    CBakedSchema edge_schema;
+    TEST_EXPECT(ctx, bake(scalar_edge_definitions, edge_schema_block) &&
+        edge_schema.set_document(edge_schema_block.document()) && edge_schema.resolve(schema_error) &&
+        bake(R"({"instances":{"ScalarEdge":{"edge":{"locator":{"offset":0,"valid":true},
+            "declaration":{"flag":true,"mode":"normal"}}}}})", edge_source_block));
+    alignas(128) std::uint8_t unusual_boolean[128] = { 2u, 2u };
+    CBakedInstances edge_source;
+    CLiveInstances edge_live;
+    TEST_EXPECT(ctx, edge_source.set_document(edge_source_block.document()) &&
+        edge_source.bind_schema(edge_schema) &&
+        edge_source.load_supplied(CByteConstView{ unusual_boolean, 2u, 128u }, false, error) &&
+        edge_source.promote(edge_live, edge_schema, error));
+    CLiveDocument edge_external;
+    CByteBuffer edge_payload;
+    TEST_EXPECT(ctx, edge_live.prepare_output(edge_external, edge_payload, edge_schema,
+        EDataOutputForm::external, error) && edge_payload.size() == 2u &&
+        edge_payload.data()[0] == 2u && edge_payload.data()[1] == 2u);
+    CLiveDocument edge_embedded;
+    CByteBuffer edge_embedded_payload;
+    TEST_EXPECT(ctx, !edge_live.prepare_output(edge_embedded, edge_embedded_payload, edge_schema,
+        EDataOutputForm::embedded, error) && error.reason == EInstanceLoadReason::unrepresentable_value &&
+        !edge_embedded.is_ready() && !edge_embedded_payload.is_ready());
+    unusual_boolean[0] = 1u;
+    unusual_boolean[1] = 5u;
+    CBakedInstances unknown_enum_source;
+    CLiveInstances unknown_enum_live;
+    TEST_EXPECT(ctx, unknown_enum_source.set_document(edge_source_block.document()) &&
+        unknown_enum_source.bind_schema(edge_schema) &&
+        unknown_enum_source.load_supplied(CByteConstView{ unusual_boolean, 2u, 128u }, false, error) &&
+        unknown_enum_source.promote(unknown_enum_live, edge_schema, error));
+    CLiveDocument unknown_external;
+    CByteBuffer unknown_payload;
+    TEST_EXPECT(ctx, unknown_enum_live.prepare_output(unknown_external, unknown_payload, edge_schema,
+        EDataOutputForm::external, error) && unknown_payload.data()[1] == 5u);
+    CLiveDocument unknown_embedded;
+    CByteBuffer unknown_embedded_payload;
+    TEST_EXPECT(ctx, !unknown_enum_live.prepare_output(unknown_embedded, unknown_embedded_payload,
+        edge_schema, EDataOutputForm::embedded, error) &&
+        error.reason == EInstanceLoadReason::unrepresentable_value);
+
+    CLiveDocument live_schema_document;
+    CLiveSchema live_schema;
+    TEST_EXPECT(ctx, parse_live(definitions, live_schema_document) &&
+        live_schema.try_adopt(std::move(live_schema_document)) && live_schema.resolve(schema_error));
+    CLiveDocument live_schema_output;
+    CByteBuffer live_schema_payload;
+    TEST_EXPECT(ctx, stale_live.prepare_output(live_schema_output, live_schema_payload, live_schema,
+        EDataOutputForm::embedded, error));
+    CBakedDocumentBlock live_schema_block;
+    CByteBuffer live_schema_demoted_payload;
+    CBakedInstances live_schema_role;
+    TEST_EXPECT(ctx, stale_live.demote(live_schema_block, live_schema_demoted_payload, live_schema_role,
+        live_schema, EDataOutputForm::external, error) && live_schema_role.loaded_ready());
+    CLiveDocument occupied;
+    CByteBuffer occupied_payload;
+    TEST_EXPECT(ctx, occupied.initialise());
+    TEST_EXPECT(ctx, !stale_live.prepare_output(occupied, occupied_payload, schema,
+        EDataOutputForm::embedded, error) && error.reason == EInstanceLoadReason::invalid_input &&
+        occupied.is_ready() && !occupied_payload.is_ready());
+    const std::uint8_t* const occupied_bytes = moved_payload.data();
+    TEST_EXPECT(ctx, !stale_live.demote(moved_block, moved_payload, demoted, schema,
+        EDataOutputForm::embedded, error) && error.reason == EInstanceLoadReason::invalid_input &&
+        moved_block.is_ready() && moved_payload.data() == occupied_bytes && demoted.loaded_ready());
+    CLiveInstances no_instances;
+    TEST_EXPECT(ctx, no_instances.initialise(schema));
+    CLiveDocument no_instances_document;
+    CByteBuffer no_instances_payload;
+    TEST_EXPECT(ctx, no_instances.prepare_output(no_instances_document, no_instances_payload, schema,
+        EDataOutputForm::embedded, error) && no_instances_document.is_ready() &&
+        !no_instances_payload.is_ready());
+    CBakedDocumentBlock no_instances_block;
+    CBakedInstances no_instances_role;
+    CByteBuffer no_instances_demoted_payload;
+    TEST_EXPECT(ctx, no_instances.demote(no_instances_block, no_instances_demoted_payload,
+        no_instances_role, schema, EDataOutputForm::embedded, error) &&
+        no_instances_role.loaded_ready() && !no_instances_demoted_payload.is_ready());
+    CLiveInstances zero_only;
+    TEST_EXPECT(ctx, zero_only.initialise(schema) &&
+        zero_only.capture_base(CStringView{ "Empty" }, CStringView{ "zero" }, {}, error));
+    CBakedDocumentBlock zero_block;
+    CByteBuffer zero_payload;
+    CBakedInstances zero_role;
+    TEST_EXPECT(ctx, zero_only.demote(zero_block, zero_payload, zero_role, schema,
+        EDataOutputForm::embedded, error) && zero_role.loaded_ready() &&
+        !zero_payload.is_ready() && zero_role.entry(zero_role.find_base(CStringView{ "Empty" },
+            CStringView{ "zero" }), view) && view.byte_count == 0u && view.offset == 0u);
+
+    const CInstanceHandle stale_base_handle = stale_live.find_base(CStringView{ "Pair" }, CStringView{ "base" });
+    const CInstanceHandle stale_child_handle = stale_live.find_specialisation(stale_base_handle, CStringView{ "child" });
+    const std::size_t bindings = schema.reference_count();
+    std::size_t output_failures{}, output_successes{};
+    for (std::size_t failure_offset = 0u; (failure_offset < 160u) && (output_successes == 0u); ++failure_offset)
+    {
+        SFailingAllocator failing{ 0u, SIZE_MAX };
+        memory::CMemoryAllocator allocator{ &failing, &allocate_with_failure, &tests::deallocate_test_memory };
+        memory::CMemoryContext context{ allocator };
+        {
+            tests::TMemoryContextScope scope{ &context };
+            CLiveDocument attempt_document;
+            CByteBuffer attempt_payload;
+            failing.fail_on = failing.calls + failure_offset;
+            if (stale_live.prepare_output(attempt_document, attempt_payload, schema,
+                EDataOutputForm::embedded, error))
+            {
+                ++output_successes;
+                TEST_EXPECT(ctx, attempt_document.is_ready() && attempt_payload.is_ready());
+            }
+            else
+            {
+                ++output_failures;
+                TEST_EXPECT(ctx, error.reason == EInstanceLoadReason::allocation_failed &&
+                    !attempt_document.is_ready() && !attempt_payload.is_ready());
+            }
+            SInstanceEntryView source_view;
+            std::uint64_t old_literal{};
+            const CInstanceDocumentQuery source_query = stale_live.document_query();
+            TEST_EXPECT(ctx, stale_live.entry(stale_child_handle, source_view) &&
+                source_view.bytes[0] == 1u && source_view.bytes[1] == 9u &&
+                source_query.unsigned_integer_value(source_query.object_child(source_view.declaration,
+                    CStringView{ "b" }), old_literal) && old_literal == 4u &&
+                (schema.reference_count() == bindings));
+        }
+        TEST_EXPECT(ctx, context.is_attribution_empty() && (schema.reference_count() == bindings));
+    }
+    TEST_EXPECT(ctx, (output_failures >= 3u) && (output_successes == 1u) && stale_live.loaded_ready());
+    std::size_t demote_failures{}, demote_successes{};
+    for (std::size_t failure_offset = 0u; (failure_offset < 240u) && (demote_successes == 0u); ++failure_offset)
+    {
+        SFailingAllocator failing{ 0u, SIZE_MAX };
+        memory::CMemoryAllocator allocator{ &failing, &allocate_with_failure, &tests::deallocate_test_memory };
+        memory::CMemoryContext context{ allocator };
+        {
+            tests::TMemoryContextScope scope{ &context };
+            CBakedDocumentBlock attempt_block;
+            CByteBuffer attempt_payload;
+            CBakedInstances attempt_role;
+            failing.fail_on = failing.calls + failure_offset;
+            if (stale_live.demote(attempt_block, attempt_payload, attempt_role, schema,
+                EDataOutputForm::embedded, error))
+            {
+                ++demote_successes;
+                TEST_EXPECT(ctx, attempt_block.is_ready() && attempt_payload.is_ready() &&
+                    attempt_role.loaded_ready() && (schema.reference_count() == (bindings + 1u)));
+            }
+            else
+            {
+                ++demote_failures;
+                TEST_EXPECT(ctx, error.reason == EInstanceLoadReason::allocation_failed &&
+                    !attempt_block.is_ready() && !attempt_payload.is_ready() &&
+                    !attempt_role.document_ready() && (schema.reference_count() == bindings));
+            }
+            SInstanceEntryView source_view;
+            std::uint64_t old_literal{};
+            const CInstanceDocumentQuery source_query = stale_live.document_query();
+            TEST_EXPECT(ctx, stale_live.entry(stale_child_handle, source_view) &&
+                source_view.bytes[0] == 1u && source_view.bytes[1] == 9u &&
+                source_query.unsigned_integer_value(source_query.object_child(source_view.declaration,
+                    CStringView{ "b" }), old_literal) && old_literal == 4u);
+        }
+        TEST_EXPECT(ctx, context.is_attribution_empty() && (schema.reference_count() == bindings));
+    }
+    TEST_EXPECT(ctx, (demote_failures >= 3u) && (demote_successes == 1u) && stale_live.loaded_ready());
+}
+
 static void test_live_instance_boundaries(TTestContext& ctx)
 {
     const std::string definitions = R"({"types":{"structures":{
@@ -4970,6 +5518,8 @@ int run_schema_tests()
     schema_tests::test_live_bulk_failures_and_matching(ctx);
     schema_tests::test_baked_instances(ctx);
     schema_tests::test_live_instances(ctx);
+    schema_tests::test_live_instance_output(ctx);
+    schema_tests::test_live_instance_output_boundaries(ctx);
     schema_tests::test_live_instance_boundaries(ctx);
     schema_tests::test_baked_instance_rejections(ctx);
     schema_tests::test_baked_instance_boundaries(ctx);

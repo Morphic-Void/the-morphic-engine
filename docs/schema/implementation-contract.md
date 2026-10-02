@@ -730,14 +730,24 @@ validation and user manual review; the user authorised its commit on 1 October.
 Stage 5b was committed as `4386e06`. The user authorised continuation into stage 6;
 the existing implementer's bounded output/demotion proposal passed coordinator
 review. Stage 6a bulk output and demotion has passed coordinator review,
-validation and user manual review, with commit authorised on 1 October;
-stage 6b instances remains pending.
+validation and user manual review and was committed as `80c5681` on 1 October.
+Stage 6b instances was authorised to continue on 2 October and has passed
+coordinator review, validation and user manual review. The user made only
+line-break changes and authorised the commit, including the later review notes,
+on 2 October.
 The user
 confirmed that embedded instance output must reject inconsistent unselected
 inherited values rather than change selection intent, and embedded output uses
 the existing encoded-field comparison rule (NaNs equal, padding/unused bits ignored).
 Values without a faithful embedded spelling are rejected; external output remains
 available. Stages 7-9 remain planned.
+On 2 October the user confirmed that embedded output must also reject omitted
+base fields whose saved values disagree with schema defaults, preserving omission
+rather than adding selections. Binary-backed output remains available.
+The user also approved recognising parser-normalised singleton compound
+selections in array/positional contexts within schema handling. Preserve the
+selected member or bitfield through reload and subsequent edits without changing
+the parser, widening selections or restricting output to baked documents.
 The intended handoff to a fresh implementing chat is at stage 5, after completion
 of the baked loaders, with this coordinator retaining requirements and review.
 During that review, the user clarified that specialisations are independent
@@ -962,8 +972,47 @@ matrix was not repeated. Final expression-parenthesisation changes were reviewed
 without repeating the passing platform matrix. Diff/text checks passed, including
 the new header and preserved Visual Studio CRLF, BOM and final-newline conventions.
 The user's final changes were line breaks only. Stage 6a has passed user manual
-review, with commit authorised on 1 October. Instance output and its
-hierarchy/selection checks remain stage 6b.
+review, with commit authorised on 1 October, and was committed as `80c5681`.
+
+Stage 6b adds independent instance output preparation and non-destructive demotion
+against an explicit baked or live destination schema. Compatibility includes
+effective defaults. Complete snapshots are packed in parent-before-child document
+order, with separate returned document-block and payload owners. External output
+retains declaration values and exact snapshots. Embedded output refreshes only
+selected values from binary, then reconstructs the hierarchy and checks encoded
+fields. Omitted base fields and unselected inherited fields must reproduce the
+snapshot without adding selections. Noncanonical Boolean codes and unlabelled
+enum values remain available through external output.
+
+The agreed singleton-selection extension uses explicit traversal context in the
+value codec and live selection helpers. Named compound selections simplified by
+the existing parser retain their meaning inside fixed arrays and positional
+structures, including nested object/array values and bitfields. Named scalar
+entries remain invalid. No parser change is required. The baked instance loader
+accepts canonical zero-byte extents at offset zero without resetting its packing
+cursor, while retaining previously valid nonzero empty locators.
+
+Review and tests cover document order differing from insertion order, same-named
+branches, alignment gaps, mixed nonempty/empty extents, shifted destination type
+indices, stale selected literals, equal-to-parent and empty selections, omitted
+base and inherited-child mismatch diagnostics, both writer dialects, embedded
+materialisation without supplied bytes, and subsequent parent/selection edits.
+The schema example exercises instance demotion and reload. Owner moves and source
+disposal leave returned roles usable. Allocation-failure sweeps reach success
+while verifying unchanged source declarations/snapshots, empty failed outputs,
+released allocations and restored binding counts. Empty documents, zero-byte-only
+roles and occupied destinations are covered.
+
+Debug x64, Release x64 and Debug x86 solution builds and ordinary `-t1` suites
+passed with 5,682 schema checks and zero failures throughout:
+`stage6b-final-review` (PID 40572), `stage6b-rel64` (PID 80380), and
+`stage6b-dbg32` (PID 80836). The coordinator inspected actual native build/test
+results, all returning zero. An x86 warning in a sample assertion was corrected
+with explicit size conversions and the affected builds were clean. The already
+passing Debug x64 suite was not repeated for that conversion. Resolved layouts
+and record sizes are unchanged, so the generated-layout compiler matrix was not
+repeated. Final diff and line-ending checks passed. The user completed manual
+review with only line-break changes and authorised the commit on 2 October.
 
 Stage 1 is complete and committed independently as
 `d92dddd`; its code, tests and data-model documentation exclude schema planning.
@@ -1063,6 +1112,15 @@ application-critical allocation-failure handling without a rollback framework.
 Deliver bulk output/demotion/reload first (6a), then the corresponding instance
 hierarchy and selection-preservation work (6b), each with its own review boundary.
 
+Stage 6b includes the agreed schema interpretation of parser-normalised singleton
+compound selections in fixed arrays and positional structure declarations.
+Verify nested compound values without interpreting their outer member name twice,
+reject named scalar entries, and exercise reload followed by ancestor edits to
+prove that selection intent survives. Embedded output refreshes selected values
+from snapshots and rejects omitted-value mismatches, including base defaults;
+external output retains declarations and exact complete snapshots. Destination
+compatibility includes effective defaults, as for instance promotion.
+
 Build separate output documents and packed payload buffers in document traversal
 order, rewriting output locators. Implement data demotion with separately returned
 document-block and payload owners. Support the agreed embedded/external choices
@@ -1107,6 +1165,13 @@ Other provisional areas include code style, API consistency and agreement betwee
 implementation and documentation. Review file organisation and responsibility
 boundaries as well, including whether small shared headers such as
 `data_output.hpp` justify a separate file or belong with related declarations.
+
+Across the schema work, review repeated `128u` byte-buffer allocation alignment
+values and consider a shared named `constexpr` expressing their common
+requirement. Review functions with long parameter lists for opportunities to
+improve decomposition and responsibility boundaries, or to hold common context
+in an appropriate class or structure. The aim is to identify shared context and
+coherent responsibilities, rather than merely bundle arguments together.
 
 Discuss the detailed scope and acceptance criteria with the user when this stage
 is reached. This entry reserves the review stage; it does not authorise starting

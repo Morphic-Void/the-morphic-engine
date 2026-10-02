@@ -1649,11 +1649,31 @@ Embedded/binary comparison on load is optional; when disabled, binary snapshots
 remain authoritative until an edit. Loading supplied binary does not reconstruct
 it from declarations. Exact source text and alias spellings need not survive.
 
+Embedded output refreshes selected declaration values from the authoritative
+snapshot while retaining which fields were selected, including selections equal
+to their parent. It does not modify the source document. External output retains
+the declarations alongside the complete copied snapshots without requiring
+their values to agree.
+
 Embedded instance output rejects authoritative snapshots whose unselected values
 disagree with the values inherited through their declarations. It reports a
 diagnostic without adding selections or changing saved values; the source remains
 unchanged and binary-backed output remains available. This preserves selection
 intent within the existing hierarchy grammar.
+
+The same rule applies to base instances: omitted fields retain their omission
+and must reconstruct from schema defaults. Embedded output rejects a base
+snapshot that disagrees with those defaults rather than adding selections.
+
+Schema interpretation recognises singleton compound selections unwrapped by the
+text parser inside arrays. For an array element whose structure has members
+`a` and `b`, `[{b:9}]` selects only `b` even when its document form is a named
+`b` value directly in the array. The same interpretation applies to bit-structure
+selections and compound values in positional declarations. Loading, promotion,
+output and subsequent edits preserve that selection without adding omitted
+members. Recognition is contextual to compound values; named scalar array
+elements remain invalid. No text-parser change or baked-only restriction is
+required.
 
 For both roles, embedded output must round-trip under the existing encoded-field
 comparison rule: NaNs compare equal, while padding and unused bits are ignored.

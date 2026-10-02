@@ -61,6 +61,20 @@ void CBakedInstances::clear() noexcept
     m_document.clear();
 }
 
+void CBakedInstances::take_from(CBakedInstances& source) noexcept
+{
+    m_document = source.m_document;
+    m_mutable = source.m_mutable;
+    m_binding = std::move(source.m_binding);
+    m_payload = source.m_payload;
+    m_records = std::move(source.m_records);
+    m_loaded = source.m_loaded;
+    source.m_document.clear();
+    source.m_mutable.clear();
+    source.m_payload = {};
+    source.m_loaded = false;
+}
+
 bool CBakedInstances::set_document(const CBakedDocument& document) noexcept
 {
     if (document_ready() || m_binding.is_attached() || !document.is_ready())
@@ -347,12 +361,13 @@ bool CBakedInstances::plan(const bool supplied, const std::size_t supplied_size,
             {
                 return fail(diagnostic, EInstanceLoadReason::invalid_range, locator);
             }
-            if ((offset < cursor) || (offset > UINT32_MAX) || (offset > memory::k_byte_size_ceiling) ||
+            if (((offset < cursor) && ((layout.size != 0u) || (offset != 0u))) ||
+                (offset > UINT32_MAX) || (offset > memory::k_byte_size_ceiling) ||
                 ((offset & (layout.alignment - 1u)) != 0u) ||
                 (layout.size > (memory::k_byte_size_ceiling - offset)))
             {
-                return fail(diagnostic, (offset < cursor) ? EInstanceLoadReason::overlap : EInstanceLoadReason::invalid_range,
-                    locator);
+                const bool overlap = (offset < cursor) && ((layout.size != 0u) || (offset != 0u));
+                return fail(diagnostic, (overlap ? EInstanceLoadReason::overlap : EInstanceLoadReason::invalid_range), locator);
             }
             const std::uint64_t end = offset + layout.size;
             if (supplied && (end > supplied_size))
@@ -384,7 +399,10 @@ bool CBakedInstances::plan(const bool supplied, const std::size_t supplied_size,
             {
                 return fail(diagnostic, EInstanceLoadReason::allocation_failed, instance);
             }
-            cursor = end;
+            if ((layout.size != 0u) || (offset != 0u))
+            {
+                cursor = end;
+            }
             scratch_cursor = scratch_offset + layout.size;
             const CBakedValueIndex child = m_document.first_child(specialisations);
             if (child.is_valid())

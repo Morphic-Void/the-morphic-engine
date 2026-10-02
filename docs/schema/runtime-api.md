@@ -475,6 +475,39 @@ existing entries; an unrecoverable failure after publication disables the
 role and reports a critical event. `clear()` releases the owned document,
 payload and binding.
 
+## Live instance output (stage 6b)
+
+`CLiveInstances::prepare_output(document, payload, destination_schema, form,
+diagnostic)` accepts an empty live document and unallocated payload, with an
+explicitly resolved baked or live destination schema. It checks every used
+type and its effective defaults for compatibility, then packs complete
+snapshots in document hierarchy order. Nonempty extents have type alignment;
+zero-byte extents use offset zero. A failed preparation leaves both outputs
+unpublished. Diagnostics identify a failing source occurrence where applicable.
+
+`EDataOutputForm::external` retains declaration values and selection shapes and
+copies authoritative binary snapshots exactly. The returned payload must be
+supplied when reloading. `embedded` keeps the same selected paths and empty
+aggregate selections, but synchronises selected scalar literals from the
+snapshots. It reconstructs bases from destination defaults and descendants
+from each reconstructed immediate parent. If an omitted or unselected value
+cannot reproduce the snapshot, or an encoded scalar cannot be represented by
+declaration values, output fails with `unrepresentable_value`. Comparison uses
+the same encoded-field comparison rules as the baked loader, including NaN equality
+and ignored padding and unused bits.
+
+`demote(block, payload, role, destination_schema, form, diagnostic)` prepares,
+bakes, binds and loads the output in temporary storage before publishing an
+independent baked block and payload owner. The returned role borrows those
+allocations and remains usable after the source live role is cleared. All
+demotion outputs must be empty; failure leaves all supplied destinations unchanged
+and preserves the source. Success does not consume the source. Embedded output
+can also be written as Morphic text or strict JSON, parsed, baked and
+materialised without a supplied payload. A parser-normalised named singleton
+inside an array or positional compound is interpreted as a selection of that
+compound's named member. This is contextual to a compound element; named
+scalar-array elements and unknown members remain invalid.
+
 ## Occurrence coverage
 
 The mapping is a sorted sparse table keyed by full live or baked occurrence
