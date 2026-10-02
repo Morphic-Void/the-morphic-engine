@@ -505,6 +505,13 @@ bool CLiveInstances::mutable_entry(const CInstanceHandle handle, SMutableInstanc
     return true;
 }
 
+bool CLiveInstances::clear_unused_storage(const EUnusedBits bits) noexcept
+{
+    const CResolvedSchema* const resolved = m_binding.resolved();
+    return loaded_ready() && resolved &&
+        schema::clear_unused_storage(*resolved, document_query(), m_payload.view(), bits);
+}
+
 CInstanceHandle CLiveInstances::append_instance(const CSchemaIndex type, const std::uint32_t parent,
     const CStringView& type_name, const CStringView& name, const detail::CDocumentRead& source,
     const detail::SOccurrence declaration, const CByteConstView& complete,

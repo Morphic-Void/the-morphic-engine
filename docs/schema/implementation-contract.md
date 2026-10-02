@@ -755,8 +755,14 @@ continuing through stage 7b and stage 8 on 2 October, retaining the staged
 coordinator review, user manual review and explicit commit checkpoints. Stage 7b
 has completed the coordinator-reviewed minimal adapter package: reuse existing
 entry views and add mutable live-instance access. It was validated and committed
-after coordinator and user review. Stage 8 remains an explicitly
-user-invoked unused-storage operation, with no automatic clearing. After stage 8,
+after coordinator and user review as `bbaa4bd`. Stage 8 has implemented the
+explicitly user-invoked unused-storage operation, with no automatic clearing.
+Coordinator review is complete; Debug x64, Release x64 and Debug x86 builds
+and ordinary test runs passed, each with 6,014 schema checks and no failures.
+The user completed manual review and authorised the commit on 2 October.
+Their final line-break and bracing edits passed an incremental Debug x64 build
+and full test run, again with 6,014 schema checks and no failures.
+After stage 8 and the requested remapping stride check,
 prepare a coordinator handover before stage 9; the user is considering a fresh
 coordinator for that review. Stage 9 has not been authorised to start.
 On 2 October the user confirmed that embedded output must also reject omitted
@@ -1254,14 +1260,36 @@ and handle APIs.
 ### 8. Optional unused-storage clearing
 
 Implement the explicit layout-driven pass, provisionally `clear_unused_storage`,
-covering nested/tail padding, unused bits and unreferenced bytes in the used buffer
-range. Preserve all addressable fields and locators; introduce no automatic
-construction zeroing. Reuse layout traversal support where appropriate.
+covering nested/tail padding and unreferenced bytes in the used buffer range.
+Preserve unused bitfield bits by default; clear them only through an explicitly
+enabled option, independently of byte-padding clearing. Preserve all addressable
+fields and locators; introduce no automatic construction zeroing. Reuse layout
+traversal support where appropriate.
+
+The reviewed implementation scope is a shared typed-buffer operation and
+instance/bulk document-query operations over caller-supplied writable used-payload
+views, plus live-role methods over owned backing. Baked roles remain read-only
+views; callers supply writable backing separately. Preflight schema/layout,
+view, locator and overlap checks precede writes, including any required
+allocation. Failure leaves bytes unchanged. The user confirmed that standalone
+typed views must have a byte size exactly divisible by the nonzero type stride.
+A remainder is invalid and rejects the entire view without processing a prefix.
+Standalone fixed-array types additionally require complete declared array values;
+the user confirmed that element-stride divisibility alone is insufficient.
+Document scope additionally clears unreferenced bytes within
+the supplied used range, without touching spare allocation capacity.
 
 Completion evidence: idempotence, bit-for-bit preservation of addressable values,
 clearing gaps imported by aggregate copies, and identical final unused bytes after
-clearing outputs that began with different padding contents. Exercise it after
+clearing outputs that began with different padding contents. Test default
+preservation and explicit clearing of unused bits. Exercise it after
 stage 6 packing and stage 7 transfers before binary output.
+
+After the clearing work is complete, the user requested a separate verification
+that remapping applies the same exact type-stride divisibility rule. The current
+stage 7 executor derives complete-record capacity and accepts partial trailing
+records, so inspect and resolve that difference before coordinator handover.
+Keep this follow-up out of the clearing implementation package.
 
 ### 9. Post-implementation review and consolidation
 

@@ -1195,14 +1195,25 @@ or array elements, so an enclosing structure exposes whether any of its
 storage contains gaps. The flag occupies bit zero of the private type record's
 control byte.
 
-Clearing unused storage is an optional, explicit operation. The proposed API
-name is `clear_unused_storage`; exact signatures remain implementation design
-work. It uses resolved layouts to zero internal and tail padding recursively
-through structures and arrays, and clears unused bitfield bits while preserving
-declared fields. At document-buffer scope, locator extents also identify gaps
+Clearing unused storage is an optional, explicit operation named
+`clear_unused_storage`; its typed-buffer, document-buffer and live-role entry
+points are described in [runtime-api.md](runtime-api.md). It uses resolved
+layouts to zero internal and tail padding recursively
+through structures and arrays. Unused bitfield bits are preserved by default;
+clearing them is a separately enabled option, which preserves every declared
+field bit. At document-buffer scope, locator extents also identify gaps
 between records/collections and other unreferenced bytes within the used payload
 range. Unused allocation capacity is outside that range. The pass does not
 compact storage, move records or change locators.
+
+A standalone typed-buffer call requires its byte-view size to be an exact
+multiple of the nonzero type stride. A remainder makes the entire view invalid;
+reject it without processing any records or changing bytes. For a standalone
+fixed-array type, the view must additionally contain complete declared array
+values: divisibility by element stride alone is insufficient. Document-buffer
+calls use locator extents to distinguish occupied storage from unreferenced bytes
+within the supplied used range. Preflight, including any needed allocation,
+completes before writes so failed clearing leaves the payload unchanged.
 
 Every addressable field is preserved bit-for-bit, including fields not selected
 by a particular remap. The operation neither applies defaults nor populates
@@ -1212,7 +1223,8 @@ it does not need a second schema representation or source-value buffer.
 
 This replaces mandatory pre-construction zeroing. Unpopulated bulk arrays have
 no zero-fill guarantee. Raw copies and whole-aggregate remaps continue to copy
-source padding; running the optional pass afterward removes that unused data.
+source padding; running the optional pass afterward removes byte padding and,
+when explicitly enabled, unused bitfield bits.
 For stable file output, run it after final packing/copying on the output buffer.
 Non-zero gaps remain legal when the caller elects not to clear them. Logical
 field initialisation remains separate from unused-storage clearing.
@@ -1517,7 +1529,8 @@ converted into this mask-based description with their base-type signedness
 retained; interpreting their source allocation still requires known ABI rules.
 Interpretations may include signed or unsigned integers, enums, normalised
 values, and raw bits.  Unused bits contribute to the common gap indication;
-the optional unused-storage pass clears them, as it does alignment padding.
+the optional unused-storage pass preserves them by default and clears them only
+when its unused-bit option is enabled. Byte padding is cleared in either mode.
 
 Packed texel formats should initially be constructed from this general
 bit-range machinery rather than introduced as primitive schema types.  Thus an
@@ -1617,7 +1630,8 @@ use of partially updated data. Critical severity does not by itself require a
 no-return panic when a safe no-further-processing state can be established.
 
 Named-bitfield updates preserve bits outside their selected masks. The optional
-unused-storage pass clears only bits not addressed by declared fields.
+unused-storage pass preserves those bits by default; its unused-bit option
+clears only bits not addressed by declared fields.
 Schema access requires its backing document to remain alive
 and its resolution to correspond to the definitions. Promotion can recreate the
 resolution against the live document; the result must no longer borrow the old

@@ -15,6 +15,7 @@
 
 #include "schema/baked_bulk_data.hpp"
 #include "schema/data_output.hpp"
+#include "schema/unused_storage.hpp"
 
 namespace schema
 {
@@ -49,6 +50,7 @@ public:
     [[nodiscard]] bool entry(const CBulkHandle handle, SBulkEntryView& result) const noexcept;
     [[nodiscard]] bool mutable_entry(const CBulkHandle handle, SMutableBulkEntryView& result) noexcept;
     [[nodiscard]] CByteConstView payload_view() const noexcept { return loaded_ready() ? m_payload.const_view() : CByteConstView{}; }
+    [[nodiscard]] bool clear_unused_storage(const EUnusedBits bits = EUnusedBits::preserve) noexcept;
 
     [[nodiscard]] CBulkHandle create_records(const CStringView& type, const CStringView& name,
         const CBulkDocumentQuery& source_query, const CBulkHandle records_array, SBulkDiagnostic& diagnostic) noexcept;

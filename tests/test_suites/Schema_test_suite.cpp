@@ -5481,6 +5481,339 @@ static void test_live_bulk_failures_and_matching(TTestContext& ctx)
         many) && many.count == UINT32_MAX && many.byte_count == 0u);
 }
 
+static void test_unused_storage_values(TTestContext& ctx)
+{
+    const std::string definitions = R"({"types":{
+        "structures":{
+            "Empty":{"members":[]},
+            "Inner":{"detail":{"size":4,"alignment":2},"members":[
+                {"value":{"type":"u16","offset":0}}]},
+            "Outer":{"detail":{"size":16,"alignment":16},"members":[
+                {"later":{"type":"Inner","offset":8}},
+                {"items":{"type":{"element":"Inner","count":2},"offset":0}}]},
+            "ScalarShell":{"detail":{"size":16,"alignment":4},"members":[
+                {"nan":{"type":"f32","offset":0}},
+                {"negative_zero":{"type":"f32","offset":4}},
+                {"boolean":{"type":"b8","offset":8}},
+                {"mode":{"type":"Mode","offset":9}},
+                {"bits":{"type":"Bits","offset":10}}]}
+        },"enumerations":{"Mode":{"storage":"u8","values":{"one":1}}},
+        "bit_structures":{
+            "Bits":{"storage":"u16","members":[{"low":{"type":"u8","mask":255}}]},
+            "Bits8":{"storage":"u8","members":[{"low":{"type":"u8","mask":15}}]},
+            "Bits32":{"storage":"u32","members":[{"low":{"type":"u8","mask":255}}]},
+            "Bits64":{"storage":"u64","members":[{"low":{"type":"u32","mask":4294967295}}]}
+        }}})";
+    CBakedDocumentBlock block;
+    CResolvedSchema schema;
+    if (!resolve(ctx, definitions, block, schema))
+    {
+        return;
+    }
+    const CSchemaIndex shell = schema.find_type(CStringView{ "ScalarShell" });
+    alignas(16) std::uint8_t bytes[16];
+    std::memset(bytes, 0xa5, sizeof(bytes));
+    const std::uint8_t nan_bits[]{ 0x01u, 0x00u, 0xc0u, 0x7fu };
+    const std::uint8_t negative_zero_bits[]{ 0x00u, 0x00u, 0x00u, 0x80u };
+    std::memcpy(bytes, nan_bits, sizeof(nan_bits));
+    std::memcpy(bytes + 4u, negative_zero_bits, sizeof(negative_zero_bits));
+    bytes[8] = 2u;
+    bytes[9] = 0x7fu;
+    bytes[10] = 0x5au;
+    std::uint8_t addressable[12];
+    std::memcpy(addressable, bytes, sizeof(addressable));
+    TEST_EXPECT(ctx, clear_unused_storage(schema, shell, CByteView{ bytes, sizeof(bytes), 16u }) &&
+        std::memcmp(bytes, addressable, sizeof(addressable)) == 0 &&
+        bytes[12] == 0u && bytes[13] == 0u && bytes[14] == 0u && bytes[15] == 0u);
+    std::uint8_t once[sizeof(bytes)];
+    std::memcpy(once, bytes, sizeof(once));
+    TEST_EXPECT(ctx, clear_unused_storage(schema, shell, CByteView{ bytes, sizeof(bytes), 16u }) &&
+        std::memcmp(bytes, once, sizeof(bytes)) == 0);
+    TEST_EXPECT(ctx, clear_unused_storage(schema, shell, CByteView{ bytes, sizeof(bytes), 16u },
+        EUnusedBits::clear) && std::memcmp(bytes, addressable, 11u) == 0 && bytes[11] == 0u);
+    bytes[11] = 0xf1u;
+    std::memset(bytes + 12u, 0x69, 4u);
+    TEST_EXPECT(ctx, clear_unused_storage(schema, shell, CByteView{ bytes, sizeof(bytes), 16u },
+        EUnusedBits::clear) && bytes[11] == 0u &&
+        std::memcmp(bytes, addressable, 11u) == 0 && std::memcmp(bytes + 12u, once + 12u, 4u) == 0);
+    alignas(16) std::uint8_t misaligned[17];
+    std::memset(misaligned, 0xa5, sizeof(misaligned));
+    TEST_EXPECT(ctx, !clear_unused_storage(schema, shell, CByteView{ misaligned + 1u, 16u, 1u }) &&
+        misaligned[1] == 0xa5u && misaligned[16] == 0xa5u);
+    bytes[12] = 0xa5u;
+    TEST_EXPECT(ctx, !clear_unused_storage(schema, shell, CByteView{ bytes, 15u, 16u }) &&
+        bytes[12] == 0xa5u);
+    bytes[12] = 0u;
+    const std::uint8_t before_invalid = bytes[10];
+    TEST_EXPECT(ctx, !clear_unused_storage(schema, shell, CByteView{ bytes, sizeof(bytes), 16u },
+        static_cast<EUnusedBits>(2u)) && bytes[10] == before_invalid);
+
+    std::uint8_t bits8{ 0xafu };
+    alignas(4) std::uint8_t bits32[]{ 0x5au, 0x91u, 0x82u, 0x73u };
+    alignas(8) std::uint8_t bits64[]{ 0x11u, 0x22u, 0x33u, 0x44u, 0x55u, 0x66u, 0x77u, 0x88u };
+    const CSchemaIndex type8 = schema.find_type(CStringView{ "Bits8" });
+    const CSchemaIndex type32 = schema.find_type(CStringView{ "Bits32" });
+    const CSchemaIndex type64 = schema.find_type(CStringView{ "Bits64" });
+    TEST_EXPECT(ctx, clear_unused_storage(schema, type8, CByteView{ &bits8, 1u }) && bits8 == 0xafu &&
+        clear_unused_storage(schema, type32, CByteView{ bits32, sizeof(bits32), 4u }) &&
+        bits32[1] == 0x91u &&
+        clear_unused_storage(schema, type64, CByteView{ bits64, sizeof(bits64), 8u }) &&
+        bits64[4] == 0x55u && bits64[7] == 0x88u);
+    TEST_EXPECT(ctx, clear_unused_storage(schema, type8, CByteView{ &bits8, 1u }, EUnusedBits::clear) &&
+        bits8 == 0x0fu &&
+        clear_unused_storage(schema, type32, CByteView{ bits32, sizeof(bits32), 4u }, EUnusedBits::clear) &&
+        bits32[0] == 0x5au && bits32[1] == 0u && bits32[2] == 0u && bits32[3] == 0u &&
+        clear_unused_storage(schema, type64, CByteView{ bits64, sizeof(bits64), 8u }, EUnusedBits::clear) &&
+        bits64[0] == 0x11u && bits64[1] == 0x22u && bits64[2] == 0x33u && bits64[3] == 0x44u &&
+        bits64[4] == 0u && bits64[5] == 0u && bits64[6] == 0u && bits64[7] == 0u);
+
+    const CSchemaIndex outer = schema.find_type(CStringView{ "Outer" });
+    alignas(16) std::uint8_t nested[16];
+    std::memset(nested, 0xa5, sizeof(nested));
+    nested[0] = 1u; nested[1] = 2u; nested[4] = 3u;
+    nested[5] = 4u; nested[8] = 5u; nested[9] = 6u;
+    TEST_EXPECT(ctx, clear_unused_storage(schema, outer, CByteView{ nested, sizeof(nested), 16u }));
+    for (std::size_t index = 0u; index < sizeof(nested); ++index)
+    {
+        const std::uint8_t expected = index == 0u ? 1u : index == 1u ? 2u :
+            index == 4u ? 3u : index == 5u ? 4u : index == 8u ? 5u : index == 9u ? 6u : 0u;
+        TEST_EXPECT(ctx, nested[index] == expected);
+    }
+    SMember array_member;
+    TEST_EXPECT(ctx, schema.member(schema.find_member(outer, CStringView{ "items" }), array_member));
+    alignas(16) std::uint8_t array_bytes[8];
+    std::memset(array_bytes, 0xa5, sizeof(array_bytes));
+    TEST_EXPECT(ctx, !clear_unused_storage(schema, array_member.type, CByteView{ array_bytes, 4u, 2u }) &&
+        !clear_unused_storage(schema, array_member.type, CByteView{ array_bytes, 6u, 2u }) &&
+        array_bytes[2] == 0xa5u && array_bytes[6] == 0xa5u);
+    TEST_EXPECT(ctx, clear_unused_storage(schema, array_member.type, CByteView{ array_bytes, 8u, 2u }) &&
+        array_bytes[0] == 0xa5u && array_bytes[2] == 0u &&
+        array_bytes[4] == 0xa5u && array_bytes[6] == 0u);
+    std::uint8_t one{ 0x8bu };
+    const CSchemaIndex empty = schema.find_type(CStringView{ "Empty" });
+    TEST_EXPECT(ctx, clear_unused_storage(schema, empty, CByteView{}) &&
+        !clear_unused_storage(schema, empty, CByteView{ &one, 1u }) && one == 0x8bu);
+}
+
+static void test_unused_storage_documents(TTestContext& ctx)
+{
+    const std::string definitions = R"({"types":{
+        "structures":{
+            "Tiny":{"members":[{"value":{"type":"u8"}}]},
+            "Padded":{"detail":{"size":4,"alignment":4},"members":[
+                {"bits":{"type":"Bits","offset":0}}]},
+            "Aligned":{"detail":{"size":16,"alignment":16},"members":[
+                {"nested":{"type":"Padded","offset":0}},
+                {"value":{"type":"u8","offset":4}}]},
+            "Empty":{"members":[]}
+        },"bit_structures":{"Bits":{"storage":"u16","members":[
+            {"low":{"type":"u8","mask":255}}]}}}})";
+    CBakedDocumentBlock schema_block;
+    CBakedSchema schema;
+    SDiagnostic schema_error;
+    const bool schema_ready = bake(definitions, schema_block) && schema.set_document(schema_block.document()) &&
+        schema.resolve(schema_error);
+    TEST_EXPECT(ctx, schema_ready);
+    if (!schema_ready)
+    {
+        return;
+    }
+    const CResolvedSchema* const resolved = schema.resolved();
+    const CSchemaIndex aligned_type = resolved->find_type(CStringView{ "Aligned" });
+    alignas(128) std::uint8_t first[128]{ 0x11u, 0xe1u, 0xa5u, 0xa5u };
+    alignas(128) std::uint8_t replacement[128]{ 0x31u, 0xe1u, 0xa5u, 0xa5u,
+        0x42u, 0xf2u, 0xa5u, 0xa5u };
+    alignas(128) std::uint8_t tiny[128]{ 0x55u };
+    alignas(128) std::uint8_t aligned[128];
+    std::memset(aligned, 0xa5, sizeof(aligned));
+    aligned[0] = 0x61u;
+    aligned[1] = 0xb3u;
+    aligned[4] = 0x71u;
+    CLiveBulkData bulk;
+    SBulkDiagnostic bulk_error;
+    const bool bulk_ready = bulk.initialise(schema) &&
+        bulk.capture(CStringView{ "Padded" }, CStringView{ "old" },
+            CByteConstView{ first, 4u, 128u }, 1u, bulk_error) &&
+        bulk.capture(CStringView{ "Tiny" }, CStringView{ "middle" },
+            CByteConstView{ tiny, 1u, 128u }, 1u, bulk_error) &&
+        bulk.capture(CStringView{ "Padded" }, CStringView{ "old" },
+            CByteConstView{ replacement, 8u, 128u }, 2u, bulk_error) &&
+        bulk.capture(CStringView{ "Aligned" }, CStringView{ "later" },
+            CByteConstView{ aligned, 16u, 128u }, 1u, bulk_error);
+    TEST_EXPECT(ctx, bulk_ready);
+    if (!bulk_ready)
+    {
+        return;
+    }
+    SBulkEntryView old_entry, tiny_entry, aligned_entry;
+    TEST_EXPECT(ctx, bulk.entry(bulk.find_entry(CStringView{ "Padded" }, CStringView{ "old" }), old_entry) &&
+        bulk.entry(bulk.find_entry(CStringView{ "Tiny" }, CStringView{ "middle" }), tiny_entry) &&
+        bulk.entry(bulk.find_entry(CStringView{ "Aligned" }, CStringView{ "later" }), aligned_entry) &&
+        old_entry.offset == 8u && old_entry.byte_count == 8u && tiny_entry.offset == 4u &&
+        aligned_entry.offset == 16u && bulk.payload_view().size() == 32u);
+
+    CLiveDocument packed_document;
+    CByteBuffer packed;
+    const bool packed_ready = bulk.prepare_output(packed_document, packed, schema, EDataOutputForm::external, bulk_error);
+    TEST_EXPECT(ctx, packed_ready);
+    if (!packed_ready)
+    {
+        return;
+    }
+    TEST_EXPECT(ctx, packed.size() == 32u && packed.reserve(64u, 128u) && packed.capacity() > packed.size());
+    packed.data()[packed.size()] = 0xeeu;
+    std::memset(packed.data() + 9u, 0x77, 7u);
+    std::memset(packed.data() + 2u, 0x88, 2u);
+    std::memset(packed.data() + 6u, 0x88, 2u);
+    SRemapDiagnostic remap_error;
+    CDataRemapPlan remap;
+    const SRemapSourceType remap_source{ resolved, aligned_type };
+    alignas(16) std::uint8_t imported[16];
+    std::memset(imported, 0x99, sizeof(imported));
+    imported[0] = 0x82u;
+    imported[1] = 0xd4u;
+    imported[4] = 0x93u;
+    const CByteConstView imported_view{ imported, sizeof(imported), 16u };
+    TEST_EXPECT(ctx, remap.initialise(&remap_source, 1u, *resolved, aligned_type, remap_error) &&
+        remap.execute(&imported_view, 1u, packed.view().subview(16u, 16u)) &&
+        packed.data()[18] == 0x99u && packed.data()[20] == 0x93u);
+    const CBulkDocumentQuery packed_query{ packed_document };
+    TEST_EXPECT(ctx, clear_unused_storage(*resolved, packed_query, packed.view()) &&
+        packed.data()[0] == 0x31u && packed.data()[1] == 0xe1u &&
+        packed.data()[2] == 0u && packed.data()[3] == 0u &&
+        packed.data()[4] == 0x42u && packed.data()[5] == 0xf2u &&
+        packed.data()[6] == 0u && packed.data()[7] == 0u && packed.data()[8] == 0x55u &&
+        packed.data()[16] == 0x82u && packed.data()[17] == 0xd4u &&
+        packed.data()[18] == 0u && packed.data()[19] == 0u && packed.data()[20] == 0x93u &&
+        packed.data()[packed.size()] == 0xeeu);
+    for (std::size_t index = 9u; index < 16u; ++index)
+    {
+        TEST_EXPECT(ctx, packed.data()[index] == 0u);
+    }
+    for (std::size_t index = 21u; index < packed.size(); ++index)
+    {
+        TEST_EXPECT(ctx, packed.data()[index] == 0u);
+    }
+    std::uint8_t packed_once[32];
+    std::memcpy(packed_once, packed.data(), sizeof(packed_once));
+    TEST_EXPECT(ctx, clear_unused_storage(*resolved, packed_query, packed.view()) &&
+        std::memcmp(packed.data(), packed_once, sizeof(packed_once)) == 0);
+    TEST_EXPECT(ctx, clear_unused_storage(*resolved, packed_query, packed.view(), EUnusedBits::clear) &&
+        packed.data()[1] == 0u && packed.data()[5] == 0u && packed.data()[17] == 0u &&
+        packed.data()[0] == 0x31u && packed.data()[4] == 0x42u && packed.data()[16] == 0x82u);
+
+    CBakedDocumentBlock baked_block;
+    CByteBuffer baked_owner;
+    CBakedBulkData baked_role;
+    const bool baked_ready = bulk.demote(baked_block, baked_owner, baked_role, schema,
+        EDataOutputForm::external, bulk_error);
+    TEST_EXPECT(ctx, baked_ready);
+    if (baked_ready)
+    {
+        TEST_EXPECT(ctx, baked_role.payload_view().data() == baked_owner.data() && baked_owner.size() == 32u);
+        std::memset(baked_owner.data() + 9u, 0x77, 7u);
+        baked_owner.data()[2] = 0x99u;
+        TEST_EXPECT(ctx, clear_unused_storage(*resolved, baked_role.document_query(), baked_owner.view()) &&
+            baked_owner.data()[2] == 0u && baked_owner.data()[9] == 0u &&
+            baked_owner.data()[0] == 0x31u && baked_owner.data()[1] == 0xe1u);
+    }
+
+    const CBulkHandle zero_count = bulk.create_unpopulated(CStringView{ "Padded" },
+        CStringView{ "zero" }, 0u, bulk_error);
+    const CBulkHandle huge_empty = bulk.create_unpopulated(CStringView{ "Empty" },
+        CStringView{ "huge" }, UINT32_MAX, bulk_error);
+    TEST_EXPECT(ctx, zero_count && huge_empty && bulk.clear_unused_storage() &&
+        bulk.payload_view().data()[0] == 0u && bulk.payload_view().data()[3] == 0u &&
+        bulk.payload_view().data()[4] == 0x55u && bulk.payload_view().data()[5] == 0u &&
+        bulk.payload_view().data()[8] == 0x31u && bulk.payload_view().data()[9] == 0xe1u &&
+        bulk.payload_view().data()[10] == 0u && bulk.payload_view().data()[11] == 0u);
+    TEST_EXPECT(ctx, bulk.clear_unused_storage(EUnusedBits::clear) &&
+        bulk.payload_view().data()[9] == 0u && bulk.payload_view().data()[13] == 0u &&
+        bulk.payload_view().data()[8] == 0x31u && bulk.payload_view().data()[12] == 0x42u);
+
+    CLiveInstances instances;
+    SInstanceDiagnostic instance_error;
+    CLiveDocument declarations;
+    const bool instances_ready = instances.initialise(schema) &&
+        instances.capture_base(CStringView{ "Aligned" }, CStringView{ "base" },
+            CByteConstView{ aligned, 16u, 128u }, instance_error) &&
+        instances.capture_base(CStringView{ "Tiny" }, CStringView{ "marker" },
+            CByteConstView{ tiny, 1u, 128u }, instance_error) &&
+        parse_live(R"({"selection":{"value":7}})", declarations);
+    TEST_EXPECT(ctx, instances_ready);
+    if (!instances_ready)
+    {
+        return;
+    }
+    const CInstanceHandle base = instances.find_base(CStringView{ "Aligned" }, CStringView{ "base" });
+    const CInstanceDocumentQuery values{ declarations };
+    const CInstanceHandle child = instances.create_specialisation(base, CStringView{ "child" }, values,
+        values.object_child(values.root(), CStringView{ "selection" }), instance_error);
+    SInstanceEntryView base_entry, child_entry, marker_entry;
+    TEST_EXPECT(ctx, child && instances.entry(base, base_entry) && instances.entry(child, child_entry) &&
+        instances.entry(instances.find_base(CStringView{ "Tiny" }, CStringView{ "marker" }), marker_entry) &&
+        base_entry.offset == 0u && marker_entry.offset == 16u && child_entry.offset == 32u &&
+        instances.payload_view().size() == 48u);
+    const CInstanceHandle declaration = child_entry.declaration;
+    const CInstanceDocumentQuery live_query = instances.document_query();
+    std::uint64_t selected{};
+    TEST_EXPECT(ctx, live_query.unsigned_integer_value(live_query.object_child(
+        declaration, CStringView{ "value" }), selected) && selected == 7u &&
+        instances.clear_unused_storage() && base_entry.bytes[0] == 0x61u && base_entry.bytes[1] == 0xb3u &&
+        base_entry.bytes[2] == 0u && child_entry.bytes[0] == 0x61u && child_entry.bytes[1] == 0xb3u &&
+        child_entry.bytes[4] == 7u && child_entry.bytes[5] == 0u &&
+        marker_entry.bytes[0] == 0x55u && instances.payload_view().data()[17] == 0u &&
+        live_query.unsigned_integer_value(live_query.object_child(
+            declaration, CStringView{ "value" }), selected) && selected == 7u);
+    TEST_EXPECT(ctx, instances.clear_unused_storage(EUnusedBits::clear) &&
+        base_entry.bytes[1] == 0u && child_entry.bytes[1] == 0u &&
+        base_entry.bytes[0] == 0x61u && child_entry.bytes[4] == 7u);
+
+    CLiveDocument overlapping;
+    TEST_EXPECT(ctx, parse_live(R"({"data":{"Padded":{
+        "a":{"locator":{"offset":0,"valid":true,"count":1,"size":4}},
+        "b":{"locator":{"offset":0,"valid":true,"count":1,"size":4}}}}})", overlapping));
+    alignas(16) std::uint8_t untouched[4]{ 0x41u, 0x99u, 0x88u, 0x77u };
+    std::uint8_t saved[sizeof(untouched)];
+    std::memcpy(saved, untouched, sizeof(saved));
+    TEST_EXPECT(ctx, !clear_unused_storage(*resolved, CBulkDocumentQuery{ overlapping },
+        CByteView{ untouched, sizeof(untouched) }) && std::memcmp(saved, untouched, sizeof(saved)) == 0);
+    CLiveDocument inconsistent;
+    TEST_EXPECT(ctx, parse_live(R"({"data":{"Padded":{"bad":{
+        "locator":{"offset":0,"valid":true,"count":2,"size":4}}}}})", inconsistent));
+    TEST_EXPECT(ctx, !clear_unused_storage(*resolved, CBulkDocumentQuery{ inconsistent },
+        CByteView{ untouched, sizeof(untouched) }) && std::memcmp(saved, untouched, sizeof(saved)) == 0);
+    CLiveDocument late;
+    TEST_EXPECT(ctx, parse_live(R"({"data":{"Padded":{
+        "early":{"locator":{"offset":0,"valid":true,"count":1,"size":4}},
+        "late":{"locator":{"offset":4,"valid":true,"count":1,"size":4}}}}})", late));
+    TEST_EXPECT(ctx, !clear_unused_storage(*resolved, CBulkDocumentQuery{ late },
+        CByteView{ untouched, sizeof(untouched), 16u }) &&
+        std::memcmp(saved, untouched, sizeof(saved)) == 0);
+    alignas(16) std::uint8_t wrong_address[9];
+    std::memset(wrong_address, 0x99, sizeof(wrong_address));
+    TEST_EXPECT(ctx, !clear_unused_storage(*resolved, CBulkDocumentQuery{ late },
+        CByteView{ wrong_address + 1u, 8u, 1u }) &&
+        wrong_address[1] == 0x99u && wrong_address[8] == 0x99u);
+    alignas(16) std::uint8_t allocation_target[32];
+    std::memcpy(allocation_target, packed.data(), sizeof(allocation_target));
+    allocation_target[9] = 0xa5u;
+    std::uint8_t allocation_saved[32];
+    std::memcpy(allocation_saved, allocation_target, sizeof(allocation_saved));
+    {
+        SFailingAllocator failing{ 0u, 0u };
+        memory::CMemoryAllocator allocator{ &failing, &allocate_with_failure, &tests::deallocate_test_memory };
+        memory::CMemoryContext context{ allocator };
+        {
+            tests::TMemoryContextScope scope{ &context };
+            TEST_EXPECT(ctx, !clear_unused_storage(*resolved, packed_query,
+                CByteView{ allocation_target, sizeof(allocation_target), 16u }) && failing.calls != 0u &&
+                std::memcmp(allocation_saved, allocation_target, sizeof(allocation_saved)) == 0);
+        }
+        TEST_EXPECT(ctx, context.is_attribution_empty());
+    }
+}
+
 static void test_data_remap(TTestContext& ctx)
 {
     const std::string source_text = R"({"types":{"structures":{
@@ -6298,6 +6631,8 @@ int run_schema_tests()
     schema_tests::test_baked_instance_boundaries(ctx);
     schema_tests::test_baked_instance_staging(ctx);
     schema_tests::test_bulk_encoded_comparison(ctx);
+    schema_tests::test_unused_storage_values(ctx);
+    schema_tests::test_unused_storage_documents(ctx);
     schema_tests::test_data_remap(ctx);
     schema_tests::test_data_remap_role_views(ctx);
     schema_tests::test_data_remap_matching(ctx);

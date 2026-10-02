@@ -391,6 +391,12 @@ bool CLiveBulkData::mutable_entry(const CBulkHandle handle, SMutableBulkEntryVie
     return true;
 }
 
+bool CLiveBulkData::clear_unused_storage(const EUnusedBits bits) noexcept
+{
+    const CResolvedSchema* const resolved = m_binding.resolved();
+    return loaded_ready() && resolved && schema::clear_unused_storage(*resolved, document_query(), m_payload.view(), bits);
+}
+
 CBulkHandle CLiveBulkData::store(const CStringView& type, const CStringView& name,
     const CByteConstView& source, const std::uint32_t count, const bool unpopulated,
     const bool replace, SBulkDiagnostic& diagnostic) noexcept

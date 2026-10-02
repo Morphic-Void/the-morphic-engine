@@ -270,6 +270,22 @@ subsequent reconciliation with [design.md](design.md), the
   justified. This is a review topic, not approval for conversion implementation
   or a change to exact-type binary remapping.
 
+- During stage 8 planning the user confirmed that unused bitfield clearing is
+  independently optional: preserve unused bitfield bits by default and clear
+  them only on explicit request. Byte padding and unreferenced used-payload
+  space are cleared by the invoked operation in either mode. All addressable
+  field bits remain unchanged.
+- The user also confirmed that a standalone typed clearing view's byte size
+  must be an exact multiple of the nonzero type stride. A remainder invalidates
+  the entire view, which must be rejected without being processed. The current
+  remapper accepts partial trailing records when deriving minimum capacity;
+  the user requested verification of the same exact-stride rule for remapping
+  after clearing work is complete, before coordinator handover.
+- Standalone fixed-array clearing additionally requires complete declared array
+  values. For example, a type with count 4, element stride 4 and total size 16
+  rejects an 8-byte view despite its stride divisibility. The user confirmed
+  this additional requirement; nested arrays retain their declared extents.
+
 ## Deferred or remaining questions
 
 - Source ingestion is a separate follow-up task. Selected files, supported

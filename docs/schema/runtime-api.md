@@ -614,6 +614,46 @@ views after creation, capture or another possible relocation and execute before
 mutating the roles again. The executor itself performs no allocation, schema
 traversal or document edit.
 
+## Explicit unused-storage clearing (stage 8)
+
+`clear_unused_storage(schema, type, writable_view)` clears byte gaps within
+standalone schema-typed values, recursively through structures and arrays.
+The view must contain complete values and be a multiple of the type's nonzero
+stride; fixed-array roots must also contain complete declared arrays. A
+partial trailing value fails without processing earlier values. A canonical
+empty view succeeds for a zero-byte type; a nonempty view against such a type
+is rejected because it has no typed bytes to classify.
+
+`clear_unused_storage(schema, instance_query, writable_payload)` and the bulk
+query overload clear typed gaps in every located extent, plus all unreferenced
+bytes within the supplied view's logical used range. This includes alignment
+gaps and holes left by live replacements or erasure. Zero-byte or zero-count
+entries occupy no bytes; their presence does not prevent clearing the rest of
+the used range. Allocation capacity beyond the view is untouched. The query
+and writable payload must describe the same document and schema. These calls
+also work on a `prepare_output()` document and buffer after packing. A baked
+role can supply the query while its host supplies a writable view of the
+separately owned payload; the role itself remains read-only. No pointer identity
+with a role is required for a directly supplied query and buffer.
+
+`CLiveInstances::clear_unused_storage()` and
+`CLiveBulkData::clear_unused_storage()` use their current document, bound
+schema and owned payload through the same document-buffer operation. Callers
+may invoke clearing on live backing, but packing can create new gaps or copy
+aggregate padding, so deterministic binary output calls it on the final
+output buffer as well. No construction, capture, remap or output operation
+invokes it automatically.
+
+The default preserves unused bits in bit-storage words. Pass
+`EUnusedBits::clear` to zero only bits outside declared field masks; declared
+bits retain their exact encoding, including noncanonical values. Primitive
+and enum encodings, unselected fields, NaN payloads and signed zero are never
+normalised. The operation does not apply defaults, edit declarations, compact
+storage, move records or change locators. It returns `bool` and validates the
+complete layout, locators, extents and overlaps before writing. Invalid input
+or allocation failure leaves every destination byte unchanged; repeated
+successful calls are idempotent.
+
 ## Occurrence coverage
 
 The mapping is a sorted sparse table keyed by full live or baked occurrence
