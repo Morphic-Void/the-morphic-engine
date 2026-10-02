@@ -762,7 +762,13 @@ and ordinary test runs passed, each with 6,014 schema checks and no failures.
 The user completed manual review and authorised the commit on 2 October.
 Their final line-break and bracing edits passed an incremental Debug x64 build
 and full test run, again with 6,014 schema checks and no failures.
-After stage 8 and the requested remapping stride check,
+Stage 8 was committed as `05b428d`. The separately authorised remapping stride
+correction is implemented and coordinator-reviewed: reject any supplied
+nonzero-type view with a partial stride before writes, retaining existing
+zero-byte-type behavior. Debug x64 build and full tests passed with 6,019 schema
+checks and no failures. The user completed review and authorised its commit
+on 2 October.
+After this correction is reviewed and committed,
 prepare a coordinator handover before stage 9; the user is considering a fresh
 coordinator for that review. Stage 9 has not been authorised to start.
 On 2 October the user confirmed that embedded output must also reject omitted
@@ -1168,7 +1174,9 @@ already excluded by its type is skipped without inspecting descendants. Only
 otherwise possible matches need definition equality checks, which stop at the
 first difference. Execution derives the minimum complete record capacity from
 the supplied byte views and stored layouts, with no supplied record counts,
-copied-count output or diagnostic. Callers narrow views to limit work. A single
+copied-count output or diagnostic. Callers narrow views to complete type strides
+to limit work; any remainder in a nonzero-type source or destination view rejects
+the operation before writes, even for no-match or zero-capacity transfers. A single
 `execute` returns success/failure; setup retains diagnostics. Zero-byte types
 impose no storage limit and all-empty transfers are successful no-ops.
 Role access is completed in stage 7b below.
@@ -1187,8 +1195,10 @@ and successful empty plans for former semantic-failure cases.
 
 Usage review simplified the executor to a single Boolean operation with no
 record-count arguments or execution diagnostics. Regressions cover narrowed
-views, incomplete trailing records, shorter-than-one-record no-ops, and mixed
-zero-byte and populated sources. Existing byte views reset invalid raw
+views and mixed zero-byte and populated sources. The original implementation
+accepted incomplete trailing records and shorter-than-one-record no-ops;
+the post-stage-8 correction supersedes those cases with whole-view rejection
+for nonzero-type stride remainders. Existing byte views reset invalid raw
 construction to empty; the executor sees zero capacity for a nonempty type
 and cannot recover that discarded construction request. All views are checked
 before writes; active source/destination overlap is rejected when copying.
@@ -1253,7 +1263,7 @@ remapper does not perform reconciliation.
 
 Completion evidence: untouched unmapped fields and records beyond the chosen count,
 mixed-match and no-match plans across type categories, capacities inferred from
-views including narrowed views and incomplete trailing records, rejected invalid
+views including valid narrowed views, rejected incomplete trailing records and invalid
 or overlapping views before writes, and identical results through bounded-view
 and handle APIs.
 
@@ -1285,11 +1295,22 @@ clearing outputs that began with different padding contents. Test default
 preservation and explicit clearing of unused bits. Exercise it after
 stage 6 packing and stage 7 transfers before binary output.
 
-After the clearing work is complete, the user requested a separate verification
-that remapping applies the same exact type-stride divisibility rule. The current
-stage 7 executor derives complete-record capacity and accepts partial trailing
-records, so inspect and resolve that difference before coordinator handover.
-Keep this follow-up out of the clearing implementation package.
+The requested post-clearing verification found that the original stage 7
+executor accepted partial trailing records. The user authorised correcting this
+after stage 8: require exact nonzero-type stride divisibility for every source
+and destination view before any writes. Preserve minimum-capacity copying for
+valid views, existing zero-byte-type handling and canonical-empty-view behavior.
+No-match plans and transfers limited to zero records must still validate every
+view. This is a separate review and commit checkpoint before coordinator handover.
+
+Coordinator review covered the shared preflight guard, valid narrowed views,
+partial source/destination rejection, no-match and zero-capacity preflight, and
+unchanged destinations using distinct sentinel bytes. Overlap and alignment
+fixtures remain stride-valid to isolate their intended failures. The final
+incremental Debug x64 build and full `-t1` run passed with native exit zero:
+`remap-exact-stride-review-dbg64` (PID 59732), 6,019 schema checks and no failures.
+Diff, policy and line-ending checks passed. No broader validation matrix was
+repeated for this narrow guard and regression-test correction.
 
 ### 9. Post-implementation review and consolidation
 

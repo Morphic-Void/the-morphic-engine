@@ -1783,7 +1783,12 @@ be rejected before writes; it must not accidentally acquire `memmove` semantics.
 Execution receives bounded current source/destination views and derives their
 complete record capacities from the stored sizes and strides. A single `execute`
 operation processes the minimum capacity; callers narrow views to restrict the
-transfer. There are no supplied record counts, copied-count output or execution
+transfer. Every source and destination view for a nonzero-sized type must have
+a byte size exactly divisible by its stored type stride. A remainder rejects
+the entire operation before any writes, including when another view is empty
+or the plan has no matching members. Remap roots are structures; fixed arrays
+are matched members whose complete extents are already part of their type.
+There are no supplied record counts, copied-count output or execution
 diagnostic: execution returns success/failure after checking memory validity
 before any writes. Zero-byte types impose no storage limit, and an entirely
 zero-byte transfer is a successful no-op without a logical count. Setup retains

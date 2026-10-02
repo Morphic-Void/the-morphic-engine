@@ -277,14 +277,21 @@ subsequent reconciliation with [design.md](design.md), the
   field bits remain unchanged.
 - The user also confirmed that a standalone typed clearing view's byte size
   must be an exact multiple of the nonzero type stride. A remainder invalidates
-  the entire view, which must be rejected without being processed. The current
-  remapper accepts partial trailing records when deriving minimum capacity;
+  the entire view, which must be rejected without being processed. The original
+  remapper accepted partial trailing records when deriving minimum capacity;
   the user requested verification of the same exact-stride rule for remapping
   after clearing work is complete, before coordinator handover.
 - Standalone fixed-array clearing additionally requires complete declared array
   values. For example, a type with count 4, element stride 4 and total size 16
   rejects an 8-byte view despite its stride divisibility. The user confirmed
   this additional requirement; nested arrays retain their declared extents.
+- After stage 8 was committed, the user authorised the remapping stride
+  correction. Every nonzero-type source and destination view must be an exact
+  multiple of its stored type stride; any remainder rejects the entire transfer
+  before writes, even with no matching members or another zero-capacity view.
+  Valid views still copy their minimum record count. Existing zero-byte-type
+  and canonical-empty-view handling remain unchanged. Remap roots remain
+  structures, so this does not introduce standalone array remapping.
 
 ## Deferred or remaining questions
 

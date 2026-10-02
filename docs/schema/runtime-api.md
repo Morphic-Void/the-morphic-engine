@@ -531,10 +531,12 @@ it unready. The primary destination is an application-owned `CByteView`; it
 need not be a schema role or document.
 `execute()` takes an array of bounded source byte views in plan slot order and
 one bounded mutable destination byte view. It derives each nonempty type's
-complete-record capacity from its byte extent: zero when the extent is smaller
-than the record size, otherwise `1 + (bytes - size) / stride`. It copies the
-minimum capacity across the destination and all nonempty sources. Narrow a
-view to limit the work. Zero-byte types do not constrain this byte-copy count;
+complete-record capacity from its byte extent. Every view for a nonzero type
+must have a byte size exactly divisible by that type's stride; an incomplete
+trailing record rejects the whole call before writes. A valid empty view has
+zero capacity; otherwise capacity is `1 + (bytes - size) / stride`. It copies the
+minimum capacity across the destination and all nonzero-sized source types.
+Narrow a view to limit the work. Zero-byte types do not constrain this byte-copy count;
 an all-empty plan succeeds as a no-op without a logical record count.
 
 Supply buffers in the source-slot and destination type representations selected

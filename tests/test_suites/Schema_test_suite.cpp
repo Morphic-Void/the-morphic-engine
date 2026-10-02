@@ -5822,7 +5822,7 @@ static void test_data_remap(TTestContext& ctx)
             {"b":{"type":"u16","offset":0}},{"a":{"type":"u8","offset":4}},
             {"marker":{"type":"Empty","offset":8}}]},
         "SrcC":{"members":[{"c":{"type":"u32"}}]},
-        "None":{"members":[{"q":{"type":"u8"}}]},
+        "None":{"detail":{"size":4,"alignment":4},"members":[{"q":{"type":"u8"}}]},
         "Zero":{"detail":{"size":0},"members":[{"marker":{"type":"Empty","offset":0}}]}
     }}})";
     const std::string destination_text = R"({"types":{"structures":{
@@ -5880,27 +5880,31 @@ static void test_data_remap(TTestContext& ctx)
     std::uint8_t saved[sizeof(target)];
     std::memcpy(saved, target, sizeof(target));
     std::memset(target, 0xcc, sizeof(target));
-    TEST_EXPECT(ctx, plan.execute(inputs, 2u, CByteView{ target, 23u, 4u }) &&
+    TEST_EXPECT(ctx, plan.execute(inputs, 2u, CByteView{ target, 12u, 4u }) &&
         std::memcmp(target, saved, 12u) == 0);
     for (std::size_t i = 12u; i < sizeof(target); ++i)
     {
         TEST_EXPECT(ctx, target[i] == 0xccu);
     }
-    std::memcpy(target, saved, sizeof(target));
+    std::memset(target, 0x6d, sizeof(target));
+    std::uint8_t rejected[sizeof(target)];
+    std::memcpy(rejected, target, sizeof(rejected));
+    TEST_EXPECT(ctx, !plan.execute(inputs, 2u, CByteView{ target, 23u, 4u }) &&
+        std::memcmp(rejected, target, sizeof(target)) == 0);
     TEST_EXPECT(ctx, !plan.execute(inputs, 2u, CByteView{ target + 1u, 24u, 1u }) &&
-        std::memcmp(saved, target, sizeof(target)) == 0);
+        std::memcmp(rejected, target, sizeof(target)) == 0);
     const CByteConstView aliased[] = {
-        CByteConstView{ target, sizeof(target), 4u }, inputs[1]
+        CByteConstView{ target, 32u, 4u }, inputs[1]
     };
     TEST_EXPECT(ctx, !plan.execute(aliased, 2u, CByteView{ target, sizeof(target), 4u }) &&
-        std::memcmp(saved, target, sizeof(target)) == 0);
+        std::memcmp(rejected, target, sizeof(target)) == 0);
     const CByteConstView misaligned_second[] = {
-        inputs[0], CByteConstView{ source_c + 1u, 7u, 1u }
+        inputs[0], CByteConstView{ source_c + 1u, 4u, 1u }
     };
     TEST_EXPECT(ctx, !plan.execute(misaligned_second, 2u, CByteView{ target, sizeof(target), 4u }) &&
-        std::memcmp(saved, target, sizeof(target)) == 0);
+        std::memcmp(rejected, target, sizeof(target)) == 0);
     const CByteConstView short_second[] = {
-        inputs[0], CByteConstView{ source_c, 7u, 4u }
+        inputs[0], CByteConstView{ source_c, 4u, 4u }
     };
     std::memset(target, 0xcc, sizeof(target));
     TEST_EXPECT(ctx, plan.execute(short_second, 2u, CByteView{ target, sizeof(target), 4u }) &&
@@ -5909,20 +5913,30 @@ static void test_data_remap(TTestContext& ctx)
     {
         TEST_EXPECT(ctx, target[i] == 0xccu);
     }
-    std::memcpy(target, saved, sizeof(target));
+    std::memset(target, 0x6d, sizeof(target));
+    const CByteConstView partial_second[] = {
+        inputs[0], CByteConstView{ source_c, 7u, 4u }
+    };
+    TEST_EXPECT(ctx, !plan.execute(partial_second, 2u, CByteView{ target, sizeof(target), 4u }) &&
+        std::memcmp(rejected, target, sizeof(target)) == 0);
     const CByteConstView shorter_than_record[] = {
         inputs[0], CByteConstView{ source_c, 3u, 4u }
     };
-    TEST_EXPECT(ctx, plan.execute(shorter_than_record, 2u, CByteView{ target, sizeof(target), 4u }) &&
-        std::memcmp(saved, target, sizeof(target)) == 0);
+    TEST_EXPECT(ctx, !plan.execute(shorter_than_record, 2u, CByteView{ target, sizeof(target), 4u }) &&
+        std::memcmp(rejected, target, sizeof(target)) == 0);
+    const CByteConstView zero_then_partial[] = {
+        {}, CByteConstView{ source_c, 7u, 4u }
+    };
+    TEST_EXPECT(ctx, !plan.execute(zero_then_partial, 2u, CByteView{ target, sizeof(target), 4u }) &&
+        std::memcmp(rejected, target, sizeof(target)) == 0);
     const CByteConstView reset_invalid[] = {
         inputs[0], CByteConstView{ nullptr, 8u, 4u }
     };
     TEST_EXPECT(ctx, reset_invalid[1].is_empty() &&
         plan.execute(reset_invalid, 2u, CByteView{ target, sizeof(target), 4u }) &&
-        std::memcmp(saved, target, sizeof(target)) == 0);
+        std::memcmp(rejected, target, sizeof(target)) == 0);
     TEST_EXPECT(ctx, !plan.execute(inputs, 1u, CByteView{ target, sizeof(target), 4u }) &&
-        std::memcmp(saved, target, sizeof(target)) == 0);
+        std::memcmp(rejected, target, sizeof(target)) == 0);
     {
         SFailingAllocator failing{ 0u, 0u };
         memory::CMemoryAllocator allocator{ &failing, &allocate_with_failure, &tests::deallocate_test_memory };
@@ -5968,14 +5982,20 @@ static void test_data_remap(TTestContext& ctx)
         const std::uint8_t expected = copied_c ? source_c[(i % 12u) - 8u + ((i / 12u) * 4u)] : 0xccu;
         TEST_EXPECT(ctx, target[i] == expected);
     }
-    std::memcpy(target, saved, sizeof(target));
+    std::memset(target, 0x6d, sizeof(target));
     const SRemapSourceType unmatched{ &source_schema, source_schema.find_type(CStringView{ "None" }) };
     TEST_EXPECT(ctx, plan.initialise(&unmatched, 1u, destination_schema,
         destination_schema.find_type(CStringView{ "Dest" }), error) &&
         plan.matched_member_count() == 0u && plan.copy_range_count() == 0u);
     const CByteConstView empty_input{};
     TEST_EXPECT(ctx, plan.execute(&empty_input, 1u, CByteView{ target, sizeof(target), 4u }) &&
-        std::memcmp(saved, target, sizeof(target)) == 0);
+        std::memcmp(rejected, target, sizeof(target)) == 0);
+    alignas(4) const std::uint8_t unmatched_bytes[4]{ 0x91u };
+    const CByteConstView partial_unmatched{ unmatched_bytes, 3u, 4u };
+    TEST_EXPECT(ctx, !plan.execute(&partial_unmatched, 1u, CByteView{ target, sizeof(target), 4u }) &&
+        std::memcmp(rejected, target, sizeof(target)) == 0);
+    TEST_EXPECT(ctx, !plan.execute(&empty_input, 1u, CByteView{ target, 23u, 4u }) &&
+        std::memcmp(rejected, target, sizeof(target)) == 0);
 
     const SRemapSourceType zero_type{ &source_schema, source_schema.find_type(CStringView{ "Zero" }) };
     TEST_EXPECT(ctx, plan.initialise(&zero_type, 1u, destination_schema,

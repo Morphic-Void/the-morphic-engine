@@ -228,6 +228,10 @@ struct SComparePair
         capacity = std::numeric_limits<std::size_t>::max();
         return true;
     }
+    if ((view.size() % static_cast<std::size_t>(stride)) != 0u)
+    {
+        return false;
+    }
     capacity = view.size() < size ? 0u : (1u + ((view.size() - static_cast<std::size_t>(size)) / static_cast<std::size_t>(stride)));
     return true;
 }

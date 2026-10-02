@@ -61,6 +61,7 @@ public:
     [[nodiscard]] std::size_t copy_range_count() const noexcept { return m_ranges.size(); }
 
     //  Copy the minimum number of complete records in the bounded views.
+    //  Nonzero type views must contain an exact multiple of their type stride.
     //  Every view is checked before writing any destination byte.
     [[nodiscard]] bool execute(const CByteConstView* const sources, const std::size_t source_count, const CByteView destination) const noexcept;
 
