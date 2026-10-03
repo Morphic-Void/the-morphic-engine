@@ -17,8 +17,10 @@ bounded remapping and explicit unused-storage clearing. The stage 9 review is
 complete; its follow-ups address promotion and selection-edit defects, current
 documentation, singular scalar input, consistent named bulk records and instance
 configuration preservation when destination defaults change, followed by general
-binary-authoritative document reconciliation. Broader
-consolidation remains for discussion; see the
+binary-authoritative document reconciliation. Baked entry indexes, direct live-record
+binary search, cached bulk type indices, indexed remap setup and shared
+compatibility checking address the subsequent bookkeeping review;
+scalar decoding and document-copying consolidation remain for discussion. See the
 [implementation contract](implementation-contract.md).
 
 The coordinator handoff, pre-refactoring gap review and record-layout proposal

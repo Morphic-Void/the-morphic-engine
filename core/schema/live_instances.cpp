@@ -9,6 +9,7 @@
 //  Owned live instance documents and independent complete snapshots.
 
 #include "schema/live_instances.hpp"
+#include "schema/type_compatibility.hpp"
 #include "schema/value_codec.hpp"
 #include "data_model/document_translation.hpp"
 #include "memory/memory_policies.hpp"
@@ -19,130 +20,6 @@
 
 namespace schema
 {
-
-//  Promotion compatibility and live document construction helpers.
-
-struct SCompatibilityPair
-{
-    CSchemaIndex source, destination;
-};
-
-[[nodiscard]] static bool same_scalar(const SScalar& a, const SScalar& b) noexcept
-{
-    if (a.kind != b.kind)
-    {
-        return false;
-    }
-    if (a.kind == EScalar::signed_integer)
-    {
-        return a.value.signed_value == b.value.signed_value;
-    }
-    if (a.kind == EScalar::floating_point)
-    {
-        std::uint64_t left{}, right{};
-        std::memcpy(&left, &a.value.floating_value, sizeof(left));
-        std::memcpy(&right, &b.value.floating_value, sizeof(right));
-        return left == right;
-    }
-    return a.value.unsigned_value == b.value.unsigned_value;
-}
-
-[[nodiscard]] static bool add_pair(TPodVector<SCompatibilityPair>& pending, const SCompatibilityPair pair) noexcept
-{
-    for (std::size_t i = 0u; i < pending.size(); ++i)
-    {
-        const SCompatibilityPair& found = pending[i];
-        if ((found.source == pair.source) && (found.destination == pair.destination))
-        {
-            return true;
-        }
-    }
-    return pending.push_back(pair);
-}
-
-[[nodiscard]] static bool compatible_type(const CResolvedSchema& source, const CResolvedSchema& destination,
-    const CSchemaIndex source_type, const CSchemaIndex destination_type, bool& allocation_failed) noexcept
-{
-    TPodVector<SCompatibilityPair> pending;
-    if (!add_pair(pending, { source_type, destination_type }))
-    {
-        allocation_failed = true;
-        return false;
-    }
-    for (std::size_t next = 0u; next < pending.size(); ++next)
-    {
-        const SCompatibilityPair pair = pending[next];
-        SType a, b;
-        if (!source.type(pair.source, a) || !destination.type(pair.destination, b) ||
-            (a.category != b.category) || (a.primitive != b.primitive) || (a.size != b.size) ||
-            (a.alignment != b.alignment) || (a.stride != b.stride) || (a.count != b.count) ||
-            (a.gaps != b.gaps) || (a.named_components != b.named_components) ||
-            !(source.name(a.name) == destination.name(b.name)))
-        {
-            return false;
-        }
-        if (a.element_or_storage.is_valid() != b.element_or_storage.is_valid())
-        {
-            return false;
-        }
-        if (a.element_or_storage &&
-            !add_pair(pending, { a.element_or_storage, b.element_or_storage }))
-        {
-            allocation_failed = true;
-            return false;
-        }
-        const bool has_children = (a.category == ECategory::structure) ||
-            (a.category == ECategory::enumeration) || (a.category == ECategory::bit_structure);
-        const std::uint32_t child_count = has_children ? a.count : 0u;
-        for (std::uint32_t i = 0u; i < child_count; ++i)
-        {
-            if (a.category == ECategory::structure)
-            {
-                SMember am, bm;
-                if (!source.member(source.member_at(pair.source, i), am) ||
-                    !destination.member(destination.member_at(pair.destination, i), bm) ||
-                    !(source.name(am.name) == destination.name(bm.name)) ||
-                    (am.offset != bm.offset) || (am.size != bm.size))
-                {
-                    return false;
-                }
-                if (!add_pair(pending, { am.type, bm.type }))
-                {
-                    allocation_failed = true;
-                    return false;
-                }
-            }
-            else if (a.category == ECategory::enumeration)
-            {
-                SLabel al, bl;
-                if (!source.label(source.label_at(pair.source, i), al) ||
-                    !destination.label(destination.label_at(pair.destination, i), bl) ||
-                    !(source.name(al.name) == destination.name(bl.name)) || !same_scalar(al.value, bl.value))
-                {
-                    return false;
-                }
-            }
-            else
-            {
-                SField af, bf;
-                if (!source.field(source.field_at(pair.source, i), af) ||
-                    !destination.field(destination.field_at(pair.destination, i), bf) ||
-                    !(source.name(af.name) == destination.name(bf.name)) || (af.mask != bf.mask) ||
-                    (af.shift != bf.shift) || (af.width != bf.width) || (af.signed_value != bf.signed_value) ||
-                    (af.interpretation != bf.interpretation) || (af.primitive != bf.primitive))
-                {
-                    return false;
-                }
-                if (!add_pair(pending, { af.type, bf.type }))
-                {
-                    allocation_failed = true;
-                    return false;
-                }
-            }
-        }
-    }
-    return true;
-}
 
 [[nodiscard]] static bool append(CLiveDocument& document, const CNodeKey parent, const CNodeKey child) noexcept
 {
@@ -370,15 +247,7 @@ bool CLiveInstances::record_index(const CInstanceHandle handle, std::uint32_t& r
     {
         return false;
     }
-    for (std::size_t i = 0u; i < m_records.size(); ++i)
-    {
-        if (m_records[i].entry == occurrence.live)
-        {
-            result = static_cast<std::uint32_t>(i);
-            return true;
-        }
-    }
-    return false;
+    return find_live_record(m_records, occurrence.live, result);
 }
 
 CInstanceHandle CLiveInstances::find_base(const CStringView& type, const CStringView& name) const noexcept
@@ -454,7 +323,8 @@ bool CLiveInstances::entry(const CInstanceHandle handle, SInstanceEntryView& res
     {
         return false;
     }
-    result = { record.type, parent_instance(handle),
+    result = { record.type, ((record.parent == k_no_parent) ? CInstanceHandle{} :
+        detail::SInstanceHandleAccess::make(detail::SOccurrence{ m_records[record.parent].entry })),
         detail::SInstanceHandleAccess::make(detail::SOccurrence{ record.declaration }),
         record.offset, record.extent, (record.extent ? (m_payload.data() + record.offset) : nullptr) };
     return true;
@@ -504,10 +374,10 @@ CInstanceHandle CLiveInstances::append_instance(const CSchemaIndex type, const s
         diagnostic.reason = EInstanceLoadReason::invalid_input;
         return {};
     }
-    const std::uint64_t position = m_payload.size();
-    const std::uint64_t offset = (position + layout.alignment - 1u) & ~(layout.alignment - 1u);
-    if ((position > memory::k_byte_size_ceiling) || (offset > UINT32_MAX) ||
-        (offset > memory::k_byte_size_ceiling) || (layout.size > (UINT32_MAX - offset)) ||
+    const auto position = static_cast<std::uint32_t>(m_payload.size());
+    const auto alignment = static_cast<std::uint32_t>(layout.alignment);
+    const std::uint32_t offset = (position + alignment - 1u) & ~(alignment - 1u);
+    if ((offset > memory::k_byte_size_ceiling) ||
         (layout.size > (memory::k_byte_size_ceiling - offset)))
     {
         diagnostic.reason = EInstanceLoadReason::invalid_range;
@@ -553,7 +423,7 @@ CInstanceHandle CLiveInstances::append_instance(const CSchemaIndex type, const s
         diagnostic.reason = EInstanceLoadReason::allocation_failed;
         return {};
     }
-    const CNodeKey locator = make_locator(m_document, static_cast<std::uint32_t>(offset),
+    const CNodeKey locator = make_locator(m_document, offset,
         static_cast<std::uint32_t>(layout.size));
     if (!append(m_document, instance, locator))
     {
@@ -608,7 +478,7 @@ CInstanceHandle CLiveInstances::append_instance(const CSchemaIndex type, const s
     cleanup.group = {};
     cleanup.entry = {};
     if (!m_records.push_back({ instance, copied_declaration, group, type, parent,
-        static_cast<std::uint32_t>(offset), static_cast<std::uint32_t>(layout.size) }))
+        offset, static_cast<std::uint32_t>(layout.size) }))
     {
         disable();
         diagnostic.reason = EInstanceLoadReason::allocation_failed;
@@ -721,6 +591,7 @@ bool CLiveInstances::promote_from(const CBakedInstances& source, SInstanceDiagno
         diagnostic.reason = EInstanceLoadReason::invalid_input;
         return false;
     }
+    CTypeCompatibility compatibility{ *original, *target, ETypeMatch::representation };
     const CBakedValueIndex instances = source.m_document.object_child(source.m_document.root(), CStringView{ "instances" });
     const CNodeKey live_instances = detail::SInstanceHandleAccess::occurrence(instances_root()).live;
     for (CBakedValueIndex group = source.m_document.first_child(instances); group; group = source.m_document.next_sibling(group))
@@ -728,10 +599,11 @@ bool CLiveInstances::promote_from(const CBakedInstances& source, SInstanceDiagno
         const CStringView name = source.m_document.name(group);
         const CSchemaIndex source_type = original->find_type(name);
         const CSchemaIndex destination_type = target->find_type(name);
-        bool allocation_failed{};
-        if (!source_type || !destination_type || !compatible_type(*original, *target, source_type, destination_type, allocation_failed))
+        const auto match = compatibility.compare(source_type, destination_type);
+        if (match != ETypeMatchResult::match)
         {
-            diagnostic.reason = allocation_failed ? EInstanceLoadReason::allocation_failed : EInstanceLoadReason::incompatible_schema;
+            diagnostic.reason = (match == ETypeMatchResult::allocation_failed) ?
+                EInstanceLoadReason::allocation_failed : EInstanceLoadReason::incompatible_schema;
             return false;
         }
         if (!append(m_document, live_instances, m_document.create_object(name)))
@@ -948,17 +820,19 @@ bool CLiveInstances::prepare_output_to(CLiveDocument& document, CByteBuffer& pay
     }
     const CNodeKey output_instances = staged_document.object_child(staged_document.root(), CStringView{ "instances" });
     const CNodeKey source_instances = detail::SInstanceHandleAccess::occurrence(instances_root()).live;
+    CTypeCompatibility compatibility{ *source_schema, destination_schema, ETypeMatch::representation };
     TPodVector<SInstanceOutputRecord> output_records;
-    std::uint64_t cursor{};
+    std::uint32_t cursor{};
     for (CNodeKey source_group = m_document.first_child(source_instances); source_group; source_group = m_document.next_sibling(source_group))
     {
         const CStringView type_name = m_document.name(source_group);
         const CSchemaIndex source_type = source_schema->find_type(type_name);
         const CSchemaIndex output_type = destination_schema.find_type(type_name);
-        bool allocation_failed{};
-        if (!source_type || !output_type || !compatible_type(*source_schema, destination_schema, source_type, output_type, allocation_failed))
+        const auto match = compatibility.compare(source_type, output_type);
+        if (match != ETypeMatchResult::match)
         {
-            diagnostic.reason = allocation_failed ? EInstanceLoadReason::allocation_failed : EInstanceLoadReason::incompatible_schema;
+            diagnostic.reason = (match == ETypeMatchResult::allocation_failed) ?
+                EInstanceLoadReason::allocation_failed : EInstanceLoadReason::incompatible_schema;
             diagnostic.occurrence = detail::SInstanceHandleAccess::make(detail::SOccurrence{ source_group });
             return false;
         }
@@ -985,14 +859,9 @@ bool CLiveInstances::prepare_output_to(CLiveDocument& document, CByteBuffer& pay
             frame.next = m_document.next_sibling(source_entry);
             const SRecord* record = nullptr;
             std::uint32_t record_index{};
-            for (std::size_t i = 0u; i < m_records.size(); ++i)
+            if (find_live_record(m_records, source_entry, record_index))
             {
-                if (m_records[i].entry == source_entry)
-                {
-                    record = &m_records[i];
-                    record_index = static_cast<std::uint32_t>(i);
-                    break;
-                }
+                record = &m_records[record_index];
             }
             if (!record || (record->type != source_type) ||
                 ((frame.parent == k_no_parent) ? (record->parent != k_no_parent) :
@@ -1010,18 +879,12 @@ bool CLiveInstances::prepare_output_to(CLiveDocument& document, CByteBuffer& pay
                 diagnostic.occurrence = detail::SInstanceHandleAccess::make(detail::SOccurrence{ source_entry });
                 return false;
             }
-            std::uint64_t offset{};
+            std::uint32_t offset{};
             if (record->extent != 0u)
             {
-                if (cursor > (UINT64_MAX - (layout.alignment - 1u)))
-                {
-                    diagnostic.reason = EInstanceLoadReason::invalid_range;
-                    diagnostic.occurrence = detail::SInstanceHandleAccess::make(detail::SOccurrence{ source_entry });
-                    return false;
-                }
-                offset = (cursor + layout.alignment - 1u) & ~(layout.alignment - 1u);
-                if ((offset > UINT32_MAX) || (record->extent > (UINT32_MAX - offset)) ||
-                    (offset > memory::k_byte_size_ceiling) ||
+                const auto alignment = static_cast<std::uint32_t>(layout.alignment);
+                offset = (cursor + alignment - 1u) & ~(alignment - 1u);
+                if ((offset > memory::k_byte_size_ceiling) ||
                     (record->extent > (memory::k_byte_size_ceiling - offset)))
                 {
                     diagnostic.reason = EInstanceLoadReason::invalid_range;
@@ -1031,7 +894,7 @@ bool CLiveInstances::prepare_output_to(CLiveDocument& document, CByteBuffer& pay
                 cursor = offset + record->extent;
             }
             const CNodeKey output_entry = staged_document.create_object(m_document.name(source_entry));
-            const CNodeKey locator = make_locator(staged_document, static_cast<std::uint32_t>(offset), record->extent);
+            const CNodeKey locator = make_locator(staged_document, offset, record->extent);
             if (!output_entry || !append(staged_document, output_entry, locator))
             {
                 diagnostic.reason = EInstanceLoadReason::allocation_failed;
@@ -1049,7 +912,7 @@ bool CLiveInstances::prepare_output_to(CLiveDocument& document, CByteBuffer& pay
                 return false;
             }
             if (!append(staged_document, frame.group, output_entry) ||
-                !output_records.push_back({ record_index, static_cast<std::uint32_t>(offset), record->extent }))
+                !output_records.push_back({ record_index, offset, record->extent }))
             {
                 diagnostic.reason = EInstanceLoadReason::allocation_failed;
                 return false;

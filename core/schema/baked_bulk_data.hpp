@@ -14,6 +14,7 @@
 #define SCHEMA_BAKED_BULK_DATA_HPP_INCLUDED
 
 #include "schema/schema_wrappers.hpp"
+#include "schema/record_index.hpp"
 #include "containers/ByteBuffers.hpp"
 
 namespace schema
@@ -94,7 +95,7 @@ private:
         CBakedValueIndex entry, data, offset_node, valid_node;
         CSchemaIndex type;
         std::uint32_t count{}, offset{}, extent{};
-        std::uint32_t stride{}, alignment{};
+        std::uint32_t stride{};
         bool prior_valid{};
     };
 
@@ -109,6 +110,7 @@ private:
     CSchemaBinding m_binding;
     CByteConstView m_payload;
     TPodVector<SRecord> m_records;
+    CBakedRecordIndex m_record_index;
     bool m_loaded{};
 };
 

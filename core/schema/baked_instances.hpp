@@ -14,6 +14,7 @@
 #define SCHEMA_BAKED_INSTANCES_HPP_INCLUDED
 
 #include "schema/schema_wrappers.hpp"
+#include "schema/record_index.hpp"
 #include "containers/ByteBuffers.hpp"
 
 namespace schema
@@ -124,6 +125,7 @@ private:
     CSchemaBinding m_binding;
     CByteConstView m_payload;
     TPodVector<SRecord> m_records;
+    CBakedRecordIndex m_record_index;
     bool m_loaded{};
 };
 

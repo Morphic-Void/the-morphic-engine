@@ -75,12 +75,12 @@ private:
     };
     struct SLayout
     {
-        std::uint64_t size{}, stride{}, alignment{};
+        std::uint32_t size{}, stride{}, alignment{};
     };
     struct SRange
     {
         std::size_t source{};
-        std::uint64_t source_offset{}, destination_offset{}, size{};
+        std::uint32_t source_offset{}, destination_offset{}, size{};
         EKernel kernel{ EKernel::strided };
         std::uint8_t fixed_size{};
     };

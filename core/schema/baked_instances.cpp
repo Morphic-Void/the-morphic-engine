@@ -36,8 +36,7 @@ namespace schema
     return result <= memory::k_byte_size_ceiling;
 }
 
-bool CBakedInstances::fail(SInstanceDiagnostic& diagnostic, const EInstanceLoadReason reason,
-    const CBakedValueIndex occurrence) const noexcept
+bool CBakedInstances::fail(SInstanceDiagnostic& diagnostic, const EInstanceLoadReason reason, const CBakedValueIndex occurrence) const noexcept
 {
     if (diagnostic.reason == EInstanceLoadReason::none)
     {
@@ -51,6 +50,7 @@ void CBakedInstances::clear_loaded() noexcept
     m_loaded = false;
     m_payload.reset();
     m_records.deallocate();
+    m_record_index.clear();
 }
 
 void CBakedInstances::clear() noexcept
@@ -68,6 +68,7 @@ void CBakedInstances::take_from(CBakedInstances& source) noexcept
     m_binding = std::move(source.m_binding);
     m_payload = source.m_payload;
     m_records = std::move(source.m_records);
+    m_record_index = std::move(source.m_record_index);
     m_loaded = source.m_loaded;
     source.m_document.clear();
     source.m_mutable.clear();
@@ -138,15 +139,7 @@ bool CBakedInstances::record_index(const CInstanceHandle handle, std::uint32_t& 
     {
         return false;
     }
-    for (std::size_t ordinal = 0u; ordinal < m_records.size(); ++ordinal)
-    {
-        if (m_records[ordinal].entry == occurrence.baked)
-        {
-            result = static_cast<std::uint32_t>(ordinal);
-            return true;
-        }
-    }
-    return false;
+    return m_record_index.find(m_records, occurrence.baked, result);
 }
 
 CInstanceHandle CBakedInstances::find_base(const CStringView& type, const CStringView& name) const noexcept
@@ -222,7 +215,8 @@ bool CBakedInstances::entry(const CInstanceHandle handle, SInstanceEntryView& re
     const SRecord& record = m_records[index];
     SInstanceEntryView value;
     value.type = record.type;
-    value.parent = parent_instance(handle);
+    value.parent = (record.parent == k_no_parent) ? CInstanceHandle{} :
+        detail::SInstanceHandleAccess::make(detail::SOccurrence{ m_records[record.parent].entry });
     value.declaration = detail::SInstanceHandleAccess::make(detail::SOccurrence{ record.declaration });
     value.offset = record.offset;
     value.byte_count = record.extent;
@@ -482,7 +476,13 @@ bool CBakedInstances::load_supplied(const CByteConstView& payload, const bool co
     {
         return false;
     }
+    CBakedRecordIndex index;
+    if (!index.build(staged))
+    {
+        return fail(diagnostic, EInstanceLoadReason::allocation_failed, {});
+    }
     m_records = std::move(staged);
+    m_record_index = std::move(index);
     m_payload = payload;
     m_loaded = true;
     return true;
@@ -501,6 +501,11 @@ bool CBakedInstances::materialise(CByteBuffer& returned_owner, SInstanceDiagnost
     if (!plan(false, 0u, staged, payload_size, scratch_size, diagnostic))
     {
         return false;
+    }
+    CBakedRecordIndex index;
+    if (!index.build(staged))
+    {
+        return fail(diagnostic, EInstanceLoadReason::allocation_failed, {});
     }
     CByteBuffer payload;
     if ((payload_size != 0u) && (!payload.allocate(payload_size, 128u) || !payload.set_size(payload_size)))
@@ -548,6 +553,7 @@ bool CBakedInstances::materialise(CByteBuffer& returned_owner, SInstanceDiagnost
     returned_owner = std::move(payload);
     m_payload = returned_owner.const_view();
     m_records = std::move(staged);
+    m_record_index = std::move(index);
     m_loaded = true;
     return true;
 }

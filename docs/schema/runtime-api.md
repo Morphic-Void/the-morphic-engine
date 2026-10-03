@@ -253,6 +253,43 @@ allocates nor binds a schema. Role wrappers check their schema
 binding before each call. Callers and owners must keep borrowed baked document
 and payload backing alive at stable addresses under each role's ownership rules.
 
+## Entry indexes and read allocation
+
+Baked roles build a sorted array of 32-bit record ordinals during loading or
+materialisation, before publishing records or locators. This uses four bytes
+per entry for the index elements and gives bounded logarithmic lookup. Transfers
+carry the index with its records; clearing releases it.
+
+Live roles binary-search their record vectors directly, without auxiliary index
+storage or maintenance. Entry keys are strictly increasing in record order:
+creation appends a fresh monotonic key, replacement and renaming preserve it,
+and bulk erasure preserves the order of the remaining records. Promotion and
+reconciliation create fresh entry keys in record order, even when document
+groups or specialisation branches are interleaved. Whole-owner transfers
+preserve that order. Future mutation paths must preserve this invariant.
+
+Neither role performs lazy construction or allocation during entry lookup or
+instance hierarchy navigation. Name lookup remains a separate search; rendering
+consumers can resolve names during preparation and retain entry handles or
+bounded payload views under the existing lifetime rules. A bulk collection
+contributes one record-table entry regardless of its payload record count.
+
+Live bulk records retain their resolved type index, so access by handle does
+not repeat a schema type-name search. Binding availability is checked on each
+operation. Bound schemas cannot be edited or replaced; successful unchanged
+re-resolution preserves indices, while failed resolution makes access unavailable
+until a successful retry. Promotion resolves indices in the destination schema.
+Document and payload formats are unchanged.
+
+Promotion/output and remap setup share an operation-local resolved-type
+comparison context. Representation compatibility ignores defaults and the
+`internal` marker; remapping definition matching also compares those properties
+within the candidate member types. The enclosing member's own default is not
+an additional remap matching condition. Hashed comparison keys retain both type
+identities and, for definition matching, both default descriptions. Completed
+matches and proven root mismatches can be reused within the operation; unfinished
+comparisons are discarded on failure. No cache survives schema re-resolution.
+
 ## Baked bulk role (stage 4b)
 
 `CBakedBulkData` attaches to an immutable `CBakedDocument` view or a
@@ -537,6 +574,12 @@ existing entries; an unrecoverable failure after publication disables the
 role and reports a critical event. `clear()` releases the owned document,
 payload and binding.
 
+Descendant staging scans the remaining parent-before-child record sequence once,
+using a temporary record-to-staged-edit ordinal table. Descendant membership and
+staged-parent access are constant-time per candidate; unrelated later branches
+are skipped without walking their ancestor chains. This does not change which
+selections are retained or how inherited values are propagated.
+
 ## Live instance output (stage 6b)
 
 `CLiveInstances::prepare_output(document, payload, destination_schema, form,
@@ -584,6 +627,14 @@ empty plans are valid. A zero-byte exact member contributes to
 `matched_member_count()` but creates no copy range. `copy_range_count()` reports
 ranges after safe adjacency coalescing. Genuine invalid input and allocation
 failures, and overlapping destination writes from combined sources, fail setup.
+
+Setup builds a temporary sorted member-name table for each source, reusing its
+storage across source slots. Matching compares names across the two schemas,
+then uses the shared type-compatibility cache. A temporary byte per destination
+member detects repeated claims on nonempty members: resolved direct-member
+ranges already cannot overlap. Empty matches remain valid across multiple
+sources. Source-slot and destination-member processing order, including overlap
+diagnostics, is preserved. Both temporary tables are released when setup ends.
 
 The plan owns the root layouts and ranges required for execution. It retains no
 schema or document pointer, so resolved schemas may be cleared or destroyed

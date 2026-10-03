@@ -26,6 +26,7 @@ void CBakedBulkData::take_from(CBakedBulkData& source) noexcept
     m_binding = std::move(source.m_binding);
     m_payload = source.m_payload;
     m_records = std::move(source.m_records);
+    m_record_index = std::move(source.m_record_index);
     m_loaded = source.m_loaded;
     source.m_document.clear();
     source.m_mutable.clear();
@@ -42,8 +43,7 @@ void CBakedBulkData::take_from(CBakedBulkData& source) noexcept
 
 [[nodiscard]] static bool align_bulk_offset(const std::uint64_t position, const std::uint64_t alignment, std::uint64_t& result) noexcept
 {
-    if ((alignment == 0u) || ((alignment & (alignment - 1u)) != 0u) ||
-        (position > UINT64_MAX - (alignment - 1u)))
+    if ((alignment == 0u) || ((alignment & (alignment - 1u)) != 0u) || (position > (UINT64_MAX - (alignment - 1u))))
     {
         return false;
     }
@@ -65,6 +65,7 @@ void CBakedBulkData::clear_loaded() noexcept
     m_loaded = false;
     m_payload.reset();
     m_records.deallocate();
+    m_record_index.clear();
 }
 
 void CBakedBulkData::clear() noexcept
@@ -151,31 +152,29 @@ bool CBakedBulkData::entry(const CBulkHandle handle, SBulkEntryView& result) con
     {
         return false;
     }
-    for (std::size_t ordinal = 0u; ordinal < m_records.size(); ++ordinal)
+    std::uint32_t ordinal{};
+    if (!m_record_index.find(m_records, occurrence.baked, ordinal))
     {
-        const SRecord& record = m_records[ordinal];
-        if (record.entry == occurrence.baked)
-        {
-            SBulkEntryView value;
-            value.type = record.type;
-            value.count = record.count;
-            value.offset = record.offset;
-            value.stride = record.stride;
-            value.byte_count = record.extent;
-            if (record.extent != 0u)
-            {
-                if (!m_payload.is_ready() || (record.offset > m_payload.size()) ||
-                    (record.extent > (m_payload.size() - record.offset)))
-                {
-                    return false;
-                }
-                value.bytes = m_payload.data() + record.offset;
-            }
-            result = value;
-            return true;
-        }
+        return false;
     }
-    return false;
+    const SRecord& record = m_records[ordinal];
+    SBulkEntryView value;
+    value.type = record.type;
+    value.count = record.count;
+    value.offset = record.offset;
+    value.stride = record.stride;
+    value.byte_count = record.extent;
+    if (record.extent != 0u)
+    {
+        if (!m_payload.is_ready() || (record.offset > m_payload.size()) ||
+            (record.extent > (m_payload.size() - record.offset)))
+        {
+            return false;
+        }
+        value.bytes = m_payload.data() + record.offset;
+    }
+    result = value;
+    return true;
 }
 
 bool CBakedBulkData::plan(const bool supplied, const std::size_t payload_size,
@@ -351,7 +350,6 @@ bool CBakedBulkData::plan(const bool supplied, const std::size_t payload_size,
             record.offset = static_cast<std::uint32_t>(offset);
             record.extent = static_cast<std::uint32_t>(extent);
             record.stride = static_cast<std::uint32_t>(layout.size);
-            record.alignment = static_cast<std::uint32_t>(layout.alignment);
             record.prior_valid = prior_valid;
             if (!records.push_back(record))
             {
@@ -419,8 +417,7 @@ bool CBakedBulkData::load_supplied(const CByteConstView& payload, const bool com
     }
     TPodVector<SRecord> staged;
     std::size_t total_size{};
-    if (!plan(true, payload.size(), staged, total_size, diagnostic) ||
-        (total_size != 0u && !payload.is_ready()))
+    if (!plan(true, payload.size(), staged, total_size, diagnostic) || (total_size != 0u && !payload.is_ready()))
     {
         return diagnostic.reason == EBulkLoadReason::none ? fail(diagnostic, EBulkLoadReason::invalid_range, {}) : false;
     }
@@ -428,7 +425,13 @@ bool CBakedBulkData::load_supplied(const CByteConstView& payload, const bool com
     {
         return false;
     }
+    CBakedRecordIndex index;
+    if (!index.build(staged))
+    {
+        return fail(diagnostic, EBulkLoadReason::allocation_failed, {});
+    }
     m_records = std::move(staged);
+    m_record_index = std::move(index);
     m_payload = payload;
     m_loaded = true;
     return true;
@@ -448,6 +451,11 @@ bool CBakedBulkData::materialise(CByteBuffer& returned_owner, SBulkDiagnostic& d
     {
         return false;
     }
+    CBakedRecordIndex index;
+    if (!index.build(staged))
+    {
+        return fail(diagnostic, EBulkLoadReason::allocation_failed, {});
+    }
     CByteBuffer payload;
     if ((total_size != 0u) && (!payload.allocate(total_size, 128u) || !payload.set_size(total_size)))
     {
@@ -464,7 +472,7 @@ bool CBakedBulkData::materialise(CByteBuffer& returned_owner, SBulkDiagnostic& d
             detail::SValueDiagnostic value_error;
             const std::uint64_t record_offset = static_cast<std::uint64_t>(record.offset) +
                 (static_cast<std::uint64_t>(record.stride) * index);
-            std::uint8_t* const target = record.stride == 0u ? nullptr : (payload.data() + record_offset);
+            std::uint8_t* const target = (record.stride == 0u) ? nullptr : (payload.data() + record_offset);
             if (!detail::construct_value(*schema, document, record.type, detail::SOccurrence{ source },
                 target, record.stride, detail::EConstructionMode::complete_bulk, value_error, m_document.is_object_entry(source)))
             {
@@ -474,6 +482,7 @@ bool CBakedBulkData::materialise(CByteBuffer& returned_owner, SBulkDiagnostic& d
             source = m_document.next_sibling(source);
         }
     }
+
     //  Every allocation and conversion has succeeded. Only reserved scalar
     //  nodes are changed; a failed setter leaves this role unready.
     for (std::size_t ordinal = 0u; ordinal < staged.size(); ++ordinal)
@@ -489,6 +498,7 @@ bool CBakedBulkData::materialise(CByteBuffer& returned_owner, SBulkDiagnostic& d
     returned_owner = std::move(payload);
     m_payload = returned_owner.const_view();
     m_records = std::move(staged);
+    m_record_index = std::move(index);
     m_loaded = true;
     return true;
 }

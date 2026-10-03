@@ -36,8 +36,16 @@ The user authorised committing the completed review repairs, singular-input
 consistency, reconciliation, bulk replacement correction and documentation
 updates together on 3 October, before continuing the remaining discussions.
 
-The broader compatibility/decoder consolidation, integer output notation,
-file/API organisation and potential performance work remain discussion items.
+The user subsequently authorised entry-lookup improvements, removal of quadratic
+record/descendant bookkeeping and shared compatibility checking. Baked roles use
+persistent sorted ordinal indexes; live roles now binary-search their ordered
+record vectors directly, without auxiliary index storage. Live bulk records cache
+resolved type indices, and remap setup uses temporary member-name indexing and
+destination-member claim tracking. Entry access allocates nothing after loading.
+The implementation and validation are recorded below.
+
+Scalar-decoder and document-copying consolidation, integer output notation,
+remaining file/API organisation and further performance work remain discussion items.
 Fp16 workflow changes and source ingestion also remain deferred. A completed
 review does not authorise those changes.
 
@@ -496,9 +504,10 @@ structures and members without unconditional `alignas` annotations. Compiler
 validation must establish fidelity to the schema's resolved layout for each
 target ABI; no packing pragma or changed schema layout may hide a mismatch.
 Targets whose native layout differs remain unsupported pending separate handling.
-Explicit layout remains unimplemented. Its later contract requires faithful C++
-with padding under selected compiler settings, alignment at most 128, and rejection
-of layouts that cannot meet fidelity. The review-only fallback is removed.
+Explicit layout was deferred in this initial delivery. It was subsequently
+implemented with padding under selected compiler settings, alignment at most 128,
+and rejection of layouts that cannot meet fidelity; see the current runtime guide.
+The review-only fallback is removed.
 
 ## Baseline acceptance checks
 
@@ -1533,6 +1542,80 @@ The Debug x64 solution build and ordinary `-t1` suite passed, including 7,113
 schema checks with zero failures (`bulk-replace-final`, PID 79864). Policy,
 diff and tracked line-ending checks passed. The broader platform and generated
 layout matrices were not repeated for this document-subtree removal.
+
+#### Entry indexing and compatibility consolidation — implemented, review comments addressed
+
+Baked loading/materialisation builds a compact sorted ordinal table before
+publication. Live roles binary-search the record vector directly: fresh entry
+keys are monotonic, replacement retains them, ordered erasure preserves their
+order, and promotion/reconciliation create keys in record order. There is no
+live hash-table allocation or maintenance. Both paths provide logarithmic,
+allocation-free entry lookup. Entry identities, document order, payload
+lifetime and public signatures remain unchanged.
+
+Live bulk records retain the resolved type index established at creation or
+promotion, eliminating type-name searches during access. Bound schemas cannot
+be edited; unchanged successful re-resolution preserves indices, and failure
+makes bindings unusable until a successful retry.
+
+Remap setup sorts a temporary source-member name table and binary-searches it
+for each destination member. Destination-member claim flags replace pairwise
+range-overlap scans, using the resolver's guarantee of disjoint direct members.
+Only repeated nonempty claims conflict; empty matches retain their behaviour.
+These setup tables are temporary, and remap execution is unchanged.
+
+Bulk promotion and both live output paths use logarithmic record association instead
+of rescanning record tables. Coordinated instance editing uses one temporary
+ordinal map for descendant membership and staged-parent lookup, preserving
+parent-before-child updates even when unrelated branches are interleaved.
+
+The duplicated instance/bulk compatibility traversals and remapper comparison
+now share an operation-local context with hashed comparison keys. Representation
+matching ignores defaults and `internal`; remapping definition matching retains
+both checks and its ordinary-mismatch exclusion behaviour. Successful comparisons
+are reusable across roots; a failed traversal discards unfinished pairs and may
+retain only its proven root mismatch. Allocation failure cannot cache a partial
+success. Root-header mismatches are rejected before allocating comparison state.
+
+Review cleanup places the new index and compatibility helpers directly in the
+schema namespace and brings their file headers into the established style.
+Payload cursors, remap layout/range extents and bucket hashes use 32-bit values;
+allocation arithmetic checks the 2 GB ceiling. Compatibility hashing mixes
+pairs of 32-bit identities; node keys and scalar bit patterns retain full width.
+Existing public observation types and container-facing `size_t` counts retain
+their signatures. Boundary tests cover remap layouts exactly at the allocation
+ceiling without allocating their payloads, and reject oversized index capacity.
+
+Focused tests count key observations for 4,096 entries, exercise colliding hash
+rollback, verify allocation-free baked/live reads and hierarchy navigation, and
+cover erasure, renaming, reconciliation, reload and interleaved descendant edits.
+A 512-type graph exercises shared comparison results, default/internal policy
+differences and allocation-failure retry. Existing role allocation sweeps cover
+baked index staging alongside document/payload publication. Further tests cover
+mixed-type live bulk records across successful and failed schema re-resolution,
+interleaved creation and reconciliation, duplicate empty remap matches, and a
+512-member reversed-order remap with allocation-failure retries.
+
+A subsequent legacy-code audit removed the unread baked-bulk record alignment
+field and unused hash-index clear method. Hash rebuilding is private, and the
+hash mixer is local to the compatibility implementation. Scalar decoding and
+document-copying helpers remain active; their proposed consolidation is separate.
+
+Debug x64, Release x64 and Debug x86 solution builds and ordinary `-t1` suites
+passed after the lookup/remap follow-up with 17,963 schema checks and zero failures
+in each configuration: `schema-lookup-final-dbg64` (PID 82548),
+`schema-lookup-final-rel64` (PID 8712), and `schema-lookup-final-dbg32` (PID 23608).
+Policy validation reports zero errors
+or warnings; the existing negative-test suppression is unchanged. Diff and
+line-ending checks pass, including preserved Visual Studio CRLF, BOM and
+final-newline conventions. Generated layouts are unchanged, so their separate
+compiler matrix was not repeated. The user authorised committing this refinement
+package, including the legacy-code cleanup below, on 3 October.
+
+After the legacy-code cleanup, the Debug x64 solution build and ordinary `-t1`
+suite passed again with 17,963 schema checks and zero failures:
+`schema-cleanup-dbg64` (PID 82536). Policy, diff and line-ending checks pass.
+The earlier passing platform matrix was not repeated for this small cleanup.
 
 ### Delivery discipline
 

@@ -7,6 +7,7 @@
 //  Date:    02 Oct 26
 
 #include "schema/data_remap.hpp"
+#include "schema/type_compatibility.hpp"
 
 #include <algorithm>
 #include <cstring>
@@ -16,200 +17,10 @@
 namespace schema
 {
 
-[[nodiscard]] static bool same_scalar(const SScalar& a, const SScalar& b) noexcept
+[[nodiscard]] static bool view_capacity(const CByteConstView view, const std::uint32_t size,
+    const std::uint32_t stride, const std::uint32_t alignment, std::size_t& capacity) noexcept
 {
-    if (a.kind != b.kind)
-    {
-        return false;
-    }
-    if (a.kind == EScalar::signed_integer)
-    {
-        return a.value.signed_value == b.value.signed_value;
-    }
-    if (a.kind == EScalar::floating_point)
-    {
-        std::uint64_t left{}, right{};
-        std::memcpy(&left, &a.value.floating_value, sizeof(left));
-        std::memcpy(&right, &b.value.floating_value, sizeof(right));
-        return left == right;
-    }
-    return a.value.unsigned_value == b.value.unsigned_value;
-}
-
-struct SComparePair
-{
-    CSchemaIndex source, destination, source_default, destination_default;
-};
-
-[[nodiscard]] static bool add_pair(TPodVector<SComparePair>& pending, const SComparePair pair) noexcept
-{
-    for (std::size_t i = 0u; i < pending.size(); ++i)
-    {
-        const SComparePair& found = pending[i];
-        if ((found.source == pair.source) && (found.destination == pair.destination) &&
-            (found.source_default == pair.source_default) &&
-            (found.destination_default == pair.destination_default))
-        {
-            return true;
-        }
-    }
-    return pending.push_back(pair);
-}
-
-[[nodiscard]] static bool same_type_header(const CResolvedSchema& source, const SType& a,
-    const CResolvedSchema& destination, const SType& b) noexcept
-{
-    return (a.category == b.category) && (a.primitive == b.primitive) &&
-        (a.size == b.size) && (a.alignment == b.alignment) && (a.stride == b.stride) &&
-        (a.count == b.count) && (a.gaps == b.gaps) && (a.internal == b.internal) &&
-        (a.named_components == b.named_components) &&
-        (source.name(a.name) == destination.name(b.name)) &&
-        (a.element_or_storage.is_valid() == b.element_or_storage.is_valid());
-}
-
-[[nodiscard]] static bool exact_type(const CResolvedSchema& source, const CSchemaIndex source_type,
-    const CResolvedSchema& destination, const CSchemaIndex destination_type,
-    bool& allocation_failed, bool& invalid_input) noexcept
-{
-    if ((&source == &destination) && (source_type == destination_type))
-    {
-        return true;
-    }
-    SType root_source, root_destination;
-    if (!source.type(source_type, root_source) || !destination.type(destination_type, root_destination))
-    {
-        invalid_input = true;
-        return false;
-    }
-    if (!same_type_header(source, root_source, destination, root_destination))
-    {
-        return false;
-    }
-    TPodVector<SComparePair> pending;
-    if (!add_pair(pending, { source_type, destination_type, {}, {} }))
-    {
-        allocation_failed = true;
-        return false;
-    }
-    for (std::size_t next = 0u; next < pending.size(); ++next)
-    {
-        const SComparePair pair = pending[next];
-        if ((&source == &destination) && (pair.source == pair.destination) &&
-            (pair.source_default == pair.destination_default))
-        {
-            continue;
-        }
-        SType a, b;
-        SDefault da, db;
-        if (!source.type(pair.source, a) || !destination.type(pair.destination, b) ||
-            !source.default_value(pair.source, pair.source_default, da) ||
-            !destination.default_value(pair.destination, pair.destination_default, db))
-        {
-            invalid_input = true;
-            return false;
-        }
-        if (!same_type_header(source, a, destination, b) || (da.kind != db.kind) ||
-            ((da.kind == EDefault::scalar) && !same_scalar(da.scalar, db.scalar)))
-        {
-            return false;
-        }
-        if (a.element_or_storage &&
-            (!add_pair(pending, { a.element_or_storage, b.element_or_storage, {}, {} })))
-        {
-            allocation_failed = true;
-            return false;
-        }
-        if (a.category == ECategory::array)
-        {
-            const std::uint32_t supplied = (da.supplied_count > db.supplied_count) ? da.supplied_count : db.supplied_count;
-            for (std::uint32_t i = 0u; i < supplied; ++i)
-            {
-                CSchemaIndex ad, bd;
-                if (!source.default_element(pair.source, pair.source_default, i, ad) ||
-                    !destination.default_element(pair.destination, pair.destination_default, i, bd))
-                {
-                    invalid_input = true;
-                    return false;
-                }
-                if (!add_pair(pending, { a.element_or_storage, b.element_or_storage, ad, bd }))
-                {
-                    allocation_failed = true;
-                    return false;
-                }
-            }
-        }
-        const bool has_children =
-            (a.category == ECategory::structure) ||
-            (a.category == ECategory::enumeration) ||
-            (a.category == ECategory::bit_structure);
-        for (std::uint32_t i = 0u; i < (has_children ? a.count : 0u); ++i)
-        {
-            if (a.category == ECategory::structure)
-            {
-                SMember am, bm;
-                if (!source.member(source.member_at(pair.source, i), am) ||
-                    !destination.member(destination.member_at(pair.destination, i), bm))
-                {
-                    invalid_input = true;
-                    return false;
-                }
-                if (!(source.name(am.name) == destination.name(bm.name)) ||
-                    (am.offset != bm.offset) || (am.size != bm.size))
-                {
-                    return false;
-                }
-                if (!add_pair(pending, { am.type, bm.type, am.default_description, bm.default_description }))
-                {
-                    allocation_failed = true;
-                    return false;
-                }
-            }
-            else if (a.category == ECategory::enumeration)
-            {
-                SLabel al, bl;
-                if (!source.label(source.label_at(pair.source, i), al) ||
-                    !destination.label(destination.label_at(pair.destination, i), bl))
-                {
-                    invalid_input = true;
-                    return false;
-                }
-                if (!(source.name(al.name) == destination.name(bl.name)) || !same_scalar(al.value, bl.value))
-                {
-                    return false;
-                }
-            }
-            else
-            {
-                SField af, bf;
-                if (!source.field(source.field_at(pair.source, i), af) ||
-                    !destination.field(destination.field_at(pair.destination, i), bf))
-                {
-                    invalid_input = true;
-                    return false;
-                }
-                if (!(source.name(af.name) == destination.name(bf.name)) || (af.mask != bf.mask) ||
-                    (af.shift != bf.shift) || (af.width != bf.width) ||
-                    (af.interpretation != bf.interpretation) ||
-                    (af.signed_value != bf.signed_value) || (af.primitive != bf.primitive))
-                {
-                    return false;
-                }
-                if (!add_pair(pending, { af.type, bf.type, af.default_description, bf.default_description }))
-                {
-                    allocation_failed = true;
-                    return false;
-                }
-            }
-        }
-    }
-    return true;
-}
-
-[[nodiscard]] static bool view_capacity(const CByteConstView view, const std::uint64_t size,
-    const std::uint64_t stride, const std::uint64_t alignment, std::size_t& capacity) noexcept
-{
-    constexpr std::uint64_t ceiling = static_cast<std::uint64_t>(std::numeric_limits<std::size_t>::max());
-    if ((alignment == 0u) || (alignment > ceiling) || ((size != 0u) && ((size > ceiling) || (stride < size) || (stride > ceiling))))
+    if ((alignment == 0u) || ((size != 0u) && (stride < size)))
     {
         return false;
     }
@@ -236,7 +47,7 @@ struct SComparePair
     return true;
 }
 
-[[nodiscard]] static std::size_t active_span(const std::uint64_t size, const std::uint64_t stride, const std::size_t count) noexcept
+[[nodiscard]] static std::size_t active_span(const std::uint32_t size, const std::uint32_t stride, const std::size_t count) noexcept
 {
     return ((size == 0u) || (count == 0u)) ? 0u : (static_cast<std::size_t>(size) + ((count - 1u) * static_cast<std::size_t>(stride)));
 }
@@ -318,7 +129,28 @@ bool CDataRemapPlan::initialise(const SRemapSourceType* const sources, const std
         diagnostic.reason = ERemapReason::unknown_type;
         return false;
     }
-    m_destination = { destination.size, destination.stride, destination.alignment };
+    //  Resolved layouts already satisfy the single-allocation size ceiling.
+    m_destination = { static_cast<std::uint32_t>(destination.size), static_cast<std::uint32_t>(destination.stride),
+        static_cast<std::uint32_t>(destination.alignment) };
+    //  Resolved direct members cannot overlap. Only another source claiming
+    //  the same nonempty destination member can create an overlapping write.
+    TPodVector<std::uint8_t> claimed;
+    if (destination.count && (!claimed.allocate(destination.count) || !claimed.set_size(destination.count)))
+    {
+        diagnostic.reason = ERemapReason::allocation_failed;
+        clear();
+        return false;
+    }
+    if (claimed.size())
+    {
+        std::fill_n(claimed.data(), claimed.size(), std::uint8_t{});
+    }
+    struct SNamedMember
+    {
+        CSchemaIndex index;
+        CPropertyNameId name;
+    };
+    TPodVector<SNamedMember> source_members;
     for (std::size_t slot = 0u; slot < source_count; ++slot)
     {
         diagnostic.source = slot;
@@ -336,12 +168,44 @@ bool CDataRemapPlan::initialise(const SRemapSourceType* const sources, const std
             clear();
             return false;
         }
-        if (!m_sources.push_back({ source.size, source.stride, source.alignment }))
+        if (!m_sources.push_back({ static_cast<std::uint32_t>(source.size), static_cast<std::uint32_t>(source.stride),
+            static_cast<std::uint32_t>(source.alignment) }))
         {
             diagnostic.reason = ERemapReason::allocation_failed;
             clear();
             return false;
         }
+        source_members.clear();
+        if (!source_members.reserve(source.count))
+        {
+            diagnostic.reason = ERemapReason::allocation_failed;
+            clear();
+            return false;
+        }
+        for (std::uint32_t i = 0u; i < source.count; ++i)
+        {
+            const CSchemaIndex index = input.schema->member_at(input.type, i);
+            SMember member;
+            if (!input.schema->member(index, member))
+            {
+                diagnostic.reason = ERemapReason::invalid_input;
+                clear();
+                return false;
+            }
+            if (!source_members.push_back({ index, member.name }))
+            {
+                diagnostic.reason = ERemapReason::allocation_failed;
+                clear();
+                return false;
+            }
+        }
+        if (source_members.size() > 1u)
+        {
+            std::sort(source_members.data(), (source_members.data() + source_members.size()),
+                [&](const SNamedMember& a, const SNamedMember& b) noexcept
+                { return input.schema->name(a.name) < input.schema->name(b.name); });
+        }
+        CTypeCompatibility compatibility{ *input.schema, destination_schema, ETypeMatch::definition };
         for (std::uint32_t i = 0u; i < destination.count; ++i)
         {
             const CSchemaIndex destination_index = destination_schema.member_at(destination_type, i);
@@ -352,11 +216,25 @@ bool CDataRemapPlan::initialise(const SRemapSourceType* const sources, const std
                 clear();
                 return false;
             }
-            const CSchemaIndex source_index = input.schema->find_member(input.type, destination_schema.name(dm.name));
-            if (!source_index)
+            const CStringView name = destination_schema.name(dm.name);
+            std::size_t begin = 0u, end = source_members.size();
+            while (begin < end)
+            {
+                const std::size_t middle = begin + ((end - begin) / 2u);
+                if (input.schema->name(source_members[middle].name) < name)
+                {
+                    begin = middle + 1u;
+                }
+                else
+                {
+                    end = middle;
+                }
+            }
+            if ((begin == source_members.size()) || !(input.schema->name(source_members[begin].name) == name))
             {
                 continue;
             }
+            const CSchemaIndex source_index = source_members[begin].index;
             SMember sm;
             if (!input.schema->member(source_index, sm))
             {
@@ -368,9 +246,10 @@ bool CDataRemapPlan::initialise(const SRemapSourceType* const sources, const std
             {
                 continue;
             }
-            bool allocation_failed{};
-            bool invalid_input{};
-            const bool match = exact_type(*input.schema, sm.type, destination_schema, dm.type, allocation_failed, invalid_input);
+            const auto comparison = compatibility.compare(sm.type, dm.type);
+            const bool allocation_failed = (comparison == ETypeMatchResult::allocation_failed);
+            const bool invalid_input = (comparison == ETypeMatchResult::invalid_input);
+            const bool match = comparison == ETypeMatchResult::match;
             if (allocation_failed)
             {
                 diagnostic = { ERemapReason::allocation_failed, slot, source_index, destination_index };
@@ -399,18 +278,15 @@ bool CDataRemapPlan::initialise(const SRemapSourceType* const sources, const std
                 clear();
                 return false;
             }
-            for (std::size_t j = 0u; j < m_ranges.size(); ++j)
+            if (claimed[i])
             {
-                const SRange& prior = m_ranges[j];
-                if ((dm.offset < (prior.destination_offset + prior.size)) &&
-                    (prior.destination_offset < (dm.offset + dm.size)))
-                {
-                    diagnostic = { ERemapReason::overlap, slot, source_index, destination_index };
-                    clear();
-                    return false;
-                }
+                diagnostic = { ERemapReason::overlap, slot, source_index, destination_index };
+                clear();
+                return false;
             }
-            if (!m_ranges.push_back({ slot, sm.offset, dm.offset, sm.size }))
+            claimed[i] = 1u;
+            if (!m_ranges.push_back({ slot, static_cast<std::uint32_t>(sm.offset), static_cast<std::uint32_t>(dm.offset),
+                static_cast<std::uint32_t>(sm.size) }))
             {
                 diagnostic.reason = ERemapReason::allocation_failed;
                 clear();

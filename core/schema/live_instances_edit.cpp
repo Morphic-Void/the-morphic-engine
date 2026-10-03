@@ -1123,22 +1123,28 @@ bool CLiveInstances::edit_existing(const std::uint32_t index, const CNodeKey sel
         return false;
     }
     TPodVector<SStagedEdit> changes;
-    std::uint64_t total{};
+    TPodVector<std::uint32_t> staged_indices;
+    const std::size_t candidates = m_records.size() - index;
+    if (!staged_indices.allocate(candidates) || !staged_indices.set_size(candidates))
+    {
+        diagnostic.reason = EInstanceLoadReason::allocation_failed;
+        return false;
+    }
+    std::fill_n(staged_indices.data(), candidates, k_no_parent);
+    std::uint32_t total{};
     for (std::uint32_t i = index; i < m_records.size(); ++i)
     {
-        std::uint32_t ancestor = i;
-        while ((ancestor != k_no_parent) && (ancestor != index))
-        {
-            ancestor = m_records[ancestor].parent;
-        }
-        if (ancestor != index)
+        const std::uint32_t parent = m_records[i].parent;
+        if ((i != index) && ((parent == k_no_parent) || (parent < index) ||
+            (staged_indices[parent - index] == k_no_parent)))
         {
             continue;
         }
-        total = (total + 127u) & ~std::uint64_t{ 127u };
-        if ((total > UINT32_MAX) || (m_records[i].extent > UINT32_MAX - total) ||
+        staged_indices[i - index] = static_cast<std::uint32_t>(changes.size());
+        total = (total + 127u) & ~std::uint32_t{ 127u };
+        if ((total > memory::k_byte_size_ceiling) ||
             (m_records[i].extent > memory::k_byte_size_ceiling - total) ||
-            !changes.push_back({ i, static_cast<std::uint32_t>(total), {} }))
+            !changes.push_back({ i, total, {} }))
         {
             diagnostic.reason = EInstanceLoadReason::allocation_failed;
             return false;
@@ -1178,21 +1184,7 @@ bool CLiveInstances::edit_existing(const std::uint32_t index, const CNodeKey sel
         }
         else
         {
-            const SStagedEdit* parent = nullptr;
-            for (std::size_t p = 0u; p < j; ++p)
-            {
-                if (changes[p].index == record.parent)
-                {
-                    parent = &changes[p];
-                    break;
-                }
-            }
-            if (!parent)
-            {
-                diagnostic.reason = EInstanceLoadReason::invalid_input;
-                cleanup();
-                return false;
-            }
+            const SStagedEdit* const parent = &changes[staged_indices[record.parent - index]];
             if (record.extent)
             {
                 std::memcpy(target, (staged.data() + parent->offset), record.extent);

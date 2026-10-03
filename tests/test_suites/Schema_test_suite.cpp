@@ -17,6 +17,7 @@
 #include "schema/live_instances.hpp"
 #include "schema/data_remap.hpp"
 #include "schema/value_codec.hpp"
+#include "schema/type_compatibility.hpp"
 #include "memory/memory_policies.hpp"
 #include "data_model/document_parser.hpp"
 #include "data_model/document_translation.hpp"
@@ -1300,6 +1301,16 @@ static void test_record_layout(TTestContext& ctx)
             TEST_EXPECT(ctx, (structure.size == memory::k_byte_size_ceiling) && (structure.stride == structure.size));
             TEST_EXPECT(ctx, (member.offset == 0u) && (member.size == structure.size) && (array.size == member.size));
             TEST_EXPECT(ctx, (array.category == ECategory::array) && (array.primitive == EPrimitive::none));
+            CDataRemapPlan plan;
+            SRemapDiagnostic diagnostic;
+            const SRemapSourceType source{ &schema, structure_index };
+            TEST_EXPECT(ctx, plan.initialise(&source, 1u, schema, structure_index, diagnostic) &&
+                (plan.matched_member_count() == 1u) && (plan.copy_range_count() == 1u));
+            const CByteConstView empty;
+            TEST_EXPECT(ctx, plan.execute(&empty, 1u, {}));
+            alignas(128) std::uint8_t partial[16]{};
+            const CByteConstView partial_view{ partial, sizeof(partial) };
+            TEST_EXPECT(ctx, !plan.execute(&partial_view, 1u, {}));
             if (array.count == 32768u)
             {
                 TEST_EXPECT(ctx, array.stride == 65536u);
@@ -1656,6 +1667,399 @@ static void* MV_STD_ABI_CALL allocate_with_failure(
         return nullptr;
     }
     return tests::allocate_test_memory(nullptr, alignment, bytes);
+}
+
+struct SCountedEntryKey
+{
+    std::uint64_t value{};
+    std::size_t* observations{};
+    [[nodiscard]] std::uint64_t query_value() const noexcept { ++*observations; return value; }
+    [[nodiscard]] bool operator==(const SCountedEntryKey other) const noexcept
+    {
+        ++*observations;
+        return value == other.value;
+    }
+};
+
+static void test_record_index_scaling(TTestContext& ctx)
+{
+    struct SRecord { SCountedEntryKey entry; };
+    TPodVector<SRecord> records;
+    std::size_t observations{};
+    constexpr std::uint32_t count = 4096u;
+    TEST_EXPECT(ctx, records.reserve(count));
+    for (std::uint32_t i = 0u; i < count; ++i)
+    {
+        TEST_EXPECT(ctx, records.push_back({ { (std::uint64_t{ count - i } << 32u) | 7u, &observations } }));
+    }
+    CBakedRecordIndex baked;
+    TEST_EXPECT(ctx, baked.build(records));
+    for (unsigned kind = 0u; kind < 2u; ++kind)
+    {
+        if (kind)
+        {
+            //  Baked storage may be unordered; live records follow creation order.
+            std::reverse(records.data(), (records.data() + records.size()));
+        }
+        observations = 0u;
+        bool found = true;
+        for (std::uint32_t i = 0u; i < count; ++i)
+        {
+            std::uint32_t ordinal = UINT32_MAX;
+            found = found && (kind ? find_live_record(records, records[i].entry, ordinal) :
+                baked.find(records, records[i].entry, ordinal)) && (ordinal == i);
+        }
+        //  Count actual key observations, not elapsed time. A linear scan fails this bound.
+        TEST_EXPECT(ctx, found && observations < (count * 48u));
+    }
+    TEST_EXPECT(ctx, records.erase(count / 2u));
+    std::uint32_t unchanged = 123u;
+    TEST_EXPECT(ctx, !find_live_record(records, SCountedEntryKey{ (std::uint64_t{ (count / 2u) + 1u } << 32u) | 7u,
+        &observations }, unchanged) && unchanged == 123u);
+    for (std::uint32_t i = 0u; i < records.size(); ++i)
+    {
+        std::uint32_t ordinal{};
+        TEST_EXPECT(ctx, find_live_record(records, records[i].entry, ordinal) && ordinal == i);
+    }
+
+    //  Exercise rollback through colliding buckets, including a wrapped cluster.
+    COrdinalHashIndex collisions;
+    const auto hash = [](const std::size_t) noexcept { return std::uint32_t{ 127u }; };
+    //  A half-full table for this count would exceed the allocation ceiling.
+    TEST_EXPECT(ctx, !collisions.reserve((memory::k_byte_size_ceiling / (2u * sizeof(std::uint32_t))) + 1u, 0u, hash));
+    TEST_EXPECT(ctx, collisions.reserve(32u, 0u, hash));
+    for (std::uint32_t i = 0u; i < 32u; ++i)
+    {
+        collisions.insert(i, hash(i));
+    }
+    for (std::uint32_t i = 0u; i < 32u; i += 2u)
+    {
+        collisions.erase(i, hash);
+    }
+    for (std::uint32_t i = 0u; i < 32u; ++i)
+    {
+        const auto found = collisions.find(hash(i), [i](const std::uint32_t ordinal) noexcept { return ordinal == i; });
+        TEST_EXPECT(ctx, found == ((i & 1u) ? i : k_missing_record));
+    }
+}
+
+static void test_role_index_access(TTestContext& ctx)
+{
+    constexpr std::uint32_t count = 256u;
+    std::string text = R"({"types":{},"data":{"u8":{)";
+    for (std::uint32_t i = 0u; i < count; ++i)
+    {
+        if (i) { text += ','; }
+        text += "\"e" + std::to_string(i) + "\":{\"locator\":{\"offset\":" + std::to_string(i) +
+            ",\"valid\":true,\"count\":1}}";
+    }
+    text += R"(}},"instances":{"u8":{"base":{"locator":{"offset":0,"valid":true},"specialisation":{)";
+    for (std::uint32_t i = 0u; i < count; ++i)
+    {
+        if (i) { text += ','; }
+        text += "\"e" + std::to_string(i) + "\":{\"locator\":{\"offset\":" + std::to_string(i + 1u) +
+            ",\"valid\":true}}";
+    }
+    text += "}}}}}";
+    CBakedDocumentBlock block;
+    CBakedSchema schema;
+    SDiagnostic schema_error;
+    TEST_EXPECT(ctx, bake(text, block) && schema.set_document(block.document()) && schema.resolve(schema_error));
+    alignas(128) std::uint8_t bytes[count + 1u]{};
+    for (std::uint32_t i = 0u; i <= count; ++i) { bytes[i] = static_cast<std::uint8_t>(i); }
+    CBakedBulkData bulk;
+    CBakedInstances instances;
+    CLiveBulkData live_bulk;
+    CLiveInstances live_instances;
+    SBulkDiagnostic bulk_error;
+    SInstanceDiagnostic instance_error;
+    TEST_EXPECT(ctx, bulk.set_document(block.document()) && bulk.bind_schema(schema) &&
+        bulk.load_supplied(CByteConstView{ bytes, sizeof(bytes), 128u }, false, bulk_error) &&
+        instances.set_document(block.document()) && instances.bind_schema(schema) &&
+        instances.load_supplied(CByteConstView{ bytes, sizeof(bytes), 128u }, false, instance_error) &&
+        bulk.promote(live_bulk, schema, bulk_error) && instances.promote(live_instances, schema, instance_error));
+
+    const auto check = [&](auto& collections, auto& configurations)
+    {
+        const CInstanceHandle base = configurations.find_base(CStringView{ "u8" }, CStringView{ "base" });
+        TPodVector<CBulkHandle> handles;
+        TEST_EXPECT(ctx, handles.reserve(count));
+        for (std::uint32_t i = 0u; i < count; ++i)
+        {
+            const std::string name = "e" + std::to_string(i);
+            TEST_EXPECT(ctx, handles.push_back(collections.find_entry(CStringView{ "u8" }, CStringView{ name.c_str() })));
+        }
+        SFailingAllocator failing{ 0u, 0u };
+        memory::CMemoryAllocator allocator{ &failing, &allocate_with_failure, &tests::deallocate_test_memory };
+        memory::CMemoryContext context{ allocator };
+        {
+            tests::TMemoryContextScope scope{ &context };
+            CInstanceHandle child = configurations.first_specialisation(base);
+            bool valid = base.is_valid();
+            for (std::uint32_t i = 0u; i < count; ++i)
+            {
+                SBulkEntryView array;
+                SInstanceEntryView instance;
+                valid = valid && collections.entry(handles[i], array) && (array.bytes[0] == bytes[i]) &&
+                    configurations.entry(child, instance) && (instance.bytes[0] == bytes[i + 1u]) &&
+                    (instance.parent == base) && (configurations.parent_instance(child) == base);
+                child = configurations.next_specialisation(child);
+            }
+            SBulkEntryView array;
+            SInstanceEntryView instance;
+            valid = valid && !child && !collections.entry(collections.data_root(), array) &&
+                !configurations.entry(configurations.instances_root(), instance) &&
+                (collections.find_entry(CStringView{ "u8" }, CStringView{ "e0" }) == handles[0]) &&
+                configurations.find_specialisation(base, CStringView{ "e0" }).is_valid();
+            TEST_EXPECT(ctx, valid && failing.calls == 0u);
+        }
+        TEST_EXPECT(ctx, context.is_attribution_empty());
+    };
+    check(bulk, instances);
+    check(live_bulk, live_instances);
+    const CBulkHandle removed = live_bulk.find_entry(CStringView{ "u8" }, CStringView{ "e128" });
+    TEST_EXPECT(ctx, live_bulk.erase_entry(removed));
+    SBulkEntryView observed;
+    TEST_EXPECT(ctx, !live_bulk.entry(removed, observed) &&
+        live_bulk.entry(live_bulk.find_entry(CStringView{ "u8" }, CStringView{ "e129" }), observed) &&
+        observed.bytes[0] == 129u);
+    const CBulkHandle replacement = live_bulk.capture(CStringView{ "u8" }, CStringView{ "e128" },
+        CByteConstView{ bytes + 128u, 1u, 128u }, 1u, bulk_error);
+    TEST_EXPECT(ctx, replacement && replacement != removed && !live_bulk.entry(removed, observed) &&
+        live_bulk.rename_entry(replacement, CStringView{ "renamed" }) &&
+        live_bulk.find_entry(CStringView{ "u8" }, CStringView{ "renamed" }) == replacement &&
+        live_bulk.rename_entry(replacement, CStringView{ "e128" }));
+    TEST_EXPECT(ctx, live_bulk.capture(CStringView{ "u8" }, CStringView{ "e128" },
+        CByteConstView{ bytes + 128u, 1u, 128u }, 1u, bulk_error) == replacement);
+    check(live_bulk, live_instances);
+    TEST_EXPECT(ctx, live_bulk.reconcile(bulk_error) && live_instances.reconcile(instance_error));
+    check(live_bulk, live_instances);
+    TEST_EXPECT(ctx, bulk.load_supplied(CByteConstView{ bytes, sizeof(bytes), 128u }, false, bulk_error) &&
+        instances.load_supplied(CByteConstView{ bytes, sizeof(bytes), 128u }, false, instance_error));
+    check(bulk, instances);
+
+    CLiveInstances interleaved;
+    TEST_EXPECT(ctx, interleaved.initialise(schema));
+    const CInstanceHandle a = interleaved.create_base(CStringView{ "u8" }, CStringView{ "a" }, {}, {}, instance_error);
+    const CInstanceHandle b = interleaved.create_base(CStringView{ "u8" }, CStringView{ "b" }, {}, {}, instance_error);
+    CInstanceHandle tail_a = a, tail_b = b;
+    for (unsigned depth = 0u; depth < 64u; ++depth)
+    {
+        tail_a = interleaved.create_specialisation(tail_a, CStringView{ "child" }, {}, {}, instance_error);
+        tail_b = interleaved.create_specialisation(tail_b, CStringView{ "child" }, {}, {}, instance_error);
+        TEST_EXPECT(ctx, tail_a && tail_b);
+    }
+    alignas(128) const std::uint8_t new_value = 93u;
+    TEST_EXPECT(ctx, interleaved.capture_base(CStringView{ "u8" }, CStringView{ "a" },
+        CByteConstView{ &new_value, 1u, 128u }, instance_error) == a);
+    SInstanceEntryView last_a, last_b;
+    TEST_EXPECT(ctx, interleaved.entry(tail_a, last_a) && last_a.bytes[0] == new_value &&
+        interleaved.entry(tail_b, last_b) && last_b.bytes[0] == 0u);
+    TEST_EXPECT(ctx, interleaved.reconcile(instance_error));
+    tail_a = interleaved.find_base(CStringView{ "u8" }, CStringView{ "a" });
+    tail_b = interleaved.find_base(CStringView{ "u8" }, CStringView{ "b" });
+    for (unsigned depth = 0u; depth < 64u; ++depth)
+    {
+        tail_a = interleaved.find_specialisation(tail_a, CStringView{ "child" });
+        tail_b = interleaved.find_specialisation(tail_b, CStringView{ "child" });
+        TEST_EXPECT(ctx, interleaved.entry(tail_a, last_a) && (last_a.bytes[0] == new_value) &&
+            interleaved.entry(tail_b, last_b) && (last_b.bytes[0] == 0u));
+    }
+}
+
+static void test_live_bulk_type_binding(TTestContext& ctx)
+{
+    SFailingAllocator failing{ 0u, SIZE_MAX };
+    memory::CMemoryAllocator allocator{ &failing, &allocate_with_failure, &tests::deallocate_test_memory };
+    memory::CMemoryContext context{ allocator };
+    {
+        tests::TMemoryContextScope scope{ &context };
+        CBakedDocumentBlock block;
+        CBakedSchema baked;
+        CLiveSchema live;
+        SDiagnostic schema_error;
+        TEST_EXPECT(ctx, bake(R"({"types":{"structures":{
+            "First":{"members":[{"a":{"type":"u8"}}]},
+            "Second":{"members":[{"b":{"type":"u8"}}]}}}})", block) &&
+            baked.set_document(block.document()) && baked.resolve(schema_error) &&
+            baked.promote(live, schema_error));
+        const auto check = [&](auto& schema)
+        {
+            CLiveBulkData bulk;
+            SBulkDiagnostic error;
+            TEST_EXPECT(ctx, bulk.initialise(schema));
+            alignas(128) const std::uint8_t bytes[]{ 47u };
+            const CByteConstView input{ bytes, sizeof(bytes), 128u };
+            const CBulkHandle second = bulk.capture(CStringView{ "Second" }, CStringView{ "one" }, input, 1u, error);
+            const CBulkHandle first = bulk.capture(CStringView{ "First" }, CStringView{ "one" }, input, 1u, error);
+            const CBulkHandle another = bulk.capture(CStringView{ "Second" }, CStringView{ "two" }, input, 1u, error);
+            SBulkEntryView observed;
+            const CSchemaIndex first_type = schema.resolved()->find_type(CStringView{ "First" });
+            const CSchemaIndex second_type = schema.resolved()->find_type(CStringView{ "Second" });
+            TEST_EXPECT(ctx, bulk.entry(first, observed) && (observed.type == first_type) &&
+                bulk.entry(second, observed) && (observed.type == second_type));
+            TEST_EXPECT(ctx, schema.resolve(schema_error) && bulk.entry(first, observed) &&
+                (observed.type == first_type) && (observed.bytes[0] == 47u));
+            failing.fail_on = failing.calls;
+            TEST_EXPECT(ctx, !schema.resolve(schema_error) && !bulk.loaded_ready() &&
+                !bulk.entry(second, observed));
+            failing.fail_on = SIZE_MAX;
+            TEST_EXPECT(ctx, schema.resolve(schema_error) && bulk.entry(second, observed) &&
+                (observed.type == second_type) && (observed.bytes[0] == 47u));
+            TEST_EXPECT(ctx, bulk.capture(CStringView{ "First" }, CStringView{ "one" }, input, 1u, error) == first &&
+                bulk.erase_entry(second) && !bulk.entry(second, observed) && bulk.entry(another, observed));
+            TEST_EXPECT(ctx, bulk.reconcile(error));
+            TEST_EXPECT(ctx, bulk.entry(bulk.find_entry(CStringView{ "First" }, CStringView{ "one" }), observed) &&
+                (observed.type == first_type) && (observed.bytes[0] == 47u));
+            TEST_EXPECT(ctx, bulk.entry(bulk.find_entry(CStringView{ "Second" }, CStringView{ "two" }), observed) &&
+                (observed.type == second_type) && (observed.bytes[0] == 47u));
+        };
+        check(baked);
+        check(live);
+    }
+    TEST_EXPECT(ctx, context.is_attribution_empty());
+}
+
+static void test_remap_member_index(TTestContext& ctx)
+{
+    constexpr unsigned count = 512u;
+    const auto document = [](const bool reverse)
+    {
+        std::string text = R"({"types":{"structures":{"Record":{"members":[)";
+        for (unsigned i = 0u; i < count; ++i)
+        {
+            if (i) { text += ','; }
+            const unsigned ordinal = reverse ? (count - i - 1u) : i;
+            text += "{\"m" + std::to_string(ordinal) + "\":{\"type\":\"u8\"}}";
+        }
+        return text + "]}}}}";
+    };
+    CBakedDocumentBlock source_block, destination_block;
+    CResolvedSchema source, destination;
+    if (!resolve(ctx, document(false), source_block, source) ||
+        !resolve(ctx, document(true), destination_block, destination))
+    {
+        return;
+    }
+    const SRemapSourceType input{ &source, source.find_type(CStringView{ "Record" }) };
+    const CSchemaIndex target = destination.find_type(CStringView{ "Record" });
+    CDataRemapPlan plan;
+    SRemapDiagnostic error;
+    TEST_EXPECT(ctx, plan.initialise(&input, 1u, destination, target, error) &&
+        (plan.matched_member_count() == count) && (plan.copy_range_count() == count));
+    std::uint8_t before[count]{}, after[count]{};
+    for (unsigned i = 0u; i < count; ++i) { before[i] = static_cast<std::uint8_t>(i); }
+    const CByteConstView view{ before, sizeof(before) };
+    TEST_EXPECT(ctx, plan.execute(&view, 1u, CByteView{ after, sizeof(after) }));
+    for (unsigned i = 0u; i < count; ++i)
+    {
+        TEST_EXPECT(ctx, after[i] == before[count - i - 1u]);
+    }
+    const SRemapSourceType duplicate[]{ input, input };
+    TEST_EXPECT(ctx, !plan.initialise(duplicate, 2u, destination, target, error) &&
+        (error.reason == ERemapReason::overlap) && (error.source == 1u) &&
+        (error.destination_member == destination.member_at(target, 0u)) &&
+        (error.source_member == source.member_at(input.type, count - 1u)) && !plan.is_ready());
+    bool succeeded = false;
+    for (std::size_t fail_on = 0u; (fail_on < 64u) && !succeeded; ++fail_on)
+    {
+        SFailingAllocator failing{ 0u, fail_on };
+        memory::CMemoryAllocator allocator{ &failing, &allocate_with_failure, &tests::deallocate_test_memory };
+        memory::CMemoryContext context{ allocator };
+        {
+            tests::TMemoryContextScope scope{ &context };
+            CDataRemapPlan candidate;
+            succeeded = candidate.initialise(&input, 1u, destination, target, error);
+            TEST_EXPECT(ctx, succeeded || ((error.reason == ERemapReason::allocation_failed) && !candidate.is_ready()));
+            if (!succeeded)
+            {
+                failing.fail_on = static_cast<std::size_t>(-1);
+                TEST_EXPECT(ctx, candidate.initialise(&input, 1u, destination, target, error) &&
+                    (candidate.matched_member_count() == count));
+            }
+        }
+        TEST_EXPECT(ctx, context.is_attribution_empty());
+    }
+    TEST_EXPECT(ctx, succeeded);
+}
+
+static void test_compatibility_cache(TTestContext& ctx)
+{
+    const auto definitions = [](const bool changed)
+    {
+        std::string text = R"({"types":{"structures":{)";
+        for (unsigned i = 0u; i < 512u; ++i)
+        {
+            text += "\"T" + std::to_string(i) + "\":{\"members\":[{\"v\":{\"type\":\"u8\",\"default\":" +
+                std::to_string(((i == 250u) && changed) ? 1u : 0u) + "}}]},";
+        }
+        text += R"("Internal":{"detail":{"internal":)" + std::string(changed ? "true" : "false") +
+            R"(},"members":[{"v":{"type":"u8"}}]},"Root":{"members":[)";
+        for (unsigned i = 0u; i < 512u; ++i)
+        {
+            if (i) { text += ','; }
+            text += "{\"m" + std::to_string(i) + "\":{\"type\":\"T" + std::to_string(i) + "\"}}";
+        }
+        return text + "]}}}}";
+    };
+    CBakedDocumentBlock left_block, right_block;
+    CResolvedSchema left, right;
+    if (!resolve(ctx, definitions(false), left_block, left) || !resolve(ctx, definitions(true), right_block, right))
+    {
+        return;
+    }
+    const auto lroot = left.find_type(CStringView{ "Root" }), rroot = right.find_type(CStringView{ "Root" });
+    CTypeCompatibility representation{ left, right, ETypeMatch::representation };
+    TEST_EXPECT(ctx, representation.compare(lroot, rroot) == ETypeMatchResult::match &&
+        representation.cached_pair_count() == 514u);
+    const auto ltype = left.find_type(CStringView{ "T250" }), rtype = right.find_type(CStringView{ "T250" });
+    SFailingAllocator failing{ 0u, 0u };
+    memory::CMemoryAllocator allocator{ &failing, &allocate_with_failure, &tests::deallocate_test_memory };
+    memory::CMemoryContext context{ allocator };
+    {
+        tests::TMemoryContextScope scope{ &context };
+        for (unsigned i = 0u; i < 512u; ++i)
+        {
+            TEST_EXPECT(ctx, representation.compare(lroot, rroot) == ETypeMatchResult::match &&
+                representation.compare(ltype, rtype) == ETypeMatchResult::match);
+        }
+        TEST_EXPECT(ctx, failing.calls == 0u && representation.cached_pair_count() == 514u);
+    }
+    CTypeCompatibility definition{ left, right, ETypeMatch::definition };
+    TEST_EXPECT(ctx, definition.compare(lroot, rroot) == ETypeMatchResult::mismatch &&
+        definition.cached_pair_count() == 1u);
+    TEST_EXPECT(ctx, definition.compare(ltype, rtype) == ETypeMatchResult::mismatch &&
+        definition.compare(left.find_type(CStringView{ "T0" }), right.find_type(CStringView{ "T0" })) ==
+            ETypeMatchResult::match);
+    TEST_EXPECT(ctx, representation.compare(left.find_type(CStringView{ "Internal" }),
+        right.find_type(CStringView{ "Internal" })) == ETypeMatchResult::match &&
+        definition.compare(left.find_type(CStringView{ "Internal" }), right.find_type(CStringView{ "Internal" })) ==
+            ETypeMatchResult::mismatch);
+    TEST_EXPECT(ctx, definition.compare({}, rroot) == ETypeMatchResult::invalid_input);
+
+    unsigned failures{};
+    bool succeeded = false;
+    for (std::size_t offset = 0u; (offset < 64u) && !succeeded; ++offset)
+    {
+        SFailingAllocator fault{ 0u, offset };
+        memory::CMemoryAllocator fault_allocator{ &fault, &allocate_with_failure, &tests::deallocate_test_memory };
+        memory::CMemoryContext fault_context{ fault_allocator };
+        {
+            tests::TMemoryContextScope scope{ &fault_context };
+            CTypeCompatibility comparison{ left, right, ETypeMatch::representation };
+            const auto result = comparison.compare(lroot, rroot);
+            succeeded = result == ETypeMatchResult::match;
+            if (!succeeded)
+            {
+                ++failures;
+                TEST_EXPECT(ctx, result == ETypeMatchResult::allocation_failed && comparison.cached_pair_count() == 0u);
+                fault.fail_on = SIZE_MAX;
+                TEST_EXPECT(ctx, comparison.compare(lroot, rroot) == ETypeMatchResult::match);
+            }
+        }
+        TEST_EXPECT(ctx, fault_context.is_attribution_empty());
+    }
+    TEST_EXPECT(ctx, succeeded && failures > 3u);
 }
 
 static void test_allocations(TTestContext& ctx)
@@ -6798,6 +7202,10 @@ static void test_data_remap(TTestContext& ctx)
         plan.matched_member_count() == 1u && plan.copy_range_count() == 0u);
     const CByteConstView zero_input{};
     TEST_EXPECT(ctx, plan.execute(&zero_input, 1u, {}));
+    const SRemapSourceType duplicate_zero[]{ zero_type, zero_type };
+    TEST_EXPECT(ctx, plan.initialise(duplicate_zero, 2u, destination_schema,
+        destination_schema.find_type(CStringView{ "Zero" }), error) &&
+        (plan.matched_member_count() == 2u) && (plan.copy_range_count() == 0u));
     CDataRemapPlan moved{ std::move(plan) };
     TEST_EXPECT(ctx, moved.is_ready() && !plan.is_ready() && plan.source_count() == 0u);
 }
@@ -7337,7 +7745,7 @@ static void test_data_remap_type_exclusions(TTestContext& ctx)
         return;
     }
     const SRemapSourceType changed{ &source_schema, source_schema.find_type(CStringView{ "Source" }) };
-    SFailingAllocator failing{ 0u, 1u };
+    SFailingAllocator failing{ 0u, SIZE_MAX };
     memory::CMemoryAllocator allocator{ &failing, &allocate_with_failure, &tests::deallocate_test_memory };
     memory::CMemoryContext context{ allocator };
     {
@@ -7346,7 +7754,6 @@ static void test_data_remap_type_exclusions(TTestContext& ctx)
         TEST_EXPECT(ctx, empty.initialise(&changed, 1u, destination_schema,
             destination_schema.find_type(CStringView{ "Destination" }), error) &&
             empty.matched_member_count() == 0u && empty.copy_range_count() == 0u);
-        TEST_EXPECT(ctx, failing.calls == 1u);
     }
     TEST_EXPECT(ctx, context.is_attribution_empty());
 }
@@ -7438,6 +7845,11 @@ int run_schema_tests()
     schema_tests::test_snorm_defaults(ctx);
     schema_tests::test_scalars_and_limits(ctx);
     schema_tests::test_record_layout(ctx);
+    schema_tests::test_record_index_scaling(ctx);
+    schema_tests::test_role_index_access(ctx);
+    schema_tests::test_live_bulk_type_binding(ctx);
+    schema_tests::test_remap_member_index(ctx);
+    schema_tests::test_compatibility_cache(ctx);
     schema_tests::test_review_regressions(ctx);
     schema_tests::test_representation(ctx);
     schema_tests::test_local_type_references(ctx);

@@ -127,6 +127,7 @@ private:
     CLiveDocument m_document;
     CByteBuffer m_payload;
     CSchemaBinding m_binding;
+    //  Strictly increasing entry keys; see find_live_record().
     TPodVector<SRecord> m_records;
     bool m_loaded{};
 };
