@@ -26,7 +26,9 @@ model and shares value construction and metadata handling with promotion, while
 retaining their separate traversal and allocation strategies. The first
 organisation pass groups responsibilities within existing files, localises fixed
 instance traversal inputs and identifies public/support header boundaries in the
-runtime guide. See the
+runtime guide. Instance translation now has a separate implementation file for
+promotion, reconciliation and baking, alongside ownership/creation and editing.
+See the
 [implementation contract](implementation-contract.md).
 
 The coordinator handoff, pre-refactoring gap review and record-layout proposal

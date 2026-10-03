@@ -942,6 +942,9 @@
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\live_instances_edit.cpp">
       <Filter>Core\src\schema</Filter>
     </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\live_instances_translation.cpp">
+      <Filter>Core\src\schema</Filter>
+    </ClCompile>
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\baked_instances.cpp">
       <Filter>Core\src\schema</Filter>
     </ClCompile>

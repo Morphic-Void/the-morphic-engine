@@ -124,6 +124,23 @@ builds and `-t1` runs (`schema-organisation-dbg64`, `schema-organisation-rel64`,
 baked-document checks, zero failures. Policy validation reported no errors or
 warnings; diff and line-ending checks passed.
 
+The subsequent instance split moves declaration reconstruction, promotion,
+reconciliation and baking into `live_instances_translation.cpp`. Ownership,
+queries and creation remain in `live_instances.cpp`; capture, selection editing
+and propagation remain in `live_instances_edit.cpp`. Private static append and
+locator helpers share document construction without an additional header.
+Translation maps shared scalar-decoder failures directly to output diagnostics;
+editing retains its declaration diagnostics. Public APIs, object layouts and
+allocation behaviour are unchanged. The Visual Studio shared project includes
+the new source, which also feeds the Linux CMake source manifest.
+
+Split validation passed full Release x64, Debug x64 and Debug Win32 builds and
+`-t1` runs (`instance-split-rel64`, `instance-split-dbg64`,
+`instance-split-dbg32`), each with 18,457 schema checks and 3,340 baked-document
+checks, zero failures. Policy validation reported no errors or warnings; diff
+and line-ending checks passed. Visual Studio item/filter files retain their
+original BOM state, CRLF endings and absence of a final newline.
+
 The wider conditional and parameter review remains subsequent work. Integer
 output notation and further performance work remain discussion items. Combining
 the traversal strategies is outside this refactor.

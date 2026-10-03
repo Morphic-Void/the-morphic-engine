@@ -50,6 +50,14 @@ output. Instance selection decoding and reconciliation use stack-local operation
 objects to hold fixed traversal inputs; they add no persistent storage or heap
 allocation.
 
+The live instance implementation has three parts: `live_instances.cpp` owns
+lifetime, bindings, queries and creation; `live_instances_edit.cpp` owns capture,
+selection editing and descendant propagation; `live_instances_translation.cpp`
+owns binary-authoritative declaration reconstruction, promotion, reconciliation
+and baking. Creation and translation share private append/locator helpers on
+`CLiveInstances`. Editing and translation use the shared scalar decoder with
+their respective diagnostic policies. This split adds no public header.
+
 ## Schema wrappers and client bindings
 
 `schema::CBakedSchema` copies a non-owning `CBakedDocument` view. The caller keeps

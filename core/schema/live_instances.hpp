@@ -139,6 +139,10 @@ private:
         std::uint32_t offset{}, extent{};
     };
 
+    //  Document construction shared by creation and translation.
+    [[nodiscard]] static bool append_node(CLiveDocument& document, const CNodeKey parent, const CNodeKey child) noexcept;
+    [[nodiscard]] static CNodeKey make_locator(CLiveDocument& document, const std::uint32_t offset, const std::uint32_t extent) noexcept;
+
     [[nodiscard]] bool initialise_document(const std::size_t capacity) noexcept;
     [[nodiscard]] bool record_index(const CInstanceHandle instance, std::uint32_t& index) const noexcept;
     [[nodiscard]] bool promote_from(const CBakedInstances& source, SInstanceDiagnostic& diagnostic) noexcept;

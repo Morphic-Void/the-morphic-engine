@@ -141,6 +141,7 @@
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\baked_instances.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\live_instances.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\live_instances_edit.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\live_instances_translation.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\data_model\live_document.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\debug\event_arguments.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\debug\log_path.cpp" />
