@@ -21,6 +21,30 @@ namespace schema::detail
 enum class EWriteMode : std::uint8_t { instance, bulk, alternative };
 constexpr unsigned k_max_value_depth = 256u;
 
+bool is_scalar_shorthand(const CResolvedSchema& schema, const CSchemaIndex type,
+    const SType& layout, const CDocumentRead& document, const SOccurrence value) noexcept
+{
+    if (layout.count != 1u)
+    {
+        return false;
+    }
+    const EDocumentValueKind kind = document.value_kind(value);
+    if ((kind != EDocumentValueKind::boolean) && (kind != EDocumentValueKind::integer) &&
+        (kind != EDocumentValueKind::floating_point) && (kind != EDocumentValueKind::string))
+    {
+        return false;
+    }
+    if (layout.category == ECategory::bit_structure)
+    {
+        return true;
+    }
+    SMember member;
+    SType member_type;
+    return (layout.category == ECategory::structure) &&
+        schema.member(schema.member_at(type, 0u), member) && schema.type(member.type, member_type) &&
+        ((member_type.category == ECategory::primitive) || (member_type.category == ECategory::enumeration));
+}
+
 [[nodiscard]] static bool equal_name(const CStringView a, const CStringView b) noexcept
 {
     return a.length() == b.length() && (a.length() == 0u || std::memcmp(a.string(), b.string(), a.length()) == 0);
@@ -224,7 +248,8 @@ bool CValueWriter::structure(const CSchemaIndex type, const SType& layout, const
     const unsigned depth, const bool singleton_element) noexcept
 {
     const EDocumentValueKind kind = source.is_valid() ? m_document.value_kind(source) : EDocumentValueKind::invalid;
-    if (source.is_valid() && !singleton_element &&
+    const bool shorthand = !singleton_element && is_scalar_shorthand(m_schema, type, layout, m_document, source);
+    if (source.is_valid() && !singleton_element && !shorthand &&
         (kind != EDocumentValueKind::object) && (kind != EDocumentValueKind::array))
     {
         return fail(EReason::invalid_input, source, type);
@@ -238,7 +263,7 @@ bool CValueWriter::structure(const CSchemaIndex type, const SType& layout, const
     {
         return false;
     }
-    const std::uint32_t supplied = singleton_element ? 1u : (source.is_valid() ? m_document.child_count(source) : 0u);
+    const std::uint32_t supplied = (singleton_element || shorthand) ? 1u : (source.is_valid() ? m_document.child_count(source) : 0u);
     if (!singleton_element && (kind == EDocumentValueKind::array) && (supplied > layout.count))
     {
         return fail(EReason::invalid_range, source, type);
@@ -261,7 +286,7 @@ bool CValueWriter::structure(const CSchemaIndex type, const SType& layout, const
         }
         const bool selected_singleton = singleton_element &&
             equal_name(m_document.name(source), m_schema.name(member.name));
-        const SOccurrence child = selected_singleton ? source :
+        const SOccurrence child = (selected_singleton || shorthand) ? source :
             (!singleton_element && (kind == EDocumentValueKind::object)) ?
             m_document.object_child(source, m_schema.name(member.name)) :
             ((!singleton_element && (kind == EDocumentValueKind::array) && (ordinal < supplied)) ?
@@ -374,7 +399,8 @@ bool CValueWriter::bit_structure(const CSchemaIndex type, const SType& layout, c
     std::uint8_t* const destination, const EWriteMode mode, const bool singleton_element) noexcept
 {
     const EDocumentValueKind kind = source.is_valid() ? m_document.value_kind(source) : EDocumentValueKind::invalid;
-    if (source.is_valid() && !singleton_element &&
+    const bool shorthand = !singleton_element && is_scalar_shorthand(m_schema, type, layout, m_document, source);
+    if (source.is_valid() && !singleton_element && !shorthand &&
         (kind != EDocumentValueKind::object) && (kind != EDocumentValueKind::array))
     {
         return fail(EReason::invalid_input, source, type);
@@ -392,7 +418,7 @@ bool CValueWriter::bit_structure(const CSchemaIndex type, const SType& layout, c
     {
         return false;
     }
-    const std::uint32_t supplied = singleton_element ? 1u :
+    const std::uint32_t supplied = (singleton_element || shorthand) ? 1u :
         (source.is_valid() ? m_document.child_count(source) : 0u);
     if (!singleton_element && (kind == EDocumentValueKind::array) && (supplied > layout.count))
     {
@@ -415,7 +441,7 @@ bool CValueWriter::bit_structure(const CSchemaIndex type, const SType& layout, c
         }
         const bool selected_singleton = singleton_element &&
             equal_name(m_document.name(source), m_schema.name(field.name));
-        const SOccurrence child = selected_singleton ? source :
+        const SOccurrence child = (selected_singleton || shorthand) ? source :
             (!singleton_element && (kind == EDocumentValueKind::object)) ?
             m_document.object_child(source, m_schema.name(field.name)) :
             ((!singleton_element && (kind == EDocumentValueKind::array) && (ordinal < supplied)) ?
@@ -618,16 +644,21 @@ bool CValueWriter::write(const CSchemaIndex type, const CSchemaIndex description
 
 bool construct_value(const CResolvedSchema& schema, const CDocumentRead& document, const CSchemaIndex type,
     const SOccurrence declaration, std::uint8_t* const destination, const std::size_t destination_size,
-    const EConstructionMode mode, SValueDiagnostic& diagnostic) noexcept
+    const EConstructionMode mode, SValueDiagnostic& diagnostic, const bool singleton_element) noexcept
 {
     SType layout;
     if (!preflight(schema, document, type, declaration, destination, destination_size, diagnostic, layout))
     {
         return false;
     }
+    if (singleton_element && (layout.category != ECategory::structure) && (layout.category != ECategory::bit_structure))
+    {
+        diagnostic = { EReason::invalid_input, declaration, type };
+        return false;
+    }
     CValueWriter writer{ schema, document, diagnostic };
     return writer.write(type, {}, declaration, destination, static_cast<std::size_t>(layout.size),
-        ((mode == EConstructionMode::complete_bulk) ? EWriteMode::bulk : EWriteMode::instance), 0u);
+        ((mode == EConstructionMode::complete_bulk) ? EWriteMode::bulk : EWriteMode::instance), 0u, singleton_element);
 }
 
 bool construct_alternative(const CResolvedSchema& schema, const CDocumentRead& document, const CSchemaIndex type,

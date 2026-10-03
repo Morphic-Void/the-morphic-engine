@@ -11,10 +11,10 @@ Date:   25 Sep 2026
 with subsequent decisions. The expanded reviewed revision includes layout and
 short-input examples, omits redundant array `kind`, and uses `detail.internal`
 as the internal-layout marker. Its `types` section is an implemented resolver
-and C++ compiler acceptance fixture. The baked instance and bulk sections now
-illustrate materialisation with reserved locators.
-The working [design](design.md) records agreed semantics. Showing a later feature
-here does not bring it into the initial delivery.
+and C++ compiler acceptance fixture. The instance and bulk sections illustrate
+materialisation with reserved locators and are exercised by data-role tests,
+including live instance demotion and reload.
+The working [design](design.md) records agreed semantics.
 
 The instance and bulk entries use unset locators for materialisation. Named
 declarations and inheritance form the intended embedded instance representation; no
@@ -100,7 +100,7 @@ The `unorm` spelling is retained from the original sample. The revised design
 uses nearest floating quantisation with ties away from zero and clamping for
 `unorm` and `snorm`, raw integer codes for input/defaults/output, and conventional
 decoding. Schema-default quantisation and the baked instance/bulk construction
-codecs are implemented; live data roles and decoding remain future work. The type separation
+codecs, live data roles and decoding are implemented. The type separation
 uses the containing storage type for generated mask constants,
 so a shifted mask need not fit the logical field type or its enum value set.
 
@@ -173,10 +173,10 @@ structure instead requires a supplied size, validated for fit and alignment;
 additional trailing space is allowed and belongs to the structure.
 If `detail` or its `alignment` property is omitted, the agreed natural
 alignment rules apply, respecting any explicit alignment of nested types.
-Generated schema documents include both structure `detail.alignment` and
+Future schema-document normalisation is intended to include both structure `detail.alignment` and
 `detail.size`. Natural-layout input may omit both; explicit-offset schema creation
 must supply size and baked resolution requires it. All structure
-definitions here include them to illustrate writer output. Omitting the details
+definitions here include them to illustrate that intended form. Omitting the details
 from `Position`, for example, still resolves to size 12 and alignment 4; omitting
 `InternalRecord`'s alignment would instead remove its explicit increase.
 Resolved descriptions always contain alignment and size. A supplied natural-layout

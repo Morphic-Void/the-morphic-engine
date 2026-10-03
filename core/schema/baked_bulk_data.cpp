@@ -240,7 +240,9 @@ bool CBakedBulkData::plan(const bool supplied, const std::size_t payload_size,
             }
             for (CBakedValueIndex value = m_document.first_child(embedded); value.is_valid(); value = m_document.next_sibling(value))
             {
-                if (m_document.is_object_entry(value))
+                if (m_document.is_object_entry(value) && !
+                    ((layout.category == ECategory::structure) ? schema->find_member(type, m_document.name(value)) :
+                        ((layout.category == ECategory::bit_structure) ? schema->find_field(type, m_document.name(value)) : CSchemaIndex{})))
                 {
                     return fail(diagnostic, EBulkLoadReason::invalid_input, value);
                 }
@@ -392,7 +394,7 @@ bool CBakedBulkData::compare_embedded(const TPodVector<SRecord>& records, const 
             const std::uint8_t* const actual = record.stride == 0u ? nullptr : (payload.data() + record_offset);
             std::uint8_t* const target = record.stride == 0u ? nullptr : expected.data();
             if (!detail::construct_value(*schema, document, record.type, detail::SOccurrence{ source },
-                target, record.stride, detail::EConstructionMode::complete_bulk, value_error))
+                target, record.stride, detail::EConstructionMode::complete_bulk, value_error, m_document.is_object_entry(source)))
             {
                 return fail(diagnostic, EBulkLoadReason::incomplete_record, value_error.occurrence.is_baked() ?
                     value_error.occurrence.baked : source);
@@ -464,7 +466,7 @@ bool CBakedBulkData::materialise(CByteBuffer& returned_owner, SBulkDiagnostic& d
                 (static_cast<std::uint64_t>(record.stride) * index);
             std::uint8_t* const target = record.stride == 0u ? nullptr : (payload.data() + record_offset);
             if (!detail::construct_value(*schema, document, record.type, detail::SOccurrence{ source },
-                target, record.stride, detail::EConstructionMode::complete_bulk, value_error))
+                target, record.stride, detail::EConstructionMode::complete_bulk, value_error, m_document.is_object_entry(source)))
             {
                 return fail(diagnostic, EBulkLoadReason::incomplete_record, value_error.occurrence.is_baked() ?
                     value_error.occurrence.baked : source);

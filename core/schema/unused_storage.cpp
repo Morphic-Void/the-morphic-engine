@@ -443,7 +443,9 @@ template <class TQuery, class THandle>
                 }
                 for (CBulkHandle value = query.first_child(embedded); value; value = query.next_sibling(value))
                 {
-                    if (query.is_object_entry(value))
+                    if (query.is_object_entry(value) &&
+                        !((layout.category == ECategory::structure) ? schema.find_member(type, query.name(value)) :
+                            ((layout.category == ECategory::bit_structure) ? schema.find_field(type, query.name(value)) : CSchemaIndex{})))
                     {
                         return false;
                     }

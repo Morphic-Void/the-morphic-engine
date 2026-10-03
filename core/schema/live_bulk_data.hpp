@@ -52,6 +52,9 @@ public:
     [[nodiscard]] CByteConstView payload_view() const noexcept { return loaded_ready() ? m_payload.const_view() : CByteConstView{}; }
     [[nodiscard]] bool clear_unused_storage(const EUnusedBits bits = EUnusedBits::preserve) noexcept;
 
+    //  Rebuild complete records; success invalidates document handles, not payload views.
+    [[nodiscard]] bool reconcile(SBulkDiagnostic& diagnostic) noexcept;
+
     [[nodiscard]] CBulkHandle create_records(const CStringView& type, const CStringView& name,
         const CBulkDocumentQuery& source_query, const CBulkHandle records_array, SBulkDiagnostic& diagnostic) noexcept;
     [[nodiscard]] CBulkHandle capture(const CStringView& type, const CStringView& name,

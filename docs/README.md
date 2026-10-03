@@ -10,6 +10,8 @@ or that work has been authorised.
   [container references](containers/ByteBuffers.md) alongside it.
 - [Document model](data_model/README.md): semantic model, text grammar,
   parsing/reporting and baked storage format.
+- [Schema system](schema/README.md): live/baked schema and data roles, resolution,
+  generated declarations, loading, editing, output, remapping and unused storage.
 - [Image view](image/image_view.md): drawing, copying, access and TGA metadata.
 - [Asynchronous asset services](assets/asynchronous_asset_services.md): requests,
   ownership, conditioning, results, diagnostics and disposal.
@@ -34,7 +36,7 @@ or that work has been authorised.
 - [Deferred resource and lifecycle design](backlog/consolidation_deferred_design.md),
   [filesystem limitations and future considerations](backlog/filesystem_asset_mapping.md) and
   [job framework](backlog/job_framework_design.md).
-- [Schema design](schema/design.md) and [header survey](schema/header-survey.md).
+- [Schema source-ingestion survey](schema/header-survey.md).
 - [Future work notes](project/future_work_notes.md).
 
 ## Rationale and project record

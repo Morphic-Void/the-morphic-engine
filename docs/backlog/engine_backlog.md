@@ -8,7 +8,7 @@ Date:   12 Sep 2026
 
 # Remaining engine backlog
 
-Updated 23 September 2026. This consolidates unresolved scope from the interim
+Updated 3 October 2026. This consolidates unresolved scope from the interim
 capture. The parser, image view, concrete asset services and Executive acceptance
 are complete. The asynchronous module/disposal work is committed; the separate
 rendering DLL stub is implemented and accepted. Actual rendering remains
@@ -82,10 +82,12 @@ general naming/value-conversion APIs only when consumers demonstrate a need.
 Qualify numeric conversion on additional supported standard-library toolchains
 using the existing boundary and round-trip corpus.
 
-Schema definitions, C-like structures represented in JSON, source/header
-parsing, code generation, serialisation and remapping follow consolidation.
+The [schema system](../schema/README.md) implements document-based definitions,
+resolution, C++ declaration generation, live/baked instance and bulk data,
+output and remapping. Remaining schema consolidation and source/header ingestion
+are tracked in its [implementation contract](../schema/implementation-contract.md).
 Configuration, localisation, state capture/reconstruction and graphics metadata
-are consumers. No detailed typed-data architecture is settled here.
+remain potential consumers, to be selected as separate work.
 
 ## Image and graphics work
 

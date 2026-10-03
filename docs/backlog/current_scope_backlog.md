@@ -1,6 +1,6 @@
 # Current scope
 
-Updated 23 September 2026. The selected consolidation is complete, including
+Updated 3 October 2026. The selected consolidation is complete, including
 the rendering DLL stub and Executive-controlled startup in `f91ded3`.
 The subsequent development filesystem-image stage is complete and accepted,
 including the first-pass review corrections. See the
@@ -14,9 +14,12 @@ remains included. The old deferred filesystem design is superseded in full.
 
 ## Next work
 
-Select the next bounded stage with the user. Schema and its consumers are
-candidates, not an automatically authorised continuation. The existing schema
-documents are design material, not an implemented schema system.
+The schema system is implemented, including live/baked roles, resolution,
+generated declarations, loading, editing, output, remapping and unused-storage
+clearing. Its review follow-ups include singular input and binary-authoritative
+document reconciliation; the [implementation contract](../schema/implementation-contract.md)
+records current delivery and validation. Select remaining consolidation and
+consumer work with the user; that record does not authorise further changes.
 
 Vulkan is the primary rendering API planned for first implementation; DirectX
 is deferred. The current rendering DLL only waits for an exit request.

@@ -16,6 +16,37 @@ interfaces may change. A written plan alone does not authorise implementation.
 
 ## Delivery status
 
+As of 3 October, integration stages 1-8 and the subsequent exact-stride remapping
+correction (`0f4612b`) are complete. The stage 9 review was completed on 2 October.
+The user authorised its first repair package on 3 October: primitive instance
+promotion, compatibility checks for empty instance groups, replacement/removal
+of unlabelled enum selections, selection-path allocation diagnostics, and current
+documentation. The fixes preserve public APIs and existing input rules.
+
+The user subsequently authorised consistent named singleton bulk records and
+scalar shorthand wherever a compound with one scalar member is expected. This
+bounded input extension is separate from the four-defect repair package below.
+
+The user also authorised configuration preservation across differing defaults,
+then general binary-authoritative reconciliation. Both are implemented; the
+reconciliation rule supersedes the intermediate changed-default-only rule.
+Promotion and output reconcile instance declarations, and both live data roles
+provide explicit reconciliation after raw binary edits or remapping.
+The user authorised committing the completed review repairs, singular-input
+consistency, reconciliation, bulk replacement correction and documentation
+updates together on 3 October, before continuing the remaining discussions.
+
+The broader compatibility/decoder consolidation, integer output notation,
+file/API organisation and potential performance work remain discussion items.
+Fp16 workflow changes and source ingestion also remain deferred. A completed
+review does not authorise those changes.
+
+### Historical delivery record
+
+The following entries retain the delivery sequence and validation evidence.
+Statements about a package's next stage or then-active coordinator describe
+that point in delivery; current scope and working arrangements take precedence.
+
 The original schema resolver/generator baseline is commit `5313c85`, completed
 27 September. It is distinct from integration stage 1 below. Private record-layout
 decisions accepted on 27 September are reflected in the runtime records and limits
@@ -498,24 +529,13 @@ failure boundaries rather than mirror private record organisation:
 
 - Repository: `D:\TheMorphicEngine`, shared `main` checkout. Work serially;
   do not automatically create a branch or worktree.
-- Implementation chats use Astra with High reasoning. Create a separate chat
-  only when requested and give it a bounded brief with acceptance criteria.
-- Existing implementing chat: **Schema stage 1**, thread
-  `01a0d8ed-9e3e-71a2-91b7-2346a0791287`, host `local`. Retain it as an advisory
-  query resource for the follow-on coordinator, idle between questions. The user
-  authorises consultation about stage 1 implementation choices, code locations,
-  conventions and validation. Check current status before messaging it.
-- Advisory answers explain implementation history; current documentation and code
-  remain authoritative. The stage 1 chat's earlier future-work assumptions predate
-  this pivot. Route any proposed edits through the active coordinator and do not
-  let advisory queries start implementation or concurrent shared-checkout edits.
-- Authoritative coordinator: this requirements/coordination chat,
-  `01a0e758-4731-73d2-8c97-fd0eacf7aec1`, host `local`. Substantive design changes
-  return here; implementation chats do not independently redefine requirements.
-- Originating coordinator thread: `01a0d361-ff3e-70c0-9bd8-4b51b7fc8b5e`.
-  Thread titles can change; use IDs for coordination.
-- Follow `AGENTS.md`. Commits require explicit user instruction and coordinator
-  review. The user performs pushes. Preserve unrelated and manual changes.
+- Stage 9 work is performed directly in the current review/implementation chat.
+  The previous coordinator no longer supervises it. Create a separate
+  implementing chat only when the user requests one; historical task references
+  are not instructions to start or message other chats.
+- Follow `AGENTS.md`. Commits require explicit user instruction and, when an
+  active coordinator exists, its review. The user performs pushes. Preserve
+  unrelated and manual changes.
 - Discuss substantive design choices. A consolidation plan does not authorise
   future implementation. Avoid repeating passing test matrices without a new
   change or unresolved concern.
@@ -718,7 +738,9 @@ Stage 5a was committed as `f3bc3ac` (Add live bulk construction and non-consumin
 promotion). The user authorised continuation into stage 5b with the existing
 implementing chat. Its API proposal passed coordinator review. The user confirmed that
 instance promotion requires matching defaults as well as structure and value
-interpretation for referenced types; copied snapshots are not rebuilt.
+interpretation for referenced types; copied snapshots are not rebuilt. The
+3 October default-preservation decision below supersedes the matching-default
+requirement while retaining structural compatibility and copied snapshots.
 The user also confirmed that descendant updates preserve selected binary values
 and synchronise declarations, while unselected values inherit the updated parent.
 The coordinator dispatched the bounded live-instance implementation, including
@@ -768,18 +790,18 @@ nonzero-type view with a partial stride before writes, retaining existing
 zero-byte-type behavior. Debug x64 build and full tests passed with 6,019 schema
 checks and no failures. The user completed review and authorised its commit
 on 2 October.
-After this correction is reviewed and committed,
-prepare a coordinator handover before stage 9; the user is considering a fresh
-coordinator for that review. Stage 9 has not been authorised to start.
+The correction was committed as `0f4612b`, followed by handover and the stage 9
+review on 2 October. Current follow-up scope is recorded under Delivery status.
 On 2 October the user confirmed that embedded output must also reject omitted
 base fields whose saved values disagree with schema defaults, preserving omission
-rather than adding selections. Binary-backed output remains available.
+rather than adding selections. That decision was superseded by the 3 October
+binary-authoritative reconciliation rule recorded below.
 The user also approved recognising parser-normalised singleton compound
 selections in array/positional contexts within schema handling. Preserve the
 selected member or bitfield through reload and subsequent edits without changing
 the parser, widening selections or restricting output to baked documents.
-The intended handoff to a fresh implementing chat is at stage 5, after completion
-of the baked loaders, with this coordinator retaining requirements and review.
+The stage 5 handoff used a fresh implementing chat after completion of the baked
+loaders, with the then-active coordinator retaining requirements and review.
 During that review, the user clarified that specialisations are independent
 alternatives and short positional declarations inherit omitted values from
 their base. Base construction still completes omitted values from defaults;
@@ -899,9 +921,11 @@ handle. Larger replacements append storage; smaller replacements can reuse it.
 Zero-count live entries and positive counts of zero-byte records retain explicit
 metadata. No operation implicitly compacts or clears unused storage.
 
-Promotion builds only the bulk role's live metadata and independently copies its
-authoritative binary payload. Embedded record arrays are omitted, and counts are
-made explicit. The supplied schema is bound independently and referenced types
+Stage 5a promotion originally built only live metadata and independently copied
+the authoritative binary payload, omitting embedded records and making counts
+explicit. The 3 October reconciliation follow-up regenerates existing embedded
+records from binary while retaining reference-only entries. The supplied schema
+is bound independently and referenced types
 are checked for the user-approved structure/interpretation compatibility, ignoring
 defaults and export-only internal flags. Promotion and capture apply no defaults;
 complete-record construction rejects omitted fields, and unpopulated creation
@@ -932,9 +956,10 @@ the commit on 1 October. Stage 5b is implemented and has passed user manual revi
 
 Stage 5b adds `CLiveInstances` with an owned document and aligned payload, common
 instance queries, independent promotion, base/specialisation construction,
-binary capture and coordinated selection edits. Promotion retains declarations
-and hierarchy, strips instance locator counts, copies authoritative snapshots
-and checks referenced types including effective defaults. Base capture records
+binary capture and coordinated selection edits. Promotion retains hierarchy,
+strips instance locator counts, copies authoritative snapshots and checks referenced
+types. The 3 October reconciliation follow-up regenerates declarations from
+snapshot differences against destination defaults or immediate parents. Base capture records
 a complete declaration. Specialisation capture preserves the existing selection
 shape and copies only selected fields. Descendant updates inherit their immediate
 parent and retain their own selected binary values, synchronising declarations.
@@ -1005,14 +1030,14 @@ The user's final changes were line breaks only. Stage 6a has passed user manual
 review, with commit authorised on 1 October, and was committed as `80c5681`.
 
 Stage 6b adds independent instance output preparation and non-destructive demotion
-against an explicit baked or live destination schema. Compatibility includes
-effective defaults. Complete snapshots are packed in parent-before-child document
-order, with separate returned document-block and payload owners. External output
-retains declaration values and exact snapshots. Embedded output refreshes only
-selected values from binary, then reconstructs the hierarchy and checks encoded
-fields. Omitted base fields and unselected inherited fields must reproduce the
-snapshot without adding selections. Noncanonical Boolean codes and unlabelled
-enum values remain available through external output.
+against an explicit baked or live destination schema. The original matching-default
+requirement is superseded by the 3 October reconciliation step below. Complete
+snapshots are packed in parent-before-child document
+order, with separate returned document-block and payload owners. Both instance
+output forms now reconcile declarations from binary and verify generated values.
+Omissions and stale literals no longer constrain reconstruction. Noncanonical
+Boolean codes and unlabelled enum values fail when they cannot be expressed
+faithfully, including external instance output.
 
 The agreed singleton-selection extension uses explicit traversal context in the
 value codec and live selection helpers. Named compound selections simplified by
@@ -1046,9 +1071,9 @@ review with only line-break changes and authorised the commit on 2 October.
 
 Stage 1 is complete and committed independently as
 `d92dddd`; its code, tests and data-model documentation exclude schema planning.
-Implementing chats receive bounded briefs from the coordinator and return changes
-and validation evidence for review. This consolidated plan is the documentation
-baseline for the upcoming schema integration.
+Stages 2-8 below record the completed integration and its acceptance boundaries.
+Their implementation used bounded briefs and coordinator review. Stage 9 follows
+the current working arrangement above.
 
 ### 1. Mutable baked integer metadata — completed
 
@@ -1146,10 +1171,10 @@ Stage 6b includes the agreed schema interpretation of parser-normalised singleto
 compound selections in fixed arrays and positional structure declarations.
 Verify nested compound values without interpreting their outer member name twice,
 reject named scalar entries, and exercise reload followed by ancestor edits to
-prove that selection intent survives. Embedded output refreshes selected values
-from snapshots and rejects omitted-value mismatches, including base defaults;
-external output retains declarations and exact complete snapshots. Destination
-compatibility includes effective defaults, as for instance promotion.
+verify resulting inheritance. Both output forms now reconcile declarations from
+snapshots, adding differences and removing equal values, subject to array-prefix
+requirements. Destination compatibility permits differing defaults through the
+shared reconciliation step, as for instance promotion (3 October follow-up).
 
 Build separate output documents and packed payload buffers in document traversal
 order, rewriting output locators. Implement data demotion with separately returned
@@ -1252,14 +1277,13 @@ The user confirmed that instance destinations, both bases and specialisations,
 receive binary-only writes. Declarations, selection intent and descendants remain
 unchanged, including when a mapped field was previously unselected. Handle
 adapters use the common executor without invoking capture or coordinated editing.
-Existing embedded-output checks still reject unrepresentable omitted/inherited
-values; binary-backed output remains available.
+Subsequent output reconciles declarations from the resulting snapshots; it
+rejects values that cannot be faithfully represented, rather than old omissions.
 
 Fast runtime updates are the primary use case. The user agreed that document
 refresh after remapping is a separate operation for the secondary document-form
-workflow. Its discussion is deferred until stage 9, after the post-implementation
-review and consolidation of coherence, consistency and code. The current binary
-remapper does not perform reconciliation.
+workflow. Stage 9's 3 October follow-up implements that explicit operation.
+The binary remapper itself does not perform reconciliation.
 
 Completion evidence: untouched unmapped fields and records beyond the chosen count,
 mixed-match and no-match plans across type categories, capacities inferred from
@@ -1332,29 +1356,28 @@ improve decomposition and responsibility boundaries, or to hold common context
 in an appropriate class or structure. The aim is to identify shared context and
 coherent responsibilities, rather than merely bundle arguments together.
 
-Review consistency of parser-normalised singleton compound forms across bulk
-records and instance selections. The stage 7b fixture found that baked bulk
-loading rejects named record entries produced from `[{a:1},{a:2}]`, while
-`[1,2]` works for that single-member record type. Its record-array validation
-rejects named elements before value construction. Compare this existing
-restriction with the accepted singleton-selection support and documented input
-forms before deciding whether to align behavior or clarify the boundary.
+The review found inconsistent parser-normalised singleton handling: bulk
+loading rejected `[{"a":1},{"a":2}]` for a single-member structure, although
+nested compound arrays accepted the same named form. The probe established
+that `[[1],[2]]` worked and `[1,2]` failed before the input extension. On
+3 October the user authorised the consistency fix and scalar shorthand for
+singular compounds, including ordinary instances and nested values. The agreed
+rule accepts all three record forms when the sole member is scalar, retains
+complete-record checks and does not recursively flatten arrays or compounds.
 
-After completing the post-implementation review and consolidation,
-discuss explicit reconciliation of a live document's description after binary
-updates to its backing. This is deferred follow-up work, not a stage 7c delivery.
-It remains separate from remap execution; external application-owned destinations
-need no document reconciliation.
-
-Resolve scope and conflict parameters: selected versus omitted/inherited instance
-values, disagreements with defaults or ancestors, whether reconciliation may
-change selection intent, and effects on descendant declarations and snapshots.
-Establish the corresponding bulk-document behavior without restoring embedded
-bulk values that the live representation deliberately omits. Consider reuse of
-capture and output machinery without assuming their existing policies fit.
-Agree implementation scope and acceptance criteria after this discussion,
-including subsequent editing and output/reload, preservation of unrelated data
-and failure behavior. No reconciliation implementation is authorised yet.
+On 3 October the user brought reconciliation forward and authorised its
+implementation. Binary snapshots are definitive: bulk records are regenerated
+completely; instance bases compare against defaults and specialisations against
+their immediate parents. Equal named values are removed, differences become
+explicit, and arrays retain the shortest necessary prefix without sparse grammar.
+The same instance reconciliation applies in promotion, both output forms and
+demotion, with an explicit live-role operation after remapping. Old declaration
+agreement checks are removed; structural safety, schema compatibility, generated
+document fidelity and optional load-time integrity comparison remain. Snapshots
+are never changed or propagated during reconciliation. This supersedes earlier
+selection-preserving output decisions; authored construction/editing retains its
+own selection semantics until reconciliation. External application buffers need
+no document reconciliation, and remapping remains a separate binary operation.
 
 Discuss float-to-fp16 conversion as a concrete user workflow. Inventory the
 existing paths: explicit conversion through `fp16data_t` into destination
@@ -1366,9 +1389,150 @@ and exceptional values, against the existing codec before choosing an API.
 This discussion does not authorise implementation or relax the exact-type,
 binary-copy-only contract of `CDataRemapPlan`.
 
-Discuss the detailed scope and acceptance criteria with the user when this stage
-is reached. This entry reserves the review stage; it does not authorise starting
-the review or preselect any resulting refactoring.
+The full review is complete. The user authorised the four defect corrections
+and documentation first, followed by the bounded singular-input extension.
+The remaining findings require discussion; broader refactoring is not authorised.
+
+#### First repair package — implemented
+
+Promotion validates declared instance groups by their document type names,
+covering primitive types and retained empty groups. It preserves the existing
+default-sensitive compatibility policy and leaves failed destinations empty.
+Selection editing decodes retained values from authoritative bytes while copying
+the declaration subtree that will be discarded, then applies the edit and
+validates the resulting snapshots. Whole-declaration replacement bypasses the
+old declaration. Selection-path allocation failures now report their allocation
+cause without changing invalid-path diagnostics.
+
+Regression coverage includes primitive base/child promotion into baked and live
+schemas, missing or default-incompatible empty groups, empty-group preservation
+through output, and enum repair through members, nested members, arrays and
+bitfields. It checks retained binary values, rejection of retained unlabelled
+enums, failure atomicity, whole-declaration replacement, and allocation failures
+in both selection operations. Existing stale-declaration edit tests also pass.
+
+Debug x64, Release x64 and Debug x86 solution builds and ordinary `-t1` suites
+passed on 3 October, each with 6,086 schema checks and zero failures. Test tags
+and process IDs are `schema-review-final-dbg64` (77876),
+`schema-review-final-rel64` (71284), and `schema-review-final-dbg32` (78196);
+runner logs use `development/logical-roots/test-logs/`. Policy validation reports
+zero errors or warnings, with the existing unrelated negative-test suppression.
+Line-ending and diff checks pass. Resolved layouts and generated declarations
+did not change, so the separate generated-layout compiler matrix was not repeated.
+Broader stage 9 decisions remain open.
+
+#### Singular input and bulk consistency — implemented
+
+The 3 October follow-up adds scalar shorthand for structures with one primitive
+or enum member and bit structures with one scalar field. It applies through
+the shared codec to instance roots, nested members, array elements and bulk
+records. Instance selection decoding and overlays retain the sole member's
+selection through parent edits, capture, replacement/removal and output.
+Explicit output forms remain supported; syntax may expand without adding any
+selected members. Arrays and compound members are not recursively unwrapped.
+
+Bulk loading, comparison, live creation and unused-storage validation now accept
+parser-normalised named compound records at the outer record-array boundary.
+The value codec receives that context explicitly. Scalar array elements cannot
+acquire names, unknown members remain errors, and complete bulk construction
+still rejects omitted members and incomplete arrays.
+
+Regression tests cover scalar/named/positional equivalence, live and baked
+queries, integer/float/Boolean/enum and bitfield conversion, invalid ranges and
+shapes, all three bulk record forms, unused-storage clearing, top-level scalar
+instance loading, nested selection edits, capture, and text output/reload.
+Debug x64, Release x64 and Debug x86 solution builds and ordinary `-t1` suites
+passed with 6,261 schema checks and zero failures. Final test tags and PIDs are
+`singular-final-dbg64` (36740), `singular-final-rel64` (80724) and
+`singular-final-dbg32` (80460). Policy, line-ending and diff checks pass.
+Resolved layouts and generated declarations are unchanged; their separate
+compiler matrix was not repeated.
+
+#### Instance default preservation — implemented, subsequently generalised
+
+This intermediate rule was subsequently generalised by binary-authoritative
+reconciliation below; its validation record is retained as delivery history.
+
+The 3 October decision retains the intentional distinction between complete
+bulk data and partial instance configurations. Instance conversion now accepts
+different defaults when structure and value interpretation match. Promotion,
+embedded/external preparation and demotion use one preservation step for both
+live and baked destination schemas. Affected omitted base values become explicit
+snapshot literals; other omissions remain intact, and specialisations inherit
+through their preserved parents. Array prefixes extend only as necessary.
+
+New literals are checked for lossless encoding. Unlabelled enum codes and
+noncanonical Boolean values that require new selections fail atomically with
+`unrepresentable_value`. No source document or snapshot is changed. This bounded
+conversion change does not implement general raw-write reconciliation or alter
+bulk completeness or exact remapping compatibility.
+
+Regression coverage exercises nested structures, singleton selections, array
+prefixes, bitfields, signed floating zero, unchanged selections, target defaults
+already matching snapshots, empty groups, inherited edits, all conversion routes,
+text reloads, unrepresentable values and allocation failures.
+
+Debug x64, Release x64 and Debug x86 solution builds and ordinary `-t1` suites
+passed with 6,824 schema checks and zero failures. Final test tags and PIDs are
+`defaults-verified-dbg64` (39564), `defaults-verified-rel64` (40892) and
+`defaults-verified-dbg32` (15068). Policy validation has zero errors or warnings;
+diff and line-ending checks pass. Generated layouts are unchanged, so their
+separate compiler matrix was not repeated.
+
+#### Binary-authoritative reconciliation — implemented
+
+Promotion, embedded/external instance preparation and demotion now derive
+declarations from binary, using destination defaults for bases and immediate
+parent snapshots for specialisations. Old declarations are not decoded, copied
+or validated during instance promotion. Equal overrides and empty selections
+are removed; array prefixes retain necessary equal scalar values. The special
+changed-default pass and default-comparison bookkeeping have been removed.
+Generated values still round-trip through the codec, including signed zero and
+NaN comparison rules. Unlabelled enum codes and noncanonical Boolean encodings
+fail whenever a faithful declaration is required.
+
+Both live data roles expose `reconcile(diagnostic)`. They stage a replacement
+document and record table, preserving payload allocation, offsets, all bytes and
+schema bindings. Success invalidates document handles; failure preserves them.
+Bulk reconciliation emits complete records. Bulk promotion refreshes existing
+embedded data and retains reference-only entries; external bulk output remains
+reference-only. Impossible explicit record counts are rejected before expansion.
+
+Tests cover stale and invalid old literals, default and inherited differences,
+removal of equal overrides, retained array prefixes, nested compounds, bitfields,
+signed zero, padding and unused bits, repeated reconciliation, parent edits,
+live/baked destination schemas, both output forms and text reloads. Actual remap
+tests verify declaration refresh without changing any snapshots. Allocation and
+representability failures leave destinations or live documents unchanged.
+
+Final Debug x64, Release x64 and Debug x86 solution builds and ordinary `-t1`
+suites passed with 7,044 schema checks and zero failures. Tags and PIDs are
+`reconcile-final-dbg64` (83588), `reconcile-final-rel64` (22996) and
+`reconcile-final-dbg32` (76832). Policy validation reports zero errors or warnings;
+diff and tracked line-ending checks pass. Generated layouts are unchanged, so
+their separate compiler matrix was not repeated.
+
+#### Bulk replacement after reconciliation — follow-up
+
+Review found that raw capture replacing a bulk entry retained any embedded
+record array produced by reconciliation or promotion. A changed count then
+disagreed with that array and caused unused-storage clearing to reject the
+document. Successful replacement now removes the old array after staging and
+locator replacement, leaving the entry as a reference to its new binary data.
+It does not decode captured values. The entry handle is retained; failed staging
+preserves the old embedded records.
+
+Regression tests cover growth, shrinkage, equal-count and zero-count replacement
+after both reconciliation and promotion, unused-storage clearing, embedded
+demotion/reload and allocation-failure preservation. The new checks reproduced
+the defect before the fix. The design, API guide, delivery status and general
+backlog descriptions have also been aligned with the implemented schema roles
+and reconciliation behaviour.
+
+The Debug x64 solution build and ordinary `-t1` suite passed, including 7,113
+schema checks with zero failures (`bulk-replace-final`, PID 79864). Policy,
+diff and tracked line-ending checks passed. The broader platform and generated
+layout matrices were not repeated for this document-subtree removal.
 
 ### Delivery discipline
 
@@ -1384,6 +1548,7 @@ Each stage leaves a usable, tested boundary; stages 4-6 should not become one
 unreviewed integration change. Run checks appropriate to each change and broader
 integration checks when new boundaries are connected, without repeating passing
 matrices absent a new change or unresolved concern. Keep implementation and its
-current-API documentation together. Each implementation package needs coordinator
-review and user-authorised commits; the user pushes. Source ingestion remains
+current-API documentation together. Each implementation package needs review by
+its coordinator when one is active, and commits require user authorisation;
+the user pushes. Source ingestion remains
 outside this sequence.

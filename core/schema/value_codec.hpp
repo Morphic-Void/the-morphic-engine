@@ -27,12 +27,18 @@ struct SValueDiagnostic
     CSchemaIndex type;
 };
 
+//  Scalar spelling is only shorthand for a compound with one scalar member.
+//  It never recursively unwraps a compound or array member.
+[[nodiscard]] bool is_scalar_shorthand(const CResolvedSchema& schema, const CSchemaIndex type,
+    const SType& layout, const CDocumentRead& document, const SOccurrence value) noexcept;
+
 //  Caller owns both the document and storage. The destination may be partially
 //  changed on failure and must then be discarded. Structure/array padding is
 //  untouched; a new bit-storage word is initialised as a unit.
 [[nodiscard]] bool construct_value(const CResolvedSchema& schema, const CDocumentRead& document,
     const CSchemaIndex type, const SOccurrence declaration, std::uint8_t* const destination,
-    const std::size_t destination_size, const EConstructionMode mode, SValueDiagnostic& diagnostic) noexcept;
+    const std::size_t destination_size, const EConstructionMode mode, SValueDiagnostic& diagnostic,
+    const bool singleton_element = false) noexcept;
 
 //  The base is preserved; the independent destination receives its complete
 //  bytes before selected values are changed, preserving inherited padding and

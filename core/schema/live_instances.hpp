@@ -67,6 +67,9 @@ public:
     [[nodiscard]] CByteConstView payload_view() const noexcept { return loaded_ready() ? m_payload.const_view() : CByteConstView{}; }
     [[nodiscard]] bool clear_unused_storage(const EUnusedBits bits = EUnusedBits::preserve) noexcept;
 
+    //  Rebuild declarations from snapshots; success invalidates document handles, not payload views.
+    [[nodiscard]] bool reconcile(SInstanceDiagnostic& diagnostic) noexcept;
+
     [[nodiscard]] CInstanceHandle create_base(const CStringView& type, const CStringView& name,
         const CInstanceDocumentQuery& source, const CInstanceHandle declaration, SInstanceDiagnostic& diagnostic) noexcept;
     [[nodiscard]] CInstanceHandle create_specialisation(const CInstanceHandle parent, const CStringView& name,

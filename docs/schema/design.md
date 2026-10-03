@@ -42,16 +42,15 @@ The first remapper automatically matches direct members by name and type.
 It does not search recursively or infer conversions. Source ingestion remains
 a constrained development tool rather than a general C++ compiler.
 
-Schema implementation code belongs in the new `core/schema/` directory.
+Schema implementation code belongs in `core/schema/`.
 
 ## Authoring, resolution, and data
 
 Schema creation and structural modification use a live document. Schema
 definitions may be distributed as Morphic JSON text or baked documents. The
-target design separates schema-document ownership from resolution: live and
+design separates schema-document ownership from resolution: live and
 baked schema documents consume one resolver, able to read either data-model
-representation through a common read boundary, potentially using adapters.
-The implemented stage 1 resolver still accepts baked input only.
+representation through the implemented common read adapter.
 
 ```text
 Live or baked schema document -> common resolver -> resolved schema
@@ -231,10 +230,21 @@ without applying defaults. Unrelated types in either catalogue need not match.
 This does not change the stricter default-sensitive definition matching specified
 for remapping below.
 
-Instance promotion also requires matching defaults for the referenced types.
-Confirmed on 1 October: retained declarations may omit values, so different
-defaults could change an instance during a later rebuild. Promotion still copies
-the authoritative snapshots without reconstructing them or applying defaults.
+Instance conversion permits different defaults and regenerates declarations
+from authoritative binary snapshots. The 3 October reconciliation decision
+supersedes both the earlier matching-default requirement and the intervening
+changed-default-only preservation rule. Bases are compared with destination
+defaults; specialisations with their immediate parent's snapshot. Matching named
+values are omitted, differences are explicit, and arrays retain the shortest
+prefix through the last difference. Necessary equal values within that prefix
+remain explicit; no sparse-array grammar is introduced. Old declarations are
+not decoded or checked for agreement. Generated literals must faithfully
+reproduce meaningful encoded values or conversion fails atomically.
+This applies to promotion, both output forms and demotion, for live and baked
+destination schemas. Snapshots are copied without applying defaults or inheritance.
+Every declared instance type group is retained and checked, including empty
+groups and built-in primitive groups. An empty group does not permit a missing
+or incompatible destination type.
 
 The reverse operation, demotion, creates the corresponding baked representation
 with an owned `CBakedDocumentBlock` and independent copies of associated binary
@@ -260,17 +270,22 @@ promotion must not retain handles into a destroyed temporary live document.
 
 Instance and bulk promotion retain different document content:
 
-- An instance document retains instance declarations, specialisation data and
-  the nested organisation, together with offsets to their completed binary
-  instances. Retaining only override selections is not the agreed working form.
-- A bulk document strips embedded record values already available in its binary
-  backing, retaining the organisation, offsets and collection information needed
-  to use those records.
+- An instance document retains names and the nested specialisation hierarchy,
+  with offsets to complete binary snapshots. Declarations are regenerated from
+  those snapshots against destination defaults or the immediate parent.
+- A bulk document regenerates existing embedded record arrays from binary and
+  retains reference-only entries without adding arrays. Organisation, offsets
+  and collection information are retained in both cases.
 
 The describing document and managed data form one coordinated working set.
 Instance declarations preserve authoring and override meaning while each binary
 instance holds its completed snapshot. Capture and editing coordinate both and
 update descendants as part of the user-facing operation, as specified under layering.
+Replacing or removing a selection discards its previous binary value without
+requiring that value to have a representable declaration. Retained selected
+values still require valid declarations. Thus an unlabelled enum code may be
+repaired by replacing or removing its selection, but cannot silently survive
+as a retained selected value in the edited instance or its descendants.
 
 Output creates a new live document, strips information irrelevant to the chosen
 form and adds information required by it. Full-document output reads binary
@@ -443,14 +458,13 @@ public observations. Related type records can be reused while processing a
 member or repeated array elements. These ranges allocate no persistent side
 table and store no pointers into allocations. Clear, move, re-resolution and
 owner destruction invalidate transient access. Checked public inspection and
-future instance/buffer validation remain required.
+instance/buffer validation remain required.
 
 ### Resolved-schema ownership and access
 
-The target wrapper ownership, handle and re-resolution rules are specified under
-authoring and resolution above. The existing baked-only owner's move and
-invalidation behaviour is documented in [runtime-api.md](runtime-api.md); it is
-the refactoring baseline, not an alternative lifecycle contract.
+Wrapper ownership, handle and re-resolution rules are specified under
+authoring and resolution above. The implemented live/baked wrappers and their
+client-binding invalidation are documented in [runtime-api.md](runtime-api.md).
 
 Serialisation and remapping callers mainly need to locate the appropriate
 resolved type description and pass it to a generic operation along with the
@@ -463,10 +477,9 @@ The editor navigates the document through the common query interface and
 consults resolved descriptions for types, sizes, offsets and instance access.
 Instance edits affect instance data; callers perform definition edits separately
 and explicitly arrange resolution and any later use with data.
-The current mapping table uses baked occurrences. The live-capable design must
-provide equivalent document-to-resolved correspondence. Schema promotion can
-recreate this correspondence by resolving the live document. Mapping keys identify
-occurrences, not merely interned name strings.
+The mapping table supports live and baked occurrences through the shared query
+boundary. Schema promotion recreates this correspondence by resolving the live
+document. Mapping keys identify occurrences, not merely interned name strings.
 A lookup without a mapped resolved counterpart returns zero. Public role handles
 and diagnostic expectations follow the target rules under authoring and resolution.
 
@@ -508,16 +521,15 @@ then copy its contiguous physical representation into adequate caller storage, w
 reinterpreting document values on every access. Capture from application storage
 updates or appends binary values and the associated live reference document.
 Bulk records follow the same model. No application-wide population wrapper is
-planned. These interfaces and their ownership/lifetime contracts are future
-work, not implemented APIs.
+planned. These interfaces and their ownership/lifetime contracts are implemented
+and documented in the runtime API guide.
 
-The system will also generate simple POD C/C++ data-structure declarations.
+The system also generates simple POD C++ data-structure declarations.
 Generation does not produce per-structure operational code: no serialisers,
 remappers, member functions, or generated access routines.  Serialisation and
-remapping use generic operations over `const void*` source pointers and `void*`
-destination pointers as appropriate, with references to the relevant resolved
-schema descriptions.  Typed template wrappers may be added later, but are not
-required for the first pass.
+remapping use generic operations over bounded byte views and the relevant
+resolved schema descriptions. Typed template wrappers may be added later, but
+are not required for the first pass.
 
 Generated C++ enums use `enum class` with an explicit underlying type matching
 the schema's declared integer storage.  Boolean declarations use a `using`
@@ -690,9 +702,8 @@ not `data`. Gaps are not members; the caller may explicitly clear them through
 the unused-storage operation.
 Separately, the live bulk API can allocate an unpopulated array to fill later
 through remapping or other explicit writes; it requires no embedded record array.
-Binary payload association is a later encoding contract. This does not extend
-the first implementation stage to
-instance construction or bulk-data processing.
+Binary payload association, instance construction and bulk-data processing are
+implemented through the live/baked roles described in the runtime API guide.
 
 ### Definition validation and assembly
 
@@ -912,6 +923,11 @@ generic Morphic round trip alone does not establish the full-width mask display
 required of future schema-document output. Schema normalisation/output APIs and
 any handling needed for that display requirement remain deferred.
 
+The application of these declared-type notation rules to instance and bulk
+output still needs clarification. Current data-role scalar decoding constructs
+integer values with decimal metadata; this review does not change that behaviour
+or imply that data output already performs schema-document normalisation.
+
 Permissive spelling does not permit invalid schema definitions or instance
 values.  Malformed syntax, invalid layouts, and values incompatible with their
 expected types are errors.  Validation should produce descriptive diagnostics
@@ -931,7 +947,7 @@ its baked input shares a block with schema definitions.
 The following conversion rules make default validation concrete. They are
 implementation choices derived from the existing document numeric contract,
 the agreed permissive input policy, and the explicit `fp16data_t` exception.
-The same rules apply when later instance construction consumes document values;
+The same rules apply when instance construction consumes document values;
 typed override compatibility is a separate check.
 
 - Integer destinations accept signed or unsigned integer payloads in range,
@@ -1282,7 +1298,7 @@ ability to represent nulls. Named omissions retain their established default
 or inheritance semantics.
 
 The type comes from the enclosing type group in `instances` or `data`, or from
-an explicitly supplied resolved type description in a later construction API.
+an explicitly supplied resolved type description in a value-construction operation.
 The reviewed named-instance form is:
 
 ```json
@@ -1466,9 +1482,10 @@ including every specialisation earlier in the chain. Inheritance never skips
 back to the original instance or schema defaults when that parent is itself
 specialised. The retained document tree supplies base relationships and a recursive
 walk through lower specialisation branches discovers impacted instances.
-Retained declarations preserve override intent, including explicitly supplied
-values equal to the base. No separate dependency graph or snapshot-difference
-inference is required by this design. Capturing a complete binary value for an
+Authored declarations preserve override intent during construction and editing,
+including explicitly supplied values equal to the base. Reconciliation and
+conversion subsequently derive selections from snapshot differences, removing
+equal overrides. Capturing a complete binary value for an
 existing specialisation takes only the parts selected by its retained declaration,
 updates those parts in its complete image and recursively updates descendants.
 Confirmed on 1 October: descendant updates preserve each descendant's selected
@@ -1476,7 +1493,8 @@ binary values and synchronise its retained declaration to those values. This
 also applies when a saved snapshot disagrees with the authored declaration:
 an explicit selection declaring `x = 3` but holding authoritative binary `x = 9`
 retains `9` after an ancestor edit. Unselected values inherit from the updated
-immediate parent. Selection intent is never inferred from value differences.
+immediate parent. These edit operations honour current selections; explicit
+reconciliation or conversion replaces them with snapshot-derived selections.
 Removing a selected member rebuilds from the base; adding one supplies a replacement
 value. Both operations update descendants. Live document access is mediated by
 the wrappers. Failure partway through editing/updating still needs a validity
@@ -1600,8 +1618,10 @@ extent and updates/adds its live document entry. Bulk capture follows the same
 model for a named record array. Instance documents retain declarations as well
 as binary offsets; bulk documents need not retain embedded records. Specialisation
 capture uses the retained selection and updates descendants. Role handles, borrowed
-view lifetimes and buffer placement follow the rules above; exact signatures remain
-implementation design work.
+view lifetimes and buffer placement follow the rules above; implemented signatures
+are documented in the runtime API guide. Replacing a bulk entry through raw
+capture removes any existing embedded record array, leaving a reference to the
+new bytes. Reconciliation or embedded output can regenerate complete records.
 
 `CLiveBulkData` supports creating a named, unpopulated array by resolved type and
 record count. It uses the same aligned allocation, bounds checks and failed-append
@@ -1652,48 +1672,69 @@ Export does not destructively strip the working instance declarations or require
 bulk records to remain duplicated in the working document.
 
 Full output for a specialisation reads its completed values from its own binary
-extent. Preserving values alone does not preserve override intent: an explicit
-override equal to the old base value cannot be recovered by comparing snapshots.
-All instance/specialisation output, including distribution, preserves named
-declarations and their inheritance hierarchy. This is the complete embedded
-representation: loading without supplied binary reconstructs inherited values
-from that hierarchy. No separate flattened-value field is required. Binary output
-retains complete independent snapshots. Both output forms remain editable after promotion.
+extent. All instance output retains instance names and the inheritance hierarchy,
+and derives declarations from snapshot differences. An explicit override equal
+to its parent is removed, so it follows subsequent parent edits. Loading without
+supplied binary reconstructs values from that hierarchy. No separate flattened
+value field is required. Binary output retains complete independent snapshots.
+Both output forms remain editable after promotion.
 Embedded/binary comparison on load is optional; when disabled, binary snapshots
 remain authoritative until an edit. Loading supplied binary does not reconstruct
 it from declarations. Exact source text and alias spellings need not survive.
 
-Embedded output refreshes selected declaration values from the authoritative
-snapshot while retaining which fields were selected, including selections equal
-to their parent. It does not modify the source document. External output retains
-the declarations alongside the complete copied snapshots without requiring
-their values to agree.
+Both instance output forms reconcile declarations without modifying the source
+document or any snapshot. Each base is compared with destination defaults, then
+each specialisation with its immediate parent's snapshot. This treats schema
+default changes and raw-write discrepancies consistently. A child whose parent
+changed but whose own bytes did not acquires explicit differences that preserve
+its current snapshot. Equal named values are removed, including previously
+explicit overrides and empty selections. Array declarations retain the shortest
+prefix reaching the final differing element; equal scalar values inside that
+prefix remain explicit. Nested compounds follow the same comparison recursively.
 
-Embedded instance output rejects authoritative snapshots whose unselected values
-disagree with the values inherited through their declarations. It reports a
-diagnostic without adding selections or changing saved values; the source remains
-unchanged and binary-backed output remains available. This preserves selection
-intent within the existing hierarchy grammar.
-
-The same rule applies to base instances: omitted fields retain their omission
-and must reconstruct from schema defaults. Embedded output rejects a base
-snapshot that disagrees with those defaults rather than adding selections.
+The generated document must reproduce meaningful encoded values. Structural
+safety, schema interpretation and representability remain validated, but stale
+declaration values are not decoded and disagreement with them is not a failure.
+Optional binary-versus-document comparison on loading remains available as an
+integrity check, independently of reconciliation.
 
 Schema interpretation recognises singleton compound selections unwrapped by the
 text parser inside arrays. For an array element whose structure has members
 `a` and `b`, `[{b:9}]` selects only `b` even when its document form is a named
 `b` value directly in the array. The same interpretation applies to bit-structure
-selections and compound values in positional declarations. Loading, promotion,
-output and subsequent edits preserve that selection without adding omitted
-members. Recognition is contextual to compound values; named scalar array
-elements remain invalid. No text-parser change or baked-only restriction is
-required.
+selections and compound values in positional declarations. Loading and authored
+edits interpret those selections; reconciliation and output derive new selections
+from binary. Recognition is contextual to compound values; named scalar array
+elements remain invalid. Both live and baked roles use this interpretation
+without changing the parser.
+
+The same contextual interpretation applies to the outer array of bulk records.
+A named singleton record must still supply every member of its declared type;
+the bulk completeness rule does not acquire instance defaults or inheritance.
+
+Confirmed on 3 October: a structure with exactly one primitive or enum member,
+or a bit structure with one scalar field, accepts that scalar directly as a
+shorthand value. This rule applies wherever such a value is expected: an
+instance declaration, a specialisation selection, a nested member, an array
+element or a bulk record. For `Value { a: u8 }`, `1`, `[1]` and `{"a":1}` select
+the same member and encode the same value. A bulk collection of two `Value`
+records accepts `[1,2]`, `[[1],[2]]` or `[{"a":1},{"a":2}]`; its outer array
+still supplies two records rather than assigning one record twice.
+
+Shorthand never recursively unwraps arrays or compound members, and does not
+apply to empty or multi-member compounds. All scalar conversion, range,
+enum-label and bitfield interpretation rules continue to apply. Schema-default
+restrictions are unchanged. Capture and edits may emit the explicit aggregate
+form rather than retain the exact shorthand spelling. Reconciliation and output
+derive selections from binary regardless of the original input form.
 
 For both roles, embedded output must round-trip under the existing encoded-field
 comparison rule: NaNs compare equal, while padding and unused bits are ignored.
 Noncanonical Boolean codes and enum codes without labels cannot be embedded
-faithfully under that rule and are rejected with a diagnostic. Binary-backed
-output can preserve them, including their exact encodings.
+faithfully under that rule and are rejected with a diagnostic. Instance conversion
+reconciles declarations in both forms and therefore rejects such values in either
+form. Reference-only bulk output can preserve their exact binary encodings
+without generating document literals.
 
 Binary loading/copying assumes matching offsets, stride, byte order and primitive
 representation. Packaging must establish that association and check buffer bounds;
@@ -1792,17 +1833,15 @@ There are no supplied record counts, copied-count output or execution
 diagnostic: execution returns success/failure after checking memory validity
 before any writes. Zero-byte types impose no storage limit, and an entirely
 zero-byte transfer is a successful no-op without a logical count. Setup retains
-diagnostics for actionable construction failures. Handle-based instance/bulk
-calls will extract views and share the executor without duplicating validation.
+diagnostics for actionable construction failures. Instance/bulk callers extract
+entry views and use the same executor without separate handle-based overloads.
 
 Remapping into a live instance, whether a base or specialisation, changes only
 that instance's binary snapshot. It does not change declarations or selection
 intent, restrict writes to selected fields, or update descendant snapshots.
 Handle adapters therefore perform the same binary transfer as bounded-view
-execution, without invoking capture or coordinated editing. Embedded output
-continues to enforce selection-preserving reconstruction and may reject a
-snapshot that now differs in an omitted/defaulted or inherited field.
-Binary-backed output remains available.
+execution, without invoking capture, coordinated editing or reconciliation.
+Subsequent conversion reconciles declarations from the resulting snapshots.
 
 The primary destination is an application-owned data buffer outside the schema
 system, with its representation described by the destination resolved layout;
@@ -1811,12 +1850,14 @@ or bulk data. Writing into live instance or bulk backing within the schema syste
 is an additional destination path through the same bounded binary executor.
 
 Fast runtime binary updates are the primary remapping use case. Creating new
-document forms from remapped results is a separate workflow: an explicit refresh
-operation would reconcile descriptions with binary data after the transfers.
-Refresh scope and conflict handling must be specified by its parameters, rather
-than implicitly changing remap behaviour. Exact policies and hierarchy handling
-remain for discussion before refresh implementation; they are not part of the
-binary executor.
+document forms from remapped results is a separate workflow. The live instance
+and bulk roles expose `reconcile(diagnostic)` to rebuild their whole document
+from current binary values. It never modifies payload bytes or propagates parent
+values into descendants. Bulk entries receive complete records; instance bases
+and specialisations follow the defaults/parent comparison rule above. Publication
+is atomic: failure retains the old document and handles. Success replaces the
+document, invalidating its handles, while payload allocation, offsets and views
+remain stable. Reconciliation is not part of the binary executor.
 
 Authored renaming, nested selection, numeric conversion, bitfield transforms and
 enum translation are outside this delivery, not implicit requirements for a

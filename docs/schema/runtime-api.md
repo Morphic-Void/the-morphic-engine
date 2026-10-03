@@ -1,4 +1,4 @@
-# Resolved schema API
+# Schema runtime API
 
 This page describes the implemented resolver and generator introduced in
 `5313c85` and extended with live/baked document queries. The [design](design.md)
@@ -226,6 +226,21 @@ its supplied prefix at every nesting level; omitted positions inherit. Named
 input selects members or fields. Explicitly supplied values remain selections
 even when equal to the parent. Neither operation changes the parent.
 
+A structure with exactly one primitive or enum member also accepts a scalar
+value as shorthand for selecting that member. The same rule applies to a bit
+structure with one scalar field. For `Value { a: u8 }`, `1`, `[1]` and `{"a":1}`
+are equivalent initialisers. This applies to roots, nested members, array
+elements, instance selections and bulk records. It does not recursively unwrap
+an array or compound member, and multi-member or empty compounds still require
+aggregate input. Null remains invalid; scalar range, enum-label and bitfield
+interpretation rules are unchanged. Capture and embedded output may emit the
+equivalent explicit aggregate form while retaining the same selected member.
+
+The internal `construct_value` singleton-element flag identifies a named
+compound member unwrapped by the parser at an outer record-array position.
+Bulk callers supply this context explicitly; names on primitive array elements
+remain invalid. Named singleton records still undergo complete-record checks.
+
 Both byte spans are bounded separately and must cover the resolved type size
 and alignment. Positive overlap is rejected before copying. Zero-byte types
 accept null, zero-length spans, while still validating supplied declarations.
@@ -285,8 +300,9 @@ available. Failure leaves the role unready.
 empty `data` section. `CBakedBulkData::promote(destination, schema, diagnostic)`
 requires a loaded, usable source and an empty destination. It copies only the
 bulk section into an independent live document and copies the complete associated
-payload into independent storage. Embedded record arrays are omitted; each entry
-retains explicit `count`, `size`, valid offset, type group and name. The binary
+payload into independent storage. Existing embedded record arrays are regenerated
+from binary; reference-only entries remain references. Each entry retains explicit
+`count`, `size`, valid offset, type group and name. The binary
 bytes, including padding, are authoritative and are never reconstructed from
 embedded records during promotion. The source document, payload and connections
 are unchanged. Promotion checks referenced types against the explicitly supplied
@@ -294,6 +310,15 @@ schema by recursive structure and value interpretation: names, member and label
 order, physical layout, primitive and array types, enum values, and bit fields
 must agree. Defaults and unused definitions may differ. An incompatible schema
 reports `incompatible_schema` without publishing a destination.
+
+`reconcile(diagnostic)` explicitly regenerates complete embedded records for all
+live entries, including references, after raw writes or remapping. It stages a
+replacement document and publishes only on success. Payload allocation, offsets,
+bytes and schema binding remain unchanged; all document handles must be reacquired
+after success. Failure preserves the existing document and handles. Values that
+cannot be expressed faithfully report `unrepresentable_value`; record expansions
+that cannot fit the document's node/storage limits report `invalid_range`.
+Callers must initialise unpopulated storage before reconciling it.
 
 `document_query()` reads the live document's original root through `CBulkHandle`
 occurrences. `data_root()`, `find_entry()` and `entry()` mirror the baked role;
@@ -309,13 +334,17 @@ document mutation and binary views may expire after buffer growth. A retained
 entry handle remains meaningful while its entry node survives.
 
 `create_records(type, name, source_query, records_array, diagnostic)` accepts a
-record array in a baked or live `CBulkDocumentQuery`, rejects named outer array
-positions, and constructs every record in `complete_bulk` mode. Every declared
+record array in a baked or live `CBulkDocumentQuery` and constructs every record
+in `complete_bulk` mode. Named singleton outer elements are interpreted as
+compound members, consistently with nested arrays. Every declared
 member and array element must be supplied, including zero-byte types; schema
 defaults do not fill omissions. It rejects a
 duplicate name in the type group. `capture(type, name, source, count, diagnostic)`
 copies bounded raw bytes with the resolved type's physical alignment; it creates
 or replaces a named array without interpreting values or applying defaults.
+Successful replacement removes any existing embedded `data` array, including
+one produced by promotion or reconciliation; the entry handle remains valid.
+Reconciliation or embedded output can regenerate records from the new bytes.
 The caller guarantees compatible little-endian physical representation. It is
 safe to capture from the wrapper's own payload, including when growth moves the
 buffer. `create_unpopulated(type, name, count, diagnostic)` rejects duplicates,
@@ -324,6 +353,12 @@ and permits count zero. The caller must populate required fields before reading
 or exporting such an entry. Neither promotion nor later raw capture substitutes
 destination-schema defaults for authoritative bytes.
 
+For `Value { a: u8 }`, `[1,2]`, `[[1],[2]]` and `[{"a":1},{"a":2}]` each
+supply two complete records. The outer array is the bulk collection; each
+element initialises one record. A stated locator count must match that array's
+length. A scalar cannot initialise a multi-member record, and a named singleton
+record cannot omit other required members.
+
 Larger replacements append an aligned extent and leave old bytes unreferenced;
 same-size or smaller replacements may reuse the old extent. A zero-extent
 replacement uses offset zero. `rename_entry()` checks sibling collisions and
@@ -331,7 +366,8 @@ preserves the entry handle; `erase_entry()` invalidates its handle without
 compacting the payload. Failed construction or append publishes no failed locator
 and leaves earlier entries usable. A post-mutation failure that cannot preserve
 that state disables the live role and reports a critical event. `clear()`
-releases its document, payload and schema link. Remapping remains a later stage.
+releases its document, payload and schema link. Entry views also provide the
+bounded storage used by the implemented remapping operations below.
 
 ## Bulk output and demotion (stage 6a)
 
@@ -358,8 +394,9 @@ checked by re-encoding them against the source under `compare_encoded` rules:
 NaN encodings compare equal, while signed zero and distinct normalised integer
 codes remain distinct; padding and unused bits are ignored. An unlabelled enum
 code or noncanonical Boolean byte reports `unrepresentable_value` without
-publishing output. One-member structures and bit structures in arrays use their
-positional form because text parsing unwraps anonymous singleton objects there.
+publishing output. One-member structures and bit structures in arrays continue
+to use their explicit positional form; readers also accept the named and
+eligible scalar forms described above.
 External form retains the authoritative binary bytes without decoding them.
 
 `demote(block, payload, role, destination_schema, form, diagnostic)` prepares
@@ -423,11 +460,31 @@ creates an empty role against an explicitly resolved baked or live schema.
 `CBakedInstances::promote(destination, schema, diagnostic)` requires a loaded
 source and empty destination. It copies the instance section and the entire
 associated payload into independent storage without rebuilding binary values
-from declarations. The promoted document retains names, declaration selection
-shapes and hierarchy, and drops legacy `locator.count`. Promotion compares
-referenced types and their effective defaults with the destination schema;
-unrelated definitions may differ. Incompatible promotion leaves both roles
-unchanged and reports `incompatible_schema`.
+from declarations. The promoted document retains names and hierarchy, regenerates
+declarations from those snapshots, and drops
+legacy `locator.count`. Promotion compares the structure and value interpretation
+of all declared type groups, including empty groups and built-in primitive groups,
+with the destination schema; unrelated definitions may differ. Incompatible
+promotion leaves both roles unchanged and reports `incompatible_schema`.
+
+Different defaults are allowed. Reconciliation compares each base snapshot with
+destination-schema defaults, and each specialisation with its immediate parent's
+snapshot. Named values equal to that baseline are omitted; differences are
+explicit. Arrays retain the shortest prefix through their last differing element,
+including necessary equal scalar elements before it. Nested compounds follow
+the same rules. Equal overrides and empty selections are removed regardless of
+their old spelling. No snapshot is changed or propagated to descendants.
+This applies to promotion, both preparation/demotion forms and both schema roles.
+Old declaration values are not decoded or checked for agreement. Generated
+declarations must reproduce meaningful encoded values or the operation fails
+atomically with `unrepresentable_value`.
+
+`reconcile(diagnostic)` applies these rules explicitly to the live role after
+raw writes or remapping, using its bound schema. It stages the whole document;
+success invalidates all document handles, which must be reacquired by name.
+Payload views, offsets, bytes and schema binding remain unchanged. Failure leaves
+the document, handles and payload unchanged. Repeated reconciliation without
+binary changes produces the same declarations.
 
 The live role has the baked role's `document_query()`, `instances_root()`,
 `find_base()`, `find_specialisation()`, `first_specialisation()`,
@@ -459,8 +516,9 @@ the canonical `nan` spelling. Both capture operations update descendants
 parent before child: each descendant inherits its updated immediate parent's
 complete bytes, including padding and unused bits,
 then its previously selected binary values are overlaid and its declaration
-is synchronised to those values. Explicit selections equal to the parent and
-empty aggregate selections remain explicit.
+is synchronised to those values. These authored edit operations retain explicit
+equal selections and empty aggregate selections until reconciliation or conversion
+derives the declarations afresh from snapshots.
 
 `set_selection(instance, steps, count, source_query, value, diagnostic)` and
 `remove_selection(instance, steps, count, diagnostic)` edit a specialisation.
@@ -470,7 +528,11 @@ selected binary values even when their old declaration text disagrees with
 the snapshot. Positional structure declarations may become named objects for
 an interior member edit. Fixed arrays permit adding only the next selected
 prefix element and removing only the selected tail element. Edits then rebuild
-the target and its descendants. Failed validation or staging preserves
+the target and its descendants. Values being replaced or removed need not have
+representable declarations: an unlabelled enum code can be discarded by that
+edit. Retained selected values still require valid declarations, including in
+descendants. Selection-path allocation failures report `allocation_failed`;
+invalid paths report `invalid_declaration`. Failed validation or staging preserves
 existing entries; an unrecoverable failure after publication disables the
 role and reports a critical event. `clear()` releases the owned document,
 payload and binding.
@@ -480,19 +542,18 @@ payload and binding.
 `CLiveInstances::prepare_output(document, payload, destination_schema, form,
 diagnostic)` accepts an empty live document and unallocated payload, with an
 explicitly resolved baked or live destination schema. It checks every used
-type and its effective defaults for compatibility, then packs complete
+type for structural and value-interpretation compatibility, reconciles declarations
+as above, then packs complete
 snapshots in document hierarchy order. Nonempty extents have type alignment;
 zero-byte extents use offset zero. A failed preparation leaves both outputs
 unpublished. Diagnostics identify a failing source occurrence where applicable.
 
-`EDataOutputForm::external` retains declaration values and selection shapes and
-copies authoritative binary snapshots exactly. The returned payload must be
-supplied when reloading. `embedded` keeps the same selected paths and empty
-aggregate selections, but synchronises selected scalar literals from the
-snapshots. It reconstructs bases from destination defaults and descendants
-from each reconstructed immediate parent. If an omitted or unselected value
-cannot reproduce the snapshot, or an encoded scalar cannot be represented by
-declaration values, output fails with `unrepresentable_value`. Comparison uses
+Both `EDataOutputForm::external` and `embedded` regenerate declarations from
+authoritative snapshots, with the same defaults, inheritance and array-prefix
+rules. They copy complete snapshots exactly. Every generated declaration is
+checked by reconstructing its meaningful values against defaults or the parent's
+snapshot. If an encoded scalar cannot be represented by declaration values,
+either form fails with `unrepresentable_value`. Comparison uses
 the same encoded-field comparison rules as the baked loader, including NaN equality
 and ignored padding and unused bits.
 
@@ -558,8 +619,8 @@ Setup selects contiguous bulk, contiguous-source, contiguous-destination or
 strided copy paths after coalescing. Non-bulk paths use fixed 1, 2, 4, 8 and
 16-byte copies where possible, with a runtime-size fallback. These are
 prewritten scalar copy paths; no benchmark or platform-specific vectorisation
-claim is made. Declaration refresh and conflict reconciliation are separate
-future operations.
+claim is made. Declaration reconciliation is a separate live-role operation;
+call `reconcile(diagnostic)` after transfers when an updated document is needed.
 
 ## Role entry views for remapping (stage 7b)
 
@@ -601,8 +662,9 @@ transfer to one record; a zero-byte type imposes no byte-copy limit. A live
 instance destination uses `SMutableInstanceEntryView::bytes` with the same
 `execute()` call. Its binary snapshot changes without editing declarations,
 selection intent or descendant snapshots, including when a mapped field was
-previously unselected. Embedded output may still reject inconsistent document
-values; binary-backed output remains available.
+previously unselected. Call `reconcile(diagnostic)` to update the live document
+afterwards, or let promotion/output/demotion reconcile their destination document.
+Unrepresentable binary values still fail when document literals are required.
 
 Keep the plan associated with the role objects, their bound schemas and the
 type indices supplied at setup. Check entry types before execution, and rebuild
@@ -758,6 +820,11 @@ offsets, sizes and alignments use the value threshold; masks use full storage-wi
 hexadecimal without C++ suffixes. The generic document writer preserves numeric
 intent but does not preserve leading-zero display padding. No schema-document
 normalisation/output API is provided by this delivery.
+
+Instance and bulk scalar decoding currently emits decimal integer metadata.
+Whether their output should adopt the declared-type hexadecimal convention is
+unresolved; the future schema-document rules above do not describe that current
+data-role output behaviour.
 
 The namespace is one identifier, not a qualified namespace expression. It must
 use the initial ASCII subset of C++17 identifiers, as do schema declarations.

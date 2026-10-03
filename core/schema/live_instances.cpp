@@ -24,7 +24,7 @@ namespace schema
 
 struct SCompatibilityPair
 {
-    CSchemaIndex source, destination, source_default, destination_default;
+    CSchemaIndex source, destination;
 };
 
 [[nodiscard]] static bool same_scalar(const SScalar& a, const SScalar& b) noexcept
@@ -52,8 +52,7 @@ struct SCompatibilityPair
     for (std::size_t i = 0u; i < pending.size(); ++i)
     {
         const SCompatibilityPair& found = pending[i];
-        if ((found.source == pair.source) && (found.destination == pair.destination) &&
-            (found.source_default == pair.source_default) && (found.destination_default == pair.destination_default))
+        if ((found.source == pair.source) && (found.destination == pair.destination))
         {
             return true;
         }
@@ -65,7 +64,7 @@ struct SCompatibilityPair
     const CSchemaIndex source_type, const CSchemaIndex destination_type, bool& allocation_failed) noexcept
 {
     TPodVector<SCompatibilityPair> pending;
-    if (!add_pair(pending, { source_type, destination_type, {}, {} }))
+    if (!add_pair(pending, { source_type, destination_type }))
     {
         allocation_failed = true;
         return false;
@@ -74,15 +73,11 @@ struct SCompatibilityPair
     {
         const SCompatibilityPair pair = pending[next];
         SType a, b;
-        SDefault da, db;
         if (!source.type(pair.source, a) || !destination.type(pair.destination, b) ||
-            !source.default_value(pair.source, pair.source_default, da) ||
-            !destination.default_value(pair.destination, pair.destination_default, db) ||
             (a.category != b.category) || (a.primitive != b.primitive) || (a.size != b.size) ||
             (a.alignment != b.alignment) || (a.stride != b.stride) || (a.count != b.count) ||
             (a.gaps != b.gaps) || (a.named_components != b.named_components) ||
-            !(source.name(a.name) == destination.name(b.name)) || (da.kind != db.kind) ||
-            ((da.kind == EDefault::scalar) && !same_scalar(da.scalar, db.scalar)))
+            !(source.name(a.name) == destination.name(b.name)))
         {
             return false;
         }
@@ -91,29 +86,10 @@ struct SCompatibilityPair
             return false;
         }
         if (a.element_or_storage &&
-            !add_pair(pending, { a.element_or_storage, b.element_or_storage, {}, {} }))
+            !add_pair(pending, { a.element_or_storage, b.element_or_storage }))
         {
             allocation_failed = true;
             return false;
-        }
-        if (a.category == ECategory::array)
-        {
-            const std::uint32_t supplied = da.supplied_count > db.supplied_count ?
-                da.supplied_count : db.supplied_count;
-            for (std::uint32_t i = 0u; i < supplied; ++i)
-            {
-                CSchemaIndex ad, bd;
-                if (!source.default_element(pair.source, pair.source_default, i, ad) ||
-                    !destination.default_element(pair.destination, pair.destination_default, i, bd))
-                {
-                    return false;
-                }
-                if (!add_pair(pending, { a.element_or_storage, b.element_or_storage, ad, bd }))
-                {
-                    allocation_failed = true;
-                    return false;
-                }
-            }
         }
         const bool has_children = (a.category == ECategory::structure) ||
             (a.category == ECategory::enumeration) || (a.category == ECategory::bit_structure);
@@ -130,7 +106,7 @@ struct SCompatibilityPair
                 {
                     return false;
                 }
-                if (!add_pair(pending, { am.type, bm.type, am.default_description, bm.default_description }))
+                if (!add_pair(pending, { am.type, bm.type }))
                 {
                     allocation_failed = true;
                     return false;
@@ -157,7 +133,7 @@ struct SCompatibilityPair
                 {
                     return false;
                 }
-                if (!add_pair(pending, { af.type, bf.type, af.default_description, bf.default_description }))
+                if (!add_pair(pending, { af.type, bf.type }))
                 {
                     allocation_failed = true;
                     return false;
@@ -745,44 +721,26 @@ bool CLiveInstances::promote_from(const CBakedInstances& source, SInstanceDiagno
         diagnostic.reason = EInstanceLoadReason::invalid_input;
         return false;
     }
-    TPodVector<CSchemaIndex> checked_types;
-    for (std::size_t i = 0u; i < source.m_records.size(); ++i)
+    const CBakedValueIndex instances = source.m_document.object_child(source.m_document.root(), CStringView{ "instances" });
+    const CNodeKey live_instances = detail::SInstanceHandleAccess::occurrence(instances_root()).live;
+    for (CBakedValueIndex group = source.m_document.first_child(instances); group; group = source.m_document.next_sibling(group))
     {
-        const CBakedInstances::SRecord& record = source.m_records[i];
-        bool seen{};
-        for (std::size_t j = 0u; j < checked_types.size(); ++j)
-        {
-            seen |= checked_types[j] == record.type;
-        }
-        if (seen)
-        {
-            continue;
-        }
-        SType layout;
-        if (!original->type(record.type, layout) || !checked_types.push_back(record.type))
-        {
-            diagnostic.reason = EInstanceLoadReason::allocation_failed;
-            return false;
-        }
-        const CStringView name = original->name(layout.name);
+        const CStringView name = source.m_document.name(group);
+        const CSchemaIndex source_type = original->find_type(name);
         const CSchemaIndex destination_type = target->find_type(name);
         bool allocation_failed{};
-        if (!destination_type || !compatible_type(*original, *target, record.type, destination_type, allocation_failed))
+        if (!source_type || !destination_type || !compatible_type(*original, *target, source_type, destination_type, allocation_failed))
         {
             diagnostic.reason = allocation_failed ? EInstanceLoadReason::allocation_failed : EInstanceLoadReason::incompatible_schema;
             return false;
         }
+        if (!append(m_document, live_instances, m_document.create_object(name)))
+        {
+            diagnostic.reason = EInstanceLoadReason::allocation_failed;
+            return false;
+        }
     }
-    CLiveDocument copied;
-    if (!document_translation::promote_root_member(source.m_document, CStringView{ "instances" }, copied) ||
-        !m_records.reserve(source.m_records.size()))
-    {
-        diagnostic.reason = EInstanceLoadReason::allocation_failed;
-        return false;
-    }
-    m_document = std::move(copied);
-    if (!m_document.object_child(m_document.root(), CStringView{ "instances" }) &&
-        !append(m_document, m_document.root(), m_document.create_object(CStringView{ "instances" })))
+    if (!m_records.reserve(source.m_records.size()))
     {
         diagnostic.reason = EInstanceLoadReason::allocation_failed;
         return false;
@@ -803,35 +761,112 @@ bool CLiveInstances::promote_from(const CBakedInstances& source, SInstanceDiagno
         const CBakedValueIndex baked_group = source.m_document.parent((record.parent == CBakedInstances::k_no_parent) ?
             record.entry : source.m_records[record.parent].entry);
         CNodeKey group{};
-        CNodeKey entry{};
         if (record.parent == CBakedInstances::k_no_parent)
         {
-            group = m_document.object_child(m_document.object_child(m_document.root(), CStringView{ "instances" }),
-                source.m_document.name(baked_group));
-            entry = m_document.object_child(group, source.m_document.name(record.entry));
+            group = m_document.object_child(live_instances, source.m_document.name(baked_group));
         }
         else
         {
             group = m_document.object_child(m_records[record.parent].entry, CStringView{ "specialisation" });
-            entry = m_document.object_child(group, source.m_document.name(record.entry));
+            if (!group)
+            {
+                group = m_document.create_object(CStringView{ "specialisation" });
+                if (!append(m_document, m_records[record.parent].entry, group))
+                {
+                    diagnostic.reason = EInstanceLoadReason::allocation_failed;
+                    return false;
+                }
+            }
         }
-        const CNodeKey locator = m_document.object_child(entry, CStringView{ "locator" });
-        const CNodeKey count = m_document.object_child(locator, CStringView{ "count" });
-        if (!entry || !locator || (count && !m_document.erase(count)))
+        const CSchemaIndex type = (record.parent == CBakedInstances::k_no_parent) ?
+            target->find_type(source.m_document.name(baked_group)) : m_records[record.parent].type;
+        const CNodeKey entry = m_document.create_object(source.m_document.name(record.entry));
+        const CNodeKey locator = make_locator(m_document, record.offset, record.extent);
+        SRecord promoted{ entry, {}, group, type, record.parent, record.offset, record.extent };
+        promoted.declaration = output_declaration(m_document, promoted, *target, type, diagnostic.reason);
+        if (diagnostic.reason != EInstanceLoadReason::none)
         {
-            diagnostic.reason = EInstanceLoadReason::invalid_locator;
             return false;
         }
-        const CNodeKey declaration = m_document.object_child(entry, CStringView{ "declaration" });
-        const CSchemaIndex destination_type = (record.parent == CBakedInstances::k_no_parent) ?
-            target->find_type(source.m_document.name(baked_group)) : m_records[record.parent].type;
-        const CSchemaIndex type = record.parent == CBakedInstances::k_no_parent ? destination_type : m_records[record.parent].type;
-        if (!m_records.push_back({ entry, declaration, group, type, record.parent, record.offset, record.extent }))
+        if (!entry || !append(m_document, entry, locator) ||
+            (promoted.declaration && !append(m_document, entry, promoted.declaration)) ||
+            !append(m_document, group, entry) || !m_records.push_back(promoted))
         {
             diagnostic.reason = EInstanceLoadReason::allocation_failed;
             return false;
         }
     }
+    return true;
+}
+
+bool CLiveInstances::reconcile(SInstanceDiagnostic& diagnostic) noexcept
+{
+    diagnostic = {};
+    const CResolvedSchema* const schema = m_binding.resolved();
+    if (!loaded_ready() || !schema)
+    {
+        diagnostic.reason = EInstanceLoadReason::invalid_input;
+        return false;
+    }
+    CLiveDocument document;
+    TPodVector<SRecord> records;
+    if (!document.initialise() || !document.set_root_type(ELiveValueType::object) ||
+        !append(document, document.root(), document.create_object(CStringView{ "instances" })) ||
+        !records.reserve(m_records.size()))
+    {
+        diagnostic.reason = EInstanceLoadReason::allocation_failed;
+        return false;
+    }
+    const CNodeKey root = document.object_child(document.root(), CStringView{ "instances" });
+    const CNodeKey old_root = detail::SInstanceHandleAccess::occurrence(instances_root()).live;
+    for (CNodeKey group = m_document.first_child(old_root); group; group = m_document.next_sibling(group))
+    {
+        if (!append(document, root, document.create_object(m_document.name(group))))
+        {
+            diagnostic.reason = EInstanceLoadReason::allocation_failed;
+            return false;
+        }
+    }
+    for (std::size_t i = 0u; i < m_records.size(); ++i)
+    {
+        const SRecord& source = m_records[i];
+        CNodeKey group;
+        if (source.parent == k_no_parent)
+        {
+            group = document.object_child(root, m_document.name(source.group));
+        }
+        else
+        {
+            const CNodeKey parent = records[source.parent].entry;
+            group = document.object_child(parent, CStringView{ "specialisation" });
+            if (!group)
+            {
+                group = document.create_object(CStringView{ "specialisation" });
+                if (!append(document, parent, group))
+                {
+                    diagnostic.reason = EInstanceLoadReason::allocation_failed;
+                    return false;
+                }
+            }
+        }
+        const CNodeKey entry = document.create_object(m_document.name(source.entry));
+        const CNodeKey locator = make_locator(document, source.offset, source.extent);
+        const CNodeKey declaration = output_declaration(document, source, *schema, source.type, diagnostic.reason);
+        if (diagnostic.reason != EInstanceLoadReason::none)
+        {
+            diagnostic.occurrence = detail::SInstanceHandleAccess::make(detail::SOccurrence{ source.entry });
+            return false;
+        }
+        if (!entry || !append(document, entry, locator) || (declaration && !append(document, entry, declaration)) ||
+            !append(document, group, entry) ||
+            !records.push_back({ entry, declaration, group, source.type, source.parent, source.offset, source.extent }))
+        {
+            diagnostic.reason = EInstanceLoadReason::allocation_failed;
+            return false;
+        }
+    }
+    m_document = std::move(document);
+    m_records = std::move(records);
     return true;
 }
 
@@ -883,9 +918,7 @@ bool CBakedInstances::promote(CLiveInstances& destination, CLiveSchema& schema, 
 
 struct SInstanceOutputRecord
 {
-    std::uint32_t source{}, parent{ UINT32_MAX }, offset{}, extent{};
-    CNodeKey declaration;
-    CSchemaIndex type;
+    std::uint32_t source{}, offset{}, extent{};
 };
 
 struct SInstanceOutputFrame
@@ -1004,37 +1037,19 @@ bool CLiveInstances::prepare_output_to(CLiveDocument& document, CByteBuffer& pay
                 diagnostic.reason = EInstanceLoadReason::allocation_failed;
                 return false;
             }
-            CNodeKey declaration;
-            if (record->declaration)
+            const CNodeKey declaration = output_declaration(staged_document, *record, destination_schema, output_type, diagnostic.reason);
+            if (diagnostic.reason != EInstanceLoadReason::none)
             {
-                if (form == EDataOutputForm::embedded)
-                {
-                    EInstanceLoadReason reason{ EInstanceLoadReason::none };
-                    declaration = output_declaration(staged_document, *record, destination_schema, output_type, reason);
-                    if (!declaration)
-                    {
-                        diagnostic.reason = ((reason == EInstanceLoadReason::allocation_failed) ||
-                            (reason == EInstanceLoadReason::none)) ? EInstanceLoadReason::allocation_failed :
-                            EInstanceLoadReason::unrepresentable_value;
-                        diagnostic.occurrence = detail::SInstanceHandleAccess::make(detail::SOccurrence{ source_entry });
-                        return false;
-                    }
-                }
-                else
-                {
-                    const detail::CDocumentRead source_document{ m_document };
-                    declaration = clone_value(staged_document, source_document,
-                        detail::SOccurrence{ record->declaration }, CStringView{ "declaration" });
-                }
-                if (!append(staged_document, output_entry, declaration))
-                {
-                    diagnostic.reason = EInstanceLoadReason::allocation_failed;
-                    return false;
-                }
+                diagnostic.occurrence = detail::SInstanceHandleAccess::make(detail::SOccurrence{ source_entry });
+                return false;
+            }
+            if (declaration && !append(staged_document, output_entry, declaration))
+            {
+                diagnostic.reason = EInstanceLoadReason::allocation_failed;
+                return false;
             }
             if (!append(staged_document, frame.group, output_entry) ||
-                !output_records.push_back({ record_index, frame.parent, static_cast<std::uint32_t>(offset),
-                    record->extent, declaration, output_type }))
+                !output_records.push_back({ record_index, static_cast<std::uint32_t>(offset), record->extent }))
             {
                 diagnostic.reason = EInstanceLoadReason::allocation_failed;
                 return false;
@@ -1067,47 +1082,6 @@ bool CLiveInstances::prepare_output_to(CLiveDocument& document, CByteBuffer& pay
         {
             const SRecord& original = m_records[record.source];
             std::memcpy((staged_payload.data() + record.offset), (m_payload.data() + original.offset), record.extent);
-        }
-    }
-    if (form == EDataOutputForm::embedded)
-    {
-        CByteBuffer reconstructed;
-        if ((cursor != 0u) && (!reconstructed.allocate(static_cast<std::size_t>(cursor), 128u) ||
-            !reconstructed.set_size(static_cast<std::size_t>(cursor))))
-        {
-            diagnostic.reason = EInstanceLoadReason::allocation_failed;
-            return false;
-        }
-        const detail::CDocumentRead read{ staged_document };
-        for (std::size_t i = 0u; i < output_records.size(); ++i)
-        {
-            const SInstanceOutputRecord& record = output_records[i];
-            const std::uint8_t* const actual = record.extent ? (staged_payload.data() + record.offset) : nullptr;
-            std::uint8_t* const expected = record.extent ? (reconstructed.data() + record.offset) : nullptr;
-            detail::SValueDiagnostic value_error;
-            bool converted{};
-            if (record.parent == k_no_parent)
-            {
-                converted = detail::construct_value(destination_schema, read, record.type,
-                    detail::SOccurrence{ record.declaration }, expected, record.extent,
-                    detail::EConstructionMode::instance, value_error);
-            }
-            else
-            {
-                const SInstanceOutputRecord& parent = output_records[record.parent];
-                const std::uint8_t* const inherited = parent.extent ?
-                    (reconstructed.data() + parent.offset) : nullptr;
-                converted = detail::construct_alternative(destination_schema, read, record.type,
-                    detail::SOccurrence{ record.declaration }, inherited, parent.extent,
-                    expected, record.extent, value_error);
-            }
-            if (!converted || !detail::compare_encoded(destination_schema, record.type, expected,
-                record.extent, actual, record.extent))
-            {
-                diagnostic.reason = EInstanceLoadReason::unrepresentable_value;
-                diagnostic.occurrence = detail::SInstanceHandleAccess::make(detail::SOccurrence{ m_records[record.source].entry });
-                return false;
-            }
         }
     }
     document = std::move(staged_document);
