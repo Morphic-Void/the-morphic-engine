@@ -11,38 +11,16 @@
 #include "schema/live_bulk_data.hpp"
 #include "schema/type_compatibility.hpp"
 #include "schema/value_codec.hpp"
+#include "schema/document_copy.hpp"
 #include "data_model/document_translation.hpp"
 #include "memory/memory_policies.hpp"
 #include "debug/macros.hpp"
-#include "types/fp16data_t.hpp"
 
-#include <cmath>
 #include <cstring>
-#include <limits>
 #include <utility>
 
 namespace schema
 {
-
-[[nodiscard]] static bool copy_name(const CStringView& source, CByteBuffer& storage, CStringView& copied) noexcept
-{
-    if (source.empty())
-    {
-        return false;
-    }
-    if (source.length() == 0u)
-    {
-        copied = CStringView{ "" };
-        return true;
-    }
-    if (!storage.allocate(source.length(), 1u) || !storage.set_size(source.length()))
-    {
-        return false;
-    }
-    std::memcpy(storage.data(), source.string(), source.length());
-    copied = CStringView{ storage.data(), source.length() };
-    return true;
-}
 
 [[nodiscard]] static bool append_node(CLiveDocument& document, const CNodeKey parent, const CNodeKey child) noexcept
 {
@@ -122,106 +100,19 @@ struct SBulkOutputRecord
     std::uint32_t count{}, offset{}, extent{};
 };
 
-[[nodiscard]] static std::uint64_t output_bits(const std::uint8_t* const bytes, const std::size_t size) noexcept
-{
-    std::uint64_t value{};
-    for (std::size_t index = 0u; index < size; ++index)
-    {
-        value |= static_cast<std::uint64_t>(bytes[index]) << (index * 8u);
-    }
-    return value;
-}
-
-[[nodiscard]] static bool output_signed_primitive(const EPrimitive primitive) noexcept
-{
-    return (primitive == EPrimitive::i8) || (primitive == EPrimitive::i16) ||
-        (primitive == EPrimitive::i32) || (primitive == EPrimitive::i64);
-}
-
-[[nodiscard]] static std::int64_t output_signed(const std::uint64_t bits, const unsigned width) noexcept
-{
-    if (width == 64u)
-    {
-        return static_cast<std::int64_t>(bits);
-    }
-    const std::uint64_t sign = std::uint64_t{ 1u } << (width - 1u);
-    return static_cast<std::int64_t>((bits ^ sign) - sign);
-}
-
 [[nodiscard]] static CNodeKey output_scalar(CLiveDocument& document, const CResolvedSchema& schema,
     const CSchemaIndex type, const std::uint64_t bits, const unsigned width,
     const CStringView& name, EBulkLoadReason& reason) noexcept
 {
-    SType layout;
-    if (!schema.type(type, layout))
+    EScalarDecodeReason decoded;
+    const CNodeKey value = decode_document_scalar(document, schema, type, bits, width, name, decoded);
+    if (!value)
     {
-        reason = EBulkLoadReason::incompatible_schema;
-        return {};
+        reason = (decoded == EScalarDecodeReason::invalid_type) ? EBulkLoadReason::incompatible_schema :
+            ((decoded == EScalarDecodeReason::unrepresentable_value) ? EBulkLoadReason::unrepresentable_value :
+                EBulkLoadReason::allocation_failed);
     }
-    if (layout.category == ECategory::enumeration)
-    {
-        SScalar value;
-        value.kind = output_signed_primitive(layout.primitive) ? EScalar::signed_integer : EScalar::unsigned_integer;
-        if (value.kind == EScalar::signed_integer)
-        {
-            value.value.signed_value = output_signed(bits, width);
-        }
-        else
-        {
-            value.value.unsigned_value = bits;
-        }
-        SLabel label;
-        const CSchemaIndex found = schema.first_label_for_value(type, value);
-        if (!found || !schema.label(found, label))
-        {
-            reason = EBulkLoadReason::unrepresentable_value;
-            return {};
-        }
-        return document.create_string(schema.name(label.name), name);
-    }
-    if (layout.category != ECategory::primitive)
-    {
-        reason = EBulkLoadReason::incompatible_schema;
-        return {};
-    }
-    if (output_signed_primitive(layout.primitive))
-    {
-        return document.create_signed_integer(output_signed(bits, width), name);
-    }
-    if (layout.primitive == EPrimitive::b8)
-    {
-        return document.create_boolean((bits != 0u), name);
-    }
-    if ((layout.primitive == EPrimitive::f16) || (layout.primitive == EPrimitive::f32) ||
-        (layout.primitive == EPrimitive::f64))
-    {
-        double value{};
-        if (layout.primitive == EPrimitive::f16)
-        {
-            value = static_cast<double>(fp16data_t::fromBits(static_cast<std::uint16_t>(bits)));
-        }
-        else if (layout.primitive == EPrimitive::f32)
-        {
-            const std::uint32_t raw = static_cast<std::uint32_t>(bits);
-            float converted{};
-            std::memcpy(&converted, &raw, sizeof(converted));
-            value = converted;
-        }
-        else
-        {
-            std::memcpy(&value, &bits, sizeof(value));
-        }
-        if (std::isnan(value))
-        {
-            return document.create_string(CStringView{ "nan" }, name);
-        }
-        if (std::isinf(value))
-        {
-            return document.create_string(CStringView{ (value < 0.0) ? "-inf" : "inf" }, name);
-        }
-        return document.create_floating_point(value, name);
-    }
-    return document.create_unsigned_integer(bits, name);
+    return value;
 }
 
 [[nodiscard]] static CNodeKey output_value(CLiveDocument& document, const CResolvedSchema& schema,
@@ -237,7 +128,7 @@ struct SBulkOutputRecord
     if ((layout.category == ECategory::primitive) || (layout.category == ECategory::enumeration))
     {
         const CNodeKey scalar = output_scalar(document, schema, type,
-            output_bits(bytes, static_cast<std::size_t>(layout.size)),
+            read_scalar_bits(bytes, static_cast<std::size_t>(layout.size)),
             static_cast<unsigned>(layout.size * 8u), name, reason);
         if (!scalar && (reason == EBulkLoadReason::none))
         {
@@ -289,7 +180,7 @@ struct SBulkOutputRecord
             else
             {
                 const std::uint64_t bits =
-                    (output_bits(bytes, static_cast<std::size_t>(layout.size)) & field.mask) >> field.shift;
+                    (read_scalar_bits(bytes, static_cast<std::size_t>(layout.size)) & field.mask) >> field.shift;
                 child = output_scalar(document, schema, field.type, bits, field.width,
                     (positional ? CStringView{} : schema.name(field.name)), reason);
             }
@@ -540,7 +431,7 @@ CBulkHandle CLiveBulkData::store(const CStringView& type, const CStringView& nam
     }
     CByteBuffer type_storage, name_storage;
     CStringView stable_type, stable_name;
-    if (!copy_name(type, type_storage, stable_type) || !copy_name(name, name_storage, stable_name))
+    if (!stabilise_document_name(type, type_storage, stable_type) || !stabilise_document_name(name, name_storage, stable_name))
     {
         diagnostic.reason = EBulkLoadReason::allocation_failed;
         return {};

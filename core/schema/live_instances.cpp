@@ -11,6 +11,7 @@
 #include "schema/live_instances.hpp"
 #include "schema/type_compatibility.hpp"
 #include "schema/value_codec.hpp"
+#include "schema/document_copy.hpp"
 #include "data_model/document_translation.hpp"
 #include "memory/memory_policies.hpp"
 #include "debug/macros.hpp"
@@ -36,110 +37,6 @@ namespace schema
         (void)document.erase(child);
     }
     return false;
-}
-
-[[nodiscard]] static bool copy_name(const CStringView& source, CByteBuffer& storage, CStringView& copied) noexcept
-{
-    if (source.empty())
-    {
-        return false;
-    }
-    if (source.length() == 0u)
-    {
-        copied = CStringView{ "" };
-        return true;
-    }
-    if (!storage.allocate(source.length(), 1u) || !storage.set_size(source.length()))
-    {
-        return false;
-    }
-    if (source.length())
-    {
-        std::memcpy(storage.data(), source.string(), source.length());
-    }
-    copied = CStringView{ storage.data(), source.length() };
-    return true;
-}
-
-[[nodiscard]] static CNodeKey clone_value(CLiveDocument& target, const detail::CDocumentRead& source,
-    const detail::SOccurrence value, const CStringView& name, const unsigned depth = 0u) noexcept
-{
-    if ((depth >= 256u) || !source.contains(value))
-    {
-        return {};
-    }
-    CNodeKey copied;
-    switch (source.value_kind(value))
-    {
-        case EDocumentValueKind::empty: copied = target.create_empty(name); break;
-        case EDocumentValueKind::null_value: copied = target.create_null(name); break;
-        case EDocumentValueKind::boolean:
-        {
-            bool v{};
-            if (!source.boolean_value(value, v))
-            {
-                return {};
-            }
-            copied = target.create_boolean(v, name);
-            break;
-        }
-        case EDocumentValueKind::integer:
-        {
-            CIntegerMetadata metadata;
-            if (!source.integer_metadata(value, metadata))
-            {
-                return {};
-            }
-            std::int64_t signed_value{};
-            std::uint64_t unsigned_value{};
-            copied = source.signed_integer_value(value, signed_value) ?
-                target.create_signed_integer(signed_value, metadata, name) :
-                (source.unsigned_integer_value(value, unsigned_value) ?
-                    target.create_unsigned_integer(unsigned_value, metadata, name) : CNodeKey{});
-            break;
-        }
-        case EDocumentValueKind::floating_point:
-        {
-            double v{};
-            if (!source.floating_point_value(value, v))
-            {
-                return {};
-            }
-            copied = target.create_floating_point(v, name);
-            break;
-        }
-        case EDocumentValueKind::string:
-            copied = target.create_string(source.string_value(value), name);
-            break;
-        case EDocumentValueKind::array: copied = target.create_array(name); break;
-        case EDocumentValueKind::object: copied = target.create_object(name); break;
-        default: return {};
-    }
-    if (!copied)
-    {
-        return {};
-    }
-    if (source.suppresses_newline_escaping(value) &&
-        !target.set_newline_escaping_suppressed(copied, true))
-    {
-        (void)target.erase(copied);
-        return {};
-    }
-    for (detail::SOccurrence child = source.first_child(value); child.is_valid(); child = source.next_sibling(child))
-    {
-        const CNodeKey item = clone_value(target, source, child,
-            (source.is_object_entry(child) ? source.name(child) : CStringView{}), (depth + 1u));
-        if (!append(target, copied, item))
-        {
-            if (item && target.is_detached(item))
-            {
-                (void)target.erase(item);
-            }
-            (void)target.erase(copied);
-            return {};
-        }
-    }
-    return copied;
 }
 
 [[nodiscard]] static CNodeKey make_locator(CLiveDocument& document, const std::uint32_t offset, const std::uint32_t extent) noexcept
@@ -385,8 +282,8 @@ CInstanceHandle CLiveInstances::append_instance(const CSchemaIndex type, const s
     }
     CByteBuffer type_storage, name_storage;
     CStringView stable_type, stable_name;
-    if (((parent == k_no_parent) && !copy_name(type_name, type_storage, stable_type)) ||
-        !copy_name(name, name_storage, stable_name))
+    if (((parent == k_no_parent) && !stabilise_document_name(type_name, type_storage, stable_type)) ||
+        !stabilise_document_name(name, name_storage, stable_name))
     {
         diagnostic.reason = EInstanceLoadReason::allocation_failed;
         return {};
@@ -437,7 +334,7 @@ CInstanceHandle CLiveInstances::append_instance(const CSchemaIndex type, const s
     CNodeKey copied_declaration;
     if (declaration.is_valid())
     {
-        copied_declaration = clone_value(m_document, source, declaration, CStringView{ "declaration" });
+        copied_declaration = copy_document_value(m_document, source, declaration, CStringView{ "declaration" });
         if (!append(m_document, instance, copied_declaration))
         {
             if (copied_declaration && m_document.is_detached(copied_declaration))

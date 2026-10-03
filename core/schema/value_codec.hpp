@@ -6,7 +6,7 @@
 //  Authors: Ritchie Brannan / OpenAI Codex
 //  Date:    30 Sep 26
 //
-//  Internal bounded construction of schema-typed payload values.
+//  Internal scalar decoding and bounded construction of schema-typed values.
 
 #pragma once
 
@@ -15,7 +15,38 @@
 
 #include "schema/resolved_schema.hpp"
 
-namespace schema::detail
+namespace schema
+{
+
+//  These words carry scalar encodings, including full-width integers and f64.
+//  Callers provide a valid scalar span of at most eight bytes.
+[[nodiscard]] inline std::uint64_t read_scalar_bits(const std::uint8_t* const bytes, const std::size_t size) noexcept
+{
+    std::uint64_t value{};
+    for (std::size_t i = 0u; i < size; ++i)
+    {
+        value |= static_cast<std::uint64_t>(bytes[i]) << (i * 8u);
+    }
+    return value;
+}
+
+inline void write_scalar_bits(std::uint8_t* const bytes, const std::size_t size, const std::uint64_t value) noexcept
+{
+    for (std::size_t i = 0u; i < size; ++i)
+    {
+        bytes[i] = static_cast<std::uint8_t>(value >> (i * 8u));
+    }
+}
+
+enum class EScalarDecodeReason : std::uint8_t { none, invalid_type, unrepresentable_value, allocation_failed };
+
+//  Produce a document literal from a scalar encoding. Width is the storage or
+//  bit-field width. Callers retain reconstruction checks for exact encoded fidelity.
+[[nodiscard]] CNodeKey decode_document_scalar(CLiveDocument& document, const CResolvedSchema& schema,
+    const CSchemaIndex type, const std::uint64_t bits, const unsigned width,
+    const CStringView& name, EScalarDecodeReason& reason) noexcept;
+
+namespace detail
 {
 
 enum class EConstructionMode : std::uint8_t { instance, complete_bulk };
@@ -54,6 +85,8 @@ struct SValueDiagnostic
     const std::uint8_t* const expected, const std::size_t expected_size,
     const std::uint8_t* const actual, const std::size_t actual_size) noexcept;
 
-}   // namespace schema::detail
+}   // namespace detail
+
+}   // namespace schema
 
 #endif // SCHEMA_VALUE_CODEC_HPP_INCLUDED

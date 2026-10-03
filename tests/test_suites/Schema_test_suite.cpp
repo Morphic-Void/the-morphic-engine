@@ -17,6 +17,7 @@
 #include "schema/live_instances.hpp"
 #include "schema/data_remap.hpp"
 #include "schema/value_codec.hpp"
+#include "schema/document_copy.hpp"
 #include "schema/type_compatibility.hpp"
 #include "memory/memory_policies.hpp"
 #include "data_model/document_parser.hpp"
@@ -2509,6 +2510,170 @@ static bool parse_live(const std::string& text, CLiveDocument& document)
 {
     return document_parser::parse(
         CByteConstView{ reinterpret_cast<const std::uint8_t*>(text.data()), text.size(), 1u }, document).accepted();
+}
+
+static void test_document_value_copy(TTestContext& ctx)
+{
+    CLiveDocument source;
+    TEST_EXPECT(ctx, parse_live(R"({"source":{"number":0xffffffffffffffff,"negative":-9223372036854775808,
+        "text":"line\nnext","array":[null,true,1.5,{"inside":"text"}]}})", source));
+    const CNodeKey original = source.object_child(source.root(), CStringView{ "source" });
+    const CNodeKey text = source.object_child(original, CStringView{ "text" });
+    TEST_EXPECT(ctx, source.set_newline_escaping_suppressed(text, true));
+    CIntegerMetadata metadata;
+    TEST_EXPECT(ctx, source.integer_metadata(source.object_child(original, CStringView{ "number" }), metadata));
+    //  Enough nodes and distinct strings to exercise growth during a same-document copy.
+    const CNodeKey rows = source.create_array(CStringView{ "rows" });
+    TEST_EXPECT(ctx, source.append_child(original, rows).succeeded());
+    for (unsigned i = 0u; i < 96u; ++i)
+    {
+        const std::string value = "retained-string-" + std::to_string(i);
+        TEST_EXPECT(ctx, source.append_child(rows, source.create_string(
+            CStringView{ value.c_str(), value.size() })).succeeded());
+    }
+    CBakedDocumentBlock block;
+    TEST_EXPECT(ctx, document_translation::bake(source, block));
+    const detail::CDocumentRead live_read{ source }, baked_read{ block.document() };
+    const auto verify = [&](const CLiveDocument& document, const CNodeKey copied)
+    {
+        CIntegerMetadata copied_metadata;
+        std::uint64_t unsigned_value{};
+        std::int64_t signed_value{};
+        const CNodeKey number = document.object_child(copied, CStringView{ "number" });
+        const CNodeKey array = document.object_child(copied, CStringView{ "array" });
+        const CNodeKey copied_rows = document.object_child(copied, CStringView{ "rows" });
+        const CNodeKey copied_text = document.object_child(copied, CStringView{ "text" });
+        TEST_EXPECT(ctx, copied && document.is_detached(copied) && document.check_integrity() &&
+            document.integer_metadata(number, copied_metadata) && (copied_metadata == metadata) &&
+            document.unsigned_integer_value(number, unsigned_value) && (unsigned_value == UINT64_MAX) &&
+            document.signed_integer_value(document.object_child(copied, CStringView{ "negative" }), signed_value) &&
+            (signed_value == INT64_MIN) && document.suppresses_newline_escaping(copied_text) &&
+            (document.string_value(copied_text) == CStringView{ "line\nnext" }) &&
+            (document.child_count(array) == 4u) && (document.child_count(copied_rows) == 96u));
+        TEST_EXPECT(ctx, (document.name(document.first_child(copied)) == CStringView{ "number" }) &&
+            (document.string_value(document.last_child(copied_rows)) == CStringView{ "retained-string-95" }));
+    };
+    for (const detail::CDocumentRead& read : { live_read, baked_read })
+    {
+        CLiveDocument destination;
+        TEST_EXPECT(ctx, destination.initialise(2u));
+        const CNodeKey copied = copy_document_value(destination, read,
+            read.object_child(read.root(), CStringView{ "source" }), CStringView{ "copy" });
+        verify(destination, copied);
+        const auto before = source.value_count();
+        const CNodeKey same_document = copy_document_value(source, read,
+            read.object_child(read.root(), CStringView{ "source" }), source.name(original));
+        verify(source, same_document);
+        TEST_EXPECT(ctx, source.erase(same_document) && (source.value_count() == before));
+        TEST_EXPECT(ctx, !copy_document_value(destination, read, read.root(), {}, 256u));
+    }
+    bool succeeded{};
+    std::size_t failures{};
+    for (std::size_t offset = 0u; (offset < 256u) && !succeeded; ++offset)
+    {
+        SFailingAllocator failing{ 0u, SIZE_MAX };
+        memory::CMemoryAllocator allocator{ &failing, &allocate_with_failure, &tests::deallocate_test_memory };
+        memory::CMemoryContext context{ allocator };
+        {
+            tests::TMemoryContextScope scope{ &context };
+            CLiveDocument target;
+            TEST_EXPECT(ctx, target.initialise(2u));
+            const auto before = target.value_count();
+            failing.fail_on = failing.calls + offset;
+            const CNodeKey copied = copy_document_value(target, baked_read,
+                baked_read.object_child(baked_read.root(), CStringView{ "source" }), CStringView{ "copy" });
+            failing.fail_on = SIZE_MAX;
+            succeeded = copied.is_valid();
+            if (succeeded)
+            {
+                verify(target, copied);
+            }
+            else
+            {
+                ++failures;
+                TEST_EXPECT(ctx, (target.value_count() == before) && !target.first_child(target.root()) && target.check_integrity());
+            }
+        }
+        TEST_EXPECT(ctx, context.is_attribution_empty());
+    }
+    TEST_EXPECT(ctx, succeeded && (failures > 3u) && source.suppresses_newline_escaping(text));
+}
+
+static void test_shared_scalar_decoding(TTestContext& ctx)
+{
+    CBakedDocumentBlock block;
+    CResolvedSchema schema;
+    if (!resolve(ctx, R"({"types":{"enumerations":{"Signed":{"storage":"i8","values":{"negative":-1,"alias":-1}}}}})",
+        block, schema))
+    {
+        return;
+    }
+    struct SCase { const char* type; std::uint64_t bits; bool round_trip{ true }; };
+    for (const SCase item : { SCase{ "u64", UINT64_MAX }, SCase{ "i64", UINT64_C(0x8000000000000000) },
+        SCase{ "i8", 0x80u }, SCase{ "Signed", 0xffu }, SCase{ "b8", 1u },
+        SCase{ "f16", 0x8000u }, SCase{ "f16", 0x7e01u }, SCase{ "f16", 0xfc00u, false },
+        SCase{ "f32", 0x80000000u }, SCase{ "f32", 0x7fc00001u }, SCase{ "f32", 0x7f800000u },
+        SCase{ "f64", UINT64_C(0x8000000000000000) }, SCase{ "f64", UINT64_C(0x7ff8000000000001) },
+        SCase{ "f64", UINT64_C(0xfff0000000000000) } })
+    {
+        CLiveDocument document;
+        TEST_EXPECT(ctx, document.initialise());
+        const CSchemaIndex type = schema.find_type(CStringView{ item.type });
+        SType layout;
+        TEST_EXPECT(ctx, schema.type(type, layout));
+        EScalarDecodeReason reason;
+        const CNodeKey value = decode_document_scalar(document, schema, type, item.bits,
+            static_cast<unsigned>(layout.size * 8u), {}, reason);
+        std::uint8_t original[8]{}, reconstructed[8]{};
+        write_scalar_bits(original, static_cast<std::size_t>(layout.size), item.bits);
+        detail::SValueDiagnostic error;
+        const bool constructed = value && (reason == EScalarDecodeReason::none) &&
+            detail::construct_value(schema, detail::CDocumentRead{ document }, type, detail::SOccurrence{ value },
+                reconstructed, static_cast<std::size_t>(layout.size), detail::EConstructionMode::complete_bulk, error);
+        const bool reproduced = constructed &&
+            detail::compare_encoded(schema, type, original, static_cast<std::size_t>(layout.size),
+                reconstructed, static_cast<std::size_t>(layout.size));
+        if (!constructed || (reproduced != item.round_trip))
+        {
+            std::cerr << "Scalar round-trip: " << item.type << " bits=" << item.bits <<
+                " decoded=" << static_cast<unsigned>(reason) << " constructed=" << static_cast<unsigned>(error.reason) <<
+                " reconstructed=" << read_scalar_bits(reconstructed, static_cast<std::size_t>(layout.size)) << '\n';
+        }
+        TEST_EXPECT(ctx, constructed && (reproduced == item.round_trip));
+        if (!item.round_trip)
+        {
+            //  The existing fp16 encoder clamps infinity to finite. Decoding must
+            //  retain the literal and leave fidelity rejection to its caller.
+            TEST_EXPECT(ctx, (document.string_value(value) == CStringView{ "-inf" }) &&
+                (read_scalar_bits(reconstructed, 2u) == 0xfbffu));
+        }
+        if (std::strcmp(item.type, "Signed") == 0)
+        {
+            TEST_EXPECT(ctx, document.string_value(value) == CStringView{ "negative" });
+        }
+    }
+    CLiveDocument document;
+    TEST_EXPECT(ctx, document.initialise());
+    EScalarDecodeReason reason;
+    const CNodeKey narrow = decode_document_scalar(document, schema, schema.find_type(CStringView{ "i8" }), 7u, 3u, {}, reason);
+    std::int64_t signed_value{};
+    TEST_EXPECT(ctx, narrow && document.signed_integer_value(narrow, signed_value) && (signed_value == -1));
+    TEST_EXPECT(ctx, !decode_document_scalar(document, schema, schema.find_type(CStringView{ "Signed" }), 1u, 8u, {}, reason) &&
+        (reason == EScalarDecodeReason::unrepresentable_value));
+    TEST_EXPECT(ctx, !decode_document_scalar(document, schema, {}, 0u, 8u, {}, reason) &&
+        (reason == EScalarDecodeReason::invalid_type));
+
+    CBakedSchema bound;
+    SDiagnostic schema_error;
+    CLiveBulkData bulk;
+    SBulkDiagnostic bulk_error;
+    alignas(128) const std::uint8_t half_infinity[128] = { 0u, 0xfcu };
+    TEST_EXPECT(ctx, bound.set_document(block.document()) && bound.resolve(schema_error) && bulk.initialise(bound) &&
+        bulk.capture(CStringView{ "f16" }, CStringView{ "infinity" }, CByteConstView{ half_infinity, 2u, 128u }, 1u, bulk_error));
+    CLiveDocument output;
+    CByteBuffer payload;
+    TEST_EXPECT(ctx, !bulk.prepare_output(output, payload, bound, EDataOutputForm::embedded, bulk_error) &&
+        (bulk_error.reason == EBulkLoadReason::unrepresentable_value) && !output.is_ready() && !payload.is_ready());
 }
 
 static void test_schema_wrapper_queries_and_transfer(TTestContext& ctx)
@@ -8129,6 +8294,8 @@ int run_schema_tests()
     schema_tests::test_local_type_references(ctx);
     schema_tests::test_allocations(ctx);
     schema_tests::test_document_read_boundary(ctx);
+    schema_tests::test_document_value_copy(ctx);
+    schema_tests::test_shared_scalar_decoding(ctx);
     schema_tests::test_instance_document_query(ctx);
     schema_tests::test_live_baked_resolution_parity(ctx);
     schema_tests::test_live_resolution_move_failure_and_depth(ctx);

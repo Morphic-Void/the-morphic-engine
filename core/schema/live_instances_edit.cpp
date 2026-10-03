@@ -10,13 +10,11 @@
 
 #include "schema/live_instances.hpp"
 #include "schema/value_codec.hpp"
-#include "types/fp16data_t.hpp"
+#include "schema/document_copy.hpp"
 #include "debug/macros.hpp"
 #include "memory/memory_policies.hpp"
 
-#include <cmath>
 #include <cstring>
-#include <limits>
 
 namespace schema
 {
@@ -24,60 +22,6 @@ namespace schema
 //  Scalar decoding and selection tree helpers.
 
 constexpr unsigned k_max_depth = 256u;
-
-[[nodiscard]] static bool stabilise_name(const CStringView source, CByteBuffer& storage, CStringView& stable) noexcept
-{
-    if (source.empty())
-    {
-        return false;
-    }
-    if (source.length() == 0u)
-    {
-        stable = CStringView{ "" };
-        return true;
-    }
-    if (!storage.allocate(source.length(), 1u) || !storage.set_size(source.length()))
-    {
-        return false;
-    }
-    std::memcpy(storage.data(), source.string(), source.length());
-    stable = CStringView{ storage.data(), source.length() };
-    return true;
-}
-
-[[nodiscard]] static std::uint64_t read_bits(const std::uint8_t* const bytes, const std::size_t size) noexcept
-{
-    std::uint64_t value{};
-    for (std::size_t i = 0u; i < size; ++i)
-    {
-        value |= static_cast<std::uint64_t>(bytes[i]) << (8u * i);
-    }
-    return value;
-}
-
-static void write_bits(std::uint8_t* const bytes, const std::size_t size, const std::uint64_t value) noexcept
-{
-    for (std::size_t i = 0u; i < size; ++i)
-    {
-        bytes[i] = static_cast<std::uint8_t>(value >> (8u * i));
-    }
-}
-
-[[nodiscard]] static bool signed_primitive(const EPrimitive value) noexcept
-{
-    return (value == EPrimitive::i8) || (value == EPrimitive::i16) ||
-        (value == EPrimitive::i32) || (value == EPrimitive::i64);
-}
-
-[[nodiscard]] static std::int64_t sign_extended(const std::uint64_t value, const unsigned width) noexcept
-{
-    if (width == 64u)
-    {
-        return static_cast<std::int64_t>(value);
-    }
-    const std::uint64_t sign = std::uint64_t{ 1u } << (width - 1u);
-    return static_cast<std::int64_t>((value ^ sign) - sign);
-}
 
 [[nodiscard]] static detail::SOccurrence selected_child(const CResolvedSchema& schema,
     const detail::CDocumentRead& document, const CSchemaIndex type, const SType& layout,
@@ -131,75 +75,14 @@ static void write_bits(std::uint8_t* const bytes, const std::size_t size, const 
     const CSchemaIndex type, const std::uint64_t bits, const unsigned width,
     const CStringView& name, EInstanceLoadReason& error) noexcept
 {
-    SType layout;
-    if (!schema.type(type, layout))
+    EScalarDecodeReason decoded;
+    const CNodeKey value = decode_document_scalar(target, schema, type, bits, width, name, decoded);
+    if (!value)
     {
-        error = EInstanceLoadReason::invalid_declaration;
-        return {};
+        error = (decoded == EScalarDecodeReason::allocation_failed) ?
+            EInstanceLoadReason::allocation_failed : EInstanceLoadReason::invalid_declaration;
     }
-    if (layout.category == ECategory::enumeration)
-    {
-        SScalar value;
-        value.kind = signed_primitive(layout.primitive) ? EScalar::signed_integer : EScalar::unsigned_integer;
-        if (value.kind == EScalar::signed_integer)
-        {
-            value.value.signed_value = sign_extended(bits, width);
-        }
-        else
-        {
-            value.value.unsigned_value = bits;
-        }
-        SLabel label;
-        const CSchemaIndex label_index = schema.first_label_for_value(type, value);
-        if (!label_index || !schema.label(label_index, label))
-        {
-            error = EInstanceLoadReason::invalid_declaration;
-            return {};
-        }
-        return target.create_string(schema.name(label.name), name);
-    }
-    if (layout.category != ECategory::primitive)
-    {
-        error = EInstanceLoadReason::invalid_declaration;
-        return {};
-    }
-    if (signed_primitive(layout.primitive))
-    {
-        return target.create_signed_integer(sign_extended(bits, width), name);
-    }
-    if (layout.primitive == EPrimitive::b8)
-    {
-        return target.create_boolean((bits != 0u), name);
-    }
-    if ((layout.primitive == EPrimitive::f16) || (layout.primitive == EPrimitive::f32) || (layout.primitive == EPrimitive::f64))
-    {
-        double value{};
-        if (layout.primitive == EPrimitive::f16)
-        {
-            value = static_cast<double>(fp16data_t::fromBits(static_cast<std::uint16_t>(bits)));
-        }
-        else if (layout.primitive == EPrimitive::f32)
-        {
-            const std::uint32_t raw = static_cast<std::uint32_t>(bits);
-            float converted{};
-            std::memcpy(&converted, &raw, sizeof(converted));
-            value = converted;
-        }
-        else
-        {
-            std::memcpy(&value, &bits, sizeof(value));
-        }
-        if (std::isnan(value))
-        {
-            return target.create_string(CStringView{ "nan" }, name);
-        }
-        if (std::isinf(value))
-        {
-            return target.create_string(CStringView{ value < 0.0 ? "-inf" : "inf" }, name);
-        }
-        return target.create_floating_point(value, name);
-    }
-    return target.create_unsigned_integer(bits, name);
+    return value;
 }
 
 struct SResolvedSelectionStep
@@ -209,9 +92,6 @@ struct SResolvedSelectionStep
     CSchemaIndex child_type;
     CStringView name;
 };
-
-[[nodiscard]] static CNodeKey copy_edit_value(CLiveDocument& target, const detail::CDocumentRead& source,
-    const detail::SOccurrence value, const CStringView& name, const unsigned depth = 0u) noexcept;
 
 [[nodiscard]] static CNodeKey decode_selection(CLiveDocument& target, const CResolvedSchema& schema,
     const CSchemaIndex type, const detail::CDocumentRead& document, const detail::SOccurrence selection,
@@ -233,7 +113,7 @@ struct SResolvedSelectionStep
     //  shape without requiring its discarded binary values to have declarations.
     if (discarded_steps && (depth == discarded_steps->size()))
     {
-        const CNodeKey copied = copy_edit_value(target, document, selection, name, depth);
+        const CNodeKey copied = copy_document_value(target, document, selection, name, depth);
         if (!copied)
         {
             error = EInstanceLoadReason::allocation_failed;
@@ -255,7 +135,7 @@ struct SResolvedSelectionStep
     if ((layout.category == ECategory::primitive) || (layout.category == ECategory::enumeration))
     {
         const CNodeKey scalar = decode_scalar(target, schema, type,
-            read_bits(bytes, static_cast<std::size_t>(layout.size)),
+            read_scalar_bits(bytes, static_cast<std::size_t>(layout.size)),
             static_cast<unsigned>(layout.size * 8u), name, error);
         if (!scalar && (error == EInstanceLoadReason::none))
         {
@@ -353,10 +233,10 @@ struct SResolvedSelectionStep
                 error = EInstanceLoadReason::invalid_declaration;
                 break;
             }
-            const std::uint64_t word = read_bits(bytes, static_cast<std::size_t>(layout.size));
+            const std::uint64_t word = read_scalar_bits(bytes, static_cast<std::size_t>(layout.size));
             const std::uint64_t raw = (word & field.mask) >> field.shift;
             const CStringView child_name = positional ? CStringView{} : schema.name(field.name);
-            child = child_discarded ? copy_edit_value(target, document, child_selection, child_name, (depth + 1u)) :
+            child = child_discarded ? copy_document_value(target, document, child_selection, child_name, (depth + 1u)) :
                 decode_scalar(target, schema, field.type, raw, field.width, child_name, error);
         }
         if (!child || !target.append_child(result, child).succeeded())
@@ -401,11 +281,12 @@ struct SResolvedSelectionStep
     }
     if ((layout.category == ECategory::primitive) || (layout.category == ECategory::enumeration))
     {
-        const CNodeKey value = decode_scalar(document, schema, type, read_bits(bytes, size),
+        const CNodeKey value = decode_scalar(document, schema, type, read_scalar_bits(bytes, size),
             static_cast<unsigned>(size * 8u), name, reason);
         if (!value)
         {
-            reason = (reason == EInstanceLoadReason::none) ? EInstanceLoadReason::allocation_failed :
+            reason = ((reason == EInstanceLoadReason::none) || (reason == EInstanceLoadReason::allocation_failed)) ?
+                EInstanceLoadReason::allocation_failed :
                 EInstanceLoadReason::unrepresentable_value;
         }
         return value;
@@ -441,14 +322,15 @@ struct SResolvedSelectionStep
         {
             SField field;
             (void)schema.field(schema.field_at(type, i), field);
-            const std::uint64_t actual = read_bits(bytes, size) & field.mask;
-            if (actual != (read_bits(baseline, size) & field.mask))
+            const std::uint64_t actual = read_scalar_bits(bytes, size) & field.mask;
+            if (actual != (read_scalar_bits(baseline, size) & field.mask))
             {
                 child = decode_scalar(document, schema, field.type, (actual >> field.shift),
                     field.width, schema.name(field.name), reason);
                 if (!child)
                 {
-                    reason = (reason == EInstanceLoadReason::none) ? EInstanceLoadReason::allocation_failed :
+                    reason = ((reason == EInstanceLoadReason::none) || (reason == EInstanceLoadReason::allocation_failed)) ?
+                        EInstanceLoadReason::allocation_failed :
                         EInstanceLoadReason::unrepresentable_value;
                 }
             }
@@ -625,9 +507,9 @@ CNodeKey CLiveInstances::output_declaration(CLiveDocument& target, const SRecord
             {
                 return false;
             }
-            const std::uint64_t old_word = read_bits(selected_bytes, static_cast<std::size_t>(layout.size));
-            const std::uint64_t new_word = read_bits(inherited_bytes, static_cast<std::size_t>(layout.size));
-            write_bits(inherited_bytes, static_cast<std::size_t>(layout.size),
+            const std::uint64_t old_word = read_scalar_bits(selected_bytes, static_cast<std::size_t>(layout.size));
+            const std::uint64_t new_word = read_scalar_bits(inherited_bytes, static_cast<std::size_t>(layout.size));
+            write_scalar_bits(inherited_bytes, static_cast<std::size_t>(layout.size),
                 ((new_word & ~field.mask) | (old_word & field.mask)));
         }
     }
@@ -724,9 +606,9 @@ struct SStagedEdit
             {
                 return false;
             }
-            const std::uint64_t before = read_bits(old_bytes, static_cast<std::size_t>(layout.size));
-            const std::uint64_t after = read_bits(new_bytes, static_cast<std::size_t>(layout.size));
-            write_bits(new_bytes, static_cast<std::size_t>(layout.size),
+            const std::uint64_t before = read_scalar_bits(old_bytes, static_cast<std::size_t>(layout.size));
+            const std::uint64_t after = read_scalar_bits(new_bytes, static_cast<std::size_t>(layout.size));
+            write_scalar_bits(new_bytes, static_cast<std::size_t>(layout.size),
                 ((after & ~field.mask) | (before & field.mask)));
         }
     }
@@ -810,79 +692,6 @@ struct SStagedEdit
     return true;
 }
 
-[[nodiscard]] static CNodeKey copy_edit_value(CLiveDocument& target, const detail::CDocumentRead& source,
-    const detail::SOccurrence value, const CStringView& name, const unsigned depth) noexcept
-{
-    if ((depth >= k_max_depth) || !source.contains(value))
-    {
-        return {};
-    }
-    CNodeKey copied;
-    switch (source.value_kind(value))
-    {
-        case EDocumentValueKind::empty: copied = target.create_empty(name); break;
-        case EDocumentValueKind::null_value: copied = target.create_null(name); break;
-        case EDocumentValueKind::boolean:
-        {
-            bool scalar{};
-            if (!source.boolean_value(value, scalar))
-            {
-                return {};
-            }
-            copied = target.create_boolean(scalar, name);
-            break;
-        }
-        case EDocumentValueKind::integer:
-        {
-            CIntegerMetadata metadata;
-            std::int64_t signed_value{};
-            std::uint64_t unsigned_value{};
-            if (!source.integer_metadata(value, metadata))
-            {
-                return {};
-            }
-            copied = source.signed_integer_value(value, signed_value) ?
-                target.create_signed_integer(signed_value, metadata, name) :
-                ((source.unsigned_integer_value(value, unsigned_value) ?
-                    target.create_unsigned_integer(unsigned_value, metadata, name) : CNodeKey{}));
-            break;
-        }
-        case EDocumentValueKind::floating_point:
-        {
-            double scalar{};
-            if (!source.floating_point_value(value, scalar))
-            {
-                return {};
-            }
-            copied = target.create_floating_point(scalar, name);
-            break;
-        }
-        case EDocumentValueKind::string: copied = target.create_string(source.string_value(value), name); break;
-        case EDocumentValueKind::array: copied = target.create_array(name); break;
-        case EDocumentValueKind::object: copied = target.create_object(name); break;
-        default: return {};
-    }
-    if (!copied)
-    {
-        return {};
-    }
-    for (detail::SOccurrence child = source.first_child(value); child.is_valid(); child = source.next_sibling(child))
-    {
-        const CNodeKey item = copy_edit_value(target, source, child,
-            (source.is_object_entry(child) ? source.name(child) : CStringView{}), (depth + 1u));
-        if (!item || !target.append_child(copied, item).succeeded())
-        {
-            if (item && target.is_detached(item))
-            {
-                (void)target.erase(item);
-            }
-            (void)target.erase(copied);
-            return {};
-        }
-    }
-    return copied;
-}
-
 [[nodiscard]] static CNodeKey new_container(CLiveDocument& document, const SType& layout, const CStringView& name) noexcept
 {
     return layout.category == ECategory::array ? document.create_array(name) :
@@ -943,7 +752,7 @@ struct SStagedEdit
             }
             name = schema.name(field.name);
         }
-        const CNodeKey copied = copy_edit_value(document, query, detail::SOccurrence{ source_child }, name);
+        const CNodeKey copied = copy_document_value(document, query, detail::SOccurrence{ source_child }, name);
         if (!copied || !document.append_child(named, copied).succeeded())
         {
             if (copied && document.is_detached(copied))
@@ -1253,8 +1062,8 @@ CInstanceHandle CLiveInstances::capture_base(const CStringView& type, const CStr
     }
     CByteBuffer type_storage, name_storage;
     CStringView stable_type, stable_name;
-    if (!stabilise_name(type, type_storage, stable_type) ||
-        !stabilise_name(name, name_storage, stable_name))
+    if (!stabilise_document_name(type, type_storage, stable_type) ||
+        !stabilise_document_name(name, name_storage, stable_name))
     {
         diagnostic.reason = EInstanceLoadReason::allocation_failed;
         return {};
@@ -1357,7 +1166,7 @@ bool CLiveInstances::set_selection(const CInstanceHandle instance,
         return false;
     }
     const detail::CDocumentRead local{ m_document };
-    CNodeKey replacement = copy_edit_value(m_document, source.m_query, source_value,
+    CNodeKey replacement = copy_document_value(m_document, source.m_query, source_value,
         (step_count ? CStringView{} : CStringView{ "declaration" }));
     EInstanceLoadReason decode_error{ EInstanceLoadReason::none };
     CNodeKey staged = (step_count && record.declaration) ? decode_selection(m_document, *schema, record.type,

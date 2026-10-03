@@ -63,8 +63,29 @@ each with 18,183 schema checks and no failures (`schema-baking-final-dbg64`,
 `schema-baking-final-rel64`, `schema-baking-final-dbg32`). Policy validation
 reported no errors or warnings; diff and line-ending checks passed.
 
-Scalar-decoder and document-copying consolidation, integer output notation,
-remaining file/API organisation and further performance work remain discussion items.
+The subsequent bounded consolidation shares scalar decoding, scalar bit access,
+document subtree copying and name stabilisation within the schema implementation.
+Instance creation and editing now both preserve copied string-formatting flags. Existing
+role APIs, diagnostics, bulk completeness, instance inheritance and output
+representability checks are retained. Baked access and stripped output acquire
+no additional decoding or persistent storage.
+
+Regression checks cover live/baked and same-document copies, integer metadata,
+string flags, allocation-failure cleanup, scalar boundaries, enum aliases and
+floating-point encodings. The existing fp16 infinity-to-finite encoding policy
+is preserved; embedded output still rejects its non-faithful reconstruction.
+
+Validation passed full Debug x64, Release x64 and Debug Win32 builds and `-t1`
+runs, each with 18,457 schema checks and zero failures: `schema-copy-codec-final-dbg64`,
+`schema-copy-codec-clean-rel64` and `schema-copy-codec-final-dbg32`. The incremental
+Release binary initially reported three collection destructor-count failures;
+a clean Release rebuild passed those checks without collection source changes.
+Policy validation reported no errors or warnings, and diff/line-ending checks passed.
+
+The user requested considering combination with the general document-copying
+implementation only after this initial change. That broader consolidation,
+integer output notation, remaining file/API organisation and further performance
+work remain discussion items.
 Fp16 workflow changes and source ingestion also remain deferred. A completed
 review does not authorise those changes.
 
@@ -1618,7 +1639,8 @@ interleaved creation and reconciliation, duplicate empty remap matches, and a
 A subsequent legacy-code audit removed the unread baked-bulk record alignment
 field and unused hash-index clear method. Hash rebuilding is private, and the
 hash mixer is local to the compatibility implementation. Scalar decoding and
-document-copying helpers remain active; their proposed consolidation is separate.
+document-copying helpers remained active at this stage; their subsequent bounded
+consolidation is recorded in the delivery status above.
 
 Debug x64, Release x64 and Debug x86 solution builds and ordinary `-t1` suites
 passed after the lookup/remap follow-up with 17,963 schema checks and zero failures

@@ -19,8 +19,10 @@ documentation, singular scalar input, consistent named bulk records and instance
 configuration preservation when destination defaults change, followed by general
 binary-authoritative document reconciliation. Baked entry indexes, direct live-record
 binary search, cached bulk type indices, indexed remap setup and shared
-compatibility checking address the subsequent bookkeeping review;
-scalar decoding and document-copying consolidation remain for discussion. See the
+compatibility checking address the subsequent bookkeeping review. Baking supports
+optional stripped data output. Shared scalar decoding, subtree copying and name
+stabilisation consolidate the schema paths; combining copying with the general
+data-model implementation remains a later discussion. See the
 [implementation contract](implementation-contract.md).
 
 The coordinator handoff, pre-refactoring gap review and record-layout proposal

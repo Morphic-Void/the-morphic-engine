@@ -290,6 +290,20 @@ identities and, for definition matching, both default descriptions. Completed
 matches and proven root mismatches can be reused within the operation; unfinished
 comparisons are discarded on failure. No cache survives schema re-resolution.
 
+Scalar decoding is shared by bulk output and instance capture, editing and
+reconciliation. The codec also shares little-endian scalar bit access with
+construction and comparison. Role-specific traversal and diagnostic mapping stay
+with their callers, including the checks that generated literals reproduce
+meaningful encoded values. This adds no decoding to stripped baking or baked
+entry access.
+
+Instance creation and editing share a bounded subtree copier for live or baked
+sources, including copying within one live document. It retains integer metadata,
+string newline-escaping flags, names and child order, and removes partial copies
+on failure. The same internal helper group stabilises names before document
+growth. Whole-document promotion in the data model remains a separate implementation;
+combining those implementations is a follow-up discussion.
+
 ## Baked bulk role (stage 4b)
 
 `CBakedBulkData` attaches to an immutable `CBakedDocument` view or a

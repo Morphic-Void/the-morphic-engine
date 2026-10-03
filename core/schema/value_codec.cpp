@@ -10,12 +10,126 @@
 
 #include "schema/value_codec.hpp"
 #include "schema/value_conversion.hpp"
+#include "data_model/live_document.hpp"
 
 #include <cmath>
 #include <cstring>
 #include <cstdint>
 
-namespace schema::detail
+namespace schema
+{
+
+[[nodiscard]] static bool scalar_is_signed(const EPrimitive primitive) noexcept
+{
+    return (primitive == EPrimitive::i8) || (primitive == EPrimitive::i16) ||
+        (primitive == EPrimitive::i32) || (primitive == EPrimitive::i64);
+}
+
+[[nodiscard]] static std::int64_t sign_extend_scalar(const std::uint64_t bits, const unsigned width) noexcept
+{
+    if (width == 64u)
+    {
+        return static_cast<std::int64_t>(bits);
+    }
+    const std::uint64_t sign = std::uint64_t{ 1u } << (width - 1u);
+    return static_cast<std::int64_t>((bits ^ sign) - sign);
+}
+
+[[nodiscard]] static CNodeKey create_decoded_scalar(CLiveDocument& document, const CResolvedSchema& schema,
+    const CSchemaIndex type, const std::uint64_t bits, const unsigned width,
+    const CStringView& name, EScalarDecodeReason& reason) noexcept
+{
+    SType layout;
+    if (!schema.type(type, layout))
+    {
+        reason = EScalarDecodeReason::invalid_type;
+        return {};
+    }
+    if (layout.category == ECategory::enumeration)
+    {
+        SScalar value;
+        value.kind = scalar_is_signed(layout.primitive) ? EScalar::signed_integer : EScalar::unsigned_integer;
+        if (value.kind == EScalar::signed_integer)
+        {
+            value.value.signed_value = sign_extend_scalar(bits, width);
+        }
+        else
+        {
+            value.value.unsigned_value = bits;
+        }
+        SLabel label;
+        const CSchemaIndex found = schema.first_label_for_value(type, value);
+        if (!found || !schema.label(found, label))
+        {
+            reason = EScalarDecodeReason::unrepresentable_value;
+            return {};
+        }
+        return document.create_string(schema.name(label.name), name);
+    }
+    if (layout.category != ECategory::primitive)
+    {
+        reason = EScalarDecodeReason::invalid_type;
+        return {};
+    }
+    if (scalar_is_signed(layout.primitive))
+    {
+        return document.create_signed_integer(sign_extend_scalar(bits, width), name);
+    }
+    if (layout.primitive == EPrimitive::b8)
+    {
+        return document.create_boolean((bits != 0u), name);
+    }
+    if ((layout.primitive == EPrimitive::f16) || (layout.primitive == EPrimitive::f32) ||
+        (layout.primitive == EPrimitive::f64))
+    {
+        double value{};
+        if (layout.primitive == EPrimitive::f16)
+        {
+            value = static_cast<double>(fp16data_t::fromBits(static_cast<std::uint16_t>(bits)));
+        }
+        else if (layout.primitive == EPrimitive::f32)
+        {
+            const std::uint32_t raw = static_cast<std::uint32_t>(bits);
+            float converted{};
+            std::memcpy(&converted, &raw, sizeof(converted));
+            value = converted;
+        }
+        else
+        {
+            std::memcpy(&value, &bits, sizeof(value));
+        }
+        if (std::isnan(value))
+        {
+            return document.create_string(CStringView{ "nan" }, name);
+        }
+        if (std::isinf(value))
+        {
+            return document.create_string(CStringView{ (value < 0.0) ? "-inf" : "inf" }, name);
+        }
+        return document.create_floating_point(value, name);
+    }
+    return document.create_unsigned_integer(bits, name);
+}
+
+CNodeKey decode_document_scalar(CLiveDocument& document, const CResolvedSchema& schema,
+    const CSchemaIndex type, const std::uint64_t bits, const unsigned width,
+    const CStringView& name, EScalarDecodeReason& reason) noexcept
+{
+    reason = EScalarDecodeReason::none;
+    if ((width == 0u) || (width > 64u))
+    {
+        reason = EScalarDecodeReason::invalid_type;
+        return {};
+    }
+    const CNodeKey value = create_decoded_scalar(document, schema, type, bits, width, name, reason);
+    if (!value && (reason == EScalarDecodeReason::none))
+    {
+        reason = EScalarDecodeReason::allocation_failed;
+    }
+    return value;
+}
+
+namespace detail
 {
 
 enum class EWriteMode : std::uint8_t { instance, bulk, alternative };
@@ -48,24 +162,6 @@ bool is_scalar_shorthand(const CResolvedSchema& schema, const CSchemaIndex type,
 [[nodiscard]] static bool equal_name(const CStringView a, const CStringView b) noexcept
 {
     return a.length() == b.length() && (a.length() == 0u || std::memcmp(a.string(), b.string(), a.length()) == 0);
-}
-
-[[nodiscard]] static std::uint64_t read_little_endian(const std::uint8_t* const bytes, const std::size_t size) noexcept
-{
-    std::uint64_t value{};
-    for (std::size_t i = 0u; i < size; ++i)
-    {
-        value |= static_cast<std::uint64_t>(bytes[i]) << (i * 8u);
-    }
-    return value;
-}
-
-static void write_little_endian(std::uint8_t* const bytes, const std::size_t size, const std::uint64_t value) noexcept
-{
-    for (std::size_t i = 0u; i < size; ++i)
-    {
-        bytes[i] = static_cast<std::uint8_t>(value >> (i * 8u));
-    }
 }
 
 [[nodiscard]] static bool is_nan_bits(const EPrimitive primitive, const std::uint64_t bits) noexcept
@@ -429,7 +525,7 @@ bool CValueWriter::bit_structure(const CSchemaIndex type, const SType& layout, c
         return fail(EReason::missing_property, source, type);
     }
     std::uint64_t word = mode == EWriteMode::alternative ?
-        read_little_endian(destination, static_cast<std::size_t>(layout.size)) : 0u;
+        read_scalar_bits(destination, static_cast<std::size_t>(layout.size)) : 0u;
     SOccurrence positional = (!singleton_element && (kind == EDocumentValueKind::array)) ?
         m_document.first_child(source) : SOccurrence{};
     for (std::uint32_t ordinal = 0u; ordinal < layout.count; ++ordinal)
@@ -478,7 +574,7 @@ bool CValueWriter::bit_structure(const CSchemaIndex type, const SType& layout, c
         const std::uint64_t bits = scalar_bits(value, field.primitive);
         word = (word & ~field.mask) | ((bits << field.shift) & field.mask);
     }
-    write_little_endian(destination, static_cast<std::size_t>(layout.size), word);
+    write_scalar_bits(destination, static_cast<std::size_t>(layout.size), word);
     return true;
 }
 
@@ -529,7 +625,7 @@ bool CValueWriter::write(const CSchemaIndex type, const CSchemaIndex description
                 }
                 value = default_value.scalar;
             }
-            write_little_endian(destination, static_cast<std::size_t>(layout.size), scalar_bits(value, layout.primitive));
+            write_scalar_bits(destination, static_cast<std::size_t>(layout.size), scalar_bits(value, layout.primitive));
             return true;
         }
         case ECategory::structure:
@@ -582,15 +678,15 @@ bool CValueWriter::write(const CSchemaIndex type, const CSchemaIndex description
     }
     if ((layout.category == ECategory::primitive) || (layout.category == ECategory::enumeration))
     {
-        const std::uint64_t left = read_little_endian(expected, static_cast<std::size_t>(layout.size));
-        const std::uint64_t right = read_little_endian(actual, static_cast<std::size_t>(layout.size));
+        const std::uint64_t left = read_scalar_bits(expected, static_cast<std::size_t>(layout.size));
+        const std::uint64_t right = read_scalar_bits(actual, static_cast<std::size_t>(layout.size));
         return (left == right) || (is_nan_bits(layout.primitive, left) && is_nan_bits(layout.primitive, right));
     }
     if (layout.category == ECategory::bit_structure)
     {
         const std::uint64_t differing =
-            read_little_endian(expected, static_cast<std::size_t>(layout.size)) ^
-            read_little_endian(actual, static_cast<std::size_t>(layout.size));
+            read_scalar_bits(expected, static_cast<std::size_t>(layout.size)) ^
+            read_scalar_bits(actual, static_cast<std::size_t>(layout.size));
         for (std::uint32_t ordinal = 0u; ordinal < layout.count; ++ordinal)
         {
             SField field;
@@ -698,4 +794,6 @@ bool compare_encoded(const CResolvedSchema& schema, const CSchemaIndex type,
         compare_encoded_value(schema, type, expected, actual, static_cast<std::size_t>(layout.size), 0u);
 }
 
-}   // namespace schema::detail
+}   // namespace detail
+
+}   // namespace schema
