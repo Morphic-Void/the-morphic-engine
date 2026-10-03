@@ -67,7 +67,7 @@ ETypeMatchResult CTypeCompatibility::add(const SPair pair) noexcept
     {
         return m_pairs[found].result;
     }
-    if (!m_index.reserve(m_pairs.size() + 1u, m_pairs.size(),
+    if (!m_index.reserve((m_pairs.size() + 1u), m_pairs.size(),
             [&](const std::size_t i) noexcept { return hash(m_pairs[i]); }) || !m_pairs.push_back(pair))
     {
         return ETypeMatchResult::allocation_failed;
