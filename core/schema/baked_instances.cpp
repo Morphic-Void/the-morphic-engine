@@ -18,6 +18,10 @@
 namespace schema
 {
 
+//==============================================================================
+//  Planning helpers
+//==============================================================================
+
 [[nodiscard]] static bool instance_name_is(const CStringView name, const char* const literal) noexcept
 {
     const CStringView expected{ literal };
@@ -35,6 +39,10 @@ namespace schema
     result = (position + alignment - 1u) & ~(alignment - 1u);
     return result <= memory::k_byte_size_ceiling;
 }
+
+//==============================================================================
+//  Lifetime, binding and diagnostics
+//==============================================================================
 
 bool CBakedInstances::fail(SInstanceDiagnostic& diagnostic, const EInstanceLoadReason reason, const CBakedValueIndex occurrence) const noexcept
 {
@@ -116,6 +124,10 @@ bool CBakedInstances::bind_schema(CLiveSchema& schema) noexcept
     clear_loaded();
     return m_binding.bind(schema);
 }
+
+//==============================================================================
+//  Queries and payload access
+//==============================================================================
 
 CInstanceDocumentQuery CBakedInstances::document_query() const noexcept
 {
@@ -239,6 +251,10 @@ bool CBakedInstances::values_stripped() const noexcept
     return document_ready() && m_document.boolean_value(
         m_document.object_child(m_document.root(), CStringView{ "stripped" }), stripped) && stripped;
 }
+
+//==============================================================================
+//  Load planning
+//==============================================================================
 
 bool CBakedInstances::plan(const bool supplied, const std::size_t supplied_size,
     TPodVector<SRecord>& records, std::size_t& payload_size, std::size_t& scratch_size,
@@ -431,6 +447,10 @@ bool CBakedInstances::plan(const bool supplied, const std::size_t supplied_size,
     return true;
 }
 
+//==============================================================================
+//  Embedded-value comparison
+//==============================================================================
+
 bool CBakedInstances::compare_embedded(const TPodVector<SRecord>& records, const CByteConstView& payload,
     const std::size_t scratch_size, SInstanceDiagnostic& diagnostic) const noexcept
 {
@@ -473,6 +493,10 @@ bool CBakedInstances::compare_embedded(const TPodVector<SRecord>& records, const
     }
     return true;
 }
+
+//==============================================================================
+//  Loading and materialisation
+//==============================================================================
 
 bool CBakedInstances::load_supplied(const CByteConstView& payload, const bool compare_embedded, SInstanceDiagnostic& diagnostic) noexcept
 {

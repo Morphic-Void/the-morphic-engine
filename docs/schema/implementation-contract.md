@@ -109,9 +109,24 @@ boundary, and sweep allocation failures through both promotion routes. Existing
 same-document and subtree-failure checks also pass. Policy validation reported
 no errors or warnings; diff and line-ending checks passed.
 
-Integer output notation, remaining file/API organisation and further performance
-work remain discussion items. Combining the traversal strategies is outside this
-refactor.
+The first organisation pass retains existing file boundaries, groups role
+operations and places helpers before their callers. Compatibility hashing now
+belongs to `type_compatibility.hpp`, separate from live/baked record lookup.
+Instance selection decoding and reconciliation carry fixed inputs in stack-local
+operation objects, reducing recursive parameter forwarding without adding heap
+allocation or persistent state. Scoped headers identify their audience and major
+sections; template declarations consistently use `template<...>`. The runtime
+guide maps public entry points and implementation support.
+
+Organisation validation passed full Debug x64, Release x64 and Debug Win32
+builds and `-t1` runs (`schema-organisation-dbg64`, `schema-organisation-rel64`,
+`schema-organisation-dbg32`), each with 18,457 schema checks and 3,340
+baked-document checks, zero failures. Policy validation reported no errors or
+warnings; diff and line-ending checks passed.
+
+The wider conditional and parameter review remains subsequent work. Integer
+output notation and further performance work remain discussion items. Combining
+the traversal strategies is outside this refactor.
 Fp16 workflow changes and source ingestion also remain deferred. A completed
 review does not authorise those changes.
 

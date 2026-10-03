@@ -8,6 +8,9 @@
 //
 //  Non-owning baked bulk role with explicit schema and payload associations.
 
+//  Public entry point for borrowed bulk data. Includes shared schema/query types.
+//  record_index.hpp supplies private storage required by the class definition.
+
 #pragma once
 
 #ifndef SCHEMA_BAKED_BULK_DATA_HPP_INCLUDED
@@ -19,6 +22,10 @@
 
 namespace schema
 {
+
+//==============================================================================
+//  Loading diagnostics
+//==============================================================================
 
 enum class EBulkLoadReason : std::uint8_t
 {
@@ -45,6 +52,10 @@ struct SBulkDiagnostic
     CBulkHandle occurrence;
 };
 
+//==============================================================================
+//  Borrowed entry view
+//==============================================================================
+
 struct SBulkEntryView
 {
     CSchemaIndex type;
@@ -53,9 +64,17 @@ struct SBulkEntryView
     const std::uint8_t* bytes{ nullptr }; //  Null for zero-byte records.
 };
 
+//==============================================================================
+//  Baked bulk role
+//==============================================================================
+
 class CBakedBulkData
 {
 public:
+    //==============================================================================
+    //  Lifetime and binding
+    //==============================================================================
+
     CBakedBulkData() noexcept = default;
     CBakedBulkData(const CBakedBulkData&) = delete;
     CBakedBulkData& operator=(const CBakedBulkData&) = delete;
@@ -70,6 +89,10 @@ public:
     [[nodiscard]] bool bind_schema(CBakedSchema& schema) noexcept;
     [[nodiscard]] bool bind_schema(CLiveSchema& schema) noexcept;
 
+    //==============================================================================
+    //  Loading and promotion
+    //==============================================================================
+
     //  The explicit supplied path admits a canonical empty view for a document
     //  containing only zero-byte records. Nonempty views require 128-byte base
     //  alignment. The materialised owner is returned separately and must be
@@ -79,6 +102,10 @@ public:
     [[nodiscard]] bool materialise(CByteBuffer& returned_owner, SBulkDiagnostic& diagnostic) noexcept;
     [[nodiscard]] bool promote(class CLiveBulkData& destination, CBakedSchema& schema, SBulkDiagnostic& diagnostic) const noexcept;
     [[nodiscard]] bool promote(class CLiveBulkData& destination, CLiveSchema& schema, SBulkDiagnostic& diagnostic) const noexcept;
+
+    //==============================================================================
+    //  Queries and payload access
+    //==============================================================================
 
     [[nodiscard]] bool document_ready() const noexcept { return m_document.is_ready(); }
     [[nodiscard]] bool values_stripped() const noexcept;
@@ -91,6 +118,10 @@ public:
     void clear() noexcept;
 
 private:
+    //==============================================================================
+    //  Private planning and records
+    //==============================================================================
+
     friend class CLiveBulkData;
     void take_from(CBakedBulkData& source) noexcept;
     struct SRecord
@@ -107,6 +138,10 @@ private:
     [[nodiscard]] bool plan(const bool supplied, const std::size_t payload_size,
         TPodVector<SRecord>& records, std::size_t& total_size, SBulkDiagnostic& diagnostic) const noexcept;
     [[nodiscard]] bool compare_embedded(const TPodVector<SRecord>& records, const CByteConstView& payload, SBulkDiagnostic& diagnostic) const noexcept;
+
+    //==============================================================================
+    //  Borrowed state and record index
+    //==============================================================================
 
     CBakedDocument m_document;
     CMutableBakedDocument m_mutable;

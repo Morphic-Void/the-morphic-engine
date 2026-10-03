@@ -8,6 +8,9 @@
 //
 //  Representation-neutral, read-only document queries for schema roles.
 
+//  Shared public handles and read-only queries, normally included by role headers.
+//  The detail identities and read adapter support schema implementation only.
+
 #pragma once
 
 #ifndef SCHEMA_DOCUMENT_QUERY_HPP_INCLUDED

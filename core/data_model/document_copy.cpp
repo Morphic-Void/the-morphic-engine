@@ -15,6 +15,10 @@
 namespace document_translation
 {
 
+//==============================================================================
+//  Name stabilisation
+//==============================================================================
+
 [[nodiscard]] bool stabilise_document_name(const CStringView& source, CByteBuffer& storage, CStringView& copied) noexcept
 {
     if (source.empty())

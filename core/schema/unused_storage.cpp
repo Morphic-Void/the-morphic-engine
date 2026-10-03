@@ -18,6 +18,10 @@ namespace schema
 
 static constexpr unsigned k_max_clear_depth = 256u;
 
+//==============================================================================
+//  Clearing extents and type validation
+//==============================================================================
+
 struct SClearExtent
 {
     std::uint64_t offset{}, size{};
@@ -172,6 +176,10 @@ struct SClearExtent
     return true;
 }
 
+//==============================================================================
+//  Type storage clearing
+//==============================================================================
+
 static void clear_type(const CResolvedSchema& schema, const CSchemaIndex type, std::uint8_t* const bytes, const EUnusedBits bits) noexcept
 {
     SType layout;
@@ -269,7 +277,11 @@ static void clear_type(const CResolvedSchema& schema, const CSchemaIndex type, s
     }
 }
 
-template <class TQuery, class THandle>
+//==============================================================================
+//  Document extent collection
+//==============================================================================
+
+template<class TQuery, class THandle>
 [[nodiscard]] static bool locator(const TQuery& query, const THandle entry, THandle& count_node, THandle& size_node, std::uint64_t& offset) noexcept
 {
     const THandle node = query.object_child(entry, CStringView{ "locator" });
@@ -474,6 +486,10 @@ template <class TQuery, class THandle>
     }
     return true;
 }
+
+//==============================================================================
+//  Extent preflight and publication
+//==============================================================================
 
 [[nodiscard]] static bool preflight_extents(const CResolvedSchema& schema, const CByteView payload, TPodVector<SClearExtent>& extents) noexcept
 {

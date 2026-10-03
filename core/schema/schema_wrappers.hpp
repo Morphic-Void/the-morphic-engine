@@ -8,6 +8,9 @@
 //
 //  Schema-role document ownership, guarded editing and client bindings.
 
+//  Public entry point for live/baked schema owners and their client bindings.
+//  Includes resolved observations and document queries used by these roles.
+
 #pragma once
 
 #ifndef SCHEMA_WRAPPERS_HPP_INCLUDED
@@ -21,6 +24,10 @@ namespace schema
 
 class CSchemaBinding;
 class CLiveSchema;
+
+//==============================================================================
+//  Internal binding state
+//==============================================================================
 
 namespace detail
 {

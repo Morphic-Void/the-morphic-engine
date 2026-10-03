@@ -8,6 +8,9 @@
 //
 //  Value construction and bounded subtree copying into live documents.
 
+//  Public subtree-copy helper. Templates require live construction definitions;
+//  the detail helpers are shared internally with document promotion.
+
 #pragma once
 
 #ifndef DATA_MODEL_DOCUMENT_COPY_HPP_INCLUDED
@@ -22,8 +25,16 @@
 namespace document_translation
 {
 
+//==============================================================================
+//  Name stabilisation
+//==============================================================================
+
 //  Stabilise caller-supplied names before an operation can grow their document.
 [[nodiscard]] bool stabilise_document_name(const CStringView& source, CByteBuffer& storage, CStringView& copied) noexcept;
+
+//==============================================================================
+//  Internal value construction
+//==============================================================================
 
 namespace detail
 {
@@ -106,6 +117,10 @@ template<class TSource, class TValue>
 }
 
 }   // namespace detail
+
+//==============================================================================
+//  Subtree copying
+//==============================================================================
 
 //  Sources provide the native document queries (or equivalent read-adapter
 //  queries) with a matching value identity. Copy a detached subtree, including

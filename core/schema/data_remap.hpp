@@ -8,6 +8,8 @@
 //
 //  Compatible direct-member remap plans and bounded current-view execution.
 
+//  Public entry point for remap planning and execution over caller-owned views.
+
 #pragma once
 
 #ifndef DATA_REMAP_HPP_INCLUDED
@@ -17,6 +19,10 @@
 
 namespace schema
 {
+
+//==============================================================================
+//  Remap diagnostics
+//==============================================================================
 
 enum class ERemapReason : std::uint8_t
 {
@@ -35,11 +41,19 @@ struct SRemapDiagnostic
     CSchemaIndex source_member, destination_member;
 };
 
+//==============================================================================
+//  Source descriptions
+//==============================================================================
+
 struct SRemapSourceType
 {
     const CResolvedSchema* schema{};
     CSchemaIndex type;
 };
+
+//==============================================================================
+//  Remap plan
+//==============================================================================
 
 class CDataRemapPlan
 {

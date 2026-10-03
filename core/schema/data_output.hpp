@@ -8,6 +8,8 @@
 //
 //  Document content choice for schema data output.
 
+//  Shared public output policy, normally included through the live data roles.
+
 #pragma once
 
 #ifndef SCHEMA_DATA_OUTPUT_HPP_INCLUDED
@@ -17,6 +19,10 @@
 
 namespace schema
 {
+
+//==============================================================================
+//  Output policy
+//==============================================================================
 
 //  Stripped output keeps navigation and locators, requiring a supplied payload.
 //  Schema definitions and defaults are unaffected by this data-only choice.

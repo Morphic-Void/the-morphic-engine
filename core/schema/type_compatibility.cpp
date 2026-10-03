@@ -63,7 +63,7 @@ ETypeMatchResult CTypeCompatibility::add(const SPair pair) noexcept
         return (p.source == pair.source) && (p.destination == pair.destination) &&
             (p.source_default == pair.source_default) && (p.destination_default == pair.destination_default);
     });
-    if (found != k_missing_record)
+    if (found != COrdinalHashIndex::k_missing_record)
     {
         return m_pairs[found].result;
     }

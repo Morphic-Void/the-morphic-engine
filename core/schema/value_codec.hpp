@@ -8,6 +8,9 @@
 //
 //  Internal scalar decoding and bounded construction of schema-typed values.
 
+//  Internal schema construction, decoding and comparison. Included by role
+//  implementations; consumers should include the appropriate role header.
+
 #pragma once
 
 #ifndef SCHEMA_VALUE_CODEC_HPP_INCLUDED
@@ -17,6 +20,10 @@
 
 namespace schema
 {
+
+//==============================================================================
+//  Scalar bit access
+//==============================================================================
 
 //  These words carry scalar encodings, including full-width integers and f64.
 //  Callers provide a valid scalar span of at most eight bytes.
@@ -38,6 +45,10 @@ inline void write_scalar_bits(std::uint8_t* const bytes, const std::size_t size,
     }
 }
 
+//==============================================================================
+//  Scalar decoding
+//==============================================================================
+
 enum class EScalarDecodeReason : std::uint8_t { none, invalid_type, unrepresentable_value, allocation_failed };
 
 //  Produce a document literal from a scalar encoding. Width is the storage or
@@ -48,6 +59,10 @@ enum class EScalarDecodeReason : std::uint8_t { none, invalid_type, unrepresenta
 
 namespace detail
 {
+
+//==============================================================================
+//  Internal construction and diagnostics
+//==============================================================================
 
 enum class EConstructionMode : std::uint8_t { instance, complete_bulk };
 
@@ -78,6 +93,10 @@ struct SValueDiagnostic
     const CSchemaIndex type, const SOccurrence declaration, const std::uint8_t* const base,
     const std::size_t base_size, std::uint8_t* const destination, const std::size_t destination_size,
     SValueDiagnostic& diagnostic) noexcept;
+
+//==============================================================================
+//  Encoded-value comparison
+//==============================================================================
 
 //  Compare encoded addressable fields only. Padding and unused bit positions
 //  are ignored; NaN payloads are equivalent, while other encodings are exact.

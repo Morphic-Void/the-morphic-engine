@@ -18,6 +18,10 @@
 #include "data_model/baked_document.hpp"
 #include "data_model/live_document.hpp"
 
+//==============================================================================
+//  Staged document promotion
+//==============================================================================
+
 class CLiveDocumentPromoter
 {
 public:
@@ -90,6 +94,10 @@ CLiveDocument CLiveDocumentPromoter::take_document() noexcept
     return std::move(m_destination);
 }
 
+//==============================================================================
+//  Traversal planning and node reservation
+//==============================================================================
+
 bool CLiveDocumentPromoter::prepare_values() noexcept
 {
     if (m_select_root_member)
@@ -156,6 +164,10 @@ bool CLiveDocumentPromoter::prepare_values() noexcept
     m_live_node_count = static_cast<std::uint32_t>(live_node_count);
     return true;
 }
+
+//==============================================================================
+//  Translation entry points
+//==============================================================================
 
 bool document_translation::promote(const CBakedDocument& source, CLiveDocument& destination) noexcept
 {

@@ -8,6 +8,9 @@
 //
 //  Owned live instance hierarchy and independent complete snapshots.
 
+//  Public entry point for owned instances and selection editing. The baked-role
+//  include supplies shared instance views and diagnostics, used by both roles.
+
 #pragma once
 
 #ifndef SCHEMA_LIVE_INSTANCES_HPP_INCLUDED
@@ -19,6 +22,10 @@
 
 namespace schema
 {
+
+//==============================================================================
+//  Selection paths and mutable views
+//==============================================================================
 
 enum class EInstanceSelectionStepKind : std::uint8_t { member, element };
 
@@ -39,9 +46,17 @@ struct SMutableInstanceEntryView
     CByteView bytes; // Canonical empty view for a zero-byte snapshot.
 };
 
+//==============================================================================
+//  Live instance role
+//==============================================================================
+
 class CLiveInstances
 {
 public:
+    //==============================================================================
+    //  Lifetime and initialisation
+    //==============================================================================
+
     CLiveInstances() noexcept = default;
     CLiveInstances(const CLiveInstances&) = delete;
     CLiveInstances& operator=(const CLiveInstances&) = delete;
@@ -52,6 +67,10 @@ public:
     [[nodiscard]] bool initialise(CBakedSchema& schema, const std::size_t capacity = 0u) noexcept;
     [[nodiscard]] bool initialise(CLiveSchema& schema, const std::size_t capacity = 0u) noexcept;
     void clear() noexcept;
+
+    //==============================================================================
+    //  Queries and payload access
+    //==============================================================================
 
     [[nodiscard]] bool document_ready() const noexcept { return m_document.is_ready(); }
     [[nodiscard]] bool loaded_ready() const noexcept { return m_loaded && m_binding.is_usable(); }
@@ -67,8 +86,16 @@ public:
     [[nodiscard]] CByteConstView payload_view() const noexcept { return loaded_ready() ? m_payload.const_view() : CByteConstView{}; }
     [[nodiscard]] bool clear_unused_storage(const EUnusedBits bits = EUnusedBits::preserve) noexcept;
 
+    //==============================================================================
+    //  Binary reconciliation
+    //==============================================================================
+
     //  Rebuild declarations from snapshots; success invalidates document handles, not payload views.
     [[nodiscard]] bool reconcile(SInstanceDiagnostic& diagnostic) noexcept;
+
+    //==============================================================================
+    //  Creation and editing
+    //==============================================================================
 
     [[nodiscard]] CInstanceHandle create_base(const CStringView& type, const CStringView& name,
         const CInstanceDocumentQuery& source, const CInstanceHandle declaration, SInstanceDiagnostic& diagnostic) noexcept;
@@ -84,6 +111,10 @@ public:
     [[nodiscard]] bool remove_selection(const CInstanceHandle instance, const SInstanceSelectionStep* const steps,
         const std::size_t step_count, SInstanceDiagnostic& diagnostic) noexcept;
 
+    //==============================================================================
+    //  Output preparation and baking
+    //==============================================================================
+
     [[nodiscard]] bool prepare_output(CLiveDocument& document, CByteBuffer& payload,
         CBakedSchema& destination_schema, const EDataOutputForm form, SInstanceDiagnostic& diagnostic) const noexcept;
     [[nodiscard]] bool prepare_output(CLiveDocument& document, CByteBuffer& payload,
@@ -94,6 +125,10 @@ public:
         CLiveSchema& destination_schema, const EDataOutputForm form, SInstanceDiagnostic& diagnostic) const noexcept;
 
 private:
+    //==============================================================================
+    //  Private records and operations
+    //==============================================================================
+
     friend class CBakedInstances;
     static constexpr std::uint32_t k_no_parent = UINT32_MAX;
     struct SRecord
@@ -118,11 +153,15 @@ private:
     [[nodiscard]] bool prepare_output_to(CLiveDocument& document, CByteBuffer& payload,
         const CResolvedSchema& destination_schema, const EDataOutputForm form,
         SInstanceDiagnostic& diagnostic) const noexcept;
-    template <class TSchema>
+    template<class TSchema>
     [[nodiscard]] bool bake_to(CBakedDocumentBlock& block, CByteBuffer& payload, CBakedInstances& role,
         TSchema& destination_schema, const EDataOutputForm form, SInstanceDiagnostic& diagnostic) const noexcept;
     void take_from(CLiveInstances& source) noexcept;
     void disable() noexcept;
+
+    //==============================================================================
+    //  Owned state
+    //==============================================================================
 
     CLiveDocument m_document;
     CByteBuffer m_payload;

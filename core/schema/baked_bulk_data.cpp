@@ -34,6 +34,10 @@ void CBakedBulkData::take_from(CBakedBulkData& source) noexcept
     source.m_loaded = false;
 }
 
+//==============================================================================
+//  Planning helpers
+//==============================================================================
+
 [[nodiscard]] static bool bulk_name_is(const CStringView name, const char* const literal) noexcept
 {
     const CStringView expected{ literal };
@@ -50,6 +54,10 @@ void CBakedBulkData::take_from(CBakedBulkData& source) noexcept
     result = (position + alignment - 1u) & ~(alignment - 1u);
     return result <= memory::k_byte_size_ceiling;
 }
+
+//==============================================================================
+//  Lifetime, binding and diagnostics
+//==============================================================================
 
 bool CBakedBulkData::fail(SBulkDiagnostic& diagnostic, const EBulkLoadReason reason, const CBakedValueIndex occurrence) const noexcept
 {
@@ -117,6 +125,10 @@ bool CBakedBulkData::bind_schema(CLiveSchema& schema) noexcept
     return m_binding.bind(schema);
 }
 
+//==============================================================================
+//  Queries and payload access
+//==============================================================================
+
 CBulkDocumentQuery CBakedBulkData::document_query() const noexcept
 {
     return CBulkDocumentQuery{ m_document };
@@ -183,6 +195,10 @@ bool CBakedBulkData::values_stripped() const noexcept
     return document_ready() && m_document.boolean_value(
         m_document.object_child(m_document.root(), CStringView{ "stripped" }), stripped) && stripped;
 }
+
+//==============================================================================
+//  Load planning
+//==============================================================================
 
 bool CBakedBulkData::plan(const bool supplied, const std::size_t payload_size,
     TPodVector<SRecord>& records, std::size_t& total_size, SBulkDiagnostic& diagnostic) const noexcept
@@ -382,6 +398,10 @@ bool CBakedBulkData::plan(const bool supplied, const std::size_t payload_size,
     return true;
 }
 
+//==============================================================================
+//  Embedded-value comparison
+//==============================================================================
+
 bool CBakedBulkData::compare_embedded(const TPodVector<SRecord>& records, const CByteConstView& payload, SBulkDiagnostic& diagnostic) const noexcept
 {
     const CResolvedSchema* const schema = m_binding.resolved();
@@ -423,6 +443,10 @@ bool CBakedBulkData::compare_embedded(const TPodVector<SRecord>& records, const 
     }
     return true;
 }
+
+//==============================================================================
+//  Loading and materialisation
+//==============================================================================
 
 bool CBakedBulkData::load_supplied(const CByteConstView& payload, const bool compare_embedded, SBulkDiagnostic& diagnostic) noexcept
 {

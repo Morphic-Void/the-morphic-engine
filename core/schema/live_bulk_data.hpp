@@ -8,6 +8,9 @@
 //
 //  Owned live bulk document and aligned working payload.
 
+//  Public entry point for owned bulk data. The baked-role include also supplies
+//  shared bulk views and diagnostics; output and clearing policies are included.
+
 #pragma once
 
 #ifndef SCHEMA_LIVE_BULK_DATA_HPP_INCLUDED
@@ -20,6 +23,10 @@
 namespace schema
 {
 
+//==============================================================================
+//  Mutable entry view
+//==============================================================================
+
 struct SMutableBulkEntryView
 {
     CSchemaIndex type;
@@ -28,9 +35,17 @@ struct SMutableBulkEntryView
     CByteView bytes; // Canonical empty view for a zero-byte extent.
 };
 
+//==============================================================================
+//  Live bulk role
+//==============================================================================
+
 class CLiveBulkData
 {
 public:
+    //==============================================================================
+    //  Lifetime and initialisation
+    //==============================================================================
+
     CLiveBulkData() noexcept = default;
     CLiveBulkData(const CLiveBulkData&) = delete;
     CLiveBulkData& operator=(const CLiveBulkData&) = delete;
@@ -42,6 +57,10 @@ public:
     [[nodiscard]] bool initialise(CLiveSchema& schema, const std::size_t initial_node_capacity = 0u) noexcept;
     void clear() noexcept;
 
+    //==============================================================================
+    //  Queries and payload access
+    //==============================================================================
+
     [[nodiscard]] bool document_ready() const noexcept { return m_document.is_ready(); }
     [[nodiscard]] bool loaded_ready() const noexcept { return m_loaded && m_binding.is_usable(); }
     [[nodiscard]] CBulkDocumentQuery document_query() const noexcept;
@@ -52,8 +71,16 @@ public:
     [[nodiscard]] CByteConstView payload_view() const noexcept { return loaded_ready() ? m_payload.const_view() : CByteConstView{}; }
     [[nodiscard]] bool clear_unused_storage(const EUnusedBits bits = EUnusedBits::preserve) noexcept;
 
+    //==============================================================================
+    //  Binary reconciliation
+    //==============================================================================
+
     //  Rebuild complete records; success invalidates document handles, not payload views.
     [[nodiscard]] bool reconcile(SBulkDiagnostic& diagnostic) noexcept;
+
+    //==============================================================================
+    //  Creation and editing
+    //==============================================================================
 
     [[nodiscard]] CBulkHandle create_records(const CStringView& type, const CStringView& name,
         const CBulkDocumentQuery& source_query, const CBulkHandle records_array, SBulkDiagnostic& diagnostic) noexcept;
@@ -63,6 +90,10 @@ public:
         const std::uint32_t count, SBulkDiagnostic& diagnostic) noexcept;
     [[nodiscard]] bool rename_entry(const CBulkHandle handle, const CStringView& name) noexcept;
     [[nodiscard]] bool erase_entry(const CBulkHandle handle) noexcept;
+
+    //==============================================================================
+    //  Output preparation and baking
+    //==============================================================================
 
     [[nodiscard]] bool prepare_output(CLiveDocument& document, CByteBuffer& payload,
         CBakedSchema& destination_schema, const EDataOutputForm form, SBulkDiagnostic& diagnostic) const noexcept;
@@ -74,6 +105,10 @@ public:
         CLiveSchema& destination_schema, const EDataOutputForm form, SBulkDiagnostic& diagnostic) const noexcept;
 
 private:
+    //==============================================================================
+    //  Private records and operations
+    //==============================================================================
+
     friend class CBakedBulkData;
 
     struct SRecord
@@ -92,11 +127,15 @@ private:
     [[nodiscard]] bool promote_from(const CBakedBulkData& source, SBulkDiagnostic& diagnostic) noexcept;
     [[nodiscard]] bool prepare_output_to(CLiveDocument& document, CByteBuffer& payload,
         const CResolvedSchema& destination_schema, const EDataOutputForm form, SBulkDiagnostic& diagnostic) const noexcept;
-    template <class TSchema>
+    template<class TSchema>
     [[nodiscard]] bool bake_to(CBakedDocumentBlock& block, CByteBuffer& payload, CBakedBulkData& role,
         TSchema& destination_schema, const EDataOutputForm form, SBulkDiagnostic& diagnostic) const noexcept;
     void take_from(CLiveBulkData& source) noexcept;
     void disable() noexcept;
+
+    //==============================================================================
+    //  Owned state
+    //==============================================================================
 
     CLiveDocument m_document;
     CByteBuffer m_payload;

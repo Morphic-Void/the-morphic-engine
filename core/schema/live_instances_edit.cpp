@@ -19,7 +19,9 @@
 namespace schema
 {
 
-//  Scalar decoding and selection tree helpers.
+//==============================================================================
+//  Shared scalar decoding and selection lookup
+//==============================================================================
 
 constexpr unsigned k_max_depth = 256u;
 
@@ -93,18 +95,41 @@ struct SResolvedSelectionStep
     CStringView name;
 };
 
-[[nodiscard]] static CNodeKey decode_selection(CLiveDocument& target, const CResolvedSchema& schema,
-    const CSchemaIndex type, const detail::CDocumentRead& document, const detail::SOccurrence selection,
-    const bool full, const std::uint8_t* const bytes, const CStringView& name,
-    EInstanceLoadReason& error, const bool singleton_element = false, const unsigned depth = 0u,
-    const TPodVector<SResolvedSelectionStep>* const discarded_steps = nullptr) noexcept
+//==============================================================================
+//  Selection decoding
+//==============================================================================
+
+//  Fixed inputs belong to one traversal; the recursive call carries only the
+//  current value, naming, depth and discarded-selection branch.
+class CInstanceSelectionDecoder
+{
+public:
+    CInstanceSelectionDecoder(CLiveDocument& target, const CResolvedSchema& schema,
+        const detail::CDocumentRead& document, const bool full, EInstanceLoadReason& error) noexcept :
+        m_target(target), m_schema(schema), m_document(document), m_full(full), m_error(error) {}
+
+    [[nodiscard]] CNodeKey decode(const CSchemaIndex type, const detail::SOccurrence selection,
+        const std::uint8_t* const bytes, const CStringView& name, const bool singleton_element = false,
+        const unsigned depth = 0u, const TPodVector<SResolvedSelectionStep>* const discarded_steps = nullptr) noexcept;
+
+private:
+    CLiveDocument& m_target;
+    const CResolvedSchema& m_schema;
+    const detail::CDocumentRead& m_document;
+    const bool m_full;
+    EInstanceLoadReason& m_error;
+};
+
+CNodeKey CInstanceSelectionDecoder::decode(const CSchemaIndex type, const detail::SOccurrence selection,
+    const std::uint8_t* const bytes, const CStringView& name, const bool singleton_element,
+    const unsigned depth, const TPodVector<SResolvedSelectionStep>* const discarded_steps) noexcept
 {
     if (depth >= k_max_depth)
     {
-        error = EInstanceLoadReason::invalid_declaration;
+        m_error = EInstanceLoadReason::invalid_declaration;
         return {};
     }
-    if (!full && !selection.is_valid())
+    if (!m_full && !selection.is_valid())
     {
         return {};
     }
@@ -113,93 +138,93 @@ struct SResolvedSelectionStep
     //  shape without requiring its discarded binary values to have declarations.
     if (discarded_steps && (depth == discarded_steps->size()))
     {
-        const CNodeKey copied = document_translation::copy_subtree(target, document, selection, name, depth);
+        const CNodeKey copied = document_translation::copy_subtree(m_target, m_document, selection, name, depth);
         if (!copied)
         {
-            error = EInstanceLoadReason::allocation_failed;
+            m_error = EInstanceLoadReason::allocation_failed;
         }
         return copied;
     }
     SType layout;
-    if (!schema.type(type, layout) || (layout.size && !bytes))
+    if (!m_schema.type(type, layout) || (layout.size && !bytes))
     {
-        error = EInstanceLoadReason::invalid_declaration;
+        m_error = EInstanceLoadReason::invalid_declaration;
         return {};
     }
     if (singleton_element && (layout.category != ECategory::structure) &&
         (layout.category != ECategory::bit_structure))
     {
-        error = EInstanceLoadReason::invalid_declaration;
+        m_error = EInstanceLoadReason::invalid_declaration;
         return {};
     }
     if ((layout.category == ECategory::primitive) || (layout.category == ECategory::enumeration))
     {
-        const CNodeKey scalar = decode_scalar(target, schema, type,
+        const CNodeKey scalar = decode_scalar(m_target, m_schema, type,
             read_scalar_bits(bytes, static_cast<std::size_t>(layout.size)),
-            static_cast<unsigned>(layout.size * 8u), name, error);
-        if (!scalar && (error == EInstanceLoadReason::none))
+            static_cast<unsigned>(layout.size * 8u), name, m_error);
+        if (!scalar && (m_error == EInstanceLoadReason::none))
         {
-            error = EInstanceLoadReason::allocation_failed;
+            m_error = EInstanceLoadReason::allocation_failed;
         }
         return scalar;
     }
-    const EDocumentValueKind old_kind = full ? EDocumentValueKind::object : document.value_kind(selection);
-    const bool shorthand = !full && !singleton_element && detail::is_scalar_shorthand(schema, type, layout, document, selection);
-    if (!full)
+    const EDocumentValueKind old_kind = m_full ? EDocumentValueKind::object : m_document.value_kind(selection);
+    const bool shorthand = !m_full && !singleton_element && detail::is_scalar_shorthand(m_schema, type, layout, m_document, selection);
+    if (!m_full)
     {
         if ((!singleton_element && (layout.category == ECategory::array) && (old_kind != EDocumentValueKind::array)) ||
             (!singleton_element && !shorthand && (layout.category != ECategory::array) &&
                 (old_kind != EDocumentValueKind::object) && (old_kind != EDocumentValueKind::array)) ||
             (!singleton_element && (old_kind == EDocumentValueKind::array) &&
-                (document.child_count(selection) > layout.count)))
+                (m_document.child_count(selection) > layout.count)))
         {
-            error = EInstanceLoadReason::invalid_declaration;
+            m_error = EInstanceLoadReason::invalid_declaration;
             return {};
         }
         if (singleton_element && !
-            ((layout.category == ECategory::structure) ? schema.find_member(type, document.name(selection)) :
-                schema.find_field(type, document.name(selection))))
+            ((layout.category == ECategory::structure) ? m_schema.find_member(type, m_document.name(selection)) :
+                m_schema.find_field(type, m_document.name(selection))))
         {
-            error = EInstanceLoadReason::invalid_declaration;
+            m_error = EInstanceLoadReason::invalid_declaration;
             return {};
         }
         if (!singleton_element && (old_kind == EDocumentValueKind::object))
         {
-            for (detail::SOccurrence child = document.first_child(selection); child.is_valid();
-                child = document.next_sibling(child))
+            for (detail::SOccurrence child = m_document.first_child(selection); child.is_valid();
+                child = m_document.next_sibling(child))
             {
-                if (!document.is_object_entry(child) ||
+                if (!m_document.is_object_entry(child) ||
                     !(layout.category == ECategory::structure ?
-                        schema.find_member(type, document.name(child)) :
-                        schema.find_field(type, document.name(child))))
+                        m_schema.find_member(type, m_document.name(child)) :
+                        m_schema.find_field(type, m_document.name(child))))
                 {
-                    error = EInstanceLoadReason::invalid_declaration;
+                    m_error = EInstanceLoadReason::invalid_declaration;
                     return {};
                 }
             }
         }
     }
-    const bool positional = !full && !singleton_element && (old_kind == EDocumentValueKind::array);
+    const bool positional = !m_full && !singleton_element && (old_kind == EDocumentValueKind::array);
     const CNodeKey result = ((layout.category == ECategory::array) || positional) ?
-        target.create_array(name) : target.create_object(name);
+        m_target.create_array(name) : m_target.create_object(name);
     if (!result)
     {
-        error = EInstanceLoadReason::allocation_failed;
+        m_error = EInstanceLoadReason::allocation_failed;
         return {};
     }
-    const std::uint32_t count = full ? layout.count :
-        (((layout.category == ECategory::array) || positional) ? document.child_count(selection) : layout.count);
-    detail::SOccurrence cursor = (positional || (!full && (layout.category == ECategory::array))) ?
-        document.first_child(selection) : detail::SOccurrence{};
+    const std::uint32_t count = m_full ? layout.count :
+        (((layout.category == ECategory::array) || positional) ? m_document.child_count(selection) : layout.count);
+    detail::SOccurrence cursor = (positional || (!m_full && (layout.category == ECategory::array))) ?
+        m_document.first_child(selection) : detail::SOccurrence{};
     for (std::uint32_t i = 0u; i < count; ++i)
     {
-        const detail::SOccurrence child_selection = full ? detail::SOccurrence{} :
-            (cursor.is_valid() ? cursor : selected_child(schema, document, type, layout, selection, i, singleton_element));
+        const detail::SOccurrence child_selection = m_full ? detail::SOccurrence{} :
+            (cursor.is_valid() ? cursor : selected_child(m_schema, m_document, type, layout, selection, i, singleton_element));
         if (cursor.is_valid())
         {
-            cursor = document.next_sibling(cursor);
+            cursor = m_document.next_sibling(cursor);
         }
-        if (!full && !child_selection.is_valid())
+        if (!m_full && !child_selection.is_valid())
         {
             continue;
         }
@@ -209,220 +234,61 @@ struct SResolvedSelectionStep
         if (layout.category == ECategory::structure)
         {
             SMember member;
-            if (!schema.member(schema.member_at(type, i), member))
+            if (!m_schema.member(m_schema.member_at(type, i), member))
             {
-                error = EInstanceLoadReason::invalid_declaration;
+                m_error = EInstanceLoadReason::invalid_declaration;
                 break;
             }
-            child = decode_selection(target, schema, member.type, document, child_selection, full,
+            child = decode(member.type, child_selection,
                 (bytes ? (bytes + member.offset) : nullptr),
-                (positional ? CStringView{} : schema.name(member.name)), error,
-                (positional && child_selection.is_valid() && document.is_object_entry(child_selection)), (depth + 1u), child_discarded);
+                (positional ? CStringView{} : m_schema.name(member.name)),
+                (positional && child_selection.is_valid() && m_document.is_object_entry(child_selection)), (depth + 1u), child_discarded);
         }
         else if (layout.category == ECategory::array)
         {
-            child = decode_selection(target, schema, layout.element_or_storage, document, child_selection, full,
-                (bytes ? (bytes + (layout.stride * i)) : nullptr), {}, error,
-                (child_selection.is_valid() && document.is_object_entry(child_selection)), (depth + 1u), child_discarded);
+            child = decode(layout.element_or_storage, child_selection,
+                (bytes ? (bytes + (layout.stride * i)) : nullptr), {},
+                (child_selection.is_valid() && m_document.is_object_entry(child_selection)), (depth + 1u), child_discarded);
         }
         else if (layout.category == ECategory::bit_structure)
         {
             SField field;
-            if (!schema.field(schema.field_at(type, i), field))
+            if (!m_schema.field(m_schema.field_at(type, i), field))
             {
-                error = EInstanceLoadReason::invalid_declaration;
+                m_error = EInstanceLoadReason::invalid_declaration;
                 break;
             }
             const std::uint64_t word = read_scalar_bits(bytes, static_cast<std::size_t>(layout.size));
             const std::uint64_t raw = (word & field.mask) >> field.shift;
-            const CStringView child_name = positional ? CStringView{} : schema.name(field.name);
-            child = child_discarded ? document_translation::copy_subtree(target, document, child_selection, child_name, (depth + 1u)) :
-                decode_scalar(target, schema, field.type, raw, field.width, child_name, error);
+            const CStringView child_name = positional ? CStringView{} : m_schema.name(field.name);
+            child = child_discarded ? document_translation::copy_subtree(m_target, m_document, child_selection, child_name, (depth + 1u)) :
+                decode_scalar(m_target, m_schema, field.type, raw, field.width, child_name, m_error);
         }
-        if (!child || !target.append_child(result, child).succeeded())
+        if (!child || !m_target.append_child(result, child).succeeded())
         {
-            if (child && target.is_detached(child))
+            if (child && m_target.is_detached(child))
             {
-                (void)target.erase(child);
+                (void)m_target.erase(child);
             }
-            (void)target.erase(result);
-            if (error == EInstanceLoadReason::none)
+            (void)m_target.erase(result);
+            if (m_error == EInstanceLoadReason::none)
             {
-                error = EInstanceLoadReason::allocation_failed;
+                m_error = EInstanceLoadReason::allocation_failed;
             }
             return {};
         }
     }
-    if (error != EInstanceLoadReason::none)
+    if (m_error != EInstanceLoadReason::none)
     {
-        (void)target.erase(result);
+        (void)m_target.erase(result);
         return {};
     }
     return result;
 }
 
-//  Compare meaningful encoded values; old declarations are not an input.
-[[nodiscard]] static CNodeKey reconcile_value(CLiveDocument& document, const CResolvedSchema& schema,
-    const CSchemaIndex type, const std::uint8_t* const bytes, const std::uint8_t* const baseline,
-    const CStringView name, EInstanceLoadReason& reason, const bool required = false,
-    const unsigned depth = 0u) noexcept
-{
-    SType layout;
-    if ((depth >= k_max_depth) || !schema.type(type, layout))
-    {
-        reason = EInstanceLoadReason::unrepresentable_value;
-        return {};
-    }
-    const std::size_t size = static_cast<std::size_t>(layout.size);
-    const bool equal = detail::compare_encoded(schema, type, bytes, size, baseline, size);
-    if (equal && !required)
-    {
-        return {};
-    }
-    if ((layout.category == ECategory::primitive) || (layout.category == ECategory::enumeration))
-    {
-        const CNodeKey value = decode_scalar(document, schema, type, read_scalar_bits(bytes, size),
-            static_cast<unsigned>(size * 8u), name, reason);
-        if (!value)
-        {
-            reason = ((reason == EInstanceLoadReason::none) || (reason == EInstanceLoadReason::allocation_failed)) ?
-                EInstanceLoadReason::allocation_failed :
-                EInstanceLoadReason::unrepresentable_value;
-        }
-        return value;
-    }
-    const bool array = layout.category == ECategory::array;
-    const CNodeKey result = array ? document.create_array(name) : document.create_object(name);
-    if (!result)
-    {
-        reason = EInstanceLoadReason::allocation_failed;
-        return {};
-    }
-    std::uint32_t count = equal ? 0u : layout.count;
-    if (array && !equal)
-    {
-        SType element;
-        (void)schema.type(layout.element_or_storage, element);
-        while (count)
-        {
-            const std::size_t offset = static_cast<std::size_t>(layout.stride * (count - 1u));
-            if (!detail::compare_encoded(schema, layout.element_or_storage,
-                (bytes ? bytes + offset : nullptr), static_cast<std::size_t>(element.size),
-                (baseline ? baseline + offset : nullptr), static_cast<std::size_t>(element.size)))
-            {
-                break;
-            }
-            --count;
-        }
-    }
-    for (std::uint32_t i = 0u; (i < count) && (reason == EInstanceLoadReason::none); ++i)
-    {
-        CNodeKey child;
-        if (layout.category == ECategory::bit_structure)
-        {
-            SField field;
-            (void)schema.field(schema.field_at(type, i), field);
-            const std::uint64_t actual = read_scalar_bits(bytes, size) & field.mask;
-            if (actual != (read_scalar_bits(baseline, size) & field.mask))
-            {
-                child = decode_scalar(document, schema, field.type, (actual >> field.shift),
-                    field.width, schema.name(field.name), reason);
-                if (!child)
-                {
-                    reason = ((reason == EInstanceLoadReason::none) || (reason == EInstanceLoadReason::allocation_failed)) ?
-                        EInstanceLoadReason::allocation_failed :
-                        EInstanceLoadReason::unrepresentable_value;
-                }
-            }
-        }
-        else
-        {
-            CSchemaIndex child_type = layout.element_or_storage;
-            std::size_t offset = static_cast<std::size_t>(layout.stride * i);
-            CStringView child_name;
-            if (!array)
-            {
-                SMember member;
-                (void)schema.member(schema.member_at(type, i), member);
-                child_type = member.type;
-                offset = static_cast<std::size_t>(member.offset);
-                child_name = schema.name(member.name);
-            }
-            child = reconcile_value(document, schema, child_type,
-                (bytes ? bytes + offset : nullptr), (baseline ? baseline + offset : nullptr),
-                child_name, reason, array, (depth + 1u));
-        }
-        if (child && !document.append_child(result, child).succeeded())
-        {
-            (void)document.erase(child);
-            reason = EInstanceLoadReason::allocation_failed;
-        }
-    }
-    if (reason != EInstanceLoadReason::none)
-    {
-        (void)document.erase(result);
-        return {};
-    }
-    return result;
-}
-
-CNodeKey CLiveInstances::output_declaration(CLiveDocument& target, const SRecord& record,
-    const CResolvedSchema& schema, const CSchemaIndex destination_type,
-    EInstanceLoadReason& reason) const noexcept
-{
-    CByteBuffer defaults, reconstructed;
-    if (record.extent && (!reconstructed.allocate(record.extent, 128u) || !reconstructed.set_size(record.extent)))
-    {
-        reason = EInstanceLoadReason::allocation_failed;
-        return {};
-    }
-    const detail::CDocumentRead read{ target };
-    detail::SValueDiagnostic error;
-    const bool base = record.parent == k_no_parent;
-    const std::uint8_t* baseline = nullptr;
-    if (base)
-    {
-        if (record.extent && (!defaults.allocate(record.extent, 128u) || !defaults.set_size(record.extent)))
-        {
-            reason = EInstanceLoadReason::allocation_failed;
-            return {};
-        }
-        if (!detail::construct_value(schema, read, destination_type, {}, defaults.data(), defaults.size(),
-            detail::EConstructionMode::instance, error))
-        {
-            reason = EInstanceLoadReason::unrepresentable_value;
-            return {};
-        }
-        baseline = defaults.data();
-    }
-    else
-    {
-        baseline = record.extent ? (m_payload.data() + m_records[record.parent].offset) : nullptr;
-    }
-    const std::uint8_t* const bytes = record.extent ? (m_payload.data() + record.offset) : nullptr;
-    const CNodeKey result = reconcile_value(target, schema, destination_type, bytes, baseline,
-        CStringView{ "declaration" }, reason);
-    if (reason != EInstanceLoadReason::none)
-    {
-        return {};
-    }
-    //  Verify the generated declaration, including literals that cannot preserve raw encodings.
-    const bool constructed = base ? detail::construct_value(schema, read, destination_type,
-        detail::SOccurrence{ result }, reconstructed.data(), reconstructed.size(), detail::EConstructionMode::instance, error) :
-        detail::construct_alternative(schema, read, destination_type, detail::SOccurrence{ result }, baseline,
-            record.extent, reconstructed.data(), reconstructed.size(), error);
-    if (!constructed || !detail::compare_encoded(schema, destination_type, bytes, record.extent,
-        reconstructed.data(), reconstructed.size()))
-    {
-        if (result)
-        {
-            (void)target.erase(result);
-        }
-        reason = EInstanceLoadReason::unrepresentable_value;
-        return {};
-    }
-    return result;
-}
+//==============================================================================
+//  Selected binary propagation
+//==============================================================================
 
 [[nodiscard]] static bool overlay_selection(const CResolvedSchema& schema, const CSchemaIndex type,
     const detail::CDocumentRead& document, const detail::SOccurrence selection,
@@ -614,6 +480,10 @@ struct SStagedEdit
     }
     return true;
 }
+
+//==============================================================================
+//  Selection paths and document edits
+//==============================================================================
 
 [[nodiscard]] static bool resolve_steps(const CResolvedSchema& schema, const CSchemaIndex root,
     const SInstanceSelectionStep* const steps, const std::size_t count,
@@ -920,6 +790,10 @@ struct SStagedEdit
     return false;
 }
 
+//==============================================================================
+//  Staged edit publication
+//==============================================================================
+
 bool CLiveInstances::edit_existing(const std::uint32_t index, const CNodeKey selection,
     const CByteConstView& complete, const bool full_declaration,
     SInstanceDiagnostic& diagnostic) noexcept
@@ -1009,9 +883,10 @@ bool CLiveInstances::edit_existing(const std::uint32_t index, const CNodeKey sel
         }
         const CNodeKey selected = change.index == index ? selection : record.declaration;
         EInstanceLoadReason error{ EInstanceLoadReason::none };
-        change.declaration = decode_selection(m_document, *schema, record.type, document,
-            detail::SOccurrence{ selected }, ((change.index == index) && full_declaration),
-            target, CStringView{ "declaration" }, error);
+        CInstanceSelectionDecoder decoder{ m_document, *schema, document,
+            ((change.index == index) && full_declaration), error };
+        change.declaration = decoder.decode(record.type, detail::SOccurrence{ selected },
+            target, CStringView{ "declaration" });
         if (error != EInstanceLoadReason::none)
         {
             diagnostic.reason = error;
@@ -1049,6 +924,10 @@ bool CLiveInstances::edit_existing(const std::uint32_t index, const CNodeKey sel
     }
     return true;
 }
+
+//==============================================================================
+//  Capture
+//==============================================================================
 
 CInstanceHandle CLiveInstances::capture_base(const CStringView& type, const CStringView& name,
     const CByteConstView& complete, SInstanceDiagnostic& diagnostic) noexcept
@@ -1089,8 +968,8 @@ CInstanceHandle CLiveInstances::capture_base(const CStringView& type, const CStr
     }
     EInstanceLoadReason error{ EInstanceLoadReason::none };
     const detail::CDocumentRead document{ m_document };
-    const CNodeKey declaration = decode_selection(m_document, *schema, type_index, document, {}, true,
-        complete.data(), CStringView{ "declaration" }, error);
+    CInstanceSelectionDecoder decoder{ m_document, *schema, document, true, error };
+    const CNodeKey declaration = decoder.decode(type_index, {}, complete.data(), CStringView{ "declaration" });
     if (error != EInstanceLoadReason::none)
     {
         diagnostic.reason = error;
@@ -1144,6 +1023,10 @@ bool CLiveInstances::capture_specialisation(const CInstanceHandle instance,
     return edit_existing(index, record.declaration, captured.const_view(), false, diagnostic);
 }
 
+//==============================================================================
+//  Selection editing
+//==============================================================================
+
 bool CLiveInstances::set_selection(const CInstanceHandle instance,
     const SInstanceSelectionStep* const steps, const std::size_t step_count,
     const CInstanceDocumentQuery& source, const CInstanceHandle value,
@@ -1169,10 +1052,10 @@ bool CLiveInstances::set_selection(const CInstanceHandle instance,
     CNodeKey replacement = document_translation::copy_subtree(m_document, source.m_query, source_value,
         (step_count ? CStringView{} : CStringView{ "declaration" }));
     EInstanceLoadReason decode_error{ EInstanceLoadReason::none };
-    CNodeKey staged = (step_count && record.declaration) ? decode_selection(m_document, *schema, record.type,
-        local, detail::SOccurrence{ record.declaration }, false,
-        (record.extent ? (m_payload.data() + record.offset) : nullptr),
-        CStringView{ "declaration" }, decode_error, false, 0u, &resolved) : CNodeKey{};
+    CInstanceSelectionDecoder decoder{ m_document, *schema, local, false, decode_error };
+    CNodeKey staged = (step_count && record.declaration) ? decoder.decode(record.type,
+        detail::SOccurrence{ record.declaration }, (record.extent ? (m_payload.data() + record.offset) : nullptr),
+        CStringView{ "declaration" }, false, 0u, &resolved) : CNodeKey{};
     if (!replacement || (step_count && record.declaration && !staged))
     {
         if (replacement)
@@ -1253,10 +1136,10 @@ bool CLiveInstances::remove_selection(const CInstanceHandle instance,
     }
     const detail::CDocumentRead local{ m_document };
     EInstanceLoadReason decode_error{ EInstanceLoadReason::none };
-    CNodeKey staged = decode_selection(m_document, *schema, record.type,
-        local, detail::SOccurrence{ record.declaration }, false,
+    CInstanceSelectionDecoder decoder{ m_document, *schema, local, false, decode_error };
+    CNodeKey staged = decoder.decode(record.type, detail::SOccurrence{ record.declaration },
         (record.extent ? (m_payload.data() + record.offset) : nullptr),
-        CStringView{ "declaration" }, decode_error, false, 0u, &resolved);
+        CStringView{ "declaration" }, false, 0u, &resolved);
     if (!staged)
     {
         diagnostic.reason = decode_error == EInstanceLoadReason::none ?
@@ -1298,6 +1181,191 @@ bool CLiveInstances::remove_selection(const CInstanceHandle instance,
     const bool applied = edit_existing(index, staged, encoded.const_view(), false, diagnostic);
     (void)m_document.erase(staged);
     return applied;
+}
+
+//==============================================================================
+//  Binary-authoritative declaration reconstruction
+//==============================================================================
+
+//  Compare meaningful encoded values; old declarations are not an input.
+class CInstanceReconciler
+{
+public:
+    CInstanceReconciler(CLiveDocument& document, const CResolvedSchema& schema,
+        EInstanceLoadReason& reason) noexcept :
+        m_document(document), m_schema(schema), m_reason(reason)
+    {
+    }
+
+    [[nodiscard]] CNodeKey decode(const CSchemaIndex type, const std::uint8_t* const bytes,
+        const std::uint8_t* const baseline, const CStringView name, const bool required = false,
+        const unsigned depth = 0u) noexcept;
+
+private:
+    CLiveDocument& m_document;
+    const CResolvedSchema& m_schema;
+    EInstanceLoadReason& m_reason;
+};
+
+CNodeKey CInstanceReconciler::decode(const CSchemaIndex type, const std::uint8_t* const bytes,
+    const std::uint8_t* const baseline, const CStringView name, const bool required,
+    const unsigned depth) noexcept
+{
+    SType layout;
+    if ((depth >= k_max_depth) || !m_schema.type(type, layout))
+    {
+        m_reason = EInstanceLoadReason::unrepresentable_value;
+        return {};
+    }
+    const std::size_t size = static_cast<std::size_t>(layout.size);
+    const bool equal = detail::compare_encoded(m_schema, type, bytes, size, baseline, size);
+    if (equal && !required)
+    {
+        return {};
+    }
+    if ((layout.category == ECategory::primitive) || (layout.category == ECategory::enumeration))
+    {
+        const CNodeKey value = decode_scalar(m_document, m_schema, type, read_scalar_bits(bytes, size),
+            static_cast<unsigned>(size * 8u), name, m_reason);
+        if (!value)
+        {
+            m_reason = ((m_reason == EInstanceLoadReason::none) || (m_reason == EInstanceLoadReason::allocation_failed)) ?
+                EInstanceLoadReason::allocation_failed :
+                EInstanceLoadReason::unrepresentable_value;
+        }
+        return value;
+    }
+    const bool array = layout.category == ECategory::array;
+    const CNodeKey result = array ? m_document.create_array(name) : m_document.create_object(name);
+    if (!result)
+    {
+        m_reason = EInstanceLoadReason::allocation_failed;
+        return {};
+    }
+    std::uint32_t count = equal ? 0u : layout.count;
+    if (array && !equal)
+    {
+        SType element;
+        (void)m_schema.type(layout.element_or_storage, element);
+        while (count)
+        {
+            const std::size_t offset = static_cast<std::size_t>(layout.stride * (count - 1u));
+            if (!detail::compare_encoded(m_schema, layout.element_or_storage,
+                (bytes ? bytes + offset : nullptr), static_cast<std::size_t>(element.size),
+                (baseline ? baseline + offset : nullptr), static_cast<std::size_t>(element.size)))
+            {
+                break;
+            }
+            --count;
+        }
+    }
+    for (std::uint32_t i = 0u; (i < count) && (m_reason == EInstanceLoadReason::none); ++i)
+    {
+        CNodeKey child;
+        if (layout.category == ECategory::bit_structure)
+        {
+            SField field;
+            (void)m_schema.field(m_schema.field_at(type, i), field);
+            const std::uint64_t actual = read_scalar_bits(bytes, size) & field.mask;
+            if (actual != (read_scalar_bits(baseline, size) & field.mask))
+            {
+                child = decode_scalar(m_document, m_schema, field.type, (actual >> field.shift),
+                    field.width, m_schema.name(field.name), m_reason);
+                if (!child)
+                {
+                    m_reason = ((m_reason == EInstanceLoadReason::none) || (m_reason == EInstanceLoadReason::allocation_failed)) ?
+                        EInstanceLoadReason::allocation_failed :
+                        EInstanceLoadReason::unrepresentable_value;
+                }
+            }
+        }
+        else
+        {
+            CSchemaIndex child_type = layout.element_or_storage;
+            std::size_t offset = static_cast<std::size_t>(layout.stride * i);
+            CStringView child_name;
+            if (!array)
+            {
+                SMember member;
+                (void)m_schema.member(m_schema.member_at(type, i), member);
+                child_type = member.type;
+                offset = static_cast<std::size_t>(member.offset);
+                child_name = m_schema.name(member.name);
+            }
+            child = decode(child_type,
+                (bytes ? bytes + offset : nullptr), (baseline ? baseline + offset : nullptr),
+                child_name, array, (depth + 1u));
+        }
+        if (child && !m_document.append_child(result, child).succeeded())
+        {
+            (void)m_document.erase(child);
+            m_reason = EInstanceLoadReason::allocation_failed;
+        }
+    }
+    if (m_reason != EInstanceLoadReason::none)
+    {
+        (void)m_document.erase(result);
+        return {};
+    }
+    return result;
+}
+
+CNodeKey CLiveInstances::output_declaration(CLiveDocument& target, const SRecord& record,
+    const CResolvedSchema& schema, const CSchemaIndex destination_type,
+    EInstanceLoadReason& reason) const noexcept
+{
+    CByteBuffer defaults, reconstructed;
+    if (record.extent && (!reconstructed.allocate(record.extent, 128u) || !reconstructed.set_size(record.extent)))
+    {
+        reason = EInstanceLoadReason::allocation_failed;
+        return {};
+    }
+    const detail::CDocumentRead read{ target };
+    detail::SValueDiagnostic error;
+    const bool base = record.parent == k_no_parent;
+    const std::uint8_t* baseline = nullptr;
+    if (base)
+    {
+        if (record.extent && (!defaults.allocate(record.extent, 128u) || !defaults.set_size(record.extent)))
+        {
+            reason = EInstanceLoadReason::allocation_failed;
+            return {};
+        }
+        if (!detail::construct_value(schema, read, destination_type, {}, defaults.data(), defaults.size(),
+            detail::EConstructionMode::instance, error))
+        {
+            reason = EInstanceLoadReason::unrepresentable_value;
+            return {};
+        }
+        baseline = defaults.data();
+    }
+    else
+    {
+        baseline = record.extent ? (m_payload.data() + m_records[record.parent].offset) : nullptr;
+    }
+    const std::uint8_t* const bytes = record.extent ? (m_payload.data() + record.offset) : nullptr;
+    CInstanceReconciler reconciler{ target, schema, reason };
+    const CNodeKey result = reconciler.decode(destination_type, bytes, baseline, CStringView{ "declaration" });
+    if (reason != EInstanceLoadReason::none)
+    {
+        return {};
+    }
+    //  Verify the generated declaration, including literals that cannot preserve raw encodings.
+    const bool constructed = base ? detail::construct_value(schema, read, destination_type,
+        detail::SOccurrence{ result }, reconstructed.data(), reconstructed.size(), detail::EConstructionMode::instance, error) :
+        detail::construct_alternative(schema, read, destination_type, detail::SOccurrence{ result }, baseline,
+            record.extent, reconstructed.data(), reconstructed.size(), error);
+    if (!constructed || !detail::compare_encoded(schema, destination_type, bytes, record.extent,
+        reconstructed.data(), reconstructed.size()))
+    {
+        if (result)
+        {
+            (void)target.erase(result);
+        }
+        reason = EInstanceLoadReason::unrepresentable_value;
+        return {};
+    }
+    return result;
 }
 
 } // namespace schema

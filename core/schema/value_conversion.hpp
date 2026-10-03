@@ -8,6 +8,9 @@
 //
 //  Shared document-literal conversion for schema defaults and payload values.
 
+//  Internal schema literal conversion. Included by resolver/codec implementations;
+//  consumers should use resolved_schema.hpp or the appropriate role header.
+
 #pragma once
 
 #ifndef SCHEMA_VALUE_CONVERSION_HPP_INCLUDED
@@ -20,8 +23,15 @@
 #include <cstring>
 #include <limits>
 
-namespace schema::detail
+namespace schema
 {
+
+namespace detail
+{
+
+//==============================================================================
+//  Scalar range checks
+//==============================================================================
 
 [[nodiscard]] inline std::uint64_t max_unsigned(const unsigned width) noexcept
 {
@@ -42,6 +52,10 @@ namespace schema::detail
         ((value.value.signed_value >= 0) && (static_cast<std::uint64_t>(value.value.signed_value) <= max_unsigned(width))) :
         (value.value.unsigned_value <= max_unsigned(width));
 }
+
+//==============================================================================
+//  Normalised rounding
+//==============================================================================
 
 //  UNORM reconstructs code/(2^n-1); SNORM reconstructs max(code/(2^(n-1)-1),-1).
 //  Thus n=8 uses 255 or 127, and both raw -128 and -127 decode to -1 while
@@ -71,43 +85,11 @@ namespace schema::detail
     return code;
 }
 
-template <class TQuery, class THandle>
-[[nodiscard]] bool convert_primitive(const TQuery& document, const THandle source, const EPrimitive primitive,
-    const unsigned byte_size, SScalar& result, EReason& reason) noexcept;
+//==============================================================================
+//  Document literal conversion
+//==============================================================================
 
-template <class TQuery, class THandle>
-[[nodiscard]] bool convert_normalised(const TQuery& document, const THandle source,
-    const EInterpretation interpretation, const unsigned width, SScalar& result, EReason& reason) noexcept
-{
-    SScalar floating;
-    if (!convert_primitive(document, source, EPrimitive::f64, 8u, floating, reason))
-    {
-        return false;
-    }
-    const double floating_value = floating.value.floating_value;
-
-    //  Check endpoints before casts: double(UINT64_MAX) rounds to 2^64,
-    //  and double(INT64_MAX) rounds to 2^63. Internal magnitudes fit.
-    if (interpretation == EInterpretation::unorm)
-    {
-        result.kind = EScalar::unsigned_integer;
-        result.value.unsigned_value = std::isnan(floating_value) || (floating_value <= 0.0) ? 0u :
-            (floating_value >= 1.0 ? max_unsigned(width) :
-                nearest_normalised_magnitude(floating_value, width));
-    }
-    else
-    {
-        const std::uint64_t magnitude = std::isnan(floating_value) || (floating_value == 0.0) ? 0u :
-            (std::abs(floating_value) >= 1.0 ? max_unsigned(width - 1u) :
-                nearest_normalised_magnitude(std::abs(floating_value), width - 1u));
-        result.kind = EScalar::signed_integer;
-        result.value.signed_value = floating_value < 0.0 ?
-            -static_cast<std::int64_t>(magnitude) : static_cast<std::int64_t>(magnitude);
-    }
-    return true;
-}
-
-template <class TQuery, class THandle>
+template<class TQuery, class THandle>
 [[nodiscard]] bool convert_number(const TQuery& document, const THandle source, const bool is_signed,
     const unsigned bit_width, SScalar& result, EReason& reason) noexcept
 {
@@ -176,7 +158,7 @@ template <class TQuery, class THandle>
     return true;
 }
 
-template <class TQuery, class THandle>
+template<class TQuery, class THandle>
 [[nodiscard]] bool convert_primitive(const TQuery& document, const THandle source, const EPrimitive primitive,
     const unsigned byte_size, SScalar& result, EReason& reason) noexcept
 {
@@ -288,6 +270,44 @@ template <class TQuery, class THandle>
     return true;
 }
 
-}   // namespace schema::detail
+//==============================================================================
+//  Normalised literal conversion
+//==============================================================================
+
+template<class TQuery, class THandle>
+[[nodiscard]] bool convert_normalised(const TQuery& document, const THandle source,
+    const EInterpretation interpretation, const unsigned width, SScalar& result, EReason& reason) noexcept
+{
+    SScalar floating;
+    if (!convert_primitive(document, source, EPrimitive::f64, 8u, floating, reason))
+    {
+        return false;
+    }
+    const double floating_value = floating.value.floating_value;
+
+    //  Check endpoints before casts: double(UINT64_MAX) rounds to 2^64,
+    //  and double(INT64_MAX) rounds to 2^63. Internal magnitudes fit.
+    if (interpretation == EInterpretation::unorm)
+    {
+        result.kind = EScalar::unsigned_integer;
+        result.value.unsigned_value = std::isnan(floating_value) || (floating_value <= 0.0) ? 0u :
+            (floating_value >= 1.0 ? max_unsigned(width) :
+                nearest_normalised_magnitude(floating_value, width));
+    }
+    else
+    {
+        const std::uint64_t magnitude = std::isnan(floating_value) || (floating_value == 0.0) ? 0u :
+            (std::abs(floating_value) >= 1.0 ? max_unsigned(width - 1u) :
+                nearest_normalised_magnitude(std::abs(floating_value), width - 1u));
+        result.kind = EScalar::signed_integer;
+        result.value.signed_value = floating_value < 0.0 ?
+            -static_cast<std::int64_t>(magnitude) : static_cast<std::int64_t>(magnitude);
+    }
+    return true;
+}
+
+}   // namespace detail
+
+}   // namespace schema
 
 #endif // SCHEMA_VALUE_CONVERSION_HPP_INCLUDED

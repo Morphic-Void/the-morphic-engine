@@ -1740,7 +1740,7 @@ static void test_record_index_scaling(TTestContext& ctx)
     for (std::uint32_t i = 0u; i < 32u; ++i)
     {
         const auto found = collisions.find(hash(i), [i](const std::uint32_t ordinal) noexcept { return ordinal == i; });
-        TEST_EXPECT(ctx, found == ((i & 1u) ? i : k_missing_record));
+        TEST_EXPECT(ctx, found == ((i & 1u) ? i : COrdinalHashIndex::k_missing_record));
     }
 }
 

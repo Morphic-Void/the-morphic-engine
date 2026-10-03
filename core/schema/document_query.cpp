@@ -14,6 +14,10 @@
 namespace schema
 {
 
+//==============================================================================
+//  Internal document read adapter
+//==============================================================================
+
 namespace detail
 {
 
@@ -205,6 +209,10 @@ CStringView CDocumentRead::string_value(const SOccurrence value) const noexcept
 
 }   // namespace detail
 
+//==============================================================================
+//  Schema document queries
+//==============================================================================
+
 CSchemaDocumentQuery::CSchemaDocumentQuery(const CLiveDocument& document) noexcept : m_query(document)
 {
 }
@@ -308,6 +316,10 @@ bool CSchemaDocumentQuery::floating_point_value(const CSchemaHandle value, doubl
     return m_query.floating_point_value(detail::SSchemaHandleAccess::occurrence(value), result);
 }
 
+//==============================================================================
+//  Instance document queries
+//==============================================================================
+
 CInstanceDocumentQuery::CInstanceDocumentQuery(const CLiveDocument& document) noexcept : m_query(document)
 {
 }
@@ -410,6 +422,10 @@ bool CInstanceDocumentQuery::floating_point_value(const CInstanceHandle value, d
 {
     return m_query.floating_point_value(detail::SInstanceHandleAccess::occurrence(value), result);
 }
+
+//==============================================================================
+//  Bulk document queries
+//==============================================================================
 
 CBulkDocumentQuery::CBulkDocumentQuery(const CLiveDocument& document) noexcept : m_query(document)
 {

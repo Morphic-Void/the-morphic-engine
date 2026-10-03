@@ -16,6 +16,40 @@ borrows its document. `CInstanceDocumentQuery` and `CBulkDocumentQuery` offer th
 same original-root read surface with their distinct role handles. Schema,
 instance and bulk role-handle types are distinct.
 
+## Header organisation
+
+Include the header for the role or operation being used:
+
+| Header in `core/schema/` | Responsibility |
+| --- | --- |
+| `schema_wrappers.hpp` | Live/baked schema ownership, editing and client bindings. |
+| `resolved_schema.hpp` | Resolved layouts, defaults, diagnostics and C++ generation. |
+| `baked_instances.hpp`, `live_instances.hpp` | Instance loading, observation and live editing/output. |
+| `baked_bulk_data.hpp`, `live_bulk_data.hpp` | Bulk loading, observation and live capture/output. |
+| `data_remap.hpp` | Remap planning and execution between binary views. |
+| `unused_storage.hpp` | Explicit clearing of unused binary storage. |
+
+`document_query.hpp` supplies the shared public query/handle interfaces, and
+`data_output.hpp` supplies output policy. Role headers include their required
+support; live data headers also include the corresponding baked header for shared
+diagnostics and views.
+
+`record_index.hpp`, `type_compatibility.hpp`, `value_codec.hpp` and
+`value_conversion.hpp` are implementation support. Baked role headers include
+`record_index.hpp` for their private index storage. The compatibility hash index
+belongs to `type_compatibility.hpp`; it is separate from record lookup.
+Consumers normally reach these details through the relevant public header.
+
+General document copying lives in `core/data_model/document_copy.hpp`; include it
+for detached subtree copies. `document_translation.hpp` exposes whole-document
+and root-member promotion/baking. Subtree copying and promotion retain distinct
+traversal policies while sharing shallow value construction.
+
+Implementation sections group lifecycle, queries, editing, reconciliation and
+output. Instance selection decoding and reconciliation use stack-local operation
+objects to hold fixed traversal inputs; they add no persistent storage or heap
+allocation.
+
 ## Schema wrappers and client bindings
 
 `schema::CBakedSchema` copies a non-owning `CBakedDocument` view. The caller keeps

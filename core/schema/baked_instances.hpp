@@ -8,6 +8,9 @@
 //
 //  Non-owning baked instance role with independent specialisation snapshots.
 
+//  Public entry point for borrowed instance data. Includes shared schema/query types.
+//  record_index.hpp supplies private storage required by the class definition.
+
 #pragma once
 
 #ifndef SCHEMA_BAKED_INSTANCES_HPP_INCLUDED
@@ -19,6 +22,10 @@
 
 namespace schema
 {
+
+//==============================================================================
+//  Loading diagnostics
+//==============================================================================
 
 enum class EInstanceLoadReason : std::uint8_t
 {
@@ -45,6 +52,10 @@ struct SInstanceDiagnostic
     CInstanceHandle occurrence;
 };
 
+//==============================================================================
+//  Borrowed entry view
+//==============================================================================
+
 struct SInstanceEntryView
 {
     CSchemaIndex type;
@@ -55,9 +66,17 @@ struct SInstanceEntryView
     const std::uint8_t* bytes{ nullptr }; //  Null for a zero-byte type.
 };
 
+//==============================================================================
+//  Baked instance role
+//==============================================================================
+
 class CBakedInstances
 {
 public:
+    //==============================================================================
+    //  Lifetime and binding
+    //==============================================================================
+
     CBakedInstances() noexcept = default;
     CBakedInstances(const CBakedInstances&) = delete;
     CBakedInstances& operator=(const CBakedInstances&) = delete;
@@ -70,6 +89,10 @@ public:
     [[nodiscard]] bool bind_schema(CBakedSchema& schema) noexcept;
     [[nodiscard]] bool bind_schema(CLiveSchema& schema) noexcept;
 
+    //==============================================================================
+    //  Loading and promotion
+    //==============================================================================
+
     //  Supplied payloads are borrowed. Materialisation returns the owner to the
     //  caller and borrows its stable allocation. An unallocated output is required.
     //  Stripped documents require load_supplied; there are no embedded values to compare.
@@ -77,6 +100,10 @@ public:
     [[nodiscard]] bool materialise(CByteBuffer& returned_owner, SInstanceDiagnostic& diagnostic) noexcept;
     [[nodiscard]] bool promote(class CLiveInstances& destination, CBakedSchema& schema, SInstanceDiagnostic& diagnostic) const noexcept;
     [[nodiscard]] bool promote(class CLiveInstances& destination, CLiveSchema& schema, SInstanceDiagnostic& diagnostic) const noexcept;
+
+    //==============================================================================
+    //  Queries and payload access
+    //==============================================================================
 
     [[nodiscard]] bool document_ready() const noexcept { return m_document.is_ready(); }
     [[nodiscard]] bool values_stripped() const noexcept;
@@ -93,6 +120,10 @@ public:
     void clear() noexcept;
 
 private:
+    //==============================================================================
+    //  Private planning and records
+    //==============================================================================
+
     friend class CLiveInstances;
     static constexpr std::uint32_t k_no_parent = UINT32_MAX;
 
@@ -121,6 +152,10 @@ private:
     [[nodiscard]] bool compare_embedded(const TPodVector<SRecord>& records, const CByteConstView& payload,
         const std::size_t scratch_size, SInstanceDiagnostic& diagnostic) const noexcept;
     void take_from(CBakedInstances& source) noexcept;
+
+    //==============================================================================
+    //  Borrowed state and record index
+    //==============================================================================
 
     CBakedDocument m_document;
     CMutableBakedDocument m_mutable;

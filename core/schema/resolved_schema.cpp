@@ -338,7 +338,7 @@ bool CResolvedSchema::field(const CSchemaIndex i, SField& r) const noexcept
     return true;
 }
 
-template <class T>
+template<class T>
 CResolvedSchema::SRecordRange<T> CResolvedSchema::child_range(const CSchemaIndex type, const ECategory category, const TPodVector<T>& records) const noexcept
 {
     const STypeRecord* const parent = type_record(type);
@@ -519,7 +519,7 @@ private:
 
     //  First-error reporting, checked storage and document shape.
     bool fail(const EReason reason, const CSchemaHandle& at = {}, const CSchemaHandle& related = {}) noexcept;
-    template <class T> bool grow(TPodVector<T>& values, const std::uint32_t count, const CSchemaHandle& at) noexcept;
+    template<class T> bool grow(TPodVector<T>& values, const std::uint32_t count, const CSchemaHandle& at) noexcept;
     bool map(const CSchemaHandle& at, const CSchemaIndex target) noexcept;
     CSchemaHandle property(const CSchemaHandle& at, const char* const name) const noexcept;
     bool shape(
@@ -571,7 +571,7 @@ bool CResolver::fail(const EReason reason, const CSchemaHandle& at, const CSchem
     return false;
 }
 
-template <class T>
+template<class T>
 bool CResolver::grow(TPodVector<T>& values, const std::uint32_t count, const CSchemaHandle& at) noexcept
 {
     if ((count > resolver_util::k_limit - values.size()) || (count > SIZE_MAX / sizeof(T) - values.size()))

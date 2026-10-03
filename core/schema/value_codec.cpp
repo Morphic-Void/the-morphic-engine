@@ -19,6 +19,10 @@
 namespace schema
 {
 
+//==============================================================================
+//  Scalar decoding
+//==============================================================================
+
 [[nodiscard]] static bool scalar_is_signed(const EPrimitive primitive) noexcept
 {
     return (primitive == EPrimitive::i8) || (primitive == EPrimitive::i16) ||
@@ -132,6 +136,10 @@ CNodeKey decode_document_scalar(CLiveDocument& document, const CResolvedSchema& 
 namespace detail
 {
 
+//==============================================================================
+//  Internal construction policy and scalar helpers
+//==============================================================================
+
 enum class EWriteMode : std::uint8_t { instance, bulk, alternative };
 constexpr unsigned k_max_value_depth = 256u;
 
@@ -200,6 +208,10 @@ bool is_scalar_shorthand(const CResolvedSchema& schema, const CSchemaIndex type,
     return scalar.kind == EScalar::signed_integer ?
         static_cast<std::uint64_t>(scalar.value.signed_value) : scalar.value.unsigned_value;
 }
+
+//==============================================================================
+//  Value construction
+//==============================================================================
 
 class CValueWriter
 {
@@ -639,6 +651,10 @@ bool CValueWriter::write(const CSchemaIndex type, const CSchemaIndex description
     }
 }
 
+//==============================================================================
+//  Construction preflight
+//==============================================================================
+
 [[nodiscard]] static bool preflight(const CResolvedSchema& schema, const CDocumentRead& document,
     const CSchemaIndex type, const SOccurrence declaration, const std::uint8_t* const bytes,
     const std::size_t byte_count, SValueDiagnostic& diagnostic, SType& layout) noexcept
@@ -658,6 +674,10 @@ bool CValueWriter::write(const CSchemaIndex type, const CSchemaIndex description
     }
     return true;
 }
+
+//==============================================================================
+//  Encoded-value comparison
+//==============================================================================
 
 [[nodiscard]] static bool compare_encoded_value(const CResolvedSchema& schema, const CSchemaIndex type,
     const std::uint8_t* const expected, const std::uint8_t* const actual,
@@ -737,6 +757,10 @@ bool CValueWriter::write(const CSchemaIndex type, const CSchemaIndex description
     }
     return false;
 }
+
+//==============================================================================
+//  Construction and comparison entry points
+//==============================================================================
 
 bool construct_value(const CResolvedSchema& schema, const CDocumentRead& document, const CSchemaIndex type,
     const SOccurrence declaration, std::uint8_t* const destination, const std::size_t destination_size,

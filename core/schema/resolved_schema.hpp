@@ -8,6 +8,9 @@
 //
 //  Move-only resolved schema ownership and read-only runtime observations.
 
+//  Public entry point for schema resolution, observations and C++ generation.
+//  Role headers include it; direct resolver consumers may include it alone.
+
 #pragma once
 
 #ifndef RESOLVED_SCHEMA_HPP_INCLUDED
@@ -298,7 +301,7 @@ private:
 
     //  Transient ranges borrow the owner's existing vectors. Clear, move and
     //  re-resolution invalidate operation access; nothing is stored per type.
-    template <class T> struct SRecordRange
+    template<class T> struct SRecordRange
     {
         std::uint32_t first{}, count{};
 
@@ -333,7 +336,7 @@ private:
     static bool is_kind(const CSchemaIndex index, const std::uint32_t kind, const std::size_t size) noexcept;
     CSchemaIndex lookup_type(const CStringView& name) const noexcept;
     const STypeRecord* type_record(const CSchemaIndex index) const noexcept;
-    template <class T> SRecordRange<T> child_range(const CSchemaIndex type, const ECategory category, const TPodVector<T>& records) const noexcept;
+    template<class T> SRecordRange<T> child_range(const CSchemaIndex type, const ECategory category, const TPodVector<T>& records) const noexcept;
     CSchemaIndex child_at(const CSchemaIndex type, const std::uint32_t ordinal, const ECategory category, const std::uint32_t kind) const noexcept;
     CSchemaDocumentQuery m_document;
     TPodVector<STypeRecord> m_types;
@@ -352,7 +355,7 @@ constexpr std::uint32_t CResolvedSchema::STypeRecord::alignment() const noexcept
     return (alignment_log2 <= 31u) ? (std::uint32_t{ 1u } << alignment_log2) : 0u;
 }
 
-template <class T>
+template<class T>
 const T& CResolvedSchema::SRecordRange<T>::at(const TPodVector<T>& records, const std::uint32_t ordinal) const noexcept
 {
     return records[first + ordinal];

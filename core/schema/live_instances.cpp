@@ -22,6 +22,10 @@
 namespace schema
 {
 
+//==============================================================================
+//  Shared document construction
+//==============================================================================
+
 [[nodiscard]] static bool append(CLiveDocument& document, const CNodeKey parent, const CNodeKey child) noexcept
 {
     if (!child.is_valid())
@@ -72,6 +76,10 @@ struct SDetachedInstanceNodes
         }
     }
 };
+
+//==============================================================================
+//  Lifetime and binding
+//==============================================================================
 
 bool CLiveInstances::initialise_document(const std::size_t capacity) noexcept
 {
@@ -125,6 +133,10 @@ void CLiveInstances::disable() noexcept
     m_loaded = false;
     MV_CRITICAL_EVENT("CLiveInstances partial mutation");
 }
+
+//==============================================================================
+//  Queries and payload access
+//==============================================================================
 
 CInstanceDocumentQuery CLiveInstances::document_query() const noexcept
 {
@@ -254,6 +266,10 @@ bool CLiveInstances::clear_unused_storage(const EUnusedBits bits) noexcept
     return loaded_ready() && resolved &&
         schema::clear_unused_storage(*resolved, document_query(), m_payload.view(), bits);
 }
+
+//==============================================================================
+//  Instance creation
+//==============================================================================
 
 CInstanceHandle CLiveInstances::append_instance(const CSchemaIndex type, const std::uint32_t parent,
     const CStringView& type_name, const CStringView& name, const detail::CDocumentRead& source,
@@ -469,6 +485,10 @@ CInstanceHandle CLiveInstances::create_specialisation(const CInstanceHandle pare
     return append_instance(parent_record.type, parent_index, {}, name, document, value, encoded.const_view(), diagnostic);
 }
 
+//==============================================================================
+//  Promotion
+//==============================================================================
+
 void CLiveInstances::take_from(CLiveInstances& source) noexcept
 {
     m_document = std::move(source.m_document);
@@ -568,6 +588,56 @@ bool CLiveInstances::promote_from(const CBakedInstances& source, SInstanceDiagno
     return true;
 }
 
+bool CBakedInstances::promote(CLiveInstances& destination, CBakedSchema& schema, SInstanceDiagnostic& diagnostic) const noexcept
+{
+    diagnostic = {};
+    if (!loaded_ready() || destination.document_ready() || destination.m_binding.is_attached() || !schema.resolved_ready())
+    {
+        diagnostic.reason = EInstanceLoadReason::invalid_input;
+        return false;
+    }
+    CLiveInstances staged;
+    if (!staged.initialise(schema))
+    {
+        diagnostic.reason = EInstanceLoadReason::allocation_failed;
+        return false;
+    }
+    if (!staged.promote_from(*this, diagnostic))
+    {
+        diagnostic.occurrence = {};
+        return false;
+    }
+    destination.take_from(staged);
+    return true;
+}
+
+bool CBakedInstances::promote(CLiveInstances& destination, CLiveSchema& schema, SInstanceDiagnostic& diagnostic) const noexcept
+{
+    diagnostic = {};
+    if (!loaded_ready() || destination.document_ready() || destination.m_binding.is_attached() || !schema.resolved_ready())
+    {
+        diagnostic.reason = EInstanceLoadReason::invalid_input;
+        return false;
+    }
+    CLiveInstances staged;
+    if (!staged.initialise(schema))
+    {
+        diagnostic.reason = EInstanceLoadReason::allocation_failed;
+        return false;
+    }
+    if (!staged.promote_from(*this, diagnostic))
+    {
+        diagnostic.occurrence = {};
+        return false;
+    }
+    destination.take_from(staged);
+    return true;
+}
+
+//==============================================================================
+//  Binary reconciliation
+//==============================================================================
+
 bool CLiveInstances::reconcile(SInstanceDiagnostic& diagnostic) noexcept
 {
     diagnostic = {};
@@ -639,51 +709,9 @@ bool CLiveInstances::reconcile(SInstanceDiagnostic& diagnostic) noexcept
     return true;
 }
 
-bool CBakedInstances::promote(CLiveInstances& destination, CBakedSchema& schema, SInstanceDiagnostic& diagnostic) const noexcept
-{
-    diagnostic = {};
-    if (!loaded_ready() || destination.document_ready() || destination.m_binding.is_attached() || !schema.resolved_ready())
-    {
-        diagnostic.reason = EInstanceLoadReason::invalid_input;
-        return false;
-    }
-    CLiveInstances staged;
-    if (!staged.initialise(schema))
-    {
-        diagnostic.reason = EInstanceLoadReason::allocation_failed;
-        return false;
-    }
-    if (!staged.promote_from(*this, diagnostic))
-    {
-        diagnostic.occurrence = {};
-        return false;
-    }
-    destination.take_from(staged);
-    return true;
-}
-
-bool CBakedInstances::promote(CLiveInstances& destination, CLiveSchema& schema, SInstanceDiagnostic& diagnostic) const noexcept
-{
-    diagnostic = {};
-    if (!loaded_ready() || destination.document_ready() || destination.m_binding.is_attached() || !schema.resolved_ready())
-    {
-        diagnostic.reason = EInstanceLoadReason::invalid_input;
-        return false;
-    }
-    CLiveInstances staged;
-    if (!staged.initialise(schema))
-    {
-        diagnostic.reason = EInstanceLoadReason::allocation_failed;
-        return false;
-    }
-    if (!staged.promote_from(*this, diagnostic))
-    {
-        diagnostic.occurrence = {};
-        return false;
-    }
-    destination.take_from(staged);
-    return true;
-}
+//==============================================================================
+//  Output preparation and baking
+//==============================================================================
 
 struct SInstanceOutputRecord
 {
@@ -878,7 +906,7 @@ bool CLiveInstances::prepare_output(CLiveDocument& document, CByteBuffer& payloa
     return prepare_output_to(document, payload, *destination_schema.resolved(), form, diagnostic);
 }
 
-template <class TSchema>
+template<class TSchema>
 bool CLiveInstances::bake_to(CBakedDocumentBlock& block, CByteBuffer& payload, CBakedInstances& role,
     TSchema& destination_schema, const EDataOutputForm form, SInstanceDiagnostic& diagnostic) const noexcept
 {
