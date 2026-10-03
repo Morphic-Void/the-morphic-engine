@@ -88,9 +88,9 @@ public:
         CBakedSchema& destination_schema, const EDataOutputForm form, SInstanceDiagnostic& diagnostic) const noexcept;
     [[nodiscard]] bool prepare_output(CLiveDocument& document, CByteBuffer& payload,
         CLiveSchema& destination_schema, const EDataOutputForm form, SInstanceDiagnostic& diagnostic) const noexcept;
-    [[nodiscard]] bool demote(CBakedDocumentBlock& block, CByteBuffer& payload, CBakedInstances& role,
+    [[nodiscard]] bool bake(CBakedDocumentBlock& block, CByteBuffer& payload, CBakedInstances& role,
         CBakedSchema& destination_schema, const EDataOutputForm form, SInstanceDiagnostic& diagnostic) const noexcept;
-    [[nodiscard]] bool demote(CBakedDocumentBlock& block, CByteBuffer& payload, CBakedInstances& role,
+    [[nodiscard]] bool bake(CBakedDocumentBlock& block, CByteBuffer& payload, CBakedInstances& role,
         CLiveSchema& destination_schema, const EDataOutputForm form, SInstanceDiagnostic& diagnostic) const noexcept;
 
 private:
@@ -119,7 +119,7 @@ private:
         const CResolvedSchema& destination_schema, const EDataOutputForm form,
         SInstanceDiagnostic& diagnostic) const noexcept;
     template <class TSchema>
-    [[nodiscard]] bool demote_to(CBakedDocumentBlock& block, CByteBuffer& payload, CBakedInstances& role,
+    [[nodiscard]] bool bake_to(CBakedDocumentBlock& block, CByteBuffer& payload, CBakedInstances& role,
         TSchema& destination_schema, const EDataOutputForm form, SInstanceDiagnostic& diagnostic) const noexcept;
     void take_from(CLiveInstances& source) noexcept;
     void disable() noexcept;

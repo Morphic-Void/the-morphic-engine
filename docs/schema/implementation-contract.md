@@ -44,6 +44,25 @@ resolved type indices, and remap setup uses temporary member-name indexing and
 destination-member claim tracking. Entry access allocates nothing after loading.
 The implementation and validation are recorded below.
 
+The user then authorised renaming `demote()` to `bake()` and adding optional
+stripped data output before the remaining consolidation. `EDataOutputForm::stripped`
+now omits instance declarations and bulk arrays, retaining navigation and locator
+metadata alongside independent binary payloads. A root Boolean marker prevents
+document-only materialisation. Both baked roles expose `values_stripped()` and
+retain their binary access interfaces. Promotion reconstructs document values;
+schema definitions and defaults are preserved. Existing embedded/external forms
+retain their behaviour. Terminology below uses baking for the former operation.
+
+Regression coverage includes hierarchy and binary access after stripping, both
+schema bindings, changed defaults, JSON/Morphic text reload, reconstruction after
+promotion, preserved schema defaults, empty and zero-byte payloads, malformed
+markers and contradictory values, unused-storage clearing, unrepresentable raw
+values, and allocation-failure preservation for both data roles.
+Full Debug x64, Release x64 and Debug Win32 builds and `-t1` runs passed,
+each with 18,183 schema checks and no failures (`schema-baking-final-dbg64`,
+`schema-baking-final-rel64`, `schema-baking-final-dbg32`). Policy validation
+reported no errors or warnings; diff and line-ending checks passed.
+
 Scalar-decoder and document-copying consolidation, integer output notation,
 remaining file/API organisation and further performance work remain discussion items.
 Fp16 workflow changes and source ingestion also remain deferred. A completed
@@ -164,7 +183,7 @@ its specialised content; schema queries also provide `types_root()`. Each live
 wrapper owns its own document. The editor rechecks bindings on every mutation;
 it remains a raw borrow rather than introducing editor-generation tracking.
 Adoption/transfer require empty destinations and preserve both inputs on failure.
-Promotion/demotion form the following package. No stage 3 semantics or
+Promotion/baking form the following package. No stage 3 semantics or
 instance/bulk wrappers are dispatched.
 
 The wrapper package passed coordinator and user review on 29 September and was
@@ -202,10 +221,10 @@ matrix was repeated because layout/generator semantics did not change.
 The user then authorised continuation and confirmed that schema conversion copies
 only `types` and always resolves the promoted live result before publication.
 The same implementation chat completed the remaining stage 2 package: schema
-promotion/demotion and narrow root-member selection in the existing data-model
+promotion/baking and narrow root-member selection in the existing data-model
 translators. Whole-document
 translation behavior is preserved. Outputs are independent copies; source
-bindings survive, occupied outputs are rejected unchanged, and demotion produces
+bindings survive, occupied outputs are rejected unchanged, and baking produces
 a separate owned block and unresolved baked wrapper. Stage 3 semantics and
 instance/bulk conversions are not dispatched.
 
@@ -215,7 +234,7 @@ the user authorised its separate commit. The user's whitespace edits and rename 
 declaration, definition and call sites without repeating the passing test matrix.
 Review checked staged publication, independent
 string ownership, safe failure diagnostics and preservation of source bindings.
-The added combined-live demotion test destroys the source before resolving and
+The added combined-live baking test destroys the source before resolving and
 reading the output's type name and default. Allocation sweeps cover translation
 and resolution failure without leaks or partially published destinations.
 Debug x64 and Release x64 solution builds and ordinary `-t1` suites passed:
@@ -568,7 +587,7 @@ CRLF and optional missing final newline. Other text uses LF and a final newline.
 | [resolved_schema.cpp](../../core/schema/resolved_schema.cpp), [resolved_schema.hpp](../../core/schema/resolved_schema.hpp) | The reviewed stage 2 package routes input binding, observations, diagnostics and occurrence mapping through the common query boundary. Reuse that resolver in the schema wrappers while retaining validation and layout behavior. |
 | [data_model_types.hpp](../../core/data_model/data_model_types.hpp) | Live keys are 64-bit, baked indices 32-bit. Role handles must represent both without truncation; equivalent method names do not make raw identities interchangeable. |
 | [document_translation.hpp](../../core/data_model/document_translation.hpp), [document_promotion.cpp](../../core/data_model/document_promotion.cpp) | Existing non-consuming promote/bake fit the copy lifecycle. New schema resolution can bind to the promoted document directly. |
-| [ByteBuffers.hpp](../../core/containers/ByteBuffers.hpp) | Reuse framework copying, allocation, alignment and ownership support. Demotion's document-order packing must rewrite locators in its new output. |
+| [ByteBuffers.hpp](../../core/containers/ByteBuffers.hpp) | Reuse framework copying, allocation, alignment and ownership support. Baking's document-order packing must rewrite locators in its new output. |
 | [schema_declarations.cpp](../../core/schema/schema_declarations.cpp) | The reviewed stage 2 package uses representation-neutral names and diagnostic locations. Generated output and established spelling/layout checks remain unchanged. |
 | [baked_document.cpp](../../core/data_model/baked_document.cpp), [BakedDocument_test_suite.cpp](../../tests/test_suites/BakedDocument_test_suite.cpp) | Stage 1 updates canonical integer width in both directions; reviewed, validated and committed separately as `d92dddd`. Reserved locator nodes can use this prerequisite once schema loaders are implemented. |
 | [Schema_test_suite.cpp](../../tests/test_suites/Schema_test_suite.cpp) | Reuse fixtures and compiler checks, revising expectations only where later decisions change semantics. Stages 4b and 4c integrate the sample's bulk and instance locators and exercise their materialisation. |
@@ -577,7 +596,7 @@ CRLF and optional missing final newline. Other text uses LF and a final newline.
 
 Stage 2's read-adapter and resolver/generator packages are committed as `0addf71`
 and `82d4974`. The schema-wrapper package, including guarded editing and intrusive
-client bindings, is committed as `0289c6b`. Schema promotion/demotion completed
+client bindings, is committed as `0289c6b`. Schema promotion/baking completed
 stage 2 in `dd553fa`, after coordinator review, validation and user review. The
 user reported pushing all pending commits on 29 September.
 On 30 September the user authorised continuation. Stage 3 design assessment with
@@ -759,8 +778,8 @@ shape. Positional structures may become named declarations for interior edits;
 fixed arrays retain prefix-only selections. Stage 5b has passed coordinator review,
 validation and user manual review; the user authorised its commit on 1 October.
 Stage 5b was committed as `4386e06`. The user authorised continuation into stage 6;
-the existing implementer's bounded output/demotion proposal passed coordinator
-review. Stage 6a bulk output and demotion has passed coordinator review,
+the existing implementer's bounded output/baking proposal passed coordinator
+review. Stage 6a bulk output and baking has passed coordinator review,
 validation and user manual review and was committed as `80c5681` on 1 October.
 Stage 6b instances was authorised to continue on 2 October and has passed
 coordinator review, validation and user manual review. The user made only
@@ -1003,13 +1022,13 @@ diff review. The passing runtime/platform matrix was not repeated. The user's
 final formatting changes and the parameter-grouping consistency pass preserve
 behaviour. User review is complete, with commit authorised on 1 October.
 
-Stage 6a adds independent bulk output preparation and non-destructive demotion,
+Stage 6a adds independent bulk output preparation and non-destructive baking,
 with an explicit destination schema, a live output document or owned baked block,
 and a separately owned packed payload. Both embedded and external forms retain
 reserved locators. Packing follows document traversal order, preserves internal
 record padding and leaves new alignment gaps for the optional stage 8 pass.
 Embedded records are decoded and re-encoded to check the agreed field fidelity.
-Source state and caller destinations are preserved on failure; successful demotion
+Source state and caller destinations are preserved on failure; successful baking
 publishes a loaded non-owning role only after all staged work succeeds.
 
 Integration review found two boundaries: zero-byte extents at offset zero must
@@ -1020,7 +1039,7 @@ arrays; no parser grammar change is required. Tests also cover interleaved type
 insertion, replacement/erasure holes, alignment gaps, internal padding, empty
 collections versus zero-count entries, both schema forms, default differences,
 incompatible enum meanings, occupied destinations, owner transfer, source
-independence, and 48 preparation / 80 demotion allocation-failure points. Strict
+independence, and 48 preparation / 80 baking allocation-failure points. Strict
 JSON and Morphic output are parsed, baked and reloaded, including signed zero,
 NaNs, raw SNORM codes and enum aliases; noncanonical Boolean and unlabelled enum
 codes are rejected only for embedded output.
@@ -1038,7 +1057,7 @@ the new header and preserved Visual Studio CRLF, BOM and final-newline conventio
 The user's final changes were line breaks only. Stage 6a has passed user manual
 review, with commit authorised on 1 October, and was committed as `80c5681`.
 
-Stage 6b adds independent instance output preparation and non-destructive demotion
+Stage 6b adds independent instance output preparation and non-destructive baking
 against an explicit baked or live destination schema. The original matching-default
 requirement is superseded by the 3 October reconciliation step below. Complete
 snapshots are packed in parent-before-child document
@@ -1061,7 +1080,7 @@ branches, alignment gaps, mixed nonempty/empty extents, shifted destination type
 indices, stale selected literals, equal-to-parent and empty selections, omitted
 base and inherited-child mismatch diagnostics, both writer dialects, embedded
 materialisation without supplied bytes, and subsequent parent/selection edits.
-The schema example exercises instance demotion and reload. Owner moves and source
+The schema example exercises instance baking and reload. Owner moves and source
 disposal leave returned roles usable. Allocation-failure sweeps reach success
 while verifying unchanged source declarations/snapshots, empty failed outputs,
 released allocations and restored binding counts. Empty documents, zero-byte-only
@@ -1103,7 +1122,7 @@ schema sample changes. Review and commit it independently before schema integrat
 Review concrete query/handle, resolver-adapter and ownership-result signatures
 for the six wrappers before implementing the shared boundary. Separate resolution
 from baked-document ownership, introduce `CBakedSchema`/`CLiveSchema`, adapt
-generator name/occurrence access, and add schema promotion/demotion. Include
+generator name/occurrence access, and add schema promotion/baking. Include
 borrowed-string lifetimes, schema reference protection through a count and
 intrusive client-binding list, safe binding invalidation on schema destruction,
 and stable meanings of
@@ -1111,7 +1130,7 @@ existing handles after successful unchanged re-resolution.
 
 Completion evidence: equivalent live/baked schema queries and resolution,
 preserved existing generator output for unchanged supported inputs, independent
-schema copies, unresolved schema demotion, and the agreed resolution-failure
+schema copies, unresolved schema baking, and the agreed resolution-failure
 and reference-protection behaviour. Reuse the current resolver and generator tests.
 Actual instance/bulk consumers exercise the reference integration in stage 4.
 
@@ -1171,9 +1190,9 @@ selected fields only, and propagation through multiple specialisation levels.
 Exercise schema-reference protection with real live consumers and integrate
 application-critical allocation-failure handling without a rollback framework.
 
-### 6. Output preparation, data demotion and reload
+### 6. Output preparation, data baking and reload
 
-Deliver bulk output/demotion/reload first (6a), then the corresponding instance
+Deliver bulk output/baking/reload first (6a), then the corresponding instance
 hierarchy and selection-preservation work (6b), each with its own review boundary.
 
 Stage 6b includes the agreed schema interpretation of parser-normalised singleton
@@ -1186,7 +1205,7 @@ requirements. Destination compatibility permits differing defaults through the
 shared reconciliation step, as for instance promotion (3 October follow-up).
 
 Build separate output documents and packed payload buffers in document traversal
-order, rewriting output locators. Implement data demotion with separately returned
+order, rewriting output locators. Implement data baking with separately returned
 document-block and payload owners. Support the agreed embedded/external choices
 independently of text/baked encoding, retaining instance hierarchy and declarations.
 
@@ -1352,7 +1371,7 @@ implementation for consistency, coherence and code quality. This concerns the
 resulting design, code, APIs and documentation; it is not an investigation of
 the development process. Pay particular attention to the authority of binary
 versus document data across loading, promotion, editing, capture, output,
-demotion and reload, including defaults and specialisation selection intent.
+baking and reload, including defaults and specialisation selection intent.
 Other provisional areas include code style, API consistency and agreement between
 implementation and documentation. Review file organisation and responsibility
 boundaries as well, including whether small shared headers such as
@@ -1380,7 +1399,7 @@ completely; instance bases compare against defaults and specialisations against
 their immediate parents. Equal named values are removed, differences become
 explicit, and arrays retain the shortest necessary prefix without sparse grammar.
 The same instance reconciliation applies in promotion, both output forms and
-demotion, with an explicit live-role operation after remapping. Old declaration
+baking, with an explicit live-role operation after remapping. Old declaration
 agreement checks are removed; structural safety, schema compatibility, generated
 document fidelity and optional load-time integrity comparison remain. Snapshots
 are never changed or propagated during reconciliation. This supersedes earlier
@@ -1465,7 +1484,7 @@ reconciliation below; its validation record is retained as delivery history.
 The 3 October decision retains the intentional distinction between complete
 bulk data and partial instance configurations. Instance conversion now accepts
 different defaults when structure and value interpretation match. Promotion,
-embedded/external preparation and demotion use one preservation step for both
+embedded/external preparation and baking use one preservation step for both
 live and baked destination schemas. Affected omitted base values become explicit
 snapshot literals; other omissions remain intact, and specialisations inherit
 through their preserved parents. Array prefixes extend only as necessary.
@@ -1490,7 +1509,7 @@ separate compiler matrix was not repeated.
 
 #### Binary-authoritative reconciliation — implemented
 
-Promotion, embedded/external instance preparation and demotion now derive
+Promotion, embedded/external instance preparation and baking now derive
 declarations from binary, using destination defaults for bases and immediate
 parent snapshots for specialisations. Old declarations are not decoded, copied
 or validated during instance promotion. Equal overrides and empty selections
@@ -1533,7 +1552,7 @@ preserves the old embedded records.
 
 Regression tests cover growth, shrinkage, equal-count and zero-count replacement
 after both reconciliation and promotion, unused-storage clearing, embedded
-demotion/reload and allocation-failure preservation. The new checks reproduced
+baking/reload and allocation-failure preservation. The new checks reproduced
 the defect before the fix. The design, API guide, delivery status and general
 backlog descriptions have also been aligned with the implemented schema roles
 and reconciliation behaviour.

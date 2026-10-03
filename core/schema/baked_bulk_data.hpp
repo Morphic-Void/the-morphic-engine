@@ -35,7 +35,8 @@ enum class EBulkLoadReason : std::uint8_t
     embedded_mismatch,
     incompatible_schema,
     unrepresentable_value,
-    allocation_failed
+    allocation_failed,
+    binary_required
 };
 
 struct SBulkDiagnostic
@@ -73,12 +74,14 @@ public:
     //  containing only zero-byte records. Nonempty views require 128-byte base
     //  alignment. The materialised owner is returned separately and must be
     //  unallocated on entry; neither backing allocation belongs to this wrapper.
+    //  Stripped documents require load_supplied; there are no embedded values to compare.
     [[nodiscard]] bool load_supplied(const CByteConstView& payload, const bool compare_embedded, SBulkDiagnostic& diagnostic) noexcept;
     [[nodiscard]] bool materialise(CByteBuffer& returned_owner, SBulkDiagnostic& diagnostic) noexcept;
     [[nodiscard]] bool promote(class CLiveBulkData& destination, CBakedSchema& schema, SBulkDiagnostic& diagnostic) const noexcept;
     [[nodiscard]] bool promote(class CLiveBulkData& destination, CLiveSchema& schema, SBulkDiagnostic& diagnostic) const noexcept;
 
     [[nodiscard]] bool document_ready() const noexcept { return m_document.is_ready(); }
+    [[nodiscard]] bool values_stripped() const noexcept;
     [[nodiscard]] bool loaded_ready() const noexcept { return m_loaded && m_binding.is_usable(); }
     [[nodiscard]] CBulkDocumentQuery document_query() const noexcept;
     [[nodiscard]] CBulkHandle data_root() const noexcept;

@@ -35,7 +35,8 @@ enum class EInstanceLoadReason : std::uint8_t
     embedded_mismatch,
     unrepresentable_value,
     allocation_failed,
-    incompatible_schema
+    incompatible_schema,
+    binary_required
 };
 
 struct SInstanceDiagnostic
@@ -71,13 +72,14 @@ public:
 
     //  Supplied payloads are borrowed. Materialisation returns the owner to the
     //  caller and borrows its stable allocation. An unallocated output is required.
-    [[nodiscard]] bool load_supplied(const CByteConstView& payload, const bool compare_embedded,
-        SInstanceDiagnostic& diagnostic) noexcept;
+    //  Stripped documents require load_supplied; there are no embedded values to compare.
+    [[nodiscard]] bool load_supplied(const CByteConstView& payload, const bool compare_embedded, SInstanceDiagnostic& diagnostic) noexcept;
     [[nodiscard]] bool materialise(CByteBuffer& returned_owner, SInstanceDiagnostic& diagnostic) noexcept;
     [[nodiscard]] bool promote(class CLiveInstances& destination, CBakedSchema& schema, SInstanceDiagnostic& diagnostic) const noexcept;
     [[nodiscard]] bool promote(class CLiveInstances& destination, CLiveSchema& schema, SInstanceDiagnostic& diagnostic) const noexcept;
 
     [[nodiscard]] bool document_ready() const noexcept { return m_document.is_ready(); }
+    [[nodiscard]] bool values_stripped() const noexcept;
     [[nodiscard]] bool loaded_ready() const noexcept { return m_loaded && m_binding.is_usable(); }
     [[nodiscard]] CInstanceDocumentQuery document_query() const noexcept;
     [[nodiscard]] CInstanceHandle instances_root() const noexcept;

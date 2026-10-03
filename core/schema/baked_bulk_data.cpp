@@ -177,6 +177,13 @@ bool CBakedBulkData::entry(const CBulkHandle handle, SBulkEntryView& result) con
     return true;
 }
 
+bool CBakedBulkData::values_stripped() const noexcept
+{
+    bool stripped{};
+    return document_ready() && m_document.boolean_value(
+        m_document.object_child(m_document.root(), CStringView{ "stripped" }), stripped) && stripped;
+}
+
 bool CBakedBulkData::plan(const bool supplied, const std::size_t payload_size,
     TPodVector<SRecord>& records, std::size_t& total_size, SBulkDiagnostic& diagnostic) const noexcept
 {
@@ -190,6 +197,16 @@ bool CBakedBulkData::plan(const bool supplied, const std::size_t payload_size,
     if (m_document.value_type(root) != EBakedValueType::object)
     {
         return fail(diagnostic, EBulkLoadReason::invalid_input, root);
+    }
+    const CBakedValueIndex marker = m_document.object_child(root, CStringView{ "stripped" });
+    bool stripped{};
+    if (marker && !m_document.boolean_value(marker, stripped))
+    {
+        return fail(diagnostic, EBulkLoadReason::invalid_input, marker);
+    }
+    if (stripped && !supplied)
+    {
+        return fail(diagnostic, EBulkLoadReason::binary_required, marker);
     }
     const CBakedValueIndex data_root = m_document.object_child(root, CStringView{ "data" });
     if (!data_root.is_valid())
@@ -233,7 +250,7 @@ bool CBakedBulkData::plan(const bool supplied, const std::size_t payload_size,
             {
                 return fail(diagnostic, EBulkLoadReason::missing_property, entry);
             }
-            if (embedded.is_valid() && (m_document.value_type(embedded) != EBakedValueType::array))
+            if (embedded.is_valid() && (stripped || (m_document.value_type(embedded) != EBakedValueType::array)))
             {
                 return fail(diagnostic, EBulkLoadReason::invalid_input, embedded);
             }
@@ -421,7 +438,7 @@ bool CBakedBulkData::load_supplied(const CByteConstView& payload, const bool com
     {
         return diagnostic.reason == EBulkLoadReason::none ? fail(diagnostic, EBulkLoadReason::invalid_range, {}) : false;
     }
-    if (compare_embedded && !this->compare_embedded(staged, payload, diagnostic))
+    if (compare_embedded && !values_stripped() && !this->compare_embedded(staged, payload, diagnostic))
     {
         return false;
     }

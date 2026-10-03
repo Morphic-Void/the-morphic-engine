@@ -18,7 +18,9 @@
 namespace schema
 {
 
-enum class EDataOutputForm : std::uint8_t { embedded, external };
+//  Stripped output keeps navigation and locators, requiring a supplied payload.
+//  Schema definitions and defaults are unaffected by this data-only choice.
+enum class EDataOutputForm : std::uint8_t { embedded, external, stripped };
 
 }   // namespace schema
 

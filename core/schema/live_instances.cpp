@@ -806,7 +806,7 @@ bool CLiveInstances::prepare_output_to(CLiveDocument& document, CByteBuffer& pay
     diagnostic = {};
     const CResolvedSchema* const source_schema = m_binding.resolved();
     if (!loaded_ready() || !source_schema || document.is_ready() || payload.is_ready() ||
-        ((form != EDataOutputForm::embedded) && (form != EDataOutputForm::external)))
+        ((form != EDataOutputForm::embedded) && (form != EDataOutputForm::external) && (form != EDataOutputForm::stripped)))
     {
         diagnostic.reason = EInstanceLoadReason::invalid_input;
         return false;
@@ -819,6 +819,12 @@ bool CLiveInstances::prepare_output_to(CLiveDocument& document, CByteBuffer& pay
         return false;
     }
     const CNodeKey output_instances = staged_document.object_child(staged_document.root(), CStringView{ "instances" });
+    if ((form == EDataOutputForm::stripped) &&
+        !append(staged_document, staged_document.root(), staged_document.create_boolean(true, CStringView{ "stripped" })))
+    {
+        diagnostic.reason = EInstanceLoadReason::allocation_failed;
+        return false;
+    }
     const CNodeKey source_instances = detail::SInstanceHandleAccess::occurrence(instances_root()).live;
     CTypeCompatibility compatibility{ *source_schema, destination_schema, ETypeMatch::representation };
     TPodVector<SInstanceOutputRecord> output_records;
@@ -900,7 +906,8 @@ bool CLiveInstances::prepare_output_to(CLiveDocument& document, CByteBuffer& pay
                 diagnostic.reason = EInstanceLoadReason::allocation_failed;
                 return false;
             }
-            const CNodeKey declaration = output_declaration(staged_document, *record, destination_schema, output_type, diagnostic.reason);
+            const CNodeKey declaration = (form == EDataOutputForm::stripped) ? CNodeKey{} :
+                output_declaration(staged_document, *record, destination_schema, output_type, diagnostic.reason);
             if (diagnostic.reason != EInstanceLoadReason::none)
             {
                 diagnostic.occurrence = detail::SInstanceHandleAccess::make(detail::SOccurrence{ source_entry });
@@ -975,7 +982,7 @@ bool CLiveInstances::prepare_output(CLiveDocument& document, CByteBuffer& payloa
 }
 
 template <class TSchema>
-bool CLiveInstances::demote_to(CBakedDocumentBlock& block, CByteBuffer& payload, CBakedInstances& role,
+bool CLiveInstances::bake_to(CBakedDocumentBlock& block, CByteBuffer& payload, CBakedInstances& role,
     TSchema& destination_schema, const EDataOutputForm form, SInstanceDiagnostic& diagnostic) const noexcept
 {
     diagnostic = {};
@@ -1015,16 +1022,16 @@ bool CLiveInstances::demote_to(CBakedDocumentBlock& block, CByteBuffer& payload,
     return true;
 }
 
-bool CLiveInstances::demote(CBakedDocumentBlock& block, CByteBuffer& payload, CBakedInstances& role,
+bool CLiveInstances::bake(CBakedDocumentBlock& block, CByteBuffer& payload, CBakedInstances& role,
     CBakedSchema& destination_schema, const EDataOutputForm form, SInstanceDiagnostic& diagnostic) const noexcept
 {
-    return demote_to(block, payload, role, destination_schema, form, diagnostic);
+    return bake_to(block, payload, role, destination_schema, form, diagnostic);
 }
 
-bool CLiveInstances::demote(CBakedDocumentBlock& block, CByteBuffer& payload, CBakedInstances& role,
+bool CLiveInstances::bake(CBakedDocumentBlock& block, CByteBuffer& payload, CBakedInstances& role,
     CLiveSchema& destination_schema, const EDataOutputForm form, SInstanceDiagnostic& diagnostic) const noexcept
 {
-    return demote_to(block, payload, role, destination_schema, form, diagnostic);
+    return bake_to(block, payload, role, destination_schema, form, diagnostic);
 }
 
 } // namespace schema

@@ -13,7 +13,7 @@ short-input examples, omits redundant array `kind`, and uses `detail.internal`
 as the internal-layout marker. Its `types` section is an implemented resolver
 and C++ compiler acceptance fixture. The instance and bulk sections illustrate
 materialisation with reserved locators and are exercised by data-role tests,
-including live instance demotion and reload.
+including live instance baking and reload.
 The working [design](design.md) records agreed semantics.
 
 The instance and bulk entries use unset locators for materialisation. Named

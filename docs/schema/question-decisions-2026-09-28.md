@@ -6,6 +6,9 @@ subsequent reconciliation with [design.md](design.md), the
 [implementation contract](implementation-contract.md), and the
 [runtime API](runtime-api.md). It does not authorise implementation or a commit.
 
+The historical term demotion below is now called baking. The subsequent
+stripped-output decision is recorded in the current design and runtime API.
+
 ## Wrapper and schema lifetimes
 
 - Schema, instance, and bulk data are separate logical documents. Failure to

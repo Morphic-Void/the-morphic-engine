@@ -233,6 +233,13 @@ bool CBakedInstances::entry(const CInstanceHandle handle, SInstanceEntryView& re
     return true;
 }
 
+bool CBakedInstances::values_stripped() const noexcept
+{
+    bool stripped{};
+    return document_ready() && m_document.boolean_value(
+        m_document.object_child(m_document.root(), CStringView{ "stripped" }), stripped) && stripped;
+}
+
 bool CBakedInstances::plan(const bool supplied, const std::size_t supplied_size,
     TPodVector<SRecord>& records, std::size_t& payload_size, std::size_t& scratch_size,
     SInstanceDiagnostic& diagnostic) const noexcept
@@ -248,6 +255,16 @@ bool CBakedInstances::plan(const bool supplied, const std::size_t supplied_size,
     if (m_document.value_type(root) != EBakedValueType::object)
     {
         return fail(diagnostic, EInstanceLoadReason::invalid_input, root);
+    }
+    const CBakedValueIndex marker = m_document.object_child(root, CStringView{ "stripped" });
+    bool stripped{};
+    if (marker && !m_document.boolean_value(marker, stripped))
+    {
+        return fail(diagnostic, EInstanceLoadReason::invalid_input, marker);
+    }
+    if (stripped && !supplied)
+    {
+        return fail(diagnostic, EInstanceLoadReason::binary_required, marker);
     }
     const CBakedValueIndex instances = m_document.object_child(root, CStringView{ "instances" });
     if (!instances.is_valid())
@@ -301,7 +318,7 @@ bool CBakedInstances::plan(const bool supplied, const std::size_t supplied_size,
             const CBakedValueIndex declaration = m_document.object_child(instance, CStringView{ "declaration" });
             const CBakedValueIndex specialisations = m_document.object_child(instance, CStringView{ "specialisation" });
             const CBakedValueIndex locator = m_document.object_child(instance, CStringView{ "locator" });
-            if (declaration.is_valid() && (m_document.value_type(declaration) == EBakedValueType::null_value))
+            if (declaration.is_valid() && (stripped || (m_document.value_type(declaration) == EBakedValueType::null_value)))
             {
                 return fail(diagnostic, EInstanceLoadReason::invalid_declaration, declaration);
             }
@@ -472,7 +489,7 @@ bool CBakedInstances::load_supplied(const CByteConstView& payload, const bool co
         return (diagnostic.reason == EInstanceLoadReason::none) ?
             fail(diagnostic, EInstanceLoadReason::invalid_range, {}) : false;
     }
-    if (compare_embedded && !this->compare_embedded(staged, payload, scratch_size, diagnostic))
+    if (compare_embedded && !values_stripped() && !this->compare_embedded(staged, payload, scratch_size, diagnostic))
     {
         return false;
     }

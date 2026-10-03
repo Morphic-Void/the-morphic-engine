@@ -4,7 +4,7 @@ This page describes the implemented resolver and generator introduced in
 `5313c85` and extended with live/baked document queries. The [design](design.md)
 defines the target system;
 the [implementation contract](implementation-contract.md#staged-implementation-plan)
-tracks delivery. Schema wrappers, their promotion/demotion, and the baked and
+tracks delivery. Schema wrappers, their promotion/baking, and the baked and
 live instance and bulk roles are implemented. The bounded direct-member remap
 core works with their entry views, including mutable live destinations.
 The lifetime, handle and default rules below describe current code.
@@ -47,7 +47,7 @@ but clears occurrence handles and ranges because its temporary live document is
 discarded. Translation failure reports `translation_failed`; invalid source or
 occupied destination reports `invalid_input`.
 
-`CLiveSchema::demote()` creates a separately owned `CBakedDocumentBlock` and an
+`CLiveSchema::bake()` creates a separately owned `CBakedDocumentBlock` and an
 unresolved `CBakedSchema` view over it. The source need only have a ready document,
 so an incomplete editable schema can be saved without resolving it. Both outputs
 must be empty. Keep the block's backing allocation alive at a stable address
@@ -338,7 +338,9 @@ empty `data` section. `CBakedBulkData::promote(destination, schema, diagnostic)`
 requires a loaded, usable source and an empty destination. It copies only the
 bulk section into an independent live document and copies the complete associated
 payload into independent storage. Existing embedded record arrays are regenerated
-from binary; reference-only entries remain references. Each entry retains explicit
+from binary; ordinary reference-only entries remain references. Stripped input
+instead regenerates complete arrays, as described under [stripped data output](#stripped-data-output).
+Each entry retains explicit
 `count`, `size`, valid offset, type group and name. The binary
 bytes, including padding, are authoritative and are never reconstructed from
 embedded records during promotion. The source document, payload and connections
@@ -406,7 +408,7 @@ that state disables the live role and reports a critical event. `clear()`
 releases its document, payload and schema link. Entry views also provide the
 bounded storage used by the implemented remapping operations below.
 
-## Bulk output and demotion (stage 6a)
+## Bulk output and baking (stage 6a)
 
 `CLiveBulkData::prepare_output(document, payload, destination_schema, form,
 diagnostic)` creates a separate live document and 128-byte-aligned packed payload.
@@ -436,7 +438,7 @@ to use their explicit positional form; readers also accept the named and
 eligible scalar forms described above.
 External form retains the authoritative binary bytes without decoding them.
 
-`demote(block, payload, role, destination_schema, form, diagnostic)` prepares
+`bake(block, payload, role, destination_schema, form, diagnostic)` prepares
 the output, bakes its document and returns a loaded `CBakedBulkData` role together
 with separate document-block and payload owners. The role borrows both owners;
 moving either owner preserves its allocation address and views, while destroying
@@ -511,7 +513,7 @@ explicit. Arrays retain the shortest prefix through their last differing element
 including necessary equal scalar elements before it. Nested compounds follow
 the same rules. Equal overrides and empty selections are removed regardless of
 their old spelling. No snapshot is changed or propagated to descendants.
-This applies to promotion, both preparation/demotion forms and both schema roles.
+This applies to promotion, retained-value preparation/baking and both schema roles.
 Old declaration values are not decoded or checked for agreement. Generated
 declarations must reproduce meaningful encoded values or the operation fails
 atomically with `unrepresentable_value`.
@@ -586,7 +588,7 @@ selections are retained or how inherited values are propagated.
 diagnostic)` accepts an empty live document and unallocated payload, with an
 explicitly resolved baked or live destination schema. It checks every used
 type for structural and value-interpretation compatibility, reconciles declarations
-as above, then packs complete
+for retained-value forms, then packs complete
 snapshots in document hierarchy order. Nonempty extents have type alignment;
 zero-byte extents use offset zero. A failed preparation leaves both outputs
 unpublished. Diagnostics identify a failing source occurrence where applicable.
@@ -600,17 +602,67 @@ either form fails with `unrepresentable_value`. Comparison uses
 the same encoded-field comparison rules as the baked loader, including NaN equality
 and ignored padding and unused bits.
 
-`demote(block, payload, role, destination_schema, form, diagnostic)` prepares,
+`bake(block, payload, role, destination_schema, form, diagnostic)` prepares,
 bakes, binds and loads the output in temporary storage before publishing an
 independent baked block and payload owner. The returned role borrows those
 allocations and remains usable after the source live role is cleared. All
-demotion outputs must be empty; failure leaves all supplied destinations unchanged
+baking outputs must be empty; failure leaves all supplied destinations unchanged
 and preserves the source. Success does not consume the source. Embedded output
 can also be written as Morphic text or strict JSON, parsed, baked and
 materialised without a supplied payload. A parser-normalised named singleton
 inside an array or positional compound is interpreted as a selection of that
 compound's named member. This is contextual to a compound element; named
 scalar-array elements and unknown members remain invalid.
+
+## Stripped data output
+
+`EDataOutputForm::stripped` is available on both data roles' `prepare_output()`
+and `bake()` overloads. The former `demote()` APIs are now named `bake()`,
+including `CLiveSchema::bake()`; no compatibility aliases are provided.
+
+Stripped output removes every instance/specialisation `declaration` and every
+embedded bulk `data` array. It retains type groups, names, the specialisation
+hierarchy and valid locators with offsets, sizes and bulk counts. Complete binary
+snapshots are packed and copied exactly, including padding, without scalar
+decoding. Schema baking still copies the complete `types` section, including all
+definitions and defaults; the data output choice never reduces the schema.
+
+The output root carries `"stripped": true`. This optional Boolean applies to
+both data sections if they share a document; absent or false retains ordinary
+document semantics. The schema resolver accepts it in combined documents.
+Data loaders reject a non-Boolean marker and reject declarations/record arrays
+in a section marked stripped. `values_stripped()` exposes the marker on either
+baked data role without allocating.
+
+Reload using `load_supplied()` and the associated binary payload. Navigation,
+entry views, remapping and unused-storage clearing continue to use the retained
+metadata. With stripped input, `compare_embedded=true` has no values to compare;
+it still validates navigation, type and locator structure, ranges and overlap.
+`materialise()` reports `binary_required` before attempting reconstruction,
+including for empty collections and zero-byte types. Those cases may use the
+explicit supplied route with a canonical empty payload.
+
+Promotion reconstructs instance declarations against destination defaults and
+parent snapshots, and reconstructs complete bulk arrays. The resulting live
+documents have no stripping marker and support normal editing. A raw scalar
+that cannot be expressed by the document grammar can be baked stripped and read
+from binary, but promotion reports `unrepresentable_value` without publishing
+a partial result. The existing embedded and external forms retain their previous
+behaviour: both regenerate instance declarations, while external bulk output
+omits arrays and its promotion keeps reference-only entries.
+
+For example, a stripped instance document can contain:
+
+```json
+{"stripped":true,"instances":{"Pair":{"base":{
+  "locator":{"offset":0,"valid":true,"size":2},
+  "specialisation":{"child":{"locator":{"offset":2,"valid":true,"size":2}}}
+}}}}
+```
+
+The associated schema describes `Pair`, and the accompanying payload holds each
+instance's complete two-byte snapshot. Missing declarations here do not imply
+default or inherited values.
 
 ## Bounded direct-member remap (stage 7a)
 
@@ -714,7 +766,7 @@ instance destination uses `SMutableInstanceEntryView::bytes` with the same
 `execute()` call. Its binary snapshot changes without editing declarations,
 selection intent or descendant snapshots, including when a mapped field was
 previously unselected. Call `reconcile(diagnostic)` to update the live document
-afterwards, or let promotion/output/demotion reconcile their destination document.
+afterwards, or let promotion or retained-value output/baking reconcile the destination document.
 Unrepresentable binary values still fail when document literals are required.
 
 Keep the plan associated with the role objects, their bound schemas and the

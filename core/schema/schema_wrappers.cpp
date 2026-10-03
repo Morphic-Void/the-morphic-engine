@@ -415,7 +415,7 @@ bool CLiveSchema::clear() noexcept
     return true;
 }
 
-bool CLiveSchema::demote(CBakedDocumentBlock& destination_block, CBakedSchema& destination_schema) const noexcept
+bool CLiveSchema::bake(CBakedDocumentBlock& destination_block, CBakedSchema& destination_schema) const noexcept
 {
     if (!document_ready() ||
         (destination_block.memory_attribution().source_state != memory::EMemorySourceState::empty) ||

@@ -159,7 +159,7 @@ public:
     [[nodiscard]] bool resolve(SDiagnostic& diagnostic) noexcept;
     [[nodiscard]] bool clear_resolution() noexcept;
     [[nodiscard]] bool clear() noexcept;
-    [[nodiscard]] bool demote(CBakedDocumentBlock& destination_block, CBakedSchema& destination_schema) const noexcept;
+    [[nodiscard]] bool bake(CBakedDocumentBlock& destination_block, CBakedSchema& destination_schema) const noexcept;
 
     [[nodiscard]] bool document_ready() const noexcept { return m_document.is_ready(); }
     [[nodiscard]] bool resolved_ready() const noexcept { return m_resolution.is_ready(); }

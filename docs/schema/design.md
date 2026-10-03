@@ -96,7 +96,7 @@ The baked document block and its view are separate. The block may be owned
 locally or by the host; baked wrappers access it through views. Destroying a view
 does not itself release the block. Its owner controls disposal and must keep the
 backing alive while any remaining view needs it, including views for other logical
-roles in a combined document. Promotion and demotion preserve their source;
+roles in a combined document. Promotion and baking preserve their source;
 callers explicitly dispose of versions and owned blocks when no longer needed.
 
 The same ownership separation applies to baked instance and bulk payloads.
@@ -110,7 +110,7 @@ the bytes requires rebinding views before further access.
 
 `CLiveInstances` and `CLiveBulkData` always own their associated byte buffers.
 Borrowed access to those buffers does not transfer ownership. Promotion copies
-the baked payload into live-owned storage; demotion creates new externally owned
+the baked payload into live-owned storage; baking creates new externally owned
 payload storage without taking the live source's buffer.
 
 Instance and bulk documents reference their schema through inter-document
@@ -141,7 +141,7 @@ On success it produces the same data and preserves the meanings of existing
 unversioned handles. On failure it clears the resolution; retaining old tables
 through allocation failure is not required. Access is single-threaded, including
 within a multi-threaded system. This stability applies within the same schema,
-not across independently promoted/demoted documents.
+not across independently promoted/baked documents.
 
 Public document handles have three role types: schema, instance and bulk. Live
 and baked wrappers of one role share its public handle type, with potentially
@@ -197,7 +197,7 @@ an explicit owner for any newly allocated payload; ownership is never hidden in
 the baked wrapper. Failed loading cleans up temporary owned allocations without
 releasing caller-supplied backing.
 
-### Non-destructive promotion, demotion and output
+### Non-destructive promotion, baking and output
 
 The starting managed representation is a baked wrapper with associated binary
 backing (loaded directly or created on load) and resolved schema access. Promotion
@@ -216,7 +216,7 @@ source resolution remains available to its existing consumers. The new result
 must use the live document's strings and occurrences and must not depend on the
 old baked backing. Source handles remain scoped to the source resolution; they
 do not become handles into the new version. A schema is supplied explicitly when
-creating, promoting or demoting an instance/bulk document. Conversion does not
+creating, promoting or baking an instance/bulk document. Conversion does not
 inherit its source's schema reference. Ordinary schema-matching rules determine
 success during the operation, without a separate pre-validation pass. Existing
 connections are not automatically redirected.
@@ -240,29 +240,29 @@ prefix through the last difference. Necessary equal values within that prefix
 remain explicit; no sparse-array grammar is introduced. Old declarations are
 not decoded or checked for agreement. Generated literals must faithfully
 reproduce meaningful encoded values or conversion fails atomically.
-This applies to promotion, both output forms and demotion, for live and baked
+This applies to promotion and retained-value output/baking, for live and baked
 destination schemas. Snapshots are copied without applying defaults or inheritance.
 Every declared instance type group is retained and checked, including empty
 groups and built-in primitive groups. An empty group does not permit a missing
 or incompatible destination type.
 
-The reverse operation, demotion, creates the corresponding baked representation
+The reverse operation, baking, creates the corresponding baked representation
 with an owned `CBakedDocumentBlock` and independent copies of associated binary
 payloads. It preserves the live source and its existing connections on success
 or failure. Ownership of the new document block and payload buffer can subsequently
 be transferred to the host; the baked query wrapper uses views over both.
-Demotion returns the wrapper, owned document block and (for instances/bulk) owned
+Baking returns the wrapper, owned document block and (for instances/bulk) owned
 payload buffer as separate components. The caller manages their joint lifetime,
-and may save or transfer either backing allocation independently. Demoting
+and may save or transfer either backing allocation independently. Baking
 a schema does not resolve its new baked wrapper: the caller may only want to save
 the block. Host transfer must leave the borrowed view backed by storage for its
 required lifetime. Callers dispose of either version explicitly when it is
 no longer required, after accounting for its remaining users.
 
-Schema promotion and demotion copy only the `types` section into an independent
+Schema promotion and baking copy only the `types` section into an independent
 document with its own root object. Instance and bulk sections of a combined
 source are not included in that schema result; the combined source remains
-unchanged. Demotion does not require the live schema to be resolved, but its
+unchanged. Baking does not require the live schema to be resolved, but its
 schema document content must be representable in the baked data model. Conversion
 requires empty destinations and preserves source and destinations on failure;
 it does not publish a partly constructed result. Diagnostics from failed
@@ -274,8 +274,9 @@ Instance and bulk promotion retain different document content:
   with offsets to complete binary snapshots. Declarations are regenerated from
   those snapshots against destination defaults or the immediate parent.
 - A bulk document regenerates existing embedded record arrays from binary and
-  retains reference-only entries without adding arrays. Organisation, offsets
-  and collection information are retained in both cases.
+  retains ordinary reference-only entries without adding arrays. Promotion of
+  explicitly stripped output regenerates complete arrays. Organisation, offsets
+  and collection information are retained in all cases.
 
 The describing document and managed data form one coordinated working set.
 Instance declarations preserve authoring and override meaning while each binary
@@ -292,21 +293,35 @@ form and adds information required by it. Full-document output reads binary
 values through the schema and embeds them; reference output retains offsets and
 writes the associated binary block. The working representation is preserved.
 The output document can then be written as text or baked, independently of the
-embedded/external payload choice. Instance/specialisation output always retains
-declaration information and the hierarchy needed to reconstruct complete values,
-including distribution output. Embedded instances use the existing named
+embedded/external/stripped content choice. Retained-value instance/specialisation
+output keeps declaration information and the hierarchy needed to reconstruct
+complete values. Embedded instances use the existing named
 declarations and inheritance hierarchy, without an additional flattened-value
 field. Binary output stores each instance's complete independent snapshot.
 Bulk record arrays can be retained for review or omitted with binary backing.
-Both forms remain fully editable after promotion. Embedded text still includes
+These forms remain fully editable after promotion. Embedded text still includes
 locator objects so later baking has the reserved nodes needed by loading.
+
+The optional stripped form removes instance/specialisation declarations and bulk
+record arrays, retaining navigation, names, type associations, hierarchy and
+valid locators with sizes/counts. It copies the binary directly without requiring
+document-representable values. Schema definitions and defaults remain intact.
+The root Boolean `stripped` marks both data sections when true; absent or false
+means ordinary document semantics. A marked document requires `load_supplied`
+with its binary payload and cannot be materialised from defaults or inheritance.
+This holds even for empty collections and zero-byte types, which may explicitly
+load a canonical empty payload. Value-bearing declarations or arrays contradict
+a true marker and are rejected. Optional embedded comparison has nothing to
+compare in this form; structural and binary range checks still apply.
+Promotion rebuilds document values from the authoritative binary and removes
+the marker. It fails atomically if required literals are unrepresentable.
 
 The existing generic `document_translation::promote` already copies a borrowed
 baked document into a live document without consuming its source. Generic `bake`
 likewise produces a block while preserving its live input. These primitives can
 support the wrapper operations; wrapper-level payload copies, schema bindings
 and output preparation remain additional responsibilities. Non-destructive
-promotion/demotion supersede the earlier destructive ownership-transfer proposal.
+promotion/baking supersede the earlier destructive ownership-transfer proposal.
 
 ### Locators, loading and buffers
 
@@ -358,7 +373,7 @@ extents. Larger bulk replacements append and leave old bytes unreferenced;
 same-size/smaller replacements may retain their offset. Working buffers do not
 compact, and live offsets need not follow document order. Baking creates a new
 buffer in document traversal order with matching baked locators; baked extents
-follow document order. Promotion/demotion remain non-destructive copies, even
+follow document order. Promotion/baking remain non-destructive copies, even
 when output reorders payloads.
 
 Instance and bulk construction does not require a blanket zero-fill pass.
@@ -366,7 +381,7 @@ An optional caller-invoked operation clears unaddressable storage, as described
 under gaps and storage initialisation. For deterministic binary output, invoke
 it on the final output buffer after packing and copying, so it covers the final
 alignment gaps and any padding imported by aggregate copies. It is not invoked
-implicitly during allocation, construction, promotion, demotion or output.
+implicitly during allocation, construction, promotion, baking or output.
 
 Stored binary byte order is little-endian. The caller supplies the associated
 binary file when creating/loading the document. File matching is manual; schema
@@ -1661,10 +1676,10 @@ Binary views across mutation/growth are caller-managed; no held-view tracking is
 ### Representations and bulk copies
 
 Document declarations and completed binary values serve coordinated roles.
-Output builds a new live document as described under promotion, demotion and
+Output builds a new live document as described under promotion, baking and
 output. Full output obtains completed values from binary; bulk references expand
 into record arrays. Reference output retains offsets and writes each associated
-block. Text versus baked output is independent of embedded versus external data.
+block. Text versus baked output is independent of embedded, external or stripped data.
 For baked instance/bulk output, the payload owner remains external to the baked
 wrapper, just like the document-block owner. The caller can save newly generated
 payloads or transfer them to the host without extracting storage from a wrapper.
@@ -1672,17 +1687,18 @@ Export does not destructively strip the working instance declarations or require
 bulk records to remain duplicated in the working document.
 
 Full output for a specialisation reads its completed values from its own binary
-extent. All instance output retains instance names and the inheritance hierarchy,
-and derives declarations from snapshot differences. An explicit override equal
+extent. All instance output retains instance names and the inheritance hierarchy;
+retained-value forms derive declarations from snapshot differences. An explicit override equal
 to its parent is removed, so it follows subsequent parent edits. Loading without
 supplied binary reconstructs values from that hierarchy. No separate flattened
 value field is required. Binary output retains complete independent snapshots.
-Both output forms remain editable after promotion.
+Stripped output omits declarations and requires supplied binary; promotion
+reconstructs the declarations needed for editing.
 Embedded/binary comparison on load is optional; when disabled, binary snapshots
 remain authoritative until an edit. Loading supplied binary does not reconstruct
 it from declarations. Exact source text and alias spellings need not survive.
 
-Both instance output forms reconcile declarations without modifying the source
+Embedded and external instance output reconcile declarations without modifying the source
 document or any snapshot. Each base is compared with destination defaults, then
 each specialisation with its immediate parent's snapshot. This treats schema
 default changes and raw-write discrepancies consistently. A child whose parent
@@ -1731,10 +1747,10 @@ derive selections from binary regardless of the original input form.
 For both roles, embedded output must round-trip under the existing encoded-field
 comparison rule: NaNs compare equal, while padding and unused bits are ignored.
 Noncanonical Boolean codes and enum codes without labels cannot be embedded
-faithfully under that rule and are rejected with a diagnostic. Instance conversion
-reconciles declarations in both forms and therefore rejects such values in either
-form. Reference-only bulk output can preserve their exact binary encodings
-without generating document literals.
+faithfully under that rule and are rejected with a diagnostic. Embedded and
+external instance output reconcile declarations and therefore reject such values.
+Stripped output for either role, and reference-only external bulk output, preserve
+their exact binary encodings without generating document literals.
 
 Binary loading/copying assumes matching offsets, stride, byte order and primitive
 representation. Packaging must establish that association and check buffer bounds;

@@ -12,7 +12,7 @@ Each document has one primary purpose:
 | [28 September decision record](question-decisions-2026-09-28.md) | Historical user answers. Reconciled into the design and partly superseded by later discussion; not a current implementation brief. |
 
 Integration stages 1-8 are implemented: shared live/baked resolution, all six
-schema/data roles, loading, capture, coordinated instance edits, output/demotion,
+schema/data roles, loading, capture, coordinated instance edits, output/baking,
 bounded remapping and explicit unused-storage clearing. The stage 9 review is
 complete; its follow-ups address promotion and selection-edit defects, current
 documentation, singular scalar input, consistent named bulk records and instance

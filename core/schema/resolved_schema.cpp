@@ -729,9 +729,15 @@ bool CResolver::declarations(const CSchemaHandle& container, const ECategory cat
 
 bool CResolver::run() noexcept
 {
-    if (!m_document.is_ready() || !shape(m_document.root(), { "types", "instances", "data" }, { "types" }))
+    if (!m_document.is_ready() || !shape(m_document.root(), { "types", "instances", "data", "stripped" }, { "types" }))
     {
         return fail(EReason::invalid_input, m_document.root());
+    }
+    const CSchemaHandle marker = property(m_document.root(), "stripped");
+    bool stripped{};
+    if (marker && !m_document.boolean_value(marker, stripped))
+    {
+        return fail(EReason::invalid_input, marker);
     }
     for (const char* const name : { "instances", "data" })
     {

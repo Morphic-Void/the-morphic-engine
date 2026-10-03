@@ -791,6 +791,7 @@ bool CLiveBulkData::promote_from(const CBakedBulkData& source, SBulkDiagnostic& 
     }
     CTypeCompatibility compatibility{ *original, *target, ETypeMatch::representation };
     const CBakedDocument& baked = source.m_document;
+    const bool stripped = source.values_stripped();
     const CBakedValueIndex source_data = baked.object_child(baked.root(), CStringView{ "data" });
     const CNodeKey destination_data = detail::SBulkHandleAccess::occurrence(data_root()).live;
     for (CBakedValueIndex group = baked.first_child(source_data); group.is_valid(); group = baked.next_sibling(group))
@@ -833,7 +834,7 @@ bool CLiveBulkData::promote_from(const CBakedBulkData& source, SBulkDiagnostic& 
                 diagnostic.reason = EBulkLoadReason::allocation_failed;
                 return false;
             }
-            if (baked.object_child(baked_entry, CStringView{ "data" }) &&
+            if ((stripped || baked.object_child(baked_entry, CStringView{ "data" })) &&
                 !reconcile_records(m_document, live_entry, *target, target_type,
                     (record->extent ? m_payload.data() + record->offset : nullptr), record->count, diagnostic.reason))
             {
@@ -964,7 +965,8 @@ bool CLiveBulkData::prepare_output_to(CLiveDocument& document, CByteBuffer& payl
     diagnostic = {};
     const CResolvedSchema* const source_schema = m_binding.resolved();
     if (!loaded_ready() || !source_schema || document.is_ready() || payload.is_ready() ||
-        ((form != EDataOutputForm::embedded) && (form != EDataOutputForm::external)))
+        ((form != EDataOutputForm::embedded) && (form != EDataOutputForm::external) &&
+            (form != EDataOutputForm::stripped)))
     {
         diagnostic.reason = EBulkLoadReason::invalid_input;
         return false;
@@ -974,6 +976,12 @@ bool CLiveBulkData::prepare_output_to(CLiveDocument& document, CByteBuffer& payl
         staged_document.set_root_type(ELiveValueType::object)) ? staged_document.root() : CNodeKey{};
     const CNodeKey data = staged_root ? staged_document.create_object(CStringView{ "data" }) : CNodeKey{};
     if (!staged_root || !append_node(staged_document, staged_root, data))
+    {
+        diagnostic.reason = EBulkLoadReason::allocation_failed;
+        return false;
+    }
+    if ((form == EDataOutputForm::stripped) &&
+        !append_node(staged_document, staged_root, staged_document.create_boolean(true, CStringView{ "stripped" })))
     {
         diagnostic.reason = EBulkLoadReason::allocation_failed;
         return false;
@@ -1110,7 +1118,7 @@ bool CLiveBulkData::prepare_output(CLiveDocument& document, CByteBuffer& payload
 }
 
 template <class TSchema>
-bool CLiveBulkData::demote_to(CBakedDocumentBlock& block, CByteBuffer& payload, CBakedBulkData& role,
+bool CLiveBulkData::bake_to(CBakedDocumentBlock& block, CByteBuffer& payload, CBakedBulkData& role,
     TSchema& destination_schema, const EDataOutputForm form, SBulkDiagnostic& diagnostic) const noexcept
 {
     diagnostic = {};
@@ -1150,16 +1158,16 @@ bool CLiveBulkData::demote_to(CBakedDocumentBlock& block, CByteBuffer& payload, 
     return true;
 }
 
-bool CLiveBulkData::demote(CBakedDocumentBlock& block, CByteBuffer& payload, CBakedBulkData& role,
+bool CLiveBulkData::bake(CBakedDocumentBlock& block, CByteBuffer& payload, CBakedBulkData& role,
     CBakedSchema& destination_schema, const EDataOutputForm form, SBulkDiagnostic& diagnostic) const noexcept
 {
-    return demote_to(block, payload, role, destination_schema, form, diagnostic);
+    return bake_to(block, payload, role, destination_schema, form, diagnostic);
 }
 
-bool CLiveBulkData::demote(CBakedDocumentBlock& block, CByteBuffer& payload, CBakedBulkData& role,
+bool CLiveBulkData::bake(CBakedDocumentBlock& block, CByteBuffer& payload, CBakedBulkData& role,
     CLiveSchema& destination_schema, const EDataOutputForm form, SBulkDiagnostic& diagnostic) const noexcept
 {
-    return demote_to(block, payload, role, destination_schema, form, diagnostic);
+    return bake_to(block, payload, role, destination_schema, form, diagnostic);
 }
 
 }   // namespace schema
