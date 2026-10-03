@@ -51,8 +51,7 @@ std::uint32_t CTypeCompatibility::hash(const SPair& pair) noexcept
 
 ETypeMatchResult CTypeCompatibility::add(const SPair pair) noexcept
 {
-    if ((&m_source == &m_destination) && (pair.source == pair.destination) &&
-        (pair.source_default == pair.destination_default))
+    if ((&m_source == &m_destination) && (pair.source == pair.destination) && (pair.source_default == pair.destination_default))
     {
         return ETypeMatchResult::match;
     }
