@@ -17,7 +17,7 @@
 #include "schema/live_instances.hpp"
 #include "schema/data_remap.hpp"
 #include "schema/value_codec.hpp"
-#include "schema/document_copy.hpp"
+#include "data_model/document_copy.hpp"
 #include "schema/type_compatibility.hpp"
 #include "memory/memory_policies.hpp"
 #include "data_model/document_parser.hpp"
@@ -2557,15 +2557,15 @@ static void test_document_value_copy(TTestContext& ctx)
     {
         CLiveDocument destination;
         TEST_EXPECT(ctx, destination.initialise(2u));
-        const CNodeKey copied = copy_document_value(destination, read,
+        const CNodeKey copied = document_translation::copy_subtree(destination, read,
             read.object_child(read.root(), CStringView{ "source" }), CStringView{ "copy" });
         verify(destination, copied);
         const auto before = source.value_count();
-        const CNodeKey same_document = copy_document_value(source, read,
+        const CNodeKey same_document = document_translation::copy_subtree(source, read,
             read.object_child(read.root(), CStringView{ "source" }), source.name(original));
         verify(source, same_document);
         TEST_EXPECT(ctx, source.erase(same_document) && (source.value_count() == before));
-        TEST_EXPECT(ctx, !copy_document_value(destination, read, read.root(), {}, 256u));
+        TEST_EXPECT(ctx, !document_translation::copy_subtree(destination, read, read.root(), {}, 256u));
     }
     bool succeeded{};
     std::size_t failures{};
@@ -2580,7 +2580,7 @@ static void test_document_value_copy(TTestContext& ctx)
             TEST_EXPECT(ctx, target.initialise(2u));
             const auto before = target.value_count();
             failing.fail_on = failing.calls + offset;
-            const CNodeKey copied = copy_document_value(target, baked_read,
+            const CNodeKey copied = document_translation::copy_subtree(target, baked_read,
                 baked_read.object_child(baked_read.root(), CStringView{ "source" }), CStringView{ "copy" });
             failing.fail_on = SIZE_MAX;
             succeeded = copied.is_valid();

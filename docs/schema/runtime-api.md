@@ -297,12 +297,15 @@ with their callers, including the checks that generated literals reproduce
 meaningful encoded values. This adds no decoding to stripped baking or baked
 entry access.
 
-Instance creation and editing share a bounded subtree copier for live or baked
-sources, including copying within one live document. It retains integer metadata,
-string newline-escaping flags, names and child order, and removes partial copies
-on failure. The same internal helper group stabilises names before document
-growth. Whole-document promotion in the data model remains a separate implementation;
-combining those implementations is a follow-up discussion.
+Instance creation and editing use the data-model `document_translation::copy_subtree`
+helper for live or baked sources, including copying within one live document.
+It retains integer metadata, string newline-escaping flags, names and child order,
+and removes partial copies on failure. The same helper group stabilises names
+before document growth. Subtree copying and whole-document/selected-member
+promotion share value construction and metadata handling through compile-time
+source access. The subtree walk retains its 256-level depth bound and incremental
+growth; promotion retains its iterative walk, node reservation and staged
+publication. Baked access gains no additional storage or work.
 
 ## Baked bulk role (stage 4b)
 

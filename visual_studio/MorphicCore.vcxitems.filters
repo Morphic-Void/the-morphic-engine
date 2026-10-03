@@ -876,8 +876,8 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\type_compatibility.hpp">
       <Filter>Core\include\schema</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\document_copy.hpp">
-      <Filter>Core\include\schema</Filter>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\data_model\document_copy.hpp">
+      <Filter>Core\include\data_model</Filter>
     </ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\value_codec.hpp">
       <Filter>Core\include\schema</Filter>
@@ -915,8 +915,8 @@
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\type_compatibility.cpp">
       <Filter>Core\src\schema</Filter>
     </ClCompile>
-    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\document_copy.cpp">
-      <Filter>Core\src\schema</Filter>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\data_model\document_copy.cpp">
+      <Filter>Core\src\data_model</Filter>
     </ClCompile>
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\value_codec.cpp">
       <Filter>Core\src\schema</Filter>

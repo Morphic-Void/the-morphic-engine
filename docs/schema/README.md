@@ -21,8 +21,9 @@ binary-authoritative document reconciliation. Baked entry indexes, direct live-r
 binary search, cached bulk type indices, indexed remap setup and shared
 compatibility checking address the subsequent bookkeeping review. Baking supports
 optional stripped data output. Shared scalar decoding, subtree copying and name
-stabilisation consolidate the schema paths; combining copying with the general
-data-model implementation remains a later discussion. See the
+stabilisation consolidate the schema paths. Subtree copying now lives in the data
+model and shares value construction and metadata handling with promotion, while
+retaining their separate traversal and allocation strategies. See the
 [implementation contract](implementation-contract.md).
 
 The coordinator handoff, pre-refactoring gap review and record-layout proposal

@@ -63,7 +63,7 @@ each with 18,183 schema checks and no failures (`schema-baking-final-dbg64`,
 `schema-baking-final-rel64`, `schema-baking-final-dbg32`). Policy validation
 reported no errors or warnings; diff and line-ending checks passed.
 
-The subsequent bounded consolidation shares scalar decoding, scalar bit access,
+The initial bounded consolidation shared scalar decoding, scalar bit access,
 document subtree copying and name stabilisation within the schema implementation.
 Instance creation and editing now both preserve copied string-formatting flags. Existing
 role APIs, diagnostics, bulk completeness, instance inheritance and output
@@ -82,10 +82,36 @@ Release binary initially reported three collection destructor-count failures;
 a clean Release rebuild passed those checks without collection source changes.
 Policy validation reported no errors or warnings, and diff/line-ending checks passed.
 
-The user requested considering combination with the general document-copying
-implementation only after this initial change. That broader consolidation,
-integer output notation, remaining file/API organisation and further performance
-work remain discussion items.
+The completed follow-up moves subtree copying and name stabilisation
+to `data_model/document_copy.hpp/.cpp`. Subtree copying and generic document
+promotion share value construction, integer metadata and string formatting.
+Compile-time source access keeps promotion's direct baked queries and avoids
+runtime adapters or temporary storage. The recursive subtree walk retains its
+256-level bound, incremental growth and partial-copy cleanup. Whole-document and
+selected-member promotion retain their iterative walk, node reservation and
+staged publication. Neither the baked writer nor schema scalar policies change.
+
+A temporary Release x64 probe used a mixed document with 96 distinct string rows.
+Whole promotion, selected-member promotion, live subtree copying and baked subtree
+copying respectively made 26, 30, 37 and 37 allocation requests, requesting 37,824,
+43,584, 51,200 and 51,200 bytes in total, identical before and after the refactor.
+All temporary allocations were released. Nine batches of 1,024 operations per
+route showed timing variation between runs, with no consistent slowdown observed;
+this is a representative regression check, not a general performance guarantee.
+The temporary probe is not part of the runtime or normal test suite.
+
+Validation passed full Debug x64, Release x64 and Debug Win32 builds and `-t1`
+runs (`generic-copy-final-dbg64`, `generic-copy-checked-rel64`,
+`generic-copy-final-dbg32`), each with 3,340 baked-document checks and 18,457
+schema checks, zero failures. New checks compare copied and promoted output,
+preserve absent/empty names and live placeholders, exercise the subtree depth
+boundary, and sweep allocation failures through both promotion routes. Existing
+same-document and subtree-failure checks also pass. Policy validation reported
+no errors or warnings; diff and line-ending checks passed.
+
+Integer output notation, remaining file/API organisation and further performance
+work remain discussion items. Combining the traversal strategies is outside this
+refactor.
 Fp16 workflow changes and source ingestion also remain deferred. A completed
 review does not authorise those changes.
 

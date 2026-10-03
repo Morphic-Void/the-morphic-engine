@@ -309,9 +309,9 @@ of either representation. The live document therefore need not include or
 understand the baked representation, and the baked document need not construct
 or understand live storage. Baking uses public live observations for structure
 and payload, with narrow friendship for value flags and selected-root-member
-analysis. Promotion uses the checked baked query surface, narrow record access
-for flags, and public live construction. Both publish only completed output;
-promotion uses ordinary live-document move assignment.
+analysis. Promotion uses the checked baked query surface and shared live value
+construction, including integer metadata and string-formatting flags. Both
+publish only completed output; promotion uses ordinary live-document move assignment.
 
 `bake_root_member` and `promote_root_member` copy an object root together with
 at most one named direct member and its subtree. If that member is absent, the
@@ -319,6 +319,24 @@ result has an empty object root. These helpers retain only strings referenced
 by the copied values. The existing whole-document functions keep their full
 copy behavior. All four translations replace their destination on success and
 leave it unchanged on failure.
+
+`document_copy.hpp` provides `document_translation::copy_subtree` for copying a
+live or baked subtree into an existing live document. It also accepts equivalent
+read adapters, allowing schema code to use its representation-neutral reader
+without making the data model depend on schema types. Source access is resolved
+at compile time. Copies preserve scalar values, integer metadata, string formatting,
+child names and order; the caller supplies the copied root's name. Absent names
+and present empty names remain distinct. The result is detached, same-document
+copying is supported, and partial nodes are erased on failure. The recursive
+walk allows 256 levels, including any enclosing depth supplied by the caller.
+
+Subtree copying and promotion share the value-construction implementation.
+Their walks remain separate: subtree copying grows the destination incrementally,
+while promotion retains iterative traversal, a per-value parent table and advance
+node reservation. Promotion does not inherit the subtree depth limit. Name
+stabilisation is also available in this helper group for callers that must retain
+a document-owned name across mutations. These helpers add no persistent storage
+or work to baked queries.
 
 ## Writer and parser baseline
 

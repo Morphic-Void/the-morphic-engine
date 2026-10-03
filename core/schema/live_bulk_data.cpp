@@ -11,7 +11,7 @@
 #include "schema/live_bulk_data.hpp"
 #include "schema/type_compatibility.hpp"
 #include "schema/value_codec.hpp"
-#include "schema/document_copy.hpp"
+#include "data_model/document_copy.hpp"
 #include "data_model/document_translation.hpp"
 #include "memory/memory_policies.hpp"
 #include "debug/macros.hpp"
@@ -431,7 +431,8 @@ CBulkHandle CLiveBulkData::store(const CStringView& type, const CStringView& nam
     }
     CByteBuffer type_storage, name_storage;
     CStringView stable_type, stable_name;
-    if (!stabilise_document_name(type, type_storage, stable_type) || !stabilise_document_name(name, name_storage, stable_name))
+    if (!document_translation::stabilise_document_name(type, type_storage, stable_type) ||
+        !document_translation::stabilise_document_name(name, name_storage, stable_name))
     {
         diagnostic.reason = EBulkLoadReason::allocation_failed;
         return {};

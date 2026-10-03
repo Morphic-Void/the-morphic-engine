@@ -10,7 +10,7 @@
 
 #include "schema/live_instances.hpp"
 #include "schema/value_codec.hpp"
-#include "schema/document_copy.hpp"
+#include "data_model/document_copy.hpp"
 #include "debug/macros.hpp"
 #include "memory/memory_policies.hpp"
 
@@ -113,7 +113,7 @@ struct SResolvedSelectionStep
     //  shape without requiring its discarded binary values to have declarations.
     if (discarded_steps && (depth == discarded_steps->size()))
     {
-        const CNodeKey copied = copy_document_value(target, document, selection, name, depth);
+        const CNodeKey copied = document_translation::copy_subtree(target, document, selection, name, depth);
         if (!copied)
         {
             error = EInstanceLoadReason::allocation_failed;
@@ -236,7 +236,7 @@ struct SResolvedSelectionStep
             const std::uint64_t word = read_scalar_bits(bytes, static_cast<std::size_t>(layout.size));
             const std::uint64_t raw = (word & field.mask) >> field.shift;
             const CStringView child_name = positional ? CStringView{} : schema.name(field.name);
-            child = child_discarded ? copy_document_value(target, document, child_selection, child_name, (depth + 1u)) :
+            child = child_discarded ? document_translation::copy_subtree(target, document, child_selection, child_name, (depth + 1u)) :
                 decode_scalar(target, schema, field.type, raw, field.width, child_name, error);
         }
         if (!child || !target.append_child(result, child).succeeded())
@@ -752,7 +752,7 @@ struct SStagedEdit
             }
             name = schema.name(field.name);
         }
-        const CNodeKey copied = copy_document_value(document, query, detail::SOccurrence{ source_child }, name);
+        const CNodeKey copied = document_translation::copy_subtree(document, query, detail::SOccurrence{ source_child }, name);
         if (!copied || !document.append_child(named, copied).succeeded())
         {
             if (copied && document.is_detached(copied))
@@ -1062,8 +1062,8 @@ CInstanceHandle CLiveInstances::capture_base(const CStringView& type, const CStr
     }
     CByteBuffer type_storage, name_storage;
     CStringView stable_type, stable_name;
-    if (!stabilise_document_name(type, type_storage, stable_type) ||
-        !stabilise_document_name(name, name_storage, stable_name))
+    if (!document_translation::stabilise_document_name(type, type_storage, stable_type) ||
+        !document_translation::stabilise_document_name(name, name_storage, stable_name))
     {
         diagnostic.reason = EInstanceLoadReason::allocation_failed;
         return {};
@@ -1166,7 +1166,7 @@ bool CLiveInstances::set_selection(const CInstanceHandle instance,
         return false;
     }
     const detail::CDocumentRead local{ m_document };
-    CNodeKey replacement = copy_document_value(m_document, source.m_query, source_value,
+    CNodeKey replacement = document_translation::copy_subtree(m_document, source.m_query, source_value,
         (step_count ? CStringView{} : CStringView{ "declaration" }));
     EInstanceLoadReason decode_error{ EInstanceLoadReason::none };
     CNodeKey staged = (step_count && record.declaration) ? decode_selection(m_document, *schema, record.type,

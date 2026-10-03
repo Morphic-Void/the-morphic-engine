@@ -9,6 +9,7 @@
 //  Translation from a checked baked view to a mutable live document.
 
 #include "data_model/document_translation.hpp"
+#include "data_model/document_copy.hpp"
 
 #include <limits>
 #include <utility>
@@ -35,7 +36,6 @@ private:
     };
 
     [[nodiscard]] bool prepare_values() noexcept;
-    [[nodiscard]] CNodeKey create_value(const CBakedValueIndex source) noexcept;
 
     const CBakedDocument& m_source;
     CStringView m_member_name;
@@ -71,14 +71,12 @@ bool CLiveDocumentPromoter::build() noexcept
     for (std::uint32_t index = 1u; index < m_values.size(); ++index)
     {
         SPromotedValue& value = m_values[index];
-        value.destination = create_value(value.source);
+        value.destination = document_translation::detail::create_value_copy(
+            m_destination, m_source, value.source, m_source.name(value.source));
         if (!value.destination.is_valid())
         {
             return false;
         }
-        const SBakedValueRecord* const source = m_source.value_record(value.source);
-        m_destination.value_node(value.destination)->set_value_flags(
-            source->value_flags & document_value_flags::k_live_flags);
         if (!m_destination.append_child(m_values[value.parent_index].destination, value.destination).succeeded())
         {
             return false;
@@ -157,63 +155,6 @@ bool CLiveDocumentPromoter::prepare_values() noexcept
     }
     m_live_node_count = static_cast<std::uint32_t>(live_node_count);
     return true;
-}
-
-CNodeKey CLiveDocumentPromoter::create_value(const CBakedValueIndex source) noexcept
-{
-    const CStringView name = m_source.name(source);
-    switch (m_source.value_type(source))
-    {
-        case EBakedValueType::null_value:
-        {
-            return m_destination.create_null(name);
-        }
-        case EBakedValueType::boolean:
-        {
-            bool value = false;
-            return m_source.boolean_value(source, value) ?
-                m_destination.create_boolean(value, name) : CNodeKey{};
-        }
-        case EBakedValueType::integer:
-        {
-            CIntegerMetadata metadata;
-            if (!m_source.integer_metadata(source, metadata))
-            {
-                return CNodeKey{};
-            }
-            if (metadata.domain == EIntegerDomain::unsigned_value)
-            {
-                std::uint64_t value = 0u;
-                return m_source.unsigned_integer_value(source, value) ?
-                    m_destination.create_unsigned_integer(value, metadata, name) : CNodeKey{};
-            }
-            std::int64_t value = 0;
-            return m_source.signed_integer_value(source, value) ?
-                m_destination.create_signed_integer(value, metadata, name) : CNodeKey{};
-        }
-        case EBakedValueType::floating_point:
-        {
-            double value = 0.0;
-            return m_source.floating_point_value(source, value) ?
-                m_destination.create_floating_point(value, name) : CNodeKey{};
-        }
-        case EBakedValueType::string:
-        {
-            return m_destination.create_string(m_source.string_value(source), name);
-        }
-        case EBakedValueType::array:
-        {
-            return m_destination.create_array(name);
-        }
-        case EBakedValueType::object:
-        {
-            return m_destination.create_object(name);
-        }
-        default:
-        {
-            return CNodeKey{};
-        }
-    }
 }
 
 bool document_translation::promote(const CBakedDocument& source, CLiveDocument& destination) noexcept

@@ -468,6 +468,29 @@ A failed promotion must not publish a partially constructed destination as a
 coherent live document. It need not preserve unused capacity or allocation
 history.
 
+## Subtree copying
+
+`document_translation::copy_subtree` in `document_copy.hpp` copies a selected
+live or baked value and its descendants into an initialised live document.
+The source may be the destination document. A successful copy returns a fresh,
+detached value; attachment remains the caller's responsibility.
+
+The caller supplies the copied root's name. Child names, name presence, order,
+scalar values, integer metadata and string newline-escaping flags are preserved.
+Live empty values remain empty when copied directly. Absent names and present
+empty names remain distinct.
+
+The recursive copy accepts depths 0 through 255. Its optional starting depth
+defaults to zero and allows callers to include an enclosing traversal in that
+limit. Invalid source identities, exhausted depth or construction/attachment
+failure return an invalid key and erase partial copied nodes. Existing destination
+values remain intact; unused capacity and interned strings need not be rolled
+back. Promotion retains its separate traversal without this depth limit.
+
+`document_translation::stabilise_document_name` retains a name in caller-owned
+storage before a mutation can invalidate its borrowed bytes. It rejects an
+absent name and preserves a present empty name without allocation.
+
 ## Text ingestion and parsing
 
 The complete [text format](document_text_format.md) defines source encoding,

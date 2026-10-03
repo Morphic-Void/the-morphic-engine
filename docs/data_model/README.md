@@ -14,7 +14,7 @@ are not required to interpret them.
 
 | Document | Responsibility |
 | --- | --- |
-| [Semantic specification](revised_data_model.md) | Logical nodes, names, roots, numeric values, mutation, collision extension, integrity, ownership, baking and promotion |
+| [Semantic specification](revised_data_model.md) | Logical nodes, names, roots, numeric values, mutation, collision extension, integrity, ownership, baking, promotion and subtree copying |
 | [Text format](document_text_format.md) | Source encodings, complete grammar, root inference, escapes, numeric classification, NULs, construction interpretations and text round trips |
 | [Parsing and reporting](document_parsing.md) | Byte-view API, optional linter details, processing state, failure locations, findings, permission masks and policy evaluation |
 | [Baked format](baked_document_format.md) | Physical layout, version, flags, string tables and checked validation |

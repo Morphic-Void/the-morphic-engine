@@ -11,7 +11,7 @@
 #include "schema/live_instances.hpp"
 #include "schema/type_compatibility.hpp"
 #include "schema/value_codec.hpp"
-#include "schema/document_copy.hpp"
+#include "data_model/document_copy.hpp"
 #include "data_model/document_translation.hpp"
 #include "memory/memory_policies.hpp"
 #include "debug/macros.hpp"
@@ -282,8 +282,8 @@ CInstanceHandle CLiveInstances::append_instance(const CSchemaIndex type, const s
     }
     CByteBuffer type_storage, name_storage;
     CStringView stable_type, stable_name;
-    if (((parent == k_no_parent) && !stabilise_document_name(type_name, type_storage, stable_type)) ||
-        !stabilise_document_name(name, name_storage, stable_name))
+    if (((parent == k_no_parent) && !document_translation::stabilise_document_name(type_name, type_storage, stable_type)) ||
+        !document_translation::stabilise_document_name(name, name_storage, stable_name))
     {
         diagnostic.reason = EInstanceLoadReason::allocation_failed;
         return {};
@@ -334,7 +334,7 @@ CInstanceHandle CLiveInstances::append_instance(const CSchemaIndex type, const s
     CNodeKey copied_declaration;
     if (declaration.is_valid())
     {
-        copied_declaration = copy_document_value(m_document, source, declaration, CStringView{ "declaration" });
+        copied_declaration = document_translation::copy_subtree(m_document, source, declaration, CStringView{ "declaration" });
         if (!append(m_document, instance, copied_declaration))
         {
             if (copied_declaration && m_document.is_detached(copied_declaration))
