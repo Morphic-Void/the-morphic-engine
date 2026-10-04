@@ -83,7 +83,7 @@ Later source, shader, localisation and tooling ingestion should reuse the
 Still deferred: live packing with slot-link remapping, live cursors/revisions,
 object-name lookup acceleration including O(1) baked lookup, and additional
 general naming/value-conversion APIs only when consumers demonstrate a need.
-The completed schema-role entry indexes and local unused-storage member cursor
+The completed schema-role entry indexes and resolved physical-member index
 do not implement these general document lookup or cursor facilities.
 Qualify numeric conversion on additional supported standard-library toolchains
 using the existing boundary and round-trip corpus.
@@ -93,8 +93,11 @@ resolution, C++ declaration generation, live/baked instance and bulk data,
 output and remapping. Its review repairs, binary-authoritative reconciliation,
 optional stripped baking, lookup/remap improvements, scalar/document-copy
 consolidation and five-part tidying phase are complete through `db82da7`.
-Remaining discussions cover integer output notation, fp16 handling, further
-performance work and source/header ingestion, as recorded in its
+The subsequent performance pass completes inline query forwarding, shared
+physical-member ordering and sorted explicit-layout overlap checking. General
+schema name lookup remains caller-managed. Remaining discussions cover integer
+output notation (including data-model metadata design), fp16 handling and
+source/header ingestion, as recorded in its
 [implementation contract](../schema/implementation-contract.md).
 Configuration, localisation, state capture/reconstruction and graphics metadata
 remain potential consumers, to be selected as separate work.

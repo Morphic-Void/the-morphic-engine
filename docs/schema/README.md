@@ -30,10 +30,13 @@ runtime guide. Instance translation now has a separate implementation file for
 promotion, reconciliation and baking, alongside ownership/creation and editing.
 The subsequent conditional/parameter pass shares compound-input preparation and
 holds fixed overlay and bulk-reconstruction inputs in local operation objects.
-A shared alignment constant and the unused-storage member cursor complete those
+A shared alignment constant and shared unused-storage traversal completed those
 local cleanups. The final style/comment audit is complete across schema and the
 data model, including header sections and include guidance. The tidying phase is
-complete; separate deferred discussions remain in the
+complete. The subsequent performance pass inlines role-query forwarding, shares
+a retained physical-member index between clearing and C++ generation, and replaces
+the resolver's pairwise explicit-overlap check with a sorted sweep. General name
+lookup remains caller-managed; separate deferred discussions remain in the
 [implementation contract](implementation-contract.md).
 
 The coordinator handoff, pre-refactoring gap review and record-layout proposal

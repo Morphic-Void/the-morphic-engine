@@ -15,6 +15,9 @@ baked document. A baked query copies the non-owning view, while a live query
 borrows its document. `CInstanceDocumentQuery` and `CBulkDocumentQuery` offer the
 same original-root read surface with their distinct role handles. Schema,
 instance and bulk role-handle types are distinct.
+The small role-query forwarding methods are inline in `document_query.hpp`,
+grouped by class at the end of the header after the interface declarations.
+Live/baked dispatch remains in the shared adapter in `document_query.cpp`.
 
 ## Header organisation
 
@@ -209,6 +212,15 @@ signed/unsigned integer values and returns the first alias in declaration order.
 `named_components` identifies structures whose members all use the same
 non-array primitive type. Layout observations always come from stored resolved
 facts: size, alignment, offsets, strides and recursive gap presence.
+
+`physical_member_at(type, ordinal)` visits the same member records by increasing
+offset, with declaration ordinal breaking ties. It includes zero-byte members;
+`member_at` and the existing indices still follow declaration order. Invalid
+types, out-of-range ordinals and an unready owner return zero. Resolution retains
+one 32-bit ordinal per member in a shared vector, with normal capacity overhead.
+Natural layouts use declaration order directly; explicit layouts are sorted
+once. Observation is constant-time and allocates nothing. The index follows the
+resolved tables through moves, clearing and re-resolution.
 
 An empty structure uses `members: []`, resolves with size and stride zero and
 alignment one, and retains a queryable type index and document mapping. A
@@ -892,10 +904,10 @@ complete layout, locators, extents and overlaps before writing. Invalid input
 or allocation failure leaves every destination byte unchanged; repeated
 successful calls are idempotent.
 
-Structure validation and clearing share a local physical-member cursor. It visits
-members by offset, breaking ties by declaration ordinal so empty members at the
-same offset are retained. The cursor allocates no storage; each step still scans
-the members, so a complete structure traversal remains quadratic in member count.
+Structure validation and clearing use the resolved physical-member index. Each
+walk visits a structure's members in linear time, including empty members at
+equal offsets. Traversal allocates no storage and does not rebuild the order for
+each record or array element. Complete preflight still precedes any write.
 
 ## Occurrence coverage
 
@@ -960,6 +972,12 @@ members remains size zero and alignment one. Only package shape and
 `types` are validated in a combined document; `instances` and `data` values are
 deliberately not evaluated.
 
+Explicit-layout overlap checking uses a sorted sweep with a temporary ordinal
+heap during resolution: O(n log n) work and O(n) scratch storage for n members.
+The first conflicting declaration pair and its precedence relative to alignment
+and bounds errors remain in declaration order. This replaces the pairwise overlap
+scan; other resolution work, including general name lookup, is unchanged.
+
 ## C++17 declarations and validation
 
 `generate_cpp(resolved, namespace_name, output, diagnostic)` returns a complete
@@ -972,7 +990,9 @@ Natural structures whose compiler layout already matches use implicit C++
 alignment. For other accepted layouts, the generator emits `alignas` when the
 structure needs increased alignment, byte-array padding for gaps and tail space,
 and fields in physical offset order. Synthetic padding names avoid collisions
-with schema names. Schema member order and lookup remain in declaration order.
+with schema names. Physical-order emission reuses the resolved member index;
+it no longer searches all members for each next field. Schema member order and
+lookup remain in declaration order.
 Compiler validation establishes that the target layout matches the resolved
 schema. The internal marker does not suppress declarations or validation.
 

@@ -195,6 +195,7 @@ CResolvedSchema& CResolvedSchema::operator=(CResolvedSchema&& source) noexcept
         m_document = source.m_document;
         m_types = std::move(source.m_types);
         m_members = std::move(source.m_members);
+        m_member_order = std::move(source.m_member_order);
         m_labels = std::move(source.m_labels);
         m_fields = std::move(source.m_fields);
         m_defaults = std::move(source.m_defaults);
@@ -213,6 +214,7 @@ void CResolvedSchema::clear() noexcept
     m_document = {};
     m_types.deallocate();
     m_members.deallocate();
+    m_member_order.deallocate();
     m_labels.deallocate();
     m_fields.deallocate();
     m_defaults.deallocate();
@@ -295,6 +297,16 @@ CSchemaIndex CResolvedSchema::child_at(
 CSchemaIndex CResolvedSchema::member_at(const CSchemaIndex i, const std::uint32_t n) const noexcept
 {
     return child_at(i, n, ECategory::structure, resolver_util::k_member);
+}
+
+CSchemaIndex CResolvedSchema::physical_member_at(const CSchemaIndex i, const std::uint32_t n) const noexcept
+{
+    const STypeRecord* const record = type_record(i);
+    if (!m_ready || !record || (record->category != ECategory::structure) || (n >= record->count))
+    {
+        return {};
+    }
+    return index(resolver_util::k_member, (record->first + m_member_order[record->first + n]));
 }
 
 CSchemaIndex CResolvedSchema::label_at(const CSchemaIndex i, const std::uint32_t n) const noexcept
@@ -539,6 +551,7 @@ private:
     bool enumeration(TTypeRecord& type_record) noexcept;
     bool structure(TTypeRecord& type_record, const unsigned depth) noexcept;
     bool structure_layout(TTypeRecord& type_record, const bool explicit_offsets, const bool has_storage) noexcept;
+    bool order_members(const TTypeRecord& type_record, const bool explicit_offsets, std::uint32_t& overlap, std::uint32_t& related) noexcept;
     bool bit_structure(TTypeRecord& type_record, const unsigned depth) noexcept;
     bool storage(TTypeRecord& type_record) noexcept;
     bool add(const std::uint64_t a, const std::uint64_t b, std::uint64_t& out, const CSchemaHandle& at) noexcept;
@@ -991,7 +1004,8 @@ bool CResolver::structure(TTypeRecord& type_record, const unsigned depth) noexce
     type_record.count = m_document.child_count(members);
     type_record.alignment_log2 = 0u;
     type_record.set_flag(TTypeRecord::k_named_components, type_record.count != 0u);
-    if (!grow(m_schema.m_members, type_record.count, members))
+    if (!grow(m_schema.m_members, type_record.count, members) ||
+        !grow(m_schema.m_member_order, type_record.count, members))
     {
         return false;
     }
@@ -1065,6 +1079,81 @@ bool CResolver::structure(TTypeRecord& type_record, const unsigned depth) noexce
     return structure_layout(type_record, explicit_offsets, has_storage);
 }
 
+bool CResolver::order_members(const TTypeRecord& type_record, const bool explicit_offsets, std::uint32_t& overlap, std::uint32_t& related) noexcept
+{
+    overlap = related = UINT32_MAX;
+    if (type_record.count == 0u)
+    {
+        return true;
+    }
+    std::uint32_t* const order = m_schema.m_member_order.data() + type_record.first;
+    for (std::uint32_t ordinal = 0u; ordinal < type_record.count; ++ordinal)
+    {
+        order[ordinal] = ordinal;
+    }
+
+    //  Natural layout already follows declaration order, including empty members.
+    if (!explicit_offsets || (type_record.count < 2u))
+    {
+        return true;
+    }
+    const CResolvedSchema::SMemberRecord* const members = m_schema.m_members.data() + type_record.first;
+    std::sort(order, (order + type_record.count),
+        [members](const std::uint32_t a, const std::uint32_t b) noexcept
+        {
+            return (members[a].offset < members[b].offset) ||
+                ((members[a].offset == members[b].offset) && (a < b));
+        });
+
+    //  At each start offset, the lowest active declaration ordinal gives the
+    //  earliest diagnostic pair involving that member. Expired entries below
+    //  the heap root may remain until exposed; each entry is pushed/popped once.
+    TPodVector<std::uint32_t> active;
+    if (!active.allocate(type_record.count))
+    {
+        return fail(EReason::allocation_failed, type_record.source);
+    }
+    const auto later_ordinal = [](const std::uint32_t a, const std::uint32_t b) noexcept { return a > b; };
+    for (std::uint32_t position = 0u; position < type_record.count; ++position)
+    {
+        const std::uint32_t ordinal = order[position];
+        const CResolvedSchema::SMemberRecord& member = members[ordinal];
+        if (member.size == 0u)
+        {
+            continue;
+        }
+        while (active.size() != 0u)
+        {
+            const CResolvedSchema::SMemberRecord& prior = members[active[0u]];
+
+            //  Layout bounds have not been checked yet; an invalid end may
+            //  exceed the 32-bit range. Report it later in declaration order.
+            const std::uint64_t end = static_cast<std::uint64_t>(prior.offset) + prior.size;
+            if (end > member.offset)
+            {
+                break;
+            }
+            std::pop_heap(active.data(), (active.data() + active.size()), later_ordinal);
+            (void)active.set_size(active.size() - 1u);
+        }
+        if (active.size() != 0u)
+        {
+            const std::uint32_t later = std::max(ordinal, active[0u]);
+            const std::uint32_t earlier = std::min(ordinal, active[0u]);
+            if ((later < overlap) || ((later == overlap) && (earlier < related)))
+            {
+                overlap = later;
+                related = earlier;
+            }
+        }
+
+        //  The complete capacity was reserved above; this append cannot grow it.
+        (void)active.push_back(ordinal);
+        std::push_heap(active.data(), (active.data() + active.size()), later_ordinal);
+    }
+    return true;
+}
+
 bool CResolver::structure_layout(TTypeRecord& type_record, const bool explicit_offsets, const bool has_storage) noexcept
 {
     m_stage = EStage::layout;
@@ -1136,6 +1225,11 @@ bool CResolver::structure_layout(TTypeRecord& type_record, const bool explicit_o
     }
 
     //  In explicit mode cursor totals occupied member extents; offsets set their positions independently.
+    std::uint32_t overlap{}, related{};
+    if (!order_members(type_record, explicit_offsets, overlap, related))
+    {
+        return false;
+    }
     std::uint64_t cursor = 0u;
     for (std::uint32_t ordinal = 0u; ordinal < type_record.count; ++ordinal)
     {
@@ -1167,23 +1261,16 @@ bool CResolver::structure_layout(TTypeRecord& type_record, const bool explicit_o
             {
                 return fail(EReason::invalid_layout, member.source);
             }
-            if (member.size != 0u)
+            if (ordinal == overlap)
             {
-                for (std::uint32_t prior_ordinal = 0u; prior_ordinal < ordinal; ++prior_ordinal)
-                {
-                    const CResolvedSchema::SMemberRecord& prior = m_schema.m_members[type_record.first + prior_ordinal];
-                    const std::uint64_t prior_end = static_cast<std::uint64_t>(prior.offset) + prior.size;
-                    if ((prior.size != 0u) && (member_offset < prior_end) && (prior.offset < member_end))
-                    {
-                        fail(EReason::invalid_layout, member.source, prior.source);
-                        m_diagnostic.ranges_available = true;
-                        m_diagnostic.range_begin = member_offset;
-                        m_diagnostic.range_end = member_end;
-                        m_diagnostic.related_begin = prior.offset;
-                        m_diagnostic.related_end = prior_end;
-                        return false;
-                    }
-                }
+                const CResolvedSchema::SMemberRecord& prior = m_schema.m_members[type_record.first + related];
+                fail(EReason::invalid_layout, member.source, prior.source);
+                m_diagnostic.ranges_available = true;
+                m_diagnostic.range_begin = member_offset;
+                m_diagnostic.range_end = member_end;
+                m_diagnostic.related_begin = prior.offset;
+                m_diagnostic.related_end = static_cast<std::uint64_t>(prior.offset) + prior.size;
+                return false;
             }
             if (!add(cursor, member.size, cursor, member.source))
             {

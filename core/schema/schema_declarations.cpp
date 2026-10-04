@@ -471,37 +471,20 @@ bool CGenerator::emit_structure_members(const CSchemaIndex type_index, const STy
         return true;
     }
 
-    std::uint32_t physical_count = 0u;
+    std::uint64_t cursor = 0u;
+    m_next_padding_name = 0u;
     for (std::uint32_t ordinal = 0u; ordinal < type_info.count; ++ordinal)
     {
-        SMember member;
-        if (!m_schema.member(m_schema.member_at(type_index, ordinal), member))
+        SMember next;
+        if (!m_schema.member(m_schema.physical_member_at(type_index, ordinal), next))
         {
             return fail(EReason::invalid_input);
         }
-        physical_count += member.size != 0u;
-    }
-    std::uint64_t cursor = 0u;
-    m_next_padding_name = 0u;
-    for (std::uint32_t emitted = 0u; emitted < physical_count; ++emitted)
-    {
-        SMember next;
-        bool found = false;
-        for (std::uint32_t ordinal = 0u; ordinal < type_info.count; ++ordinal)
+        if (next.size == 0u)
         {
-            SMember candidate;
-            if (!m_schema.member(m_schema.member_at(type_index, ordinal), candidate))
-            {
-                return fail(EReason::invalid_input);
-            }
-            if ((candidate.size != 0u) && (candidate.offset >= cursor) &&
-                (!found || (candidate.offset < next.offset)))
-            {
-                next = candidate;
-                found = true;
-            }
+            continue;
         }
-        if (!found || (next.offset > type_info.size) || (next.size > type_info.size - next.offset))
+        if ((next.offset < cursor) || (next.offset > type_info.size) || (next.size > type_info.size - next.offset))
         {
             return fail(EReason::invalid_layout);
         }

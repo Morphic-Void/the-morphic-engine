@@ -20,11 +20,15 @@ clearing. Its review follow-ups include singular input and binary-authoritative
 document reconciliation, indexed lookup and remap setup, baking with optional
 value stripping, shared scalar decoding and document-copy construction. The
 organisation, conditional/parameter and style/comment tidying phase is complete
-through `db82da7`; the [implementation contract](../schema/implementation-contract.md)
-records delivery and validation.
+through `db82da7`. The subsequent performance pass completes inline query
+forwarding, retained physical-member ordering for clearing/generation and sorted
+explicit-layout overlap checking. The
+[implementation contract](../schema/implementation-contract.md) records delivery
+and validation.
 
-Remaining schema discussions concern integer output notation, fp16 handling,
-further performance work and source/header ingestion. Select these or new
+Remaining schema discussions concern integer output notation, fp16 handling
+and source/header ingestion. Integer formatting needs data-model metadata design;
+general schema name lookup remains caller-managed. Select these or new
 consumer work with the user; the completed consolidation does not authorise
 further changes.
 

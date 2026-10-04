@@ -394,6 +394,327 @@ private:
     detail::CDocumentRead m_query;
 };
 
+//==============================================================================
+//  CSchemaDocumentQuery out of class function bodies
+//==============================================================================
+
+inline CSchemaDocumentQuery::CSchemaDocumentQuery(const CLiveDocument& document) noexcept : m_query(document)
+{
+}
+
+inline CSchemaDocumentQuery::CSchemaDocumentQuery(const CBakedDocument& document) noexcept : m_query(document)
+{
+}
+
+[[nodiscard]] inline bool CSchemaDocumentQuery::is_ready() const noexcept
+{
+    return m_query.is_ready();
+}
+
+[[nodiscard]] inline CSchemaHandle CSchemaDocumentQuery::root() const noexcept
+{
+    return detail::SSchemaHandleAccess::make(m_query.root());
+}
+
+[[nodiscard]] inline bool CSchemaDocumentQuery::contains(const CSchemaHandle value) const noexcept
+{
+    return m_query.contains(detail::SSchemaHandleAccess::occurrence(value));
+}
+
+[[nodiscard]] inline EDocumentValueKind CSchemaDocumentQuery::value_kind(const CSchemaHandle value) const noexcept
+{
+    return m_query.value_kind(detail::SSchemaHandleAccess::occurrence(value));
+}
+
+[[nodiscard]] inline CSchemaHandle CSchemaDocumentQuery::object_child(const CSchemaHandle object, const CStringView& name) const noexcept
+{
+    return detail::SSchemaHandleAccess::make(m_query.object_child(detail::SSchemaHandleAccess::occurrence(object), name));
+}
+
+[[nodiscard]] inline CSchemaHandle CSchemaDocumentQuery::parent(const CSchemaHandle value) const noexcept
+{
+    return detail::SSchemaHandleAccess::make(m_query.parent(detail::SSchemaHandleAccess::occurrence(value)));
+}
+
+[[nodiscard]] inline CSchemaHandle CSchemaDocumentQuery::first_child(const CSchemaHandle value) const noexcept
+{
+    return detail::SSchemaHandleAccess::make(m_query.first_child(detail::SSchemaHandleAccess::occurrence(value)));
+}
+
+[[nodiscard]] inline CSchemaHandle CSchemaDocumentQuery::next_sibling(const CSchemaHandle value) const noexcept
+{
+    return detail::SSchemaHandleAccess::make(m_query.next_sibling(detail::SSchemaHandleAccess::occurrence(value)));
+}
+
+[[nodiscard]] inline CSchemaHandle CSchemaDocumentQuery::array_at(const CSchemaHandle value, const std::uint32_t ordinal) const noexcept
+{
+    return detail::SSchemaHandleAccess::make(m_query.array_at(detail::SSchemaHandleAccess::occurrence(value), ordinal));
+}
+
+[[nodiscard]] inline std::uint32_t CSchemaDocumentQuery::child_count(const CSchemaHandle value) const noexcept
+{
+    return m_query.child_count(detail::SSchemaHandleAccess::occurrence(value));
+}
+
+[[nodiscard]] inline bool CSchemaDocumentQuery::is_object_entry(const CSchemaHandle value) const noexcept
+{
+    return m_query.is_object_entry(detail::SSchemaHandleAccess::occurrence(value));
+}
+
+[[nodiscard]] inline CPropertyNameId CSchemaDocumentQuery::name_id(const CSchemaHandle value) const noexcept
+{
+    return m_query.name_id(detail::SSchemaHandleAccess::occurrence(value));
+}
+
+[[nodiscard]] inline CStringView CSchemaDocumentQuery::name(const CSchemaHandle value) const noexcept
+{
+    return m_query.name(detail::SSchemaHandleAccess::occurrence(value));
+}
+
+[[nodiscard]] inline CStringView CSchemaDocumentQuery::property_name(const CPropertyNameId id) const noexcept
+{
+    return m_query.property_name(id);
+}
+
+[[nodiscard]] inline CStringView CSchemaDocumentQuery::string_value(const CSchemaHandle value) const noexcept
+{
+    return m_query.string_value(detail::SSchemaHandleAccess::occurrence(value));
+}
+
+[[nodiscard]] inline bool CSchemaDocumentQuery::boolean_value(const CSchemaHandle value, bool& result) const noexcept
+{
+    return m_query.boolean_value(detail::SSchemaHandleAccess::occurrence(value), result);
+}
+
+[[nodiscard]] inline bool CSchemaDocumentQuery::signed_integer_value(const CSchemaHandle value, std::int64_t& result) const noexcept
+{
+    return m_query.signed_integer_value(detail::SSchemaHandleAccess::occurrence(value), result);
+}
+
+[[nodiscard]] inline bool CSchemaDocumentQuery::unsigned_integer_value(const CSchemaHandle value, std::uint64_t& result) const noexcept
+{
+    return m_query.unsigned_integer_value(detail::SSchemaHandleAccess::occurrence(value), result);
+}
+
+[[nodiscard]] inline bool CSchemaDocumentQuery::floating_point_value(const CSchemaHandle value, double& result) const noexcept
+{
+    return m_query.floating_point_value(detail::SSchemaHandleAccess::occurrence(value), result);
+}
+
+//==============================================================================
+//  CInstanceDocumentQuery out of class function bodies
+//==============================================================================
+
+inline CInstanceDocumentQuery::CInstanceDocumentQuery(const CLiveDocument& document) noexcept : m_query(document)
+{
+}
+
+inline CInstanceDocumentQuery::CInstanceDocumentQuery(const CBakedDocument& document) noexcept : m_query(document)
+{
+}
+
+[[nodiscard]] inline bool CInstanceDocumentQuery::is_ready() const noexcept
+{
+    return m_query.is_ready();
+}
+
+[[nodiscard]] inline CInstanceHandle CInstanceDocumentQuery::root() const noexcept
+{
+    return detail::SInstanceHandleAccess::make(m_query.root());
+}
+
+[[nodiscard]] inline bool CInstanceDocumentQuery::contains(const CInstanceHandle value) const noexcept
+{
+    return m_query.contains(detail::SInstanceHandleAccess::occurrence(value));
+}
+
+[[nodiscard]] inline EDocumentValueKind CInstanceDocumentQuery::value_kind(const CInstanceHandle value) const noexcept
+{
+    return m_query.value_kind(detail::SInstanceHandleAccess::occurrence(value));
+}
+
+[[nodiscard]] inline CInstanceHandle CInstanceDocumentQuery::object_child(const CInstanceHandle object, const CStringView& name) const noexcept
+{
+    return detail::SInstanceHandleAccess::make(m_query.object_child(detail::SInstanceHandleAccess::occurrence(object), name));
+}
+
+[[nodiscard]] inline CInstanceHandle CInstanceDocumentQuery::parent(const CInstanceHandle value) const noexcept
+{
+    return detail::SInstanceHandleAccess::make(m_query.parent(detail::SInstanceHandleAccess::occurrence(value)));
+}
+
+[[nodiscard]] inline CInstanceHandle CInstanceDocumentQuery::first_child(const CInstanceHandle value) const noexcept
+{
+    return detail::SInstanceHandleAccess::make(m_query.first_child(detail::SInstanceHandleAccess::occurrence(value)));
+}
+
+[[nodiscard]] inline CInstanceHandle CInstanceDocumentQuery::next_sibling(const CInstanceHandle value) const noexcept
+{
+    return detail::SInstanceHandleAccess::make(m_query.next_sibling(detail::SInstanceHandleAccess::occurrence(value)));
+}
+
+[[nodiscard]] inline CInstanceHandle CInstanceDocumentQuery::array_at(const CInstanceHandle value, const std::uint32_t ordinal) const noexcept
+{
+    return detail::SInstanceHandleAccess::make(m_query.array_at(detail::SInstanceHandleAccess::occurrence(value), ordinal));
+}
+
+[[nodiscard]] inline std::uint32_t CInstanceDocumentQuery::child_count(const CInstanceHandle value) const noexcept
+{
+    return m_query.child_count(detail::SInstanceHandleAccess::occurrence(value));
+}
+
+[[nodiscard]] inline bool CInstanceDocumentQuery::is_object_entry(const CInstanceHandle value) const noexcept
+{
+    return m_query.is_object_entry(detail::SInstanceHandleAccess::occurrence(value));
+}
+
+[[nodiscard]] inline CPropertyNameId CInstanceDocumentQuery::name_id(const CInstanceHandle value) const noexcept
+{
+    return m_query.name_id(detail::SInstanceHandleAccess::occurrence(value));
+}
+
+[[nodiscard]] inline CStringView CInstanceDocumentQuery::name(const CInstanceHandle value) const noexcept
+{
+    return m_query.name(detail::SInstanceHandleAccess::occurrence(value));
+}
+
+[[nodiscard]] inline CStringView CInstanceDocumentQuery::property_name(const CPropertyNameId id) const noexcept
+{
+    return m_query.property_name(id);
+}
+
+[[nodiscard]] inline CStringView CInstanceDocumentQuery::string_value(const CInstanceHandle value) const noexcept
+{
+    return m_query.string_value(detail::SInstanceHandleAccess::occurrence(value));
+}
+
+[[nodiscard]] inline bool CInstanceDocumentQuery::boolean_value(const CInstanceHandle value, bool& result) const noexcept
+{
+    return m_query.boolean_value(detail::SInstanceHandleAccess::occurrence(value), result);
+}
+
+[[nodiscard]] inline bool CInstanceDocumentQuery::signed_integer_value(const CInstanceHandle value, std::int64_t& result) const noexcept
+{
+    return m_query.signed_integer_value(detail::SInstanceHandleAccess::occurrence(value), result);
+}
+
+[[nodiscard]] inline bool CInstanceDocumentQuery::unsigned_integer_value(const CInstanceHandle value, std::uint64_t& result) const noexcept
+{
+    return m_query.unsigned_integer_value(detail::SInstanceHandleAccess::occurrence(value), result);
+}
+
+[[nodiscard]] inline bool CInstanceDocumentQuery::floating_point_value(const CInstanceHandle value, double& result) const noexcept
+{
+    return m_query.floating_point_value(detail::SInstanceHandleAccess::occurrence(value), result);
+}
+
+//==============================================================================
+//  CBulkDocumentQuery out of class function bodies
+//==============================================================================
+
+inline CBulkDocumentQuery::CBulkDocumentQuery(const CLiveDocument& document) noexcept : m_query(document)
+{
+}
+
+inline CBulkDocumentQuery::CBulkDocumentQuery(const CBakedDocument& document) noexcept : m_query(document)
+{
+}
+
+[[nodiscard]] inline bool CBulkDocumentQuery::is_ready() const noexcept
+{
+    return m_query.is_ready();
+}
+
+[[nodiscard]] inline CBulkHandle CBulkDocumentQuery::root() const noexcept
+{
+    return detail::SBulkHandleAccess::make(m_query.root());
+}
+
+[[nodiscard]] inline bool CBulkDocumentQuery::contains(const CBulkHandle value) const noexcept
+{
+    return m_query.contains(detail::SBulkHandleAccess::occurrence(value));
+}
+
+[[nodiscard]] inline EDocumentValueKind CBulkDocumentQuery::value_kind(const CBulkHandle value) const noexcept
+{
+    return m_query.value_kind(detail::SBulkHandleAccess::occurrence(value));
+}
+
+[[nodiscard]] inline CBulkHandle CBulkDocumentQuery::object_child(const CBulkHandle object, const CStringView& name) const noexcept
+{
+    return detail::SBulkHandleAccess::make(m_query.object_child(detail::SBulkHandleAccess::occurrence(object), name));
+}
+
+[[nodiscard]] inline CBulkHandle CBulkDocumentQuery::parent(const CBulkHandle value) const noexcept
+{
+    return detail::SBulkHandleAccess::make(m_query.parent(detail::SBulkHandleAccess::occurrence(value)));
+}
+
+[[nodiscard]] inline CBulkHandle CBulkDocumentQuery::first_child(const CBulkHandle value) const noexcept
+{
+    return detail::SBulkHandleAccess::make(m_query.first_child(detail::SBulkHandleAccess::occurrence(value)));
+}
+
+[[nodiscard]] inline CBulkHandle CBulkDocumentQuery::next_sibling(const CBulkHandle value) const noexcept
+{
+    return detail::SBulkHandleAccess::make(m_query.next_sibling(detail::SBulkHandleAccess::occurrence(value)));
+}
+
+[[nodiscard]] inline CBulkHandle CBulkDocumentQuery::array_at(const CBulkHandle value, const std::uint32_t ordinal) const noexcept
+{
+    return detail::SBulkHandleAccess::make(m_query.array_at(detail::SBulkHandleAccess::occurrence(value), ordinal));
+}
+
+[[nodiscard]] inline std::uint32_t CBulkDocumentQuery::child_count(const CBulkHandle value) const noexcept
+{
+    return m_query.child_count(detail::SBulkHandleAccess::occurrence(value));
+}
+
+[[nodiscard]] inline bool CBulkDocumentQuery::is_object_entry(const CBulkHandle value) const noexcept
+{
+    return m_query.is_object_entry(detail::SBulkHandleAccess::occurrence(value));
+}
+
+[[nodiscard]] inline CPropertyNameId CBulkDocumentQuery::name_id(const CBulkHandle value) const noexcept
+{
+    return m_query.name_id(detail::SBulkHandleAccess::occurrence(value));
+}
+
+[[nodiscard]] inline CStringView CBulkDocumentQuery::name(const CBulkHandle value) const noexcept
+{
+    return m_query.name(detail::SBulkHandleAccess::occurrence(value));
+}
+
+[[nodiscard]] inline CStringView CBulkDocumentQuery::property_name(const CPropertyNameId id) const noexcept
+{
+    return m_query.property_name(id);
+}
+
+[[nodiscard]] inline CStringView CBulkDocumentQuery::string_value(const CBulkHandle value) const noexcept
+{
+    return m_query.string_value(detail::SBulkHandleAccess::occurrence(value));
+}
+
+[[nodiscard]] inline bool CBulkDocumentQuery::boolean_value(const CBulkHandle value, bool& result) const noexcept
+{
+    return m_query.boolean_value(detail::SBulkHandleAccess::occurrence(value), result);
+}
+
+[[nodiscard]] inline bool CBulkDocumentQuery::signed_integer_value(const CBulkHandle value, std::int64_t& result) const noexcept
+{
+    return m_query.signed_integer_value(detail::SBulkHandleAccess::occurrence(value), result);
+}
+
+[[nodiscard]] inline bool CBulkDocumentQuery::unsigned_integer_value(const CBulkHandle value, std::uint64_t& result) const noexcept
+{
+    return m_query.unsigned_integer_value(detail::SBulkHandleAccess::occurrence(value), result);
+}
+
+[[nodiscard]] inline bool CBulkDocumentQuery::floating_point_value(const CBulkHandle value, double& result) const noexcept
+{
+    return m_query.floating_point_value(detail::SBulkHandleAccess::occurrence(value), result);
+}
+
 }   // namespace schema
 
 #endif // SCHEMA_DOCUMENT_QUERY_HPP_INCLUDED

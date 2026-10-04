@@ -251,6 +251,10 @@ public:
     [[nodiscard]] CSchemaIndex definition_at(const std::uint32_t ordinal) const noexcept;
     [[nodiscard]] bool type(const CSchemaIndex index, SType& result) const noexcept;
     [[nodiscard]] CSchemaIndex member_at(const CSchemaIndex type, const std::uint32_t ordinal) const noexcept;
+
+    //  Offset order, with declaration ordinal breaking ties. Includes empty members.
+    //  Prepared during resolution; observation allocates nothing.
+    [[nodiscard]] CSchemaIndex physical_member_at(const CSchemaIndex type, const std::uint32_t ordinal) const noexcept;
     [[nodiscard]] CSchemaIndex find_member(const CSchemaIndex type, const CStringView& name) const noexcept;
     [[nodiscard]] bool member(const CSchemaIndex index, SMember& result) const noexcept;
     [[nodiscard]] CSchemaIndex label_at(const CSchemaIndex type, const std::uint32_t ordinal) const noexcept;
@@ -348,6 +352,7 @@ private:
     CSchemaDocumentQuery m_document;
     TPodVector<STypeRecord> m_types;
     TPodVector<SMemberRecord> m_members;
+    TPodVector<std::uint32_t> m_member_order; //  Physical-order ordinals in each type's member range.
     TPodVector<SLabel> m_labels;
     TPodVector<SField> m_fields;
     TPodVector<SDefaultRecord> m_defaults;

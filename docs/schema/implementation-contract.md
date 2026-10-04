@@ -162,11 +162,12 @@ The alignment-constant follow-up passed the Release x64 build and full `-t1`
 suite (`schema-alignment-rel64`, PID 72144), including all 18,477 schema checks.
 The 128-byte rule is unchanged; the earlier platform matrix was not repeated.
 
-The physical-member cursor cleanup is implemented in `unused_storage.cpp`.
-Validation and clearing now keep their shared schema/type/count and previous
+The physical-member cursor cleanup was implemented in `unused_storage.cpp`.
+Validation and clearing kept their shared schema/type/count and previous
 offset/ordinal in a local cursor, with no auxiliary allocation or public API
 change. The counted traversals, offset/ordinal ordering and complete preflight
-before writes are preserved; the repeated scan retains its quadratic cost.
+before writes were preserved; the repeated scan retained its quadratic cost.
+The performance follow-up below supersedes this cursor with a retained index.
 The existing nested padding test also covers empty members before and after a
 nonempty member at the same offset, inside another extent and at the type end.
 The Release x64 solution build and full `-t1` suite passed
@@ -191,7 +192,43 @@ conditional braces. Release x64 build and full `-t1` validation passed
 no errors or warnings; diff and line-ending checks passed. The wider platform
 matrix was not repeated for this style-only change.
 
-Integer output notation and further performance work remain discussion items.
+The subsequent performance follow-up is implemented. Small schema, instance and
+bulk document-query forwarders are inline in their existing header, grouped in
+out-of-class implementation sections after the class declarations; the shared
+live/baked adapter dispatch remains in the source file. `CResolvedSchema` retains
+a physical-member ordinal index, used by unused-storage validation/clearing and
+C++ generation. Declaration-order member identities and occurrence mappings are
+unchanged, including zero-byte members at equal offsets. Natural layouts retain
+identity ordering; explicit layouts sort once during resolution. The persistent
+cost is one 32-bit ordinal per member plus vector capacity overhead. Traversal
+does not allocate, and each physical-order member walk is linear.
+
+Explicit-layout overlap checking now uses that sorted order and a temporary
+ordinal heap during resolution, replacing pairwise scanning with O(n log n) work
+and O(n) scratch storage. It selects the same first conflicting declaration pair
+and reports it at the original point in declaration-order validation, preserving
+alignment/bounds error precedence and diagnostic ranges. General name lookup
+remains caller-managed; these changes do not promise linear overall resolution
+or C++ generation.
+
+Validation passed the Release x64, Debug x64 and Debug Win32 solution builds and
+full `-t1` suites (`schema-physical-order-rel64`, PID 76940;
+`schema-physical-order-dbg64`, PID 15404; `schema-physical-order-dbg32`, PID 67128).
+Each run passed 20,003 schema checks. New coverage includes reversed declarations,
+empty-member ties, allocation-free observation/clearing, move/re-resolution
+lifetimes, allocation failure/retry cleanup, and diagnostic comparison against a
+declaration-order reference across 128 deterministic layouts on live/baked input.
+All eight generated layout fixtures compiled on both x86 and x64. The 63 moved
+query forwarding definitions retain their original bodies. Policy validation
+reported no errors or warnings; diff and line-ending checks passed.
+
+The subsequent query-header readability adjustment moved all 63 definitions into
+those end-of-header sections, following `StringBuffers.hpp`. Definition comparison
+confirmed unchanged bodies and initialisers; the Debug x64 solution build passed.
+The earlier runtime/layout matrix was not repeated for this placement-only change.
+
+Integer output notation remains a separate design discussion, with presentation
+metadata owned by the data model and set by schema output.
 Combining the traversal strategies is outside this refactor.
 Fp16 workflow changes and source ingestion also remain deferred. A completed
 review does not authorise those changes.
@@ -1027,9 +1064,10 @@ record sizes are unchanged, so the compiler layout matrix was not repeated.
 Diff and text-policy checks passed, including separate checks of the new files
 and preserved Visual Studio CRLF, BOM and final-newline state.
 
-A later review may reconsider inlining small document-query forwarding functions
-and splitting the query files once the instance interface is present. These are
-deferred observations, not changes required for the baked bulk package.
+This stage deferred inlining small document-query forwarding functions and
+considering a query-file split until the instance interface was present. The
+performance follow-up in the current delivery status completes the inlining
+within the existing file organisation.
 
 Stage 4c adds `CBakedInstances` and `CInstanceDocumentQuery`. One wrapper covers
 the complete `instances` section and borrows one payload buffer. Its original-root

@@ -2112,6 +2112,202 @@ static void test_allocations(TTestContext& ctx)
     TEST_EXPECT(ctx, success);
 }
 
+static void test_physical_member_order(TTestContext& ctx)
+{
+    constexpr std::uint32_t count = 256u, stride = count * 4u;
+    std::string text = R"({"types":{"structures":{"Empty":{"members":[]},"Wide":{"detail":{"size":)" +
+        std::to_string(stride) + R"(},"members":[)";
+    for (std::uint32_t ordinal = 0u; ordinal < count; ++ordinal)
+    {
+        const std::uint32_t position = count - ordinal - 1u;
+        if (ordinal != 0u)
+        {
+            text += ',';
+        }
+        text += "{\"m" + std::to_string(position) + "\":{\"type\":\"u16\",\"offset\":" +
+            std::to_string(position * 4u) + "}}";
+    }
+    text += R"(,{"before":{"type":"Empty","offset":0}},
+        {"inside":{"type":"Empty","offset":1}},
+        {"end":{"type":"Empty","offset":1024}}]},
+        "Natural":{"members":[{"empty":{"type":"Empty"}},{"value":{"type":"u16"}}]}}}})";
+    CBakedDocumentBlock block;
+    TEST_EXPECT(ctx, bake(text, block));
+    CLiveDocument live;
+    TEST_EXPECT(ctx, document_translation::promote(block.document(), live));
+    for (const bool live_source : { false, true })
+    {
+        CResolvedSchema schema;
+        SDiagnostic error;
+        const CSchemaDocumentQuery query = live_source ? CSchemaDocumentQuery{ live } : CSchemaDocumentQuery{ block.document() };
+        TEST_EXPECT(ctx, schema.resolve(query, error));
+        const CSchemaIndex type = schema.find_type(CStringView{ "Wide" });
+        const CSchemaIndex natural = schema.find_type(CStringView{ "Natural" });
+        TEST_EXPECT(ctx, schema.physical_member_at(natural, 0u) == schema.member_at(natural, 0u) &&
+            schema.physical_member_at(natural, 1u) == schema.member_at(natural, 1u));
+        TEST_EXPECT(ctx, !schema.physical_member_at({}, 0u) && !schema.physical_member_at(type, count + 3u) &&
+            !schema.physical_member_at(schema.find_type(CStringView{ "u16" }), 0u) &&
+            !schema.physical_member_at(schema.find_type(CStringView{ "Empty" }), 0u));
+        CResolvedSchema moved{ std::move(schema) };
+        TEST_EXPECT(ctx, !schema.physical_member_at(type, 0u) && moved.physical_member_at(type, 0u));
+        schema = std::move(moved);
+        TEST_EXPECT(ctx, !moved.physical_member_at(type, 0u));
+        alignas(2) std::uint8_t bytes[stride * 4u];
+        std::memset(bytes, 0xa5, sizeof(bytes));
+        SFailingAllocator failing{ 0u, 0u };
+        memory::CMemoryAllocator allocator{ &failing, &allocate_with_failure, &tests::deallocate_test_memory };
+        memory::CMemoryContext context{ allocator };
+        {
+            tests::TMemoryContextScope scope{ &context };
+            for (std::uint32_t position = 0u; position < count; ++position)
+            {
+                const std::uint32_t physical = position ? position + 2u : 0u;
+                const CSchemaIndex member_index = schema.physical_member_at(type, physical);
+                SMember member;
+                TEST_EXPECT(ctx, member_index == schema.member_at(type, (count - position - 1u)) &&
+                    schema.member(member_index, member) && (member.offset == position * 4u) &&
+                    schema.map_occurrence(member.source) == member_index);
+            }
+            TEST_EXPECT(ctx, schema.physical_member_at(type, 1u) == schema.member_at(type, count) &&
+                schema.physical_member_at(type, 2u) == schema.member_at(type, count + 1u) &&
+                schema.physical_member_at(type, count + 2u) == schema.member_at(type, count + 2u));
+            TEST_EXPECT(ctx, clear_unused_storage(schema, type, CByteView{ bytes, sizeof(bytes), 2u }));
+        }
+        bool cleared = true;
+        for (std::size_t byte = 0u; byte < sizeof(bytes); ++byte)
+        {
+            cleared &= bytes[byte] == (((byte % 4u) < 2u) ? 0xa5u : 0u);
+        }
+        TEST_EXPECT(ctx, cleared && (failing.calls == 0u) && context.is_attribution_empty());
+        CByteBuffer output;
+        TEST_EXPECT(ctx, generate_cpp(schema, CStringView{ "physical" }, output, error));
+        const std::string generated{ reinterpret_cast<const char*>(output.data()), output.size() ? output.size() - 1u : 0u };
+        std::size_t previous{};
+        bool ordered = true;
+        for (std::uint32_t position = 0u; position < count; ++position)
+        {
+            const std::size_t found = generated.find(" m" + std::to_string(position) + ";");
+            ordered &= (found != std::string::npos) && (found > previous);
+            previous = found;
+        }
+        TEST_EXPECT(ctx, ordered && (generated.find(" before;") == std::string::npos));
+        TEST_EXPECT(ctx, schema.resolve(query, error) &&
+            schema.physical_member_at(type, 0u) == schema.member_at(type, count - 1u));
+        schema.clear();
+        TEST_EXPECT(ctx, !schema.physical_member_at(type, 0u));
+    }
+    //  Sweep both the retained index and the temporary overlap-sweep allocation.
+    bool succeeded = false;
+    for (std::size_t fail_on = 0u; (fail_on < 128u) && !succeeded; ++fail_on)
+    {
+        SFailingAllocator failing{ 0u, fail_on };
+        memory::CMemoryAllocator allocator{ &failing, &allocate_with_failure, &tests::deallocate_test_memory };
+        memory::CMemoryContext context{ allocator };
+        {
+            tests::TMemoryContextScope scope{ &context };
+            CResolvedSchema schema;
+            SDiagnostic error;
+            succeeded = schema.resolve(block.document(), error);
+            if (!succeeded)
+            {
+                TEST_EXPECT(ctx, (error.reason == EReason::allocation_failed) && !schema.is_ready());
+                failing.fail_on = SIZE_MAX;
+                TEST_EXPECT(ctx, schema.resolve(block.document(), error) &&
+                    schema.physical_member_at(schema.find_type(CStringView{ "Wide" }), 0u));
+            }
+        }
+        TEST_EXPECT(ctx, context.is_attribution_empty());
+    }
+    TEST_EXPECT(ctx, succeeded);
+}
+
+static void test_overlap_diagnostic_order(TTestContext& ctx)
+{
+    //  Compare first-error selection with a simple declaration-order oracle.
+    //  Randomised layouts include containment, ties, touching and empty extents.
+    std::uint32_t random = 0x9173u;
+    for (unsigned trial = 0u; trial < 128u; ++trial)
+    {
+        constexpr std::uint32_t count = 8u, extent = 64u;
+        std::uint32_t offsets[count], sizes[count];
+        std::string text = R"({"types":{"structures":{"Empty":{"members":[]},"Test":{"detail":{"size":64},"members":[)";
+        for (std::uint32_t ordinal = 0u; ordinal < count; ++ordinal)
+        {
+            random = random * 1664525u + 1013904223u;
+            offsets[ordinal] = (random >> 16u) % 68u;
+            random = random * 1664525u + 1013904223u;
+            sizes[ordinal] = (random >> 16u) % 17u;
+            if (ordinal == 0u)
+            {
+                sizes[ordinal] += 1u;
+            }
+            if (ordinal != 0u)
+            {
+                text += ',';
+            }
+            const std::string type = sizes[ordinal] ?
+                "{\"element\":\"u8\",\"count\":" + std::to_string(sizes[ordinal]) + "}" : "\"Empty\"";
+            text += "{\"m" + std::to_string(ordinal) + "\":{\"type\":" + type +
+                ",\"offset\":" + std::to_string(offsets[ordinal]) + "}}";
+        }
+        text += "]}}}}";
+        std::uint32_t invalid = UINT32_MAX, related = UINT32_MAX;
+        for (std::uint32_t ordinal = 0u; ordinal < count; ++ordinal)
+        {
+            if ((offsets[ordinal] + sizes[ordinal]) > extent)
+            {
+                invalid = ordinal;
+                break;
+            }
+            for (std::uint32_t prior = 0u; prior < ordinal; ++prior)
+            {
+                if (sizes[ordinal] && sizes[prior] && (offsets[ordinal] < offsets[prior] + sizes[prior]) &&
+                    (offsets[prior] < offsets[ordinal] + sizes[ordinal]))
+                {
+                    invalid = ordinal;
+                    related = prior;
+                    break;
+                }
+            }
+            if (invalid != UINT32_MAX)
+            {
+                break;
+            }
+        }
+        CBakedDocumentBlock block;
+        TEST_EXPECT(ctx, bake(text, block));
+        CLiveDocument live;
+        TEST_EXPECT(ctx, document_translation::promote(block.document(), live));
+        for (const bool live_source : { false, true })
+        {
+            const CSchemaDocumentQuery query = live_source ? CSchemaDocumentQuery{ live } : CSchemaDocumentQuery{ block.document() };
+            CResolvedSchema schema;
+            SDiagnostic error;
+            if (invalid == UINT32_MAX)
+            {
+                TEST_EXPECT(ctx, schema.resolve(query, error));
+                continue;
+            }
+            const CSchemaHandle types = query.object_child(query.root(), CStringView{ "types" });
+            const CSchemaHandle structures = query.object_child(types, CStringView{ "structures" });
+            const CSchemaHandle definition = query.object_child(structures, CStringView{ "Test" });
+            const CSchemaHandle members = query.object_child(definition, CStringView{ "members" });
+            TEST_EXPECT(ctx, !schema.resolve(query, error) && (error.reason == EReason::invalid_layout) &&
+                (error.stage == EStage::layout) && (error.occurrence == query.array_at(members, invalid)) &&
+                (error.enclosing_member == error.occurrence) && (error.enclosing_type == definition));
+            TEST_EXPECT(ctx, (error.ranges_available == (related != UINT32_MAX)) &&
+                (error.related == ((related != UINT32_MAX) ? query.array_at(members, related) : CSchemaHandle{})));
+            if (related != UINT32_MAX)
+            {
+                TEST_EXPECT(ctx, (error.range_begin == offsets[invalid]) &&
+                    (error.range_end == offsets[invalid] + sizes[invalid]) &&
+                    (error.related_begin == offsets[related]) &&
+                    (error.related_end == offsets[related] + sizes[related]));
+            }
+        }
+    }
+}
+
 static void test_document_read_boundary(TTestContext& ctx)
 {
     static_assert(!std::is_same_v<CSchemaHandle, CInstanceHandle>);
@@ -8325,6 +8521,8 @@ int run_schema_tests()
     schema_tests::test_representation(ctx);
     schema_tests::test_local_type_references(ctx);
     schema_tests::test_allocations(ctx);
+    schema_tests::test_physical_member_order(ctx);
+    schema_tests::test_overlap_diagnostic_order(ctx);
     schema_tests::test_document_read_boundary(ctx);
     schema_tests::test_document_value_copy(ctx);
     schema_tests::test_shared_scalar_decoding(ctx);

@@ -37,57 +37,6 @@ struct SClearExtent
     return (bits == EUnusedBits::preserve) || (bits == EUnusedBits::clear);
 }
 
-//  Walk offset/ordinal order without allocating a sorted member index.
-class CPhysicalMemberCursor
-{
-public:
-    CPhysicalMemberCursor(const CResolvedSchema& schema, const CSchemaIndex type, const std::uint32_t count) noexcept :
-        m_schema(schema), m_type(type), m_count(count) {}
-
-    [[nodiscard]] bool next(SMember& result) noexcept;
-
-private:
-    const CResolvedSchema& m_schema;
-    const CSchemaIndex m_type;
-    const std::uint32_t m_count;
-    std::uint64_t m_previous_offset{};
-    std::uint32_t m_previous_ordinal{};
-    bool m_has_previous{};
-};
-
-bool CPhysicalMemberCursor::next(SMember& result) noexcept
-{
-    bool found{};
-    std::uint32_t result_ordinal{};
-    for (std::uint32_t ordinal = 0u; ordinal < m_count; ++ordinal)
-    {
-        SMember member;
-        if (!m_schema.member(m_schema.member_at(m_type, ordinal), member))
-        {
-            return false;
-        }
-        if (m_has_previous && ((member.offset < m_previous_offset) ||
-            ((member.offset == m_previous_offset) && (ordinal <= m_previous_ordinal))))
-        {
-            continue;
-        }
-        if (!found || (member.offset < result.offset) ||
-            ((member.offset == result.offset) && (ordinal < result_ordinal)))
-        {
-            result = member;
-            result_ordinal = ordinal;
-            found = true;
-        }
-    }
-    if (found)
-    {
-        m_previous_offset = result.offset;
-        m_previous_ordinal = result_ordinal;
-        m_has_previous = true;
-    }
-    return found;
-}
-
 [[nodiscard]] static bool validate_type(const CResolvedSchema& schema, const CSchemaIndex type,
     const EUnusedBits bits, const unsigned depth, bool& has_work) noexcept
 {
@@ -165,12 +114,11 @@ bool CPhysicalMemberCursor::next(SMember& result) noexcept
     {
         return false;
     }
-    CPhysicalMemberCursor members{ schema, type, layout.count };
     std::uint64_t cursor{};
     for (std::uint32_t position = 0u; position < layout.count; ++position)
     {
         SMember member;
-        if (!members.next(member))
+        if (!schema.member(schema.physical_member_at(type, position), member))
         {
             return false;
         }
@@ -262,12 +210,11 @@ static void clear_type(const CResolvedSchema& schema, const CSchemaIndex type, s
         }
         return;
     }
-    CPhysicalMemberCursor members{ schema, type, layout.count };
     std::uint64_t cursor{};
     for (std::uint32_t position = 0u; position < layout.count; ++position)
     {
         SMember member;
-        (void)members.next(member); // The complete schema traversal was preflighted.
+        (void)schema.member(schema.physical_member_at(type, position), member); // Preflighted.
         if (member.size != 0u)
         {
             if (member.offset > cursor)
