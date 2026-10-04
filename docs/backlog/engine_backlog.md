@@ -8,7 +8,7 @@ Date:   12 Sep 2026
 
 # Remaining engine backlog
 
-Updated 3 October 2026. This consolidates unresolved scope from the interim
+Updated 4 October 2026. This consolidates unresolved scope from the interim
 capture. The parser, image view, concrete asset services and Executive acceptance
 are complete. The asynchronous module/disposal work is committed; the separate
 rendering DLL stub is implemented and accepted. Actual rendering remains
@@ -73,19 +73,29 @@ Host ownership and worker authority are documented in the
 
 The linter/live/baked/writer/parser implementation, both refactoring stages,
 caller policy and shared-report/byte-view API consolidation are complete.
+Fixed-layout baked value editing is implemented, including canonical integer
+width updates. Subtree copying and promotion share value construction and
+metadata handling while retaining their separate traversal policies. The
+schema/data-model header guidance and style audit are also complete.
 Later source, shader, localisation and tooling ingestion should reuse the
 [documented boundary](../data_model/README.md).
 
 Still deferred: live packing with slot-link remapping, live cursors/revisions,
 object-name lookup acceleration including O(1) baked lookup, and additional
 general naming/value-conversion APIs only when consumers demonstrate a need.
+The completed schema-role entry indexes and local unused-storage member cursor
+do not implement these general document lookup or cursor facilities.
 Qualify numeric conversion on additional supported standard-library toolchains
 using the existing boundary and round-trip corpus.
 
 The [schema system](../schema/README.md) implements document-based definitions,
 resolution, C++ declaration generation, live/baked instance and bulk data,
-output and remapping. Remaining schema consolidation and source/header ingestion
-are tracked in its [implementation contract](../schema/implementation-contract.md).
+output and remapping. Its review repairs, binary-authoritative reconciliation,
+optional stripped baking, lookup/remap improvements, scalar/document-copy
+consolidation and five-part tidying phase are complete through `db82da7`.
+Remaining discussions cover integer output notation, fp16 handling, further
+performance work and source/header ingestion, as recorded in its
+[implementation contract](../schema/implementation-contract.md).
 Configuration, localisation, state capture/reconstruction and graphics metadata
 remain potential consumers, to be selected as separate work.
 
@@ -137,8 +147,9 @@ gameplay integration rather than owning the primitive geometry library.
   consumer needs. Directory discovery, logical resolution, queued refresh,
   write updates and basic caching already exist.
 - [Deferred design](consolidation_deferred_design.md): reference counting/cache
-  eviction, document navigation, fixed-layout save-game updates, bundled outputs,
-  module accounting periods, overlays, trust and later image transforms.
+  eviction, document navigation, save-game integration using existing baked value
+  editing, bundled outputs, module accounting periods, overlays, trust and later
+  image transforms.
 - [Job framework](job_framework_design.md): provider execution, dependencies,
   runner groups and unload obligations beyond the current bounded services.
 

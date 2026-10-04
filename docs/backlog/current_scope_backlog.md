@@ -1,6 +1,6 @@
 # Current scope
 
-Updated 3 October 2026. The selected consolidation is complete, including
+Updated 4 October 2026. The selected consolidation is complete, including
 the rendering DLL stub and Executive-controlled startup in `f91ded3`.
 The subsequent development filesystem-image stage is complete and accepted,
 including the first-pass review corrections. See the
@@ -17,17 +17,26 @@ remains included. The old deferred filesystem design is superseded in full.
 The schema system is implemented, including live/baked roles, resolution,
 generated declarations, loading, editing, output, remapping and unused-storage
 clearing. Its review follow-ups include singular input and binary-authoritative
-document reconciliation; the [implementation contract](../schema/implementation-contract.md)
-records current delivery and validation. Select remaining consolidation and
-consumer work with the user; that record does not authorise further changes.
+document reconciliation, indexed lookup and remap setup, baking with optional
+value stripping, shared scalar decoding and document-copy construction. The
+organisation, conditional/parameter and style/comment tidying phase is complete
+through `db82da7`; the [implementation contract](../schema/implementation-contract.md)
+records delivery and validation.
+
+Remaining schema discussions concern integer output notation, fp16 handling,
+further performance work and source/header ingestion. Select these or new
+consumer work with the user; the completed consolidation does not authorise
+further changes.
 
 Vulkan is the primary rendering API planned for first implementation; DirectX
 is deferred. The current rendering DLL only waits for an exit request.
 Final deployment/platform bindings, UGC providers, general document navigation,
-save-game mutation, automatic cache reclamation, trust/layers and the general
+save-game integration, automatic cache reclamation, trust/layers and the general
 job framework remain future work. Basic filesystem discovery/resolution, cache
 reuse and explicit disposal are implemented; those do not imply the broader
-mechanisms. [Filesystem limitations](filesystem_asset_mapping.md) records only
+mechanisms. Fixed-layout baked value editing is already implemented through
+`CMutableBakedDocument`; a save-game workflow remains separate consumer work.
+[Filesystem limitations](filesystem_asset_mapping.md) records only
 useful considerations for later, explicitly selected iterations.
 
 The lifecycle fixture project remains a maintained standalone project built by

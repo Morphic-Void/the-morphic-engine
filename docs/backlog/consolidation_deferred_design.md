@@ -1,6 +1,6 @@
 # Deferred resource and lifecycle design
 
-Updated 23 September 2026. These future ideas and open questions are preserved
+Updated 4 October 2026. These future ideas and open questions are preserved
 from the consolidation discussions. They are not implementation requirements,
 a priority list or authority to begin work. User direction and assistant-proposed
 alternatives are distinguished where they differ.
@@ -19,6 +19,13 @@ The directory-backed [filesystem image](../../development/README.md), logical
 resolution, DLL redirect, queued root refresh and cache associations are now
 complete and accepted, including the first-pass review corrections.
 [Completed milestones](../project/completed_milestones.md) records the checkpoints.
+
+The [schema system](../schema/README.md) and its review, consolidation and tidying
+follow-ups are also complete through `db82da7`, including binary-authoritative
+reconciliation and baking with optional value stripping. Shared scalar decoding
+and document-copy construction are implemented; their completion does not select
+new consumers or the separate discussions in the
+[schema implementation contract](../schema/implementation-contract.md).
 
 The [asset service](../assets/asynchronous_asset_services.md) supports retained
 transfers, one-shot transfer/conditioning/save and saves by ID. Retained assets
@@ -39,18 +46,20 @@ return the end node. Select syntax, traversal and failure semantics when an
 actual document consumer needs that API; the filesystem resolver does not
 establish a universal document-path standard.
 
-Ritchie also identifies a possible extension of baked documents for save games:
-allow numeric and Boolean values to change while preserving structure, types,
-layout and variable-size regions, to hold switch states and other game state.
-This is a candidate for later design, not a change to the current immutable
-baked-document contract. Exact permitted updates, a possible read-only/mutable
-view flag and coordination with readers remain open. Fixed
-layout alone does not settle those questions, including the treatment of shared
-string-table entries.
+The proposed fixed-layout baked value editing is now implemented through
+`CMutableBakedDocument`, alongside the separate read-only `CBakedDocument` view.
+Boolean, integer and finite floating-point values can be replaced without
+changing types, topology or serialized extent. Integer setters recompute width
+metadata while preserving domain, notation and prefix. String replacement selects
+an existing document-local string ID without changing stored text or removing a
+nonempty string's final reference. The
+[baked-document contract](../data_model/baked_document_format.md) defines these
+rules; a read-only/mutable mode flag is no longer an open design choice.
 
-The possible save-game extension is independent of the Host-owned filesystem
-image and does not alter the current baked-document contract. These notes do
-not select either extension for implementation.
+Using that facility for save games remains consumer work: define the state model,
+capture/restore and persistence workflow, and coordination with readers. General
+document navigation and save-game integration remain independent of the
+Host-owned filesystem image. These notes do not select either for implementation.
 
 ## Asset lifetime and reference counting
 
