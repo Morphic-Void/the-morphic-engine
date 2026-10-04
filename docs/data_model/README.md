@@ -25,6 +25,14 @@ For accepted syntax, read the text format together with
 [acceptance policy](document_parsing.md#acceptance-policy): supported syntax is
 processed before caller permissions determine whether to publish the document.
 
+Integer presentation supports minimum binary widths of 8, 16, 32 or 64 digits,
+hexadecimal widths of 2, 4, 8 or 16 digits, and adaptive decimal/hex notation.
+Parsed padding and presentation policies survive
+live/baked conversion and copying independently of measured storage width. This
+uses baked format version 5 with unchanged record sizes; earlier versions are
+rejected. See [numeric values](revised_data_model.md#numeric-values) for the API
+and [text round trips](document_text_format.md) for the limits of text preservation.
+
 ## Header entry points
 
 Include the header for the operation being used:

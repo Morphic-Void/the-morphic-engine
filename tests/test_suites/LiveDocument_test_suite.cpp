@@ -669,8 +669,16 @@ void test_numeric_boundaries_metadata_and_negative_zero(TTestContext& ctx)
     invalid_width.width = EIntegerWidth::bits_16;
     CIntegerMetadata invalid_prefix = alternate_hex;
     invalid_prefix.notation = EIntegerNotation::binary;
+    CIntegerMetadata invalid_notation = alternate_hex;
+    invalid_notation.notation = static_cast<EIntegerNotation>(10u);
     TEST_EXPECT(ctx, !document.create_signed_integer(42, invalid_width).is_valid());
-    TEST_EXPECT(ctx, !document.create_signed_integer(42, invalid_prefix).is_valid());
+    for (const EIntegerNotation notation : { EIntegerNotation::binary_8, EIntegerNotation::binary_16,
+        EIntegerNotation::binary_32, EIntegerNotation::binary_64 })
+    {
+        invalid_prefix.notation = notation;
+        TEST_EXPECT(ctx, !document.create_signed_integer(42, invalid_prefix).is_valid());
+    }
+    TEST_EXPECT(ctx, !document.create_signed_integer(42, invalid_notation).is_valid());
     TEST_EXPECT(ctx, !document.create_unsigned_integer(42u, alternate_hex).is_valid());
     TEST_EXPECT(ctx, document.value_count() == before_invalid);
 
@@ -1260,8 +1268,12 @@ void test_scalar_and_detached_payload_transfer(TTestContext& ctx)
     TEST_EXPECT(ctx, document.name(detached) == detached_name);
     TEST_EXPECT(ctx, !document.contains(detached_boolean));
 
-    const CNodeKey signed_value = document.create_signed_integer(-17);
-    const CNodeKey unsigned_value = document.create_unsigned_integer(42u);
+    const CIntegerMetadata signed_presentation{ EIntegerDomain::signed_value, EIntegerWidth::bits_8,
+        EIntegerNotation::hexadecimal_8, EIntegerPrefix::alternate };
+    const CIntegerMetadata unsigned_presentation{ EIntegerDomain::unsigned_value, EIntegerWidth::bits_8,
+        EIntegerNotation::decimal_or_hexadecimal, EIntegerPrefix::alternate };
+    const CNodeKey signed_value = document.create_signed_integer(-17, signed_presentation);
+    const CNodeKey unsigned_value = document.create_unsigned_integer(42u, unsigned_presentation);
     const CNodeKey floating_value = document.create_floating_point(3.5);
     CIntegerMetadata signed_metadata;
     CIntegerMetadata unsigned_metadata;
@@ -2102,9 +2114,9 @@ static void test_shared_node_flags(TTestContext& ctx)
             continue;
         }
         integer.set_value_flags(0x0100u | bit);
-        TEST_EXPECT(ctx, !integer.value_payload_is_valid());
+        TEST_EXPECT(ctx, integer.value_payload_is_valid() == ((bit == 0x0400u) || (bit == 0x0800u)));
     }
-    constexpr std::uint16_t invalid_encodings[]{ 0x0102u, 0x0118u, 0x0120u };
+    constexpr std::uint16_t invalid_encodings[]{ 0x0102u, 0x0910u, 0x0120u };
     for (const std::uint16_t invalid : invalid_encodings)
     {
         integer.set_value_flags(invalid);

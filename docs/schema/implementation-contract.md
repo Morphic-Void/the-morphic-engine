@@ -228,7 +228,10 @@ confirmed unchanged bodies and initialisers; the Debug x64 solution build passed
 The earlier runtime/layout matrix was not repeated for this placement-only change.
 
 Integer output notation remains a separate design discussion, with presentation
-metadata owned by the data model and set by schema output.
+metadata owned by the data model and set by schema output. The data-model
+foundation now supports minimum binary/hex widths, adaptive decimal/hex notation and
+parsed padding preservation through live/baked conversion; applying those modes
+in schema output remains separate work.
 Combining the traversal strategies is outside this refactor.
 Fp16 workflow changes and source ingestion also remain deferred. A completed
 review does not authorise those changes.

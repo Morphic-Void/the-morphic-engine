@@ -213,11 +213,11 @@ example deliberately covers more than schema resolution.
 
 For tooling previews, use the existing standard-JSON writer option. For the
 numeric extensions here it emits equivalent values without explicit `+` signs
-or hexadecimal notation. Morphic output uses the existing numeric metadata to
-retain signed-domain and notation intent, but it does not preserve leading-zero
-padding. For example, a generic round trip can write `0x0001` as `0x1`; it is not
-a schema normaliser. Future schema-document output must use the document metadata
-and writer path, with full-width mask display addressed in that later work.
+or hexadecimal notation. Morphic output retains signed-domain and notation intent,
+including a minimum hex width derived from parsed digit counts. A generic round
+trip preserves `0x0001` and expands `0x1` to `0x01`; it does not select formatting
+from schema types. Future schema-document output must set the data model's
+presentation metadata for full-width masks and other schema-specific rules.
 
 ## Review checks performed
 

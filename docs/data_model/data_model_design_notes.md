@@ -114,6 +114,16 @@ states in two bits, so direct access is expected to have negligible layout
 cost. Integrity validation still checks the stored width against value and
 domain.
 
+Presentation width remains separate from measured storage. Combining decimal,
+four minimum binary widths, four minimum hex widths and adaptive decimal/hex into
+ten notation states needs four packed bits, two more than the original format.
+Automatic binary and hexadecimal alias the eight- and two-digit minima.
+The enum groups explicit widths together independently of the packed encoding.
+Version 5 uses spare flag bits 10-11, retaining the
+four-byte metadata interface and existing live/baked record sizes. Edits can
+grow and shrink the measured width without losing the requested minimum; parsing
+retains explicit padding without pretending the value needs that much storage.
+
 ### External keys and internal slots
 
 The public `CNodeKey` remains a monotonic stable identity. It need not also be
@@ -256,7 +266,8 @@ cheap reciprocal structural check. Removing it would reduce the record to 24
 bytes, but would turn a useful established query into a scan. The eight-byte
 cost is proportionate for the direct-user and later schema interfaces.
 
-The version-4 header stores five section offsets alongside counts and byte sizes.
+The header introduced in version 4 and retained in version 5 stores five section
+offsets alongside counts and byte sizes.
 A fixed contiguous section order remains mandatory: validation checks the stored
 offsets against widened count/stride calculations before using section addresses.
 Normal access reads offsets directly rather than repeatedly reconstructing and

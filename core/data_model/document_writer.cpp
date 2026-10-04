@@ -385,13 +385,17 @@ void CWriter::integer(const CBakedValueIndex node) noexcept
         }
     }
     int base = 10;
-    if (metadata.notation != EIntegerNotation::decimal)
+    const unsigned minimum_hex_digits = live_integer_minimum_hex_digits(metadata.notation);
+    const unsigned minimum_binary_digits = live_integer_minimum_binary_digits(metadata.notation);
+    const bool hexadecimal = (minimum_hex_digits != 0u) &&
+        ((metadata.notation != EIntegerNotation::decimal_or_hexadecimal) || (magnitude > 65535u));
+    if (hexadecimal || (minimum_binary_digits != 0u))
     {
         if (m_options.mode == EDocumentWriteMode::strict_json)
         {
             ++m_report.non_decimal_integers_normalised;
         }
-        else if (metadata.notation == EIntegerNotation::hexadecimal)
+        else if (hexadecimal)
         {
             base = 16;
             if (metadata.prefix == EIntegerPrefix::alternate)
@@ -416,7 +420,18 @@ void CWriter::integer(const CBakedValueIndex node) noexcept
         fail(EDocumentWriteStatus::internal_error);
         return;
     }
-    append(digits, static_cast<std::size_t>(converted.ptr - digits));
+    const std::size_t digit_count = static_cast<std::size_t>(converted.ptr - digits);
+    if (base != 10)
+    {
+        const unsigned minimum_digits = (base == 16) ? minimum_hex_digits : minimum_binary_digits;
+        const unsigned measured_digits = ((base == 16) ? 2u : 8u) << static_cast<unsigned>(metadata.width);
+        const unsigned output_digits = (measured_digits > minimum_digits) ? measured_digits : minimum_digits;
+        for (std::size_t padding = digit_count; padding < output_digits; ++padding)
+        {
+            character('0');
+        }
+    }
+    append(digits, digit_count);
 }
 
 void CWriter::floating(const CBakedValueIndex node) noexcept

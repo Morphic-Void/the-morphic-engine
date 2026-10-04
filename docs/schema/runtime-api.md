@@ -1016,8 +1016,10 @@ existing `CIntegerMetadata` domain, notation and prefix flags with the document
 writer. Ordinary 8/16-bit schema integers use decimal; 32/64-bit schema integers
 use hexadecimal according to their declared type, even for small values. Counts,
 offsets, sizes and alignments use the value threshold; masks use full storage-width
-hexadecimal without C++ suffixes. The generic document writer preserves numeric
-intent but does not preserve leading-zero display padding. No schema-document
+hexadecimal without C++ suffixes. The generic document writer now supports
+minimum hexadecimal widths and adaptive decimal/hex metadata; see the
+[data-model numeric contract](../data_model/revised_data_model.md#numeric-values).
+Schema selection of that metadata remains a separate follow-up. No schema-document
 normalisation/output API is provided by this delivery.
 
 Instance and bulk scalar decoding currently emits decimal integer metadata.

@@ -912,7 +912,7 @@ Values of types `i32`, `u32`, `i64`, and `u64` use hexadecimal notation by defau
 even when the current value is small. This refers to the declared schema type,
 not the smallest width of the particular value or the document model's internal
 numeric storage. Signed hexadecimal values retain the signed-domain sign, such
-as `+0x1` or `-0x10000`; mask notation takes precedence over ordinary value rules.
+as `+0x01` or `-0x00010000`; mask notation takes precedence over ordinary value rules.
 Structural quantities such as counts, offsets, sizes, and alignments use decimal
 within the inclusive range -65535 through +65535, and hexadecimal outside it.
 Numeric notation does not itself select a schema type or change its physical
@@ -933,10 +933,11 @@ numeric strings or introduce a separate schema numeric formatter. The metadata's
 width remains the document model's smallest valid width in the selected domain;
 the declared schema type selects notation and must not be encoded by overriding
 that width. Generated C++ source has its own literal spelling requirements.
-The generic document writer does not retain leading-zero display padding, so a
-generic Morphic round trip alone does not establish the full-width mask display
-required of future schema-document output. Schema normalisation/output APIs and
-any handling needed for that display requirement remain deferred.
+The generic document writer supports minimum hexadecimal widths and adaptive
+decimal/hex notation, with parsed padding retained as presentation metadata.
+Future schema-document output can request full-width mask display through those
+modes. Schema normalisation/output APIs and selection of this metadata remain
+deferred; the data-model support does not apply schema-specific policy itself.
 
 The application of these declared-type notation rules to instance and bulk
 output still needs clarification. Current data-role scalar decoding constructs

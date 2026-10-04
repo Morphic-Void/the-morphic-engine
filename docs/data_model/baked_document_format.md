@@ -24,11 +24,13 @@ base address is 32-byte aligned; its exact serialized size need not be. Owning
 storage capacity is a multiple of 32 bytes, separate from that exact extent.
 The value-record section is likewise 32-byte aligned.
 
-The current format retains family magic bytes `MBD2` and uses version 4.
+The current format retains family magic bytes `MBD2` and uses version 5.
 It preserves the independent name-presence and per-string newline flags and
 32-byte records introduced in version 2, and retains version 3's removal of the
-recovery value kind. Version 4 embeds section offsets alongside explicit counts.
-Versions 1 through 3 and archived formats are rejected without conversion. Retired
+recovery value kind. Version 4 introduced section offsets alongside explicit counts.
+Version 5 extends integer notation into flag bits 10-11 for minimum-width binary
+and hexadecimal and adaptive decimal/hex output, without changing record or header sizes.
+Versions 1 through 4 and archived formats are rejected without conversion. Retired
 value tag 8 is invalid and must not be reused.
 
 ## Indices
@@ -47,7 +49,7 @@ The 64-byte header contains these fields in order:
 | Offset | Type | Field |
 | ---: | --- | --- |
 | 0 | `uint32_t` | magic, `0x3244424d` |
-| 4 | `uint16_t` | version, 4 |
+| 4 | `uint16_t` | version, 5 |
 | 6 | `uint16_t` | header size, 64 |
 | 8 | `uint32_t` | total byte size |
 | 12 | `uint32_t` | value count |
@@ -120,7 +122,8 @@ and their name indices are unique, including index zero. The root has no name.
 
 Value flag bit 9 suppresses newline escaping and is valid only on string
 values. It belongs to the value, independently of its interned string index.
-Bits 10-15 are reserved and zero. All flags share the 16-bit word at offset 26;
+Bits 10-11 extend integer notation; bits 12-15 are reserved and zero.
+All flags share the 16-bit word at offset 26;
 the reserved byte at offset 24 is zero, followed by the value type at offset 25.
 
 The live node stores the same 16-bit encoding for integer metadata, name
@@ -155,11 +158,28 @@ Payload and type-specific flag bits are canonical by type:
 | string | string-value index in low 32 bits; high 32 bits zero | zero |
 | any container | zero | zero |
 
-Integer flags use bit 0 for unsigned domain, bits 1-2 for width, bits 3-4 for
-notation and bit 5 for alternate prefix. Width encodings are 8, 16, 32 and 64
-bits as 0 through 3. Notation encodings are decimal, hexadecimal and binary as
-0 through 2; 3 is invalid. Alternate prefix is valid only for hexadecimal. The
-stored width must be the smallest width valid for the payload and domain.
+Integer flags use bit 0 for unsigned domain, bits 1-2 for measured width and bit 5
+for alternate prefix. Width encodings are 8, 16, 32 and 64 bits as 0 through 3.
+Notation uses flag bits 3-4 as its low two bits and flag bits 10-11 as its high two;
+the integer metadata mask is `0x0c3f`.
+
+| Notation encoding | Meaning |
+| --- | --- |
+| 0 | Decimal |
+| 1 | Hexadecimal, minimum two digits / automatic width |
+| 2 | Binary, minimum eight digits / automatic width |
+| 3 | Hexadecimal, minimum four digits |
+| 4 | Hexadecimal, minimum eight digits |
+| 5 | Hexadecimal, minimum sixteen digits |
+| 6 | Decimal within -65535..+65535, automatic hexadecimal otherwise |
+| 7 | Binary, minimum sixteen digits |
+| 8 | Binary, minimum thirty-two digits |
+| 9 | Binary, minimum sixty-four digits |
+| 10-15 | Invalid |
+
+Alternate prefix is valid for every hex-capable mode, including adaptive notation.
+The stored measured width must remain the smallest width valid for the payload
+and domain. A presentation minimum may be smaller or larger than that width.
 
 For every value type, bit 6 marks the first value in its parent's direct-child
 range and bit 7 marks the last. A sole child carries both bits. The root carries

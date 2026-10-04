@@ -219,14 +219,28 @@ std::string magnitude_digits(std::uint64_t value, const unsigned base)
 void test_integers(TTestContext& ctx)
 {
     const std::int64_t signed_values[]{ std::numeric_limits<std::int64_t>::min(), -2147483649ll, -2147483648ll,
-        -32769, -32768, -129, -128, -1, 0, 1, 127, 128, 32767, 32768, 2147483647ll, 2147483648ll,
+        -65536, -65535, -32769, -32768, -129, -128, -1, 0, 1, 127, 128, 32767, 32768, 65535, 65536, 2147483647ll, 2147483648ll,
         std::numeric_limits<std::int64_t>::max() };
     const std::uint64_t unsigned_values[]{ 0u, 1u, 127u, 128u, 255u, 256u, 65535u, 65536u, 4294967295ull,
         4294967296ull, 9223372036854775808ull, std::numeric_limits<std::uint64_t>::max() };
-    for (unsigned form = 0u; form < 4u; ++form)
+    struct SFormat
     {
-        const unsigned base = (form == 0u) ? 10u : ((form == 3u) ? 2u : 16u);
-        const std::string prefix = (form == 0u) ? "" : ((form == 1u) ? "0x" : ((form == 2u) ? "#" : "0b"));
+        EIntegerNotation notation;
+        unsigned base;
+        unsigned minimum_digits;
+        bool alternate;
+    };
+    const SFormat formats[]{
+        { EIntegerNotation::decimal, 10u, 0u, false },
+        { EIntegerNotation::binary_8, 2u, 8u, false }, { EIntegerNotation::binary_16, 2u, 16u, false },
+        { EIntegerNotation::binary_32, 2u, 32u, false }, { EIntegerNotation::binary_64, 2u, 64u, false },
+        { EIntegerNotation::hexadecimal_2, 16u, 2u, false }, { EIntegerNotation::hexadecimal_2, 16u, 2u, true },
+        { EIntegerNotation::hexadecimal_4, 16u, 4u, false }, { EIntegerNotation::hexadecimal_4, 16u, 4u, true },
+        { EIntegerNotation::hexadecimal_8, 16u, 8u, false }, { EIntegerNotation::hexadecimal_8, 16u, 8u, true },
+        { EIntegerNotation::hexadecimal_16, 16u, 16u, false }, { EIntegerNotation::hexadecimal_16, 16u, 16u, true },
+        { EIntegerNotation::decimal_or_hexadecimal, 16u, 2u, false }, { EIntegerNotation::decimal_or_hexadecimal, 16u, 2u, true } };
+    for (const SFormat format : formats)
+    {
         for (const bool signed_value : { false, true })
         {
             const std::size_t count = signed_value ? (sizeof(signed_values) / sizeof(signed_values[0])) :
@@ -238,8 +252,8 @@ void test_integers(TTestContext& ctx)
                 CIntegerMetadata metadata;
                 metadata.domain = signed_value ? EIntegerDomain::signed_value : EIntegerDomain::unsigned_value;
                 metadata.width = signed_value ? live_signed_integer_smallest_width(signed_values[i]) : live_unsigned_integer_smallest_width(unsigned_values[i]);
-                metadata.notation = (form == 0u) ? EIntegerNotation::decimal : ((form == 3u) ? EIntegerNotation::binary : EIntegerNotation::hexadecimal);
-                metadata.prefix = (form == 2u) ? EIntegerPrefix::alternate : EIntegerPrefix::standard;
+                metadata.notation = format.notation;
+                metadata.prefix = format.alternate ? EIntegerPrefix::alternate : EIntegerPrefix::standard;
                 attach(ctx, live, live.root(), signed_value ? live.create_signed_integer(signed_values[i], metadata, CStringView{ "n" }) :
                     live.create_unsigned_integer(unsigned_values[i], metadata, CStringView{ "n" }));
                 CBakedDocumentBlock block;
@@ -248,13 +262,80 @@ void test_integers(TTestContext& ctx)
                 const std::uint64_t magnitude = signed_value ? (negative ? (0ull - static_cast<std::uint64_t>(signed_values[i])) :
                     static_cast<std::uint64_t>(signed_values[i])) : unsigned_values[i];
                 const std::string sign = negative ? "-" : (signed_value ? "+" : "");
-                expect_text(ctx, document_writer::write(block.document(), compact()), "{\"n\":" + sign + prefix + magnitude_digits(magnitude, base) + "}");
+                const bool hexadecimal = (format.base == 16u) &&
+                    ((format.notation != EIntegerNotation::decimal_or_hexadecimal) || (magnitude > 65535u));
+                const unsigned base = hexadecimal ? 16u : ((format.base == 2u) ? 2u : 10u);
+                const std::string prefix = hexadecimal ? (format.alternate ? "#" : "0x") : ((base == 2u) ? "0b" : "");
+                std::string digits = magnitude_digits(magnitude, base);
+                if (base != 10u)
+                {
+                    const unsigned widths[]{ 2u, 4u, 8u, 16u };
+                    const unsigned measured = widths[static_cast<unsigned>(metadata.width)] * ((base == 16u) ? 1u : 4u);
+                    const unsigned minimum = (measured > format.minimum_digits) ? measured : format.minimum_digits;
+                    digits.insert(0u, minimum - digits.size(), '0');
+                }
+                expect_text(ctx, document_writer::write(block.document(), compact()), "{\"n\":" + sign + prefix + digits + "}");
                 const auto strict = document_writer::write(block.document(), compact(EDocumentWriteMode::strict_json));
                 expect_text(ctx, strict, "{\"n\":" + std::string(negative ? "-" : "") + magnitude_digits(magnitude, 10u) + "}");
                 TEST_EXPECT(ctx, strict.report.explicit_positive_signs_omitted == ((signed_value && !negative) ? 1u : 0u));
-                TEST_EXPECT(ctx, strict.report.non_decimal_integers_normalised == ((form != 0u) ? 1u : 0u));
+                TEST_EXPECT(ctx, strict.report.non_decimal_integers_normalised == ((base != 10u) ? 1u : 0u));
             }
         }
+    }
+}
+
+void test_integer_presentation_mutation(TTestContext& ctx)
+{
+    struct SCase { std::int64_t value; const char* hexadecimal; const char* adaptive; };
+    const SCase cases[]{
+        { 1, "+0x0001", "+1" }, { 65535, "+0x0000ffff", "+65535" },
+        { 65536, "+0x00010000", "+0x00010000" }, { -65535, "-0x0000ffff", "-65535" },
+        { -65536, "-0x00010000", "-0x00010000" },
+        { INT64_MIN, "-0x8000000000000000", "-0x8000000000000000" },
+        { 1, "+0x0001", "+1" } };
+    for (const EIntegerNotation notation : { EIntegerNotation::hexadecimal_4, EIntegerNotation::decimal_or_hexadecimal })
+    {
+        CLiveDocument live;
+        TEST_EXPECT(ctx, live.initialise());
+        const CIntegerMetadata metadata{ EIntegerDomain::signed_value, EIntegerWidth::bits_8,
+            notation, EIntegerPrefix::standard };
+        attach(ctx, live, live.root(), live.create_signed_integer(1, metadata, CStringView{ "n" }));
+        CBakedDocumentBlock block;
+        TEST_EXPECT(ctx, document_translation::bake(live, block));
+        CMutableBakedDocument editable{ block };
+        const auto node = editable.baked().object_child(editable.baked().root(), CStringView{ "n" });
+        for (const SCase& item : cases)
+        {
+            TEST_EXPECT(ctx, editable.set_signed_integer_value(node, item.value));
+            CIntegerMetadata observed;
+            TEST_EXPECT(ctx, editable.baked().integer_metadata(node, observed) && (observed.notation == notation) &&
+                (observed.width == live_signed_integer_smallest_width(item.value)));
+            const std::string expected = std::string("{\"n\":") +
+                ((notation == EIntegerNotation::hexadecimal_4) ? item.hexadecimal : item.adaptive) + "}";
+            expect_text(ctx, document_writer::write(editable.baked(), compact()), expected);
+            TEST_EXPECT(ctx, editable.baked().check_integrity());
+        }
+    }
+    for (const bool binary : { false, true })
+    {
+        CLiveDocument live;
+        TEST_EXPECT(ctx, live.initialise());
+        const CIntegerMetadata metadata{ EIntegerDomain::unsigned_value, EIntegerWidth::bits_8,
+            binary ? EIntegerNotation::binary_16 : EIntegerNotation::hexadecimal_8,
+            binary ? EIntegerPrefix::standard : EIntegerPrefix::alternate };
+        attach(ctx, live, live.root(), live.create_unsigned_integer(1u, metadata, CStringView{ "n" }));
+        CBakedDocumentBlock block;
+        TEST_EXPECT(ctx, document_translation::bake(live, block));
+        CMutableBakedDocument editable{ block };
+        const auto node = editable.baked().object_child(editable.baked().root(), CStringView{ "n" });
+        TEST_EXPECT(ctx, editable.set_unsigned_integer_value(node, UINT64_MAX));
+        expect_text(ctx, document_writer::write(editable.baked(), compact()),
+            binary ? ("{\"n\":0b" + std::string(64u, '1') + "}") : "{\"n\":#ffffffffffffffff}");
+        TEST_EXPECT(ctx, editable.set_unsigned_integer_value(node, 1u));
+        expect_text(ctx, document_writer::write(editable.baked(), compact()),
+            binary ? "{\"n\":0b0000000000000001}" : "{\"n\":#00000001}");
+        CIntegerMetadata observed;
+        TEST_EXPECT(ctx, editable.baked().integer_metadata(node, observed) && (observed == metadata));
     }
 }
 
@@ -435,6 +516,7 @@ int run_document_writer_tests()
     test_arrays_and_dollar_names(ctx);
     test_strings(ctx);
     test_integers(ctx);
+    test_integer_presentation_mutation(ctx);
     test_floats(ctx);
     test_depth_and_allocation_failures(ctx);
     std::cout << "DocumentWriter: " << ctx.passed << " passed, " << ctx.failed << " failed\n";

@@ -27,8 +27,9 @@ explicit-layout overlap checking. The
 and validation.
 
 Remaining schema discussions concern integer output notation, fp16 handling
-and source/header ingestion. Integer formatting needs data-model metadata design;
-general schema name lookup remains caller-managed. Select these or new
+and source/header ingestion. The data model now supports minimum-width binary/hexadecimal
+and adaptive notation; schema selection of that metadata remains future work.
+General schema name lookup remains caller-managed. Select these or new
 consumer work with the user; the completed consolidation does not authorise
 further changes.
 

@@ -787,7 +787,7 @@ static void test_root_inference(TTestContext& ctx)
         { "false", "[false]", 0u }, { "null", "[null]", 0u }, { "\"hello\"", "[\"hello\"]", 0u },
         { "1,true,\"hello\"", "[1,true,\"hello\"]", document_finding_bit(EDocumentFinding::implicit_body) },
         { "1,", "[1]", document_finding_bit(EDocumentFinding::trailing_commas) },
-        { "+#F", "[+#f]", EDocumentFinding::explicit_plus | EDocumentFinding::hexadecimal | EDocumentFinding::alternate_hexadecimal_prefix },
+        { "+#F", "[+#0f]", EDocumentFinding::explicit_plus | EDocumentFinding::hexadecimal | EDocumentFinding::alternate_hexadecimal_prefix },
         { "a\\u003Ab", "[\"a:b\"]", document_finding_bit(EDocumentFinding::unquoted_strings) },
         { "a\\u003Ab:1", "{\"a:b\":1}", EDocumentFinding::implicit_body | EDocumentFinding::unquoted_names },
         { "\"a\" /* : ignored */ :1", "{\"a\":1}", EDocumentFinding::implicit_body | EDocumentFinding::comments },
@@ -894,10 +894,10 @@ static void test_integer_metadata(TTestContext& ctx)
         { "18446744073709551615", false, 18446744073709551615ull, false, EIntegerNotation::decimal, EIntegerPrefix::standard },
         { "0XFF", false, 255u, false, EIntegerNotation::hexadecimal, EIntegerPrefix::standard },
         { "-#80", true, 128u, true, EIntegerNotation::hexadecimal, EIntegerPrefix::alternate },
-        { "+#7FFF", true, 32767u, false, EIntegerNotation::hexadecimal, EIntegerPrefix::alternate },
-        { "-0x8000000000000000", true, 9223372036854775808ull, true, EIntegerNotation::hexadecimal, EIntegerPrefix::standard },
-        { "0xffffffffffffffff", false, 18446744073709551615ull, false, EIntegerNotation::hexadecimal, EIntegerPrefix::standard },
-        { "+0B100000000", true, 256u, false, EIntegerNotation::binary, EIntegerPrefix::standard } };
+        { "+#7FFF", true, 32767u, false, EIntegerNotation::hexadecimal_4, EIntegerPrefix::alternate },
+        { "-0x8000000000000000", true, 9223372036854775808ull, true, EIntegerNotation::hexadecimal_16, EIntegerPrefix::standard },
+        { "0xffffffffffffffff", false, 18446744073709551615ull, false, EIntegerNotation::hexadecimal_16, EIntegerPrefix::standard },
+        { "+0B100000000", true, 256u, false, EIntegerNotation::binary_16, EIntegerPrefix::standard } };
     for (const auto& item : cases)
     {
         CLiveDocument document;
@@ -921,6 +921,61 @@ static void test_integer_metadata(TTestContext& ctx)
             TEST_EXPECT(ctx, document.unsigned_integer_value(node, value) && value == item.magnitude);
             TEST_EXPECT(ctx, metadata.width == live_unsigned_integer_smallest_width(item.magnitude));
         }
+    }
+}
+
+static void test_integer_padding(TTestContext& ctx)
+{
+    struct SCase
+    {
+        const char* source;
+        const char* output;
+        EIntegerNotation notation;
+        EIntegerWidth width;
+    };
+    const SCase cases[]{
+        { "0x1", "0x01", EIntegerNotation::hexadecimal, EIntegerWidth::bits_8 },
+        { "0x001", "0x0001", EIntegerNotation::hexadecimal_4, EIntegerWidth::bits_8 },
+        { "0x00001", "0x00000001", EIntegerNotation::hexadecimal_8, EIntegerWidth::bits_8 },
+        { "0x00000001", "0x00000001", EIntegerNotation::hexadecimal_8, EIntegerWidth::bits_8 },
+        { "0x000000001", "0x0000000000000001", EIntegerNotation::hexadecimal_16, EIntegerWidth::bits_8 },
+        { "0x00000000000000000", "0x0000000000000000", EIntegerNotation::hexadecimal_16, EIntegerWidth::bits_8 },
+        { "+0xff", "+0x00ff", EIntegerNotation::hexadecimal, EIntegerWidth::bits_16 },
+        { "-0x81", "-0x0081", EIntegerNotation::hexadecimal, EIntegerWidth::bits_16 },
+        { "-0x80", "-0x80", EIntegerNotation::hexadecimal, EIntegerWidth::bits_8 },
+        { "+#0001", "+#0001", EIntegerNotation::hexadecimal_4, EIntegerWidth::bits_8 },
+        { "0x100", "0x0100", EIntegerNotation::hexadecimal_4, EIntegerWidth::bits_16 },
+        { "0xffffffff", "0xffffffff", EIntegerNotation::hexadecimal_8, EIntegerWidth::bits_32 },
+        { "+0xffffffff", "+0x00000000ffffffff", EIntegerNotation::hexadecimal_8, EIntegerWidth::bits_64 },
+        { "0b1", "0b00000001", EIntegerNotation::binary_8, EIntegerWidth::bits_8 },
+        { "+0B10000000", "+0b0000000010000000", EIntegerNotation::binary_8, EIntegerWidth::bits_16 },
+        { "-0b1", "-0b00000001", EIntegerNotation::binary_8, EIntegerWidth::bits_8 },
+        { "0b000000001", "0b0000000000000001", EIntegerNotation::binary_16, EIntegerWidth::bits_8 },
+        { "0b0000000000000001", "0b0000000000000001", EIntegerNotation::binary_16, EIntegerWidth::bits_8 },
+        { "0b00000000000000001", "0b00000000000000000000000000000001", EIntegerNotation::binary_32, EIntegerWidth::bits_8 },
+        { "0b000000000000000000000000000000001", "0b0000000000000000000000000000000000000000000000000000000000000001",
+            EIntegerNotation::binary_64, EIntegerWidth::bits_8 },
+        { "0b00000000000000000000000000000000000000000000000000000000000000001",
+            "0b0000000000000000000000000000000000000000000000000000000000000001", EIntegerNotation::binary_64, EIntegerWidth::bits_8 } };
+    for (const SCase& item : cases)
+    {
+        CLiveDocument parsed;
+        TEST_CASE_EXPECT_TRUE(ctx, item.source, parse(std::string("[") + item.source + "]", parsed).accepted());
+        CIntegerMetadata metadata;
+        TEST_EXPECT(ctx, parsed.integer_metadata(parsed.first_child(parsed.root()), metadata) &&
+            (metadata.notation == item.notation) && (metadata.width == item.width));
+        const std::string expected = std::string("[") + item.output + "]";
+        TEST_CASE_EXPECT_EQ(ctx, item.source, write(ctx, parsed), expected);
+        CBakedDocumentBlock baked;
+        TEST_EXPECT(ctx, document_translation::bake(parsed, baked));
+        CLiveDocument promoted;
+        TEST_EXPECT(ctx, document_translation::promote(baked.document(), promoted));
+        CIntegerMetadata recovered;
+        TEST_EXPECT(ctx, promoted.integer_metadata(promoted.first_child(promoted.root()), recovered) && (recovered == metadata));
+        TEST_EXPECT(ctx, write(ctx, promoted) == expected);
+        CLiveDocument reparsed;
+        TEST_EXPECT(ctx, parse(expected, reparsed).accepted());
+        TEST_EXPECT(ctx, write(ctx, reparsed) == expected);
     }
 }
 
@@ -1273,7 +1328,7 @@ static void test_round_trips(TTestContext& ctx)
     attach(ctx, source, array, source.create_signed_integer(-128, hexadecimal, CStringView{ "hex" }));
     CIntegerMetadata binary;
     binary.domain = EIntegerDomain::unsigned_value;
-    binary.notation = EIntegerNotation::binary;
+    binary.notation = EIntegerNotation::binary_16;
     binary.width = live_unsigned_integer_smallest_width(256u);
     attach(ctx, source, array, source.create_unsigned_integer(256u, binary, CStringView{ "binary" }));
     attach(ctx, source, array, source.create_floating_point(-0.0, CStringView{ "float" }));
@@ -1677,6 +1732,7 @@ int run_document_parser_tests()
     document_parser_tests::test_newline_metadata(ctx);
     document_parser_tests::test_root_inference(ctx);
     document_parser_tests::test_integer_metadata(ctx);
+    document_parser_tests::test_integer_padding(ctx);
     document_parser_tests::test_floats(ctx);
     document_parser_tests::test_failure_publication(ctx);
     document_parser_tests::test_singleton_contexts(ctx);

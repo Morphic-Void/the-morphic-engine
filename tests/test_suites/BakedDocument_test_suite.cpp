@@ -757,6 +757,7 @@ void test_header_layout_and_alignment_rejections(TTestContext& ctx)
     expect_rejected(ctx, [](SBakedFixture& value) { value.header().version = 1u; });
     expect_rejected(ctx, [](SBakedFixture& value) { value.header().version = 2u; });
     expect_rejected(ctx, [](SBakedFixture& value) { value.header().version = 3u; });
+    expect_rejected(ctx, [](SBakedFixture& value) { value.header().version = 4u; });
     expect_rejected(ctx, [](SBakedFixture& value) { value.header().header_size = 32u; });
     expect_rejected(ctx, [](SBakedFixture& value) { value.header().header_size = 0u; });
     expect_rejected(ctx, [](SBakedFixture& value) { --value.header().total_size; });
@@ -822,7 +823,7 @@ void test_value_and_topology_rejections(TTestContext& ctx)
     expect_rejected(ctx, [](SBakedFixture& value) { value.values()[1u].reserved_32 = 1u; });
     expect_rejected(ctx, [](SBakedFixture& value) { value.values()[2u].payload_bits = 2u; });
     expect_rejected(ctx, [](SBakedFixture& value) { value.values()[3u].value_flags |= 0x02u; });
-    expect_rejected(ctx, [](SBakedFixture& value) { value.values()[3u].value_flags |= 0x18u; });
+    expect_rejected(ctx, [](SBakedFixture& value) { value.values()[3u].value_flags |= 0x0810u; });
     expect_rejected(ctx, [](SBakedFixture& value) { value.values()[3u].value_flags |= 0x30u; });
     expect_rejected(ctx, [](SBakedFixture& value) { value.values()[3u].value_flags |= 0x40u; });
     expect_rejected(ctx, [](SBakedFixture& value) { value.values()[4u].payload_bits = 0x7ff0000000000000ull; });
@@ -1178,19 +1179,24 @@ static void test_shared_integer_flags_round_trip(TTestContext& ctx)
     TEST_EXPECT(ctx, live.set_root_type(ELiveValueType::array));
     constexpr std::int64_t signed_values[]{ -1, -129, -32769, -2147483649ll };
     constexpr std::uint64_t unsigned_values[]{ 255u, 256u, 65536u, 4294967296ull };
-    constexpr EIntegerNotation notations[]{ EIntegerNotation::decimal, EIntegerNotation::hexadecimal,
-        EIntegerNotation::hexadecimal, EIntegerNotation::binary };
-    CIntegerMetadata expected[64u]{};
+    constexpr EIntegerNotation notations[]{ EIntegerNotation::decimal,
+        EIntegerNotation::binary_8, EIntegerNotation::binary_16, EIntegerNotation::binary_32, EIntegerNotation::binary_64,
+        EIntegerNotation::hexadecimal, EIntegerNotation::hexadecimal,
+        EIntegerNotation::hexadecimal_4, EIntegerNotation::hexadecimal_4,
+        EIntegerNotation::hexadecimal_8, EIntegerNotation::hexadecimal_8,
+        EIntegerNotation::hexadecimal_16, EIntegerNotation::hexadecimal_16,
+        EIntegerNotation::decimal_or_hexadecimal, EIntegerNotation::decimal_or_hexadecimal };
+    CIntegerMetadata expected[240u]{};
     std::uint32_t count = 0u;
     for (std::uint32_t domain = 0u; domain < 2u; ++domain)
     {
         for (std::uint32_t width = 0u; width < 4u; ++width)
         {
-            for (std::uint32_t spelling = 0u; spelling < 4u; ++spelling)
+            for (std::uint32_t spelling = 0u; spelling < 15u; ++spelling)
             {
                 const CIntegerMetadata metadata{ static_cast<EIntegerDomain>(domain),
                     static_cast<EIntegerWidth>(width), notations[spelling],
-                    (spelling == 2u) ? EIntegerPrefix::alternate : EIntegerPrefix::standard };
+                    ((spelling >= 5u) && ((spelling & 1u) == 0u)) ? EIntegerPrefix::alternate : EIntegerPrefix::standard };
                 for (std::uint32_t named = 0u; named < 2u; ++named)
                 {
                     const CStringView name = (named != 0u) ? CStringView{ "" } : CStringView{};
@@ -1203,7 +1209,7 @@ static void test_shared_integer_flags_round_trip(TTestContext& ctx)
             }
         }
     }
-    TEST_EXPECT(ctx, count == 64u);
+    TEST_EXPECT(ctx, count == 240u);
     CBakedDocumentBlock block;
     TEST_EXPECT(ctx, document_translation::bake(live, block));
     CLiveDocument promoted;
@@ -1232,6 +1238,23 @@ static void test_shared_integer_flags_round_trip(TTestContext& ctx)
         promoted_value = promoted.next_sibling(promoted_value);
     }
     TEST_EXPECT(ctx, !promoted_value.is_valid());
+    for (const bool baked_source : { false, true })
+    {
+        CLiveDocument copied;
+        TEST_EXPECT(ctx, copied.initialise());
+        const CNodeKey array = baked_source ?
+            document_translation::copy_subtree(copied, block.document(), block.document().root(), CStringView{ "values" }) :
+            document_translation::copy_subtree(copied, live, live.root(), CStringView{ "values" });
+        TEST_EXPECT(ctx, copied.append_child(copied.root(), array).succeeded());
+        CNodeKey child = copied.first_child(array);
+        for (std::uint32_t index = 0u; index < count; ++index)
+        {
+            CIntegerMetadata metadata;
+            TEST_EXPECT(ctx, copied.integer_metadata(child, metadata) && (metadata == expected[index]));
+            child = copied.next_sibling(child);
+        }
+        TEST_EXPECT(ctx, !child && copied.check_integrity());
+    }
     CBakedDocumentBlock rebaked;
     TEST_EXPECT(ctx, document_translation::bake(promoted, rebaked));
     TEST_EXPECT(ctx, block.bytes().size() == rebaked.bytes().size());
@@ -1607,7 +1630,7 @@ static void test_baking_storage(TTestContext& ctx)
         if (block.is_ready())
         {
             const auto& header = *reinterpret_cast<const SBakedDocumentHeader*>(block.bytes().data());
-            TEST_EXPECT(ctx, header.version == 4u && header.header_size == 64u && header.total_size == 114u);
+            TEST_EXPECT(ctx, header.version == 5u && header.header_size == 64u && header.total_size == 114u);
             TEST_EXPECT(ctx, header.values_offset == 64u);
             TEST_EXPECT(ctx, header.property_name_references_offset == 96u && header.string_value_references_offset == 104u);
             TEST_EXPECT(ctx, header.property_name_bytes_offset == 112u && header.string_value_bytes_offset == 113u);

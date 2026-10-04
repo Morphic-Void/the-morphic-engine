@@ -96,7 +96,7 @@ consolidation and five-part tidying phase are complete through `db82da7`.
 The subsequent performance pass completes inline query forwarding, shared
 physical-member ordering and sorted explicit-layout overlap checking. General
 schema name lookup remains caller-managed. Remaining discussions cover integer
-output notation (including data-model metadata design), fp16 handling and
+output notation (applying the implemented data-model presentation modes), fp16 handling and
 source/header ingestion, as recorded in its
 [implementation contract](../schema/implementation-contract.md).
 Configuration, localisation, state capture/reconstruction and graphics metadata

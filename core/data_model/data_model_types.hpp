@@ -181,9 +181,34 @@ enum class EIntegerWidth : std::uint8_t
 enum class EIntegerNotation : std::uint8_t
 {
     decimal = 0u,
-    hexadecimal,
-    binary
+    binary_8 = 2u,
+    binary_16 = 7u,
+    binary_32 = 8u,
+    binary_64 = 9u,
+    hexadecimal_2 = 1u,
+    hexadecimal_4 = 3u,
+    hexadecimal_8 = 4u,
+    hexadecimal_16 = 5u,
+    decimal_or_hexadecimal = 6u, //  Decimal within -65535..+65535, automatic hex otherwise.
+
+    binary = binary_8,
+    hexadecimal = hexadecimal_2
 };
+
+//  Hexadecimal modes specify a minimum digit count, never a storage cap.
+//  Adaptive notation uses the same minimum when its hexadecimal branch applies.
+[[nodiscard]] constexpr unsigned live_integer_minimum_hex_digits(const EIntegerNotation notation) noexcept
+{
+    return ((notation == EIntegerNotation::hexadecimal) || (notation == EIntegerNotation::decimal_or_hexadecimal)) ? 2u :
+        ((notation == EIntegerNotation::hexadecimal_4) ? 4u :
+            ((notation == EIntegerNotation::hexadecimal_8) ? 8u : ((notation == EIntegerNotation::hexadecimal_16) ? 16u : 0u)));
+}
+
+[[nodiscard]] constexpr unsigned live_integer_minimum_binary_digits(const EIntegerNotation notation) noexcept
+{
+    return (notation == EIntegerNotation::binary_8) ? 8u : ((notation == EIntegerNotation::binary_16) ? 16u :
+        ((notation == EIntegerNotation::binary_32) ? 32u : ((notation == EIntegerNotation::binary_64) ? 64u : 0u)));
+}
 
 enum class EIntegerPrefix : std::uint8_t
 {
@@ -194,7 +219,7 @@ enum class EIntegerPrefix : std::uint8_t
 struct CIntegerMetadata
 {
     EIntegerDomain domain{ EIntegerDomain::signed_value };
-    EIntegerWidth width{ EIntegerWidth::bits_8 };
+    EIntegerWidth width{ EIntegerWidth::bits_8 }; //  Measured minimum storage, independent of presentation.
     EIntegerNotation notation{ EIntegerNotation::decimal };
     EIntegerPrefix prefix{ EIntegerPrefix::standard };
 };
@@ -215,9 +240,9 @@ struct CIntegerMetadata
     return
         (static_cast<std::uint8_t>(metadata.domain) <= static_cast<std::uint8_t>(EIntegerDomain::unsigned_value)) &&
         (static_cast<std::uint8_t>(metadata.width) <= static_cast<std::uint8_t>(EIntegerWidth::bits_64)) &&
-        (static_cast<std::uint8_t>(metadata.notation) <= static_cast<std::uint8_t>(EIntegerNotation::binary)) &&
+        (static_cast<std::uint8_t>(metadata.notation) <= static_cast<std::uint8_t>(EIntegerNotation::binary_64)) &&
         (static_cast<std::uint8_t>(metadata.prefix) <= static_cast<std::uint8_t>(EIntegerPrefix::alternate)) &&
-        ((metadata.notation == EIntegerNotation::hexadecimal) || (metadata.prefix == EIntegerPrefix::standard));
+        ((live_integer_minimum_hex_digits(metadata.notation) != 0u) || (metadata.prefix == EIntegerPrefix::standard));
 }
 
 [[nodiscard]] constexpr EIntegerWidth live_signed_integer_smallest_width(const std::int64_t value) noexcept
@@ -257,7 +282,7 @@ struct CIntegerMetadata
 namespace document_value_flags
 {
 
-constexpr std::uint16_t k_integer_metadata_flags = 0x003fu;
+constexpr std::uint16_t k_integer_metadata_flags = 0x0c3fu;
 constexpr std::uint16_t k_first_sibling_flag = 0x0040u;
 constexpr std::uint16_t k_last_sibling_flag = 0x0080u;
 constexpr std::uint16_t k_sibling_position_flags = k_first_sibling_flag | k_last_sibling_flag;
@@ -267,13 +292,15 @@ constexpr std::uint16_t k_payload_flags = k_integer_metadata_flags | k_suppress_
 constexpr std::uint16_t k_live_flags = k_payload_flags | k_name_present_flag;
 constexpr std::uint16_t k_baked_flags = k_live_flags | k_sibling_position_flags;
 
-//  The caller validates metadata before encoding it.
+//  The caller validates metadata before encoding it. Notation uses bits 3-4 and
+//  10-11, leaving the intervening prefix and structural flags unchanged.
 [[nodiscard]] constexpr std::uint16_t encode_integer_metadata(const CIntegerMetadata metadata) noexcept
 {
     return
         ((metadata.domain == EIntegerDomain::unsigned_value) ? 0x01u : 0u) |
         (static_cast<std::uint16_t>(metadata.width) << 1u) |
-        (static_cast<std::uint16_t>(metadata.notation) << 3u) |
+        ((static_cast<std::uint16_t>(metadata.notation) & 0x03u) << 3u) |
+        ((static_cast<std::uint16_t>(metadata.notation) & 0x0cu) << 8u) |
         ((metadata.prefix == EIntegerPrefix::alternate) ? 0x20u : 0u);
 }
 
@@ -286,7 +313,7 @@ constexpr std::uint16_t k_baked_flags = k_live_flags | k_sibling_position_flags;
     const CIntegerMetadata decoded{
         ((flags & 0x01u) != 0u) ? EIntegerDomain::unsigned_value : EIntegerDomain::signed_value,
         static_cast<EIntegerWidth>((flags >> 1u) & 0x03u),
-        static_cast<EIntegerNotation>((flags >> 3u) & 0x03u),
+        static_cast<EIntegerNotation>(((flags >> 3u) & 0x03u) | ((flags >> 8u) & 0x0cu)),
         ((flags & 0x20u) != 0u) ? EIntegerPrefix::alternate : EIntegerPrefix::standard };
     if (!live_integer_metadata_is_valid(decoded))
     {

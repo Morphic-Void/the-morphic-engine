@@ -179,13 +179,41 @@ An integer records:
 
 - signed or unsigned domain;
 - its smallest valid width in that domain: 8, 16, 32 or 64 bits;
-- decimal, hexadecimal or binary notation; and
+- decimal, minimum-width binary/hexadecimal or adaptive decimal/hexadecimal notation; and
 - standard or alternate prefix selection where defined.
 
 Width is derived from the value and domain. Unsigned values have no sign.
 Signed negative values use `-`; signed non-negative values use `+`. Hexadecimal
 uses normalised `0x` or alternate `#`. Binary uses normalised `0b` and has no
 alternate prefix.
+
+`EIntegerNotation::hexadecimal` (also `hexadecimal_2`) uses a two-digit minimum;
+`hexadecimal_4`, `hexadecimal_8` and `hexadecimal_16` request the corresponding
+minimum number of digits. Hexadecimal output always uses 2, 4, 8 or 16 digits,
+taking the larger of that minimum and the measured storage width. Signed width
+uses the signed domain: unsigned 255 writes as `0xff`, while signed +255 writes
+as `+0x00ff`. Negative hexadecimal uses a sign and magnitude, not a two's-complement
+spelling. The sign and prefix are outside the digit count.
+
+`binary_8`, `binary_16`, `binary_32` and `binary_64` use the same minimum-width
+rule with 8, 16, 32 or 64 binary digits. `binary` aliases `binary_8`, providing
+automatic width. Unsigned 1 writes as `0b00000001`; signed +128 requires 16-bit
+storage and writes as `+0b0000000010000000`. Negative binary also retains a sign
+and magnitude, so -1 writes as `-0b00000001`. Binary has no adaptive decimal mode.
+
+`decimal_or_hexadecimal` uses decimal within the inclusive range -65535..+65535
+and automatic hexadecimal otherwise. The alternate prefix may be retained by
+any hex-capable mode, including adaptive notation; it applies only when the value
+is emitted as hex. Decimal and binary modes require the standard prefix.
+
+The minimum is presentation intent, not a cap or a replacement for measured
+storage width. Fixed-layout integer edits recompute measured width while retaining
+the notation and prefix. A four-digit minimum can write `0x0001`, grow to
+`0x00010000`, then return to `0x0001` as its value changes. No integer is rejected
+or truncated merely because its presentation minimum is smaller than its value.
+Live/baked conversion, promotion, subtree copying and payload transfer preserve
+the complete metadata. `CIntegerMetadata` remains four bytes, with no additional
+per-value allocation or change to live/baked record sizes.
 
 The validated width is stored and directly queryable in both live and baked
 documents. Consumers, including later schema processing, must not need to
@@ -454,7 +482,7 @@ typed scalar payloads and integer metadata, parent and sibling relationships,
 child ranges, ordinal array access and object-child lookup. The retired recovery
 kind has no public query or stored summary state.
 
-The current version 4 byte format is intentionally incompatible with earlier
+The current version 5 byte format is intentionally incompatible with earlier
 versions. Validators reject unsupported versions rather than infer or silently
 migrate them.
 
@@ -534,7 +562,8 @@ specifies these interpretations and their source examples.
 
 Writers consume only the checked baked interface and provide two modes:
 
-- Morphic output retains integer domain, notation and prefix intent.
+- Morphic output honours integer domain, notation, minimum binary/hex width and prefix
+  intent. Text records the resulting spelling, not an adaptive selection policy.
 - Strict output emits strict JSON where possible, including the exact decimal
   value across the full `uint64_t` range. It reports normalisation of Morphic
   features and does not promise to round-trip every feature, such as explicit
@@ -580,7 +609,7 @@ other dollar-prefixed names retain their decoded spelling. Former version/type/
 values objects have no special interpretation, even at the document root;
 their fields follow ordinary parsing, numeric conversion and collision rules.
 
-Baked version 4 retains the `MBD2` family magic and the 32-byte record layout.
+Baked version 5 retains the `MBD2` family magic and the 32-byte record layout.
 Its 64-byte header stores section offsets alongside counts, maintaining contiguous
 layout and 32-byte node alignment. Earlier versions are rejected, and retired
 value tag 8 remains invalid. There is no compatibility reader or recovery conversion.

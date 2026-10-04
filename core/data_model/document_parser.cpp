@@ -260,7 +260,20 @@ CNodeKey CParser::integer(const CStringView& name) noexcept
             first += 2;
         }
     }
-    metadata.notation = (base == 16) ? EIntegerNotation::hexadecimal : ((base == 2) ? EIntegerNotation::binary : EIntegerNotation::decimal);
+    if (base == 16)
+    {
+        const std::size_t digits = static_cast<std::size_t>(last - first);
+        metadata.notation = (digits <= 2u) ? EIntegerNotation::hexadecimal :
+            ((digits <= 4u) ? EIntegerNotation::hexadecimal_4 :
+                ((digits <= 8u) ? EIntegerNotation::hexadecimal_8 : EIntegerNotation::hexadecimal_16));
+    }
+    else if (base == 2)
+    {
+        const std::size_t digits = static_cast<std::size_t>(last - first);
+        metadata.notation = (digits <= 8u) ? EIntegerNotation::binary_8 :
+            ((digits <= 16u) ? EIntegerNotation::binary_16 :
+                ((digits <= 32u) ? EIntegerNotation::binary_32 : EIntegerNotation::binary_64));
+    }
     std::uint64_t magnitude = 0u;
     const auto converted = std::from_chars(first, last, magnitude, base);
     if (converted.ec == std::errc::result_out_of_range)

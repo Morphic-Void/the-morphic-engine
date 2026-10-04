@@ -229,6 +229,21 @@ fit `int64_t`, including its most negative value. Construction retains the base
 and alternate-prefix intent and selects the smallest valid width in the domain:
 8, 16, 32 or 64 bits.
 
+For hexadecimal input, the digit count also selects a presentation minimum:
+1-2 digits select two, 3-4 select four, 5-8 select eight, and longer spellings
+select sixteen. This count includes leading zeroes but excludes sign and prefix.
+Extra leading zeroes beyond sixteen digits are accepted when the value fits and
+normalise to sixteen output digits. Measured storage width still comes from the
+value and domain. For example, `0x00000001` retains an eight-digit minimum and
+8-bit measured storage, while `+0xff` has a two-digit minimum and 16-bit measured
+storage. Their output is `0x00000001` and `+0x00ff`, respectively.
+
+Binary input applies the same rule using 8, 16, 32 or 64 digits. Short spellings
+remain accepted: `0b1` writes as `0b00000001`. Leading zeroes select the rounded
+minimum, independently of measured storage; more than 64 digits normalise to 64
+when the value fits. The writer can enlarge that minimum for signed storage,
+such as `+0b10000000` becoming `+0b0000000010000000`.
+
 Floating-point values are finite IEEE-754 binary64, with negative zero retained.
 Conversion rounds to binary64. Overflow and non-zero underflow to zero fail
 construction. Huge but syntactically valid numbers can therefore pass structural
@@ -286,7 +301,11 @@ There is no recovery wrapper, reserved-name unescaping or compatibility reader.
 
 The writer consumes a checked baked document. Both modes quote names and
 strings and preserve child order. Morphic mode retains integer domain, base and
-prefix intent; strict JSON emits decimal integers, including the full unsigned
+prefix intent, with hexadecimal padded to the larger of its presentation minimum
+and measured storage class (2, 4, 8 or 16 digits). Binary uses the same rule with
+8, 16, 32 or 64 digits. Adaptive integer notation emits
+decimal within -65535..+65535 and automatic hex otherwise. Strict JSON emits
+decimal integers, including the full unsigned
 64-bit range, and omits an explicit positive sign. A minus sign is ordinary
 JSON syntax. Floats use shortest-round-trip spelling and retain a decimal point
 or exponent and negative zero. Neither mode emits NaN or infinity.
@@ -321,6 +340,11 @@ or every metadata bit:
 - Comments, original whitespace, quote choice and escape spelling are lost.
 - Singleton wrappers and collisions follow the semantic rules above.
 - Strict JSON loses positive signed-integer intent and non-decimal notation.
+- Binary and hexadecimal input preserve their rounded minimum digit counts. If writing must
+  expand that width to fit the value, reparsing retains the expanded spelling as
+  the new minimum. Automatic and adaptive policies have no distinct text syntax;
+  reparse records the emitted notation and width. Repeated text output is stable,
+  but the original policy requires binary metadata to survive exactly.
 - All newline spellings normalise to LF.
 - Strict JSON reparse derives suppression as false from escaped-only newlines.
   A suppression flag on a string with no newline has no text spelling to retain.

@@ -43,7 +43,7 @@ namespace baked_document_format
 {
 
 constexpr std::uint32_t k_magic = 0x3244424du; // "MBD2"
-constexpr std::uint16_t k_version = 4u;
+constexpr std::uint16_t k_version = 5u;
 constexpr std::uint16_t k_header_size = 64u;
 constexpr std::size_t k_block_alignment = 32u;
 constexpr std::uint32_t k_invalid_index = std::numeric_limits<std::uint32_t>::max();
