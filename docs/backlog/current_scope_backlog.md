@@ -23,15 +23,17 @@ organisation, conditional/parameter and style/comment tidying phase is complete
 through `db82da7`. The subsequent performance pass completes inline query
 forwarding, retained physical-member ordering for clearing/generation and sorted
 explicit-layout overlap checking. The
-[implementation contract](../schema/implementation-contract.md) records delivery
-and validation.
+[schema milestone](../project/completed_milestones.md#schema-system-and-refinement)
+records completion; the [validation guide](../schema/validation.md) describes checks.
 
 Integer presentation is implemented in the data model and applied by canonical
-schema output and instance/bulk reconstruction. Remaining schema discussions
-concern fp16 handling and source/header ingestion.
-General schema name lookup remains caller-managed. Select these or new
-consumer work with the user; the completed consolidation does not authorise
-further changes.
+schema output and instance/bulk reconstruction. The
+[schema follow-on notes](schema_follow_on.md) preserve the next design discussion:
+fp16 conversion, related C++/shader representations, simple trait-based
+serialisation, selectable declaration output, document/binary packaging and
+source ingestion. Their design and scope are not yet an implementation plan.
+General schema name lookup remains caller-managed. The completed consolidation
+does not authorise further implementation.
 
 Vulkan is the primary rendering API planned for first implementation; DirectX
 is deferred. The current rendering DLL only waits for an exit request.

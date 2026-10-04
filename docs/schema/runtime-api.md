@@ -1,13 +1,18 @@
+Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited
+License: MIT (see LICENSE file in repository root)
+
+File:   runtime-api.md
+Authors: Ritchie Brannan / OpenAI Codex
+Date:   27 Sep 2026
+
 # Schema runtime API
 
-This page describes the implemented resolver and generator introduced in
-`5313c85` and extended with live/baked document queries. The [design](design.md)
-defines the target system;
-the [implementation contract](implementation-contract.md#staged-implementation-plan)
-tracks delivery. Schema wrappers, their promotion/baking, and the baked and
-live instance and bulk roles are implemented. The bounded direct-member remap
-core works with their entry views, including mutable live destinations.
-The lifetime, handle and default rules below describe current code.
+This page describes the implemented schema interfaces, lifetimes and limits.
+The [specification](specification.md) defines grammar and semantics;
+[validation](validation.md) describes regression and compiler checks.
+Schema wrappers, promotion/baking, live/baked instance and bulk roles, and
+bounded direct-member remapping share the contracts below. Future extensions
+are discussed separately in the [follow-on notes](../backlog/schema_follow_on.md).
 
 `schema::CSchemaDocumentQuery` exposes read-only tree, name and scalar queries
 through `CSchemaHandle` occurrences. Its internal adapter reads either a live or
@@ -334,7 +339,7 @@ remain available; implicit default is signed or unsigned zero as appropriate.
 Public instance-role construction and decoding remain outside the resolved
 schema API.
 
-## Internal value construction (stage 4a)
+## Internal value construction
 
 `core/schema/value_codec.hpp` exposes synchronous internal operations over a
 ready `CResolvedSchema` and a representation-neutral `detail::CDocumentRead`:
@@ -436,7 +441,7 @@ source access. The subtree walk retains its 256-level depth bound and incrementa
 growth; promotion retains its iterative walk, node reservation and staged
 publication. Baked access gains no additional storage or work.
 
-## Baked bulk role (stage 4b)
+## Baked bulk role
 
 `CBakedBulkData` attaches to an immutable `CBakedDocument` view or a
 `CMutableBakedDocument` view. Both borrow their block bytes. Bind a resolved
@@ -476,7 +481,7 @@ the payload address stable; destroying or reallocating it invalidates the view.
 `SBulkDiagnostic` reports the first failure reason and a bulk occurrence when
 available. Failure leaves the role unready.
 
-## Live bulk role (stage 5a)
+## Live bulk role
 
 `CLiveBulkData` owns its live document and one 128-byte-aligned working payload.
 `initialise()` takes a resolved baked or live schema explicitly and creates an
@@ -554,7 +559,7 @@ that state disables the live role and reports a critical event. `clear()`
 releases its document, payload and schema link. Entry views also provide the
 bounded storage used by the implemented remapping operations below.
 
-## Bulk output and baking (stage 6a)
+## Bulk output and baking
 
 `CLiveBulkData::prepare_output(document, payload, destination_schema, form,
 diagnostic)` creates a separate live document and 128-byte-aligned packed payload.
@@ -595,7 +600,7 @@ one binding to the explicit destination schema. Reload external output with
 `materialise` after parsing and baking the document. The caller still ensures
 unpopulated live arrays have all required addressable fields filled before output.
 
-## Baked instance role (stage 4c)
+## Baked instance role
 
 `CBakedInstances` attaches a borrowed immutable or mutable baked document view
 and separately binds a resolved `CBakedSchema` or `CLiveSchema`. One wrapper
@@ -637,7 +642,7 @@ failed re-resolution makes loaded entry access unusable while document queries
 remain available. Load failure leaves this role unready and does not invalidate
 the schema or another role sharing the physical block.
 
-## Live instance role (stage 5b)
+## Live instance role
 
 `CLiveInstances` owns a live `instances` document, a schema binding and one
 128-byte-aligned payload of independent complete snapshots. `initialise(schema)`
@@ -728,7 +733,7 @@ staged-parent access are constant-time per candidate; unrelated later branches
 are skipped without walking their ancestor chains. This does not change which
 selections are retained or how inherited values are propagated.
 
-## Live instance output (stage 6b)
+## Live instance output
 
 `CLiveInstances::prepare_output(document, payload, destination_schema, form,
 diagnostic)` accepts an empty live document and unallocated payload, with an
@@ -810,7 +815,7 @@ The associated schema describes `Pair`, and the accompanying payload holds each
 instance's complete two-byte snapshot. Missing declarations here do not imply
 default or inherited values.
 
-## Bounded direct-member remap (stage 7a)
+## Bounded direct-member remap
 
 `CDataRemapPlan::initialise()` accepts one or more source resolved structure
 types and a destination resolved structure type. It matches direct members by
@@ -871,7 +876,7 @@ prewritten scalar copy paths; no benchmark or platform-specific vectorisation
 claim is made. Declaration reconciliation is a separate live-role operation;
 call `reconcile(diagnostic)` after transfers when an updated document is needed.
 
-## Role entry views for remapping (stage 7b)
+## Role entry views for remapping
 
 `CBakedInstances::entry()`, `CLiveInstances::entry()`, `CBakedBulkData::entry()`
 and `CLiveBulkData::entry()` provide type, bytes and byte extent for read-only
@@ -927,7 +932,7 @@ views after creation, capture or another possible relocation and execute before
 mutating the roles again. The executor itself performs no allocation, schema
 traversal or document edit.
 
-## Explicit unused-storage clearing (stage 8)
+## Explicit unused-storage clearing
 
 `clear_unused_storage(schema, type, writable_view)` clears byte gaps within
 standalone schema-typed values, recursively through structures and arrays.
@@ -1003,11 +1008,11 @@ public encoding contract. Counts use 32 bits. All physical size, offset and
 stride arithmetic uses checked unsigned 64-bit operations. Each described
 allocation is limited to `memory::k_byte_size_ceiling` (0x80000000 bytes,
 inclusive), including nested member ends, array products and tail padding.
-This deliberately tightens the former `SIZE_MAX`-only acceptance. Private
+The ceiling is independent of the target `size_t` range. Private
 offsets/sizes/strides are unsigned 32-bit, with checks before narrowing; schema
 strides are not restricted to the memory token/view's 16-bit field. Supplied
-size/alignment detail must fit the ceiling, while natural-layout and unsupported
-explicit-layout rules remain unchanged. File positions are a separate future
+size/alignment detail must fit the ceiling and the layout rules below.
+File positions are a separate future
 domain. Recursive processing is bounded at 256 traversal
 levels; extremely deep definitions/defaults receive `storage_limit`. Export
 also bounds dependency traversal. Allocation failures require no allocation to
@@ -1079,7 +1084,7 @@ These are C++ source spelling rules. Schema document output instead sets
 [integer presentation](#schema-document-output-and-integer-presentation).
 
 The namespace is one identifier, not a qualified namespace expression. It must
-use the initial ASCII subset of C++17 identifiers, as do schema declarations.
+use the ASCII subset of C++17 identifiers, as do schema declarations.
 Keywords and implementation-reserved spellings are rejected in their emitted
 scopes. Non-ASCII names receive `invalid_identifier`; no transliteration occurs.
 This syntax boundary does not affect Unicode document text. The namespace must
@@ -1109,7 +1114,7 @@ The tool compiles independently for x86 and x64 with C++17 and warnings as error
 Assertions compare resolved size, alignment, member offsets/sizes, array extents,
 enum underlying types/values, mask types/values, standard layout and trivial
 copyability, including `fp16data_t`. Support requires successful compiler fidelity
-validation for the target ABI. The full design sample is a positive schema
+validation for the target ABI. The full authoring sample is a positive schema
 resolution and C++ layout fixture. The role-loader tests exercise its instance
 and bulk sections separately; those remain outside the resolver's validation scope.
 

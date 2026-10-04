@@ -5,22 +5,19 @@ File:   schema-example-notes.md
 Authors: Ritchie Brannan / OpenAI Codex
 Date:   25 Sep 2026
 
-# Reviewed schema sample
+# Schema authoring sample
 
-[schema-example.json](schema-example.json) reconciles the original examples
-with subsequent decisions. The expanded reviewed revision includes layout and
-short-input examples, omits redundant array `kind`, and uses `detail.internal`
-as the internal-layout marker. Its `types` section is an implemented resolver
+[schema-example.json](schema-example.json) illustrates layout, short input and
+`detail.internal` as the internal-layout marker. Its `types` section is a resolver
 and C++ compiler acceptance fixture. The instance and bulk sections illustrate
 materialisation with reserved locators and are exercised by data-role tests,
 including live instance baking and reload.
-The working [design](design.md) records agreed semantics.
+The [specification](specification.md) defines the semantics.
 
 The instance and bulk entries use unset locators for materialisation. Named
 declarations and inheritance form the intended embedded instance representation; no
-additional flattened-value field is required. Current capabilities and delivery
-status belong in the [runtime API](runtime-api.md) and
-[implementation contract](implementation-contract.md), respectively.
+additional flattened-value field is required. See the [runtime API](runtime-api.md)
+for interfaces and [validation](validation.md) for regression and compiler checks.
 
 The file uses Morphic JSON numeric forms: explicit `+` on non-negative signed
 enum values, and numeric `0x` masks. These are not quoted strings. A strict
@@ -58,20 +55,14 @@ strict-JSON tools should consume the writer's strict mode instead.
 | Instance | `instances` groups named instances by type. Each base or specialisation reserves a `locator`; `declaration` holds supplied values when present, and `specialisation` holds named children inheriting from that instance. An absent declaration selects no values: a base uses defaults and a child inherits unchanged. |
 | Bulk collection | `data` groups named collections by type. Each collection is an object with a `locator` and optional `data` array of complete unnamed records. The sample's unset locator reserves `offset`, `valid`, and `count` for materialisation. Records have no specialisation mechanism. |
 
-The category names, `storage`/`values`, and array `element`/`count` are
-retained from the original sample. `types`, `mask`, `default`, and the uniform
-bit-member `type` field reconcile later decisions into the reviewed syntax.
-The `declaration`/`specialisation` names and parent-based inheritance are
-already agreed. Leaf instances omit `specialisation` in this form.
-
-The array simplification removes only `kind`: `type` still accepts
+Leaf instances omit `specialisation` in this form. A member's `type` accepts
 either a named type or an array descriptor containing both `element` and
 `count`. A positive integral `count` identifies an array, including count 1;
 zero is invalid, and an element without its count is incomplete. `count` is
 not moved onto the member descriptor. This keeps nesting recursive:
 `ArrayExamples.uv_rows` is an array of three arrays of two `f32` values.
-`ArrayExamples.single` remains a one-element array, not a scalar. This revision
-rejects the old `kind` spelling as an unknown property.
+`ArrayExamples.single` remains a one-element array, not a scalar. A `kind`
+property is rejected as unknown.
 
 The singleton objects around members are text wrappers. The existing parser
 normalises them into named array children with descriptor payloads; the resolver
@@ -171,15 +162,13 @@ each `InternalRecord`'s padding. That member brings the enclosing structure's
 natural alignment to 16 without a separate increase on `ArrayExamples`.
 There are no format/version headers, bit offsets/widths, or gap-fill directives.
 
-The grammar review accepted category objects beneath `types`, the `default`
-spelling, bit-member type/interpretation separation, and the illustrated `data`
-shape. Bulk omission is now explicitly rejected. Baked instance and bulk payload
-loading are implemented. The `offset` and structure `detail`
-rules are recorded in [the design](design.md#explicit-offsets-and-structure-details).
+Embedded bulk records must explicitly supply every member. Instance construction
+instead applies defaults and inheritance. The `offset` and structure `detail`
+rules are recorded in the [specification](specification.md#explicit-offsets-and-structure-details).
 Natural structure size is computed from members and alignment. An explicit-offset
 structure instead requires a supplied size, validated for fit and alignment;
 additional trailing space is allowed and belongs to the structure.
-If `detail` or its `alignment` property is omitted, the agreed natural
+If `detail` or its `alignment` property is omitted, the natural
 alignment rules apply, respecting any explicit alignment of nested types.
 `CResolvedSchema::prepare_output()` includes both structure `detail.alignment` and
 `detail.size`, adding missing properties from the resolved layout.
@@ -199,8 +188,8 @@ create a new document containing the generated details and canonical
 representations, leaving this input unchanged. Normalisation reuses the
 resolver's validated types and computed layout rather than repeating that work.
 
-The structure-detail extension also identifies internal structures. The later
-decision removes review-only output: accepted explicit layouts must generate
+Structure details also identify internal structures. Accepted explicit layouts
+must generate
 faithful C++ under selected compiler settings or be rejected, with alignment
 capped at 128. Padding members may account for offsets and total size but do not
 become logical schema members. Fidelity requires target-specific validation. The
@@ -233,17 +222,3 @@ Morphic parser, bakes and resolves its schema, checks layouts, generates C++
 validation fixtures, materialises its bulk and instance data, promotes both roles,
 and exercises embedded/external baking and reload. Generated declarations are
 compiled by the separate layout-validation checks.
-
-The following records an earlier manual review, before that automated coverage:
-
-An independent check read the saved sample, converted its numeric extensions
-to strict JSON spellings in memory, and checked type references, default
-values, array extents, supplied instance member names/values, mask contiguity
-and overlap, enum field ranges, and the layouts above, including explicit offsets,
-increased alignment, nested array strides, and the then-current short-input rules.
-These checks passed for all eleven definitions, eleven instance declarations,
-and the three bulk records. This was not a run of the engine's Morphic parser,
-schema resolver, or C++ declaration generator. The user's 30 September
-clarification supersedes that check's positional-specialisation expectations:
-omitted values inherit, and every specialisation is an independent alternative
-which leaves its base unchanged. The examples above reflect that clarification.

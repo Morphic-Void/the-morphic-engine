@@ -37,6 +37,8 @@ or that work has been authorised.
   [filesystem limitations and future considerations](backlog/filesystem_asset_mapping.md) and
   [job framework](backlog/job_framework_design.md).
 - [Schema source-ingestion survey](schema/header-survey.md).
+- [Schema follow-on work](backlog/schema_follow_on.md): conversion, related
+  representations, typed serialisation, generation, packaging and ingestion.
 - [Future work notes](project/future_work_notes.md).
 
 ## Rationale and project record

@@ -1,52 +1,42 @@
+Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited
+License: MIT (see LICENSE file in repository root)
+
+File:   README.md
+Authors: Ritchie Brannan / OpenAI Codex
+Date:   25 Sep 2026
+
 # Schema documentation
 
-Each document has one primary purpose:
+These documents describe the implemented schema system. Historical plans and
+decision transcripts are not required to interpret its current contracts.
 
 | Document | Purpose |
 | --- | --- |
-| [Design](design.md) | Authoritative target semantics, grammar, ownership and operation contracts. |
-| [Implementation contract](implementation-contract.md) | Delivery status, staged plan, acceptance checks, code reuse evidence and coordinator working arrangements. |
-| [Runtime API](runtime-api.md) | Implemented schema API, limits, lifetimes and generator behaviour. |
-| [Example](schema-example.json) and [notes](schema-example-notes.md) | Reviewed authoring example, expected layouts and its current limitations. |
-| [Header survey](header-survey.md) | Supporting research for deferred source ingestion. |
-| [28 September decision record](question-decisions-2026-09-28.md) | Historical user answers. Reconciled into the design and partly superseded by later discussion; not a current implementation brief. |
+| [Specification](specification.md) | Grammar, value semantics, layout, ownership and operation contracts. |
+| [Runtime API](runtime-api.md) | Public entry points, file map, lifetimes, diagnostics and implementation limits. |
+| [Validation](validation.md) | Regression coverage and generated C++ layout checks. |
+| [Example](schema-example.json) and [notes](schema-example-notes.md) | Authoring example, expected layouts, numeric notation and materialisation rules. |
+| [Follow-on work](../backlog/schema_follow_on.md) | Future direction and unresolved design questions, separate from current requirements. |
+| [Header survey](header-survey.md) | Historical source research supporting the ingestion discussion. |
 
-Integration stages 1-8 are implemented: shared live/baked resolution, all six
-schema/data roles, loading, capture, coordinated instance edits, output/baking,
-bounded remapping and explicit unused-storage clearing. The stage 9 review is
-complete; its follow-ups address promotion and selection-edit defects, current
-documentation, singular scalar input, consistent named bulk records and instance
-configuration preservation when destination defaults change, followed by general
-binary-authoritative document reconciliation. Baked entry indexes, direct live-record
-binary search, cached bulk type indices, indexed remap setup and shared
-compatibility checking address the subsequent bookkeeping review. Baking supports
-optional stripped data output. Shared scalar decoding, subtree copying and name
-stabilisation consolidate the schema paths. Subtree copying now lives in the data
-model and shares value construction and metadata handling with promotion, while
-retaining their separate traversal and allocation strategies. The first
-organisation pass groups responsibilities within existing files, localises fixed
-instance traversal inputs and identifies public/support header boundaries in the
-runtime guide. Instance translation now has a separate implementation file for
-promotion, reconciliation and baking, alongside ownership/creation and editing.
-The subsequent conditional/parameter pass shares compound-input preparation and
-holds fixed overlay and bulk-reconstruction inputs in local operation objects.
-A shared alignment constant and shared unused-storage traversal completed those
-local cleanups. The final style/comment audit is complete across schema and the
-data model, including header sections and include guidance. The tidying phase is
-complete. The subsequent performance pass inlines role-query forwarding, shares
-a retained physical-member index between clearing and C++ generation, and replaces
-the resolver's pairwise explicit-overlap check with a sorted sweep. General name
-lookup remains caller-managed. Canonical schema document output now applies
-integer presentation metadata, with the ordinary integer policy shared by
-instance and bulk reconstruction. Remaining fp16 and source-ingestion work is
-tracked in the [current backlog](../backlog/current_scope_backlog.md).
+Start with the runtime guide for C++ use and the specification for document
+authoring and semantics. The system supports live/baked schemas, instances and
+bulk data; shared resolution; C++ declaration generation; loading, capture and
+editing; binary-authoritative reconciliation; embedded, external and stripped
+output; exact-type remapping; and explicit unused-storage clearing. Canonical
+schema output and reconstructed data apply the data model's integer presentation
+metadata. General name lookup remains caller-managed.
 
-The coordinator handoff, pre-refactoring gap review and record-layout proposal
-pointer have been consolidated into these documents. Current requirements belong
-in the design, implementation facts in the API guide, and progress/acceptance
-evidence in the implementation contract; do not maintain parallel summaries.
+The [header and implementation map](runtime-api.md#header-organisation) identifies
+public entry points and internal support. General document copying, parsing,
+writing and live/baked translation belong to the [data model](../data_model/README.md).
 
-The example includes locators, bulk-entry objects and explicit layouts, and is
-used by resolver, layout and data-role tests. Read its notes for the expected
-layouts and materialisation rules. It uses Morphic numeric extensions;
-strict-JSON previews should use the document writer's existing option.
+The sample is used by resolver, layout and data-role tests. It uses Morphic
+numeric extensions; strict-JSON consumers should use the document writer's
+strict mode. Its unset locators are intentional authoring input, not ready-to-bind
+binary locations.
+
+The [project milestone](../project/completed_milestones.md#schema-system-and-refinement)
+records completion and validation checkpoints. Superseded design discussions and
+delivery plans remain in Git history; current and future work belong in the
+references above.

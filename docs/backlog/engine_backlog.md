@@ -97,8 +97,9 @@ The subsequent performance pass completes inline query forwarding, shared
 physical-member ordering and sorted explicit-layout overlap checking. General
 schema name lookup remains caller-managed. Canonical schema output and data-role
 reconstruction now apply the data model's integer presentation modes. Remaining
-discussions cover fp16 handling and source/header ingestion, as recorded in its
-[implementation contract](../schema/implementation-contract.md).
+discussions cover conversion, related representations, typed serialisation,
+selectable generation, packaging and source ingestion, as recorded in the
+[schema follow-on notes](schema_follow_on.md).
 Configuration, localisation, state capture/reconstruction and graphics metadata
 remain potential consumers, to be selected as separate work.
 

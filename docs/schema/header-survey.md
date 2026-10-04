@@ -1,7 +1,15 @@
+Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited
+License: MIT (see LICENSE file in repository root)
+
+File:   header-survey.md
+Authors: Ritchie Brannan / OpenAI Codex
+Date:   18 Sep 2026
+
 # Header survey: Vulkan and DirectX
 
-This is a deliberately small survey against the working design in
-`docs/schema/design.md`, not a proposal to parse either API wholesale. The
+This is a deliberately small survey supporting the
+[source-ingestion discussion](../backlog/schema_follow_on.md#earlier-source-ingestion-direction),
+not a proposal to parse either API wholesale. The
 DirectX examples are from the installed Windows SDK 10.0.26100.0. A search of
 the available SDK and Visual Studio include locations found no `vulkan_core.h`
 or other Vulkan SDK header, so this report does not pretend to have sampled a
@@ -83,14 +91,14 @@ The material gaps are:
 
 ## Requirements for constrained header ingestion
 
-The initial ingestion scope is defined in
-[the working design](design.md#development-time-structure-ingestion): a
+The earlier ingestion direction is preserved in the
+[follow-on notes](../backlog/schema_follow_on.md#constrained-direct-file-workflow): a
 development-time tool reads a manually ordered JSON list of exact source files
 and selected structures. Prerequisite structures precede their dependants;
 there is no initial include traversal or automatic dependency ordering. This
-supersedes the survey's earlier recommendation to require a preprocessed
-header view. The SDK cases below are later coverage candidates, not a
-requirement to support complex headers in the first implementation.
+does not require a preprocessed header view. The SDK cases below are later
+coverage candidates, not a requirement to support complex headers in the first
+implementation.
 
 Ingestion remains limited to explicitly selected configuration or physical-data
 types; name/purpose extraction has a separate, less ambitious path. When the
@@ -135,9 +143,9 @@ layouts, normalisation or semantic remaps from names/comments.
 5. `XMU565` and `XMDECN4`: lower through an explicit MSVC/x64 fixture to
    exact bit ranges; reject an unknown ABI and test signed-field handling.
 6. A 16-byte-aligned, four-`f32` record patterned after `XMFLOAT3A`:
-   reject unsupported explicit alignment initially; verify alignment and
-   stride/tail padding only if that layout mode is adopted. Inheritance may
-   remain unsupported.
+   verify extracted alignment and stride/tail padding against the schema's
+   implemented explicit-layout rules. Source inheritance support remains
+   a separate ingestion decision.
 7. When a pinned Vulkan SDK header is available, add one ordinary
    `Vk*CreateInfo` record (reject pointers as appropriate), one
    `Vk*FlagBits` enum, and one authored packed format definition. Do not

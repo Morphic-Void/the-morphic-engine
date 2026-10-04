@@ -18,6 +18,44 @@ Permanent behavior and architectural contracts belong in the subsystem
 documents linked from each milestone. Current and future work belongs in
 `future_work_notes.md` and the backlog.
 
+## Schema system and refinement
+
+Completed through 4 October 2026. The [schema reference](../schema/README.md)
+describes live/baked schema, instance and bulk roles; shared resolution; faithful
+C++17 declarations; binary loading/materialisation and capture; coordinated
+instance editing; binary-authoritative reconciliation; embedded, external and
+stripped baking; exact-type remapping; and optional unused-storage clearing.
+
+The subsequent refinement removes quadratic record and descendant bookkeeping,
+indexes baked entry lookup and physical-member traversal, uses ordered live
+records directly, caches bulk type bindings and shares compatibility checks.
+Scalar decoding and document copying share implementations, while subtree copying
+and whole-document promotion retain their distinct traversal policies. The file,
+conditional/parameter and style passes clarify responsibilities without adding
+allocation to read paths. General schema name lookup remains caller-managed.
+
+Representative checkpoints are `db82da7` (style/header closeout), `06962f7`
+(physical traversal/query forwarding), `3e3e25c` (data-model integer presentation),
+`80d7b4b` (canonical schema/data formatting) and `facc22a` (documentation/sample
+alignment). Integer metadata survives live/baked document round trips; schema
+output selects presentation by declared type and fills missing structure details
+without rewriting the source.
+
+The physical-order change passed Debug x64, Release x64 and Debug Win32 builds
+and ordinary suites, with 20,003 schema checks per run; all eight generated
+layout fixtures compiled for x86 and x64. The integer-output change passed full
+Debug x64 and Release Win32 builds and suites, with 20,611 schema checks per run.
+Policy validation, diff and line-ending checks passed. The final sample audit
+also passed the full Release Win32 suite (`schema-doc-audit-rel32`, PID 82496),
+including all 20,611 schema checks. These are recorded checkpoints, not new runs
+for the documentation reorganisation.
+
+The specification, API and validation guide replace the completed implementation
+contract and dated question record; original discussions remain in Git history.
+[Follow-on notes](../backlog/schema_follow_on.md) separate proposed expansion and
+consumer work from current contracts. Their implementation scope remains to be
+settled with the user.
+
 ## September consolidation: documents, storage, images and assets
 
 The selected consolidation is complete, including the rendering follow-up on

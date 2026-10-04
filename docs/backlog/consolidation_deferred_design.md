@@ -25,7 +25,7 @@ follow-ups are also complete through `db82da7`, including binary-authoritative
 reconciliation and baking with optional value stripping. Shared scalar decoding
 and document-copy construction are implemented; their completion does not select
 new consumers or the separate discussions in the
-[schema implementation contract](../schema/implementation-contract.md).
+[schema follow-on notes](schema_follow_on.md).
 
 The [asset service](../assets/asynchronous_asset_services.md) supports retained
 transfers, one-shot transfer/conditioning/save and saves by ID. Retained assets
