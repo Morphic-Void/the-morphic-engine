@@ -72,8 +72,8 @@ type definitions, instances, and bulk data. These remain logically separate even
 when loaded from one combined baked document. Each role has the same query
 interface in its live and baked forms; mutation belongs to the live form.
 Instance and bulk documents consume the common schema access interface with
-either live or baked schema backing. Concrete adapter and interface mechanics
-remain implementation design work, not a requirement for a new general framework.
+either live or baked schema backing. The role-specific query interfaces share a
+read adapter; schema wrappers manage client bindings and reference protection.
 
 All role wrappers over combined documents may expose the original document root,
 including the other sections, for source navigation and diagnostics. Their
@@ -556,28 +556,24 @@ value interpretation and signedness; a mask constant is not an enum field value.
 These constants describe the fields; instance storage remains the declared
 base storage type.  No operational code is implied by these declaration forms.
 
-The next data implementation establishes binary buffers as the common runtime
+Instance and bulk implementations use binary buffers as the common runtime
 representation, with document conversion at load and output boundaries. Binary
-file packaging can be delivered separately from in-memory materialisation.
-Source-code ingestion remains a late stage. Development is iterative, with the
-definition document revised as functionality is added.
+file packaging is separate from in-memory materialisation. Source-code ingestion
+remains deferred.
 
-The first implementation stage resolves and inspects schemas and generates
-C++ structures as part of validation.  Instance construction and serialisation
-are outside that stage.  Resolution covers all described type categories:
+The implementation resolves and inspects schemas, generates C++ declarations,
+and supports instance and bulk construction, editing and output. Resolution
+covers all described type categories:
 integers, floating point, booleans, enums, general/nested structures, fixed
 arrays, and bit structures. Declaration validation compiles C++17 output and checks
 size, alignment, member offsets, standard layout, and trivial copyability, as
 specified in the implementation contract. Compiler-based checks belong to
 validation tooling, separate from generated structures.
 
-The initial delivery excludes a separate operation for creating a normalised
-document. Explicit member offsets and increased structure alignment should be
-included initially only if adding them later would require retroactive changes
-beyond the local scope of those features. The implementation-contract assessment
-defers them: resolved types and members already contain size, alignment, offsets,
-and gaps, so later support changes layout calculation and export locally. The
-first delivery rejects these unsupported layout requests explicitly.
+Explicit member offsets and increased structure alignment are implemented.
+`CResolvedSchema::prepare_output()` creates a separate normalised schema document
+with canonical integer presentation and resolved structure details. It preserves
+the source and does not materialise omitted defaults or array elements.
 
 ## Editor use
 
@@ -1102,7 +1098,7 @@ retains the same resolved observations; independent array-stride overrides remai
 deferred. If any member supplies an explicit offset, every member of that
 definition must supply one; explicit and inferred offsets are not mixed.
 
-Natural alignment follows the current compilation target. Simple members
+Natural alignment follows the schema's size-based rules. Simple members
 align to multiples of their size; compounds use their members' effective
 alignment recursively. Without explicit increases, this is the size of the
 largest atomic member. Thus a nested 12-byte structure containing three `f32`
@@ -1162,8 +1158,8 @@ retains its authored offset between zero and the structure size, inclusive, but
 occupies no bytes and does not introduce a gap.
 
 Accepting and validating generated `detail` metadata for natural layouts is
-part of the base schema contract. Deferring the separate normalisation operation
-does not defer that input form or computing its values. A supplied alignment can
+part of the base schema contract. Schema output preparation writes these computed
+values into a separate document. A supplied alignment can
 equal the natural requirement or increase it, subject to the alignment rules.
 
 Every successfully resolved type description contains its effective alignment
@@ -1224,9 +1220,9 @@ Natural-layout declaration generation remains
 unchanged, and padding declarations do not add generated operational code.
 
 This section records the full layout rules. The expanded sample includes both
-natural and explicit layout examples. The initial-delivery assessment deferred
-explicit offsets and increased alignment to integration stage 3.
-Normalised-document creation remains a later operation.
+natural and explicit layout examples. Resolution, declaration generation and
+normalised-document creation support these rules; see the
+[runtime API](runtime-api.md) for their interfaces.
 
 ### Gaps and storage initialisation
 
@@ -1523,8 +1519,10 @@ immediate parent. These edit operations honour current selections; explicit
 reconciliation or conversion replaces them with snapshot-derived selections.
 Removing a selected member rebuilds from the base; adding one supplies a replacement
 value. Both operations update descendants. Live document access is mediated by
-the wrappers. Failure partway through editing/updating still needs a validity
-contract. Resolved schema metadata does not become mutable instance provenance.
+the wrappers. Failed validation or staging preserves existing entries. An
+unrecoverable failure after publication disables the role and reports a critical
+event; `clear()` releases its storage. Resolved schema metadata does not become
+mutable instance provenance.
 
 Base construction and specialisation are separate operations.
 

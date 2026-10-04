@@ -16,7 +16,7 @@ interfaces may change. A written plan alone does not authorise implementation.
 
 ## Delivery status
 
-As of 3 October, integration stages 1-8 and the subsequent exact-stride remapping
+Integration stages 1-8 and the subsequent exact-stride remapping
 correction (`0f4612b`) are complete. The stage 9 review was completed on 2 October.
 The user authorised its first repair package on 3 October: primitive instance
 promotion, compatibility checks for empty instance groups, replacement/removal
@@ -777,6 +777,12 @@ CRLF and optional missing final newline. Other text uses LF and a final newline.
 | [Schema_test_suite.cpp](../../tests/test_suites/Schema_test_suite.cpp) | Reuse fixtures and compiler checks, revising expectations only where later decisions change semantics. Stages 4b and 4c integrate the sample's bulk and instance locators and exercise their materialisation. |
 
 ## Staged implementation plan
+
+This section preserves delivery history, including plans and review conclusions
+that later entries supersede. Present-tense descriptions within an earlier stage
+describe that stage, not current limitations. Use [Delivery status](#delivery-status)
+and the [runtime API](runtime-api.md) for current coverage, and the
+[current backlog](../backlog/current_scope_backlog.md) for outstanding work.
 
 Stage 2's read-adapter and resolver/generator packages are committed as `0addf71`
 and `82d4974`. The schema-wrapper package, including guarded editing and intrusive
@@ -1606,7 +1612,8 @@ binary-copy-only contract of `CDataRemapPlan`.
 
 The full review is complete. The user authorised the four defect corrections
 and documentation first, followed by the bounded singular-input extension.
-The remaining findings require discussion; broader refactoring is not authorised.
+At that point, the remaining findings required discussion. Subsequent decisions
+and implementations are recorded below; the current backlog tracks remaining work.
 
 #### First repair package — implemented
 
@@ -1634,7 +1641,8 @@ runner logs use `development/logical-roots/test-logs/`. Policy validation report
 zero errors or warnings, with the existing unrelated negative-test suppression.
 Line-ending and diff checks pass. Resolved layouts and generated declarations
 did not change, so the separate generated-layout compiler matrix was not repeated.
-Broader stage 9 decisions remain open.
+Broader stage 9 decisions were still open at that validation point; later entries
+record their resolution.
 
 #### Singular input and bulk consistency — implemented
 

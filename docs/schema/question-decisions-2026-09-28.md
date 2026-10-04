@@ -1,5 +1,11 @@
 # Schema question decisions — 28 September 2026
 
+> Historical record, not the current contract. Later decisions supersede the
+> default-sensitive promotion, mismatch rejection and declaration-retention rules
+> below. Reconciliation and stripped baking are implemented. Use the
+> [design](design.md) and [runtime API](runtime-api.md) for current behaviour, and
+> the [current backlog](../backlog/current_scope_backlog.md) for remaining work.
+
 Working record of the user answers following the
 [pre-refactoring review, now consolidated](implementation-contract.md). This records decisions for
 subsequent reconciliation with [design.md](design.md), the

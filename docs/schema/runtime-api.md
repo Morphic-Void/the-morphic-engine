@@ -47,6 +47,23 @@ Baked role headers include `record_index.hpp` for their private index storage. T
 belongs to `type_compatibility.hpp`; it is separate from record lookup.
 Consumers normally reach these details through the relevant public header.
 
+The implementation files follow those responsibilities:
+
+| File in `core/schema/` | Responsibility |
+| --- | --- |
+| `resolved_schema.cpp` | Shared live/baked validation, type resolution, defaults and layout. |
+| `schema_declarations.cpp`, `schema_output.cpp` | C++ declarations and canonical schema document output, respectively. |
+| `schema_wrappers.cpp` | Schema ownership, editing, client bindings and translation. |
+| `document_query.cpp` | Shared live/baked read adapter; role forwarding is inline in the header. |
+| `baked_instances.cpp`, `baked_bulk_data.cpp` | Loading, materialisation, binary views and baked record lookup. |
+| `live_instances.cpp` | Instance lifetime, bindings, queries and creation. |
+| `live_instances_edit.cpp` | Capture, selection editing and descendant propagation. |
+| `live_instances_translation.cpp` | Instance declaration reconstruction, promotion, reconciliation and baking. |
+| `live_bulk_data.cpp` | Live bulk ownership, capture, queries, reconciliation and translation. |
+| `value_codec.cpp` | Shared value construction, decoding and comparison. |
+| `type_compatibility.cpp` | Cached structural compatibility checks. |
+| `data_remap.cpp`, `unused_storage.cpp` | Remap planning/execution and explicit unused-storage clearing. |
+
 General document copying lives in `core/data_model/document_copy.hpp`; include it
 for detached subtree copies. `document_translation.hpp` exposes whole-document
 and root-member promotion/baking. Subtree copying and promotion retain distinct

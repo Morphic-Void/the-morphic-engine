@@ -27,15 +27,23 @@ enum values, and numeric `0x` masks. These are not quoted strings. A strict
 JSON parser will reject those spellings; their use is intentional.
 
 Ordinary 8/16-bit integers use decimal; ordinary 32/64-bit integers use hexadecimal
-according to their declared type. Thus the `u32` tag default is `0x1`, whereas the
+according to their declared type. Thus the `u32` tag default is `0x01`, whereas the
 `u8` alpha default is `255`. Masks use the full containing storage width, such as
-`0x0001` for `SurfaceFlags` and `0x000003FF` for `ColourRgba10A2`, without C++
+`0x0001` for `SurfaceFlags` and `0x000003ff` for `ColourRgba10A2`, without C++
 suffixes. Counts, offsets, sizes and alignments use decimal through 65535 and
-hexadecimal above it. Signed-domain `+` and `-` signs remain intact. Generated
+hexadecimal above it. Hex digits use the writer's lowercase spelling; uppercase
+input is also valid. Signed-domain `+` and `-` signs remain intact. Generated
 C++ declarations instead choose ordinary integer notation by value; see the
 [runtime API](runtime-api.md#c17-declarations-and-validation).
 
 ## Grammar illustrated by the sample
+
+This is an authoring example, not a saved binary-backed output document. Its
+`valid: false` locators reserve fields for materialisation, and its declarations
+deliberately retain redundant selections to illustrate input and inheritance.
+Reconciliation/output may remove those selections, add locator sizes and assign
+valid offsets. The file uses Morphic JSON extensions despite its `.json` suffix;
+strict-JSON tools should consume the writer's strict mode instead.
 
 | Construct | Spelling and meaning |
 | --- | --- |
@@ -204,11 +212,8 @@ element. It never becomes an extra positional value or a named override target.
 The test suite generates and compiles the declarations, but the sample does not
 establish export mechanics.
 
-The initial-delivery assessment in the
-[implementation contract](implementation-contract.md#initial-delivery) deferred
-explicit offsets and increased alignment. The later layout stage now resolves
-and compiler-checks `InternalRecord` and its dependent `ArrayExamples` on x86
-and x64. The baked loaders can materialise the instance hierarchy and
+Layout validation resolves and compiler-checks `InternalRecord` and its dependent
+`ArrayExamples` on x86 and x64. The baked loaders can materialise the instance hierarchy and
 `Vertex.triangle`; the full
 example deliberately covers more than schema resolution.
 
@@ -222,6 +227,14 @@ presentation metadata for full-width masks and other schema-specific rules.
 Instance and bulk reconstruction apply the same ordinary integer policy.
 
 ## Review checks performed
+
+`test_schema_sample` in `Schema_test_suite.cpp` reads this file through the engine's
+Morphic parser, bakes and resolves its schema, checks layouts, generates C++
+validation fixtures, materialises its bulk and instance data, promotes both roles,
+and exercises embedded/external baking and reload. Generated declarations are
+compiled by the separate layout-validation checks.
+
+The following records an earlier manual review, before that automated coverage:
 
 An independent check read the saved sample, converted its numeric extensions
 to strict JSON spellings in memory, and checked type references, default

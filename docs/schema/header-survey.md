@@ -8,12 +8,12 @@ or other Vulkan SDK header, so this report does not pretend to have sampled a
 Vulkan declaration. Vulkan cases below are future tests once a pinned header is
 available.
 
-This survey records exploratory later-stage candidates. The working design
-controls scope. The [implementation assessment](implementation-contract.md#initial-delivery)
-defers explicit offsets/increased alignment because the resolved observations
-already support their later addition. Packed layout and unions are outside
-current scope, and ingestion follows schema resolution and usage work. The
-examples below do not add requirements to the first resolver delivery.
+This survey records exploratory candidates for deferred source ingestion. The
+schema now supports explicit offsets and increased alignment, including faithful
+C++ declaration generation and layout validation. Packed layout and unions remain
+outside current scope. The survey's source-environment observations are historical,
+not a fresh inventory of installed SDKs; the examples below do not authorise
+ingestion work or extend its supported declaration subset.
 
 The model's intended role is configuration, not a copy of renderer state. The
 survey therefore classifies source declarations by ownership: data-model
@@ -55,9 +55,8 @@ configuration; the latter two are derived execution and validation facts.
 
 The schema design covers fixed-size scalar records, nested records, fixed
 arrays, naturally resolved padding/offsets, named integer enums, and
-fixed-storage packed bit ranges. Increased alignment has defined semantics,
-but implementation is deferred under the working design's inclusion criterion;
-the survey does not independently expand that scope. This does not
+fixed-storage packed bit ranges. Explicit offsets and increased alignment are
+implemented, subject to the schema's layout validation rules. This does not
 imply that every representable API record belongs in the model: its primary targets are durable
 configuration and selected physical asset/upload records. Renderer descriptors
 and reflection objects are deliberately allowed to remain outside it.
