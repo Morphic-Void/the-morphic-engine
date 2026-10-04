@@ -228,7 +228,9 @@ public:
     [[nodiscard]] bool boolean_value(const CSchemaHandle value, bool& result) const noexcept;
     [[nodiscard]] bool signed_integer_value(const CSchemaHandle value, std::int64_t& result) const noexcept;
     [[nodiscard]] bool unsigned_integer_value(const CSchemaHandle value, std::uint64_t& result) const noexcept;
+    [[nodiscard]] bool integer_metadata(const CSchemaHandle value, CIntegerMetadata& result) const noexcept;
     [[nodiscard]] bool floating_point_value(const CSchemaHandle value, double& result) const noexcept;
+    [[nodiscard]] bool suppresses_newline_escaping(const CSchemaHandle value) const noexcept;
 
 private:
     detail::CDocumentRead m_query;
@@ -499,6 +501,16 @@ inline CSchemaDocumentQuery::CSchemaDocumentQuery(const CBakedDocument& document
 [[nodiscard]] inline bool CSchemaDocumentQuery::floating_point_value(const CSchemaHandle value, double& result) const noexcept
 {
     return m_query.floating_point_value(detail::SSchemaHandleAccess::occurrence(value), result);
+}
+
+[[nodiscard]] inline bool CSchemaDocumentQuery::integer_metadata(const CSchemaHandle value, CIntegerMetadata& result) const noexcept
+{
+    return m_query.integer_metadata(detail::SSchemaHandleAccess::occurrence(value), result);
+}
+
+[[nodiscard]] inline bool CSchemaDocumentQuery::suppresses_newline_escaping(const CSchemaHandle value) const noexcept
+{
+    return m_query.suppresses_newline_escaping(detail::SSchemaHandleAccess::occurrence(value));
 }
 
 //==============================================================================

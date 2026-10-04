@@ -2872,6 +2872,282 @@ static void test_shared_scalar_decoding(TTestContext& ctx)
         (bulk_error.reason == EBulkLoadReason::unrepresentable_value) && !output.is_ready() && !payload.is_ready());
 }
 
+static CNodeKey notation_path(const CLiveDocument& document, const char* const path)
+{
+    CNodeKey current = document.root();
+    std::istringstream parts{ path };
+    std::string part;
+    while (std::getline(parts, part, '/'))
+    {
+        CNodeKey child = document.first_child(current);
+        while (child && !(document.name(child) == CStringView{ part.c_str() }))
+        {
+            child = document.next_sibling(child);
+        }
+        current = child;
+    }
+    return current;
+}
+
+static std::string notation_text(TTestContext& ctx, const CLiveDocument& document,
+    const EDocumentWriteMode mode = EDocumentWriteMode::morphic)
+{
+    CBakedDocumentBlock block;
+    TEST_EXPECT(ctx, document_translation::bake(document, block));
+    CDocumentWriteOptions options;
+    options.mode = mode;
+    const CDocumentWriteResult written = document_writer::write(block.document(), options);
+    TEST_EXPECT(ctx, written.report.succeeded());
+    return { reinterpret_cast<const char*>(written.output.data()), written.report.logical_text_byte_size };
+}
+
+static void test_schema_integer_output(TTestContext& ctx)
+{
+    const char* const text = R"({"types":{
+        "enumerations":{"Wide":{"storage":"i32","values":{"positive":1,"negative":-65536}},
+            "Small":{"storage":"u8","values":{"one":+1}}},
+        "structures":{"Values":{"members":[
+            {"s8":{"type":"i8","default":0x7f}},
+            {"u8":{"type":"u8","default":+1}},
+            {"s16":{"type":"i16","default":#0001}},
+            {"u16":{"type":"u16","default":#0001}},
+            {"s32":{"type":"i32","default":1}},
+            {"u32":{"type":"u32","default":+1}},
+            {"s64":{"type":"i64","default":-9223372036854775808}},
+            {"u64":{"type":"u64","default":18446744073709551615}},
+            {"rows":{"type":{"element":{"element":"i32","count":2},"count":1},"default":[[1,-65536]]}},
+            {"real":{"type":"f32","default":#0001}}]},
+            "Large":{"members":[{"tail":{"type":"u32","offset":65536}}],"detail":{"size":65540,"alignment":4}},
+            "Empty":{"members":[],"detail":{"size":0,"internal":true}}},
+        "bit_structures":{
+            "Mask8":{"storage":"i8","members":[{"bit":{"type":"u8","mask":+128}}]},
+            "Mask16":{"storage":"u16","members":[{"bit":{"type":"u8","mask":1}}]},
+            "Mask32":{"storage":"u32","members":[{"bit":{"type":"i32","mask":3,"default":-1}}]},
+            "Mask64":{"storage":"i64","members":[{"bit":{"type":"u8","mask":9223372036854775808}}]}
+        }},"instances":{},"data":{}})";
+    CLiveDocument original;
+    TEST_EXPECT(ctx, parse_live(text, original));
+    const std::string original_text = notation_text(ctx, original);
+    CBakedDocumentBlock source_block;
+    TEST_EXPECT(ctx, document_translation::bake(original, source_block));
+    CResolvedSchema live_schema, baked_schema;
+    SDiagnostic error;
+    TEST_EXPECT(ctx, live_schema.resolve(original, error) && baked_schema.resolve(source_block.document(), error));
+    const auto verify = [&](const CLiveDocument& output)
+    {
+        TEST_EXPECT(ctx, output.check_integrity() && (output.child_count(output.root()) == 1u));
+        const auto check = [&](const char* path, const EIntegerDomain domain, const EIntegerWidth width, const EIntegerNotation notation)
+        {
+            CIntegerMetadata metadata;
+            TEST_EXPECT(ctx, output.integer_metadata(notation_path(output, path), metadata) &&
+                (metadata == CIntegerMetadata{ domain, width, notation, EIntegerPrefix::standard }));
+        };
+        const auto signed_domain = EIntegerDomain::signed_value;
+        const auto unsigned_domain = EIntegerDomain::unsigned_value;
+        const auto decimal = EIntegerNotation::decimal;
+        const auto hex = EIntegerNotation::hexadecimal;
+        const auto adaptive = EIntegerNotation::decimal_or_hexadecimal;
+        check("types/enumerations/Wide/values/positive", signed_domain, EIntegerWidth::bits_8, hex);
+        check("types/enumerations/Small/values/one", unsigned_domain, EIntegerWidth::bits_8, decimal);
+        check("types/structures/Values/members/s8/default", signed_domain, EIntegerWidth::bits_8, decimal);
+        check("types/structures/Values/members/u8/default", unsigned_domain, EIntegerWidth::bits_8, decimal);
+        check("types/structures/Values/members/s16/default", signed_domain, EIntegerWidth::bits_8, decimal);
+        check("types/structures/Values/members/u16/default", unsigned_domain, EIntegerWidth::bits_8, decimal);
+        check("types/structures/Values/members/s32/default", signed_domain, EIntegerWidth::bits_8, hex);
+        check("types/structures/Values/members/u32/default", unsigned_domain, EIntegerWidth::bits_8, hex);
+        check("types/structures/Values/members/s64/default", signed_domain, EIntegerWidth::bits_64, hex);
+        check("types/structures/Values/members/u64/default", unsigned_domain, EIntegerWidth::bits_64, hex);
+        check("types/structures/Values/members/rows/type/count", unsigned_domain, EIntegerWidth::bits_8, adaptive);
+        check("types/structures/Values/members/rows/type/element/count", unsigned_domain, EIntegerWidth::bits_8, adaptive);
+        check("types/structures/Large/members/tail/offset", unsigned_domain, EIntegerWidth::bits_32, adaptive);
+        check("types/structures/Large/detail/size", unsigned_domain, EIntegerWidth::bits_32, adaptive);
+        check("types/structures/Large/detail/alignment", unsigned_domain, EIntegerWidth::bits_8, adaptive);
+        check("types/structures/Values/detail/alignment", unsigned_domain, EIntegerWidth::bits_8, adaptive);
+        check("types/structures/Values/detail/size", unsigned_domain, EIntegerWidth::bits_8, adaptive);
+        std::uint64_t size{}, alignment{};
+        TEST_EXPECT(ctx, output.unsigned_integer_value(notation_path(output, "types/structures/Values/detail/size"), size) &&
+            (size == 48u) && output.unsigned_integer_value(notation_path(output, "types/structures/Values/detail/alignment"), alignment) &&
+            (alignment == 8u));
+        bool internal{};
+        TEST_EXPECT(ctx, output.unsigned_integer_value(notation_path(output, "types/structures/Empty/detail/size"), size) &&
+            (size == 0u) && output.unsigned_integer_value(notation_path(output, "types/structures/Empty/detail/alignment"), alignment) &&
+            (alignment == 1u) && output.boolean_value(notation_path(output, "types/structures/Empty/detail/internal"), internal) && internal);
+        check("types/bit_structures/Mask8/members/bit/mask", unsigned_domain, EIntegerWidth::bits_8, EIntegerNotation::hexadecimal_2);
+        check("types/bit_structures/Mask16/members/bit/mask", unsigned_domain, EIntegerWidth::bits_8, EIntegerNotation::hexadecimal_4);
+        check("types/bit_structures/Mask32/members/bit/mask", unsigned_domain, EIntegerWidth::bits_8, EIntegerNotation::hexadecimal_8);
+        check("types/bit_structures/Mask64/members/bit/mask", unsigned_domain, EIntegerWidth::bits_64, EIntegerNotation::hexadecimal_16);
+        check("types/bit_structures/Mask32/members/bit/default", signed_domain, EIntegerWidth::bits_8, hex);
+        const CNodeKey row = output.first_child(notation_path(output, "types/structures/Values/members/rows/default"));
+        CIntegerMetadata first, second, real;
+        TEST_EXPECT(ctx, output.integer_metadata(output.first_child(row), first) &&
+            (first.notation == hex) && (first.domain == signed_domain) && (first.width == EIntegerWidth::bits_8));
+        TEST_EXPECT(ctx, output.integer_metadata(output.last_child(row), second) &&
+            (second.notation == hex) && (second.width == EIntegerWidth::bits_32));
+        TEST_EXPECT(ctx, output.integer_metadata(notation_path(output, "types/structures/Values/members/real/default"), real) &&
+            (real.notation == EIntegerNotation::hexadecimal_4) && (real.prefix == EIntegerPrefix::alternate));
+        const std::string written = notation_text(ctx, output);
+        for (const char* token : { "+0x01", "-0x00010000", "0x0001", "0x00000003",
+            "0x8000000000000000", "-0x8000000000000000", "0xffffffffffffffff", "0x00010004" })
+        {
+            TEST_EXPECT(ctx, written.find(token) != std::string::npos);
+        }
+        CBakedDocumentBlock strict;
+        CResolvedSchema strict_schema;
+        TEST_EXPECT(ctx, bake(notation_text(ctx, output, EDocumentWriteMode::strict_json), strict) &&
+            strict_schema.resolve(strict.document(), error));
+    };
+    std::string canonical;
+    for (const CResolvedSchema* schema : { &live_schema, &baked_schema })
+    {
+        CLiveDocument output;
+        TEST_EXPECT(ctx, schema->prepare_output(output, error) && (error.reason == EReason::none));
+        if (!output.is_ready()) { return; }
+        verify(output);
+        const std::string written = notation_text(ctx, output);
+        if (!canonical.empty()) { TEST_EXPECT(ctx, written == canonical); }
+        canonical = written;
+        TEST_EXPECT(ctx, !schema->prepare_output(output, error) && (error.reason == EReason::invalid_input));
+        CBakedDocumentBlock round_trip;
+        CLiveDocument promoted;
+        TEST_EXPECT(ctx, document_translation::bake(output, round_trip) && document_translation::promote(round_trip.document(), promoted));
+        verify(promoted);
+        CResolvedSchema resolved;
+        CLiveDocument repeated;
+        TEST_EXPECT(ctx, resolved.resolve(promoted, error) && resolved.prepare_output(repeated, error));
+        TEST_EXPECT(ctx, notation_text(ctx, repeated) == canonical);
+    }
+    TEST_EXPECT(ctx, notation_text(ctx, original) == original_text);
+    CResolvedSchema unresolved;
+    CLiveDocument empty;
+    TEST_EXPECT(ctx, !unresolved.prepare_output(empty, error) && !empty.is_ready());
+    bool succeeded{};
+    std::size_t failures{};
+    for (std::size_t offset = 0u; (offset < 256u) && !succeeded; ++offset)
+    {
+        SFailingAllocator failing{ 0u, SIZE_MAX };
+        memory::CMemoryAllocator allocator{ &failing, &allocate_with_failure, &tests::deallocate_test_memory };
+        memory::CMemoryContext context{ allocator };
+        {
+            tests::TMemoryContextScope scope{ &context };
+            CLiveDocument output;
+            failing.fail_on = failing.calls + offset;
+            succeeded = baked_schema.prepare_output(output, error);
+            failing.fail_on = SIZE_MAX;
+            if (!succeeded)
+            {
+                ++failures;
+                TEST_EXPECT(ctx, !output.is_ready() && (error.reason != EReason::none));
+            }
+            else { verify(output); }
+        }
+        TEST_EXPECT(ctx, context.is_attribution_empty());
+    }
+    TEST_EXPECT(ctx, succeeded && (failures > 3u));
+    CLiveDocument empty_definitions, empty_output;
+    CResolvedSchema empty_schema;
+    TEST_EXPECT(ctx, parse_live(R"({"types":{}})", empty_definitions) && empty_schema.resolve(empty_definitions, error) &&
+        empty_schema.prepare_output(empty_output, error) && empty_output.check_integrity());
+}
+
+static void test_data_integer_output(TTestContext& ctx)
+{
+    CBakedDocumentBlock definitions;
+    CBakedSchema schema;
+    SDiagnostic schema_error;
+    TEST_EXPECT(ctx, bake(R"({"types":{"structures":{"Empty":{"members":[]}}}})", definitions) &&
+        schema.set_document(definitions.document()) && schema.resolve(schema_error));
+    struct SCase { const char* type; std::uint32_t size; bool signed_value; EIntegerNotation notation; const char* spelling; };
+    for (const SCase item : {
+        SCase{ "i8", 1u, true, EIntegerNotation::decimal, "+1" },
+        SCase{ "i16", 2u, true, EIntegerNotation::decimal, "+1" },
+        SCase{ "i32", 4u, true, EIntegerNotation::hexadecimal, "+0x01" },
+        SCase{ "i64", 8u, true, EIntegerNotation::hexadecimal, "+0x01" },
+        SCase{ "u8", 1u, false, EIntegerNotation::decimal, "1" },
+        SCase{ "u16", 2u, false, EIntegerNotation::decimal, "1" },
+        SCase{ "u32", 4u, false, EIntegerNotation::hexadecimal, "0x01" },
+        SCase{ "u64", 8u, false, EIntegerNotation::hexadecimal, "0x01" } })
+    {
+        alignas(128) const std::uint8_t bytes[128] = { 1u };
+        const CByteConstView input{ bytes, item.size, 128u };
+        CLiveBulkData bulk;
+        CLiveInstances instances;
+        SBulkDiagnostic bulk_error;
+        SInstanceDiagnostic instance_error;
+        TEST_EXPECT(ctx, bulk.initialise(schema) && instances.initialise(schema));
+        TEST_EXPECT(ctx, bulk.capture(CStringView{ item.type }, CStringView{ "one" }, input, 1u, bulk_error));
+        TEST_EXPECT(ctx, instances.capture_base(CStringView{ item.type }, CStringView{ "one" }, input, instance_error));
+        TEST_EXPECT(ctx, bulk.reconcile(bulk_error) && instances.reconcile(instance_error));
+        const auto check = [&](const CLiveDocument& document, const CNodeKey value)
+        {
+            CIntegerMetadata metadata;
+            TEST_EXPECT(ctx, document.integer_metadata(value, metadata) &&
+                (metadata.domain == (item.signed_value ? EIntegerDomain::signed_value : EIntegerDomain::unsigned_value)) &&
+                (metadata.width == EIntegerWidth::bits_8) && (metadata.notation == item.notation) &&
+                (metadata.prefix == EIntegerPrefix::standard));
+        };
+        for (const EDataOutputForm form : { EDataOutputForm::embedded, EDataOutputForm::external, EDataOutputForm::stripped })
+        {
+            CLiveDocument bulk_output, instance_output;
+            CByteBuffer bulk_payload, instance_payload;
+            TEST_EXPECT(ctx, bulk.prepare_output(bulk_output, bulk_payload, schema, form, bulk_error) &&
+                instances.prepare_output(instance_output, instance_payload, schema, form, instance_error));
+            const std::string bulk_path = std::string{ "data/" } + item.type + "/one";
+            const std::string instance_path = std::string{ "instances/" } + item.type + "/one";
+            const CNodeKey records = notation_path(bulk_output, (bulk_path + "/data").c_str());
+            const CNodeKey declaration = notation_path(instance_output, (instance_path + "/declaration").c_str());
+            if (form == EDataOutputForm::embedded)
+            {
+                check(bulk_output, bulk_output.first_child(records));
+                TEST_EXPECT(ctx, notation_text(ctx, bulk_output).find(item.spelling) != std::string::npos);
+            }
+            else { TEST_EXPECT(ctx, !records); }
+            if (form != EDataOutputForm::stripped)
+            {
+                check(instance_output, declaration);
+                TEST_EXPECT(ctx, notation_text(ctx, instance_output).find(item.spelling) != std::string::npos);
+                CBakedDocumentBlock baked;
+                CLiveDocument promoted;
+                TEST_EXPECT(ctx, document_translation::bake(instance_output, baked) && document_translation::promote(baked.document(), promoted));
+                check(promoted, notation_path(promoted, (instance_path + "/declaration").c_str()));
+            }
+            else { TEST_EXPECT(ctx, !declaration); }
+            for (const char* name : { "offset", "size" })
+            {
+                CIntegerMetadata metadata;
+                TEST_EXPECT(ctx, instance_output.integer_metadata(notation_path(instance_output,
+                    (instance_path + "/locator/" + name).c_str()), metadata) &&
+                    (metadata.notation == EIntegerNotation::decimal_or_hexadecimal));
+            }
+            CIntegerMetadata count;
+            TEST_EXPECT(ctx, bulk_output.integer_metadata(notation_path(bulk_output, (bulk_path + "/locator/count").c_str()), count) &&
+                (count.notation == EIntegerNotation::decimal_or_hexadecimal));
+            TEST_EXPECT(ctx, (bulk_payload.size() == item.size) && (instance_payload.size() == item.size) &&
+                (std::memcmp(bulk_payload.data(), bytes, item.size) == 0) &&
+                (std::memcmp(instance_payload.data(), bytes, item.size) == 0));
+        }
+    }
+    //  Logical i32 formatting is independent of a narrower bit-field encoding.
+    CLiveDocument scalar;
+    TEST_EXPECT(ctx, scalar.initialise());
+    EScalarDecodeReason reason;
+    CIntegerMetadata metadata;
+    const CNodeKey field = decode_document_scalar(scalar, *schema.resolved(),
+        schema.resolved()->find_type(CStringView{ "i32" }), 7u, 3u, {}, reason);
+    TEST_EXPECT(ctx, scalar.integer_metadata(field, metadata) && (metadata.notation == EIntegerNotation::hexadecimal) &&
+        (metadata.width == EIntegerWidth::bits_8) && (metadata.domain == EIntegerDomain::signed_value));
+    //  Counts have their own adaptive policy even when the element has no bytes.
+    CLiveBulkData empty;
+    SBulkDiagnostic bulk_error;
+    TEST_EXPECT(ctx, empty.initialise(schema));
+    TEST_EXPECT(ctx, empty.create_unpopulated(CStringView{ "Empty" }, CStringView{ "small" }, 65535u, bulk_error));
+    TEST_EXPECT(ctx, empty.create_unpopulated(CStringView{ "Empty" }, CStringView{ "large" }, 65536u, bulk_error));
+    CLiveDocument output;
+    CByteBuffer payload;
+    TEST_EXPECT(ctx, empty.prepare_output(output, payload, schema, EDataOutputForm::stripped, bulk_error));
+    const std::string written = notation_text(ctx, output);
+    TEST_EXPECT(ctx, (written.find("65535") != std::string::npos) && (written.find("0x00010000") != std::string::npos));
+}
+
 static void test_schema_wrapper_queries_and_transfer(TTestContext& ctx)
 {
     CBakedDocumentBlock block;
@@ -8526,6 +8802,8 @@ int run_schema_tests()
     schema_tests::test_document_read_boundary(ctx);
     schema_tests::test_document_value_copy(ctx);
     schema_tests::test_shared_scalar_decoding(ctx);
+    schema_tests::test_schema_integer_output(ctx);
+    schema_tests::test_data_integer_output(ctx);
     schema_tests::test_instance_document_query(ctx);
     schema_tests::test_live_baked_resolution_parity(ctx);
     schema_tests::test_live_resolution_move_failure_and_depth(ctx);

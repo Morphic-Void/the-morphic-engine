@@ -173,8 +173,9 @@ structure instead requires a supplied size, validated for fit and alignment;
 additional trailing space is allowed and belongs to the structure.
 If `detail` or its `alignment` property is omitted, the agreed natural
 alignment rules apply, respecting any explicit alignment of nested types.
-Future schema-document normalisation is intended to include both structure `detail.alignment` and
-`detail.size`. Natural-layout input may omit both; explicit-offset schema creation
+`CResolvedSchema::prepare_output()` includes both structure `detail.alignment` and
+`detail.size`, adding missing properties from the resolved layout.
+Natural-layout input may omit both; explicit-offset schema creation
 must supply size and baked resolution requires it. All structure
 definitions here include them to illustrate that intended form. Omitting the details
 from `Position`, for example, still resolves to size 12 and alignment 4; omitting
@@ -216,8 +217,9 @@ numeric extensions here it emits equivalent values without explicit `+` signs
 or hexadecimal notation. Morphic output retains signed-domain and notation intent,
 including a minimum hex width derived from parsed digit counts. A generic round
 trip preserves `0x0001` and expands `0x1` to `0x01`; it does not select formatting
-from schema types. Future schema-document output must set the data model's
+from schema types. `CResolvedSchema::prepare_output()` sets the data model's
 presentation metadata for full-width masks and other schema-specific rules.
+Instance and bulk reconstruction apply the same ordinary integer policy.
 
 ## Review checks performed
 

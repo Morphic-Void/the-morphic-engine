@@ -227,11 +227,27 @@ those end-of-header sections, following `StringBuffers.hpp`. Definition comparis
 confirmed unchanged bodies and initialisers; the Debug x64 solution build passed.
 The earlier runtime/layout matrix was not repeated for this placement-only change.
 
-Integer output notation remains a separate design discussion, with presentation
-metadata owned by the data model and set by schema output. The data-model
-foundation now supports minimum binary/hex widths, adaptive decimal/hex notation and
-parsed padding preservation through live/baked conversion; applying those modes
-in schema output remains separate work.
+Integer output notation is implemented using the data model's presentation
+metadata. `CResolvedSchema::prepare_output()` creates canonical schema documents
+from live or baked sources without changing the input. Ordinary 8/16-bit values
+use decimal and 32/64-bit values use automatic-width hex; masks use full containing
+storage width, and structural quantities use adaptive decimal/hex. Defaults,
+instance and bulk scalar reconstruction share the ordinary policy. Copied source
+declarations retain their metadata until reconstruction. Schema output uses a
+temporary sorted rule list and the shared document copier; resolved record sizes
+and data-access paths are unchanged. Schema output fills omitted structure
+size/alignment from resolved layouts without materialising missing defaults.
+The runtime guide specifies the output API.
+
+The integer-output regression package covers all ordinary integer widths,
+signed/unsigned domain normalisation, full-width masks, nested defaults,
+structural thresholds, inferred and partial layout details, live/baked sources,
+repeatable output, strict JSON, all data output forms and allocation-failure
+cleanup. Full Debug x64 and Release Win32 builds and `-t1` runs passed, each
+with 20,611 schema checks and no failures (`schema-notation-final-dbg64`,
+`schema-notation-final-rel32`). Policy validation reported no errors or warnings;
+diff and line-ending checks passed.
+
 Combining the traversal strategies is outside this refactor.
 Fp16 workflow changes and source ingestion also remain deferred. A completed
 review does not authorise those changes.

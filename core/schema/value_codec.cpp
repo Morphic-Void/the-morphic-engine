@@ -10,6 +10,7 @@
 
 #include "schema/value_codec.hpp"
 #include "schema/value_conversion.hpp"
+#include "schema/integer_notation.hpp"
 #include "data_model/live_document.hpp"
 
 #include <cmath>
@@ -77,7 +78,8 @@ namespace schema
     }
     if (scalar_is_signed(layout.primitive))
     {
-        return document.create_signed_integer(sign_extend_scalar(bits, width), name);
+        const std::int64_t value = sign_extend_scalar(bits, width);
+        return document.create_signed_integer(value, signed_integer_metadata(value, integer_notation(layout.primitive)), name);
     }
     if (layout.primitive == EPrimitive::b8)
     {
@@ -112,7 +114,7 @@ namespace schema
         }
         return document.create_floating_point(value, name);
     }
-    return document.create_unsigned_integer(bits, name);
+    return document.create_unsigned_integer(bits, unsigned_integer_metadata(bits, integer_notation(layout.primitive)), name);
 }
 
 CNodeKey decode_document_scalar(CLiveDocument& document, const CResolvedSchema& schema,

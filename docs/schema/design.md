@@ -428,11 +428,11 @@ resolution and cannot be silently repaired by normalisation. The new document
 can subsequently be baked and resolved through the ordinary lifecycle.
 
 The output contains schema definitions and their document metadata, not a
-serialisation of resolved slots, indices, or other runtime internals. Exact
-normalisation APIs remain to be specified. A request to create a new normalised
-document is outside the initial delivery. Any schema-document writer provided
-at any stage must nevertheless emit the normal form; deferring this operation
-does not permit non-normal output from schema generation.
+serialisation of resolved slots, indices, or other runtime internals.
+`CResolvedSchema::prepare_output()` now provides this operation. It applies
+canonical integer presentation and fills omitted structure size/alignment from
+resolution. Supplied defaults retain their shape; omitted defaults and array
+elements are not materialised.
 
 ### Runtime representation
 
@@ -935,14 +935,24 @@ the declared schema type selects notation and must not be encoded by overriding
 that width. Generated C++ source has its own literal spelling requirements.
 The generic document writer supports minimum hexadecimal widths and adaptive
 decimal/hex notation, with parsed padding retained as presentation metadata.
-Future schema-document output can request full-width mask display through those
-modes. Schema normalisation/output APIs and selection of this metadata remain
-deferred; the data-model support does not apply schema-specific policy itself.
+`CResolvedSchema::prepare_output()` copies the `types` section and applies these
+rules to enum values, integer defaults (including nested arrays), masks and
+structural quantities. The source may be live or baked and is not modified.
+The destination must be uninitialised; failure publishes no partial document.
+Definition order, spelling of names, value structure and non-integer content are
+preserved. Omitted structure `detail.size` and `detail.alignment` are added from
+the resolved layout; missing defaults are not materialised.
+Plain document copying and schema wrapper baking/promotion preserve existing
+metadata; callers explicitly request canonical schema output through this API.
 
-The application of these declared-type notation rules to instance and bulk
-output still needs clarification. Current data-role scalar decoding constructs
-integer values with decimal metadata; this review does not change that behaviour
-or imply that data output already performs schema-document normalisation.
+Instance and bulk scalar reconstruction applies the same declared-type rules as
+schema defaults. This includes promotion, reconciliation, selection decoding and
+output preparation. A bit-field value uses its logical declared type for notation,
+not the narrower field width; its mask uses the containing storage width.
+Rebuilt locators use adaptive decimal/hex metadata. Copied input declarations keep
+their spelling metadata until reconstructed. Enum data remains label strings,
+and floating-point/Boolean data retains its existing representation. Binary
+notation is available in the data model but is not selected by schema policy.
 
 Permissive spelling does not permit invalid schema definitions or instance
 values.  Malformed syntax, invalid layouts, and values incompatible with their

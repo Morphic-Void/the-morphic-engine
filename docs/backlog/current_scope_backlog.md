@@ -26,9 +26,9 @@ explicit-layout overlap checking. The
 [implementation contract](../schema/implementation-contract.md) records delivery
 and validation.
 
-Remaining schema discussions concern integer output notation, fp16 handling
-and source/header ingestion. The data model now supports minimum-width binary/hexadecimal
-and adaptive notation; schema selection of that metadata remains future work.
+Integer presentation is implemented in the data model and applied by canonical
+schema output and instance/bulk reconstruction. Remaining schema discussions
+concern fp16 handling and source/header ingestion.
 General schema name lookup remains caller-managed. Select these or new
 consumer work with the user; the completed consolidation does not authorise
 further changes.

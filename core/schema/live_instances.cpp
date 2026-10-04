@@ -10,6 +10,7 @@
 
 #include "schema/live_instances.hpp"
 #include "schema/value_codec.hpp"
+#include "schema/integer_notation.hpp"
 #include "data_model/document_copy.hpp"
 #include "memory/memory_policies.hpp"
 #include "debug/macros.hpp"
@@ -48,9 +49,9 @@ CNodeKey CLiveInstances::make_locator(CLiveDocument& document, const std::uint32
     {
         return {};
     }
-    if (!append_node(document, locator, document.create_unsigned_integer(offset, CStringView{ "offset" })) ||
+    if (!append_node(document, locator, create_structural_integer(document, offset, CStringView{ "offset" })) ||
         !append_node(document, locator, document.create_boolean(true, CStringView{ "valid" })) ||
-        !append_node(document, locator, document.create_unsigned_integer(extent, CStringView{ "size" })))
+        !append_node(document, locator, create_structural_integer(document, extent, CStringView{ "size" })))
     {
         (void)document.erase(locator);
         return {};

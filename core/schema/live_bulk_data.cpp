@@ -11,6 +11,7 @@
 #include "schema/live_bulk_data.hpp"
 #include "schema/type_compatibility.hpp"
 #include "schema/value_codec.hpp"
+#include "schema/integer_notation.hpp"
 #include "data_model/document_copy.hpp"
 #include "data_model/document_translation.hpp"
 #include "memory/memory_policies.hpp"
@@ -67,10 +68,10 @@ struct SDetachedBulkNodes
 {
     const CNodeKey locator = document.create_object(CStringView{ "locator" });
     if (!locator.is_valid() ||
-        !append_node(document, locator, document.create_unsigned_integer(offset, CStringView{ "offset" })) ||
+        !append_node(document, locator, create_structural_integer(document, offset, CStringView{ "offset" })) ||
         !append_node(document, locator, document.create_boolean(true, CStringView{ "valid" })) ||
-        !append_node(document, locator, document.create_unsigned_integer(count, CStringView{ "count" })) ||
-        !append_node(document, locator, document.create_unsigned_integer(extent, CStringView{ "size" })))
+        !append_node(document, locator, create_structural_integer(document, count, CStringView{ "count" })) ||
+        !append_node(document, locator, create_structural_integer(document, extent, CStringView{ "size" })))
     {
         if (locator.is_valid())
         {

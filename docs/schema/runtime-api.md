@@ -26,7 +26,7 @@ Include the header for the role or operation being used:
 | Header in `core/schema/` | Responsibility |
 | --- | --- |
 | `schema_wrappers.hpp` | Live/baked schema ownership, editing and client bindings. |
-| `resolved_schema.hpp` | Resolved layouts, defaults, diagnostics and C++ generation. |
+| `resolved_schema.hpp` | Resolved layouts, defaults, diagnostics, schema document output and C++ generation. |
 | `baked_instances.hpp`, `live_instances.hpp` | Instance loading, observation and live editing/output. |
 | `baked_bulk_data.hpp`, `live_bulk_data.hpp` | Bulk loading, observation and live capture/output. |
 | `data_remap.hpp` | Remap planning and execution between binary views. |
@@ -41,9 +41,9 @@ diagnostics and views.
 type alignment and the common base alignment of instance/bulk buffers (128 bytes).
 Allocation, supplied-payload checks and staging offsets use the same constant.
 
-`record_index.hpp`, `type_compatibility.hpp`, `value_codec.hpp` and
-`value_conversion.hpp` are implementation support. Baked role headers include
-`record_index.hpp` for their private index storage. The compatibility hash index
+`record_index.hpp`, `type_compatibility.hpp`, `value_codec.hpp`,
+`value_conversion.hpp` and `integer_notation.hpp` are implementation support.
+Baked role headers include `record_index.hpp` for their private index storage. The compatibility hash index
 belongs to `type_compatibility.hpp`; it is separate from record lookup.
 Consumers normally reach these details through the relevant public header.
 
@@ -231,6 +231,52 @@ Generated C++ omits empty type definitions and zero-byte members; its physical
 declarations therefore need not list every queryable member. Empty structures
 accept canonical `detail.size: 0` and `detail.alignment: 1`; metadata requesting
 storage or stronger alignment is invalid.
+
+## Schema document output and integer presentation
+
+`CResolvedSchema::prepare_output(CLiveDocument&, SDiagnostic&) const` creates a
+document containing only the resolved source's `types` section, with canonical
+integer metadata. The source can be live or baked. Both schema wrappers expose
+this through `resolved()->prepare_output(...)`; resolution must be ready, and
+the destination must be uninitialised. Failure leaves the destination untouched.
+Output can be adopted into a live schema, baked with the data-model translator,
+or baked and passed to the text writer. Resolution and existing wrapper
+bake/promotion operations continue to preserve input metadata.
+
+| Value role | Canonical metadata |
+| --- | --- |
+| Ordinary `i8`, `u8`, `i16`, `u16` | Decimal. |
+| Ordinary `i32`, `u32`, `i64`, `u64` | Automatic-width hexadecimal, including small values. |
+| Masks | Hexadecimal minimum of 2/4/8/16 digits for the containing 8/16/32/64-bit storage. |
+| Counts, offsets, sizes, alignments | Adaptive decimal/hexadecimal, decimal through 65535. |
+
+The ordinary rules apply to enum definitions and integer defaults, including
+nested array defaults, and to integers reconstructed for instance/bulk documents.
+Signed-domain values retain `+`/`-`; unsigned values have no sign. The canonical
+hex prefix is `0x`. A small `u32` value prints as `0x01`, while a 32-bit mask
+prints as `0x00000001`. Metadata storage width remains the measured minimum in
+the selected domain, independently of declared width and padding. Floating-point
+defaults spelled as integers retain their existing metadata.
+
+The implementation in `schema_output.cpp` derives a temporary rule list from
+resolved records, sorts it once and uses binary search while reusing the document
+subtree copier. No output index persists in resolved records. Output preserves
+declaration order, names, strings and supplied default structure, and adds
+omitted structure `detail.size` and `detail.alignment` from the resolved layout.
+It does not materialise missing defaults or array elements.
+
+Data-role promotion, reconciliation, selection decoding and output preparation
+share the scalar policy. Bit-field values follow their logical declared type;
+enum values remain label strings. Rebuilt locator integers use the structural
+policy in every output form, including stripped output. Raw bulk capture still
+constructs locators without decoding records. Input declarations copied without
+reconstruction retain their metadata until a reconstruction operation is requested.
+
+Live/baked translation preserves the selected metadata. Text round trips retain
+emitted padding but cannot recover an adaptive policy; preparing schema output
+again restores that policy. Strict JSON writing emits decimal values using the
+existing writer option. See the
+[data-model numeric contract](../data_model/revised_data_model.md#numeric-values).
 
 ## Defaults
 
@@ -1011,21 +1057,9 @@ is a separate group. Groups have exactly one blank line between them. Namespaces
 have inner blank lines unless their entire body is one group of single-line
 declarations, as with mask constants or the alias-only empty schema.
 
-These are C++ source spelling rules. Future schema-document output uses the
-existing `CIntegerMetadata` domain, notation and prefix flags with the document
-writer. Ordinary 8/16-bit schema integers use decimal; 32/64-bit schema integers
-use hexadecimal according to their declared type, even for small values. Counts,
-offsets, sizes and alignments use the value threshold; masks use full storage-width
-hexadecimal without C++ suffixes. The generic document writer now supports
-minimum hexadecimal widths and adaptive decimal/hex metadata; see the
-[data-model numeric contract](../data_model/revised_data_model.md#numeric-values).
-Schema selection of that metadata remains a separate follow-up. No schema-document
-normalisation/output API is provided by this delivery.
-
-Instance and bulk scalar decoding currently emits decimal integer metadata.
-Whether their output should adopt the declared-type hexadecimal convention is
-unresolved; the future schema-document rules above do not describe that current
-data-role output behaviour.
+These are C++ source spelling rules. Schema document output instead sets
+`CIntegerMetadata` for the document writer, as described under
+[integer presentation](#schema-document-output-and-integer-presentation).
 
 The namespace is one identifier, not a qualified namespace expression. It must
 use the initial ASCII subset of C++17 identifiers, as do schema declarations.

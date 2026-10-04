@@ -36,7 +36,9 @@ data model, including header sections and include guidance. The tidying phase is
 complete. The subsequent performance pass inlines role-query forwarding, shares
 a retained physical-member index between clearing and C++ generation, and replaces
 the resolver's pairwise explicit-overlap check with a sorted sweep. General name
-lookup remains caller-managed; separate deferred discussions remain in the
+lookup remains caller-managed. Canonical schema document output now applies
+integer presentation metadata, with the ordinary integer policy shared by
+instance and bulk reconstruction. Separate deferred discussions remain in the
 [implementation contract](implementation-contract.md).
 
 The coordinator handoff, pre-refactoring gap review and record-layout proposal

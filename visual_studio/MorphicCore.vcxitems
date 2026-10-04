@@ -49,6 +49,7 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\type_compatibility.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\data_model\document_copy.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\value_codec.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\integer_notation.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\data_remap.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\unused_storage.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\schema_wrappers.hpp" />
@@ -128,6 +129,7 @@
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\data_model\document_text_lex.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\data_model\document_writer.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\schema_declarations.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\schema_output.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\document_query.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\resolved_schema.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\type_compatibility.cpp" />

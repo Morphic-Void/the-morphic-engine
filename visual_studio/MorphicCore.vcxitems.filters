@@ -882,6 +882,9 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\value_codec.hpp">
       <Filter>Core\include\schema</Filter>
     </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\integer_notation.hpp">
+      <Filter>Core\include\schema</Filter>
+    </ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\data_remap.hpp">
       <Filter>Core\include\schema</Filter>
     </ClInclude>
@@ -949,6 +952,9 @@
       <Filter>Core\src\schema</Filter>
     </ClCompile>
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\schema_declarations.cpp">
+      <Filter>Core\src\schema</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\schema_output.cpp">
       <Filter>Core\src\schema</Filter>
     </ClCompile>
   </ItemGroup>
