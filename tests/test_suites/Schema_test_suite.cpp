@@ -7153,8 +7153,12 @@ static void test_unused_storage_values(TTestContext& ctx)
             "Inner":{"detail":{"size":4,"alignment":2},"members":[
                 {"value":{"type":"u16","offset":0}}]},
             "Outer":{"detail":{"size":16,"alignment":16},"members":[
+                {"before":{"type":"Empty","offset":8}},
                 {"later":{"type":"Inner","offset":8}},
-                {"items":{"type":{"element":"Inner","count":2},"offset":0}}]},
+                {"after":{"type":"Empty","offset":8}},
+                {"items":{"type":{"element":"Inner","count":2},"offset":0}},
+                {"inside":{"type":"Empty","offset":1}},
+                {"end":{"type":"Empty","offset":16}}]},
             "ScalarShell":{"detail":{"size":16,"alignment":4},"members":[
                 {"nan":{"type":"f32","offset":0}},
                 {"negative_zero":{"type":"f32","offset":4}},
@@ -7231,6 +7235,8 @@ static void test_unused_storage_values(TTestContext& ctx)
         bits64[0] == 0x11u && bits64[1] == 0x22u && bits64[2] == 0x33u && bits64[3] == 0x44u &&
         bits64[4] == 0u && bits64[5] == 0u && bits64[6] == 0u && bits64[7] == 0u);
 
+    //  Physical traversal orders reversed declarations and offset ties without
+    //  allowing empty members to move the clearing position or hide byte gaps.
     const CSchemaIndex outer = schema.find_type(CStringView{ "Outer" });
     alignas(16) std::uint8_t nested[16];
     std::memset(nested, 0xa5, sizeof(nested));

@@ -162,9 +162,21 @@ The alignment-constant follow-up passed the Release x64 build and full `-t1`
 suite (`schema-alignment-rel64`, PID 72144), including all 18,477 schema checks.
 The 128-byte rule is unchanged; the earlier platform matrix was not repeated.
 
-The optional physical-member cursor cleanup and final style/comment audit remain
-subsequent work. Integer output notation and further performance work remain
-discussion items. Combining the traversal strategies is outside this refactor.
+The physical-member cursor cleanup is implemented in `unused_storage.cpp`.
+Validation and clearing now keep their shared schema/type/count and previous
+offset/ordinal in a local cursor, with no auxiliary allocation or public API
+change. The counted traversals, offset/ordinal ordering and complete preflight
+before writes are preserved; the repeated scan retains its quadratic cost.
+The existing nested padding test also covers empty members before and after a
+nonempty member at the same offset, inside another extent and at the type end.
+The Release x64 solution build and full `-t1` suite passed
+(`schema-cursor-rel64`, PID 10172), including all 18,477 schema checks. Policy
+validation, diff and line-ending checks passed; the platform matrix was not
+repeated for this local refactor.
+
+The final style/comment audit remains subsequent work. Integer output notation
+and further performance work remain discussion items. Combining the traversal
+strategies is outside this refactor.
 Fp16 workflow changes and source ingestion also remain deferred. A completed
 review does not authorise those changes.
 

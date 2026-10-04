@@ -892,6 +892,11 @@ complete layout, locators, extents and overlaps before writing. Invalid input
 or allocation failure leaves every destination byte unchanged; repeated
 successful calls are idempotent.
 
+Structure validation and clearing share a local physical-member cursor. It visits
+members by offset, breaking ties by declaration ordinal so empty members at the
+same offset are retained. The cursor allocates no storage; each step still scans
+the members, so a complete structure traversal remains quadratic in member count.
+
 ## Occurrence coverage
 
 The mapping is a sorted sparse table keyed by full live or baked occurrence

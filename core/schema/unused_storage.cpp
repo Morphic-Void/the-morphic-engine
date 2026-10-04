@@ -35,20 +35,37 @@ struct SClearExtent
     return (bits == EUnusedBits::preserve) || (bits == EUnusedBits::clear);
 }
 
-[[nodiscard]] static bool next_physical_member(const CResolvedSchema& schema, const CSchemaIndex type,
-    const std::uint32_t count, const bool has_previous, const std::uint64_t previous_offset,
-    const std::uint32_t previous_ordinal, SMember& result, std::uint32_t& result_ordinal) noexcept
+//  Walk offset/ordinal order without allocating a sorted member index.
+class CPhysicalMemberCursor
+{
+public:
+    CPhysicalMemberCursor(const CResolvedSchema& schema, const CSchemaIndex type, const std::uint32_t count) noexcept :
+        m_schema(schema), m_type(type), m_count(count) {}
+
+    [[nodiscard]] bool next(SMember& result) noexcept;
+
+private:
+    const CResolvedSchema& m_schema;
+    const CSchemaIndex m_type;
+    const std::uint32_t m_count;
+    std::uint64_t m_previous_offset{};
+    std::uint32_t m_previous_ordinal{};
+    bool m_has_previous{};
+};
+
+bool CPhysicalMemberCursor::next(SMember& result) noexcept
 {
     bool found{};
-    for (std::uint32_t ordinal = 0u; ordinal < count; ++ordinal)
+    std::uint32_t result_ordinal{};
+    for (std::uint32_t ordinal = 0u; ordinal < m_count; ++ordinal)
     {
         SMember member;
-        if (!schema.member(schema.member_at(type, ordinal), member))
+        if (!m_schema.member(m_schema.member_at(m_type, ordinal), member))
         {
             return false;
         }
-        if (has_previous && ((member.offset < previous_offset) ||
-            ((member.offset == previous_offset) && (ordinal <= previous_ordinal))))
+        if (m_has_previous && ((member.offset < m_previous_offset) ||
+            ((member.offset == m_previous_offset) && (ordinal <= m_previous_ordinal))))
         {
             continue;
         }
@@ -59,6 +76,12 @@ struct SClearExtent
             result_ordinal = ordinal;
             found = true;
         }
+    }
+    if (found)
+    {
+        m_previous_offset = result.offset;
+        m_previous_ordinal = result_ordinal;
+        m_has_previous = true;
     }
     return found;
 }
@@ -140,14 +163,12 @@ struct SClearExtent
     {
         return false;
     }
-    std::uint64_t cursor{}, previous_offset{};
-    std::uint32_t previous_ordinal{};
+    CPhysicalMemberCursor members{ schema, type, layout.count };
+    std::uint64_t cursor{};
     for (std::uint32_t position = 0u; position < layout.count; ++position)
     {
         SMember member;
-        std::uint32_t ordinal{};
-        if (!next_physical_member(schema, type, layout.count, (position != 0u),
-            previous_offset, previous_ordinal, member, ordinal))
+        if (!members.next(member))
         {
             return false;
         }
@@ -169,8 +190,6 @@ struct SClearExtent
             cursor = member.offset + member.size;
         }
         has_work = has_work || child_work;
-        previous_offset = member.offset;
-        previous_ordinal = ordinal;
     }
     has_work = has_work || (cursor < layout.size);
     return true;
@@ -241,14 +260,12 @@ static void clear_type(const CResolvedSchema& schema, const CSchemaIndex type, s
         }
         return;
     }
-    std::uint64_t cursor{}, previous_offset{};
-    std::uint32_t previous_ordinal{};
+    CPhysicalMemberCursor members{ schema, type, layout.count };
+    std::uint64_t cursor{};
     for (std::uint32_t position = 0u; position < layout.count; ++position)
     {
         SMember member;
-        std::uint32_t ordinal{};
-        (void)next_physical_member(schema, type, layout.count, (position != 0u),
-            previous_offset, previous_ordinal, member, ordinal);
+        (void)members.next(member); // The complete schema traversal was preflighted.
         if (member.size != 0u)
         {
             if (member.offset > cursor)
@@ -268,8 +285,6 @@ static void clear_type(const CResolvedSchema& schema, const CSchemaIndex type, s
             }
             cursor = member.offset + member.size;
         }
-        previous_offset = member.offset;
-        previous_ordinal = ordinal;
     }
     if (cursor < layout.size)
     {
