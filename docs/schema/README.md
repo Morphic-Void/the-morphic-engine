@@ -28,6 +28,8 @@ organisation pass groups responsibilities within existing files, localises fixed
 instance traversal inputs and identifies public/support header boundaries in the
 runtime guide. Instance translation now has a separate implementation file for
 promotion, reconciliation and baking, alongside ownership/creation and editing.
+The subsequent conditional/parameter pass shares compound-input preparation and
+holds fixed overlay and bulk-reconstruction inputs in local operation objects.
 See the
 [implementation contract](implementation-contract.md).
 

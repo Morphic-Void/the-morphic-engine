@@ -1104,7 +1104,7 @@ bool CResolver::structure_layout(TTypeRecord& type_record, const bool explicit_o
             {
                 return fail(EReason::invalid_layout, alignment_source);
             }
-            if (declared_value > 128u)
+            if (declared_value > k_max_alignment)
             {
                 return fail(EReason::unsupported_feature, alignment_source);
             }

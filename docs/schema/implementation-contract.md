@@ -141,9 +141,30 @@ checks, zero failures. Policy validation reported no errors or warnings; diff
 and line-ending checks passed. Visual Studio item/filter files retain their
 original BOM state, CRLF endings and absence of a final newline.
 
-The wider conditional and parameter review remains subsequent work. Integer
-output notation and further performance work remain discussion items. Combining
-the traversal strategies is outside this refactor.
+The conditional and parameter review's first implementation package introduces
+operation-local selection overlays and bulk reconstruction, retaining fixed
+schema/document inputs without extra allocation or persistent state. Value
+construction shares compound-input preparation and holds its mode in the writer.
+Structure and bit-structure positional rules and diagnostic precedence are
+preserved. Local guards now separate instance creation preconditions and baked
+locator overlap/range checks without changing their order or diagnostics.
+
+Validation passed full Release x64, Debug x64 and Debug Win32 builds and `-t1`
+runs (`schema-traversal-rel64`, `schema-traversal-dbg64`,
+`schema-traversal-dbg32`), each with 18,477 schema checks and zero failures.
+Twenty added checks cover first-error reason and occurrence for conflicting
+compound-input errors on live/baked documents, including instance, complete bulk
+and alternative construction. Existing selection propagation, reconstruction and
+allocation-failure checks also pass. Policy validation reported no errors or
+warnings; diff and line-ending checks passed.
+
+The alignment-constant follow-up passed the Release x64 build and full `-t1`
+suite (`schema-alignment-rel64`, PID 72144), including all 18,477 schema checks.
+The 128-byte rule is unchanged; the earlier platform matrix was not repeated.
+
+The optional physical-member cursor cleanup and final style/comment audit remain
+subsequent work. Integer output notation and further performance work remain
+discussion items. Combining the traversal strategies is outside this refactor.
 Fp16 workflow changes and source ingestion also remain deferred. A completed
 review does not authorise those changes.
 
@@ -1456,10 +1477,12 @@ implementation and documentation. Review file organisation and responsibility
 boundaries as well, including whether small shared headers such as
 `data_output.hpp` justify a separate file or belong with related declarations.
 
-Across the schema work, review repeated `128u` byte-buffer allocation alignment
-values and consider a shared named `constexpr` expressing their common
-requirement. Review functions with long parameter lists for opportunities to
-improve decomposition and responsibility boundaries, or to hold common context
+The repeated schema byte-buffer alignment values now share the public
+`schema::k_max_alignment` constant in `resolved_schema.hpp`. It retains the
+128-byte limit and governs type alignment validation, buffer allocation,
+supplied-payload checks and staging masks. Review functions with long parameter
+lists for opportunities to improve decomposition and responsibility boundaries,
+or to hold common context
 in an appropriate class or structure. The aim is to identify shared context and
 coherent responsibilities, rather than merely bundle arguments together.
 

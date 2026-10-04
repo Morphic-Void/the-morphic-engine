@@ -287,10 +287,18 @@ CInstanceHandle CLiveInstances::append_instance(const CSchemaIndex type, const s
     const CResolvedSchema* const schema = m_binding.resolved();
     SType layout;
     if (!loaded_ready() || !schema || !schema->type(type, layout) || name.empty() ||
-        ((parent != k_no_parent) && (parent >= m_records.size())) ||
-        (layout.alignment == 0u) || (layout.alignment > 128u) ||
-        (layout.size > UINT32_MAX) || (m_records.size() >= k_no_parent) ||
-        (layout.size && (!complete.is_ready() || (complete.size() < layout.size))))
+        ((parent != k_no_parent) && (parent >= m_records.size())))
+    {
+        diagnostic.reason = EInstanceLoadReason::invalid_input;
+        return {};
+    }
+    if ((layout.alignment == 0u) || (layout.alignment > k_max_alignment) ||
+        (layout.size > UINT32_MAX) || (m_records.size() >= k_no_parent))
+    {
+        diagnostic.reason = EInstanceLoadReason::invalid_input;
+        return {};
+    }
+    if (layout.size && (!complete.is_ready() || (complete.size() < layout.size)))
     {
         diagnostic.reason = EInstanceLoadReason::invalid_input;
         return {};
@@ -323,7 +331,7 @@ CInstanceHandle CLiveInstances::append_instance(const CSchemaIndex type, const s
         return {};
     }
     CByteBuffer stable;
-    if (layout.size && (!stable.allocate(static_cast<std::size_t>(layout.size), 128u) ||
+    if (layout.size && (!stable.allocate(static_cast<std::size_t>(layout.size), k_max_alignment) ||
         !stable.set_size(static_cast<std::size_t>(layout.size))))
     {
         diagnostic.reason = EInstanceLoadReason::allocation_failed;
@@ -371,7 +379,7 @@ CInstanceHandle CLiveInstances::append_instance(const CSchemaIndex type, const s
     }
     if (!m_records.reserve(m_records.size() + 1u) ||
         (((offset + layout.size) > position) &&
-         (!m_payload.reserve(static_cast<std::size_t>(offset + layout.size), 128u) ||
+         (!m_payload.reserve(static_cast<std::size_t>(offset + layout.size), k_max_alignment) ||
           !m_payload.set_size(static_cast<std::size_t>(offset + layout.size)))))
     {
         diagnostic.reason = EInstanceLoadReason::allocation_failed;
@@ -436,7 +444,7 @@ CInstanceHandle CLiveInstances::create_base(const CStringView& type, const CStri
         return {};
     }
     CByteBuffer encoded;
-    if (layout.size && (!encoded.allocate(static_cast<std::size_t>(layout.size), 128u) ||
+    if (layout.size && (!encoded.allocate(static_cast<std::size_t>(layout.size), k_max_alignment) ||
         !encoded.set_size(static_cast<std::size_t>(layout.size))))
     {
         diagnostic.reason = EInstanceLoadReason::allocation_failed;
@@ -475,7 +483,7 @@ CInstanceHandle CLiveInstances::create_specialisation(const CInstanceHandle pare
         return {};
     }
     CByteBuffer encoded;
-    if (parent_record.extent && (!encoded.allocate(parent_record.extent, 128u) ||
+    if (parent_record.extent && (!encoded.allocate(parent_record.extent, k_max_alignment) ||
         !encoded.set_size(parent_record.extent)))
     {
         diagnostic.reason = EInstanceLoadReason::allocation_failed;

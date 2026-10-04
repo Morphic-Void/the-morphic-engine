@@ -155,7 +155,7 @@ CNodeKey CLiveInstances::output_declaration(CLiveDocument& target, const SRecord
     EInstanceLoadReason& reason) const noexcept
 {
     CByteBuffer defaults, reconstructed;
-    if (record.extent && (!reconstructed.allocate(record.extent, 128u) || !reconstructed.set_size(record.extent)))
+    if (record.extent && (!reconstructed.allocate(record.extent, k_max_alignment) || !reconstructed.set_size(record.extent)))
     {
         reason = EInstanceLoadReason::allocation_failed;
         return {};
@@ -166,7 +166,7 @@ CNodeKey CLiveInstances::output_declaration(CLiveDocument& target, const SRecord
     const std::uint8_t* baseline = nullptr;
     if (base)
     {
-        if (record.extent && (!defaults.allocate(record.extent, 128u) || !defaults.set_size(record.extent)))
+        if (record.extent && (!defaults.allocate(record.extent, k_max_alignment) || !defaults.set_size(record.extent)))
         {
             reason = EInstanceLoadReason::allocation_failed;
             return {};
@@ -248,7 +248,7 @@ bool CLiveInstances::promote_from(const CBakedInstances& source, SInstanceDiagno
         return false;
     }
     if (source.m_payload.size() &&
-        (!m_payload.allocate(source.m_payload.size(), 128u) || !m_payload.set_size(source.m_payload.size())))
+        (!m_payload.allocate(source.m_payload.size(), k_max_alignment) || !m_payload.set_size(source.m_payload.size())))
     {
         diagnostic.reason = EInstanceLoadReason::allocation_failed;
         return false;
@@ -517,7 +517,7 @@ bool CLiveInstances::prepare_output_to(CLiveDocument& document, CByteBuffer& pay
             }
             SType layout;
             if (!destination_schema.type(output_type, layout) || (layout.size != record->extent) ||
-                (layout.alignment == 0u) || (layout.alignment > 128u))
+                (layout.alignment == 0u) || (layout.alignment > k_max_alignment))
             {
                 diagnostic.reason = EInstanceLoadReason::incompatible_schema;
                 diagnostic.occurrence = detail::SInstanceHandleAccess::make(detail::SOccurrence{ source_entry });
@@ -577,7 +577,7 @@ bool CLiveInstances::prepare_output_to(CLiveDocument& document, CByteBuffer& pay
         }
     }
     CByteBuffer staged_payload;
-    if ((cursor != 0u) && (!staged_payload.allocate(static_cast<std::size_t>(cursor), 128u) ||
+    if ((cursor != 0u) && (!staged_payload.allocate(static_cast<std::size_t>(cursor), k_max_alignment) ||
         !staged_payload.set_size(static_cast<std::size_t>(cursor))))
     {
         diagnostic.reason = EInstanceLoadReason::allocation_failed;

@@ -3272,7 +3272,7 @@ static void test_value_codec(TTestContext& ctx)
         "null":[null],"excess":[1,2,3,4,5],"arrayBase":{"rows":[[4]]},
         "arrayAlternative":{"rows":[[5]]},"bits":{"visible":false},
         "namedPosition":[{"x":1}],"namedNested":{"rows":[{"x":1}]},
-        "namedBits":[{"visible":false}]})";
+        "namedBits":[{"visible":false}],"namedExcess":[{"visible":false},0,0,0,0]})";
     CBakedDocumentBlock data_block;
     CLiveDocument live;
     TEST_EXPECT(ctx, bake(values, data_block) && parse_live(values, live));
@@ -3367,6 +3367,32 @@ static void test_value_codec(TTestContext& ctx)
             (parent[0] & 0xfeu) == (base[0] & 0xfeu) && parent[1] == base[1]);
         TEST_EXPECT(ctx, !construct(flags, at("namedBits"), equal, flags_size,
             detail::EConstructionMode::instance) && diagnostic.reason == EReason::invalid_input);
+
+        //  Invalid names precede bulk completeness checks for both compound kinds.
+        for (const CSchemaIndex type : { vector, flags })
+        {
+            TEST_EXPECT(ctx, !construct(type, at("unknown"), equal, sizeof(equal), detail::EConstructionMode::complete_bulk) &&
+                (diagnostic.reason == EReason::unknown_property) &&
+                (diagnostic.occurrence == document.first_child(at("unknown"))) && (diagnostic.type == type));
+        }
+        //  Bit-field positions reject names before count checks. Structures first
+        //  check their count, then validate each position against its member type.
+        TEST_EXPECT(ctx, !construct(vector, at("namedPosition"), equal, vector_size, detail::EConstructionMode::complete_bulk) &&
+            (diagnostic.reason == EReason::missing_property) && (diagnostic.occurrence == at("namedPosition")));
+        TEST_EXPECT(ctx, !construct(flags, at("namedBits"), equal, flags_size, detail::EConstructionMode::complete_bulk) &&
+            (diagnostic.reason == EReason::invalid_input) && (diagnostic.occurrence == document.first_child(at("namedBits"))));
+        for (const detail::EConstructionMode mode : { detail::EConstructionMode::instance, detail::EConstructionMode::complete_bulk })
+        {
+            TEST_EXPECT(ctx, !construct(vector, at("namedExcess"), equal, vector_size, mode) &&
+                (diagnostic.reason == EReason::invalid_range) && (diagnostic.occurrence == at("namedExcess")));
+            TEST_EXPECT(ctx, !construct(flags, at("namedExcess"), equal, flags_size, mode) &&
+                (diagnostic.reason == EReason::invalid_input) &&
+                (diagnostic.occurrence == document.first_child(at("namedExcess"))));
+        }
+        TEST_EXPECT(ctx, !alternative(vector, at("namedExcess"), base, vector_size, equal, vector_size) &&
+            (diagnostic.reason == EReason::invalid_range) && (diagnostic.occurrence == at("namedExcess")));
+        TEST_EXPECT(ctx, !alternative(flags, at("namedExcess"), base, flags_size, equal, flags_size) &&
+            (diagnostic.reason == EReason::invalid_input) && (diagnostic.occurrence == document.first_child(at("namedExcess"))));
     };
     exercise(detail::CDocumentRead{ data_block.document() });
     exercise(detail::CDocumentRead{ live });

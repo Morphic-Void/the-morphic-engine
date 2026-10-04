@@ -388,13 +388,15 @@ bool CBakedInstances::plan(const bool supplied, const std::size_t supplied_size,
             {
                 return fail(diagnostic, EInstanceLoadReason::invalid_range, locator);
             }
-            if (((offset < cursor) && ((layout.size != 0u) || (offset != 0u))) ||
-                (offset > UINT32_MAX) || (offset > memory::k_byte_size_ceiling) ||
+            if ((offset < cursor) && ((layout.size != 0u) || (offset != 0u)))
+            {
+                return fail(diagnostic, EInstanceLoadReason::overlap, locator);
+            }
+            if ((offset > UINT32_MAX) || (offset > memory::k_byte_size_ceiling) ||
                 ((offset & (layout.alignment - 1u)) != 0u) ||
                 (layout.size > (memory::k_byte_size_ceiling - offset)))
             {
-                const bool overlap = (offset < cursor) && ((layout.size != 0u) || (offset != 0u));
-                return fail(diagnostic, (overlap ? EInstanceLoadReason::overlap : EInstanceLoadReason::invalid_range), locator);
+                return fail(diagnostic, EInstanceLoadReason::invalid_range, locator);
             }
             const std::uint64_t end = offset + layout.size;
             if (supplied && (end > supplied_size))
@@ -457,7 +459,7 @@ bool CBakedInstances::compare_embedded(const TPodVector<SRecord>& records, const
     const CResolvedSchema* const schema = m_binding.resolved();
     detail::CDocumentRead document{ m_document };
     CByteBuffer expected;
-    if ((scratch_size != 0u) && (!expected.allocate(scratch_size, 128u) || !expected.set_size(scratch_size)))
+    if ((scratch_size != 0u) && (!expected.allocate(scratch_size, k_max_alignment) || !expected.set_size(scratch_size)))
     {
         return fail(diagnostic, EInstanceLoadReason::allocation_failed, {});
     }
@@ -502,7 +504,7 @@ bool CBakedInstances::load_supplied(const CByteConstView& payload, const bool co
 {
     clear_loaded();
     diagnostic = {};
-    if (payload.is_ready() && ((reinterpret_cast<std::uintptr_t>(payload.data()) & 127u) != 0u))
+    if (payload.is_ready() && ((reinterpret_cast<std::uintptr_t>(payload.data()) & (k_max_alignment - 1u)) != 0u))
     {
         return fail(diagnostic, EInstanceLoadReason::invalid_range, {});
     }
@@ -549,7 +551,7 @@ bool CBakedInstances::materialise(CByteBuffer& returned_owner, SInstanceDiagnost
         return fail(diagnostic, EInstanceLoadReason::allocation_failed, {});
     }
     CByteBuffer payload;
-    if ((payload_size != 0u) && (!payload.allocate(payload_size, 128u) || !payload.set_size(payload_size)))
+    if ((payload_size != 0u) && (!payload.allocate(payload_size, k_max_alignment) || !payload.set_size(payload_size)))
     {
         return fail(diagnostic, EInstanceLoadReason::allocation_failed, {});
     }

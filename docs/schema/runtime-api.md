@@ -34,6 +34,10 @@ Include the header for the role or operation being used:
 support; live data headers also include the corresponding baked header for shared
 diagnostics and views.
 
+`schema::k_max_alignment` in `resolved_schema.hpp` defines the maximum supported
+type alignment and the common base alignment of instance/bulk buffers (128 bytes).
+Allocation, supplied-payload checks and staging offsets use the same constant.
+
 `record_index.hpp`, `type_compatibility.hpp`, `value_codec.hpp` and
 `value_conversion.hpp` are implementation support. Baked role headers include
 `record_index.hpp` for their private index storage. The compatibility hash index
@@ -57,6 +61,14 @@ owns binary-authoritative declaration reconstruction, promotion, reconciliation
 and baking. Creation and translation share private append/locator helpers on
 `CLiveInstances`. Editing and translation use the shared scalar decoder with
 their respective diagnostic policies. This split adds no public header.
+
+Selection overlays and bulk document reconstruction also use stack-local
+operation objects for their fixed inputs. Overlay traversal depth remains
+separate from the excluded selection's path depth. The value writer retains its
+construction mode for the operation and shares compound-input preparation
+between structures and bit structures. Their positional-entry rules and first
+diagnostic ordering remain distinct; this consolidation does not change bulk
+completeness, instance defaults or alternative inheritance.
 
 ## Schema wrappers and client bindings
 

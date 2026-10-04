@@ -172,11 +172,11 @@ CNodeKey CInstanceSelectionDecoder::decode(const CSchemaIndex type, const detail
     const bool shorthand = !m_full && !singleton_element && detail::is_scalar_shorthand(m_schema, type, layout, m_document, selection);
     if (!m_full)
     {
-        if ((!singleton_element && (layout.category == ECategory::array) && (old_kind != EDocumentValueKind::array)) ||
-            (!singleton_element && !shorthand && (layout.category != ECategory::array) &&
-                (old_kind != EDocumentValueKind::object) && (old_kind != EDocumentValueKind::array)) ||
-            (!singleton_element && (old_kind == EDocumentValueKind::array) &&
-                (m_document.child_count(selection) > layout.count)))
+        if (!singleton_element &&
+            (((layout.category == ECategory::array) && (old_kind != EDocumentValueKind::array)) ||
+                (!shorthand && (layout.category != ECategory::array) &&
+                    (old_kind != EDocumentValueKind::object) && (old_kind != EDocumentValueKind::array)) ||
+                ((old_kind == EDocumentValueKind::array) && (m_document.child_count(selection) > layout.count))))
         {
             m_error = EInstanceLoadReason::invalid_declaration;
             return {};
@@ -290,10 +290,38 @@ CNodeKey CInstanceSelectionDecoder::decode(const CSchemaIndex type, const detail
 //  Selected binary propagation
 //==============================================================================
 
-[[nodiscard]] static bool overlay_selection(const CResolvedSchema& schema, const CSchemaIndex type,
-    const detail::CDocumentRead& document, const detail::SOccurrence selection,
+//  Borrow fixed operation inputs; traversal depth and exclusion-path depth stay separate.
+class CSelectionOverlay
+{
+public:
+    CSelectionOverlay(const CResolvedSchema& schema, const detail::CDocumentRead& document,
+        const TPodVector<SResolvedSelectionStep>* const path = nullptr) noexcept :
+        m_schema(schema), m_document(document), m_path(path) {}
+
+    [[nodiscard]] bool apply(const CSchemaIndex type, const detail::SOccurrence selection,
+        const std::uint8_t* const selected_bytes, std::uint8_t* const inherited_bytes,
+        const bool singleton_element = false, const unsigned depth = 0u) noexcept;
+    [[nodiscard]] bool apply_except(const CSchemaIndex type, const detail::SOccurrence selection,
+        const std::uint8_t* const old_bytes, std::uint8_t* const new_bytes,
+        const std::size_t path_depth = 0u, const bool singleton_element = false) noexcept;
+
+private:
+    [[nodiscard]] bool valid_singleton(const CSchemaIndex type, const SType& layout, const detail::SOccurrence selection) const noexcept;
+
+    const CResolvedSchema& m_schema;
+    const detail::CDocumentRead& m_document;
+    const TPodVector<SResolvedSelectionStep>* const m_path;
+};
+
+bool CSelectionOverlay::valid_singleton(const CSchemaIndex type, const SType& layout, const detail::SOccurrence selection) const noexcept
+{
+    return (layout.category == ECategory::structure) ? m_schema.find_member(type, m_document.name(selection)).is_valid() :
+        ((layout.category == ECategory::bit_structure) && m_schema.find_field(type, m_document.name(selection)).is_valid());
+}
+
+bool CSelectionOverlay::apply(const CSchemaIndex type, const detail::SOccurrence selection,
     const std::uint8_t* const selected_bytes, std::uint8_t* const inherited_bytes,
-    const bool singleton_element = false, const unsigned depth = 0u) noexcept
+    const bool singleton_element, const unsigned depth) noexcept
 {
     if (!selection.is_valid())
     {
@@ -304,18 +332,11 @@ CNodeKey CInstanceSelectionDecoder::decode(const CSchemaIndex type, const detail
         return false;
     }
     SType layout;
-    if (!schema.type(type, layout))
+    if (!m_schema.type(type, layout))
     {
         return false;
     }
-    if (singleton_element && (layout.category != ECategory::structure) &&
-        (layout.category != ECategory::bit_structure))
-    {
-        return false;
-    }
-    if (singleton_element && !
-        ((layout.category == ECategory::structure) ? schema.find_member(type, document.name(selection)) :
-            schema.find_field(type, document.name(selection))))
+    if (singleton_element && !valid_singleton(type, layout, selection))
     {
         return false;
     }
@@ -328,16 +349,16 @@ CNodeKey CInstanceSelectionDecoder::decode(const CSchemaIndex type, const detail
         return true;
     }
     const std::uint32_t count = !singleton_element && ((layout.category == ECategory::array) ||
-        (document.value_kind(selection) == EDocumentValueKind::array)) ? document.child_count(selection) : layout.count;
-    detail::SOccurrence cursor = !singleton_element && (document.value_kind(selection) == EDocumentValueKind::array) ?
-        document.first_child(selection) : detail::SOccurrence{};
+        (m_document.value_kind(selection) == EDocumentValueKind::array)) ? m_document.child_count(selection) : layout.count;
+    detail::SOccurrence cursor = !singleton_element && (m_document.value_kind(selection) == EDocumentValueKind::array) ?
+        m_document.first_child(selection) : detail::SOccurrence{};
     for (std::uint32_t i = 0u; i < count; ++i)
     {
         const detail::SOccurrence child = cursor.is_valid() ? cursor :
-            selected_child(schema, document, type, layout, selection, i, singleton_element);
+            selected_child(m_schema, m_document, type, layout, selection, i, singleton_element);
         if (cursor.is_valid())
         {
-            cursor = document.next_sibling(cursor);
+            cursor = m_document.next_sibling(cursor);
         }
         if (!child.is_valid())
         {
@@ -346,22 +367,22 @@ CNodeKey CInstanceSelectionDecoder::decode(const CSchemaIndex type, const detail
         if (layout.category == ECategory::structure)
         {
             SMember member;
-            if (!schema.member(schema.member_at(type, i), member) ||
-                !overlay_selection(schema, member.type, document, child,
+            if (!m_schema.member(m_schema.member_at(type, i), member) ||
+                !apply(member.type, child,
                     (selected_bytes ? (selected_bytes + member.offset) : nullptr),
                     (inherited_bytes ? (inherited_bytes + member.offset) : nullptr),
-                    (!singleton_element && (document.value_kind(selection) == EDocumentValueKind::array) &&
-                        document.is_object_entry(child)), (depth + 1u)))
+                    (!singleton_element && (m_document.value_kind(selection) == EDocumentValueKind::array) &&
+                        m_document.is_object_entry(child)), (depth + 1u)))
             {
                 return false;
             }
         }
         else if (layout.category == ECategory::array)
         {
-            if (!overlay_selection(schema, layout.element_or_storage, document, child,
+            if (!apply(layout.element_or_storage, child,
                 (selected_bytes ? (selected_bytes + (layout.stride * i)) : nullptr),
                 (inherited_bytes ? (inherited_bytes + (layout.stride * i)) : nullptr),
-                document.is_object_entry(child), (depth + 1u)))
+                m_document.is_object_entry(child), (depth + 1u)))
             {
                 return false;
             }
@@ -369,7 +390,7 @@ CNodeKey CInstanceSelectionDecoder::decode(const CSchemaIndex type, const detail
         else if (layout.category == ECategory::bit_structure)
         {
             SField field;
-            if (!schema.field(schema.field_at(type, i), field))
+            if (!m_schema.field(m_schema.field_at(type, i), field))
             {
                 return false;
             }
@@ -382,73 +403,62 @@ CNodeKey CInstanceSelectionDecoder::decode(const CSchemaIndex type, const detail
     return true;
 }
 
-struct SStagedEdit
-{
-    std::uint32_t index{}, offset{};
-    CNodeKey declaration;
-};
-
-[[nodiscard]] static bool overlay_except(const CResolvedSchema& schema, const CSchemaIndex type,
-    const detail::CDocumentRead& document, const detail::SOccurrence selection,
+bool CSelectionOverlay::apply_except(const CSchemaIndex type, const detail::SOccurrence selection,
     const std::uint8_t* const old_bytes, std::uint8_t* const new_bytes,
-    const TPodVector<SResolvedSelectionStep>& path, const std::size_t depth,
-    const bool singleton_element = false) noexcept
+    const std::size_t path_depth, const bool singleton_element) noexcept
 {
     if (!selection.is_valid())
     {
         return true;
     }
-    if (depth >= path.size())
+    if (!m_path || (path_depth >= m_path->size()))
     {
-        return overlay_selection(schema, type, document, selection, old_bytes, new_bytes, singleton_element);
+        return apply(type, selection, old_bytes, new_bytes, singleton_element);
     }
     SType layout;
-    if (!schema.type(type, layout) || (layout.category == ECategory::primitive) ||
+    if (!m_schema.type(type, layout) || (layout.category == ECategory::primitive) ||
         (layout.category == ECategory::enumeration))
     {
         return false;
     }
-    if (singleton_element && !
-        ((layout.category == ECategory::structure) ? schema.find_member(type, document.name(selection)) :
-            ((layout.category == ECategory::bit_structure) ? schema.find_field(type, document.name(selection)) :
-                CSchemaIndex{})))
+    if (singleton_element && !valid_singleton(type, layout, selection))
     {
         return false;
     }
     const bool positional = !singleton_element &&
-        (document.value_kind(selection) == EDocumentValueKind::array);
-    const std::uint32_t count = positional ? document.child_count(selection) : layout.count;
-    detail::SOccurrence cursor = positional ? document.first_child(selection) : detail::SOccurrence{};
+        (m_document.value_kind(selection) == EDocumentValueKind::array);
+    const std::uint32_t count = positional ? m_document.child_count(selection) : layout.count;
+    detail::SOccurrence cursor = positional ? m_document.first_child(selection) : detail::SOccurrence{};
     for (std::uint32_t i = 0u; i < count; ++i)
     {
         const detail::SOccurrence child = cursor.is_valid() ? cursor :
-            selected_child(schema, document, type, layout, selection, i, singleton_element);
+            selected_child(m_schema, m_document, type, layout, selection, i, singleton_element);
         if (cursor.is_valid())
         {
-            cursor = document.next_sibling(cursor);
+            cursor = m_document.next_sibling(cursor);
         }
         if (!child.is_valid())
         {
             continue;
         }
-        if ((i == path[depth].ordinal) && ((depth + 1u) == path.size()))
+        if ((i == (*m_path)[path_depth].ordinal) && ((path_depth + 1u) == m_path->size()))
         {
             continue;
         }
-        const bool descend = (i == path[depth].ordinal);
+        const bool descend = (i == (*m_path)[path_depth].ordinal);
         if (layout.category == ECategory::structure)
         {
             SMember member;
-            if (!schema.member(schema.member_at(type, i), member))
+            if (!m_schema.member(m_schema.member_at(type, i), member))
             {
                 return false;
             }
             const std::uint8_t* const source = old_bytes ? old_bytes + member.offset : nullptr;
             std::uint8_t* const destination = new_bytes ? new_bytes + member.offset : nullptr;
-            const bool child_singleton = positional && document.is_object_entry(child);
-            if (!(descend ? overlay_except(schema, member.type, document, child, source, destination,
-                path, (depth + 1u), child_singleton) :
-                overlay_selection(schema, member.type, document, child, source, destination, child_singleton)))
+            const bool child_singleton = positional && m_document.is_object_entry(child);
+            if (!(descend ? apply_except(member.type, child, source, destination,
+                (path_depth + 1u), child_singleton) :
+                apply(member.type, child, source, destination, child_singleton)))
             {
                 return false;
             }
@@ -457,10 +467,10 @@ struct SStagedEdit
         {
             const std::uint8_t* const source = old_bytes ? (old_bytes + (layout.stride * i)) : nullptr;
             std::uint8_t* const destination = new_bytes ? (new_bytes + (layout.stride * i)) : nullptr;
-            const bool child_singleton = document.is_object_entry(child);
-            if (!(descend ? overlay_except(schema, layout.element_or_storage, document, child, source, destination,
-                path, (depth + 1u), child_singleton) :
-                overlay_selection(schema, layout.element_or_storage, document, child, source, destination, child_singleton)))
+            const bool child_singleton = m_document.is_object_entry(child);
+            if (!(descend ? apply_except(layout.element_or_storage, child, source, destination,
+                (path_depth + 1u), child_singleton) :
+                apply(layout.element_or_storage, child, source, destination, child_singleton)))
             {
                 return false;
             }
@@ -468,7 +478,7 @@ struct SStagedEdit
         else if (layout.category == ECategory::bit_structure)
         {
             SField field;
-            if (!schema.field(schema.field_at(type, i), field))
+            if (!m_schema.field(m_schema.field_at(type, i), field))
             {
                 return false;
             }
@@ -794,6 +804,12 @@ struct SStagedEdit
 //  Staged edit publication
 //==============================================================================
 
+struct SStagedEdit
+{
+    std::uint32_t index{}, offset{};
+    CNodeKey declaration;
+};
+
 bool CLiveInstances::edit_existing(const std::uint32_t index, const CNodeKey selection,
     const CByteConstView& complete, const bool full_declaration,
     SInstanceDiagnostic& diagnostic) noexcept
@@ -824,7 +840,7 @@ bool CLiveInstances::edit_existing(const std::uint32_t index, const CNodeKey sel
             continue;
         }
         staged_indices[i - index] = static_cast<std::uint32_t>(changes.size());
-        total = (total + 127u) & ~std::uint32_t{ 127u };
+        total = (total + (k_max_alignment - 1u)) & ~(k_max_alignment - 1u);
         if ((total > memory::k_byte_size_ceiling) ||
             (m_records[i].extent > memory::k_byte_size_ceiling - total) ||
             !changes.push_back({ i, total, {} }))
@@ -835,13 +851,14 @@ bool CLiveInstances::edit_existing(const std::uint32_t index, const CNodeKey sel
         total += m_records[i].extent;
     }
     CByteBuffer staged;
-    if (total && (!staged.allocate(static_cast<std::size_t>(total), 128u) ||
+    if (total && (!staged.allocate(static_cast<std::size_t>(total), k_max_alignment) ||
         !staged.set_size(static_cast<std::size_t>(total))))
     {
         diagnostic.reason = EInstanceLoadReason::allocation_failed;
         return false;
     }
     const detail::CDocumentRead document{ m_document };
+    CSelectionOverlay overlay{ *schema, document };
     const auto cleanup = [&]() noexcept
     {
         for (std::size_t i = 0u; i < changes.size(); ++i)
@@ -872,8 +889,7 @@ bool CLiveInstances::edit_existing(const std::uint32_t index, const CNodeKey sel
             {
                 std::memcpy(target, (staged.data() + parent->offset), record.extent);
             }
-            if (!overlay_selection(*schema, record.type, document,
-                detail::SOccurrence{ record.declaration },
+            if (!overlay.apply(record.type, detail::SOccurrence{ record.declaration },
                 (record.extent ? (m_payload.data() + record.offset) : nullptr), target))
             {
                 diagnostic.reason = EInstanceLoadReason::invalid_declaration;
@@ -1004,7 +1020,7 @@ bool CLiveInstances::capture_specialisation(const CInstanceHandle instance,
         return false;
     }
     CByteBuffer captured;
-    if (record.extent && (!captured.allocate(record.extent, 128u) || !captured.set_size(record.extent)))
+    if (record.extent && (!captured.allocate(record.extent, k_max_alignment) || !captured.set_size(record.extent)))
     {
         diagnostic.reason = EInstanceLoadReason::allocation_failed;
         return false;
@@ -1014,8 +1030,8 @@ bool CLiveInstances::capture_specialisation(const CInstanceHandle instance,
         std::memcpy(captured.data(), (m_payload.data() + record.offset), record.extent);
     }
     const detail::CDocumentRead document{ m_document };
-    if (!overlay_selection(*m_binding.resolved(), record.type, document,
-        detail::SOccurrence{ record.declaration }, complete.data(), captured.data()))
+    CSelectionOverlay overlay{ *m_binding.resolved(), document };
+    if (!overlay.apply(record.type, detail::SOccurrence{ record.declaration }, complete.data(), captured.data()))
     {
         diagnostic.reason = EInstanceLoadReason::invalid_declaration;
         return false;
@@ -1084,7 +1100,7 @@ bool CLiveInstances::set_selection(const CInstanceHandle instance,
         return false;
     }
     CByteBuffer encoded;
-    if (record.extent && (!encoded.allocate(record.extent, 128u) || !encoded.set_size(record.extent)))
+    if (record.extent && (!encoded.allocate(record.extent, k_max_alignment) || !encoded.set_size(record.extent)))
     {
         (void)m_document.erase(staged);
         diagnostic.reason = EInstanceLoadReason::allocation_failed;
@@ -1101,10 +1117,9 @@ bool CLiveInstances::set_selection(const CInstanceHandle instance,
         diagnostic.reason = EInstanceLoadReason::invalid_declaration;
         return false;
     }
-    if (step_count && !overlay_except(*schema, record.type, local,
-        detail::SOccurrence{ record.declaration },
-        (record.extent ? (m_payload.data() + record.offset) : nullptr),
-        encoded.data(), resolved, 0u))
+    CSelectionOverlay overlay{ *schema, local, &resolved };
+    if (step_count && !overlay.apply_except(record.type, detail::SOccurrence{ record.declaration },
+        (record.extent ? (m_payload.data() + record.offset) : nullptr), encoded.data()))
     {
         (void)m_document.erase(staged);
         diagnostic.reason = EInstanceLoadReason::invalid_declaration;
@@ -1153,7 +1168,7 @@ bool CLiveInstances::remove_selection(const CInstanceHandle instance,
         return false;
     }
     CByteBuffer encoded;
-    if (record.extent && (!encoded.allocate(record.extent, 128u) || !encoded.set_size(record.extent)))
+    if (record.extent && (!encoded.allocate(record.extent, k_max_alignment) || !encoded.set_size(record.extent)))
     {
         (void)m_document.erase(staged);
         diagnostic.reason = EInstanceLoadReason::allocation_failed;
@@ -1169,10 +1184,9 @@ bool CLiveInstances::remove_selection(const CInstanceHandle instance,
         diagnostic.reason = EInstanceLoadReason::invalid_declaration;
         return false;
     }
-    if (!overlay_except(*schema, record.type, local,
-        detail::SOccurrence{ record.declaration },
-        (record.extent ? (m_payload.data() + record.offset) : nullptr),
-        encoded.data(), resolved, 0u))
+    CSelectionOverlay overlay{ *schema, local, &resolved };
+    if (!overlay.apply_except(record.type, detail::SOccurrence{ record.declaration },
+        (record.extent ? (m_payload.data() + record.offset) : nullptr), encoded.data()))
     {
         (void)m_document.erase(staged);
         diagnostic.reason = EInstanceLoadReason::invalid_declaration;

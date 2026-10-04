@@ -360,13 +360,16 @@ bool CBakedBulkData::plan(const bool supplied, const std::size_t payload_size,
                     return fail(diagnostic, EBulkLoadReason::invalid_range, locator);
                 }
             }
-            if (((offset < cursor) && ((extent != 0u) || (offset != 0u))) || (offset > UINT32_MAX) ||
+            if ((offset < cursor) && ((extent != 0u) || (offset != 0u)))
+            {
+                return fail(diagnostic, EBulkLoadReason::overlap, locator);
+            }
+            if ((offset > UINT32_MAX) ||
                 (offset > memory::k_byte_size_ceiling) ||
                 ((offset & (layout.alignment - 1u)) != 0u) ||
                 (extent > (memory::k_byte_size_ceiling - offset)))
             {
-                return fail(diagnostic, (((offset < cursor) && ((extent != 0u) || (offset != 0u))) ?
-                    EBulkLoadReason::overlap : EBulkLoadReason::invalid_range), locator);
+                return fail(diagnostic, EBulkLoadReason::invalid_range, locator);
             }
             const std::uint64_t end = offset + extent;
             if (supplied && (end > payload_size))
@@ -416,7 +419,7 @@ bool CBakedBulkData::compare_embedded(const TPodVector<SRecord>& records, const 
         }
         if ((record.stride != 0u) && (expected.capacity() < record.stride))
         {
-            if (!expected.allocate(record.stride, 128u) || !expected.set_size(record.stride))
+            if (!expected.allocate(record.stride, k_max_alignment) || !expected.set_size(record.stride))
             {
                 return fail(diagnostic, EBulkLoadReason::allocation_failed, record.entry);
             }
@@ -452,7 +455,7 @@ bool CBakedBulkData::load_supplied(const CByteConstView& payload, const bool com
 {
     clear_loaded();
     diagnostic = {};
-    if (payload.is_ready() && ((reinterpret_cast<std::uintptr_t>(payload.data()) & 127u) != 0u))
+    if (payload.is_ready() && ((reinterpret_cast<std::uintptr_t>(payload.data()) & (k_max_alignment - 1u)) != 0u))
     {
         return fail(diagnostic, EBulkLoadReason::invalid_range, {});
     }
@@ -498,7 +501,7 @@ bool CBakedBulkData::materialise(CByteBuffer& returned_owner, SBulkDiagnostic& d
         return fail(diagnostic, EBulkLoadReason::allocation_failed, {});
     }
     CByteBuffer payload;
-    if ((total_size != 0u) && (!payload.allocate(total_size, 128u) || !payload.set_size(total_size)))
+    if ((total_size != 0u) && (!payload.allocate(total_size, k_max_alignment) || !payload.set_size(total_size)))
     {
         return fail(diagnostic, EBulkLoadReason::allocation_failed, {});
     }
