@@ -7,7 +7,10 @@
 //  Date:    8 Sep 26
 //
 //  Iterative text serialisation over the checked baked-document interface.
-//
+
+//  Public document-to-text entry point. Includes output storage and reporting;
+//  include baked_document.hpp separately to construct the source view.
+
 //  Formatting and line endings:
 //  pretty_print inserts layout line breaks and indentation between values.
 //  trailing_line_ending independently appends one LF after the complete document,
@@ -27,6 +30,10 @@
 
 class CBakedDocument;
 
+//==============================================================================
+//  Output options
+//==============================================================================
+
 enum class EDocumentWriteMode : std::uint8_t { morphic, strict_json };
 
 struct CDocumentWriteOptions
@@ -37,6 +44,10 @@ struct CDocumentWriteOptions
     std::size_t indent_width{ 2u };
     bool trailing_line_ending{ true };   //  See "Formatting and line endings" in the file header.
 };
+
+//==============================================================================
+//  Output status and ownership
+//==============================================================================
 
 enum class EDocumentWriteStatus : std::uint8_t
 {
@@ -76,11 +87,15 @@ struct CDocumentWriteResult
 namespace document_writer
 {
 
+//==============================================================================
+//  Text serialisation
+//==============================================================================
+
 //  Source bytes must stay immutable and alive throughout the call. The checked
 //  view owns validation; writing does not revalidate or take source ownership.
 //  Uses the ambient framework allocator, with no file I/O or logging.
 [[nodiscard]] CDocumentWriteResult write(const CBakedDocument& source, const CDocumentWriteOptions& options = {}) noexcept;
 
-}
+}   // namespace document_writer
 
 #endif // DOCUMENT_WRITER_HPP_INCLUDED

@@ -174,9 +174,25 @@ The Release x64 solution build and full `-t1` suite passed
 validation, diff and line-ending checks passed; the platform matrix was not
 repeated for this local refactor.
 
-The final style/comment audit remains subsequent work. Integer output notation
-and further performance work remain discussion items. Combining the traversal
-strategies is outside this refactor.
+The final style/comment audit is complete across the schema and data-model source
+and header files. All headers have section comments and identify their public,
+shared or internal audience. The data-model documentation now maps entry headers
+and their storage support. File summaries reflect current responsibilities, and
+the document writer's remaining unbraced conditional now follows the established
+braced style. Existing template spelling, nested namespaces and manual line breaks
+are preserved. This closes the five-part tidying phase without API, layout or
+allocation changes.
+
+The audit covered 49 source/header files, including 26 headers. A token comparison
+confirmed that source edits consist of comments/whitespace and the writer's added
+conditional braces. Release x64 build and full `-t1` validation passed
+(`schema-style-final-rel64`, PID 15212), including 18,477 schema, 3,340 baked-document,
+4,636 live-document and 10,539 document-writer checks. Policy validation reported
+no errors or warnings; diff and line-ending checks passed. The wider platform
+matrix was not repeated for this style-only change.
+
+Integer output notation and further performance work remain discussion items.
+Combining the traversal strategies is outside this refactor.
 Fp16 workflow changes and source ingestion also remain deferred. A completed
 review does not authorise those changes.
 

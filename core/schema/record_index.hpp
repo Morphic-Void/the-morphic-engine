@@ -6,7 +6,7 @@
 //  Authors: Ritchie Brannan / OpenAI Codex
 //  Date:    03 Oct 26
 //
-//  Private ordinal indexes. Keys stay in their owning record tables.
+//  Live record lookup and baked ordinal indexes. Keys stay in their record tables.
 
 //  Internal record lookup support. Baked-role headers include this to define
 //  their private index storage; consumers should include the role header.

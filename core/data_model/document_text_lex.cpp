@@ -5,6 +5,8 @@
 //  File:    document_text_lex.cpp
 //  Authors: Ritchie Brannan / OpenAI Codex
 //  Date:    8 Sep 26
+//
+//  Scan bounded UTF-8 tokens and report lexical findings and source locations.
 
 #include "data_model/document_text_lex.hpp"
 

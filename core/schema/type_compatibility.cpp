@@ -5,8 +5,11 @@
 //  File:    type_compatibility.cpp
 //  Authors: Ritchie Brannan / OpenAI Codex
 //  Date:    03 Oct 26
+//
+//  Compare resolved type graphs with an operation-local compatibility cache.
 
 #include "schema/type_compatibility.hpp"
+
 #include <cstring>
 
 namespace schema

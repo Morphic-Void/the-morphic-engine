@@ -6,7 +6,7 @@
 //  Authors: Ritchie Brannan / OpenAI Codex
 //  Date:    01 Oct 26
 //
-//  Live bulk construction, capture and non-consuming baked promotion.
+//  Live bulk ownership, capture, promotion, reconciliation and baked output.
 
 #include "schema/live_bulk_data.hpp"
 #include "schema/type_compatibility.hpp"

@@ -9,6 +9,9 @@
 //  Feature-local, allocation-free lexical operations shared by text checking
 //  and document parsing. Input is bounded UTF-8 already produced by the linter.
 
+//  Internal scanner support for the parser and structural checker. Consumers
+//  should include document_parser.hpp or document_structure.hpp.
+
 #pragma once
 
 #ifndef DOCUMENT_TEXT_LEX_HPP_INCLUDED
@@ -22,6 +25,10 @@
 
 namespace document_text
 {
+
+//==============================================================================
+//  Tokens and lexical helpers
+//==============================================================================
 
 enum class ETokenKind : std::uint8_t
 {
@@ -51,6 +58,10 @@ struct CToken
 
 [[nodiscard]] bool is_name_token(const ETokenKind kind) noexcept;
 
+//==============================================================================
+//  Bounded scanner
+//==============================================================================
+
 class CScanner
 {
 public:
@@ -77,6 +88,10 @@ private:
     CTextLocation m_location{ true, 1u, 1u };
     std::uint32_t m_findings{ 0u };
 };
+
+//==============================================================================
+//  Root-form lookahead
+//==============================================================================
 
 struct CRootForm
 {

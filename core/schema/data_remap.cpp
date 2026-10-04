@@ -5,6 +5,8 @@
 //  File:    data_remap.cpp
 //  Authors: Ritchie Brannan / OpenAI Codex
 //  Date:    02 Oct 26
+//
+//  Build compatible member-copy plans and execute them over bounded byte views.
 
 #include "schema/data_remap.hpp"
 #include "schema/type_compatibility.hpp"

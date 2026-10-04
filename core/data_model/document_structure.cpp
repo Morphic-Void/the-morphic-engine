@@ -5,6 +5,8 @@
 //  File:    document_structure.cpp
 //  Authors: Ritchie Brannan / OpenAI Codex
 //  Date:    8 Sep 26
+//
+//  Check document syntax and estimate construction capacity without building nodes.
 
 #include "data_model/document_structure.hpp"
 

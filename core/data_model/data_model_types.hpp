@@ -8,6 +8,9 @@
 //
 //  Fundamental live-document identities, roles, and numeric intent.
 
+//  Shared public identities and value metadata, included by both document headers.
+//  Include directly when these types are needed without a complete document API.
+
 #pragma once
 
 #ifndef DATA_MODEL_TYPES_HPP_INCLUDED

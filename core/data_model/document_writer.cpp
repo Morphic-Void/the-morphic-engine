@@ -5,6 +5,8 @@
 //  File:    document_writer.cpp
 //  Authors: Ritchie Brannan / OpenAI Codex
 //  Date:    8 Sep 26
+//
+//  Serialise checked baked documents with explicit formatting and output policy.
 
 #include "data_model/document_writer.hpp"
 
@@ -61,7 +63,7 @@ public:
 private:
     //  Status and byte storage: retain the first failure and bound every extension.
     [[nodiscard]] bool good() const noexcept { return m_report.succeeded(); }
-    void fail(const EDocumentWriteStatus status) noexcept { if (good()) m_report.status = status; }
+    void fail(const EDocumentWriteStatus status) noexcept { if (good()) { m_report.status = status; } }
     [[nodiscard]] bool grow(const std::size_t count) noexcept;
     void append(const char* const bytes, const std::size_t count) noexcept;
     template<std::size_t N> void literal(const char (&bytes)[N]) noexcept { append(bytes, (N - 1u)); }

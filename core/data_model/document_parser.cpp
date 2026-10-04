@@ -5,6 +5,8 @@
 //  File:    document_parser.cpp
 //  Authors: Ritchie Brannan / OpenAI Codex
 //  Date:    8 Sep 26
+//
+//  Lint, check and construct live documents before caller-policy publication.
 
 #include "data_model/document_parser.hpp"
 

@@ -10,6 +10,7 @@
 
 //  Public whole-document and root-member translation entry points. Subtree
 //  copying is available separately from document_copy.hpp.
+//  Include the live/baked document headers separately to define their owners.
 
 #pragma once
 

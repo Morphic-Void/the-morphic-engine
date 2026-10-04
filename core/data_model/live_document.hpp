@@ -10,6 +10,10 @@
 //  Attribution covers nodes and both string domains, excluding caller-owned
 //  analysis scratch and temporary parser or baker storage.
 
+//  Public entry point for live document ownership, queries and mutation. Includes
+//  shared identities and private node storage; text parsing and translation have
+//  separate entry headers.
+
 #pragma once
 
 #ifndef LIVE_DOCUMENT_HPP_INCLUDED
@@ -25,6 +29,10 @@
 #include "data_model/live_document_node.hpp"
 
 struct SLiveDocumentTestAccess;
+
+//==============================================================================
+//  On-demand document analysis
+//==============================================================================
 
 //  Results describe one requested crawl; they are not maintained by mutation.
 struct SLiveDocumentAnalysis
@@ -43,6 +51,10 @@ struct SLiveDocumentStringAnalysis
     std::uint32_t referenced_property_name_count{ 0u };
     std::uint32_t referenced_string_value_count{ 0u };
 };
+
+//==============================================================================
+//  Live document owner
+//==============================================================================
 
 class CLiveDocument
 {

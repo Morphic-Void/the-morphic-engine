@@ -357,6 +357,10 @@ private:
     friend class CResolver;
 };
 
+//==============================================================================
+//  Internal record access
+//==============================================================================
+
 constexpr std::uint32_t CResolvedSchema::STypeRecord::alignment() const noexcept
 {
     return (alignment_log2 <= 31u) ? (std::uint32_t{ 1u } << alignment_log2) : 0u;
@@ -367,6 +371,10 @@ const T& CResolvedSchema::SRecordRange<T>::at(const TPodVector<T>& records, cons
 {
     return records[first + ordinal];
 }
+
+//==============================================================================
+//  C++ declaration generation
+//==============================================================================
 
 //  Complete UTF-8 source, terminated by one NUL. No partial output on failure.
 [[nodiscard]] bool generate_cpp(const CResolvedSchema& schema, const CStringView& name_space, CByteBuffer& output, SDiagnostic& diagnostic) noexcept;

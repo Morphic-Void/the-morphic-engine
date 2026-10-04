@@ -6,7 +6,7 @@
 //  Authors: Ritchie Brannan / OpenAI Codex
 //  Date:    26 Sep 26
 //
-//  Validate baked definitions and resolve references, defaults and natural layout.
+//  Resolve live/baked definitions, references, defaults and physical layouts.
 
 #include "schema/resolved_schema.hpp"
 #include "schema/value_conversion.hpp"

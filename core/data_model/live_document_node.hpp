@@ -8,6 +8,9 @@
 //
 //  Internal live-document node representation and node-local invariants.
 
+//  Storage support included by live_document.hpp for its private node container.
+//  Document consumers should use live_document.hpp rather than node records.
+
 #pragma once
 
 #ifndef LIVE_DOCUMENT_NODE_HPP_INCLUDED
@@ -19,6 +22,10 @@
 #include "data_model/data_model_types.hpp"
 
 struct SLiveDocumentTestAccess;
+
+//==============================================================================
+//  Node roles and links
+//==============================================================================
 
 [[nodiscard]] constexpr bool live_value_type_is_container(const ELiveValueType type) noexcept;
 
@@ -59,6 +66,10 @@ union SLiveNodeLinks
     SLiveValueLinks value;
     SLiveAggregateLinks aggregate;
 };
+
+//==============================================================================
+//  Live node record
+//==============================================================================
 
 class CLiveNode
 {

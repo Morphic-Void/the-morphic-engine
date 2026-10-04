@@ -6,7 +6,7 @@
 //  Authors: Ritchie Brannan / OpenAI Codex
 //  Date:    30 Sep 26
 //
-//  Construct values in resolved physical layouts without touching padding.
+//  Decode scalars, construct schema values and compare addressable encodings.
 
 #include "schema/value_codec.hpp"
 #include "schema/value_conversion.hpp"

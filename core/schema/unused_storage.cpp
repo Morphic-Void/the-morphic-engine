@@ -5,6 +5,8 @@
 //  File:    unused_storage.cpp
 //  Authors: Ritchie Brannan / OpenAI Codex
 //  Date:    02 Oct 26
+//
+//  Validate writable extents before clearing unaddressable bytes and optional bits.
 
 #include "schema/unused_storage.hpp"
 #include "memory/memory_policies.hpp"

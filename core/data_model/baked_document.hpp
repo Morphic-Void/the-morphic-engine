@@ -8,6 +8,9 @@
 //
 //  Checked read-only and mutable views over the baked-document format.
 
+//  Public entry point for baked views and block ownership. Includes shared
+//  identities and physical records; translation lives in document_translation.hpp.
+
 #pragma once
 
 #ifndef BAKED_DOCUMENT_HPP_INCLUDED

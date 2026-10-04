@@ -6,7 +6,10 @@
 //  Authors: Ritchie Brannan / OpenAI Codex
 //  Date:    7 Sep 26
 //
-//  Physical records and constants for the replacement baked-document format.
+//  Physical records and constants for the baked-document format.
+
+//  Storage-format support included by baked_document.hpp. Consumers normally
+//  use its checked views; direct inclusion is for format validation and tooling.
 
 #pragma once
 
@@ -19,6 +22,10 @@
 #include <type_traits>
 
 #include "data_model/data_model_types.hpp"
+
+//==============================================================================
+//  Value tags and format constants
+//==============================================================================
 
 enum class EBakedValueType : std::uint8_t
 {
@@ -51,6 +58,10 @@ static_assert(static_cast<std::uint8_t>(EBakedValueType::string) == 5u);
 static_assert(static_cast<std::uint8_t>(EBakedValueType::array) == 6u);
 static_assert(static_cast<std::uint8_t>(EBakedValueType::object) == 7u);
 //  Retired value tag 8 is invalid and must not be reused.
+
+//==============================================================================
+//  Physical records and layout checks
+//==============================================================================
 
 struct SBakedDocumentHeader
 {
@@ -130,6 +141,10 @@ static_assert(offsetof(SBakedStringReference, length) == 4u);
 
 namespace baked_document_format
 {
+
+//==============================================================================
+//  Minimum block extent
+//==============================================================================
 
 //  Root-only document, including the two canonical empty string-table entries.
 constexpr std::size_t k_min_document_size = sizeof(SBakedDocumentHeader) + sizeof(SBakedValueRecord) + (2u * sizeof(SBakedStringReference)) + 2u;

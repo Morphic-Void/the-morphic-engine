@@ -24,3 +24,29 @@ For parser use, start with [the entry point](document_parsing.md#scope-and-entry
 For accepted syntax, read the text format together with
 [acceptance policy](document_parsing.md#acceptance-policy): supported syntax is
 processed before caller permissions determine whether to publish the document.
+
+## Header entry points
+
+Include the header for the operation being used:
+
+| Header in `core/data_model/` | Responsibility |
+| --- | --- |
+| `live_document.hpp` | Live document ownership, queries and mutation. |
+| `baked_document.hpp` | Checked baked views, fixed-layout editing and block ownership. |
+| `document_parser.hpp` | Source-byte parsing and policy-controlled publication to a live document. |
+| `document_writer.hpp` | Text output from a checked baked view. |
+| `document_structure.hpp` | Syntax-only checking and capacity estimates for already-linted UTF-8. |
+| `document_translation.hpp` | Whole-document and selected-root-member baking and promotion. |
+| `document_copy.hpp` | Detached subtree copying and name stabilisation. |
+
+`data_model_types.hpp` supplies shared identities and value metadata;
+`document_findings.hpp` supplies processing reports and caller policy. Their
+consumers include them, but they may also be included directly for those types.
+
+`live_document_node.hpp` and `baked_document_format.hpp` describe storage used by
+the document headers. Ordinary callers use the document APIs; format validation
+and tooling may need the baked records directly. `document_text_lex.hpp` is
+internal scanner support shared by the parser and structural checker.
+
+Parser, writer and translation headers forward-declare document classes. Include
+the corresponding live/baked document header when defining an owner or view.

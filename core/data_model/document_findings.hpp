@@ -8,6 +8,9 @@
 //
 //  Shared processing reports, terminal diagnostics, findings and caller policy.
 
+//  Shared public reporting types, included by document_parser.hpp and
+//  document_structure.hpp. Include directly for policy and report handling.
+
 #pragma once
 
 #ifndef DOCUMENT_FINDINGS_HPP_INCLUDED
@@ -16,6 +19,10 @@
 #include <cstdint>
 
 #include "text/text_diagnostics.hpp"
+
+//==============================================================================
+//  Cumulative findings
+//==============================================================================
 
 enum class EDocumentFinding : std::uint32_t
 {
@@ -67,6 +74,10 @@ enum class EDocumentFinding : std::uint32_t
     k_semantic_end = logical_nul
 };
 
+//==============================================================================
+//  Terminal diagnostics
+//==============================================================================
+
 enum class EDocumentFailureStage : std::uint8_t
 {
     none = 0u, linter, structure, parser
@@ -102,6 +113,10 @@ struct CDocumentFailure
     CTextLocation location;          //  Where the failure was detected.
     CTextLocation element_start;     //  Start of the affected element, when available.
 };
+
+//==============================================================================
+//  Finding masks and source import
+//==============================================================================
 
 [[nodiscard]] constexpr std::uint32_t document_finding_bit(const EDocumentFinding finding) noexcept
 {
@@ -143,6 +158,10 @@ constexpr std::uint32_t k_acceptance_features = k_encoding_features | k_relaxed 
 }
 
 } // namespace document_findings
+
+//==============================================================================
+//  Caller policy and evaluation
+//==============================================================================
 
 namespace document_policy
 {
@@ -208,6 +227,10 @@ inline constexpr bool CDocumentPolicyResult::accepted() const noexcept
 {
     return status == EDocumentPolicyStatus::accepted;
 }
+
+//==============================================================================
+//  Processing report
+//==============================================================================
 
 enum class EDocumentProcessingState : std::int8_t
 {

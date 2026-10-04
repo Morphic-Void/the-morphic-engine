@@ -9,6 +9,9 @@
 //  Parse source bytes into a live document through linting, structural checking,
 //  private construction and final caller-policy evaluation. No file I/O or logging
 //  occurs; all owned storage uses the ambient framework allocator.
+
+//  Public text-to-live entry point. Includes reporting and linter options;
+//  include live_document.hpp separately to define the destination owner.
 //
 //  Input and lifetime:
 //  A zero-length byte view, including a default view, represents empty text and
@@ -57,6 +60,10 @@ class CLiveDocument;
 
 namespace document_parser
 {
+
+//==============================================================================
+//  Text parsing and publication
+//==============================================================================
 
 [[nodiscard]] CDocumentReport parse(const CByteConstView& source, CLiveDocument& destination, const CDocumentParseOptions& options = {}, CTextLintReport* const linter_report = nullptr) noexcept;
 

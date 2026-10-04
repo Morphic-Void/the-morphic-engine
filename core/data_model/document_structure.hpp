@@ -5,6 +5,11 @@
 //  File:    document_structure.hpp
 //  Authors: Ritchie Brannan / OpenAI Codex
 //  Date:    8 Sep 26
+//
+//  Structural checking and capacity estimates for linted document text.
+
+//  Public syntax-only entry point for callers with linted UTF-8. Most consumers
+//  use document_parser.hpp for the complete source-to-document pipeline.
 
 #pragma once
 
@@ -13,6 +18,10 @@
 
 #include "containers/StringBuffers.hpp"
 #include "data_model/document_findings.hpp"
+
+//==============================================================================
+//  Construction estimates
+//==============================================================================
 
 struct CDocumentStructureEstimates
 {
@@ -29,6 +38,10 @@ struct CDocumentStructureEstimates
 
 namespace document_structure
 {
+
+//==============================================================================
+//  Structural checking
+//==============================================================================
 
 //  Check bounded UTF-8 already produced by a successful linter call. Exclude
 //  its physical terminal zero and normalise all source line breaks to LF.
