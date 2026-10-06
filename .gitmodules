@@ -1,3 +1,12 @@
 [submodule "external/SuiteUTF"]
 	path = external/SuiteUTF
 	url = https://github.com/Icabod66/SuiteUTF
+[submodule "external/basis_universal"]
+	path = external/basis_universal
+	url = https://github.com/BinomialLLC/basis_universal.git
+[submodule "external/SPIRV-Reflect"]
+	path = external/SPIRV-Reflect
+	url = https://github.com/KhronosGroup/SPIRV-Reflect.git
+[submodule "external/miniaudio"]
+	path = external/miniaudio
+	url = https://github.com/mackron/miniaudio.git

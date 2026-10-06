@@ -41,7 +41,7 @@ jobs:
       - name: Check out source and dependencies
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          submodules: recursive
+          submodules: true
           persist-credentials: false
 
       - name: Record toolchain versions

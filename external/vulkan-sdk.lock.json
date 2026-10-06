@@ -1,0 +1,17 @@
+{
+  "sdk": "Vulkan SDK",
+  "version": "1.4.363.0",
+  "components": {
+    "Vulkan-Headers": {
+      "tag": "vulkan-sdk-1.4.363.0",
+      "commit": "6802bb4733b63ed5efd3adb308a6c885ef180ea1"
+    },
+    "DirectXShaderCompiler": {
+      "commit": "01b62ad47db7dee3dd33f90e7339cf9e860b3f93"
+    },
+    "SPIRV-Reflect": {
+      "tag": "vulkan-sdk-1.4.363.0",
+      "commit": "f3e261fda74ca81b44d1941931c6b7b5fe236d0e"
+    }
+  }
+}

@@ -65,7 +65,18 @@ engine, see [Why Morphic Engine](docs/architecture/why_morphic_engine.md).
 
 ## License
 
-Licensed under the MIT License. See [LICENSE](LICENSE) for details.
+Morphic Engine's own code is licensed under the MIT License. See
+[LICENSE.txt](LICENSE.txt) for details. Linked third-party code retains its own
+license:
+
+| Component | Use | License |
+| --- | --- | --- |
+| [SuiteUTF](https://github.com/Icabod66/SuiteUTF) | Unicode encoding and decoding | [MIT](external/SuiteUTF/LICENSE.txt) |
+
+The [third-party licence record](THIRD_PARTY_LICENSES.md) tracks the pinned
+revision, planned integrations, and notices needed for source and binary
+distribution. The README summary does not replace the applicable license texts
+and notices in a distribution.
 
 Copyright (c) 2010-2026 Ritchie Brannan.
 
