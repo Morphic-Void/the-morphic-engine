@@ -133,7 +133,8 @@ the protocol, failure handling and test entry points.
 ## Rendering stub and Executive-controlled startup
 
 Completed on 21 September 2026 in `f91ded3`, after coordinator and user review.
-`MorphicRendering` is a separate solution DLL using `render_vulkan_windows`.
+`MorphicRendering` is a separate solution DLL. Its `render_vulkan_windows`
+identity at that milestone was later consolidated as `render_vulkan`.
 It provisions a module thread which parks until exit; no graphics API is implemented.
 Vulkan is the primary first rendering target; DirectX remains deferred.
 

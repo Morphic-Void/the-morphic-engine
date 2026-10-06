@@ -143,7 +143,7 @@ foreach ($case in @('ordinary', 'dependency', 'disposal', 'disposal-during-save'
         $exited = $false
         foreach ($line in ($events -split "`n")) {
             if ($line.Contains('Rendering: Running')) {
-                if ($line -notmatch '\[render_vulkan_windows:rendering\]') { throw "$case used an unexpected rendering identity." }
+                if ($line -notmatch '\[render_vulkan:rendering\]') { throw "$case used an unexpected rendering identity." }
                 if ($running) { throw "$case started overlapping rendering threads." }
                 $running = $true
                 $exited = $false

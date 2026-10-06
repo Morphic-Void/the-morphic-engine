@@ -86,13 +86,13 @@ static void check_rendering_notices(tests::TTestContext& ctx, modules::CBoundMod
         TEST_EXPECT(ctx, received);
         const ModuleRequest* const load = request.owner().payload<ModuleRequest>();
         TEST_EXPECT(ctx, (load != nullptr) && (load->action == EModuleAction::load) &&
-            (load->module == module_ids::render_vulkan_windows) && (load->file.length() != 0u) &&
+            (load->module == module_ids::render_vulkan) && (load->file.length() != 0u) &&
             (std::strcmp(load->file.cstring(), "package:/bin/MorphicRendering.dll") == 0));
         const std::int32_t slot = request.query_async_slot();
         request.take_owner().destroy();
 
         ModuleResult result;
-        result.module = module_ids::render_vulkan_windows;
+        result.module = module_ids::render_vulkan;
         result.notice = EModuleNotice::acknowledged;
         result.status = EModuleStatus::success;
         threading::CErasedPodMsg reply;
@@ -110,7 +110,7 @@ static void check_rendering_notices(tests::TTestContext& ctx, modules::CBoundMod
         result.available = (scenario != ECase::unavailable) && (scenario != ECase::load_failure);
         if (scenario == ECase::wrong_implementation)
         {
-            result.module = module_ids::render_vulkan_linux;
+            result.module = module_ids::render_directx;
         }
         if (scenario == ECase::wrong_correlation)
         {

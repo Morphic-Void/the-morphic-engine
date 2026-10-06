@@ -331,7 +331,7 @@ bool CExecutiveThread::initialise() noexcept
         fail(EFailure::submission, "rendering load submission");
         return false;
     }
-    request->module = module_ids::render_vulkan_windows;
+    request->module = module_ids::render_vulkan;
     request->action = EModuleAction::load;
     if (!post(m_pending_slot, std::move(owner), request))
     {
@@ -348,7 +348,7 @@ bool CExecutiveThread::accept_rendering_notice(const threading::CErasedPodMsg& m
 
     ModuleResult result;
     if (!message.copy_payload_to(result) || (message.query_async_slot() != m_pending_slot) ||
-        (result.module != module_ids::render_vulkan_windows))
+        (result.module != module_ids::render_vulkan))
     {
         return false;
     }

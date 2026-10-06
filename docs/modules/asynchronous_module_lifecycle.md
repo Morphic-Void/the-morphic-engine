@@ -33,7 +33,7 @@ resolves discovered DLLs adjacent to the running executable without copying them
 Rendering selection belongs to the Executive. The Host bootstraps only the
 Executive; a selector implementation can run without a renderer or choose another
 implementation later. The normal `MorphicExecutive.dll` first sends an owning
-load request for `package:/bin/MorphicRendering.dll` and `render_vulkan_windows`. It validates
+load request for `package:/bin/MorphicRendering.dll` and `render_vulkan`. It validates
 the correlated acknowledgement before accepting completion, then starts its
 48 sequential and 32 concurrent asset acceptance operations only when rendering
 is available.
@@ -113,8 +113,9 @@ Executive policy.
 ## Rendering DLL and thread
 
 `MorphicRendering.vcxproj` is a separate solution project producing
-`MorphicRendering.dll`. It uses the existing `render_vulkan_windows` module
-identity at the `render` mount and the existing `rendering` thread identity.
+`MorphicRendering.dll`. It uses the `render_vulkan` module
+identity at the `render` mount on both Windows and Linux, with the existing
+`rendering` thread identity.
 Vulkan is the primary API planned for first implementation.
 This stage contains no graphics API calls, graphics resources or actual rendering.
 

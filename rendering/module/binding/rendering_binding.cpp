@@ -20,7 +20,7 @@ namespace rendering::module_binding
 {
 
 //  Module-local configuration.
-static constexpr module_ids::id_type k_advertised_module_id{ module_ids::render_vulkan_windows };
+static constexpr module_ids::id_type k_advertised_module_id{ module_ids::render_vulkan };
 static constexpr std::uint32_t k_advertised_version_minor{ 0u };
 
 static modules::EBindingResult MV_STD_ABI_CALL query_function(

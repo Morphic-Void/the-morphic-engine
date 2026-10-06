@@ -66,7 +66,7 @@ static bool operation(threading::CThreadContext& context, const EModuleAction ac
     const char* const file, const std::int32_t slot, const EModuleStatus expected, const bool available,
     const system_type_id function = system_type_ids::undefined) noexcept
 {
-    if (!post(context, action, module_ids::render_vulkan_windows, file, slot, function))
+    if (!post(context, action, module_ids::render_vulkan, file, slot, function))
     {
         return false;
     }
@@ -75,7 +75,7 @@ static bool operation(threading::CThreadContext& context, const EModuleAction ac
         threading::CErasedPodMsg message;
         ModuleResult result;
         if (!receive(context, message) || !message.copy_payload_to(result) || (message.query_async_slot() != slot) ||
-            (result.module != module_ids::render_vulkan_windows) ||
+            (result.module != module_ids::render_vulkan) ||
             (result.notice != notice) || (result.status != ((notice == EModuleNotice::acknowledged) ? EModuleStatus::success : expected)) ||
             ((notice == EModuleNotice::completed) && ((result.available != available) ||
                 ((expected == EModuleStatus::success) && (function != system_type_ids::undefined) && (result.function == nullptr)))))
@@ -191,7 +191,7 @@ static bool disposal_during_saves(threading::CThreadContext& context) noexcept
     }
     //  An owning request behind the saves establishes their admission before
     //  disposal crosses the separate POD queue. The service is already loaded.
-    if (!post(context, EModuleAction::load, module_ids::render_vulkan_windows, "package:/bin/MorphicRendering.dll", 40))
+    if (!post(context, EModuleAction::load, module_ids::render_vulkan, "package:/bin/MorphicRendering.dll", 40))
     {
         return false;
     }
@@ -345,7 +345,7 @@ static bool unload_during_saves(threading::CThreadContext& context, const bool r
     //  This owning request follows every save on the same queue. Teardown must
     //  retain the rendering package until accepted saves and disposal replies
     //  finish, before destroying its transports or disposing dependent assets.
-    if (!post(context, EModuleAction::unload, module_ids::render_vulkan_windows, nullptr, 40))
+    if (!post(context, EModuleAction::unload, module_ids::render_vulkan, nullptr, 40))
     {
         return false;
     }
@@ -545,7 +545,7 @@ static std::uint32_t MV_STD_ABI_CALL executive_entry(void* const data) noexcept
     return success ? 0u : 1u;
 }
 #else
-static constexpr auto k_advertised_module_id = module_ids::render_vulkan_windows;
+static constexpr auto k_advertised_module_id = module_ids::render_vulkan;
 
 #if MV_LIFECYCLE_RENDERING_FAILURE
 static std::uint32_t MV_STD_ABI_CALL rendering_entry(void* const data) noexcept
