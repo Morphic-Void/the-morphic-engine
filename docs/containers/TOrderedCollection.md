@@ -30,6 +30,11 @@ to constructed objects remain valid across sort_and_pack().
 - Indices, sizes, and capacities are expressed in elements.
 - TKey must be trivially copyable.
 - Live keys are unique.
+- Read operations may share unchanged, safely published storage when the key's
+  comparison and the object's own read operations support concurrent access.
+  Each keyed lookup passes its query by reference without writing shared state.
+  Mutation, compaction, attribution changes and destruction require exclusive
+  access; borrowed objects and keys must remain alive throughout each read.
 
 Scope:
 

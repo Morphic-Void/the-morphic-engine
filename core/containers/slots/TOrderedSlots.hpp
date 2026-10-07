@@ -77,6 +77,7 @@ public:
 protected:
 
     //  Protected functions form the derived-facing interface.
+    using query_type = typename TSlotBacking::query_type;
 
 private:
 
@@ -130,11 +131,13 @@ protected:
     //  Acquire an empty slot into the requested occupied category.
     //
     //  slot_index == -1 selects the default empty slot.
+    //  query describes the new key before the facade writes it to storage.
+    //  It must remain valid through any reservation performed by this call.
     //  acquire() does not grow capacity.
     //  reserve_and_acquire() may grow capacity first.
     //  Both return the acquired slot index, or -1 on failure.
-    [[nodiscard]] std::int32_t acquire(const std::int32_t slot_index = -1, const bool lex = false, const bool require_unique = false) noexcept;
-    [[nodiscard]] std::int32_t reserve_and_acquire(const std::int32_t slot_index = -1, const bool lex = false, const bool require_unique = false) noexcept;
+    [[nodiscard]] std::int32_t acquire(const query_type& query, const std::int32_t slot_index = -1, const bool lex = false, const bool require_unique = false) noexcept;
+    [[nodiscard]] std::int32_t reserve_and_acquire(const query_type& query, const std::int32_t slot_index = -1, const bool lex = false, const bool require_unique = false) noexcept;
 
     //  Return an occupied slot to the empty category.
     //
@@ -194,13 +197,16 @@ protected:
 
     //  Duplicate-key queries.
     //
-    //  slot_index == -1 compares the currently staged query key.
-    //  Otherwise the specified slot key is used.
+    //  Stored-key queries exclude the specified occupied slot itself.
+    //  Query-based variants compare an external query against stored entries.
     //
     //  The category-specific variants restrict the search domain accordingly.
-    [[nodiscard]] bool has_duplicate_key(const std::int32_t slot_index = -1) const noexcept;
-    [[nodiscard]] bool has_duplicate_key_in_lexed(const std::int32_t slot_index = -1) const noexcept;
-    [[nodiscard]] bool has_duplicate_key_in_loose(const std::int32_t slot_index = -1) const noexcept;
+    [[nodiscard]] bool has_duplicate_key(const std::int32_t slot_index) const noexcept;
+    [[nodiscard]] bool has_duplicate_query(const query_type& query) const noexcept;
+    [[nodiscard]] bool has_duplicate_key_in_lexed(const std::int32_t slot_index) const noexcept;
+    [[nodiscard]] bool has_duplicate_query_in_lexed(const query_type& query) const noexcept;
+    [[nodiscard]] bool has_duplicate_key_in_loose(const std::int32_t slot_index) const noexcept;
+    [[nodiscard]] bool has_duplicate_query_in_loose(const query_type& query) const noexcept;
 
     //  Move a loose slot into the lexed tree.
     //
@@ -276,24 +282,23 @@ protected:
     //  Lexed search and bound queries.
     //
     //  These functions search the lexed subset only.
-    //  They use the staged query key against slot_index, where -1 denotes the derived
-    //  class's currently staged query key.
+    //  The backing compares the caller's query against each candidate slot.
     //
     //  They return a matching or bound slot index, or -1 if no such lexed slot exists.
-    [[nodiscard]] std::int32_t find_any_equal() const noexcept;
-    [[nodiscard]] std::int32_t find_first_equal() const noexcept;
-    [[nodiscard]] std::int32_t find_first_greater() const noexcept;
-    [[nodiscard]] std::int32_t find_first_greater_equal() const noexcept;
-    [[nodiscard]] std::int32_t find_last_equal() const noexcept;
-    [[nodiscard]] std::int32_t find_last_less() const noexcept;
-    [[nodiscard]] std::int32_t find_last_less_equal() const noexcept;
+    [[nodiscard]] std::int32_t find_any_equal(const query_type& query) const noexcept;
+    [[nodiscard]] std::int32_t find_first_equal(const query_type& query) const noexcept;
+    [[nodiscard]] std::int32_t find_first_greater(const query_type& query) const noexcept;
+    [[nodiscard]] std::int32_t find_first_greater_equal(const query_type& query) const noexcept;
+    [[nodiscard]] std::int32_t find_last_equal(const query_type& query) const noexcept;
+    [[nodiscard]] std::int32_t find_last_less(const query_type& query) const noexcept;
+    [[nodiscard]] std::int32_t find_last_less_equal(const query_type& query) const noexcept;
 
     //  Bound-query aliases.
     //
     //  lower_bound_by_lex() aliases find_first_greater_equal().
     //  upper_bound_by_lex() aliases find_first_greater().
-    [[nodiscard]] std::int32_t lower_bound_by_lex() const noexcept;
-    [[nodiscard]] std::int32_t upper_bound_by_lex() const noexcept;
+    [[nodiscard]] std::int32_t lower_bound_by_lex(const query_type& query) const noexcept;
+    [[nodiscard]] std::int32_t upper_bound_by_lex(const query_type& query) const noexcept;
 
     //  Tree-shape diagnostics over the lexed AVL subset.
     [[nodiscard]] std::uint32_t tree_height() const noexcept;
@@ -386,12 +391,9 @@ private:
 
     //  Insert a slot into the lexed AVL subset.
     //
-    //  key_index is forwarded as the source operand to the derived comparator.
-    //  It may be -1 or a slot index.
-    void avl_insert(const std::int32_t slot_index, const std::int32_t key_index) noexcept;
-
-    //  Insert a slot into the lexed AVL subset using its own key.
-    void avl_insert(const std::int32_t slot_index) noexcept;
+    //  A supplied query describes a new key not yet written to backing storage.
+    //  A null query uses the slot's existing key.
+    void avl_insert(const std::int32_t slot_index, const query_type* const query = nullptr) noexcept;
 
     //  Remove a slot from the lexed AVL subset.
     void avl_remove(const std::int32_t slot_index) noexcept;
@@ -419,16 +421,18 @@ private:
     //  Acquire implementation with optional reservation.
     //
     //  May optionally require key uniqueness and may optionally reserve capacity first.
-    [[nodiscard]] std::int32_t private_acquire(const std::int32_t slot_index, const bool lex, const bool require_unique, const bool allow_reserve) noexcept;
+    [[nodiscard]] std::int32_t private_acquire(const query_type& query, const std::int32_t slot_index, const bool lex, const bool require_unique, const bool allow_reserve) noexcept;
 
     //  Lexed in-order navigation helpers.
     [[nodiscard]] std::int32_t private_prev_lexed(const std::int32_t slot_index) const noexcept;
     [[nodiscard]] std::int32_t private_next_lexed(const std::int32_t slot_index) const noexcept;
 
     //  Duplicate-key helper queries.
-    [[nodiscard]] bool private_has_duplicate_key(const std::int32_t slot_index = -1) const noexcept;
-    [[nodiscard]] bool private_has_duplicate_key_in_lexed(const std::int32_t slot_index = -1) const noexcept;
-    [[nodiscard]] bool private_has_duplicate_key_in_loose(const std::int32_t slot_index = -1) const noexcept;
+    //  A null query compares the stored slot key and excludes that slot itself.
+    //  A supplied query is compared against all occupied entries.
+    [[nodiscard]] bool private_has_duplicate_key(const std::int32_t slot_index, const query_type* const query = nullptr) const noexcept;
+    [[nodiscard]] bool private_has_duplicate_key_in_lexed(const std::int32_t slot_index, const query_type* const query = nullptr) const noexcept;
+    [[nodiscard]] bool private_has_duplicate_key_in_loose(const std::int32_t slot_index, const query_type* const query = nullptr) const noexcept;
 
     //  Implementation of sort_and_pack().
     //
@@ -468,8 +472,7 @@ private:
     void append_range_to_empty_list(const std::int32_t lower_index, const std::int32_t upper_index) noexcept;
 
     //  Internal helpers for the move_to_* functions.
-    void attach_to_lexed(const std::int32_t slot_index, const std::int32_t key_index) noexcept;
-    void attach_to_lexed(const std::int32_t slot_index) noexcept;
+    void attach_to_lexed(const std::int32_t slot_index, const query_type* const query = nullptr) noexcept;
     void attach_to_loose(const std::int32_t slot_index) noexcept;
     void attach_to_empty(const std::int32_t slot_index) noexcept;
     void remove_from_lexed(const std::int32_t slot_index) noexcept;
@@ -477,8 +480,7 @@ private:
     void remove_from_empty(const std::int32_t slot_index) noexcept;
 
     //  Move a slot to the specified metadata category if not already a member.
-    void move_to_lexed_tree(const std::int32_t slot_index, const std::int32_t key_index) noexcept;
-    void move_to_lexed_tree(const std::int32_t slot_index) noexcept;
+    void move_to_lexed_tree(const std::int32_t slot_index, const query_type* const query = nullptr) noexcept;
     void move_to_loose_list(const std::int32_t slot_index) noexcept;
     void move_to_empty_list(const std::int32_t slot_index) noexcept;
 
@@ -487,24 +489,6 @@ private:
     //  Rank is defined by traversal order: lexed, then loose, then empty.
     //  Returns -1 if the slot is invalid.
     [[nodiscard]] std::int32_t convert_to_rank_index(const std::int32_t slot_index) const noexcept;
-
-    //  Locate a slot by full-domain rank.
-    //
-    //  Valid rank domain is [0, capacity()).
-    //  Returns the corresponding slot index, or -1 if rank_index is out of range.
-    [[nodiscard]] std::int32_t locate_by_rank_index(const std::int32_t rank_index) const noexcept;
-
-    //  Search the lexed tree using the current staged query key via the derived comparator.
-    //
-    //  key_index may be -1 to indicate the staged query key.
-    //  Returns a lexed slot index, or -1 if no matching/bound slot exists.
-    [[nodiscard]] std::int32_t locate_any_equal(const std::int32_t key_index = -1) const noexcept;
-    [[nodiscard]] std::int32_t locate_first_equal(const std::int32_t key_index = -1) const noexcept;
-    [[nodiscard]] std::int32_t locate_first_greater(const std::int32_t key_index = -1) const noexcept;
-    [[nodiscard]] std::int32_t locate_first_greater_equal(const std::int32_t key_index = -1) const noexcept;
-    [[nodiscard]] std::int32_t locate_last_equal(const std::int32_t key_index = -1) const noexcept;
-    [[nodiscard]] std::int32_t locate_last_less(const std::int32_t key_index = -1) const noexcept;
-    [[nodiscard]] std::int32_t locate_last_less_equal(const std::int32_t key_index = -1) const noexcept;
 
     //  Scan for the lowest/highest occupied slot index in the metadata array.
     [[nodiscard]] std::int32_t min_occupied_index() const noexcept;
@@ -796,15 +780,15 @@ inline bool TOrderedSlots<TSlotBacking, TIndex, TMeta>::shrink_to_fit() noexcept
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::acquire(const std::int32_t slot_index, const bool lex, const bool require_unique) noexcept
+inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::acquire(const query_type& query, const std::int32_t slot_index, const bool lex, const bool require_unique) noexcept
 {
-    return is_safe() ? private_acquire(slot_index, lex, require_unique, false) : -1;
+    return is_safe() ? private_acquire(query, slot_index, lex, require_unique, false) : -1;
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::reserve_and_acquire(const std::int32_t slot_index, const bool lex, const bool require_unique) noexcept
+inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::reserve_and_acquire(const query_type& query, const std::int32_t slot_index, const bool lex, const bool require_unique) noexcept
 {
-    return is_safe() ? private_acquire(slot_index, lex, require_unique, true) : -1;
+    return is_safe() ? private_acquire(query, slot_index, lex, require_unique, true) : -1;
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
@@ -971,19 +955,37 @@ inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::next_empty(const
 template<typename TSlotBacking, typename TIndex, typename TMeta>
 inline bool TOrderedSlots<TSlotBacking, TIndex, TMeta>::has_duplicate_key(const std::int32_t slot_index) const noexcept
 {
-    return is_safe() ? private_has_duplicate_key(slot_index) : false;
+    return is_occupied(slot_index) ? private_has_duplicate_key(slot_index) : false;
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
 inline bool TOrderedSlots<TSlotBacking, TIndex, TMeta>::has_duplicate_key_in_lexed(const std::int32_t slot_index) const noexcept
 {
-    return is_safe() ? private_has_duplicate_key_in_lexed(slot_index) : false;
+    return is_occupied(slot_index) ? private_has_duplicate_key_in_lexed(slot_index) : false;
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
 inline bool TOrderedSlots<TSlotBacking, TIndex, TMeta>::has_duplicate_key_in_loose(const std::int32_t slot_index) const noexcept
 {
-    return is_safe() ? private_has_duplicate_key_in_loose(slot_index) : false;
+    return is_occupied(slot_index) ? private_has_duplicate_key_in_loose(slot_index) : false;
+}
+
+template<typename TSlotBacking, typename TIndex, typename TMeta>
+inline bool TOrderedSlots<TSlotBacking, TIndex, TMeta>::has_duplicate_query(const query_type& query) const noexcept
+{
+    return is_safe() ? private_has_duplicate_key(-1, &query) : false;
+}
+
+template<typename TSlotBacking, typename TIndex, typename TMeta>
+inline bool TOrderedSlots<TSlotBacking, TIndex, TMeta>::has_duplicate_query_in_lexed(const query_type& query) const noexcept
+{
+    return is_safe() ? private_has_duplicate_key_in_lexed(-1, &query) : false;
+}
+
+template<typename TSlotBacking, typename TIndex, typename TMeta>
+inline bool TOrderedSlots<TSlotBacking, TIndex, TMeta>::has_duplicate_query_in_loose(const query_type& query) const noexcept
+{
+    return is_safe() ? private_has_duplicate_key_in_loose(-1, &query) : false;
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
@@ -1186,61 +1188,236 @@ inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::rank_index_of(co
 template<typename TSlotBacking, typename TIndex, typename TMeta>
 inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::find_by_rank_index(const std::int32_t rank_index) const noexcept
 {
-    return is_safe() ? locate_by_rank_index(rank_index) : -1;
+    if (!is_safe())
+    {
+        return -1;
+    }
+    std::int32_t slot_index = -1;
+    if (rank_index >= 0)
+    {
+        const Slot* const meta = meta_slots();
+        std::uint32_t search_count = static_cast<std::uint32_t>(rank_index);
+        if (search_count < m_lexed_count)
+        {
+            std::uint32_t prev_side = 0;
+            if ((search_count >> 1) > (m_lexed_count >> 1))
+            {   //  search backwards from end
+                prev_side = 1;
+                search_count = m_lexed_count - search_count - 1u;
+            }
+            std::uint32_t next_side = prev_side ^ 1u;
+            for (std::int32_t scan_index = m_lexed_tree_root; scan_index >= 0; scan_index = meta[slot_index = scan_index].child_index[prev_side]) {}
+            while (search_count)
+            {
+                std::int32_t from_index = meta[slot_index].child_index[next_side];
+                if (from_index < 0)
+                {
+                    for (from_index = slot_index; (((slot_index = meta[from_index].parent_index) >= 0) && (meta[slot_index].child_index[prev_side] != from_index)); from_index = slot_index) {}
+                }
+                else
+                {
+                    for (slot_index = from_index; ((from_index = meta[slot_index].child_index[prev_side]) >= 0); slot_index = from_index) {}
+                }
+                --search_count;
+            }
+        }
+        else if ((search_count -= m_lexed_count) < m_loose_count)
+        {
+            slot_index = m_loose_list_head;
+            std::uint32_t side = 1u;
+            if (search_count > (m_loose_count >> 1))
+            {
+                side = 0u;
+                search_count = (m_loose_count - search_count);
+            }
+            while (search_count != 0)
+            {
+                slot_index = meta[slot_index].child_index[side];
+                --search_count;
+            }
+        }
+        else if ((search_count -= m_loose_count) < m_empty_count)
+        {
+            slot_index = m_empty_list_head;
+            std::uint32_t side = 1u;
+            if (search_count > (m_empty_count >> 1))
+            {
+                side = 0u;
+                search_count = (m_empty_count - search_count);
+            }
+            while (search_count != 0)
+            {
+                slot_index = meta[slot_index].child_index[side];
+                --search_count;
+            }
+        }
+    }
+    return slot_index;
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::find_any_equal() const noexcept
+inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::find_any_equal(const query_type& query) const noexcept
 {
-    return is_safe() ? locate_any_equal() : -1;
+    if (!is_safe())
+    {
+        return -1;
+    }
+    const Slot* const meta = meta_slots();
+    std::int32_t found_index = m_lexed_tree_root;
+    while (found_index >= 0)
+    {
+        std::int32_t relationship = slot_backing().on_compare_query(query, found_index);
+        if (relationship == 0)
+        {
+            break;
+        }
+        found_index = meta[found_index].child_index[(relationship < 0) ? 0 : 1];
+    }
+    return found_index;
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::find_first_equal() const noexcept
+inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::find_first_equal(const query_type& query) const noexcept
 {
-    return is_safe() ? locate_first_equal() : -1;
+    if (!is_safe())
+    {
+        return -1;
+    }
+    const Slot* const meta = meta_slots();
+    std::int32_t found_index = -1;
+    std::int32_t check_index = m_lexed_tree_root;
+    while (check_index >= 0)
+    {
+        std::int32_t relationship = slot_backing().on_compare_query(query, check_index);
+        if (relationship == 0)
+        {
+            found_index = check_index;
+        }
+        check_index = meta[check_index].child_index[(relationship <= 0) ? 0 : 1];
+    }
+    return found_index;
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::find_first_greater() const noexcept
+inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::find_first_greater(const query_type& query) const noexcept
 {
-    return is_safe() ? locate_first_greater() : -1;
+    if (!is_safe())
+    {
+        return -1;
+    }
+    const Slot* const meta = meta_slots();
+    std::int32_t found_index = -1;
+    std::int32_t check_index = m_lexed_tree_root;
+    while (check_index >= 0)
+    {
+        std::int32_t relationship = slot_backing().on_compare_query(query, check_index);
+        if (relationship < 0)
+        {
+            found_index = check_index;
+        }
+        check_index = meta[check_index].child_index[(relationship < 0) ? 0 : 1];
+    }
+    return found_index;
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::find_first_greater_equal() const noexcept
+inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::find_first_greater_equal(const query_type& query) const noexcept
 {
-    return is_safe() ? locate_first_greater_equal() : -1;
+    if (!is_safe())
+    {
+        return -1;
+    }
+    const Slot* const meta = meta_slots();
+    std::int32_t found_index = -1;
+    std::int32_t check_index = m_lexed_tree_root;
+    while (check_index >= 0)
+    {
+        std::int32_t relationship = slot_backing().on_compare_query(query, check_index);
+        if (relationship <= 0)
+        {
+            found_index = check_index;
+        }
+        check_index = meta[check_index].child_index[(relationship <= 0) ? 0 : 1];
+    }
+    return found_index;
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::find_last_equal() const noexcept
+inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::find_last_equal(const query_type& query) const noexcept
 {
-    return is_safe() ? locate_last_equal() : -1;
+    if (!is_safe())
+    {
+        return -1;
+    }
+    const Slot* const meta = meta_slots();
+    std::int32_t found_index = -1;
+    std::int32_t check_index = m_lexed_tree_root;
+    while (check_index >= 0)
+    {
+        std::int32_t relationship = slot_backing().on_compare_query(query, check_index);
+        if (relationship == 0)
+        {
+            found_index = check_index;
+        }
+        check_index = meta[check_index].child_index[(relationship >= 0) ? 1 : 0];
+    }
+    return found_index;
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::find_last_less() const noexcept
+inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::find_last_less(const query_type& query) const noexcept
 {
-    return is_safe() ? locate_last_less() : -1;
+    if (!is_safe())
+    {
+        return -1;
+    }
+    const Slot* const meta = meta_slots();
+    std::int32_t found_index = -1;
+    std::int32_t check_index = m_lexed_tree_root;
+    while (check_index >= 0)
+    {
+        std::int32_t relationship = slot_backing().on_compare_query(query, check_index);
+        if (relationship > 0)
+        {
+            found_index = check_index;
+        }
+        check_index = meta[check_index].child_index[(relationship > 0) ? 1 : 0];
+    }
+    return found_index;
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::find_last_less_equal() const noexcept
+inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::find_last_less_equal(const query_type& query) const noexcept
 {
-    return is_safe() ? locate_last_less_equal() : -1;
+    if (!is_safe())
+    {
+        return -1;
+    }
+    const Slot* const meta = meta_slots();
+    std::int32_t found_index = -1;
+    std::int32_t check_index = m_lexed_tree_root;
+    while (check_index >= 0)
+    {
+        std::int32_t relationship = slot_backing().on_compare_query(query, check_index);
+        if (relationship >= 0)
+        {
+            found_index = check_index;
+        }
+        check_index = meta[check_index].child_index[(relationship >= 0) ? 1 : 0];
+    }
+    return found_index;
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::lower_bound_by_lex() const noexcept
+inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::lower_bound_by_lex(const query_type& query) const noexcept
 {
-    return find_first_greater_equal();
+    return find_first_greater_equal(query);
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::upper_bound_by_lex() const noexcept
+inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::upper_bound_by_lex(const query_type& query) const noexcept
 {
-    return find_first_greater();
+    return find_first_greater(query);
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
@@ -1431,7 +1608,7 @@ inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::avl_double_rotat
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline void TOrderedSlots<TSlotBacking, TIndex, TMeta>::avl_insert(const std::int32_t slot_index, const std::int32_t key_index) noexcept
+inline void TOrderedSlots<TSlotBacking, TIndex, TMeta>::avl_insert(const std::int32_t slot_index, const query_type* const query) noexcept
 {
     Slot* const meta = meta_slots();
     Slot& slot = meta[slot_index];
@@ -1453,7 +1630,8 @@ inline void TOrderedSlots<TSlotBacking, TIndex, TMeta>::avl_insert(const std::in
         for (std::int32_t scan_index = m_lexed_tree_root; scan_index >= 0; scan_index = meta[walk_index].child_index[walk_side])
         {
             walk_index = scan_index;
-            walk_side = (slot_backing().on_compare_keys(key_index, walk_index) >= 0) ? 1 : 0;
+            walk_side = (((query != nullptr) ? slot_backing().on_compare_query(*query, walk_index) :
+                slot_backing().on_compare_keys(slot_index, walk_index)) >= 0) ? 1 : 0;
         }
         meta[walk_index].child_index[walk_side] = slot_index;
         slot.parent_index = walk_index;
@@ -1495,12 +1673,6 @@ inline void TOrderedSlots<TSlotBacking, TIndex, TMeta>::avl_insert(const std::in
             }
         }
     }
-}
-
-template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline void TOrderedSlots<TSlotBacking, TIndex, TMeta>::avl_insert(const std::int32_t slot_index) noexcept
-{
-    avl_insert(slot_index, slot_index);
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
@@ -2184,12 +2356,12 @@ inline bool TOrderedSlots<TSlotBacking, TIndex, TMeta>::private_resize(const std
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::private_acquire(const std::int32_t slot_index, const bool lex, const bool require_unique, const bool allow_reserve) noexcept
+inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::private_acquire(const query_type& query, const std::int32_t slot_index, const bool lex, const bool require_unique, const bool allow_reserve) noexcept
 {
     std::int32_t acquired_index = -1;
     if ((static_cast<std::uint32_t>(slot_index) + 1u) <= k_capacity_limit)
     {
-        if (!require_unique || !private_has_duplicate_key(slot_index))
+        if (!require_unique || !private_has_duplicate_key(-1, &query))
         {
             if (slot_index == -1)
             {
@@ -2234,7 +2406,7 @@ inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::private_acquire(
                 }
                 else
                 {
-                    move_to_lexed_tree(acquired_index, slot_index);
+                    move_to_lexed_tree(acquired_index, &query);
                 }
                 const std::uint32_t occupied_count = m_lexed_count + m_loose_count;
                 if (m_peak_usage < occupied_count)
@@ -2290,13 +2462,13 @@ inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::private_next_lex
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline bool TOrderedSlots<TSlotBacking, TIndex, TMeta>::private_has_duplicate_key(const std::int32_t slot_index) const noexcept
+inline bool TOrderedSlots<TSlotBacking, TIndex, TMeta>::private_has_duplicate_key(const std::int32_t slot_index, const query_type* const query) const noexcept
 {
-    return private_has_duplicate_key_in_lexed(slot_index) || private_has_duplicate_key_in_loose(slot_index);
+    return private_has_duplicate_key_in_lexed(slot_index, query) || private_has_duplicate_key_in_loose(slot_index, query);
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline bool TOrderedSlots<TSlotBacking, TIndex, TMeta>::private_has_duplicate_key_in_lexed(const std::int32_t slot_index) const noexcept
+inline bool TOrderedSlots<TSlotBacking, TIndex, TMeta>::private_has_duplicate_key_in_lexed(const std::int32_t slot_index, const query_type* const query) const noexcept
 {
     const Slot* const meta = meta_slots();
     bool has_duplicate = false;
@@ -2304,7 +2476,8 @@ inline bool TOrderedSlots<TSlotBacking, TIndex, TMeta>::private_has_duplicate_ke
     std::int32_t check_index = m_lexed_tree_root;
     while (check_index >= 0)
     {   //  find the first instance by lex of a matching slot
-        std::int32_t relationship = slot_backing().on_compare_keys(slot_index, check_index);
+        std::int32_t relationship = ((query != nullptr) ? slot_backing().on_compare_query(*query, check_index) :
+                slot_backing().on_compare_keys(slot_index, check_index));
         if (relationship == 0)
         {
             lexed_index = check_index;
@@ -2325,7 +2498,8 @@ inline bool TOrderedSlots<TSlotBacking, TIndex, TMeta>::private_has_duplicate_ke
             {
                 for (lexed_index = check_index; ((check_index = meta[lexed_index].child_index[0]) >= 0); lexed_index = check_index) {}
             }
-            if ((lexed_index < 0) || (slot_backing().on_compare_keys(slot_index, lexed_index) != 0))
+            if ((lexed_index < 0) || (((query != nullptr) ? slot_backing().on_compare_query(*query, lexed_index) :
+                slot_backing().on_compare_keys(slot_index, lexed_index)) != 0))
             {   //  there is no non-excluded match
                 has_duplicate = false;
             }
@@ -2335,7 +2509,7 @@ inline bool TOrderedSlots<TSlotBacking, TIndex, TMeta>::private_has_duplicate_ke
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline bool TOrderedSlots<TSlotBacking, TIndex, TMeta>::private_has_duplicate_key_in_loose(const std::int32_t slot_index) const noexcept
+inline bool TOrderedSlots<TSlotBacking, TIndex, TMeta>::private_has_duplicate_key_in_loose(const std::int32_t slot_index, const query_type* const query) const noexcept
 {
     const Slot* const meta = meta_slots();
     bool has_duplicate = false;
@@ -2344,7 +2518,8 @@ inline bool TOrderedSlots<TSlotBacking, TIndex, TMeta>::private_has_duplicate_ke
     {
         if (loose_index != slot_index)
         {
-            std::int32_t relationship = slot_backing().on_compare_keys(slot_index, loose_index);
+            std::int32_t relationship = ((query != nullptr) ? slot_backing().on_compare_query(*query, loose_index) :
+                slot_backing().on_compare_keys(slot_index, loose_index));
             if (relationship == 0)
             {
                 has_duplicate = true;
@@ -2613,21 +2788,15 @@ inline void TOrderedSlots<TSlotBacking, TIndex, TMeta>::append_range_to_empty_li
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline void TOrderedSlots<TSlotBacking, TIndex, TMeta>::attach_to_lexed(const std::int32_t slot_index, const std::int32_t key_index) noexcept
+inline void TOrderedSlots<TSlotBacking, TIndex, TMeta>::attach_to_lexed(const std::int32_t slot_index, const query_type* const query) noexcept
 {
     Slot& slot = meta_slots()[slot_index];
     slot.parent_index = -1;
     slot.balance_factor = 0;
     slot.child_index[0] = slot.child_index[1] = -1;
     slot.set_is_lexed_slot();
-    avl_insert(slot_index, key_index);
+    avl_insert(slot_index, query);
     ++m_lexed_count;
-}
-
-template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline void TOrderedSlots<TSlotBacking, TIndex, TMeta>::attach_to_lexed(const std::int32_t slot_index) noexcept
-{
-    attach_to_lexed(slot_index, slot_index);
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
@@ -2731,20 +2900,20 @@ inline void TOrderedSlots<TSlotBacking, TIndex, TMeta>::remove_from_empty(const 
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline void TOrderedSlots<TSlotBacking, TIndex, TMeta>::move_to_lexed_tree(const std::int32_t slot_index, const std::int32_t key_index) noexcept
+inline void TOrderedSlots<TSlotBacking, TIndex, TMeta>::move_to_lexed_tree(const std::int32_t slot_index, const query_type* const query) noexcept
 {
     switch (meta_slots()[slot_index].get_slot_state())
     {
         case (SlotState::is_loose_slot):
         {
             remove_from_loose(slot_index);
-            attach_to_lexed(slot_index, key_index);
+            attach_to_lexed(slot_index, query);
             break;
         }
         case (SlotState::is_empty_slot):
         {
             remove_from_empty(slot_index);
-            attach_to_lexed(slot_index, key_index);
+            attach_to_lexed(slot_index, query);
             break;
         }
         default:
@@ -2752,12 +2921,6 @@ inline void TOrderedSlots<TSlotBacking, TIndex, TMeta>::move_to_lexed_tree(const
             break;
         }
     }
-}
-
-template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline void TOrderedSlots<TSlotBacking, TIndex, TMeta>::move_to_lexed_tree(const std::int32_t slot_index) noexcept
-{
-    move_to_lexed_tree(slot_index, slot_index);
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>
@@ -2848,197 +3011,6 @@ inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::convert_to_rank_
         }
     }
     return rank_index;
-}
-
-template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::locate_by_rank_index(const std::int32_t rank_index) const noexcept
-{
-    std::int32_t slot_index = -1;
-    if (rank_index >= 0)
-    {
-        const Slot* const meta = meta_slots();
-        std::uint32_t search_count = static_cast<std::uint32_t>(rank_index);
-        if (search_count < m_lexed_count)
-        {
-            std::uint32_t prev_side = 0;
-            if ((search_count >> 1) > (m_lexed_count >> 1))
-            {   //  search backwards from end
-                prev_side = 1;
-                search_count = m_lexed_count - search_count - 1u;
-            }
-            std::uint32_t next_side = prev_side ^ 1u;
-            for (std::int32_t scan_index = m_lexed_tree_root; scan_index >= 0; scan_index = meta[slot_index = scan_index].child_index[prev_side]) {}
-            while (search_count)
-            {
-                std::int32_t from_index = meta[slot_index].child_index[next_side];
-                if (from_index < 0)
-                {
-                    for (from_index = slot_index; (((slot_index = meta[from_index].parent_index) >= 0) && (meta[slot_index].child_index[prev_side] != from_index)); from_index = slot_index) {}
-                }
-                else
-                {
-                    for (slot_index = from_index; ((from_index = meta[slot_index].child_index[prev_side]) >= 0); slot_index = from_index) {}
-                }
-                --search_count;
-            }
-        }
-        else if ((search_count -= m_lexed_count) < m_loose_count)
-        {
-            slot_index = m_loose_list_head;
-            std::uint32_t side = 1u;
-            if (search_count > (m_loose_count >> 1))
-            {
-                side = 0u;
-                search_count = (m_loose_count - search_count);
-            }
-            while (search_count != 0)
-            {
-                slot_index = meta[slot_index].child_index[side];
-                --search_count;
-            }
-        }
-        else if ((search_count -= m_loose_count) < m_empty_count)
-        {
-            slot_index = m_empty_list_head;
-            std::uint32_t side = 1u;
-            if (search_count > (m_empty_count >> 1))
-            {
-                side = 0u;
-                search_count = (m_empty_count - search_count);
-            }
-            while (search_count != 0)
-            {
-                slot_index = meta[slot_index].child_index[side];
-                --search_count;
-            }
-        }
-    }
-    return slot_index;
-}
-
-template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::locate_any_equal(const std::int32_t key_index) const noexcept
-{
-    const Slot* const meta = meta_slots();
-    std::int32_t found_index = m_lexed_tree_root;
-    while (found_index >= 0)
-    {
-        std::int32_t relationship = slot_backing().on_compare_keys(key_index, found_index);
-        if (relationship == 0)
-        {
-            break;
-        }
-        found_index = meta[found_index].child_index[(relationship < 0) ? 0 : 1];
-    }
-    return found_index;
-}
-
-template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::locate_first_equal(const std::int32_t key_index) const noexcept
-{
-    const Slot* const meta = meta_slots();
-    std::int32_t found_index = -1;
-    std::int32_t check_index = m_lexed_tree_root;
-    while (check_index >= 0)
-    {
-        std::int32_t relationship = slot_backing().on_compare_keys(key_index, check_index);
-        if (relationship == 0)
-        {
-            found_index = check_index;
-        }
-        check_index = meta[check_index].child_index[(relationship <= 0) ? 0 : 1];
-    }
-    return found_index;
-}
-
-template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::locate_first_greater(const std::int32_t key_index) const noexcept
-{
-    const Slot* const meta = meta_slots();
-    std::int32_t found_index = -1;
-    std::int32_t check_index = m_lexed_tree_root;
-    while (check_index >= 0)
-    {
-        std::int32_t relationship = slot_backing().on_compare_keys(key_index, check_index);
-        if (relationship < 0)
-        {
-            found_index = check_index;
-        }
-        check_index = meta[check_index].child_index[(relationship < 0) ? 0 : 1];
-    }
-    return found_index;
-}
-
-template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::locate_first_greater_equal(const std::int32_t key_index) const noexcept
-{
-    const Slot* const meta = meta_slots();
-    std::int32_t found_index = -1;
-    std::int32_t check_index = m_lexed_tree_root;
-    while (check_index >= 0)
-    {
-        std::int32_t relationship = slot_backing().on_compare_keys(key_index, check_index);
-        if (relationship <= 0)
-        {
-            found_index = check_index;
-        }
-        check_index = meta[check_index].child_index[(relationship <= 0) ? 0 : 1];
-    }
-    return found_index;
-}
-
-template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::locate_last_equal(const std::int32_t key_index) const noexcept
-{
-    const Slot* const meta = meta_slots();
-    std::int32_t found_index = -1;
-    std::int32_t check_index = m_lexed_tree_root;
-    while (check_index >= 0)
-    {
-        std::int32_t relationship = slot_backing().on_compare_keys(key_index, check_index);
-        if (relationship == 0)
-        {
-            found_index = check_index;
-        }
-        check_index = meta[check_index].child_index[(relationship >= 0) ? 1 : 0];
-    }
-    return found_index;
-}
-
-template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::locate_last_less(const std::int32_t key_index) const noexcept
-{
-    const Slot* const meta = meta_slots();
-    std::int32_t found_index = -1;
-    std::int32_t check_index = m_lexed_tree_root;
-    while (check_index >= 0)
-    {
-        std::int32_t relationship = slot_backing().on_compare_keys(key_index, check_index);
-        if (relationship > 0)
-        {
-            found_index = check_index;
-        }
-        check_index = meta[check_index].child_index[(relationship > 0) ? 1 : 0];
-    }
-    return found_index;
-}
-
-template<typename TSlotBacking, typename TIndex, typename TMeta>
-inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::locate_last_less_equal(const std::int32_t key_index) const noexcept
-{
-    const Slot* const meta = meta_slots();
-    std::int32_t found_index = -1;
-    std::int32_t check_index = m_lexed_tree_root;
-    while (check_index >= 0)
-    {
-        std::int32_t relationship = slot_backing().on_compare_keys(key_index, check_index);
-        if (relationship >= 0)
-        {
-            found_index = check_index;
-        }
-        check_index = meta[check_index].child_index[(relationship >= 0) ? 1 : 0];
-    }
-    return found_index;
 }
 
 template<typename TSlotBacking, typename TIndex, typename TMeta>

@@ -8,6 +8,8 @@
 #include "tests/test_suites/BakedDocument_test_suite.hpp"
 
 #include <cstddef>
+#include <array>
+#include <atomic>
 #include <cstdint>
 #include <cstring>
 #include <iostream>
@@ -24,6 +26,8 @@
 #include "data_model/document_copy.hpp"
 #include "data_model/live_document.hpp"
 #include "memory/memory_context.hpp"
+#include "platform/threading/processor_relax.hpp"
+#include "platform/threading/thread_lifetime.hpp"
 #include "tests/support/test_allocator.hpp"
 #include "tests/support/test_context.hpp"
 #include "tests/support/test_scopes.hpp"
@@ -961,6 +965,64 @@ void test_validation_allocation_failure(TTestContext& ctx)
     TEST_EXPECT(ctx, memory_context.is_attribution_empty());
 }
 
+struct SConcurrentBake
+{
+    const CLiveDocument& source;
+    const CBakedDocumentBlock& reference;
+    std::atomic<bool> start{ false };
+    std::atomic<bool> failed{ false };
+
+    static std::uint32_t MV_STD_ABI_CALL execute(void* const data) noexcept
+    {
+        auto& state = *static_cast<SConcurrentBake*>(data);
+        while (!state.start.load(std::memory_order_acquire))
+        {
+            platform::threading::processor_relax();
+        }
+        for (std::uint32_t iteration = 0u; iteration < 16u; ++iteration)
+        {
+            CBakedDocumentBlock result;
+            if (!document_translation::bake(state.source, result) ||
+                (result.bytes().size() != state.reference.bytes().size()) ||
+                (std::memcmp(result.bytes().data(), state.reference.bytes().data(), result.bytes().size()) != 0))
+            {
+                state.failed.store(true, std::memory_order_relaxed);
+            }
+        }
+        return 0u;
+    }
+};
+
+void test_concurrent_live_document_bake(TTestContext& ctx)
+{
+    CLiveDocument source;
+    TEST_EXPECT(ctx, source.initialise());
+    const CNodeKey array = source.create_array(text("items"));
+    TEST_EXPECT(ctx, source.append_child(source.root(), array).succeeded());
+    for (std::uint32_t index = 0u; index < 64u; ++index)
+    {
+        TEST_EXPECT(ctx, source.append_child(array, source.create_unsigned_integer(index)).succeeded());
+    }
+    CBakedDocumentBlock reference;
+    TEST_EXPECT(ctx, document_translation::bake(source, reference));
+    SConcurrentBake state{ source, reference };
+    std::array<platform::threading::CThread, 8u> workers;
+    for (auto& worker : workers)
+    {
+        TEST_EXPECT(ctx, worker.create(&SConcurrentBake::execute, &state));
+    }
+    state.start.store(true, std::memory_order_release);
+    for (auto& worker : workers)
+    {
+        if (worker.is_valid())
+        {
+            TEST_EXPECT(ctx, worker.join_and_close());
+        }
+    }
+    TEST_EXPECT(ctx, !state.failed.load(std::memory_order_relaxed));
+    TEST_EXPECT(ctx, source.check_integrity());
+}
+
 void test_live_document_bake(TTestContext& ctx)
 {
     CLiveDocument live;
@@ -1824,6 +1886,7 @@ int run_baked_document_tests()
     test_string_table_and_coverage_rejections(ctx);
     test_validation_allocation_failure(ctx);
     test_live_document_bake(ctx);
+    test_concurrent_live_document_bake(ctx);
     test_bake_root_only_and_allocation_failure(ctx);
     baked_document_storage_tests::test_adoption_rejections(ctx);
     baked_document_storage_tests::test_misaligned_adoption(ctx);

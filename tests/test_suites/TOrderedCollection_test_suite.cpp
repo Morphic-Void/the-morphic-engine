@@ -8,6 +8,8 @@
 //  Date:   14 Jul 26
 
 #include <cstddef>
+#include <array>
+#include <atomic>
 #include <cstdint>
 #include <iostream>
 #include <limits>
@@ -20,6 +22,8 @@
 #include "containers/TUnorderedCollection.hpp"
 #include "containers/TInstance.hpp"
 #include "containers/TPodFifo.hpp"
+#include "platform/threading/processor_relax.hpp"
+#include "platform/threading/thread_lifetime.hpp"
 #include "tests/test_suites/TOrderedCollection_test_suite.hpp"
 #include "tests/support/test_context.hpp"
 #include "tests/support/test_allocator.hpp"
@@ -80,6 +84,136 @@ int TTrackedValue::construction_count = 0;
 int TTrackedValue::destruction_count = 0;
 
 using TCollection = TOrderedCollection<TTrackedValue, TTrackedKey>;
+
+struct TReadQueries : TPodOrderedSlots<int, TTrackedKey>
+{
+    using Metadata = slots::TOrderedSlots<TPodOrderedSlotsStorage<int, TTrackedKey>>;
+    using Metadata::find_any_equal;
+    using Metadata::find_first_equal;
+    using Metadata::find_first_greater;
+    using Metadata::find_first_greater_equal;
+    using Metadata::find_last_equal;
+    using Metadata::find_last_less;
+    using Metadata::find_last_less_equal;
+    using Metadata::lower_bound_by_lex;
+    using Metadata::upper_bound_by_lex;
+    using Metadata::find_by_rank_index;
+    using Metadata::rank_index_of;
+    using Metadata::has_duplicate_key;
+    using Metadata::has_duplicate_query;
+    using Metadata::has_duplicate_query_in_lexed;
+    using Metadata::has_duplicate_query_in_loose;
+};
+
+struct SConcurrentQueries
+{
+    const TReadQueries& slots;
+    const TOrderedCollection<int, TTrackedKey>& objects;
+    std::atomic<bool> start{ false };
+    std::atomic<bool> failed{ false };
+    std::atomic<int> next_worker{ 0 };
+
+    [[nodiscard]] bool matches(const int query) const noexcept
+    {
+        const TTrackedKey key{ query };
+        const int equal = ((query >= 0) && (query <= 126) && ((query % 2) == 0)) ? query / 2 : -1;
+        const int greater = (query < 0) ? 0 : query / 2 + 1;
+        const int greater_equal = (query <= 0) ? 0 : (query + 1) / 2;
+        const int less = (query <= 0) ? -1 : ((query > 126) ? 63 : (query - 1) / 2);
+        const int less_equal = (query < 0) ? -1 : ((query > 126) ? 63 : query / 2);
+        if ((slots.find_any_equal(key) != equal) || (slots.find_first_equal(key) != equal) ||
+            (slots.find_last_equal(key) != equal) ||
+            (slots.find_first_greater(key) != ((greater < 64) ? greater : -1)) ||
+            (slots.find_first_greater_equal(key) != ((greater_equal < 64) ? greater_equal : -1)) ||
+            (slots.find_last_less(key) != less) || (slots.find_last_less_equal(key) != less_equal) ||
+            (slots.lower_bound_by_lex(key) != slots.find_first_greater_equal(key)) ||
+            (slots.upper_bound_by_lex(key) != slots.find_first_greater(key)) ||
+            (slots.has_duplicate_query(key) != (equal >= 0)) ||
+            (slots.has_duplicate_query_in_lexed(key) != (equal >= 0)) ||
+            slots.has_duplicate_query_in_loose(key) || (objects.find_slot(key) != equal))
+        {
+            return false;
+        }
+        const int* const pod = slots.get_slot(key);
+        const int* const object = objects.get_object(key);
+        if (equal < 0)
+        {
+            return (pod == nullptr) && (object == nullptr);
+        }
+        return (pod != nullptr) && (*pod == query * 3) && (object != nullptr) && (*object == query * 3) &&
+            (slots.find_by_rank_index(equal) == equal) && (slots.rank_index_of(equal) == equal) &&
+            !slots.has_duplicate_key(equal);
+    }
+
+    static std::uint32_t MV_STD_ABI_CALL execute(void* const data) noexcept
+    {
+        auto& state = *static_cast<SConcurrentQueries*>(data);
+        const int offset = state.next_worker.fetch_add(29, std::memory_order_relaxed);
+        while (!state.start.load(std::memory_order_acquire))
+        {
+            platform::threading::processor_relax();
+        }
+        for (int iteration = 0; iteration < 2048; ++iteration)
+        {
+            if (!state.matches((iteration * 17 + offset) % 131 - 1))
+            {
+                state.failed.store(true, std::memory_order_relaxed);
+                break;
+            }
+        }
+        return 0u;
+    }
+};
+
+void test_concurrent_queries(TTestContext& ctx)
+{
+    TReadQueries slots;
+    TOrderedCollection<int, TTrackedKey> objects;
+    const TTrackedKey missing{ 3 };
+    TEST_EXPECT(ctx, slots.find_any_equal(missing) == -1);
+    TEST_EXPECT(ctx, slots.find_first_equal(missing) == -1);
+    TEST_EXPECT(ctx, slots.find_last_equal(missing) == -1);
+    TEST_EXPECT(ctx, slots.find_first_greater(missing) == -1);
+    TEST_EXPECT(ctx, slots.find_first_greater_equal(missing) == -1);
+    TEST_EXPECT(ctx, slots.find_last_less(missing) == -1);
+    TEST_EXPECT(ctx, slots.find_last_less_equal(missing) == -1);
+    TEST_EXPECT(ctx, !slots.has_duplicate_query(missing));
+    TEST_EXPECT(ctx, slots.find_by_rank_index(0) == -1);
+    TEST_EXPECT(ctx, slots.initialise(32u) && objects.initialise(32u));
+    for (int index = 0; index < 64; ++index)
+    {
+        const TTrackedKey key{ index * 2 };
+        TEST_EXPECT(ctx, slots.insert(key, key.value * 3) == index);
+        TEST_EXPECT(ctx, objects.emplace(key, key.value * 3) == index);
+    }
+    SConcurrentQueries state{ slots, objects };
+    for (int query = -1; query <= 129; ++query)
+    {
+        TEST_EXPECT(ctx, state.matches(query));
+    }
+    std::array<platform::threading::CThread, 8u> workers;
+    for (auto& worker : workers)
+    {
+        TEST_EXPECT(ctx, worker.create(&SConcurrentQueries::execute, &state));
+    }
+    state.start.store(true, std::memory_order_release);
+    for (auto& worker : workers)
+    {
+        if (worker.is_valid())
+        {
+            TEST_EXPECT(ctx, worker.join_and_close());
+        }
+    }
+    TEST_EXPECT(ctx, !state.failed.load(std::memory_order_relaxed));
+    TEST_EXPECT(ctx, slots.check_integrity() && objects.check_integrity());
+    TEST_EXPECT(ctx, slots.insert(TTrackedKey{ 64 }, -1) == -1);
+    TEST_EXPECT(ctx, objects.emplace(TTrackedKey{ 64 }, -1) == -1);
+    TEST_EXPECT(ctx, state.matches(64));
+    TEST_EXPECT(ctx, slots.insert(missing, 9) == 64);
+    TEST_EXPECT(ctx, objects.emplace(missing, 9) == 64);
+    TEST_EXPECT(ctx, *slots.get_slot(missing) == 9 && *objects.get_object(missing) == 9);
+    TEST_EXPECT(ctx, slots.check_integrity() && objects.check_integrity());
+}
 
 template<bool Pod, bool Ordered>
 using TAttributionBase = std::conditional_t<Ordered,
@@ -661,6 +795,7 @@ void test_failed_growth(TTestContext& ctx)
 int run_ordered_collection_tests()
 {
     TTestContext ctx;
+    test_concurrent_queries(ctx);
     test_complete_aggregate_reattribution<true, true>(ctx);
     test_complete_aggregate_reattribution<true, false>(ctx);
     test_complete_aggregate_reattribution<false, true>(ctx);

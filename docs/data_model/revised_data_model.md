@@ -616,9 +616,13 @@ value tag 8 remains invalid. There is no compatibility reader or recovery conver
 
 ## Thread and publication boundaries
 
-Live documents and bake scratch state remain on one workload thread. A completed
-owning baked block may cross the architecture's publication boundary. A
-non-owning baked view never extends the lifetime of its backing bytes.
+Live document mutation requires exclusive access. An unchanged live document
+may be queried and baked concurrently after publication; each bake owns its
+analysis and emission scratch. Ordered node lookups keep their query key local
+to the call. Clients must wait for all accepted borrowers before mutation or
+destruction. A completed owning baked block may cross the architecture's
+publication boundary. A non-owning baked view never extends the lifetime of
+its backing bytes.
 
 Parser, writer and schema layers do not acquire ownership merely by consuming a
 document or view.

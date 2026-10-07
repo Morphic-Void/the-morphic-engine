@@ -134,7 +134,11 @@ architectural decision.
 The slot-backing responsibility functions must not re-enter the slot manager.
 This is a usage contract rather than a runtime locking mechanism.
 
-No thread safety.
+Read operations may share unchanged, safely published storage when the backing
+payload reads also support concurrent access. Mutation, attribution changes and
+destruction require exclusive access. Rank lookup checks safety directly in
+`find_by_rank_index`; the separate unchecked `locate_by_rank_index` helper had
+no independent callers and has been removed.
 
 ## Internal layering
 

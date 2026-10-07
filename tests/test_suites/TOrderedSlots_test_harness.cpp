@@ -119,13 +119,15 @@ template<typename TIndex, typename TMeta>
 class TOrderedSlots_TestStorage
 {
 public:
+    using query_type = int;
+
+    int32_t on_compare_query(const query_type& query, const int32_t candidate) const noexcept;
     int32_t on_compare_keys(const int32_t source, const int32_t target) const noexcept;
     void on_move_payload(const int32_t source, const int32_t target) noexcept;
     uint32_t on_reserve_empty(const uint32_t minimum_capacity, const uint32_t recommended_capacity) noexcept;
     void ensure_payload_capacity_matches_slots(const uint32_t capacity) noexcept;
 
 protected:
-    mutable int m_query_key = 0;
     std::vector<int> m_payload;
     int  m_temp = 0;
     bool m_temp_valid = false;
@@ -145,7 +147,6 @@ public:
         this->m_payload.clear();
         this->m_payload.shrink_to_fit();
         this->m_temp_valid = false;
-        this->m_query_key = 0;
 
         if (!Base::initialise(cap))
             return false;
@@ -159,13 +160,11 @@ public:
         (void)Base::shutdown();
         this->m_payload.clear();
         this->m_temp_valid = false;
-        this->m_query_key = 0;
     }
 
     bool insert_key_lexed(int key, bool require_unique = true) noexcept
     {
-        this->m_query_key = key;
-        const int32_t idx = Base::acquire(-1, /*lex=*/true, /*require_unique=*/require_unique);
+        const int32_t idx = Base::acquire(key, -1, /*lex=*/true, /*require_unique=*/require_unique);
         if (idx < 0) return false;
 
         this->ensure_payload_capacity_matches_slots(Base::capacity());
@@ -175,8 +174,7 @@ public:
 
     bool insert_key_loose(int key) noexcept
     {
-        this->m_query_key = key;
-        const int32_t idx = Base::acquire(-1, /*lex=*/false, /*require_unique=*/false);
+        const int32_t idx = Base::acquire(key, -1, /*lex=*/false, /*require_unique=*/false);
         if (idx < 0) return false;
 
         this->ensure_payload_capacity_matches_slots(Base::capacity());
@@ -195,8 +193,7 @@ public:
 
     bool remove_key_any_equal_lexed(int key) noexcept
     {
-        this->m_query_key = key;
-        const int32_t idx = Base::find_any_equal();
+        const int32_t idx = Base::find_any_equal(key);
         if (idx < 0) return false;
 
         this->m_payload[static_cast<size_t>(idx)] = 0;
@@ -355,16 +352,21 @@ public:
         return out;
     }
 
-    int32_t find_any_equal(int key) const noexcept { this->m_query_key = key; return Base::find_any_equal(); }
-    int32_t find_first_equal(int key) const noexcept { this->m_query_key = key; return Base::find_first_equal(); }
-    int32_t find_last_equal(int key) const noexcept { this->m_query_key = key; return Base::find_last_equal(); }
-    int32_t lower_bound(int key) const noexcept { this->m_query_key = key; return Base::lower_bound_by_lex(); }
-    int32_t upper_bound(int key) const noexcept { this->m_query_key = key; return Base::upper_bound_by_lex(); }
+    int32_t find_any_equal(int key) const noexcept { return Base::find_any_equal(key); }
+    int32_t find_first_equal(int key) const noexcept { return Base::find_first_equal(key); }
+    int32_t find_last_equal(int key) const noexcept { return Base::find_last_equal(key); }
+    int32_t lower_bound(int key) const noexcept { return Base::lower_bound_by_lex(key); }
+    int32_t upper_bound(int key) const noexcept { return Base::upper_bound_by_lex(key); }
 
     int32_t rank_index_of(int32_t slot_index) const noexcept { return Base::rank_index_of(slot_index); }
     int32_t find_by_rank_index(int32_t rank_index) const noexcept { return Base::find_by_rank_index(rank_index); }
 
-    bool has_duplicate_key_any(int key) const noexcept { this->m_query_key = key; return Base::has_duplicate_key(-1); }
+    bool has_duplicate_key_any(int key) const noexcept { return Base::has_duplicate_query(key); }
+    bool has_query_in_lexed(int key) const noexcept { return Base::has_duplicate_query_in_lexed(key); }
+    bool has_query_in_loose(int key) const noexcept { return Base::has_duplicate_query_in_loose(key); }
+    bool has_duplicate_at(int32_t slot) const noexcept { return Base::has_duplicate_key(slot); }
+    bool has_duplicate_in_lexed_at(int32_t slot) const noexcept { return Base::has_duplicate_key_in_lexed(slot); }
+    bool has_duplicate_in_loose_at(int32_t slot) const noexcept { return Base::has_duplicate_key_in_loose(slot); }
 
     std::vector<int32_t> slots_in_occupied_order() const noexcept
     {
@@ -381,11 +383,18 @@ private:
 template<typename TIndex, typename TMeta>
 int32_t TOrderedSlots_TestStorage<TIndex, TMeta>::on_compare_keys(const int32_t source, const int32_t target) const noexcept
 {
-    const int a = (source < 0) ? m_query_key : m_payload[static_cast<size_t>(source)];
+    const int a = m_payload[static_cast<size_t>(source)];
     const int b = m_payload[static_cast<size_t>(target)];
     if (a < b) return -1;
     if (a > b) return 1;
     return 0;
+}
+
+template<typename TIndex, typename TMeta>
+int32_t TOrderedSlots_TestStorage<TIndex, TMeta>::on_compare_query(const query_type& query, const int32_t candidate) const noexcept
+{
+    const int value = m_payload[static_cast<size_t>(candidate)];
+    return (query < value) ? -1 : ((query > value) ? 1 : 0);
 }
 
 template<typename TIndex, typename TMeta>
@@ -802,7 +811,7 @@ static bool test_find_and_bounds(const TOrderedConfig& cfg, TestLogger& log)
         return -1;
         };
 
-    const std::vector<int> queries = { 0, 1, 2, 3, 4, 5 };
+    const std::vector<int> queries = { std::numeric_limits<int>::min(), 0, 1, 2, 3, 4, 5, std::numeric_limits<int>::max() };
     for (int q : queries)
     {
         const int32_t fp = first_pos(q);
@@ -858,6 +867,29 @@ static bool test_find_and_bounds(const TOrderedConfig& cfg, TestLogger& log)
             log.fail("upper_bound mismatch q=" + std::to_string(q));
             return false;
         }
+    }
+
+    //  Stored-slot checks exclude themselves; external queries include every match.
+    if (h.has_duplicate_at(slots[0]) || !h.has_duplicate_at(slots[1]) ||
+        !h.has_duplicate_in_lexed_at(slots[1]) || h.has_duplicate_in_loose_at(slots[1]) ||
+        h.has_duplicate_at(-1) || h.has_duplicate_at(64) ||
+        !h.has_duplicate_key_any(1) || !h.has_query_in_lexed(2) || h.has_query_in_loose(2))
+    {
+        log.fail("stored and external duplicate queries disagree");
+        return false;
+    }
+    if (!h.insert_key_loose(99) || !h.has_duplicate_key_any(99) ||
+        h.has_query_in_lexed(99) || !h.has_query_in_loose(99) || h.insert_key_lexed(99, true))
+    {
+        log.fail("loose duplicate was not detected before acquisition");
+        return false;
+    }
+    const auto loose = h.slots_in_loose_index_order();
+    if ((loose.size() != 1u) || h.has_duplicate_at(loose[0]) ||
+        !h.insert_key_loose(2) || !h.has_duplicate_in_loose_at(slots[1]) || !h.validate_all(true))
+    {
+        log.fail("duplicate self exclusion or failed acquisition changed the container");
+        return false;
     }
 
     return true;

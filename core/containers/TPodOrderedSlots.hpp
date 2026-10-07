@@ -50,8 +50,11 @@ template<typename T, typename TKey>
 class TPodOrderedSlotsStorage
 {
 public:
+    using query_type = TKey;
+
     void on_move_payload(const std::int32_t source_index, const std::int32_t target_index) noexcept;
     [[nodiscard]] std::uint32_t on_reserve_empty(const std::uint32_t minimum_capacity, const std::uint32_t recommended_capacity) noexcept;
+    [[nodiscard]] std::int32_t on_compare_query(const query_type& query, const std::int32_t candidate_index) const noexcept;
     [[nodiscard]] std::int32_t on_compare_keys(const std::int32_t source_index, const std::int32_t target_index) const noexcept;
 
 //  Interface for memory accounting and ownership-transfer infrastructure.
@@ -72,8 +75,6 @@ protected:
 
     T m_swap_slot;
     TKey m_swap_key;
-
-    mutable TKey m_staged_key;
 };
 
 template<typename T, typename TKey>
@@ -194,11 +195,16 @@ inline std::uint32_t TPodOrderedSlotsStorage<T, TKey>::on_reserve_empty(
 }
 
 template<typename T, typename TKey>
+inline std::int32_t TPodOrderedSlotsStorage<T, TKey>::on_compare_query(const query_type& query, const std::int32_t candidate_index) const noexcept
+{
+    return static_cast<std::int32_t>(query.relationship(m_keys[static_cast<std::size_t>(candidate_index)]));
+}
+
+template<typename T, typename TKey>
 inline std::int32_t TPodOrderedSlotsStorage<T, TKey>::on_compare_keys(const std::int32_t source_index, const std::int32_t target_index) const noexcept
 {
-    const TKey& source_key = (source_index < 0) ? m_staged_key : m_keys[static_cast<std::size_t>(source_index)];
-    const TKey& target_key = (target_index < 0) ? m_staged_key : m_keys[static_cast<std::size_t>(target_index)];
-    return static_cast<std::int32_t>(source_key.relationship(target_key));
+    return static_cast<std::int32_t>(m_keys[static_cast<std::size_t>(source_index)].relationship(
+        m_keys[static_cast<std::size_t>(target_index)]));
 }
 
 template<typename T, typename TKey>
@@ -249,8 +255,7 @@ inline std::uint32_t TPodOrderedSlots<T, TKey>::occupied_count() const noexcept
 template<typename T, typename TKey>
 inline T* TPodOrderedSlots<T, TKey>::get_slot(const TKey& key) noexcept
 {
-    this->m_staged_key = key;
-    return get_slot(slot_meta_class::find_any_equal());
+    return get_slot(find_index(key));
 }
 
 template<typename T, typename TKey>
@@ -270,8 +275,7 @@ inline T* TPodOrderedSlots<T, TKey>::get_slot(const std::int32_t slot_index) noe
 template<typename T, typename TKey>
 inline const T* TPodOrderedSlots<T, TKey>::get_slot(const TKey& key) const noexcept
 {
-    this->m_staged_key = key;
-    return get_slot(slot_meta_class::find_any_equal());
+    return get_slot(find_index(key));
 }
 
 template<typename T, typename TKey>
@@ -305,8 +309,7 @@ template<typename T, typename TKey>
 template<typename T, typename TKey>
 inline std::int32_t TPodOrderedSlots<T, TKey>::find_index(const TKey& key) const noexcept
 {
-    this->m_staged_key = key;
-    return slot_meta_class::find_any_equal();
+    return slot_meta_class::find_any_equal(key);
 }
 
 template<typename T, typename TKey>
@@ -360,8 +363,7 @@ inline std::int32_t TPodOrderedSlots<T, TKey>::reverse_lookup_index_scan(const T
 template<typename T, typename TKey>
 inline std::int32_t TPodOrderedSlots<T, TKey>::insert(const TKey& key, const T& value) noexcept
 {
-    this->m_staged_key = key;
-    const std::int32_t slot_index = slot_meta_class::reserve_and_acquire(-1, /* lex */ true, /* require_unique */ true);
+    const std::int32_t slot_index = slot_meta_class::reserve_and_acquire(key, -1, /* lex */ true, /* require_unique */ true);
     if (slot_index < 0)
     {
         return -1;

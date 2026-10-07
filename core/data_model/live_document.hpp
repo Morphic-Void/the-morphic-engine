@@ -6,7 +6,8 @@
 //  Authors: Ritchie Brannan / OpenAI Codex
 //  Date:    1 Sep 26
 //
-//  Mutable, single-threaded live document foundations.
+//  Mutable live document foundations. Mutation requires exclusive access;
+//  const queries and baking may share an unchanged document across threads.
 //  Attribution covers nodes and both string domains, excluding caller-owned
 //  analysis scratch and temporary parser or baker storage.
 

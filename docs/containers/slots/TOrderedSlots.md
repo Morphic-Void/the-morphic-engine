@@ -88,7 +88,7 @@ Sentinel:
 
 - -1 is not a valid slot index
 - may be used as failure sentinel
-- may be used as query operand in on_compare_keys()
+- selects the default empty slot during acquisition
 
 ## Rank model
 
@@ -146,17 +146,39 @@ calls movement, reserve, or comparison responsibilities.
 
 TSlotBacking provides:
 
+- query_type
 - on_move_payload(source_index, target_index)
 - on_reserve_empty(minimum_capacity, recommended_capacity)
 - on_compare_keys(source_index, target_index)
+- on_compare_query(query, candidate_index)
 
 ### on_compare_keys
 
 Defines ordering.
 
-source_index == -1 represents staged query key.
+Both operands identify stored keys at valid slot indexes. Structural operations
+use this hook when comparing existing entries.
 
 Comparator must be strict weak ordering.
+
+### query_type and on_compare_query
+
+The backing supplies a `query_type` and compares a caller-owned query against a
+stored key at `candidate_index`. It returns the query-to-candidate relationship
+using the same ordering as `on_compare_keys`.
+
+Searches accept `const query_type&`. The slot layer forwards that reference and
+retains no query state. It owns no keys and requires no knowledge of their
+representation or container. The query type is determined by the existing
+backing specialization; search methods have no additional template parameters.
+
+`acquire(query, slot_index, lex, require_unique)` and `reserve_and_acquire(...)`
+use the supplied query for uniqueness checks and initial tree placement before
+the facade writes the new key. The query must remain valid throughout the call,
+including any backing reservation. Stored-slot duplicate checks exclude the
+specified occupied slot itself; separately named `has_duplicate_query` variants
+include every matching entry. The distinct names support integer query types
+without ambiguity with slot indexes.
 
 ### on_move_payload
 
@@ -182,7 +204,15 @@ architectural decision.
 The slot-backing responsibility functions must not re-enter the slot manager.
 This is a usage contract rather than a runtime locking mechanism.
 
-No thread safety.
+Mutation and lifetime changes require exclusive access. Read operations may
+share unchanged, safely published storage when the backing comparison and
+payload read operations also support concurrent reads. Query arguments remain
+local to each call; no staged query key or query-dependent shared state exists.
+
+Each `find_*` function checks safety before traversing metadata. Separate
+unchecked `locate_*` functions have been removed because they had no independent
+callers. Acquisition and duplicate-check implementation helpers remain shared
+by entry points which have already checked safety.
 
 ## Internal layering
 
@@ -206,7 +236,8 @@ sort_and_pack():
 External-payload packing, metadata copy/move/take/clone facilities, and
 facade-facing traversal helpers are retained capabilities even when a
 particular production caller is not currently visible. Packing preserves the
-`-1` scratch convention and stable equal-key ordering.
+`-1` payload-movement scratch convention and stable equal-key ordering. That
+packing convention is independent of query handling.
 
 ## Capacity model
 

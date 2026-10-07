@@ -352,12 +352,6 @@ private:
     //  Returns -1 if the slot is not loose.
     [[nodiscard]] std::int32_t convert_to_rank_index(const std::int32_t slot_index) const noexcept;
 
-    //  Locate a loose slot by occupied-domain rank.
-    //
-    //  Valid rank domain is [0, loose_count()).
-    //  Returns the corresponding slot index, or -1 if rank_index is out of range.
-    [[nodiscard]] std::int32_t locate_by_rank_index(const std::int32_t rank_index) const noexcept;
-
     //  Scan for the lowest/highest occupied slot index in the metadata array.
     [[nodiscard]] std::int32_t min_occupied_index() const noexcept;
     [[nodiscard]] std::int32_t max_occupied_index() const noexcept;
@@ -830,7 +824,20 @@ inline std::int32_t TUnorderedSlots<TSlotBacking, TIndex>::rank_index_of(const s
 template<typename TSlotBacking, typename TIndex>
 inline std::int32_t TUnorderedSlots<TSlotBacking, TIndex>::find_by_rank_index(const std::int32_t rank_index) const noexcept
 {
-    return is_safe() ? locate_by_rank_index(rank_index) : -1;
+    if (!is_safe())
+    {
+        return -1;
+    }
+    std::int32_t slot_index = -1;
+    if ((rank_index >= 0) && (rank_index < m_loose_count))
+    {
+        const Slot* const meta = meta_slots();
+        for (std::uint32_t count = static_cast<std::uint32_t>(rank_index) + 1u; count != 0; --count)
+        {
+            for (++slot_index; !meta[slot_index].is_loose_slot(); ++slot_index) {}
+        }
+    }
+    return slot_index;
 }
 
 template<typename TSlotBacking, typename TIndex>
@@ -1387,21 +1394,6 @@ inline std::int32_t TUnorderedSlots<TSlotBacking, TIndex>::convert_to_rank_index
         }
     }
     return rank_index;
-}
-
-template<typename TSlotBacking, typename TIndex>
-inline std::int32_t TUnorderedSlots<TSlotBacking, TIndex>::locate_by_rank_index(const std::int32_t rank_index) const noexcept
-{
-    std::int32_t slot_index = -1;
-    if ((rank_index >= 0) && (rank_index < m_loose_count))
-    {
-        const Slot* const meta = meta_slots();
-        for (std::uint32_t count = static_cast<std::uint32_t>(rank_index) + 1u; count != 0; --count)
-        {
-            for (++slot_index; !meta[slot_index].is_loose_slot(); ++slot_index) {}
-        }
-    }
-    return slot_index;
 }
 
 template<typename TSlotBacking, typename TIndex>
