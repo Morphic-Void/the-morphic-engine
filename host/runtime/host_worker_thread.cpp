@@ -269,7 +269,7 @@ static EModuleStatus perform_module_work(SModuleWork& work) noexcept
 
 //==============================================================================
 //  CHostWorkerThread
-//  Both Host workers use this dispatch loop; the Host selects the destination.
+//  All Host background workers use this loop; the Host selects the destination.
 //==============================================================================
 
 class CHostWorkerThread

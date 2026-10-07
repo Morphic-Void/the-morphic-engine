@@ -243,6 +243,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\host\runtime\host.hpp" />
+    <ClInclude Include="..\host\runtime\worker_policy.hpp" />
     <ClInclude Include="..\host\runtime\asset_service.hpp" />
     <ClInclude Include="..\host\runtime\module_service.hpp" />
     <ClInclude Include="..\host\module\types\erased_owner_payloads.def" />

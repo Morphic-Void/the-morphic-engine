@@ -12,6 +12,7 @@
 //
 //  The main host service thread for the engine.
 
+#include <algorithm>    //  std::min
 #include <cstdint>      //  std::int32_t, std::uint8_t, std::uint64_t
 
 #include "host/runtime/host.hpp"
@@ -22,6 +23,7 @@
 #include "rendering/module/binding/rendering_binding.hpp"
 #include "platform/system/performance_counter.hpp"
 #include "platform/threading/processor_relax.hpp"
+#include "platform/threading/hw_thread_count.hpp"
 #include "system/transported_types.hpp"
 #include "threading/CThreadPackage.hpp"
 
@@ -76,26 +78,50 @@ void CHost::initialise_debug_service(const char* const log_tag, const char* cons
 
 bool CHost::start_threads() noexcept
 {
-    const threading::ThreadConfig configurations[]{
-        { thread_ids::bg_file_io, module_ids::executable, platform::threading::EThreadPriority::Background, host_worker_thread_entry_point() },
-        { thread_ids::bg_conditioning, module_ids::executable, platform::threading::EThreadPriority::Background, host_worker_thread_entry_point() } };
+    const thread_ids::id_type identities[]{ thread_ids::bg_file_io,
+        thread_ids::bg_conditioning_00, thread_ids::bg_conditioning_01,
+        thread_ids::bg_conditioning_02, thread_ids::bg_conditioning_03,
+        thread_ids::bg_conditioning_04, thread_ids::bg_conditioning_05,
+        thread_ids::bg_conditioning_06, thread_ids::bg_conditioning_07 };
+    static_assert(sizeof(identities) / sizeof(identities[0]) == k_max_worker_count);
 
-    for (std::uint32_t index = 0u; index < 2u; ++index)
+    for (std::uint32_t index = 0u; index < m_worker_count; ++index)
     {
-        const std::int32_t slot = m_thread_packages.emplace(configurations[index], m_perf_count_conversion);
+        const threading::ThreadConfig configuration{
+            identities[index], module_ids::executable, platform::threading::EThreadPriority::Background,
+            host_worker_thread_entry_point() };
+        const std::int32_t slot = m_thread_packages.emplace(configuration, m_perf_count_conversion);
         if (slot < 0)
         {
             return false;
         }
 
-        m_thread_slots[index] = slot;
+        m_worker_slots[index] = slot;
         if (!m_thread_packages.get_object(slot)->startup())
         {
             return false;
         }
     }
 
-    return true;
+    threading::CThreadPackage* conditioning[k_max_conditioning_threads]{};
+    const std::uint32_t conditioning_count = (m_worker_count == 1u) ? 1u : m_worker_count - 1u;
+    for (std::uint32_t index = 0u; index < conditioning_count; ++index)
+    {
+        conditioning[index] = worker_package((m_worker_count == 1u) ? 0u : index + 1u);
+    }
+    return m_asset_service.configure_workers(*worker_package(0u), conditioning, conditioning_count);
+}
+
+bool CHost::workers_failed() noexcept
+{
+    for (std::uint32_t index = 0u; index < m_worker_count; ++index)
+    {
+        if (worker_package(index)->query_state() == threading::EThreadRunState::Failed)
+        {
+            return true;
+        }
+    }
+    return false;
 }
 
 bool CHost::start_executive() noexcept
@@ -200,7 +226,7 @@ bool CHost::initialise_runtime(const char* const executive_file) noexcept
     threading::CErasedPodMsg scan;
     scan.assign_payload(FilesystemScanRequest{});
     m_initial_scan = true;
-    m_scan_in_flight = thread_package(EWorkerThreadID::bg_file_io)->post(scan);
+    m_scan_in_flight = worker_package(0u)->post(scan);
     return m_scan_in_flight;
 }
 
@@ -214,10 +240,33 @@ threading::CThreadPackage* CHost::thread_package(const EWorkerThreadID id) noexc
     return m_thread_packages.get_object(m_thread_slots[index]);
 }
 
-int CHost::execute(const char* const log_tag, const char* const executive_file, const char* const log_directory) noexcept
+threading::CThreadPackage* CHost::worker_package(const std::uint32_t index) noexcept
+{
+    if ((index >= m_worker_count) || (m_worker_slots[index] < 0))
+    {
+        return nullptr;
+    }
+    return m_thread_packages.get_object(m_worker_slots[index]);
+}
+
+int CHost::execute(const char* const log_tag, const char* const executive_file, const char* const log_directory, const std::uint32_t worker_count) noexcept
 {
     initialise_debug_service(log_tag, log_directory);
     MV_INFO("Host: Starting");
+    if (worker_count == 0u)
+    {
+        MV_REPORT("Host: Worker count must be greater than zero");
+        return 2;
+    }
+    const std::uint32_t hardware_threads = platform::threading::query_hardware_thread_count();
+    m_worker_count = std::min(worker_count, worker_count_limit(hardware_threads));
+    if (m_worker_count != worker_count)
+    {
+        MV_REPORT("Host: Worker count reduced from %u to %u (reported hardware threads %u)",
+            worker_count, m_worker_count, hardware_threads);
+    }
+    MV_REPORT("Host: Background workers %u, dedicated conditioning workers %u, reported hardware threads %u",
+        m_worker_count, (m_worker_count > 1u) ? m_worker_count - 1u : 0u, hardware_threads);
 
     const bool initialised = initialise_runtime(executive_file);
     if (initialised)
@@ -268,9 +317,7 @@ void CHost::receive_request(threading::CErasedOwnerMsg& message, threading::CThr
         return;
     }
 
-    m_asset_service.request(
-        message, executive, *thread_package(EWorkerThreadID::bg_file_io),
-        *thread_package(EWorkerThreadID::bg_conditioning));
+    m_asset_service.request(message, executive);
 }
 
 
@@ -313,7 +360,7 @@ void CHost::dispatch_refresh() noexcept
         threading::CErasedPodMsg scan;
         scan.assign_payload(FilesystemScanRequest{ &m_root_scan });
         m_scan_serial = m_filesystem.write_serial();
-        if (thread_package(EWorkerThreadID::bg_file_io)->post(scan))
+        if (worker_package(0u)->post(scan))
         {
             m_scan_in_flight = true;
             return;
@@ -484,13 +531,11 @@ void CHost::advance_lifecycle(const threading::EThreadRunState executive_state) 
 
 void CHost::run() noexcept
 {
-    threading::CThreadPackage& file_io = *thread_package(EWorkerThreadID::bg_file_io);
-    threading::CThreadPackage& conditioning = *thread_package(EWorkerThreadID::bg_conditioning);
+    threading::CThreadPackage& file_io = *worker_package(0u);
 
     while (m_phase != EPhase::complete)
     {
-        if ((file_io.query_state() == threading::EThreadRunState::Failed) ||
-            (conditioning.query_state() == threading::EThreadRunState::Failed) ||
+        if (workers_failed() ||
             m_module_service.failed() || m_asset_service.failed() || m_filesystem_failed)
         {
             m_runtime_failed = true;
@@ -553,7 +598,7 @@ void CHost::run() noexcept
                 }
                 else
                 {
-                    m_asset_service.complete(message);
+                    m_asset_service.complete(message, package);
                 }
             }
 
@@ -570,7 +615,7 @@ void CHost::run() noexcept
                 }
                 else
                 {
-                    m_asset_service.complete(owned);
+                    m_asset_service.complete(owned, package);
                 }
             }
         }
@@ -607,19 +652,21 @@ void CHost::run() noexcept
 
 void CHost::shutdown_threads() noexcept
 {
-    for (std::size_t thread_index = k_thread_count; thread_index > 0u; --thread_index)
+    //  Every package is unique, including the single combined I/O/conditioning
+    //  worker. Join all borrowers before any service releases input storage.
+    for (std::int32_t slot = m_thread_packages.last_live(); slot >= 0; slot = m_thread_packages.prev_live(slot))
     {
-        std::int32_t& controller_slot = m_thread_slots[thread_index - 1u];
-        if (controller_slot >= 0)
-        {
-            threading::CThreadPackage* const worker_package = m_thread_packages.get_object(controller_slot);
-            if (worker_package != nullptr)
-            {
-                (void)worker_package->shutdown();
-            }
-            controller_slot = -1;
-        }
+        (void)m_thread_packages.get_object(slot)->shutdown();
     }
+    for (auto& slot : m_thread_slots)
+    {
+        slot = -1;
+    }
+    for (auto& slot : m_worker_slots)
+    {
+        slot = -1;
+    }
+    m_worker_count = 0u;
 }
 
 void CHost::shutdown_debug_service() noexcept
@@ -661,10 +708,10 @@ bool CHost::shutdown() noexcept
     return modules_unloaded;
 }
 
-int host(const char* const log_tag, const char* const executive_file, const char* const log_directory) noexcept
+int host(const char* const log_tag, const char* const executive_file, const char* const log_directory, const std::uint32_t worker_count) noexcept
 {
     CHost runtime;
-    return runtime.execute(log_tag, executive_file, log_directory);
+    return runtime.execute(log_tag, executive_file, log_directory, worker_count);
 }
 
 }   //  namespace host

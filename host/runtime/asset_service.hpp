@@ -15,6 +15,7 @@
 
 #include "assets/asset_repository.hpp"
 #include "containers/TUnorderedCollection.hpp"
+#include "host/runtime/worker_policy.hpp"
 #include "system/transported_types.hpp"
 #include "threading/CThreadPackage.hpp"
 
@@ -26,6 +27,8 @@ class CAssetService
 public:
     void set_filesystem(filesystem_image::CImage& image) noexcept { m_filesystem = &image; }
     [[nodiscard]] bool initialise() noexcept;
+    [[nodiscard]] bool configure_workers(threading::CThreadPackage& file_io,
+        threading::CThreadPackage* const* const conditioning, const std::uint32_t count) noexcept;
     void deallocate() noexcept;
 
     //  Requires stopped workers: no outstanding borrower may still read inputs.
@@ -37,14 +40,10 @@ public:
     void dispose_dependencies(const mount_point_ids::id_type mount) noexcept;
     void complete_disposals() noexcept;
 
-    void request(
-        threading::CErasedOwnerMsg& message, threading::CThreadPackage& client,
-        threading::CThreadPackage& file_io, threading::CThreadPackage& conditioning) noexcept;
-    void request_disposal(
-        const AssetDisposeRequest& request, const std::int32_t slot,
-        threading::CThreadPackage& client) noexcept;
-    void complete(threading::CErasedOwnerMsg& message) noexcept;
-    void complete(const threading::CErasedPodMsg& message) noexcept;
+    void request(threading::CErasedOwnerMsg& message, threading::CThreadPackage& client) noexcept;
+    void request_disposal(const AssetDisposeRequest& request, const std::int32_t slot, threading::CThreadPackage& client) noexcept;
+    void complete(threading::CErasedOwnerMsg& message, threading::CThreadPackage& worker) noexcept;
+    void complete(const threading::CErasedPodMsg& message, threading::CThreadPackage& worker) noexcept;
 
 private:
     enum class EPhase : std::uint8_t
@@ -60,8 +59,7 @@ private:
     struct SOperation
     {
         threading::CThreadPackage* client{ nullptr };
-        threading::CThreadPackage* file_io{ nullptr };
-        threading::CThreadPackage* conditioning{ nullptr };
+        std::int32_t conditioning_worker{ -1 };
         std::int32_t client_slot{ -1 };
         EPhase phase{ EPhase::loading };
         EAssetFileFormat load_format{ EAssetFileFormat::raw };
@@ -90,6 +88,8 @@ private:
     [[nodiscard]] bool retain_candidate(SOperation& operation) noexcept;
     void begin_save_or_bake(const std::int32_t slot) noexcept;
     void begin_file_save(const std::int32_t slot, const CByteConstView& bytes) noexcept;
+    [[nodiscard]] bool post_conditioning(SOperation& operation, const threading::CErasedPodMsg& message) noexcept;
+    [[nodiscard]] bool complete_conditioning(SOperation& operation, threading::CThreadPackage& worker) noexcept;
     void finish_operation(const std::int32_t slot, const EAssetStatus status) noexcept;
     [[nodiscard]] bool disposal_pending(const CAssetId asset) const noexcept;
     [[nodiscard]] bool asset_in_use(const CAssetId asset) const noexcept;
@@ -107,6 +107,9 @@ private:
 
     CAssetRepository m_assets;
     filesystem_image::CImage* m_filesystem{ nullptr };
+    threading::CThreadPackage* m_file_io{ nullptr };
+    threading::CThreadPackage* m_conditioning[k_max_conditioning_threads]{};
+    CConditioningSchedule m_conditioning_schedule;
 
     //  Address-stable objects: workers borrow save_settings until completion.
     TUnorderedCollection<SOperation> m_operations;

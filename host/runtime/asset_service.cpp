@@ -27,6 +27,32 @@ bool CAssetService::initialise() noexcept
     return m_assets.initialise() && m_operations.initialise();
 }
 
+bool CAssetService::configure_workers(threading::CThreadPackage& file_io,
+    threading::CThreadPackage* const* const conditioning, const std::uint32_t count) noexcept
+{
+    if (!is_idle() || (conditioning == nullptr) || (count == 0u) || (count > k_max_conditioning_threads))
+    {
+        return false;
+    }
+    for (std::uint32_t index = 0u; index < count; ++index)
+    {
+        if (conditioning[index] == nullptr)
+        {
+            return false;
+        }
+    }
+    if (!m_conditioning_schedule.initialise(count))
+    {
+        return false;
+    }
+    m_file_io = &file_io;
+    for (std::uint32_t index = 0u; index < k_max_conditioning_threads; ++index)
+    {
+        m_conditioning[index] = (index < count) ? conditioning[index] : nullptr;
+    }
+    return true;
+}
+
 void CAssetService::deallocate() noexcept
 {   //  Workers and clients must have stopped before their borrowed storage dies.
     if (m_filesystem != nullptr)
@@ -35,6 +61,12 @@ void CAssetService::deallocate() noexcept
     }
     m_operations.deallocate();
     m_assets.deallocate();
+    m_file_io = nullptr;
+    for (auto& worker : m_conditioning)
+    {
+        worker = nullptr;
+    }
+    m_conditioning_schedule = CConditioningSchedule{};
 }
 
 void CAssetService::fail_pending() noexcept
@@ -303,9 +335,7 @@ bool CAssetService::handle_transfer_if_type_matches(SOperation& operation) noexc
     return true;
 }
 
-void CAssetService::request(
-    threading::CErasedOwnerMsg& message, threading::CThreadPackage& client,
-    threading::CThreadPackage& file_io, threading::CThreadPackage& conditioning) noexcept
+void CAssetService::request(threading::CErasedOwnerMsg& message, threading::CThreadPackage& client) noexcept
 {
     const std::int32_t slot = m_operations.emplace();
     if (slot < 0)
@@ -317,8 +347,6 @@ void CAssetService::request(
     }
     SOperation& operation = *m_operations.get_object(slot);
     operation.client = &client;
-    operation.file_io = &file_io;
-    operation.conditioning = &conditioning;
     operation.client_slot = message.query_async_slot();
     operation.request_owner = message.take_owner();
     if (operation.request_owner.query_type_id() != message.query_message_type_id())
@@ -378,7 +406,7 @@ void CAssetService::request(
         threading::CErasedPodMsg outbound;
         outbound.set_async_slot(slot);
         outbound.assign_payload(request);
-        if (!file_io.post(outbound))
+        if (!m_file_io->post(outbound))
         {
             finish_operation(slot, EAssetStatus::delivery_failed);
         }
@@ -468,7 +496,7 @@ void CAssetService::begin_save_or_bake(const std::int32_t slot) noexcept
         finish_operation(slot, EAssetStatus::invalid_request);
         return;
     }
-    if (!operation.conditioning->post(outbound))
+    if (!post_conditioning(operation, outbound))
     {
         finish_operation(slot, EAssetStatus::delivery_failed);
     }
@@ -488,7 +516,7 @@ void CAssetService::begin_file_save(const std::int32_t slot, const CByteConstVie
     threading::CErasedPodMsg outbound;
     outbound.set_async_slot(slot);
     outbound.assign_payload(FileSaveRequest{ operation.file, bytes });
-    if (!operation.file_io->post(outbound))
+    if (!m_file_io->post(outbound))
     {
         finish_operation(slot, EAssetStatus::delivery_failed);
     }
@@ -498,12 +526,42 @@ void CAssetService::begin_file_save(const std::int32_t slot, const CByteConstVie
 //  Worker completion dispatch and operation continuation
 //==============================================================================
 
-void CAssetService::complete(const threading::CErasedPodMsg& message) noexcept
+bool CAssetService::post_conditioning(SOperation& operation, const threading::CErasedPodMsg& message) noexcept
+{
+    const std::int32_t index = m_conditioning_schedule.select();
+    if ((index < 0) || !m_conditioning[index]->post(message))
+    {
+        return false;
+    }
+    operation.conditioning_worker = index;
+    if (!m_conditioning_schedule.record_post(static_cast<std::uint32_t>(index)))
+    {   //  The post succeeded: retain borrowed inputs until terminal cleanup.
+        m_failed = true;
+        MV_CRITICAL_EVENT("Host: Conditioning load tracking failed at slot {}", message.query_async_slot());
+    }
+    return true;
+}
+
+bool CAssetService::complete_conditioning(SOperation& operation, threading::CThreadPackage& worker) noexcept
+{
+    const std::int32_t index = operation.conditioning_worker;
+    if ((index < 0) || (static_cast<std::uint32_t>(index) >= k_max_conditioning_threads) ||
+        (m_conditioning[index] != &worker) ||
+        !m_conditioning_schedule.record_completion(static_cast<std::uint32_t>(index)))
+    {
+        return false;
+    }
+    operation.conditioning_worker = -1;
+    return true;
+}
+
+void CAssetService::complete(const threading::CErasedPodMsg& message, threading::CThreadPackage& worker) noexcept
 {
     const std::int32_t slot = message.query_async_slot();
     const SOperation* const operation = m_operations.get_object(slot);
     FileSaveResult result{};
-    if ((operation != nullptr) && (operation->phase == EPhase::saving) && message.copy_payload_to(result))
+    if ((operation != nullptr) && (operation->phase == EPhase::saving) &&
+        (&worker == m_file_io) && message.copy_payload_to(result))
     {
         finish_operation(slot, result.success ? EAssetStatus::success : EAssetStatus::write_failed);
     }
@@ -514,7 +572,7 @@ void CAssetService::complete(const threading::CErasedPodMsg& message) noexcept
     }
 }
 
-void CAssetService::complete(threading::CErasedOwnerMsg& message) noexcept
+void CAssetService::complete(threading::CErasedOwnerMsg& message, threading::CThreadPackage& worker) noexcept
 {
     const std::int32_t slot = message.query_async_slot();
     SOperation* const pending = m_operations.get_object(slot);
@@ -530,7 +588,7 @@ void CAssetService::complete(threading::CErasedOwnerMsg& message) noexcept
     {
         case EPhase::loading:
         {
-            if (identity == k_type_id_v<FileLoadResult>)
+            if ((identity == k_type_id_v<FileLoadResult>) && (&worker == m_file_io))
             {
                 operation.worker_result_owner = message.take_owner();
                 complete_file_load(slot);
@@ -540,7 +598,7 @@ void CAssetService::complete(threading::CErasedOwnerMsg& message) noexcept
         }
         case EPhase::decoding:
         {
-            if (identity == k_type_id_v<TgaDecodeResult>)
+            if ((identity == k_type_id_v<TgaDecodeResult>) && complete_conditioning(operation, worker))
             {
                 operation.worker_result_owner = message.take_owner();
                 complete_image_decode(slot);
@@ -550,7 +608,7 @@ void CAssetService::complete(threading::CErasedOwnerMsg& message) noexcept
         }
         case EPhase::encoding:
         {
-            if (identity == k_type_id_v<TgaEncodeResult>)
+            if ((identity == k_type_id_v<TgaEncodeResult>) && complete_conditioning(operation, worker))
             {
                 operation.worker_result_owner = message.take_owner();
                 complete_image_encode(slot);
@@ -560,7 +618,7 @@ void CAssetService::complete(threading::CErasedOwnerMsg& message) noexcept
         }
         case EPhase::conditioning:
         {
-            if (identity == k_type_id_v<DocumentConditionResult>)
+            if ((identity == k_type_id_v<DocumentConditionResult>) && complete_conditioning(operation, worker))
             {
                 operation.worker_result_owner = message.take_owner();
                 complete_document_conditioning(slot);
@@ -619,7 +677,7 @@ void CAssetService::complete_file_load(const std::int32_t slot) noexcept
             outbound.assign_payload(request);
         }
         operation.conditioning_input_owner = std::move(operation.worker_result_owner);
-        if (!operation.conditioning->post(outbound))
+        if (!post_conditioning(operation, outbound))
         {
             finish_operation(slot, EAssetStatus::delivery_failed);
         }

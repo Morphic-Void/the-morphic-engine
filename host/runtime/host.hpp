@@ -43,14 +43,13 @@ public:
     CHost& operator=(CHost&&) = delete;
     ~CHost() noexcept;
 
-    [[nodiscard]] int execute(const char* const log_tag, const char* const executive_file, const char* const log_directory) noexcept;
+    [[nodiscard]] int execute(const char* const log_tag, const char* const executive_file,
+        const char* const log_directory, const std::uint32_t worker_count = k_default_worker_count) noexcept;
 
 private:
     enum class EWorkerThreadID : std::uint8_t
     {
-        bg_file_io = 0u,
-        bg_conditioning,
-        executive,
+        executive = 0u,
         rendering,
         count
     };
@@ -70,6 +69,7 @@ private:
     void initialise_debug_service(const char* const log_tag, const char* const log_directory) noexcept;
     [[nodiscard]] bool initialise_runtime(const char* const executive_file) noexcept;
     [[nodiscard]] bool start_threads() noexcept;
+    [[nodiscard]] bool workers_failed() noexcept;
     [[nodiscard]] bool start_executive() noexcept;
     [[nodiscard]] bool start_rendering() noexcept;
     [[nodiscard]] bool stop_rendering(const threading::EThreadRunState state) noexcept;
@@ -87,6 +87,7 @@ private:
     void shutdown_debug_service() noexcept;
 
     [[nodiscard]] threading::CThreadPackage* thread_package(const EWorkerThreadID id) noexcept;
+    [[nodiscard]] threading::CThreadPackage* worker_package(const std::uint32_t index) noexcept;
 
     TInstance<debug_system::CDebugServiceState> m_debug_service_owner;
     debug_system::CDebugServiceState* m_debug_service{ nullptr };
@@ -118,11 +119,14 @@ private:
     CModuleService m_module_service;
     CErasedOwner m_executive_request;
     EPhase m_phase{ EPhase::starting };
-    std::int32_t m_thread_slots[k_thread_count]{ -1, -1, -1, -1 };
+    std::int32_t m_thread_slots[k_thread_count]{ -1, -1 };
+    std::int32_t m_worker_slots[k_max_worker_count]{ -1, -1, -1, -1, -1, -1, -1, -1, -1 };
+    std::uint32_t m_worker_count{ 0u };
 };
 
 int host(const char* const log_tag = nullptr, const char* const executive_file = "package:/bin/MorphicExecutive.dll",
-    const char* const log_directory = "development/logical-roots/logs") noexcept;
+    const char* const log_directory = "development/logical-roots/logs",
+    const std::uint32_t worker_count = k_default_worker_count) noexcept;
 
 }   //  namespace host
 

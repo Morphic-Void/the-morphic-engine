@@ -47,6 +47,19 @@ The shared TGA input fixture is
 Its `--log-directory=<existing directory>` option redirects logs; the DLL
 lifecycle harness selects `development/logical-roots/test-logs` this way.
 
+Pass `--host-workers=<positive integer>` to request the total number of Host I/O
+and conditioning workers; the default is two. One worker handles both roles.
+With more than one, the first handles I/O and the remaining workers handle
+conditioning, up to eight conditioning threads. Requests above the startup limit
+are reduced and logged rather than rejected.
+
+The limit uses the reported logical hardware-thread count, capped at 64, with a
+budget of five main threads (Host, Executive, debug, rendering and planned audio)
+and three threads of OS headroom. Eight reported hardware threads permit two
+workers, accepting one thread of headroom; nine permit two with two threads of
+headroom. Below eight, only the single shared worker is allowed. This is a sizing
+heuristic without affinity or dedicated processor reservations.
+
 ## Sandboxed Windows builds
 
 Windows sandboxing can prevent MSBuild's SDK locator and native file tracker
@@ -80,6 +93,14 @@ lifecycle harness, `tests/module_lifecycle/run_tests.ps1`, builds real module
 fixtures and checks bootstrap, replacement, shutdown, and asset disposal. See
 the [asset](../assets/asynchronous_asset_services.md) and
 [module](../modules/asynchronous_module_lifecycle.md) references for details.
+
+After building, `tests/host_workers/run_tests.ps1` checks invalid startup options,
+default/shared/multiple-worker acceptance, reduction diagnostics and worker
+lifetime. Both scripts accept `-Configuration` and `-Platform`; the lifecycle
+harness also accepts `-WorkerCount` to exercise transitions with a shared worker
+or a wider conditioning group. Both harnesses stage an isolated development
+filesystem under `build/`, retaining its logs and output for inspection without
+inventorying accumulated output from other runs.
 
 The separate direct TGA round-trip helper is compiled into `MorphicTests` as a
 manual test but is intentionally not registered or invoked.

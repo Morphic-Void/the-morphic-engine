@@ -13,12 +13,13 @@ policy and passive rendering module. Completion history and validation evidence
 are recorded in [completed milestones](../project/completed_milestones.md).
 
 Module loading, binding, context installation, compatibility
-checks and unloading now execute on the Host I/O worker. Both Host worker threads
-use the same handlers, preserving the option to combine their work later.
+checks and unloading execute on the Host I/O worker. All Host background workers
+use the same handlers. With one configured worker, it shares I/O and conditioning;
+with more than one, the first handles I/O and the rest handle conditioning.
 
 ## Startup and Executive transitions
 
-The Host starts its two workers and builds the filesystem image on its file I/O
+The Host starts its configured workers and builds the filesystem image on its file I/O
 worker before requesting the Executive DLL. Its normal
 message loop receives the binding completion and then creates the Executive
 thread. Per-thread context installation still runs on the newly created thread,

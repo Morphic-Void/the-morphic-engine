@@ -11,6 +11,7 @@
 param(
     [ValidateSet('Debug', 'Release')] [string] $Configuration = 'Debug',
     [ValidateSet('x64', 'Win32')] [string] $Platform = 'x64',
+    [ValidateRange(1, 4294967295)] [long] $WorkerCount = 2,
     [string] $MSBuild = 'C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe',
     [switch] $SkipBuild
 )
@@ -19,6 +20,8 @@ $ErrorActionPreference = 'Stop'
 $repository = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '../..')).Path
 $binaryDirectory = Join-Path $repository "build/bin/$Platform/$Configuration"
 $suffix = [Guid]::NewGuid().ToString('N').Substring(0, 8)
+. (Join-Path $PSScriptRoot '../support/host_environment.ps1')
+$runtime = New-HostTestEnvironment -Repository $repository -Name "lifecycle-runtime-$suffix"
 
 if (!$SkipBuild) {
     $solutionPlatform = if ($Platform -eq 'Win32') { 'x86' } else { $Platform }
@@ -51,11 +54,12 @@ foreach ($case in @('ordinary', 'dependency', 'disposal', 'disposal-during-save'
     $expectedExit = if ($case.EndsWith('-missing') -or $case.EndsWith('-failure')) { 1 } else { 0 }
     $process = [Diagnostics.Process]::new()
     $process.StartInfo.FileName = Join-Path $launchDirectory 'MorphicEngine.exe'
-    $process.StartInfo.WorkingDirectory = $repository
+    $process.StartInfo.WorkingDirectory = $runtime
     $process.StartInfo.UseShellExecute = $false
     $process.StartInfo.CreateNoWindow = $true
     $process.StartInfo.ArgumentList.Add("--executive=package:/bin/$executive")
     $process.StartInfo.ArgumentList.Add("--log-tag=$tag")
+    $process.StartInfo.ArgumentList.Add("--host-workers=$WorkerCount")
     $process.StartInfo.ArgumentList.Add('--log-directory=development/logical-roots/test-logs')
     $process.StartInfo.Environment['MORPHIC_LIFECYCLE_CASE'] = $case
     try {
@@ -65,7 +69,7 @@ foreach ($case in @('ordinary', 'dependency', 'disposal', 'disposal-during-save'
             throw "$case timed out."
         }
         if ($process.ExitCode -ne $expectedExit) { throw "$case returned $($process.ExitCode), expected $expectedExit." }
-        $log = Join-Path $repository "development/logical-roots/test-logs/morphic_debug.$tag.p$($process.Id).log"
+        $log = Join-Path $runtime "development/logical-roots/test-logs/morphic_debug.$tag.p$($process.Id).log"
         $events = Get-Content -LiteralPath $log -Raw
         if ($events -match 'Lifecycle fixture failed|notification failed|\[(error|critical|fatal):') { throw "$case has unexpected diagnostics: $log" }
         $assertions = [regex]::Matches($events, '\[assert:').Count
@@ -88,7 +92,7 @@ foreach ($case in @('ordinary', 'dependency', 'disposal', 'disposal-during-save'
         if (($case -in @('dependency', 'disposal', 'disposal-during-save')) -and !$events.Contains('Lifecycle fixture: operation 2 passed')) { throw 'Asset disposal check incomplete.' }
         if (($case -in @('replace', 'replace-dependency', 'render-executive-replace')) -and !$events.Contains('Asset acceptance: 48 sequential and 32 concurrent operations passed')) { throw 'Replacement Executive did not complete its acceptance flow.' }
         if ($case -in @('disposal-during-save', 'render-drain')) {
-            $saved = [IO.File]::ReadAllBytes((Join-Path $repository 'development/logical-roots/test-output/lifecycle-disposal.bin'))
+            $saved = [IO.File]::ReadAllBytes((Join-Path $runtime 'development/logical-roots/test-output/lifecycle-disposal.bin'))
             if (($saved.Length -ne 16) -or @($saved | Where-Object { $_ -ne 0x5a }).Count) { throw 'Disposal corrupted the saved asset.' }
         }
         if ($normalExecutive) {
@@ -124,7 +128,7 @@ foreach ($case in @('ordinary', 'dependency', 'disposal', 'disposal-during-save'
         }
         if ($case -eq 'render-exit-disposal') {
             if (!$events.Contains('Lifecycle rendering: final disposals posted')) { throw 'Rendering exit requests were not posted.' }
-            $saved = [IO.File]::ReadAllBytes((Join-Path $repository 'development/logical-roots/test-output/lifecycle-disposal.bin'))
+            $saved = [IO.File]::ReadAllBytes((Join-Path $runtime 'development/logical-roots/test-output/lifecycle-disposal.bin'))
             if (($saved.Length -ne 1048576) -or @($saved | Where-Object { $_ -ne 0x5a }).Count) { throw 'Rendering exit disposal corrupted an accepted save.' }
             if ($Configuration -eq 'Debug') {
                 $deferred = $events.IndexOf('Host asset disposal deferred for accepted borrowers at client slot 600')

@@ -76,7 +76,23 @@ empty files; these produce an explicit read failure.
 
 All asset file reads and writes run on the Host file I/O worker. Asset live-document
 baking, JSON parsing/writing and TGA encoding/decoding run on the conditioning
-worker. Live-to-JSON saving is one conditioning job: bake, then write that baked
+workers. A single configured background worker shares I/O and conditioning;
+otherwise one worker handles I/O and up to eight handle conditioning. The
+`--host-workers` startup option and hardware sizing policy are documented in
+[building and testing](../project/building_and_testing.md).
+
+The Host selects the worker when it posts each conditioning job, choosing the
+fewest outstanding jobs with round-robin tie breaking. Its counters include
+queued and running jobs until completion is received; worker run-state snapshots
+are not used. Each worker retains its own SPSC request and completion routes.
+Completion validates the selected worker before releasing its load count.
+
+Several conditioning workers may bake the same retained live document. Node
+lookups keep query state local to each call, and every bake owns separate
+analysis and emission scratch. The document must remain unchanged and alive
+until all accepted operations borrowing it have completed.
+
+Live-to-JSON saving is one conditioning job: bake, then write that baked
 view without another Host round trip. The JSON writer's terminal zero is excluded
 from the saved file.
 
