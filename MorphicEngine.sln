@@ -25,6 +25,34 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "MorphicPolicyValidator", "v
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "External", "External", "{02EA681E-C7D8-13C7-8484-4AC65E1B71E8}"
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Basis Universal", "Basis Universal", "{D02DC606-1D6D-4D98-BC9A-A447D956FC1E}"
+	ProjectSection(SolutionItems) = preProject
+		external\basis_universal\README.md = external\basis_universal\README.md
+		external\basis_universal\LICENSE = external\basis_universal\LICENSE
+		external\basis_universal\encoder\basisu_comp.h = external\basis_universal\encoder\basisu_comp.h
+		external\basis_universal\transcoder\basisu_transcoder.h = external\basis_universal\transcoder\basisu_transcoder.h
+	EndProjectSection
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "SPIRV-Reflect", "SPIRV-Reflect", "{B665F890-8A20-4F5C-958B-475BFFB1FDEA}"
+	ProjectSection(SolutionItems) = preProject
+		external\SPIRV-Reflect\README.md = external\SPIRV-Reflect\README.md
+		external\SPIRV-Reflect\LICENSE = external\SPIRV-Reflect\LICENSE
+		external\SPIRV-Reflect\spirv_reflect.h = external\SPIRV-Reflect\spirv_reflect.h
+		external\SPIRV-Reflect\spirv_reflect.c = external\SPIRV-Reflect\spirv_reflect.c
+	EndProjectSection
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "miniaudio", "miniaudio", "{D289D623-38CD-4C40-8F7A-CC32C9215351}"
+	ProjectSection(SolutionItems) = preProject
+		external\miniaudio\README.md = external\miniaudio\README.md
+		external\miniaudio\LICENSE = external\miniaudio\LICENSE
+		external\miniaudio\miniaudio.h = external\miniaudio\miniaudio.h
+	EndProjectSection
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Vulkan SDK", "Vulkan SDK", "{8F0EBD7C-1250-488D-BC80-AD7D41A21C96}"
+	ProjectSection(SolutionItems) = preProject
+		external\vulkan-sdk.lock.json = external\vulkan-sdk.lock.json
+	EndProjectSection
+EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "MorphicRendering", "visual_studio\MorphicRendering.vcxproj", "{730BC2AB-3A54-445D-91AE-7F279F6FBACD}"
 EndProject
 Global
@@ -115,6 +143,10 @@ Global
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{0BF5D948-138E-45A7-915F-AA8C3D6DBA08} = {02EA681E-C7D8-13C7-8484-4AC65E1B71E8}
+		{D02DC606-1D6D-4D98-BC9A-A447D956FC1E} = {02EA681E-C7D8-13C7-8484-4AC65E1B71E8}
+		{B665F890-8A20-4F5C-958B-475BFFB1FDEA} = {02EA681E-C7D8-13C7-8484-4AC65E1B71E8}
+		{D289D623-38CD-4C40-8F7A-CC32C9215351} = {02EA681E-C7D8-13C7-8484-4AC65E1B71E8}
+		{8F0EBD7C-1250-488D-BC80-AD7D41A21C96} = {02EA681E-C7D8-13C7-8484-4AC65E1B71E8}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {6412ED91-C516-41EB-ABE6-FCD1B4D2E855}
