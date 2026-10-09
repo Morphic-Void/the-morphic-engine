@@ -43,11 +43,18 @@ optional tag.
 The shared TGA input fixture is
 `development/logical-roots/dev-source/test_input.tga`. The engine's logs use
 `development/logical-roots/logs`, and policy-validator reports use its
-`policy_validator` child. Run the engine from the repository root as before.
-Its `--log-directory=<existing directory>` option redirects logs; the DLL
-lifecycle harness selects `development/logical-roots/test-logs` this way.
+`policy_validator` child. Run the engine from the repository root with a
+[bootstrap configuration file](bootstrap_configuration.md), for example:
 
-Pass `--host-workers=<positive integer>` to request the total number of Host I/O
+```powershell
+.\build\bin\x64\Debug\MorphicEngine.exe development/bootstrap/flow-test.cfg
+```
+
+The configuration file is the Host's only command-line argument. Its
+`log-directory` setting redirects logs; the DLL lifecycle harness selects
+`development/logical-roots/test-logs` through generated files.
+
+Set `host-workers=<positive integer>` to request the total number of Host I/O
 and conditioning workers; the default is two. One worker handles both roles.
 Two workers separate the roles: `bg_file_io` handles all I/O and
 `bg_conditioning` handles all conditioning. Requests above the startup limit
@@ -94,7 +101,7 @@ fixtures and checks bootstrap, replacement, shutdown, and asset disposal. See
 the [asset](../assets/asynchronous_asset_services.md) and
 [module](../modules/asynchronous_module_lifecycle.md) references for details.
 
-After building, `tests/host_workers/run_tests.ps1` checks invalid startup options,
+After building, `tests/host_workers/run_tests.ps1` checks invalid bootstrap settings,
 default/shared/dedicated-worker acceptance, reduction diagnostics and worker
 lifetime. Both scripts accept `-Configuration` and `-Platform`; the lifecycle
 harness also accepts `-WorkerCount` to exercise transitions with a shared worker

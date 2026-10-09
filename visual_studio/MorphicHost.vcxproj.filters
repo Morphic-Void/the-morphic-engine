@@ -3,6 +3,7 @@
   <ItemGroup>
     <Filter Include="Host"><UniqueIdentifier>{4a823118-b9ba-8baa-2f47-489c0716f527}</UniqueIdentifier></Filter>
     <Filter Include="Host\include"><UniqueIdentifier>{2cd7888d-e5ad-42d5-bf41-896687579fcb}</UniqueIdentifier></Filter>
+    <Filter Include="Host\include\entry"><UniqueIdentifier>{90132d44-99f1-45f6-a452-0756243e5ae4}</UniqueIdentifier></Filter>
     <Filter Include="Host\include\module"><UniqueIdentifier>{97134e4f-c972-4c26-a0a3-3a058ef616f5}</UniqueIdentifier></Filter>
     <Filter Include="Host\include\module\types"><UniqueIdentifier>{65b24ad9-a28c-549d-2fc2-826d704ca740}</UniqueIdentifier></Filter>
     <Filter Include="Host\include\runtime"><UniqueIdentifier>{8e82bcc9-2ad3-b13e-473a-b78052ba8354}</UniqueIdentifier></Filter>
@@ -25,6 +26,7 @@
     <ClInclude Include="..\host\runtime\host_worker_thread.hpp"><Filter>Host\include\runtime</Filter></ClInclude>
     <ClInclude Include="..\host\runtime\batch_pool.hpp"><Filter>Host\include\runtime</Filter></ClInclude>
     <ClInclude Include="..\host\runtime\host.hpp"><Filter>Host\include\runtime</Filter></ClInclude>
+    <ClInclude Include="..\host\entry\bootstrap_config.hpp"><Filter>Host\include\entry</Filter></ClInclude>
     <ClInclude Include="..\host\runtime\worker_policy.hpp"><Filter>Host\include\runtime</Filter></ClInclude>
     <ClInclude Include="..\host\runtime\asset_service.hpp"><Filter>Host\include\runtime</Filter></ClInclude>
     <ClInclude Include="..\host\runtime\module_service.hpp"><Filter>Host\include\runtime</Filter></ClInclude>
@@ -33,6 +35,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\host\entry\MorphicEngine.cpp"><Filter>Host\src\entry</Filter></ClCompile>
+    <ClCompile Include="..\host\entry\bootstrap_config.cpp"><Filter>Host\src\entry</Filter></ClCompile>
     <ClCompile Include="..\host\module\types\local_type_ids.cpp"><Filter>Host\src\module\types</Filter></ClCompile>
     <ClCompile Include="..\host\runtime\host_worker_thread.cpp"><Filter>Host\src\runtime</Filter></ClCompile>
     <ClCompile Include="..\host\runtime\batch_pool.cpp"><Filter>Host\src\runtime</Filter></ClCompile>
@@ -44,5 +47,7 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="..\development\logical-roots\dev-source\test_input.tga"><Filter>Development\logical-roots\dev-source</Filter></None>
+    <None Include="..\development\bootstrap\flow-test.cfg"><Filter>Development</Filter></None>
+    <None Include="..\development\bootstrap\flow-test-inline.cfg"><Filter>Development</Filter></None>
   </ItemGroup>
 </Project>

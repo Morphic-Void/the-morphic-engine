@@ -23,6 +23,13 @@ newline.
 `tools/check_line_endings.ps1` enforces the CRLF working-tree form while
 allowing the missing final newline for these Visual Studio-managed files.
 
+## Internal linkage and namespaces
+
+Use `static` declarations for file-local functions and objects that need
+internal linkage. Do not use anonymous namespaces. Use named
+namespaces when they meaningfully group code, deciding that independently of
+whether a declaration needs internal linkage.
+
 ## Working arrangement
 
 Work directly in the shared main checkout unless the user requests otherwise;

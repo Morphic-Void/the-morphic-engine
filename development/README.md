@@ -121,7 +121,8 @@ Existing physical `package/bin` content can coexist if names do not collide;
 those exceptional branches retain explicit physical source overrides beneath
 the read-only `bin` binding.
 
-`ModuleRequest` and `--executive=` use logical DLL names, for example
+`ModuleRequest` and the bootstrap configuration's `executive=` setting use
+logical DLL names, for example
 `package:/bin/MorphicExecutive.dll`. The Host resolves these into stable native
 filenames before worker binding. Unknown modules fail without a native load
 attempt. A replacement still unloads the old binding under the existing module

@@ -19,7 +19,36 @@ $suffix = [Guid]::NewGuid().ToString('N').Substring(0, 8)
 . (Join-Path $PSScriptRoot '../support/host_environment.ps1')
 $runtime = New-HostTestEnvironment -Repository $repository -Name "host-workers-$suffix"
 
-function Invoke-Host([string[]] $Arguments, [int] $ExpectedExit) {
+function Invoke-Host([string[]] $Lines, [int] $ExpectedExit, [switch] $WithBom) {
+    $configFile = Join-Path $runtime ("bootstrap config-$([Guid]::NewGuid().ToString('N')).cfg")
+    [IO.File]::WriteAllLines($configFile, $Lines, [Text.UTF8Encoding]::new($WithBom.IsPresent))
+    $process = [Diagnostics.Process]::new()
+    $process.StartInfo.FileName = $executable
+    $process.StartInfo.WorkingDirectory = $runtime
+    $process.StartInfo.UseShellExecute = $false
+    $process.StartInfo.CreateNoWindow = $true
+    $process.StartInfo.RedirectStandardError = $true
+    $process.StartInfo.ArgumentList.Add($configFile)
+    try {
+        if (!$process.Start()) { throw 'Host did not start.' }
+        $stderr = $process.StandardError.ReadToEndAsync()
+        if (!$process.WaitForExit(30000)) {
+            $process.Kill()
+            $process.WaitForExit()
+            throw "Host timed out: $Lines $($stderr.GetAwaiter().GetResult())"
+        }
+        $errorText = $stderr.GetAwaiter().GetResult()
+        if ($process.ExitCode -ne $ExpectedExit) { throw "Host returned $($process.ExitCode), expected $ExpectedExit`: $Lines $errorText" }
+        if (($ExpectedExit -eq 2) -and ($errorText -notmatch 'Invalid bootstrap configuration')) { throw 'Missing invalid-configuration diagnostic.' }
+        return $process.Id
+    }
+    finally {
+        $process.Dispose()
+        Remove-Item -LiteralPath $configFile
+    }
+}
+
+function Invoke-LaunchFailure([string[]] $Arguments, [string] $ExpectedDiagnostic) {
     $process = [Diagnostics.Process]::new()
     $process.StartInfo.FileName = $executable
     $process.StartInfo.WorkingDirectory = $runtime
@@ -33,42 +62,58 @@ function Invoke-Host([string[]] $Arguments, [int] $ExpectedExit) {
         if (!$process.WaitForExit(30000)) {
             $process.Kill()
             $process.WaitForExit()
-            throw "Host timed out: $Arguments $($stderr.GetAwaiter().GetResult())"
+            throw "Host timed out: $Arguments"
         }
         $errorText = $stderr.GetAwaiter().GetResult()
-        if ($process.ExitCode -ne $ExpectedExit) { throw "Host returned $($process.ExitCode), expected $ExpectedExit`: $Arguments $errorText" }
-        if (($ExpectedExit -eq 2) -and ($errorText -notmatch '--(host-workers|batch-runners)')) { throw 'Missing invalid-option diagnostic.' }
-        return $process.Id
+        if (($process.ExitCode -ne 2) -or !$errorText.Contains($ExpectedDiagnostic)) {
+            throw "Unexpected launch result $($process.ExitCode)`: $Arguments $errorText"
+        }
     }
     finally { $process.Dispose() }
 }
 
-foreach ($arguments in @(
-    @('--host-workers'), @('--host-workers='), @('--host-workers=0'),
-    @('--host-workers=-1'), @('--host-workers=+2'), @('--host-workers=abc'),
-    @('--host-workers=2x'), @('--host-workers=4294967296'),
-    @('--host-workers=1', '--host-workers=2')
-)) {
-    $null = Invoke-Host -Arguments $arguments -ExpectedExit 2
-}
-Write-Output "$Configuration/$Platform invalid worker options passed"
+Invoke-LaunchFailure -Arguments @() -ExpectedDiagnostic 'Usage: MorphicEngine'
+Invoke-LaunchFailure -Arguments @('unused.cfg', 'extra') -ExpectedDiagnostic 'Usage: MorphicEngine'
+Invoke-LaunchFailure -Arguments @('missing.cfg') -ExpectedDiagnostic 'cannot open file'
+Write-Output "$Configuration/$Platform bootstrap argument validation passed"
 
-foreach ($arguments in @(
-    @('--batch-runners'), @('--batch-runners='), @('--batch-runners=-1'),
-    @('--batch-runners=+2'), @('--batch-runners=abc'), @('--batch-runners=2x'),
-    @('--batch-runners=4294967296'), @('--batch-runners=1', '--batch-runners=2')
+foreach ($lines in @(
+    @('host-workers'), @('host-workers='), @('host-workers=0'),
+    @('host-workers=-1'), @('host-workers=+2'), @('host-workers=abc'),
+    @('host-workers=2x'), @('host-workers=4294967296'),
+    @('host-workers=1', 'host-workers=2')
 )) {
-    $null = Invoke-Host -Arguments $arguments -ExpectedExit 2
+    $null = Invoke-Host -Lines (@('executive=package:/bin/MorphicExecutive.dll') + $lines) -ExpectedExit 2
 }
-Write-Output "$Configuration/$Platform invalid batch options passed"
+Write-Output "$Configuration/$Platform invalid worker settings passed"
+
+foreach ($lines in @(
+    @('batch-runners'), @('batch-runners='), @('batch-runners=-1'),
+    @('batch-runners=+2'), @('batch-runners=abc'), @('batch-runners=2x'),
+    @('batch-runners=4294967296'), @('batch-runners=1', 'batch-runners=2')
+)) {
+    $null = Invoke-Host -Lines (@('executive=package:/bin/MorphicExecutive.dll') + $lines) -ExpectedExit 2
+}
+Write-Output "$Configuration/$Platform invalid batch settings passed"
+
+foreach ($lines in @(
+    @('# no Executive selected'), @('executive='),
+    @('executive=package:/bin/MorphicExecutive.dll', 'executive=package:/bin/MorphicExecutive.dll'),
+    @('executive=package:/bin/MorphicExecutive.dll', 'unknown=1'),
+    @('executive=package:/bin/MorphicExecutive.dll', 'log-tag=bad tag'),
+    @('executive=package:/bin/MorphicExecutive.dll', ('#' + ('x' * 4096)))
+)) {
+    $null = Invoke-Host -Lines $lines -ExpectedExit 2
+}
+Write-Output "$Configuration/$Platform invalid bootstrap structure passed"
 
 foreach ($requested in @(0, 1, 2, 3, 9, 128)) {
     $tag = "workers-$suffix-$requested"
-    $arguments = @("--log-tag=$tag", '--log-directory=development/logical-roots/test-logs')
-    if ($requested -ne 0) { $arguments += "--host-workers=$requested" }
+    $lines = @('executive=package:/bin/MorphicExecutive.dll', "log-tag=$tag", 'log-directory=development/logical-roots/test-logs')
+    if ($requested -ne 0) { $lines += "host-workers=$requested" }
     $batchRequested = if ($requested -eq 1) { 0 } elseif ($requested -eq 2) { 32 } else { 8 }
-    if ($batchRequested -ne 8) { $arguments += "--batch-runners=$batchRequested" }
-    $processId = Invoke-Host -Arguments $arguments -ExpectedExit 0
+    if ($batchRequested -ne 8) { $lines += "batch-runners=$batchRequested" }
+    $processId = Invoke-Host -Lines $lines -ExpectedExit 0 -WithBom:($requested -eq 0)
     $log = Join-Path $runtime "development/logical-roots/test-logs/morphic_debug.$tag.p$processId.log"
     $events = Get-Content -LiteralPath $log -Raw
     if ($events -match '\[(assert|error|critical|fatal):') { throw "Unexpected diagnostics: $log" }

@@ -17,6 +17,8 @@ or that work has been authorised.
   ownership, conditioning, results, diagnostics and disposal.
 - [Development filesystem image](../development/README.md): logical roots,
   hierarchical inventory, DLL redirection, queued refresh and cache associations.
+- [Host bootstrap configuration](project/bootstrap_configuration.md): the
+  bounded startup file and checked-in flow-test presets.
 - [Asynchronous module lifecycle](modules/asynchronous_module_lifecycle.md):
   Executive bootstrap, rendering startup, replacement, shutdown and lifecycle tests.
 - [Module batch runners](modules/batch_runners.md): Host-owned execution of

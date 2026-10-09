@@ -57,12 +57,17 @@ foreach ($case in @('batch', 'batch-inline', 'batch-exit', 'ordinary', 'dependen
     $process.StartInfo.WorkingDirectory = $runtime
     $process.StartInfo.UseShellExecute = $false
     $process.StartInfo.CreateNoWindow = $true
-    $process.StartInfo.ArgumentList.Add("--executive=package:/bin/$executive")
-    $process.StartInfo.ArgumentList.Add("--log-tag=$tag")
-    $process.StartInfo.ArgumentList.Add("--host-workers=$WorkerCount")
-    if ($case -in @('batch', 'batch-exit')) { $process.StartInfo.ArgumentList.Add('--batch-runners=1') }
-    if ($case -eq 'batch-inline') { $process.StartInfo.ArgumentList.Add('--batch-runners=0') }
-    $process.StartInfo.ArgumentList.Add('--log-directory=development/logical-roots/test-logs')
+    $configFile = Join-Path $runtime "bootstrap-$case.cfg"
+    $configLines = @(
+        "executive=package:/bin/$executive",
+        "log-tag=$tag",
+        "host-workers=$WorkerCount",
+        'log-directory=development/logical-roots/test-logs'
+    )
+    if ($case -in @('batch', 'batch-exit')) { $configLines += 'batch-runners=1' }
+    if ($case -eq 'batch-inline') { $configLines += 'batch-runners=0' }
+    [IO.File]::WriteAllLines($configFile, $configLines, [Text.UTF8Encoding]::new($false))
+    $process.StartInfo.ArgumentList.Add($configFile)
     $process.StartInfo.Environment['MORPHIC_LIFECYCLE_CASE'] = $case
     try {
         if (!$process.Start()) { throw "Could not start $case." }
@@ -190,5 +195,6 @@ foreach ($case in @('batch', 'batch-inline', 'batch-exit', 'ordinary', 'dependen
     }
     finally {
         $process.Dispose()
+        Remove-Item -LiteralPath $configFile
     }
 }

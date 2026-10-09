@@ -102,6 +102,7 @@
   <PropertyGroup>
     <TargetName>MorphicEngine</TargetName>
     <LocalDebuggerWorkingDirectory>$(ProjectDir)..</LocalDebuggerWorkingDirectory>
+    <LocalDebuggerCommandArguments>development/bootstrap/flow-test.cfg</LocalDebuggerCommandArguments>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <OutDir>$(SolutionDir)build\bin\$(Platform)\$(Configuration)\</OutDir>
@@ -241,9 +242,11 @@
     <ClCompile Include="..\host\module\types\local_type_ids.cpp" />
     <ClCompile Include="..\host\system\system_id_definitions.cpp" />
     <ClCompile Include="..\host\entry\MorphicEngine.cpp" />
+    <ClCompile Include="..\host\entry\bootstrap_config.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\host\runtime\host.hpp" />
+    <ClInclude Include="..\host\entry\bootstrap_config.hpp" />
     <ClInclude Include="..\host\runtime\batch_pool.hpp" />
     <ClInclude Include="..\host\runtime\worker_policy.hpp" />
     <ClInclude Include="..\host\runtime\asset_service.hpp" />
@@ -258,6 +261,8 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="..\development\logical-roots\dev-source\test_input.tga" />
+    <None Include="..\development\bootstrap\flow-test.cfg" />
+    <None Include="..\development\bootstrap\flow-test-inline.cfg" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\external\SuiteUTF\SuiteUTF.vcxproj">

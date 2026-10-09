@@ -46,8 +46,8 @@ public:
     ~CHost() noexcept;
 
     [[nodiscard]] int execute(const char* const log_tag, const char* const executive_file,
-        const char* const log_directory, const std::uint32_t worker_count = k_default_worker_count,
-        const std::uint32_t batch_runner_count = k_default_batch_runner_count) noexcept;
+        const char* const log_directory, const std::uint32_t worker_count,
+        const std::uint32_t batch_runner_count) noexcept;
 
 private:
     enum class EWorkerThreadID : std::uint8_t
@@ -130,10 +130,9 @@ private:
     std::uint32_t m_batch_runner_count{ 0u };
 };
 
-int host(const char* const log_tag = nullptr, const char* const executive_file = "package:/bin/MorphicExecutive.dll",
-    const char* const log_directory = "development/logical-roots/logs",
-    const std::uint32_t worker_count = k_default_worker_count,
-    const std::uint32_t batch_runner_count = k_default_batch_runner_count) noexcept;
+int host(const char* const log_tag, const char* const executive_file,
+    const char* const log_directory, const std::uint32_t worker_count,
+    const std::uint32_t batch_runner_count) noexcept;
 
 }   //  namespace host
 

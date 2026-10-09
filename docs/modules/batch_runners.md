@@ -41,7 +41,8 @@ engine thread objects and receive no module-thread provisioning. A runner may
 subsequently execute work from another DLL; each invocation installs that DLL's
 own thread-local context.
 
-The command-line option `--batch-runners=<nonnegative integer>` requests a
+The [bootstrap configuration](../project/bootstrap_configuration.md) setting
+`batch-runners=<nonnegative integer>` requests a
 pool size; its default is eight. The effective maximum is 32 and also respects
 `min(reported_hardware_threads, 64) - (4 + provisioned_module_threads +
 configured_host_workers)`, floored at zero. Today two module threads are

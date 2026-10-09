@@ -78,7 +78,7 @@ All asset file reads and writes run on the Host file I/O worker. Asset live-docu
 baking, JSON parsing/writing and TGA encoding/decoding run on the conditioning
 worker. A single configured background worker shares I/O and conditioning;
 otherwise one worker handles I/O and one dedicated worker handles all conditioning.
-The `--host-workers` startup option and hardware sizing policy are documented in
+The `host-workers` bootstrap setting and hardware sizing policy are documented in
 [building and testing](../project/building_and_testing.md).
 
 The Host fixes the conditioning route at startup: `bg_conditioning` when the

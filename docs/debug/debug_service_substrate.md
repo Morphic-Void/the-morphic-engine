@@ -396,9 +396,9 @@ not part of this orderly checkpoint.
 - stops the service after worker shutdown;
 - removes the executable-module pointer before owner destruction.
 
-Host log names always contain the native process ID. The optional command-line
-form `--log-tag=<value>` adds a caller-selected disambiguation tag before that
-ID, producing names such as `morphic_debug.manual-a.p12345.log` and
+Host log names always contain the native process ID. The optional bootstrap
+configuration setting `log-tag=<value>` adds a caller-selected disambiguation
+tag before that ID, producing names such as `morphic_debug.manual-a.p12345.log` and
 `morphic_debug_direct.manual-a.p12345.log`. Without the option, the names retain
 the `p12345` component. Tags are descriptive only; the process ID preserves
 concurrent uniqueness when a tag is absent or reused.
@@ -412,8 +412,10 @@ Test logs default to `development/logical-roots/test-logs`; non-log test output 
 to `development/logical-roots/test-output`. The optional command-line form
 `--output-directory=<path>` selects another output root, with suite logs written
 beneath its `logs` child. Relative paths are resolved from the launch directory.
-Ordinary Host logs use `development/logical-roots/logs`; `--log-directory=<existing directory>`
-redirects them, including into the test-log root for the DLL lifecycle harness.
+Ordinary Host logs use `development/logical-roots/logs`; the bootstrap configuration's
+`log-directory=<existing directory>` setting redirects them, including into the
+test-log root for the DLL lifecycle harness. `MorphicTests` retains its own
+command-line log and output options.
 
 The current TGA processing and worker-management sketch did not influence the
 service internals. Future backing-file, multi-step-operation, module-loading,

@@ -25,9 +25,10 @@ message loop receives the binding completion and then creates the Executive
 thread. Per-thread context installation still runs on the newly created thread,
 because that operation installs thread-local state.
 
-The default bootstrap path is `package:/bin/MorphicExecutive.dll`. The launcher accepts
-`--executive=<logical DLL path>` to select another implementation advertising the Executive
-identity and exporting the Executive thread function.
+The [bootstrap configuration file](../project/bootstrap_configuration.md) requires
+`executive=<logical DLL path>` to select the implementation advertising the
+Executive identity and exporting the Executive thread function. The checked-in
+flow-test presets select `package:/bin/MorphicExecutive.dll`.
 The [development filesystem image](../../development/README.md#build-output-redirect)
 resolves discovered DLLs adjacent to the running executable without copying them.
 
