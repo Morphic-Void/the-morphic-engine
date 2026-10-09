@@ -78,11 +78,7 @@ void CHost::initialise_debug_service(const char* const log_tag, const char* cons
 
 bool CHost::start_threads() noexcept
 {
-    const thread_ids::id_type identities[]{ thread_ids::bg_file_io,
-        thread_ids::bg_conditioning_00, thread_ids::bg_conditioning_01,
-        thread_ids::bg_conditioning_02, thread_ids::bg_conditioning_03,
-        thread_ids::bg_conditioning_04, thread_ids::bg_conditioning_05,
-        thread_ids::bg_conditioning_06, thread_ids::bg_conditioning_07 };
+    const thread_ids::id_type identities[]{ thread_ids::bg_file_io, thread_ids::bg_conditioning };
     static_assert(sizeof(identities) / sizeof(identities[0]) == k_max_worker_count);
 
     for (std::uint32_t index = 0u; index < m_worker_count; ++index)
@@ -103,13 +99,7 @@ bool CHost::start_threads() noexcept
         }
     }
 
-    threading::CThreadPackage* conditioning[k_max_conditioning_threads]{};
-    const std::uint32_t conditioning_count = (m_worker_count == 1u) ? 1u : m_worker_count - 1u;
-    for (std::uint32_t index = 0u; index < conditioning_count; ++index)
-    {
-        conditioning[index] = worker_package((m_worker_count == 1u) ? 0u : index + 1u);
-    }
-    return m_asset_service.configure_workers(*worker_package(0u), conditioning, conditioning_count);
+    return m_asset_service.configure_workers(*worker_package(0u), worker_package(1u));
 }
 
 bool CHost::workers_failed() noexcept

@@ -22,6 +22,7 @@
 
 #include "host/runtime/asset_service.hpp"
 #include "host/runtime/module_service.hpp"
+#include "host/runtime/worker_policy.hpp"
 #include "containers/TInstance.hpp"
 #include "containers/TUnorderedCollection.hpp"
 #include "debug/service.hpp"
@@ -120,7 +121,7 @@ private:
     CErasedOwner m_executive_request;
     EPhase m_phase{ EPhase::starting };
     std::int32_t m_thread_slots[k_thread_count]{ -1, -1 };
-    std::int32_t m_worker_slots[k_max_worker_count]{ -1, -1, -1, -1, -1, -1, -1, -1, -1 };
+    std::int32_t m_worker_slots[k_max_worker_count]{ -1, -1 };
     std::uint32_t m_worker_count{ 0u };
 };
 

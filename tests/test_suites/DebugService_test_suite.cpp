@@ -779,19 +779,19 @@ void test_system_id_name_registry(TTestContext& ctx)
     }
 
     const system_id_registry::SThreadRegistration* const thread_registration =
-        system_id_registry::find_thread(thread_ids::bg_conditioning_00);
+        system_id_registry::find_thread(thread_ids::bg_conditioning);
     TEST_EXPECT(ctx, thread_registration != nullptr);
     if (thread_registration != nullptr)
     {
         TEST_EXPECT(ctx,
-            thread_registration->index == thread_ids::bg_conditioning_00_index);
+            thread_registration->index == thread_ids::bg_conditioning_index);
     }
     const char* const thread_name =
-        system_id_registry::lookup_thread_name(thread_ids::bg_conditioning_00);
+        system_id_registry::lookup_thread_name(thread_ids::bg_conditioning);
     TEST_EXPECT(ctx, thread_name != nullptr);
     if (thread_name != nullptr)
     {
-        TEST_EXPECT(ctx, std::strcmp(thread_name, "bg_conditioning_00") == 0);
+        TEST_EXPECT(ctx, std::strcmp(thread_name, "bg_conditioning") == 0);
     }
 
     char system_name[64]{};

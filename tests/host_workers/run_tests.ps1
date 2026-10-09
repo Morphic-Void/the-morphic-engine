@@ -53,7 +53,7 @@ foreach ($arguments in @(
 }
 Write-Output "$Configuration/$Platform invalid worker options passed"
 
-foreach ($requested in @(0, 1, 2, 9, 128)) {
+foreach ($requested in @(0, 1, 2, 3, 9, 128)) {
     $tag = "workers-$suffix-$requested"
     $arguments = @("--log-tag=$tag", '--log-directory=development/logical-roots/test-logs')
     if ($requested -ne 0) { $arguments += "--host-workers=$requested" }
@@ -72,14 +72,13 @@ foreach ($requested in @(0, 1, 2, 9, 128)) {
     $dedicated = [int] $Matches[2]
     $hardware = [long] $Matches[3]
     $requestCount = if ($requested -eq 0) { 2 } else { $requested }
-    $budget = [Math]::Min($hardware, 64)
-    $floor = if ($budget -ge 8) { 2 } else { 1 }
-    $expected = [Math]::Min($requestCount, [Math]::Min(9, [Math]::Max($floor, $budget - 8)))
-    if (($count -ne $expected) -or ($dedicated -ne $(if ($count -gt 1) { $count - 1 } else { 0 }))) { throw "Unexpected worker sizing: $log" }
+    $limit = if ($hardware -ge 8) { 2 } else { 1 }
+    $expected = [Math]::Min($requestCount, $limit)
+    if (($count -ne $expected) -or ($dedicated -ne ($count - 1))) { throw "Unexpected worker sizing: $log" }
     if (($count -lt $requestCount) -and !$events.Contains("Host: Worker count reduced from $requestCount to $count")) {
         throw "Missing worker reduction diagnostic: $log"
     }
-    $identity = '\[executable:(bg_file_io|bg_conditioning_0[0-7])\]'
+    $identity = '\[executable:(bg_file_io|bg_conditioning)\]'
     $starts = [regex]::Matches($events, "$identity.*Worker starting")
     $exits = [regex]::Matches($events, "$identity.*Worker exited")
     if (($starts.Count -ne $count) -or ($exits.Count -ne $count) -or
@@ -89,9 +88,9 @@ foreach ($requested in @(0, 1, 2, 9, 128)) {
     if ($Configuration -eq 'Debug') {
         $conditioning = [regex]::Matches($events, "$identity.*Worker (document conditioning|TGA encode|TGA decode) request")
         $used = @($conditioning | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique)
-        $expectedUsed = if ($count -eq 1) { 1 } else { $count - 1 }
-        if (($used.Count -ne $expectedUsed) -or (($count -gt 1) -and ($used -contains 'bg_file_io'))) {
-            throw "Conditioning did not use the configured workers: $log"
+        $expectedConditioning = if ($count -eq 1) { 'bg_file_io' } else { 'bg_conditioning' }
+        if (($used.Count -ne 1) -or ($used[0] -ne $expectedConditioning)) {
+            throw "Conditioning did not exclusively use $expectedConditioning`: $log"
         }
         foreach ($io in [regex]::Matches($events, "$identity.*Worker (file load|file save|filesystem scan|module lifecycle) request")) {
             if ($io.Groups[1].Value -ne 'bg_file_io') { throw "I/O work ran on a conditioning worker: $log" }

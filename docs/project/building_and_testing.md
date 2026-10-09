@@ -49,15 +49,15 @@ lifecycle harness selects `development/logical-roots/test-logs` this way.
 
 Pass `--host-workers=<positive integer>` to request the total number of Host I/O
 and conditioning workers; the default is two. One worker handles both roles.
-With more than one, the first handles I/O and the remaining workers handle
-conditioning, up to eight conditioning threads. Requests above the startup limit
-are reduced and logged rather than rejected.
+Two workers separate the roles: `bg_file_io` handles all I/O and
+`bg_conditioning` handles all conditioning. Requests above the startup limit
+are reduced and logged rather than rejected; at most two workers are created.
 
-The limit uses the reported logical hardware-thread count, capped at 64, with a
-budget of five main threads (Host, Executive, debug, rendering and planned audio)
-and three threads of OS headroom. Eight reported hardware threads permit two
-workers, accepting one thread of headroom; nine permit two with two threads of
-headroom. Below eight, only the single shared worker is allowed. This is a sizing
+The limit permits two workers when at least eight logical hardware threads are
+reported, and only the single shared worker below eight. The baseline allows for
+five main threads (Host, Executive, debug, rendering and planned audio), accepting
+one thread of OS headroom at eight reported hardware threads and two at nine.
+Ten or more provide the preferred three threads of headroom. This is a sizing
 heuristic without affinity or dedicated processor reservations.
 
 ## Sandboxed Windows builds
@@ -95,10 +95,10 @@ the [asset](../assets/asynchronous_asset_services.md) and
 [module](../modules/asynchronous_module_lifecycle.md) references for details.
 
 After building, `tests/host_workers/run_tests.ps1` checks invalid startup options,
-default/shared/multiple-worker acceptance, reduction diagnostics and worker
+default/shared/dedicated-worker acceptance, reduction diagnostics and worker
 lifetime. Both scripts accept `-Configuration` and `-Platform`; the lifecycle
 harness also accepts `-WorkerCount` to exercise transitions with a shared worker
-or a wider conditioning group. Both harnesses stage an isolated development
+or a dedicated conditioning worker. Both harnesses stage an isolated development
 filesystem under `build/`, retaining its logs and output for inspection without
 inventorying accumulated output from other runs.
 

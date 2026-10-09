@@ -826,7 +826,7 @@ namespace system_ids
 
 constexpr id_type host = ops::make_system_id(module_ids::executable, thread_ids::host);
 constexpr id_type bg_file_io = ops::make_system_id(module_ids::executable, thread_ids::bg_file_io);
-constexpr id_type bg_conditioning_00 = ops::make_system_id(module_ids::executable, thread_ids::bg_conditioning_00);
+constexpr id_type bg_conditioning = ops::make_system_id(module_ids::executable, thread_ids::bg_conditioning);
 constexpr id_type executive = ops::make_system_id(module_ids::executive, thread_ids::executive);
 
 }   //  namespace system_ids
