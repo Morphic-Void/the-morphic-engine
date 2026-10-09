@@ -11,6 +11,8 @@
 #include <string>
 
 #include "threading/transports/TMpmcTransport.hpp"
+#include "platform/threading/thread_lifetime.hpp"
+#include "platform/system/performance_counter.hpp"
 #include "tests/test_suites/TMpmcTransport_test_suite.hpp"
 #include "tests/support/test_context.hpp"
 
@@ -20,6 +22,35 @@ using threading::transports::TMpmcArenaTransport;
 using threading::transports::TMpmcIndexRing;
 using threading::transports::TMpmcJobTransport;
 using threading::transports::TReservedArenaSlot;
+
+namespace threading::transports
+{
+
+struct SMpmcTransportTestAccess
+{
+    using Transport = TMpmcArenaTransport<std::uint32_t, 16u>;
+
+    //  Model a pop paused after claiming position zero and before releasing
+    //  its cell. All later operations use the production transport methods.
+    static std::atomic<std::uint32_t>& pause_first_pop(Transport& transport, const bool supplier)
+    {
+        auto& ring = supplier ? transport.m_supplier_ring : transport.m_populated_ring;
+        ring.m_dequeue_position.value.store(1u);
+        if (supplier)
+        {
+            transport.m_outstanding_count.value.fetch_add(1u);
+        }
+        return ring.m_slots[0].sequence;
+    }
+
+    static void recycle_first_slot(Transport& transport)
+    {
+        std::uint32_t sequence = 0u;
+        (void)transport.recycle(&transport.m_arena[0], sequence);
+    }
+};
+
+}   // namespace threading::transports
 
 namespace tests
 {
@@ -210,6 +241,102 @@ void test_job_transport_composition(TTestContext& ctx)
     TEST_EXPECT_EQ(ctx, decltype(transport.feedback)::k_capacity, 32u);
 }
 
+struct SArenaCompletion
+{
+    using Access = threading::transports::SMpmcTransportTestAccess;
+    Access::Transport& transport;
+    bool recycling;
+    std::atomic<bool> started{ false };
+    std::atomic<bool> finished{ false };
+    bool completed = false;
+
+    static std::uint32_t MV_STD_ABI_CALL run(void* const data) noexcept
+    {
+        auto& self = *static_cast<SArenaCompletion*>(data);
+        auto& transport = self.transport;
+        if (self.recycling)
+        {
+            TReservedArenaSlot<std::uint32_t, 16u> reserved(transport);
+            *reserved = 42u;
+            (void)reserved.publish();
+            TAcquiredArenaSlot<std::uint32_t, 16u> acquired(transport);
+            self.started.store(true, std::memory_order_release);
+            self.completed = acquired.recycle();
+        }
+        else
+        {
+            {
+                TAcquiredArenaSlot<std::uint32_t, 16u> acquired(transport);
+            }
+            TReservedArenaSlot<std::uint32_t, 16u> reserved(transport);
+            *reserved = 42u;
+            self.started.store(true, std::memory_order_release);
+            self.completed = reserved.publish();
+        }
+        self.finished.store(true, std::memory_order_release);
+        return 0u;
+    }
+};
+
+void test_arena_completion_waits_for_pop(TTestContext& ctx, const bool recycling)
+{
+    using Access = threading::transports::SMpmcTransportTestAccess;
+    Access::Transport transport;
+    if (!recycling)
+    {
+        for (std::uint32_t index = 0u; index < transport.k_capacity; ++index)
+        {
+            TReservedArenaSlot<std::uint32_t, 16u> reserved(transport);
+            *reserved = index;
+        }
+    }
+    auto& paused_sequence = Access::pause_first_pop(transport, recycling);
+    SArenaCompletion state{ transport, recycling };
+    platform::threading::CThread completion;
+    const bool created = completion.create(&SArenaCompletion::run, &state);
+    TEST_EXPECT_TRUE(ctx, created);
+    if (!created) return;
+    while (!state.started.load(std::memory_order_acquire))
+    {
+        platform::threading::processor_relax();
+    }
+    platform::system::CPerfCountConversion conversion;
+    TEST_EXPECT_TRUE(ctx, conversion.init());
+    platform::system::CPerfCounter timer;
+    (void)timer.update();
+    while (!state.finished.load(std::memory_order_acquire) &&
+        (timer.query_delta() < conversion.query_ticks_per_second() / 20u))
+    {
+        platform::threading::processor_relax();
+    }
+    TEST_EXPECT_FALSE(ctx, state.finished.load(std::memory_order_acquire));
+    paused_sequence.store(transport.k_capacity, std::memory_order_release);
+    TEST_EXPECT_TRUE(ctx, completion.join_and_close());
+    TEST_EXPECT_TRUE(ctx, state.completed);
+    Access::recycle_first_slot(transport);
+    while (true)
+    {
+        TAcquiredArenaSlot<std::uint32_t, 16u> acquired(transport);
+        if (!acquired) break;
+    }
+    TEST_EXPECT_EQ(ctx, transport.outstanding_count(), 0u);
+
+    //  Verify that no slot was silently lost, rather than just observing an
+    //  apparently successful completion or a decremented submission credit.
+    for (std::uint32_t index = 0u; index < transport.k_capacity; ++index)
+    {
+        TReservedArenaSlot<std::uint32_t, 16u> reserved(transport);
+        TEST_EXPECT_TRUE(ctx, reserved.is_ready());
+    }
+    TEST_EXPECT_EQ(ctx, transport.outstanding_count(), transport.k_capacity);
+    while (true)
+    {
+        TAcquiredArenaSlot<std::uint32_t, 16u> acquired(transport);
+        if (!acquired) break;
+    }
+    TEST_EXPECT_EQ(ctx, transport.outstanding_count(), 0u);
+}
+
 int test_mpmc_transport()
 {
     TTestContext ctx;
@@ -223,6 +350,8 @@ int test_mpmc_transport()
     test_arena_transport_shutdown(ctx);
     test_arena_transport_scoped_wrappers(ctx);
     test_job_transport_composition(ctx);
+    test_arena_completion_waits_for_pop(ctx, true);
+    test_arena_completion_waits_for_pop(ctx, false);
 
     print_summary("TMpmcTransport", ctx);
     return ctx.exit_code();

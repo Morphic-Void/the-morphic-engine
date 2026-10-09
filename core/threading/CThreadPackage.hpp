@@ -23,7 +23,9 @@
 #include "platform/threading/thread_lifetime.hpp"
 #include "platform/threading/thread_priority.hpp"
 #include "platform/system/performance_counter.hpp"
+#include "containers/TInstance.hpp"
 #include "system/system_ids.hpp"
+#include "threading/CBatchWork.hpp"
 #include "threading/CParkingGate.hpp"
 #include "threading/CThreadControlState.hpp"
 #include "threading/CWaitPredicate.hpp"
@@ -47,9 +49,7 @@ struct ThreadConfig
 class CThreadResources
 {
 public:
-    CThreadResources(
-        const ThreadConfig& thread_config,
-        const platform::system::CPerfCountConversion& perf_count_conversion) noexcept;
+    CThreadResources(const ThreadConfig& thread_config, const platform::system::CPerfCountConversion& perf_count_conversion) noexcept;
     ~CThreadResources() noexcept = default;
 
     //  Immutable configuration shared by the package and thread context.
@@ -65,6 +65,7 @@ public:
     transports::CErasedPodMsgTransport worker_to_host_msgs;
     transports::CErasedOwnerMsgTransport worker_to_host_owned_msgs;
     CThreadControlState control_state;
+    CBatchClient* batch_client{ nullptr };
 };
 
 class CThreadContext
@@ -96,33 +97,33 @@ private:
 class CThreadPackage
 {
 public:
-    CThreadPackage(
-        const ThreadConfig& thread_config,
-        const platform::system::CPerfCountConversion& perf_count_conversion) noexcept;
+    CThreadPackage(const ThreadConfig& thread_config, const platform::system::CPerfCountConversion& perf_count_conversion) noexcept;
     ~CThreadPackage() noexcept = default;
 
     bool startup() noexcept;
     bool shutdown() noexcept;
+    bool install_batch_client(SBatchShared& shared, const module_ids::id_type module_id, void* const binding) noexcept;
     void request_exit() noexcept;
     bool read(CErasedPodMsg& msg) noexcept;
     bool post(const CErasedPodMsg& msg) noexcept;
     bool read(CErasedOwnerMsg& msg) noexcept;
 
     [[nodiscard]] EThreadRunState query_state() const noexcept;
+    [[nodiscard]] CBatchClient* batch_client() noexcept { return m_resources.batch_client; }
 
 private:
     static std::uint32_t MV_STD_ABI_CALL thread_entry_point(void* const user_data) noexcept;
+    void release_wait_control() noexcept;
 
     CThreadResources m_resources;
+    TInstance<CBatchClient> m_batch_client;
 };
 
 //==============================================================================
 //  CThreadResources inline out of class function bodies
 //==============================================================================
 
-inline CThreadResources::CThreadResources(
-    const ThreadConfig& thread_config,
-    const platform::system::CPerfCountConversion& perf_count_conversion) noexcept
+inline CThreadResources::CThreadResources(const ThreadConfig& thread_config, const platform::system::CPerfCountConversion& perf_count_conversion) noexcept
     : config{ thread_config }
     , perf_count_conversion{ perf_count_conversion }
     , host_to_worker_msgs{ thread_config.worker_module_id }
@@ -170,8 +171,7 @@ inline bool CThreadContext::exit_requested() const noexcept
     return m_resources.control_state.exit_requested();
 }
 
-inline const platform::system::CPerfCountConversion&
-CThreadContext::perf_count_conversion() const noexcept
+inline const platform::system::CPerfCountConversion& CThreadContext::perf_count_conversion() const noexcept
 {
     return m_resources.perf_count_conversion;
 }

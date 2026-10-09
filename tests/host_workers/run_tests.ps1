@@ -37,7 +37,7 @@ function Invoke-Host([string[]] $Arguments, [int] $ExpectedExit) {
         }
         $errorText = $stderr.GetAwaiter().GetResult()
         if ($process.ExitCode -ne $ExpectedExit) { throw "Host returned $($process.ExitCode), expected $ExpectedExit`: $Arguments $errorText" }
-        if (($ExpectedExit -eq 2) -and ($errorText -notmatch '--host-workers')) { throw 'Missing invalid-option diagnostic.' }
+        if (($ExpectedExit -eq 2) -and ($errorText -notmatch '--(host-workers|batch-runners)')) { throw 'Missing invalid-option diagnostic.' }
         return $process.Id
     }
     finally { $process.Dispose() }
@@ -53,10 +53,21 @@ foreach ($arguments in @(
 }
 Write-Output "$Configuration/$Platform invalid worker options passed"
 
+foreach ($arguments in @(
+    @('--batch-runners'), @('--batch-runners='), @('--batch-runners=-1'),
+    @('--batch-runners=+2'), @('--batch-runners=abc'), @('--batch-runners=2x'),
+    @('--batch-runners=4294967296'), @('--batch-runners=1', '--batch-runners=2')
+)) {
+    $null = Invoke-Host -Arguments $arguments -ExpectedExit 2
+}
+Write-Output "$Configuration/$Platform invalid batch options passed"
+
 foreach ($requested in @(0, 1, 2, 3, 9, 128)) {
     $tag = "workers-$suffix-$requested"
     $arguments = @("--log-tag=$tag", '--log-directory=development/logical-roots/test-logs')
     if ($requested -ne 0) { $arguments += "--host-workers=$requested" }
+    $batchRequested = if ($requested -eq 1) { 0 } elseif ($requested -eq 2) { 32 } else { 8 }
+    if ($batchRequested -ne 8) { $arguments += "--batch-runners=$batchRequested" }
     $processId = Invoke-Host -Arguments $arguments -ExpectedExit 0
     $log = Join-Path $runtime "development/logical-roots/test-logs/morphic_debug.$tag.p$processId.log"
     $events = Get-Content -LiteralPath $log -Raw
@@ -77,6 +88,13 @@ foreach ($requested in @(0, 1, 2, 3, 9, 128)) {
     if (($count -ne $expected) -or ($dedicated -ne ($count - 1))) { throw "Unexpected worker sizing: $log" }
     if (($count -lt $requestCount) -and !$events.Contains("Host: Worker count reduced from $requestCount to $count")) {
         throw "Missing worker reduction diagnostic: $log"
+    }
+    $batchLimit = [Math]::Min(32, [Math]::Max(0, [Math]::Min($hardware, 64) - 6 - $count))
+    $batchExpected = [Math]::Min($batchRequested, $batchLimit)
+    if (!$events.Contains("Host: Batch runners $batchExpected")) { throw "Unexpected batch runner sizing: $log" }
+    if (($batchExpected -lt $batchRequested) -and
+        !$events.Contains("Host: Batch runners reduced from $batchRequested to $batchExpected")) {
+        throw "Missing batch runner reduction diagnostic: $log"
     }
     $identity = '\[executable:(bg_file_io|bg_conditioning)\]'
     $starts = [regex]::Matches($events, "$identity.*Worker starting")

@@ -19,8 +19,7 @@ Use:
 - `docs/backlog/current_scope_backlog.md` for active priorities;
 - `docs/backlog/engine_backlog.md` for the broader backlog;
 - [Deferred design](../backlog/consolidation_deferred_design.md) for resource
-  and lifecycle ideas, and [job framework design](../backlog/job_framework_design.md)
-  for future scheduled execution;
+  and lifecycle ideas;
 - `completed_milestones.md` for completed cross-cutting work;
 - subsystem documents for implemented behavior.
 
@@ -39,10 +38,10 @@ are known.
 
 ## MPMC Consumer Facades
 
-The MPMC transport foundation is complete. Add thin debug-system, job-system,
-or other consumer facades only when concrete access patterns justify their
-shape. These facades are downstream integration rather than unfinished
-transport work.
+The MPMC transport foundation is complete, and the
+[batch runner client](../modules/batch_runners.md) is a concrete consumer.
+Add further consumer facades only when their access patterns justify them;
+they are downstream integration rather than unfinished transport work.
 
 ## Memory And Template Coverage
 

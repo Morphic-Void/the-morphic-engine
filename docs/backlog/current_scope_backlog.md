@@ -38,9 +38,11 @@ does not authorise further implementation.
 Vulkan is the primary rendering API planned for first implementation; DirectX
 is deferred. The current rendering DLL only waits for an exit request.
 Final deployment/platform bindings, UGC providers, general document navigation,
-save-game integration, automatic cache reclamation, trust/layers and the general
-job framework remain future work. Basic filesystem discovery/resolution, cache
-reuse and explicit disposal are implemented; those do not imply the broader
+save-game integration, automatic cache reclamation and trust/layers remain future
+work. [Module batch runners](../modules/batch_runners.md) now provide coarse
+module work; further scheduling or dependency orchestration has not been selected.
+Basic filesystem discovery/resolution, cache reuse and explicit disposal are
+implemented; those do not imply the broader
 mechanisms. Fixed-layout baked value editing is already implemented through
 `CMutableBakedDocument`; a save-game workflow remains separate consumer work.
 [Filesystem limitations](filesystem_asset_mapping.md) records only
@@ -62,6 +64,6 @@ solution builds disabled, is a suggestion awaiting selection.
   inventory, resolution, refresh and cache contract.
 - [Filesystem limitations](filesystem_asset_mapping.md): bounded current behaviour
   and useful future considerations, not the superseded filesystem design.
-- [Job framework design](job_framework_design.md): future scheduling and module
-  execution design, separate from the implemented DLL lifecycle service.
+- [Module batch runners](../modules/batch_runners.md): implemented coarse
+  module work and its lifetime contract.
 - [Future work notes](../project/future_work_notes.md): supporting cross-task context.

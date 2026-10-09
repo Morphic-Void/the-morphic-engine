@@ -7,7 +7,8 @@ alternatives are distinguished where they differ.
 
 See [current scope](current_scope_backlog.md) to select subsequent work,
 [filesystem limitations](filesystem_asset_mapping.md) for possible later iterations
-and [job framework design](job_framework_design.md) for future scheduled execution.
+and [module batch runners](../modules/batch_runners.md) for the implemented
+coarse-work execution contract.
 Historical proposals must be reassessed against the implemented subsystem contracts.
 
 ## Implemented boundary
@@ -32,8 +33,10 @@ transfers, one-shot transfer/conditioning/save and saves by ID. Retained assets
 live until explicit disposal, dependent-module cleanup or shutdown. The
 [module service](../modules/asynchronous_module_lifecycle.md) drains operations
 and joins affected threads before dependency cleanup and I/O-worker unbinding.
-These bounded services do not implement reference counting, automatic cache
-eviction, cancellation or a general scheduler. The former deferred filesystem
+The [batch runner pool](../modules/batch_runners.md) executes coarse module work
+under the requester's ownership and exit control. These bounded services do not
+implement reference counting, automatic cache eviction, cancellation or general
+dependency orchestration. The former deferred filesystem
 design is superseded by the implementation, not awaiting completion. Its useful
 remaining considerations are in [filesystem limitations](filesystem_asset_mapping.md).
 

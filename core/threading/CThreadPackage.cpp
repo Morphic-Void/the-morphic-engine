@@ -98,7 +98,7 @@ bool CThreadPackage::startup() noexcept
                         m_resources.created = false;
                     }
                     m_resources.control_state.mark_empty();
-                    m_resources.wait_predicate.release_control();
+                    release_wait_control();
                 }
                 m_resources.worker_to_host_owned_msgs.deallocate();
             }
@@ -109,17 +109,32 @@ bool CThreadPackage::startup() noexcept
     return false;
 }
 
+bool CThreadPackage::install_batch_client(SBatchShared& shared, const module_ids::id_type module_id, void* const binding) noexcept
+{
+    if (m_resources.created || m_batch_client || (binding == nullptr) || !module_ids::ops::is_valid_id(module_id))
+    {
+        return false;
+    }
+    if (!m_batch_client.emplace(shared, m_resources.control_state, m_resources.wait_predicate, module_id, binding))
+    {
+        return false;
+    }
+    m_resources.batch_client = &*m_batch_client;
+    return true;
+}
+
 bool CThreadPackage::shutdown() noexcept
 {
     if (m_resources.created && m_resources.wait_predicate.has_control())
     {
         m_resources.control_state.request_exit();
-        m_resources.wait_predicate.release_control();
+        (void)m_resources.wait_predicate.poke_epoch_and_wake_one();
         while (!m_resources.control_state.is_done())
         {
             std::this_thread::yield();
         }
         m_resources.created = m_resources.thread.join_and_close();
+        release_wait_control();
         if (!m_resources.created)
         {
             m_resources.worker_to_host_owned_msgs.deallocate();
@@ -128,6 +143,18 @@ bool CThreadPackage::shutdown() noexcept
         }
     }
     return m_resources.created;
+}
+
+void CThreadPackage::release_wait_control() noexcept
+{
+    //  A joined requester can have consumed its final response before the
+    //  runner finishes waking it. Keep the predicate controlled until then.
+    while ((m_resources.batch_client != nullptr) &&
+        (m_resources.batch_client->return_publishers() != 0u))
+    {
+        std::this_thread::yield();
+    }
+    m_resources.wait_predicate.release_control();
 }
 
 }   //  namespace threading

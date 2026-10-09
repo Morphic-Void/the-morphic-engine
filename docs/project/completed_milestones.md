@@ -210,12 +210,13 @@ asset and module references above. This record retains completion evidence;
 the original deliberations and intermediate validation remain in Git history.
 
 Future ideas were preserved in [deferred design](../backlog/consolidation_deferred_design.md),
-[filesystem considerations](../backlog/filesystem_asset_mapping.md),
-[job framework design](../backlog/job_framework_design.md), the engine backlog
-and schema documents. The deferred record distinguishes implemented services,
-open choices and rejected alternatives, including accounting-period reset,
+[filesystem considerations](../backlog/filesystem_asset_mapping.md), the engine
+backlog and schema documents. The former job-framework proposal has since been
+superseded by the [module batch runners](../modules/batch_runners.md); its original
+discussion remains in Git history. The deferred record distinguishes implemented
+services, open choices and rejected alternatives, including accounting-period reset,
 bundled outputs, possible baked save-game mutation and message-validity proposals.
-No future system is marked implemented by this documentation cleanup.
+The earlier documentation cleanup did not mark any future system implemented.
 
 ## Memory Ownership And Accounting
 

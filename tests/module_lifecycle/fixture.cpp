@@ -8,6 +8,7 @@
 //
 //  Real DLL fixtures for the Host's asynchronous module lifecycle.
 
+#include <atomic>
 #include <cstdlib>
 #include <cstdio>
 #include <cstring>
@@ -16,6 +17,8 @@
 
 #include "tests/environment/local_type_ids.hpp"
 #include "module/module_binding_context.hpp"
+#include "memory/memory_context.hpp"
+#include "system/system_context.hpp"
 #include "system/transported_types.hpp"
 #include "threading/CThreadPackage.hpp"
 #include "debug/macros.hpp"
@@ -25,6 +28,121 @@ namespace module_lifecycle_tests
 
 #if MV_LIFECYCLE_EXECUTIVE
 static constexpr auto k_advertised_module_id = module_ids::executive;
+
+struct SBatchFixtureItem
+{
+    std::uint32_t value{ 0u };
+    std::atomic<std::uint32_t>* started{ nullptr };
+    threading::CThreadControlState* wait_for_exit{ nullptr };
+    thread_ids::id_type observed_thread{};
+    module_ids::id_type observed_module{};
+    memory::CMemoryContext* observed_memory{ nullptr };
+};
+
+static void MV_STD_ABI_CALL execute_batch_item(void* const object) noexcept
+{
+    SBatchFixtureItem& item = *static_cast<SBatchFixtureItem*>(object);
+    if (item.started != nullptr)
+    {
+        item.started->store(1u, std::memory_order_release);
+        while (!item.wait_for_exit->exit_requested())
+        {
+            platform::threading::processor_relax();
+        }
+    }
+    ++item.value;
+    item.observed_thread = system_context::get_ambient_thread_id();
+    item.observed_module = system_context::get_ambient_module_id();
+    item.observed_memory = memory::get_ambient_memory_context();
+    MV_REPORT("Lifecycle fixture: batch item executed");
+}
+
+static bool batch_case(threading::CThreadContext& context,
+    threading::CThreadResources& resources, const bool require_inline) noexcept
+{
+    threading::CBatchClient* const client = resources.batch_client;
+    if (client == nullptr)
+    {
+        return false;
+    }
+    constexpr std::uint32_t k_items = 16u;
+    SBatchFixtureItem items[k_items];
+    bool completed[k_items]{};
+    std::uint32_t inline_count = 0u;
+    std::uint32_t queued_count = 0u;
+    memory::CMemoryContext* const expected_memory = memory::get_ambient_memory_context();
+    for (std::uint32_t index = 0u; index < k_items; ++index)
+    {
+        const threading::SBatchSubmission submitted = client->submit(
+            &execute_batch_item, &items[index], 100u + index);
+        if (submitted.status == threading::EBatchSubmission::queued)
+        {
+            ++queued_count;
+        }
+        else if (submitted.status == threading::EBatchSubmission::completed_inline)
+        {
+            ++inline_count;
+            completed[index] = true;
+        }
+        else
+        {
+            return false;
+        }
+    }
+    if (require_inline && (queued_count != 0u))
+    {
+        return false;
+    }
+    std::uint32_t received = 0u;
+    while (received < queued_count)
+    {
+        const std::uint32_t epoch = resources.wait_predicate.get_word();
+        threading::SBatchResponse response;
+        while (client->receive(response))
+        {
+            if ((response.completion != threading::EBatchCompletion::executed) ||
+                (response.correlation < 100u) || (response.correlation >= 100u + k_items))
+            {
+                return false;
+            }
+            const std::uint32_t index = response.correlation - 100u;
+            if (completed[index])
+            {
+                return false;
+            }
+            completed[index] = true;
+            ++received;
+        }
+        if (received < queued_count)
+        {
+            (void)context.wait_for_new_epoch(epoch);
+        }
+    }
+    for (std::uint32_t index = 0u; index < k_items; ++index)
+    {
+        const SBatchFixtureItem& item = items[index];
+        if (!completed[index] || (item.value != 1u) ||
+            (item.observed_module != module_ids::executive) ||
+            (item.observed_memory != expected_memory))
+        {
+            return false;
+        }
+        if ((queued_count == 0u) && (item.observed_thread != thread_ids::executive))
+        {
+            return false;
+        }
+        if ((queued_count != 0u) && (item.observed_thread != thread_ids::batch_runner_00))
+        {
+            return false;
+        }
+    }
+    if (client->outstanding() != 0u)
+    {
+        return false;
+    }
+    MV_REPORT("Lifecycle fixture: batch queued %u inline %u", queued_count, inline_count);
+    return true;
+}
 
 static bool post(threading::CThreadContext& context, const EModuleAction action,
     const module_ids::id_type module, const char* const file, const std::int32_t slot,
@@ -114,6 +232,94 @@ static bool self_terminate(threading::CThreadContext& context, const char* const
         MV_REPORT("Lifecycle fixture: Host requested Executive exit without notifications");
     }
     return success;
+}
+
+static bool batch_exit_case(threading::CThreadContext& context,
+    threading::CThreadResources& resources) noexcept
+{
+    threading::CBatchClient* const client = resources.batch_client;
+    if (client == nullptr)
+    {
+        return false;
+    }
+    if (!client->has_runners())
+    {
+        MV_REPORT("Lifecycle fixture: batch exit skipped without runners");
+        return self_terminate(context, nullptr);
+    }
+
+    constexpr std::uint32_t k_items = 8u;
+    SBatchFixtureItem items[k_items];
+    std::atomic<std::uint32_t> started{ 0u };
+    items[0].started = &started;
+    items[0].wait_for_exit = &resources.control_state;
+    if (client->submit(&execute_batch_item, &items[0], 200u).status != threading::EBatchSubmission::queued)
+    {
+        return false;
+    }
+    platform::system::CPerfCounter timer;
+    (void)timer.update();
+    const auto deadline = context.perf_count_conversion().query_ticks_per_second() * 10u;
+    while ((started.load(std::memory_order_acquire) == 0u) && (timer.query_delta() < deadline))
+    {
+        platform::threading::processor_relax();
+    }
+    if (started.load(std::memory_order_acquire) == 0u)
+    {
+        return false;
+    }
+    for (std::uint32_t index = 1u; index < k_items; ++index)
+    {
+        if (client->submit(&execute_batch_item, &items[index], 200u + index).status !=
+            threading::EBatchSubmission::queued)
+        {
+            return false;
+        }
+    }
+    if (!self_terminate(context, nullptr))
+    {
+        return false;
+    }
+    bool seen[k_items]{};
+    std::uint32_t received = 0u;
+    while (received < k_items)
+    {
+        const std::uint32_t epoch = resources.wait_predicate.get_word();
+        threading::SBatchResponse response;
+        while (client->receive(response))
+        {
+            if ((response.correlation < 200u) || (response.correlation >= 200u + k_items))
+            {
+                return false;
+            }
+            const std::uint32_t index = response.correlation - 200u;
+            if (seen[index] || (response.completion != ((index == 0u)
+                ? threading::EBatchCompletion::executed
+                : threading::EBatchCompletion::discarded_requester_exiting)))
+            {
+                return false;
+            }
+            seen[index] = true;
+            ++received;
+        }
+        if (received < k_items)
+        {
+            (void)context.wait_for_new_epoch(epoch);
+        }
+    }
+    if ((items[0].value != 1u) || (client->outstanding() != 0u))
+    {
+        return false;
+    }
+    for (std::uint32_t index = 1u; index < k_items; ++index)
+    {
+        if (items[index].value != 0u)
+        {
+            return false;
+        }
+    }
+    MV_REPORT("Lifecycle fixture: batch exit drained one executed and seven discarded");
+    return true;
 }
 
 static bool retain_raw_asset(threading::CThreadContext& context, const bool dependency,
@@ -402,8 +608,21 @@ static bool unload_during_saves(threading::CThreadContext& context, const bool r
     }
 }
 
-static bool run_case(threading::CThreadContext& context, const char* const selected) noexcept
+static bool run_case(threading::CThreadContext& context,
+    threading::CThreadResources& resources, const char* const selected) noexcept
 {
+    if (std::strcmp(selected, "batch") == 0)
+    {
+        return batch_case(context, resources, false) && self_terminate(context, nullptr);
+    }
+    if (std::strcmp(selected, "batch-inline") == 0)
+    {
+        return batch_case(context, resources, true) && self_terminate(context, nullptr);
+    }
+    if (std::strcmp(selected, "batch-exit") == 0)
+    {
+        return batch_exit_case(context, resources);
+    }
     if (std::strcmp(selected, "render-exit-disposal") == 0)
     {
         return unload_during_saves(context, true) && self_terminate(context, nullptr);
@@ -519,7 +738,8 @@ static bool run_case(threading::CThreadContext& context, const char* const selec
 
 static std::uint32_t MV_STD_ABI_CALL executive_entry(void* const data) noexcept
 {
-    threading::CThreadContext context{ *static_cast<threading::CThreadResources*>(data) };
+    threading::CThreadResources& resources = *static_cast<threading::CThreadResources*>(data);
+    threading::CThreadContext context{ resources };
     context.startup();
     char selected[32]{};
     std::size_t required{ 0u };
@@ -530,7 +750,7 @@ static std::uint32_t MV_STD_ABI_CALL executive_entry(void* const data) noexcept
         return 1u;
     }
     context.mark_running();
-    const bool success = configured && run_case(context, selected);
+    const bool success = configured && run_case(context, resources, selected);
     if (success)
     {
         MV_REPORT("Lifecycle fixture: %s passed", selected);

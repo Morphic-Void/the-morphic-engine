@@ -21,6 +21,7 @@
 #include <cstdint>      //  std::int32_t, std::uint8_t
 
 #include "host/runtime/asset_service.hpp"
+#include "host/runtime/batch_pool.hpp"
 #include "host/runtime/module_service.hpp"
 #include "host/runtime/worker_policy.hpp"
 #include "containers/TInstance.hpp"
@@ -45,7 +46,8 @@ public:
     ~CHost() noexcept;
 
     [[nodiscard]] int execute(const char* const log_tag, const char* const executive_file,
-        const char* const log_directory, const std::uint32_t worker_count = k_default_worker_count) noexcept;
+        const char* const log_directory, const std::uint32_t worker_count = k_default_worker_count,
+        const std::uint32_t batch_runner_count = k_default_batch_runner_count) noexcept;
 
 private:
     enum class EWorkerThreadID : std::uint8_t
@@ -97,6 +99,7 @@ private:
 
     TUnorderedCollection<threading::CThreadPackage> m_thread_packages;
     CAssetService m_asset_service;
+    CBatchPool m_batch_pool;
     filesystem_image::CImage m_filesystem;
     struct SRefresh
     {
@@ -114,6 +117,7 @@ private:
     bool m_scan_in_flight{ false };
     bool m_filesystem_failed{ false };
     bool m_runtime_failed{ false };
+    bool m_batch_contract_failed{ false };
     platform::system::CPerfCountConversion m_perf_count_conversion;
 
     //  Self-replacement owns its request until the outgoing Executive is joined.
@@ -123,11 +127,13 @@ private:
     std::int32_t m_thread_slots[k_thread_count]{ -1, -1 };
     std::int32_t m_worker_slots[k_max_worker_count]{ -1, -1 };
     std::uint32_t m_worker_count{ 0u };
+    std::uint32_t m_batch_runner_count{ 0u };
 };
 
 int host(const char* const log_tag = nullptr, const char* const executive_file = "package:/bin/MorphicExecutive.dll",
     const char* const log_directory = "development/logical-roots/logs",
-    const std::uint32_t worker_count = k_default_worker_count) noexcept;
+    const std::uint32_t worker_count = k_default_worker_count,
+    const std::uint32_t batch_runner_count = k_default_batch_runner_count) noexcept;
 
 }   //  namespace host
 

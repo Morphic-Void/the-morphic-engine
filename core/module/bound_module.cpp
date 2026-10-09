@@ -145,6 +145,14 @@ bool CBoundModule::prepare_thread(const thread_ids::id_type thread_id, void* con
         (m_core.install_thread_memory_context(nullptr) == EBindingResult::success);
 }
 
+bool CBoundModule::prepare_batch_thread(const thread_ids::id_type thread_id, memory::CMemoryContext* const memory_context) noexcept
+{
+    return m_installed && (memory_context != nullptr) && memory_context->is_usable() &&
+        memory_context->belongs_to_module(m_advertised_module_identity.advertised_module_id) &&
+        (m_core.install_ambient_thread_id(thread_id) == EBindingResult::success) &&
+        (m_core.install_thread_memory_context(memory_context) == EBindingResult::success);
+}
+
 bool CBoundModule::unbind() noexcept
 {
     if ((m_module_memory_context != nullptr) && !m_module_memory_context->is_attribution_empty())

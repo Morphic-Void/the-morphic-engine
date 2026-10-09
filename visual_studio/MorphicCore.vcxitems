@@ -99,6 +99,7 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\threading\CCountingSemaphore.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\threading\CParkingGate.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\threading\CThreadControlState.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\threading\CBatchWork.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\threading\CThreadPackage.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\threading\CWaitPredicate.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\threading\messages\byte_view_payloads.hpp" />
@@ -262,7 +263,7 @@
     <None Include="$(MSBuildThisFileDirectory)..\docs\system\erased_owner.md" />
     <None Include="$(MSBuildThisFileDirectory)..\docs\system\module_bootstrap.md" />
     <None Include="$(MSBuildThisFileDirectory)..\docs\system\type_identity.md" />
-    <None Include="$(MSBuildThisFileDirectory)..\docs\backlog\job_framework_design.md" />
+    <None Include="$(MSBuildThisFileDirectory)..\docs\modules\batch_runners.md" />
     <None Include="$(MSBuildThisFileDirectory)..\docs\threading\transports\TMpmcTransport.md" />
     <None Include="$(MSBuildThisFileDirectory)..\docs\threading\transports\TOwningTransport.md" />
     <None Include="$(MSBuildThisFileDirectory)..\docs\threading\transports\TQueueTransport.md" />

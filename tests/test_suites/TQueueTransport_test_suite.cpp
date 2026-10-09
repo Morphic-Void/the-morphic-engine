@@ -615,6 +615,18 @@ void test_queue_deallocate_restores_empty(TTestContext& ctx)
     TEST_EXPECT_EQ(ctx, queue.refresh_readable_count(), 0u);
 }
 
+void test_queue_zero_hint_remains_growable(TTestContext& ctx)
+{
+    TQueue<char> queue;
+    TEST_EXPECT_TRUE(ctx, queue.initialise_growable(0u));
+    for (std::uint32_t index = 0u; index < 65u; ++index)
+    {
+        const char value = 'A';
+        TEST_EXPECT_TRUE(ctx, queue.post(&value, 1u));
+    }
+    TEST_EXPECT_EQ(ctx, tests::drain_queue(queue), tests::make_repeated_string('A', 65u));
+}
+
 int test_queue_transport()
 {
     TTestContext ctx;
@@ -634,6 +646,7 @@ int test_queue_transport()
     test_queue_fixed_no_discard_rejects_overflow(ctx);
     test_queue_fixed_discard_replaces_buffered_data(ctx);
     test_queue_growable_resize_matrix(ctx);
+    test_queue_zero_hint_remains_growable(ctx);
     test_queue_reading_can_drain_after_poison(ctx);
     test_queue_deallocate_restores_empty(ctx);
 

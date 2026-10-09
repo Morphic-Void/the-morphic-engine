@@ -577,8 +577,8 @@ inline bool TQueue<T>::initialise_growable(const std::uint32_t capacity, const s
     {
         return false;
     }
-    if (max_capacity != capacity)
-    {   //  the user did not specify matching capacities, growth is expected
+    if ((max_capacity == 0u) || (max_capacity != capacity))
+    {   //  An omitted maximum requests growth, even from an initial hint of zero.
         m_max_capacity = (max_capacity == 0u)
             ? std::min(k_max_capacity, k_token_max_capacity)
             : std::max(max_capacity, m_capacity);

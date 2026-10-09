@@ -474,6 +474,9 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\threading\CThreadControlState.hpp">
       <Filter>Core\include\threading</Filter>
     </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\threading\CBatchWork.hpp">
+      <Filter>Core\include\threading</Filter>
+    </ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\threading\CThreadPackage.hpp">
       <Filter>Core\include\threading</Filter>
     </ClInclude>
@@ -805,8 +808,8 @@
     <None Include="$(MSBuildThisFileDirectory)..\docs\system\type_identity.md">
       <Filter>Docs\system</Filter>
     </None>
-    <None Include="$(MSBuildThisFileDirectory)..\docs\backlog\job_framework_design.md">
-      <Filter>Docs\backlog</Filter>
+    <None Include="$(MSBuildThisFileDirectory)..\docs\modules\batch_runners.md">
+      <Filter>Docs\modules</Filter>
     </None>
     <None Include="$(MSBuildThisFileDirectory)..\docs\threading\transports\TMpmcTransport.md">
       <Filter>Docs\threading\transports</Filter>

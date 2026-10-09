@@ -133,7 +133,8 @@ bool CHost::start_executive() noexcept
     }
 
     m_thread_slots[static_cast<std::uint32_t>(EWorkerThreadID::executive)] = slot;
-    return m_thread_packages.get_object(slot)->startup();
+    threading::CThreadPackage* const package = m_thread_packages.get_object(slot);
+    return package->install_batch_client(m_batch_pool.shared(), module_ids::executive, binding) && package->startup();
 }
 
 bool CHost::start_rendering() noexcept
@@ -153,7 +154,9 @@ bool CHost::start_rendering() noexcept
     {
         return false;
     }
-    if (!m_thread_packages.get_object(slot)->startup())
+    threading::CThreadPackage* const package = m_thread_packages.get_object(slot);
+    if (!package->install_batch_client(m_batch_pool.shared(),
+        binding->advertised_module_identity().advertised_module_id, binding) || !package->startup())
     {
         (void)m_thread_packages.erase(slot);
         return false;
@@ -178,6 +181,19 @@ bool CHost::stop_rendering(const threading::EThreadRunState state) noexcept
     {
         return false;
     }
+    if ((rendering->batch_client() != nullptr) &&
+        (rendering->batch_client()->outstanding() != 0u))
+    {
+        m_runtime_failed = true;
+        m_batch_contract_failed = true;
+        MV_CRITICAL_EVENT("Rendering exited with outstanding batch work");
+        return false;
+    }
+    if ((rendering->batch_client() != nullptr) &&
+        (rendering->batch_client()->return_publishers() != 0u))
+    {
+        return false;
+    }
 
     //  Terminal state was observed before the final queue drain. Accepted asset
     //  operations have also replied, so neither they nor the thread borrow the
@@ -195,7 +211,8 @@ bool CHost::stop_rendering(const threading::EThreadRunState state) noexcept
 bool CHost::initialise_runtime(const char* const executive_file) noexcept
 {
     if (!m_perf_count_conversion.init() || !m_thread_packages.initialise() ||
-        !m_asset_service.initialise() || !start_threads())
+        !m_asset_service.initialise() || !start_threads() ||
+        !m_batch_pool.start(m_batch_runner_count))
     {
         return false;
     }
@@ -239,7 +256,7 @@ threading::CThreadPackage* CHost::worker_package(const std::uint32_t index) noex
     return m_thread_packages.get_object(m_worker_slots[index]);
 }
 
-int CHost::execute(const char* const log_tag, const char* const executive_file, const char* const log_directory, const std::uint32_t worker_count) noexcept
+int CHost::execute(const char* const log_tag, const char* const executive_file, const char* const log_directory, const std::uint32_t worker_count, const std::uint32_t batch_runner_count) noexcept
 {
     initialise_debug_service(log_tag, log_directory);
     MV_INFO("Host: Starting");
@@ -257,6 +274,16 @@ int CHost::execute(const char* const log_tag, const char* const executive_file, 
     }
     MV_REPORT("Host: Background workers %u, dedicated conditioning workers %u, reported hardware threads %u",
         m_worker_count, (m_worker_count > 1u) ? m_worker_count - 1u : 0u, hardware_threads);
+    const std::uint32_t batch_limit = batch_runner_limit(hardware_threads, m_worker_count, static_cast<std::uint32_t>(k_thread_count));
+    m_batch_runner_count = std::min(batch_runner_count, batch_limit);
+#if !MV_PLATFORM_HAS_NATIVE_WAIT_WORD
+    m_batch_runner_count = 0u;
+#endif
+    if (m_batch_runner_count != batch_runner_count)
+    {
+        MV_REPORT("Host: Batch runners reduced from %u to %u", batch_runner_count, m_batch_runner_count);
+    }
+    MV_REPORT("Host: Batch runners %u", m_batch_runner_count);
 
     const bool initialised = initialise_runtime(executive_file);
     if (initialised)
@@ -477,6 +504,21 @@ void CHost::advance_lifecycle(const threading::EThreadRunState executive_state) 
 
         if ((m_phase == EPhase::stopping_executive) && stopped && m_asset_service.is_idle() && m_module_service.is_idle() && filesystem_idle())
         {
+            if (executive->batch_client() != nullptr)
+            {
+                if (executive->batch_client()->outstanding() != 0u)
+                {
+                    m_runtime_failed = true;
+                    m_batch_contract_failed = true;
+                    MV_CRITICAL_EVENT("Executive exited with outstanding batch work");
+                    return;
+                }
+                if (executive->batch_client()->return_publishers() != 0u)
+                {
+                    return;
+                }
+            }
+
             //  Join before dropping queued messages or allowing the worker to
             //  unbind the outgoing Executive. No asset operation still borrows it.
             m_runtime_failed = m_runtime_failed || (state == threading::EThreadRunState::Failed);
@@ -507,8 +549,7 @@ void CHost::advance_lifecycle(const threading::EThreadRunState executive_state) 
     if ((m_phase == EPhase::shutting_down) && m_asset_service.is_idle() && m_module_service.is_idle() && filesystem_idle())
     {
         if (!m_module_service.request_shutdown())
-        {
-            //  Dependent assets were disposed of before each module unload.
+        {   //  Dependent assets were disposed of before each module unload.
             m_asset_service.deallocate();
             m_phase = EPhase::complete;
         }
@@ -525,7 +566,7 @@ void CHost::run() noexcept
 
     while (m_phase != EPhase::complete)
     {
-        if (workers_failed() ||
+        if (workers_failed() || m_batch_pool.failed() || m_batch_contract_failed ||
             m_module_service.failed() || m_asset_service.failed() || m_filesystem_failed)
         {
             m_runtime_failed = true;
@@ -684,6 +725,7 @@ void CHost::shutdown_debug_service() noexcept
 bool CHost::shutdown() noexcept
 {
     shutdown_threads();
+    const bool batch_stopped = m_batch_pool.stop();
     m_module_service.cancel_pending();
     m_asset_service.fail_pending();
     m_asset_service.deallocate();
@@ -695,13 +737,13 @@ bool CHost::shutdown() noexcept
     m_thread_packages.deallocate();
     const bool modules_unloaded = m_module_service.release_records();
     shutdown_debug_service();
-    return modules_unloaded;
+    return modules_unloaded && batch_stopped;
 }
 
-int host(const char* const log_tag, const char* const executive_file, const char* const log_directory, const std::uint32_t worker_count) noexcept
+int host(const char* const log_tag, const char* const executive_file, const char* const log_directory, const std::uint32_t worker_count, const std::uint32_t batch_runner_count) noexcept
 {
     CHost runtime;
-    return runtime.execute(log_tag, executive_file, log_directory, worker_count);
+    return runtime.execute(log_tag, executive_file, log_directory, worker_count, batch_runner_count);
 }
 
 }   //  namespace host

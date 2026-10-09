@@ -13,7 +13,6 @@
 #define HOST_WORKER_POLICY_HPP_INCLUDED
 
 #include <cstdint>
-#include <limits>
 
 namespace host
 {
@@ -26,34 +25,6 @@ inline constexpr std::uint32_t k_max_worker_count = 2u;
     //  Eight reported hardware threads permit separate I/O and conditioning,
     //  accepting reduced OS headroom because these workers are used in bursts.
     return (hardware_threads >= 8u) ? k_max_worker_count : 1u;
-}
-
-[[nodiscard]] inline bool parse_worker_count(const char* const text, std::uint32_t& count) noexcept
-{
-    if ((text == nullptr) || (*text == '\0'))
-    {
-        return false;
-    }
-    std::uint32_t value = 0u;
-    for (const char* digit = text; *digit != '\0'; ++digit)
-    {
-        if ((*digit < '0') || (*digit > '9'))
-        {
-            return false;
-        }
-        const std::uint32_t next = static_cast<std::uint32_t>(*digit - '0');
-        if (value > (std::numeric_limits<std::uint32_t>::max() - next) / 10u)
-        {
-            return false;
-        }
-        value = value * 10u + next;
-    }
-    if (value == 0u)
-    {
-        return false;
-    }
-    count = value;
-    return true;
 }
 
 }   //  namespace host

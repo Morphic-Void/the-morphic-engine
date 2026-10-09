@@ -158,7 +158,7 @@ inside another engine's assumptions.
 The engine is therefore purpose-built rather than market-engine-shaped.
 
 It will contain systems that resemble those found in larger engines, such as an
-object model, rendering abstraction, job system, tools, and editor support. Those
+object model, rendering abstraction, batch runners, tools, and editor support. Those
 systems are bounded by the needs of this project. They are not intended to match
 the breadth, feature set, or ecosystem of a general-purpose engine.
 

@@ -47,6 +47,7 @@
 #include <utility>
 
 #include "bit_utils/bit_ops.hpp"
+#include "platform/threading/processor_relax.hpp"
 #include "types/atomic_types.hpp"
 
 namespace threading::transports
@@ -105,6 +106,7 @@ public:
     [[nodiscard]] bool pop(std::uint32_t& out_payload, std::uint32_t& out_sequence) noexcept;
 
 private:
+    friend struct SMpmcTransportTestAccess;
     alignas(128) Slot m_slots[k_capacity];
     TCacheLineAtomic<std::uint32_t> m_enqueue_position{};
     TCacheLineAtomic<std::uint32_t> m_dequeue_position{};
@@ -205,6 +207,9 @@ public:
     void shutdown() noexcept;
 
     [[nodiscard]] T* reserve(std::uint32_t& out_index, std::uint32_t& out_sequence) noexcept;
+    //  An owned slot guarantees ring capacity, but an earlier pop may still be
+    //  releasing its ring cell. Completion waits for that transient contention;
+    //  shutdown may abandon it. Reserve/acquire remain nonblocking attempts.
     [[nodiscard]] bool publish(const T* const slot, std::uint32_t& out_sequence) noexcept;
     [[nodiscard]] T* acquire(std::uint32_t& out_index, std::uint32_t& out_sequence) noexcept;
     [[nodiscard]] bool recycle(const T* const slot, std::uint32_t& out_sequence) noexcept;
@@ -212,6 +217,7 @@ public:
     [[nodiscard]] std::uint32_t outstanding_count() const noexcept { return m_outstanding_count.value.load(std::memory_order_acquire); }
 
 private:
+    friend struct SMpmcTransportTestAccess;
     friend class TReservedArenaSlot<T, t_capacity_hint>;
     friend class TAcquiredArenaSlot<T, t_capacity_hint>;
 
@@ -557,7 +563,19 @@ inline bool TMpmcArenaTransport<T, t_capacity_hint>::publish(const T* const slot
 
     bool ok = false;
     const std::uint32_t index = slot_index(slot, ok);
-    return ok && m_populated_ring.push(index, out_sequence);
+    if (!ok)
+    {
+        return false;
+    }
+    while (!m_populated_ring.push(index, out_sequence))
+    {
+        if (!state_allows_acquire_or_complete())
+        {
+            return false;
+        }
+        platform::threading::processor_relax();
+    }
+    return true;
 }
 
 template<typename T, std::uint32_t t_capacity_hint>
@@ -588,9 +606,17 @@ inline bool TMpmcArenaTransport<T, t_capacity_hint>::recycle(const T* const slot
 
     bool ok = false;
     const std::uint32_t index = slot_index(slot, ok);
-    if (!ok || !m_supplier_ring.push(index, out_sequence))
+    if (!ok)
     {
         return false;
+    }
+    while (!m_supplier_ring.push(index, out_sequence))
+    {
+        if (!state_allows_acquire_or_complete())
+        {
+            return false;
+        }
+        platform::threading::processor_relax();
     }
 
     const std::uint32_t previous = m_outstanding_count.value.fetch_sub(1u, std::memory_order_acq_rel);

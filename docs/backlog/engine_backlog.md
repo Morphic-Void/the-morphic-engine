@@ -154,10 +154,13 @@ gameplay integration rather than owning the primitive geometry library.
   eviction, document navigation, save-game integration using existing baked value
   editing, bundled outputs, module accounting periods, overlays, trust and later
   image transforms.
-- [Job framework](job_framework_design.md): provider execution, dependencies,
-  runner groups and unload obligations beyond the current bounded services.
 
-These documents preserve design context and alternatives, not selected work.
+The [module batch runners](../modules/batch_runners.md) provide the selected
+coarse-work execution path. General dependency orchestration, cancellation and
+operation tracking remain questions for concrete consumers, as noted in
+[deferred design](consolidation_deferred_design.md).
+
+The backlog documents preserve design context and alternatives, not selected work.
 
 ## Higher-level consumers
 

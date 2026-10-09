@@ -181,8 +181,9 @@ individual slot.
 - `feedback`, for completion or status return.
 
 It adds no queue mechanics or coordinated lifecycle beyond composition.
-Consumer-specific facades should be added only when concrete debug-system,
-job-system, or other access patterns justify them.
+The [module batch runner client](../../modules/batch_runners.md) uses MPMC arena
+transports for its work and return channels. Add further consumer-specific
+facades only when concrete access patterns justify them.
 
 ## Validation
 

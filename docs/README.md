@@ -19,6 +19,8 @@ or that work has been authorised.
   hierarchical inventory, DLL redirection, queued refresh and cache associations.
 - [Asynchronous module lifecycle](modules/asynchronous_module_lifecycle.md):
   Executive bootstrap, rendering startup, replacement, shutdown and lifecycle tests.
+- [Module batch runners](modules/batch_runners.md): Host-owned execution of
+  coarse module work, return channels and requester lifetime rules.
 - [Module binding ABI](system/module_bootstrap.md), [type identity](system/type_identity.md)
   and [erased ownership](system/erased_owner.md).
 - [Debug interface](debug/debug_system_interface.md) and
@@ -33,9 +35,8 @@ or that work has been authorised.
 
 - [Current scope](backlog/current_scope_backlog.md) and
   [engine backlog](backlog/engine_backlog.md).
-- [Deferred resource and lifecycle design](backlog/consolidation_deferred_design.md),
-  [filesystem limitations and future considerations](backlog/filesystem_asset_mapping.md) and
-  [job framework](backlog/job_framework_design.md).
+- [Deferred resource and lifecycle design](backlog/consolidation_deferred_design.md)
+  and [filesystem limitations and future considerations](backlog/filesystem_asset_mapping.md).
 - [Schema source-ingestion survey](schema/header-survey.md).
 - [Schema follow-on work](backlog/schema_follow_on.md): conversion, related
   representations, typed serialisation, generation, packaging and ingestion.

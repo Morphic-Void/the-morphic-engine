@@ -33,7 +33,7 @@ if (!$SkipBuild) {
     }
 }
 
-foreach ($case in @('ordinary', 'dependency', 'disposal', 'disposal-during-save', 'shutdown', 'shutdown-dependency', 'replace', 'replace-dependency', 'replace-missing', 'bootstrap-missing', 'startup-failure', 'replace-startup-failure', 'thread-failures', 'render-shutdown', 'render-shutdown-dependency', 'render-replace-dependency', 'render-executive-replace', 'render-drain', 'render-exit-disposal', 'normal-startup', 'normal-unavailable', 'normal-bad-start', 'normal-missing-thread')) {
+foreach ($case in @('batch', 'batch-inline', 'batch-exit', 'ordinary', 'dependency', 'disposal', 'disposal-during-save', 'shutdown', 'shutdown-dependency', 'replace', 'replace-dependency', 'replace-missing', 'bootstrap-missing', 'startup-failure', 'replace-startup-failure', 'thread-failures', 'render-shutdown', 'render-shutdown-dependency', 'render-replace-dependency', 'render-executive-replace', 'render-drain', 'render-exit-disposal', 'normal-startup', 'normal-unavailable', 'normal-bad-start', 'normal-missing-thread')) {
     $tag = "lifecycle-$suffix-$case"
     $normalExecutive = $case.StartsWith('normal-')
     $serviceFailure = $case -in @('normal-unavailable', 'normal-bad-start', 'normal-missing-thread')
@@ -60,6 +60,8 @@ foreach ($case in @('ordinary', 'dependency', 'disposal', 'disposal-during-save'
     $process.StartInfo.ArgumentList.Add("--executive=package:/bin/$executive")
     $process.StartInfo.ArgumentList.Add("--log-tag=$tag")
     $process.StartInfo.ArgumentList.Add("--host-workers=$WorkerCount")
+    if ($case -in @('batch', 'batch-exit')) { $process.StartInfo.ArgumentList.Add('--batch-runners=1') }
+    if ($case -eq 'batch-inline') { $process.StartInfo.ArgumentList.Add('--batch-runners=0') }
     $process.StartInfo.ArgumentList.Add('--log-directory=development/logical-roots/test-logs')
     $process.StartInfo.Environment['MORPHIC_LIFECYCLE_CASE'] = $case
     try {
@@ -89,6 +91,25 @@ foreach ($case in @('ordinary', 'dependency', 'disposal', 'disposal-during-save'
                 !$events.Contains('Host requested Executive exit without notifications')) { throw "$case fixture did not complete." }
         }
         if (($case -eq 'ordinary') -and ([regex]::Matches($events, 'Lifecycle fixture: operation \d+ passed').Count -ne 9)) { throw 'Ordinary notification checks incomplete.' }
+        if ($case -eq 'batch-inline' -and !$events.Contains('Lifecycle fixture: batch queued 0 inline 16')) {
+            throw 'Inline batch fallback did not complete all items.'
+        }
+        if ($case -eq 'batch') {
+            $expectedBatch = if ($events.Contains('Host: Batch runners 0')) { 'batch queued 0 inline 16' } else { 'batch queued 16 inline 0' }
+            if (!$events.Contains("Lifecycle fixture: $expectedBatch")) { throw 'Batch runner completions or DLL context failed.' }
+            if (!$events.Contains('Host: Batch runners 0') -and
+                $events -notmatch '\[executive:batch_runner_00\].*Lifecycle fixture: batch item executed') {
+                throw 'Batch debug attribution did not identify the executing module and runner.'
+            }
+        }
+        if ($case -eq 'batch-exit') {
+            $expectedBatchExit = if ($events.Contains('Host: Batch runners 0')) {
+                'Lifecycle fixture: batch exit skipped without runners'
+            } else {
+                'Lifecycle fixture: batch exit drained one executed and seven discarded'
+            }
+            if (!$events.Contains($expectedBatchExit)) { throw 'Batch exit did not drain terminal responses.' }
+        }
         if (($case -in @('dependency', 'disposal', 'disposal-during-save')) -and !$events.Contains('Lifecycle fixture: operation 2 passed')) { throw 'Asset disposal check incomplete.' }
         if (($case -in @('replace', 'replace-dependency', 'render-executive-replace')) -and !$events.Contains('Asset acceptance: 48 sequential and 32 concurrent operations passed')) { throw 'Replacement Executive did not complete its acceptance flow.' }
         if ($case -in @('disposal-during-save', 'render-drain')) {

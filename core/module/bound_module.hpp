@@ -54,6 +54,7 @@ public:
     [[nodiscard]] bool is_bound() const noexcept { return m_native_module.is_bound(); }
 
     static bool MV_STD_ABI_CALL prepare_thread(void* const context, const thread_ids::id_type thread_id, void* const thread_resources) noexcept;
+    [[nodiscard]] bool prepare_batch_thread(const thread_ids::id_type thread_id, memory::CMemoryContext* const memory_context) noexcept;
 
 private:
     [[nodiscard]] bool prepare_thread(const thread_ids::id_type thread_id, void* const thread_resources) noexcept;

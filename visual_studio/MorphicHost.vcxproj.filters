@@ -23,6 +23,7 @@
     <ClInclude Include="..\host\module\types\local_type_ids.hpp"><Filter>Host\include\module\types</Filter></ClInclude>
     <ClInclude Include="..\host\module\types\local_types.hpp"><Filter>Host\include\module\types</Filter></ClInclude>
     <ClInclude Include="..\host\runtime\host_worker_thread.hpp"><Filter>Host\include\runtime</Filter></ClInclude>
+    <ClInclude Include="..\host\runtime\batch_pool.hpp"><Filter>Host\include\runtime</Filter></ClInclude>
     <ClInclude Include="..\host\runtime\host.hpp"><Filter>Host\include\runtime</Filter></ClInclude>
     <ClInclude Include="..\host\runtime\worker_policy.hpp"><Filter>Host\include\runtime</Filter></ClInclude>
     <ClInclude Include="..\host\runtime\asset_service.hpp"><Filter>Host\include\runtime</Filter></ClInclude>
@@ -34,6 +35,7 @@
     <ClCompile Include="..\host\entry\MorphicEngine.cpp"><Filter>Host\src\entry</Filter></ClCompile>
     <ClCompile Include="..\host\module\types\local_type_ids.cpp"><Filter>Host\src\module\types</Filter></ClCompile>
     <ClCompile Include="..\host\runtime\host_worker_thread.cpp"><Filter>Host\src\runtime</Filter></ClCompile>
+    <ClCompile Include="..\host\runtime\batch_pool.cpp"><Filter>Host\src\runtime</Filter></ClCompile>
     <ClCompile Include="..\host\runtime\host.cpp"><Filter>Host\src\runtime</Filter></ClCompile>
     <ClCompile Include="..\host\runtime\asset_service.cpp"><Filter>Host\src\runtime</Filter></ClCompile>
     <ClCompile Include="..\host\runtime\module_service.cpp"><Filter>Host\src\runtime</Filter></ClCompile>
