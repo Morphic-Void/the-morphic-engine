@@ -37,7 +37,7 @@ Executive; a selector implementation can run without a renderer or choose anothe
 implementation later. The normal `MorphicExecutive.dll` first sends an owning
 load request for `package:/bin/MorphicRendering.dll` and `render_vulkan`. It validates
 the correlated acknowledgement before accepting completion, then starts its
-48 sequential and 32 concurrent asset acceptance operations only when rendering
+71 sequential and 32 concurrent asset acceptance operations only when rendering
 is available.
 
 After Executive replacement, `already_loaded` is accepted only for the requested
@@ -215,7 +215,7 @@ and disposal-at-exit DLLs. Successful rendering service cases use the real stub.
 The production renderer contains no test switches. Adding the fixture project
 to the solution for IDE visibility is not required by the harness.
 
-The 23 process cases cover:
+The 26 process cases cover:
 
 - Correlated acknowledgement/completion, normal and duplicate loads, missing
   files/functions, replacement and unavailable service after failure.
@@ -224,7 +224,7 @@ The 23 process cases cover:
 - Rendering load/unload/replacement, failed startup cleanup and Vulkan identity.
   A renderer survives Executive replacement and is reused without a second thread.
 - Normal Executive startup and unavailable-renderer shutdown before asset work.
-  Successful startup/replacement runs 48 sequential and 32 concurrent asset cases,
+  Successful startup/replacement runs 71 sequential and 32 concurrent asset cases,
   followed by 12 filesystem refresh/cache operations.
 - Explicit disposal, invalid/stale IDs, saves admitted before disposal, dependent
   cleanup and preservation of unrelated retained assets.

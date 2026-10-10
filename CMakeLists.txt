@@ -2,7 +2,7 @@
 # License: MIT (see LICENSE file in repository root)
 
 cmake_minimum_required(VERSION 3.22)
-project(MorphicEngine LANGUAGES CXX)
+project(MorphicEngine LANGUAGES C CXX)
 
 # The native Visual Studio solution remains the Windows build entry point.
 if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
@@ -73,13 +73,16 @@ foreach(target IN ITEMS MorphicHost MorphicExecutive MorphicRendering MorphicTes
     target_compile_definitions(${target} PRIVATE
         "$<$<CONFIG:Debug>:_DEBUG;MV_DEVELOPMENT_BUILD=1;MV_DEBUG_DEVELOPMENT_BUILD=1;MV_COMPILED_INFORMATION_LEVEL=3>"
         "$<$<CONFIG:Release>:MV_DEVELOPMENT_BUILD=0;MV_DEBUG_DEVELOPMENT_BUILD=0;MV_COMPILED_INFORMATION_LEVEL=1>")
-    target_compile_options(${target} PRIVATE -fno-exceptions)
+    target_compile_options(${target} PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:-fno-exceptions>")
     target_link_libraries(${target} PRIVATE SuiteUTF Threads::Threads ${CMAKE_DL_LIBS})
     # Core is compiled separately into each executable/module, as in Visual Studio.
     # Hidden symbols preserve module-local runtime state on ELF platforms.
-    set_target_properties(${target} PROPERTIES CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN YES)
+    set_target_properties(${target} PROPERTIES C_VISIBILITY_PRESET hidden CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN YES)
     add_dependencies(${target} MorphicPolicyCheck)
 endforeach()
+target_include_directories(MorphicRendering PRIVATE "${CMAKE_SOURCE_DIR}/external/basis_universal")
+target_compile_definitions(MorphicRendering PRIVATE
+    BASISU_SUPPORT_SSE=0 BASISU_SUPPORT_OPENCL=0 BASISD_SUPPORT_KTX2_ZSTD=1)
 set_target_properties(MorphicHost PROPERTIES OUTPUT_NAME MorphicEngine)
 add_dependencies(MorphicHost MorphicExecutive MorphicRendering)
 add_dependencies(MorphicTests MorphicExecutive MorphicRendering)
@@ -88,3 +91,7 @@ enable_testing()
 add_test(NAME MorphicOrdinary COMMAND MorphicTests -t1 --log-tag=linux-ci
     "--output-directory=${CMAKE_BINARY_DIR}/test-output")
 set_tests_properties(MorphicOrdinary PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}" TIMEOUT 600)
+add_test(NAME MorphicTextureAcceptance COMMAND "${Python3_EXECUTABLE}"
+    "${CMAKE_SOURCE_DIR}/tests/texture/run_tests.py" --engine "$<TARGET_FILE:MorphicHost>"
+    "--output-directory=${CMAKE_BINARY_DIR}/host-acceptance")
+set_tests_properties(MorphicTextureAcceptance PROPERTIES TIMEOUT 150)

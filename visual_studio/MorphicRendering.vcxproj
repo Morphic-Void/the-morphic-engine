@@ -53,6 +53,8 @@
   <ItemDefinitionGroup>
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
+      <!-- Upstream basisu_transcoder_internal.h contains a Windows-1252 en dash in a comment. -->
+      <DisableSpecificWarnings>4828;%(DisableSpecificWarnings)</DisableSpecificWarnings>
       <SDLCheck>true</SDLCheck>
       <ConformanceMode>true</ConformanceMode>
       <AdditionalIncludeDirectories>$(ProjectDir)..\external\basis_universal;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>

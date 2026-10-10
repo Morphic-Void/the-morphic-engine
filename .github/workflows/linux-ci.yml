@@ -27,13 +27,16 @@ jobs:
         compiler: [GCC, Clang]
         include:
           - compiler: GCC
+            cc: gcc
             cxx: g++
           - compiler: Clang
+            cc: clang
             cxx: clang++
     defaults:
       run:
         shell: bash
     env:
+      CC: ${{ matrix.cc }}
       CXX: ${{ matrix.cxx }}
       CONFIGURATION: ${{ matrix.configuration }}
 
@@ -47,7 +50,7 @@ jobs:
       - name: Record toolchain versions
         run: |
           mkdir -p build/linux-ci/logs
-          { cmake --version; ninja --version; "$CXX" --version; python3 --version; } \
+          { cmake --version; ninja --version; "$CC" --version; "$CXX" --version; python3 --version; } \
             2>&1 | tee build/linux-ci/logs/toolchain.log
 
       - name: Validate Visual Studio source extraction
@@ -68,7 +71,7 @@ jobs:
           cmake --build build/linux-ci --parallel 2 \
             2>&1 | tee build/linux-ci/logs/build.log
 
-      - name: Run ordinary test suites
+      - name: Run ordinary suites and Host texture acceptance
         id: tests
         run: |
           ctest --test-dir build/linux-ci --output-on-failure --no-tests=error \
@@ -89,7 +92,7 @@ jobs:
             printf '| Source extraction tests | %s |\n' "$MANIFEST_RESULT"
             printf '| Configure | %s |\n' "$CONFIGURE_RESULT"
             printf '| Build and policy checks | %s |\n' "$BUILD_RESULT"
-            printf '| Ordinary tests | %s |\n' "$TEST_RESULT"
+            printf '| Ordinary tests and Host texture acceptance | %s |\n' "$TEST_RESULT"
           } >> "$GITHUB_STEP_SUMMARY"
           if [[ "$MANIFEST_RESULT" != success || "$CONFIGURE_RESULT" != success ||
                 "$BUILD_RESULT" != success || "$TEST_RESULT" != success ]]; then
@@ -110,6 +113,7 @@ jobs:
             build/linux-ci/CMakeFiles/CMakeConfigureLog.yaml
             build/linux-ci/Testing/Temporary/
             build/linux-ci/test-output/
+            build/linux-ci/host-acceptance/
             development/logical-roots/logs/policy_validator/
           if-no-files-found: warn
           retention-days: 7

@@ -7,7 +7,7 @@ License: MIT (see LICENSE file in repository root)
 and Release with GCC and Clang on Ubuntu 24.04. Pushes, pull requests, and manual
 dispatch trigger it independently of Windows CI. Each job configures CMake, builds the
 engine, modules, policy checker, and tests, then runs the ordinary `-t1` suites
-through CTest if the build succeeds.
+and the real Host texture acceptance flow through CTest if the build succeeds.
 
 All four jobs must pass for the workflow to succeed. Build, policy, and test
 failures fail the job and workflow. Read the stage results for each compiler and
@@ -19,7 +19,7 @@ branch protection or ruleset settings.
 Each job attempts to upload seven-day diagnostics artifacts even after a
 failure: tool versions, source-extraction test results, configure/build/test
 logs, generated source manifests, compile commands, CMake configuration logs,
-CTest logs, test output, and policy reports. Checkout/setup failures may occur
+CTest logs, test output, Host acceptance diagnostics, and policy reports. Checkout/setup failures may occur
 before these files exist.
 
 ## Build definitions
@@ -46,6 +46,10 @@ Core sources are compiled into each executable/module, matching the existing
 Visual Studio layout. Linux symbols default to hidden visibility, with module
 entry points exported by the existing platform macros. Engine targets and
 SuiteUTF disable exceptions; the policy checker retains exception support.
+The rendering target also compiles Basis Universal and its Zstd C source.
+Its private Basis include path and SSE/OpenCL-disabled, KTX2-Zstd-enabled
+definitions match the Windows build. Exception flags apply only to C++;
+both C and C++ symbols retain hidden visibility inside the rendering module.
 The policy checker runs before engine target compilation and policy errors
 stop the build.
 
@@ -58,8 +62,9 @@ The module filenames retain `MorphicExecutive.dll` and `MorphicRendering.dll`
 because current runtime paths and the ordinary module-loading test use those
 names. Their contents are Linux ELF shared libraries loaded with `dlopen`,
 not Windows binaries. Adopting conventional `.so` runtime paths is separate
-portability work. The engine acceptance run and separate Windows DLL lifecycle
-harness are not included in this workflow.
+portability work. CTest runs `tests/texture/run_tests.py` against the engine
+with a fresh filesystem, exercising LDR/HDR conditioning and checking clean
+rendering shutdown. The separate Windows DLL lifecycle harness is not included.
 
 ## Running locally on Linux or WSL
 
@@ -71,17 +76,17 @@ sudo apt-get update
 sudo apt-get install build-essential clang cmake ninja-build python3
 ```
 
-From a checkout with the SuiteUTF submodule initialized:
+From a checkout with the SuiteUTF and Basis Universal submodules initialized:
 
 ```sh
 python3 -B -m unittest discover -s tools/tests -p test_cmake_sources.py -v
-cmake -S . -B build/linux-gcc -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=g++
+cmake -S . -B build/linux-gcc -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++
 cmake --build build/linux-gcc --parallel 2
 ctest --test-dir build/linux-gcc --output-on-failure --no-tests=error
 ```
 
 For Clang, use a separate `build/linux-clang` directory and
-`-DCMAKE_CXX_COMPILER=clang++`. For Release, choose a separate build directory
+`-DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++`. For Release, choose a separate build directory
 (for example, `build/linux-gcc-release`) and use `-DCMAKE_BUILD_TYPE=Release`.
 Run each following command only if the preceding command succeeded. The builds
 use the current working-tree files, including
@@ -91,8 +96,22 @@ Build products stay in the chosen build directory. Policy reports are written
 under `development/logical-roots/logs/policy_validator`; ordinary test logs and
 outputs use the build directory's `test-output` child. The module test finds
 the executive library next to the `MorphicTests` executable in `bin`.
+Each Host acceptance run stages a fresh directory under `host-acceptance`,
+retaining the console output, engine logs, bootstrap file and generated assets.
 
 ## Local validation
+
+### Texture integration follow-up, 10 October 2026
+
+GCC 13.3 Debug and Clang 18.1 Release on Ubuntu 24.04 in WSL passed the
+updated build, ordinary suites and Host texture acceptance. Each Host run
+completed 71 sequential asset cases (including 23 texture cases), 32 concurrent
+saves and 12 filesystem cases, with clean rendering shutdown. The ordinary
+`TextureService` suite passed all 39 admission/disposal checks. Source-extraction
+tests and policy checks also passed. These are local results; the updated
+four-job hosted matrix has not yet run.
+
+### Initial portability validation
 
 With SuiteUTF revision `fc51720c5ec3f1c0fd2face660f5fc6919ae1288`, the engine,
 modules, policy checker, and ordinary tests pass the following local checks:
@@ -114,8 +133,9 @@ Separate local engine acceptance runs passed for both Debug compilers and GCC
 Release. Clang Release completed the 48 sequential and 32 concurrent asset
 operations, then exited with code 1 during the filesystem image exercise on
 one run; three subsequent runs passed and exited cleanly. The cause of this
-intermittent failure remains unresolved. These engine acceptance runs are not
-part of the CI ordinary test suites above.
+intermittent failure was unresolved at that stage. Those historical engine
+acceptance runs were separate from the original CI ordinary test suites;
+the workflow now includes the isolated Host acceptance harness described above.
 
 The initial build exposed non-portable attribute placement in SuiteUTF and
 Core declarations. SuiteUTF's update addresses its compatibility issues; the

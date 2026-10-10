@@ -171,8 +171,8 @@ until process exit; see the module lifecycle notes for that fallback.
   worker dispatch and correlated completion.
 - `host/runtime/host_worker_thread.cpp`: file and conditioning execution.
 - `host/runtime/host.cpp`: runtime routing, draining and shutdown order.
-- `executive/runtime/executive_thread.cpp`: 48 named sequential scenarios plus 32
-  concurrent saves through the actual Host, file and conditioning threads.
+- `executive/runtime/executive_thread.cpp`: 71 named sequential scenarios plus 32
+  concurrent saves through the actual Host, file, conditioning and rendering threads.
 
 The Executive exercise checks raw byte equality and alignment, TGA pixel equality,
 8/32-bit image transfers, all document value kinds, deterministic binary round trips,
@@ -188,6 +188,10 @@ acknowledgement and readiness before submitting the first asset operation; see
 Diagnostic fixtures also cover undefined CP1252 input, numeric overflow,
 unterminated text and invalid policy bits, with compact failure metadata checked
 on the client and worker reports inspected in the logs.
+The 23 texture cases cover LDR/HDR encoding, all supported storage formats,
+mips, quality profiles and rejected inputs; see [texture conditioning](../modules/texture_codec.md).
+The ordinary `TextureService` suite checks busy admission and deferred disposal
+with renderer completions controlled by the test.
 The original 47 scenarios remain; the additional bottom-up TGA request now
 checks reuse of the cached top-down representation and the same logical texels,
 documenting the deliberately deferred cache-option distinction. The greyscale
@@ -202,7 +206,7 @@ allocation attribution, including rejection across incompatible allocators.
 ## Validation
 
 Run the built engine from the repository root with its Executive and Rendering
-DLLs available to exercise 48 sequential and 32 concurrent asset operations,
+DLLs available to exercise 71 sequential and 32 concurrent asset operations,
 followed by 12 filesystem refresh/cache operations. Core `MorphicTests -t1`
 additionally checks transport, ownership, views and the filesystem-image
 discovery/reconciliation contract. The filesystem suite writes a process- and

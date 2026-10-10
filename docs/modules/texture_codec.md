@@ -42,3 +42,24 @@ and at most 15 mip levels. The rendering codec logs before Basis initialization,
 encoding and transcoding, and reports completion or failure. Basis retains its
 upstream allocation behavior, including process termination on some allocation
 failures; these limits reduce exposure but cannot make OOM recoverable.
+
+## Acceptance coverage
+
+The Executive's 71 sequential asset cases include 23 texture cases: RGBA8 and
+RGBA16F round trips, gray8 and RGBA32F with build-quality mip generation,
+all five output formats, and rejection of pixel-budget overflow, malformed
+rows, negative/non-finite HDR RGB, incompatible modes/transfers/profiles,
+invalid mip levels, incompatible decode targets, malformed containers and
+invalid asset identities. The checks include byte alignment, mip dimensions,
+row pitch, grayscale expansion and HDR values above 1.0 after applying scale.
+
+The ordinary `TextureService` suite holds renderer completions explicitly.
+It checks busy admission for encode/encode, encode/decode and decode/decode,
+retention of borrowed input during disposal, refusal of new borrowers once
+disposal is pending, completion of deferred disposal and recovery after a
+failed codec operation. This does not depend on codec duration or scheduling.
+
+Linux CTest also runs the real Host/Executive/Rendering acceptance flow using
+`tests/texture/run_tests.py`; its isolated filesystem and logs are retained
+under the selected output directory. The Windows worker and lifecycle
+harnesses check the same 71-case completion summary.

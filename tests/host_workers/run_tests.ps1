@@ -117,7 +117,7 @@ foreach ($requested in @(0, 1, 2, 3, 9, 128)) {
     $log = Join-Path $runtime "development/logical-roots/test-logs/morphic_debug.$tag.p$processId.log"
     $events = Get-Content -LiteralPath $log -Raw
     if ($events -match '\[(assert|error|critical|fatal):') { throw "Unexpected diagnostics: $log" }
-    if (!$events.Contains('Asset acceptance: 48 sequential and 32 concurrent operations passed') -or
+    if (!$events.Contains('Asset acceptance: 71 sequential and 32 concurrent operations passed') -or
         !$events.Contains('Filesystem acceptance: 12 queued refresh, concurrent access and cache operations passed')) {
         throw "Acceptance flow incomplete: $log"
     }

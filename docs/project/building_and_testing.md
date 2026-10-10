@@ -94,8 +94,8 @@ building.
 
 ## Acceptance and lifecycle harnesses
 
-The Executive runs 48 sequential and 32 concurrent acceptance operations
-across raw, baked-document, JSON, and TGA asset services. The standalone DLL
+The Executive runs 71 sequential and 32 concurrent acceptance operations
+across raw, baked-document, JSON, TGA and LDR/HDR texture asset services. The standalone DLL
 lifecycle harness, `tests/module_lifecycle/run_tests.ps1`, builds real module
 fixtures and checks bootstrap, replacement, shutdown, and asset disposal. See
 the [asset](../assets/asynchronous_asset_services.md) and
