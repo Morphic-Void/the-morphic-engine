@@ -14,17 +14,14 @@
 #include <stdexcept>
 #include <string>
 
-namespace
-{
-
-void print_usage()
+static void print_usage()
 {
     std::cout <<
         "Usage: MorphicPolicyValidator [--root path] [--project name] "
         "[--configuration name] [--platform name] [--no-report]\n";
 }
 
-std::string require_value(const int argc, char** const argv, int& index)
+static std::string require_value(const int argc, char** const argv, int& index)
 {
     if ((index + 1) >= argc)
     {
@@ -33,8 +30,6 @@ std::string require_value(const int argc, char** const argv, int& index)
     ++index;
     return argv[index];
 }
-
-}   //  namespace
 
 int main(const int argc, char** const argv)
 {

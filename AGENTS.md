@@ -25,10 +25,13 @@ allowing the missing final newline for these Visual Studio-managed files.
 
 ## Internal linkage and namespaces
 
-Use `static` declarations for file-local functions and objects that need
-internal linkage. Do not use anonymous namespaces. Use named
-namespaces when they meaningfully group code, deciding that independently of
-whether a declaration needs internal linkage.
+In production code and tools, use `static` declarations for file-local functions
+and objects that need internal linkage. Do not use anonymous namespaces in
+those areas. Use named namespaces when they meaningfully group code, deciding
+that independently of whether a declaration needs internal linkage.
+
+Test code under `tests/` is an exception: anonymous namespaces are permitted for
+test-local helpers and fixtures.
 
 ## Working arrangement
 

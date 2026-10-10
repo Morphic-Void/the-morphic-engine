@@ -26,8 +26,6 @@
 
 namespace morphic::policy
 {
-namespace
-{
 
 namespace fs = std::filesystem;
 
@@ -133,17 +131,17 @@ struct SCompilerGroup
     bool condition_understood{ true };
 };
 
-[[nodiscard]] bool is_identifier_start(const char value)
+[[nodiscard]] static bool is_identifier_start(const char value)
 {
     return std::isalpha(static_cast<unsigned char>(value)) != 0 || value == '_';
 }
 
-[[nodiscard]] bool is_identifier_continue(const char value)
+[[nodiscard]] static bool is_identifier_continue(const char value)
 {
     return std::isalnum(static_cast<unsigned char>(value)) != 0 || value == '_';
 }
 
-[[nodiscard]] std::string trim(std::string value)
+[[nodiscard]] static std::string trim(std::string value)
 {
     const auto not_space = [](const unsigned char character)
     {
@@ -154,7 +152,7 @@ struct SCompilerGroup
     return (begin < end) ? std::string(begin, end) : std::string{};
 }
 
-[[nodiscard]] std::string lower_copy(std::string value)
+[[nodiscard]] static std::string lower_copy(std::string value)
 {
     std::transform(value.begin(), value.end(), value.begin(), [](const unsigned char character)
     {
@@ -163,7 +161,7 @@ struct SCompilerGroup
     return value;
 }
 
-[[nodiscard]] std::string normalise_relative_path(const fs::path& path)
+[[nodiscard]] static std::string normalise_relative_path(const fs::path& path)
 {
     std::string result = path.lexically_normal().generic_string();
     while (result.rfind("./", 0u) == 0u)
@@ -173,7 +171,7 @@ struct SCompilerGroup
     return result;
 }
 
-[[nodiscard]] std::string read_file(const fs::path& path)
+[[nodiscard]] static std::string read_file(const fs::path& path)
 {
     std::ifstream stream(path, std::ios::binary);
     if (!stream)
@@ -189,7 +187,7 @@ struct SCompilerGroup
     return contents.str();
 }
 
-[[nodiscard]] std::vector<std::string> split_fields(const std::string& line)
+[[nodiscard]] static std::vector<std::string> split_fields(const std::string& line)
 {
     std::vector<std::string> fields;
     std::size_t begin = 0u;
@@ -206,7 +204,7 @@ struct SCompilerGroup
     return fields;
 }
 
-[[nodiscard]] bool path_matches(
+[[nodiscard]] static bool path_matches(
     const std::string& relative_path,
     const std::string& match_kind,
     const std::string& configured_path)
@@ -226,7 +224,7 @@ struct SCompilerGroup
     return false;
 }
 
-[[nodiscard]] SPolicy load_policy(const fs::path& path)
+[[nodiscard]] static SPolicy load_policy(const fs::path& path)
 {
     SPolicy policy;
     std::istringstream input(read_file(path));
@@ -294,7 +292,7 @@ struct SCompilerGroup
     return policy;
 }
 
-[[nodiscard]] bool begins_raw_string(const std::string& source, const std::size_t index)
+[[nodiscard]] static bool begins_raw_string(const std::string& source, const std::size_t index)
 {
     static const std::string prefixes[] = { "R\"", "u8R\"", "uR\"", "UR\"", "LR\"" };
     if ((index != 0u) && is_identifier_continue(source[index - 1u]))
@@ -311,7 +309,7 @@ struct SCompilerGroup
     return false;
 }
 
-[[nodiscard]] std::size_t raw_prefix_length(const std::string& source, const std::size_t index)
+[[nodiscard]] static std::size_t raw_prefix_length(const std::string& source, const std::size_t index)
 {
     if (source.compare(index, 4u, "u8R\"") == 0)
     {
@@ -326,7 +324,7 @@ struct SCompilerGroup
     return 2u;
 }
 
-void update_position(
+static void update_position(
     const std::string& source,
     const std::size_t begin,
     const std::size_t end,
@@ -343,7 +341,7 @@ void update_position(
     }
 }
 
-[[nodiscard]] std::optional<SDecoration> parse_decoration(
+[[nodiscard]] static std::optional<SDecoration> parse_decoration(
     const std::string& comment,
     const std::size_t line,
     const std::size_t column)
@@ -389,7 +387,7 @@ void update_position(
     return decoration;
 }
 
-[[nodiscard]] SLexedFile lex_source(const std::string& source)
+[[nodiscard]] static SLexedFile lex_source(const std::string& source)
 {
     SLexedFile result;
     std::size_t index = 0u;
@@ -540,7 +538,7 @@ void update_position(
     return result;
 }
 
-[[nodiscard]] std::vector<SToken> directive_identifiers(const SDirective& directive)
+[[nodiscard]] static std::vector<SToken> directive_identifiers(const SDirective& directive)
 {
     std::vector<SToken> tokens;
     std::size_t line = directive.line;
@@ -577,7 +575,7 @@ void update_position(
     return tokens;
 }
 
-[[nodiscard]] bool is_source_file(const fs::path& path)
+[[nodiscard]] static bool is_source_file(const fs::path& path)
 {
     static const std::set<std::string> extensions = {
         ".c", ".cc", ".cpp", ".cxx", ".h", ".hpp", ".inl", ".def"
@@ -585,7 +583,7 @@ void update_position(
     return extensions.find(lower_copy(path.extension().string())) != extensions.end();
 }
 
-[[nodiscard]] bool include_is_allowed(
+[[nodiscard]] static bool include_is_allowed(
     const SPolicy& policy,
     const std::string& operand,
     const std::string& scope,
@@ -600,13 +598,13 @@ void update_position(
         });
 }
 
-[[nodiscard]] bool macro_is_known(const SPolicy& policy, const std::string& name)
+[[nodiscard]] static bool macro_is_known(const SPolicy& policy, const std::string& name)
 {
     return std::any_of(policy.macro_rules.begin(), policy.macro_rules.end(),
         [&](const SMacroRule& rule) { return rule.name == name; });
 }
 
-[[nodiscard]] bool macro_is_allowed(
+[[nodiscard]] static bool macro_is_allowed(
     const SPolicy& policy,
     const std::string& name,
     const std::string& relative_path)
@@ -619,7 +617,7 @@ void update_position(
         });
 }
 
-[[nodiscard]] std::string macro_diagnostic_rule(
+[[nodiscard]] static std::string macro_diagnostic_rule(
     const SPolicy& policy,
     const std::string& name)
 {
@@ -628,7 +626,7 @@ void update_position(
     return (found != policy.macro_rules.end()) ? found->diagnostic_rule : "GID001";
 }
 
-void add_diagnostic(
+static void add_diagnostic(
     std::vector<SDiagnostic>& diagnostics,
     const fs::path& path,
     const std::size_t line,
@@ -640,7 +638,7 @@ void add_diagnostic(
     diagnostics.push_back({ path, line, column, severity, std::move(rule), std::move(message), false });
 }
 
-void check_include(
+static void check_include(
     const fs::path& root,
     const fs::path& absolute_path,
     const fs::path& relative_path,
@@ -727,7 +725,7 @@ void check_include(
     }
 }
 
-void check_macro_token(
+static void check_macro_token(
     const fs::path& relative_path,
     const SPolicy& policy,
     const SToken& token,
@@ -743,7 +741,7 @@ void check_macro_token(
     }
 }
 
-void check_library_token(
+static void check_library_token(
     const fs::path& relative_path,
     const SToken& token,
     std::vector<SDiagnostic>& diagnostics)
@@ -756,7 +754,7 @@ void check_library_token(
     }
 }
 
-void check_memory_tokens(
+static void check_memory_tokens(
     const fs::path& relative_path,
     const SPolicy& policy,
     const std::vector<SToken>& tokens,
@@ -827,7 +825,7 @@ void check_memory_tokens(
     }
 }
 
-[[nodiscard]] bool new_include_has_supporting_symbol(const std::vector<SToken>& tokens)
+[[nodiscard]] static bool new_include_has_supporting_symbol(const std::vector<SToken>& tokens)
 {
     return std::any_of(tokens.begin(), tokens.end(), [](const SToken& token)
     {
@@ -836,7 +834,7 @@ void check_memory_tokens(
     });
 }
 
-void apply_decorations(
+static void apply_decorations(
     const fs::path& relative_path,
     const SLexedFile& lexed,
     std::vector<SDiagnostic>& diagnostics)
@@ -884,7 +882,7 @@ void apply_decorations(
     }
 }
 
-void scan_source_file(
+static void scan_source_file(
     const fs::path& root,
     const fs::path& absolute_path,
     const std::string& scope,
@@ -939,12 +937,12 @@ void scan_source_file(
     all_diagnostics.insert(all_diagnostics.end(), diagnostics.begin(), diagnostics.end());
 }
 
-[[nodiscard]] std::size_t line_at_offset(const std::string& text, const std::size_t offset)
+[[nodiscard]] static std::size_t line_at_offset(const std::string& text, const std::size_t offset)
 {
     return 1u + static_cast<std::size_t>(std::count(text.begin(), text.begin() + offset, '\n'));
 }
 
-[[nodiscard]] std::optional<std::string> attribute_value(
+[[nodiscard]] static std::optional<std::string> attribute_value(
     const std::string& text,
     const std::string& attribute)
 {
@@ -961,7 +959,7 @@ void scan_source_file(
         : std::optional<std::string>(text.substr(value_begin, end - value_begin));
 }
 
-[[nodiscard]] std::optional<std::string> tag_value(
+[[nodiscard]] static std::optional<std::string> tag_value(
     const std::string& text,
     const std::string& tag)
 {
@@ -983,7 +981,7 @@ void scan_source_file(
         : std::optional<std::string>(trim(text.substr(begin + 1u, end - begin - 1u)));
 }
 
-[[nodiscard]] std::vector<SProjectConfiguration> parse_project_configurations(
+[[nodiscard]] static std::vector<SProjectConfiguration> parse_project_configurations(
     const std::string& xml)
 {
     std::vector<SProjectConfiguration> configurations;
@@ -1011,7 +1009,7 @@ void scan_source_file(
     return configurations;
 }
 
-[[nodiscard]] std::vector<SCompilerGroup> parse_compiler_groups(const std::string& xml)
+[[nodiscard]] static std::vector<SCompilerGroup> parse_compiler_groups(const std::string& xml)
 {
     std::vector<SCompilerGroup> groups;
     std::size_t cursor = 0u;
@@ -1046,7 +1044,7 @@ void scan_source_file(
     return groups;
 }
 
-[[nodiscard]] std::string remove_spaces(std::string value)
+[[nodiscard]] static std::string remove_spaces(std::string value)
 {
     value.erase(std::remove_if(value.begin(), value.end(), [](const unsigned char character)
     {
@@ -1055,7 +1053,7 @@ void scan_source_file(
     return value;
 }
 
-[[nodiscard]] std::string unquote(std::string value)
+[[nodiscard]] static std::string unquote(std::string value)
 {
     value = trim(value);
     if ((value.size() >= 2u) &&
@@ -1067,7 +1065,7 @@ void scan_source_file(
     return value;
 }
 
-[[nodiscard]] bool group_matches(
+[[nodiscard]] static bool group_matches(
     const std::string& condition,
     const SProjectConfiguration& configuration,
     bool& understood)
@@ -1102,7 +1100,7 @@ void scan_source_file(
     return false;
 }
 
-void check_project(
+static void check_project(
     const fs::path& root,
     const SProjectRule& project,
     std::vector<SDiagnostic>& diagnostics)
@@ -1191,7 +1189,7 @@ void check_project(
     }
 }
 
-[[nodiscard]] std::string diagnostic_text(const fs::path& root, const SDiagnostic& diagnostic)
+[[nodiscard]] static std::string diagnostic_text(const fs::path& root, const SDiagnostic& diagnostic)
 {
     const fs::path absolute = (root / diagnostic.path).lexically_normal();
     const char* severity = diagnostic.suppressed
@@ -1203,7 +1201,7 @@ void check_project(
     return text.str();
 }
 
-[[nodiscard]] std::string safe_filename_component(std::string value)
+[[nodiscard]] static std::string safe_filename_component(std::string value)
 {
     if (value.empty())
     {
@@ -1220,7 +1218,7 @@ void check_project(
     return value;
 }
 
-void write_report(
+static void write_report(
     const fs::path& root,
     const SOptions& options,
     const std::vector<SDiagnostic>& diagnostics,
@@ -1277,8 +1275,6 @@ void write_report(
             ": " + error.message());
     }
 }
-
-}   //  namespace
 
 fs::path discover_repository_root(const fs::path& start)
 {
