@@ -7,3 +7,10 @@ insert_final_newline = true
 
 [*.{bat,cmd}]
 end_of_line = crlf
+
+# Visual Studio-managed files: preserve encoding/BOM and final-newline state.
+# Unset these overrides rather than requesting a conversion or newline removal.
+[*.{vcxitems,filters}]
+end_of_line = crlf
+charset = unset
+insert_final_newline = unset
