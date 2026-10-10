@@ -6,7 +6,7 @@
 //  Authors: Ritchie Brannan / OpenAI Codex
 //  Date:    10 Oct 26
 //
-//  Hold renderer completions explicitly to test busy admission and source
+//  Hold renderer completions explicitly to test concurrent admission and source
 //  disposal independently of codec speed or thread scheduling.
 
 #include <iostream>
@@ -161,42 +161,50 @@ static void test_admission_and_disposal(tests::TTestContext& ctx)
     TEST_EXPECT(ctx, (decode.request->source == retained.asset));
     TEST_EXPECT(ctx, !fixture.service.is_idle());
 
-    TEST_EXPECT(ctx, fixture.request<TextureEncodeRequest>(12, CErasedOwner::create<TextureEncodeRequest>()));
-    TEST_EXPECT(ctx, fixture.expect_result(12, EAssetStatus::busy));
+    TEST_EXPECT(ctx, fixture.decode(12, retained.asset));
+    TextureDecodeWork second_decode;
+    TEST_EXPECT(ctx, fixture.receive(second_decode, slot));
+    const std::int32_t second_decode_slot = slot;
+    TEST_EXPECT(ctx, (second_decode_slot != decode_slot));
+    TEST_EXPECT(ctx, fixture.request<TextureEncodeRequest>(17, CErasedOwner::create<TextureEncodeRequest>()));
+    TextureEncodeWork encode;
+    TEST_EXPECT(ctx, fixture.receive(encode, slot));
+    const std::int32_t encode_slot = slot;
+    TEST_EXPECT(ctx, fixture.request<TextureEncodeRequest>(19, CErasedOwner::create<TextureEncodeRequest>()));
+    TEST_EXPECT(ctx, fixture.receive(encode, slot));
+    const std::int32_t second_encode_slot = slot;
+    TEST_EXPECT(ctx, (second_encode_slot != encode_slot));
+
     fixture.service.request_disposal(AssetDisposeRequest{ retained.asset }, 13, fixture.package);
     fixture.service.complete_disposals();
     TEST_EXPECT(ctx, fixture.decode(14, retained.asset));
-    //  A premature disposal would arrive ahead of this reply and fail the check.
-    const bool disposal_deferred = fixture.expect_result(14, EAssetStatus::busy);
-    TEST_EXPECT(ctx, disposal_deferred);
-    if (!disposal_deferred) return;
+    //  Disposal closes new borrowing while both existing decodes retain input.
+    TEST_EXPECT(ctx, fixture.expect_result(14, EAssetStatus::invalid_asset));
     TEST_EXPECT(ctx, ((decode.input->size() == 16u) && (decode.input->data()[0] == 0x5au)));
+    TEST_EXPECT(ctx, ((second_decode.input->size() == 16u) && (second_decode.input->data()[0] == 0x5au)));
 
-    TEST_EXPECT(ctx, fixture.complete<TextureDecodeResult>(decode_slot));
-    TEST_EXPECT(ctx, fixture.expect_result(11, EAssetStatus::invalid_request));
-    //  Disposal has closed admission even before its completion is published.
+    //  Complete in a different order. One failure must not release other jobs.
+    TEST_EXPECT(ctx, fixture.complete<TextureEncodeResult>(second_encode_slot));
+    TEST_EXPECT(ctx, fixture.expect_result(19, EAssetStatus::invalid_request));
+    TEST_EXPECT(ctx, fixture.complete<TextureDecodeResult>(second_decode_slot));
+    TEST_EXPECT(ctx, fixture.expect_result(12, EAssetStatus::invalid_request));
+    fixture.service.complete_disposals();
     TEST_EXPECT(ctx, fixture.decode(15, retained.asset));
     TEST_EXPECT(ctx, fixture.expect_result(15, EAssetStatus::invalid_asset));
+    TEST_EXPECT(ctx, ((decode.input->size() == 16u) && (decode.input->data()[0] == 0x5au)));
+    TEST_EXPECT(ctx, fixture.complete<TextureDecodeResult>(decode_slot));
+    TEST_EXPECT(ctx, fixture.expect_result(11, EAssetStatus::invalid_request));
     fixture.service.complete_disposals();
     AssetDisposeResult disposed;
     TEST_EXPECT(ctx, (fixture.receive(disposed, slot) && (slot == 13) &&
         (disposed.asset == retained.asset) && (disposed.status == EAssetStatus::success)));
-    TEST_EXPECT(ctx, fixture.service.is_idle());
-    TEST_EXPECT(ctx, fixture.decode(16, retained.asset));
-    TEST_EXPECT(ctx, fixture.expect_result(16, EAssetStatus::invalid_asset));
-
-    TEST_EXPECT(ctx, fixture.request<TextureEncodeRequest>(17, CErasedOwner::create<TextureEncodeRequest>()));
-    TextureEncodeWork encode;
-    const bool encoding = fixture.receive(encode, slot);
-    TEST_EXPECT(ctx, encoding);
-    if (!encoding) return;
-    const std::int32_t encode_slot = slot;
+    TEST_EXPECT(ctx, !fixture.service.is_idle());
     TEST_EXPECT(ctx, fixture.decode(18, retained.asset));
-    TEST_EXPECT(ctx, fixture.expect_result(18, EAssetStatus::busy));
-    TEST_EXPECT(ctx, fixture.request<TextureEncodeRequest>(19, CErasedOwner::create<TextureEncodeRequest>()));
-    TEST_EXPECT(ctx, fixture.expect_result(19, EAssetStatus::busy));
+    TEST_EXPECT(ctx, fixture.expect_result(18, EAssetStatus::invalid_asset));
     TEST_EXPECT(ctx, fixture.complete<TextureEncodeResult>(encode_slot));
     TEST_EXPECT(ctx, fixture.expect_result(17, EAssetStatus::invalid_request));
+    TEST_EXPECT(ctx, fixture.service.is_idle());
+
     TEST_EXPECT(ctx, fixture.request<TextureEncodeRequest>(20, CErasedOwner::create<TextureEncodeRequest>()));
     const bool retried = fixture.receive(encode, slot);
     TEST_EXPECT(ctx, retried);

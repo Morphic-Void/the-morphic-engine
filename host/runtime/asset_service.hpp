@@ -119,7 +119,6 @@ private:
     //  Address-stable objects: workers borrow save_settings until completion.
     TUnorderedCollection<SOperation> m_operations;
     bool m_failed{ false };
-    bool m_texture_busy{ false };
 };
 
 }   //  namespace host

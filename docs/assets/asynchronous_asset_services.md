@@ -190,7 +190,7 @@ unterminated text and invalid policy bits, with compact failure metadata checked
 on the client and worker reports inspected in the logs.
 The 23 texture cases cover LDR/HDR encoding, all supported storage formats,
 mips, quality profiles and rejected inputs; see [texture conditioning](../modules/texture_codec.md).
-The ordinary `TextureService` suite checks busy admission and deferred disposal
+The ordinary `TextureService` suite checks concurrent texture admission and deferred disposal
 with renderer completions controlled by the test.
 The original 47 scenarios remain; the additional bottom-up TGA request now
 checks reuse of the cached top-down representation and the same logical texels,

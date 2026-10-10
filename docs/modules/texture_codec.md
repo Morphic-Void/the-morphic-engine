@@ -8,9 +8,10 @@ dispatch. It initializes Basis before accepting work, submits encoding and
 transcoding through its batch client, and deinitializes Basis after accepted
 requests and batch completions have drained. With no available batch runners
 or queue capacity, the batch client executes the job inline on rendering.
-The Host admits at most one encode or decode operation across clients. A second
-request completes with `EAssetStatus::busy`; callers may retry later. Capture
-producers must also serialize capture against these operations when added.
+The Host and rendering accept multiple encode and decode requests across clients.
+Each request retains its own input and result until completion. There is no
+texture-specific admission limit; existing transport capacities and per-input
+bounds still apply.
 
 An Executive sends an owning `TextureEncodeRequest` with a top-down
 `CByteRectBuffer`, input format, transfer function and `CEncodeOptions`. The
@@ -55,19 +56,23 @@ Their `run()` methods perform the typed operations; the static
 `execute(void*) noexcept` entry points use `MV_STD_ABI_CALL` and match `FBatchWork`.
 The classes have no Host-message or submission-policy dependencies.
 
-The rendering dispatcher keeps a job at a stable address and retains its result
-message while it is outstanding. A queued completion publishes the job's output
-before rendering reads it; inline completion can be handled immediately. The
+The rendering dispatcher keeps each job at a stable address and retains its
+result message in an independent request record. Batch correlation IDs identify
+these records; Host request slots are retained separately for replies. Records
+can grow without relocating jobs, and completions may arrive in any order.
+A queued completion publishes the job's output before rendering reads it;
+inline completion can be handled immediately. The
 rendering thread then moves the output into the owning Host reply. Batch runners
 install the rendering module and memory context before invoking a job.
 
 Rejected or discarded jobs produce `ETextureStatus::codec_failed`, which the
 Host maps to `EAssetStatus::conditioning_failed`. Job/result allocation failure
-uses the existing allocation-failure path. Every completed request releases
-the Host's single-operation admission and source borrow. During exit, rendering
-drains outstanding jobs and returns their results before Basis shutdown; module
-unload also waits for batch return publishers. The Host continues to admit only
-one texture operation across clients; parallel image admission is separate work.
+uses the existing allocation-failure path. Each completed request releases only
+its own source borrow. Disposal waits for all existing borrowers, and refuses
+new borrowers once disposal is pending. During exit, rendering drains every
+outstanding job and returns its result before Basis shutdown; module unload
+also waits for batch return publishers. Batch saturation can execute work on
+the rendering thread alongside jobs already running on batch workers.
 
 ## Acceptance coverage
 
@@ -80,17 +85,22 @@ invalid asset identities. The checks include byte alignment, mip dimensions,
 row pitch, grayscale expansion and HDR values above 1.0 after applying scale.
 
 The ordinary `TextureService` suite holds renderer completions explicitly.
-It checks busy admission for encode/encode, encode/decode and decode/decode,
-retention of borrowed input during disposal, refusal of new borrowers once
-disposal is pending, completion of deferred disposal and recovery after a
-failed codec operation. This does not depend on codec duration or scheduling.
+It checks concurrent encode/encode, encode/decode and decode/decode admission,
+completion in a different order, retention until the last source borrower
+finishes, refusal of new borrowers once disposal is pending, and recovery after
+a failed codec operation. This does not depend on codec duration or scheduling.
 
 The ordinary `TextureBatch` suite loads the real rendering module and controls
 its batch queue. It checks inline and queued encode/decode, recovery after
 context-install discard, both job types discarded during exit, an executed
 decode completing after exit was requested, correlation, transferred output
-and empty rendering memory attribution after draining. Process harnesses also
-verify codec execution is attributed to rendering for inline work and to a
+and empty rendering memory attribution after draining. Integration checks use
+the Host asset service and real rendering module with multiple LDR/HDR jobs
+executed by concurrent workers, reverse completion order, isolated failures and
+discards, source disposal and shutdown with several requests outstanding. A
+saturation case retains 128 queued jobs while a further request completes
+inline, exercising request storage growth and independent cleanup. Process
+harnesses also verify codec execution is attributed to rendering for inline work and to a
 rendering-module batch runner for queued work.
 
 Linux CTest also runs the real Host/Executive/Rendering acceptance flow using

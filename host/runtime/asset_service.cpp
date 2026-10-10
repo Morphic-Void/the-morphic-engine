@@ -118,10 +118,6 @@ void CAssetService::reply(threading::CThreadPackage& client, const std::int32_t 
 void CAssetService::finish_operation(const std::int32_t slot, const EAssetStatus status) noexcept
 {
     SOperation& operation = *m_operations.get_object(slot);
-    if ((operation.phase == EPhase::texture_encoding) || (operation.phase == EPhase::texture_decoding))
-    {
-        m_texture_busy = false;
-    }
     if (operation.phase == EPhase::disposing)
     {
         MV_DETAIL("Host asset disposal completed at client slot {}", operation.client_slot);
@@ -364,13 +360,12 @@ void CAssetService::request(threading::CErasedOwnerMsg& message, threading::CThr
 
     if (TextureEncodeRequest* const encode = operation.request_owner.payload<TextureEncodeRequest>())
     {
-        if (m_texture_busy || (m_rendering == nullptr))
+        if (m_rendering == nullptr)
         {
             finish_operation(slot, EAssetStatus::busy);
             return;
         }
         operation.phase = EPhase::texture_encoding;
-        m_texture_busy = true;
         threading::CErasedPodMsg outbound;
         outbound.set_async_slot(slot);
         outbound.assign_payload(TextureEncodeWork{ encode });
@@ -382,7 +377,7 @@ void CAssetService::request(threading::CErasedOwnerMsg& message, threading::CThr
     }
     if (const TextureDecodeRequest* const decode = operation.request_owner.payload<TextureDecodeRequest>())
     {
-        if (m_texture_busy || (m_rendering == nullptr))
+        if (m_rendering == nullptr)
         {
             finish_operation(slot, EAssetStatus::busy);
             return;
@@ -404,7 +399,6 @@ void CAssetService::request(threading::CErasedOwnerMsg& message, threading::CThr
         operation.texture_source = decode->source;
         operation.texture_source_view = bytes;
         operation.phase = EPhase::texture_decoding;
-        m_texture_busy = true;
         threading::CErasedPodMsg outbound;
         outbound.set_async_slot(slot);
         outbound.assign_payload(TextureDecodeWork{ decode, (&operation.texture_source_view) });
