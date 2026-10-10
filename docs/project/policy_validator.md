@@ -20,8 +20,8 @@ deliberately outside the validator's first-version scope.
 
 ## Build integration and reports
 
-The Host, Executive, and MorphicTests projects reference the validator project
-and run it before compilation. A failed error-level rule fails that build.
+The Host, Executive, Rendering, and MorphicTests projects reference the validator
+project and run it before compilation. A failed error-level rule fails that build.
 
 The executable can also be run directly:
 
@@ -49,6 +49,12 @@ It contains:
 
 Routine permissions belong in this file. Existing usage is reviewed input to
 the allowlist, not automatic grandfathering.
+
+Rendering source and project configuration use the same engine checks as Host
+and Executive. The two Basis Universal headers are permitted only in
+`rendering/runtime/basis_codec.cpp`; upstream Basis sources remain outside the
+scanner's source roots. Rendering's function registration is permitted only in
+its binding header.
 
 ### Standard library permissions
 

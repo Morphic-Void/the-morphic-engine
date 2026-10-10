@@ -18,8 +18,8 @@
 
 #include "debug/macros.hpp"
 #include "types/fp16data_t.hpp"
-#include "encoder/basisu_comp.h"
-#include "transcoder/basisu_transcoder.h"
+#include <encoder/basisu_comp.h>
+#include <transcoder/basisu_transcoder.h>
 
 namespace rendering::basis_codec
 {

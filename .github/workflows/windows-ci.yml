@@ -67,6 +67,21 @@ jobs:
             Tee-Object -FilePath build/ci/tests-console.log
           exit $LASTEXITCODE
 
+      - name: Build lifecycle fixtures and test with one Host worker
+        run: |
+          $outputPlatform = if ($env:BUILD_PLATFORM -eq 'x86') { 'Win32' } else { 'x64' }
+          $msbuild = (Get-Command msbuild -CommandType Application).Source
+          ./tests/module_lifecycle/run_tests.ps1 -Configuration $env:BUILD_CONFIGURATION `
+            -Platform $outputPlatform -WorkerCount 1 -MSBuild $msbuild -SkipSolutionBuild 2>&1 |
+            Tee-Object -FilePath build/ci/lifecycle-one-worker-console.log
+
+      - name: Test lifecycle with two requested Host workers
+        run: |
+          $outputPlatform = if ($env:BUILD_PLATFORM -eq 'x86') { 'Win32' } else { 'x64' }
+          ./tests/module_lifecycle/run_tests.ps1 -Configuration $env:BUILD_CONFIGURATION `
+            -Platform $outputPlatform -WorkerCount 2 -SkipBuild 2>&1 |
+            Tee-Object -FilePath build/ci/lifecycle-two-workers-console.log
+
       - name: Upload build, policy, and test diagnostics
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -74,6 +89,8 @@ jobs:
           name: windows-${{ matrix.configuration }}-${{ matrix.platform }}-diagnostics
           path: |
             build/ci/
+            build/lifecycle-runtime-*/development/logical-roots/test-logs/
+            build/lifecycle-runtime-*/development/logical-roots/test-output/
             development/logical-roots/logs/policy_validator/
           if-no-files-found: warn
           retention-days: 7

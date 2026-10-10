@@ -208,6 +208,10 @@ from PowerShell. The script builds the solution and four roles of the standalone
 `MorphicLifecycleFixture.vcxproj`, then launches isolated Host processes.
 Use `Release` and/or `Win32` for other configurations; `-SkipBuild` requires all
 matching solution and fixture binaries to have already been built.
+Use `-SkipSolutionBuild` to build only the fixture DLLs against an existing
+solution build, and `-MSBuild` to select a toolchain explicitly. Windows CI runs
+the harness in each Debug/Release and x64/Win32 job with one and two requested
+Host workers, retaining the isolated runtime logs and test output.
 
 The fixture project is maintained test infrastructure outside the solution.
 It produces the Executive driver, missing-thread-export, failed-thread-start

@@ -13,6 +13,7 @@ param(
     [ValidateSet('x64', 'Win32')] [string] $Platform = 'x64',
     [ValidateRange(1, 4294967295)] [long] $WorkerCount = 2,
     [string] $MSBuild = 'C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe',
+    [switch] $SkipSolutionBuild,
     [switch] $SkipBuild
 )
 
@@ -24,9 +25,11 @@ $suffix = [Guid]::NewGuid().ToString('N').Substring(0, 8)
 $runtime = New-HostTestEnvironment -Repository $repository -Name "lifecycle-runtime-$suffix"
 
 if (!$SkipBuild) {
-    $solutionPlatform = if ($Platform -eq 'Win32') { 'x86' } else { $Platform }
-    & $MSBuild (Join-Path $repository 'MorphicEngine.sln') /m "/p:Configuration=$Configuration" "/p:Platform=$solutionPlatform" /v:minimal
-    if ($LASTEXITCODE -ne 0) { throw 'Solution build failed.' }
+    if (!$SkipSolutionBuild) {
+        $solutionPlatform = if ($Platform -eq 'Win32') { 'x86' } else { $Platform }
+        & $MSBuild (Join-Path $repository 'MorphicEngine.sln') /m "/p:Configuration=$Configuration" "/p:Platform=$solutionPlatform" /v:minimal
+        if ($LASTEXITCODE -ne 0) { throw 'Solution build failed.' }
+    }
     foreach ($role in @('MissingThread', 'RenderingFailure', 'RenderingDisposal', 'Executive')) {
         & $MSBuild (Join-Path $repository 'visual_studio/MorphicLifecycleFixture.vcxproj') /m "/p:Configuration=$Configuration" "/p:Platform=$Platform" "/p:SolutionDir=$repository\" "/p:FixtureRole=$role" /v:minimal
         if ($LASTEXITCODE -ne 0) { throw "$role fixture build failed." }

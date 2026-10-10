@@ -11,8 +11,8 @@ One failed job does not cancel the other configurations. A newer run for the
 same workflow, event, and ref cancels an older run still in progress.
 
 Each job checks out the repository and its submodules, verifies line endings,
-builds the solution, and runs `MorphicTests.exe -t1`. The existing
-`MorphicPolicy.targets` integration builds and runs `MorphicPolicyValidator`
+builds the solution, and runs `MorphicTests.exe -t1` and the DLL lifecycle harness.
+The existing `MorphicPolicy.targets` integration builds and runs `MorphicPolicyValidator`
 before compilation of consuming projects. Policy errors fail the build;
 the workflow does not bypass them. Test failures also fail the job.
 
@@ -21,15 +21,25 @@ executable is loaded from `build/bin/Win32/<configuration>`. The x64 jobs use
 `build/bin/x64/<configuration>`. Tests run from the repository root and write
 their output beneath `build/ci/tests`.
 
+Each job builds the four standalone lifecycle fixture roles using the MSBuild
+selected by CI, reusing the solution build through `-SkipSolutionBuild`. It runs
+all 26 lifecycle cases with one requested Host worker, then reuses those binaries
+with `-SkipBuild` for two requested workers. The Host may reduce the latter to
+one worker according to its hardware-thread policy; this does not guarantee a
+dedicated conditioning worker on every runner. Cases include replacement,
+dependent-asset disposal, startup failures, rendering drain and normal
+Host/Executive/Rendering acceptance.
+
 Every job attempts to upload a separate diagnostics artifact, including after
 failure. It contains the MSBuild text and binary logs, test console output,
-test logs and output files, and policy reports that were produced. Artifacts
+test logs and output files, lifecycle console output and isolated runtime logs
+and test output, and policy reports that were produced. Artifacts
 are retained for seven days. Failed checkout or setup steps may produce no
 diagnostics artifact; their errors remain in the Actions job log.
 
-This initial workflow covers the ordinary standalone suites. It does not run
-the engine acceptance executable, the separate DLL lifecycle harness, or the
-more expensive `-t2` and `-t3` modes.
+The workflow does not run the more expensive `-t2` and `-t3` modes. Linux CI
+continues to run its existing ordinary suites and texture acceptance; the
+standalone DLL lifecycle harness is currently Windows-only.
 
 ## Enabling and using the workflow
 
