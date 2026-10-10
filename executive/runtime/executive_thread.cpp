@@ -17,6 +17,7 @@
 
 #include "debug/macros.hpp"
 #include "image/codec/tga.hpp"
+#include "types/fp16data_t.hpp"
 #include "data_model/document_parser.hpp"
 #include "data_model/document_translation.hpp"
 #include "data_model/document_writer.hpp"
@@ -82,6 +83,12 @@ enum class EScenario : std::uint8_t
     write_unterminated_string,
     reject_unterminated_string,
     load_tga_bottom_up,
+    encode_texture_ldr,
+    decode_texture_ldr_bc7,
+    decode_texture_ldr_rgba,
+    encode_texture_hdr,
+    decode_texture_hdr_bc6h,
+    decode_texture_hdr_half,
 };
 
 struct SScenario
@@ -96,58 +103,65 @@ struct SScenario
 
 //  Order records fixture dependencies only. Every outcome is stated independently.
 static constexpr SScenario scenarios[]{
-    { EScenario::retain_raw,                   "retain_raw",                   EAssetStatus::success,             EAssetKind::raw,   EDocumentPolicyStatus::unexamined,      0u },
-    { EScenario::save_retained_raw,            "save_retained_raw",            EAssetStatus::success,             EAssetKind::raw,   EDocumentPolicyStatus::unexamined,      0u },
-    { EScenario::load_saved_raw,               "load_saved_raw",               EAssetStatus::success,             EAssetKind::raw,   EDocumentPolicyStatus::unexamined,      0u },
-    { EScenario::save_discarded_raw,           "save_discarded_raw",           EAssetStatus::success,             EAssetKind::none,  EDocumentPolicyStatus::unexamined,      0u },
-    { EScenario::load_discarded_raw_output,    "load_discarded_raw_output",    EAssetStatus::success,             EAssetKind::raw,   EDocumentPolicyStatus::unexamined,      0u },
-    { EScenario::load_tga,                     "load_tga",                     EAssetStatus::success,             EAssetKind::image, EDocumentPolicyStatus::unexamined,      0u },
-    { EScenario::save_retained_image,          "save_retained_image",          EAssetStatus::success,             EAssetKind::image, EDocumentPolicyStatus::unexamined,      0u },
-    { EScenario::reload_tga,                   "reload_tga",                   EAssetStatus::success,             EAssetKind::image, EDocumentPolicyStatus::unexamined,      0u },
-    { EScenario::save_retained_greyscale,      "save_retained_greyscale",      EAssetStatus::success,             EAssetKind::image, EDocumentPolicyStatus::unexamined,      0u },
-    { EScenario::save_discarded_rgba,          "save_discarded_rgba",          EAssetStatus::success,             EAssetKind::none,  EDocumentPolicyStatus::unexamined,      0u },
-    { EScenario::retain_live,                  "retain_live",                  EAssetStatus::success,             EAssetKind::live,  EDocumentPolicyStatus::unexamined,      0u },
-    { EScenario::save_live_binary,             "save_live_binary",             EAssetStatus::success,             EAssetKind::live,  EDocumentPolicyStatus::unexamined,      0u },
-    { EScenario::load_live_binary,             "load_live_binary",             EAssetStatus::success,             EAssetKind::baked, EDocumentPolicyStatus::unexamined,      0u },
-    { EScenario::save_live_json,               "save_live_json",               EAssetStatus::success,             EAssetKind::live,  EDocumentPolicyStatus::unexamined,      0u },
-    { EScenario::load_live_json,               "load_live_json",               EAssetStatus::success,             EAssetKind::baked, EDocumentPolicyStatus::accepted,        0u },
-    { EScenario::mutate_live_and_save_binary,  "mutate_live_and_save_binary",  EAssetStatus::success,             EAssetKind::live,  EDocumentPolicyStatus::unexamined,      0u },
-    { EScenario::load_mutated_live_binary,     "load_mutated_live_binary",     EAssetStatus::success,             EAssetKind::baked, EDocumentPolicyStatus::unexamined,      0u },
-    { EScenario::save_live_json_retain_baked,  "save_live_json_retain_baked",  EAssetStatus::success,             EAssetKind::baked, EDocumentPolicyStatus::unexamined,      0u },
-    { EScenario::save_retained_baked_binary,   "save_retained_baked_binary",   EAssetStatus::success,             EAssetKind::baked, EDocumentPolicyStatus::unexamined,      0u },
-    { EScenario::load_retained_baked_binary,   "load_retained_baked_binary",   EAssetStatus::success,             EAssetKind::baked, EDocumentPolicyStatus::unexamined,      0u },
-    { EScenario::save_discarded_baked_json,    "save_discarded_baked_json",    EAssetStatus::success,             EAssetKind::none,  EDocumentPolicyStatus::unexamined,      0u },
-    { EScenario::load_baked_json,              "load_baked_json",              EAssetStatus::success,             EAssetKind::baked, EDocumentPolicyStatus::accepted,        0u },
-    { EScenario::retain_baked,                 "retain_baked",                 EAssetStatus::success,             EAssetKind::baked, EDocumentPolicyStatus::unexamined,      0u },
-    { EScenario::retain_baked_from_live,       "retain_baked_from_live",       EAssetStatus::success,             EAssetKind::baked, EDocumentPolicyStatus::unexamined,      0u },
-    { EScenario::retain_raw_on_save_failure,   "retain_raw_on_save_failure",   EAssetStatus::write_failed,        EAssetKind::raw,   EDocumentPolicyStatus::unexamined,      0u },
-    { EScenario::save_raw_after_failure,       "save_raw_after_failure",       EAssetStatus::success,             EAssetKind::raw,   EDocumentPolicyStatus::unexamined,      0u },
-    { EScenario::discard_raw_on_save_failure,  "discard_raw_on_save_failure",  EAssetStatus::write_failed,        EAssetKind::none,  EDocumentPolicyStatus::unexamined,      0u },
-    { EScenario::retain_baked_on_save_failure, "retain_baked_on_save_failure", EAssetStatus::write_failed,        EAssetKind::baked, EDocumentPolicyStatus::unexamined,      0u },
-    { EScenario::reject_invalid_asset,         "reject_invalid_asset",         EAssetStatus::invalid_asset,       EAssetKind::none,  EDocumentPolicyStatus::unexamined,      0u },
-    { EScenario::write_malformed_json,         "write_malformed_json",         EAssetStatus::success,             EAssetKind::none,  EDocumentPolicyStatus::unexamined,      0u },
-    { EScenario::reject_malformed_json,        "reject_malformed_json",        EAssetStatus::conditioning_failed, EAssetKind::none,  EDocumentPolicyStatus::unexamined,      document_finding_bit(EDocumentFinding::unquoted_names) },
-    { EScenario::reject_missing_file,          "reject_missing_file",          EAssetStatus::read_failed,         EAssetKind::none,  EDocumentPolicyStatus::unexamined,      0u },
-    { EScenario::write_policy_rejected_json,   "write_policy_rejected_json",   EAssetStatus::success,             EAssetKind::none,  EDocumentPolicyStatus::unexamined,      0u },
-    { EScenario::reject_disallowed_features,   "reject_disallowed_features",   EAssetStatus::policy_rejected,     EAssetKind::none,  EDocumentPolicyStatus::rejected,        document_finding_bit(EDocumentFinding::unquoted_names) },
-    { EScenario::write_invalid_binary,         "write_invalid_binary",         EAssetStatus::success,             EAssetKind::none,  EDocumentPolicyStatus::unexamined,      0u },
-    { EScenario::reject_invalid_binary,        "reject_invalid_binary",        EAssetStatus::conditioning_failed, EAssetKind::none,  EDocumentPolicyStatus::unexamined,      0u },
-    { EScenario::retain_baked_on_json_failure, "retain_baked_on_json_failure", EAssetStatus::conditioning_failed, EAssetKind::baked, EDocumentPolicyStatus::unexamined,      0u },
-    { EScenario::save_discarded_live_binary,   "save_discarded_live_binary",   EAssetStatus::success,             EAssetKind::none,  EDocumentPolicyStatus::unexamined,      0u },
-    { EScenario::save_discarded_live_json,     "save_discarded_live_json",     EAssetStatus::success,             EAssetKind::none,  EDocumentPolicyStatus::unexamined,      0u },
-    { EScenario::reject_invalid_tga,           "reject_invalid_tga",           EAssetStatus::conditioning_failed, EAssetKind::none,  EDocumentPolicyStatus::unexamined,      0u },
-    { EScenario::write_invalid_encoding,       "write_invalid_encoding",       EAssetStatus::success,             EAssetKind::none,  EDocumentPolicyStatus::unexamined,      0u },
-    { EScenario::reject_invalid_encoding,      "reject_invalid_encoding",      EAssetStatus::conditioning_failed, EAssetKind::none,  EDocumentPolicyStatus::unexamined,      (EDocumentFinding::utf8_attempt_failed | EDocumentFinding::cp1252) },
-    { EScenario::write_numeric_overflow,       "write_numeric_overflow",       EAssetStatus::success,             EAssetKind::none,  EDocumentPolicyStatus::unexamined,      0u },
-    { EScenario::reject_numeric_overflow,      "reject_numeric_overflow",      EAssetStatus::conditioning_failed, EAssetKind::none,  EDocumentPolicyStatus::unexamined,      0u },
-    { EScenario::reject_invalid_policy,        "reject_invalid_policy",        EAssetStatus::policy_rejected,     EAssetKind::none,  EDocumentPolicyStatus::invalid_options, 0u },
-    { EScenario::write_unterminated_string,    "write_unterminated_string",    EAssetStatus::success,             EAssetKind::none,  EDocumentPolicyStatus::unexamined,      0u },
-    { EScenario::reject_unterminated_string,   "reject_unterminated_string",   EAssetStatus::conditioning_failed, EAssetKind::none,  EDocumentPolicyStatus::unexamined,      0u },
-    { EScenario::load_tga_bottom_up,           "load_tga_bottom_up",           EAssetStatus::success,             EAssetKind::image, EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::retain_raw,                   "retain_raw",                   EAssetStatus::success,             EAssetKind::raw,             EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::save_retained_raw,            "save_retained_raw",            EAssetStatus::success,             EAssetKind::raw,             EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::load_saved_raw,               "load_saved_raw",               EAssetStatus::success,             EAssetKind::raw,             EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::save_discarded_raw,           "save_discarded_raw",           EAssetStatus::success,             EAssetKind::none,            EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::load_discarded_raw_output,    "load_discarded_raw_output",    EAssetStatus::success,             EAssetKind::raw,             EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::load_tga,                     "load_tga",                     EAssetStatus::success,             EAssetKind::image,           EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::save_retained_image,          "save_retained_image",          EAssetStatus::success,             EAssetKind::image,           EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::reload_tga,                   "reload_tga",                   EAssetStatus::success,             EAssetKind::image,           EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::save_retained_greyscale,      "save_retained_greyscale",      EAssetStatus::success,             EAssetKind::image,           EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::save_discarded_rgba,          "save_discarded_rgba",          EAssetStatus::success,             EAssetKind::none,            EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::retain_live,                  "retain_live",                  EAssetStatus::success,             EAssetKind::live,            EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::save_live_binary,             "save_live_binary",             EAssetStatus::success,             EAssetKind::live,            EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::load_live_binary,             "load_live_binary",             EAssetStatus::success,             EAssetKind::baked,           EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::save_live_json,               "save_live_json",               EAssetStatus::success,             EAssetKind::live,            EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::load_live_json,               "load_live_json",               EAssetStatus::success,             EAssetKind::baked,           EDocumentPolicyStatus::accepted,        0u },
+    { EScenario::mutate_live_and_save_binary,  "mutate_live_and_save_binary",  EAssetStatus::success,             EAssetKind::live,            EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::load_mutated_live_binary,     "load_mutated_live_binary",     EAssetStatus::success,             EAssetKind::baked,           EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::save_live_json_retain_baked,  "save_live_json_retain_baked",  EAssetStatus::success,             EAssetKind::baked,           EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::save_retained_baked_binary,   "save_retained_baked_binary",   EAssetStatus::success,             EAssetKind::baked,           EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::load_retained_baked_binary,   "load_retained_baked_binary",   EAssetStatus::success,             EAssetKind::baked,           EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::save_discarded_baked_json,    "save_discarded_baked_json",    EAssetStatus::success,             EAssetKind::none,            EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::load_baked_json,              "load_baked_json",              EAssetStatus::success,             EAssetKind::baked,           EDocumentPolicyStatus::accepted,        0u },
+    { EScenario::retain_baked,                 "retain_baked",                 EAssetStatus::success,             EAssetKind::baked,           EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::retain_baked_from_live,       "retain_baked_from_live",       EAssetStatus::success,             EAssetKind::baked,           EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::retain_raw_on_save_failure,   "retain_raw_on_save_failure",   EAssetStatus::write_failed,        EAssetKind::raw,             EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::save_raw_after_failure,       "save_raw_after_failure",       EAssetStatus::success,             EAssetKind::raw,             EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::discard_raw_on_save_failure,  "discard_raw_on_save_failure",  EAssetStatus::write_failed,        EAssetKind::none,            EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::retain_baked_on_save_failure, "retain_baked_on_save_failure", EAssetStatus::write_failed,        EAssetKind::baked,           EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::reject_invalid_asset,         "reject_invalid_asset",         EAssetStatus::invalid_asset,       EAssetKind::none,            EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::write_malformed_json,         "write_malformed_json",         EAssetStatus::success,             EAssetKind::none,            EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::reject_malformed_json,        "reject_malformed_json",        EAssetStatus::conditioning_failed, EAssetKind::none,            EDocumentPolicyStatus::unexamined,      document_finding_bit(EDocumentFinding::unquoted_names) },
+    { EScenario::reject_missing_file,          "reject_missing_file",          EAssetStatus::read_failed,         EAssetKind::none,            EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::write_policy_rejected_json,   "write_policy_rejected_json",   EAssetStatus::success,             EAssetKind::none,            EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::reject_disallowed_features,   "reject_disallowed_features",   EAssetStatus::policy_rejected,     EAssetKind::none,            EDocumentPolicyStatus::rejected,        document_finding_bit(EDocumentFinding::unquoted_names) },
+    { EScenario::write_invalid_binary,         "write_invalid_binary",         EAssetStatus::success,             EAssetKind::none,            EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::reject_invalid_binary,        "reject_invalid_binary",        EAssetStatus::conditioning_failed, EAssetKind::none,            EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::retain_baked_on_json_failure, "retain_baked_on_json_failure", EAssetStatus::conditioning_failed, EAssetKind::baked,           EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::save_discarded_live_binary,   "save_discarded_live_binary",   EAssetStatus::success,             EAssetKind::none,            EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::save_discarded_live_json,     "save_discarded_live_json",     EAssetStatus::success,             EAssetKind::none,            EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::reject_invalid_tga,           "reject_invalid_tga",           EAssetStatus::conditioning_failed, EAssetKind::none,            EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::write_invalid_encoding,       "write_invalid_encoding",       EAssetStatus::success,             EAssetKind::none,            EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::reject_invalid_encoding,      "reject_invalid_encoding",      EAssetStatus::conditioning_failed, EAssetKind::none,            EDocumentPolicyStatus::unexamined,      (EDocumentFinding::utf8_attempt_failed | EDocumentFinding::cp1252) },
+    { EScenario::write_numeric_overflow,       "write_numeric_overflow",       EAssetStatus::success,             EAssetKind::none,            EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::reject_numeric_overflow,      "reject_numeric_overflow",      EAssetStatus::conditioning_failed, EAssetKind::none,            EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::reject_invalid_policy,        "reject_invalid_policy",        EAssetStatus::policy_rejected,     EAssetKind::none,            EDocumentPolicyStatus::invalid_options, 0u },
+    { EScenario::write_unterminated_string,    "write_unterminated_string",    EAssetStatus::success,             EAssetKind::none,            EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::reject_unterminated_string,   "reject_unterminated_string",   EAssetStatus::conditioning_failed, EAssetKind::none,            EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::load_tga_bottom_up,           "load_tga_bottom_up",           EAssetStatus::success,             EAssetKind::image,           EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::encode_texture_ldr,           "encode_texture_ldr",           EAssetStatus::success,             EAssetKind::encoded_texture, EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::decode_texture_ldr_bc7,       "decode_texture_ldr_bc7",       EAssetStatus::success,             EAssetKind::decoded_texture, EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::decode_texture_ldr_rgba,      "decode_texture_ldr_rgba",      EAssetStatus::success,             EAssetKind::decoded_texture, EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::encode_texture_hdr,           "encode_texture_hdr",           EAssetStatus::success,             EAssetKind::encoded_texture, EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::decode_texture_hdr_bc6h,      "decode_texture_hdr_bc6h",      EAssetStatus::success,             EAssetKind::decoded_texture, EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::decode_texture_hdr_half,      "decode_texture_hdr_half",      EAssetStatus::success,             EAssetKind::decoded_texture, EDocumentPolicyStatus::unexamined,      0u },
 };
+
 static constexpr std::uint32_t scenario_count = sizeof(scenarios) / sizeof(scenarios[0]);
 static constexpr std::uint32_t concurrent_save_count{ 32u };
-static_assert(concurrent_save_count <= 100u, "Concurrent filenames reserve two decimal digits.");
+static_assert((concurrent_save_count <= 100u), "Concurrent filenames reserve two decimal digits.");
 
 static constexpr char fixture[] = R"({"null":null,"bool":true,"signed":-123,"unsigned":18446744073709551615,"float":1.25,"text":"line\ntext","object":{},"mixed":[null,true,3,"text"],"bools":[true,false],"ints":[-1,-2],"uints":[18446744073709551615,18446744073709551614],"floats":[1.25,2.5],"strings":["a","b"],"empty":[]})";
 static constexpr char raw_file[] = "test-output:/asset-acceptance.raw";
@@ -230,6 +244,8 @@ private:
     [[nodiscard]] bool transfer_image(const std::int32_t slot, const bool greyscale, const bool storage_bottom_up, const EAssetRetention retention, const char* const file) noexcept;
     [[nodiscard]] bool transfer_live(const std::int32_t slot, const EAssetRetention retention, const bool save, const char* const file, const AssetSaveSettings& settings) noexcept;
     [[nodiscard]] bool transfer_baked(const std::int32_t slot, const EAssetRetention retention, const bool save, const char* const file, const AssetSaveSettings& settings) noexcept;
+    [[nodiscard]] bool encode_texture_fixture(const std::int32_t slot, const bool hdr) noexcept;
+    [[nodiscard]] bool decode_texture_fixture(const std::int32_t slot, const CAssetId source, const image::texture::EStorageFormat target) noexcept;
     [[nodiscard]] bool prepare_expected_document() noexcept;
     [[nodiscard]] bool submit_concurrent_saves() noexcept;
     [[nodiscard]] bool complete_concurrent_save(const threading::CErasedPodMsg& message) noexcept;
@@ -250,6 +266,8 @@ private:
     image::CImageView m_image_view;
     AssetResult m_live;
     AssetResult m_baked;
+    AssetResult m_ldr_texture;
+    AssetResult m_hdr_texture;
     CBakedDocumentBlock m_expected;
     bool m_save_completed[asset_acceptance::concurrent_save_count]{};
     std::uint32_t m_completed_save_count{ 0u };
@@ -374,7 +392,7 @@ bool CExecutiveThread::accept_rendering_notice(const threading::CErasedPodMsg& m
         m_phase = EPhase::sequential;
         ++m_pending_slot;
         MV_REPORT("Executive: Rendering ready (%s)",
-            (result.status == EModuleStatus::already_loaded) ? "already loaded" : "loaded");
+            ((result.status == EModuleStatus::already_loaded) ? "already loaded" : "loaded"));
     }
     (void)m_perf_counter.update();
     return true;
@@ -445,7 +463,7 @@ bool CExecutiveThread::transfer_image(const std::int32_t slot, const bool greysc
 {
     CErasedOwner owner = CErasedOwner::create<ImageAssetTransfer>();
     ImageAssetTransfer* const request = owner.payload<ImageAssetTransfer>();
-    if ((request == nullptr) || !request->storage.value.allocate(greyscale ? 7u : 28u, 5u, 16u) || !request->storage.file.set(file))
+    if ((request == nullptr) || !request->storage.value.allocate((greyscale ? 7u : 28u), 5u, 16u) || !request->storage.file.set(file))
     {
         return false;
     }
@@ -493,6 +511,52 @@ bool CExecutiveThread::transfer_baked(const std::int32_t slot, const EAssetReten
     return post(slot, std::move(owner), request);
 }
 
+bool CExecutiveThread::encode_texture_fixture(const std::int32_t slot, const bool hdr) noexcept
+{
+    CErasedOwner owner = CErasedOwner::create<TextureEncodeRequest>();
+    TextureEncodeRequest* const request = owner.payload<TextureEncodeRequest>();
+    if ((request == nullptr) || !request->input.allocate((hdr ? 32u : 16u), 4u, 16u))
+    {
+        return false;
+    }
+    request->format = hdr ? image::texture::EInputFormat::rgba16f : image::texture::EInputFormat::rgba8;
+    request->transfer = hdr ? image::texture::ETransfer::linear : image::texture::ETransfer::srgb;
+    request->options.encoding = hdr ? image::texture::EEncoding::uastc_hdr_4x4 : image::texture::EEncoding::uastc_ldr_4x4;
+    request->options.max_pixels = 16u;
+    for (std::uint32_t y = 0u; y < 4u; ++y)
+    {
+        std::uint8_t* const row = request->input.row_data(y);
+        for (std::uint32_t x = 0u; x < 4u; ++x)
+        {
+            if (hdr)
+            {
+                const std::uint16_t pixel[4]{ 0x4400u, 0x3800u, 0x3400u, 0x3c00u };
+                std::memcpy((row + (x * sizeof(pixel))), pixel, sizeof(pixel));
+            }
+            else
+            {
+                const std::uint8_t pixel[4]{ static_cast<std::uint8_t>(x * 50u),
+                    static_cast<std::uint8_t>(y * 50u), 80u, 255u };
+                std::memcpy((row + (x * sizeof(pixel))), pixel, sizeof(pixel));
+            }
+        }
+    }
+    return post(slot, std::move(owner), request);
+}
+
+bool CExecutiveThread::decode_texture_fixture(const std::int32_t slot, const CAssetId source, const image::texture::EStorageFormat target) noexcept
+{
+    CErasedOwner owner = CErasedOwner::create<TextureDecodeRequest>();
+    TextureDecodeRequest* const request = owner.payload<TextureDecodeRequest>();
+    if (request == nullptr)
+    {
+        return false;
+    }
+    request->source = source;
+    request->target = target;
+    return post(slot, std::move(owner), request);
+}
+
 bool CExecutiveThread::prepare_expected_document() noexcept
 {
     CLiveDocument document;
@@ -530,6 +594,30 @@ bool CExecutiveThread::submit(const asset_acceptance::SScenario& scenario, const
         case EScenario::load_tga_bottom_up:
         {
             return load(slot, EAssetFileFormat::tga, "dev-source:/test_input.tga", {}, false);
+        }
+        case EScenario::encode_texture_ldr:
+        {
+            return encode_texture_fixture(slot, false);
+        }
+        case EScenario::decode_texture_ldr_bc7:
+        {
+            return decode_texture_fixture(slot, m_ldr_texture.asset, image::texture::EStorageFormat::bc7_srgb);
+        }
+        case EScenario::decode_texture_ldr_rgba:
+        {
+            return decode_texture_fixture(slot, m_ldr_texture.asset, image::texture::EStorageFormat::rgba8);
+        }
+        case EScenario::encode_texture_hdr:
+        {
+            return encode_texture_fixture(slot, true);
+        }
+        case EScenario::decode_texture_hdr_bc6h:
+        {
+            return decode_texture_fixture(slot, m_hdr_texture.asset, image::texture::EStorageFormat::bc6h_ufloat);
+        }
+        case EScenario::decode_texture_hdr_half:
+        {
+            return decode_texture_fixture(slot, m_hdr_texture.asset, image::texture::EStorageFormat::rgba16f);
         }
         case EScenario::save_retained_image:
         {
@@ -578,7 +666,7 @@ bool CExecutiveThread::submit(const asset_acceptance::SScenario& scenario, const
             CLiveDocument* const live = m_live.live_document();
             if ((live == nullptr) || !live->append_child(live->root(), live->create_boolean(false,
                 CStringView{ reinterpret_cast<const std::uint8_t*>("added"), 5u })).succeeded() ||
-                !document_translation::bake(*live, m_expected))
+                !document_translation::bake((*live), m_expected))
             {
                 return false;
             }
@@ -699,7 +787,7 @@ bool CExecutiveThread::check(const asset_acceptance::SScenario& scenario, const 
             result.document_findings, scenario.findings);
         return false;
     }
-    if (!expect(scenario, static_cast<bool>(result.asset) == (scenario.retained_kind != EAssetKind::none), "retained asset identity"))
+    if (!expect(scenario, (static_cast<bool>(result.asset) == (scenario.retained_kind != EAssetKind::none)), "retained asset identity"))
     {
         return false;
     }
@@ -717,22 +805,22 @@ bool CExecutiveThread::check(const asset_acceptance::SScenario& scenario, const 
         case EScenario::load_discarded_raw_output:
         {
             return expect(scenario, equal_bytes(result.byte_view(), CByteConstView{
-                reinterpret_cast<const std::uint8_t*>(fixture), sizeof(fixture) - 1u }), "raw byte equality") &&
-                expect(scenario, result.byte_view().align() >= 32u, "raw alignment");
+                reinterpret_cast<const std::uint8_t*>(fixture), (sizeof(fixture) - 1u) }), "raw byte equality") &&
+                expect(scenario, (result.byte_view().align() >= 32u), "raw alignment");
         }
         case EScenario::load_tga:
         {
             m_image = result;
             m_image_view = image;
-            return expect(scenario, image.is_ready() && !image.is_read_only() && !image.vertical_flip(), "writable top-down image");
+            return expect(scenario, (image.is_ready() && !image.is_read_only() && !image.vertical_flip()), "writable top-down image");
         }
         case EScenario::reload_tga:
         case EScenario::load_tga_bottom_up:
         {
-            if (!expect(scenario, (image.width() == m_image_view.width()) &&
-                (image.height() == m_image_view.height()), "image dimensions") ||
-                !expect(scenario, image.vertical_flip() == m_image_view.vertical_flip(), "cached image row addressing") ||
-                !expect(scenario, result.asset == m_image.asset, "same cached image identity"))
+            if (!expect(scenario, ((image.width() == m_image_view.width()) &&
+                (image.height() == m_image_view.height())), "image dimensions") ||
+                !expect(scenario, (image.vertical_flip() == m_image_view.vertical_flip()), "cached image row addressing") ||
+                !expect(scenario, (result.asset == m_image.asset), "same cached image identity"))
             {
                 return false;
             }
@@ -740,7 +828,7 @@ bool CExecutiveThread::check(const asset_acceptance::SScenario& scenario, const 
             {
                 for (std::int32_t x = 0; x < image.width(); ++x)
                 {
-                    if (!expect(scenario, image.texel(x, y) == m_image_view.texel(x, y), "image texel equality"))
+                    if (!expect(scenario, (image.texel(x, y) == m_image_view.texel(x, y)), "image texel equality"))
                     {
                         return false;
                     }
@@ -750,12 +838,72 @@ bool CExecutiveThread::check(const asset_acceptance::SScenario& scenario, const 
         }
         case EScenario::save_retained_greyscale:
         {
-            return expect(scenario, image.is_greyscale() && image.vertical_flip() && (image.texel(2, 3) == 0xccu), "bottom-up greyscale texel");
+            return expect(scenario, (image.is_greyscale() && image.vertical_flip() && (image.texel(2, 3) == 0xccu)), "bottom-up greyscale texel");
+        }
+        case EScenario::encode_texture_ldr:
+        case EScenario::encode_texture_hdr:
+        {
+            const image::texture::CEncodedView view = result.encoded_texture_view();
+            const bool hdr = (scenario.identity == EScenario::encode_texture_hdr);
+            if (hdr)
+            {
+                m_hdr_texture = result;
+            }
+            else
+            {
+                m_ldr_texture = result;
+            }
+            return
+                expect(scenario, (view.is_ready() && (view.bytes.align() >= 16u)),
+                    "aligned KTX2 view") &&
+                expect(scenario,
+                    ((view.description.width == 4u) && (view.description.height == 4u) && (view.description.levels == 1u)),
+                    "encoded dimensions and levels") &&
+                expect(scenario,
+                    (view.description.container == image::texture::EContainer::ktx2),
+                    "KTX2 container") &&
+                expect(scenario,
+                    (view.description.encoding == (hdr ? image::texture::EEncoding::uastc_hdr_4x4 : image::texture::EEncoding::uastc_ldr_4x4)),
+                    "encoded mode") &&
+                expect(scenario,
+                    (view.description.transfer == (hdr ? image::texture::ETransfer::linear : image::texture::ETransfer::srgb)),
+                    "encoded transfer");
+        }
+        case EScenario::decode_texture_ldr_bc7:
+        case EScenario::decode_texture_ldr_rgba:
+        case EScenario::decode_texture_hdr_bc6h:
+        case EScenario::decode_texture_hdr_half:
+        {
+            const image::texture::CDecodedView view = result.decoded_texture_view();
+            const bool blocks =
+                (scenario.identity == EScenario::decode_texture_ldr_bc7) ||
+                (scenario.identity == EScenario::decode_texture_hdr_bc6h);
+            const std::size_t expected_size = blocks ? 16u :
+                ((scenario.identity == EScenario::decode_texture_ldr_rgba) ? 64u : 128u);
+            if (!expect(scenario, (view.is_ready() && (view.bytes.align() >= 16u) && (view.bytes.size() == expected_size) &&
+                (view.description.width == 4u) && (view.description.height == 4u) &&
+                (view.description.row_pitch == (blocks ? 16u : ((scenario.identity == EScenario::decode_texture_ldr_rgba) ? 16u : 32u)))),
+                "decoded layout"))
+            {
+                return false;
+            }
+            if (scenario.identity == EScenario::decode_texture_ldr_rgba)
+            {
+                return expect(scenario, (view.bytes.data()[3] > 200u), "LDR alpha");
+            }
+            if (scenario.identity == EScenario::decode_texture_hdr_half)
+            {
+                std::uint16_t red_bits = 0u;
+                std::memcpy((&red_bits), view.bytes.data(), sizeof(red_bits));
+                const float red = static_cast<float>(fp16data_t::fromBits(red_bits)) * view.description.hdr_scale;
+                return expect(scenario, (red > 1.5f), "HDR value above bloom threshold");
+            }
+            return true;
         }
         case EScenario::retain_live:
         {
             m_live = result;
-            return expect(scenario, (result.live_document() != nullptr) && result.live_document()->is_ready(), "live document readiness");
+            return expect(scenario, ((result.live_document() != nullptr) && result.live_document()->is_ready()), "live document readiness");
         }
         case EScenario::load_live_binary:
         case EScenario::load_mutated_live_binary:
@@ -846,7 +994,7 @@ bool CExecutiveThread::start_filesystem_exercise() noexcept
     {
         CErasedOwner owner = CErasedOwner::create<FilesystemRefreshRequest>();
         FilesystemRefreshRequest* const request = owner.payload<FilesystemRefreshRequest>();
-        if ((request == nullptr) || !request->root.set(roots[index]) || !post(1000 + index, std::move(owner), request))
+        if ((request == nullptr) || !request->root.set(roots[index]) || !post((1000 + index), std::move(owner), request))
         {
             return false;
         }
@@ -1031,7 +1179,7 @@ void CExecutiveThread::operate() noexcept
             }
             const SScenario& scenario = scenarios[m_scenario_index];
             AssetResult result;
-            if (!expect(scenario, message.query_async_slot() == m_pending_slot, "reply correlation") ||
+            if (!expect(scenario, (message.query_async_slot() == m_pending_slot), "reply correlation") ||
                 !expect(scenario, message.copy_payload_to(result), "reply payload type") || !check(scenario, result))
             {
                 fail(EFailure::completion, "scenario completion");

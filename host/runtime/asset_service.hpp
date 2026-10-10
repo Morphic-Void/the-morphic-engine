@@ -26,9 +26,10 @@ class CAssetService
 public:
     void set_filesystem(filesystem_image::CImage& image) noexcept { m_filesystem = &image; }
     [[nodiscard]] bool initialise() noexcept;
+
     //  A null conditioning worker routes conditioning to file_io.
-    [[nodiscard]] bool configure_workers(threading::CThreadPackage& file_io,
-        threading::CThreadPackage* const conditioning) noexcept;
+    [[nodiscard]] bool configure_workers(threading::CThreadPackage& file_io, threading::CThreadPackage* const conditioning) noexcept;
+    void set_rendering(threading::CThreadPackage* const rendering) noexcept { m_rendering = rendering; }
     void deallocate() noexcept;
 
     //  Requires stopped workers: no outstanding borrower may still read inputs.
@@ -52,6 +53,8 @@ private:
         decoding,
         conditioning,
         encoding,
+        texture_encoding,
+        texture_decoding,
         saving,
         disposing
     };
@@ -67,18 +70,20 @@ private:
         bool load_requested{ false };
 
         const char* file{ nullptr };
-        const char* logical_file{ nullptr }; //  Backed by request_owner.
-        CSimpleString physical_file; //  Stable backing borrowed by the I/O worker.
+        const char* logical_file{ nullptr };    //  Backed by request_owner.
+        CSimpleString physical_file;            //  Stable backing borrowed by the I/O worker.
         std::uint64_t admission_serial{ 0u };
-        AssetSaveSettings save_settings; //  Borrowed writer options remain unchanged until completion.
+        AssetSaveSettings save_settings;        //  Borrowed writer options remain unchanged until completion.
 
-        CErasedOwner request_owner; //  Keeps the borrowed filename alive.
-        CErasedOwner candidate_owner; //  Temporary asset; empty after repository retention.
-        CErasedOwner conditioning_input_owner; //  File bytes borrowed by decoding/parsing.
-        CErasedOwner worker_result_owner; //  Worker output, also backs a pending file save.
+        CErasedOwner request_owner;             //  Keeps the borrowed filename alive.
+        CErasedOwner candidate_owner;           //  Temporary asset; empty after repository retention.
+        CErasedOwner conditioning_input_owner;  //  File bytes borrowed by decoding/parsing.
+        CErasedOwner worker_result_owner;       //  Worker output, also backs a pending file save.
 
-        AssetResult working_views; //  May refer to temporary storage; never publish directly.
-        CAssetId retained_asset{}; //  Only this identity permits client views.
+        AssetResult working_views;  //  May refer to temporary storage; never publish directly.
+        CAssetId retained_asset{};  //  Only this identity permits client views.
+        CAssetId texture_source{};  //  Borrowed input blocks disposal until rendering completes.
+        CByteConstView texture_source_view; //  Stable POD work descriptor target.
     };
 
     //  True means the type matched; working_views.status reports acceptance or rejection.
@@ -102,15 +107,19 @@ private:
     void complete_image_decode(const std::int32_t slot) noexcept;
     void complete_image_encode(const std::int32_t slot) noexcept;
     void complete_document_conditioning(const std::int32_t slot) noexcept;
+    void complete_texture_encode(const std::int32_t slot) noexcept;
+    void complete_texture_decode(const std::int32_t slot) noexcept;
 
     CAssetRepository m_assets;
     filesystem_image::CImage* m_filesystem{ nullptr };
     threading::CThreadPackage* m_file_io{ nullptr };
     threading::CThreadPackage* m_conditioning{ nullptr };
+    threading::CThreadPackage* m_rendering{ nullptr };
 
     //  Address-stable objects: workers borrow save_settings until completion.
     TUnorderedCollection<SOperation> m_operations;
     bool m_failed{ false };
+    bool m_texture_busy{ false };
 };
 
 }   //  namespace host

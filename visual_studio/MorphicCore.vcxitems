@@ -66,6 +66,7 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\debug\service.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\image\codec\tga.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\image\image_view.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\image\texture_data.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\memory\memory_context.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\memory\memory_policies.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\memory\memory_token.hpp" />

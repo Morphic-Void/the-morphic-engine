@@ -16,6 +16,12 @@
     type_macro(file_save_result) \
     type_macro(tga_encode_result) \
     type_macro(tga_decode_result) \
+    type_macro(texture_encode_work) \
+    type_macro(texture_decode_work) \
+    type_macro(texture_encode_request) \
+    type_macro(texture_decode_request) \
+    type_macro(texture_encode_result) \
+    type_macro(texture_decode_result) \
     type_macro(loaded_file) \
     type_macro(encoded_tga) \
     type_macro(decoded_tga) \

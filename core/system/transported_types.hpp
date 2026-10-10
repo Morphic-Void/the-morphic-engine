@@ -26,6 +26,7 @@
 #include "filesystem/filesystem_image.hpp"
 #include "image/codec/tga.hpp"
 #include "image/image_view.hpp"
+#include "image/texture_data.hpp"
 #include "module/module_binding.hpp"
 #include "system/erased_owner_registration.hpp"
 #include "system/system_type_registration.hpp"
@@ -76,6 +77,53 @@ struct DecodedTga
     image::CImageView view;
 };
 
+//  Texture work is submitted to the rendering thread. Requests borrow Host
+//  storage; results own aligned bytes that the Host can retain for client views.
+struct TextureEncodeRequest;
+struct TextureDecodeRequest;
+
+struct TextureEncodeWork
+{
+    const TextureEncodeRequest* request{ nullptr };
+};
+
+struct TextureDecodeWork
+{
+    const TextureDecodeRequest* request{ nullptr };
+    const CByteConstView* input{ nullptr };
+};
+
+enum class ETextureStatus : std::uint8_t
+{
+    success = 0, invalid_input, unsupported_format, allocation_failed, codec_failed
+};
+
+struct TextureEncodeResult
+{
+    image::texture::CEncodedTexture texture;
+    ETextureStatus status{ ETextureStatus::allocation_failed };
+
+    [[nodiscard]] memory::SMemoryAttribution memory_attribution() const noexcept { return texture.memory_attribution(); }
+    void unsafe_replace_memory_context_without_accounting(
+        memory::CMemoryContext* const expected_source, memory::CMemoryContext* const target) noexcept
+    {
+        texture.unsafe_replace_memory_context_without_accounting(expected_source, target);
+    }
+};
+
+struct TextureDecodeResult
+{
+    image::texture::CDecodedTexture texture;
+    ETextureStatus status{ ETextureStatus::allocation_failed };
+
+    [[nodiscard]] memory::SMemoryAttribution memory_attribution() const noexcept { return texture.memory_attribution(); }
+    void unsafe_replace_memory_context_without_accounting(
+        memory::CMemoryContext* const expected_source, memory::CMemoryContext* const target) noexcept
+    {
+        texture.unsafe_replace_memory_context_without_accounting(expected_source, target);
+    }
+};
+
 //==============================================================================
 //  Retained document storage
 //==============================================================================
@@ -102,7 +150,8 @@ enum class EAssetStatus : std::uint8_t
     conditioning_failed,
     policy_rejected,
     write_failed,
-    delivery_failed
+    delivery_failed,
+    busy
 };
 
 struct AssetSaveSettings
@@ -151,6 +200,30 @@ using ImageAssetTransfer = TAssetTransferRequest<CByteRectBuffer>;
 using BakedAssetTransfer = TAssetTransferRequest<CBakedDocumentBlock>;
 using LiveAssetTransfer = TAssetTransferRequest<CLiveDocument>;
 
+//  Encoding transfers source pixels into the Host. Decoding borrows a retained
+//  encoded texture; its identity remains live until the rendering reply arrives.
+struct TextureEncodeRequest
+{
+    CByteRectBuffer input;
+    image::texture::EInputFormat format{ image::texture::EInputFormat::rgba8 };
+    image::texture::ETransfer transfer{ image::texture::ETransfer::linear };
+    image::texture::CEncodeOptions options;
+
+    [[nodiscard]] memory::SMemoryAttribution memory_attribution() const noexcept { return input.memory_attribution(); }
+    void unsafe_replace_memory_context_without_accounting(
+        memory::CMemoryContext* const expected_source, memory::CMemoryContext* const target) noexcept
+    {
+        input.unsafe_replace_memory_context_without_accounting(expected_source, target);
+    }
+};
+
+struct TextureDecodeRequest
+{
+    CAssetId source{};
+    image::texture::EStorageFormat target{ image::texture::EStorageFormat::rgba8 };
+    std::uint32_t level{ 0u };
+};
+
 struct AssetLoadRequest
 {
     CSimpleString file;
@@ -183,7 +256,7 @@ struct AssetDisposeResult
     EAssetStatus status{ EAssetStatus::invalid_asset };
 };
 
-enum class EAssetKind : std::uint8_t { none = 0, raw, image, baked, live };
+enum class EAssetKind : std::uint8_t { none = 0, raw, image, baked, live, encoded_texture, decoded_texture };
 
 struct BakedAssetView
 {
@@ -197,12 +270,16 @@ union AssetViews
     BakedAssetView baked;
     const image::CImageView* image;
     CLiveDocument* live;
+    const image::texture::CEncodedTexture* encoded_texture;
+    const image::texture::CDecodedTexture* decoded_texture;
 
     AssetViews() noexcept : bytes{} {}
     explicit AssetViews(const memory::CMemoryConstView& value) noexcept : bytes{ value } {}
     explicit AssetViews(const BakedAssetView& value) noexcept : baked{ value } {}
     explicit AssetViews(const image::CImageView* const value) noexcept : image{ value } {}
     explicit AssetViews(CLiveDocument* const value) noexcept : live{ value } {}
+    explicit AssetViews(const image::texture::CEncodedTexture* const value) noexcept : encoded_texture{ value } {}
+    explicit AssetViews(const image::texture::CDecodedTexture* const value) noexcept : decoded_texture{ value } {}
 };
 
 struct AssetResult
@@ -238,8 +315,24 @@ struct AssetResult
         kind = EAssetKind::live;
     }
 
+    void set_encoded_texture_view(const image::texture::CEncodedTexture* const value) noexcept
+    {
+        views = AssetViews{ value };
+        kind = EAssetKind::encoded_texture;
+    }
+
+    void set_decoded_texture_view(const image::texture::CDecodedTexture* const value) noexcept
+    {
+        views = AssetViews{ value };
+        kind = EAssetKind::decoded_texture;
+    }
+
     [[nodiscard]] CByteConstView byte_view() const noexcept
     {
+        if ((kind == EAssetKind::encoded_texture) && (views.encoded_texture != nullptr))
+        {
+            return views.encoded_texture->buffer.const_view();
+        }
         const memory::CMemoryConstView bytes = (kind == EAssetKind::raw) ? views.bytes :
             ((kind == EAssetKind::baked) ? views.baked.bytes : memory::CMemoryConstView{});
         return CByteConstView{ static_cast<const std::uint8_t*>(bytes.data()), bytes.count(), bytes.storage_alignment() };
@@ -259,6 +352,18 @@ struct AssetResult
     [[nodiscard]] CLiveDocument* live_document() const noexcept
     {
         return (kind == EAssetKind::live) ? views.live : nullptr;
+    }
+
+    [[nodiscard]] image::texture::CEncodedView encoded_texture_view() const noexcept
+    {
+        return ((kind == EAssetKind::encoded_texture) && (views.encoded_texture != nullptr)) ?
+            views.encoded_texture->view() : image::texture::CEncodedView{};
+    }
+
+    [[nodiscard]] image::texture::CDecodedView decoded_texture_view() const noexcept
+    {
+        return ((kind == EAssetKind::decoded_texture) && (views.decoded_texture != nullptr)) ?
+            views.decoded_texture->view() : image::texture::CDecodedView{};
     }
 };
 
@@ -426,6 +531,12 @@ MV_REGISTER_SYSTEM_TYPE(TgaEncodeRequest, system_type_ids::tga_encode_request);
 MV_REGISTER_SYSTEM_TYPE(TgaDecodeRequest, system_type_ids::tga_decode_request);
 MV_REGISTER_SYSTEM_TYPE(TgaEncodeResult, system_type_ids::tga_encode_result);
 MV_REGISTER_SYSTEM_TYPE(TgaDecodeResult, system_type_ids::tga_decode_result);
+MV_REGISTER_SYSTEM_TYPE(TextureEncodeWork, system_type_ids::texture_encode_work);
+MV_REGISTER_SYSTEM_TYPE(TextureDecodeWork, system_type_ids::texture_decode_work);
+MV_REGISTER_SYSTEM_TYPE(TextureEncodeRequest, system_type_ids::texture_encode_request);
+MV_REGISTER_SYSTEM_TYPE(TextureDecodeRequest, system_type_ids::texture_decode_request);
+MV_REGISTER_SYSTEM_TYPE(TextureEncodeResult, system_type_ids::texture_encode_result);
+MV_REGISTER_SYSTEM_TYPE(TextureDecodeResult, system_type_ids::texture_decode_result);
 MV_REGISTER_SYSTEM_TYPE(EncodedTga, system_type_ids::encoded_tga);
 MV_REGISTER_SYSTEM_TYPE(DecodedTga, system_type_ids::decoded_tga);
 

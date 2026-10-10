@@ -18,6 +18,18 @@
 namespace host
 {
 
+static EAssetStatus texture_asset_status(const ETextureStatus status) noexcept
+{
+    switch (status)
+    {
+        case ETextureStatus::success: return EAssetStatus::success;
+        case ETextureStatus::invalid_input:
+        case ETextureStatus::unsupported_format: return EAssetStatus::invalid_request;
+        case ETextureStatus::allocation_failed: return EAssetStatus::allocation_failed;
+        default: return EAssetStatus::conditioning_failed;
+    }
+}
+
 //==============================================================================
 //  Service lifetime and completion publication
 //==============================================================================
@@ -48,6 +60,7 @@ void CAssetService::deallocate() noexcept
     m_assets.deallocate();
     m_file_io = nullptr;
     m_conditioning = nullptr;
+    m_rendering = nullptr;
 }
 
 void CAssetService::fail_pending() noexcept
@@ -79,6 +92,14 @@ void CAssetService::describe_views(TOwner& source, AssetResult& result) noexcept
     {
         result.set_live_view(&live->document);
     }
+    else if (TextureEncodeResult* const encoded = source.template payload<TextureEncodeResult>())
+    {
+        result.set_encoded_texture_view(&encoded->texture);
+    }
+    else if (TextureDecodeResult* const decoded = source.template payload<TextureDecodeResult>())
+    {
+        result.set_decoded_texture_view(&decoded->texture);
+    }
 }
 
 template<typename TResult>
@@ -97,10 +118,14 @@ void CAssetService::reply(threading::CThreadPackage& client, const std::int32_t 
 void CAssetService::finish_operation(const std::int32_t slot, const EAssetStatus status) noexcept
 {
     SOperation& operation = *m_operations.get_object(slot);
+    if ((operation.phase == EPhase::texture_encoding) || (operation.phase == EPhase::texture_decoding))
+    {
+        m_texture_busy = false;
+    }
     if (operation.phase == EPhase::disposing)
     {
         MV_DETAIL("Host asset disposal completed at client slot {}", operation.client_slot);
-        reply(*operation.client, operation.client_slot, AssetDisposeResult{ operation.retained_asset, status });
+        reply((*operation.client), operation.client_slot, AssetDisposeResult{ operation.retained_asset, status });
         (void)m_operations.erase(slot);
         return;
     }
@@ -133,7 +158,7 @@ void CAssetService::finish_operation(const std::int32_t slot, const EAssetStatus
     result.status = status;
     result.document_policy = operation.working_views.document_policy;
     result.document_findings = operation.working_views.document_findings;
-    reply(*operation.client, operation.client_slot, result);
+    reply((*operation.client), operation.client_slot, result);
     (void)m_operations.erase(slot);
 }
 
@@ -172,7 +197,8 @@ bool CAssetService::asset_in_use(const CAssetId asset) const noexcept
     for (std::int32_t slot = m_operations.first_live(); slot >= 0; slot = m_operations.next_live(slot))
     {
         const SOperation& operation = *m_operations.get_object(slot);
-        if ((operation.phase != EPhase::disposing) && (operation.retained_asset == asset))
+        if ((operation.phase != EPhase::disposing) &&
+            ((operation.retained_asset == asset) || (operation.texture_source == asset)))
         {
             return true;
         }
@@ -222,7 +248,7 @@ void CAssetService::complete_disposals() noexcept
                 m_failed = true;
             }
             const bool erased = m_assets.erase(operation.retained_asset);
-            finish_operation(slot, erased ? EAssetStatus::success : EAssetStatus::invalid_asset);
+            finish_operation(slot, (erased ? EAssetStatus::success : EAssetStatus::invalid_asset));
         }
         slot = next;
     }
@@ -302,7 +328,7 @@ bool CAssetService::handle_transfer_if_type_matches(SOperation& operation) noexc
     operation.retention = request->retention;
     operation.save_requested = request->save;
     describe_views(operation.candidate_owner, operation.working_views);
-    const bool live = operation.working_views.live_document() != nullptr;
+    const bool live = (operation.working_views.live_document() != nullptr);
     const bool ready = live ? operation.working_views.live_document()->is_ready() :
         (operation.working_views.byte_view().is_ready() ||
             ((operation.working_views.kind == EAssetKind::image) && operation.working_views.views.image->is_ready()));
@@ -336,6 +362,59 @@ void CAssetService::request(threading::CErasedOwnerMsg& message, threading::CThr
         return;
     }
 
+    if (TextureEncodeRequest* const encode = operation.request_owner.payload<TextureEncodeRequest>())
+    {
+        if (m_texture_busy || (m_rendering == nullptr))
+        {
+            finish_operation(slot, EAssetStatus::busy);
+            return;
+        }
+        operation.phase = EPhase::texture_encoding;
+        m_texture_busy = true;
+        threading::CErasedPodMsg outbound;
+        outbound.set_async_slot(slot);
+        outbound.assign_payload(TextureEncodeWork{ encode });
+        if (!m_rendering->post(outbound))
+        {
+            finish_operation(slot, EAssetStatus::delivery_failed);
+        }
+        return;
+    }
+    if (const TextureDecodeRequest* const decode = operation.request_owner.payload<TextureDecodeRequest>())
+    {
+        if (m_texture_busy || (m_rendering == nullptr))
+        {
+            finish_operation(slot, EAssetStatus::busy);
+            return;
+        }
+        CAssetRecord* const source = disposal_pending(decode->source) ? nullptr : m_assets.resolve(decode->source);
+        if (source == nullptr)
+        {
+            finish_operation(slot, EAssetStatus::invalid_asset);
+            return;
+        }
+        AssetResult source_view;
+        describe_views((*source), source_view);
+        const CByteConstView bytes = source_view.byte_view();
+        if (!bytes.is_ready())
+        {
+            finish_operation(slot, EAssetStatus::invalid_request);
+            return;
+        }
+        operation.texture_source = decode->source;
+        operation.texture_source_view = bytes;
+        operation.phase = EPhase::texture_decoding;
+        m_texture_busy = true;
+        threading::CErasedPodMsg outbound;
+        outbound.set_async_slot(slot);
+        outbound.assign_payload(TextureDecodeWork{ decode, (&operation.texture_source_view) });
+        if (!m_rendering->post(outbound))
+        {
+            finish_operation(slot, EAssetStatus::delivery_failed);
+        }
+        return;
+    }
+
     if (const AssetLoadRequest* const load = operation.request_owner.payload<AssetLoadRequest>())
     {
         operation.load_requested = true;
@@ -358,9 +437,9 @@ void CAssetService::request(threading::CErasedOwnerMsg& message, threading::CThr
         if (CAssetRecord* const record = disposal_pending(cached) ? nullptr : m_assets.resolve(cached))
         {
             AssetResult views;
-            describe_views(*record, views);
+            describe_views((*record), views);
             const std::uint32_t findings = m_filesystem->cached_findings(operation.logical_file);
-            const bool json = load->format == EAssetFileFormat::json;
+            const bool json = (load->format == EAssetFileFormat::json);
             const bool adequate_alignment = !views.byte_view().is_ready() || (views.byte_view().align() >= std::max(load->alignment, std::size_t{ 16u }));
             if (adequate_alignment && (!json || (findings != UINT32_MAX)))
             {
@@ -383,7 +462,7 @@ void CAssetService::request(threading::CErasedOwnerMsg& message, threading::CThr
                 return;
             }
         }
-        FileLoadRequest request{ operation.file, (load->format == EAssetFileFormat::baked) ? std::max(load->alignment, std::size_t{ 32u }) : load->alignment };
+        FileLoadRequest request{ operation.file, ((load->format == EAssetFileFormat::baked) ? std::max(load->alignment, std::size_t{ 32u }) : load->alignment) };
         threading::CErasedPodMsg outbound;
         outbound.set_async_slot(slot);
         outbound.assign_payload(request);
@@ -401,11 +480,11 @@ void CAssetService::request(threading::CErasedOwnerMsg& message, threading::CThr
         CAssetRecord* const source = disposal_pending(save->source) ? nullptr : m_assets.resolve(save->source);
         if ((source == nullptr) || (save->file.length() == 0u))
         {
-            finish_operation(slot, (source == nullptr) ? EAssetStatus::invalid_asset : EAssetStatus::invalid_request);
+            finish_operation(slot, ((source == nullptr) ? EAssetStatus::invalid_asset : EAssetStatus::invalid_request));
             return;
         }
         operation.retained_asset = save->source;
-        describe_views(*source, operation.working_views);
+        describe_views((*source), operation.working_views);
     }
     else
     {
@@ -431,7 +510,7 @@ void CAssetService::request(threading::CErasedOwnerMsg& message, threading::CThr
 void CAssetService::begin_save_or_bake(const std::int32_t slot) noexcept
 {
     SOperation& operation = *m_operations.get_object(slot);
-    const bool live = operation.working_views.live_document() != nullptr;
+    const bool live = (operation.working_views.live_document() != nullptr);
     if (!operation.save_requested && (!live || (operation.retention != EAssetRetention::baked)))
     {
         finish_operation(slot, EAssetStatus::success);
@@ -467,7 +546,9 @@ void CAssetService::begin_save_or_bake(const std::int32_t slot) noexcept
         request.options = &operation.save_settings.document;
         outbound.assign_payload(request);
     }
-    else if ((operation.working_views.kind == EAssetKind::raw) && (operation.save_settings.format == EAssetFileFormat::raw))
+    else if (((operation.working_views.kind == EAssetKind::raw) ||
+        (operation.working_views.kind == EAssetKind::encoded_texture)) &&
+        (operation.save_settings.format == EAssetFileFormat::raw))
     {
         begin_file_save(slot, operation.working_views.byte_view());
         return;
@@ -520,7 +601,7 @@ void CAssetService::complete(const threading::CErasedPodMsg& message, threading:
     if ((operation != nullptr) && (operation->phase == EPhase::saving) &&
         (&worker == m_file_io) && message.copy_payload_to(result))
     {
-        finish_operation(slot, result.success ? EAssetStatus::success : EAssetStatus::write_failed);
+        finish_operation(slot, (result.success ? EAssetStatus::success : EAssetStatus::write_failed));
     }
     else
     {
@@ -573,6 +654,26 @@ void CAssetService::complete(threading::CErasedOwnerMsg& message, threading::CTh
             }
             break;
         }
+        case EPhase::texture_encoding:
+        {
+            if ((identity == k_type_id_v<TextureEncodeResult>) && (&worker == m_rendering))
+            {
+                operation.worker_result_owner = message.take_owner();
+                complete_texture_encode(slot);
+                return;
+            }
+            break;
+        }
+        case EPhase::texture_decoding:
+        {
+            if ((identity == k_type_id_v<TextureDecodeResult>) && (&worker == m_rendering))
+            {
+                operation.worker_result_owner = message.take_owner();
+                complete_texture_decode(slot);
+                return;
+            }
+            break;
+        }
         case EPhase::conditioning:
         {
             if ((identity == k_type_id_v<DocumentConditionResult>) && (&worker == m_conditioning))
@@ -611,7 +712,7 @@ void CAssetService::complete_file_load(const std::int32_t slot) noexcept
         BakedDocumentAsset* const source = operation.candidate_owner.payload<BakedDocumentAsset>();
         if ((source == nullptr) || !source->block.adopt(std::move(loaded->buffer)))
         {
-            finish_operation(slot, (source == nullptr) ? EAssetStatus::allocation_failed : EAssetStatus::conditioning_failed);
+            finish_operation(slot, ((source == nullptr) ? EAssetStatus::allocation_failed : EAssetStatus::conditioning_failed));
             return;
         }
     }
@@ -641,7 +742,7 @@ void CAssetService::complete_file_load(const std::int32_t slot) noexcept
         return;
     }
     describe_views(operation.candidate_owner, operation.working_views);
-    finish_operation(slot, retain_candidate(operation) ? EAssetStatus::success : EAssetStatus::allocation_failed);
+    finish_operation(slot, (retain_candidate(operation) ? EAssetStatus::success : EAssetStatus::allocation_failed));
     return;
 }
 
@@ -664,7 +765,7 @@ void CAssetService::complete_image_decode(const std::int32_t slot) noexcept
     }
     operation.candidate_owner = std::move(operation.worker_result_owner);
     describe_views(operation.candidate_owner, operation.working_views);
-    finish_operation(slot, retain_candidate(operation) ? EAssetStatus::success : EAssetStatus::allocation_failed);
+    finish_operation(slot, (retain_candidate(operation) ? EAssetStatus::success : EAssetStatus::allocation_failed));
     return;
 }
 
@@ -679,6 +780,54 @@ void CAssetService::complete_image_encode(const std::int32_t slot) noexcept
     }
     begin_file_save(slot, encoded->buffer.const_view());
     return;
+}
+
+void CAssetService::complete_texture_encode(const std::int32_t slot) noexcept
+{
+    SOperation& operation = *m_operations.get_object(slot);
+    TextureEncodeResult* const result = operation.worker_result_owner.payload<TextureEncodeResult>();
+    if (result == nullptr)
+    {
+        finish_operation(slot, EAssetStatus::allocation_failed);
+        return;
+    }
+    if (result->status != ETextureStatus::success)
+    {
+        finish_operation(slot, texture_asset_status(result->status));
+        return;
+    }
+    if (!result->texture.view().is_ready())
+    {
+        finish_operation(slot, EAssetStatus::conditioning_failed);
+        return;
+    }
+    operation.candidate_owner = std::move(operation.worker_result_owner);
+    describe_views(operation.candidate_owner, operation.working_views);
+    finish_operation(slot, (retain_candidate(operation) ? EAssetStatus::success : EAssetStatus::allocation_failed));
+}
+
+void CAssetService::complete_texture_decode(const std::int32_t slot) noexcept
+{
+    SOperation& operation = *m_operations.get_object(slot);
+    TextureDecodeResult* const result = operation.worker_result_owner.payload<TextureDecodeResult>();
+    if (result == nullptr)
+    {
+        finish_operation(slot, EAssetStatus::allocation_failed);
+        return;
+    }
+    if (result->status != ETextureStatus::success)
+    {
+        finish_operation(slot, texture_asset_status(result->status));
+        return;
+    }
+    if (!result->texture.view().is_ready())
+    {
+        finish_operation(slot, EAssetStatus::conditioning_failed);
+        return;
+    }
+    operation.candidate_owner = std::move(operation.worker_result_owner);
+    describe_views(operation.candidate_owner, operation.working_views);
+    finish_operation(slot, (retain_candidate(operation) ? EAssetStatus::success : EAssetStatus::allocation_failed));
 }
 
 void CAssetService::complete_document_conditioning(const std::int32_t slot) noexcept

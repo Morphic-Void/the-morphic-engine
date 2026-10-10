@@ -306,6 +306,9 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\image\image_view.hpp">
       <Filter>Core\include\image</Filter>
     </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\image\texture_data.hpp">
+      <Filter>Core\include\image</Filter>
+    </ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\memory\memory_context.hpp">
       <Filter>Core\include\memory</Filter>
     </ClInclude>

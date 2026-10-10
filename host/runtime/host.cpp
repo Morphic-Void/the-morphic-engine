@@ -79,7 +79,7 @@ void CHost::initialise_debug_service(const char* const log_tag, const char* cons
 bool CHost::start_threads() noexcept
 {
     const thread_ids::id_type identities[]{ thread_ids::bg_file_io, thread_ids::bg_conditioning };
-    static_assert(sizeof(identities) / sizeof(identities[0]) == k_max_worker_count);
+    static_assert((sizeof(identities) / sizeof(identities[0])) == k_max_worker_count);
 
     for (std::uint32_t index = 0u; index < m_worker_count; ++index)
     {
@@ -99,7 +99,7 @@ bool CHost::start_threads() noexcept
         }
     }
 
-    return m_asset_service.configure_workers(*worker_package(0u), worker_package(1u));
+    return m_asset_service.configure_workers((*worker_package(0u)), worker_package(1u));
 }
 
 bool CHost::workers_failed() noexcept
@@ -125,7 +125,7 @@ bool CHost::start_executive() noexcept
 
     const threading::ThreadConfig configuration{
         thread_ids::executive, module_ids::executive, platform::threading::EThreadPriority::Normal,
-        entry, &modules::CBoundModule::prepare_thread, binding };
+        entry, (&modules::CBoundModule::prepare_thread), binding };
     const std::int32_t slot = m_thread_packages.emplace(configuration, m_perf_count_conversion);
     if (slot < 0)
     {
@@ -148,7 +148,7 @@ bool CHost::start_rendering() noexcept
 
     const threading::ThreadConfig configuration{
         thread_ids::rendering, binding->advertised_module_identity().advertised_module_id,
-        platform::threading::EThreadPriority::Normal, entry, &modules::CBoundModule::prepare_thread, binding };
+        platform::threading::EThreadPriority::Normal, entry, (&modules::CBoundModule::prepare_thread), binding };
     const std::int32_t slot = m_thread_packages.emplace(configuration, m_perf_count_conversion);
     if (slot < 0)
     {
@@ -163,6 +163,7 @@ bool CHost::start_rendering() noexcept
     }
 
     m_thread_slots[static_cast<std::uint32_t>(EWorkerThreadID::rendering)] = slot;
+    m_asset_service.set_rendering(package);
     MV_REPORT("Host: Rendering started after asynchronous binding");
     return true;
 }
@@ -175,9 +176,13 @@ bool CHost::stop_rendering(const threading::EThreadRunState state) noexcept
         return true;
     }
 
+    if (!m_asset_service.is_idle())
+    {
+        return false;
+    }
+    m_asset_service.set_rendering(nullptr);
     rendering->request_exit();
-    if (((state != threading::EThreadRunState::Exited) && (state != threading::EThreadRunState::Failed)) ||
-        !m_asset_service.is_idle())
+    if ((state != threading::EThreadRunState::Exited) && (state != threading::EThreadRunState::Failed))
     {
         return false;
     }
@@ -273,7 +278,7 @@ int CHost::execute(const char* const log_tag, const char* const executive_file, 
             worker_count, m_worker_count, hardware_threads);
     }
     MV_REPORT("Host: Background workers %u, dedicated conditioning workers %u, reported hardware threads %u",
-        m_worker_count, (m_worker_count > 1u) ? m_worker_count - 1u : 0u, hardware_threads);
+        m_worker_count, ((m_worker_count > 1u) ? (m_worker_count - 1u) : 0u), hardware_threads);
     const std::uint32_t batch_limit = batch_runner_limit(hardware_threads, m_worker_count, static_cast<std::uint32_t>(k_thread_count));
     m_batch_runner_count = std::min(batch_runner_count, batch_limit);
 #if !MV_PLATFORM_HAS_NATIVE_WAIT_WORD
@@ -328,7 +333,7 @@ void CHost::receive_request(threading::CErasedOwnerMsg& message, threading::CThr
 
         if (m_phase == EPhase::running)
         {
-            m_module_service.request(message.take_owner(), message.query_async_slot(), &executive, CModuleService::EPurpose::client);
+            m_module_service.request(message.take_owner(), message.query_async_slot(), (&executive), CModuleService::EPurpose::client);
         }
 
         return;
@@ -384,7 +389,7 @@ void CHost::dispatch_refresh() noexcept
         }
         failure = EFilesystemStatus::delivery_failed;
     }
-    reply_refresh(*refresh.client, refresh.slot, failure);
+    reply_refresh((*refresh.client), refresh.slot, failure);
     refresh.owner.destroy();
     m_refresh_head = (m_refresh_head + 1u) % k_refresh_capacity;
     --m_refresh_count;
@@ -418,7 +423,7 @@ void CHost::complete_scan(threading::CErasedOwnerMsg& message) noexcept
     SRefresh& refresh = m_refresh_queue[m_refresh_head];
     const EFilesystemStatus status = !scanned ? EFilesystemStatus::scan_failed :
         (m_filesystem.integrate(result->document, m_scan_serial) ? EFilesystemStatus::success : EFilesystemStatus::integration_failed);
-    reply_refresh(*refresh.client, refresh.slot, status);
+    reply_refresh((*refresh.client), refresh.slot, status);
     refresh.owner.destroy();
     m_refresh_head = (m_refresh_head + 1u) % k_refresh_capacity;
     --m_refresh_count;
