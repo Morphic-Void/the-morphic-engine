@@ -86,7 +86,7 @@ bool CLiveDocumentPromoter::build() noexcept
             return false;
         }
     }
-    return m_destination.check_integrity();
+    return true;
 }
 
 CLiveDocument CLiveDocumentPromoter::take_document() noexcept

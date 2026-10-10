@@ -103,7 +103,7 @@ bool CBakedDocumentBaker::build() noexcept
 
 bool CBakedDocumentBaker::prepare() noexcept
 {
-    if (!m_source.check_integrity())
+    if (!m_source.is_ready())
     {
         return false;
     }

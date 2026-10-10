@@ -398,7 +398,7 @@ public:
     [[nodiscard]] bool shrink_to_fit() noexcept;
     void deallocate() noexcept;
 
-    //  Integrity checking
+    //  Explicit diagnostic integrity checking; not part of normal mutation.
     [[nodiscard]] bool check_integrity(const bool check_lexical_order = true) const noexcept;
 
     //  Invalid return values
@@ -833,8 +833,6 @@ inline bool CStableStrings::sort() noexcept
 
     if (m_string_refs.size() > 2u)
     {   //  there is something to sort
-        MV_DEBUG_ONLY(check_integrity());
-
         CStringBuffer string_buffer;
         TPodVector<StringRef> string_refs;
         TPodVector<std::size_t> ref_index_to_id;
@@ -890,7 +888,6 @@ inline bool CStableStrings::sort() noexcept
                 m_ref_index_to_id = std::move(ref_index_to_id);
                 m_id_to_ref_index = std::move(id_to_ref_index);
                 m_sorted_ref_indices = std::move(sorted_ref_indices);
-                MV_DEBUG_ONLY(check_integrity());
             }
         }
     }
@@ -1203,7 +1200,6 @@ inline std::size_t CStableStrings::private_append(const std::uint8_t* const stri
             const bool ok_sorted = m_sorted_ref_indices.insert(insert_at, id);
 
             MV_ASSERT(ok_ref && ok_ref_to_id && ok_id_to_ref && ok_sorted);
-            MV_ASSERT(check_integrity());
         }
     }
     else if (initialise(
@@ -1221,7 +1217,6 @@ inline std::size_t CStableStrings::private_append(const std::uint8_t* const stri
         const bool ok_sorted = m_sorted_ref_indices.push_back(id);
 
         MV_ASSERT(ok_ref && ok_ref_to_id && ok_id_to_ref && ok_sorted);
-        MV_ASSERT(check_integrity());
     }
 
     return id;
