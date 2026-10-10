@@ -2210,6 +2210,44 @@ static void test_names_roots_and_metadata(TTestContext& ctx)
     TEST_EXPECT(ctx, document.check_integrity());
 }
 
+static void test_text_child_lookup(TTestContext& ctx)
+{
+    CLiveDocument document;
+    TEST_EXPECT(ctx, document.initialise());
+    const CNodeKey root = document.root();
+    const CNodeKey nested = document.create_object(CStringView{ "nested" });
+    const CNodeKey upper = document.create_null(CStringView{ "Name" });
+    const CNodeKey lower = document.create_null(CStringView{ "name" });
+    const CNodeKey elsewhere = document.create_null(CStringView{ "elsewhere" });
+    TEST_EXPECT(ctx, document.append_child(root, nested).succeeded());
+    TEST_EXPECT(ctx, document.append_child(root, upper).succeeded());
+    TEST_EXPECT(ctx, document.append_child(root, lower).succeeded());
+    TEST_EXPECT(ctx, document.append_child(nested, elsewhere).succeeded());
+    const CLiveDocument& query = document;
+    TEST_EXPECT(ctx, query.object_child(root, CStringView{ "Name" }) == upper);
+    TEST_EXPECT(ctx, query.object_child(root, CStringView{ "name" }) == lower);
+    TEST_EXPECT(ctx, !query.object_child(root, CStringView{ "NAME" }).is_valid());
+    TEST_EXPECT(ctx, !query.object_child(root, CStringView{ "elsewhere" }).is_valid());
+    TEST_EXPECT(ctx, query.object_child(nested, CStringView{ "elsewhere" }) == elsewhere);
+    TEST_EXPECT(ctx, !query.object_child(upper, CStringView{ "name" }).is_valid());
+    TEST_EXPECT(ctx, query.object_child(root, CStringView{ "name-suffix", 4u }) == lower);
+    TEST_EXPECT(ctx, !document.set_name(upper, CStringView{ "name" }));
+    TEST_EXPECT(ctx, document.set_name(upper, CStringView{ "Name" }));
+    TEST_EXPECT(ctx, document.detach(lower));
+    TEST_EXPECT(ctx, !query.object_child(root, CStringView{ "name" }).is_valid());
+
+    const char literal_nul[]{ 'a', '\0', 'b' };
+    const CStringView literal{ literal_nul, sizeof(literal_nul) };
+    const CStringView canonical{ "a\xc0\x80" "b" };
+    const CNodeKey normalized = document.create_null(literal);
+    TEST_EXPECT(ctx, document.append_child(root, normalized).succeeded());
+    TEST_EXPECT(ctx, query.object_child(root, canonical) == normalized);
+    TEST_EXPECT(ctx, !query.object_child(root, literal).is_valid());
+    TEST_EXPECT(ctx, !document.set_name(upper, literal));
+    TEST_EXPECT(ctx, query.object_child(root, CStringView{ "Name" }) == upper);
+    TEST_EXPECT(ctx, document.check_integrity());
+}
+
 static void test_collision_extension(TTestContext& ctx)
 {
     CLiveDocument document;
@@ -2324,6 +2362,7 @@ int run_live_document_tests()
     TTestContext ctx;
     test_initialisation_root_and_empty_domains(ctx);
     live_document_phase2_tests::test_names_roots_and_metadata(ctx);
+    live_document_phase2_tests::test_text_child_lookup(ctx);
     live_document_phase2_tests::test_shared_node_flags(ctx);
     live_document_phase2_tests::test_collision_extension(ctx);
     for (unsigned headroom = 0u; headroom < 4u; ++headroom)

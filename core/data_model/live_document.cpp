@@ -418,14 +418,16 @@ CNodeKey CLiveDocument::object_child(const CNodeKey object, const CStringView& n
     {
         return CNodeKey{};
     }
-    for (CNodeKey child = first_child(object); child.is_valid(); child = next_sibling(child))
+    if (name_value.length() == 0u)
     {
-        if (is_object_entry(child) && (name(child) == name_value))
-        {
-            return child;
-        }
+        return object_child(object, CPropertyNameId{ CPropertyNameId::k_empty_value });
     }
-    return CNodeKey{};
+    const std::size_t id = m_property_names.find_id(name_value.string(), name_value.length());
+    if ((id == CStableStrings::k_invalid_id) || (id >= CPropertyNameId::k_invalid_value))
+    {
+        return CNodeKey{};
+    }
+    return object_child(object, CPropertyNameId{ static_cast<std::uint32_t>(id) });
 }
 
 bool CLiveDocument::set_name(const CNodeKey key, const CStringView& name_value) noexcept

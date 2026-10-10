@@ -378,10 +378,10 @@ public:
     [[nodiscard]] std::size_t ref_index_to_rank(const std::size_t ref_index) const noexcept;
 
     //  String id queries
-    [[nodiscard]] std::size_t find_id(const char* const cstring) noexcept { return find_id(cast_to_string(cstring)); }
-    [[nodiscard]] std::size_t find_id(const char* const cstring, const std::size_t length) noexcept { return find_id(cast_to_string(cstring), length); }
-    [[nodiscard]] std::size_t find_id(const std::uint8_t* const string) noexcept;
-    [[nodiscard]] std::size_t find_id(const std::uint8_t* const string, const std::size_t length) noexcept;
+    [[nodiscard]] std::size_t find_id(const char* const cstring) const noexcept { return find_id(cast_to_string(cstring)); }
+    [[nodiscard]] std::size_t find_id(const char* const cstring, const std::size_t length) const noexcept { return find_id(cast_to_string(cstring), length); }
+    [[nodiscard]] std::size_t find_id(const std::uint8_t* const string) const noexcept;
+    [[nodiscard]] std::size_t find_id(const std::uint8_t* const string, const std::size_t length) const noexcept;
 
     //  String appending
     [[nodiscard]] std::size_t append(const char* const cstring) noexcept { return append(cast_to_string(cstring)); }
@@ -420,8 +420,8 @@ public:
 
 private:
 
-    std::size_t private_find_ref_index(const std::uint8_t* const string, const std::size_t length, std::size_t& insert_at) noexcept;
-    std::size_t private_find_id(const std::uint8_t* const string, const std::size_t length) noexcept;
+    std::size_t private_find_ref_index(const std::uint8_t* const string, const std::size_t length, std::size_t& insert_at) const noexcept;
+    std::size_t private_find_id(const std::uint8_t* const string, const std::size_t length) const noexcept;
     std::size_t private_append(const std::uint8_t* const string, const std::size_t length) noexcept;
 
     [[nodiscard]] static inline bool failed_integrity_check() noexcept;
@@ -807,12 +807,12 @@ inline CStringView CStableStrings::view(const std::size_t id) const noexcept
     return k_invalid_rank;
 }
 
-[[nodiscard]] inline std::size_t CStableStrings::find_id(const std::uint8_t* const string) noexcept
+[[nodiscard]] inline std::size_t CStableStrings::find_id(const std::uint8_t* const string) const noexcept
 {
     return (string != nullptr) ? private_find_id(string, strz_length(string)) : k_invalid_id;
 }
 
-[[nodiscard]] inline std::size_t CStableStrings::find_id(const std::uint8_t* const string, const std::size_t length) noexcept
+[[nodiscard]] inline std::size_t CStableStrings::find_id(const std::uint8_t* const string, const std::size_t length) const noexcept
 {
     return (string != nullptr) ? private_find_id(string, length) : k_invalid_id;
 }
@@ -1126,7 +1126,7 @@ inline void CStableStrings::unsafe_replace_memory_context_without_accounting(
     m_sorted_ref_indices.unsafe_replace_memory_context_without_accounting(expected_source, target);
 }
 
-inline std::size_t CStableStrings::private_find_ref_index(const std::uint8_t* const string, const std::size_t length, std::size_t& insert_at) noexcept
+inline std::size_t CStableStrings::private_find_ref_index(const std::uint8_t* const string, const std::size_t length, std::size_t& insert_at) const noexcept
 {
     insert_at = 0u;
 
@@ -1159,7 +1159,7 @@ inline std::size_t CStableStrings::private_find_ref_index(const std::uint8_t* co
     return k_invalid_ref_index;
 }
 
-inline std::size_t CStableStrings::private_find_id(const std::uint8_t* const string, const std::size_t length) noexcept
+inline std::size_t CStableStrings::private_find_id(const std::uint8_t* const string, const std::size_t length) const noexcept
 {
     std::size_t id = k_invalid_id;
 
