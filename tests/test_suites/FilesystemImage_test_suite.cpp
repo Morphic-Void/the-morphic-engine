@@ -21,6 +21,7 @@
 #include "data_model/baked_document.hpp"
 #include "data_model/document_translation.hpp"
 #include "data_model/document_writer.hpp"
+#include "data_model/document_parser.hpp"
 
 namespace filesystem_image_tests
 {
@@ -64,7 +65,7 @@ static void test_development_image(tests::TTestContext& ctx)
     if (!document.is_ready()) { return; }
     TEST_EXPECT(ctx, document.check_integrity());
     filesystem_image::CImage image;
-    image.adopt(std::move(document));
+    TEST_EXPECT(ctx, image.adopt(std::move(document)));
     CSimpleString physical;
     TEST_EXPECT(ctx, image.resolve("dev-source:/test_input.tga", false, physical));
     TEST_EXPECT(ctx, std::strcmp(physical.cstring(), "development/logical-roots/dev-source/test_input.tga") == 0);
@@ -136,12 +137,14 @@ static void test_refresh(tests::TTestContext& ctx)
     CLiveDocument document;
     TEST_EXPECT(ctx, filesystem_image::scan_manifest(manifest.c_str(), document) == EScanStatus::success);
     filesystem_image::CImage image;
-    image.adopt(std::move(document));
+    TEST_EXPECT(ctx, image.adopt(std::move(document)));
     TEST_EXPECT(ctx, image.document().child_count(entry(image.document(), "work:", "a.json")) == 0u);
     CSimpleString nested_path;
     TEST_EXPECT(ctx, image.resolve("work:/empty/content", false, nested_path));
-    TEST_EXPECT(ctx, !image.resolve("work:/A.json", true, nested_path));
-    TEST_EXPECT(ctx, !image.resolve("work:/EMPTY/new.json", true, nested_path));
+    TEST_EXPECT(ctx, image.resolve("WORK:/A.json", true, nested_path));
+    TEST_EXPECT(ctx, nested_path.view() == CStringView{ (base + "/content/a.json").c_str() });
+    TEST_EXPECT(ctx, image.resolve("work:/EMPTY/new.json", true, nested_path));
+    TEST_EXPECT(ctx, nested_path.view() == CStringView{ (base + "/content/empty/new.json").c_str() });
 
     //  Excluded roots neither require a physical directory nor gain entries
     //  from write completion or explicit refresh. They are write-only here.
@@ -282,6 +285,108 @@ static void test_refresh(tests::TTestContext& ctx)
     TEST_EXPECT(ctx, fs::remove(base, error) && !error);
 }
 
+static void test_case_identity(tests::TTestContext& ctx)
+{
+    namespace fs = std::filesystem;
+    using filesystem_image::EScanStatus;
+    const std::string base = fs::path(test_environment::test_output_path("case-fixture")).generic_string();
+    std::error_code error;
+    TEST_EXPECT(ctx, fs::create_directories(base + "/Content/Textures", error) && !error);
+    TEST_EXPECT(ctx, fs::create_directories(base + "/Content/Bin", error) && !error);
+    TEST_EXPECT(ctx, fs::create_directory(base + "/Dlls", error) && !error);
+    TEST_EXPECT(ctx, write(base + "/Content/Textures/Brick.PNG", "image"));
+    TEST_EXPECT(ctx, write(base + "/Content/plain.txt", "plain"));
+    TEST_EXPECT(ctx, write(base + "/Content/Bin/Local.JSON", "local"));
+    TEST_EXPECT(ctx, write(base + "/Dlls/Runtime.DLL", "module"));
+    filesystem_image::SRootScan request;
+    TEST_EXPECT(ctx, request.logical_root.set("work:"));
+    TEST_EXPECT(ctx, request.physical_path.set((base + "/Content").c_str()));
+    TEST_EXPECT(ctx, request.redirect_directory.set((base + "/Dlls").c_str()));
+    request.writable = true;
+    CLiveDocument document;
+    TEST_EXPECT(ctx, filesystem_image::scan_root(request, document) == EScanStatus::success);
+    const CNodeKey textures = entry(document, "work:", "textures");
+    TEST_EXPECT(ctx, document.string_value(member(document, textures, "physicalName")) == CStringView{ "Textures" });
+    TEST_EXPECT(ctx, !member(document, entry(document, "work:", "plain.txt"), "physicalName").is_valid());
+    filesystem_image::CImage image;
+    TEST_EXPECT(ctx, image.adopt(std::move(document)));
+    CSimpleString physical;
+    TEST_EXPECT(ctx, image.resolve("WORK:/TEXTURES/brick.png", false, physical));
+    TEST_EXPECT(ctx, physical.view() == CStringView{ (base + "/Content/Textures/Brick.PNG").c_str() });
+    TEST_EXPECT(ctx, image.resolve("work:/BIN/local.json", false, physical));
+    TEST_EXPECT(ctx, physical.view() == CStringView{ (base + "/Content/Bin/Local.JSON").c_str() });
+    TEST_EXPECT(ctx, image.resolve("work:/bin/RUNTIME.dll", false, physical));
+    TEST_EXPECT(ctx, physical.view() == CStringView{ (base + "/Dlls/Runtime.DLL").c_str() });
+    TEST_EXPECT(ctx, !image.resolve("work:/BIN/runtime.dll", true, physical));
+    TEST_EXPECT(ctx, image.loaded("WORK:/Textures/BRICK.png", 70u, 1u, 9u, 0u));
+    TEST_EXPECT(ctx, image.cached_asset("work:/textures/brick.PNG", 1u) == 70u);
+    TEST_EXPECT(ctx, image.cached_findings("work:/TEXTURES/brick.png") == 9u);
+
+    CLiveDocument observation;
+    TEST_EXPECT(ctx, image.prepare_scan("WORK:", request));
+    TEST_EXPECT(ctx, request.logical_root.view() == CStringView{ "work:" });
+    TEST_EXPECT(ctx, filesystem_image::scan_root(request, observation) == EScanStatus::success);
+    TEST_EXPECT(ctx, image.resolve("work:/TEXTURES/New.JSON", true, physical));
+    TEST_EXPECT(ctx, physical.view() == CStringView{ (base + "/Content/Textures/New.JSON").c_str() });
+    TEST_EXPECT(ctx, image.written("WORK:/textures/New.JSON", physical.cstring(), 71u, 1u));
+    TEST_EXPECT(ctx, image.integrate(observation, 0u));
+    TEST_EXPECT(ctx, image.resolve("work:/textures/new.json", false, physical));
+    TEST_EXPECT(ctx, physical.view() == CStringView{ (base + "/Content/Textures/New.JSON").c_str() });
+    TEST_EXPECT(ctx, image.cached_asset("work:/TEXTURES/NEW.json", 1u) == 71u);
+    TEST_EXPECT(ctx, image.written("work:/TEXTURES/new.json", physical.cstring(), 72u, 1u));
+    TEST_EXPECT(ctx, image.loaded("work:/textures/NEW.JSON", 73u, 1u, 0u, 0u));
+    TEST_EXPECT(ctx, image.cached_asset("WORK:/textures/New.Json", 1u) == 72u);
+    TEST_EXPECT(ctx, image.forget_asset(72u));
+    TEST_EXPECT(ctx, image.cached_asset("work:/textures/new.json", 1u) == 0u);
+
+    //  Separate physical directories can contribute aliases even on Windows.
+    TEST_EXPECT(ctx, write(base + "/Content/Bin/runtime.dll", "collision"));
+    const std::uint32_t retained = observation.value_count();
+    TEST_EXPECT(ctx, filesystem_image::scan_root(request, observation) == EScanStatus::name_collision);
+    TEST_EXPECT(ctx, observation.value_count() == retained);
+    TEST_EXPECT(ctx, fs::remove(base + "/Content/Bin/runtime.dll", error) && !error);
+    TEST_EXPECT(ctx, fs::remove(base + "/Content/Bin/Local.JSON", error) && !error);
+    TEST_EXPECT(ctx, fs::remove(base + "/Content/Bin", error) && !error);
+    TEST_EXPECT(ctx, fs::remove(base + "/Content/Textures/Brick.PNG", error) && !error);
+    TEST_EXPECT(ctx, fs::remove(base + "/Content/Textures", error) && !error);
+    TEST_EXPECT(ctx, filesystem_image::scan_root(request, observation) == EScanStatus::success);
+    TEST_EXPECT(ctx, image.integrate(observation, 0u));
+    TEST_EXPECT(ctx, image.resolve("WORK:/TEXTURES/new.json", false, physical));
+    TEST_EXPECT(ctx, physical.view() == CStringView{ (base + "/Content/Textures/New.JSON").c_str() });
+    TEST_EXPECT(ctx, fs::remove(base + "/Content/plain.txt", error) && !error);
+    TEST_EXPECT(ctx, fs::remove(base + "/Content", error) && !error);
+    TEST_EXPECT(ctx, fs::remove(base + "/Dlls/Runtime.DLL", error) && !error);
+    TEST_EXPECT(ctx, fs::remove(base + "/Dlls", error) && !error);
+    TEST_EXPECT(ctx, fs::remove(base, error) && !error);
+}
+
+static void test_manual_case_mapping(tests::TTestContext& ctx)
+{
+    const char* const valid = R"({"roots":{"work:":{"source":"Some/Prefix","writable":true,"content":{"plain.txt":{},"mixed.txt":{"physicalName":"Mixed.TXT"},"\u00c4.txt":{},"\u00e4.txt":{}}}}})";
+    CLiveDocument document;
+    TEST_EXPECT(ctx, document_parser::parse(CByteConstView{ reinterpret_cast<const std::uint8_t*>(valid), std::strlen(valid) }, document).accepted());
+    filesystem_image::CImage image;
+    TEST_EXPECT(ctx, image.adopt(std::move(document)));
+    CSimpleString physical;
+    TEST_EXPECT(ctx, image.resolve("WORK:/PLAIN.TXT", false, physical) && (physical.view() == CStringView{ "Some/Prefix/plain.txt" }));
+    TEST_EXPECT(ctx, image.resolve("work:/MIXED.txt", false, physical) && (physical.view() == CStringView{ "Some/Prefix/Mixed.TXT" }));
+    TEST_EXPECT(ctx, image.resolve("work:/\xc3\x84.TXT", false, physical) && (physical.view() == CStringView{ "Some/Prefix/\xc3\x84.txt" }));
+    TEST_EXPECT(ctx, image.resolve("work:/\xc3\xa4.TXT", false, physical) && (physical.view() == CStringView{ "Some/Prefix/\xc3\xa4.txt" }));
+    const char* const invalid[]{
+        R"({"roots":{"work:":{"content":{"Mixed.txt":{}}}}})",
+        R"({"roots":{"work:":{"content":{"mixed.txt":{"physicalName":"other.txt"}}}}})",
+        R"({"roots":{"work:":{"content":{"mixed.txt":{"physicalName":false}}}}})",
+        R"({"roots":{"work:":{"content":{"mixed.txt":{"physicalName":"dir/Mixed.txt"}}}}})",
+        R"({"roots":{"WORK:":{"content":{}}}})" };
+    for (const char* const input : invalid)
+    {
+        TEST_EXPECT(ctx, document_parser::parse(CByteConstView{ reinterpret_cast<const std::uint8_t*>(input), std::strlen(input) }, document).accepted());
+        TEST_EXPECT(ctx, !image.integrate(document, 0u));
+        TEST_EXPECT(ctx, !image.adopt(std::move(document)));
+        TEST_EXPECT(ctx, image.resolve("work:/plain.txt", false, physical));
+    }
+}
+
 }   //  namespace filesystem_image_tests
 
 int run_filesystem_image_tests()
@@ -289,6 +394,8 @@ int run_filesystem_image_tests()
     tests::TTestContext ctx;
     filesystem_image_tests::test_development_image(ctx);
     filesystem_image_tests::test_refresh(ctx);
+    filesystem_image_tests::test_case_identity(ctx);
+    filesystem_image_tests::test_manual_case_mapping(ctx);
     std::cout << "FilesystemImage: " << ctx.passed << " passed, " << ctx.failed << " failed\n";
     return ctx.failed;
 }

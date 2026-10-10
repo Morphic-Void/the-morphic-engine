@@ -39,7 +39,7 @@ struct SRootScan
 class CImage
 {
 public:
-    void adopt(CLiveDocument&& document) noexcept { m_document = std::move(document); m_files.deallocate(); m_write_serial = 0u; }
+    [[nodiscard]] bool adopt(CLiveDocument&& document) noexcept;
     [[nodiscard]] const CLiveDocument& document() const noexcept { return m_document; }
     [[nodiscard]] bool prepare_scan(const char* const logical_root, SRootScan& request) const noexcept;
     [[nodiscard]] bool integrate(const CLiveDocument& observation, const std::uint64_t scan_serial) noexcept;

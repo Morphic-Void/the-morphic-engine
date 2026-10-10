@@ -178,18 +178,94 @@ static bool case_alias(const CStringView a, const char* const b) noexcept
     return true;
 }
 
-static bool collision(const CLiveDocument& doc, const CNodeKey content, const char* const name) noexcept
+static bool folded(const CStringView name, CSimpleString& result) noexcept
 {
+    if (name.string() == nullptr) { return false; }
+    TPodVector<char> bytes;
+    if (!bytes.resize(name.length() + 1u)) { return false; }
+    for (std::size_t i = 0u; i < name.length(); ++i)
+    {
+        const char value = name.cstring()[i];
+        bytes[i] = ((value >= 'A') && (value <= 'Z')) ? static_cast<char>(value + ('a' - 'A')) : value;
+    }
+    bytes[name.length()] = '\0';
+    return result.set(bytes.data(), name.length());
+}
+
+static bool folded_name(const CStringView name) noexcept
+{
+    if (name.string() == nullptr) { return false; }
+    for (std::size_t i = 0u; i < name.length(); ++i)
+    {
+        if ((name.cstring()[i] >= 'A') && (name.cstring()[i] <= 'Z')) { return false; }
+    }
+    return true;
+}
+
+static CNodeKey file_child(const CLiveDocument& doc, const CNodeKey parent, const CStringView name) noexcept
+{
+    if (folded_name(name)) { return doc.object_child(parent, name); }
+    CSimpleString key;
+    return folded(name, key) ? doc.object_child(parent, key.view()) : CNodeKey{};
+}
+
+static CStringView physical_name(const CLiveDocument& doc, const CNodeKey entry) noexcept
+{
+    const CNodeKey spelling = child(doc, entry, "physicalName");
+    return spelling.is_valid() ? doc.string_value(spelling) : doc.name(entry);
+}
+
+static CNodeKey create_entry(CLiveDocument& doc, const CStringView name) noexcept
+{
+    CSimpleString key;
+    if (!folded(name, key)) { return {}; }
+    const CNodeKey entry = doc.create_object(key.view());
+    if (!entry.is_valid() || (!(key.view() == name) && !string(doc, entry, "physicalName", name.cstring()))) { return {}; }
+    return entry;
+}
+
+static bool root_name(const CStringView name) noexcept
+{
+    if (!folded_name(name) || (name.length() < 2u) || (name.cstring()[name.length() - 1u] != ':')) { return false; }
+    CSimpleString identifier;
+    return identifier.set(name.cstring(), (name.length() - 1u)) && relative_file(identifier.cstring()) &&
+        (std::strchr(identifier.cstring(), '/') == nullptr);
+}
+
+//  Schema admission checks names, not the document's internal integrity.
+static bool valid_content(const CLiveDocument& doc, const CNodeKey content, const std::uint32_t depth) noexcept
+{
+    if ((depth > 128u) || (doc.value_type(content) != ELiveValueType::object)) { return false; }
     for (CNodeKey entry = doc.first_child(content); entry.is_valid(); entry = doc.next_sibling(entry))
     {
-        if (case_alias(doc.name(entry), name)) { return true; }
+        const CStringView key = doc.name(entry);
+        const CStringView spelling = physical_name(doc, entry);
+        if ((doc.value_type(entry) != ELiveValueType::object) || !folded_name(key) ||
+            !relative_file(key.cstring()) || (std::strchr(key.cstring(), '/') != nullptr) ||
+            !relative_file(spelling.cstring()) || (std::strchr(spelling.cstring(), '/') != nullptr) ||
+            !case_alias(key, spelling.cstring())) { return false; }
+        const CNodeKey nested = child(doc, entry, "content");
+        if (nested.is_valid() && !valid_content(doc, nested, depth + 1u)) { return false; }
     }
-    return false;
+    return true;
+}
+
+static bool valid_image(const CLiveDocument& doc) noexcept
+{
+    const CNodeKey roots = child(doc, doc.root(), "roots");
+    if (!doc.is_ready() || (doc.value_type(roots) != ELiveValueType::object)) { return false; }
+    for (CNodeKey root = doc.first_child(roots); root.is_valid(); root = doc.next_sibling(root))
+    {
+        if (!root_name(doc.name(root)) || (doc.value_type(root) != ELiveValueType::object)) { return false; }
+        const CNodeKey content = child(doc, root, "content");
+        if (content.is_valid() && !valid_content(doc, content, 0u)) { return false; }
+    }
+    return true;
 }
 
 static CNodeKey find_root(const CLiveDocument& doc, const char* const logical) noexcept
 {
-    return child(doc, child(doc, doc.root(), "roots"), logical);
+    return file_child(doc, child(doc, doc.root(), "roots"), CStringView{ logical });
 }
 
 static CNodeKey file_root(const CLiveDocument& doc, const char* const file, const char*& relative) noexcept
@@ -198,7 +274,7 @@ static CNodeKey file_root(const CLiveDocument& doc, const char* const file, cons
     if (file == nullptr) { return {}; }
     const char* colon = std::strchr(file, ':');
     if ((colon == nullptr) || (colon[1] != '/') || !relative_file(colon + 2)) { return {}; }
-    const CNodeKey root = doc.object_child(child(doc, doc.root(), "roots"),
+    const CNodeKey root = file_child(doc, child(doc, doc.root(), "roots"),
         CStringView{ file, static_cast<std::size_t>(colon - file) + 1u });
     if (root.is_valid()) { relative = colon + 2; }
     return root;
@@ -217,7 +293,7 @@ static CNodeKey file_entry(const CLiveDocument& doc, const char* const file) noe
     while (node.is_valid() && (relative != nullptr))
     {
         const char* slash = std::strchr(relative, '/');
-        node = doc.object_child(child(doc, node, "content"),
+        node = file_child(doc, child(doc, node, "content"),
             CStringView{ relative, slash ? static_cast<std::size_t>(slash - relative) : std::strlen(relative) });
         relative = slash ? slash + 1 : nullptr;
     }
@@ -246,13 +322,14 @@ static bool resolve_file(const CLiveDocument& doc, const char* const file, const
             return false;
         }
         const CNodeKey content = child(doc, node, "content");
-        node = child(doc, content, component.cstring());
-        if (!join(path.cstring(), component.cstring(), path)) { return false; }
+        CSimpleString key;
+        if (!folded(component.view(), key)) { return false; }
+        node = doc.object_child(content, key.view());
         if (!node.is_valid())
         {
-            return writing && writable && (slash == nullptr) &&
-                !collision(doc, content, component.cstring()) && physical.set(path.cstring());
+            return writing && writable && (slash == nullptr) && join(path.cstring(), component.cstring(), physical);
         }
+        if (!join(path.cstring(), physical_name(doc, node).cstring(), path)) { return false; }
         writable = flag(doc, node, "writable", writable);
         const CStringView source = text(doc, node, "source");
         if ((source.length() != 0u) && !path.set(source.cstring())) { return false; }
@@ -318,14 +395,15 @@ static bool crawl(void* const opaque, const char* const name, const platform::fi
             (extension == nullptr) || !case_alias(CStringView{ extension }, ".dll")) { return true; }
     }
     if (!relative_file(name) || (std::strchr(name, '/') != nullptr)) { return false; }
-    if (collision(work.document, work.content, name))
+    CLiveDocument& doc = work.document;
+    const CNodeKey node = create_entry(doc, CStringView{ name });
+    if (!node.is_valid()) { return false; }
+    const CLiveAttachmentResult attached = doc.append_child(work.content, node);
+    if (!attached.succeeded())
     {
-        work.status = EScanStatus::name_collision;
+        if (attached.rejection == ELiveAttachmentRejection::duplicate_object_name) { work.status = EScanStatus::name_collision; }
         return false;
     }
-    CLiveDocument& doc = work.document;
-    const CNodeKey node = doc.create_object(CStringView{ name });
-    if (!add(doc, work.content, node)) { return false; }
     if (kind == platform::filesystem::EDirectoryEntry::other) { return string(doc, node, "kind", "other"); }
     if (kind == platform::filesystem::EDirectoryEntry::directory)
     {
@@ -350,6 +428,7 @@ static EScanStatus query(SCrawl& crawl_work) noexcept
 
 static EScanStatus populate(CLiveDocument& doc, const CNodeKey roots, const SRootScan& request) noexcept
 {
+    if (!root_name(request.logical_root.view())) { return EScanStatus::invalid_manifest; }
     CSimpleString physical;
     CSimpleString redirected;
     if (!normalized(request.physical_path.cstring(), physical) ||
@@ -381,17 +460,16 @@ static EScanStatus populate(CLiveDocument& doc, const CNodeKey roots, const SRoo
         //  Preserve any physical package/bin contributions across the overlay.
         //  Only these exceptional branches need an explicit source override.
         CSimpleString physical_bin;
-        if (!join(physical.cstring(), "bin", physical_bin)) { return EScanStatus::allocation_failed; }
+        if (!join(physical.cstring(), physical_name(doc, bin).cstring(), physical_bin)) { return EScanStatus::allocation_failed; }
         for (CNodeKey entry = doc.first_child(child(doc, bin, "content")); entry.is_valid(); entry = doc.next_sibling(entry))
         {
             CSimpleString source;
-            if (!join(physical_bin.cstring(), doc.name(entry).cstring(), source) ||
+            if (!join(physical_bin.cstring(), physical_name(doc, entry).cstring(), source) ||
                 !string(doc, entry, "source", source.cstring())) { return EScanStatus::allocation_failed; }
         }
     }
     else
     {
-        if (collision(doc, content, "bin")) { return EScanStatus::name_collision; }
         bin = doc.create_object(CStringView{ "bin" });
         if (!add(doc, content, bin) || !add(doc, bin, doc.create_object(CStringView{ "content" })))
         {
@@ -430,17 +508,22 @@ static CNodeKey ensure_file(CLiveDocument& doc, const char* const file, const CL
             content = doc.create_object(CStringView{ "content" });
             if (!add(doc, node, content)) { return {}; }
         }
-        old = previous ? child(*previous, child(*previous, old, "content"), name.cstring()) : CNodeKey{};
-        CNodeKey entry = child(doc, content, name.cstring());
+        old = previous ? file_child(*previous, child(*previous, old, "content"), name.view()) : CNodeKey{};
+        CNodeKey entry = file_child(doc, content, name.view());
         if (!entry.is_valid())
         {
-            if (collision(doc, content, name.cstring())) { return {}; }
-            entry = old.is_valid() ? copy_node(doc, *previous, old, true) : doc.create_object(name.view());
+            entry = ((previous != nullptr) && old.is_valid()) ?
+                copy_node(doc, (*previous), old, true) : create_entry(doc, name.view());
             if (!add(doc, content, entry)) { return {}; }
         }
         if (slash == nullptr)
         {
-            if (!is_file(doc, entry) && !attach(doc, entry, doc.create_object())) { return {}; }
+            if (!is_file(doc, entry))
+            {
+                CSimpleString spelling;
+                if (!spelling.set(physical_name(doc, entry).cstring()) ||
+                    !attach(doc, entry, create_entry(doc, spelling.view()))) { return {}; }
+            }
             return entry;
         }
         node = entry;
@@ -482,16 +565,14 @@ EScanStatus scan_manifest(const char* const manifest, CLiveDocument& result) noe
     for (CNodeKey root = configuration.first_child(configured_roots); root.is_valid(); root = configuration.next_sibling(root))
     {
         const CStringView logical = configuration.name(root);
-        CSimpleString identifier;
         const CStringView source = text(configuration, root, "source");
         SRootScan request;
-        if ((logical.length() < 2u) || (logical.cstring()[logical.length() - 1u] != ':') ||
-            !identifier.set(logical.cstring(), logical.length() - 1u) || !relative_file(identifier.cstring()) ||
-            (std::strchr(identifier.cstring(), '/') != nullptr) || !relative_file(source.cstring()) ||
+        if (!root_name(logical) ||
+            !relative_file(source.cstring()) ||
             !configuration.boolean_value(child(configuration, root, "writable"), request.writable) ||
             (child(configuration, root, "inventory").is_valid() &&
                 !configuration.boolean_value(child(configuration, root, "inventory"), request.inventory)) ||
-            collision(candidate, roots, logical.cstring()))
+            candidate.object_child(roots, logical).is_valid())
         {
             return EScanStatus::invalid_manifest;
         }
@@ -547,8 +628,19 @@ bool CImage::prepare_scan(const char* const logical_root, SRootScan& request) co
     request.inventory = flag(m_document, root, "inventory", true);
     const CNodeKey bin = child(m_document, child(m_document, root, "content"), "bin");
     const char* redirect = child(m_document, bin, "extensions").is_valid() ? text(m_document, bin, "source").cstring() : "";
-    return request.logical_root.set(logical_root) && request.physical_path.set(text(m_document, root, "source").cstring()) &&
+    return
+        request.logical_root.set(m_document.name(root).cstring()) &&
+        request.physical_path.set(text(m_document, root, "source").cstring()) &&
         request.redirect_directory.set(redirect);
+}
+
+bool CImage::adopt(CLiveDocument&& document) noexcept
+{
+    if (!valid_image(document)) { return false; }
+    m_document = std::move(document);
+    m_files.deallocate();
+    m_write_serial = 0u;
+    return true;
 }
 
 bool CImage::resolve(const char* const logical_file, const bool writing, CSimpleString& physical) const noexcept
@@ -561,7 +653,7 @@ const CImage::SFileState* CImage::state(const char* const file) const noexcept
     for (std::int32_t slot = m_files.first_live(); slot >= 0; slot = m_files.next_live(slot))
     {
         const SFileState* value = m_files.get_object(slot);
-        if (equal_path(value->file.view(), file)) { return value; }
+        if (case_alias(value->file.view(), file)) { return value; }
     }
     return nullptr;
 }
@@ -571,12 +663,12 @@ CImage::SFileState* CImage::ensure_state(const char* const file) noexcept
     for (std::int32_t slot = m_files.first_live(); slot >= 0; slot = m_files.next_live(slot))
     {
         SFileState* value = m_files.get_object(slot);
-        if (equal_path(value->file.view(), file)) { return value; }
+        if (case_alias(value->file.view(), file)) { return value; }
     }
     if (!m_files.is_ready() && !m_files.initialise()) { return nullptr; }
     const std::int32_t slot = m_files.emplace();
     SFileState* value = m_files.get_object(slot);
-    if ((value == nullptr) || !value->file.set(file))
+    if ((value == nullptr) || !folded(CStringView{ file }, value->file))
     {
         if (value != nullptr) { (void)m_files.erase(slot); }
         return nullptr;
@@ -659,6 +751,7 @@ bool CImage::forget_asset(const std::uint64_t asset) noexcept
 
 bool CImage::integrate(const CLiveDocument& observation, const std::uint64_t scan_serial) noexcept
 {
+    if (!valid_image(observation)) { return false; }
     const CNodeKey incoming_roots = child(observation, observation.root(), "roots");
     const CNodeKey incoming = observation.first_child(incoming_roots);
     const CStringView logical = observation.name(incoming);

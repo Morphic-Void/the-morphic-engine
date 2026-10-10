@@ -409,13 +409,12 @@ void CHost::complete_scan(threading::CErasedOwnerMsg& message) noexcept
     if (m_initial_scan)
     {
         m_initial_scan = false;
-        if (!scanned || m_runtime_failed)
+        if (!scanned || m_runtime_failed || !m_filesystem.adopt(std::move(result->document)))
         {
             MV_ERROR("Host: Initial filesystem image could not be constructed");
             executive_failure(EModuleStatus::binding_failed);
             return;
         }
-        m_filesystem.adopt(std::move(result->document));
         MV_REPORT("Host: Filesystem image ready before Executive bootstrap");
         m_module_service.request(std::move(m_executive_request), -1, nullptr, CModuleService::EPurpose::bootstrap);
         return;

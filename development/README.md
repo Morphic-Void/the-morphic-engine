@@ -72,9 +72,17 @@ only by the Host. It mirrors the directory hierarchy using named objects:
 }
 ```
 
-An uncached file is `{}`; a directory always has `content`, even when empty.
+An uncached lowercase file is `{}`; a directory always has `content`, even when empty.
+Keys within `content` fold ASCII `A`–`Z` to lowercase. An optional `physicalName`
+string preserves a different physical spelling, for example
+`"morphicexecutive.dll": { "physicalName": "MorphicExecutive.dll" }`.
+When omitted, the key is also the physical name. Discovery emits the field only
+when needed. Manually supplied images must use folded keys; `physicalName` must
+be a single valid component whose ASCII-folded spelling equals its key. Other
+bytes are preserved without Unicode case folding. Image adoption and refresh
+reject invalid mappings before replacing the retained image.
 Other filesystem objects have `kind: "other"` and cannot be loaded or written
-through this resolver. Filesystem names occur only as keys within `content`,
+through this resolver. Filesystem entries occur only as children of `content`,
 so names such as `source`, `asset` and `content` cannot collide with metadata.
 Bindings and write permissions are inherited from the nearest ancestor, with
 explicit overrides only where needed. All stored physical paths use forward
@@ -87,9 +95,14 @@ retained asset ID. Format, JSON parser findings and write/refresh serials are
 private Host runtime bookkeeping, not repeated on every discovered file.
 
 Requests use names such as `dev-source:/test_input.tga`, `save:/slot.json` and
-`test-output:/result.bin`. Logical names are case-sensitive and use forward
+`test-output:/result.bin`. Logical requests are ASCII-case-insensitive and use forward
 slashes. Absolute paths, backslashes, empty components, `.`/`..`, wildcards and
-alternate-stream colons are rejected. Discovery rejects ASCII case aliases
+alternate-stream colons are rejected. Manifest root keys must be ASCII-folded.
+Navigation folds each component, then uses exact name IDs and sibling traversal.
+Physical root prefixes retain their configured spelling; inventoried components
+use `physicalName` when present. New filenames preserve the caller's spelling.
+Cache identity and write/refresh bookkeeping share the folded logical identity.
+Discovery rejects ASCII case aliases
 and redirect collisions, rather than choosing an arbitrary file. This is a
 development resolver, not a security sandbox or full native-path canonicalizer.
 
@@ -97,7 +110,9 @@ Loads must resolve an inventoried file before any I/O. Writes within inventoried
 roots require an existing discovered writable parent directory; a new filename
 is allowed, but implicit directory creation is not. Non-inventoried roots are
 write-only through this interface: validated relative paths resolve beneath the
-configured source, and native I/O checks whether their parent exists. Successful
+configured source without changing relative-path spelling, and native I/O checks
+whether their parent exists. These write-only roots have no inventory with which
+to resolve physical case or enforce case uniqueness. Successful
 writes never add entries to those roots; refresh acknowledges the binding without
 scanning its contents. `test-output:` remains inventoried, including ordinary
 readback and cache associations. Native load/save primitives remain available
