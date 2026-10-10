@@ -20,6 +20,7 @@ namespace test_environment
 [[nodiscard]] bool is_clean() noexcept;
 [[nodiscard]] memory::CMemoryContext* executable_memory_context() noexcept;
 [[nodiscard]] memory::CMemoryContext* executive_memory_context() noexcept;
+[[nodiscard]] memory::CMemoryContext* rendering_memory_context() noexcept;
 [[nodiscard]] const system_id_registry::SSystemRegistryView& system_registry_view() noexcept;
 
 }   //  namespace test_environment

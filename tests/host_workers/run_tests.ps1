@@ -137,6 +137,15 @@ foreach ($requested in @(0, 1, 2, 3, 9, 128)) {
     $batchLimit = [Math]::Min(32, [Math]::Max(0, [Math]::Min($hardware, 64) - 6 - $count))
     $batchExpected = [Math]::Min($batchRequested, $batchLimit)
     if (!$events.Contains("Host: Batch runners $batchExpected")) { throw "Unexpected batch runner sizing: $log" }
+    $directLog = Join-Path $runtime "development/logical-roots/test-logs/morphic_debug_direct.$tag.p$processId.log"
+    $directEvents = Get-Content -LiteralPath $directLog -Raw
+    $textureRoute = if ($batchExpected -eq 0) { 'completed inline' } else { 'queued' }
+    $textureThread = if ($batchExpected -eq 0) { 'rendering' } else { 'batch_runner_\d+' }
+    if (!$events.Contains("Rendering: Texture batch $textureRoute") -or
+        ($directEvents -notmatch "\[render_vulkan:$textureThread\].*Rendering Basis: encode begin") -or
+        ($directEvents -notmatch "\[render_vulkan:$textureThread\].*Rendering Basis: transcode begin")) {
+        throw "Texture work did not use the expected batch route and module context: $directLog"
+    }
     if (($batchExpected -lt $batchRequested) -and
         !$events.Contains("Host: Batch runners reduced from $batchRequested to $batchExpected")) {
         throw "Missing batch runner reduction diagnostic: $log"

@@ -12,6 +12,7 @@
 #include "tests/test_suites/AsyncState_test_suite.hpp"
 #include "tests/test_suites/HostWorkers_test_suite.hpp"
 #include "tests/test_suites/TextureService_test_suite.hpp"
+#include "tests/test_suites/TextureBatch_test_suite.hpp"
 #include "tests/test_suites/BakedDocument_test_suite.hpp"
 #include "tests/test_suites/BakedDocumentTransfer_test_suite.hpp"
 #include "tests/test_suites/ByteBuffers_test_suite.hpp"
@@ -241,6 +242,7 @@ int run_tests(ETestRunMode mode)
     cumulative_result += run_isolated_suite("AsyncState", &run_async_state_tests);
     cumulative_result += run_isolated_suite("HostWorkers", &run_host_workers_tests);
     cumulative_result += run_isolated_suite("TextureService", &run_texture_service_tests);
+    cumulative_result += run_isolated_suite("TextureBatch", &run_texture_batch_tests);
     cumulative_result += run_isolated_suite("BakedDocument", &run_baked_document_tests);
     cumulative_result += run_isolated_suite("BakedDocumentTransfer", &run_baked_document_transfer_tests);
     cumulative_result += run_isolated_suite("DocumentWriter", &run_document_writer_tests);

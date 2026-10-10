@@ -44,6 +44,9 @@ memory::CMemoryContext s_executable_context(s_allocator, system_ids::host);
 memory::CMemoryContext s_executive_context(s_allocator, system_ids::executive);
 }
 
+static memory::CMemoryContext s_rendering_context(s_allocator,
+    system_ids::ops::make_system_id(module_ids::render_vulkan, thread_ids::rendering));
+
 bool install() noexcept
 {
     const erased_owner_operations::SRegistryView owner_operations{
@@ -78,7 +81,8 @@ bool is_clean() noexcept
         (system_context::get_ambient_thread_id() == thread_ids::host) &&
         (memory::get_ambient_memory_context() == &s_executable_context) &&
         s_executable_context.is_attribution_empty() &&
-        s_executive_context.is_attribution_empty();
+        s_executive_context.is_attribution_empty() &&
+        s_rendering_context.is_attribution_empty();
 }
 
 memory::CMemoryContext* executable_memory_context() noexcept
@@ -89,6 +93,11 @@ memory::CMemoryContext* executable_memory_context() noexcept
 memory::CMemoryContext* executive_memory_context() noexcept
 {
     return &s_executive_context;
+}
+
+memory::CMemoryContext* rendering_memory_context() noexcept
+{
+    return &s_rendering_context;
 }
 
 }   //  namespace test_environment

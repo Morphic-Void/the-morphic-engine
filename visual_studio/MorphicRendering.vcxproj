@@ -97,6 +97,7 @@
     <ClCompile Include="..\rendering\module\types\local_type_ids.cpp" />
     <ClCompile Include="..\rendering\runtime\rendering_thread.cpp" />
     <ClCompile Include="..\rendering\runtime\basis_codec.cpp" />
+    <ClCompile Include="..\rendering\runtime\texture_jobs.cpp" />
     <ClCompile Include="..\external\basis_universal\encoder\3rdparty\android_astc_decomp.cpp" />
     <ClCompile Include="..\external\basis_universal\encoder\basisu_astc_hdr_6x6_enc.cpp" />
     <ClCompile Include="..\external\basis_universal\encoder\basisu_astc_hdr_common.cpp" />
@@ -138,6 +139,7 @@
     <ClInclude Include="..\rendering\module\types\local_types.hpp" />
     <ClInclude Include="..\rendering\runtime\rendering_thread.hpp" />
     <ClInclude Include="..\rendering\runtime\basis_codec.hpp" />
+    <ClInclude Include="..\rendering\runtime\texture_jobs.hpp" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\external\SuiteUTF\SuiteUTF.vcxproj">

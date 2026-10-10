@@ -3,9 +3,11 @@ License: MIT (see LICENSE file in repository root)
 
 # Basis Universal texture conditioning
 
-The rendering thread owns Basis Universal initialization, encoding and
-transcoding. It initializes Basis before accepting work, processes one texture
-request at a time, and deinitializes it after its request queue is drained.
+The rendering thread owns Basis Universal initialization and texture job
+dispatch. It initializes Basis before accepting work, submits encoding and
+transcoding through its batch client, and deinitializes Basis after accepted
+requests and batch completions have drained. With no available batch runners
+or queue capacity, the batch client executes the job inline on rendering.
 The Host admits at most one encode or decode operation across clients. A second
 request completes with `EAssetStatus::busy`; callers may retry later. Capture
 producers must also serialize capture against these operations when added.
@@ -43,6 +45,30 @@ encoding and transcoding, and reports completion or failure. Basis retains its
 upstream allocation behavior, including process termination on some allocation
 failures; these limits reduce exposure but cannot make OOM recoverable.
 
+## Rendering batch jobs
+
+`rendering/runtime/texture_jobs.hpp` provides `CTextureEncodeJob` and
+`CTextureDecodeJob`. Each copies its input view and configuration and owns its
+output and codec status. Inputs remain borrowed and immutable until completion.
+The classes cannot be copied or moved while a batch callback may reference them.
+Their `run()` methods perform the typed operations; the static
+`execute(void*) noexcept` entry points use `MV_STD_ABI_CALL` and match `FBatchWork`.
+The classes have no Host-message or submission-policy dependencies.
+
+The rendering dispatcher keeps a job at a stable address and retains its result
+message while it is outstanding. A queued completion publishes the job's output
+before rendering reads it; inline completion can be handled immediately. The
+rendering thread then moves the output into the owning Host reply. Batch runners
+install the rendering module and memory context before invoking a job.
+
+Rejected or discarded jobs produce `ETextureStatus::codec_failed`, which the
+Host maps to `EAssetStatus::conditioning_failed`. Job/result allocation failure
+uses the existing allocation-failure path. Every completed request releases
+the Host's single-operation admission and source borrow. During exit, rendering
+drains outstanding jobs and returns their results before Basis shutdown; module
+unload also waits for batch return publishers. The Host continues to admit only
+one texture operation across clients; parallel image admission is separate work.
+
 ## Acceptance coverage
 
 The Executive's 71 sequential asset cases include 23 texture cases: RGBA8 and
@@ -58,6 +84,14 @@ It checks busy admission for encode/encode, encode/decode and decode/decode,
 retention of borrowed input during disposal, refusal of new borrowers once
 disposal is pending, completion of deferred disposal and recovery after a
 failed codec operation. This does not depend on codec duration or scheduling.
+
+The ordinary `TextureBatch` suite loads the real rendering module and controls
+its batch queue. It checks inline and queued encode/decode, recovery after
+context-install discard, both job types discarded during exit, an executed
+decode completing after exit was requested, correlation, transferred output
+and empty rendering memory attribution after draining. Process harnesses also
+verify codec execution is attributed to rendering for inline work and to a
+rendering-module batch runner for queued work.
 
 Linux CTest also runs the real Host/Executive/Rendering acceptance flow using
 `tests/texture/run_tests.py`; its isolated filesystem and logs are retained

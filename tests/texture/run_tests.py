@@ -54,6 +54,17 @@ def main():
             raise RuntimeError(f"Missing {expected!r}; inspect {logs[0]}")
     if re.search(r"\[(assert|error|critical|fatal):", events):
         raise RuntimeError(f"Unexpected diagnostics; inspect {logs[0]}")
+    sizing = re.search(r"Host: Batch runners (\d+)\b", events)
+    if sizing is None:
+        raise RuntimeError(f"Missing batch runner configuration; inspect {logs[0]}")
+    queued = int(sizing[1]) != 0
+    route = "queued" if queued else "completed inline"
+    thread = r"batch_runner_\d+" if queued else "rendering"
+    if f"Rendering: Texture batch {route}" not in events:
+        raise RuntimeError(f"Missing texture batch {route} route; inspect {logs[0]}")
+    for operation in ("encode", "transcode"):
+        if not re.search(rf"\[render_vulkan:{thread}\].*Rendering Basis: {operation} begin", events):
+            raise RuntimeError(f"Incorrect {operation} thread or module context; inspect {direct_log}")
     print("Host texture acceptance passed (71 sequential, 32 concurrent, 12 filesystem operations).")
 
 

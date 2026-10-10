@@ -22,12 +22,14 @@
     <ClInclude Include="..\rendering\module\types\local_types.hpp"><Filter>Rendering\include\module\types</Filter></ClInclude>
     <ClInclude Include="..\rendering\runtime\rendering_thread.hpp"><Filter>Rendering\include\runtime</Filter></ClInclude>
     <ClInclude Include="..\rendering\runtime\basis_codec.hpp"><Filter>Rendering\include\runtime</Filter></ClInclude>
+    <ClInclude Include="..\rendering\runtime\texture_jobs.hpp"><Filter>Rendering\include\runtime</Filter></ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\rendering\module\binding\rendering_binding.cpp"><Filter>Rendering\src\module\binding</Filter></ClCompile>
     <ClCompile Include="..\rendering\module\types\local_type_ids.cpp"><Filter>Rendering\src\module\types</Filter></ClCompile>
     <ClCompile Include="..\rendering\runtime\rendering_thread.cpp"><Filter>Rendering\src\runtime</Filter></ClCompile>
     <ClCompile Include="..\rendering\runtime\basis_codec.cpp"><Filter>Rendering\src\runtime</Filter></ClCompile>
+    <ClCompile Include="..\rendering\runtime\texture_jobs.cpp"><Filter>Rendering\src\runtime</Filter></ClCompile>
     <ClCompile Include="..\external\basis_universal\encoder\3rdparty\android_astc_decomp.cpp"><Filter>Basis Universal</Filter></ClCompile>
     <ClCompile Include="..\external\basis_universal\encoder\basisu_astc_hdr_6x6_enc.cpp"><Filter>Basis Universal</Filter></ClCompile>
     <ClCompile Include="..\external\basis_universal\encoder\basisu_astc_hdr_common.cpp"><Filter>Basis Universal</Filter></ClCompile>

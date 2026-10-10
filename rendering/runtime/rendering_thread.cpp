@@ -10,6 +10,7 @@
 
 #include "rendering/runtime/rendering_thread.hpp"
 #include "rendering/runtime/basis_codec.hpp"
+#include "rendering/runtime/texture_jobs.hpp"
 
 #include "debug/macros.hpp"
 #include "module/module_binding_context.hpp"
@@ -33,45 +34,123 @@ static ETextureStatus texture_status(const basis_codec::EStatus status) noexcept
     }
 }
 
-static bool encode_texture(threading::CThreadContext& context, const threading::CErasedPodMsg& message) noexcept
+//  The Host admits one texture request across clients. Rendering retains the
+//  stable job and response owner until its batch completion has been consumed.
+class CTextureRequests final
 {
-    TextureEncodeWork work;
-    if (!message.copy_payload_to(work) || (work.request == nullptr))
+public:
+    CTextureRequests(threading::CThreadContext& context, threading::CBatchClient& batch) noexcept :
+        m_context{ context }, m_batch{ batch } {}
+
+    [[nodiscard]] bool pending() const noexcept { return m_slot >= 0; }
+    [[nodiscard]] bool submit(const threading::CErasedPodMsg& message) noexcept;
+    [[nodiscard]] bool complete(const threading::SBatchResponse& response) noexcept;
+
+private:
+    [[nodiscard]] bool dispatch(const threading::FBatchWork function, void* const object) noexcept;
+    [[nodiscard]] bool finish(const bool executed) noexcept;
+
+    threading::CThreadContext& m_context;
+    threading::CBatchClient& m_batch;
+    TInstance<CTextureEncodeJob> m_encode;
+    TInstance<CTextureDecodeJob> m_decode;
+    threading::CErasedOwnerMsg m_response;
+    std::int32_t m_slot{ -1 };
+};
+
+bool CTextureRequests::submit(const threading::CErasedPodMsg& message) noexcept
+{
+    if (pending() || (message.query_async_slot() < 0))
     {
         return false;
     }
-    CErasedOwner owner = CErasedOwner::create<TextureEncodeResult>();
-    if (TextureEncodeResult* const result = owner.payload<TextureEncodeResult>())
+    TextureEncodeWork encode;
+    TextureDecodeWork decode;
+    if (message.copy_payload_to(encode) && (encode.request != nullptr))
     {
-        const TextureEncodeRequest& request = *work.request;
+        m_slot = message.query_async_slot();
+        m_response.set_message_type<TextureEncodeResult>();
+        CErasedOwner owner = CErasedOwner::create<TextureEncodeResult>();
+        const bool allocated = (owner.payload<TextureEncodeResult>() != nullptr);
+        m_response.set_owner(std::move(owner));
+        const TextureEncodeRequest& request = *encode.request;
         const image::texture::CInputView input{ request.input.const_view(), request.format, request.transfer };
-        result->status = texture_status(basis_codec::encode_ktx2(input, request.options, result->texture));
+        if (!allocated || !m_encode.emplace(input, request.options))
+        {
+            return finish(false);
+        }
+        return dispatch((&CTextureEncodeJob::execute), m_encode.operator->());
     }
-    threading::CErasedOwnerMsg response;
-    response.set_message_type<TextureEncodeResult>();
-    response.set_async_slot(message.query_async_slot());
-    response.set_owner(std::move(owner));
-    return context.post(std::move(response));
+    if (message.copy_payload_to(decode) && (decode.request != nullptr) && (decode.input != nullptr))
+    {
+        m_slot = message.query_async_slot();
+        m_response.set_message_type<TextureDecodeResult>();
+        CErasedOwner owner = CErasedOwner::create<TextureDecodeResult>();
+        const bool allocated = (owner.payload<TextureDecodeResult>() != nullptr);
+        m_response.set_owner(std::move(owner));
+        if (!allocated || !m_decode.emplace((*decode.input), decode.request->target, decode.request->level))
+        {
+            return finish(false);
+        }
+        return dispatch((&CTextureDecodeJob::execute), m_decode.operator->());
+    }
+    return false;
 }
 
-static bool decode_texture(threading::CThreadContext& context, const threading::CErasedPodMsg& message) noexcept
+bool CTextureRequests::dispatch(const threading::FBatchWork function, void* const object) noexcept
 {
-    TextureDecodeWork work;
-    if (!message.copy_payload_to(work) || (work.request == nullptr) || (work.input == nullptr))
+    const threading::SBatchSubmission submitted = m_batch.submit(function, object, static_cast<std::uint32_t>(m_slot));
+    if (submitted.status == threading::EBatchSubmission::queued)
+    {
+        MV_REPORT("Rendering: Texture batch queued, slot %d", m_slot);
+        return true;
+    }
+    if (submitted.status == threading::EBatchSubmission::completed_inline)
+    {
+        MV_REPORT("Rendering: Texture batch completed inline, slot %d", m_slot);
+        return finish(true);
+    }
+    MV_REPORT("Rendering: Texture batch rejected, slot %d, reason %u",
+        m_slot, static_cast<unsigned int>(submitted.reason));
+    return finish(false);
+}
+
+bool CTextureRequests::complete(const threading::SBatchResponse& response) noexcept
+{
+    if (!pending() || (response.correlation != static_cast<std::uint32_t>(m_slot)))
     {
         return false;
     }
-    CErasedOwner owner = CErasedOwner::create<TextureDecodeResult>();
-    if (TextureDecodeResult* const result = owner.payload<TextureDecodeResult>())
+    MV_REPORT("Rendering: Texture batch completion, slot %d, outcome %u",
+        m_slot, static_cast<unsigned int>(response.completion));
+    return finish(response.completion == threading::EBatchCompletion::executed);
+}
+
+bool CTextureRequests::finish(const bool executed) noexcept
+{
+    CErasedOwner owner = m_response.take_owner();
+    if (m_encode)
     {
-        result->status = texture_status(basis_codec::transcode_ktx2(
-            (*work.input), work.request->target, work.request->level, result->texture));
+        if (TextureEncodeResult* const result = owner.payload<TextureEncodeResult>())
+        {
+            result->status = executed ? texture_status(m_encode->status()) : ETextureStatus::codec_failed;
+            if (executed) result->texture = m_encode->take_output();
+        }
+        m_encode.reset();
     }
-    threading::CErasedOwnerMsg response;
-    response.set_message_type<TextureDecodeResult>();
-    response.set_async_slot(message.query_async_slot());
-    response.set_owner(std::move(owner));
-    return context.post(std::move(response));
+    if (m_decode)
+    {
+        if (TextureDecodeResult* const result = owner.payload<TextureDecodeResult>())
+        {
+            result->status = executed ? texture_status(m_decode->status()) : ETextureStatus::codec_failed;
+            if (executed) result->texture = m_decode->take_output();
+        }
+        m_decode.reset();
+    }
+    m_response.set_async_slot(m_slot);
+    m_response.set_owner(std::move(owner));
+    m_slot = -1;
+    return m_context.post(std::move(m_response));
 }
 
 static std::uint32_t MV_STD_ABI_CALL thread_entry(void* const user_data) noexcept
@@ -90,7 +169,7 @@ static std::uint32_t MV_STD_ABI_CALL thread_entry(void* const user_data) noexcep
 
     threading::CThreadContext context{ resources };
     context.startup();
-    if (!basis_codec::initialise())
+    if ((resources.batch_client == nullptr) || !basis_codec::initialise())
     {
         context.mark_failed(1u);
         return 1u;
@@ -98,33 +177,54 @@ static std::uint32_t MV_STD_ABI_CALL thread_entry(void* const user_data) noexcep
     MV_REPORT("Rendering: Running");
     context.mark_running();
 
-    std::uint32_t epoch{ 0u };
-    while (!context.exit_requested())
+    CTextureRequests requests{ context, (*resources.batch_client) };
+    bool failed = false;
+    for (;;)
     {
+        const std::uint32_t epoch = resources.wait_predicate.get_word();
         context.advance_heartbeat();
-        threading::CErasedPodMsg message;
-        if (context.read(message))
+        if (context.exit_requested()) context.mark_exiting();
+        bool progressed = false;
+        threading::SBatchResponse response;
+        while (resources.batch_client->receive(response))
         {
-            const type_id identity = message.query_message_type_id();
-            const bool delivered = (identity == k_type_id_v<TextureEncodeWork>) ?
-                encode_texture(context, message) :
-                ((identity == k_type_id_v<TextureDecodeWork>) ? decode_texture(context, message) : false);
-            if (!delivered)
-            {
-                MV_CRITICAL_EVENT("Rendering: Texture work response delivery failed");
-                basis_codec::shutdown();
-                context.mark_failed(2u);
-                return 2u;
-            }
+            progressed = true;
+            failed = !requests.complete(response) || failed;
         }
-        else
+
+        //  Drain accepted messages even after exit was requested. Submission
+        //  then rejects them and returns a terminal failure to the Host.
+        threading::CErasedPodMsg message;
+        while (!failed && context.read(message))
         {
-            epoch = context.wait_for_new_epoch(epoch);
+            progressed = true;
+            failed = !requests.submit(message);
+        }
+        if ((context.exit_requested() || failed) && !requests.pending())
+        {
+            break;
+        }
+        if (!progressed)
+        {
+            if (context.exit_requested())
+            {   //  Remain visibly Exiting while queued/running jobs drain.
+                (void)resources.wait_predicate.wait_until_not_equal(resources.parking_ticket, epoch);
+            }
+            else
+            {
+                (void)context.wait_for_new_epoch(epoch);
+            }
         }
     }
 
     context.mark_exiting();
     basis_codec::shutdown();
+    if (failed)
+    {
+        MV_CRITICAL_EVENT("Rendering: Texture work response delivery failed");
+        context.mark_failed(2u);
+        return 2u;
+    }
     MV_REPORT("Rendering: Exited");
     context.mark_exited();
     return 0u;
