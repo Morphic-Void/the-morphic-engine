@@ -1072,7 +1072,7 @@ inline void CStableStrings::deallocate() noexcept
 
     //  validate the range and permutation of sorted_ref_indices
     if (!algo::validate_extracted_permutation(
-        sorted_ref_indices_data, static_cast<std::uint32_t>(count), [](const std::size_t value) noexcept { return value; }))
+        sorted_ref_indices_data, count, [](const std::size_t value) noexcept { return value; }))
     {
         return failed_integrity_check();
     }
