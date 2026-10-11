@@ -1,0 +1,210 @@
+{
+  "samplers": {
+    "default": {
+	  "mode": "filter",
+	  "cmpFunc": "NEVER",
+	  "linearMin": true, "linearMag": true, "linearMip": true,
+      "wrapU": "repeat", "wrapV": "repeat", "wrapW": "repeat",
+      "anisotropicMax": 0,
+      "border": [ 1, 1, 1, 1 ],
+      "minLOD": 0, "maxLOD": 32, "biasLOD": 0 },
+    "standard": {
+	  "mode": "filter",
+	  "cmpFunc": "NEVER",
+	  "linearMin": true, "linearMag": true, "linearMip": true,
+      "wrapU": "repeat", "wrapV": "repeat", "wrapW": "repeat",
+      "anisotropicMax": 0,
+      "border": [ 1, 1, 1, 1 ],
+      "minLOD": 0, "maxLOD": 32, "biasLOD": 0 }
+  },
+  "depthStates": {
+    "default": {
+	  "depth" : { "read": false, "write": false, "func": ">=" },
+	  "stencil": {
+		"enable": false,
+		"readMask": 255,
+		"writeMask": 255,
+	    "front": { "func": "always", "passBoth": "KEEP", "passStencil": "KEEP", "failStencil": "KEEP" },
+	    "back":  { "func": "always", "passBoth": "KEEP", "passStencil": "KEEP", "failStencil": "KEEP" } } },
+    "standard": {
+	  "depth" : { "read": true, "write": true, "func": ">=" },
+	  "stencil": {
+		"enable": false,
+		"readMask": 255,
+		"writeMask": 255,
+	    "front": { "func": "always", "passBoth": "KEEP", "passStencil": "KEEP", "failStencil": "KEEP" },
+	    "back":  { "func": "always", "passBoth": "KEEP", "passStencil": "KEEP", "failStencil": "KEEP" } } },
+    "locality_door_clip": {
+	  "depth" : { "read": true, "write": false, "func": "always" },
+	  "stencil": {
+		"enable": true,
+		"readMask": 254,
+		"writeMask": 1,
+	    "front": { "func": "always", "passBoth": "INVERT", "passStencil": "INVERT", "failStencil": "KEEP" },
+	    "back":  { "func": "always", "passBoth": "INVERT", "passStencil": "INVERT", "failStencil": "KEEP" } } },
+    "locality_door_flip": {
+	  "depth" : { "read": true, "write": false, "func": "always" },
+	  "stencil": {
+		"enable": true,
+		"readMask": 254,
+		"writeMask": 1,
+	    "front": { "func": "equal", "passBoth": "INVERT", "passStencil": "INVERT", "failStencil": "KEEP" },
+	    "back":  { "func": "equal", "passBoth": "INVERT", "passStencil": "INVERT", "failStencil": "KEEP" } } },
+    "locality_door_face": {
+	  "depth" : { "read": true, "write": false, "func": ">=" },
+	  "stencil": {
+		"enable": true,
+		"readMask": 254,
+		"writeMask": 1,
+	    "front": { "func": "equal", "passBoth": "INVERT", "passStencil": "KEEP", "failStencil": "KEEP" },
+	    "back":  { "func": "equal", "passBoth": "INVERT", "passStencil": "INVERT", "failStencil": "KEEP" } } },
+    "locality_door_mask": {
+	  "depth" : { "read": true, "write": false, "func": ">=" },
+	  "stencil": {
+		"enable": true,
+		"readMask": 254,
+		"writeMask": 1,
+	    "front": { "func": "equal", "passBoth": "INVERT", "passStencil": "KEEP", "failStencil": "KEEP" },
+	    "back":  { "func": "equal", "passBoth": "INVERT", "passStencil": "KEEP", "failStencil": "KEEP" } } },
+    "locality_door_sort": {
+	  "depth" : { "read": true, "write": true, "func": ">=" },
+	  "stencil": {
+		"enable": true,
+		"readMask": 254,
+		"writeMask": 1,
+	    "front": { "func": "equal", "passBoth": "KEEP", "passStencil": "KEEP", "failStencil": "KEEP" },
+	    "back":  { "func": "equal", "passBoth": "KEEP", "passStencil": "KEEP", "failStencil": "KEEP" } } },
+    "locality_door_bias": {
+	  "depth" : { "read": true, "write": false, "func": ">=" },
+	  "stencil": {
+		"enable": true,
+		"readMask": 1,
+		"writeMask": 1,
+	    "front": { "func": "notequal", "passBoth": "KEEP", "passStencil": "INVERT", "failStencil": "KEEP" },
+	    "back":  { "func": "notequal", "passBoth": "KEEP", "passStencil": "INVERT", "failStencil": "KEEP" } } },
+    "locality_door_kill": {
+	  "depth" : { "read": true, "write": true, "func": "always" },
+	  "stencil": {
+		"enable": true,
+		"readMask": 1,
+		"writeMask": 255,
+	    "front": { "func": "notequal", "passBoth": "REPLACE", "passStencil": "REPLACE", "failStencil": "KEEP" },
+	    "back":  { "func": "notequal", "passBoth": "REPLACE", "passStencil": "REPLACE", "failStencil": "KEEP" } } },
+    "locality_item_mask": {
+	  "depth" : { "read": true, "write": true, "func": ">=" },
+	  "stencil": {
+		"enable": true,
+		"readMask": 254,
+		"writeMask": 255,
+	    "front": { "func": "always", "passBoth": "REPLACE", "passStencil": "KEEP", "failStencil": "KEEP" },
+	    "back":  { "func": "always", "passBoth": "REPLACE", "passStencil": "KEEP", "failStencil": "KEEP" } } },
+    "locality_item_draw": {
+	  "depth" : { "read": true, "write": true, "func": ">=" },
+	  "stencil": {
+		"enable": true,
+		"readMask": 254,
+		"writeMask": 255,
+	    "front": { "func": "equal", "passBoth": "KEEP", "passStencil": "KEEP", "failStencil": "KEEP" },
+	    "back":  { "func": "equal", "passBoth": "KEEP", "passStencil": "KEEP", "failStencil": "KEEP" } } }
+  },
+  "rasterStates": {
+    "default": {
+	  "culling": "none",
+	  "samplesUAV": 0,
+	  "frontCCW": false, "scissor": false, "wireframe": false, "depthClip": true, "multisample": false, "antiAliasedLine": false,
+	  "depthBias" : 0, "slopeBias" : 0, "clampBias" : 0	},
+    "standard": {
+	  "culling": "none",
+	  "samplesUAV": 0,
+	  "frontCCW": false, "scissor": false, "wireframe": false, "depthClip": true, "multisample": false, "antiAliasedLine": false,
+	  "depthBias" : 0, "slopeBias" : 0, "clampBias" : 0	},
+    "single-sided": {
+	  "culling": "back",
+	  "samplesUAV": 0,
+	  "frontCCW": false, "scissor": false, "wireframe": false, "depthClip": true, "multisample": false, "antiAliasedLine": false,
+	  "depthBias" : 0, "slopeBias" : 0, "clampBias" : 0	},
+    "double-sided": {
+	  "culling": "none",
+	  "samplesUAV": 0,
+	  "frontCCW": false, "scissor": false, "wireframe": false, "depthClip": true, "multisample": false, "antiAliasedLine": false,
+	  "depthBias" : 0, "slopeBias" : 0, "clampBias" : 0	},
+    "locality_face": {
+	  "culling": "back",
+	  "samplesUAV": 0,
+	  "frontCCW": false, "scissor": true, "wireframe": false, "depthClip": true, "multisample": false, "antiAliasedLine": false,
+	  "depthBias" : 0, "slopeBias" : 0, "clampBias" : 0	},
+    "locality_back": {
+	  "culling": "front",
+	  "samplesUAV": 0,
+	  "frontCCW": false, "scissor": true, "wireframe": false, "depthClip": true, "multisample": false, "antiAliasedLine": false,
+	  "depthBias" : 0, "slopeBias" : 0, "clampBias" : 0	},
+    "locality_both": {
+	  "culling": "none",
+	  "samplesUAV": 0,
+	  "frontCCW": false, "scissor": true, "wireframe": false, "depthClip": true, "multisample": false, "antiAliasedLine": false,
+	  "depthBias" : 0, "slopeBias" : 0, "clampBias" : 0	},
+    "locality_face_direct": {
+	  "culling": "back",
+	  "samplesUAV": 0,
+	  "frontCCW": false, "scissor": true, "wireframe": false, "depthClip": true, "multisample": false, "antiAliasedLine": false,
+	  "depthBias" : 0, "slopeBias" : 0, "clampBias" : 0	},
+    "locality_back_direct": {
+	  "culling": "front",
+	  "samplesUAV": 0,
+	  "frontCCW": false, "scissor": true, "wireframe": false, "depthClip": true, "multisample": false, "antiAliasedLine": false,
+	  "depthBias" : 0, "slopeBias" : 0, "clampBias" : 0	},
+    "locality_both_direct": {
+	  "culling": "none",
+	  "samplesUAV": 0,
+	  "frontCCW": false, "scissor": true, "wireframe": false, "depthClip": true, "multisample": false, "antiAliasedLine": false,
+	  "depthBias" : 0, "slopeBias" : 0, "clampBias" : 0	},
+    "locality_face_mirror": {
+	  "culling": "back",
+	  "samplesUAV": 0,
+	  "frontCCW": true, "scissor": true, "wireframe": false, "depthClip": true, "multisample": false, "antiAliasedLine": false,
+	  "depthBias" : 0, "slopeBias" : 0, "clampBias" : 0	},
+    "locality_back_mirror": {
+	  "culling": "front",
+	  "samplesUAV": 0,
+	  "frontCCW": true, "scissor": true, "wireframe": false, "depthClip": true, "multisample": false, "antiAliasedLine": false,
+	  "depthBias" : 0, "slopeBias" : 0, "clampBias" : 0	},
+    "locality_both_mirror": {
+	  "culling": "none",
+	  "samplesUAV": 0,
+	  "frontCCW": true, "scissor": true, "wireframe": false, "depthClip": true, "multisample": false, "antiAliasedLine": false,
+	  "depthBias" : 0, "slopeBias" : 0, "clampBias" : 0	}
+  },
+  "blendStates": {
+    "default": {
+      "alphaToCoverage": false,
+      "colour": { "enable": false, "srcMul": "ONE", "trgMul": "ZERO", "combiner": "ADD" },
+      "alpha":  { "enable": false, "srcMul": "ONE", "trgMul": "ZERO", "combiner": "ADD" },
+      "logic":  { "enable": false, "op": "nop" },
+      "channelMask": 15	},
+    "standard": {
+      "alphaToCoverage": false,
+      "colour": { "enable": false, "srcMul": "ONE", "trgMul": "ZERO", "combiner": "ADD" },
+      "alpha":  { "enable": false, "srcMul": "ONE", "trgMul": "ZERO", "combiner": "ADD" },
+      "logic":  { "enable": false, "op": "nop" },
+      "channelMask": 15	},
+    "solid": {
+      "alphaToCoverage": false,
+      "colour": { "enable": false, "srcMul": "ONE", "trgMul": "ZERO", "combiner": "ADD" },
+      "alpha":  { "enable": false, "srcMul": "ONE", "trgMul": "ZERO", "combiner": "ADD" },
+      "logic":  { "enable": false, "op": "nop" },
+      "channelMask": 15	},
+    "blend": {
+      "alphaToCoverage": false,
+      "colour": { "enable": true, "srcMul": "SRC_ALPHA", "trgMul": "INV_SRC_ALPHA", "combiner": "ADD" },
+      "alpha":  { "enable": false, "srcMul": "ONE", "trgMul": "ZERO", "combiner": "ADD" },
+      "logic":  { "enable": false, "op": "nop" },
+      "channelMask": 15	},
+    "premul": {
+      "alphaToCoverage": false,
+      "colour": { "enable": true, "srcMul": "ONE", "trgMul": "INV_SRC_ALPHA", "combiner": "ADD" },
+      "alpha":  { "enable": false, "srcMul": "ONE", "trgMul": "ZERO", "combiner": "ADD" },
+      "logic":  { "enable": false, "op": "nop" },
+      "channelMask": 15	}
+  }
+}
+

@@ -1,0 +1,65 @@
+{
+  "streams": {
+    "draw2d":     { "POSITION": { "format": "int16x2" }, "COLOUR": { "format": "unorm" } },
+    "simple":     { "POSITION": { "format": "float16x4" }, "COLOUR": { "format": "unorm" } },
+    "simple_lit": { "POSITION": { "format": "float16x4" }, "NORMAL": { "format": "float16x4" }, "COLOUR": { "format": "unorm" } },
+    "standard":   { "POSITION": { "format": "FLOAT3" }, "TSPACE": { "format": "HALF4" }, "UVUV": { "format": "HALF4" }, "COLOUR": { "format": "unorm" } },
+    "debug":      { "POSITION": { "format": "float16x4" }, "COLOUR": { "format": "unorm" } },
+    "mask":       { "POSITION": { "format": "float16x4" } },
+    "fill":       { "POSITION": { "format": "float16x4" }, "NORMAL": { "format": "float16x4" }, "COLOUR": { "format": "unorm" } },
+    "draw":       { "POSITION": { "format": "float16x4" }, "NORMAL": { "format": "float16x4" }, "EDGEST": { "format": "float16x4" }, "EDGESC": { "format": "float16x4" }, "EDGESA": { "format": "float16x4" }, "COLOUR": { "format": "unorm" } },
+    "trim":       { "POSITION": { "format": "float16x4" }, "OFFSET": { "format": "float16x4" }, "CONFIG": { "format": "float16x4" }, "COLOUR": { "format": "unorm" } },
+    "sky":        { "POSITION": { "format": "float16x4" } }
+  },
+  "linkages": {
+    "draw2d":     { "POSITION": { "semantic": "POSITION" }, "COLOUR": { "semantic": "COLOUR" } },
+    "simple":     { "POSITION": { "semantic": "POSITION" }, "COLOUR": { "semantic": "COLOUR" } },
+    "simple_lit": { "POSITION": { "semantic": "POSITION" }, "NORMAL": { "semantic": "NORMAL" }, "COLOUR": { "semantic": "COLOUR" } },
+    "standard":   { "POSITION": { "semantic": "POSITION" }, "TSPACE": { "semantic": "TSPACE" }, "UVUV": { "semantic": "UVUV" }, "COLOUR": { "semantic": "COLOUR" } },
+    "debug":       { "POSITION": { "semantic": "POSITION" }, "COLOUR": { "semantic": "COLOUR" } },
+    "mask":       { "POSITION": { "semantic": "POSITION" } },
+    "fill":       { "POSITION": { "semantic": "POSITION" }, "NORMAL": { "semantic": "NORMAL" }, "COLOUR": { "semantic": "COLOUR" } },
+    "draw":       { "POSITION": { "semantic": "POSITION" }, "NORMAL": { "semantic": "NORMAL" }, "EDGEST": { "semantic": "TEXCOORD0" }, "EDGESC": { "semantic": "TEXCOORD1" }, "EDGESA": { "semantic": "TEXCOORD2" }, "COLOUR": { "semantic": "COLOUR" } },
+    "trim":       { "POSITION": { "semantic": "POSITION" }, "OFFSET": { "semantic": "TEXCOORD0" }, "CONFIG": { "semantic": "TEXCOORD1" }, "COLOUR": { "semantic": "COLOUR" } },
+    "sky":        { "POSITION": { "semantic": "POSITION" } }
+  },
+  "assemblies": {
+    "draw2d":     { "draw2d":     { "stream": "draw2d",     "linkage": "draw2d"     } },
+    "simple":     { "simple":     { "stream": "simple",     "linkage": "simple"     } },
+    "simple_lit": { "simple_lit": { "stream": "simple_lit", "linkage": "simple_lit" } },
+    "standard":   { "standard":   { "stream": "standard",   "linkage": "standard"   } },
+    "debug":      { "debug":      { "stream": "debug",      "linkage": "debug"      } },
+    "mask":       { "mask":       { "stream": "mask",       "linkage": "mask"       } },
+    "fill":       { "fill":       { "stream": "fill",       "linkage": "fill"       } },
+    "draw":       { "draw":       { "stream": "draw",       "linkage": "draw"       } },
+    "trim":       { "trim":       { "stream": "trim",       "linkage": "trim"       } },
+    "sky":        { "sky":        { "stream": "sky",        "linkage": "sky"        } }
+  },
+  "stages": {
+    "vdisplay":   { "vertex": "cso/vdisplay_vs.cso",   "pixel": "cso/vdisplay_ps.cso"   },
+    "vdrawing":   { "vertex": "cso/vdrawing_vs.cso",   "pixel": "cso/vdrawing_ps.cso"   },
+    "simple":     { "vertex": "cso/simple_vs.cso",     "pixel": "cso/simple_ps.cso"     },
+    "simple_lit": { "vertex": "cso/simple_lit_vs.cso", "pixel": "cso/simple_lit_ps.cso" },
+    "standard":   { "vertex": "cso/standard_vs.cso",   "pixel": "cso/standard_ps.cso"   },
+    "debug":      { "vertex": "cso/debug_vs.cso",      "pixel": "cso/debug_ps.cso"      },
+    "mask":       { "vertex": "cso/mask_vs.cso",       "pixel": "cso/mask_ps.cso"       },
+    "fill":       { "vertex": "cso/fill_vs.cso",       "pixel": "cso/fill_ps.cso"       },
+    "draw":       { "vertex": "cso/draw_vs.cso",       "pixel": "cso/draw_ps.cso"       },
+    "trim":       { "vertex": "cso/trim_vs.cso",       "pixel": "cso/trim_ps.cso"       },
+    "sky":        { "vertex": "cso/sky_vs.cso",        "pixel": "cso/sky_ps.cso"        }
+  },
+  "shaders": {
+    "vdisplay": {   "stages": "vdisplay",   "assembly": "draw2d",     "target": "default", "dbuffer": "none",    "depth": "default",     "raster": "default",      "blend": "vdisplay" },
+    "vdrawing": {   "stages": "vdrawing",   "assembly": "draw2d",     "target": "default", "dbuffer": "none",    "depth": "default",     "raster": "default",      "blend": "vdrawing" },
+    "simple": {     "stages": "simple",     "assembly": "simple",     "target": "default", "dbuffer": "default", "depth": "standard",    "raster": "single-sided", "blend": "default" },
+    "simple_lit": { "stages": "simple_lit", "assembly": "simple_lit", "target": "default", "dbuffer": "default", "depth": "standard",    "raster": "single-sided", "blend": "default" },
+    "standard": {   "stages": "standard",   "assembly": "standard",   "target": "default", "dbuffer": "default", "depth": "default",     "raster": "default",      "blend": "default" },
+    "debug": {      "stages": "debug",     "assembly": "debug",       "target": "default", "dbuffer": "default", "depth": "locality_ds", "raster": "locality_rs",  "blend": "default" },
+    "mask": {       "stages": "mask",       "assembly": "mask",       "target": "none",    "dbuffer": "default", "depth": "locality_ds", "raster": "locality_rs",  "blend": "default" },
+    "fill": {       "stages": "fill",       "assembly": "fill",       "target": "default", "dbuffer": "default", "depth": "locality_ds", "raster": "locality_rs",  "blend": "default" },
+    "draw": {       "stages": "draw",       "assembly": "draw",       "target": "default", "dbuffer": "default", "depth": "locality_ds", "raster": "locality_rs",  "blend": "default" },
+    "trim": {       "stages": "trim",       "assembly": "trim",       "target": "default", "dbuffer": "default", "depth": "locality_ds", "raster": "locality_rs",  "blend": "default" },
+    "sky": {        "stages": "sky",        "assembly": "sky",        "target": "default", "dbuffer": "default", "depth": "locality_ds", "raster": "locality_rs",  "blend": "default" }
+  }
+}
+

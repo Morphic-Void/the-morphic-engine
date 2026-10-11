@@ -1,0 +1,32 @@
+Proof-of-concept shader test material
+
+Imported: 11 October 2026
+Source: D:/TheVoidEngine-Legacy/common/shaders
+Project: Void Engine (Legacy), proof-of-concept archive, 2010-2016
+Author: Ritchie Brannan
+Licence: MIT; the original copyright and licence are in LICENSE.txt.
+
+This is a snapshot of the local source files, retained for shader compilation
+and reflection investigation and future regression tests. It does not define
+the game's eventual shader interfaces or rendering implementation.
+
+The original directory hierarchy is preserved:
+
+  hlsl/build/     22 vertex/pixel stage wrappers (source, not compiled output)
+  hlsl/shaders/   10 shader implementations
+  hlsl/libs/       8 shared HLSL includes
+  hlsl/reflect/    2 HLSL declaration files and 1 C/C++ declaration reference
+  json/           2 shader/resource configuration files
+
+All 45 files under the source shader directory were copied. The import only
+normalizes newlines to LF and ensures a final newline. Shader content has not
+been adapted for DXC or Vulkan. Relative include paths remain unchanged.
+The source files in the legacy checkout were not modified.
+
+The JSON files preserve the earlier pipeline's configuration for reference;
+their asset/output paths are not expected to resolve in this fixture directory.
+The legacy build script and compiler binaries are not part of this snapshot.
+
+These fixtures are not yet connected to a compiler, reflection adapter or test
+runner. Successful import and include-path checks do not establish that the
+shaders compile under DXC or preserve their previous rendered behaviour.
