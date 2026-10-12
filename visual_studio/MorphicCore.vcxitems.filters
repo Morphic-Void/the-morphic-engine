@@ -13,6 +13,9 @@
     <Filter Include="Core\include\assets">
       <UniqueIdentifier>{9b4a4a17-f204-e49d-bdbc-a4e486a671b0}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Core\include\assets\internal">
+      <UniqueIdentifier>{b5e3f360-9cd2-4545-bed4-e5939eaabc62}</UniqueIdentifier>
+    </Filter>
     <Filter Include="Core\include\bit_utils">
       <UniqueIdentifier>{4e11bf0b-6435-133b-9368-e2f3247a5d59}</UniqueIdentifier>
     </Filter>
@@ -204,6 +207,8 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\assets\internal\bundle_builder_io.hpp"><Filter>Core\include\assets\internal</Filter></ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\assets\bundle_builder.hpp"><Filter>Core\include\assets</Filter></ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\filesystem\logical_path.hpp"><Filter>Core\include\filesystem</Filter></ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\assets\bundle.hpp"><Filter>Core\include\assets</Filter></ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\algo\validate_permutations.hpp">
@@ -550,6 +555,7 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\assets\bundle_builder.cpp"><Filter>Core\src\assets</Filter></ClCompile>
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\assets\bundle.cpp"><Filter>Core\src\assets</Filter></ClCompile>
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\data_model\baked_document.cpp">
       <Filter>Core\src\data_model</Filter>

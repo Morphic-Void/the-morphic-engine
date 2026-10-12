@@ -12,6 +12,7 @@
     <Filter Include="Development\logical-roots\dev-source"><UniqueIdentifier>{bb41d6b0-ae7d-4979-a125-bba64f88e42e}</UniqueIdentifier></Filter>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="..\tests\test_suites\BundleBuilder_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
     <ClCompile Include="..\tests\test_suites\Bundle_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
     <ClCompile Include="..\tests\main\MorphicTests.cpp"><Filter>Tests\main</Filter></ClCompile>
     <ClCompile Include="..\tests\environment\local_type_ids.cpp"><Filter>Tests\environment</Filter></ClCompile>
@@ -61,6 +62,7 @@
     <ClCompile Include="..\tests\test_suites\TextLinter_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="..\tests\test_suites\BundleBuilder_test_suite.hpp"><Filter>Tests\test_suites</Filter></ClInclude>
     <ClInclude Include="..\tests\test_suites\Bundle_test_suite.hpp"><Filter>Tests\test_suites</Filter></ClInclude>
     <ClInclude Include="..\tests\environment\erased_owner_payloads.def"><Filter>Tests\environment</Filter></ClInclude>
     <ClInclude Include="..\tests\environment\local_type_ids.def"><Filter>Tests\environment</Filter></ClInclude>
