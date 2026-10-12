@@ -31,7 +31,17 @@ std::FILE* openFile(const path::NativePath& file_path, const EOpenMode mode = EO
 void removeFile(const path::NativePath& file_path) noexcept;
 bool renameFile(const path::NativePath& src_path, const path::NativePath& dst_path) noexcept;
 bool flushToDisk(std::FILE* const handle) noexcept;
+
+//  Reports the unpadded size, including successful empty files. Resets size on failure.
+//  On success the stream is positioned at the beginning, not its original position.
+bool queryFileSize(std::FILE* const handle, std::size_t& size) noexcept;
+
+//  Convenience query: empty files and errors both return zero, even with padding.
 std::size_t getFileSize(std::FILE* const handle, const std::size_t pad = 0) noexcept;
+
+//  Reads a non-empty range at the current position. Short/error reads may partially
+//  modify the destination. Does not seek, allocate, pad or close the stream.
+bool readFileContent(std::FILE* const handle, std::uint8_t* const data, const std::size_t size) noexcept;
 
 }   //  namespace platform::filesystem
 

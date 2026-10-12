@@ -9,6 +9,7 @@
 #include "tests/main/run_tests.hpp"
 #include "tests/test_suites/AssetRepository_test_suite.hpp"
 #include "tests/test_suites/FilesystemImage_test_suite.hpp"
+#include "tests/test_suites/File_test_suite.hpp"
 #include "tests/test_suites/AsyncState_test_suite.hpp"
 #include "tests/test_suites/HostWorkers_test_suite.hpp"
 #include "tests/test_suites/TextureService_test_suite.hpp"
@@ -240,6 +241,7 @@ int run_tests(ETestRunMode mode)
 
     cumulative_result += run_isolated_suite("AssetRepository", &run_asset_repository_tests);
     cumulative_result += run_isolated_suite("FilesystemImage", &run_filesystem_image_tests);
+    cumulative_result += run_isolated_suite("File", &run_file_tests);
     cumulative_result += run_isolated_suite("AsyncState", &run_async_state_tests);
     cumulative_result += run_isolated_suite("HostWorkers", &run_host_workers_tests);
     cumulative_result += run_isolated_suite("TextureService", &run_texture_service_tests);

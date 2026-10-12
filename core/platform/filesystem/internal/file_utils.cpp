@@ -106,9 +106,9 @@ bool flushToDisk(std::FILE* const handle) noexcept
     return false;
 }
 
-std::size_t getFileSize(std::FILE* const handle, const std::size_t pad) noexcept
+bool queryFileSize(std::FILE* const handle, std::size_t& size) noexcept
 {
-    std::size_t size = 0;
+    size = 0;
     if (handle != nullptr)
     {
 #if MV_PLATFORM_WINDOWS
@@ -130,23 +130,36 @@ std::size_t getFileSize(std::FILE* const handle, const std::size_t pad) noexcept
             if (fseek(handle, 0, SEEK_SET) == 0)
 #endif
             {
-                if (tell > 0)
+                if (tell >= 0)
                 {
                     static const std::uint64_t max64 = static_cast<std::uint64_t>(~static_cast<std::size_t>(0));
                     std::uint64_t len64 = static_cast<std::uint64_t>(tell);
                     if (len64 <= max64)
                     {
-                        std::uint64_t pad64 = static_cast<std::uint64_t>(pad);
-                        if (pad64 <= (max64 - len64))
-                        {
-                            size = static_cast<std::size_t>(len64 + pad64);
-                        }
+                        size = static_cast<std::size_t>(len64);
+                        return true;
                     }
                 }
             }
         }
     }
-    return size;
+    return false;
+}
+
+std::size_t getFileSize(std::FILE* const handle, const std::size_t pad) noexcept
+{
+    std::size_t size = 0;
+    if (queryFileSize(handle, size) && (size != 0u) && (pad <= (~static_cast<std::size_t>(0) - size)))
+    {
+        return size + pad;
+    }
+    return 0u;
+}
+
+bool readFileContent(std::FILE* const handle, std::uint8_t* const data, const std::size_t size) noexcept
+{
+    return (handle != nullptr) && (data != nullptr) && (size != 0u) &&
+        (std::fread(data, 1, size, handle) == size) && (std::ferror(handle) == 0);
 }
 
 }   //  namespace platform::filesystem

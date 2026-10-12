@@ -24,6 +24,17 @@ namespace platform::filesystem
 
 //  utf8_path is expected to be UTF-8 encoded.
 
+//  Reports the exact unpadded file size. An empty file succeeds with size zero.
+//  On path, open, size-query or close failure, returns false and resets size to zero.
+bool queryFileSize(const char* const utf8_path, std::size_t& size) noexcept;
+
+//  Loads a complete non-empty file into caller-owned storage of exactly its size.
+//  Does not allocate content storage, resize, impose alignment or write padding.
+//  Invalid views, size mismatches and open/read/close failures return false.
+//  A read or close failure may leave modified destination bytes; discard them.
+//  The caller keeps the file unchanged throughout the operation.
+bool loadFileInto(const char* const utf8_path, const CByteView& destination) noexcept;
+
 //  Empty files are treated as failure.
 //  On failure, the buffer is empty.
 //  On success, the buffer size includes pad bytes, which are zero-filled.

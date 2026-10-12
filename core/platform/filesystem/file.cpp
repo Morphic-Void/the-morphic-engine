@@ -25,6 +25,53 @@
 namespace platform::filesystem
 {
 
+static std::FILE* openReadFile(const char* const utf8_path) noexcept
+{
+    const path::NativePath native_path = path::makeNativePath(utf8_path);
+    return native_path.is_empty() ? nullptr : openFile(native_path, EOpenMode::BinaryRead);
+}
+
+static bool closeReadFile(std::FILE* const handle, const bool success) noexcept
+{
+    const bool closed = (std::fclose(handle) == 0);
+    return success && closed;
+}
+
+bool queryFileSize(const char* const utf8_path, std::size_t& size) noexcept
+{
+    size = 0u;
+    std::FILE* const handle = openReadFile(utf8_path);
+    if (handle == nullptr)
+    {
+        return false;
+    }
+    std::size_t file_size = 0u;
+    const bool success = closeReadFile(handle, queryFileSize(handle, file_size));
+    if (success)
+    {
+        size = file_size;
+    }
+    return success;
+}
+
+bool loadFileInto(const char* const utf8_path, const CByteView& destination) noexcept
+{
+    if (!destination.is_ready())
+    {
+        return false;
+    }
+    std::FILE* const handle = openReadFile(utf8_path);
+    if (handle == nullptr)
+    {
+        return false;
+    }
+    std::size_t file_size = 0u;
+    const bool success = queryFileSize(handle, file_size) &&
+        (file_size == destination.size()) &&
+        readFileContent(handle, destination.data(), destination.size());
+    return closeReadFile(handle, success);
+}
+
 CByteBuffer loadFile(const char* const utf8_path, const std::size_t pad, const std::size_t alignment) noexcept
 {
     CByteBuffer buffer;
@@ -34,41 +81,34 @@ CByteBuffer loadFile(const char* const utf8_path, const std::size_t pad, const s
         return buffer;
     }
     const std::size_t effective_alignment = std::max(std::size_t{ 16u }, memory::condition_alignment(alignment));
-    path::NativePath std_path = path::makeNativePath(utf8_path);
-    if (!std_path.is_empty())
+    std::FILE* handle = openReadFile(utf8_path);
+    if (handle != nullptr)
     {
-        std::FILE* handle = openFile(std_path, EOpenMode::BinaryRead);
-        if (handle != nullptr)
+        bool success = false;
+        std::size_t size = getFileSize(handle, pad);
+        if (size != 0u)
         {
-            bool success = false;
-            std::size_t size = getFileSize(handle, pad);
-            if (size != 0u)
+            const std::size_t aligned_size = memory::condition_bytes(effective_alignment, size);
+            if ((aligned_size != 0u) && buffer.allocate(aligned_size, effective_alignment))
             {
-                const std::size_t aligned_size = memory::condition_bytes(effective_alignment, size);
-                if ((aligned_size != 0u) && buffer.allocate(aligned_size, effective_alignment))
+                std::uint8_t* data = buffer.data();
+                std::size_t file_size = size - pad;
+                if (readFileContent(handle, data, file_size))
                 {
-                    std::uint8_t* data = buffer.data();
-                    std::size_t file_size = size - pad;
-                    if (std::fread(data, 1, file_size, handle) == file_size)
+                    const std::size_t clear_size = aligned_size - file_size;
+                    if (clear_size != 0u)
                     {
-                        const std::size_t clear_size = aligned_size - file_size;
-                        if (clear_size != 0u)
-                        {
-                            std::memset((data + file_size), 0, clear_size);
-                        }
-                        (void)buffer.set_size(size);
-                        success = true;
+                        std::memset((data + file_size), 0, clear_size);
                     }
+                    (void)buffer.set_size(size);
+                    success = true;
                 }
             }
-            if (std::fclose(handle) != 0)
-            {   //  close failed
-                success = false;
-            }
-            if (!success)
-            {
-                buffer.deallocate();
-            }
+        }
+        success = closeReadFile(handle, success);
+        if (!success)
+        {
+            buffer.deallocate();
         }
     }
     return buffer;
