@@ -108,7 +108,7 @@ public:
     TUnorderedCollection(const TUnorderedCollection&) noexcept = delete;
     TUnorderedCollection& operator=(const TUnorderedCollection&) noexcept = delete;
     TUnorderedCollection(TUnorderedCollection&&) noexcept = default;
-    TUnorderedCollection& operator=(TUnorderedCollection&&) noexcept = default;
+    TUnorderedCollection& operator=(TUnorderedCollection&& src) noexcept;
 
     //  Destructor
     ~TUnorderedCollection() noexcept { deallocate(); };
@@ -177,6 +177,17 @@ private:
 //==============================================================================
 //  TUnorderedCollection<T> out of class function bodies
 //==============================================================================
+
+template<typename T>
+inline TUnorderedCollection<T>& TUnorderedCollection<T>::operator=(TUnorderedCollection&& src) noexcept
+{
+    if (this != &src)
+    {   //  Destroy live objects before the base replaces their backing storage.
+        deallocate();
+        slot_meta_class::operator=(std::move(src));
+    }
+    return *this;
+}
 
 template<typename T>
 inline void TUnorderedCollectionStorage<T>::on_move_payload(const std::int32_t source_index, const std::int32_t target_index) noexcept

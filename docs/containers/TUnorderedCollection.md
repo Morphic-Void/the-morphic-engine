@@ -25,6 +25,12 @@ valid across pack().
 
 ## Requirements and scope
 
+Move assignment destroys all live destination objects and releases their backing
+before taking the source's storage and slot metadata. Source object addresses,
+slot identities and allocation attribution are preserved. The source becomes
+empty and can be initialised again. Self-move is a no-op; moving requires no new
+container allocation. Element destructors still run normally.
+
 - Requires C++17 or later.
 - No exceptions are used.
 - Indices, sizes, and capacities are expressed in elements.

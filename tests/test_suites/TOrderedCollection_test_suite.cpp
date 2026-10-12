@@ -263,6 +263,164 @@ struct TAttributionContainer : TAttributionBase<Pod, Ordered>
     }
 };
 
+struct SMoveAllocator
+{
+    std::size_t calls{ 0u };
+    bool reject{ false };
+};
+
+void* MV_STD_ABI_CALL allocate_move_test(void* opaque, std::size_t alignment, std::size_t size) noexcept
+{
+    auto& state = *static_cast<SMoveAllocator*>(opaque);
+    ++state.calls;
+    return state.reject ? nullptr : tests::allocate_test_memory(nullptr, alignment, size);
+}
+
+//  Check replacement of occupied backing for all four wrappers, including the
+//  POD forms whose trivial elements require no separate destructor pass.
+template<bool Pod, bool Ordered>
+void test_move_assignment_storage(TTestContext& ctx)
+{
+    using Container = TAttributionContainer<Pod, Ordered>;
+    static_assert(std::is_nothrow_move_assignable_v<Container>);
+    SMoveAllocator state;
+    memory::CMemoryAllocator allocator{ &state, &allocate_move_test, &tests::deallocate_test_memory };
+    memory::CMemoryContext source_context{ allocator }, destination_context{ allocator };
+    {
+        Container source, destination;
+        int retained = -1;
+        {
+            const tests::TMemoryContextScope scope{ &source_context };
+            TEST_EXPECT(ctx, source.initialise());
+            TEST_EXPECT(ctx, source.insert_value(10) >= 0);
+            const int erased = source.insert_value(20);
+            retained = source.insert_value(30);
+            TEST_EXPECT(ctx, source.erase(erased));
+        }
+        {
+            const tests::TMemoryContextScope scope{ &destination_context };
+            TEST_EXPECT(ctx, destination.initialise());
+            TEST_EXPECT(ctx, destination.insert_value(99) >= 0);
+        }
+        const int* const address = source.address(retained);
+        const auto bytes = source_context.get_live_allocated_bytes();
+        const auto count = source_context.get_live_allocation_count();
+        const auto calls = state.calls;
+        state.reject = true;
+        TEST_EXPECT(ctx, &(destination = std::move(source)) == &destination);
+        TEST_EXPECT(ctx, destination_context.is_attribution_empty());
+        TEST_EXPECT(ctx, destination.address(retained) == address && *address == 30);
+        TEST_EXPECT(ctx, source.is_valid() && source.is_empty() && !source.is_ready());
+        TEST_EXPECT(ctx, source_context.get_live_allocated_bytes() == bytes && source_context.get_live_allocation_count() == count);
+        destination = std::move(destination);
+        TEST_EXPECT(ctx, destination.address(retained) == address && state.calls == calls);
+        if constexpr (Ordered) TEST_EXPECT(ctx, destination.key_at_slot(retained)->value == 30);
+        state.reject = false;
+        TEST_EXPECT(ctx, destination.check_integrity());
+        {
+            const tests::TMemoryContextScope scope{ &destination_context };
+            TEST_EXPECT(ctx, source.initialise());
+            TEST_EXPECT(ctx, source.insert_value(40) >= 0);
+        }
+        //  Move construction after assignment preserves the transferred state.
+        Container moved{ std::move(destination) };
+        TEST_EXPECT(ctx, moved.address(retained) == address);
+        TEST_EXPECT(ctx, destination.is_valid() && destination.is_empty());
+        destination = std::move(source);
+        TEST_EXPECT(ctx, *destination.address(destination.first_live()) == 40);
+        //  Both default-empty and initialised-empty sources clear an owner.
+        moved = Container{};
+        TEST_EXPECT(ctx, source_context.is_attribution_empty());
+        {
+            const tests::TMemoryContextScope scope{ &source_context };
+            TEST_EXPECT(ctx, source.initialise());
+        }
+        destination = std::move(source);
+        TEST_EXPECT(ctx, destination_context.is_attribution_empty());
+        TEST_EXPECT(ctx, destination.is_ready() && destination.is_empty() && destination.check_integrity());
+        destination = Container{};
+        destination = std::move(destination);
+        TEST_EXPECT(ctx, destination.is_valid() && destination.is_empty() && !destination.is_ready());
+    }
+    TEST_EXPECT(ctx, source_context.is_attribution_empty() && destination_context.is_attribution_empty());
+}
+
+struct SOwnedMoveValue
+{
+    SOwnedMoveValue(const int identity, std::array<int, 6>& counts) noexcept : id(identity), destroyed(counts)
+    {
+        (void)bytes.allocate(64u);
+    }
+    SOwnedMoveValue(const SOwnedMoveValue&) = delete;
+    SOwnedMoveValue(SOwnedMoveValue&&) = delete;
+    ~SOwnedMoveValue() noexcept { ++destroyed[id]; }
+    int id;
+    std::array<int, 6>& destroyed;
+    CByteBuffer bytes;
+};
+
+template<bool Ordered>
+void test_move_assignment_destroys_owned_values(TTestContext& ctx)
+{
+    using Container = std::conditional_t<Ordered, TOrderedCollection<SOwnedMoveValue, TTrackedKey>, TUnorderedCollection<SOwnedMoveValue>>;
+    const auto insert = [](Container& container, int id, std::array<int, 6>& destroyed)
+    {
+        if constexpr (Ordered) return container.emplace(TTrackedKey{ id }, id, destroyed);
+        else return container.emplace(id, destroyed);
+    };
+    SMoveAllocator state;
+    memory::CMemoryAllocator allocator{ &state, &allocate_move_test, &tests::deallocate_test_memory };
+    memory::CMemoryContext source_context{ allocator }, destination_context{ allocator };
+    std::array<int, 6> destroyed{};
+    {
+        Container source, destination;
+        SOwnedMoveValue* retained = nullptr;
+        {
+            const tests::TMemoryContextScope scope{ &source_context };
+            TEST_EXPECT(ctx, source.initialise());
+            TEST_EXPECT(ctx, insert(source, 2, destroyed) >= 0);
+            const int hole = insert(source, 3, destroyed);
+            retained = source.get_object(insert(source, 4, destroyed));
+            TEST_EXPECT(ctx, retained && retained->bytes.is_ready());
+            TEST_EXPECT(ctx, source.erase(hole));
+            if constexpr (Ordered) source.sort_and_pack();
+            else source.pack();
+        }
+        {
+            const tests::TMemoryContextScope scope{ &destination_context };
+            TEST_EXPECT(ctx, destination.initialise());
+            TEST_EXPECT(ctx, insert(destination, 0, destroyed) >= 0);
+            TEST_EXPECT(ctx, destination.erase(insert(destination, 1, destroyed)));
+        }
+        const int slot = source.reverse_lookup_slot_index_scan(retained);
+        const auto bytes = source_context.get_live_allocated_bytes();
+        const auto calls = state.calls;
+        state.reject = true;
+        destination = std::move(source);
+        TEST_EXPECT(ctx, destroyed[0] == 1 && destroyed[1] == 1 && destroyed[3] == 1);
+        TEST_EXPECT(ctx, destroyed[2] == 0 && destroyed[4] == 0);
+        TEST_EXPECT(ctx, destination_context.is_attribution_empty());
+        TEST_EXPECT(ctx, destination.get_object(slot) == retained && retained->id == 4);
+        TEST_EXPECT(ctx, source_context.get_live_allocated_bytes() == bytes);
+        destination = std::move(destination);
+        TEST_EXPECT(ctx, destroyed[2] == 0 && destroyed[4] == 0 && state.calls == calls);
+        TEST_EXPECT(ctx, source.is_empty() && source.is_valid() && !source.is_ready());
+        destination = Container{};
+        TEST_EXPECT(ctx, destroyed[2] == 1 && destroyed[4] == 1 && source_context.is_attribution_empty());
+        TEST_EXPECT(ctx, state.calls == calls);
+        state.reject = false;
+        //  Reuse a moved-from source; final scope destruction owns this value.
+        {
+            const tests::TMemoryContextScope scope{ &source_context };
+            TEST_EXPECT(ctx, source.initialise() && insert(source, 5, destroyed) >= 0);
+        }
+        destination = std::move(source);
+        TEST_EXPECT(ctx, destination.check_integrity());
+    }
+    for (const int count : destroyed) { TEST_EXPECT(ctx, count == 1); }
+    TEST_EXPECT(ctx, source_context.is_attribution_empty() && destination_context.is_attribution_empty());
+}
+
 template<bool Pod, bool Ordered>
 void test_complete_aggregate_reattribution(TTestContext& ctx)
 {
@@ -796,6 +954,12 @@ int run_ordered_collection_tests()
 {
     TTestContext ctx;
     test_concurrent_queries(ctx);
+    test_move_assignment_storage<true, true>(ctx);
+    test_move_assignment_storage<true, false>(ctx);
+    test_move_assignment_storage<false, true>(ctx);
+    test_move_assignment_storage<false, false>(ctx);
+    test_move_assignment_destroys_owned_values<true>(ctx);
+    test_move_assignment_destroys_owned_values<false>(ctx);
     test_complete_aggregate_reattribution<true, true>(ctx);
     test_complete_aggregate_reattribution<true, false>(ctx);
     test_complete_aggregate_reattribution<false, true>(ctx);

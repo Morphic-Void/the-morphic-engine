@@ -119,7 +119,7 @@ public:
     TOrderedCollection(const TOrderedCollection&) noexcept = delete;
     TOrderedCollection& operator=(const TOrderedCollection&) noexcept = delete;
     TOrderedCollection(TOrderedCollection&&) noexcept = default;
-    TOrderedCollection& operator=(TOrderedCollection&&) noexcept = default;
+    TOrderedCollection& operator=(TOrderedCollection&& src) noexcept;
 
     //  Destructor
     ~TOrderedCollection() noexcept { deallocate(); };
@@ -195,6 +195,17 @@ private:
 //==============================================================================
 //  TOrderedCollection<T> out of class function bodies
 //==============================================================================
+
+template<typename T, typename TKey>
+inline TOrderedCollection<T, TKey>& TOrderedCollection<T, TKey>::operator=(TOrderedCollection&& src) noexcept
+{
+    if (this != &src)
+    {   //  Destroy live objects before the base replaces their backing storage.
+        deallocate();
+        slot_meta_class::operator=(std::move(src));
+    }
+    return *this;
+}
 
 template<typename T, typename TKey>
 inline void TOrderedCollectionStorage<T, TKey>::on_move_payload(const std::int32_t source_index, const std::int32_t target_index) noexcept
