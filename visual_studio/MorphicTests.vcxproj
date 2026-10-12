@@ -89,6 +89,7 @@
     <ClCompile><PreprocessorDefinitions>WIN32;%(PreprocessorDefinitions)</PreprocessorDefinitions></ClCompile>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="..\tests\test_suites\Bundle_test_suite.cpp" />
     <ClCompile Include="..\tests\main\MorphicTests.cpp" />
     <ClCompile Include="..\tests\environment\local_type_ids.cpp" />
     <ClCompile Include="..\tests\environment\test_environment.cpp" />
@@ -137,6 +138,7 @@
     <ClCompile Include="..\tests\test_suites\TextLinter_test_suite.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="..\tests\test_suites\Bundle_test_suite.hpp" />
     <ClInclude Include="..\tests\environment\erased_owner_payloads.def" />
     <ClInclude Include="..\tests\environment\local_type_ids.def" />
     <ClInclude Include="..\tests\environment\local_type_ids.hpp" />

@@ -14,6 +14,8 @@
     <ProjectCapability Include="SourceItemsFromImports" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\filesystem\logical_path.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\assets\bundle.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\algo\validate_permutations.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\assets\asset_repository.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\bit_utils\bit_ops.hpp" />
@@ -123,6 +125,7 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\types\fp16data_t.hpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\assets\bundle.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\data_model\baked_document.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\data_model\document_baking.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\data_model\document_promotion.cpp" />

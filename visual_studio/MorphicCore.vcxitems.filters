@@ -88,6 +88,9 @@
     <Filter Include="Core\src">
       <UniqueIdentifier>{07f791e4-bcbb-46aa-b229-8f303450a089}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Core\src\assets">
+      <UniqueIdentifier>{c51238c9-4413-4da3-80d3-dc905dbb9b10}</UniqueIdentifier>
+    </Filter>
     <Filter Include="Core\src\debug">
       <UniqueIdentifier>{f7add353-7037-1907-3fe9-78cda87ff7e6}</UniqueIdentifier>
     </Filter>
@@ -201,6 +204,8 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\filesystem\logical_path.hpp"><Filter>Core\include\filesystem</Filter></ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\assets\bundle.hpp"><Filter>Core\include\assets</Filter></ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\algo\validate_permutations.hpp">
       <Filter>Core\include\algo</Filter>
     </ClInclude>
@@ -545,6 +550,7 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\assets\bundle.cpp"><Filter>Core\src\assets</Filter></ClCompile>
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\data_model\baked_document.cpp">
       <Filter>Core\src\data_model</Filter>
     </ClCompile>

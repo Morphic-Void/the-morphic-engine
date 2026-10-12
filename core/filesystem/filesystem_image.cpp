@@ -10,6 +10,7 @@
 
 #include <cstring>
 #include "filesystem/filesystem_image.hpp"
+#include "filesystem/logical_path.hpp"
 #include "data_model/baked_document.hpp"
 #include "data_model/document_parser.hpp"
 #include "data_model/document_translation.hpp"
@@ -131,29 +132,7 @@ static bool join(const char* const prefix, const char* const suffix, CSimpleStri
 
 static bool relative_file(const char* const path) noexcept
 {
-    if ((path == nullptr) || (*path == '\0'))
-    {
-        return false;
-    }
-    const char* component = path;
-    for (const char* next = path;; ++next)
-    {
-        if ((*next == '\\') || (*next == ':') || (*next == '*') || (*next == '?'))
-        {
-            return false;
-        }
-        if ((*next == '/') || (*next == '\0'))
-        {
-            const auto size = static_cast<std::size_t>(next - component);
-            if ((size == 0u) || ((size == 1u) && (*component == '.')) ||
-                ((size == 2u) && (component[0] == '.') && (component[1] == '.')))
-            {
-                return false;
-            }
-            if (*next == '\0') { return true; }
-            component = next + 1;
-        }
-    }
+    return logical_path::valid_relative_file(CStringView{ path });
 }
 
 static bool equal_path(const CStringView a, const char* const b) noexcept
@@ -163,19 +142,7 @@ static bool equal_path(const CStringView a, const char* const b) noexcept
 
 static bool case_alias(const CStringView a, const char* const b) noexcept
 {
-    if ((b == nullptr) || (a.length() != std::strlen(b)))
-    {
-        return false;
-    }
-    for (std::size_t i = 0u; i < a.length(); ++i)
-    {
-        const char x = a.cstring()[i];
-        const char y = b[i];
-        const char folded_x = ((x >= 'A') && (x <= 'Z')) ? static_cast<char>(x + ('a' - 'A')) : x;
-        const char folded_y = ((y >= 'A') && (y <= 'Z')) ? static_cast<char>(y + ('a' - 'A')) : y;
-        if (folded_x != folded_y) { return false; }
-    }
-    return true;
+    return logical_path::case_equal(a, CStringView{ b });
 }
 
 static bool folded(const CStringView name, CSimpleString& result) noexcept
@@ -186,7 +153,7 @@ static bool folded(const CStringView name, CSimpleString& result) noexcept
     for (std::size_t i = 0u; i < name.length(); ++i)
     {
         const char value = name.cstring()[i];
-        bytes[i] = ((value >= 'A') && (value <= 'Z')) ? static_cast<char>(value + ('a' - 'A')) : value;
+        bytes[i] = logical_path::fold_ascii(value);
     }
     bytes[name.length()] = '\0';
     return result.set(bytes.data(), name.length());
@@ -194,12 +161,7 @@ static bool folded(const CStringView name, CSimpleString& result) noexcept
 
 static bool folded_name(const CStringView name) noexcept
 {
-    if (name.string() == nullptr) { return false; }
-    for (std::size_t i = 0u; i < name.length(); ++i)
-    {
-        if ((name.cstring()[i] >= 'A') && (name.cstring()[i] <= 'Z')) { return false; }
-    }
-    return true;
+    return logical_path::is_folded(name);
 }
 
 static CNodeKey file_child(const CLiveDocument& doc, const CNodeKey parent, const CStringView name) noexcept

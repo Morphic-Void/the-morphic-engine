@@ -16,6 +16,7 @@
 #include "tests/test_suites/TextureBatch_test_suite.hpp"
 #include "tests/test_suites/BakedDocument_test_suite.hpp"
 #include "tests/test_suites/BakedDocumentTransfer_test_suite.hpp"
+#include "tests/test_suites/Bundle_test_suite.hpp"
 #include "tests/test_suites/ByteBuffers_test_suite.hpp"
 #include "tests/test_suites/PermutationValidation_test_suite.hpp"
 #include "tests/test_suites/CMemoryToken_test_suite.hpp"
@@ -248,6 +249,7 @@ int run_tests(ETestRunMode mode)
     cumulative_result += run_isolated_suite("TextureBatch", &run_texture_batch_tests);
     cumulative_result += run_isolated_suite("BakedDocument", &run_baked_document_tests);
     cumulative_result += run_isolated_suite("BakedDocumentTransfer", &run_baked_document_transfer_tests);
+    cumulative_result += run_isolated_suite("Bundle", &run_bundle_tests);
     cumulative_result += run_isolated_suite("DocumentWriter", &run_document_writer_tests);
     cumulative_result += run_isolated_suite("Schema", &run_schema_tests);
     cumulative_result += run_isolated_suite("DocumentStructure", &run_document_structure_tests);
