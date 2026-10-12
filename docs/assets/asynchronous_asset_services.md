@@ -243,13 +243,17 @@ allocation attribution, including rejection across incompatible allocators.
 
 Run the built engine from the repository root with its Executive and Rendering
 DLLs available to exercise 71 sequential and 32 concurrent asset operations,
-followed by 12 filesystem refresh/cache operations. Core `MorphicTests -t1`
+followed by 12 filesystem refresh/cache operations and a bundle
+bake/reference/save/close/reload flow with exact-byte comparison. Core `MorphicTests -t1`
 additionally checks transport, ownership, views and the filesystem-image
 discovery/reconciliation contract. The filesystem suite writes a process- and
 tag-qualified JSON image beneath `development/logical-roots/test-output/` for
 inspection.
 The [module lifecycle harness](../modules/asynchronous_module_lifecycle.md#validation)
-covers disposal during outstanding saves and module teardown.
+covers disposal during outstanding saves and module teardown, bundle root reuse,
+surviving sub-file references, batch borrowing, late complete-view replies and
+notification retirement across Executive replacement. Its bundle cases restore
+the Executive's allocation-attribution baseline before exit.
 
 Historical build matrices and completion commits are recorded in
 [completed milestones](../project/completed_milestones.md). Protocol and

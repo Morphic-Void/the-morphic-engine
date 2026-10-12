@@ -16,6 +16,7 @@
 #include "platform/threading/processor_relax.hpp"
 
 #include "tests/environment/local_type_ids.hpp"
+#include "tests/module_lifecycle/bundle_cases.hpp"
 #include "module/module_binding_context.hpp"
 #include "memory/memory_context.hpp"
 #include "system/system_context.hpp"
@@ -611,6 +612,17 @@ static bool unload_during_saves(threading::CThreadContext& context, const bool r
 static bool run_case(threading::CThreadContext& context,
     threading::CThreadResources& resources, const char* const selected) noexcept
 {
+    if (std::strncmp(selected, "bundle", 6u) == 0)
+    {
+        memory::CMemoryContext* const memory = memory::get_ambient_memory_context();
+        const auto allocations = memory->get_live_allocation_count();
+        const auto bytes = memory->get_live_allocated_bytes();
+        if (!bundle_case(context, resources, selected) || (memory->get_live_allocation_count() != allocations) ||
+            (memory->get_live_allocated_bytes() != bytes)) return false;
+        MV_REPORT("Bundle fixture: Executive allocation baseline restored");
+        return self_terminate(context,
+            (std::strcmp(selected, "bundle-replace") == 0) ? "package:/bin/MorphicLifecycleExecutive.dll" : nullptr);
+    }
     if (std::strcmp(selected, "batch") == 0)
     {
         return batch_case(context, resources, false) && self_terminate(context, nullptr);

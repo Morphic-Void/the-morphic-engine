@@ -118,7 +118,8 @@ foreach ($requested in @(0, 1, 2, 3, 9, 128)) {
     $events = Get-Content -LiteralPath $log -Raw
     if ($events -match '\[(assert|error|critical|fatal):') { throw "Unexpected diagnostics: $log" }
     if (!$events.Contains('Asset acceptance: 71 sequential and 32 concurrent operations passed') -or
-        !$events.Contains('Filesystem acceptance: 12 queued refresh, concurrent access and cache operations passed')) {
+        !$events.Contains('Filesystem acceptance: 12 queued refresh, concurrent access and cache operations passed') -or
+        !$events.Contains('Bundle acceptance: bake, reference, save, close and reload passed')) {
         throw "Acceptance flow incomplete: $log"
     }
     if ($events -notmatch 'Host: Background workers (\d+), dedicated conditioning workers (\d+), reported hardware threads (\d+)') {
@@ -164,7 +165,7 @@ foreach ($requested in @(0, 1, 2, 3, 9, 128)) {
         if (($used.Count -ne 1) -or ($used[0] -ne $expectedConditioning)) {
             throw "Conditioning did not exclusively use $expectedConditioning`: $log"
         }
-        foreach ($io in [regex]::Matches($events, "$identity.*Worker (file load|file save|filesystem scan|module lifecycle) request")) {
+        foreach ($io in [regex]::Matches($events, "$identity.*Worker (file load|file save|filesystem scan|module lifecycle|bundle build) request")) {
             if ($io.Groups[1].Value -ne 'bg_file_io') { throw "I/O work ran on a conditioning worker: $log" }
         }
     }

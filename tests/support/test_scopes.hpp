@@ -34,6 +34,17 @@ public:
     }
 
     template<typename TOperation>
+    void expect_unconditional_assertion(TTestContext& ctx, TOperation&& operation)
+    {
+        if (!m_installed) return;
+        const std::uint32_t before = m_owner->allocate_incident_id();
+        operation();
+        const std::uint32_t after = m_owner->allocate_incident_id();
+        //  Direct condition events remain active even when MV_ASSERT is compiled out.
+        TEST_EXPECT(ctx, after == before + 2u);
+    }
+
+    template<typename TOperation>
     void expect_assertion(TTestContext& ctx, TOperation&& operation)
     {
         if (!m_installed) return;

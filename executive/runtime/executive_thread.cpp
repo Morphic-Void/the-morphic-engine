@@ -255,7 +255,7 @@ private:
     //  Failure codes start at one because zero is the successful thread exit code.
     enum class EFailure : std::uint32_t { registry = 1u, timing, submission, completion, timeout };
 
-    enum class EPhase : std::uint8_t { rendering_acknowledgement = 0, rendering_completion, sequential, concurrent, filesystem, awaiting_exit, complete };
+    enum class EPhase : std::uint8_t { rendering_acknowledgement = 0, rendering_completion, sequential, concurrent, filesystem, bundle, awaiting_exit, complete };
 
     CExecutiveThread(const CExecutiveThread&) noexcept = delete;
     CExecutiveThread& operator=(const CExecutiveThread&) noexcept = delete;
@@ -286,6 +286,8 @@ private:
     [[nodiscard]] bool complete_concurrent_save(const threading::CErasedPodMsg& message) noexcept;
     [[nodiscard]] bool start_filesystem_exercise() noexcept;
     [[nodiscard]] bool complete_filesystem_exercise(const threading::CErasedPodMsg& message) noexcept;
+    [[nodiscard]] bool start_bundle_exercise() noexcept;
+    [[nodiscard]] bool complete_bundle_exercise(const threading::CErasedPodMsg& message) noexcept;
     [[nodiscard]] bool request_system_shutdown() noexcept;
     void shutdown() noexcept;
     void fail(const EFailure failure, const char* const reason) noexcept;
@@ -310,6 +312,9 @@ private:
     std::uint32_t m_filesystem_count{ 0u };
     std::int32_t m_filesystem_step{ 0 };
     std::int32_t m_refresh_step{ 0 };
+    AssetResult m_bundle;
+    CByteBuffer m_bundle_snapshot;
+    std::int32_t m_bundle_step{ 0 };
     std::uint32_t m_failure_code{ 0u };
 };
 
@@ -1247,12 +1252,93 @@ bool CExecutiveThread::complete_filesystem_exercise(const threading::CErasedPodM
             {
                 return false;
             }
-            m_phase = EPhase::complete;
             MV_REPORT("Filesystem acceptance: 12 queued refresh, concurrent access and cache operations passed");
-            return true;
+            return start_bundle_exercise();
         }
         default: return false;
     }
+}
+
+bool CExecutiveThread::start_bundle_exercise() noexcept
+{
+    m_phase = EPhase::bundle;
+    CErasedOwner owner = CErasedOwner::create<BundleBakeRequest>();
+    BundleBakeRequest* const request = owner.payload<BundleBakeRequest>();
+    return (request != nullptr) && request->paths.source_root.set("dev-source:") &&
+        request->paths.root.set("bundle-acceptance:") && post(2000, std::move(owner), request);
+}
+
+bool CExecutiveThread::complete_bundle_exercise(const threading::CErasedPodMsg& message) noexcept
+{
+    if ((m_bundle_step == 4) || (m_bundle_step == 6))
+    {
+        BundleDisposedNotification notification;
+        if ((message.query_async_slot() != -1) || !message.copy_payload_to(notification) ||
+            (notification.asset != m_bundle.asset)) return false;
+        m_bundle = {};
+        if (m_bundle_step == 6)
+        {
+            m_bundle_snapshot.deallocate();
+            m_phase = EPhase::complete;
+            MV_REPORT("Bundle acceptance: bake, reference, save, close and reload passed");
+            return true;
+        }
+        ++m_bundle_step;
+        CErasedOwner owner = CErasedOwner::create<BundleLoadRequest>();
+        BundleLoadRequest* const request = owner.payload<BundleLoadRequest>();
+        return (request != nullptr) && request->paths.file.set("test-output:/bundle-acceptance.bdl") &&
+            request->paths.root.set("bundle-acceptance:") && post(2005, std::move(owner), request);
+    }
+    if (message.query_async_slot() != 2000 + m_bundle_step) return false;
+    if (m_bundle_step == 2)
+    {
+        AssetDisposeResult result;
+        if (!message.copy_payload_to(result) || (result.status != EAssetStatus::success)) return false;
+        ++m_bundle_step;
+        return save(2003, m_bundle.asset, "test-output:/bundle-acceptance.bdl", asset_acceptance::save_settings(EAssetFileFormat::raw));
+    }
+    AssetResult result;
+    if (!message.copy_payload_to(result) || (result.status != EAssetStatus::success) ||
+        (result.kind != EAssetKind::bundle) || !result.bundle_view().is_ready()) return false;
+    threading::CErasedPodMsg outbound;
+    switch (m_bundle_step++)
+    {
+        case 0:
+        {
+            m_bundle = result;
+            const auto bytes = result.byte_view();
+            if (!m_bundle_snapshot.allocate(bytes.size()) || !m_bundle_snapshot.set_size(bytes.size()) ||
+                (result.bundle_view().lookup(CStringView{ "test_input.tga" }).status != bundle::ELookupStatus::success)) return false;
+            std::memcpy(m_bundle_snapshot.data(), bytes.data(), bytes.size());
+            outbound.set_async_slot(2001);
+            outbound.assign_payload(BundleReferenceRequest{ m_bundle.asset });
+            break;
+        }
+        case 1:
+        {
+            if ((result.asset == m_bundle.asset) || (result.byte_view().data() != m_bundle.byte_view().data())) return false;
+            outbound.set_async_slot(2002);
+            outbound.assign_payload(AssetDisposeRequest{ result.asset });
+            break;
+        }
+        case 3:
+        {
+            if (result.asset != m_bundle.asset) return false;
+            outbound.set_async_slot(2004);
+            outbound.assign_payload(AssetDisposeRequest{ m_bundle.asset });
+            break;
+        }
+        case 5:
+        {
+            if (!asset_acceptance::equal_bytes(result.byte_view(), m_bundle_snapshot.const_view())) return false;
+            m_bundle = result;
+            outbound.set_async_slot(2006);
+            outbound.assign_payload(AssetDisposeRequest{ m_bundle.asset });
+            break;
+        }
+        default: return false;
+    }
+    return m_context.post(outbound);
 }
 
 bool CExecutiveThread::request_system_shutdown() noexcept
@@ -1314,6 +1400,11 @@ void CExecutiveThread::operate() noexcept
                 {
                     fail(EFailure::submission, "system shutdown request");
                 }
+                continue;
+            }
+            if (m_phase == EPhase::bundle)
+            {
+                if (!complete_bundle_exercise(message)) fail(EFailure::completion, "bundle exercise");
                 continue;
             }
             if (m_phase == EPhase::filesystem)

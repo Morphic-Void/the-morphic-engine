@@ -219,7 +219,7 @@ and disposal-at-exit DLLs. Successful rendering service cases use the real stub.
 The production renderer contains no test switches. Adding the fixture project
 to the solution for IDE visibility is not required by the harness.
 
-The 26 process cases cover:
+The 32 process cases cover:
 
 - Correlated acknowledgement/completion, normal and duplicate loads, missing
   files/functions, replacement and unavailable service after failure.
@@ -229,11 +229,28 @@ The 26 process cases cover:
   A renderer survives Executive replacement and is reused without a second thread.
 - Normal Executive startup and unavailable-renderer shutdown before asset work.
   Successful startup/replacement runs 71 sequential and 32 concurrent asset cases,
-  followed by 12 filesystem refresh/cache operations.
+  followed by 12 filesystem refresh/cache operations and bundle persistence.
 - Explicit disposal, invalid/stale IDs, saves admitted before disposal, dependent
   cleanup and preservation of unrelated retained assets.
 - Disposal requests posted by rendering immediately before terminal publication:
   the final queue is drained and replies finish before package destruction.
+- Bundle persistence, deterministic rebaking, virtual-root refresh/cache rules,
+  post-closure sub-file saves and final-notification ordering before root reuse.
+  Batch borrowers run both queued and inline while retained records protect bytes.
+- A complete-view reply handled across closure, diagnosing the convention
+  violation and retaining storage until that reference is disposed of.
+- Executive replacement with a closed bundle held by an ordinary sub-file record;
+  the replacement saves and releases it without inheriting the outgoing recipient's
+  notification. Full shutdown also covers undisposed bundle records.
+- Malformed loads, missing inputs, an empty selection and an inventoried file
+  removed before baking; every failure releases the reserved destination root.
+
+Bundle fixtures stage boundary-sized files, empty files/directories, mixed-case
+and metadata-like names, a reparse entry and an opaque copy of an existing shader.
+Successful bundle cases check that Executive allocation attribution returns to
+its starting baseline. The replacement fixture saves an opaque asset-ID handoff
+for use only within that Host process; this is test coordination, not a persisted
+asset-ID contract.
 
 Checks include process status, notification order, saved bytes, dependency
 assertions, exit/join/unload ordering and I/O-worker attribution. The rendering

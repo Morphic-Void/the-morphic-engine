@@ -241,7 +241,7 @@ void test_complete_views_and_saves(TTestContext& ctx)
     operation.reset();
     {
         tests::TAssertionTestScope assertions(ctx);
-        assertions.expect_assertion(ctx, [&] { fixture.service.request_disposal({ original.asset }, 9, fixture.package); });
+        assertions.expect_unconditional_assertion(ctx, [&] { fixture.service.request_disposal({ original.asset }, 9, fixture.package); });
     }
     fixture.service.complete_disposals();
     TEST_EXPECT(ctx, !fixture.service.acquire_bundle(retained.asset).asset);
@@ -285,7 +285,7 @@ void test_dependency_cleanup_and_recipient_exit(TTestContext& ctx)
         TEST_EXPECT(ctx, fixture.service.is_idle());
         {
             tests::TAssertionTestScope assertions(ctx);
-            assertions.expect_assertion(ctx, [&] { fixture.service.dispose_dependencies(mount_point_ids::executive); });
+            assertions.expect_unconditional_assertion(ctx, [&] { fixture.service.dispose_dependencies(mount_point_ids::executive); });
         }
         TEST_EXPECT(ctx, fixture.service.is_idle() && fixture.image.root_state("pack:") == ERootState::closed);
         TEST_EXPECT(ctx, std::memcmp(survivor.byte_view().data(), "abc", 3u) == 0);

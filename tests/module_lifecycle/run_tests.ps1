@@ -23,6 +23,7 @@ $binaryDirectory = Join-Path $repository "build/bin/$Platform/$Configuration"
 $suffix = [Guid]::NewGuid().ToString('N').Substring(0, 8)
 . (Join-Path $PSScriptRoot '../support/host_environment.ps1')
 $runtime = New-HostTestEnvironment -Repository $repository -Name "lifecycle-runtime-$suffix"
+New-BundleTestSources -Repository $repository -Runtime $runtime
 
 if (!$SkipBuild) {
     if (!$SkipSolutionBuild) {
@@ -36,7 +37,7 @@ if (!$SkipBuild) {
     }
 }
 
-foreach ($case in @('batch', 'batch-inline', 'batch-exit', 'ordinary', 'dependency', 'disposal', 'disposal-during-save', 'shutdown', 'shutdown-dependency', 'replace', 'replace-dependency', 'replace-missing', 'bootstrap-missing', 'startup-failure', 'replace-startup-failure', 'thread-failures', 'render-shutdown', 'render-shutdown-dependency', 'render-replace-dependency', 'render-executive-replace', 'render-drain', 'render-exit-disposal', 'normal-startup', 'normal-unavailable', 'normal-bad-start', 'normal-missing-thread')) {
+foreach ($case in @('bundle', 'bundle-inline', 'bundle-late-reference', 'bundle-replace', 'bundle-shutdown', 'bundle-failures', 'batch', 'batch-inline', 'batch-exit', 'ordinary', 'dependency', 'disposal', 'disposal-during-save', 'shutdown', 'shutdown-dependency', 'replace', 'replace-dependency', 'replace-missing', 'bootstrap-missing', 'startup-failure', 'replace-startup-failure', 'thread-failures', 'render-shutdown', 'render-shutdown-dependency', 'render-replace-dependency', 'render-executive-replace', 'render-drain', 'render-exit-disposal', 'normal-startup', 'normal-unavailable', 'normal-bad-start', 'normal-missing-thread')) {
     $tag = "lifecycle-$suffix-$case"
     $normalExecutive = $case.StartsWith('normal-')
     $serviceFailure = $case -in @('normal-unavailable', 'normal-bad-start', 'normal-missing-thread')
@@ -67,8 +68,8 @@ foreach ($case in @('batch', 'batch-inline', 'batch-exit', 'ordinary', 'dependen
         "host-workers=$WorkerCount",
         'log-directory=development/logical-roots/test-logs'
     )
-    if ($case -in @('batch', 'batch-exit')) { $configLines += 'batch-runners=1' }
-    if ($case -eq 'batch-inline') { $configLines += 'batch-runners=0' }
+    if ($case -in @('batch', 'batch-exit', 'bundle')) { $configLines += 'batch-runners=1' }
+    if ($case -in @('batch-inline', 'bundle-inline')) { $configLines += 'batch-runners=0' }
     [IO.File]::WriteAllLines($configFile, $configLines, [Text.UTF8Encoding]::new($false))
     $process.StartInfo.ArgumentList.Add($configFile)
     $process.StartInfo.Environment['MORPHIC_LIFECYCLE_CASE'] = $case
@@ -84,7 +85,7 @@ foreach ($case in @('batch', 'batch-inline', 'batch-exit', 'ordinary', 'dependen
         if ($events -match 'Lifecycle fixture failed|notification failed|\[(error|critical|fatal):') { throw "$case has unexpected diagnostics: $log" }
         $assertions = [regex]::Matches($events, '\[assert:').Count
         $dependencyCleanup = $case -in @('dependency', 'shutdown-dependency', 'replace-dependency', 'render-shutdown-dependency', 'render-replace-dependency', 'render-drain')
-        $expectedAssertions = if ($dependencyCleanup) { 1 } else { $expectedExit }
+        $expectedAssertions = if ($dependencyCleanup -or ($case -eq 'bundle-late-reference')) { 1 } else { $expectedExit }
         if ($assertions -ne $expectedAssertions) { throw "$case has $assertions assertion logs, expected $expectedAssertions." }
         if ($dependencyCleanup) {
             $cleanup = $events.IndexOf('Host: disposing retained assets dependent on module mount')
@@ -101,6 +102,30 @@ foreach ($case in @('batch', 'batch-inline', 'batch-exit', 'ordinary', 'dependen
         if (($case -eq 'ordinary') -and ([regex]::Matches($events, 'Lifecycle fixture: operation \d+ passed').Count -ne 9)) { throw 'Ordinary notification checks incomplete.' }
         if ($case -eq 'batch-inline' -and !$events.Contains('Lifecycle fixture: batch queued 0 inline 16')) {
             throw 'Inline batch fallback did not complete all items.'
+        }
+        if ($case -in @('bundle', 'bundle-inline')) {
+            $route = if (($case -eq 'bundle-inline') -or $events.Contains('Host: Batch runners 0')) { 'inline' } else { 'queued' }
+            if (!$events.Contains("Bundle fixture: batch borrow $route survived closure") -or
+                !$events.Contains('Bundle fixture: persistence, refresh, cache and root reuse passed')) { throw "$case acceptance incomplete." }
+            $saved = [IO.File]::ReadAllBytes((Join-Path $runtime 'development/logical-roots/test-output/bundle-subfile.bin'))
+            if (($saved.Length -ne 128) -or @($saved | Where-Object { $_ -ne 0x5a }).Count) { throw 'Closed bundle sub-file save was corrupted.' }
+        }
+        if ($case.StartsWith('bundle') -and !$events.Contains('Bundle fixture: Executive allocation baseline restored')) {
+            throw "$case did not restore its allocation attribution baseline."
+        }
+        if (($Configuration -eq 'Debug') -and $case.StartsWith('bundle')) {
+            $builds = [regex]::Matches($events, '\[executable:([^]]+)\].*Worker bundle build request')
+            if (($builds.Count -eq 0) -or @($builds | Where-Object { $_.Groups[1].Value -ne 'bg_file_io' }).Count) {
+                throw "$case did not build exclusively on the I/O worker."
+            }
+        }
+        if (($case -eq 'bundle-replace') -and
+            (!$events.Contains('Lifecycle fixture: bundle-resume passed') -or
+                !$events.Contains('Bundle fixture: replacement released old storage without inheriting its notification'))) {
+            throw 'Bundle replacement or notification retirement incomplete.'
+        }
+        if (($case -eq 'bundle-late-reference') -and !$events.Contains('outstanding complete-view records')) {
+            throw 'Missing complete-view convention diagnostic.'
         }
         if ($case -eq 'batch') {
             $expectedBatch = if ($events.Contains('Host: Batch runners 0')) { 'batch queued 0 inline 16' } else { 'batch queued 16 inline 0' }
