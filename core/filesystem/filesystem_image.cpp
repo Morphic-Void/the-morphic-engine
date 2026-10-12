@@ -14,6 +14,7 @@
 #include "data_model/baked_document.hpp"
 #include "data_model/document_parser.hpp"
 #include "data_model/document_translation.hpp"
+#include "data_model/document_copy.hpp"
 #include "platform/filesystem/directory.hpp"
 #include "platform/filesystem/file.hpp"
 
@@ -584,6 +585,7 @@ EScanStatus scan_root(const SRootScan& request, CLiveDocument& result) noexcept
 
 bool CImage::prepare_scan(const char* const logical_root, SRootScan& request) const noexcept
 {
+    if (binding_for_root(CStringView{ logical_root }) != nullptr) { return false; }
     const CNodeKey root = find_root(m_document, logical_root);
     if (!root.is_valid()) { return false; }
     request.writable = flag(m_document, root, "writable");
@@ -598,7 +600,7 @@ bool CImage::prepare_scan(const char* const logical_root, SRootScan& request) co
 
 bool CImage::adopt(CLiveDocument&& document) noexcept
 {
-    if (!valid_image(document)) { return false; }
+    if ((m_bindings.first_live() >= 0) || !valid_image(document)) { return false; }
     m_document = std::move(document);
     m_files.deallocate();
     m_write_serial = 0u;
@@ -607,6 +609,7 @@ bool CImage::adopt(CLiveDocument&& document) noexcept
 
 bool CImage::resolve(const char* const logical_file, const bool writing, CSimpleString& physical) const noexcept
 {
+    if (binding_for_file(logical_file) != nullptr) { return false; }
     return resolve_file(m_document, logical_file, writing, physical);
 }
 
@@ -640,21 +643,28 @@ CImage::SFileState* CImage::ensure_state(const char* const file) noexcept
 
 std::uint64_t CImage::cached_asset(const char* const logical_file, const std::uint64_t format) const noexcept
 {
+    const SBinding* const binding = binding_for_file(logical_file);
+    if (binding && (binding->state != ERootState::open)) { return 0u; }
     const SFileState* value = state(logical_file);
     const CNodeKey entry = file_entry(m_document, logical_file);
-    return value && (value->format == format) && is_file(m_document, entry) &&
-        (number(m_document, entry, "asset") == value->asset) ? value->asset : 0u;
+    return (value && (value->binding == (binding ? binding->identity : 0u)) &&
+        (value->format == format) && is_file(m_document, entry) &&
+        (number(m_document, entry, "asset") == value->asset)) ? value->asset : 0u;
 }
 
 std::uint32_t CImage::cached_findings(const char* const logical_file) const noexcept
 {
+    const SBinding* const binding = binding_for_file(logical_file);
+    if (binding && (binding->state != ERootState::open)) { return UINT32_MAX; }
     const SFileState* value = state(logical_file);
     return value ? value->findings : UINT32_MAX;
 }
 
 bool CImage::loaded(const char* const logical_file, const std::uint64_t asset, const std::uint64_t format,
-    const std::uint32_t findings, const std::uint64_t admission_serial) noexcept
+    const std::uint32_t findings, const std::uint64_t admission_serial, const std::uint64_t binding) noexcept
 {
+    const SBinding* const current = binding_for_file(logical_file);
+    if ((binding != (current ? current->identity : 0u)) || (current && (current->state != ERootState::open))) { return true; }
     const CNodeKey entry = file_entry(m_document, logical_file);
     const SFileState* previous = state(logical_file);
 
@@ -666,11 +676,13 @@ bool CImage::loaded(const char* const logical_file, const std::uint64_t asset, c
     value->asset = asset;
     value->format = format;
     value->findings = findings;
+    value->binding = binding;
     return true;
 }
 
 bool CImage::written(const char* const logical_file, const char* const physical, const std::uint64_t asset, const std::uint64_t format) noexcept
 {
+    if (binding_for_file(logical_file) != nullptr) { return false; }
     const char* relative = nullptr;
     const CNodeKey root = file_root(m_document, logical_file, relative);
     if (!root.is_valid()) { return false; }
@@ -703,7 +715,8 @@ bool CImage::forget_asset(const std::uint64_t asset) noexcept
         if ((asset == 0u) || (value->asset == asset))
         {
             const CNodeKey entry = file_entry(m_document, value->file.cstring());
-            if (entry.is_valid() && !asset_id(m_document, entry, 0u)) { return false; }
+            if (entry.is_valid() && (number(m_document, entry, "asset") == value->asset) &&
+                !asset_id(m_document, entry, 0u)) { return false; }
             value->asset = 0u;
             value->findings = UINT32_MAX;
         }
@@ -717,6 +730,7 @@ bool CImage::integrate(const CLiveDocument& observation, const std::uint64_t sca
     const CNodeKey incoming_roots = child(observation, observation.root(), "roots");
     const CNodeKey incoming = observation.first_child(incoming_roots);
     const CStringView logical = observation.name(incoming);
+    if (binding_for_root(logical) != nullptr) { return false; }
     const CNodeKey old_root = find_root(m_document, logical.cstring());
     if ((observation.child_count(incoming_roots) != 1u) || !old_root.is_valid()) { return false; }
 
@@ -766,6 +780,208 @@ bool CImage::integrate(const CLiveDocument& observation, const std::uint64_t sca
             value->findings = UINT32_MAX;
         }
     }
+    return true;
+}
+
+//  Iterative copying keeps deeply nested validated bundles independent of the
+//  directory scanner's depth bound. Callers own an unpublished destination.
+template<class TDocument, class TKey>
+static CNodeKey copy_tree(CLiveDocument& target, const TDocument& source, const TKey start) noexcept
+{
+    struct SFrame { TKey next; CNodeKey parent; };
+    const CNodeKey root = document_translation::detail::create_value_copy(target, source, start, source.name(start));
+    if (!root.is_valid()) { return {}; }
+    TPodVector<SFrame> stack;
+    if (!stack.push_back(SFrame{ source.first_child(start), root })) { return {}; }
+    while (stack.size() != 0u)
+    {
+        const SFrame frame = stack[stack.size() - 1u];
+        if (!frame.next.is_valid()) { (void)stack.discard_back(); continue; }
+        stack[stack.size() - 1u].next = source.next_sibling(frame.next);
+        const CNodeKey value = document_translation::detail::create_value_copy(target, source, frame.next, source.name(frame.next));
+        if (!add(target, frame.parent, value)) { return {}; }
+        if (source.first_child(frame.next).is_valid() && !stack.push_back(SFrame{ source.first_child(frame.next), value })) { return {}; }
+    }
+    return root;
+}
+
+const CImage::SBinding* CImage::binding_for_root(const CStringView root) const noexcept
+{
+    for (std::int32_t slot = m_bindings.first_live(); slot >= 0; slot = m_bindings.next_live(slot))
+    {
+        const SBinding* const value = m_bindings.get_object(slot);
+        if (logical_path::case_equal(value->root.view(), root)) { return value; }
+    }
+    return nullptr;
+}
+
+const CImage::SBinding* CImage::binding_for_file(const char* const file) const noexcept
+{
+    if (file == nullptr) { return nullptr; }
+    const char* const colon = std::strchr(file, ':');
+    return colon ? binding_for_root(CStringView{ file, static_cast<std::size_t>(colon - file) + 1u }) : nullptr;
+}
+
+CImage::SBinding* CImage::binding_record(const std::uint64_t identity) noexcept
+{
+    for (std::int32_t slot = m_bindings.first_live(); slot >= 0; slot = m_bindings.next_live(slot))
+    {
+        SBinding* const value = m_bindings.get_object(slot);
+        if (value->identity == identity) { return value; }
+    }
+    return nullptr;
+}
+
+ERootState CImage::root_state(const char* const logical_root) const noexcept
+{
+    if (const SBinding* const value = binding_for_root(CStringView{ logical_root })) { return value->state; }
+    return find_root(m_document, logical_root).is_valid() ? ERootState::directory : ERootState::missing;
+}
+
+bool CImage::reserve_bundle(const char* const logical_root, std::uint64_t& binding) noexcept
+{
+    CSimpleString name;
+    if (!m_document.is_ready() || !folded(CStringView{ logical_root }, name) || !root_name(name.view()) ||
+        (root_state(name.cstring()) != ERootState::missing) || (m_next_binding == UINT64_MAX)) { return false; }
+    if (!m_bindings.is_ready() && !m_bindings.initialise()) { return false; }
+    const std::int32_t slot = m_bindings.emplace();
+    SBinding* const value = m_bindings.get_object(slot);
+    if (value == nullptr) { return false; }
+    value->root = std::move(name);
+    value->identity = ++m_next_binding;
+    binding = value->identity;
+    return true;
+}
+
+bool CImage::prepare_bundle(const std::uint64_t binding, const std::uint64_t bundle, const bundle::CBundleView& view) noexcept
+{
+    SBinding* const value = binding_record(binding);
+    if (!value || (value->state != ERootState::reserved) || (bundle == 0u) || !view.is_ready()) { return false; }
+    for (std::int32_t slot = m_bindings.first_live(); slot >= 0; slot = m_bindings.next_live(slot))
+    {
+        if (m_bindings.get_object(slot)->bundle == bundle) { return false; }
+    }
+    CLiveDocument candidate;
+    const CBakedDocument doc = view.document();
+    if (!candidate.initialise() || !set_flag(candidate, candidate.root(), "writable", false) ||
+        !add(candidate, candidate.root(), copy_tree(candidate, doc, doc.object_child(doc.root(), CStringView{ "content" })))) { return false; }
+    value->prepared = std::move(candidate);
+    value->bundle = bundle;
+    value->state = ERootState::prepared;
+    return true;
+}
+
+bool CImage::publish_bundle(const std::uint64_t binding) noexcept
+{
+    SBinding* const value = binding_record(binding);
+    if (!value || (value->state != ERootState::prepared)) { return false; }
+    CBakedDocumentBlock snapshot;
+    CLiveDocument candidate;
+    if (!document_translation::bake(m_document, snapshot) || !document_translation::promote(snapshot.document(), candidate)) { return false; }
+    const CNodeKey root = copy_tree(candidate, value->prepared, value->prepared.root());
+    if (!root.is_valid() || !candidate.set_name(root, value->root.view()) ||
+        !add(candidate, child(candidate, candidate.root(), "roots"), root)) { return false; }
+    m_document = std::move(candidate);
+    value->prepared = CLiveDocument{};
+    value->state = ERootState::open;
+    return true;
+}
+
+bool CImage::close_bundle(const std::uint64_t binding) noexcept
+{
+    SBinding* const value = binding_record(binding);
+    if (!value || (value->state != ERootState::open)) { return false; }
+    value->state = ERootState::closed;
+    return true;
+}
+
+bool CImage::remove_bundle(const std::uint64_t binding) noexcept
+{
+    SBinding* const value = binding_record(binding);
+    if (!value || (value->state == ERootState::open)) { return false; }
+    if (value->state == ERootState::closed)
+    {
+        const CNodeKey root = find_root(m_document, value->root.cstring());
+        if (!root.is_valid() || !m_document.erase(root)) { return false; }
+    }
+    for (std::int32_t slot = m_files.first_live(); slot >= 0; )
+    {
+        const std::int32_t next = m_files.next_live(slot);
+        const SFileState* const file = m_files.get_object(slot);
+        if (binding_for_file(file->file.cstring()) == value) { (void)m_files.erase(slot); }
+        slot = next;
+    }
+    return m_bindings.erase(m_bindings.reverse_lookup_slot_index_scan(value));
+}
+
+bool CImage::resolve(const char* const logical_file, const bool writing, SResolvedSource& source) const noexcept
+{
+    const SBinding* const binding = binding_for_file(logical_file);
+    SResolvedSource candidate;
+    if (binding)
+    {
+        if (writing || (binding->state != ERootState::open)) { return false; }
+        const CNodeKey entry = file_entry(m_document, logical_file);
+        if (!is_file(m_document, entry)) { return false; }
+        candidate.binding = binding->identity;
+        candidate.bundle = binding->bundle;
+        candidate.offset = static_cast<std::size_t>(number(m_document, entry, "offset"));
+        candidate.size = static_cast<std::size_t>(number(m_document, entry, "size"));
+    }
+    else if (!resolve_file(m_document, logical_file, writing, candidate.physical_path)) { return false; }
+    source = std::move(candidate);
+    return true;
+}
+
+static CNodeKey next_inventory_entry(const CLiveDocument& doc, const CNodeKey content, CNodeKey entry) noexcept
+{
+    const CNodeKey first = doc.first_child(child(doc, entry, "content"));
+    if (first.is_valid()) { return first; }
+    while (entry.is_valid() && !doc.next_sibling(entry).is_valid())
+    {
+        const CNodeKey parent = doc.parent(entry);
+        entry = (parent == content) ? CNodeKey{} : doc.parent(parent);
+    }
+    return entry.is_valid() ? doc.next_sibling(entry) : CNodeKey{};
+}
+
+bool CImage::capture_bake(const char* const logical_root, const char* const subdirectory, CBakeInput& result) const noexcept
+{
+    if ((root_state(logical_root) != ERootState::directory) || (subdirectory == nullptr) ||
+        ((*subdirectory != '\0') && !relative_file(subdirectory))) { return false; }
+    CSimpleString selected;
+    if (!selected.set(logical_root) || ((*subdirectory != '\0') && !join(logical_root, subdirectory, selected))) { return false; }
+    const CNodeKey directory = (*subdirectory == '\0') ? find_root(m_document, logical_root) : file_entry(m_document, selected.cstring());
+    const CNodeKey content = child(m_document, directory, "content");
+    if (m_document.value_type(content) != ELiveValueType::object) { return false; }
+    CBakeInput candidate;
+    if (!candidate.m_inventory.initialise()) { return false; }
+    candidate.m_content = copy_tree(candidate.m_inventory, m_document, content);
+    if (!add(candidate.m_inventory, candidate.m_inventory.root(), candidate.m_content)) { return false; }
+    const CLiveDocument& doc = candidate.m_inventory;
+    TPodVector<CNodeKey> ancestors;
+    for (CNodeKey entry = doc.first_child(candidate.m_content); entry.is_valid(); entry = next_inventory_entry(doc, candidate.m_content, entry))
+    {
+        if (!is_file(doc, entry)) { continue; }
+        ancestors.clear();
+        for (CNodeKey node = entry; node.is_valid(); )
+        {
+            if (!ancestors.push_back(node)) { return false; }
+            const CNodeKey parent = doc.parent(node);
+            node = (parent == candidate.m_content) ? CNodeKey{} : doc.parent(parent);
+        }
+        CSimpleString logical;
+        if (!logical.set(selected.cstring())) { return false; }
+        for (std::size_t i = ancestors.size(); i != 0u; --i)
+        {
+            if (!join(logical.cstring(), doc.name(ancestors[i - 1u]).cstring(), logical)) { return false; }
+        }
+        if (!candidate.m_paths.is_ready() && !candidate.m_paths.initialise()) { return false; }
+        CSimpleString* const path = candidate.m_paths.get_object(candidate.m_paths.emplace());
+        if (!path || !resolve(logical.cstring(), false, *path) ||
+            !candidate.m_sources.push_back(bundle::SBuildSource{ entry, path->cstring() })) { return false; }
+    }
+    result = std::move(candidate);
     return true;
 }
 

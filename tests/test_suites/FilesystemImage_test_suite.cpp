@@ -12,6 +12,10 @@
 #include <filesystem>
 #include <iostream>
 #include <string>
+#include <vector>
+#include "assets/internal/bundle_builder_io.hpp"
+#include "tests/support/test_allocator.hpp"
+#include "tests/support/test_scopes.hpp"
 #include "tests/test_suites/FilesystemImage_test_suite.hpp"
 #include "tests/support/test_context.hpp"
 #include "tests/environment/test_paths.hpp"
@@ -387,6 +391,346 @@ static void test_manual_case_mapping(tests::TTestContext& ctx)
     }
 }
 
+static bool parse_image(const char* input, CLiveDocument& document)
+{
+    return document_parser::parse(CByteConstView{ reinterpret_cast<const std::uint8_t*>(input), std::strlen(input) }, document).accepted();
+}
+
+static const char* const binding_image = R"({"roots":{"work:":{"source":"Some/Prefix","writable":true,"content":{"plain.txt":{}}}}})";
+
+static bool make_bundle(CBakedDocumentBlock& block, bundle::CBundleView& view)
+{
+    CLiveDocument input;
+    if (!parse_image(R"({"plain.txt":{},"nested":{"physicalName":"Nested","content":{"file.bin":{"physicalName":"File.BIN"}}}})", input)) { return false; }
+    TPodVector<bundle::SBuildSource> sources;
+    const CNodeKey file = member(input, member(input, member(input, input.root(), "nested"), "content"), "file.bin");
+    if (!sources.push_back({ member(input, input.root(), "plain.txt"), "plain" }) || !sources.push_back({ file, "nested" })) { return false; }
+    const bundle::detail::SBuildIo io{ nullptr,
+        [](void*, const char*, std::size_t& size) noexcept { size = 3u; return true; },
+        [](void*, const char*, const CByteView& bytes) noexcept { std::memcpy(bytes.data(), "abc", 3u); return true; } };
+    return bundle::detail::build(input, input.root(), sources.const_view(), block, view, io).succeeded();
+}
+
+static void test_virtual_bindings(tests::TTestContext& ctx)
+{
+    using namespace filesystem_image;
+    CBakedDocumentBlock block;
+    bundle::CBundleView view;
+    TEST_EXPECT(ctx, make_bundle(block, view));
+    if (!view.is_ready()) { return; }
+    const std::vector<std::uint8_t> original(view.bytes().data(), view.bytes().data() + view.bytes().size());
+    CLiveDocument doc;
+    TEST_EXPECT(ctx, parse_image(binding_image, doc));
+    CImage image;
+    TEST_EXPECT(ctx, image.adopt(std::move(doc)));
+    std::uint64_t token = 0u, other = 0u;
+    TEST_EXPECT(ctx, image.root_state("WORK:") == ERootState::directory);
+    for (const char* invalid : { "", "bad", "bad/:", "../:", "work:", "WORK:" })
+    {
+        TEST_EXPECT(ctx, !image.reserve_bundle(invalid, token) && token == 0u);
+    }
+    TEST_EXPECT(ctx, !image.reserve_bundle(nullptr, token));
+    TEST_EXPECT(ctx, image.reserve_bundle("PACK:", token) && token != 0u);
+    TEST_EXPECT(ctx, image.root_state("pack:") == ERootState::reserved);
+    TEST_EXPECT(ctx, !root(image.document(), "pack:").is_valid());
+    TEST_EXPECT(ctx, !image.reserve_bundle("pack:", other) && other == 0u);
+    TEST_EXPECT(ctx, !image.publish_bundle(token) && !image.close_bundle(token));
+    TEST_EXPECT(ctx, !image.prepare_bundle(token, 0u, view));
+    TEST_EXPECT(ctx, !image.prepare_bundle(token, 100u, {}));
+    TEST_EXPECT(ctx, image.prepare_bundle(token, 100u, view));
+    TEST_EXPECT(ctx, image.root_state("PACK:") == ERootState::prepared);
+    TEST_EXPECT(ctx, !root(image.document(), "pack:").is_valid());
+    TEST_EXPECT(ctx, image.reserve_bundle("other:", other));
+    TEST_EXPECT(ctx, !image.prepare_bundle(other, 100u, view));
+    TEST_EXPECT(ctx, image.remove_bundle(other));
+    TEST_EXPECT(ctx, !image.remove_bundle(other));
+    TEST_EXPECT(ctx, parse_image(binding_image, doc));
+    TEST_EXPECT(ctx, !image.adopt(std::move(doc)) && doc.is_ready());
+    //  Publication must incorporate ordinary changes made after preparation.
+    TEST_EXPECT(ctx, image.written("work:/new.txt", "Some/Prefix/new.txt", 51u, 1u));
+    TEST_EXPECT(ctx, image.publish_bundle(token));
+    TEST_EXPECT(ctx, image.cached_asset("work:/new.txt", 1u) == 51u);
+    TEST_EXPECT(ctx, image.root_state("PACK:") == ERootState::open);
+    TEST_EXPECT(ctx, !image.publish_bundle(token) && !image.prepare_bundle(token, 100u, view));
+    TEST_EXPECT(ctx, !image.remove_bundle(token));
+    SResolvedSource source;
+    TEST_EXPECT(ctx, image.resolve("work:/plain.txt", false, source));
+    TEST_EXPECT(ctx, source.binding == 0u && source.bundle == 0u && source.physical_path.view() == CStringView{ "Some/Prefix/plain.txt" });
+    TEST_EXPECT(ctx, image.resolve("PACK:/NESTED/FILE.bin", false, source));
+    const auto direct = view.lookup(CStringView{ "nested/file.bin" });
+    TEST_EXPECT(ctx, source.binding == token && source.bundle == 100u && source.size == 3u && source.physical_path.length() == 0u);
+    TEST_EXPECT(ctx, view.bytes().data() + source.offset == direct.bytes.data());
+    CSimpleString physical;
+    TEST_EXPECT(ctx, !image.resolve("pack:/plain.txt", false, physical));
+    for (const char* invalid : { "pack:/nested", "pack:/missing", "pack:/../plain.txt", "pack:/nested//file.bin", "pack:/plain.txt/", "pack:/nested\\file.bin" })
+    {
+        TEST_EXPECT(ctx, !image.resolve(invalid, false, source));
+        TEST_EXPECT(ctx, source.binding == token && source.size == 3u);
+    }
+    TEST_EXPECT(ctx, !image.resolve("pack:/plain.txt", true, source));
+    TEST_EXPECT(ctx, !image.written("pack:/new.txt", "ignored", 70u, 1u));
+    TEST_EXPECT(ctx, image.loaded("pack:/plain.txt", 60u, 1u, 7u, 0u, token));
+    TEST_EXPECT(ctx, image.cached_asset("PACK:/PLAIN.TXT", 1u) == 60u);
+    TEST_EXPECT(ctx, image.cached_findings("pack:/plain.txt") == 7u);
+    TEST_EXPECT(ctx, image.loaded("pack:/plain.txt", 61u, 1u, 8u, 0u, token));
+    TEST_EXPECT(ctx, image.forget_asset(60u));
+    TEST_EXPECT(ctx, image.cached_asset("pack:/plain.txt", 1u) == 61u);
+    //  Physical loads and a different binding's results cannot seed this cache.
+    TEST_EXPECT(ctx, image.loaded("pack:/plain.txt", 62u, 1u, 0u, 0u));
+    TEST_EXPECT(ctx, image.loaded("pack:/plain.txt", 62u, 1u, 0u, 0u, other));
+    TEST_EXPECT(ctx, image.cached_asset("pack:/plain.txt", 1u) == 61u);
+    SRootScan scan;
+    TEST_EXPECT(ctx, !image.prepare_scan("pack:", scan));
+    TEST_EXPECT(ctx, image.integrate(doc, image.write_serial()));
+    TEST_EXPECT(ctx, image.cached_asset("pack:/plain.txt", 1u) == 61u);
+    TEST_EXPECT(ctx, image.resolve("pack:/nested/file.bin", false, source) && source.bundle == 100u);
+    TEST_EXPECT(ctx, parse_image(R"({"roots":{"pack:":{"source":"bad","content":{}}}})", doc));
+    TEST_EXPECT(ctx, !image.integrate(doc, 0u));
+    CBakeInput capture;
+    TEST_EXPECT(ctx, !image.capture_bake("pack:", "", capture));
+    TEST_EXPECT(ctx, image.close_bundle(token));
+    TEST_EXPECT(ctx, image.root_state("pack:") == ERootState::closed);
+    TEST_EXPECT(ctx, !image.close_bundle(token));
+    TEST_EXPECT(ctx, !image.resolve("pack:/plain.txt", false, source));
+    TEST_EXPECT(ctx, !image.prepare_scan("pack:", scan));
+    TEST_EXPECT(ctx, image.cached_asset("pack:/plain.txt", 1u) == 0u && image.cached_findings("pack:/plain.txt") == UINT32_MAX);
+    TEST_EXPECT(ctx, image.loaded("pack:/plain.txt", 63u, 1u, 0u, 0u, token));
+    TEST_EXPECT(ctx, !image.reserve_bundle("pack:", other));
+    TEST_EXPECT(ctx, image.reserve_bundle("other:", other));
+    TEST_EXPECT(ctx, !image.prepare_bundle(other, 100u, view));
+    TEST_EXPECT(ctx, image.remove_bundle(other));
+    TEST_EXPECT(ctx, image.remove_bundle(token));
+    TEST_EXPECT(ctx, image.root_state("pack:") == ERootState::missing);
+    TEST_EXPECT(ctx, !root(image.document(), "pack:").is_valid());
+    TEST_EXPECT(ctx, image.reserve_bundle("pack:", other) && other != token);
+    TEST_EXPECT(ctx, image.prepare_bundle(other, 101u, view) && image.publish_bundle(other));
+    TEST_EXPECT(ctx, image.cached_asset("pack:/plain.txt", 1u) == 0u);
+    TEST_EXPECT(ctx, image.loaded("pack:/plain.txt", 64u, 1u, 0u, 0u, token));
+    TEST_EXPECT(ctx, image.cached_asset("pack:/plain.txt", 1u) == 0u);
+    TEST_EXPECT(ctx, image.loaded("pack:/plain.txt", 65u, 1u, 0u, 0u, other));
+    TEST_EXPECT(ctx, image.forget_asset(61u));
+    TEST_EXPECT(ctx, image.cached_asset("pack:/plain.txt", 1u) == 65u);
+    TEST_EXPECT(ctx, image.clear_cache() && image.cached_asset("pack:/plain.txt", 1u) == 0u);
+    TEST_EXPECT(ctx, image.close_bundle(other) && image.remove_bundle(other));
+    //  Prepared cancellation publishes nothing and releases its root/identity.
+    TEST_EXPECT(ctx, image.reserve_bundle("cancel:", other));
+    TEST_EXPECT(ctx, image.prepare_bundle(other, 102u, view) && image.remove_bundle(other));
+    TEST_EXPECT(ctx, image.root_state("cancel:") == ERootState::missing);
+    TEST_EXPECT(ctx, image.document().check_integrity());
+    TEST_EXPECT(ctx, std::memcmp(original.data(), view.bytes().data(), original.size()) == 0);
+}
+
+struct SBindingAllocator { std::size_t calls{ 0u }; std::size_t fail_on{ SIZE_MAX }; };
+
+static void* MV_STD_ABI_CALL allocate_binding_test(void* data, std::size_t alignment, std::size_t size) noexcept
+{
+    auto& state = *static_cast<SBindingAllocator*>(data);
+    if (++state.calls == state.fail_on) { return nullptr; }
+    return tests::allocate_test_memory(nullptr, alignment, size);
+}
+
+static void test_binding_allocation_failures(tests::TTestContext& ctx)
+{
+    using namespace filesystem_image;
+    CBakedDocumentBlock block;
+    bundle::CBundleView view;
+    TEST_EXPECT(ctx, make_bundle(block, view));
+    for (unsigned phase = 0u; phase != 5u; ++phase)
+    {
+        bool completed = false;
+        std::size_t failures = 0u;
+        for (std::size_t fail_on = 1u; fail_on < 1000u && !completed; ++fail_on)
+        {
+            SBindingAllocator state;
+            memory::CMemoryAllocator allocator{ &state, &allocate_binding_test, &tests::deallocate_test_memory, system_ids::host };
+            memory::CMemoryContext context{ allocator, system_ids::host };
+            {
+                const tests::TMemoryContextScope scope{ &context };
+                CLiveDocument doc;
+                CImage image;
+                CBakeInput captured;
+                TEST_EXPECT(ctx, parse_image(binding_image, doc) && image.adopt(std::move(doc)));
+                TEST_EXPECT(ctx, image.capture_bake("work:", "", captured));
+                const auto* retained_path = captured.sources()[0].physical_path;
+                std::uint64_t token = 0u;
+                if (phase != 0u && phase != 3u) { TEST_EXPECT(ctx, image.reserve_bundle("pack:", token)); }
+                if (phase == 2u || phase == 4u) { TEST_EXPECT(ctx, image.prepare_bundle(token, 100u, view)); }
+                if (phase == 4u)
+                {
+                    TEST_EXPECT(ctx, image.publish_bundle(token));
+                    TEST_EXPECT(ctx, image.loaded("pack:/plain.txt", 200u, 1u, 0u, 0u, token));
+                    TEST_EXPECT(ctx, parse_image(binding_image, doc));
+                }
+                CBakedDocumentBlock before;
+                TEST_EXPECT(ctx, document_translation::bake(image.document(), before));
+                state.fail_on = state.calls + fail_on;
+                switch (phase)
+                {
+                    case 0u: completed = image.reserve_bundle("pack:", token); break;
+                    case 1u: completed = image.prepare_bundle(token, 100u, view); break;
+                    case 2u: completed = image.publish_bundle(token); break;
+                    case 3u: completed = image.capture_bake("work:", "", captured); break;
+                    case 4u: completed = image.integrate(doc, 0u); break;
+                }
+                state.fail_on = SIZE_MAX;
+                if (!completed)
+                {
+                    ++failures;
+                    CBakedDocumentBlock after;
+                    TEST_EXPECT(ctx, document_translation::bake(image.document(), after));
+                    TEST_EXPECT(ctx, before.bytes().size() == after.bytes().size() &&
+                        std::memcmp(before.bytes().data(), after.bytes().data(), before.bytes().size()) == 0);
+                    const ERootState expected[]{ ERootState::missing, ERootState::reserved, ERootState::prepared, ERootState::missing, ERootState::open };
+                    TEST_EXPECT(ctx, image.root_state("pack:") == expected[phase]);
+                    TEST_EXPECT(ctx, captured.sources()[0].physical_path == retained_path);
+                    if (phase == 0u) { TEST_EXPECT(ctx, token == 0u); }
+                }
+                if (phase == 4u) { TEST_EXPECT(ctx, image.cached_asset("pack:/plain.txt", 1u) == 200u); }
+                TEST_EXPECT(ctx, image.document().check_integrity());
+                //  Closure/removal must not allocate, even under exhaustion.
+                const ERootState root_status = image.root_state("pack:");
+                state.fail_on = state.calls + 1u;
+                if (root_status == ERootState::open) { TEST_EXPECT(ctx, image.close_bundle(token)); }
+                if (root_status != ERootState::missing) { TEST_EXPECT(ctx, image.remove_bundle(token)); }
+            }
+            if (!context.is_attribution_empty())
+            {
+                std::cout << "Binding allocation failure: phase " << phase << ", allocation " << fail_on
+                    << ", retained bytes " << context.get_live_allocated_bytes() << '\n';
+            }
+            TEST_EXPECT(ctx, context.is_attribution_empty());
+        }
+        TEST_EXPECT(ctx, completed && failures != 0u);
+    }
+}
+
+static void test_deep_bundle_binding(tests::TTestContext& ctx)
+{
+    CLiveDocument input;
+    TEST_EXPECT(ctx, input.initialise());
+    CNodeKey content = input.root();
+    std::string logical = "pack:/";
+    for (unsigned i = 0u; i != 260u; ++i)
+    {
+        const CNodeKey directory = input.create_object(CStringView{ "deep" });
+        TEST_EXPECT(ctx, input.append_child(content, directory).succeeded());
+        content = input.create_object(CStringView{ "content" });
+        TEST_EXPECT(ctx, input.append_child(directory, content).succeeded());
+        logical += "deep/";
+    }
+    const CNodeKey file = input.create_object(CStringView{ "file" });
+    TEST_EXPECT(ctx, input.append_child(content, file).succeeded());
+    const bundle::SBuildSource source{ file, "unused" };
+    const bundle::detail::SBuildIo io{ nullptr,
+        [](void*, const char*, std::size_t& size) noexcept { size = 1u; return true; },
+        [](void*, const char*, const CByteView& bytes) noexcept { bytes.data()[0] = 'a'; return true; } };
+    CBakedDocumentBlock block;
+    bundle::CBundleView view;
+    TEST_EXPECT(ctx, bundle::detail::build(input, input.root(), { &source, 1u }, block, view, io).succeeded());
+    CLiveDocument doc;
+    TEST_EXPECT(ctx, parse_image(binding_image, doc));
+    filesystem_image::CImage image;
+    TEST_EXPECT(ctx, image.adopt(std::move(doc)));
+    std::uint64_t binding = 0u;
+    TEST_EXPECT(ctx, image.reserve_bundle("pack:", binding));
+    TEST_EXPECT(ctx, image.prepare_bundle(binding, 1u, view) && image.publish_bundle(binding));
+    logical += "file";
+    filesystem_image::SResolvedSource result;
+    TEST_EXPECT(ctx, image.resolve(logical.c_str(), false, result) && result.size == 1u);
+    TEST_EXPECT(ctx, parse_image(binding_image, doc) && image.integrate(doc, 0u));
+    TEST_EXPECT(ctx, image.resolve(logical.c_str(), false, result) && result.bundle == 1u);
+    TEST_EXPECT(ctx, image.close_bundle(binding) && image.remove_bundle(binding));
+}
+
+static void test_binding_owner_moves(tests::TTestContext& ctx)
+{
+    using namespace filesystem_image;
+    CBakedDocumentBlock block;
+    bundle::CBundleView view;
+    TEST_EXPECT(ctx, make_bundle(block, view));
+    memory::CMemoryAllocator allocator{ nullptr, &tests::allocate_test_memory, &tests::deallocate_test_memory, system_ids::host };
+    memory::CMemoryContext context{ allocator, system_ids::host };
+    {
+        const tests::TMemoryContextScope scope{ &context };
+        CLiveDocument doc;
+        CImage original, replaced;
+        TEST_EXPECT(ctx, parse_image(binding_image, doc) && original.adopt(std::move(doc)));
+        TEST_EXPECT(ctx, parse_image(binding_image, doc) && replaced.adopt(std::move(doc)));
+        std::uint64_t binding = 0u, previous = 0u;
+        TEST_EXPECT(ctx, original.reserve_bundle("pack:", binding) && original.prepare_bundle(binding, 1u, view) && original.publish_bundle(binding));
+        TEST_EXPECT(ctx, replaced.reserve_bundle("old:", previous) && replaced.prepare_bundle(previous, 2u, view));
+        TEST_EXPECT(ctx, original.loaded("pack:/plain.txt", 10u, 1u, 0u, 0u, binding));
+        TEST_EXPECT(ctx, replaced.loaded("work:/plain.txt", 20u, 1u, 0u, 0u));
+        CBakeInput captured, target;
+        TEST_EXPECT(ctx, original.capture_bake("work:", "", captured) && replaced.capture_bake("work:", "", target));
+        const char* const path = captured.sources()[0].physical_path;
+        target = std::move(captured);
+        target = std::move(target);
+        TEST_EXPECT(ctx, target.sources()[0].physical_path == path);
+        CImage moved{ std::move(original) };
+        replaced = std::move(moved);
+        replaced = std::move(replaced);
+        TEST_EXPECT(ctx, replaced.cached_asset("pack:/plain.txt", 1u) == 10u);
+        TEST_EXPECT(ctx, replaced.root_state("old:") == ERootState::missing);
+        SResolvedSource source;
+        TEST_EXPECT(ctx, replaced.resolve("pack:/plain.txt", false, source) && source.bundle == 1u);
+        TEST_EXPECT(ctx, replaced.close_bundle(binding) && replaced.remove_bundle(binding));
+    }
+    TEST_EXPECT(ctx, context.is_attribution_empty());
+}
+
+static void test_bake_capture(tests::TTestContext& ctx)
+{
+    using namespace filesystem_image;
+    namespace fs = std::filesystem;
+    const std::string base = fs::path(test_environment::test_output_path("capture-fixture")).generic_string();
+    std::error_code error;
+    TEST_EXPECT(ctx, fs::create_directories(base + "/Content/Nested/Empty", error) && !error);
+    TEST_EXPECT(ctx, fs::create_directory(base + "/Dlls", error) && !error);
+    TEST_EXPECT(ctx, write(base + "/Content/Nested/File.TXT", "captured"));
+    TEST_EXPECT(ctx, write(base + "/Dlls/Runtime.DLL", "module"));
+    SRootScan scan;
+    TEST_EXPECT(ctx, scan.logical_root.set("work:") && scan.physical_path.set((base + "/Content").c_str()) &&
+        scan.redirect_directory.set((base + "/Dlls").c_str()));
+    CLiveDocument doc;
+    TEST_EXPECT(ctx, scan_root(scan, doc) == EScanStatus::success);
+    CImage image;
+    TEST_EXPECT(ctx, image.adopt(std::move(doc)));
+    CBakeInput full, nested;
+    TEST_EXPECT(ctx, image.capture_bake("WORK:", "", full));
+    TEST_EXPECT(ctx, full.sources().size() == 2u);
+    TEST_EXPECT(ctx, image.capture_bake("work:", "NESTED", nested));
+    TEST_EXPECT(ctx, nested.sources().size() == 1u);
+    if (nested.sources().size() != 1u) { return; }
+    const char* const path = nested.sources()[0].physical_path;
+    TEST_EXPECT(ctx, CStringView{ path } == CStringView{ (base + "/Content/Nested/File.TXT").c_str() });
+    TEST_EXPECT(ctx, member(nested.inventory(), nested.content(), "file.txt") == nested.sources()[0].entry);
+    for (const char* invalid : { "/nested", "nested/", "nested//empty", "nested/../", "nested\\empty", "nested/file.txt", "missing" })
+    {
+        TEST_EXPECT(ctx, !image.capture_bake("work:", invalid, nested));
+        TEST_EXPECT(ctx, nested.sources()[0].physical_path == path);
+    }
+    TEST_EXPECT(ctx, !image.capture_bake("missing:", "", nested));
+    TEST_EXPECT(ctx, !image.capture_bake("work:", nullptr, nested));
+    //  Replacing the live image cannot affect the already captured directory.
+    TEST_EXPECT(ctx, parse_image(R"({"roots":{"work:":{"source":"replacement","content":{}}}})", doc));
+    TEST_EXPECT(ctx, image.integrate(doc, 0u));
+    CBakeInput moved = std::move(nested);
+    TEST_EXPECT(ctx, moved.sources()[0].physical_path == path);
+    CBakedDocumentBlock block;
+    bundle::CBundleView view;
+    TEST_EXPECT(ctx, bundle::build(moved.inventory(), moved.content(), moved.sources(), block, view).succeeded());
+    const auto file = view.lookup(CStringView{ "FILE.txt" });
+    TEST_EXPECT(ctx, file.status == bundle::ELookupStatus::success && file.bytes.bytes() == 8u && std::memcmp(file.bytes.data(), "captured", 8u) == 0);
+    TEST_EXPECT(ctx, bundle::build(full.inventory(), full.content(), full.sources(), block, view).succeeded());
+    TEST_EXPECT(ctx, view.lookup(CStringView{ "bin/runtime.dll" }).status == bundle::ELookupStatus::success);
+    TEST_EXPECT(ctx, view.lookup(CStringView{ "nested/file.txt" }).status == bundle::ELookupStatus::success);
+    for (const auto& suffix : { "/Content/Nested/File.TXT", "/Content/Nested/Empty", "/Content/Nested", "/Content", "/Dlls/Runtime.DLL", "/Dlls", "" })
+    {
+        TEST_EXPECT(ctx, fs::remove(base + suffix, error) && !error);
+    }
+}
+
 }   //  namespace filesystem_image_tests
 
 int run_filesystem_image_tests()
@@ -396,6 +740,11 @@ int run_filesystem_image_tests()
     filesystem_image_tests::test_refresh(ctx);
     filesystem_image_tests::test_case_identity(ctx);
     filesystem_image_tests::test_manual_case_mapping(ctx);
+    filesystem_image_tests::test_virtual_bindings(ctx);
+    filesystem_image_tests::test_bake_capture(ctx);
+    filesystem_image_tests::test_binding_allocation_failures(ctx);
+    filesystem_image_tests::test_deep_bundle_binding(ctx);
+    filesystem_image_tests::test_binding_owner_moves(ctx);
     std::cout << "FilesystemImage: " << ctx.passed << " passed, " << ctx.failed << " failed\n";
     return ctx.failed;
 }

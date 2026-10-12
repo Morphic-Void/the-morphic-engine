@@ -377,7 +377,12 @@ void CHost::dispatch_refresh() noexcept
     SRefresh& refresh = m_refresh_queue[m_refresh_head];
     const FilesystemRefreshRequest* const request = refresh.owner.payload<FilesystemRefreshRequest>();
     EFilesystemStatus failure = EFilesystemStatus::invalid_root;
-    if ((request != nullptr) && m_filesystem.prepare_scan(request->root.cstring(), m_root_scan))
+    if ((request != nullptr) && (m_filesystem.root_state(request->root.cstring()) == filesystem_image::ERootState::open))
+    {
+        //  Complete in queue order without scanning immutable virtual content.
+        failure = EFilesystemStatus::success;
+    }
+    else if ((request != nullptr) && m_filesystem.prepare_scan(request->root.cstring(), m_root_scan))
     {
         threading::CErasedPodMsg scan;
         scan.assign_payload(FilesystemScanRequest{ &m_root_scan });
