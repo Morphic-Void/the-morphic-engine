@@ -7,7 +7,9 @@ License: MIT (see LICENSE file in repository root)
 and Release with GCC and Clang on Ubuntu 24.04. Pushes, pull requests, and manual
 dispatch trigger it independently of Windows CI. Each job configures CMake, builds the
 engine, modules, policy checker, and tests, then runs the ordinary `-t1` suites
-and the real Host texture acceptance flow through CTest if the build succeeds.
+and the real Host asset, texture, filesystem and bundle acceptance flow through
+CTest if the build succeeds. Host acceptance requests one and two workers in
+separate runs and checks the effective count against the hardware limit.
 
 All four jobs must pass for the workflow to succeed. Build, policy, and test
 failures fail the job and workflow. Read the stage results for each compiler and
@@ -24,7 +26,7 @@ before these files exist.
 
 ## Build definitions
 
-The Visual Studio solution remains the Windows build entry point. The new
+The Visual Studio solution remains the Windows build entry point. The
 root `CMakeLists.txt` supports Linux-only, single-configuration Debug and Release
 builds for GCC and Clang. It does not replace or rewrite Visual Studio files.
 
@@ -63,8 +65,10 @@ because current runtime paths and the ordinary module-loading test use those
 names. Their contents are Linux ELF shared libraries loaded with `dlopen`,
 not Windows binaries. Adopting conventional `.so` runtime paths is separate
 portability work. CTest runs `tests/texture/run_tests.py` against the engine
-with a fresh filesystem, exercising LDR/HDR conditioning and checking clean
-rendering shutdown. The separate Windows DLL lifecycle harness is not included.
+with a fresh filesystem for each worker count, exercising LDR/HDR conditioning,
+bundle bake/reference/save/close/reload and clean rendering shutdown. Ordinary
+suites include bundle format, construction, lifetime and real-worker request
+tests. The separate Windows DLL lifecycle harness is not included.
 
 ## Running locally on Linux or WSL
 
@@ -100,6 +104,40 @@ Each Host acceptance run stages a fresh directory under `host-acceptance`,
 retaining the console output, engine logs, bootstrap file and generated assets.
 
 ## Local validation
+
+### Bundle integration follow-up, 12 October 2026
+
+All four Linux configurations pass the build, policy checks, ordinary suites and
+Host acceptance with one and two requested workers on Ubuntu 24.04 in WSL:
+
+| Compiler | Configuration | Evidence directory under `build/` |
+| --- | --- | --- |
+| GCC 13.3 | Debug | `linux-texture` |
+| GCC 13.3 | Release | `linux-identity-release` |
+| Clang 18.1 | Debug | `linux-bundle-clang-debug` |
+| Clang 18.1 | Release | `linux-texture-clang-release` |
+
+Each directory contains `configure-bundle.log`, `build-bundle.log` and
+`tests-bundle.log`. GCC Debug and Clang Release initially exposed a test assertion
+issue; their successful ordinary-suite reruns are in `tests-bundle-ordinary.log`.
+The Host runs had already passed and were not repeated. Each ordinary run includes
+226 BundleRequests, 344 BundleService, 1997 Bundle and 2080 BundleBuilder checks.
+
+Two test portability issues were corrected: empty-file creation now uses the
+platform file helper instead of `fopen_s`, and rejected-insertion lease counts
+are checked after the calling full expression has finished destroying parameters.
+No production changes were required. Clang still reports the existing
+`schema_declarations.cpp` comparison warning; it does not fail the build.
+
+The five source-extraction tests, workflow YAML/structure and shell syntax checks,
+line-ending checks and diff checks pass. Windows Debug x64 also passes the build
+and ordinary suites with both test corrections (`bundle-ci-portability-final`,
+process 82396). The newly added Windows CI Host-worker step passes Debug Win32
+(`host-workers-8c669119`), Release x64 (`host-workers-e6b202b0`) and Release Win32
+(`host-workers-566acfb6`); the existing Stage 6 Debug x64 result remains valid
+(`host-workers-6324c4aa`). Windows CI retains all 32 lifecycle cases for each
+requested worker count. These are local results; hosted CI requires a subsequent
+commit and push.
 
 ### Texture integration follow-up, 10 October 2026
 

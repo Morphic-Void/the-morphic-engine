@@ -71,7 +71,7 @@ jobs:
           cmake --build build/linux-ci --parallel 2 \
             2>&1 | tee build/linux-ci/logs/build.log
 
-      - name: Run ordinary suites and Host texture acceptance
+      - name: Run ordinary suites and Host acceptance with one and two requested workers
         id: tests
         run: |
           ctest --test-dir build/linux-ci --output-on-failure --no-tests=error \
@@ -92,7 +92,7 @@ jobs:
             printf '| Source extraction tests | %s |\n' "$MANIFEST_RESULT"
             printf '| Configure | %s |\n' "$CONFIGURE_RESULT"
             printf '| Build and policy checks | %s |\n' "$BUILD_RESULT"
-            printf '| Ordinary tests and Host texture acceptance | %s |\n' "$TEST_RESULT"
+            printf '| Ordinary tests and Host acceptance (assets, textures, filesystem, bundles) | %s |\n' "$TEST_RESULT"
           } >> "$GITHUB_STEP_SUMMARY"
           if [[ "$MANIFEST_RESULT" != success || "$CONFIGURE_RESULT" != success ||
                 "$BUILD_RESULT" != success || "$TEST_RESULT" != success ]]; then

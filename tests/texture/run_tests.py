@@ -21,10 +21,11 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--engine", type=Path, required=True)
     parser.add_argument("--output-directory", type=Path, required=True)
+    parser.add_argument("--host-workers", type=int, choices=(1, 2), default=2)
     args = parser.parse_args()
     repository = Path(__file__).resolve().parents[2]
     args.output_directory.mkdir(parents=True, exist_ok=True)
-    runtime = Path(tempfile.mkdtemp(prefix="texture-", dir=args.output_directory)).resolve()
+    runtime = Path(tempfile.mkdtemp(prefix=f"host-{args.host_workers}-", dir=args.output_directory)).resolve()
     development = runtime / "development"
     development.mkdir()
     manifest = repository / "development/root-manifest.json"
@@ -35,7 +36,8 @@ def main():
                     development / "logical-roots/dev-source/test_input.tga")
     config = runtime / "bootstrap.cfg"
     config.write_text("executive=package:/bin/MorphicExecutive.dll\n"
-                      "log-tag=texture-acceptance\n"
+                      "log-tag=host-acceptance\n"
+                      f"host-workers={args.host_workers}\n"
                       "log-directory=development/logical-roots/test-logs\n",
                       encoding="utf-8")
     print(f"Acceptance diagnostics: {runtime}", flush=True)
@@ -49,11 +51,19 @@ def main():
     events = logs[0].read_text(encoding="utf-8") + direct_log.read_text(encoding="utf-8")
     for expected in ("Asset acceptance: 71 sequential and 32 concurrent operations passed",
                      "Filesystem acceptance: 12 queued refresh, concurrent access and cache operations passed",
+                     "Bundle acceptance: bake, reference, save, close and reload passed",
                      "Rendering Basis: shut down", "Host: Rendering thread joined"):
         if expected not in events:
             raise RuntimeError(f"Missing {expected!r}; inspect {logs[0]}")
     if re.search(r"\[(assert|error|critical|fatal):", events):
         raise RuntimeError(f"Unexpected diagnostics; inspect {logs[0]}")
+    workers = re.search(r"Host: Background workers (\d+), dedicated conditioning workers (\d+), "
+                        r"reported hardware threads (\d+)", events)
+    if workers is None:
+        raise RuntimeError(f"Missing Host worker configuration; inspect {logs[0]}")
+    expected_workers = min(args.host_workers, 2 if int(workers[3]) >= 8 else 1)
+    if int(workers[1]) != expected_workers or int(workers[2]) != expected_workers - 1:
+        raise RuntimeError(f"Incorrect Host worker configuration; inspect {logs[0]}")
     sizing = re.search(r"Host: Batch runners (\d+)\b", events)
     if sizing is None:
         raise RuntimeError(f"Missing batch runner configuration; inspect {logs[0]}")
@@ -65,7 +75,8 @@ def main():
     for operation in ("encode", "transcode"):
         if not re.search(rf"\[render_vulkan:{thread}\].*Rendering Basis: {operation} begin", events):
             raise RuntimeError(f"Incorrect {operation} thread or module context; inspect {direct_log}")
-    print("Host texture acceptance passed (71 sequential, 32 concurrent, 12 filesystem operations).")
+    print(f"Host acceptance passed with {expected_workers} worker(s) "
+          "(71 sequential, 32 concurrent, 12 filesystem operations and bundle persistence).")
 
 
 if __name__ == "__main__":

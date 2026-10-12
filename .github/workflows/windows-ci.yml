@@ -67,6 +67,13 @@ jobs:
             Tee-Object -FilePath build/ci/tests-console.log
           exit $LASTEXITCODE
 
+      - name: Test Host worker configuration and acceptance
+        run: |
+          $outputPlatform = if ($env:BUILD_PLATFORM -eq 'x86') { 'Win32' } else { 'x64' }
+          ./tests/host_workers/run_tests.ps1 -Configuration $env:BUILD_CONFIGURATION `
+            -Platform $outputPlatform 2>&1 |
+            Tee-Object -FilePath build/ci/host-workers-console.log
+
       - name: Build lifecycle fixtures and test with one Host worker
         run: |
           $outputPlatform = if ($env:BUILD_PLATFORM -eq 'x86') { 'Win32' } else { 'x64' }
@@ -89,6 +96,8 @@ jobs:
           name: windows-${{ matrix.configuration }}-${{ matrix.platform }}-diagnostics
           path: |
             build/ci/
+            build/host-workers-*/development/logical-roots/test-logs/
+            build/host-workers-*/development/logical-roots/test-output/
             build/lifecycle-runtime-*/development/logical-roots/test-logs/
             build/lifecycle-runtime-*/development/logical-roots/test-output/
             development/logical-roots/logs/policy_validator/

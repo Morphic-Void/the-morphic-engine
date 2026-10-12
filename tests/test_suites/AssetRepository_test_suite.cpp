@@ -162,7 +162,9 @@ void test_backing_record_accounting(TTestContext& ctx)
     TEST_EXPECT(ctx, state.operations == 0u);
     TEST_EXPECT(ctx, first.acquire(state, EAssetBackingRole::file));
     CErasedOwner empty;
-    TEST_EXPECT(ctx, !repository.insert(std::move(empty), std::move(first)) && state.records == 0u);
+    //  The by-value lease parameter may be destroyed at the end of the calling full expression.
+    const auto rejected = repository.insert(std::move(empty), std::move(first));
+    TEST_EXPECT(ctx, !rejected && state.records == 0u);
     state.records = UINT32_MAX;
     TEST_EXPECT(ctx, !first.acquire(state, EAssetBackingRole::file));
     state.records = 0u;

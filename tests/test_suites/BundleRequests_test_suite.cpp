@@ -20,6 +20,7 @@
 #include "host/runtime/asset_service.hpp"
 #include "host/runtime/host_worker_thread.hpp"
 #include "platform/filesystem/file.hpp"
+#include "platform/filesystem/internal/file_utils.hpp"
 #include "platform/threading/processor_relax.hpp"
 #include "tests/environment/test_paths.hpp"
 #include "tests/support/test_context.hpp"
@@ -104,8 +105,9 @@ struct SFixture
             !write(directory + "/Input/Document.baked", block.buffer_bytes().data(), block.buffer_bytes().size()) ||
             !write(directory + "/invalid.bdl", "bad", 3u)) return false;
         //  The native loader rejects empty files; the builder silently drops them.
-        std::FILE* empty = nullptr;
-        if (fopen_s(&empty, (directory + "/Input/Zero").c_str(), "wb") != 0) return false;
+        auto* empty = platform::filesystem::openFile(platform::path::makeNativePath((directory + "/Input/Zero").c_str()),
+            platform::filesystem::EOpenMode::BinaryWrite);
+        if (!empty) return false;
         std::fclose(empty);
         filesystem_image::SRootScan scan;
         scan.writable = true;

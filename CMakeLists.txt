@@ -91,7 +91,9 @@ enable_testing()
 add_test(NAME MorphicOrdinary COMMAND MorphicTests -t1 --log-tag=linux-ci
     "--output-directory=${CMAKE_BINARY_DIR}/test-output")
 set_tests_properties(MorphicOrdinary PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}" TIMEOUT 600)
-add_test(NAME MorphicTextureAcceptance COMMAND "${Python3_EXECUTABLE}"
-    "${CMAKE_SOURCE_DIR}/tests/texture/run_tests.py" --engine "$<TARGET_FILE:MorphicHost>"
-    "--output-directory=${CMAKE_BINARY_DIR}/host-acceptance")
-set_tests_properties(MorphicTextureAcceptance PROPERTIES TIMEOUT 150)
+foreach(workers IN ITEMS 1 2)
+    add_test(NAME MorphicHostAcceptance${workers}Worker COMMAND "${Python3_EXECUTABLE}"
+        "${CMAKE_SOURCE_DIR}/tests/texture/run_tests.py" --engine "$<TARGET_FILE:MorphicHost>"
+        "--output-directory=${CMAKE_BINARY_DIR}/host-acceptance" --host-workers ${workers})
+    set_tests_properties(MorphicHostAcceptance${workers}Worker PROPERTIES TIMEOUT 150)
+endforeach()
