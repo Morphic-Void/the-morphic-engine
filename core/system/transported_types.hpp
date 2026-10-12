@@ -242,6 +242,56 @@ struct AssetSaveRequest
     AssetSaveSettings settings;
 };
 
+//  Owning path groups keep all nested allocations visible to erased transport.
+struct BundleLoadPaths
+{
+    CSimpleString file;
+    CSimpleString root;
+
+    [[nodiscard]] memory::SMemoryAttribution memory_attribution() const noexcept
+    {
+        return memory::combine_memory_attribution(file.memory_attribution(), root.memory_attribution());
+    }
+    void unsafe_replace_memory_context_without_accounting(
+        memory::CMemoryContext* const source, memory::CMemoryContext* const target) noexcept
+    {
+        file.unsafe_replace_memory_context_without_accounting(source, target);
+        root.unsafe_replace_memory_context_without_accounting(source, target);
+    }
+};
+
+struct BundleBakePaths
+{
+    CSimpleString source_root;
+    CSimpleString subdirectory; //  Empty selects the entire source root.
+    CSimpleString root;
+
+    [[nodiscard]] memory::SMemoryAttribution memory_attribution() const noexcept
+    {
+        return memory::combine_memory_attribution(source_root.memory_attribution(),
+            memory::combine_memory_attribution(subdirectory.memory_attribution(), root.memory_attribution()));
+    }
+    void unsafe_replace_memory_context_without_accounting(
+        memory::CMemoryContext* const source, memory::CMemoryContext* const target) noexcept
+    {
+        source_root.unsafe_replace_memory_context_without_accounting(source, target);
+        subdirectory.unsafe_replace_memory_context_without_accounting(source, target);
+        root.unsafe_replace_memory_context_without_accounting(source, target);
+    }
+};
+
+struct BundleLoadRequest { BundleLoadPaths paths; };
+struct BundleBakeRequest { BundleBakePaths paths; };
+struct BundleReferenceRequest { CAssetId source{}; };
+
+//  The worker borrows a private Host capture; the completion owns full storage.
+struct BundleBuildWork { const filesystem_image::CBakeInput* input{ nullptr }; };
+struct BundleBuildResult
+{
+    CBakedDocumentBlock block;
+    bundle::SBuildResult result{ bundle::EBuildStatus::allocation_failed };
+};
+
 //  Callers quiesce borrowed views before requesting disposal. Completion contains
 //  no view; an accepted request prevents further saves using this identity.
 struct AssetDisposeRequest { CAssetId asset{}; };
@@ -576,6 +626,11 @@ MV_REGISTER_SYSTEM_TYPE(AssetDisposeResult, system_type_ids::asset_dispose_resul
 MV_REGISTER_SYSTEM_TYPE(AssetResult, system_type_ids::asset_result);
 MV_REGISTER_SYSTEM_TYPE(BorrowedBundleAsset, system_type_ids::borrowed_bundle_asset);
 MV_REGISTER_SYSTEM_TYPE(BundleDisposedNotification, system_type_ids::bundle_disposed_notification);
+MV_REGISTER_SYSTEM_TYPE(BundleLoadRequest, system_type_ids::bundle_load_request);
+MV_REGISTER_SYSTEM_TYPE(BundleBakeRequest, system_type_ids::bundle_bake_request);
+MV_REGISTER_SYSTEM_TYPE(BundleReferenceRequest, system_type_ids::bundle_reference_request);
+MV_REGISTER_SYSTEM_TYPE(BundleBuildWork, system_type_ids::bundle_build_work);
+MV_REGISTER_SYSTEM_TYPE(BundleBuildResult, system_type_ids::bundle_build_result);
 
 //  Document conditioning.
 MV_REGISTER_SYSTEM_TYPE(DocumentConditionRequest, system_type_ids::document_condition_request);

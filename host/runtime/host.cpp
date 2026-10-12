@@ -617,9 +617,14 @@ void CHost::run() noexcept
             while (package.read(message))
             {
                 AssetDisposeRequest disposal;
+                BundleReferenceRequest reference;
                 if (message.copy_payload_to(disposal))
                 {
                     m_asset_service.request_disposal(disposal, message.query_async_slot(), package);
+                }
+                else if (message.copy_payload_to(reference))
+                {
+                    m_asset_service.request_reference(reference, message.query_async_slot(), package);
                 }
                 else if (&package == executive)
                 {

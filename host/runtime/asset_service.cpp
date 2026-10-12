@@ -9,11 +9,13 @@
 //  Compose file I/O and conditioning without transferring assets to clients.
 
 #include <algorithm>
+#include <cstring>
 #include <type_traits>
 #include <utility>
 
 #include "host/runtime/asset_service.hpp"
 #include "debug/macros.hpp"
+#include "filesystem/logical_path.hpp"
 
 namespace host
 {
@@ -44,6 +46,20 @@ static EAssetStatus texture_asset_status(const ETextureStatus status) noexcept
 bool CAssetService::initialise() noexcept
 {
     return m_bundles.initialise() && m_assets.initialise() && m_operations.initialise();
+}
+
+EAssetStatus CAssetService::reserve_bundle(const CStringView root, std::uint64_t& binding) noexcept
+{
+    if ((m_filesystem == nullptr) || !m_filesystem->document().is_ready() || (root.length() < 2u) ||
+        (root.cstring()[root.length() - 1u] != ':') ||
+        !logical_path::valid_component(CStringView{ root.cstring(), root.length() - 1u })) return EAssetStatus::invalid_request;
+    if (m_filesystem->root_state(root.cstring()) != filesystem_image::ERootState::missing) return EAssetStatus::busy;
+    return m_filesystem->reserve_bundle(root.cstring(), binding) ? EAssetStatus::success : EAssetStatus::allocation_failed;
+}
+
+void CAssetService::request_reference(const BundleReferenceRequest& request, const std::int32_t slot, threading::CThreadPackage& client) noexcept
+{
+    reply(client, slot, acquire_bundle(request.source));
 }
 
 bool CAssetService::is_idle() const noexcept
@@ -170,9 +186,15 @@ AssetResult CAssetService::retain_bundle_file(const CBundleOperation& operation,
     if (format == EAssetFileFormat::raw) result.set_raw_view(memory);
     else if (format == EAssetFileFormat::baked)
     {
+        if (bytes.size() < sizeof(SBakedDocumentHeader)) return result;
+        SBakedDocumentHeader header;
+        std::memcpy(&header, bytes.data(), sizeof(header));
+        if (header.total_size > bytes.size()) return result;
         CBakedDocument document;
-        if (!document.reset(bytes.data(), bytes.size())) return result;
-        result.set_baked_view(BakedAssetView{ memory, document });
+        if (!document.reset(bytes.data(), header.total_size)) return result;
+        //  Match ordinary baked-file adoption: expose only the checked prefix.
+        result.set_baked_view(BakedAssetView{
+            memory::CMemoryConstView{ bytes.data(), document.byte_count(), 1u, bytes.align() }, document });
     }
     else return result;
 
@@ -261,6 +283,11 @@ void CAssetService::deallocate() noexcept
     {
         (void)m_filesystem->clear_cache();
     }
+    for (std::int32_t slot = m_operations.first_live(); slot >= 0; slot = m_operations.next_live(slot))
+    {
+        const auto binding = m_operations.get_object(slot)->reserved_binding;
+        if ((binding != 0u) && (m_filesystem != nullptr)) (void)m_filesystem->remove_bundle(binding);
+    }
     m_operations.deallocate();
     m_assets.deallocate();
     for (std::int32_t slot = m_bundles.first_live(); slot >= 0; slot = m_bundles.next_live(slot))
@@ -338,6 +365,11 @@ void CAssetService::reply(threading::CThreadPackage& client, const std::int32_t 
 void CAssetService::finish_operation(const std::int32_t slot, const EAssetStatus status) noexcept
 {
     SOperation& operation = *m_operations.get_object(slot);
+    if (operation.reserved_binding != 0u)
+    {
+        if ((m_filesystem == nullptr) || !m_filesystem->remove_bundle(operation.reserved_binding)) m_failed = true;
+        operation.reserved_binding = 0u;
+    }
     if (operation.phase == EPhase::disposing)
     {
         MV_DETAIL("Host asset disposal completed at client slot {}", operation.client_slot);
@@ -352,7 +384,8 @@ void CAssetService::finish_operation(const std::int32_t slot, const EAssetStatus
         if (operation.load_requested)
         {
             updated = m_filesystem->loaded(operation.logical_file, operation.retained_asset.query_value(),
-                static_cast<std::uint64_t>(operation.load_format), operation.working_views.document_findings, operation.admission_serial);
+                static_cast<std::uint64_t>(operation.load_format), operation.working_views.document_findings,
+                operation.admission_serial, operation.source_binding);
         }
         else if (operation.save_requested && (operation.phase == EPhase::saving))
         {
@@ -593,6 +626,50 @@ void CAssetService::request(threading::CErasedOwnerMsg& message, threading::CThr
         return;
     }
 
+    const BundleBakeRequest* const bake = operation.request_owner.payload<BundleBakeRequest>();
+    const BundleLoadRequest* const bundle_load = operation.request_owner.payload<BundleLoadRequest>();
+    if ((bake != nullptr) || (bundle_load != nullptr))
+    {
+        if (m_file_io == nullptr)
+        {
+            finish_operation(slot, EAssetStatus::busy);
+            return;
+        }
+        const auto status = reserve_bundle(((bake != nullptr) ? bake->paths.root.view() : bundle_load->paths.root.view()),
+            operation.reserved_binding);
+        if (status != EAssetStatus::success)
+        {
+            finish_operation(slot, status);
+            return;
+        }
+        threading::CErasedPodMsg outbound;
+        outbound.set_async_slot(slot);
+        if (bake != nullptr)
+        {
+            const char* const directory = (bake->paths.subdirectory.length() == 0u) ? "" : bake->paths.subdirectory.cstring();
+            if (!m_filesystem->capture_bake(bake->paths.source_root.cstring(), directory, operation.bake_input))
+            {
+                finish_operation(slot, EAssetStatus::invalid_request);
+                return;
+            }
+            operation.phase = EPhase::bundle_building;
+            outbound.assign_payload(BundleBuildWork{ &operation.bake_input });
+        }
+        else
+        {
+            //  A load-and-bind source is a physical file; nested bundles are outside this format's scope.
+            if (!m_filesystem->resolve(bundle_load->paths.file.cstring(), false, operation.physical_file))
+            {
+                finish_operation(slot, EAssetStatus::read_failed);
+                return;
+            }
+            operation.phase = EPhase::bundle_loading;
+            outbound.assign_payload(FileLoadRequest{ operation.physical_file.cstring(), bundle::k_alignment });
+        }
+        if (!m_file_io->post(outbound)) finish_operation(slot, EAssetStatus::delivery_failed);
+        return;
+    }
+
     if (TextureEncodeRequest* const encode = operation.request_owner.payload<TextureEncodeRequest>())
     {
         if (m_rendering == nullptr)
@@ -655,12 +732,20 @@ void CAssetService::request(threading::CErasedOwnerMsg& message, threading::CThr
             return;
         }
         operation.logical_file = operation.file;
-        if ((m_filesystem == nullptr) || !m_filesystem->resolve(operation.logical_file, false, operation.physical_file))
+        filesystem_image::SResolvedSource resolved;
+        if ((m_filesystem == nullptr) || !m_filesystem->resolve(operation.logical_file, false, resolved))
         {
             finish_operation(slot, EAssetStatus::read_failed);
             return;
         }
-        operation.file = operation.physical_file.cstring();
+        operation.source_binding = resolved.binding;
+        operation.physical_file = std::move(resolved.physical_path);
+        if ((resolved.binding != 0u) && (load->alignment > bundle::k_alignment))
+        {
+            finish_operation(slot, EAssetStatus::invalid_request);
+            return;
+        }
+        if (resolved.binding == 0u) operation.file = operation.physical_file.cstring();
         operation.admission_serial = m_filesystem->write_serial();
         const CAssetId cached = m_assets.find_identity(m_filesystem->cached_asset(operation.logical_file, static_cast<std::uint64_t>(load->format)));
         if (CAssetRecord* const record = disposal_pending(cached) ? nullptr : m_assets.resolve(cached))
@@ -691,11 +776,32 @@ void CAssetService::request(threading::CErasedOwnerMsg& message, threading::CThr
                 return;
             }
         }
+        if (resolved.binding != 0u)
+        {
+            const CAssetId original = m_assets.find_identity(resolved.bundle);
+            const char* const relative = std::strchr(operation.logical_file, ':') + 2;
+            const auto status = begin_bundle_file(original, CStringView{ relative },
+                memory::condition_alignment(std::max(load->alignment, std::size_t{ 16u })), operation.bundle_input);
+            if (status != EAssetStatus::success)
+            {
+                finish_operation(slot, status);
+                return;
+            }
+            if ((load->format == EAssetFileFormat::raw) || (load->format == EAssetFileFormat::baked))
+            {
+                operation.working_views = retain_bundle_file(operation.bundle_input, load->format);
+                operation.retained_asset = operation.working_views.asset;
+                const auto result = operation.working_views.status;
+                finish_operation(slot, (result == EAssetStatus::invalid_request) ? EAssetStatus::conditioning_failed : result);
+            }
+            else begin_conditioning_load(slot, operation.bundle_input.bytes());
+            return;
+        }
         FileLoadRequest request{ operation.file, ((load->format == EAssetFileFormat::baked) ? std::max(load->alignment, std::size_t{ 32u }) : load->alignment) };
         threading::CErasedPodMsg outbound;
         outbound.set_async_slot(slot);
         outbound.assign_payload(request);
-        if (!m_file_io->post(outbound))
+        if ((m_file_io == nullptr) || !m_file_io->post(outbound))
         {
             finish_operation(slot, EAssetStatus::delivery_failed);
         }
@@ -858,6 +964,19 @@ void CAssetService::complete(threading::CErasedOwnerMsg& message, threading::CTh
     const type_id identity = message.query_message_type_id();
     switch (operation.phase)
     {
+        case EPhase::bundle_loading:
+        case EPhase::bundle_building:
+        {
+            const type_id expected = (operation.phase == EPhase::bundle_loading) ?
+                k_type_id_v<FileLoadResult> : k_type_id_v<BundleBuildResult>;
+            if ((identity == expected) && (&worker == m_file_io))
+            {
+                operation.worker_result_owner = message.take_owner();
+                complete_bundle(slot);
+                return;
+            }
+            break;
+        }
         case EPhase::loading:
         {
             if ((identity == k_type_id_v<FileLoadResult>) && (&worker == m_file_io))
@@ -952,32 +1071,91 @@ void CAssetService::complete_file_load(const std::int32_t slot) noexcept
     }
     else
     {
-        const AssetLoadRequest& load = *operation.request_owner.payload<AssetLoadRequest>();
-        threading::CErasedPodMsg outbound;
-        outbound.set_async_slot(slot);
-        if (operation.load_format == EAssetFileFormat::tga)
-        {
-            operation.phase = EPhase::decoding;
-            outbound.assign_payload(TgaDecodeRequest{ loaded->buffer.const_view(), load.decode_top_down });
-        }
-        else
-        {
-            operation.phase = EPhase::conditioning;
-            DocumentConditionRequest request;
-            request.set_text_source(loaded->buffer.const_view());
-            request.policy = load.policy;
-            outbound.assign_payload(request);
-        }
+        const CByteConstView bytes = loaded->buffer.const_view();
         operation.conditioning_input_owner = std::move(operation.worker_result_owner);
-        if (!post_conditioning(outbound))
-        {
-            finish_operation(slot, EAssetStatus::delivery_failed);
-        }
+        begin_conditioning_load(slot, bytes);
         return;
     }
     describe_views(operation.candidate_owner, operation.working_views);
     finish_operation(slot, (retain_candidate(operation) ? EAssetStatus::success : EAssetStatus::allocation_failed));
     return;
+}
+
+void CAssetService::begin_conditioning_load(const std::int32_t slot, const CByteConstView bytes) noexcept
+{
+    SOperation& operation = *m_operations.get_object(slot);
+    const AssetLoadRequest& load = *operation.request_owner.payload<AssetLoadRequest>();
+    threading::CErasedPodMsg outbound;
+    outbound.set_async_slot(slot);
+    if (operation.load_format == EAssetFileFormat::tga)
+    {
+        operation.phase = EPhase::decoding;
+        outbound.assign_payload(TgaDecodeRequest{ bytes, load.decode_top_down });
+    }
+    else
+    {
+        operation.phase = EPhase::conditioning;
+        DocumentConditionRequest request;
+        request.set_text_source(bytes);
+        request.policy = load.policy;
+        outbound.assign_payload(request);
+    }
+    if (!post_conditioning(outbound)) finish_operation(slot, EAssetStatus::delivery_failed);
+}
+
+void CAssetService::complete_bundle(const std::int32_t slot) noexcept
+{
+    SOperation& operation = *m_operations.get_object(slot);
+    CBakedDocumentBlock loaded_block;
+    CBakedDocumentBlock* block = &loaded_block;
+    if (operation.phase == EPhase::bundle_loading)
+    {
+        LoadedFile* const loaded = operation.worker_result_owner.payload<LoadedFile>();
+        if ((loaded == nullptr) || !loaded->buffer.is_ready())
+        {
+            finish_operation(slot, EAssetStatus::read_failed);
+            return;
+        }
+        if (!loaded_block.adopt_buffer(std::move(loaded->buffer)))
+        {
+            finish_operation(slot, EAssetStatus::conditioning_failed);
+            return;
+        }
+    }
+    else
+    {
+        BundleBuildResult* const built = operation.worker_result_owner.payload<BundleBuildResult>();
+        if (built == nullptr)
+        {
+            finish_operation(slot, EAssetStatus::allocation_failed);
+            return;
+        }
+        if (!built->result.succeeded())
+        {
+            EAssetStatus status = EAssetStatus::conditioning_failed;
+            switch (built->result.status)
+            {
+                case bundle::EBuildStatus::allocation_failed: status = EAssetStatus::allocation_failed; break;
+                case bundle::EBuildStatus::size_query_failed:
+                case bundle::EBuildStatus::read_failed: status = EAssetStatus::read_failed; break;
+                case bundle::EBuildStatus::invalid_input:
+                case bundle::EBuildStatus::no_content:
+                case bundle::EBuildStatus::too_large: status = EAssetStatus::invalid_request; break;
+                default: break;
+            }
+            finish_operation(slot, status);
+            return;
+        }
+        block = &built->block;
+    }
+
+    //  Publication takes responsibility for cancelling this reservation on failure.
+    const auto binding = std::exchange(operation.reserved_binding, 0u);
+    operation.working_views = publish_bundle(*block, binding);
+    if (operation.working_views.status == EAssetStatus::invalid_request)
+        operation.working_views.status = EAssetStatus::conditioning_failed;
+    operation.retained_asset = operation.working_views.asset;
+    finish_operation(slot, operation.working_views.status);
 }
 
 void CAssetService::complete_image_decode(const std::int32_t slot) noexcept

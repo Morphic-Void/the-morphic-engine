@@ -336,6 +336,44 @@ void CHostWorkerThread::operate() noexcept
 
             switch (inbound_msg.query_message_type_id().raw_value())
             {
+                case k_type_id_v<BundleBuildWork>.raw_value():
+                {
+                    MV_DETAIL("Worker bundle build request");
+
+                    BundleBuildWork request;
+                    (void)inbound_msg.copy_payload_to(request);
+                    CErasedOwner content = CErasedOwner::create<BundleBuildResult>();
+                    if (BundleBuildResult* const result = content.payload<BundleBuildResult>())
+                    {
+                        result->result.status = bundle::EBuildStatus::invalid_input;
+                        if (request.input != nullptr)
+                        {
+                            bundle::CBundleView view;
+                            result->result = bundle::build(request.input->inventory(), request.input->content(),
+                                request.input->sources(), result->block, view);
+                        }
+                        if (!result->result.succeeded())
+                        {
+                            MV_REPORT("Bundle slot %d: build failed (status %u, validation %u)",
+                                inbound_msg.query_async_slot(), static_cast<unsigned int>(result->result.status),
+                                static_cast<unsigned int>(result->result.validation));
+                        }
+                    }
+                    else
+                    {
+                        MV_REPORT("Bundle slot %d: result allocation failed", inbound_msg.query_async_slot());
+                    }
+                    threading::CErasedOwnerMsg completion;
+                    completion.set_message_type<BundleBuildResult>();
+                    completion.set_async_slot(inbound_msg.query_async_slot());
+                    completion.set_owner(std::move(content));
+                    if (!m_context.post(std::move(completion)))
+                    {
+                        m_failed = true;
+                        return;
+                    }
+                    break;
+                }
                 case k_type_id_v<FilesystemScanRequest>.raw_value():
                 {
                     MV_DETAIL("Worker filesystem scan request");

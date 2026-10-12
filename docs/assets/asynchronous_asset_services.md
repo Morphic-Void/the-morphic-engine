@@ -43,6 +43,8 @@ Callers must quiesce all borrowed views before requesting disposal. Save results
 already in transit do not extend the asset's lifetime. POD and owning requests
 use separate queues, so sending a save before a disposal does not itself prove
 the save has been admitted; clients must establish that ordering when needed.
+Original bundle IDs use the closure and final-notification rules below instead
+of a correlated successful `AssetDisposeResult`.
 
 The existing owning transport rejects unsuccessful posts without consuming the
 sender's message. Once accepted, resource ownership remains in the Host. Client
@@ -70,6 +72,13 @@ TGA decode options deliberately do not distinguish cache entries in this stage.
 | JSON | File I/O worker reads bytes; conditioning worker parses locally and bakes | `CBakedDocument` |
 | TGA | File I/O worker reads bytes; conditioning worker decodes | `image::CImageView` |
 
+For virtual bundle roots, raw and baked views borrow the retained bundle storage
+directly; JSON and TGA still use the conditioning worker and produce independent
+results. Requests above 128-byte alignment are rejected before cache reuse.
+Baked views cover the validated document prefix even when the stored file has
+trailing bytes. Admission protects bundle storage through conversion and result
+publication, and late completion cannot repopulate a closed binding's cache.
+
 Baked loads request at least 32-byte alignment. Other loads preserve the file
 primitive's alignment policy and 16-byte floor. The existing primitive rejects
 empty files; these produce an explicit read failure.
@@ -88,6 +97,7 @@ phase and result type before continuing the operation.
 
 Node lookups keep query state local to each call, and every bake owns separate
 analysis and emission scratch, supporting concurrent read-only document access.
+
 The document must remain unchanged and alive until all accepted operations
 borrowing it have completed.
 
@@ -103,6 +113,32 @@ to logical top-left coordinates. `decode_top_down` selects the codec output orde
 `storage_bottom_up` describes backing rows for the image view. The conversion is
 explicit at decode completion. Image metadata is prepared once on the Host before
 publication, and describing a retained asset does not modify it.
+
+## Bundles
+
+`BundleBakeRequest` owns `paths.source_root`, `paths.subdirectory` and `paths.root`.
+It captures a directory-backed inventory and builds on the I/O worker, then
+publishes an original bundle ID bound under the destination root. An empty
+subdirectory selects the entire source root. `BundleLoadRequest` owns the logical
+physical-file path `paths.file` and destination `paths.root`, reads at 128-byte
+alignment, validates and publishes in the same way. Both return `AssetResult`
+with `bundle_view()`. Roots are reserved before dispatch and released on failure.
+
+`BundleReferenceRequest { source }` is a POD request accepting an open original
+or complete-view bundle ID. Each success returns a distinct retained ID and the
+same complete view. Save a complete bundle with the existing `AssetSaveRequest`
+using raw format and an independently chosen destination filename.
+
+Disposing the original ID immediately closes new admissions. Retained sub-files
+and accepted operations protect storage until released; independent conversion
+outputs keep their own lifetimes. Existing sub-file IDs remain usable and
+individually savable after closure. Clients must release complete-view references
+before requesting original-ID disposal. The Host removes the drained virtual
+root and storage before sending `BundleDisposedNotification { asset }` at slot
+`-1` to the disposing Executive instance. Invalid disposal requests still receive
+immediate correlated rejection responses. See the
+[bundle specification](bundle_specification.md) for validation, lifetime and
+notification delivery details.
 
 ## Completion and failures
 

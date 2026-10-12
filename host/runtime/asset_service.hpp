@@ -73,6 +73,7 @@ public:
 
     void request(threading::CErasedOwnerMsg& message, threading::CThreadPackage& client) noexcept;
     void request_disposal(const AssetDisposeRequest& request, const std::int32_t slot, threading::CThreadPackage& client) noexcept;
+    void request_reference(const BundleReferenceRequest& request, const std::int32_t slot, threading::CThreadPackage& client) noexcept;
     void complete(threading::CErasedOwnerMsg& message, threading::CThreadPackage& worker) noexcept;
     void complete(const threading::CErasedPodMsg& message, threading::CThreadPackage& worker) noexcept;
 
@@ -86,12 +87,18 @@ private:
         texture_encoding,
         texture_decoding,
         saving,
-        disposing
+        disposing,
+        bundle_loading,
+        bundle_building
     };
 
     struct SOperation
     {
         CAssetBackingLease backing;             //  Outlives all borrowed descriptors below.
+        CBundleOperation bundle_input;
+        filesystem_image::CBakeInput bake_input;
+        std::uint64_t reserved_binding{ 0u };    //  Roll back on any unpublished completion.
+        std::uint64_t source_binding{ 0u };      //  Admission identity for late cache updates.
         threading::CThreadPackage* client{ nullptr };
         std::int32_t client_slot{ -1 };
         EPhase phase{ EPhase::loading };
@@ -135,6 +142,9 @@ private:
     static void describe_views(TOwner& source, AssetResult& result) noexcept;
 
     void complete_file_load(const std::int32_t slot) noexcept;
+    void begin_conditioning_load(const std::int32_t slot, const CByteConstView bytes) noexcept;
+    void complete_bundle(const std::int32_t slot) noexcept;
+    [[nodiscard]] EAssetStatus reserve_bundle(const CStringView root, std::uint64_t& binding) noexcept;
     void complete_image_decode(const std::int32_t slot) noexcept;
     void complete_image_encode(const std::int32_t slot) noexcept;
     void complete_document_conditioning(const std::int32_t slot) noexcept;

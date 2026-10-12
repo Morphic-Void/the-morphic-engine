@@ -27,9 +27,11 @@
     <ClCompile Include="..\tests\test_suites\File_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
     <ClCompile Include="..\tests\test_suites\AsyncState_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
     <ClCompile Include="..\tests\test_suites\HostWorkers_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
+    <ClCompile Include="..\tests\test_suites\BundleRequests_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
     <ClCompile Include="..\tests\test_suites\BundleService_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
     <ClCompile Include="..\tests\test_suites\TextureService_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
     <ClCompile Include="..\tests\test_suites\TextureBatch_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
+    <ClCompile Include="..\host\runtime\host_worker_thread.cpp" />
     <ClCompile Include="..\host\runtime\asset_service.cpp" />
     <ClCompile Include="..\tests\test_suites\BakedDocument_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
     <ClCompile Include="..\tests\test_suites\BakedDocumentTransfer_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
@@ -80,6 +82,7 @@
     <ClInclude Include="..\tests\test_suites\File_test_suite.hpp"><Filter>Tests\test_suites</Filter></ClInclude>
     <ClInclude Include="..\tests\test_suites\AsyncState_test_suite.hpp"><Filter>Tests\test_suites</Filter></ClInclude>
     <ClInclude Include="..\tests\test_suites\HostWorkers_test_suite.hpp"><Filter>Tests\test_suites</Filter></ClInclude>
+    <ClInclude Include="..\tests\test_suites\BundleRequests_test_suite.hpp"><Filter>Tests\test_suites</Filter></ClInclude>
     <ClInclude Include="..\tests\test_suites\BundleService_test_suite.hpp"><Filter>Tests\test_suites</Filter></ClInclude>
     <ClInclude Include="..\tests\test_suites\TextureService_test_suite.hpp"><Filter>Tests\test_suites</Filter></ClInclude>
     <ClInclude Include="..\tests\test_suites\TextureBatch_test_suite.hpp"><Filter>Tests\test_suites</Filter></ClInclude>

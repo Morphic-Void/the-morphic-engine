@@ -659,6 +659,19 @@ void test_all_registered_payload_reattribution(TTestContext& ctx)
     TEST_EXPECT(ctx, save_request.memory_context() == &target_context);
     save_request.destroy();
 
+    CErasedOwner bundle_load = CErasedOwner::create<BundleLoadRequest>();
+    TEST_EXPECT(ctx, bundle_load.payload<BundleLoadRequest>()->paths.file.set("source:/bundle.bdl"));
+    TEST_EXPECT(ctx, bundle_load.payload<BundleLoadRequest>()->paths.root.set("loaded:"));
+    TEST_EXPECT(ctx, bundle_load.reattribute(&target_context));
+    bundle_load.destroy();
+
+    CErasedOwner bundle_bake = CErasedOwner::create<BundleBakeRequest>();
+    TEST_EXPECT(ctx, bundle_bake.payload<BundleBakeRequest>()->paths.source_root.set("source:"));
+    TEST_EXPECT(ctx, bundle_bake.payload<BundleBakeRequest>()->paths.subdirectory.set("input"));
+    TEST_EXPECT(ctx, bundle_bake.payload<BundleBakeRequest>()->paths.root.set("baked:"));
+    TEST_EXPECT(ctx, bundle_bake.reattribute(&target_context));
+    bundle_bake.destroy();
+
     TEST_EXPECT(ctx, source_context.get_live_allocation_count() == 0u);
     TEST_EXPECT(ctx, target_context.get_live_allocation_count() == 0u);
 }
