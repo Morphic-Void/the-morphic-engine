@@ -24,6 +24,36 @@ namespace host
 class CAssetService
 {
 public:
+    //  Host-thread operation protection, never a client reference. The service
+    //  must outlive the guard; workers borrow its immutable bytes, not the guard.
+    class CBundleOperation
+    {
+    public:
+        [[nodiscard]] CByteConstView bytes() const noexcept
+        {
+            return (m_backing.state() != nullptr) ? m_bytes : CByteConstView{};
+        }
+        void reset() noexcept { m_bytes = {}; m_backing.reset(); }
+
+    private:
+        CAssetBackingLease m_backing;
+        CByteConstView m_bytes;
+        friend class CAssetService;
+    };
+
+    //  Internal publication/admission boundary used by Host worker routing.
+    //  Publication consumes a reserved binding; failure cancels that reservation
+    //  and preserves the caller's block. Success moves it without copying bytes.
+    [[nodiscard]] AssetResult publish_bundle(CBakedDocumentBlock& block, const std::uint64_t binding) noexcept;
+    [[nodiscard]] AssetResult acquire_bundle(const CAssetId source) noexcept;
+    [[nodiscard]] EAssetStatus begin_bundle_file(const CAssetId source, const CStringView path,
+        const std::size_t alignment, CBundleOperation& operation) noexcept;
+    [[nodiscard]] AssetResult retain_bundle_file(const CBundleOperation& operation,
+        const EAssetFileFormat format, const mount_point_ids::id_type dependency = {}) noexcept;
+
+    //  Stop final notifications before the recipient package can be destroyed.
+    void detach_client(threading::CThreadPackage& client) noexcept;
+
     void set_filesystem(filesystem_image::CImage& image) noexcept { m_filesystem = &image; }
     [[nodiscard]] bool initialise() noexcept;
 
@@ -34,7 +64,7 @@ public:
 
     //  Requires stopped workers: no outstanding borrower may still read inputs.
     void fail_pending() noexcept;
-    [[nodiscard]] bool is_idle() const noexcept { return m_operations.is_empty(); }
+    [[nodiscard]] bool is_idle() const noexcept;
     [[nodiscard]] bool failed() const noexcept { return m_failed; }
 
     //  Requires idle operations and quiescent clients; the DLL must remain loaded.
@@ -61,6 +91,7 @@ private:
 
     struct SOperation
     {
+        CAssetBackingLease backing;             //  Outlives all borrowed descriptors below.
         threading::CThreadPackage* client{ nullptr };
         std::int32_t client_slot{ -1 };
         EPhase phase{ EPhase::loading };
@@ -110,6 +141,25 @@ private:
     void complete_texture_encode(const std::int32_t slot) noexcept;
     void complete_texture_decode(const std::int32_t slot) noexcept;
 
+    struct SBundleControl
+    {
+        SAssetBackingState references;
+        CBakedDocumentBlock block;
+        bundle::CBundleView view;
+        CAssetId original;
+        std::uint64_t binding{ 0u };
+        threading::CThreadPackage* recipient{ nullptr };
+    };
+
+    [[nodiscard]] SBundleControl* find_bundle(const SAssetBackingState* const state) noexcept;
+    [[nodiscard]] AssetResult retain_bundle_view(SBundleControl& bundle, const EAssetBackingRole role,
+        const AssetResult& view, const mount_point_ids::id_type dependency = {}) noexcept;
+    [[nodiscard]] bool protect_asset(const CAssetRecord& record, CAssetBackingLease& lease, const bool deriving) noexcept;
+    void close_bundle(SBundleControl& bundle) noexcept;
+    void finalise_bundles() noexcept;
+
+    //  Stable control addresses outlive repository records and accepted work.
+    TUnorderedCollection<SBundleControl> m_bundles;
     CAssetRepository m_assets;
     filesystem_image::CImage* m_filesystem{ nullptr };
     threading::CThreadPackage* m_file_io{ nullptr };

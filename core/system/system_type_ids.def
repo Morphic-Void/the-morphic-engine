@@ -47,4 +47,6 @@
     type_macro(filesystem_refresh_request) \
     type_macro(filesystem_refresh_result) \
     type_macro(filesystem_scan_request) \
-    type_macro(filesystem_scan_result)
+    type_macro(filesystem_scan_result) \
+    type_macro(borrowed_bundle_asset) \
+    type_macro(bundle_disposed_notification)

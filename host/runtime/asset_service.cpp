@@ -18,6 +18,13 @@
 namespace host
 {
 
+static bool bundle_recipient_available(const threading::CThreadPackage& recipient) noexcept
+{
+    const auto state = recipient.query_state();
+    return (state != threading::EThreadRunState::Exited) && (state != threading::EThreadRunState::Failed) &&
+        (state != threading::EThreadRunState::Empty);
+}
+
 static EAssetStatus texture_asset_status(const ETextureStatus status) noexcept
 {
     switch (status)
@@ -36,7 +43,205 @@ static EAssetStatus texture_asset_status(const ETextureStatus status) noexcept
 
 bool CAssetService::initialise() noexcept
 {
-    return m_assets.initialise() && m_operations.initialise();
+    return m_bundles.initialise() && m_assets.initialise() && m_operations.initialise();
+}
+
+bool CAssetService::is_idle() const noexcept
+{
+    if (!m_operations.is_empty()) return false;
+    for (std::int32_t slot = m_bundles.first_live(); slot >= 0; slot = m_bundles.next_live(slot))
+    {
+        if (m_bundles.get_object(slot)->references.operations != 0u) return false;
+    }
+    return true;
+}
+
+CAssetService::SBundleControl* CAssetService::find_bundle(const SAssetBackingState* const state) noexcept
+{
+    for (std::int32_t slot = m_bundles.first_live(); slot >= 0; slot = m_bundles.next_live(slot))
+    {
+        SBundleControl* const control = m_bundles.get_object(slot);
+        if (&control->references == state) return control;
+    }
+    return nullptr;
+}
+
+AssetResult CAssetService::retain_bundle_view(SBundleControl& control, const EAssetBackingRole role,
+    const AssetResult& view, const mount_point_ids::id_type dependency) noexcept
+{
+    AssetResult result;
+    result.status = EAssetStatus::allocation_failed;
+    CAssetBackingLease lease;
+    if (!lease.acquire(control.references, role)) return result;
+    CErasedOwner owner = CErasedOwner::create<BorrowedBundleAsset>();
+    BorrowedBundleAsset* const carrier = owner.payload<BorrowedBundleAsset>();
+    if (carrier == nullptr) return result;
+    if (dependency.is_valid()) owner.add_hazard(dependency);
+    carrier->view = view;
+    const CAssetId asset = m_assets.insert(std::move(owner), std::move(lease));
+    if (!asset) return result;
+    result = view;
+    result.asset = asset;
+    result.status = EAssetStatus::success;
+    return result;
+}
+
+AssetResult CAssetService::publish_bundle(CBakedDocumentBlock& block, const std::uint64_t binding) noexcept
+{
+    AssetResult result;
+    if ((m_filesystem == nullptr) || (binding == 0u)) return result;
+    bundle::CBundleView view;
+    const auto validation = view.reset(block.buffer_bytes().data(), block.buffer_bytes().size());
+    if (!validation.succeeded())
+    {
+        result.status = (validation.status == bundle::EValidationStatus::allocation_failed) ?
+            EAssetStatus::allocation_failed : EAssetStatus::invalid_request;
+        (void)m_filesystem->remove_bundle(binding);
+        return result;
+    }
+    const std::int32_t slot = m_bundles.emplace();
+    if (slot < 0)
+    {
+        result.status = EAssetStatus::allocation_failed;
+        (void)m_filesystem->remove_bundle(binding);
+        return result;
+    }
+    SBundleControl& control = *m_bundles.get_object(slot);
+    control.binding = binding;
+    control.view = view;
+    AssetResult description;
+    description.set_bundle_view(view);
+    result = retain_bundle_view(control, EAssetBackingRole::original, description);
+    if (result.asset && m_filesystem->prepare_bundle(binding, result.asset.query_value(), view) &&
+        m_filesystem->publish_bundle(binding))
+    {
+        control.original = result.asset;
+        control.block = std::move(block);
+        return result;
+    }
+    (void)m_assets.erase(result.asset);
+    (void)m_filesystem->remove_bundle(binding);
+    (void)m_bundles.erase(slot);
+    result = {};
+    result.status = EAssetStatus::allocation_failed;
+    return result;
+}
+
+AssetResult CAssetService::acquire_bundle(const CAssetId source) noexcept
+{
+    AssetResult result;
+    result.status = EAssetStatus::invalid_asset;
+    const CAssetRecord* const record = disposal_pending(source) ? nullptr : m_assets.resolve(source);
+    if ((record == nullptr) || (record->backing() == nullptr) || !record->backing()->open ||
+        ((record->backing_role() != EAssetBackingRole::original) && (record->backing_role() != EAssetBackingRole::complete))) return result;
+    SBundleControl* const control = find_bundle(record->backing());
+    if (control == nullptr) return result;
+    AssetResult view;
+    view.set_bundle_view(control->view);
+    return retain_bundle_view(*control, EAssetBackingRole::complete, view);
+}
+
+EAssetStatus CAssetService::begin_bundle_file(const CAssetId source, const CStringView path,
+    const std::size_t alignment, CBundleOperation& operation) noexcept
+{
+    if ((operation.m_backing.state() != nullptr) || (alignment > bundle::k_alignment) ||
+        (alignment == 0u) || ((alignment & (alignment - 1u)) != 0u)) return EAssetStatus::invalid_request;
+    const CAssetRecord* const record = disposal_pending(source) ? nullptr : m_assets.resolve(source);
+    if ((record == nullptr) || (record->backing() == nullptr) || !record->backing()->open ||
+        ((record->backing_role() != EAssetBackingRole::original) && (record->backing_role() != EAssetBackingRole::complete)))
+        return EAssetStatus::invalid_asset;
+    SBundleControl* const control = find_bundle(record->backing());
+    if (control == nullptr) return EAssetStatus::invalid_asset;
+    const auto found = control->view.lookup(path);
+    if (found.status != bundle::ELookupStatus::success) return EAssetStatus::invalid_request;
+    if (!operation.m_backing.acquire(control->references, EAssetBackingRole::operation)) return EAssetStatus::allocation_failed;
+    operation.m_bytes = CByteConstView{ static_cast<const std::uint8_t*>(found.bytes.data()), found.bytes.bytes(), bundle::k_alignment };
+    return EAssetStatus::success;
+}
+
+AssetResult CAssetService::retain_bundle_file(const CBundleOperation& operation,
+    const EAssetFileFormat format, const mount_point_ids::id_type dependency) noexcept
+{
+    AssetResult result;
+    SBundleControl* const control = find_bundle(operation.m_backing.state());
+    const CByteConstView bytes = operation.bytes();
+    if ((control == nullptr) || !bytes.is_ready()) return result;
+    const memory::CMemoryConstView memory{ bytes.data(), bytes.size(), 1u, bytes.align() };
+    if (format == EAssetFileFormat::raw) result.set_raw_view(memory);
+    else if (format == EAssetFileFormat::baked)
+    {
+        CBakedDocument document;
+        if (!document.reset(bytes.data(), bytes.size())) return result;
+        result.set_baked_view(BakedAssetView{ memory, document });
+    }
+    else return result;
+
+    //  An admitted operation may publish its result even after closure.
+    return retain_bundle_view(*control, EAssetBackingRole::file, result, dependency);
+}
+
+bool CAssetService::protect_asset(const CAssetRecord& record, CAssetBackingLease& lease, const bool deriving) noexcept
+{
+    SAssetBackingState* const state = record.backing();
+    if (state == nullptr) return true;
+    if (!state->open && (deriving || (record.backing_role() != EAssetBackingRole::file))) return false;
+    return lease.acquire(*state, EAssetBackingRole::operation);
+}
+
+void CAssetService::detach_client(threading::CThreadPackage& client) noexcept
+{
+    for (std::int32_t slot = m_bundles.first_live(); slot >= 0; slot = m_bundles.next_live(slot))
+    {
+        SBundleControl& control = *m_bundles.get_object(slot);
+        if (control.recipient == &client) control.recipient = nullptr;
+    }
+}
+
+void CAssetService::close_bundle(SBundleControl& control) noexcept
+{
+    if (!control.references.open) return;
+    control.references.open = false;
+    if (control.references.complete_views != 0u)
+    {
+        (void)debug_system::submit_event<debug_system::EEventLevel::assert, debug_system::EEventType::condition>(
+            MV_INTERNAL_USAGE_POINT, "Host: bundle closure with {} outstanding complete-view records", control.references.complete_views);
+    }
+    if ((m_filesystem == nullptr) || !m_filesystem->close_bundle(control.binding)) m_failed = true;
+    (void)m_assets.erase(control.original);
+}
+
+void CAssetService::finalise_bundles() noexcept
+{
+    for (std::int32_t slot = m_bundles.first_live(); slot >= 0;)
+    {
+        const std::int32_t next = m_bundles.next_live(slot);
+        SBundleControl& control = *m_bundles.get_object(slot);
+        if (!control.references.open && (control.references.records == 0u) && (control.references.operations == 0u))
+        {
+            if ((m_filesystem == nullptr) || !m_filesystem->remove_bundle(control.binding))
+            {
+                m_failed = true;
+                return;
+            }
+            const BundleDisposedNotification result{ control.original };
+            threading::CThreadPackage* const recipient = control.recipient;
+            (void)m_bundles.erase(slot); //  Storage and the root are gone before delivery.
+            if ((recipient != nullptr) && bundle_recipient_available(*recipient))
+            {
+                threading::CErasedPodMsg message;
+                message.assign_payload(result);
+                message.set_async_slot(-1);
+
+                //  The recipient may exit between the state check and posting.
+                if (!recipient->post(message) && bundle_recipient_available(*recipient))
+                {
+                    m_failed = true;
+                    MV_CRITICAL_EVENT("Host: Bundle final disposal notification delivery failed");
+                }
+            }
+        }
+        slot = next;
+    }
 }
 
 bool CAssetService::configure_workers(threading::CThreadPackage& file_io, threading::CThreadPackage* const conditioning) noexcept
@@ -58,6 +263,17 @@ void CAssetService::deallocate() noexcept
     }
     m_operations.deallocate();
     m_assets.deallocate();
+    for (std::int32_t slot = m_bundles.first_live(); slot >= 0; slot = m_bundles.next_live(slot))
+    {
+        SBundleControl& control = *m_bundles.get_object(slot);
+        MV_ASSERT(control.references.operations == 0u);
+        if (m_filesystem != nullptr)
+        {
+            if (control.references.open) (void)m_filesystem->close_bundle(control.binding);
+            (void)m_filesystem->remove_bundle(control.binding);
+        }
+    }
+    m_bundles.deallocate(); //  Full shutdown retires notifications after users stop.
     m_file_io = nullptr;
     m_conditioning = nullptr;
     m_rendering = nullptr;
@@ -74,7 +290,11 @@ void CAssetService::fail_pending() noexcept
 template<typename TOwner>
 void CAssetService::describe_views(TOwner& source, AssetResult& result) noexcept
 {
-    if (LoadedFile* const raw = source.template payload<LoadedFile>())
+    if (BorrowedBundleAsset* const borrowed = source.template payload<BorrowedBundleAsset>())
+    {
+        result = borrowed->view;
+    }
+    else if (LoadedFile* const raw = source.template payload<LoadedFile>())
     {
         result.set_raw_view(memory::CMemoryConstView{ raw->buffer.data(), raw->buffer.size(), 1u, raw->buffer.align() });
     }
@@ -136,10 +356,11 @@ void CAssetService::finish_operation(const std::int32_t slot, const EAssetStatus
         }
         else if (operation.save_requested && (operation.phase == EPhase::saving))
         {
-            //  Live sources and JSON serialization are not necessarily the same
-            //  representation as a later baked load. Keep the association only
+            //  Complete bundles and live sources do not represent ordinary
+            //  raw/baked loads of the saved file. Keep the association only
             //  where the retained representation can satisfy that load.
-            const CAssetId cached = (operation.working_views.kind != EAssetKind::live) ? operation.retained_asset : CAssetId{};
+            const CAssetId cached = ((operation.working_views.kind != EAssetKind::live) &&
+                (operation.working_views.kind != EAssetKind::bundle)) ? operation.retained_asset : CAssetId{};
             updated = m_filesystem->written(operation.logical_file, operation.file, cached.query_value(),
                 static_cast<std::uint64_t>(operation.save_settings.format));
         }
@@ -211,6 +432,18 @@ void CAssetService::request_disposal(const AssetDisposeRequest& request, const s
         return;
     }
 
+    CAssetRecord& record = *m_assets.resolve(request.asset);
+    if (record.backing_role() == EAssetBackingRole::original)
+    {
+        SBundleControl* const control = find_bundle(record.backing());
+        if (control != nullptr)
+        {
+            control->recipient = &client;
+            close_bundle(*control);
+            return; //  Only final disposal is notified; no correlated success.
+        }
+    }
+
     const std::int32_t operation_slot = m_operations.emplace();
     if (operation_slot < 0)
     {
@@ -248,6 +481,7 @@ void CAssetService::complete_disposals() noexcept
         }
         slot = next;
     }
+    finalise_bundles();
 }
 
 void CAssetService::dispose_dependencies(const mount_point_ids::id_type mount) noexcept
@@ -264,6 +498,7 @@ void CAssetService::dispose_dependencies(const mount_point_ids::id_type mount) n
             m_failed = true;
         }
     }
+    finalise_bundles();
 }
 
 //==============================================================================
@@ -383,7 +618,7 @@ void CAssetService::request(threading::CErasedOwnerMsg& message, threading::CThr
             return;
         }
         CAssetRecord* const source = disposal_pending(decode->source) ? nullptr : m_assets.resolve(decode->source);
-        if (source == nullptr)
+        if ((source == nullptr) || !protect_asset(*source, operation.backing, true))
         {
             finish_operation(slot, EAssetStatus::invalid_asset);
             return;
@@ -477,6 +712,11 @@ void CAssetService::request(threading::CErasedOwnerMsg& message, threading::CThr
             finish_operation(slot, ((source == nullptr) ? EAssetStatus::invalid_asset : EAssetStatus::invalid_request));
             return;
         }
+        if (!protect_asset(*source, operation.backing, false))
+        {
+            finish_operation(slot, EAssetStatus::invalid_asset);
+            return;
+        }
         operation.retained_asset = save->source;
         describe_views((*source), operation.working_views);
     }
@@ -540,7 +780,7 @@ void CAssetService::begin_save_or_bake(const std::int32_t slot) noexcept
         request.options = &operation.save_settings.document;
         outbound.assign_payload(request);
     }
-    else if (((operation.working_views.kind == EAssetKind::raw) ||
+    else if (((operation.working_views.kind == EAssetKind::raw) || (operation.working_views.kind == EAssetKind::bundle) ||
         (operation.working_views.kind == EAssetKind::encoded_texture)) &&
         (operation.save_settings.format == EAssetFileFormat::raw))
     {
@@ -572,7 +812,7 @@ void CAssetService::begin_file_save(const std::int32_t slot, const CByteConstVie
     threading::CErasedPodMsg outbound;
     outbound.set_async_slot(slot);
     outbound.assign_payload(FileSaveRequest{ operation.file, bytes });
-    if (!m_file_io->post(outbound))
+    if ((m_file_io == nullptr) || !m_file_io->post(outbound))
     {
         finish_operation(slot, EAssetStatus::delivery_failed);
     }

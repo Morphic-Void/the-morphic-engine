@@ -78,14 +78,81 @@ static_assert(std::is_standard_layout_v<CAssetId>, "CAssetId must have standard 
 static_assert((sizeof(CAssetId) == sizeof(std::uint64_t)), "CAssetId must occupy 64 bits.");
 
 //==============================================================================
+//  Backing leases
+//  Optional shared storage protected by retained records and accepted work.
+//==============================================================================
+
+//  Host-thread-only backing leases. Releasing a lease never destroys backing
+//  storage; the Host finalises it after all records and operations have drained.
+enum class EAssetBackingRole : std::uint8_t { none = 0, original, complete, file, operation };
+
+struct SAssetBackingState
+{
+    std::uint32_t records{ 0u };
+    std::uint32_t complete_views{ 0u };
+    std::uint32_t operations{ 0u };
+    bool open{ true };
+};
+
+class CAssetBackingLease
+{
+public:
+    CAssetBackingLease() noexcept = default;
+    CAssetBackingLease(const CAssetBackingLease&) = delete;
+    CAssetBackingLease& operator=(const CAssetBackingLease&) = delete;
+    CAssetBackingLease(CAssetBackingLease&& other) noexcept { *this = std::move(other); }
+    CAssetBackingLease& operator=(CAssetBackingLease&& other) noexcept
+    {
+        if (this != &other)
+        {
+            reset();
+            m_state = std::exchange(other.m_state, nullptr);
+            m_role = std::exchange(other.m_role, EAssetBackingRole::none);
+        }
+        return *this;
+    }
+    ~CAssetBackingLease() noexcept { reset(); }
+
+    [[nodiscard]] bool acquire(SAssetBackingState& state, const EAssetBackingRole role) noexcept
+    {
+        if ((m_state != nullptr) || (role == EAssetBackingRole::none)) return false;
+        std::uint32_t& count = (role == EAssetBackingRole::operation) ? state.operations : state.records;
+        if (count == UINT32_MAX) return false;
+        ++count;
+        if (role == EAssetBackingRole::complete) ++state.complete_views;
+        m_state = &state;
+        m_role = role;
+        return true;
+    }
+    void reset() noexcept
+    {
+        if (m_state != nullptr)
+        {
+            if (m_role == EAssetBackingRole::operation) --m_state->operations;
+            else --m_state->records;
+            if (m_role == EAssetBackingRole::complete) --m_state->complete_views;
+        }
+        m_state = nullptr;
+        m_role = EAssetBackingRole::none;
+    }
+    [[nodiscard]] SAssetBackingState* state() const noexcept { return m_state; }
+    [[nodiscard]] EAssetBackingRole role() const noexcept { return m_role; }
+
+private:
+    SAssetBackingState* m_state{ nullptr };
+    EAssetBackingRole m_role{ EAssetBackingRole::none };
+};
+
+//==============================================================================
 //  CAssetRecord
-//  Repository-owned asset and future asset-lifecycle metadata boundary.
+//  Repository-owned payload and optional backing lease.
 //==============================================================================
 
 class CAssetRecord
 {
 public:
-    explicit CAssetRecord(CErasedOwner&& owner) noexcept : m_owner(std::move(owner)) {}
+    explicit CAssetRecord(CErasedOwner&& owner, CAssetBackingLease&& backing = {}) noexcept :
+        m_backing(std::move(backing)), m_owner(std::move(owner)) {}
 
     CAssetRecord(const CAssetRecord&) = delete;
     CAssetRecord& operator=(const CAssetRecord&) = delete;
@@ -96,6 +163,8 @@ public:
     [[nodiscard]] bool is_ready() const noexcept { return m_owner.is_ready(); }
     [[nodiscard]] type_id query_type_id() const noexcept { return m_owner.query_type_id(); }
     [[nodiscard]] bool has_dependency(const mount_point_ids::id_type mount) const noexcept { return m_owner.has_hazard(mount); }
+    [[nodiscard]] SAssetBackingState* backing() const noexcept { return m_backing.state(); }
+    [[nodiscard]] EAssetBackingRole backing_role() const noexcept { return m_backing.role(); }
 
     template<typename T>
     [[nodiscard]] T* payload() noexcept { return m_owner.payload<T>(); }
@@ -104,6 +173,7 @@ public:
     [[nodiscard]] const T* payload() const noexcept { return m_owner.payload<T>(); }
 
 private:
+    CAssetBackingLease m_backing; //  Release after the payload is destroyed.
     CErasedOwner m_owner;
 };
 
@@ -132,7 +202,7 @@ public:
 
     void deallocate() noexcept { m_assets.deallocate(); }
 
-    [[nodiscard]] CAssetId insert(CErasedOwner&& owner) noexcept;
+    [[nodiscard]] CAssetId insert(CErasedOwner&& owner, CAssetBackingLease backing = {}) noexcept;
 
     [[nodiscard]] CAssetRecord* resolve(const CAssetId id) noexcept;
 
@@ -165,7 +235,7 @@ inline bool CAssetRepository::initialise(
     return m_assets.initialise(initial_slot_count, slots_per_buffer);
 }
 
-inline CAssetId CAssetRepository::insert(CErasedOwner&& owner) noexcept
+inline CAssetId CAssetRepository::insert(CErasedOwner&& owner, CAssetBackingLease backing) noexcept
 {
     if (!owner.is_ready() || (m_next_id == 0u))
     {
@@ -173,7 +243,7 @@ inline CAssetId CAssetRepository::insert(CErasedOwner&& owner) noexcept
     }
 
     const CAssetId id{ m_next_id++ };
-    return (m_assets.emplace(id, std::move(owner)) >= 0) ? id : CAssetId{};
+    return (m_assets.emplace(id, std::move(owner), std::move(backing)) >= 0) ? id : CAssetId{};
 }
 
 inline CAssetRecord* CAssetRepository::resolve(const CAssetId id) noexcept

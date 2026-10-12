@@ -17,6 +17,7 @@
 #include <cstdint>      //  std::uint8_t, std::uint32_t
 
 #include "assets/asset_repository.hpp"
+#include "assets/bundle.hpp"
 #include "containers/ByteBuffers.hpp"
 #include "containers/StringBuffers.hpp"
 #include "data_model/baked_document.hpp"
@@ -256,7 +257,9 @@ struct AssetDisposeResult
     EAssetStatus status{ EAssetStatus::invalid_asset };
 };
 
-enum class EAssetKind : std::uint8_t { none = 0, raw, image, baked, live, encoded_texture, decoded_texture };
+struct BundleDisposedNotification { CAssetId asset{}; };
+
+enum class EAssetKind : std::uint8_t { none = 0, raw, image, baked, live, encoded_texture, decoded_texture, bundle };
 
 struct BakedAssetView
 {
@@ -268,6 +271,7 @@ union AssetViews
 {
     memory::CMemoryConstView bytes;
     BakedAssetView baked;
+    bundle::CBundleView bundle;
     const image::CImageView* image;
     CLiveDocument* live;
     const image::texture::CEncodedTexture* encoded_texture;
@@ -276,6 +280,7 @@ union AssetViews
     AssetViews() noexcept : bytes{} {}
     explicit AssetViews(const memory::CMemoryConstView& value) noexcept : bytes{ value } {}
     explicit AssetViews(const BakedAssetView& value) noexcept : baked{ value } {}
+    explicit AssetViews(const bundle::CBundleView& value) noexcept : bundle{ value } {}
     explicit AssetViews(const image::CImageView* const value) noexcept : image{ value } {}
     explicit AssetViews(CLiveDocument* const value) noexcept : live{ value } {}
     explicit AssetViews(const image::texture::CEncodedTexture* const value) noexcept : encoded_texture{ value } {}
@@ -295,6 +300,17 @@ struct AssetResult
     {
         views = AssetViews{ value };
         kind = EAssetKind::raw;
+    }
+
+    void set_bundle_view(const bundle::CBundleView& value) noexcept
+    {
+        views = AssetViews{ value };
+        kind = EAssetKind::bundle;
+    }
+
+    [[nodiscard]] bundle::CBundleView bundle_view() const noexcept
+    {
+        return (kind == EAssetKind::bundle) ? views.bundle : bundle::CBundleView{};
     }
 
     void set_baked_view(const BakedAssetView& value) noexcept
@@ -329,6 +345,7 @@ struct AssetResult
 
     [[nodiscard]] CByteConstView byte_view() const noexcept
     {
+        if (kind == EAssetKind::bundle) return views.bundle.bytes();
         if ((kind == EAssetKind::encoded_texture) && (views.encoded_texture != nullptr))
         {
             return views.encoded_texture->buffer.const_view();
@@ -366,6 +383,9 @@ struct AssetResult
             views.decoded_texture->view() : image::texture::CDecodedView{};
     }
 };
+
+//  Only the Host creates these carriers, with a backing lease on their record.
+struct BorrowedBundleAsset { AssetResult view; };
 
 //==============================================================================
 //  Document conditioning: borrowed Host inputs and owning worker output
@@ -554,6 +574,8 @@ MV_REGISTER_SYSTEM_TYPE(AssetSaveRequest, system_type_ids::asset_save_request);
 MV_REGISTER_SYSTEM_TYPE(AssetDisposeRequest, system_type_ids::asset_dispose_request);
 MV_REGISTER_SYSTEM_TYPE(AssetDisposeResult, system_type_ids::asset_dispose_result);
 MV_REGISTER_SYSTEM_TYPE(AssetResult, system_type_ids::asset_result);
+MV_REGISTER_SYSTEM_TYPE(BorrowedBundleAsset, system_type_ids::borrowed_bundle_asset);
+MV_REGISTER_SYSTEM_TYPE(BundleDisposedNotification, system_type_ids::bundle_disposed_notification);
 
 //  Document conditioning.
 MV_REGISTER_SYSTEM_TYPE(DocumentConditionRequest, system_type_ids::document_condition_request);

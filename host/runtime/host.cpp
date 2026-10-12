@@ -506,6 +506,7 @@ void CHost::advance_lifecycle(const threading::EThreadRunState executive_state) 
         const bool stopped =
             (state == threading::EThreadRunState::Exited) || (state == threading::EThreadRunState::Failed) ||
             (state == threading::EThreadRunState::Empty);
+        if (stopped) m_asset_service.detach_client(*executive);
         if (stopped && (m_phase == EPhase::running))
         {
             m_phase = EPhase::stopping_executive;

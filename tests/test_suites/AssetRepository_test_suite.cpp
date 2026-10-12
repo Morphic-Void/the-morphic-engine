@@ -135,6 +135,43 @@ void test_repository_dependency_disposal(TTestContext& ctx)
     TEST_EXPECT(ctx, repository.check_integrity());
 }
 
+void test_backing_record_accounting(TTestContext& ctx)
+{
+    SAssetBackingState state;
+    CAssetRepository repository;
+    TEST_EXPECT(ctx, repository.initialise());
+    CAssetBackingLease first, second;
+    TEST_EXPECT(ctx, first.acquire(state, EAssetBackingRole::complete));
+    TEST_EXPECT(ctx, second.acquire(state, EAssetBackingRole::file));
+    TEST_EXPECT(ctx, state.records == 2u && state.complete_views == 1u && state.operations == 0u);
+    second = std::move(first);
+    second = std::move(second);
+    TEST_EXPECT(ctx, state.records == 1u && state.complete_views == 1u && first.state() == nullptr);
+    CErasedOwner owner = make_test_asset();
+    owner.add_hazard(mount_point_ids::executive);
+    const CAssetId asset = repository.insert(std::move(owner), std::move(second));
+    TEST_EXPECT(ctx, asset && state.records == 1u && second.state() == nullptr);
+    const CAssetRecord* const record = repository.resolve(asset);
+    repository.compact();
+    TEST_EXPECT(ctx, repository.resolve(asset) == record && record->backing() == &state);
+    CAssetBackingLease operation;
+    TEST_EXPECT(ctx, operation.acquire(state, EAssetBackingRole::operation));
+    repository.erase_dependencies(mount_point_ids::executive);
+    TEST_EXPECT(ctx, state.records == 0u && state.complete_views == 0u && state.operations == 1u);
+    operation.reset();
+    TEST_EXPECT(ctx, state.operations == 0u);
+    TEST_EXPECT(ctx, first.acquire(state, EAssetBackingRole::file));
+    CErasedOwner empty;
+    TEST_EXPECT(ctx, !repository.insert(std::move(empty), std::move(first)) && state.records == 0u);
+    state.records = UINT32_MAX;
+    TEST_EXPECT(ctx, !first.acquire(state, EAssetBackingRole::file));
+    state.records = 0u;
+    TEST_EXPECT(ctx, first.acquire(state, EAssetBackingRole::file));
+    TEST_EXPECT(ctx, repository.insert(make_test_asset(), std::move(first)).is_valid());
+    repository.deallocate();
+    TEST_EXPECT(ctx, state.records == 0u);
+}
+
 }   //  namespace
 
 int run_asset_repository_tests()
@@ -144,6 +181,7 @@ int run_asset_repository_tests()
     test_repository_identity_and_reuse(ctx);
     test_repository_reinitialisation_does_not_reuse_ids(ctx);
     test_repository_dependency_disposal(ctx);
+    test_backing_record_accounting(ctx);
 
     std::cout << "AssetRepository: " << ctx.passed << " passed, " << ctx.failed << " failed\n";
     return ctx.failed;

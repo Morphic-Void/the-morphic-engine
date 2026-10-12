@@ -104,6 +104,7 @@
     <ClCompile Include="..\tests\test_suites\File_test_suite.cpp" />
     <ClCompile Include="..\tests\test_suites\AsyncState_test_suite.cpp" />
     <ClCompile Include="..\tests\test_suites\HostWorkers_test_suite.cpp" />
+    <ClCompile Include="..\tests\test_suites\BundleService_test_suite.cpp" />
     <ClCompile Include="..\tests\test_suites\TextureService_test_suite.cpp" />
     <ClCompile Include="..\tests\test_suites\TextureBatch_test_suite.cpp" />
     <ClCompile Include="..\host\runtime\asset_service.cpp" />
@@ -156,6 +157,7 @@
     <ClInclude Include="..\tests\test_suites\File_test_suite.hpp" />
     <ClInclude Include="..\tests\test_suites\AsyncState_test_suite.hpp" />
     <ClInclude Include="..\tests\test_suites\HostWorkers_test_suite.hpp" />
+    <ClInclude Include="..\tests\test_suites\BundleService_test_suite.hpp" />
     <ClInclude Include="..\tests\test_suites\TextureService_test_suite.hpp" />
     <ClInclude Include="..\tests\test_suites\TextureBatch_test_suite.hpp" />
     <ClInclude Include="..\tests\test_suites\BakedDocument_test_suite.hpp" />
