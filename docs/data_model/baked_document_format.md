@@ -307,6 +307,37 @@ its default alignment remains 16. The loader retains file length plus explicit
 padding as logical size and rounds capacity to the effective alignment. Loading
 and adoption therefore require no subsequent alignment copy.
 
+`CBakedDocumentBlock::adopt_buffer(CByteBuffer&&)` uses the same prefix validation
+and ownership guarantees as `adopt()`, but retains the source's entire logical
+length. Bytes following the document are uninterpreted by the document layer.
+This supports enclosing file formats without a second allocation or a change to
+the baked header: `total_size` still describes only the document prefix.
+
+`buffer_bytes()` exposes the complete logical buffer as a mutable `CByteView`
+on a non-const block and a `CByteConstView` on a const block. Its data and size
+can be passed to file I/O; `buffer_capacity()` observes spare capacity separately.
+`bytes()`, `document()` and both document-view constructors from the block remain
+prefix-only. Use `bytes()` to save just the document or the const `buffer_bytes()`
+to save all appended content as well. Moving or reattributing the block retains
+the entire allocation and logical buffer length.
+
+`resize_buffer(size, alignment)` operates on an already adopted or baked block.
+It rejects sizes below the document length or above the allocation ceiling and
+preserves the owner on failure. Alignment zero preserves current alignment;
+explicit alignment follows memory conditioning with a 32-byte floor, and
+above-ceiling alignment requests fail. Capacity is rounded to effective
+alignment without geometric growth. Newly exposed logical bytes are zeroed,
+including growth within existing capacity and regrowth after shrinking. The
+document header and retained content remain unchanged.
+
+Resizing is a private-construction operation. Discard all borrowed views and
+pointers before a potentially relocating resize and recreate them afterwards.
+Never resize while published views or asynchronous work still use the storage.
+Mutable full-buffer access must preserve the validated prefix; use the document
+editor's setters for its value updates. It does not authorise changing the
+header, directory structure or serialized extent. Validation of appended content
+belongs to the enclosing format, not the document owner.
+
 The view exposes the established read surface: readiness and integrity, root
 and counts, value type and name, typed scalar payloads and integer metadata,
 parent and sibling relationships, child ranges and ordinal array access, object

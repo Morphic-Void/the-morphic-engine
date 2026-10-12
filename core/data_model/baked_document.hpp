@@ -216,8 +216,21 @@ public:
     CBakedDocumentBlock& operator=(const CBakedDocumentBlock&) = delete;
     ~CBakedDocumentBlock() noexcept = default;
 
-    //  Adopt checked document storage; failure preserves both owners.
+    //  Adopt checked document storage, trimming logical size to the document.
+    //  Both adoption paths validate the prefix; failure preserves both owners.
     [[nodiscard]] bool adopt(CByteBuffer&& source) noexcept;
+
+    //  Retain the complete logical buffer, including uninterpreted appended bytes.
+    [[nodiscard]] bool adopt_buffer(CByteBuffer&& source) noexcept;
+
+    //  Resize private storage without truncating the document prefix. Capacity is
+    //  rounded to effective alignment, without geometric growth. Alignment zero
+    //  preserves the current alignment; explicit values use memory conditioning
+    //  with a 32-byte floor. Above-ceiling sizes/alignments fail without changes.
+    //  Growth zeroes newly exposed bytes. Any successful resize may relocate:
+    //  discard all borrowed views/pointers first and reacquire them afterwards.
+    //  Never resize storage still in use by published views or asynchronous work.
+    [[nodiscard]] bool resize_buffer(const std::size_t size, const std::size_t alignment = 0u) noexcept;
 
     //  Release
     void deallocate() noexcept;
@@ -227,7 +240,16 @@ public:
 
     //  Borrowed view; does not extend the backing storage's lifetime.
     [[nodiscard]] CBakedDocument document() const noexcept;
+
+    //  Exact document prefix, excluding appended bytes and spare capacity.
     [[nodiscard]] CByteConstView bytes() const noexcept;
+
+    //  Complete logical buffer for persistence and private construction. Mutable
+    //  access must preserve the validated prefix, using the document editor for
+    //  its value updates. Appended content is outside document validation.
+    [[nodiscard]] CByteView buffer_bytes() noexcept;
+    [[nodiscard]] CByteConstView buffer_bytes() const noexcept;
+    [[nodiscard]] std::size_t buffer_capacity() const noexcept;
 
 //  Interface for memory accounting and ownership-transfer infrastructure.
 public:
@@ -241,6 +263,7 @@ public:
         memory::CMemoryContext* const expected_source, memory::CMemoryContext* const target) noexcept;
 
 private:
+    [[nodiscard]] bool adopt_storage(CByteBuffer&& source, const bool preserve_buffer) noexcept;
     CByteBuffer m_bytes;
 };
 
@@ -517,7 +540,23 @@ inline CBakedDocument CBakedDocumentBlock::document() const noexcept
 inline CByteConstView CBakedDocumentBlock::bytes() const noexcept
 {
     return is_ready() ? CByteConstView{ m_bytes.data(),
-        m_bytes.size(), baked_document_format::k_block_alignment } : CByteConstView{};
+        reinterpret_cast<const SBakedDocumentHeader*>(m_bytes.data())->total_size,
+        baked_document_format::k_block_alignment } : CByteConstView{};
+}
+
+inline CByteView CBakedDocumentBlock::buffer_bytes() noexcept
+{
+    return m_bytes.view();
+}
+
+inline CByteConstView CBakedDocumentBlock::buffer_bytes() const noexcept
+{
+    return m_bytes.const_view();
+}
+
+inline std::size_t CBakedDocumentBlock::buffer_capacity() const noexcept
+{
+    return m_bytes.capacity();
 }
 
 inline memory::SMemoryAttribution CBakedDocumentBlock::memory_attribution() const noexcept

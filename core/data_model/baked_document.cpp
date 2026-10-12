@@ -544,6 +544,16 @@ SBakedValueRecord* CMutableBakedDocument::writable_value_record(const CBakedValu
 
 bool CBakedDocumentBlock::adopt(CByteBuffer&& source) noexcept
 {
+    return adopt_storage(std::move(source), false);
+}
+
+bool CBakedDocumentBlock::adopt_buffer(CByteBuffer&& source) noexcept
+{
+    return adopt_storage(std::move(source), true);
+}
+
+bool CBakedDocumentBlock::adopt_storage(CByteBuffer&& source, const bool preserve_buffer) noexcept
+{
     if (!source.is_ready() ||
         ((reinterpret_cast<std::uintptr_t>(source.data()) & (baked_document_format::k_block_alignment - 1u)) != 0u) ||
         ((source.capacity() & (baked_document_format::k_block_alignment - 1u)) != 0u) ||
@@ -565,13 +575,26 @@ bool CBakedDocumentBlock::adopt(CByteBuffer&& source) noexcept
     }
 
     CBakedDocument document;
-    if (!document.reset(source.data(), header.total_size) || !source.set_size(document.byte_count()))
+    if (!document.reset(source.data(), header.total_size) || (!preserve_buffer && !source.set_size(document.byte_count())))
     {
         return false;
     }
 
     m_bytes = std::move(source);
     return true;
+}
+
+bool CBakedDocumentBlock::resize_buffer(const std::size_t size, const std::size_t alignment) noexcept
+{
+    if (!is_ready() || (size < bytes().size()) ||
+        (size > memory::k_byte_size_ceiling) || (alignment > memory::k_byte_size_ceiling))
+    {
+        return false;
+    }
+    const std::size_t effective_alignment = std::max(baked_document_format::k_block_alignment,
+        memory::condition_alignment((alignment == 0u) ? m_bytes.align() : alignment));
+    const std::size_t capacity = memory::condition_bytes(effective_alignment, size);
+    return (capacity != 0u) && m_bytes.reallocate(size, capacity, effective_alignment);
 }
 
 void CBakedDocumentBlock::deallocate() noexcept

@@ -1430,6 +1430,7 @@ static void expect_adoption_rejected(TTestContext& ctx, TChange&& change)
     const auto attribution = source.memory_attribution();
     std::vector<std::uint8_t> snapshot;
     if (capacity != 0u) snapshot.assign(pointer, pointer + capacity);
+    TEST_EXPECT(ctx, !destination.adopt_buffer(std::move(source)));
     TEST_EXPECT(ctx, !destination.adopt(std::move(source)));
     TEST_EXPECT(ctx, source.data() == pointer && source.size() == size && source.capacity() == capacity);
     TEST_EXPECT(ctx, source.memory_attribution().source == attribution.source);
@@ -1503,6 +1504,7 @@ static void test_adoption_rejections(TTestContext& ctx)
     const auto source_pointer = valid.data();
     {
         const tests::TMemoryContextScope scope{ &context };
+        TEST_EXPECT(ctx, !destination.adopt_buffer(std::move(valid)));
         TEST_EXPECT(ctx, !destination.adopt(std::move(valid)));
     }
     TEST_EXPECT(ctx, valid.data() == source_pointer && valid.size() == baked_document_format::k_min_document_size);
@@ -1567,6 +1569,8 @@ static void test_adoption_lifetime(TTestContext& ctx)
         TEST_EXPECT(ctx, !source.is_ready() && source.size() == 0u && source.capacity() == 0u);
         TEST_EXPECT(ctx, old_context.is_attribution_empty());
         TEST_EXPECT(ctx, destination.bytes().data() == pointer && destination.bytes().size() == baked_document_format::k_min_document_size);
+        TEST_EXPECT(ctx, destination.buffer_bytes().size() == baked_document_format::k_min_document_size);
+        TEST_EXPECT(ctx, destination.buffer_capacity() == 192u);
         TEST_EXPECT(ctx, destination.memory_attribution().source == &source_context);
         TEST_EXPECT(ctx, destination.memory_attribution().allocation_count == 1u);
         TEST_EXPECT(ctx, destination.memory_attribution().allocation_size == 192u);
@@ -1652,6 +1656,144 @@ static void test_views_from_validated_block(TTestContext& ctx)
         TEST_EXPECT(ctx, fixture.requests == 2u);
     }
     TEST_EXPECT(ctx, context.is_attribution_empty());
+}
+
+static void test_appended_storage(TTestContext& ctx)
+{
+    static_assert(std::is_same_v<decltype(std::declval<CBakedDocumentBlock&>().buffer_bytes()), CByteView>);
+    static_assert(std::is_same_v<decltype(std::declval<const CBakedDocumentBlock&>().buffer_bytes()), CByteConstView>);
+    CByteBuffer source;
+    TEST_EXPECT(ctx, prepare_root(source));
+    TEST_EXPECT(ctx, source.reallocate(259u, 384u, 128u));
+    std::memset(source.data() + k_root_only_size, 0xa5, 259u - k_root_only_size);
+    std::memset(source.data() + 259u, 0xcc, source.capacity() - 259u);
+    const auto pointer = source.data();
+    const auto attribution = source.memory_attribution();
+    CBakedDocumentBlock block;
+    TEST_EXPECT(ctx, block.adopt_buffer(std::move(source)));
+    TEST_EXPECT(ctx, !source.is_ready());
+    TEST_EXPECT(ctx, block.bytes().data() == pointer && block.bytes().size() == k_root_only_size);
+    TEST_EXPECT(ctx, block.buffer_bytes().data() == pointer && block.buffer_bytes().size() == 259u);
+    TEST_EXPECT(ctx, block.buffer_bytes().align() == 128u && block.buffer_capacity() == 384u);
+    TEST_EXPECT(ctx, block.memory_attribution().source == attribution.source);
+    TEST_EXPECT(ctx, block.memory_attribution().allocation_size == attribution.allocation_size);
+    for (std::size_t index = k_root_only_size; index < 259u; ++index)
+    {
+        TEST_EXPECT(ctx, block.buffer_bytes().data()[index] == 0xa5u);
+    }
+    TEST_EXPECT(ctx, block.document().check_integrity());
+    const CBakedDocument incorrect_extent{ pointer, block.buffer_bytes().size() };
+    TEST_EXPECT(ctx, !incorrect_extent.is_ready());
+
+    SRejectingViewAllocator fixture;
+    memory::CMemoryAllocator allocator{ &fixture, &SRejectingViewAllocator::allocate, &tests::deallocate_test_memory };
+    memory::CMemoryContext context{ allocator };
+    {
+        const tests::TMemoryContextScope scope{ &context };
+        const CBakedDocument reading{ block };
+        const CMutableBakedDocument editing{ block };
+        TEST_EXPECT(ctx, reading.is_ready() && reading.byte_count() == k_root_only_size);
+        TEST_EXPECT(ctx, editing.is_ready() && editing.baked().byte_count() == k_root_only_size);
+        TEST_EXPECT(ctx, fixture.requests == 0u);
+    }
+    CBakedDocumentBlock moved{ std::move(block) };
+    TEST_EXPECT(ctx, block.buffer_bytes().is_empty() && block.buffer_capacity() == 0u);
+    TEST_EXPECT(ctx, !block.document().is_ready());
+    const CBakedDocumentBlock& constant = moved;
+    TEST_EXPECT(ctx, constant.buffer_bytes().data() == pointer && constant.buffer_bytes().size() == 259u);
+    block = std::move(moved);
+    TEST_EXPECT(ctx, moved.buffer_bytes().is_empty() && moved.bytes().is_empty());
+    TEST_EXPECT(ctx, block.buffer_bytes().size() == 259u && block.buffer_capacity() == 384u);
+    //  Growth within existing capacity must also clear previously unused bytes.
+    TEST_EXPECT(ctx, block.resize_buffer(300u));
+    TEST_EXPECT(ctx, block.buffer_bytes().data() == pointer && block.buffer_capacity() == 384u);
+    for (std::size_t index = 259u; index < 300u; ++index)
+    {
+        TEST_EXPECT(ctx, block.buffer_bytes().data()[index] == 0u);
+    }
+    block.deallocate();
+    TEST_EXPECT(ctx, block.buffer_bytes().is_empty() && block.buffer_capacity() == 0u);
+    TEST_EXPECT(ctx, !block.resize_buffer(512u, 128u));
+}
+
+static void test_resizing_storage(TTestContext& ctx)
+{
+    CLiveDocument live;
+    TEST_EXPECT(ctx, live.initialise());
+    TEST_EXPECT(ctx, live.append_child(live.root(), live.create_unsigned_integer(0u, CStringView{ "size" })).succeeded());
+    CBakedDocumentBlock block;
+    TEST_EXPECT(ctx, document_translation::bake(live, block));
+    if (!block.is_ready()) return;
+    const std::size_t document_size = block.bytes().size();
+    {
+        CMutableBakedDocument editing{ block };
+        const auto value = editing.baked().object_child(editing.baked().root(), CStringView{ "size" });
+        TEST_EXPECT(ctx, editing.set_unsigned_integer_value(value, 512u));
+        CIntegerMetadata metadata;
+        TEST_EXPECT(ctx, editing.baked().integer_metadata(value, metadata) && metadata.width == EIntegerWidth::bits_16);
+        TEST_EXPECT(ctx, editing.baked().byte_count() == document_size);
+    }
+    const std::vector<std::uint8_t> prefix(block.bytes().data(), block.bytes().data() + document_size);
+    const auto old_address = reinterpret_cast<std::uintptr_t>(block.bytes().data());
+    const std::size_t full_size = document_size + 129u;
+    TEST_EXPECT(ctx, block.resize_buffer(full_size, 128u));
+    TEST_EXPECT(ctx, reinterpret_cast<std::uintptr_t>(block.bytes().data()) != old_address);
+    TEST_EXPECT(ctx, (reinterpret_cast<std::uintptr_t>(block.bytes().data()) & 127u) == 0u);
+    TEST_EXPECT(ctx, block.buffer_bytes().size() == full_size && block.buffer_bytes().align() == 128u);
+    TEST_EXPECT(ctx, block.buffer_capacity() == memory::condition_bytes(128u, full_size));
+    TEST_EXPECT(ctx, block.bytes().size() == document_size && std::memcmp(block.bytes().data(), prefix.data(), document_size) == 0);
+    for (std::size_t index = document_size; index < full_size; ++index)
+    {
+        TEST_EXPECT(ctx, block.buffer_bytes().data()[index] == 0u);
+    }
+    //  Only freshly acquired views are used after resizing.
+    {
+        const CBakedDocument reading{ block };
+        CMutableBakedDocument editing{ block };
+        TEST_EXPECT(ctx, reading.check_integrity() && reading.byte_count() == document_size);
+        const auto value = reading.object_child(reading.root(), CStringView{ "size" });
+        TEST_EXPECT(ctx, editing.set_unsigned_integer_value(value, 7u));
+        CIntegerMetadata metadata;
+        TEST_EXPECT(ctx, reading.integer_metadata(value, metadata) && metadata.width == EIntegerWidth::bits_8);
+        TEST_EXPECT(ctx, reading.check_integrity() && block.bytes().size() == document_size);
+    }
+    std::memset(block.buffer_bytes().data() + document_size, 0xa5, full_size - document_size);
+    TEST_EXPECT(ctx, block.resize_buffer(document_size + 1u));
+    TEST_EXPECT(ctx, block.buffer_bytes().align() == 128u);
+    TEST_EXPECT(ctx, block.resize_buffer(full_size));
+    TEST_EXPECT(ctx, block.buffer_bytes().data()[document_size] == 0xa5u);
+    for (std::size_t index = document_size + 1u; index < full_size; ++index)
+    {
+        TEST_EXPECT(ctx, block.buffer_bytes().data()[index] == 0u);
+    }
+    const auto pointer = block.buffer_bytes().data();
+    const auto capacity = block.buffer_capacity();
+    const auto attribution = block.memory_attribution();
+    const std::vector<std::uint8_t> snapshot(pointer, pointer + full_size);
+    TEST_EXPECT(ctx, !block.resize_buffer(document_size - 1u));
+    TEST_EXPECT(ctx, !block.resize_buffer(0u));
+    TEST_EXPECT(ctx, !block.resize_buffer(memory::k_byte_size_ceiling + 1u));
+    TEST_EXPECT(ctx, !block.resize_buffer(full_size, memory::k_byte_size_ceiling + 1u));
+    tests::TAllocatorFixture rejecting{ true };
+    memory::CMemoryAllocator allocator{ &rejecting, &tests::allocate_test_memory, &tests::deallocate_test_memory };
+    memory::CMemoryContext context{ allocator };
+    {
+        const tests::TMemoryContextScope scope{ &context };
+        TEST_EXPECT(ctx, !block.resize_buffer(capacity + 128u, 256u));
+    }
+    TEST_EXPECT(ctx, context.is_attribution_empty());
+    TEST_EXPECT(ctx, block.buffer_bytes().data() == pointer && block.buffer_bytes().size() == full_size);
+    TEST_EXPECT(ctx, block.buffer_capacity() == capacity && block.buffer_bytes().align() == 128u);
+    TEST_EXPECT(ctx, block.memory_attribution().source == attribution.source);
+    TEST_EXPECT(ctx, block.memory_attribution().allocation_size == attribution.allocation_size);
+    TEST_EXPECT(ctx, std::memcmp(pointer, snapshot.data(), snapshot.size()) == 0);
+    TEST_EXPECT(ctx, block.document().check_integrity());
+    TEST_EXPECT(ctx, block.resize_buffer(full_size, 256u));
+    TEST_EXPECT(ctx, block.buffer_bytes().align() == 256u);
+    TEST_EXPECT(ctx, std::memcmp(block.buffer_bytes().data(), snapshot.data(), snapshot.size()) == 0);
+    TEST_EXPECT(ctx, block.resize_buffer(document_size, 1u));
+    TEST_EXPECT(ctx, block.buffer_bytes().align() >= 32u);
+    TEST_EXPECT(ctx, block.buffer_bytes().size() == document_size && block.document().check_integrity());
 }
 
 struct SBakingAllocator
@@ -1892,6 +2034,8 @@ int run_baked_document_tests()
     baked_document_storage_tests::test_misaligned_adoption(ctx);
     baked_document_storage_tests::test_adoption_lifetime(ctx);
     baked_document_storage_tests::test_views_from_validated_block(ctx);
+    baked_document_storage_tests::test_appended_storage(ctx);
+    baked_document_storage_tests::test_resizing_storage(ctx);
     baked_document_storage_tests::test_baking_storage(ctx);
     document_copy_tests::test_copy_routes(ctx);
     document_copy_tests::test_copy_depth(ctx);

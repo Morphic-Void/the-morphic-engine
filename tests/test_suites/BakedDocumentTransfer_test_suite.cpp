@@ -120,6 +120,9 @@ static void test_block_attribution(TTestContext& ctx)
     TEST_EXPECT(ctx, !block.is_ready() && !block.document().is_ready());
     TEST_EXPECT(ctx, block.memory_attribution().allocation_count == 0u);
     bake(ctx, block);
+    const std::size_t prefix_size = block.bytes().size();
+    TEST_EXPECT(ctx, block.resize_buffer(prefix_size + 129u, 128u));
+    std::memset(block.buffer_bytes().data() + prefix_size, 0xa5, 129u);
     const auto bytes = block.bytes();
     const std::vector<std::uint8_t> snapshot(bytes.data(), bytes.data() + bytes.size());
     const CBakedDocument view = block.document();
@@ -144,6 +147,8 @@ static void test_block_attribution(TTestContext& ctx)
     TEST_EXPECT(ctx, !block.is_ready() && !block.document().is_ready() && block.memory_attribution().allocation_count == 0u);
     TEST_EXPECT(ctx, memory::reattribute(block, &contexts.incompatible));
     expect_bytes(ctx, moved, bytes.data(), snapshot);
+    TEST_EXPECT(ctx, moved.buffer_bytes().size() == prefix_size + 129u);
+    TEST_EXPECT(ctx, moved.buffer_bytes().data()[prefix_size + 128u] == 0xa5u);
     TEST_EXPECT(ctx, memory::reattribute(moved, &contexts.executive));
     TEST_EXPECT(ctx, contexts.host.is_attribution_empty());
     TEST_EXPECT(ctx, contexts.state.allocations == allocation_calls && contexts.state.deallocations == deallocation_calls);
@@ -415,6 +420,40 @@ static void test_aligned_file_round_trip(TTestContext& ctx)
     platform::filesystem::removeFile(native_path);
 }
 
+static void test_appended_file_round_trip(TTestContext& ctx)
+{
+    const std::string path = test_environment::test_output_path("baked_appended_storage.bin");
+    CBakedDocumentBlock original;
+    bake(ctx, original);
+    const auto document_size = original.bytes().size();
+    const auto full_size = memory::condition_bytes(128u, document_size + 129u);
+    TEST_EXPECT(ctx, original.resize_buffer(full_size, 128u));
+    for (std::size_t index = document_size; index < full_size; ++index)
+    {
+        original.buffer_bytes().data()[index] = static_cast<std::uint8_t>(index);
+    }
+    const CBakedDocumentBlock& constant = original;
+    const bool saved = platform::filesystem::saveFile(path.c_str(), constant.buffer_bytes());
+    TEST_EXPECT(ctx, saved);
+    if (!saved) return;
+    std::size_t file_size = 0u;
+    TEST_EXPECT(ctx, platform::filesystem::queryFileSize(path.c_str(), file_size) && file_size == full_size);
+    CByteBuffer loaded = platform::filesystem::loadFile(path.c_str(), 0u, 128u);
+    const auto pointer = loaded.data();
+    CBakedDocumentBlock restored;
+    TEST_EXPECT(ctx, restored.adopt_buffer(std::move(loaded)));
+    TEST_EXPECT(ctx, restored.buffer_bytes().data() == pointer && !loaded.is_ready());
+    TEST_EXPECT(ctx, restored.buffer_bytes().size() == full_size && restored.bytes().size() == document_size);
+    if (restored.is_ready())
+    {
+        TEST_EXPECT(ctx, std::memcmp(restored.buffer_bytes().data(), constant.buffer_bytes().data(), full_size) == 0);
+        TEST_EXPECT(ctx, restored.document().check_integrity());
+        TEST_EXPECT(ctx, platform::filesystem::saveFile(path.c_str(), restored.bytes()));
+        TEST_EXPECT(ctx, platform::filesystem::queryFileSize(path.c_str(), file_size) && file_size == document_size);
+    }
+    platform::filesystem::removeFile(platform::path::makeNativePath(path.c_str()));
+}
+
 }   //  namespace baked_document_transfer_tests
 
 int run_baked_document_transfer_tests()
@@ -425,6 +464,7 @@ int run_baked_document_transfer_tests()
     baked_document_transfer_tests::test_message_and_repository(ctx);
     baked_document_transfer_tests::test_rejected_and_unread_messages(ctx);
     baked_document_transfer_tests::test_aligned_file_round_trip(ctx);
+    baked_document_transfer_tests::test_appended_file_round_trip(ctx);
     std::cout << "BakedDocumentTransfer: " << ctx.passed << " passed, " << ctx.failed << " failed\n";
     return (ctx.failed == 0u) ? 0 : 1;
 }
