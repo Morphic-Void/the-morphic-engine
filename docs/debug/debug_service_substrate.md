@@ -320,6 +320,11 @@ not acquire format semantics. Typed `submit_event()`:
 5. formats and writes synchronously under the direct-log lock when no slot is
    immediately available.
 
+`MV_ASSERT_REPORT` uses this submission path directly with `assert/condition`
+metadata in every build. It adds no expression prefix, informational filter,
+breakpoint override or shutdown consequence. Low-level submission tests retain
+direct calls when they need explicit source metadata or the Boolean result.
+
 Breakpoint- or shutdown-capable macros use `process_event()`. It captures one
 incident context, submits that context through the same transport/direct path,
 applies any shutdown request independently of submission success, and finally

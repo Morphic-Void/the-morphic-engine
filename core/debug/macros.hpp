@@ -76,6 +76,15 @@
     #define MV_ASSERT_MSG(condition, ...) do { } while (0)
 #endif
 
+//  Diagnostic-only assertion reporting in every build. The caller has already
+//  detected the failure and owns continuation; breakpoint/shutdown policy is not applied.
+#define MV_ASSERT_REPORT(...) \
+    do \
+    { \
+        (void)debug_system::submit_event<debug_system::EEventLevel::assert, debug_system::EEventType::condition>( \
+            MV_INTERNAL_USAGE_POINT, __VA_ARGS__); \
+    } while (0)
+
 #if MV_DEBUG_DEVELOPMENT_BUILD
     #define MV_DEBUG_ASSERT(condition) \
         MV_INTERNAL_PROCESS_CONDITION(debug_system::EEventLevel::assert, condition, true, \

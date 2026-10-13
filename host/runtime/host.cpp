@@ -437,8 +437,7 @@ void CHost::complete_scan(threading::CErasedOwnerMsg& message) noexcept
 void CHost::executive_failure(const EModuleStatus status) noexcept
 {
     m_runtime_failed = true;
-    (void)debug_system::submit_event<debug_system::EEventLevel::assert, debug_system::EEventType::condition>(
-        MV_INTERNAL_USAGE_POINT, "Executive module lifecycle failed, status {}", static_cast<std::uint32_t>(status));
+    MV_ASSERT_REPORT("Executive module lifecycle failed, status {}", static_cast<std::uint32_t>(status));
     if (threading::CThreadPackage* const executive = thread_package(EWorkerThreadID::executive))
     {
         executive->request_exit();
@@ -487,8 +486,7 @@ void CHost::advance_lifecycle(const threading::EThreadRunState executive_state) 
                 if (result.status != EModuleStatus::success)
                 {
                     m_runtime_failed = true;
-                    (void)debug_system::submit_event<debug_system::EEventLevel::assert, debug_system::EEventType::condition>(
-                        MV_INTERNAL_USAGE_POINT, "Module shutdown failed, status {}", static_cast<std::uint32_t>(result.status));
+                    MV_ASSERT_REPORT("Module shutdown failed, status {}", static_cast<std::uint32_t>(result.status));
                 }
                 break;
             }

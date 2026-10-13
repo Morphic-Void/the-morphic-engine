@@ -341,8 +341,7 @@ bool CModuleService::release_records() noexcept
         {
             unloaded = false;
             record->binding.retain_until_process_exit();
-            (void)debug_system::submit_event<debug_system::EEventLevel::assert, debug_system::EEventType::condition>(
-                MV_INTERNAL_USAGE_POINT, "Host retained a DLL after worker unload could not complete");
+            MV_ASSERT_REPORT("Host retained a DLL after worker unload could not complete");
         }
 
         record.reset();

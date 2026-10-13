@@ -55,6 +55,7 @@ void compile_public_macro_interface(const bool execute)
     const bool condition = true;
     MV_ASSERT(condition);
     MV_ASSERT_MSG(condition, "assert message {}", std::uint32_t{ 1u });
+    MV_ASSERT_REPORT("assert report message {}", std::uint32_t{ 1u });
     MV_DEBUG_ASSERT(condition);
     MV_DEBUG_ASSERT_MSG(condition, "debug assert message");
     MV_DEBUG_ONLY((void)condition);
@@ -1462,6 +1463,66 @@ void test_queued_and_direct_equivalence(TTestContext& ctx)
         "[DebugService_test_suite.cpp:779] closed report fallback"));
 }
 
+void test_assert_report(TTestContext& ctx)
+{
+    const std::string event_path = test_environment::test_log_path("debug_assert_report");
+    const std::string direct_path = test_environment::test_log_path("debug_assert_report_direct");
+    auto owner = TInstance<debug_system::CDebugServiceState>::create();
+    TEST_EXPECT(ctx, owner.is_ready());
+    if (!owner.is_ready()) return;
+    auto& service = *owner;
+    TEST_EXPECT(ctx, service.configure_log_paths(event_path.c_str(), direct_path.c_str()));
+    TEST_EXPECT(ctx, service.open_logs());
+    TEST_EXPECT(ctx, debug_system::install_service(&service));
+
+    //  No informational production; breakpoint and critical-shutdown policies
+    //  enabled. Assertion reports must still log and continue in every build.
+    service.publish_configuration(debug_system::k_breakpoints_enabled | debug_system::k_critical_shutdown_enabled);
+    TEST_EXPECT(ctx, !service.informational_event_enabled(debug_system::EEventLevel::info));
+    std::uint32_t evaluations = 0u;
+    const std::uint32_t queued_line = __LINE__ + 1u;
+    MV_ASSERT_REPORT("assert report queued {}", ++evaluations);
+    TEST_EXPECT(ctx, evaluations == 1u);
+    MV_ASSERT_REPORT("assert report without arguments");
+
+    //  A statement macro must also preserve an enclosing if/else and must not
+    //  evaluate arguments in an unselected branch.
+    bool continued = false;
+    if (evaluations == 0u)
+        MV_ASSERT_REPORT("unselected report {}", ++evaluations);
+    else
+        continued = true;
+    TEST_EXPECT(ctx, continued && evaluations == 1u);
+
+    for (std::uint32_t index = 2u; index < debug_system::CEventTransport::k_capacity; ++index)
+    {
+        TEST_EXPECT(ctx, service.submit_text("Fill assertion-report queue"));
+    }
+    const std::uint32_t direct_line = __LINE__ + 1u;
+    MV_ASSERT_REPORT("assert report direct {}", ++evaluations);
+    TEST_EXPECT(ctx, evaluations == 2u);
+    TEST_EXPECT(ctx, !service.breakpoint_pause_requested());
+    TEST_EXPECT(ctx, service.read_shutdown_request() == debug_system::EShutdownReason::none);
+    TEST_EXPECT(ctx, service.start());
+    TEST_EXPECT(ctx, service.stop());
+
+    char expected[160]{};
+    (void)std::snprintf(expected, sizeof(expected),
+        "[assert:condition] [DebugService_test_suite.cpp:%u] assert report queued 1", queued_line);
+    TEST_EXPECT(ctx, tests::file_contains(event_path.c_str(), expected));
+    TEST_EXPECT(ctx, tests::file_contains(event_path.c_str(), "assert report without arguments"));
+    (void)std::snprintf(expected, sizeof(expected),
+        "[assert:condition] [DebugService_test_suite.cpp:%u] assert report direct 2", direct_line);
+    TEST_EXPECT(ctx, tests::file_contains(direct_path.c_str(), expected));
+    TEST_EXPECT(ctx, !tests::file_contains(event_path.c_str(), "unselected report"));
+    TEST_EXPECT(ctx, debug_system::uninstall_service(&service));
+
+    //  As with direct submission, an unavailable service does not control the
+    //  caller's execution or suppress argument evaluation.
+    MV_ASSERT_REPORT("no installed service {}", ++evaluations);
+    TEST_EXPECT(ctx, evaluations == 3u);
+}
+
 void test_malformed_event_overlays(TTestContext& ctx)
 {
     const std::string event_path_storage =
@@ -1573,6 +1634,7 @@ int run_debug_service_tests()
     debug_service_tests::test_explicit_log_opening(ctx);
     debug_service_tests::test_filename_and_capacity_boundaries(ctx);
     debug_service_tests::test_queued_and_direct_equivalence(ctx);
+    debug_service_tests::test_assert_report(ctx);
     debug_service_tests::test_malformed_event_overlays(ctx);
 
     std::cout << "DebugService: " << ctx.passed << " passed, "

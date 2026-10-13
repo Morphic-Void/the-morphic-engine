@@ -24,14 +24,11 @@ The sections below are deferred scope, not an implementation schedule.
 
 ## Diagnostics and developer tooling
 
-- Audit the debug-macro gap noted during bundle Stage 4 review (12 October 2026).
-  Direct `debug_system::submit_event()` calls occur in asset disposal and Host
-  lifecycle handling. Search for `MV_INTERNAL_USAGE_POINT` outside
-  `core/debug/macros.hpp` to identify callers. Investigate existing macro coverage
-  and why callers use direct submission, including intentional low-level/test
-  uses. Discuss the findings before making additions or changes, preserving event
-  severity, condition/event kind and existing continuation behaviour. This work
-  follows the bundle review corrections and documentation closeout in
+- The bundle follow-up debug-macro audit identified five production
+  `assert/condition` submissions with no breakpoint or shutdown effects. The
+  agreed `MV_ASSERT_REPORT` addition preserves those semantics in all builds;
+  implementation and migration are tested and reviewed. Direct substrate tests remain
+  valid uses of `submit_event()`. See
   [current scope](current_scope_backlog.md#bundle-review-and-closeout).
 - Expand debug reporting, fatal capture and controlled shutdown as concrete
   consumers require. Preserve early startup/late shutdown, bounded dedicated

@@ -244,8 +244,7 @@ void CAssetService::close_bundle(SBundleControl& control) noexcept
     control.references.open = false;
     if (control.references.complete_views != 0u)
     {
-        (void)debug_system::submit_event<debug_system::EEventLevel::assert, debug_system::EEventType::condition>(
-            MV_INTERNAL_USAGE_POINT, "Host: bundle closure with {} outstanding complete-view records", control.references.complete_views);
+        MV_ASSERT_REPORT("Host: bundle closure with {} outstanding complete-view records", control.references.complete_views);
     }
     if ((m_filesystem == nullptr) || !m_filesystem->close_bundle(control.binding)) m_failed = true;
     (void)m_assets.erase(control.original);
@@ -543,8 +542,7 @@ void CAssetService::dispose_dependencies(const mount_point_ids::id_type mount) n
     {
         //  A module should release its assets before stopping. Log the violated
         //  contract, then destroy remaining owners while their DLL is still bound.
-        (void)debug_system::submit_event<debug_system::EEventLevel::assert, debug_system::EEventType::condition>(
-            MV_INTERNAL_USAGE_POINT, "Host: disposing retained assets dependent on module mount {}", mount.raw_value());
+        MV_ASSERT_REPORT("Host: disposing retained assets dependent on module mount {}", mount.raw_value());
         m_assets.erase_dependencies(mount);
         if ((m_filesystem != nullptr) && !m_filesystem->clear_cache())
         {

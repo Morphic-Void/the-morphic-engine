@@ -22,10 +22,11 @@ contains prerequisites, implementation/review checkpoints and validation evidenc
 The implementation plan is retired and documentation closeout is reviewed.
 Shader-specific integration remains outside this work.
 
-The next selected discussion is the
-[debug-macro investigation](engine_backlog.md#diagnostics-and-developer-tooling).
-Establish missing coverage and discuss findings before making macro additions or
-changes. This note records the next task; it does not start that investigation.
+The debug-macro investigation found five production calls needing assertion-level
+reports in every build without breakpoint or shutdown effects. The agreed
+`MV_ASSERT_REPORT` addition and migration are implemented, tested and reviewed, with the
+contract in the [debug interface](../debug/debug_system_interface.md#mv_assert_reportformat_literal-).
+Low-level submission tests remain direct; no broader macro family is selected.
 
 ## Next work
 

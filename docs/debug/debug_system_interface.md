@@ -16,6 +16,7 @@ Engine debug system.
 It covers:
 
 - conditional assertions and diagnostic-only evaluation;
+- assertion-level reporting without breakpoint or shutdown effects;
 - informational and abnormal event reporting;
 - compositional event level and type;
 - runtime breakpoint control;
@@ -58,7 +59,7 @@ This document distinguishes three build-policy tiers:
 - **other development**: includes normal development assertions but omits
   expensive debug-only work;
 - **published**: omits development-only incidents while retaining the
-  explicitly published warning, error, critical, fatal, and panic contracts.
+  explicitly published assertion-report, warning, error, critical, fatal, and panic contracts.
 
 These are engine diagnostic-policy tiers. They are configured explicitly by
 `MV_DEVELOPMENT_BUILD` and `MV_DEBUG_DEVELOPMENT_BUILD`, not inferred from
@@ -115,6 +116,38 @@ Contract:
 
 An `MV_ASSERT` condition must not contain work required for correctness because
 the condition is omitted from published builds.
+
+### `MV_ASSERT_REPORT(format_literal, ...)`
+
+`MV_ASSERT_REPORT` records a failure already detected by ordinary caller code.
+It is an assertion-level report, not a development-only assertion check:
+
+```cpp
+if (outstanding_references != 0u)
+{
+    MV_ASSERT_REPORT("Closing with {} outstanding references", outstanding_references);
+}
+```
+
+Contract:
+
+- present in every build and independent of informational filtering;
+- emits structured `assert/condition` metadata at the calling file and line;
+- takes the existing bounded format literal and typed `{}` arguments, with
+  each argument evaluated once, even if no service is installed;
+- accepts no Boolean condition and adds no stringified expression prefix;
+- is statement-like and returns no value;
+- never invokes breakpoint handling, even when breakpoints are globally enabled;
+- never requests debug-system shutdown or changes caller control flow;
+- uses ordinary queued submission and its direct fallback, with the same
+  best-effort delivery limits as the underlying service.
+
+The caller owns detection, recovery, cleanup and any lifecycle shutdown.
+Use this report for convention violations or failure paths which must remain
+visible in published builds and continue without debugger intervention. Existing
+uses include bundle closure with outstanding complete views, retained-asset
+cleanup and module lifecycle failure. Ordinary `MV_ASSERT` and `MV_DEBUG_ASSERT`
+retain their existing build gating and breakpoint policy.
 
 ### `MV_DEBUG_ASSERT(condition)`
 
@@ -515,6 +548,7 @@ The default breakpoint reactions are:
 - disabled for warning incidents;
 - not applicable to informational logging;
 - not applicable to rich reporting;
+- not applicable to `MV_ASSERT_REPORT` (it bypasses breakpoint policy entirely);
 - not applicable to `MV_DEBUG_ONLY`;
 - special and non-suppressible for panic.
 
@@ -658,6 +692,7 @@ MV_DETAIL                 build/runtime level policy              policy
 MV_TRACE                  build/runtime level policy              policy
 MV_REPORT                 emit unconditionally                    yes; event/direct
 MV_REPORT_IMMEDIATE       emit unconditionally                    yes; direct log
+MV_ASSERT_REPORT          emit unconditionally                    yes; queued/direct
 MV_WARNING                emit unconditionally                    yes
 MV_ERROR                  emit unconditionally                    yes
 MV_CRITICAL_ASSERT        evaluate; emit when condition is false  yes
@@ -682,6 +717,7 @@ MV_DETAIL                 no breakpoint                not breakpoint-capable
 MV_TRACE                  no breakpoint                not breakpoint-capable
 MV_REPORT                 no breakpoint                not breakpoint-capable
 MV_REPORT_IMMEDIATE       no breakpoint                not breakpoint-capable
+MV_ASSERT_REPORT          no breakpoint                not breakpoint-capable
 MV_WARNING                breakpoint disabled          enabled/disabled/inherit
 MV_ASSERT                 breakpoint enabled           enabled/disabled/inherit
 MV_DEBUG_ASSERT           breakpoint enabled           enabled/disabled/inherit
@@ -706,6 +742,7 @@ MV_DEBUG_ASSERT           caller continues after optional breakpoint
 MV_DEBUG_ONLY             invoked diagnostic function owns any consequence
 MV_REPORT                 caller continues after report publication/fallback
 MV_REPORT_IMMEDIATE       caller continues after synchronous rich report
+MV_ASSERT_REPORT          caller owns continuation, cleanup and lifecycle policy
 MV_WARNING                caller continues; operation contract remains fulfilled
 MV_ERROR                  caller owns local recovery from failed operation
 MV_CRITICAL               degraded continuation; policy may request shutdown
