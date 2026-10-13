@@ -44,14 +44,17 @@ public:
     //  Internal publication/admission boundary used by Host worker routing.
     //  Publication consumes a reserved binding; failure cancels that reservation
     //  and preserves the caller's block. Success moves it without copying bytes.
-    [[nodiscard]] AssetResult publish_bundle(CBakedDocumentBlock& block, const std::uint64_t binding) noexcept;
+    //  The requester owns management of the original asset and receives final
+    //  disposal notification. Other clients may retain views and sub-files.
+    [[nodiscard]] AssetResult publish_bundle(CBakedDocumentBlock& block, const std::uint64_t binding, threading::CThreadPackage& owner) noexcept;
     [[nodiscard]] AssetResult acquire_bundle(const CAssetId source) noexcept;
     [[nodiscard]] EAssetStatus begin_bundle_file(const CAssetId source, const CStringView path,
         const std::size_t alignment, CBundleOperation& operation) noexcept;
     [[nodiscard]] AssetResult retain_bundle_file(const CBundleOperation& operation,
         const EAssetFileFormat format, const mount_point_ids::id_type dependency = {}) noexcept;
 
-    //  Stop final notifications before the recipient package can be destroyed.
+    //  Retire management ownership and final notifications before a package is
+    //  destroyed or reused. Its accepted operations must have completed first.
     void detach_client(threading::CThreadPackage& client) noexcept;
 
     void set_filesystem(filesystem_image::CImage& image) noexcept { m_filesystem = &image; }
@@ -158,7 +161,7 @@ private:
         bundle::CBundleView view;
         CAssetId original;
         std::uint64_t binding{ 0u };
-        threading::CThreadPackage* recipient{ nullptr };
+        threading::CThreadPackage* owner{ nullptr }; //  Instance identity; retired by detach_client.
     };
 
     [[nodiscard]] SBundleControl* find_bundle(const SAssetBackingState* const state) noexcept;

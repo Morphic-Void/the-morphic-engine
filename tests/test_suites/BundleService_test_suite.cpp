@@ -103,25 +103,26 @@ struct SFixture
             image.adopt(std::move(document)) && conversion.init() && service.initialise() &&
             service.configure_workers(package, nullptr) && package.startup();
     }
-    AssetResult publish(TTestContext& ctx)
+    AssetResult publish(TTestContext& ctx, threading::CThreadPackage* owner = nullptr)
     {
         CBakedDocumentBlock block;
         TEST_EXPECT(ctx, make_bundle(block));
         const void* before = block.buffer_bytes().data();
         TEST_EXPECT(ctx, image.reserve_bundle("pack:", binding));
-        const auto result = service.publish_bundle(block, binding);
+        const auto result = service.publish_bundle(block, binding, (owner != nullptr) ? *owner : package);
         TEST_EXPECT(ctx, result.status == EAssetStatus::success && result.asset && !block.is_ready());
         TEST_EXPECT(ctx, result.bundle_view().bytes().data() == before);
         return result;
     }
-    template<typename T> bool receive(T& result, std::int32_t expected_slot)
+    template<typename T> bool receive(T& result, std::int32_t expected_slot, threading::CThreadPackage* recipient = nullptr)
     {
         platform::system::CPerfCounter timer;
         (void)timer.update();
         while (timer.query_delta() < conversion.query_ticks_per_second() * 5u)
         {
             threading::CErasedPodMsg message;
-            if (package.read(message)) return (message.query_async_slot() == expected_slot) && message.copy_payload_to(result);
+            if (((recipient != nullptr) ? *recipient : package).read(message))
+                return (message.query_async_slot() == expected_slot) && message.copy_payload_to(result);
             platform::threading::processor_relax();
         }
         return false;
@@ -307,6 +308,82 @@ void test_dependency_cleanup_and_recipient_exit(TTestContext& ctx)
     }
 }
 
+void test_management_owner(TTestContext& ctx)
+{
+    SFixture owner, borrower;
+    TEST_EXPECT(ctx, owner.initialise() && borrower.initialise());
+    const auto original = owner.publish(ctx);
+    //  Both fixtures use the same thread role; authority belongs to the instance.
+    owner.service.request_disposal({ original.asset }, 40, borrower.package);
+    AssetDisposeResult rejected;
+    TEST_EXPECT(ctx, borrower.receive(rejected, 40) && rejected.asset == original.asset &&
+        rejected.status == EAssetStatus::invalid_request);
+    owner.service.complete_disposals();
+    TEST_EXPECT(ctx, owner.image.root_state("pack:") == ERootState::open);
+    owner.service.request_reference({ original.asset }, 41, borrower.package);
+    AssetResult reference;
+    TEST_EXPECT(ctx, borrower.receive(reference, 41) && reference.status == EAssetStatus::success && reference.asset);
+    TEST_EXPECT(ctx, reference.bundle_view().lookup(CStringView{ "raw" }).bytes.bytes() == 3u);
+    owner.service.request_disposal({ reference.asset }, 42, borrower.package);
+    owner.service.complete_disposals();
+    TEST_EXPECT(ctx, borrower.receive(rejected, 42) && rejected.status == EAssetStatus::success);
+    CAssetService::CBundleOperation operation;
+    TEST_EXPECT(ctx, owner.service.begin_bundle_file(original.asset, CStringView{ "raw" }, 128u, operation) == EAssetStatus::success);
+    const auto file = owner.service.retain_bundle_file(operation, EAssetFileFormat::raw);
+    TEST_EXPECT(ctx, file.asset);
+    operation.reset();
+    owner.service.request_disposal({ original.asset }, 43, owner.package);
+    owner.service.complete_disposals();
+    TEST_EXPECT(ctx, owner.image.root_state("pack:") == ERootState::closed);
+    TEST_EXPECT(ctx, std::memcmp(file.byte_view().data(), "abc", 3u) == 0);
+    owner.service.request_disposal({ file.asset }, 44, borrower.package);
+    owner.service.complete_disposals();
+    TEST_EXPECT(ctx, borrower.receive(rejected, 44) && rejected.status == EAssetStatus::success);
+    owner.notification(ctx, original.asset);
+    //  A reply on the borrower's FIFO proves it did not receive the notification.
+    owner.service.request_reference({ original.asset }, 45, borrower.package);
+    TEST_EXPECT(ctx, borrower.receive(reference, 45) && reference.status == EAssetStatus::invalid_asset);
+    TEST_EXPECT(ctx, !owner.service.failed());
+}
+
+void test_package_reuse(TTestContext& ctx)
+{
+    for (bool close : { false, true })
+    {
+        SFixture fixture;
+        TEST_EXPECT(ctx, fixture.initialise());
+        const threading::ThreadConfig config{ thread_ids::rendering, module_ids::executable,
+            platform::threading::EThreadPriority::Normal, &echo_messages };
+        auto package = TInstance<threading::CThreadPackage>::create(config, fixture.conversion);
+        TEST_EXPECT(ctx, package && package->startup());
+        const auto original = fixture.publish(ctx, &*package);
+        CAssetService::CBundleOperation operation;
+        TEST_EXPECT(ctx, fixture.service.begin_bundle_file(original.asset, CStringView{ "raw" }, 128u, operation) == EAssetStatus::success);
+        const auto file = fixture.service.retain_bundle_file(operation, EAssetFileFormat::raw);
+        TEST_EXPECT(ctx, file.asset);
+        operation.reset();
+        if (close) fixture.service.request_disposal({ original.asset }, 50, *package);
+        TEST_EXPECT(ctx, package->shutdown());
+        fixture.service.detach_client(*package);
+        //  Reuse the exact package address and role, as a collection slot can do.
+        const auto* address = &*package;
+        TEST_EXPECT(ctx, package.emplace(config, fixture.conversion) && (&*package == address) && package->startup());
+        fixture.service.request_disposal({ original.asset }, 51, *package);
+        AssetDisposeResult rejected;
+        TEST_EXPECT(ctx, fixture.receive(rejected, 51, &*package) &&
+            rejected.status == (close ? EAssetStatus::invalid_asset : EAssetStatus::invalid_request));
+        fixture.dispose(ctx, file.asset);
+        //  An open orphan remains for full shutdown; detach does not transfer or close it.
+        TEST_EXPECT(ctx, fixture.image.root_state("pack:") == (close ? ERootState::missing : ERootState::open));
+        fixture.service.request_disposal({ original.asset }, 52, *package);
+        TEST_EXPECT(ctx, fixture.receive(rejected, 52, &*package) &&
+            rejected.status == (close ? EAssetStatus::invalid_asset : EAssetStatus::invalid_request));
+        TEST_EXPECT(ctx, !fixture.service.failed());
+        TEST_EXPECT(ctx, package->shutdown());
+        fixture.service.detach_client(*package);
+    }
+}
+
 void test_conversion_lifetime(TTestContext& ctx)
 {
     SFixture fixture;
@@ -377,10 +454,10 @@ void test_live_notification_failure(TTestContext& ctx)
 {
     SFixture fixture;
     TEST_EXPECT(ctx, fixture.initialise());
-    const auto original = fixture.publish(ctx);
     threading::CThreadPackage recipient{ threading::ThreadConfig{ thread_ids::executive, module_ids::executable,
         platform::threading::EThreadPriority::Normal, &blocked_recipient }, fixture.conversion };
     TEST_EXPECT(ctx, recipient.startup());
+    const auto original = fixture.publish(ctx, &recipient);
     threading::CErasedPodMsg filler;
     filler.assign_payload(AssetDisposeResult{});
     bool full = false;
@@ -428,8 +505,10 @@ void test_publication_failure_and_shutdown(TTestContext& ctx)
             const auto* bytes = block.buffer_bytes().data();
             std::uint64_t binding = 0u;
             TEST_EXPECT(ctx, image.reserve_bundle("pack:", binding));
+            platform::system::CPerfCountConversion conversion;
+            threading::CThreadPackage client{ {}, conversion };
             allocator_state.fail_on = allocator_state.calls + attempt;
-            const auto result = service.publish_bundle(block, binding);
+            const auto result = service.publish_bundle(block, binding, client);
             allocator_state.fail_on = SIZE_MAX;
             succeeded = result.asset.is_valid();
             if (!succeeded)
@@ -466,6 +545,8 @@ int run_bundle_service_tests()
     test_closure_and_retained_records(ctx);
     test_complete_views_and_saves(ctx);
     test_dependency_cleanup_and_recipient_exit(ctx);
+    test_management_owner(ctx);
+    test_package_reuse(ctx);
     test_conversion_lifetime(ctx);
     test_live_notification_failure(ctx);
     test_publication_failure_and_shutdown(ctx);

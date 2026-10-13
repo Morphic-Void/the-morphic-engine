@@ -37,7 +37,7 @@ if (!$SkipBuild) {
     }
 }
 
-foreach ($case in @('bundle', 'bundle-inline', 'bundle-late-reference', 'bundle-replace', 'bundle-shutdown', 'bundle-failures', 'batch', 'batch-inline', 'batch-exit', 'ordinary', 'dependency', 'disposal', 'disposal-during-save', 'shutdown', 'shutdown-dependency', 'replace', 'replace-dependency', 'replace-missing', 'bootstrap-missing', 'startup-failure', 'replace-startup-failure', 'thread-failures', 'render-shutdown', 'render-shutdown-dependency', 'render-replace-dependency', 'render-executive-replace', 'render-drain', 'render-exit-disposal', 'normal-startup', 'normal-unavailable', 'normal-bad-start', 'normal-missing-thread')) {
+foreach ($case in @('bundle', 'bundle-inline', 'bundle-late-reference', 'bundle-replace', 'bundle-shutdown', 'bundle-failures', 'bundle-rendering', 'batch', 'batch-inline', 'batch-exit', 'ordinary', 'dependency', 'disposal', 'disposal-during-save', 'shutdown', 'shutdown-dependency', 'replace', 'replace-dependency', 'replace-missing', 'bootstrap-missing', 'startup-failure', 'replace-startup-failure', 'thread-failures', 'render-shutdown', 'render-shutdown-dependency', 'render-replace-dependency', 'render-executive-replace', 'render-drain', 'render-exit-disposal', 'normal-startup', 'normal-unavailable', 'normal-bad-start', 'normal-missing-thread')) {
     $tag = "lifecycle-$suffix-$case"
     $normalExecutive = $case.StartsWith('normal-')
     $serviceFailure = $case -in @('normal-unavailable', 'normal-bad-start', 'normal-missing-thread')
@@ -126,6 +126,16 @@ foreach ($case in @('bundle', 'bundle-inline', 'bundle-late-reference', 'bundle-
         }
         if (($case -eq 'bundle-late-reference') -and !$events.Contains('outstanding complete-view records')) {
             throw 'Missing complete-view convention diagnostic.'
+        }
+        if ($case -eq 'bundle-rendering') {
+            $owned = $events.IndexOf('Bundle fixture: Rendering owns loaded bundle')
+            $joined = $events.IndexOf('Host: Rendering thread joined')
+            $released = $events.IndexOf('Bundle fixture: Rendering ownership and post-join sub-file release passed')
+            if (($owned -lt 0) -or ($joined -lt $owned) -or ($released -lt $joined)) {
+                throw 'Rendering bundle ownership and notification retirement incomplete.'
+            }
+            $saved = [IO.File]::ReadAllBytes((Join-Path $runtime 'development/logical-roots/test-output/bundle-rendering-survivor.bin'))
+            if (($saved.Length -ne 128) -or @($saved | Where-Object { $_ -ne 0x5a }).Count) { throw 'Rendering bundle sub-file was corrupted after join.' }
         }
         if ($case -eq 'batch') {
             $expectedBatch = if ($events.Contains('Host: Batch runners 0')) { 'batch queued 0 inline 16' } else { 'batch queued 16 inline 0' }

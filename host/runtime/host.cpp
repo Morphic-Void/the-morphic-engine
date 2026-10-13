@@ -205,6 +205,7 @@ bool CHost::stop_rendering(const threading::EThreadRunState state) noexcept
     //  package or its transports when shutdown joins and destroys them.
     m_runtime_failed = m_runtime_failed || (state == threading::EThreadRunState::Failed);
     (void)rendering->shutdown();
+    m_asset_service.detach_client(*rendering);
     std::int32_t& slot = m_thread_slots[static_cast<std::uint32_t>(EWorkerThreadID::rendering)];
     (void)m_thread_packages.erase(slot);
     slot = -1;
@@ -506,7 +507,6 @@ void CHost::advance_lifecycle(const threading::EThreadRunState executive_state) 
         const bool stopped =
             (state == threading::EThreadRunState::Exited) || (state == threading::EThreadRunState::Failed) ||
             (state == threading::EThreadRunState::Empty);
-        if (stopped) m_asset_service.detach_client(*executive);
         if (stopped && (m_phase == EPhase::running))
         {
             m_phase = EPhase::stopping_executive;
@@ -533,6 +533,7 @@ void CHost::advance_lifecycle(const threading::EThreadRunState executive_state) 
             //  unbind the outgoing Executive. No asset operation still borrows it.
             m_runtime_failed = m_runtime_failed || (state == threading::EThreadRunState::Failed);
             (void)executive->shutdown();
+            m_asset_service.detach_client(*executive);
             std::int32_t& slot = m_thread_slots[static_cast<std::uint32_t>(EWorkerThreadID::executive)];
             (void)m_thread_packages.erase(slot);
             slot = -1;
@@ -654,6 +655,11 @@ void CHost::run() noexcept
                 if (&package == executive)
                 {
                     receive_request(owned, package);
+                }
+                else if ((&package == rendering) && !owned.is_message_a<TextureEncodeResult>() &&
+                    !owned.is_message_a<TextureDecodeResult>())
+                {
+                    m_asset_service.request(owned, package);
                 }
                 else if ((&package == &file_io) && owned.is_message_a<FilesystemScanResult>())
                 {

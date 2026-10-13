@@ -790,8 +790,22 @@ static std::uint32_t MV_STD_ABI_CALL rendering_entry(void* const data) noexcept
 #elif MV_LIFECYCLE_RENDERING_DISPOSAL
 static std::uint32_t MV_STD_ABI_CALL rendering_entry(void* const data) noexcept
 {
-    threading::CThreadContext context{ *static_cast<threading::CThreadResources*>(data) };
+    auto& resources = *static_cast<threading::CThreadResources*>(data);
+    threading::CThreadContext context{ resources };
     context.startup();
+    char selected[32]{};
+    std::size_t required{ 0u };
+    if ((getenv_s(&required, selected, sizeof(selected), "MORPHIC_LIFECYCLE_CASE") == 0) &&
+        (std::strcmp(selected, "bundle-rendering") == 0))
+    {
+        MV_REPORT("Rendering: Running");
+        context.mark_running();
+        const bool success = rendering_bundle_case(context, resources);
+        MV_REPORT("Rendering: Exited");
+        if (success) context.mark_exited();
+        else context.mark_failed(1u);
+        return success ? 0u : 1u;
+    }
     CAssetId identities[2]{};
     std::FILE* file{ nullptr };
     if (fopen_s(&file, "development/logical-roots/test-output/lifecycle-render-disposal.ids", "rb") != 0)

@@ -102,7 +102,7 @@ AssetResult CAssetService::retain_bundle_view(SBundleControl& control, const EAs
     return result;
 }
 
-AssetResult CAssetService::publish_bundle(CBakedDocumentBlock& block, const std::uint64_t binding) noexcept
+AssetResult CAssetService::publish_bundle(CBakedDocumentBlock& block, const std::uint64_t binding, threading::CThreadPackage& owner) noexcept
 {
     AssetResult result;
     if ((m_filesystem == nullptr) || (binding == 0u)) return result;
@@ -124,6 +124,7 @@ AssetResult CAssetService::publish_bundle(CBakedDocumentBlock& block, const std:
     }
     SBundleControl& control = *m_bundles.get_object(slot);
     control.binding = binding;
+    control.owner = &owner;
     control.view = view;
     AssetResult description;
     description.set_bundle_view(view);
@@ -215,7 +216,7 @@ void CAssetService::detach_client(threading::CThreadPackage& client) noexcept
     for (std::int32_t slot = m_bundles.first_live(); slot >= 0; slot = m_bundles.next_live(slot))
     {
         SBundleControl& control = *m_bundles.get_object(slot);
-        if (control.recipient == &client) control.recipient = nullptr;
+        if (control.owner == &client) control.owner = nullptr;
     }
 }
 
@@ -246,7 +247,7 @@ void CAssetService::finalise_bundles() noexcept
                 return;
             }
             const BundleDisposedNotification result{ control.original };
-            threading::CThreadPackage* const recipient = control.recipient;
+            threading::CThreadPackage* const recipient = control.owner;
             (void)m_bundles.erase(slot); //  Storage and the root are gone before delivery.
             if ((recipient != nullptr) && bundle_recipient_available(*recipient))
             {
@@ -469,12 +470,13 @@ void CAssetService::request_disposal(const AssetDisposeRequest& request, const s
     if (record.backing_role() == EAssetBackingRole::original)
     {
         SBundleControl* const control = find_bundle(record.backing());
-        if (control != nullptr)
+        if ((control == nullptr) || (control->owner != &client))
         {
-            control->recipient = &client;
-            close_bundle(*control);
-            return; //  Only final disposal is notified; no correlated success.
+            reply(client, slot, AssetDisposeResult{ request.asset, EAssetStatus::invalid_request });
+            return;
         }
+        close_bundle(*control);
+        return; //  Only final disposal is notified; no correlated success.
     }
 
     const std::int32_t operation_slot = m_operations.emplace();
@@ -1151,7 +1153,7 @@ void CAssetService::complete_bundle(const std::int32_t slot) noexcept
 
     //  Publication takes responsibility for cancelling this reservation on failure.
     const auto binding = std::exchange(operation.reserved_binding, 0u);
-    operation.working_views = publish_bundle(*block, binding);
+    operation.working_views = publish_bundle(*block, binding, *operation.client);
     if (operation.working_views.status == EAssetStatus::invalid_request)
         operation.working_views.status = EAssetStatus::conditioning_failed;
     operation.retained_asset = operation.working_views.asset;

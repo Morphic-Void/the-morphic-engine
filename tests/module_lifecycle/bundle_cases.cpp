@@ -17,6 +17,7 @@
 #include "data_model/document_parser.hpp"
 #include "data_model/document_translation.hpp"
 #include "debug/macros.hpp"
+#include "platform/filesystem/file.hpp"
 #include "platform/threading/processor_relax.hpp"
 #include "system/transported_types.hpp"
 
@@ -257,11 +258,12 @@ static bool workflow(CBundleClient& client, threading::CThreadResources& resourc
 
 struct SHandoff { CAssetId original; CAssetId file; };
 
-static bool save_handoff(CBundleClient& client, const SHandoff& value) noexcept
+static bool save_handoff(CBundleClient& client, const SHandoff& value,
+    const char* path = "test-output:/bundle-handoff.bin") noexcept
 {
     auto owner = CErasedOwner::create<RawAssetTransfer>();
     auto* request = owner.payload<RawAssetTransfer>();
-    if (!request || !request->storage.file.set("test-output:/bundle-handoff.bin") ||
+    if (!request || !request->storage.file.set(path) ||
         !request->storage.value.allocate(sizeof(value)) || !request->storage.value.set_size(sizeof(value))) return false;
     std::memcpy(request->storage.value.data(), &value, sizeof(value));
     request->save = true;
@@ -271,10 +273,81 @@ static bool save_handoff(CBundleClient& client, const SHandoff& value) noexcept
     return client.post<RawAssetTransfer>(std::move(owner)) && client.result(result);
 }
 
+bool rendering_bundle_case(threading::CThreadContext& context, threading::CThreadResources& resources) noexcept
+{
+    CBundleClient client{ context };
+    AssetResult original, loaded, file;
+    if (!client.bake(original) || !client.save(original.asset) ||
+        !client.post(AssetDisposeRequest{ original.asset }) || !client.notification(original.asset) ||
+        !client.bind(loaded) || !client.load(file, "bundle-test:/Aligned") ||
+        !save_handoff(client, { loaded.asset, file.asset }, "test-output:/bundle-rendering-handoff.bin")) return false;
+    MV_REPORT("Bundle fixture: Rendering owns loaded bundle");
+    while (!context.exit_requested())
+    {
+        const auto epoch = resources.wait_predicate.get_word();
+        if (!context.exit_requested()) (void)context.wait_for_new_epoch(epoch);
+    }
+    //  Post closure at exit; the Executive keeps the sub-file until after join.
+    return client.post(AssetDisposeRequest{ loaded.asset });
+}
+
+static bool rendering_module(CBundleClient& client, EModuleAction action) noexcept
+{
+    auto owner = CErasedOwner::create<ModuleRequest>();
+    auto* request = owner.payload<ModuleRequest>();
+    if (!request) return false;
+    request->action = action;
+    request->module = module_ids::render_vulkan;
+    if (action == EModuleAction::load)
+    {
+        if (!request->file.set("package:/bin/MorphicLifecycleRenderingDisposal.dll")) return false;
+        request->required_function = system_type_ids::rendering_thread_function;
+    }
+    if (!client.post<ModuleRequest>(std::move(owner))) return false;
+    for (const auto notice : { EModuleNotice::acknowledged, EModuleNotice::completed })
+    {
+        ModuleResult result;
+        if (!client.receive(result, client.slot) || (result.notice != notice) ||
+            (result.status != EModuleStatus::success)) return false;
+    }
+    return true;
+}
+
+static bool rendering_owner(CBundleClient& client) noexcept
+{
+    if (!rendering_module(client, EModuleAction::load)) return false;
+    SHandoff handoff;
+    platform::system::CPerfCounter timer;
+    (void)timer.update();
+    bool ready = false;
+    while (!ready && (timer.query_delta() < client.context.perf_count_conversion().query_ticks_per_second() * 10u))
+    {
+        ready = platform::filesystem::loadFileInto("development/logical-roots/test-output/bundle-rendering-handoff.bin",
+            CByteView{ reinterpret_cast<std::uint8_t*>(&handoff), sizeof(handoff), alignof(SHandoff) });
+        if (!ready) platform::threading::processor_relax();
+    }
+    if (!ready || !handoff.original || !handoff.file) return false;
+    AssetDisposeResult rejected;
+    AssetResult reference, file, result;
+    if (!client.post(AssetDisposeRequest{ handoff.original }) || !client.receive(rejected, client.slot) ||
+        (rejected.status != EAssetStatus::invalid_request) ||
+        !client.post(BundleReferenceRequest{ handoff.original }) || !client.result(reference) ||
+        !reference.bundle_view().is_ready() || !client.dispose(reference.asset) ||
+        !client.load(file, "bundle-test:/Aligned") || (file.asset != handoff.file) ||
+        !rendering_module(client, EModuleAction::unload) ||
+        !client.post(BundleReferenceRequest{ handoff.original }) || !client.result(result, EAssetStatus::invalid_asset) ||
+        !client.bake(result, EAssetStatus::busy) || !client.save(file.asset, "test-output:/bundle-rendering-survivor.bin") ||
+        !client.dispose(file.asset) || !client.bake(result) ||
+        !client.post(AssetDisposeRequest{ result.asset }) || !client.notification(result.asset)) return false;
+    MV_REPORT("Bundle fixture: Rendering ownership and post-join sub-file release passed");
+    return true;
+}
+
 bool bundle_case(threading::CThreadContext& context, threading::CThreadResources& resources, const char* selected) noexcept
 {
     CBundleClient client{ context };
     AssetResult original, file, result;
+    if (std::strcmp(selected, "bundle-rendering") == 0) return rendering_owner(client);
     if (std::strcmp(selected, "bundle") == 0 || std::strcmp(selected, "bundle-inline") == 0)
         return workflow(client, resources, std::strcmp(selected, "bundle-inline") == 0);
     if (std::strcmp(selected, "bundle-resume") == 0)
