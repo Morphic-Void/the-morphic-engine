@@ -29,11 +29,83 @@ namespace host
 {
 
 //==============================================================================
-//  Document failure diagnostics
+//  Asset failure diagnostics
 //==============================================================================
 
 namespace asset_diagnostics
 {
+
+static const char* failure_reason(const bundle::EBuildStatus status) noexcept
+{
+    switch (status)
+    {
+        case bundle::EBuildStatus::success: return "success";
+        case bundle::EBuildStatus::invalid_input: return "invalid input";
+        case bundle::EBuildStatus::allocation_failed: return "allocation failed";
+        case bundle::EBuildStatus::size_query_failed: return "file size query failed";
+        case bundle::EBuildStatus::read_failed: return "file read failed";
+        case bundle::EBuildStatus::no_content: return "no non-empty files";
+        case bundle::EBuildStatus::too_large: return "bundle exceeds allocation limit";
+        case bundle::EBuildStatus::bake_failed: return "directory bake failed";
+        case bundle::EBuildStatus::validation_failed: return "validation failed";
+        default: return "unknown build failure";
+    }
+}
+
+static const char* failure_reason(const bundle::EValidationStatus status) noexcept
+{
+    switch (status)
+    {
+        case bundle::EValidationStatus::success: return "success";
+        case bundle::EValidationStatus::invalid_buffer: return "invalid buffer";
+        case bundle::EValidationStatus::document_validation_failed: return "document validation failed";
+        case bundle::EValidationStatus::invalid_schema: return "invalid schema";
+        case bundle::EValidationStatus::unsupported_version: return "unsupported version";
+        case bundle::EValidationStatus::invalid_name: return "invalid name";
+        case bundle::EValidationStatus::invalid_extent: return "invalid file extent";
+        case bundle::EValidationStatus::missing_terminator: return "missing zero terminator";
+        case bundle::EValidationStatus::allocation_failed: return "allocation failed";
+        default: return "unknown validation failure";
+    }
+}
+
+static void report_bundle_failure(const std::int32_t slot, const bundle::SBuildResult& result,
+    const filesystem_image::CBakeInput* const input) noexcept
+{
+    const char* const reason = failure_reason(result.status);
+    if (result.status == bundle::EBuildStatus::validation_failed)
+    {
+        MV_REPORT("Bundle slot %d: build failed: %s (%s)", slot, reason, failure_reason(result.validation));
+        return;
+    }
+    if ((input != nullptr) && result.entry.is_valid())
+    {
+        //  Borrow the captured path while the Host still owns the input. Failure
+        //  reporting must not need another allocation, especially after OOM.
+        const auto sources = input->sources();
+        for (std::size_t index = 0u; index < sources.size(); ++index)
+        {
+            if ((sources[index].entry == result.entry) && (sources[index].physical_path != nullptr))
+            {
+                MV_REPORT("Bundle slot %d: build failed: %s; source \"%s\"", slot, reason, sources[index].physical_path);
+                return;
+            }
+        }
+        if (result.entry == input->content())
+        {
+            MV_REPORT("Bundle slot %d: build failed: %s; selected directory", slot, reason);
+            return;
+        }
+        const CStringView name = input->inventory().name(result.entry);
+        if (name.length() != 0u)
+        {
+            MV_REPORT("Bundle slot %d: build failed: %s; inventory entry \"%.*s\"",
+                slot, reason, static_cast<int>(name.length()), name.cstring());
+            return;
+        }
+    }
+    MV_REPORT("Bundle slot %d: build failed: %s", slot, reason);
+}
 
 static const char* failure_stage(const EDocumentFailureStage stage) noexcept
 {
@@ -354,9 +426,7 @@ void CHostWorkerThread::operate() noexcept
                         }
                         if (!result->result.succeeded())
                         {
-                            MV_REPORT("Bundle slot %d: build failed (status %u, validation %u)",
-                                inbound_msg.query_async_slot(), static_cast<unsigned int>(result->result.status),
-                                static_cast<unsigned int>(result->result.validation));
+                            asset_diagnostics::report_bundle_failure(inbound_msg.query_async_slot(), result->result, request.input);
                         }
                     }
                     else

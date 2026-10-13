@@ -127,6 +127,14 @@ foreach ($case in @('bundle', 'bundle-inline', 'bundle-late-reference', 'bundle-
         if (($case -eq 'bundle-late-reference') -and !$events.Contains('outstanding complete-view records')) {
             throw 'Missing complete-view convention diagnostic.'
         }
+        if ($case -eq 'bundle-failures') {
+            if ($events -notmatch 'Bundle slot \d+: build failed: no non-empty files; selected directory') {
+                throw 'Missing readable empty-selection build diagnostic.'
+            }
+            if ($events -notmatch 'Bundle slot \d+: build failed: file size query failed; source "[^"\r\n]*[\\/]BundleMissing[\\/]Vanished"') {
+                throw 'Missing readable build failure and original-cased source path.'
+            }
+        }
         if ($case -eq 'bundle-rendering') {
             $owned = $events.IndexOf('Bundle fixture: Rendering owns loaded bundle')
             $joined = $events.IndexOf('Host: Rendering thread joined')
