@@ -53,14 +53,14 @@ bool CParkingGate::acquire_control() noexcept
 {
     if (!m_valid)
     {
-        MV_ERROR("CParkingGate::acquire_control was called on an invalid gate");
+        MV_ASSERT_REPORT("CParkingGate::acquire_control was called on an invalid gate");
         return false;
     }
 
     const std::uint32_t state = m_state.load(std::memory_order_acquire);
     if ((state & k_control_mask) != 0u)
     {
-        MV_ERROR("CParkingGate::acquire_control was called while control was already held");
+        MV_ASSERT_REPORT("CParkingGate::acquire_control was called while control was already held");
         return false;
     }
 
@@ -75,14 +75,14 @@ void CParkingGate::release_control() noexcept
 {
     if (!m_valid)
     {
-        MV_ERROR("CParkingGate::release_control was called on an invalid gate");
+        MV_ASSERT_REPORT("CParkingGate::release_control was called on an invalid gate");
         return;
     }
 
     const std::uint32_t state = m_state.load(std::memory_order_acquire);
     if ((state & k_control_mask) == 0u)
     {
-        MV_ERROR("CParkingGate::release_control was called without control");
+        MV_ASSERT_REPORT("CParkingGate::release_control was called without control");
         return;
     }
 
@@ -100,7 +100,7 @@ void CParkingGate::park(CParkingTicket& ticket) noexcept
 {
     if (!m_valid)
     {
-        MV_ERROR("CParkingGate::park was called on an invalid gate");
+        MV_ASSERT_REPORT("CParkingGate::park was called on an invalid gate");
         return;
     }
 
@@ -129,14 +129,14 @@ void CParkingGate::cycle_phase() noexcept
 {
     if (!m_valid)
     {
-        MV_ERROR("CParkingGate::cycle_phase was called on an invalid gate");
+        MV_ASSERT_REPORT("CParkingGate::cycle_phase was called on an invalid gate");
         return;
     }
 
     std::uint32_t state = m_state.load(std::memory_order_acquire);
     if ((state & k_control_mask) == 0u)
     {
-        MV_ERROR("CParkingGate::cycle_phase was called without control");
+        MV_ASSERT_REPORT("CParkingGate::cycle_phase was called without control");
         return;
     }
 

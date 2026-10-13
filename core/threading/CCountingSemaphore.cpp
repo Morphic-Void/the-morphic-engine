@@ -72,20 +72,20 @@ bool CCountingSemaphore::acquire_control() noexcept
 {
     if (!m_valid || m_has_control)
     {
-        MV_ERROR("CCountingSemaphore::acquire_control received an invalid control request");
+        MV_ASSERT_REPORT("CCountingSemaphore::acquire_control received an invalid control request");
         return false;
     }
 
     if (!is_control_released())
     {
-        MV_ERROR("CCountingSemaphore::acquire_control was called before the semaphore was released");
+        MV_ASSERT_REPORT("CCountingSemaphore::acquire_control was called before the semaphore was released");
         return false;
     }
 
 #if !MV_PLATFORM_HAS_NATIVE_WAIT_WORD
     if (m_fallback_gate.has_control())
     {
-        MV_ERROR("CCountingSemaphore::acquire_control found the fallback gate already controlled");
+        MV_ASSERT_REPORT("CCountingSemaphore::acquire_control found the fallback gate already controlled");
         return false;
     }
     if (!m_fallback_gate.acquire_control())
@@ -103,7 +103,7 @@ void CCountingSemaphore::release_control() noexcept
 {
     if (!m_valid || !m_has_control)
     {
-        MV_ERROR("CCountingSemaphore::release_control was called without valid control");
+        MV_ASSERT_REPORT("CCountingSemaphore::release_control was called without valid control");
         return;
     }
 
@@ -151,7 +151,7 @@ bool CCountingSemaphore::acquire(CParkingTicket& ticket) noexcept
 #endif
     if (!m_valid)
     {
-        MV_ERROR("CCountingSemaphore::acquire was called on an invalid semaphore");
+        MV_ASSERT_REPORT("CCountingSemaphore::acquire was called on an invalid semaphore");
         return false;
     }
 
@@ -189,7 +189,7 @@ bool CCountingSemaphore::try_acquire() noexcept
 {
     if (!m_valid)
     {
-        MV_ERROR("CCountingSemaphore::try_acquire was called on an invalid semaphore");
+        MV_ASSERT_REPORT("CCountingSemaphore::try_acquire was called on an invalid semaphore");
         return false;
     }
 
@@ -218,7 +218,7 @@ bool CCountingSemaphore::release(const std::uint32_t release_count) noexcept
 {
     if (!m_valid || !m_has_control)
     {
-        MV_ERROR("CCountingSemaphore::release was called without valid control");
+        MV_ASSERT_REPORT("CCountingSemaphore::release was called without valid control");
         return false;
     }
 

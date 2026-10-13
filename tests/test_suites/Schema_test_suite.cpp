@@ -3218,16 +3218,16 @@ static void test_schema_wrapper_editor(TTestContext& ctx)
     TEST_EXPECT(ctx, binding.bind(live) && live.reference_count() == 1u);
     {
         tests::TAssertionTestScope assertions{ ctx };
-        assertions.expect_assertion(ctx, [&]
+        assertions.expect_unconditional_assertion(ctx, [&]
         {
             TEST_EXPECT(ctx, !editor.replace_string(type, CStringView{ "u16" }));
         });
-        assertions.expect_assertion(ctx, [&]
+        assertions.expect_unconditional_assertion(ctx, [&]
         {
             TEST_EXPECT(ctx, !live.reset());
         });
         CLiveSchema empty;
-        assertions.expect_assertion(ctx, [&]
+        assertions.expect_unconditional_assertion(ctx, [&]
         {
             TEST_EXPECT(ctx, !empty.try_take_from(std::move(live)));
         });
@@ -3335,10 +3335,10 @@ static void test_schema_wrapper_rejections(TTestContext& ctx)
     TEST_EXPECT(ctx, baked_client.bind(baked));
     {
         tests::TAssertionTestScope assertions{ ctx };
-        assertions.expect_assertion(ctx, [&] { TEST_EXPECT(ctx, !baked.clear_resolution()); });
-        assertions.expect_assertion(ctx, [&] { TEST_EXPECT(ctx, !baked.clear()); });
-        assertions.expect_assertion(ctx, [&] { TEST_EXPECT(ctx, !baked.set_document(block.document())); });
-        assertions.expect_assertion(ctx, [&] { TEST_EXPECT(ctx, !baked_destination.try_take_from(std::move(baked))); });
+        assertions.expect_unconditional_assertion(ctx, [&] { TEST_EXPECT(ctx, !baked.clear_resolution()); });
+        assertions.expect_unconditional_assertion(ctx, [&] { TEST_EXPECT(ctx, !baked.clear()); });
+        assertions.expect_unconditional_assertion(ctx, [&] { TEST_EXPECT(ctx, !baked.set_document(block.document())); });
+        assertions.expect_unconditional_assertion(ctx, [&] { TEST_EXPECT(ctx, !baked_destination.try_take_from(std::move(baked))); });
     }
     TEST_EXPECT(ctx, baked.document_ready() && baked.resolved_ready() && baked_client.is_usable() &&
         baked.reference_count() == 1u && !baked_destination.document_ready());
@@ -3356,9 +3356,9 @@ static void test_schema_wrapper_rejections(TTestContext& ctx)
     TEST_EXPECT(ctx, live_client.bind(live));
     {
         tests::TAssertionTestScope assertions{ ctx };
-        assertions.expect_assertion(ctx, [&] { TEST_EXPECT(ctx, !live.clear_resolution()); });
-        assertions.expect_assertion(ctx, [&] { TEST_EXPECT(ctx, !live.clear()); });
-        assertions.expect_assertion(ctx, [&] { TEST_EXPECT(ctx, !live.try_adopt(std::move(candidate))); });
+        assertions.expect_unconditional_assertion(ctx, [&] { TEST_EXPECT(ctx, !live.clear_resolution()); });
+        assertions.expect_unconditional_assertion(ctx, [&] { TEST_EXPECT(ctx, !live.clear()); });
+        assertions.expect_unconditional_assertion(ctx, [&] { TEST_EXPECT(ctx, !live.try_adopt(std::move(candidate))); });
     }
     TEST_EXPECT(ctx, candidate.is_ready() && live.document_ready() && live.resolved_ready() && live_client.is_usable());
     live_client.release();

@@ -133,7 +133,7 @@ private:
     const std::uint32_t total = left + right;
     if (right > (std::numeric_limits<std::uint32_t>::max() - left))
     {
-        MV_ERROR("Memory accounting count sum overflow: left {} right {} total {}", left, right, total);
+        MV_LOG(error, "Memory accounting count sum overflow: left {} right {} total {}", left, right, total);
     }
     return total;
 }
@@ -143,7 +143,7 @@ private:
     const std::uint64_t total = left + right;
     if (right > (std::numeric_limits<std::uint64_t>::max() - left))
     {
-        MV_ERROR("Memory accounting bytes sum overflow: left {} right {} total {}", left, right, total);
+        MV_LOG(error, "Memory accounting bytes sum overflow: left {} right {} total {}", left, right, total);
     }
     return total;
 }
@@ -270,7 +270,7 @@ inline void* CMemoryAllocator::allocate(
         (memory::condition_alignment(conditioned_alignment) != conditioned_alignment) ||
         (memory::condition_bytes(conditioned_alignment, conditioned_bytes) != conditioned_bytes))
     {
-        MV_ERROR("CMemoryAllocator::allocate received an invalid conditioned allocation request");
+        MV_ASSERT_REPORT("CMemoryAllocator::allocate received an invalid conditioned allocation request");
         return nullptr;
     }
 
@@ -283,7 +283,7 @@ inline bool CMemoryAllocator::deallocate(const std::size_t conditioned_alignment
         (memory::condition_alignment(conditioned_alignment) != conditioned_alignment) ||
         (ptr == nullptr))
     {
-        MV_ERROR("CMemoryAllocator::deallocate received an invalid conditioned deallocation request");
+        MV_ASSERT_REPORT("CMemoryAllocator::deallocate received an invalid conditioned deallocation request");
         return false;
     }
 
@@ -364,12 +364,12 @@ inline void CMemoryContext::add(const std::uint32_t allocation_count, const std:
     const std::uint64_t bytes_after = bytes_before + bytes;
     if (((count_before ^ count_after) & 0x80000000u) != 0u)
     {
-        MV_ERROR("Memory accounting count add: context {} system {} before {} after {} adjustment {}",
+        MV_LOG(error, "Memory accounting count add: context {} system {} before {} after {} adjustment {}",
             static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(this)), m_system_id, count_before, count_after, allocation_count);
     }
     if (((bytes_before ^ bytes_after) & 0x8000000000000000ull) != 0u)
     {
-        MV_ERROR("Memory accounting bytes add: context {} system {} before {} after {} adjustment {}",
+        MV_LOG(error, "Memory accounting bytes add: context {} system {} before {} after {} adjustment {}",
             static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(this)), m_system_id, bytes_before, bytes_after, bytes);
     }
 }
@@ -382,12 +382,12 @@ inline void CMemoryContext::sub(const std::uint32_t allocation_count, const std:
     const std::uint64_t bytes_after = bytes_before - bytes;
     if (((count_before ^ count_after) & 0x80000000u) != 0u)
     {
-        MV_ERROR("Memory accounting count sub: context {} system {} before {} after {} adjustment {}",
+        MV_LOG(error, "Memory accounting count sub: context {} system {} before {} after {} adjustment {}",
             static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(this)), m_system_id, count_before, count_after, allocation_count);
     }
     if (((bytes_before ^ bytes_after) & 0x8000000000000000ull) != 0u)
     {
-        MV_ERROR("Memory accounting bytes sub: context {} system {} before {} after {} adjustment {}",
+        MV_LOG(error, "Memory accounting bytes sub: context {} system {} before {} after {} adjustment {}",
             static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(this)), m_system_id, bytes_before, bytes_after, bytes);
     }
 }
@@ -400,7 +400,7 @@ inline void* CMemoryContext::allocate(
     const std::size_t conditioned_bytes = condition_bytes(conditioned_alignment, requested_bytes);
     if (!validate(conditioned_alignment, conditioned_bytes))
     {
-        MV_ERROR("CMemoryContext::allocate received an invalid allocation request");
+        MV_ASSERT_REPORT("CMemoryContext::allocate received an invalid allocation request");
         return nullptr;
     }
 
@@ -434,7 +434,7 @@ inline void CMemoryContext::deallocate(
     const std::size_t conditioned_bytes = condition_bytes(conditioned_alignment, requested_bytes);
     if (!validate(conditioned_alignment, conditioned_bytes, ptr))
     {
-        MV_ERROR("CMemoryContext::deallocate received an invalid deallocation request");
+        MV_ASSERT_REPORT("CMemoryContext::deallocate received an invalid deallocation request");
         return;
     }
 
@@ -457,13 +457,13 @@ inline bool reattribute(
     }
     if (!from.is_compatible_with(to))
     {
-        MV_ERROR("memory::reattribute received an invalid attribution transfer request");
+        MV_ASSERT_REPORT("memory::reattribute received an invalid attribution transfer request");
         return false;
     }
     const std::uint32_t count = static_cast<std::uint32_t>(allocation_count);
     if (allocation_count > std::numeric_limits<std::uint32_t>::max())
     {
-        MV_ERROR("Memory accounting count narrowed: source {} target {} original {} adjustment {}",
+        MV_LOG(error, "Memory accounting count narrowed: source {} target {} original {} adjustment {}",
             static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(&from)),
             static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(&to)),
             static_cast<std::uint64_t>(allocation_count), count);

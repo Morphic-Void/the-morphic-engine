@@ -145,7 +145,10 @@ inline CErasedOwner CErasedOwner::create(memory::CMemoryContext* const context) 
 
     memory::CMemoryToken storage{ sizeof(T), alignof(T), resolved_context };
     const bool allocated = storage.allocate(1u, false);
-    MV_ASSERT(allocated);
+    if (!allocated)
+    {
+        MV_LOG(error, "CErasedOwner could not allocate payload {}", identity);
+    }
     if (allocated)
     {
         ::new (storage.data()) T();

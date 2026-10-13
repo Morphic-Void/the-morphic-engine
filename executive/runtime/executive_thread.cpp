@@ -322,7 +322,7 @@ std::uint32_t MV_STD_ABI_CALL CExecutiveThread::entry_point(void* const user_dat
 {
     if (user_data == nullptr)
     {
-        MV_ERROR("CExecutiveThread entry received a null user_data pointer");
+        MV_ASSERT_REPORT("CExecutiveThread entry received a null user_data pointer");
         return ~0u;
     }
 
@@ -330,7 +330,7 @@ std::uint32_t MV_STD_ABI_CALL CExecutiveThread::entry_point(void* const user_dat
     if (!modules::is_thread_context_ready(user_data))
     {
         resources.control_state.mark_failed(~0u);
-        MV_ERROR("CExecutiveThread entry detected incomplete module context installation");
+        MV_ASSERT_REPORT("CExecutiveThread entry detected incomplete module context installation");
         return ~0u;
     }
 
@@ -431,8 +431,9 @@ bool CExecutiveThread::accept_rendering_notice(const threading::CErasedPodMsg& m
         }
         m_phase = EPhase::sequential;
         ++m_pending_slot;
-        MV_LOG_RICH(info, "Executive: Rendering ready (%s)",
-            ((result.status == EModuleStatus::already_loaded) ? "already loaded" : "loaded"));
+        MV_LOG(info, "Executive: Rendering ready ({})",
+            ((result.status == EModuleStatus::already_loaded) ?
+                debug_system::CInlineText16{ "already loaded" } : debug_system::CInlineText16{ "loaded" }));
     }
     (void)m_perf_counter.update();
     return true;

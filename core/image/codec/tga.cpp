@@ -709,7 +709,7 @@ CByteBuffer encode(const CByteRectConstView& view, const EncodeOptions& options)
     //  construct the tga file memory image
     if (tga_file_bytes > memory::k_byte_size_ceiling)
     {
-        MV_ERROR("TGA encode output exceeded the byte-size ceiling");
+        MV_LOG(error, "TGA encode output exceeded the byte-size ceiling");
         return buffer;
     }
 
@@ -804,7 +804,7 @@ CByteBuffer encode(const CByteRectConstView& view, const EncodeOptions& options)
     }
     else
     {
-        MV_ERROR("TGA encode failed to allocate the output buffer");
+        MV_LOG(error, "TGA encode failed to allocate the output buffer");
     }
     return buffer;
 }

@@ -64,8 +64,8 @@ static void test_access_and_masks(TTestContext& ctx)
     TEST_EXPECT(ctx, !empty.set_read_only(false));
     TEST_EXPECT(ctx, empty.is_read_only());
     TEST_EXPECT(ctx, empty.texel(0, 0) == 0u);
-    assertions.expect_assertion(ctx, [&] { empty.plot(0, 0, 1u); });
-    assertions.expect_assertion(ctx, [&] { empty.fill(1u); });
+    assertions.expect_unconditional_assertion(ctx, [&] { empty.plot(0, 0, 1u); });
+    assertions.expect_unconditional_assertion(ctx, [&] { empty.fill(1u); });
 
     for (const bool gray : { false, true })
     {
@@ -97,19 +97,19 @@ static void test_access_and_masks(TTestContext& ctx)
         writable_copy.plot(0, 0, first);
         std::array<std::uint8_t, sizeof(f.bytes)> before;
         std::memcpy(before.data(), f.bytes, sizeof(f.bytes));
-        assertions.expect_assertion(ctx, [&] { f.view.plot(0, 0, 0u); });
-        assertions.expect_assertion(ctx, [&] { f.view.fill(0u); });
-        assertions.expect_assertion(ctx, [&] { f.view.fill_rectangle(0, 0, 6, 5, 0u); });
-        assertions.expect_assertion(ctx, [&] { f.view.draw_rectangle(0, 0, 6, 5, 0u); });
-        assertions.expect_assertion(ctx, [&] { f.view.draw_line(0, 0, 5, 4, 0u); });
-        assertions.expect_assertion(ctx, [&] { TEST_EXPECT(ctx, !f.view.copy_rectangle(f.view, 0, 0, 3, 3, 1, 1)); });
+        assertions.expect_unconditional_assertion(ctx, [&] { f.view.plot(0, 0, 0u); });
+        assertions.expect_unconditional_assertion(ctx, [&] { f.view.fill(0u); });
+        assertions.expect_unconditional_assertion(ctx, [&] { f.view.fill_rectangle(0, 0, 6, 5, 0u); });
+        assertions.expect_unconditional_assertion(ctx, [&] { f.view.draw_rectangle(0, 0, 6, 5, 0u); });
+        assertions.expect_unconditional_assertion(ctx, [&] { f.view.draw_line(0, 0, 5, 4, 0u); });
+        assertions.expect_unconditional_assertion(ctx, [&] { TEST_EXPECT(ctx, !f.view.copy_rectangle(f.view, 0, 0, 3, 3, 1, 1)); });
         //  Degenerate/clipped requests and zero masks still constitute misuse.
-        assertions.expect_assertion(ctx, [&] { f.view.plot(-1, -1, 0u, 0u); });
-        assertions.expect_assertion(ctx, [&] { f.view.fill(0u, 0u); });
-        assertions.expect_assertion(ctx, [&] { f.view.fill_rectangle(0, 0, 0, 0, 0u); });
-        assertions.expect_assertion(ctx, [&] { f.view.draw_rectangle(0, 0, 0, 0, 0u); });
-        assertions.expect_assertion(ctx, [&] { f.view.draw_line(-5, -5, -1, -1, 0u, 0u); });
-        assertions.expect_assertion(ctx, [&] { TEST_EXPECT(ctx, !f.view.copy_rectangle(empty, 0, 0, 0, 0, 0, 0)); });
+        assertions.expect_unconditional_assertion(ctx, [&] { f.view.plot(-1, -1, 0u, 0u); });
+        assertions.expect_unconditional_assertion(ctx, [&] { f.view.fill(0u, 0u); });
+        assertions.expect_unconditional_assertion(ctx, [&] { f.view.fill_rectangle(0, 0, 0, 0, 0u); });
+        assertions.expect_unconditional_assertion(ctx, [&] { f.view.draw_rectangle(0, 0, 0, 0, 0u); });
+        assertions.expect_unconditional_assertion(ctx, [&] { f.view.draw_line(-5, -5, -1, -1, 0u, 0u); });
+        assertions.expect_unconditional_assertion(ctx, [&] { TEST_EXPECT(ctx, !f.view.copy_rectangle(empty, 0, 0, 0, 0, 0, 0)); });
         TEST_EXPECT(ctx, std::memcmp(before.data(), f.bytes, sizeof(f.bytes)) == 0);
         TEST_EXPECT(ctx, f.view.set_read_only(false));
         f.view.plot(0, 0, 0x55u);
@@ -119,7 +119,7 @@ static void test_access_and_masks(TTestContext& ctx)
         TEST_EXPECT(ctx, readonly.set_read_only(true));
         TEST_EXPECT(ctx, !readonly.set_read_only(false));
         TEST_EXPECT(ctx, readonly.is_read_only());
-        assertions.expect_assertion(ctx, [&] { readonly.fill(0u); });
+        assertions.expect_unconditional_assertion(ctx, [&] { readonly.fill(0u); });
         TEST_EXPECT(ctx, f.view.texel(0, 0) == 0x55u);
         f.view.set_vertical_flip(true);
         TEST_EXPECT(ctx, f.view.texel(0, 4) == 0x55u);
@@ -135,12 +135,12 @@ static void test_access_and_masks(TTestContext& ctx)
         TEST_EXPECT(ctx, !writable_copy.set_read_only(false));
         TEST_EXPECT(ctx, writable_copy.is_read_only());
         const auto constant_first = writable_copy.texel(0, 0);
-        assertions.expect_assertion(ctx, [&] { writable_copy.fill(0u); });
+        assertions.expect_unconditional_assertion(ctx, [&] { writable_copy.fill(0u); });
         TEST_EXPECT(ctx, writable_copy.texel(0, 0) == constant_first);
         CImageView const_copy = writable_copy;
         TEST_EXPECT(ctx, !const_copy.set_read_only(false));
         TEST_EXPECT(ctx, const_copy.is_read_only());
-        assertions.expect_assertion(ctx, [&] { const_copy.draw_line(0, 0, 1, 0, 0u); });
+        assertions.expect_unconditional_assertion(ctx, [&] { const_copy.draw_line(0, 0, 1, 0, 0u); });
 
         TEST_EXPECT(ctx, writable_copy.set(CByteRectView{ f.bytes, 32u, gray ? 6u : 24u, 5u, 16u }, gray ? Desc::Gray : Desc::RGBA));
         TEST_EXPECT(ctx, !writable_copy.is_read_only());

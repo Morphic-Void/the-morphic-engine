@@ -165,9 +165,9 @@ over the non-reattributable `TOwning<CErasedOwner>` primitive.
 The wrapper stores an explicit destination module. Admission happens only on
 post, deriving the source from the ambient module and rejecting unavailable
 identity registrations or LOCAL identity intended for another component
-before ownership or attribution is mutated. Rejection emits one `MV_ERROR`;
-diagnostic failure does not change the Boolean result. The destination must
-agree with the fixed recipient context, or with the transport context when no
+before ownership or attribution is mutated. Rejection emits one diagnostic-only
+`MV_ASSERT_REPORT`; diagnostic failure does not change the Boolean result. The
+destination must agree with the fixed recipient context, or with the transport context when no
 separate recipient is configured. This provenance check uses
 `CMemoryContext::belongs_to_module()`.
 

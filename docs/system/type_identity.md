@@ -156,8 +156,8 @@ identity in that order. SYSTEM registration is then resolved. LOCAL boundary
 agreement precedes LOCAL registration lookup, so a cross-component LOCAL value
 is classified as a boundary violation even if it is also unavailable locally.
 The quiet policy query remains available for focused checks. Concrete posting
-wrappers emit one `MV_ERROR` for the first identity-policy rejection, including
-the failing carrier role, identity, source, destination, and reason. Diagnostic
+wrappers emit one diagnostic-only `MV_ASSERT_REPORT` for the first identity-policy
+rejection, including the failing carrier role, identity, source, destination, and reason. Diagnostic
 submission failure does not change the Boolean rejection. Successful admission
 and routine queue, allocation, or attribution failure emit no identity-policy
 diagnostic.

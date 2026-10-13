@@ -117,8 +117,12 @@ require each expected error exactly once, with its source, text and scenario
 interval checked across the event and direct logs by incident ID. Unexpected,
 duplicate or missing errors fail acceptance. The lifecycle harness separately
 checks its deliberate bundle failures, service failures and assertion counts.
-Required operational markers use the enabled `info` level in Debug and Release;
-the debug-service suite verifies filtering and explicit immediate delivery.
+Required acceptance markers and codec entry breadcrumbs use the enabled `info`
+level in Debug and Release. Per-texture progress uses `detail`; the Windows Debug
+harness checks those records, while both platforms verify execution routing from
+the codec breadcrumbs' producer identity in every configuration. Lifecycle load
+failures are matched as specific errors, separately from contract assertions.
+The debug-service suite verifies filtering and explicit immediate delivery.
 
 Windows CI runs the ordinary suites, Host-worker harness and all 33 lifecycle
 cases with one and two requested workers in Debug/Release on x64 and x86.

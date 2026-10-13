@@ -119,8 +119,9 @@ payload storage without taking the live source's buffer.
 
 Instance and bulk documents reference their schema through inter-document
 reference counts. These do not own or extend the schema wrapper's lifetime.
-Mutation of a referenced live schema fails without changes and triggers an
-assertion. A referenced schema cannot be moved. Failure should leave a safely
+Mutation of a referenced live schema fails without changes. Replacing a referenced
+schema emits a diagnostic-only assertion report in every build. A referenced
+schema cannot be moved. Failure should leave a safely
 rejected or unusable state, with dependent processing prevented. A no-return panic
 is an absolute last resort, not the prescribed response to a schema failure.
 Each schema keeps a reference count and an intrusive

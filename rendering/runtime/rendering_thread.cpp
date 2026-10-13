@@ -118,12 +118,12 @@ bool CTextureRequests::dispatch(const std::int32_t slot, const threading::FBatch
     const threading::SBatchSubmission submitted = m_batch.submit(function, object, static_cast<std::uint32_t>(slot));
     if (submitted.status == threading::EBatchSubmission::queued)
     {
-        MV_LOG(info, "Rendering: Texture batch queued, slot {}", slot);
+        MV_LOG(detail, "Rendering: Texture batch queued, slot {}", slot);
         return true;
     }
     if (submitted.status == threading::EBatchSubmission::completed_inline)
     {
-        MV_LOG(info, "Rendering: Texture batch completed inline, slot {}", slot);
+        MV_LOG(detail, "Rendering: Texture batch completed inline, slot {}", slot);
         return finish(slot, true);
     }
     MV_LOG(error, "Rendering: Texture batch rejected, slot {}, reason {}", slot, static_cast<unsigned int>(submitted.reason));
@@ -137,7 +137,7 @@ bool CTextureRequests::complete(const threading::SBatchResponse& response) noexc
     {
         return false;
     }
-    MV_LOG(info, "Rendering: Texture batch completion, slot {}, outcome {}", slot, static_cast<unsigned int>(response.completion));
+    MV_LOG(detail, "Rendering: Texture batch completion, slot {}, outcome {}", slot, static_cast<unsigned int>(response.completion));
     return finish(slot, (response.completion == threading::EBatchCompletion::executed));
 }
 

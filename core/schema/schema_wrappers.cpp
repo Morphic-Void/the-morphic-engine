@@ -180,7 +180,7 @@ bool CBakedSchema::can_replace() const noexcept
 {
     if (m_bindings.count != 0u)
     {
-        MV_ASSERT_MSG(false, "A referenced baked schema cannot be replaced.");
+        MV_ASSERT_REPORT("A referenced baked schema cannot be replaced.");
         return false;
     }
     return true;
@@ -315,7 +315,7 @@ bool CLiveSchema::can_replace() const noexcept
 {
     if (m_bindings.count != 0u)
     {
-        MV_ASSERT_MSG(false, "A referenced live schema cannot be replaced.");
+        MV_ASSERT_REPORT("A referenced live schema cannot be replaced.");
         return false;
     }
     return true;
@@ -549,14 +549,14 @@ bool CLiveSchema::replace(const CSchemaHandle target, const SEditValue& value) n
     {
         if (old_payload && !m_document.attach_payload(key, old_payload))
         {
-            MV_ASSERT_MSG(false, "Schema payload rollback failed.");
+            MV_CRITICAL_EVENT("Schema payload rollback failed.");
         }
         (void)m_document.erase(candidate);
         return false;
     }
     if (old_payload && !m_document.erase(old_payload))
     {
-        MV_ASSERT_MSG(false, "Old schema payload cleanup failed.");
+        MV_CRITICAL_EVENT("Old schema payload cleanup failed.");
         return false;
     }
     return true;

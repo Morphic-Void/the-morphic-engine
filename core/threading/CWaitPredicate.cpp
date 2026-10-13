@@ -72,20 +72,20 @@ bool CWaitPredicate::acquire_control(const std::uint32_t initial_value) noexcept
 {
     if (!m_valid || m_has_control || (initial_value == k_control_released_word))
     {
-        MV_ERROR("CWaitPredicate::acquire_control received an invalid control request");
+        MV_ASSERT_REPORT("CWaitPredicate::acquire_control received an invalid control request");
         return false;
     }
 
     if (!is_control_released())
     {
-        MV_ERROR("CWaitPredicate::acquire_control was called before the control word was released");
+        MV_ASSERT_REPORT("CWaitPredicate::acquire_control was called before the control word was released");
         return false;
     }
 
 #if !MV_PLATFORM_HAS_NATIVE_WAIT_WORD
     if (m_fallback_gate.has_control())
     {
-        MV_ERROR("CWaitPredicate::acquire_control found the fallback gate already controlled");
+        MV_ASSERT_REPORT("CWaitPredicate::acquire_control found the fallback gate already controlled");
         return false;
     }
 
@@ -104,7 +104,7 @@ void CWaitPredicate::release_control() noexcept
 {
     if (!m_valid || !m_has_control)
     {
-        MV_ERROR("CWaitPredicate::release_control was called without valid control");
+        MV_ASSERT_REPORT("CWaitPredicate::release_control was called without valid control");
         return;
     }
 
@@ -150,7 +150,7 @@ bool CWaitPredicate::wait_until_equal(CParkingTicket& ticket, const std::uint32_
 #endif
     if (!m_valid || (value == k_control_released_word))
     {
-        MV_ERROR("CWaitPredicate::wait_until_equal received an invalid wait request");
+        MV_ASSERT_REPORT("CWaitPredicate::wait_until_equal received an invalid wait request");
         return false;
     }
 
@@ -184,7 +184,7 @@ std::uint32_t CWaitPredicate::wait_until_not_equal(CParkingTicket& ticket, const
 #endif
     if (!m_valid || (value == k_control_released_word))
     {
-        MV_ERROR("CWaitPredicate::wait_until_not_equal received an invalid wait request");
+        MV_ASSERT_REPORT("CWaitPredicate::wait_until_not_equal received an invalid wait request");
         return k_control_released_word;
     }
 
@@ -278,7 +278,7 @@ bool CWaitPredicate::set(const std::uint32_t value) noexcept
 {
     if (!m_valid || !m_has_control || (value == k_control_released_word))
     {
-        MV_ERROR("CWaitPredicate::set received an invalid state update");
+        MV_ASSERT_REPORT("CWaitPredicate::set received an invalid state update");
         return false;
     }
 
@@ -290,7 +290,7 @@ bool CWaitPredicate::increment() noexcept
 {
     if (!m_valid || !m_has_control)
     {
-        MV_ERROR("CWaitPredicate::increment was called without valid control");
+        MV_ASSERT_REPORT("CWaitPredicate::increment was called without valid control");
         return false;
     }
 
@@ -319,7 +319,7 @@ bool CWaitPredicate::decrement() noexcept
 {
     if (!m_valid || !m_has_control)
     {
-        MV_ERROR("CWaitPredicate::decrement was called without valid control");
+        MV_ASSERT_REPORT("CWaitPredicate::decrement was called without valid control");
         return false;
     }
 
@@ -352,7 +352,7 @@ bool CWaitPredicate::wake_one_waiter() noexcept
 {
     if (!m_valid || !m_has_control)
     {
-        MV_ERROR("CWaitPredicate::wake_one_waiter was called without valid control");
+        MV_ASSERT_REPORT("CWaitPredicate::wake_one_waiter was called without valid control");
         return false;
     }
 
@@ -364,7 +364,7 @@ bool CWaitPredicate::wake_all_waiters() noexcept
 {
     if (!m_valid || !m_has_control)
     {
-        MV_ERROR("CWaitPredicate::wake_all_waiters was called without valid control");
+        MV_ASSERT_REPORT("CWaitPredicate::wake_all_waiters was called without valid control");
         return false;
     }
 

@@ -183,11 +183,11 @@ static void report_parse_failure(const std::int32_t slot, const CDocumentReport&
     }
     else if (report.policy.status == EDocumentPolicyStatus::invalid_options)
     {
-        MV_LOG_RICH(error, "Document slot %d: invalid policy bits 0x%08x", slot, report.policy.unknown_policy_bits);
+        MV_LOG(error, "Document slot {}: invalid policy bits 0x{}", slot, report.policy.unknown_policy_bits);
     }
     else if (report.policy.status == EDocumentPolicyStatus::rejected)
     {
-        MV_LOG_RICH(error, "Document slot %d: policy rejected features 0x%08x", slot, report.policy.disallowed_features);
+        MV_LOG(error, "Document slot {}: policy rejected features 0x{}", slot, report.policy.disallowed_features);
     }
 }
 
@@ -404,7 +404,7 @@ std::uint32_t MV_STD_ABI_CALL CHostWorkerThread::entry_point(void* const user_da
 {
     if (user_data == nullptr)
     {
-        MV_ERROR("CHostWorkerThread entry received a null user_data pointer");
+        MV_ASSERT_REPORT("CHostWorkerThread entry received a null user_data pointer");
         return ~0u;
     }
 

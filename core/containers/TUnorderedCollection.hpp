@@ -366,7 +366,7 @@ inline std::int32_t TUnorderedCollection<T>::emplace(TArgs&&... args) noexcept
     if (element == nullptr)
     {
         (void)slot_meta_class::erase(slot_index);
-        MV_ASSERT(false);
+        MV_LOG(error, "TUnorderedCollection could not obtain element storage");
         return -1;
     }
 
@@ -609,7 +609,7 @@ inline void TUnorderedCollection<T>::deconstruct_payload() noexcept
 template<typename T>
 inline bool TUnorderedCollection<T>::failed_integrity_check() noexcept
 {
-    MV_ASSERT(false);
+    MV_ASSERT_REPORT("TUnorderedCollection integrity check failed");
     return false;
 }
 

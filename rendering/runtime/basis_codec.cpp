@@ -125,12 +125,13 @@ bool initialise() noexcept
     {
         return true;
     }
+    //  Flush entry breadcrumbs before third-party code can crash or stall.
     MV_LOG_IMMEDIATE(info, "Rendering Basis: initializing encoder and transcoder");
     s_initialized = basisu::basisu_encoder_init(false, false);
     if (s_initialized)
-        MV_LOG_IMMEDIATE(info, "Rendering Basis: initialization succeeded");
+        MV_LOG(info, "Rendering Basis: initialization succeeded");
     else
-        MV_LOG_IMMEDIATE(error, "Rendering Basis: initialization failed");
+        MV_LOG(error, "Rendering Basis: initialization failed");
     return s_initialized;
 }
 
@@ -140,7 +141,7 @@ void shutdown() noexcept
     {
         basisu::basisu_encoder_deinit();
         s_initialized = false;
-        MV_LOG_IMMEDIATE(info, "Rendering Basis: shut down");
+        MV_LOG(info, "Rendering Basis: shut down");
     }
 }
 
@@ -194,6 +195,7 @@ EStatus encode_ktx2(
     }
     const basist::basis_tex_format mode = hdr ?
         basist::basis_tex_format::cUASTC_HDR_4x4 : basist::basis_tex_format::cUASTC_LDR_4x4;
+    //  Preserve the last entry point if the third-party encoder fails to return.
     MV_LOG_IMMEDIATE(info, "Rendering Basis: encode begin {}x{} input {} mode {} quality {} effort {} mips {}",
         width, height, static_cast<unsigned int>(input.format), static_cast<unsigned int>(options.encoding),
         quality, effort, (options.generate_mips ? 1u : 0u));
@@ -217,7 +219,7 @@ EStatus encode_ktx2(
                 {
                     if (!read_hdr_component((pixel + (channel * component_bytes)), half, rgb[channel]))
                     {
-                        MV_LOG_IMMEDIATE(error, "Rendering Basis: HDR source rejected at {},{} channel {}", x, y, channel);
+                        MV_LOG(error, "Rendering Basis: HDR source rejected at {},{} channel {}", x, y, channel);
                         return EStatus::invalid_input;
                     }
                 }
@@ -250,7 +252,7 @@ EStatus encode_ktx2(
     }
     if ((encoded == nullptr) || (encoded_size == 0u))
     {
-        MV_LOG_IMMEDIATE(error, "Rendering Basis: encode failed");
+        MV_LOG(error, "Rendering Basis: encode failed");
         basisu::basis_free_data(encoded);
         return EStatus::codec_failed;
     }
@@ -262,16 +264,16 @@ EStatus encode_ktx2(
     basisu::basis_free_data(encoded);
     if (!allocated)
     {
-        MV_LOG_IMMEDIATE(error, "Rendering Basis: encoded buffer allocation failed ({} bytes)", encoded_size);
+        MV_LOG(error, "Rendering Basis: encoded buffer allocation failed ({} bytes)", encoded_size);
         return EStatus::allocation_failed;
     }
     if (!describe_ktx2(output.buffer.const_view(), output.description))
     {
         output.buffer.deallocate();
-        MV_LOG_IMMEDIATE(error, "Rendering Basis: encoded KTX2 metadata invalid");
+        MV_LOG(error, "Rendering Basis: encoded KTX2 metadata invalid");
         return EStatus::codec_failed;
     }
-    MV_LOG_IMMEDIATE(info, "Rendering Basis: encode succeeded, {} bytes, {} levels, HDR scale {}",
+    MV_LOG(detail, "Rendering Basis: encode succeeded, {} bytes, {} levels, HDR scale {}",
         encoded_size, output.description.levels, output.description.hdr_scale);
     return EStatus::success;
 }
@@ -285,6 +287,7 @@ EStatus transcode_ktx2(
     using namespace image::texture;
     output.buffer.deallocate();
     output.description = {};
+    //  Metadata inspection below also enters the third-party transcoder.
     MV_LOG_IMMEDIATE(info, "Rendering Basis: transcode request source {} bytes, level {}, target {}",
         input.size(), level, static_cast<unsigned int>(target));
     CEncodedDescription source;
@@ -312,12 +315,13 @@ EStatus transcode_ktx2(
         return EStatus::unsupported_format;
     }
     basist::ktx2_transcoder transcoder;
+    //  Preserve the last entry point if the third-party transcoder fails to return.
     MV_LOG_IMMEDIATE(info, "Rendering Basis: transcode begin {}x{} level {} target {} source {} bytes",
         source.width, source.height, level, static_cast<unsigned int>(target), input.size());
     if (!transcoder.init(input.data(), static_cast<std::uint32_t>(input.size())) ||
         !transcoder.start_transcoding())
     {
-        MV_LOG_IMMEDIATE(error, "Rendering Basis: transcoder initialization failed");
+        MV_LOG(error, "Rendering Basis: transcoder initialization failed");
         return EStatus::codec_failed;
     }
     basist::ktx2_image_level_info info;
@@ -331,20 +335,20 @@ EStatus transcode_ktx2(
     const std::uint32_t unit_bytes = basist::basis_get_bytes_per_block_or_pixel(basis_target);
     if ((bytes == 0u) || (unit_bytes == 0u) || !output.buffer.resize(bytes, 16u))
     {
-        MV_LOG_IMMEDIATE(error, "Rendering Basis: transcode buffer allocation failed ({} bytes)", bytes);
+        MV_LOG(error, "Rendering Basis: transcode buffer allocation failed ({} bytes)", bytes);
         return EStatus::allocation_failed;
     }
     if (!transcoder.transcode_image_level(level, 0u, 0u, output.buffer.data(), (bytes / unit_bytes), basis_target))
     {
         output.buffer.deallocate();
-        MV_LOG_IMMEDIATE(error, "Rendering Basis: transcode failed");
+        MV_LOG(error, "Rendering Basis: transcode failed");
         return EStatus::codec_failed;
     }
     const bool blocks = (target == EStorageFormat::bc7_unorm) || (target == EStorageFormat::bc7_srgb) ||
         (target == EStorageFormat::bc6h_ufloat);
     const std::uint32_t row_units = blocks ? ((width + 3u) / 4u) : width;
     output.description = { width, height, level, (row_units * unit_bytes), target, source.transfer, source.hdr_scale };
-    MV_LOG_IMMEDIATE(info, "Rendering Basis: transcode succeeded, {} bytes, HDR scale {}", bytes, source.hdr_scale);
+    MV_LOG(detail, "Rendering Basis: transcode succeeded, {} bytes, HDR scale {}", bytes, source.hdr_scale);
     return EStatus::success;
 }
 

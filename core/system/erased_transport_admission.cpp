@@ -118,7 +118,7 @@ void report_rejection(const SDecision& decision, const EIdentityRole role) noexc
 
         case ERejection::invalid_source_module:
         {
-            MV_ERROR("Erased transport rejected {} identity {}: source {} is invalid for destination {}",
+            MV_ASSERT_REPORT("Erased transport rejected {} identity {}: source {} is invalid for destination {}",
                 role_text, decision.identity, decision.source_module_id,
                 decision.destination_module_id);
             return;
@@ -126,7 +126,7 @@ void report_rejection(const SDecision& decision, const EIdentityRole role) noexc
 
         case ERejection::invalid_destination_module:
         {
-            MV_ERROR("Erased transport rejected {} identity {} from {}: destination {} is invalid",
+            MV_ASSERT_REPORT("Erased transport rejected {} identity {} from {}: destination {} is invalid",
                 role_text, decision.identity, decision.source_module_id,
                 decision.destination_module_id);
             return;
@@ -134,7 +134,7 @@ void report_rejection(const SDecision& decision, const EIdentityRole role) noexc
 
         case ERejection::invalid_type_identity:
         {
-            MV_ERROR("Erased transport rejected {} identity {} from {} to {}: identity is invalid",
+            MV_ASSERT_REPORT("Erased transport rejected {} identity {} from {} to {}: identity is invalid",
                 role_text, decision.identity, decision.source_module_id,
                 decision.destination_module_id);
             return;
@@ -142,7 +142,7 @@ void report_rejection(const SDecision& decision, const EIdentityRole role) noexc
 
         case ERejection::unregistered_system_identity:
         {
-            MV_ERROR("Erased transport rejected {} identity {} from {} to {}: SYSTEM identity is unregistered",
+            MV_ASSERT_REPORT("Erased transport rejected {} identity {} from {} to {}: SYSTEM identity is unregistered",
                 role_text, decision.identity, decision.source_module_id,
                 decision.destination_module_id);
             return;
@@ -150,7 +150,7 @@ void report_rejection(const SDecision& decision, const EIdentityRole role) noexc
 
         case ERejection::cross_component_local_identity:
         {
-            MV_ERROR("Erased transport rejected {} identity {} from {} to {}: LOCAL identity cannot cross components",
+            MV_ASSERT_REPORT("Erased transport rejected {} identity {} from {} to {}: LOCAL identity cannot cross components",
                 role_text, decision.identity, decision.source_module_id,
                 decision.destination_module_id);
             return;
@@ -158,14 +158,14 @@ void report_rejection(const SDecision& decision, const EIdentityRole role) noexc
 
         case ERejection::unregistered_local_identity:
         {
-            MV_ERROR("Erased transport rejected {} identity {} from {} to {}: LOCAL identity is unregistered",
+            MV_ASSERT_REPORT("Erased transport rejected {} identity {} from {} to {}: LOCAL identity is unregistered",
                 role_text, decision.identity, decision.source_module_id,
                 decision.destination_module_id);
             return;
         }
         default:
         {
-            MV_ERROR("Erased transport rejected {} identity {} from {} to {}: rejection reason is invalid",
+            MV_ASSERT_REPORT("Erased transport rejected {} identity {} from {} to {}: rejection reason is invalid",
                 role_text, decision.identity, decision.source_module_id,
                 decision.destination_module_id);
             return;

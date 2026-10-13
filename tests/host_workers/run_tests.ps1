@@ -143,8 +143,9 @@ foreach ($requested in @(0, 1, 2, 3, 9, 128)) {
     if (!$events.Contains("Host: Batch runners $batchExpected")) { throw "Unexpected batch runner sizing: $log" }
     $textureRoute = if ($batchExpected -eq 0) { 'completed inline' } else { 'queued' }
     $textureThread = if ($batchExpected -eq 0) { 'rendering' } else { 'batch_runner_\d+' }
-    if (!$events.Contains("Rendering: Texture batch $textureRoute") -or
+    if ((($Configuration -eq 'Debug') -and !$events.Contains("Rendering: Texture batch $textureRoute")) -or
         ($directEvents -notmatch "\[render_vulkan:$textureThread\].*Rendering Basis: encode begin") -or
+        ($directEvents -notmatch "\[render_vulkan:$textureThread\].*Rendering Basis: transcode request") -or
         ($directEvents -notmatch "\[render_vulkan:$textureThread\].*Rendering Basis: transcode begin")) {
         throw "Texture work did not use the expected batch route and module context: $directLog"
     }

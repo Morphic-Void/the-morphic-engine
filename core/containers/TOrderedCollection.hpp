@@ -439,7 +439,7 @@ inline std::int32_t TOrderedCollection<T, TKey>::emplace(const TKey& key, TArgs&
     if (element == nullptr)
     {
         (void)slot_meta_class::erase(slot_index);
-        MV_ASSERT(false);
+        MV_LOG(error, "TOrderedCollection could not obtain element storage");
         return -1;
     }
 
@@ -695,7 +695,7 @@ inline void TOrderedCollection<T, TKey>::deconstruct_payload() noexcept
 template<typename T, typename TKey>
 inline bool TOrderedCollection<T, TKey>::failed_integrity_check() noexcept
 {
-    MV_ASSERT(false);
+    MV_ASSERT_REPORT("TOrderedCollection integrity check failed");
     return false;
 }
 

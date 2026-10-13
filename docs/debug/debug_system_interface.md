@@ -325,6 +325,30 @@ Prefer structured, ordinary delivery. Choose rich representation for content
 that needs it, and immediate delivery when write/flush must be attempted before
 continuation. These are independent choices.
 
+Runtime call sites distinguish rejected internal misuse from operation failure:
+rejected transport identities, invalid control requests and already-detected
+structural failures in documents and collections use diagnostic-only assertion
+reports. Allocation, codec and module-operation failures use diagnostic-only errors. Ordinary
+development invariant checks retain their build gating. Failed ownership
+transitions and schema rollback/cleanup retain or use critical reporting because
+the operation can no longer establish a coherent result.
+
+Memory-accounting overflow, narrowing and suspicious modular adjustments use
+diagnostic-only errors; their reports do not change the accounting operation or
+establish an ownership failure. Boolean container integrity checks use
+diagnostic-only assertion reports and return failure to the caller.
+`CStringBuffer::assert_invariants()` remains breakpoint-capable for explicit
+debugger inspection. Vector fallback accessors retain development assertions
+with breakpoint processing: they continue with substitute data, rather than
+returning a failure result to the caller.
+
+Per-texture batch progress and codec completion are `detail` traffic. The Basis
+initialisation, encode, transcode metadata and transcode entry breadcrumbs remain
+immediate `info` reports to preserve the last entry point before third-party code
+can crash or stall. Returned failures and completion reports use ordinary
+delivery. Dynamic paths, parser explanations and reports exceeding the bounded
+argument count still justify rich representation; a scalar bitmask does not.
+
 ```cpp
 MV_LOG(info, "Host: Background workers {}", worker_count);
 MV_LOG_IMMEDIATE(info, "Codec: encode begin {}x{}", width, height);

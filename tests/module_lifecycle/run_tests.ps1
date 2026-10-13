@@ -103,6 +103,13 @@ foreach ($case in @('bundle', 'bundle-inline', 'bundle-late-reference', 'bundle-
                 throw "$case has an unexpected service failure diagnostic: $log"
             }
         }
+        elseif ($expectedExit -eq 1) {
+            $status = if ($case.EndsWith('-missing')) { 6 } else { 7 }
+            $pattern = '\[error:event\] \[host\.cpp:\d+\] Executive module lifecycle failed, status ' + $status + '$'
+            if (($errors.Count -ne 1) -or ($errors[0] -notmatch $pattern)) {
+                throw "$case has an unexpected lifecycle failure diagnostic: $log"
+            }
+        }
         elseif ($case -in @('normal-startup', 'replace', 'replace-dependency', 'render-executive-replace')) {
             # Lifecycle assertion expectations are checked separately below.
             Assert-HostDiagnostics -Events ($events -replace '(?m)^.*\[assert:.*(?:\r?\n|$)', '')
@@ -110,7 +117,7 @@ foreach ($case in @('bundle', 'bundle-inline', 'bundle-late-reference', 'bundle-
         elseif ($errors.Count -ne 0) { throw "$case has unexpected errors: $log" }
         $assertions = [regex]::Matches($events, '\[assert:').Count
         $dependencyCleanup = $case -in @('dependency', 'shutdown-dependency', 'replace-dependency', 'render-shutdown-dependency', 'render-replace-dependency', 'render-drain')
-        $expectedAssertions = if ($dependencyCleanup -or ($case -eq 'bundle-late-reference')) { 1 } else { $expectedExit }
+        $expectedAssertions = if ($dependencyCleanup -or ($case -eq 'bundle-late-reference')) { 1 } else { 0 }
         if ($assertions -ne $expectedAssertions) { throw "$case has $assertions assertion logs, expected $expectedAssertions." }
         if ($dependencyCleanup) {
             $cleanup = $events.IndexOf('Host: disposing retained assets dependent on module mount')

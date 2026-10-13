@@ -417,7 +417,7 @@ void CHost::complete_scan(threading::CErasedOwnerMsg& message) noexcept
         m_initial_scan = false;
         if (!scanned || m_runtime_failed || !m_filesystem.adopt(std::move(result->document)))
         {
-            MV_ERROR("Host: Initial filesystem image could not be constructed");
+            MV_LOG(error, "Host: Initial filesystem image could not be constructed");
             executive_failure(EModuleStatus::binding_failed);
             return;
         }
@@ -437,7 +437,7 @@ void CHost::complete_scan(threading::CErasedOwnerMsg& message) noexcept
 void CHost::executive_failure(const EModuleStatus status) noexcept
 {
     m_runtime_failed = true;
-    MV_ASSERT_REPORT("Executive module lifecycle failed, status {}", static_cast<std::uint32_t>(status));
+    MV_LOG(error, "Executive module lifecycle failed, status {}", static_cast<std::uint32_t>(status));
     if (threading::CThreadPackage* const executive = thread_package(EWorkerThreadID::executive))
     {
         executive->request_exit();
@@ -486,7 +486,7 @@ void CHost::advance_lifecycle(const threading::EThreadRunState executive_state) 
                 if (result.status != EModuleStatus::success)
                 {
                     m_runtime_failed = true;
-                    MV_ASSERT_REPORT("Module shutdown failed, status {}", static_cast<std::uint32_t>(result.status));
+                    MV_LOG(error, "Module shutdown failed, status {}", static_cast<std::uint32_t>(result.status));
                 }
                 break;
             }

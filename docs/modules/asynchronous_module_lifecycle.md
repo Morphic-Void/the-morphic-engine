@@ -71,7 +71,7 @@ operations and disposes of the old thread package, including queued messages.
 Self-unload without replacement requests full system shutdown. Self-replacement
 keeps independent retained assets, cleans up assets dependent on the outgoing
 Executive, unloads it, binds the replacement, and starts
-its thread. Failure at any replacement stage produces an assertion-level log and
+its thread. Failure at any replacement stage produces an error-level log and
 full orderly shutdown, without rollback, retries or an outgoing notification. The
 diagnostic is logged without invoking a debugger breakpoint. Bootstrap failure
 uses the same failure handling.

@@ -560,6 +560,8 @@ void test_concrete_erased_pod_transport_diagnostics(TTestContext& ctx)
     TEST_EXPECT(ctx, tests::file_contains(event_path, "[invalid-system:"));
     TEST_EXPECT(ctx, tests::file_contains(
         event_path, "Erased transport rejected POD message"));
+    TEST_EXPECT(ctx, tests::file_contains(event_path, "[assert:condition] [erased_transport_admission.cpp:"));
+    TEST_EXPECT(ctx, !tests::file_contains(event_path, "[error:event]"));
 
     (void)system_context::set_ambient_module_id(previous_module_id);
 }

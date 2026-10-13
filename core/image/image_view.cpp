@@ -335,7 +335,7 @@ void CImageView::plot(const std::int32_t x, const std::int32_t y, const std::uin
 {
     if (is_read_only())
     {
-        MV_ASSERT_MSG(false, "Cannot draw to a read-only image view.");
+        MV_ASSERT_REPORT("Cannot draw to a read-only image view.");
         return;
     }
     if (contains(x, y))
@@ -351,7 +351,7 @@ void CImageView::fill_region(
 {
     if (is_read_only())
     {
-        MV_ASSERT_MSG(false, "Cannot draw to a read-only image view.");
+        MV_ASSERT_REPORT("Cannot draw to a read-only image view.");
         return;
     }
     const std::int32_t x_begin = std::max(left, 0);
@@ -379,7 +379,7 @@ void CImageView::draw_line(
     const bool gray = is_greyscale();
     if (is_read_only())
     {
-        MV_ASSERT_MSG(false, "Cannot draw to a read-only image view.");
+        MV_ASSERT_REPORT("Cannot draw to a read-only image view.");
         return;
     }
     if (!is_ready() || (!gray && (write_mask == 0u)))
@@ -519,7 +519,7 @@ void CImageView::draw_rectangle(
 {
     if (is_read_only())
     {
-        MV_ASSERT_MSG(false, "Cannot draw to a read-only image view.");
+        MV_ASSERT_REPORT("Cannot draw to a read-only image view.");
         return;
     }
     const rasterization::SRectangle rect = rasterization::rectangle(x, y, width, height);
@@ -547,7 +547,7 @@ bool CImageView::copy_rectangle(const CImageView& source,
 {
     if (is_read_only())
     {
-        MV_ASSERT_MSG(false, "Cannot draw to a read-only image view.");
+        MV_ASSERT_REPORT("Cannot draw to a read-only image view.");
         return false;
     }
     if (!is_ready() || !source.is_ready() ||

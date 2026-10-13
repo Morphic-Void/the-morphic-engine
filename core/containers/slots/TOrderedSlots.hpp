@@ -1824,7 +1824,7 @@ inline std::uint32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::apply_growth_po
 template<typename TSlotBacking, typename TIndex, typename TMeta>
 inline std::int32_t TOrderedSlots<TSlotBacking, TIndex, TMeta>::failed_validate_subtree() noexcept
 {
-    MV_ASSERT(false);
+    MV_ASSERT_REPORT("TOrderedSlots subtree validation failed");
     return -1;
 }
 
@@ -1949,7 +1949,7 @@ inline void TOrderedSlots<TSlotBacking, TIndex, TMeta>::unsafe_replace_memory_co
 template<typename TSlotBacking, typename TIndex, typename TMeta>
 inline bool TOrderedSlots<TSlotBacking, TIndex, TMeta>::failed_integrity_check() noexcept
 {
-    MV_ASSERT(false);
+    MV_ASSERT_REPORT("TOrderedSlots integrity check failed");
     return false;
 }
 

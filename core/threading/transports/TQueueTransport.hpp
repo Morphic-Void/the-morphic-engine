@@ -346,7 +346,7 @@ inline bool TQueue<T>::post(const T* const src, const std::uint32_t count) noexc
         if ((output_buffer.capacity != m_capacity) && !output_buffer.storage.reallocate(m_capacity, output_buffer.size))
         {   //  reallocation failed, the buffer is unchanged but the post() operation cannot continue
             m_allocation_failed = true;
-            MV_ERROR("TQueue::post failed to reallocate the output buffer");
+            MV_LOG(error, "TQueue::post failed to reallocate the output buffer");
             return false;
         }
         output_buffer.capacity = m_capacity;
@@ -365,7 +365,7 @@ inline bool TQueue<T>::post(const T* const src, const std::uint32_t count) noexc
             if ((locked_buffer.capacity != m_capacity) && !locked_buffer.storage.reallocate(m_capacity, locked_buffer.size))
             {   //  reallocation failed, the buffer is unchanged but the post() operation cannot continue
                 m_allocation_failed = true;
-                MV_ERROR("TQueue::post failed to reallocate the locked buffer");
+                MV_LOG(error, "TQueue::post failed to reallocate the locked buffer");
                 return false;
             }
             locked_buffer.capacity = m_capacity;
@@ -382,7 +382,7 @@ inline bool TQueue<T>::post(const T* const src, const std::uint32_t count) noexc
             if ((staged_buffer.capacity != m_capacity) && !staged_buffer.storage.reallocate(m_capacity, staged_buffer.size))
             {   //  reallocation failed, the buffer is unchanged but the post() operation cannot continue
                 m_allocation_failed = true;
-                MV_ERROR("TQueue::post failed to reallocate the staged buffer");
+                MV_LOG(error, "TQueue::post failed to reallocate the staged buffer");
                 return false;
             }
             staged_buffer.capacity = m_capacity;

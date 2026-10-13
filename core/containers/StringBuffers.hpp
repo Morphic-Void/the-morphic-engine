@@ -923,7 +923,7 @@ inline bool CStableStrings::initialise(const std::size_t string_count, const std
 
     if (!success)
     {
-        MV_ERROR("CStableStrings::initialise failed");
+        MV_LOG(error, "CStableStrings::initialise failed");
     }
     return success;
 }
@@ -941,7 +941,7 @@ inline bool CStableStrings::ensure_free(const std::size_t length) noexcept
 
     if (!success)
     {
-        MV_ERROR("CStableStrings::ensure_free failed");
+        MV_LOG(error, "CStableStrings::ensure_free failed");
     }
     return success;
 }
@@ -1224,7 +1224,7 @@ inline std::size_t CStableStrings::private_append(const std::uint8_t* const stri
 
 [[nodiscard]] inline bool CStableStrings::failed_integrity_check() noexcept
 {
-    MV_ERROR("CStableStrings integrity check failed");
+    MV_ASSERT_REPORT("CStableStrings integrity check failed");
     return false;
 }
 

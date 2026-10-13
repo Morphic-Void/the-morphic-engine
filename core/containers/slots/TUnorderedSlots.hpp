@@ -893,7 +893,7 @@ inline void TUnorderedSlots<TSlotBacking, TIndex>::unsafe_replace_memory_context
 template<typename TSlotBacking, typename TIndex>
 inline bool TUnorderedSlots<TSlotBacking, TIndex>::failed_integrity_check() noexcept
 {
-    MV_ASSERT(false);
+    MV_ASSERT_REPORT("TUnorderedSlots integrity check failed");
     return false;
 }
 

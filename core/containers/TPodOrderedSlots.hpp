@@ -459,7 +459,7 @@ inline void TPodOrderedSlots<T, TKey>::unsafe_replace_memory_context_without_acc
 template<typename T, typename TKey>
 inline bool TPodOrderedSlots<T, TKey>::failed_integrity_check() noexcept
 {
-    MV_ASSERT(false);
+    MV_ASSERT_REPORT("TPodOrderedSlots integrity check failed");
     return false;
 }
 

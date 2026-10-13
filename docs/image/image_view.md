@@ -35,9 +35,9 @@ Line setup uses unsigned 32-bit distances because the span from `INT32_MIN` to
 uses 32-bit counts and native-width `std::uintptr_t` byte offsets and deltas.
 
 `texel(x, y)` always returns `std::uint32_t`, zero-extending greyscale. Invalid
-reads return zero. `plot` and all other drawing operations assert on read-only
-destinations and then reject the operation, including when assertions are
-disabled or execution continues. Other invalid drawing requests are ignored.
+reads return zero. `plot` and all other drawing operations emit a diagnostic-only
+assertion report on read-only destinations and reject the operation in every
+build. Other invalid drawing requests are ignored.
 Greyscale writes take only the low eight
 colour bits. The write mask applies to colour images:
 

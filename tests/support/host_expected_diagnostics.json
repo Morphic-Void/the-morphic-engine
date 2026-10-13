@@ -7,7 +7,7 @@
   {
     "scenario": "reject_disallowed_features",
     "source": "host_worker_thread.cpp",
-    "message": "Document slot 0: policy rejected features 0x00000800"
+    "message": "Document slot 0: policy rejected features 0x800"
   },
   {
     "scenario": "retain_baked_on_json_failure",

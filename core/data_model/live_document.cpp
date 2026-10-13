@@ -793,7 +793,7 @@ CLiveAttachmentResult CLiveDocument::insert_child_at(const CNodeKey destination,
         if (live_value_type_is_container(destination_node->value_type()))
         {
             mark_integrity_bad();
-            MV_ASSERT_MSG(false, "Container aggregate is missing.");
+            MV_ASSERT_REPORT("Container aggregate is missing.");
         }
         return live_value_type_is_container(destination_node->value_type()) ?
             attachment_rejection(ELiveAttachmentRejection::corrupt_structure) :
@@ -815,7 +815,7 @@ CLiveAttachmentResult CLiveDocument::insert_child_at(const CNodeKey destination,
         if (before_node == nullptr)
         {
             mark_integrity_bad();
-            MV_ASSERT_MSG(false, "Indexed child traversal encountered an invalid value.");
+            MV_ASSERT_REPORT("Indexed child traversal encountered an invalid value.");
             return attachment_rejection(ELiveAttachmentRejection::corrupt_structure);
         }
         before = before_node->value_next_sibling_slot();
@@ -823,7 +823,7 @@ CLiveAttachmentResult CLiveDocument::insert_child_at(const CNodeKey destination,
     if (before < 0)
     {
         mark_integrity_bad();
-        MV_ASSERT_MSG(false, "Indexed child traversal ended early.");
+        MV_ASSERT_REPORT("Indexed child traversal ended early.");
         return attachment_rejection(ELiveAttachmentRejection::corrupt_structure);
     }
     SAttachmentPosition position;
@@ -866,7 +866,7 @@ CNodeKey CLiveDocument::detach_payload(const CNodeKey source) noexcept
             !source_node->forms_container_pair_with(*aggregate_before_allocation, source_slot, aggregate_slot))))
     {
         mark_integrity_bad();
-        MV_ASSERT_MSG(false, "Payload source has an invalid aggregate pair.");
+        MV_ASSERT_REPORT("Payload source has an invalid aggregate pair.");
         return CNodeKey{};
     }
 
@@ -913,7 +913,7 @@ CNodeKey CLiveDocument::attach_payload(const CNodeKey empty_target, const CNodeK
         ((payload_aggregate == nullptr) || !payload->forms_container_pair_with(*payload_aggregate, payload_slot, payload_aggregate_slot)))
     {
         mark_integrity_bad();
-        MV_ASSERT_MSG(false, "Payload has an invalid aggregate pair.");
+        MV_ASSERT_REPORT("Payload has an invalid aggregate pair.");
         return CNodeKey{};
     }
 
@@ -934,7 +934,7 @@ CNodeKey CLiveDocument::attach_payload(const CNodeKey empty_target, const CNodeK
     if (!m_nodes.erase(payload_slot))
     {
         mark_integrity_bad();
-        MV_ASSERT_MSG(false, "Consumed payload shell could not be erased.");
+        MV_ASSERT_REPORT("Consumed payload shell could not be erased.");
         return CNodeKey{};
     }
     return empty_target;
@@ -960,7 +960,7 @@ bool CLiveDocument::erase_payload(const CNodeKey value) noexcept
     if (!value_payload_is_in_document_domain(*value_record))
     {
         mark_integrity_bad();
-        MV_ASSERT_MSG(false, "Erased value has an invalid payload.");
+        MV_ASSERT_REPORT("Erased value has an invalid payload.");
         return false;
     }
     if (value_record->value_type() == ELiveValueType::empty)
@@ -977,20 +977,20 @@ bool CLiveDocument::erase_payload(const CNodeKey value) noexcept
             !value_record->forms_container_pair_with(*aggregate, value_slot, aggregate_slot))
         {
             mark_integrity_bad();
-            MV_ASSERT_MSG(false, "Erased value has an invalid aggregate pair.");
+            MV_ASSERT_REPORT("Erased value has an invalid aggregate pair.");
             return false;
         }
         if (!erase_aggregate_children(aggregate_slot) || !m_nodes.erase(aggregate_slot))
         {
             mark_integrity_bad();
-            MV_ASSERT_MSG(false, "Erased value aggregate could not be removed.");
+            MV_ASSERT_REPORT("Erased value aggregate could not be removed.");
             return false;
         }
         value_record = value_node(value_slot);
         if (value_record == nullptr)
         {
             mark_integrity_bad();
-            MV_ASSERT_MSG(false, "Value disappeared while erasing its payload.");
+            MV_ASSERT_REPORT("Value disappeared while erasing its payload.");
             return false;
         }
     }
@@ -1026,7 +1026,7 @@ bool CLiveDocument::erase(const CNodeKey value) noexcept
     else if (!value_record->value_is_unattached())
     {
         mark_integrity_bad();
-        MV_ASSERT_MSG(false, "Unattached value has inconsistent topology.");
+        MV_ASSERT_REPORT("Unattached value has inconsistent topology.");
         return false;
     }
     if (!erase_subtree(value_slot))
@@ -1087,9 +1087,9 @@ CNodeKey CLiveDocument::extend_object_child(const CNodeKey destination, const CN
         committed = committed && append_child(existing, incoming).succeeded();
     }
     committed = committed && erase(candidate);
-    MV_ASSERT_MSG(committed, "Prepared collision extension must commit without allocation.");
     if (!committed)
     {
+        MV_ASSERT_REPORT("Prepared collision extension must commit without allocation.");
         mark_integrity_bad();
         return CNodeKey{};
     }
@@ -1196,7 +1196,7 @@ bool CLiveDocument::intern_string_domain(const SPreparedString& value, CStableSt
     if (appended != next_id)
     {
         mark_integrity_bad();
-        MV_ASSERT_MSG(false, "String intern commit failed.");
+        MV_ASSERT_REPORT("String intern commit failed.");
         return false;
     }
     id = static_cast<std::uint32_t>(next_id);
@@ -1512,7 +1512,7 @@ LiveNodeSlot CLiveDocument::subtree_first_postorder(const LiveNodeSlot subtree_r
         if (value == nullptr)
         {
             mark_integrity_bad();
-            MV_ASSERT_MSG(false, "Postorder traversal encountered an invalid value.");
+            MV_ASSERT_REPORT("Postorder traversal encountered an invalid value.");
             return k_invalid_live_node_slot;
         }
         if (!live_value_type_is_container(value->value_type()))
@@ -1523,7 +1523,7 @@ LiveNodeSlot CLiveDocument::subtree_first_postorder(const LiveNodeSlot subtree_r
         if (aggregate == nullptr)
         {
             mark_integrity_bad();
-            MV_ASSERT_MSG(false, "Postorder traversal encountered an invalid aggregate.");
+            MV_ASSERT_REPORT("Postorder traversal encountered an invalid aggregate.");
             return k_invalid_live_node_slot;
         }
         if (aggregate->aggregate_first_child_slot() < 0)
@@ -1533,7 +1533,7 @@ LiveNodeSlot CLiveDocument::subtree_first_postorder(const LiveNodeSlot subtree_r
         first = aggregate->aggregate_first_child_slot();
     }
     mark_integrity_bad();
-    MV_ASSERT_MSG(false, "Postorder traversal did not terminate.");
+    MV_ASSERT_REPORT("Postorder traversal did not terminate.");
     return k_invalid_live_node_slot;
 }
 
@@ -1547,7 +1547,7 @@ LiveNodeSlot CLiveDocument::subtree_next_postorder(const LiveNodeSlot subtree_ro
     if (value == nullptr)
     {
         mark_integrity_bad();
-        MV_ASSERT_MSG(false, "Postorder traversal encountered an invalid value.");
+        MV_ASSERT_REPORT("Postorder traversal encountered an invalid value.");
         return k_invalid_live_node_slot;
     }
     if (value->value_next_sibling_slot() >= 0)
@@ -1558,7 +1558,7 @@ LiveNodeSlot CLiveDocument::subtree_next_postorder(const LiveNodeSlot subtree_ro
     if (parent == nullptr)
     {
         mark_integrity_bad();
-        MV_ASSERT_MSG(false, "Postorder traversal encountered an invalid parent aggregate.");
+        MV_ASSERT_REPORT("Postorder traversal encountered an invalid parent aggregate.");
         return k_invalid_live_node_slot;
     }
     return parent->aggregate_owner_value_slot();
@@ -1666,7 +1666,7 @@ bool CLiveDocument::query_ancestry(const LiveNodeSlot value, const LiveNodeSlot 
         if (current_value == nullptr)
         {
             mark_integrity_bad();
-            MV_ASSERT_MSG(false, "Ancestry traversal encountered an invalid value.");
+            MV_ASSERT_REPORT("Ancestry traversal encountered an invalid value.");
             return false;
         }
         if (current == sought)
@@ -1686,13 +1686,13 @@ bool CLiveDocument::query_ancestry(const LiveNodeSlot value, const LiveNodeSlot 
         if (aggregate == nullptr)
         {
             mark_integrity_bad();
-            MV_ASSERT_MSG(false, "Ancestry traversal encountered an invalid aggregate.");
+            MV_ASSERT_REPORT("Ancestry traversal encountered an invalid aggregate.");
             return false;
         }
         current = aggregate->aggregate_owner_value_slot();
     }
     mark_integrity_bad();
-    MV_ASSERT_MSG(false, "Ancestry traversal did not terminate.");
+    MV_ASSERT_REPORT("Ancestry traversal did not terminate.");
     return false;
 }
 
@@ -1734,13 +1734,13 @@ CLiveAttachmentResult CLiveDocument::attach_child(const CNodeKey destination, co
         (aggregate->aggregate_owner_value_slot() != destination_slot))
     {
         mark_integrity_bad();
-        MV_ASSERT_MSG(false, "Destination container pair is invalid.");
+        MV_ASSERT_REPORT("Destination container pair is invalid.");
         return attachment_rejection(ELiveAttachmentRejection::corrupt_structure);
     }
     if (!destination_node->forms_container_pair_with(*aggregate, destination_slot, aggregate_slot))
     {
         mark_integrity_bad();
-        MV_ASSERT_MSG(false, "Destination value and aggregate disagree.");
+        MV_ASSERT_REPORT("Destination value and aggregate disagree.");
         return attachment_rejection(ELiveAttachmentRejection::corrupt_structure);
     }
 
@@ -1764,7 +1764,7 @@ CLiveAttachmentResult CLiveDocument::attach_child(const CNodeKey destination, co
         if (previous_node == nullptr)
         {
             mark_integrity_bad();
-            MV_ASSERT_MSG(false, "Previous insertion sibling is invalid.");
+            MV_ASSERT_REPORT("Previous insertion sibling is invalid.");
             return attachment_rejection(ELiveAttachmentRejection::corrupt_structure);
         }
     }
@@ -1781,7 +1781,7 @@ CLiveAttachmentResult CLiveDocument::attach_child(const CNodeKey destination, co
             position.next))
     {
         mark_integrity_bad();
-        MV_ASSERT_MSG(false, "Insertion siblings are not adjacent.");
+        MV_ASSERT_REPORT("Insertion siblings are not adjacent.");
         return attachment_rejection(ELiveAttachmentRejection::corrupt_structure);
     }
     if ((previous_node == nullptr) && (next_node != nullptr) && !aggregate->aggregate_has_first_child(*next_node, aggregate_slot, position.next))
@@ -1809,7 +1809,7 @@ CLiveAttachmentResult CLiveDocument::attach_child(const CNodeKey destination, co
             if ((existing_node == nullptr) || (visited >= m_nodes.occupied_count()))
             {
                 mark_integrity_bad();
-                MV_ASSERT_MSG(false, "Object child traversal did not terminate.");
+                MV_ASSERT_REPORT("Object child traversal did not terminate.");
                 return attachment_rejection(ELiveAttachmentRejection::corrupt_structure);
             }
             if (existing_node->name_id() == candidate_node->name_id())
@@ -1866,13 +1866,13 @@ bool CLiveDocument::detach_value(const LiveNodeSlot value) noexcept
     if ((aggregate == nullptr) || !aggregate_payload_is_in_document_domain(*aggregate))
     {
         mark_integrity_bad();
-        MV_ASSERT_MSG(false, "Detached value has an invalid parent aggregate.");
+        MV_ASSERT_REPORT("Detached value has an invalid parent aggregate.");
         return false;
     }
     if (aggregate->child_count() == 0u)
     {
         mark_integrity_bad();
-        MV_ASSERT_MSG(false, "Parent aggregate has an invalid child count.");
+        MV_ASSERT_REPORT("Parent aggregate has an invalid child count.");
         return false;
     }
 
@@ -1884,14 +1884,14 @@ bool CLiveDocument::detach_value(const LiveNodeSlot value) noexcept
             !previous->value_is_previous_sibling_of(*value_record, previous_slot, value))
         {
             mark_integrity_bad();
-            MV_ASSERT_MSG(false, "Detached value has an invalid previous sibling.");
+            MV_ASSERT_REPORT("Detached value has an invalid previous sibling.");
             return false;
         }
     }
     else if (!aggregate->aggregate_has_first_child(*value_record, aggregate_slot, value))
     {
         mark_integrity_bad();
-        MV_ASSERT_MSG(false, "Detached value is not its parent's first child.");
+        MV_ASSERT_REPORT("Detached value is not its parent's first child.");
         return false;
     }
 
@@ -1903,14 +1903,14 @@ bool CLiveDocument::detach_value(const LiveNodeSlot value) noexcept
             !next->value_is_next_sibling_of(*value_record, next_slot, value))
         {
             mark_integrity_bad();
-            MV_ASSERT_MSG(false, "Detached value has an invalid next sibling.");
+            MV_ASSERT_REPORT("Detached value has an invalid next sibling.");
             return false;
         }
     }
     else if (!aggregate->aggregate_has_last_child(*value_record, aggregate_slot, value))
     {
         mark_integrity_bad();
-        MV_ASSERT_MSG(false, "Detached value is not its parent's last child.");
+        MV_ASSERT_REPORT("Detached value is not its parent's last child.");
         return false;
     }
 
@@ -1946,7 +1946,7 @@ bool CLiveDocument::clear_root() noexcept
     if ((root_value == nullptr) || (root_aggregate == nullptr))
     {
         mark_integrity_bad();
-        MV_ASSERT_MSG(false, "Root container pair is invalid.");
+        MV_ASSERT_REPORT("Root container pair is invalid.");
         return false;
     }
 
@@ -1964,7 +1964,7 @@ bool CLiveDocument::move_value_payload(const LiveNodeSlot target, const LiveNode
         !value_payload_is_in_document_domain(*source_value))
     {
         mark_integrity_bad();
-        MV_ASSERT_MSG(false, "Payload move arguments are inconsistent.");
+        MV_ASSERT_REPORT("Payload move arguments are inconsistent.");
         return false;
     }
 
@@ -1976,7 +1976,7 @@ bool CLiveDocument::move_value_payload(const LiveNodeSlot target, const LiveNode
             !source_value->forms_container_pair_with(*aggregate, source, aggregate_slot)))
     {
         mark_integrity_bad();
-        MV_ASSERT_MSG(false, "Payload source has an invalid aggregate pair.");
+        MV_ASSERT_REPORT("Payload source has an invalid aggregate pair.");
         return false;
     }
 
@@ -1994,7 +1994,7 @@ bool CLiveDocument::erase_aggregate_children(const LiveNodeSlot aggregate_slot) 
     if ((aggregate == nullptr) || !aggregate_payload_is_in_document_domain(*aggregate))
     {
         mark_integrity_bad();
-        MV_ASSERT_MSG(false, "Child erase encountered an invalid aggregate.");
+        MV_ASSERT_REPORT("Child erase encountered an invalid aggregate.");
         return false;
     }
 
@@ -2005,7 +2005,7 @@ bool CLiveDocument::erase_aggregate_children(const LiveNodeSlot aggregate_slot) 
         if (child_value == nullptr)
         {
             mark_integrity_bad();
-            MV_ASSERT_MSG(false, "Child erase encountered an invalid value.");
+            MV_ASSERT_REPORT("Child erase encountered an invalid value.");
             return false;
         }
         const LiveNodeSlot next = child_value->value_next_sibling_slot();
@@ -2020,7 +2020,7 @@ bool CLiveDocument::erase_aggregate_children(const LiveNodeSlot aggregate_slot) 
     if (aggregate == nullptr)
     {
         mark_integrity_bad();
-        MV_ASSERT_MSG(false, "Aggregate disappeared while erasing its children.");
+        MV_ASSERT_REPORT("Aggregate disappeared while erasing its children.");
         return false;
     }
     aggregate->clear_aggregate_children();
@@ -2042,7 +2042,7 @@ bool CLiveDocument::erase_subtree(const LiveNodeSlot value) noexcept
         if (current_value == nullptr)
         {
             mark_integrity_bad();
-            MV_ASSERT_MSG(false, "Subtree erase encountered an invalid value.");
+            MV_ASSERT_REPORT("Subtree erase encountered an invalid value.");
             return false;
         }
         const LiveNodeSlot aggregate = current_value->value_owned_aggregate_slot();
@@ -2054,20 +2054,20 @@ bool CLiveDocument::erase_subtree(const LiveNodeSlot value) noexcept
         if ((aggregate >= 0) && !m_nodes.erase(aggregate))
         {
             mark_integrity_bad();
-            MV_ASSERT_MSG(false, "Subtree aggregate erase failed.");
+            MV_ASSERT_REPORT("Subtree aggregate erase failed.");
             return false;
         }
         if (!m_nodes.erase(current))
         {
             mark_integrity_bad();
-            MV_ASSERT_MSG(false, "Subtree value erase failed.");
+            MV_ASSERT_REPORT("Subtree value erase failed.");
             return false;
         }
         ++erased_values;
         if (erased_values > traversal_limit)
         {
             mark_integrity_bad();
-            MV_ASSERT_MSG(false, "Subtree erase did not terminate.");
+            MV_ASSERT_REPORT("Subtree erase did not terminate.");
             return false;
         }
         current = next;

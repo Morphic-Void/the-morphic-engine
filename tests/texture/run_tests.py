@@ -70,7 +70,8 @@ def main():
     if result.returncode != 0 or len(logs) != 1:
         raise RuntimeError(f"Host failed ({result.returncode}); inspect {runtime}")
     direct_log = logs[0].with_name(logs[0].name.replace("morphic_debug.", "morphic_debug_direct.", 1))
-    events = logs[0].read_text(encoding="utf-8") + direct_log.read_text(encoding="utf-8")
+    direct_events = direct_log.read_text(encoding="utf-8")
+    events = logs[0].read_text(encoding="utf-8") + direct_events
     for expected in ("Asset acceptance: 71 sequential and 32 concurrent operations passed",
                      "Filesystem acceptance: 12 queued refresh, concurrent access and cache operations passed",
                      "Bundle acceptance: bake, reference, save, close and reload passed",
@@ -89,12 +90,11 @@ def main():
     if sizing is None:
         raise RuntimeError(f"Missing batch runner configuration; inspect {logs[0]}")
     queued = int(sizing[1]) != 0
-    route = "queued" if queued else "completed inline"
     thread = r"batch_runner_\d+" if queued else "rendering"
-    if f"Rendering: Texture batch {route}" not in events:
-        raise RuntimeError(f"Missing texture batch {route} route; inspect {logs[0]}")
-    for operation in ("encode", "transcode"):
-        if not re.search(rf"\[render_vulkan:{thread}\].*Rendering Basis: {operation} begin", events):
+    # Entry breadcrumbs retain info-level visibility in Release. Their producer
+    # identity proves the route without requiring filtered per-operation detail.
+    for operation in ("encode begin", "transcode request", "transcode begin"):
+        if not re.search(rf"\[render_vulkan:{thread}\].*Rendering Basis: {operation}", direct_events):
             raise RuntimeError(f"Incorrect {operation} thread or module context; inspect {direct_log}")
     print(f"Host acceptance passed with {expected_workers} worker(s) "
           "(71 sequential, 32 concurrent, 12 filesystem operations and bundle persistence).")

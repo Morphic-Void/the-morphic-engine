@@ -373,7 +373,7 @@ inline void TPodUnorderedSlots<T>::unsafe_replace_memory_context_without_account
 template<typename T>
 inline bool TPodUnorderedSlots<T>::failed_integrity_check() noexcept
 {
-    MV_ASSERT(false);
+    MV_ASSERT_REPORT("TPodUnorderedSlots integrity check failed");
     return false;
 }
 
