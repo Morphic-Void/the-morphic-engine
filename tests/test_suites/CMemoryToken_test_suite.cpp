@@ -924,7 +924,7 @@ void test_closed_logs(TTestContext& ctx)
         }
         TEST_EXPECT(ctx, (!debug_system::submit_event<debug_system::EEventLevel::error, debug_system::EEventType::event>(
             MV_INTERNAL_USAGE_POINT, "Closed structured fallback")));
-        TEST_EXPECT(ctx, !debug_system::report_immediate(MV_INTERNAL_USAGE_POINT, "Closed immediate fallback"));
+        TEST_EXPECT(ctx, !debug_system::report_immediate(debug_system::EEventLevel::info, MV_INTERNAL_USAGE_POINT, "Closed immediate fallback"));
         char oversized[debug_system::k_event_format_capacity + 1u];
         std::memset(oversized, 'z', sizeof(oversized) - 1u);
         oversized[sizeof(oversized) - 1u] = 0;

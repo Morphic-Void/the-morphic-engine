@@ -44,9 +44,10 @@ The interface keeps these concerns separate:
 - **routing policy**: which configured sinks observe an event;
 - **control consequence**: continue, request controlled shutdown, or terminate.
 
-Macro names express evaluation contracts, event levels, and event types.
-Breakpoint, display, and sink behavior are runtime policy rather than
-call-site naming.
+Macro names express evaluation contracts, representation and explicit immediate
+delivery. The four general logging macros take a fixed level token; assertion
+and abnormal-event names fix their classification and control policy. Display
+and breakpoint settings remain runtime policy where the selected macro permits them.
 
 Every public macro is statement-like. No debug macro returns a value or may be
 used as a condition, operand, assignment value, or return expression. Program
@@ -92,8 +93,12 @@ The retired legacy surface does not map one-to-one by name.
   interface.
 - `debug_utils::debug_output(...)` migrates to `MV_INFO(...)`,
   `MV_DETAIL(...)`, or `MV_TRACE(...)` when the traffic fits the bounded event
-  transport, and to `MV_REPORT(...)` only when a call site intentionally
-  requires synchronous rich formatting.
+  transport, and to `MV_LOG_RICH(level, ...)` when rich formatting is required.
+  Choose an `_IMMEDIATE` form only when synchronous delivery is required.
+- `MV_REPORT(...)` and `MV_REPORT_IMMEDIATE(...)` are retired. Select an explicit
+  level and use a structured `MV_LOG` form where possible, or a rich form when
+  the diagnostic needs it. This migration deliberately changes informational
+  reports to obey the information filters.
 
 No migration may rely on a public macro returning a value or participating in
 program control flow. Any former condition-participating call must be
@@ -286,9 +291,50 @@ incident is produced in the current build.
 Explanatory text should describe the violated intent or relevant context rather
 than merely restating the condition.
 
+## General diagnostic reporting
+
+```cpp
+MV_LOG(level, format_literal, ...);
+MV_LOG_IMMEDIATE(level, format_literal, ...);
+MV_LOG_RICH(level, format_literal, ...);
+MV_LOG_RICH_IMMEDIATE(level, format_literal, ...);
+```
+
+`level` is one of the fixed tokens `info`, `detail`, `trace`, `warning`, or
+`error`, not an expression or a runtime variable. These macros emit `event`
+metadata with caller source and ambient identity. They never process a
+breakpoint or request shutdown, including when global breakpoint and critical
+shutdown policies are enabled. The caller owns recovery and continuation.
+Assertion, critical and fatal levels use their dedicated interfaces.
+
+Information levels obey the compile-time ceiling and runtime threshold before
+argument evaluation, incident allocation or formatting. Warning and error
+reports are present in every build and bypass information filters. Their
+arguments are evaluated once even when no service is installed. All delivery
+remains best effort when the service or sink is unavailable.
+
+Choose warning for an unexpected condition that still fulfils the operation
+contract; choose error for a failed operation or local degraded path that needs
+published diagnostics. An expected negative result, such as an optional lookup
+miss, need not be an error. Report at the layer that knows the operation context,
+avoiding duplicate reports. Deliberately exercising a failure in a test does
+not lower its production severity: the test recognises the specific expected
+diagnostic and still rejects unexpected failures.
+
+Prefer structured, ordinary delivery. Choose rich representation for content
+that needs it, and immediate delivery when write/flush must be attempted before
+continuation. These are independent choices.
+
+```cpp
+MV_LOG(info, "Host: Background workers {}", worker_count);
+MV_LOG_IMMEDIATE(info, "Codec: encode begin {}x{}", width, height);
+MV_LOG_RICH(error, "File load failed: %s", path);
+```
+
 ## Informational logging
 
-Expected diagnostic traffic uses level-specific macros:
+The following structured conveniences are equivalent to `MV_LOG` with the
+corresponding level:
 
 ```cpp
 MV_INFO(format_literal, ...);
@@ -364,47 +410,57 @@ Without generated static data, an assertion expression of at most 191 bytes
 and a format literal of at most 127 bytes are copied into separate event
 fields. The expression is emitted literally and only the format is interpreted
 by the writer. Longer typed literals fail compilation; rich or dynamically
-constructed formatting belongs on `MV_REPORT`. A possible future generated-data mode may
+constructed formatting belongs on `MV_LOG_RICH`. A possible future generated-data mode may
 replace that copy with a static descriptor identity, selected by one
 solution-wide build policy. The public call site and argument encoding do not
 depend on that optimisation.
 
 ## Rich reporting
 
-Unconditional rich text reporting uses:
+`MV_LOG_RICH(level, ...)` and `MV_LOG_RICH_IMMEDIATE(level, ...)` use printf
+formatting for variable strings, longer explanations and unsupported structured
+values. Their level and filtering rules are identical to the structured forms.
 
-```cpp
-MV_REPORT(format_literal, ...);
-MV_REPORT_IMMEDIATE(format_literal, ...);
-```
+- Both format on the caller thread after filtering. Arguments are consumed
+  before return; borrowed strings never enter asynchronous storage.
+- Ordinary rich reporting formats once into a bounded 4096-byte producer
+  buffer. Text of at most 447 bytes is queued when possible.
+- Text of 448–4095 bytes, or failed queue submission, takes the synchronous
+  direct write/flush path. This size accommodation is independent of an explicit
+  requirement for immediate delivery.
+- Immediate rich reporting formats under the direct lock into the existing
+  service-owned buffer, avoiding the ordinary rich producer-buffer frame.
+- Text requiring 4096 bytes or more is a reporting failure. Emit an explicit
+  error diagnostic at the original source/incident, without retaining truncated
+  content. Empty output or formatting failure emits an invalid-report error.
+- Formatting-error diagnostics do not introduce breakpoint or shutdown effects.
 
-`MV_REPORT` is the explicit alternative when local string construction,
-general string formatting, or otherwise unsupported values are required.
+Rich reporting is not an allocation-free or re-entrant emergency primitive.
 
-Contract:
+## Explicit immediate delivery
 
-- it is present and emits unconditionally in every build;
-- it is not controlled by informational levels;
-- both forms format completely on the calling thread;
-- `MV_REPORT` formats exactly once into a producer-owned bounded 4096-byte
-  buffer, transports reports of at most 447 characters asynchronously, and
-  writes the already prepared text directly when it is oversized or transport
-  is unavailable, full, closing, or closed;
-- `MV_REPORT_IMMEDIATE` always formats into the existing service-owned direct
-  buffer and writes and flushes synchronously through its separate direct
-  entry point;
-- its arguments are consumed before it returns and do not enter asynchronous
-  storage;
-- it has no normal breakpoint or shutdown consequence;
-- it uses the same outer record envelope as other durable reports where the
-  available infrastructure permits;
-- it is not an allocation-free or re-entrant reporting primitive.
+Append `_IMMEDIATE` to any existing assertion or abnormal-event macro, including
+`MV_ASSERT_MSG_IMMEDIATE`, `MV_DEBUG_ASSERT_MSG_IMMEDIATE`,
+`MV_ASSERT_REPORT_IMMEDIATE`, `MV_CRITICAL_ASSERT_MSG_IMMEDIATE`,
+`MV_FATAL_ASSERT_MSG_IMMEDIATE`, `MV_WARNING_IMMEDIATE`, `MV_ERROR_IMMEDIATE`,
+`MV_CRITICAL_EVENT_IMMEDIATE` and `MV_FATAL_EVENT_IMMEDIATE`. The condition-only
+assertion forms also have immediate counterparts.
 
-These macros are conveniences for intentionally rich durable reporting.
-Neither transport nor direct routing gives them an abnormal level or makes
-them suitable for panic or debug-infrastructure failure. The immediate entry
-point remains a genuinely separate low-stack escape path and never enters the
-ordinary report function's producer-buffer frame.
+The suffix changes delivery only: build gating, condition evaluation, argument
+evaluation, classification, breakpoint defaults and shutdown policy stay the
+same. Failed conditions alone evaluate their message arguments. Immediate
+structured events use the bounded typed arguments and service-owned direct
+formatter, without an ordinary rich-format producer buffer.
+
+For an emitted immediate record, the caller attempts direct writing and flushing
+before returning or processing its breakpoint. A required shutdown request is
+published before potentially blocking output and does not depend on logging
+success. Immediate reporting neither drains earlier queued records nor orders
+the two logs. It can block on the direct lock and sink; ordinary reporting can
+also block when it falls back. Neither path is a nonblocking guarantee.
+
+`MV_PANIC` retains its separate emergency contract. `MV_DEBUG_ONLY` only gates
+evaluation and has no delivery variant.
 
 ## Abnormal events
 
@@ -592,9 +648,9 @@ Potential sinks include:
 Runtime policy may control presentation to these sinks. Warning and stronger
 incidents retain a durable-recording requirement even when optional display
 sinks are filtered. Fatal shutdown signalling remains independent of every
-sink. `MV_REPORT` may use the event or direct log, while
-`MV_REPORT_IMMEDIATE` deliberately uses the direct text log. Neither acquires
-an abnormal event level.
+sink. General logging may use the event or direct log; an
+`_IMMEDIATE` form deliberately uses the direct text log. Representation and
+delivery do not change severity.
 
 The originating thread must never be required to perform internal UI work.
 
@@ -604,7 +660,7 @@ Every reporting macro defines one static source usage point.
 
 Call sites follow these constraints:
 
-- informational level is fixed by the macro name;
+- informational level is fixed by the convenience name or the general logging level token;
 - descriptive text and format text are string literals;
 - condition expressions are available for static extraction;
 - dynamic format strings are not supported by the public macros;
@@ -680,6 +736,10 @@ MV_DEBUG_ONLY            evaluate; no incident   omit completely         omit co
 
 All public macros are statements and return no value.
 
+The matrices include immediate counterparts with the same evaluation and control
+policy. `MV_LOG*` denotes the four general forms; immediate forms always use the
+direct sink for emitted records.
+
 ### Recording behavior
 
 All entries below have the same behavior in development and published builds.
@@ -690,8 +750,8 @@ Interface                 Event production                        Durable record
 MV_INFO                   build/runtime level policy              policy
 MV_DETAIL                 build/runtime level policy              policy
 MV_TRACE                  build/runtime level policy              policy
-MV_REPORT                 emit unconditionally                    yes; event/direct
-MV_REPORT_IMMEDIATE       emit unconditionally                    yes; direct log
+MV_LOG* (information)      build/runtime level policy              policy
+MV_LOG* (warning/error)    emit unconditionally                    yes; event/direct
 MV_ASSERT_REPORT          emit unconditionally                    yes; queued/direct
 MV_WARNING                emit unconditionally                    yes
 MV_ERROR                  emit unconditionally                    yes
@@ -715,8 +775,7 @@ Interface/class           Default reaction             Per-usage-point override
 MV_INFO                   no breakpoint                not breakpoint-capable
 MV_DETAIL                 no breakpoint                not breakpoint-capable
 MV_TRACE                  no breakpoint                not breakpoint-capable
-MV_REPORT                 no breakpoint                not breakpoint-capable
-MV_REPORT_IMMEDIATE       no breakpoint                not breakpoint-capable
+MV_LOG*                   no breakpoint                not breakpoint-capable
 MV_ASSERT_REPORT          no breakpoint                not breakpoint-capable
 MV_WARNING                breakpoint disabled          enabled/disabled/inherit
 MV_ASSERT                 breakpoint enabled           enabled/disabled/inherit
@@ -740,8 +799,7 @@ Interface/class           Consequence
 MV_ASSERT                 caller continues after optional breakpoint
 MV_DEBUG_ASSERT           caller continues after optional breakpoint
 MV_DEBUG_ONLY             invoked diagnostic function owns any consequence
-MV_REPORT                 caller continues after report publication/fallback
-MV_REPORT_IMMEDIATE       caller continues after synchronous rich report
+MV_LOG*                   caller continues; no breakpoint or shutdown effects
 MV_ASSERT_REPORT          caller owns continuation, cleanup and lifecycle policy
 MV_WARNING                caller continues; operation contract remains fulfilled
 MV_ERROR                  caller owns local recovery from failed operation

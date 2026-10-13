@@ -169,7 +169,7 @@ containers. Arrays with a positive count of empty elements are also empty;
 the positive-count rule itself is unchanged.
 
 Malformed schema validation/resolution reports useful information for human
-review, comparable in purpose to a parsing report and suitable for `MV_REPORT`
+review, comparable in purpose to a parsing report and suitable for `MV_LOG_RICH`
 or similar logging. Internal node handles may construct names/paths; a public
 diagnostic handle for direct recovery is not required. Hand-authored baked input
 is the main expected source of such failures because live editing is mediated.

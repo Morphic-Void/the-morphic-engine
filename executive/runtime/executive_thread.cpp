@@ -239,7 +239,7 @@ static bool expect(const SScenario& scenario, const bool satisfied, const char* 
 {
     if (!satisfied)
     {
-        MV_REPORT("Executive: %s: failed expectation: %s", scenario.name, property);
+        MV_LOG_RICH(error, "Executive: %s: failed expectation: %s", scenario.name, property);
     }
     return satisfied;
 }
@@ -371,7 +371,7 @@ bool CExecutiveThread::initialise() noexcept
         return false;
     }
 
-    MV_REPORT("Executive system registry authority: %s", registry_name);
+    MV_LOG_RICH(info, "Executive system registry authority: %s", registry_name);
 
     if (!m_perf_counter.update() ||
         !m_context.perf_count_conversion().is_valid())
@@ -396,7 +396,7 @@ bool CExecutiveThread::initialise() noexcept
         fail(EFailure::submission, "rendering load submission");
         return false;
     }
-    MV_REPORT("Executive: Rendering load requested");
+    MV_LOG(info, "Executive: Rendering load requested");
     return true;
 }
 
@@ -418,7 +418,7 @@ bool CExecutiveThread::accept_rendering_notice(const threading::CErasedPodMsg& m
             return false;
         }
         m_phase = EPhase::rendering_completion;
-        MV_REPORT("Executive: Rendering load acknowledged");
+        MV_LOG(info, "Executive: Rendering load acknowledged");
     }
     else
     {
@@ -431,7 +431,7 @@ bool CExecutiveThread::accept_rendering_notice(const threading::CErasedPodMsg& m
         }
         m_phase = EPhase::sequential;
         ++m_pending_slot;
-        MV_REPORT("Executive: Rendering ready (%s)",
+        MV_LOG_RICH(info, "Executive: Rendering ready (%s)",
             ((result.status == EModuleStatus::already_loaded) ? "already loaded" : "loaded"));
     }
     (void)m_perf_counter.update();
@@ -899,7 +899,7 @@ bool CExecutiveThread::check(const asset_acceptance::SScenario& scenario, const 
     if ((result.status != scenario.status) || (result.kind != scenario.retained_kind) ||
         (result.document_policy != scenario.policy) || (result.document_findings != scenario.findings))
     {
-        MV_REPORT("Executive: %s: status %u/%u, kind %u/%u, policy %u/%u, findings 0x%08x/0x%08x (actual/expected)",
+        MV_LOG_RICH(error, "Executive: %s: status %u/%u, kind %u/%u, policy %u/%u, findings 0x%08x/0x%08x (actual/expected)",
             scenario.name, static_cast<unsigned int>(result.status), static_cast<unsigned int>(scenario.status),
             static_cast<unsigned int>(result.kind), static_cast<unsigned int>(scenario.retained_kind),
             static_cast<unsigned int>(result.document_policy), static_cast<unsigned int>(scenario.policy),
@@ -1113,7 +1113,7 @@ bool CExecutiveThread::submit_concurrent_saves() noexcept
         const std::int32_t slot = m_concurrent_first_slot + static_cast<std::int32_t>(index);
         if (!save(slot, m_live.asset, path, save_settings(EAssetFileFormat::json)))
         {
-            MV_REPORT("Executive: concurrent save %u: submission failed", index);
+            MV_LOG(error, "Executive: concurrent save {}: submission failed", index);
             return false;
         }
     }
@@ -1126,21 +1126,21 @@ bool CExecutiveThread::complete_concurrent_save(const threading::CErasedPodMsg& 
     const std::int32_t index = message.query_async_slot() - m_concurrent_first_slot;
     if ((index < 0) || (index >= static_cast<std::int32_t>(concurrent_save_count)))
     {
-        MV_REPORT("Executive: concurrent reply has unexpected slot %d", message.query_async_slot());
+        MV_ASSERT_REPORT("Executive: concurrent reply has unexpected slot {}", message.query_async_slot());
         return false;
     }
     AssetResult result;
     if (!message.copy_payload_to(result) || (result.status != EAssetStatus::success) ||
         (result.asset != m_live.asset) || m_save_completed[index])
     {
-        MV_REPORT("Executive: concurrent save %d: expected a unique successful reply for the retained live asset", index);
+        MV_LOG(error, "Executive: concurrent save {}: expected a unique successful reply for the retained live asset", index);
         return false;
     }
     m_save_completed[index] = true;
     ++m_completed_save_count;
     if (m_completed_save_count == concurrent_save_count)
     {
-        MV_REPORT("Asset acceptance: %u sequential and %u concurrent operations passed", scenario_count, concurrent_save_count);
+        MV_LOG(info, "Asset acceptance: {} sequential and {} concurrent operations passed", scenario_count, concurrent_save_count);
         return start_filesystem_exercise();
     }
     return true;
@@ -1252,7 +1252,7 @@ bool CExecutiveThread::complete_filesystem_exercise(const threading::CErasedPodM
             {
                 return false;
             }
-            MV_REPORT("Filesystem acceptance: 12 queued refresh, concurrent access and cache operations passed");
+            MV_LOG(info, "Filesystem acceptance: 12 queued refresh, concurrent access and cache operations passed");
             return start_bundle_exercise();
         }
         default: return false;
@@ -1280,7 +1280,7 @@ bool CExecutiveThread::complete_bundle_exercise(const threading::CErasedPodMsg& 
         {
             m_bundle_snapshot.deallocate();
             m_phase = EPhase::complete;
-            MV_REPORT("Bundle acceptance: bake, reference, save, close and reload passed");
+            MV_LOG(info, "Bundle acceptance: bake, reference, save, close and reload passed");
             return true;
         }
         ++m_bundle_step;
@@ -1377,7 +1377,7 @@ void CExecutiveThread::operate() noexcept
             {
                 if (!accept_rendering_notice(message))
                 {
-                    MV_REPORT("Executive: Rendering unavailable or invalid reply; requesting system shutdown");
+                    MV_LOG(error, "Executive: Rendering unavailable or invalid reply; requesting system shutdown");
                     if (!request_system_shutdown())
                     {
                         fail(EFailure::submission, "system shutdown request");
@@ -1431,7 +1431,7 @@ void CExecutiveThread::operate() noexcept
                 fail(EFailure::completion, "scenario completion");
                 break;
             }
-            MV_REPORT("Executive: %s passed", scenario.name);
+            MV_LOG_RICH(info, "Executive: %s passed", scenario.name);
             ++m_scenario_index;
             (void)m_perf_counter.update();
             if (m_scenario_index == scenario_count)
@@ -1480,7 +1480,7 @@ void CExecutiveThread::fail(const EFailure failure, const char* const reason) no
         const char* const scenario = ((m_phase == EPhase::rendering_acknowledgement) || (m_phase == EPhase::rendering_completion)) ?
             "rendering_startup" : ((m_scenario_index < asset_acceptance::scenario_count) ?
                 asset_acceptance::scenarios[m_scenario_index].name : "concurrent_saves");
-        MV_REPORT("Executive: %s failed: %s", scenario, reason);
+        MV_LOG_RICH(error, "Executive: %s failed: %s", scenario, reason);
         m_context.mark_failed(m_failure_code);
     }
 }

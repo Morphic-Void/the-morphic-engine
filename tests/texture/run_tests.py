@@ -17,6 +17,28 @@ import subprocess
 import tempfile
 
 
+def check_diagnostics(events, repository):
+    expected = json.loads((repository / "tests/support/host_expected_diagnostics.json").read_text(encoding="utf-8"))
+    passes = sorted((int(incident), scenario) for incident, scenario in re.findall(
+        r"(?m)^\[(\d+)\].*\[executive_thread\.cpp:\d+\] Executive: (\w+) passed\r?$", events))
+    seen = set()
+    for line in events.splitlines():
+        if not re.search(r"\[(assert|error|critical|fatal):", line):
+            continue
+        record = re.fullmatch(r"\[(\d+)\] \[[^\]]+\] \[error:event\] \[([^:\]]+):\d+\] (.*)", line)
+        if record is None:
+            raise RuntimeError(f"Unexpected diagnostic: {line}")
+        incident, source, message = record.groups()
+        scenario = next((name for identifier, name in passes if identifier > int(incident)), None)
+        matches = [entry for entry in expected if entry == dict(scenario=scenario, source=source, message=message)]
+        if len(matches) != 1 or scenario in seen:
+            raise RuntimeError(f"Unexpected or duplicate diagnostic: {line}")
+        seen.add(scenario)
+    missing = {entry["scenario"] for entry in expected} - seen
+    if missing:
+        raise RuntimeError(f"Missing expected diagnostics: {sorted(missing)}")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--engine", type=Path, required=True)
@@ -55,8 +77,7 @@ def main():
                      "Rendering Basis: shut down", "Host: Rendering thread joined"):
         if expected not in events:
             raise RuntimeError(f"Missing {expected!r}; inspect {logs[0]}")
-    if re.search(r"\[(assert|error|critical|fatal):", events):
-        raise RuntimeError(f"Unexpected diagnostics; inspect {logs[0]}")
+    check_diagnostics(events, repository)
     workers = re.search(r"Host: Background workers (\d+), dedicated conditioning workers (\d+), "
                         r"reported hardware threads (\d+)", events)
     if workers is None:

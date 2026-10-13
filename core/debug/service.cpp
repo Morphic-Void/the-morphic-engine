@@ -450,9 +450,9 @@ bool CDebugServiceState::submit_text(const char* const text) noexcept
     return published;
 }
 
-bool CDebugServiceState::report_va(const SEventUsagePoint& usage_point, const char* const format, std::va_list arguments) noexcept
+bool CDebugServiceState::report_va(const EEventLevel level, const SEventUsagePoint& usage_point, const char* const format, std::va_list arguments) noexcept
 {
-    if ((format == nullptr) || (format[0] == 0) ||
+    if (!is_log_level(level) || (format == nullptr) || (format[0] == 0) ||
         !m_direct_lock.is_valid())
     {
         return false;
@@ -469,22 +469,25 @@ bool CDebugServiceState::report_va(const SEventUsagePoint& usage_point, const ch
     const bool formatted = (formatted_size > 0) && (static_cast<std::size_t>(formatted_size) < sizeof(text));
     if (!formatted)
     {
-        (void)write_direct_record(EEventLevel::info, EEventType::event, incident, k_invalid_report, k_invalid_report_size);
+        const bool oversized = formatted_size >= static_cast<int>(k_format_buffer_capacity);
+        (void)write_direct_record(EEventLevel::error, EEventType::event, incident,
+            oversized ? k_oversized_report : k_invalid_report,
+            oversized ? k_oversized_report_size : k_invalid_report_size);
         return false;
     }
 
     const std::size_t text_size = static_cast<std::size_t>(formatted_size);
-    if ((text_size <= k_event_report_max_size) && submit_report_event(incident, text, text_size))
+    if ((text_size <= k_event_report_max_size) && submit_report_event(level, incident, text, text_size))
     {
         return true;
     }
 
-    return write_direct_record(EEventLevel::info, EEventType::event, incident, text, text_size);
+    return write_direct_record(level, EEventType::event, incident, text, text_size);
 }
 
-bool CDebugServiceState::report_immediate_va(const SEventUsagePoint& usage_point, const char* const format, std::va_list arguments) noexcept
+bool CDebugServiceState::report_immediate_va(const EEventLevel level, const SEventUsagePoint& usage_point, const char* const format, std::va_list arguments) noexcept
 {
-    if ((format == nullptr) || (format[0] == 0) || !m_direct_lock.is_valid())
+    if (!is_log_level(level) || (format == nullptr) || (format[0] == 0) || !m_direct_lock.is_valid())
     {
         return false;
     }
@@ -505,13 +508,15 @@ bool CDebugServiceState::report_immediate_va(const SEventUsagePoint& usage_point
         formatted = (formatted_size > 0) && (static_cast<std::size_t>(formatted_size) < k_format_buffer_capacity);
         if (formatted)
         {
-            written = write_record(m_direct_log, EEventLevel::info, EEventType::event,
+            written = write_record(m_direct_log, level, EEventType::event,
                 incident, m_direct_format_buffer, static_cast<std::size_t>(formatted_size));
         }
         else
         {
-            written = write_record(m_direct_log, EEventLevel::info, EEventType::event,
-                incident, k_invalid_report, k_invalid_report_size);
+            const bool oversized = formatted_size >= static_cast<int>(k_format_buffer_capacity);
+            written = write_record(m_direct_log, EEventLevel::error, EEventType::event, incident,
+                oversized ? k_oversized_report : k_invalid_report,
+                oversized ? k_oversized_report_size : k_invalid_report_size);
         }
         flushed = m_direct_log.flush();
     }
@@ -785,11 +790,11 @@ bool CDebugServiceState::write_direct_event(
 }
 
 bool CDebugServiceState::submit_report_event(
-    const SIncidentContext& incident,
+    const EEventLevel level, const SIncidentContext& incident,
     const char* const text,
     const std::size_t text_size) noexcept
 {
-    if ((text == nullptr) || (text_size == 0u) ||
+    if (!is_log_level(level) || (text == nullptr) || (text_size == 0u) ||
         (text_size > k_event_report_max_size))
     {
         return false;
@@ -806,7 +811,7 @@ bool CDebugServiceState::submit_report_event(
     reserved_event->incident_id = incident.incident_id;
     reserved_event->source_line = incident.source.line;
     reserved_event->representation = EEventRepresentation::report;
-    reserved_event->level = EEventLevel::info;
+    reserved_event->level = level;
     reserved_event->type = EEventType::event;
     reserved_event->filename_size = incident.source.filename_size;
     reserved_event->metadata.report.report_length = static_cast<std::uint16_t>(text_size);
@@ -851,7 +856,7 @@ bool CDebugServiceState::write_event(const SEvent& event) noexcept
     {
         const std::size_t report_size = event.metadata.report.report_length;
         const bool valid_report =
-            (event.level == EEventLevel::info) &&
+            is_log_level(event.level) &&
             (event.type == EEventType::event) &&
             (report_size > 0u) &&
             (report_size <= k_event_report_max_size) &&
@@ -1056,7 +1061,7 @@ bool informational_event_enabled(const EEventLevel level) noexcept
     return (service != nullptr) && service->informational_event_enabled(level);
 }
 
-bool report(const SEventUsagePoint& usage_point, const char* const format, ...) noexcept
+bool report(const EEventLevel level, const SEventUsagePoint& usage_point, const char* const format, ...) noexcept
 {
     CDebugServiceState* const service = get_service();
     if (service == nullptr)
@@ -1066,13 +1071,13 @@ bool report(const SEventUsagePoint& usage_point, const char* const format, ...) 
 
     std::va_list arguments;
     va_start(arguments, format);
-    const bool reported = service->report_va(usage_point, format, arguments);
+    const bool reported = service->report_va(level, usage_point, format, arguments);
     va_end(arguments);
     return reported;
 }
 
 bool report_immediate(
-    const SEventUsagePoint& usage_point,
+    const EEventLevel level, const SEventUsagePoint& usage_point,
     const char* const format, ...) noexcept
 {
     CDebugServiceState* const service = get_service();
@@ -1083,7 +1088,7 @@ bool report_immediate(
 
     std::va_list arguments;
     va_start(arguments, format);
-    const bool reported = service->report_immediate_va(usage_point, format, arguments);
+    const bool reported = service->report_immediate_va(level, usage_point, format, arguments);
     va_end(arguments);
     return reported;
 }

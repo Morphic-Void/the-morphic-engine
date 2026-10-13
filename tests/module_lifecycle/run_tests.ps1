@@ -22,6 +22,7 @@ $repository = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '../..')).Path
 $binaryDirectory = Join-Path $repository "build/bin/$Platform/$Configuration"
 $suffix = [Guid]::NewGuid().ToString('N').Substring(0, 8)
 . (Join-Path $PSScriptRoot '../support/host_environment.ps1')
+. (Join-Path $PSScriptRoot '../support/host_diagnostics.ps1')
 $runtime = New-HostTestEnvironment -Repository $repository -Name "lifecycle-runtime-$suffix"
 New-BundleTestSources -Repository $repository -Runtime $runtime
 
@@ -82,7 +83,31 @@ foreach ($case in @('bundle', 'bundle-inline', 'bundle-late-reference', 'bundle-
         if ($process.ExitCode -ne $expectedExit) { throw "$case returned $($process.ExitCode), expected $expectedExit." }
         $log = Join-Path $runtime "development/logical-roots/test-logs/morphic_debug.$tag.p$($process.Id).log"
         $events = Get-Content -LiteralPath $log -Raw
-        if ($events -match 'Lifecycle fixture failed|notification failed|\[(error|critical|fatal):') { throw "$case has unexpected diagnostics: $log" }
+        $directLog = Join-Path $runtime "development/logical-roots/test-logs/morphic_debug_direct.$tag.p$($process.Id).log"
+        $events += Get-Content -LiteralPath $directLog -Raw
+        if ($events -match 'Lifecycle fixture failed|notification failed|\[(critical|fatal):') { throw "$case has unexpected diagnostics: $log" }
+        $errors = @($events -split '\r?\n' | Where-Object { $_ -match '\[error:' })
+        if ($case -eq 'bundle-failures') {
+            $expectedErrors = @(
+                '\[error:event\] \[host_worker_thread\.cpp:\d+\] Bundle slot 0: loaded document adoption failed$',
+                '\[error:event\] \[host_worker_thread\.cpp:\d+\] Bundle slot 0: build failed: no non-empty files; selected directory$',
+                '\[error:event\] \[host_worker_thread\.cpp:\d+\] Bundle slot 0: build failed: file size query failed; source "development[\\/]logical-roots[\\/]dev-source[\\/]BundleMissing[\\/]Vanished"$'
+            )
+            if ($errors.Count -ne $expectedErrors.Count) { throw "$case has an unexpected error count: $log" }
+            foreach ($pattern in $expectedErrors) {
+                if (@($errors | Where-Object { $_ -match $pattern }).Count -ne 1) { throw "$case has a missing or duplicate expected error: $log" }
+            }
+        }
+        elseif ($serviceFailure) {
+            if (($errors.Count -ne 1) -or ($errors[0] -notmatch '\[error:event\] \[executive_thread\.cpp:\d+\] Executive: Rendering unavailable or invalid reply; requesting system shutdown$')) {
+                throw "$case has an unexpected service failure diagnostic: $log"
+            }
+        }
+        elseif ($case -in @('normal-startup', 'replace', 'replace-dependency', 'render-executive-replace')) {
+            # Lifecycle assertion expectations are checked separately below.
+            Assert-HostDiagnostics -Events ($events -replace '(?m)^.*\[assert:.*(?:\r?\n|$)', '')
+        }
+        elseif ($errors.Count -ne 0) { throw "$case has unexpected errors: $log" }
         $assertions = [regex]::Matches($events, '\[assert:').Count
         $dependencyCleanup = $case -in @('dependency', 'shutdown-dependency', 'replace-dependency', 'render-shutdown-dependency', 'render-replace-dependency', 'render-drain')
         $expectedAssertions = if ($dependencyCleanup -or ($case -eq 'bundle-late-reference')) { 1 } else { $expectedExit }

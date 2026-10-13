@@ -164,7 +164,7 @@ bool CHost::start_rendering() noexcept
 
     m_thread_slots[static_cast<std::uint32_t>(EWorkerThreadID::rendering)] = slot;
     m_asset_service.set_rendering(package);
-    MV_REPORT("Host: Rendering started after asynchronous binding");
+    MV_LOG(info, "Host: Rendering started after asynchronous binding");
     return true;
 }
 
@@ -210,7 +210,7 @@ bool CHost::stop_rendering(const threading::EThreadRunState state) noexcept
     (void)m_thread_packages.erase(slot);
     slot = -1;
     m_module_service.rendering_stopped();
-    MV_REPORT("Host: Rendering thread joined");
+    MV_LOG(info, "Host: Rendering thread joined");
     return true;
 }
 
@@ -268,17 +268,17 @@ int CHost::execute(const char* const log_tag, const char* const executive_file, 
     MV_INFO("Host: Starting");
     if (worker_count == 0u)
     {
-        MV_REPORT("Host: Worker count must be greater than zero");
+        MV_LOG(error, "Host: Worker count must be greater than zero");
         return 2;
     }
     const std::uint32_t hardware_threads = platform::threading::query_hardware_thread_count();
     m_worker_count = std::min(worker_count, worker_count_limit(hardware_threads));
     if (m_worker_count != worker_count)
     {
-        MV_REPORT("Host: Worker count reduced from %u to %u (reported hardware threads %u)",
+        MV_LOG(info, "Host: Worker count reduced from {} to {} (reported hardware threads {})",
             worker_count, m_worker_count, hardware_threads);
     }
-    MV_REPORT("Host: Background workers %u, dedicated conditioning workers %u, reported hardware threads %u",
+    MV_LOG(info, "Host: Background workers {}, dedicated conditioning workers {}, reported hardware threads {}",
         m_worker_count, ((m_worker_count > 1u) ? (m_worker_count - 1u) : 0u), hardware_threads);
     const std::uint32_t batch_limit = batch_runner_limit(hardware_threads, m_worker_count, static_cast<std::uint32_t>(k_thread_count));
     m_batch_runner_count = std::min(batch_runner_count, batch_limit);
@@ -287,9 +287,9 @@ int CHost::execute(const char* const log_tag, const char* const executive_file, 
 #endif
     if (m_batch_runner_count != batch_runner_count)
     {
-        MV_REPORT("Host: Batch runners reduced from %u to %u", batch_runner_count, m_batch_runner_count);
+        MV_LOG(info, "Host: Batch runners reduced from {} to {}", batch_runner_count, m_batch_runner_count);
     }
-    MV_REPORT("Host: Batch runners %u", m_batch_runner_count);
+    MV_LOG(info, "Host: Batch runners {}", m_batch_runner_count);
 
     const bool initialised = initialise_runtime(executive_file);
     if (initialised)
@@ -421,7 +421,7 @@ void CHost::complete_scan(threading::CErasedOwnerMsg& message) noexcept
             executive_failure(EModuleStatus::binding_failed);
             return;
         }
-        MV_REPORT("Host: Filesystem image ready before Executive bootstrap");
+        MV_LOG(info, "Host: Filesystem image ready before Executive bootstrap");
         m_module_service.request(std::move(m_executive_request), -1, nullptr, CModuleService::EPurpose::bootstrap);
         return;
     }
@@ -476,7 +476,7 @@ void CHost::advance_lifecycle(const threading::EThreadRunState executive_state) 
                 else
                 {
                     m_phase = EPhase::running;
-                    MV_REPORT("Host: Executive started after asynchronous binding");
+                    MV_LOG(info, "Host: Executive started after asynchronous binding");
                     return;
                 }
                 break;

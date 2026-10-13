@@ -75,7 +75,7 @@ static void report_bundle_failure(const std::int32_t slot, const bundle::SBuildR
     const char* const reason = failure_reason(result.status);
     if (result.status == bundle::EBuildStatus::validation_failed)
     {
-        MV_REPORT("Bundle slot %d: build failed: %s (%s)", slot, reason, failure_reason(result.validation));
+        MV_LOG_RICH(error, "Bundle slot %d: build failed: %s (%s)", slot, reason, failure_reason(result.validation));
         return;
     }
     if ((input != nullptr) && result.entry.is_valid())
@@ -87,24 +87,24 @@ static void report_bundle_failure(const std::int32_t slot, const bundle::SBuildR
         {
             if ((sources[index].entry == result.entry) && (sources[index].physical_path != nullptr))
             {
-                MV_REPORT("Bundle slot %d: build failed: %s; source \"%s\"", slot, reason, sources[index].physical_path);
+                MV_LOG_RICH(error, "Bundle slot %d: build failed: %s; source \"%s\"", slot, reason, sources[index].physical_path);
                 return;
             }
         }
         if (result.entry == input->content())
         {
-            MV_REPORT("Bundle slot %d: build failed: %s; selected directory", slot, reason);
+            MV_LOG_RICH(error, "Bundle slot %d: build failed: %s; selected directory", slot, reason);
             return;
         }
         const CStringView name = input->inventory().name(result.entry);
         if (name.length() != 0u)
         {
-            MV_REPORT("Bundle slot %d: build failed: %s; inventory entry \"%.*s\"",
+            MV_LOG_RICH(error, "Bundle slot %d: build failed: %s; inventory entry \"%.*s\"",
                 slot, reason, static_cast<int>(name.length()), name.cstring());
             return;
         }
     }
-    MV_REPORT("Bundle slot %d: build failed: %s", slot, reason);
+    MV_LOG_RICH(error, "Bundle slot %d: build failed: %s", slot, reason);
 }
 
 static const char* failure_stage(const EDocumentFailureStage stage) noexcept
@@ -162,32 +162,32 @@ static void report_parse_failure(const std::int32_t slot, const CDocumentReport&
                 (failure.element_start.code_point_column_1_based != failure.location.code_point_column_1_based));
         if (failure.location.available && show_start)
         {
-            MV_REPORT("Document slot %d: %s: %s at %zu:%zu; element starts %zu:%zu", slot, stage, reason,
+            MV_LOG_RICH(error, "Document slot %d: %s: %s at %zu:%zu; element starts %zu:%zu", slot, stage, reason,
                 failure.location.line_1_based, failure.location.code_point_column_1_based,
                 failure.element_start.line_1_based, failure.element_start.code_point_column_1_based);
         }
         else if (failure.location.available)
         {
-            MV_REPORT("Document slot %d: %s: %s at %zu:%zu", slot, stage, reason,
+            MV_LOG_RICH(error, "Document slot %d: %s: %s at %zu:%zu", slot, stage, reason,
                 failure.location.line_1_based, failure.location.code_point_column_1_based);
         }
         else if (show_start)
         {
-            MV_REPORT("Document slot %d: %s: %s; element starts %zu:%zu", slot, stage, reason,
+            MV_LOG_RICH(error, "Document slot %d: %s: %s; element starts %zu:%zu", slot, stage, reason,
                 failure.element_start.line_1_based, failure.element_start.code_point_column_1_based);
         }
         else
         {
-            MV_REPORT("Document slot %d: %s: %s", slot, stage, reason);
+            MV_LOG_RICH(error, "Document slot %d: %s: %s", slot, stage, reason);
         }
     }
     else if (report.policy.status == EDocumentPolicyStatus::invalid_options)
     {
-        MV_REPORT("Document slot %d: invalid policy bits 0x%08x", slot, report.policy.unknown_policy_bits);
+        MV_LOG_RICH(error, "Document slot %d: invalid policy bits 0x%08x", slot, report.policy.unknown_policy_bits);
     }
     else if (report.policy.status == EDocumentPolicyStatus::rejected)
     {
-        MV_REPORT("Document slot %d: policy rejected features 0x%08x", slot, report.policy.disallowed_features);
+        MV_LOG_RICH(error, "Document slot %d: policy rejected features 0x%08x", slot, report.policy.disallowed_features);
     }
 }
 
@@ -201,7 +201,7 @@ static EAssetStatus prepare_bundle(BundlePreparation& work, const std::int32_t s
 {
     if (work.loaded.is_ready() && !work.block.adopt_buffer(std::move(work.loaded)))
     {
-        MV_REPORT("Bundle slot %d: loaded document adoption failed", slot);
+        MV_LOG(error, "Bundle slot {}: loaded document adoption failed", slot);
         return EAssetStatus::conditioning_failed;
     }
     const auto bytes = work.block.buffer_bytes();
@@ -210,7 +210,7 @@ static EAssetStatus prepare_bundle(BundlePreparation& work, const std::int32_t s
         const auto validation = work.view.reset(bytes.data(), bytes.size());
         if (!validation.succeeded())
         {
-            MV_REPORT("Bundle slot %d: preparation failed: %s", slot, asset_diagnostics::failure_reason(validation.status));
+            MV_LOG_RICH(error, "Bundle slot %d: preparation failed: %s", slot, asset_diagnostics::failure_reason(validation.status));
             return (validation.status == bundle::EValidationStatus::allocation_failed) ?
                 EAssetStatus::allocation_failed : EAssetStatus::conditioning_failed;
         }
@@ -224,7 +224,7 @@ static EAssetStatus prepare_bundle(BundlePreparation& work, const std::int32_t s
     //  that view above; neither path repeats validation on the Host.
     if (!work.directory.prepare(work.view))
     {
-        MV_REPORT("Bundle slot %d: directory preparation allocation failed", slot);
+        MV_LOG(error, "Bundle slot {}: directory preparation allocation failed", slot);
         return EAssetStatus::allocation_failed;
     }
     return EAssetStatus::success;
@@ -234,7 +234,7 @@ static EAssetStatus condition_document(const DocumentConditionRequest& request, 
 {
     if ((request.kind > EDocumentSource::live) || (request.write_json && (request.options == nullptr)))
     {
-        MV_REPORT("Document slot %d: invalid conditioning request", slot);
+        MV_ASSERT_REPORT("Document slot {}: invalid conditioning request", slot);
         return EAssetStatus::conditioning_failed;
     }
 
@@ -268,7 +268,7 @@ static EAssetStatus condition_document(const DocumentConditionRequest& request, 
         }
         default:
         {   //  Validation above limits the kind to the three handled sources; no current request reaches this.
-            MV_REPORT("Document slot %d: invalid conditioning source", slot);
+            MV_ASSERT_REPORT("Document slot {}: invalid conditioning source", slot);
             return EAssetStatus::conditioning_failed;
         }
     }
@@ -277,14 +277,14 @@ static EAssetStatus condition_document(const DocumentConditionRequest& request, 
     {
         if (!document_translation::bake(*live, result.storage.baked))
         {
-            MV_REPORT("Document slot %d: baking failed", slot);
+            MV_LOG(error, "Document slot {}: baking failed", slot);
             return EAssetStatus::conditioning_failed;
         }
         baked = result.storage.baked.document();
     }
     if (!baked.is_ready())
     {
-        MV_REPORT("Document slot %d: source document is not ready", slot);
+        MV_LOG(error, "Document slot {}: source document is not ready", slot);
         return EAssetStatus::conditioning_failed;
     }
     if (request.write_json)
@@ -292,7 +292,7 @@ static EAssetStatus condition_document(const DocumentConditionRequest& request, 
         CDocumentWriteResult written = document_writer::write(baked, *request.options);
         if (!written.report.succeeded())
         {   //  Leave the baked snapshot intact for the Host's retention decision.
-            MV_REPORT("Document slot %d: JSON writing failed (status %u)", slot, static_cast<unsigned int>(written.report.status));
+            MV_LOG(error, "Document slot {}: JSON writing failed (status {})", slot, static_cast<unsigned int>(written.report.status));
             return EAssetStatus::conditioning_failed;
         }
 
@@ -314,7 +314,7 @@ static EModuleStatus perform_module_work(SModuleWork& work) noexcept
         {
             return EModuleStatus::unload_failed;
         }
-        MV_REPORT("Module unloaded on Host worker, mount %s",
+        MV_LOG_RICH(info, "Module unloaded on Host worker, mount %s",
             system_id_registry::lookup_mount_point_name(module_ids::ops::get_mount_point_id(request.module)));
     }
     if ((request.action == EModuleAction::unload) || work.cleanup_only)
@@ -368,7 +368,7 @@ static EModuleStatus perform_module_work(SModuleWork& work) noexcept
         }
         return status;
     }
-    MV_REPORT("Module loaded and bound on Host worker");
+    MV_LOG(info, "Module loaded and bound on Host worker");
     return EModuleStatus::success;
 }
 
@@ -463,7 +463,7 @@ void CHostWorkerThread::operate() noexcept
                     }
                     else
                     {
-                        MV_REPORT("Bundle slot %d: result allocation failed", inbound_msg.query_async_slot());
+                        MV_LOG(error, "Bundle slot {}: result allocation failed", inbound_msg.query_async_slot());
                     }
                     threading::CErasedOwnerMsg completion;
                     completion.set_message_type<BundleBuildResult>();
@@ -508,7 +508,7 @@ void CHostWorkerThread::operate() noexcept
                             filesystem_image::scan_root(*request.root, result->document);
                         if (result->status != filesystem_image::EScanStatus::success)
                         {
-                            MV_REPORT("Filesystem scan failed: %s (status %u)",
+                            MV_LOG_RICH(error, "Filesystem scan failed: %s (status %u)",
                                 (request.root == nullptr) ? "development/root-manifest.json" : request.root->logical_root.cstring(),
                                 static_cast<unsigned int>(result->status));
                         }
@@ -560,7 +560,7 @@ void CHostWorkerThread::operate() noexcept
                     const LoadedFile* const loaded = content.payload<LoadedFile>();
                     if ((loaded == nullptr) || !loaded->buffer.is_ready())
                     {
-                        MV_REPORT("File load failed: %s", (request.file != nullptr) ? request.file : "<null path>");
+                        MV_LOG_RICH(error, "File load failed: %s", ((request.file != nullptr) ? request.file : "<null path>"));
                     }
                     threading::CErasedOwnerMsg outbound_msg;
                     outbound_msg.set_message_type<FileLoadResult>();
@@ -583,7 +583,7 @@ void CHostWorkerThread::operate() noexcept
                     result.success = platform::filesystem::saveFile(request.file, request.view);
                     if (!result.success)
                     {
-                        MV_REPORT("File save failed: %s", (request.file != nullptr) ? request.file : "<null path>");
+                        MV_LOG_RICH(error, "File save failed: %s", ((request.file != nullptr) ? request.file : "<null path>"));
                     }
                     threading::CErasedPodMsg outbound_msg;
                     outbound_msg.set_async_slot(inbound_msg.query_async_slot());
@@ -655,7 +655,7 @@ void CHostWorkerThread::operate() noexcept
                     }
                     else
                     {
-                        MV_REPORT("Document slot %d: result allocation failed", inbound_msg.query_async_slot());
+                        MV_LOG(error, "Document slot {}: result allocation failed", inbound_msg.query_async_slot());
                     }
                     threading::CErasedOwnerMsg outbound_msg;
                     outbound_msg.set_message_type<DocumentConditionResult>();

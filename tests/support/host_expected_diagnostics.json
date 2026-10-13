@@ -1,0 +1,47 @@
+[
+  {
+    "scenario": "reject_malformed_json",
+    "source": "host_worker_thread.cpp",
+    "message": "Document slot 0: structure: unexpected end at 1:8; element starts 1:2"
+  },
+  {
+    "scenario": "reject_disallowed_features",
+    "source": "host_worker_thread.cpp",
+    "message": "Document slot 0: policy rejected features 0x00000800"
+  },
+  {
+    "scenario": "retain_baked_on_json_failure",
+    "source": "host_worker_thread.cpp",
+    "message": "Document slot 0: JSON writing failed (status 2)"
+  },
+  {
+    "scenario": "reject_invalid_encoding",
+    "source": "host_worker_thread.cpp",
+    "message": "Document slot 0: linter: undefined CP1252 byte at 1:1"
+  },
+  {
+    "scenario": "reject_numeric_overflow",
+    "source": "host_worker_thread.cpp",
+    "message": "Document slot 0: parser: numeric value out of range at 1:1"
+  },
+  {
+    "scenario": "reject_invalid_policy",
+    "source": "host_worker_thread.cpp",
+    "message": "Document slot 0: invalid policy bits 0x80000000"
+  },
+  {
+    "scenario": "reject_unterminated_string",
+    "source": "host_worker_thread.cpp",
+    "message": "Document slot 0: structure: unterminated string at 1:14; element starts 1:1"
+  },
+  {
+    "scenario": "reject_texture_negative",
+    "source": "basis_codec.cpp",
+    "message": "Rendering Basis: HDR source rejected at 0,0 channel 0"
+  },
+  {
+    "scenario": "reject_texture_nonfinite",
+    "source": "basis_codec.cpp",
+    "message": "Rendering Basis: HDR source rejected at 0,0 channel 0"
+  }
+]

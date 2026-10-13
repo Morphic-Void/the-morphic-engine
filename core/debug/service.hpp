@@ -105,6 +105,13 @@ enum class EBreakpointOverride : std::uint32_t
     disabled
 };
 
+[[nodiscard]] constexpr bool is_log_level(const EEventLevel level) noexcept
+{
+    return (level == EEventLevel::info) || (level == EEventLevel::detail) ||
+        (level == EEventLevel::trace) || (level == EEventLevel::warning) ||
+        (level == EEventLevel::error);
+}
+
 //==============================================================================
 //  Event metadata validation
 //==============================================================================
@@ -286,14 +293,14 @@ public:
 
     [[nodiscard]] std::uint32_t allocate_incident_id() noexcept;
     [[nodiscard]] bool submit_text(const char* const text) noexcept;
-    [[nodiscard]] bool report_va(const SEventUsagePoint& usage_point, const char* const format, std::va_list arguments) noexcept;
-    [[nodiscard]] bool report_immediate_va(const SEventUsagePoint& usage_point, const char* const format, std::va_list arguments) noexcept;
+    [[nodiscard]] bool report_va(const EEventLevel level, const SEventUsagePoint& usage_point, const char* const format, std::va_list arguments) noexcept;
+    [[nodiscard]] bool report_immediate_va(const EEventLevel level, const SEventUsagePoint& usage_point, const char* const format, std::va_list arguments) noexcept;
     [[nodiscard]] bool try_write_panic_record(const SEventUsagePoint& usage_point, const std::uint32_t incident_id, const char* const text, const std::size_t text_size) noexcept;
 
-    template<EEventLevel t_level, EEventType t_type, typename... Args>
+    template<EEventLevel t_level, EEventType t_type, bool t_immediate = false, typename... Args>
     [[nodiscard]] bool submit_event(const SEventUsagePoint& usage_point, const char* const format, const std::size_t format_size, Args&&... arguments) noexcept;
 
-    template<EEventLevel t_level, EEventType t_type, typename... Args>
+    template<EEventLevel t_level, EEventType t_type, bool t_immediate = false, typename... Args>
     [[nodiscard]] bool process_event(
         const SEventUsagePoint& usage_point, EBreakpointOverride& breakpoint_override,
         const bool breakpoint_enabled_by_default, const EShutdownReason shutdown_reason,
@@ -324,6 +331,8 @@ private:
     static constexpr std::size_t k_invalid_event_size = sizeof(k_invalid_event) - 1u;
     static constexpr char k_invalid_report[] = "Invalid rich debug report";
     static constexpr std::size_t k_invalid_report_size = sizeof(k_invalid_report) - 1u;
+    static constexpr char k_oversized_report[] = "Rich debug report exceeds 4095-byte text limit";
+    static constexpr std::size_t k_oversized_report_size = sizeof(k_oversized_report) - 1u;
 
     [[nodiscard]] static bool copy_path(char (&destination)[k_log_path_capacity], const char* const source) noexcept;
     [[nodiscard]] static bool write_record(platform::filesystem::Log& log,
@@ -361,11 +370,11 @@ private:
         const char* const format, const std::size_t format_size,
         const SEventArguments& arguments) noexcept;
     [[nodiscard]] bool submit_report_event(
-        const SIncidentContext& incident,
+        const EEventLevel level, const SIncidentContext& incident,
         const char* const text, const std::size_t text_size) noexcept;
     [[nodiscard]] bool write_event(const SEvent& event) noexcept;
 
-    template<EEventLevel t_level, EEventType t_type, typename... Args>
+    template<EEventLevel t_level, EEventType t_type, bool t_immediate = false, typename... Args>
     [[nodiscard]] bool submit_captured_event(
         const SIncidentContext& incident,
         const char* const expression, const std::size_t expression_size,
@@ -395,7 +404,7 @@ private:
     CEventTransport m_event_transport;
 };
 
-template<EEventLevel t_level, EEventType t_type, typename... Args>
+template<EEventLevel t_level, EEventType t_type, bool t_immediate, typename... Args>
 bool CDebugServiceState::submit_captured_event(
     const SIncidentContext& incident,
     const char* const expression, const std::size_t expression_size,
@@ -411,6 +420,12 @@ bool CDebugServiceState::submit_captured_event(
         ((expression_size == 0u) && (format_size == 0u)))
     {
         return false;
+    }
+
+    if constexpr (t_immediate)
+    {
+        const SEventArguments encoded_arguments = encode_event_arguments(std::forward<Args>(arguments)...);
+        return write_direct_event(t_level, t_type, incident, expression, expression_size, format, format_size, encoded_arguments);
     }
 
     CReservedEventSlot reserved_event{ m_event_transport };
@@ -454,7 +469,7 @@ bool CDebugServiceState::submit_captured_event(
     return published;
 }
 
-template<EEventLevel t_level, EEventType t_type, typename... Args>
+template<EEventLevel t_level, EEventType t_type, bool t_immediate, typename... Args>
 bool CDebugServiceState::submit_event(const SEventUsagePoint& usage_point, const char* const format, const std::size_t format_size, Args&&... arguments) noexcept
 {
     static_assert(is_valid_event_metadata(t_level, t_type), "The debug event level/type combination is invalid.");
@@ -471,12 +486,12 @@ bool CDebugServiceState::submit_event(const SEventUsagePoint& usage_point, const
         return false;
     }
 
-    return submit_captured_event<t_level, t_type>(
+    return submit_captured_event<t_level, t_type, t_immediate>(
         incident, nullptr, 0u, format, format_size,
         std::forward<Args>(arguments)...);
 }
 
-template<EEventLevel t_level, EEventType t_type, typename... Args>
+template<EEventLevel t_level, EEventType t_type, bool t_immediate, typename... Args>
 bool CDebugServiceState::process_event(
     const SEventUsagePoint& usage_point, EBreakpointOverride& breakpoint_override,
     const bool breakpoint_enabled_by_default, const EShutdownReason shutdown_reason,
@@ -491,12 +506,13 @@ bool CDebugServiceState::process_event(
         return false;
     }
 
-    const bool submitted = submit_captured_event<t_level, t_type>(incident, expression, expression_size, format, format_size, std::forward<Args>(arguments)...);
-
     if ((shutdown_reason != EShutdownReason::none) && ((shutdown_reason != EShutdownReason::critical_incident) || critical_shutdown_enabled()))
     {
         request_shutdown(shutdown_reason);
     }
+
+    //  Publish control intent before potentially blocking direct output.
+    const bool submitted = submit_captured_event<t_level, t_type, t_immediate>(incident, expression, expression_size, format, format_size, std::forward<Args>(arguments)...);
 
     react_to_breakpoint(breakpoint_override, breakpoint_enabled_by_default, incident);
     return submitted;
@@ -508,11 +524,11 @@ bool CDebugServiceState::process_event(
 
 [[nodiscard]] bool submit_text(const char* const text) noexcept;
 [[nodiscard]] bool informational_event_enabled(const EEventLevel level) noexcept;
-[[nodiscard]] bool report(const SEventUsagePoint& usage_point, const char* const format, ...) noexcept;
-[[nodiscard]] bool report_immediate(const SEventUsagePoint& usage_point, const char* const format, ...) noexcept;
+[[nodiscard]] bool report(const EEventLevel level, const SEventUsagePoint& usage_point, const char* const format, ...) noexcept;
+[[nodiscard]] bool report_immediate(const EEventLevel level, const SEventUsagePoint& usage_point, const char* const format, ...) noexcept;
 [[noreturn]] void panic(const SEventUsagePoint& usage_point, const char* const format, ...) noexcept;
 
-template<EEventLevel t_level, EEventType t_type, std::size_t t_format_size, typename... Args>
+template<EEventLevel t_level, EEventType t_type, bool t_immediate = false, std::size_t t_format_size, typename... Args>
 [[nodiscard]] bool submit_event(const SEventUsagePoint& usage_point, const char (&format)[t_format_size], Args&&... arguments) noexcept
 {
     static_assert(is_valid_event_metadata(t_level, t_type), "The debug event level/type combination is invalid.");
@@ -525,10 +541,10 @@ template<EEventLevel t_level, EEventType t_type, std::size_t t_format_size, type
         return false;
     }
 
-    return service->submit_event<t_level, t_type>(usage_point, format, (t_format_size - 1u), std::forward<Args>(arguments)...);
+    return service->submit_event<t_level, t_type, t_immediate>(usage_point, format, (t_format_size - 1u), std::forward<Args>(arguments)...);
 }
 
-template<EEventLevel t_level, EEventType t_type, std::size_t t_format_size, typename... Args>
+template<EEventLevel t_level, EEventType t_type, bool t_immediate = false, std::size_t t_format_size, typename... Args>
 [[nodiscard]] bool process_event(
     const SEventUsagePoint& usage_point,
     EBreakpointOverride& breakpoint_override, const bool breakpoint_enabled_by_default,
@@ -544,13 +560,13 @@ template<EEventLevel t_level, EEventType t_type, std::size_t t_format_size, type
         return false;
     }
 
-    return service->process_event<t_level, t_type>(
+    return service->process_event<t_level, t_type, t_immediate>(
         usage_point, breakpoint_override, breakpoint_enabled_by_default, shutdown_reason,
         nullptr, 0u, format, (t_format_size - 1u),
         std::forward<Args>(arguments)...);
 }
 
-template<EEventLevel t_level, EEventType t_type, std::size_t t_expression_size, std::size_t t_format_size, typename... Args>
+template<EEventLevel t_level, EEventType t_type, bool t_immediate = false, std::size_t t_expression_size, std::size_t t_format_size, typename... Args>
 [[nodiscard]] bool process_condition_event(
     const SEventUsagePoint& usage_point,
     EBreakpointOverride& breakpoint_override, const bool breakpoint_enabled_by_default,
@@ -570,10 +586,26 @@ template<EEventLevel t_level, EEventType t_type, std::size_t t_expression_size, 
         return false;
     }
 
-    return service->process_event<t_level, t_type>(
+    return service->process_event<t_level, t_type, t_immediate>(
         usage_point, breakpoint_override, breakpoint_enabled_by_default, shutdown_reason,
         expression, (t_expression_size - 1u), format, (t_format_size - 1u),
         std::forward<Args>(arguments)...);
+}
+
+//  Keep immediate rich formatting on its separate service-owned buffer path.
+template<EEventLevel t_level, bool t_immediate, std::size_t t_format_size, typename... Args>
+[[nodiscard]] bool log_rich(const SEventUsagePoint& usage_point, const char (&format)[t_format_size], Args&&... arguments) noexcept
+{
+    static_assert(is_log_level(t_level), "Rich logging requires an informational, warning or error level.");
+    static_assert(t_format_size > 1u, "A rich report format must not be empty.");
+    if constexpr (t_immediate)
+    {
+        return report_immediate(t_level, usage_point, format, std::forward<Args>(arguments)...);
+    }
+    else
+    {
+        return report(t_level, usage_point, format, std::forward<Args>(arguments)...);
+    }
 }
 
 }   //  namespace debug_system

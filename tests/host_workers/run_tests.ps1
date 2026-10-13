@@ -17,6 +17,7 @@ $repository = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '../..')).Path
 $executable = Join-Path $repository "build/bin/$Platform/$Configuration/MorphicEngine.exe"
 $suffix = [Guid]::NewGuid().ToString('N').Substring(0, 8)
 . (Join-Path $PSScriptRoot '../support/host_environment.ps1')
+. (Join-Path $PSScriptRoot '../support/host_diagnostics.ps1')
 $runtime = New-HostTestEnvironment -Repository $repository -Name "host-workers-$suffix"
 
 function Invoke-Host([string[]] $Lines, [int] $ExpectedExit, [switch] $WithBom) {
@@ -115,8 +116,10 @@ foreach ($requested in @(0, 1, 2, 3, 9, 128)) {
     if ($batchRequested -ne 8) { $lines += "batch-runners=$batchRequested" }
     $processId = Invoke-Host -Lines $lines -ExpectedExit 0 -WithBom:($requested -eq 0)
     $log = Join-Path $runtime "development/logical-roots/test-logs/morphic_debug.$tag.p$processId.log"
-    $events = Get-Content -LiteralPath $log -Raw
-    if ($events -match '\[(assert|error|critical|fatal):') { throw "Unexpected diagnostics: $log" }
+    $directLog = Join-Path $runtime "development/logical-roots/test-logs/morphic_debug_direct.$tag.p$processId.log"
+    $directEvents = Get-Content -LiteralPath $directLog -Raw
+    $events = (Get-Content -LiteralPath $log -Raw) + $directEvents
+    Assert-HostDiagnostics -Events $events
     if (!$events.Contains('Asset acceptance: 71 sequential and 32 concurrent operations passed') -or
         !$events.Contains('Filesystem acceptance: 12 queued refresh, concurrent access and cache operations passed') -or
         !$events.Contains('Bundle acceptance: bake, reference, save, close and reload passed')) {
@@ -138,8 +141,6 @@ foreach ($requested in @(0, 1, 2, 3, 9, 128)) {
     $batchLimit = [Math]::Min(32, [Math]::Max(0, [Math]::Min($hardware, 64) - 6 - $count))
     $batchExpected = [Math]::Min($batchRequested, $batchLimit)
     if (!$events.Contains("Host: Batch runners $batchExpected")) { throw "Unexpected batch runner sizing: $log" }
-    $directLog = Join-Path $runtime "development/logical-roots/test-logs/morphic_debug_direct.$tag.p$processId.log"
-    $directEvents = Get-Content -LiteralPath $directLog -Raw
     $textureRoute = if ($batchExpected -eq 0) { 'completed inline' } else { 'queued' }
     $textureThread = if ($batchExpected -eq 0) { 'rendering' } else { 'batch_runner_\d+' }
     if (!$events.Contains("Rendering: Texture batch $textureRoute") -or

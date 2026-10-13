@@ -118,16 +118,15 @@ bool CTextureRequests::dispatch(const std::int32_t slot, const threading::FBatch
     const threading::SBatchSubmission submitted = m_batch.submit(function, object, static_cast<std::uint32_t>(slot));
     if (submitted.status == threading::EBatchSubmission::queued)
     {
-        MV_REPORT("Rendering: Texture batch queued, slot %d", slot);
+        MV_LOG(info, "Rendering: Texture batch queued, slot {}", slot);
         return true;
     }
     if (submitted.status == threading::EBatchSubmission::completed_inline)
     {
-        MV_REPORT("Rendering: Texture batch completed inline, slot %d", slot);
+        MV_LOG(info, "Rendering: Texture batch completed inline, slot {}", slot);
         return finish(slot, true);
     }
-    MV_REPORT("Rendering: Texture batch rejected, slot %d, reason %u",
-        slot, static_cast<unsigned int>(submitted.reason));
+    MV_LOG(error, "Rendering: Texture batch rejected, slot {}, reason {}", slot, static_cast<unsigned int>(submitted.reason));
     return finish(slot, false);
 }
 
@@ -138,8 +137,7 @@ bool CTextureRequests::complete(const threading::SBatchResponse& response) noexc
     {
         return false;
     }
-    MV_REPORT("Rendering: Texture batch completion, slot %d, outcome %u",
-        slot, static_cast<unsigned int>(response.completion));
+    MV_LOG(info, "Rendering: Texture batch completion, slot {}, outcome {}", slot, static_cast<unsigned int>(response.completion));
     return finish(slot, (response.completion == threading::EBatchCompletion::executed));
 }
 
@@ -197,7 +195,7 @@ static std::uint32_t MV_STD_ABI_CALL thread_entry(void* const user_data) noexcep
         context.mark_failed(1u);
         return 1u;
     }
-    MV_REPORT("Rendering: Running");
+    MV_LOG(info, "Rendering: Running");
     context.mark_running();
     bool failed = false;
     for (;;)
@@ -246,7 +244,7 @@ static std::uint32_t MV_STD_ABI_CALL thread_entry(void* const user_data) noexcep
         context.mark_failed(2u);
         return 2u;
     }
-    MV_REPORT("Rendering: Exited");
+    MV_LOG(info, "Rendering: Exited");
     context.mark_exited();
     return 0u;
 }

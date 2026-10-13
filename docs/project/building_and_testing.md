@@ -111,6 +111,15 @@ or a dedicated conditioning worker. Both harnesses stage an isolated development
 filesystem under `build/`, retaining its logs and output for inspection without
 inventorying accumulated output from other runs.
 
+Intentional rejection scenarios still produce error-level diagnostics. The Host
+acceptance harnesses share `tests/support/host_expected_diagnostics.json` and
+require each expected error exactly once, with its source, text and scenario
+interval checked across the event and direct logs by incident ID. Unexpected,
+duplicate or missing errors fail acceptance. The lifecycle harness separately
+checks its deliberate bundle failures, service failures and assertion counts.
+Required operational markers use the enabled `info` level in Debug and Release;
+the debug-service suite verifies filtering and explicit immediate delivery.
+
 Windows CI runs the ordinary suites, Host-worker harness and all 33 lifecycle
 cases with one and two requested workers in Debug/Release on x64 and x86.
 Its diagnostics include the isolated Host-worker and lifecycle logs and output.

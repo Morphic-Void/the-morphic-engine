@@ -55,7 +55,7 @@ static void MV_STD_ABI_CALL execute_batch_item(void* const object) noexcept
     item.observed_thread = system_context::get_ambient_thread_id();
     item.observed_module = system_context::get_ambient_module_id();
     item.observed_memory = memory::get_ambient_memory_context();
-    MV_REPORT("Lifecycle fixture: batch item executed");
+    MV_LOG(info, "Lifecycle fixture: batch item executed");
 }
 
 static bool batch_case(threading::CThreadContext& context,
@@ -141,7 +141,7 @@ static bool batch_case(threading::CThreadContext& context,
     {
         return false;
     }
-    MV_REPORT("Lifecycle fixture: batch queued %u inline %u", queued_count, inline_count);
+    MV_LOG(info, "Lifecycle fixture: batch queued {} inline {}", queued_count, inline_count);
     return true;
 }
 
@@ -199,11 +199,11 @@ static bool operation(threading::CThreadContext& context, const EModuleAction ac
             ((notice == EModuleNotice::completed) && ((result.available != available) ||
                 ((expected == EModuleStatus::success) && (function != system_type_ids::undefined) && (result.function == nullptr)))))
         {
-            MV_REPORT("Lifecycle fixture: operation %d notification failed", slot);
+            MV_LOG(error, "Lifecycle fixture: operation {} notification failed", slot);
             return false;
         }
     }
-    MV_REPORT("Lifecycle fixture: operation %d passed", slot);
+    MV_LOG(info, "Lifecycle fixture: operation {} passed", slot);
     return true;
 }
 
@@ -230,7 +230,7 @@ static bool self_terminate(threading::CThreadContext& context, const char* const
     const bool success = context.exit_requested() && !context.read(unexpected);
     if (success)
     {
-        MV_REPORT("Lifecycle fixture: Host requested Executive exit without notifications");
+        MV_LOG(info, "Lifecycle fixture: Host requested Executive exit without notifications");
     }
     return success;
 }
@@ -245,7 +245,7 @@ static bool batch_exit_case(threading::CThreadContext& context,
     }
     if (!client->has_runners())
     {
-        MV_REPORT("Lifecycle fixture: batch exit skipped without runners");
+        MV_LOG(info, "Lifecycle fixture: batch exit skipped without runners");
         return self_terminate(context, nullptr);
     }
 
@@ -319,7 +319,7 @@ static bool batch_exit_case(threading::CThreadContext& context,
             return false;
         }
     }
-    MV_REPORT("Lifecycle fixture: batch exit drained one executed and seven discarded");
+    MV_LOG(info, "Lifecycle fixture: batch exit drained one executed and seven discarded");
     return true;
 }
 
@@ -619,7 +619,7 @@ static bool run_case(threading::CThreadContext& context,
         const auto bytes = memory->get_live_allocated_bytes();
         if (!bundle_case(context, resources, selected) || (memory->get_live_allocation_count() != allocations) ||
             (memory->get_live_allocated_bytes() != bytes)) return false;
-        MV_REPORT("Bundle fixture: Executive allocation baseline restored");
+        MV_LOG(info, "Bundle fixture: Executive allocation baseline restored");
         return self_terminate(context,
             (std::strcmp(selected, "bundle-replace") == 0) ? "package:/bin/MorphicLifecycleExecutive.dll" : nullptr);
     }
@@ -765,13 +765,13 @@ static std::uint32_t MV_STD_ABI_CALL executive_entry(void* const data) noexcept
     const bool success = configured && run_case(context, resources, selected);
     if (success)
     {
-        MV_REPORT("Lifecycle fixture: %s passed", selected);
+        MV_LOG_RICH(info, "Lifecycle fixture: %s passed", selected);
         context.mark_exiting();
         context.mark_exited();
     }
     else
     {
-        MV_REPORT("Lifecycle fixture failed");
+        MV_LOG(error, "Lifecycle fixture failed");
         context.mark_failed(1u);
     }
     return success ? 0u : 1u;
@@ -798,10 +798,10 @@ static std::uint32_t MV_STD_ABI_CALL rendering_entry(void* const data) noexcept
     if ((getenv_s(&required, selected, sizeof(selected), "MORPHIC_LIFECYCLE_CASE") == 0) &&
         (std::strcmp(selected, "bundle-rendering") == 0))
     {
-        MV_REPORT("Rendering: Running");
+        MV_LOG(info, "Rendering: Running");
         context.mark_running();
         const bool success = rendering_bundle_case(context, resources);
-        MV_REPORT("Rendering: Exited");
+        MV_LOG(info, "Rendering: Exited");
         if (success) context.mark_exited();
         else context.mark_failed(1u);
         return success ? 0u : 1u;
@@ -821,7 +821,7 @@ static std::uint32_t MV_STD_ABI_CALL rendering_entry(void* const data) noexcept
         return 1u;
     }
 
-    MV_REPORT("Rendering: Running");
+    MV_LOG(info, "Rendering: Running");
     context.mark_running();
     std::uint32_t epoch{ 0u };
     while (!context.exit_requested())
@@ -843,8 +843,8 @@ static std::uint32_t MV_STD_ABI_CALL rendering_entry(void* const data) noexcept
     }
     //  Do not consume replies: the Host must retain our package while the first
     //  disposal waits for saves, and drain the final request before destroying it.
-    MV_REPORT("Lifecycle rendering: final disposals posted");
-    MV_REPORT("Rendering: Exited");
+    MV_LOG(info, "Lifecycle rendering: final disposals posted");
+    MV_LOG(info, "Rendering: Exited");
     context.mark_exited();
     return 0u;
 }

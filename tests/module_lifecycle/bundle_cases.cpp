@@ -43,14 +43,14 @@ public:
             context.advance_heartbeat();
             platform::threading::processor_relax();
         }
-        MV_REPORT("Bundle fixture: reply timed out at slot %d", slot);
+        MV_LOG(error, "Bundle fixture: reply timed out at slot {}", slot);
         return false;
     }
     template<typename T> bool receive(T& value, const std::int32_t expected) noexcept
     {
         threading::CErasedPodMsg message;
         const bool valid = read(message) && (message.query_async_slot() == expected) && message.copy_payload_to(value);
-        if (!valid) MV_REPORT("Bundle fixture: unexpected reply at slot %d (expected %d)", message.query_async_slot(), expected);
+        if (!valid) MV_LOG(error, "Bundle fixture: unexpected reply at slot {} (expected {})", message.query_async_slot(), expected);
         return valid;
     }
     template<typename T> bool post(const T& value) noexcept
@@ -72,7 +72,7 @@ public:
     {
         if (!receive(value, slot)) return false;
         if (value.status == expected) return true;
-        MV_REPORT("Bundle fixture: slot %d status %u expected %u", slot,
+        MV_LOG(error, "Bundle fixture: slot {} status {} expected {}", slot,
             static_cast<unsigned int>(value.status), static_cast<unsigned int>(expected));
         return false;
     }
@@ -246,13 +246,13 @@ static bool workflow(CBundleClient& client, threading::CThreadResources& resourc
     if (!success || !item.valid || (batch->outstanding() != 0u) ||
         !client.save(raw.asset, "test-output:/bundle-subfile.bin") || !client.dispose(raw.asset) ||
         !client.notification(original.asset) || !parsed[0].document_view().check_integrity() || !image.image_view().is_ready()) return false;
-    MV_REPORT("Bundle fixture: batch borrow %s survived closure", queued ? "queued" : "inline");
+    MV_LOG_RICH(info, "Bundle fixture: batch borrow %s survived closure", queued ? "queued" : "inline");
     if (!client.dispose(parsed[0].asset) || ((parsed[1].asset != parsed[0].asset) && !client.dispose(parsed[1].asset)) ||
         !client.dispose(image.asset) || !client.bind(scratch) || !same_bytes(scratch.byte_view(), snapshot.const_view()) ||
         !client.post(AssetDisposeRequest{ scratch.asset }) || !client.notification(scratch.asset) ||
         !client.bake(scratch) || !same_bytes(scratch.byte_view(), snapshot.const_view()) ||
         !client.post(AssetDisposeRequest{ scratch.asset }) || !client.notification(scratch.asset)) return false;
-    MV_REPORT("Bundle fixture: persistence, refresh, cache and root reuse passed");
+    MV_LOG(info, "Bundle fixture: persistence, refresh, cache and root reuse passed");
     return true;
 }
 
@@ -281,7 +281,7 @@ bool rendering_bundle_case(threading::CThreadContext& context, threading::CThrea
         !client.post(AssetDisposeRequest{ original.asset }) || !client.notification(original.asset) ||
         !client.bind(loaded) || !client.load(file, "bundle-test:/Aligned") ||
         !save_handoff(client, { loaded.asset, file.asset }, "test-output:/bundle-rendering-handoff.bin")) return false;
-    MV_REPORT("Bundle fixture: Rendering owns loaded bundle");
+    MV_LOG(info, "Bundle fixture: Rendering owns loaded bundle");
     while (!context.exit_requested())
     {
         const auto epoch = resources.wait_predicate.get_word();
@@ -339,7 +339,7 @@ static bool rendering_owner(CBundleClient& client) noexcept
         !client.bake(result, EAssetStatus::busy) || !client.save(file.asset, "test-output:/bundle-rendering-survivor.bin") ||
         !client.dispose(file.asset) || !client.bake(result) ||
         !client.post(AssetDisposeRequest{ result.asset }) || !client.notification(result.asset)) return false;
-    MV_REPORT("Bundle fixture: Rendering ownership and post-join sub-file release passed");
+    MV_LOG(info, "Bundle fixture: Rendering ownership and post-join sub-file release passed");
     return true;
 }
 
@@ -360,7 +360,7 @@ bool bundle_case(threading::CThreadContext& context, threading::CThreadResources
             !client.bake(result, EAssetStatus::busy) || !client.save(handoff.file, "test-output:/bundle-replacement.bin") ||
             !client.dispose(handoff.file) || !client.bake(result) ||
             !client.post(AssetDisposeRequest{ result.asset }) || !client.notification(result.asset)) return false;
-        MV_REPORT("Bundle fixture: replacement released old storage without inheriting its notification");
+        MV_LOG(info, "Bundle fixture: replacement released old storage without inheriting its notification");
         return true;
     }
     if (std::strcmp(selected, "bundle-failures") == 0)

@@ -185,8 +185,8 @@ Findings survive failure without a retained asset; `unexamined` policy status
 means no policy decision was reached, or this operation did not parse text.
 The full `CDocumentReport` stays on the conditioning thread.
 
-Failures are logged there with `MV_REPORT`: stage and reason, the failure location
-when available, and an available element start only when it differs. Linter
+Failures are logged there with `MV_LOG_RICH(error, ...)`: stage and reason, the
+failure location when available, and an available element start only when it differs. Linter
 failures omit element information. Processing failures omit policy data; policy
 rejection reports only disallowed features, and invalid options report only unknown
 policy bits. Baking and JSON-writing failures report their own operation failure.

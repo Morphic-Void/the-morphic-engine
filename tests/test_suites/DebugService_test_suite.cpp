@@ -11,6 +11,8 @@
 #include <cstdint>
 #include <cstring>
 #include <iostream>
+#include <filesystem>
+#include <system_error>
 #include <string>
 #include <type_traits>
 
@@ -18,6 +20,7 @@
 #include "debug/log_path.hpp"
 #include "debug/macros.hpp"
 #include "debug/service.hpp"
+#include "platform/path/native_path.hpp"
 #include "tests/environment/local_type_ids.hpp"
 #include "tests/environment/test_paths.hpp"
 #include "system/system_context.hpp"
@@ -25,6 +28,7 @@
 #include "tests/test_suites/DebugService_test_suite.hpp"
 #include "tests/support/test_context.hpp"
 #include "tests/support/file_helpers.hpp"
+
 
 namespace debug_system
 {
@@ -44,6 +48,18 @@ namespace debug_service_tests
 {
 
 using TTestContext = tests::TTestContext;
+
+//  File metadata remains observable on Windows while the service owns its
+//  exclusive CRT writer. Growth before writer startup verifies immediate flush;
+//  record contents are checked after the service closes the files.
+static std::uintmax_t log_size(TTestContext& ctx, const char* const path)
+{
+    const platform::path::NativePath native_path = platform::path::makeNativePath(path);
+    std::error_code error;
+    const auto size = std::filesystem::file_size(std::filesystem::path{ native_path.data() }, error);
+    TEST_EXPECT(ctx, !error);
+    return size;
+}
 
 void compile_public_macro_interface(const bool execute)
 {
@@ -66,12 +82,25 @@ void compile_public_macro_interface(const bool execute)
     MV_INFO("info {}", std::uint32_t{ 2u });
     MV_DETAIL("detail");
     MV_TRACE("trace");
-    MV_REPORT("report %u", 3u);
-    MV_REPORT_IMMEDIATE("immediate report %u", 4u);
+    MV_LOG_RICH(info, "report %u", 3u);
+    MV_LOG_RICH_IMMEDIATE(info, "immediate report %u", 4u);
     MV_WARNING("warning");
     MV_ERROR("error");
     MV_CRITICAL_EVENT("critical event");
     MV_FATAL_EVENT("fatal event");
+    MV_ASSERT_IMMEDIATE(condition);
+    MV_ASSERT_MSG_IMMEDIATE(condition, "assert message {}", 1u);
+    MV_ASSERT_REPORT_IMMEDIATE("assert report message {}", 1u);
+    MV_DEBUG_ASSERT_IMMEDIATE(condition);
+    MV_DEBUG_ASSERT_MSG_IMMEDIATE(condition, "debug assert message");
+    MV_CRITICAL_ASSERT_IMMEDIATE(condition);
+    MV_CRITICAL_ASSERT_MSG_IMMEDIATE(condition, "critical assert message");
+    MV_FATAL_ASSERT_IMMEDIATE(condition);
+    MV_FATAL_ASSERT_MSG_IMMEDIATE(condition, "fatal assert message");
+    MV_WARNING_IMMEDIATE("warning");
+    MV_ERROR_IMMEDIATE("error");
+    MV_CRITICAL_EVENT_IMMEDIATE("critical event");
+    MV_FATAL_EVENT_IMMEDIATE("fatal event");
     constexpr char maximum_transport_format[] =
         "1234567890123456789012345678901234567890123456789012345678901234"
         "567890123456789012345678901234567890123456789012345678901234567";
@@ -1025,13 +1054,13 @@ void test_writer_and_direct_paths(TTestContext& ctx)
     std::memset(oversized, 'x', sizeof(oversized) - 1u);
     oversized[sizeof(oversized) - 1u] = 0;
     TEST_EXPECT(ctx, debug_system::submit_text(oversized));
-    MV_REPORT("rich %s %d %.1f", "report", 42, 3.5);
+    MV_LOG_RICH(info, "rich %s %d %.1f", "report", 42, 3.5);
 
     char report447[debug_system::k_event_report_capacity]{};
     std::memset(report447, 'r', sizeof(report447) - 1u);
     report447[0u] = 'A';
     report447[sizeof(report447) - 2u] = 'Z';
-    TEST_EXPECT(ctx, debug_system::report(
+    TEST_EXPECT(ctx, debug_system::report(debug_system::EEventLevel::info,
         debug_system::SEventUsagePoint{
             source_file, sizeof(source_file) - 1u, source_line + 2u },
         "%s", report447));
@@ -1040,25 +1069,25 @@ void test_writer_and_direct_paths(TTestContext& ctx)
     std::memset(report448, 's', sizeof(report448) - 1u);
     report448[0u] = 'B';
     report448[sizeof(report448) - 2u] = 'Y';
-    TEST_EXPECT(ctx, debug_system::report(
+    TEST_EXPECT(ctx, debug_system::report(debug_system::EEventLevel::info,
         debug_system::SEventUsagePoint{
             source_file, sizeof(source_file) - 1u, source_line + 3u },
         "%s", report448));
 
-    MV_REPORT_IMMEDIATE("immediate %s %u", "report", 17u);
+    MV_LOG_RICH_IMMEDIATE(info, "immediate %s %u", "report", 17u);
 
     char maximum_report[debug_system::k_format_buffer_capacity]{};
     std::memset(maximum_report, 'm', sizeof(maximum_report) - 1u);
     maximum_report[0u] = 'C';
     maximum_report[sizeof(maximum_report) - 2u] = 'X';
-    TEST_EXPECT(ctx, debug_system::report(
+    TEST_EXPECT(ctx, debug_system::report(debug_system::EEventLevel::info,
         debug_system::SEventUsagePoint{
             source_file, sizeof(source_file) - 1u, source_line + 4u },
         "%s", maximum_report));
 
     char oversized_report[debug_system::k_format_buffer_capacity + 1u]{};
     std::memset(oversized_report, 'o', sizeof(oversized_report) - 1u);
-    TEST_EXPECT(ctx, !debug_system::report(
+    TEST_EXPECT(ctx, !debug_system::report(debug_system::EEventLevel::info,
         debug_system::SEventUsagePoint{
             source_file, sizeof(source_file) - 1u, source_line + 5u },
         "%s", oversized_report));
@@ -1196,7 +1225,7 @@ void test_writer_and_direct_paths(TTestContext& ctx)
     TEST_EXPECT(ctx, tests::file_contains(direct_path, "[0000000011]"));
     TEST_EXPECT(ctx, tests::file_contains(direct_path, maximum_report));
     TEST_EXPECT(ctx, tests::file_contains(direct_path, "[0000000012]"));
-    TEST_EXPECT(ctx, tests::file_contains(direct_path, "Invalid rich debug report"));
+    TEST_EXPECT(ctx, tests::file_contains(direct_path, "Rich debug report exceeds 4095-byte text limit"));
     TEST_EXPECT(ctx, tests::file_contains(direct_path, "[0000000013]"));
     TEST_EXPECT(ctx, tests::file_contains(direct_path, "[panic:event]"));
     TEST_EXPECT(ctx, tests::file_contains(direct_path, "panic substrate record"));
@@ -1435,7 +1464,7 @@ void test_queued_and_direct_equivalence(TTestContext& ctx)
             system_ids::host,
             module_ids::executable,
             thread_ids::host)));
-    TEST_EXPECT(ctx, debug_system::report(
+    TEST_EXPECT(ctx, debug_system::report(debug_system::EEventLevel::info,
         debug_system::SEventUsagePoint{
             source_file, sizeof(source_file) - 1u, 778u },
         "full %s", "report fallback"));
@@ -1452,7 +1481,7 @@ void test_queued_and_direct_equivalence(TTestContext& ctx)
         "byte_buffer executable:host executable host"));
     TEST_EXPECT(ctx, tests::file_contains(direct_path,
         "[DebugService_test_suite.cpp:778] full report fallback"));
-    TEST_EXPECT(ctx, !debug_system::report(
+    TEST_EXPECT(ctx, !debug_system::report(debug_system::EEventLevel::info,
         debug_system::SEventUsagePoint{
             source_file, sizeof(source_file) - 1u, 779u },
         "closed %s", "report fallback"));
@@ -1521,6 +1550,201 @@ void test_assert_report(TTestContext& ctx)
     //  caller's execution or suppress argument evaluation.
     MV_ASSERT_REPORT("no installed service {}", ++evaluations);
     TEST_EXPECT(ctx, evaluations == 3u);
+}
+
+void test_log_policy_and_delivery(TTestContext& ctx)
+{
+    const std::string event_path = test_environment::test_log_path("debug_log_policy");
+    const std::string direct_path = test_environment::test_log_path("debug_log_policy_direct");
+    auto owner = TInstance<debug_system::CDebugServiceState>::create();
+    TEST_EXPECT(ctx, owner.is_ready());
+    if (!owner.is_ready()) return;
+    auto& service = *owner;
+    TEST_EXPECT(ctx, service.configure_log_paths(event_path.c_str(), direct_path.c_str()));
+    TEST_EXPECT(ctx, service.open_logs());
+    TEST_EXPECT(ctx, debug_system::install_service(&service));
+    service.publish_configuration(debug_system::k_breakpoints_enabled | debug_system::k_critical_shutdown_enabled);
+
+    //  Runtime rejection covers both representations and both delivery forms.
+    //  The writer has not started: direct output must already be readable.
+    std::uint32_t evaluations = 0u;
+#define TEST_LOG_LEVEL(level) \
+    MV_LOG(level, "policy " #level " structured {}", ++evaluations); \
+    MV_LOG_IMMEDIATE(level, "policy " #level " immediate {}", ++evaluations); \
+    MV_LOG_RICH(level, "policy " #level " rich %u", ++evaluations); \
+    MV_LOG_RICH_IMMEDIATE(level, "policy " #level " rich immediate %u", ++evaluations)
+    TEST_LOG_LEVEL(info);
+    TEST_LOG_LEVEL(detail);
+    TEST_LOG_LEVEL(trace);
+    TEST_EXPECT(ctx, evaluations == 0u);
+    TEST_EXPECT(ctx, service.allocate_incident_id() == 1u);
+
+    service.publish_configuration(debug_system::k_default_configuration);
+    TEST_LOG_LEVEL(info);
+    TEST_LOG_LEVEL(detail);
+    TEST_LOG_LEVEL(trace);
+#undef TEST_LOG_LEVEL
+    TEST_EXPECT(ctx, evaluations == 4u * MV_COMPILED_INFORMATION_LEVEL);
+#if MV_COMPILED_INFORMATION_LEVEL < 2
+    //  Build omission must also remove references that are not compiled in.
+    MV_LOG(detail, "omitted {}", deliberately_undefined_argument);
+    MV_LOG_RICH_IMMEDIATE(trace, "%s", deliberately_undefined_argument);
+#endif
+
+    service.publish_configuration(debug_system::k_breakpoints_enabled | debug_system::k_critical_shutdown_enabled);
+    evaluations = 0u;
+    const std::uint32_t queued_line = __LINE__ + 1u;
+    MV_LOG(error, "policy queued error {}", ++evaluations);
+    const std::uint32_t queued_rich_line = __LINE__ + 1u;
+    MV_LOG_RICH(warning, "policy queued warning %u", ++evaluations);
+    auto previous_size = log_size(ctx, direct_path.c_str());
+    const std::uint32_t immediate_line = __LINE__ + 1u;
+    MV_LOG_IMMEDIATE(warning, "policy immediate warning {}", ++evaluations);
+    TEST_EXPECT(ctx, log_size(ctx, direct_path.c_str()) > previous_size);
+    previous_size = log_size(ctx, direct_path.c_str());
+    const std::uint32_t immediate_rich_line = __LINE__ + 1u;
+    MV_LOG_RICH_IMMEDIATE(error, "policy immediate error %u", ++evaluations);
+    TEST_EXPECT(ctx, log_size(ctx, direct_path.c_str()) > previous_size);
+    previous_size = log_size(ctx, direct_path.c_str());
+    MV_ASSERT_REPORT_IMMEDIATE("policy immediate assertion {}", ++evaluations);
+    TEST_EXPECT(ctx, log_size(ctx, direct_path.c_str()) > previous_size);
+    previous_size = log_size(ctx, direct_path.c_str());
+    TEST_EXPECT(ctx, evaluations == 5u);
+    TEST_EXPECT(ctx, !service.breakpoint_pause_requested());
+    TEST_EXPECT(ctx, service.read_shutdown_request() == debug_system::EShutdownReason::none);
+    TEST_EXPECT(ctx, log_size(ctx, event_path.c_str()) == 0u);
+    bool continued = false;
+    if (evaluations == 0u)
+        MV_LOG_RICH_IMMEDIATE(error, "unselected %u", ++evaluations);
+    else
+        continued = true;
+    TEST_EXPECT(ctx, continued && evaluations == 5u);
+
+    //  Queue exhaustion preserves classification on both fallback paths.
+    for (std::uint32_t index = 0u; index < debug_system::CEventTransport::k_capacity; ++index)
+        TEST_EXPECT(ctx, service.submit_text("Fill logging queue"));
+    MV_LOG(warning, "policy full structured");
+    TEST_EXPECT(ctx, log_size(ctx, direct_path.c_str()) > previous_size);
+    previous_size = log_size(ctx, direct_path.c_str());
+    MV_LOG_RICH(error, "policy full rich %u", 7u);
+    TEST_EXPECT(ctx, log_size(ctx, direct_path.c_str()) > previous_size);
+    previous_size = log_size(ctx, direct_path.c_str());
+    TEST_EXPECT(ctx, service.start());
+    TEST_EXPECT(ctx, service.stop());
+    TEST_EXPECT(ctx, tests::file_contains(direct_path.c_str(), "policy immediate warning 3"));
+    TEST_EXPECT(ctx, tests::file_contains(direct_path.c_str(), "policy immediate error 4"));
+    TEST_EXPECT(ctx, tests::file_contains(direct_path.c_str(), "policy immediate assertion 5"));
+    TEST_EXPECT(ctx, !tests::file_contains(direct_path.c_str(), "policy queued"));
+    TEST_EXPECT(ctx, tests::file_contains(direct_path.c_str(), "policy full structured"));
+    TEST_EXPECT(ctx, tests::file_contains(direct_path.c_str(), "policy full rich 7"));
+    TEST_EXPECT(ctx, debug_system::uninstall_service(&service));
+
+    char expected[160]{};
+    (void)std::snprintf(expected, sizeof(expected),
+        "[error:event] [DebugService_test_suite.cpp:%u] policy queued error 1", queued_line);
+    TEST_EXPECT(ctx, tests::file_contains(event_path.c_str(), expected));
+    (void)std::snprintf(expected, sizeof(expected),
+        "[warning:event] [DebugService_test_suite.cpp:%u] policy immediate warning 3", immediate_line);
+    TEST_EXPECT(ctx, tests::file_contains(direct_path.c_str(), expected));
+    (void)std::snprintf(expected, sizeof(expected),
+        "[warning:event] [DebugService_test_suite.cpp:%u] policy queued warning 2", queued_rich_line);
+    TEST_EXPECT(ctx, tests::file_contains(event_path.c_str(), expected));
+    (void)std::snprintf(expected, sizeof(expected),
+        "[error:event] [DebugService_test_suite.cpp:%u] policy immediate error 4", immediate_rich_line);
+    TEST_EXPECT(ctx, tests::file_contains(direct_path.c_str(), expected));
+    TEST_EXPECT(ctx, !tests::file_contains(event_path.c_str(), "policy immediate"));
+    TEST_EXPECT(ctx, !tests::file_contains(event_path.c_str(), "unselected"));
+    TEST_EXPECT(ctx, !tests::file_contains(direct_path.c_str(), "unselected"));
+    MV_LOG_RICH(error, "no service %u", ++evaluations);
+    MV_LOG_IMMEDIATE(warning, "no service {}", ++evaluations);
+    MV_LOG_RICH_IMMEDIATE(info, "no service %u", ++evaluations);
+    TEST_EXPECT(ctx, evaluations == 7u);
+}
+
+void test_immediate_control_and_limits(TTestContext& ctx)
+{
+    const std::string event_path = test_environment::test_log_path("debug_immediate");
+    const std::string direct_path = test_environment::test_log_path("debug_immediate_direct");
+    auto owner = TInstance<debug_system::CDebugServiceState>::create();
+    TEST_EXPECT(ctx, owner.is_ready());
+    if (!owner.is_ready()) return;
+    auto& service = *owner;
+    TEST_EXPECT(ctx, service.configure_log_paths(event_path.c_str(), direct_path.c_str()));
+    TEST_EXPECT(ctx, service.open_logs());
+    TEST_EXPECT(ctx, debug_system::install_service(&service));
+    service.publish_configuration(0u);
+    std::uint32_t conditions = 0u;
+    std::uint32_t arguments = 0u;
+    MV_ASSERT_MSG_IMMEDIATE(++conditions == 0u, "development immediate {}", ++arguments);
+    MV_DEBUG_ASSERT_MSG_IMMEDIATE(++conditions == 0u, "debug development immediate {}", ++arguments);
+    TEST_EXPECT(ctx, conditions == MV_DEVELOPMENT_BUILD + MV_DEBUG_DEVELOPMENT_BUILD);
+    TEST_EXPECT(ctx, arguments == conditions);
+    MV_CRITICAL_ASSERT_MSG_IMMEDIATE(++conditions != 0u, "unselected critical {}", ++arguments);
+    MV_FATAL_ASSERT_MSG_IMMEDIATE(++conditions != 0u, "unselected fatal {}", ++arguments);
+    TEST_EXPECT(ctx, arguments == MV_DEVELOPMENT_BUILD + MV_DEBUG_DEVELOPMENT_BUILD);
+    MV_ASSERT_IMMEDIATE(false);
+    MV_DEBUG_ASSERT_IMMEDIATE(false);
+    auto previous_size = log_size(ctx, direct_path.c_str());
+    MV_WARNING_IMMEDIATE("control warning immediate");
+    TEST_EXPECT(ctx, log_size(ctx, direct_path.c_str()) > previous_size);
+    previous_size = log_size(ctx, direct_path.c_str());
+    MV_ERROR_IMMEDIATE("control error immediate");
+    TEST_EXPECT(ctx, log_size(ctx, direct_path.c_str()) > previous_size);
+    previous_size = log_size(ctx, direct_path.c_str());
+    MV_CRITICAL_ASSERT_IMMEDIATE(false);
+    TEST_EXPECT(ctx, log_size(ctx, direct_path.c_str()) > previous_size);
+    previous_size = log_size(ctx, direct_path.c_str());
+    MV_CRITICAL_ASSERT_MSG_IMMEDIATE(false, "critical immediate {}", 1u);
+    TEST_EXPECT(ctx, log_size(ctx, direct_path.c_str()) > previous_size);
+    previous_size = log_size(ctx, direct_path.c_str());
+    MV_CRITICAL_EVENT_IMMEDIATE("critical event immediate");
+    TEST_EXPECT(ctx, log_size(ctx, direct_path.c_str()) > previous_size);
+    previous_size = log_size(ctx, direct_path.c_str());
+    TEST_EXPECT(ctx, service.read_shutdown_request() == debug_system::EShutdownReason::none);
+    TEST_EXPECT(ctx, !service.breakpoint_pause_requested());
+    service.publish_configuration(debug_system::k_critical_shutdown_enabled);
+    MV_CRITICAL_EVENT_IMMEDIATE("critical escalation immediate");
+    TEST_EXPECT(ctx, service.read_shutdown_request() == debug_system::EShutdownReason::critical_incident);
+    MV_FATAL_ASSERT_IMMEDIATE(false);
+    TEST_EXPECT(ctx, log_size(ctx, direct_path.c_str()) > previous_size);
+    previous_size = log_size(ctx, direct_path.c_str());
+    MV_FATAL_ASSERT_MSG_IMMEDIATE(false, "fatal immediate {}", 1u);
+    TEST_EXPECT(ctx, log_size(ctx, direct_path.c_str()) > previous_size);
+    previous_size = log_size(ctx, direct_path.c_str());
+    MV_FATAL_EVENT_IMMEDIATE("fatal event immediate");
+    TEST_EXPECT(ctx, log_size(ctx, direct_path.c_str()) > previous_size);
+    previous_size = log_size(ctx, direct_path.c_str());
+    TEST_EXPECT(ctx, service.read_shutdown_request() == debug_system::EShutdownReason::fatal_incident);
+
+    char maximum[debug_system::k_format_buffer_capacity]{};
+    std::memset(maximum, 'q', sizeof(maximum) - 1u);
+    maximum[sizeof(maximum) - 2u] = 'Z';
+    MV_LOG_RICH_IMMEDIATE(error, "%s", maximum);
+    char oversized[debug_system::k_format_buffer_capacity + 1u]{};
+    std::memset(oversized, 'z', sizeof(oversized) - 1u);
+    MV_LOG_RICH_IMMEDIATE(warning, "%s", oversized);
+    MV_LOG_RICH_IMMEDIATE(error, "%s", "");
+    TEST_EXPECT(ctx, log_size(ctx, event_path.c_str()) == 0u);
+    TEST_EXPECT(ctx, service.start());
+    TEST_EXPECT(ctx, service.stop());
+    TEST_EXPECT(ctx, tests::file_contains(direct_path.c_str(), "critical event immediate"));
+    TEST_EXPECT(ctx, tests::file_contains(direct_path.c_str(), "control error immediate"));
+    TEST_EXPECT(ctx, tests::file_contains(direct_path.c_str(), "fatal event immediate"));
+    TEST_EXPECT(ctx, tests::file_contains(direct_path.c_str(), maximum));
+    TEST_EXPECT(ctx, tests::file_contains(direct_path.c_str(), "Rich debug report exceeds 4095-byte text limit"));
+    TEST_EXPECT(ctx, !tests::file_contains(direct_path.c_str(), "zzzzzzzz"));
+    TEST_EXPECT(ctx, tests::file_contains(direct_path.c_str(), "Invalid rich debug report"));
+    TEST_EXPECT(ctx, debug_system::uninstall_service(&service));
+
+    //  A closed sink cannot prevent a fresh service from requesting shutdown.
+    auto unavailable = TInstance<debug_system::CDebugServiceState>::create();
+    TEST_EXPECT(ctx, unavailable.is_ready());
+    if (!unavailable.is_ready()) return;
+    unavailable->publish_configuration(0u);
+    TEST_EXPECT(ctx, debug_system::install_service(unavailable.operator->()));
+    MV_FATAL_EVENT_IMMEDIATE("fatal without available logs");
+    TEST_EXPECT(ctx, unavailable->read_shutdown_request() == debug_system::EShutdownReason::fatal_incident);
+    TEST_EXPECT(ctx, debug_system::uninstall_service(unavailable.operator->()));
 }
 
 void test_malformed_event_overlays(TTestContext& ctx)
@@ -1635,6 +1859,8 @@ int run_debug_service_tests()
     debug_service_tests::test_filename_and_capacity_boundaries(ctx);
     debug_service_tests::test_queued_and_direct_equivalence(ctx);
     debug_service_tests::test_assert_report(ctx);
+    debug_service_tests::test_log_policy_and_delivery(ctx);
+    debug_service_tests::test_immediate_control_and_limits(ctx);
     debug_service_tests::test_malformed_event_overlays(ctx);
 
     std::cout << "DebugService: " << ctx.passed << " passed, "

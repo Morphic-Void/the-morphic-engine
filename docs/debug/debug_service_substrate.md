@@ -185,7 +185,9 @@ format descriptor.
 Report metadata stores a naturally aligned `uint16_t` report length at 20-21
 and ten contiguous reserved zero bytes at 22-31. Report storage overlays the
 entire region from 64-511 with 448 bytes of text storage. Its capacity includes
-the terminator, so a transported report contains at most 447 characters.
+the terminator, so a transported report contains at most 447 text bytes. Rich
+records accept info/detail/trace/warning/error event levels;
+assertion/critical/fatal reports use structured dedicated interfaces.
 
 The previous generic expansion area is deliberately removed. Future argument
 representation growth is supplied primarily by the byte-wide type namespace
@@ -304,8 +306,8 @@ at most 191 bytes plus their terminator and format literals at most 127 bytes
 plus their terminator. Oversized typed literals fail compilation. Runtime typed
 entry points reject text which does not fit its corresponding field.
 Uninterpreted `submit_text()` uses the format field literally and retains its
-existing direct fallback for oversized text. `MV_REPORT` and
-`MV_REPORT_IMMEDIATE` provide the rich formatting mechanisms.
+existing direct fallback for oversized text. `MV_LOG_RICH` and
+`MV_LOG_RICH_IMMEDIATE` provide the rich formatting mechanisms.
 
 The free `submit_text()` facade resolves the module-local service and delegates
 to `CDebugServiceState::submit_text()`. It remains as a compatibility facade
@@ -326,11 +328,19 @@ breakpoint override or shutdown consequence. Low-level submission tests retain
 direct calls when they need explicit source metadata or the Boolean result.
 
 Breakpoint- or shutdown-capable macros use `process_event()`. It captures one
-incident context, submits that context through the same transport/direct path,
-applies any shutdown request independently of submission success, and finally
-applies breakpoint policy using that same context. The macro-local breakpoint
-override is passed by reference so debugger controls operating on the producing
-thread can change the usage-point state without cross-thread synchronisation.
+incident context, publishes any required shutdown request before potentially
+blocking output, submits that context through the selected transport/direct
+path, and finally applies breakpoint policy using that same context. The
+macro-local breakpoint override is passed by reference so debugger controls
+operating on the producing thread can change the usage-point state without
+cross-thread synchronisation.
+
+The submission and processing templates have a compile-time immediate choice.
+Immediate structured calls bypass reservation and format their bounded typed
+arguments under the direct lock. The general `MV_LOG` family dispatches a fixed
+info/detail/trace/warning/error token; preprocessor gating removes informational
+calls above the build ceiling and runtime gating precedes argument evaluation.
+Warning/error general logs submit directly without breakpoint/shutdown policy.
 
 The host-controlled configuration word currently assigns bit 0 to global
 breakpoint enable, bits 1-2 to the runtime informational ceiling, and bit 3 to
@@ -354,10 +364,15 @@ adds the source filename and line when they are available:
 
 The service-owned direct formatting buffer is covered by the same mutex as
 direct-log opening, writing, and flushing. Typed-event fallback and
-`MV_REPORT_IMMEDIATE` therefore avoid a 4096-byte producer stack buffer. The
-ordinary `MV_REPORT` path deliberately owns a separate bounded 4096-byte
+`MV_LOG_RICH_IMMEDIATE` therefore avoid a 4096-byte producer stack buffer. The
+ordinary `MV_LOG_RICH` path deliberately owns a separate bounded 4096-byte
 producer stack buffer so it can format exactly once before choosing transport
-or direct fallback. Event and direct routes use the same record reconstruction.
+or direct fallback. Rich submission carries the requested level through either
+route. A 4096-byte-or-larger result produces a direct error diagnostic at the
+same source and incident; it is not truncated or transported. Empty/failed
+formatting uses a separate invalid-rich-report error. The immediate path applies
+the same rules under the direct lock without recursively entering reporting.
+Event and direct routes use the same record reconstruction.
 
 ## Writer Lifetime
 
@@ -454,8 +469,11 @@ lifecycle calls rather than redesign the service.
 - raw system identity and source metadata reconstruction;
 - compile-time and writer-side level/type validation;
 - explicit common-header, metadata-union, filename, and storage-union offsets;
-- report representation, length, reserved metadata, termination, and unused-byte validation;
-- 447-character transport, 448-character fallback, full-report limits, and immediate routing;
+- compile/runtime filtering before arguments and incident allocation for all four logging forms;
+- diagnostic warning/error classification without breakpoint or shutdown effects;
+- immediate output visible before writer startup, and immediate assertion/control policy;
+- report representation, level, length, reserved metadata, termination, and unused-byte validation;
+- 447-byte transport, 448-byte fallback, full-report limits, and immediate routing;
 - identical level/type reconstruction on event and direct routes;
 - all-or-nothing pre-install opening of both configured log paths;
 - rejection of startup without both logs already open;
