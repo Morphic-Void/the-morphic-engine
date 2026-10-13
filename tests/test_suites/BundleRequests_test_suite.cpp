@@ -347,10 +347,78 @@ void test_failed_work(TTestContext& ctx)
     TEST_EXPECT(ctx, fixture.image.root_state("pack:") == ERootState::missing && !fixture.service.failed());
 }
 
+void test_preparation_handoff(TTestContext& ctx)
+{
+    //  Echo workers let the Host observe the precise boundary between building,
+    //  preparation and publication, including shutdown with a borrowed job.
+    for (unsigned scenario = 0u; scenario != 4u; ++scenario)
+    {
+        SFixture fixture(true);
+        const bool ready = fixture.initialise(false);
+        TEST_EXPECT(ctx, ready);
+        if (!ready) return;
+        threading::CThreadPackage unavailable{ { thread_ids::bg_conditioning, module_ids::executable,
+            platform::threading::EThreadPriority::Normal, &echo }, fixture.conversion };
+        if (scenario == 3u) TEST_EXPECT(ctx, fixture.service.configure_workers(fixture.io, &unavailable));
+        fixture.bake(ctx, 1);
+        threading::CErasedPodMsg work;
+        BundleBuildWork build;
+        TEST_EXPECT(ctx, fixture.take_work(work) && work.copy_payload_to(build) && build.input);
+        auto owner = CErasedOwner::create<BundleBuildResult>();
+        auto* built = owner.payload<BundleBuildResult>();
+        TEST_EXPECT(ctx, built != nullptr);
+        if (!built || !build.input) return;
+        built->result = bundle::build(build.input->inventory(), build.input->content(),
+            build.input->sources(), built->block, built->view);
+        TEST_EXPECT(ctx, built->result.succeeded());
+        fixture.complete<BundleBuildResult>(work, std::move(owner));
+        if (scenario == 3u)
+        {
+            //  Failed preparation dispatch must release the reservation and bytes.
+            fixture.result(ctx, 1, EAssetStatus::delivery_failed);
+        }
+        else
+        {
+            BundlePrepareWork prepare;
+            TEST_EXPECT(ctx, fixture.take_work(work) && work.copy_payload_to(prepare) && prepare.preparation);
+            if (!prepare.preparation) return;
+            TEST_EXPECT(ctx, fixture.image.root_state("pack:") == ERootState::reserved && !fixture.service.is_idle());
+            filesystem_image::SResolvedSource source;
+            TEST_EXPECT(ctx, !fixture.image.resolve("pack:/raw", false, source));
+            if (scenario == 2u)
+            {
+                TEST_EXPECT(ctx, fixture.io.shutdown());
+                fixture.service.fail_pending();
+                fixture.result(ctx, 1, EAssetStatus::delivery_failed);
+            }
+            else
+            {
+                auto& preparation = *prepare.preparation;
+                TEST_EXPECT(ctx, preparation.view.is_ready() && preparation.directory.prepare(preparation.view));
+                //  A concurrent Host update must survive committing the prepared subtree.
+                TEST_EXPECT(ctx, fixture.image.written("work:/new", (fixture.directory + "/new").c_str(), 501u, 1u));
+                threading::CErasedPodMsg completion;
+                completion.set_async_slot(work.query_async_slot());
+                completion.assign_payload(BundlePrepareResult{ scenario == 0u ? EAssetStatus::success : EAssetStatus::allocation_failed });
+                fixture.service.complete(completion, fixture.io);
+                TEST_EXPECT(ctx, fixture.image.cached_asset("work:/new", 1u) == 501u);
+                const auto result = fixture.result(ctx, 1, scenario == 0u ? EAssetStatus::success : EAssetStatus::allocation_failed);
+                if (scenario == 0u)
+                {
+                    TEST_EXPECT(ctx, fixture.image.root_state("pack:") == ERootState::open && result.bundle_view().is_ready());
+                    fixture.service.request_disposal({ result.asset }, 99, fixture.client);
+                    fixture.closed(ctx, result.asset);
+                }
+            }
+        }
+        TEST_EXPECT(ctx, fixture.image.root_state("pack:") == ERootState::missing && fixture.service.is_idle());
+    }
+}
+
 void test_controlled_failures(TTestContext& ctx)
 {
     SFixture fixture(true);
-    const bool ready = fixture.initialise(false);
+    const bool ready = fixture.initialise(true);
     TEST_EXPECT(ctx, ready);
     if (!ready) return;
     threading::CErasedPodMsg work;
@@ -389,7 +457,7 @@ void test_controlled_failures(TTestContext& ctx)
 
     fixture.bake(ctx, 4);
     TEST_EXPECT(ctx, fixture.take_work(work));
-    TEST_EXPECT(ctx, fixture.io.shutdown());
+    TEST_EXPECT(ctx, fixture.io.shutdown() && fixture.conditioning.shutdown());
     fixture.service.fail_pending();
     fixture.result(ctx, 4, EAssetStatus::delivery_failed);
     TEST_EXPECT(ctx, fixture.image.root_state("pack:") == ERootState::missing && fixture.service.is_idle());
@@ -418,6 +486,7 @@ int run_bundle_request_tests()
     test_public_workflow(ctx, false);
     test_public_workflow(ctx, true);
     test_failed_work(ctx);
+    test_preparation_handoff(ctx);
     test_controlled_failures(ctx);
     std::cout << "BundleRequests: " << ctx.passed << " passed, " << ctx.failed << " failed\n";
     return ctx.exit_code();

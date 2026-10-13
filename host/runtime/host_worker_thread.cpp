@@ -197,6 +197,39 @@ static void report_parse_failure(const std::int32_t slot, const CDocumentReport&
 //  Shared worker operations
 //==============================================================================
 
+static EAssetStatus prepare_bundle(BundlePreparation& work, const std::int32_t slot) noexcept
+{
+    if (work.loaded.is_ready() && !work.block.adopt_buffer(std::move(work.loaded)))
+    {
+        MV_REPORT("Bundle slot %d: loaded document adoption failed", slot);
+        return EAssetStatus::conditioning_failed;
+    }
+    const auto bytes = work.block.buffer_bytes();
+    if (!work.view.is_ready())
+    {
+        const auto validation = work.view.reset(bytes.data(), bytes.size());
+        if (!validation.succeeded())
+        {
+            MV_REPORT("Bundle slot %d: preparation failed: %s", slot, asset_diagnostics::failure_reason(validation.status));
+            return (validation.status == bundle::EValidationStatus::allocation_failed) ?
+                EAssetStatus::allocation_failed : EAssetStatus::conditioning_failed;
+        }
+    }
+    else if ((work.view.bytes().data() != bytes.data()) || (work.view.bytes().size() != bytes.size()))
+    {
+        return EAssetStatus::conditioning_failed;
+    }
+
+    //  A builder result already has an immutable validated view. Loading obtains
+    //  that view above; neither path repeats validation on the Host.
+    if (!work.directory.prepare(work.view))
+    {
+        MV_REPORT("Bundle slot %d: directory preparation allocation failed", slot);
+        return EAssetStatus::allocation_failed;
+    }
+    return EAssetStatus::success;
+}
+
 static EAssetStatus condition_document(const DocumentConditionRequest& request, const std::int32_t slot, DocumentConditionResult& result) noexcept
 {
     if ((request.kind > EDocumentSource::live) || (request.write_json && (request.options == nullptr)))
@@ -420,9 +453,8 @@ void CHostWorkerThread::operate() noexcept
                         result->result.status = bundle::EBuildStatus::invalid_input;
                         if (request.input != nullptr)
                         {
-                            bundle::CBundleView view;
                             result->result = bundle::build(request.input->inventory(), request.input->content(),
-                                request.input->sources(), result->block, view);
+                                request.input->sources(), result->block, result->view);
                         }
                         if (!result->result.succeeded())
                         {
@@ -438,6 +470,24 @@ void CHostWorkerThread::operate() noexcept
                     completion.set_async_slot(inbound_msg.query_async_slot());
                     completion.set_owner(std::move(content));
                     if (!m_context.post(std::move(completion)))
+                    {
+                        m_failed = true;
+                        return;
+                    }
+                    break;
+                }
+                case k_type_id_v<BundlePrepareWork>.raw_value():
+                {
+                    MV_DETAIL("Worker bundle prepare request");
+
+                    BundlePrepareWork request;
+                    BundlePrepareResult result;
+                    if (inbound_msg.copy_payload_to(request) && (request.preparation != nullptr))
+                        result.status = prepare_bundle(*request.preparation, inbound_msg.query_async_slot());
+                    threading::CErasedPodMsg completion;
+                    completion.set_async_slot(inbound_msg.query_async_slot());
+                    completion.assign_payload(result);
+                    if (!m_context.post(completion))
                     {
                         m_failed = true;
                         return;

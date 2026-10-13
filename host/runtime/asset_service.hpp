@@ -44,9 +44,10 @@ public:
     //  Internal publication/admission boundary used by Host worker routing.
     //  Publication consumes a reserved binding; failure cancels that reservation
     //  and preserves the caller's block. Success moves it without copying bytes.
+    //  The input has completed conditioning; publication never revalidates bytes.
     //  The requester owns management of the original asset and receives final
     //  disposal notification. Other clients may retain views and sub-files.
-    [[nodiscard]] AssetResult publish_bundle(CBakedDocumentBlock& block, const std::uint64_t binding, threading::CThreadPackage& owner) noexcept;
+    [[nodiscard]] AssetResult publish_bundle(BundlePreparation& prepared, const std::uint64_t binding, threading::CThreadPackage& owner) noexcept;
     [[nodiscard]] AssetResult acquire_bundle(const CAssetId source) noexcept;
 
     //  Consumes a trusted live-image resolution, checking binding identity and
@@ -95,7 +96,8 @@ private:
         saving,
         disposing,
         bundle_loading,
-        bundle_building
+        bundle_building,
+        bundle_preparing
     };
 
     struct SOperation
@@ -103,6 +105,7 @@ private:
         CAssetBackingLease backing;             //  Outlives all borrowed descriptors below.
         CBundleOperation bundle_input;
         filesystem_image::CBakeInput bake_input;
+        BundlePreparation bundle_preparation;
         std::uint64_t reserved_binding{ 0u };    //  Roll back on any unpublished completion.
         std::uint64_t source_binding{ 0u };      //  Admission identity for late cache updates.
         threading::CThreadPackage* client{ nullptr };

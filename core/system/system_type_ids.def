@@ -54,4 +54,6 @@
     type_macro(bundle_bake_request) \
     type_macro(bundle_reference_request) \
     type_macro(bundle_build_work) \
-    type_macro(bundle_build_result)
+    type_macro(bundle_build_result) \
+    type_macro(bundle_prepare_work) \
+    type_macro(bundle_prepare_result)

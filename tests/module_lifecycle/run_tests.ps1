@@ -118,6 +118,14 @@ foreach ($case in @('bundle', 'bundle-inline', 'bundle-late-reference', 'bundle-
             if (($builds.Count -eq 0) -or @($builds | Where-Object { $_.Groups[1].Value -ne 'bg_file_io' }).Count) {
                 throw "$case did not build exclusively on the I/O worker."
             }
+            if ($events -notmatch 'Host: Background workers (\d+), dedicated conditioning workers (\d+)') {
+                throw "$case has no worker configuration diagnostic."
+            }
+            $expectedPreparation = if ([int]$Matches[2] -eq 0) { 'bg_file_io' } else { 'bg_conditioning' }
+            $preparations = [regex]::Matches($events, '\[executable:([^]]+)\].*Worker bundle prepare request')
+            if (($preparations.Count -eq 0) -or @($preparations | Where-Object { $_.Groups[1].Value -ne $expectedPreparation }).Count) {
+                throw "$case did not prepare exclusively on $expectedPreparation."
+            }
         }
         if (($case -eq 'bundle-replace') -and
             (!$events.Contains('Lifecycle fixture: bundle-resume passed') -or

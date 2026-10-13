@@ -65,6 +65,19 @@ private:
     TPodVector<bundle::SBuildSource> m_sources;
 };
 
+//  Private directory construction, independent of the live image and thread.
+//  prepare requires an immutable validated view; no bundle bytes are retained.
+class CBundleDirectory
+{
+public:
+    [[nodiscard]] bool prepare(const bundle::CBundleView& view) noexcept;
+    [[nodiscard]] bool is_ready() const noexcept { return m_document.is_ready(); }
+
+private:
+    friend class CImage;
+    CLiveDocument m_document;
+};
+
 //  Single-threaded Host facade over the authoritative document. Accesses copy
 //  resolved filenames into stable Host-owned operations before worker dispatch.
 class CImage
@@ -79,11 +92,11 @@ public:
     [[nodiscard]] bool resolve(const char* const logical_file, const bool writing, SResolvedSource& source) const noexcept;
     [[nodiscard]] ERootState root_state(const char* const logical_root) const noexcept;
 
-    //  Reserve first; prepare copies only the validated directory. Publication
+    //  Reserve first; prepare takes a privately constructed directory. Publication
     //  is transactional and does not overwrite intervening image changes.
     //  The Host owns bundle storage and coordinates asset/binding publication.
     [[nodiscard]] bool reserve_bundle(const char* const logical_root, std::uint64_t& binding) noexcept;
-    [[nodiscard]] bool prepare_bundle(const std::uint64_t binding, const std::uint64_t bundle, const bundle::CBundleView& view) noexcept;
+    [[nodiscard]] bool prepare_bundle(const std::uint64_t binding, const std::uint64_t bundle, CBundleDirectory& directory) noexcept;
     [[nodiscard]] bool publish_bundle(const std::uint64_t binding) noexcept;
     [[nodiscard]] bool close_bundle(const std::uint64_t binding) noexcept;
 

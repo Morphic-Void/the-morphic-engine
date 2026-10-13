@@ -105,12 +105,14 @@ struct SFixture
     }
     AssetResult publish(TTestContext& ctx, threading::CThreadPackage* owner = nullptr)
     {
-        CBakedDocumentBlock block;
-        TEST_EXPECT(ctx, make_bundle(block));
-        const void* before = block.buffer_bytes().data();
+        BundlePreparation prepared;
+        TEST_EXPECT(ctx, make_bundle(prepared.block));
+        const void* before = prepared.block.buffer_bytes().data();
+        TEST_EXPECT(ctx, prepared.view.reset(before, prepared.block.buffer_bytes().size()).succeeded());
+        TEST_EXPECT(ctx, prepared.directory.prepare(prepared.view));
         TEST_EXPECT(ctx, image.reserve_bundle("pack:", binding));
-        const auto result = service.publish_bundle(block, binding, (owner != nullptr) ? *owner : package);
-        TEST_EXPECT(ctx, result.status == EAssetStatus::success && result.asset && !block.is_ready());
+        const auto result = service.publish_bundle(prepared, binding, (owner != nullptr) ? *owner : package);
+        TEST_EXPECT(ctx, result.status == EAssetStatus::success && result.asset && !prepared.block.is_ready());
         TEST_EXPECT(ctx, result.bundle_view().bytes().data() == before);
         return result;
     }
@@ -574,24 +576,24 @@ void test_publication_failure_and_shutdown(TTestContext& ctx)
             CLiveDocument doc;
             TEST_EXPECT(ctx, parse(R"({"roots":{}})", doc) && image.adopt(std::move(doc)) && service.initialise());
             service.set_filesystem(image);
-            CBakedDocumentBlock block;
-            TEST_EXPECT(ctx, make_bundle(block));
-            const auto* bytes = block.buffer_bytes().data();
+            BundlePreparation prepared;
+            TEST_EXPECT(ctx, make_bundle(prepared.block));
+            const auto* bytes = prepared.block.buffer_bytes().data();
+            TEST_EXPECT(ctx, prepared.view.reset(bytes, prepared.block.buffer_bytes().size()).succeeded());
+            TEST_EXPECT(ctx, prepared.directory.prepare(prepared.view));
             std::uint64_t binding = 0u;
             TEST_EXPECT(ctx, image.reserve_bundle("pack:", binding));
             platform::system::CPerfCountConversion conversion;
             threading::CThreadPackage client{ {}, conversion };
             allocator_state.fail_on = allocator_state.calls + attempt;
-            const auto result = service.publish_bundle(block, binding, client);
+            const auto result = service.publish_bundle(prepared, binding, client);
             allocator_state.fail_on = SIZE_MAX;
             succeeded = result.asset.is_valid();
             if (!succeeded)
             {
                 ++failures;
-                TEST_EXPECT(ctx, block.buffer_bytes().data() == bytes && image.root_state("pack:") == ERootState::missing);
-                //  The baked-document validator reports a Boolean, so its
-                //  scratch-allocation failure is indistinguishable from bad input.
-                TEST_EXPECT(ctx, result.status == EAssetStatus::allocation_failed || result.status == EAssetStatus::invalid_request);
+                TEST_EXPECT(ctx, prepared.block.buffer_bytes().data() == bytes && image.root_state("pack:") == ERootState::missing);
+                TEST_EXPECT(ctx, result.status == EAssetStatus::allocation_failed);
             }
             else
             {
@@ -610,7 +612,7 @@ void test_publication_failure_and_shutdown(TTestContext& ctx)
         }
         TEST_EXPECT(ctx, context.is_attribution_empty());
     }
-    TEST_EXPECT(ctx, succeeded && failures > 10u);
+    TEST_EXPECT(ctx, succeeded && failures != 0u);
 }
 
 }   // namespace

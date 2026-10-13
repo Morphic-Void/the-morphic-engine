@@ -30,6 +30,13 @@
 namespace filesystem_image_tests
 {
 
+static bool prepare_bundle(filesystem_image::CImage& image, std::uint64_t binding, std::uint64_t asset,
+    const bundle::CBundleView& view)
+{
+    filesystem_image::CBundleDirectory directory;
+    return directory.prepare(view) && image.prepare_bundle(binding, asset, directory);
+}
+
 static bool write(const std::string& path, const char* const text)
 {
     return platform::filesystem::saveFile(path.c_str(), CByteConstView{
@@ -435,23 +442,28 @@ static void test_virtual_bindings(tests::TTestContext& ctx)
     TEST_EXPECT(ctx, !root(image.document(), "pack:").is_valid());
     TEST_EXPECT(ctx, !image.reserve_bundle("pack:", other) && other == 0u);
     TEST_EXPECT(ctx, !image.publish_bundle(token) && !image.close_bundle(token));
-    TEST_EXPECT(ctx, !image.prepare_bundle(token, 0u, view));
-    TEST_EXPECT(ctx, !image.prepare_bundle(token, 100u, {}));
-    TEST_EXPECT(ctx, image.prepare_bundle(token, 100u, view));
+    TEST_EXPECT(ctx, !prepare_bundle(image, token, 0u, view));
+    TEST_EXPECT(ctx, !prepare_bundle(image, token, 100u, {}));
+    filesystem_image::CBundleDirectory directory;
+    TEST_EXPECT(ctx, directory.prepare(view));
+    TEST_EXPECT(ctx, !image.prepare_bundle(token, 0u, directory) && directory.is_ready());
+    TEST_EXPECT(ctx, image.prepare_bundle(token, 100u, directory) && !directory.is_ready());
     TEST_EXPECT(ctx, image.root_state("PACK:") == ERootState::prepared);
     TEST_EXPECT(ctx, !root(image.document(), "pack:").is_valid());
     TEST_EXPECT(ctx, image.reserve_bundle("other:", other));
-    TEST_EXPECT(ctx, !image.prepare_bundle(other, 100u, view));
+    TEST_EXPECT(ctx, !prepare_bundle(image, other, 100u, view));
     TEST_EXPECT(ctx, image.remove_bundle(other));
     TEST_EXPECT(ctx, !image.remove_bundle(other));
     TEST_EXPECT(ctx, parse_image(binding_image, doc));
     TEST_EXPECT(ctx, !image.adopt(std::move(doc)) && doc.is_ready());
     //  Publication must incorporate ordinary changes made after preparation.
     TEST_EXPECT(ctx, image.written("work:/new.txt", "Some/Prefix/new.txt", 51u, 1u));
+    const auto existing_root = root(image.document(), "work:");
     TEST_EXPECT(ctx, image.publish_bundle(token));
+    TEST_EXPECT(ctx, root(image.document(), "work:") == existing_root);
     TEST_EXPECT(ctx, image.cached_asset("work:/new.txt", 1u) == 51u);
     TEST_EXPECT(ctx, image.root_state("PACK:") == ERootState::open);
-    TEST_EXPECT(ctx, !image.publish_bundle(token) && !image.prepare_bundle(token, 100u, view));
+    TEST_EXPECT(ctx, !image.publish_bundle(token) && !prepare_bundle(image, token, 100u, view));
     TEST_EXPECT(ctx, !image.remove_bundle(token));
     SResolvedSource source;
     TEST_EXPECT(ctx, image.resolve("work:/plain.txt", false, source));
@@ -497,13 +509,13 @@ static void test_virtual_bindings(tests::TTestContext& ctx)
     TEST_EXPECT(ctx, image.loaded("pack:/plain.txt", 63u, 1u, 0u, 0u, token));
     TEST_EXPECT(ctx, !image.reserve_bundle("pack:", other));
     TEST_EXPECT(ctx, image.reserve_bundle("other:", other));
-    TEST_EXPECT(ctx, !image.prepare_bundle(other, 100u, view));
+    TEST_EXPECT(ctx, !prepare_bundle(image, other, 100u, view));
     TEST_EXPECT(ctx, image.remove_bundle(other));
     TEST_EXPECT(ctx, image.remove_bundle(token));
     TEST_EXPECT(ctx, image.root_state("pack:") == ERootState::missing);
     TEST_EXPECT(ctx, !root(image.document(), "pack:").is_valid());
     TEST_EXPECT(ctx, image.reserve_bundle("pack:", other) && other != token);
-    TEST_EXPECT(ctx, image.prepare_bundle(other, 101u, view) && image.publish_bundle(other));
+    TEST_EXPECT(ctx, prepare_bundle(image, other, 101u, view) && image.publish_bundle(other));
     TEST_EXPECT(ctx, image.cached_asset("pack:/plain.txt", 1u) == 0u);
     TEST_EXPECT(ctx, image.loaded("pack:/plain.txt", 64u, 1u, 0u, 0u, token));
     TEST_EXPECT(ctx, image.cached_asset("pack:/plain.txt", 1u) == 0u);
@@ -514,7 +526,7 @@ static void test_virtual_bindings(tests::TTestContext& ctx)
     TEST_EXPECT(ctx, image.close_bundle(other) && image.remove_bundle(other));
     //  Prepared cancellation publishes nothing and releases its root/identity.
     TEST_EXPECT(ctx, image.reserve_bundle("cancel:", other));
-    TEST_EXPECT(ctx, image.prepare_bundle(other, 102u, view) && image.remove_bundle(other));
+    TEST_EXPECT(ctx, prepare_bundle(image, other, 102u, view) && image.remove_bundle(other));
     TEST_EXPECT(ctx, image.root_state("cancel:") == ERootState::missing);
     TEST_EXPECT(ctx, image.document().check_integrity());
     TEST_EXPECT(ctx, std::memcmp(original.data(), view.bytes().data(), original.size()) == 0);
@@ -554,7 +566,7 @@ static void test_binding_allocation_failures(tests::TTestContext& ctx)
                 const auto* retained_path = captured.sources()[0].physical_path;
                 std::uint64_t token = 0u;
                 if (phase != 0u && phase != 3u) { TEST_EXPECT(ctx, image.reserve_bundle("pack:", token)); }
-                if (phase == 2u || phase == 4u) { TEST_EXPECT(ctx, image.prepare_bundle(token, 100u, view)); }
+                if (phase == 2u || phase == 4u) { TEST_EXPECT(ctx, prepare_bundle(image, token, 100u, view)); }
                 if (phase == 4u)
                 {
                     TEST_EXPECT(ctx, image.publish_bundle(token));
@@ -567,7 +579,7 @@ static void test_binding_allocation_failures(tests::TTestContext& ctx)
                 switch (phase)
                 {
                     case 0u: completed = image.reserve_bundle("pack:", token); break;
-                    case 1u: completed = image.prepare_bundle(token, 100u, view); break;
+                    case 1u: completed = prepare_bundle(image, token, 100u, view); break;
                     case 2u: completed = image.publish_bundle(token); break;
                     case 3u: completed = image.capture_bake("work:", "", captured); break;
                     case 4u: completed = image.integrate(doc, 0u); break;
@@ -633,7 +645,7 @@ static void test_deep_bundle_binding(tests::TTestContext& ctx)
     TEST_EXPECT(ctx, image.adopt(std::move(doc)));
     std::uint64_t binding = 0u;
     TEST_EXPECT(ctx, image.reserve_bundle("pack:", binding));
-    TEST_EXPECT(ctx, image.prepare_bundle(binding, 1u, view) && image.publish_bundle(binding));
+    TEST_EXPECT(ctx, prepare_bundle(image, binding, 1u, view) && image.publish_bundle(binding));
     logical += "file";
     filesystem_image::SResolvedSource result;
     TEST_EXPECT(ctx, image.resolve(logical.c_str(), false, result) && result.size == 1u);
@@ -657,8 +669,8 @@ static void test_binding_owner_moves(tests::TTestContext& ctx)
         TEST_EXPECT(ctx, parse_image(binding_image, doc) && original.adopt(std::move(doc)));
         TEST_EXPECT(ctx, parse_image(binding_image, doc) && replaced.adopt(std::move(doc)));
         std::uint64_t binding = 0u, previous = 0u;
-        TEST_EXPECT(ctx, original.reserve_bundle("pack:", binding) && original.prepare_bundle(binding, 1u, view) && original.publish_bundle(binding));
-        TEST_EXPECT(ctx, replaced.reserve_bundle("old:", previous) && replaced.prepare_bundle(previous, 2u, view));
+        TEST_EXPECT(ctx, original.reserve_bundle("pack:", binding) && prepare_bundle(original, binding, 1u, view) && original.publish_bundle(binding));
+        TEST_EXPECT(ctx, replaced.reserve_bundle("old:", previous) && prepare_bundle(replaced, previous, 2u, view));
         TEST_EXPECT(ctx, original.loaded("pack:/plain.txt", 10u, 1u, 0u, 0u, binding));
         TEST_EXPECT(ctx, replaced.loaded("work:/plain.txt", 20u, 1u, 0u, 0u));
         CBakeInput captured, target;

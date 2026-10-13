@@ -102,16 +102,15 @@ AssetResult CAssetService::retain_bundle_view(SBundleControl& control, const EAs
     return result;
 }
 
-AssetResult CAssetService::publish_bundle(CBakedDocumentBlock& block, const std::uint64_t binding, threading::CThreadPackage& owner) noexcept
+AssetResult CAssetService::publish_bundle(BundlePreparation& prepared, const std::uint64_t binding, threading::CThreadPackage& owner) noexcept
 {
     AssetResult result;
     if ((m_filesystem == nullptr) || (binding == 0u)) return result;
-    bundle::CBundleView view;
-    const auto validation = view.reset(block.buffer_bytes().data(), block.buffer_bytes().size());
-    if (!validation.succeeded())
+    const bundle::CBundleView view = prepared.view;
+    if (!prepared.directory.is_ready() || !view.is_ready() ||
+        (view.bytes().data() != prepared.block.buffer_bytes().data()) ||
+        (view.bytes().size() != prepared.block.buffer_bytes().size()))
     {
-        result.status = (validation.status == bundle::EValidationStatus::allocation_failed) ?
-            EAssetStatus::allocation_failed : EAssetStatus::invalid_request;
         (void)m_filesystem->remove_bundle(binding);
         return result;
     }
@@ -129,11 +128,12 @@ AssetResult CAssetService::publish_bundle(CBakedDocumentBlock& block, const std:
     AssetResult description;
     description.set_bundle_view(view);
     result = retain_bundle_view(control, EAssetBackingRole::original, description);
-    if (result.asset && m_filesystem->prepare_bundle(binding, result.asset.query_value(), view) &&
+    if (result.asset && m_filesystem->prepare_bundle(binding, result.asset.query_value(), prepared.directory) &&
         m_filesystem->publish_bundle(binding))
     {
         control.original = result.asset;
-        control.block = std::move(block);
+        control.block = std::move(prepared.block);
+        prepared.view.clear();
         return result;
     }
     (void)m_assets.erase(result.asset);
@@ -953,12 +953,29 @@ bool CAssetService::post_conditioning(const threading::CErasedPodMsg& message) n
 void CAssetService::complete(const threading::CErasedPodMsg& message, threading::CThreadPackage& worker) noexcept
 {
     const std::int32_t slot = message.query_async_slot();
-    const SOperation* const operation = m_operations.get_object(slot);
+    SOperation* const operation = m_operations.get_object(slot);
     FileSaveResult result{};
+    BundlePrepareResult prepared;
     if ((operation != nullptr) && (operation->phase == EPhase::saving) &&
         (&worker == m_file_io) && message.copy_payload_to(result))
     {
         finish_operation(slot, (result.success ? EAssetStatus::success : EAssetStatus::write_failed));
+    }
+    else if ((operation != nullptr) && (operation->phase == EPhase::bundle_preparing) &&
+        (&worker == m_conditioning) && message.copy_payload_to(prepared))
+    {
+        if (prepared.status != EAssetStatus::success)
+        {
+            finish_operation(slot, prepared.status);
+            return;
+        }
+
+        //  The requester package stays alive until accepted operations drain.
+        //  Publication rechecks the reservation and commits only this subtree.
+        const auto binding = std::exchange(operation->reserved_binding, 0u);
+        operation->working_views = publish_bundle(operation->bundle_preparation, binding, *operation->client);
+        operation->retained_asset = operation->working_views.asset;
+        finish_operation(slot, operation->working_views.status);
     }
     else
     {
@@ -1123,8 +1140,6 @@ void CAssetService::begin_conditioning_load(const std::int32_t slot, const CByte
 void CAssetService::complete_bundle(const std::int32_t slot) noexcept
 {
     SOperation& operation = *m_operations.get_object(slot);
-    CBakedDocumentBlock loaded_block;
-    CBakedDocumentBlock* block = &loaded_block;
     if (operation.phase == EPhase::bundle_loading)
     {
         LoadedFile* const loaded = operation.worker_result_owner.payload<LoadedFile>();
@@ -1133,11 +1148,7 @@ void CAssetService::complete_bundle(const std::int32_t slot) noexcept
             finish_operation(slot, EAssetStatus::read_failed);
             return;
         }
-        if (!loaded_block.adopt_buffer(std::move(loaded->buffer)))
-        {
-            finish_operation(slot, EAssetStatus::conditioning_failed);
-            return;
-        }
+        operation.bundle_preparation.loaded = std::move(loaded->buffer);
     }
     else
     {
@@ -1163,16 +1174,16 @@ void CAssetService::complete_bundle(const std::int32_t slot) noexcept
             finish_operation(slot, status);
             return;
         }
-        block = &built->block;
+        operation.bundle_preparation.block = std::move(built->block);
+        operation.bundle_preparation.view = built->view;
     }
 
-    //  Publication takes responsibility for cancelling this reservation on failure.
-    const auto binding = std::exchange(operation.reserved_binding, 0u);
-    operation.working_views = publish_bundle(*block, binding, *operation.client);
-    if (operation.working_views.status == EAssetStatus::invalid_request)
-        operation.working_views.status = EAssetStatus::conditioning_failed;
-    operation.retained_asset = operation.working_views.asset;
-    finish_operation(slot, operation.working_views.status);
+    operation.worker_result_owner.destroy();
+    operation.phase = EPhase::bundle_preparing;
+    threading::CErasedPodMsg outbound;
+    outbound.set_async_slot(slot);
+    outbound.assign_payload(BundlePrepareWork{ &operation.bundle_preparation });
+    if (!post_conditioning(outbound)) finish_operation(slot, EAssetStatus::delivery_failed);
 }
 
 void CAssetService::complete_image_decode(const std::int32_t slot) noexcept

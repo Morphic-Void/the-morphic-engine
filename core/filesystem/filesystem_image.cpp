@@ -784,7 +784,8 @@ bool CImage::integrate(const CLiveDocument& observation, const std::uint64_t sca
 }
 
 //  Iterative copying keeps deeply nested validated bundles independent of the
-//  directory scanner's depth bound. Callers own an unpublished destination.
+//  directory scanner's depth bound. Failure erases the detached partial tree;
+//  existing reachable content is untouched. Interned strings/capacity may remain.
 template<class TDocument, class TKey>
 static CNodeKey copy_tree(CLiveDocument& target, const TDocument& source, const TKey start) noexcept
 {
@@ -792,15 +793,28 @@ static CNodeKey copy_tree(CLiveDocument& target, const TDocument& source, const 
     const CNodeKey root = document_translation::detail::create_value_copy(target, source, start, source.name(start));
     if (!root.is_valid()) { return {}; }
     TPodVector<SFrame> stack;
-    if (!stack.push_back(SFrame{ source.first_child(start), root })) { return {}; }
+    if (!stack.push_back(SFrame{ source.first_child(start), root }))
+    {
+        (void)target.erase(root);
+        return {};
+    }
     while (stack.size() != 0u)
     {
         const SFrame frame = stack[stack.size() - 1u];
         if (!frame.next.is_valid()) { (void)stack.discard_back(); continue; }
         stack[stack.size() - 1u].next = source.next_sibling(frame.next);
         const CNodeKey value = document_translation::detail::create_value_copy(target, source, frame.next, source.name(frame.next));
-        if (!add(target, frame.parent, value)) { return {}; }
-        if (source.first_child(frame.next).is_valid() && !stack.push_back(SFrame{ source.first_child(frame.next), value })) { return {}; }
+        if (!add(target, frame.parent, value))
+        {
+            if (value.is_valid()) (void)target.erase(value);
+            (void)target.erase(root);
+            return {};
+        }
+        if (source.first_child(frame.next).is_valid() && !stack.push_back(SFrame{ source.first_child(frame.next), value }))
+        {
+            (void)target.erase(root);
+            return {};
+        }
     }
     return root;
 }
@@ -853,19 +867,32 @@ bool CImage::reserve_bundle(const char* const logical_root, std::uint64_t& bindi
     return true;
 }
 
-bool CImage::prepare_bundle(const std::uint64_t binding, const std::uint64_t bundle, const bundle::CBundleView& view) noexcept
+bool CBundleDirectory::prepare(const bundle::CBundleView& view) noexcept
 {
-    SBinding* const value = binding_record(binding);
-    if (!value || (value->state != ERootState::reserved) || (bundle == 0u) || !view.is_ready()) { return false; }
-    for (std::int32_t slot = m_bindings.first_live(); slot >= 0; slot = m_bindings.next_live(slot))
-    {
-        if (m_bindings.get_object(slot)->bundle == bundle) { return false; }
-    }
+    if (!view.is_ready()) { return false; }
     CLiveDocument candidate;
     const CBakedDocument doc = view.document();
     if (!candidate.initialise() || !set_flag(candidate, candidate.root(), "writable", false) ||
         !add(candidate, candidate.root(), copy_tree(candidate, doc, doc.object_child(doc.root(), CStringView{ "content" })))) { return false; }
-    value->prepared = std::move(candidate);
+    m_document = std::move(candidate);
+    return true;
+}
+
+bool CImage::prepare_bundle(const std::uint64_t binding, const std::uint64_t bundle, CBundleDirectory& directory) noexcept
+{
+    SBinding* const value = binding_record(binding);
+    if (!value || (value->state != ERootState::reserved) || (bundle == 0u) || !directory.is_ready())
+    {
+        return false;
+    }
+    for (std::int32_t slot = m_bindings.first_live(); slot >= 0; slot = m_bindings.next_live(slot))
+    {
+        if (m_bindings.get_object(slot)->bundle == bundle)
+        {
+            return false;
+        }
+    }
+    value->prepared = std::move(directory.m_document);
     value->bundle = bundle;
     value->state = ERootState::prepared;
     return true;
@@ -875,13 +902,14 @@ bool CImage::publish_bundle(const std::uint64_t binding) noexcept
 {
     SBinding* const value = binding_record(binding);
     if (!value || (value->state != ERootState::prepared)) { return false; }
-    CBakedDocumentBlock snapshot;
-    CLiveDocument candidate;
-    if (!document_translation::bake(m_document, snapshot) || !document_translation::promote(snapshot.document(), candidate)) { return false; }
-    const CNodeKey root = copy_tree(candidate, value->prepared, value->prepared.root());
-    if (!root.is_valid() || !candidate.set_name(root, value->root.view()) ||
-        !add(candidate, child(candidate, candidate.root(), "roots"), root)) { return false; }
-    m_document = std::move(candidate);
+    if (find_root(m_document, value->root.cstring()).is_valid()) { return false; }
+    const CNodeKey root = copy_tree(m_document, value->prepared, value->prepared.root());
+    if (!root.is_valid()) { return false; }
+    if (!m_document.set_name(root, value->root.view()) || !add(m_document, child(m_document, m_document.root(), "roots"), root))
+    {
+        (void)m_document.erase(root);
+        return false;
+    }
     value->prepared = CLiveDocument{};
     value->state = ERootState::open;
     return true;

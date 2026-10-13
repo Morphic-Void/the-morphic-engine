@@ -290,7 +290,20 @@ struct BundleBuildResult
 {
     CBakedDocumentBlock block;
     bundle::SBuildResult result{ bundle::EBuildStatus::allocation_failed };
+    bundle::CBundleView view; //  Successful builder validation, backed by block.
 };
+
+//  Host-owned, address-stable work storage. Only the conditioning worker may
+//  access it between dispatch and completion; no live-image nodes are borrowed.
+struct BundlePreparation
+{
+    CByteBuffer loaded;
+    CBakedDocumentBlock block;
+    bundle::CBundleView view;
+    filesystem_image::CBundleDirectory directory;
+};
+struct BundlePrepareWork { BundlePreparation* preparation{ nullptr }; };
+struct BundlePrepareResult { EAssetStatus status{ EAssetStatus::conditioning_failed }; };
 
 //  Callers quiesce borrowed views before requesting disposal. Completion contains
 //  no view; an accepted request prevents further saves using this identity.
@@ -631,6 +644,8 @@ MV_REGISTER_SYSTEM_TYPE(BundleBakeRequest, system_type_ids::bundle_bake_request)
 MV_REGISTER_SYSTEM_TYPE(BundleReferenceRequest, system_type_ids::bundle_reference_request);
 MV_REGISTER_SYSTEM_TYPE(BundleBuildWork, system_type_ids::bundle_build_work);
 MV_REGISTER_SYSTEM_TYPE(BundleBuildResult, system_type_ids::bundle_build_result);
+MV_REGISTER_SYSTEM_TYPE(BundlePrepareWork, system_type_ids::bundle_prepare_work);
+MV_REGISTER_SYSTEM_TYPE(BundlePrepareResult, system_type_ids::bundle_prepare_result);
 
 //  Document conditioning.
 MV_REGISTER_SYSTEM_TYPE(DocumentConditionRequest, system_type_ids::document_condition_request);
