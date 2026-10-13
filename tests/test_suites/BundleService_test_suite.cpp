@@ -114,6 +114,12 @@ struct SFixture
         TEST_EXPECT(ctx, result.bundle_view().bytes().data() == before);
         return result;
     }
+    filesystem_image::SResolvedSource resolve(TTestContext& ctx, const char* path = "pack:/raw")
+    {
+        filesystem_image::SResolvedSource result;
+        TEST_EXPECT(ctx, image.resolve(path, false, result));
+        return result;
+    }
     template<typename T> bool receive(T& result, std::int32_t expected_slot, threading::CThreadPackage* recipient = nullptr)
     {
         platform::system::CPerfCounter timer;
@@ -180,10 +186,11 @@ void test_closure_and_retained_records(TTestContext& ctx)
     const auto original = fixture.publish(ctx);
     const auto bytes = original.byte_view();
     const std::vector<std::uint8_t> snapshot(bytes.data(), bytes.data() + bytes.size());
+    auto resolved = fixture.resolve(ctx, "PACK:/RAW");
     CAssetService::CBundleOperation operation;
-    TEST_EXPECT(ctx, fixture.service.begin_bundle_file(original.asset, CStringView{ "raw" }, 256u, operation) == EAssetStatus::invalid_request);
-    TEST_EXPECT(ctx, fixture.service.begin_bundle_file(original.asset, CStringView{ "../raw" }, 128u, operation) == EAssetStatus::invalid_request);
-    TEST_EXPECT(ctx, fixture.service.begin_bundle_file(original.asset, CStringView{ "RAW" }, 128u, operation) == EAssetStatus::success);
+    TEST_EXPECT(ctx, fixture.service.begin_bundle_file(resolved, 256u, operation) == EAssetStatus::invalid_request);
+    TEST_EXPECT(ctx, !fixture.image.resolve("pack:/../raw", false, resolved));
+    TEST_EXPECT(ctx, fixture.service.begin_bundle_file(resolved, 128u, operation) == EAssetStatus::success);
     const auto first = fixture.service.retain_bundle_file(operation, EAssetFileFormat::raw);
     const auto second = fixture.service.retain_bundle_file(operation, EAssetFileFormat::raw);
     TEST_EXPECT(ctx, first.asset && second.asset && first.asset != second.asset && first.byte_view().data() == second.byte_view().data());
@@ -196,14 +203,14 @@ void test_closure_and_retained_records(TTestContext& ctx)
     fixture.dispose(ctx, first.asset);
     TEST_EXPECT(ctx, fixture.image.cached_asset("pack:/raw", 0u) == second.asset.query_value());
 
-    TEST_EXPECT(ctx, fixture.service.begin_bundle_file(original.asset, CStringView{ "baked" }, 16u, operation) == EAssetStatus::success);
+    TEST_EXPECT(ctx, fixture.service.begin_bundle_file(fixture.resolve(ctx, "pack:/baked"), 16u, operation) == EAssetStatus::success);
     CAssetService::CBundleOperation moved{ std::move(operation) };
     TEST_EXPECT(ctx, !operation.bytes().is_ready() && moved.bytes().is_ready());
     fixture.service.request_disposal({ original.asset }, 9, fixture.package);
     fixture.service.complete_disposals();
     TEST_EXPECT(ctx, fixture.image.root_state("pack:") == ERootState::closed && !fixture.service.is_idle());
     TEST_EXPECT(ctx, !fixture.service.acquire_bundle(original.asset).asset);
-    TEST_EXPECT(ctx, fixture.service.begin_bundle_file(original.asset, CStringView{ "raw" }, 128u, operation) == EAssetStatus::invalid_asset);
+    TEST_EXPECT(ctx, fixture.service.begin_bundle_file(resolved, 128u, operation) == EAssetStatus::invalid_asset);
     TEST_EXPECT(ctx, fixture.image.cached_asset("pack:/raw", 0u) == 0u);
     const auto late = fixture.service.retain_bundle_file(moved, EAssetFileFormat::baked);
     TEST_EXPECT(ctx, late.asset && late.document_view().is_ready());
@@ -223,6 +230,73 @@ void test_closure_and_retained_records(TTestContext& ctx)
     TEST_EXPECT(ctx, !fixture.service.failed());
 }
 
+void test_resolved_ranges(TTestContext& ctx)
+{
+    SFixture fixture;
+    TEST_EXPECT(ctx, fixture.initialise());
+    const auto original = fixture.publish(ctx);
+    auto source = fixture.resolve(ctx);
+    const auto offset = source.offset;
+    const auto size = source.size;
+    const auto binding = source.binding;
+    CAssetService::CBundleOperation operation;
+    for (const std::size_t alignment : { 0u, 3u, 256u })
+    {
+        TEST_EXPECT(ctx, fixture.service.begin_bundle_file(source, alignment, operation) == EAssetStatus::invalid_request);
+        TEST_EXPECT(ctx, !operation.bytes().is_ready() && fixture.service.is_idle());
+    }
+    struct SRange { std::size_t offset; std::size_t size; };
+    const SRange invalid[]{ { 0u, size }, { offset + 1u, size }, { offset, 0u },
+        { SIZE_MAX, size }, { SIZE_MAX - 127u, size }, { offset, SIZE_MAX },
+        { original.byte_view().size(), size }, { offset, original.byte_view().size() - offset } };
+    for (const auto range : invalid)
+    {
+        source.offset = range.offset;
+        source.size = range.size;
+        TEST_EXPECT(ctx, fixture.service.begin_bundle_file(source, 128u, operation) == EAssetStatus::invalid_request);
+        TEST_EXPECT(ctx, !operation.bytes().is_ready() && fixture.service.is_idle());
+    }
+    source.offset = offset;
+    source.size = size;
+    source.binding = 0u;
+    TEST_EXPECT(ctx, fixture.service.begin_bundle_file(source, 128u, operation) == EAssetStatus::invalid_asset);
+    source.binding = binding;
+    const auto complete = fixture.service.acquire_bundle(original.asset);
+    TEST_EXPECT(ctx, complete.asset);
+    source.bundle = complete.asset.query_value();
+    TEST_EXPECT(ctx, fixture.service.begin_bundle_file(source, 128u, operation) == EAssetStatus::invalid_asset);
+    fixture.dispose(ctx, complete.asset);
+    source.bundle = original.asset.query_value();
+
+    TEST_EXPECT(ctx, fixture.service.begin_bundle_file(source, 128u, operation) == EAssetStatus::success);
+    const auto direct = original.bundle_view().lookup(CStringView{ "raw" });
+    TEST_EXPECT(ctx, operation.bytes().data() == direct.bytes.data() && operation.bytes().size() == direct.bytes.bytes());
+    TEST_EXPECT(ctx, fixture.service.begin_bundle_file(fixture.resolve(ctx, "pack:/baked"), 128u, operation) == EAssetStatus::invalid_request);
+    TEST_EXPECT(ctx, operation.bytes().data() == direct.bytes.data());
+    fixture.service.request_disposal({ original.asset }, 60, fixture.package);
+    fixture.service.complete_disposals();
+    TEST_EXPECT(ctx, fixture.image.root_state("pack:") == ERootState::closed && !fixture.service.is_idle());
+    CAssetService::CBundleOperation rejected;
+    TEST_EXPECT(ctx, fixture.service.begin_bundle_file(source, 128u, rejected) == EAssetStatus::invalid_asset);
+    TEST_EXPECT(ctx, std::memcmp(operation.bytes().data(), "abc", 3u) == 0);
+    operation.reset();
+    fixture.service.complete_disposals();
+    fixture.notification(ctx, original.asset);
+
+    const auto replacement = fixture.publish(ctx);
+    TEST_EXPECT(ctx, fixture.binding != binding);
+    TEST_EXPECT(ctx, fixture.service.begin_bundle_file(source, 128u, operation) == EAssetStatus::invalid_asset);
+    //  Even a live original ID cannot legitimise the previous binding's range.
+    source.bundle = replacement.asset.query_value();
+    TEST_EXPECT(ctx, fixture.service.begin_bundle_file(source, 128u, operation) == EAssetStatus::invalid_asset);
+    TEST_EXPECT(ctx, fixture.service.begin_bundle_file(fixture.resolve(ctx), 128u, operation) == EAssetStatus::success);
+    operation.reset();
+    fixture.service.request_disposal({ replacement.asset }, 61, fixture.package);
+    fixture.service.complete_disposals();
+    fixture.notification(ctx, replacement.asset);
+    TEST_EXPECT(ctx, fixture.service.is_idle() && !fixture.service.failed());
+}
+
 void test_complete_views_and_saves(TTestContext& ctx)
 {
     SFixture fixture;
@@ -237,7 +311,7 @@ void test_complete_views_and_saves(TTestContext& ctx)
     //  First operation gets slot zero; nothing else is outstanding.
     TEST_EXPECT(ctx, fixture.receive(work, 0) && work.view.size() == original.byte_view().size());
     CAssetService::CBundleOperation operation;
-    TEST_EXPECT(ctx, fixture.service.begin_bundle_file(original.asset, CStringView{ "raw" }, 128u, operation) == EAssetStatus::success);
+    TEST_EXPECT(ctx, fixture.service.begin_bundle_file(fixture.resolve(ctx), 128u, operation) == EAssetStatus::success);
     const auto file = fixture.service.retain_bundle_file(operation, EAssetFileFormat::raw);
     operation.reset();
     {
@@ -277,7 +351,7 @@ void test_dependency_cleanup_and_recipient_exit(TTestContext& ctx)
         TEST_EXPECT(ctx, fixture.initialise());
         const auto original = fixture.publish(ctx);
         CAssetService::CBundleOperation operation;
-        TEST_EXPECT(ctx, fixture.service.begin_bundle_file(original.asset, CStringView{ "raw" }, 128u, operation) == EAssetStatus::success);
+        TEST_EXPECT(ctx, fixture.service.begin_bundle_file(fixture.resolve(ctx), 128u, operation) == EAssetStatus::success);
         const auto dependent = fixture.service.retain_bundle_file(operation, EAssetFileFormat::raw, mount_point_ids::executive);
         const auto survivor = fixture.service.retain_bundle_file(operation, EAssetFileFormat::raw);
         TEST_EXPECT(ctx, dependent.asset && survivor.asset);
@@ -328,7 +402,7 @@ void test_management_owner(TTestContext& ctx)
     owner.service.complete_disposals();
     TEST_EXPECT(ctx, borrower.receive(rejected, 42) && rejected.status == EAssetStatus::success);
     CAssetService::CBundleOperation operation;
-    TEST_EXPECT(ctx, owner.service.begin_bundle_file(original.asset, CStringView{ "raw" }, 128u, operation) == EAssetStatus::success);
+    TEST_EXPECT(ctx, owner.service.begin_bundle_file(owner.resolve(ctx), 128u, operation) == EAssetStatus::success);
     const auto file = owner.service.retain_bundle_file(operation, EAssetFileFormat::raw);
     TEST_EXPECT(ctx, file.asset);
     operation.reset();
@@ -358,7 +432,7 @@ void test_package_reuse(TTestContext& ctx)
         TEST_EXPECT(ctx, package && package->startup());
         const auto original = fixture.publish(ctx, &*package);
         CAssetService::CBundleOperation operation;
-        TEST_EXPECT(ctx, fixture.service.begin_bundle_file(original.asset, CStringView{ "raw" }, 128u, operation) == EAssetStatus::success);
+        TEST_EXPECT(ctx, fixture.service.begin_bundle_file(fixture.resolve(ctx), 128u, operation) == EAssetStatus::success);
         const auto file = fixture.service.retain_bundle_file(operation, EAssetFileFormat::raw);
         TEST_EXPECT(ctx, file.asset);
         operation.reset();
@@ -390,7 +464,7 @@ void test_conversion_lifetime(TTestContext& ctx)
     TEST_EXPECT(ctx, fixture.initialise());
     const auto original = fixture.publish(ctx);
     CAssetService::CBundleOperation operation;
-    TEST_EXPECT(ctx, fixture.service.begin_bundle_file(original.asset, CStringView{ "raw" }, 128u, operation) == EAssetStatus::success);
+    TEST_EXPECT(ctx, fixture.service.begin_bundle_file(fixture.resolve(ctx), 128u, operation) == EAssetStatus::success);
     const auto source = fixture.service.retain_bundle_file(operation, EAssetFileFormat::raw);
     operation.reset();
     auto request = CErasedOwner::create<TextureDecodeRequest>();
@@ -524,7 +598,9 @@ void test_publication_failure_and_shutdown(TTestContext& ctx)
                 const auto reference = service.acquire_bundle(result.asset);
                 TEST_EXPECT(ctx, reference.asset && service.is_idle());
                 CAssetService::CBundleOperation operation;
-                TEST_EXPECT(ctx, service.begin_bundle_file(result.asset, CStringView{ "raw" }, 128u, operation) == EAssetStatus::success);
+                filesystem_image::SResolvedSource resolved;
+                TEST_EXPECT(ctx, image.resolve("pack:/raw", false, resolved));
+                TEST_EXPECT(ctx, service.begin_bundle_file(resolved, 128u, operation) == EAssetStatus::success);
                 TEST_EXPECT(ctx, service.retain_bundle_file(operation, EAssetFileFormat::raw).asset);
                 operation.reset();
             }
@@ -543,6 +619,7 @@ int run_bundle_service_tests()
 {
     TTestContext ctx;
     test_closure_and_retained_records(ctx);
+    test_resolved_ranges(ctx);
     test_complete_views_and_saves(ctx);
     test_dependency_cleanup_and_recipient_exit(ctx);
     test_management_owner(ctx);

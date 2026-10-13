@@ -158,21 +158,39 @@ AssetResult CAssetService::acquire_bundle(const CAssetId source) noexcept
     return retain_bundle_view(*control, EAssetBackingRole::complete, view);
 }
 
-EAssetStatus CAssetService::begin_bundle_file(const CAssetId source, const CStringView path,
+EAssetStatus CAssetService::begin_bundle_file(const filesystem_image::SResolvedSource& source,
     const std::size_t alignment, CBundleOperation& operation) noexcept
 {
     if ((operation.m_backing.state() != nullptr) || (alignment > bundle::k_alignment) ||
-        (alignment == 0u) || ((alignment & (alignment - 1u)) != 0u)) return EAssetStatus::invalid_request;
-    const CAssetRecord* const record = disposal_pending(source) ? nullptr : m_assets.resolve(source);
+        (alignment == 0u) || ((alignment & (alignment - 1u)) != 0u))
+    {
+        return EAssetStatus::invalid_request;
+    }
+    const CAssetId original = m_assets.find_identity(source.bundle);
+    const CAssetRecord* const record = disposal_pending(original) ? nullptr : m_assets.resolve(original);
     if ((record == nullptr) || (record->backing() == nullptr) || !record->backing()->open ||
-        ((record->backing_role() != EAssetBackingRole::original) && (record->backing_role() != EAssetBackingRole::complete)))
+        (record->backing_role() != EAssetBackingRole::original))
+    {
         return EAssetStatus::invalid_asset;
+    }
     SBundleControl* const control = find_bundle(record->backing());
-    if (control == nullptr) return EAssetStatus::invalid_asset;
-    const auto found = control->view.lookup(path);
-    if (found.status != bundle::ELookupStatus::success) return EAssetStatus::invalid_request;
-    if (!operation.m_backing.acquire(control->references, EAssetBackingRole::operation)) return EAssetStatus::allocation_failed;
-    operation.m_bytes = CByteConstView{ static_cast<const std::uint8_t*>(found.bytes.data()), found.bytes.bytes(), bundle::k_alignment };
+    if ((control == nullptr) || (source.binding == 0u) || (control->binding != source.binding) ||
+        (control->original != original)) return EAssetStatus::invalid_asset;
+    const CByteConstView bytes = control->view.bytes();
+
+    //  The image supplies validated file extents. Check without offset+size
+    //  arithmetic so an invalid descriptor cannot overflow or expose metadata.
+    //  Strictly less leaves storage for the required zero terminator.
+    if ((source.offset < control->view.document().byte_count()) || (source.offset % bundle::k_alignment != 0u) ||
+        (source.offset >= bytes.size()) || (source.size == 0u) || (source.size >= bytes.size() - source.offset))
+    {
+        return EAssetStatus::invalid_request;
+    }
+    if (!operation.m_backing.acquire(control->references, EAssetBackingRole::operation))
+    {
+        return EAssetStatus::allocation_failed;
+    }
+    operation.m_bytes = CByteConstView{ bytes.data() + source.offset, source.size, bundle::k_alignment };
     return EAssetStatus::success;
 }
 
@@ -780,10 +798,7 @@ void CAssetService::request(threading::CErasedOwnerMsg& message, threading::CThr
         }
         if (resolved.binding != 0u)
         {
-            const CAssetId original = m_assets.find_identity(resolved.bundle);
-            const char* const relative = std::strchr(operation.logical_file, ':') + 2;
-            const auto status = begin_bundle_file(original, CStringView{ relative },
-                memory::condition_alignment(std::max(load->alignment, std::size_t{ 16u })), operation.bundle_input);
+            const auto status = begin_bundle_file(resolved, memory::condition_alignment(std::max(load->alignment, std::size_t{ 16u })), operation.bundle_input);
             if (status != EAssetStatus::success)
             {
                 finish_operation(slot, status);

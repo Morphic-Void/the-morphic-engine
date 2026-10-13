@@ -48,7 +48,10 @@ public:
     //  disposal notification. Other clients may retain views and sub-files.
     [[nodiscard]] AssetResult publish_bundle(CBakedDocumentBlock& block, const std::uint64_t binding, threading::CThreadPackage& owner) noexcept;
     [[nodiscard]] AssetResult acquire_bundle(const CAssetId source) noexcept;
-    [[nodiscard]] EAssetStatus begin_bundle_file(const CAssetId source, const CStringView path,
+
+    //  Consumes a trusted live-image resolution, checking binding identity and
+    //  buffer bounds before protecting its bytes. Does not traverse the directory.
+    [[nodiscard]] EAssetStatus begin_bundle_file(const filesystem_image::SResolvedSource& source,
         const std::size_t alignment, CBundleOperation& operation) noexcept;
     [[nodiscard]] AssetResult retain_bundle_file(const CBundleOperation& operation,
         const EAssetFileFormat format, const mount_point_ids::id_type dependency = {}) noexcept;
