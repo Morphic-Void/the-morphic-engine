@@ -1,6 +1,6 @@
 # Filesystem image: limitations and future considerations
 
-Updated 23 September 2026. The former deferred filesystem design is superseded
+Updated 13 October 2026. The former deferred filesystem design is superseded
 in full by the implemented [development filesystem image](../../development/README.md).
 This file retains only limitations and considerations that may justify a later,
 explicitly selected iteration. It is not an implementation plan or a requirement
@@ -20,6 +20,12 @@ inventoried destinations; disposal removes cache associations. Refresh requests
 queue in FIFO order, failed scans leave the image unchanged, and reconciliation
 preserves successful writes completed after scan dispatch. Workers borrow stable
 Host-owned operation paths or scan backing, never nodes in the mutable image.
+
+[Bundles](../assets/bundle_specification.md) add immutable read-only virtual roots,
+direct complete views and retained-record protection of shared storage. The
+requesting thread owns bundle management. Preparation runs on the conditioning
+worker; the Host publishes the prepared subtree. This does not add a general
+shared-consumer ownership protocol to ordinary cached assets.
 
 There is no outstanding requirement for shared immutable catalogues, atomic
 image-pointer publication, reader entry/exit accounting or identifiers that retain
@@ -49,8 +55,9 @@ reload/replacement or hot content updates, decide:
 - how overlapping loads, refreshes and saves select the resulting association;
 - whether concurrent equivalent loads should share one in-flight operation.
 
-No automatic cache eviction, reference counting or shared-consumer disposal
-protocol is implemented. Current disposal assumes other borrowers are quiesced.
+No automatic cache eviction or general shared-consumer disposal protocol is
+implemented. Bundle backing counts retained records and accepted operations;
+cache hits do not acquire references. Disposal still requires borrowers to be quiesced.
 Broader ownership must be selected before treating repeated cache hits as
 independent retained uses.
 
@@ -85,10 +92,10 @@ storage, packaged assets and platform APIs still need bindings when deployment
 requires them. Android, including Quest/Pico-class devices, is not validated;
 UGC is not currently planned for Android.
 
-Windows Debug x64 has been exercised for this stage. Linux directory/file access
-has a basic implementation but has not been exercised here. Non-Windows module
-discovery and final bootstrap placement remain unimplemented. Do not infer
-cross-platform validation from a shared API shape.
+Windows and Linux directory/file access, module discovery and Host acceptance
+are exercised by the [build and CI harnesses](../project/building_and_testing.md).
+Linux ELF modules currently retain `.dll` filenames. Final deployment and
+bootstrap placement remain separate work; Android has not been validated.
 
 The existing native-path restrictions remain intentional. The executable query's
 1 KiB typed stack buffer is bounded and has no growth fallback; it does not

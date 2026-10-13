@@ -182,6 +182,15 @@ An invalid, stale or already pending disposal ID receives `invalid_asset`.
 Other borrowers must quiesce before requesting disposal; their views do not extend
 lifetime. Requests can come from any connected thread package.
 
+Original bundle IDs are the exception: only the thread instance that requested
+the bake/load may close them. Closure has no correlated success reply; final
+`BundleDisposedNotification` delivery follows storage destruction and virtual-root
+removal. Retained sub-files can outlive that thread and remain usable after closure.
+The Host detaches the bundle owner/notification route before destroying either
+an Executive or Rendering package. A replacement package does not inherit the
+route or management authority. Reference-only waits do not prevent module cleanup.
+See the [bundle lifetime contract](../assets/bundle_specification.md#references-and-disposal).
+
 Full shutdown stops and joins the Executive, drains operations, performs the same
 assertion and dependent-asset cleanup before each module unload, then releases
 remaining independent assets while the I/O worker is still running. Only
@@ -219,7 +228,7 @@ and disposal-at-exit DLLs. Successful rendering service cases use the real stub.
 The production renderer contains no test switches. Adding the fixture project
 to the solution for IDE visibility is not required by the harness.
 
-The 32 process cases cover:
+The 33 process cases cover:
 
 - Correlated acknowledgement/completion, normal and duplicate loads, missing
   files/functions, replacement and unavailable service after failure.
@@ -242,6 +251,8 @@ The 32 process cases cover:
 - Executive replacement with a closed bundle held by an ordinary sub-file record;
   the replacement saves and releases it without inheriting the outgoing recipient's
   notification. Full shutdown also covers undisposed bundle records.
+- Rendering-owned bundle disposal, rejection of another requester's original-ID
+  disposal, and sub-file use/release after the Rendering package is destroyed.
 - Malformed loads, missing inputs, an empty selection and an inventoried file
   removed before baking; every failure releases the reserved destination root.
 
@@ -253,7 +264,8 @@ for use only within that Host process; this is test coordination, not a persiste
 asset-ID contract.
 
 Checks include process status, notification order, saved bytes, dependency
-assertions, exit/join/unload ordering and I/O-worker attribution. The rendering
+assertions, exit/join/unload ordering, I/O-worker building and conditioning-worker
+preparation (or shared-worker fallback). The rendering
 exit-disposal regression allows saves to finish before disposal is requested.
 When a reply is deferred, it checks deferral-to-completion ordering; in either
 case, both disposal completions must precede the Rendering thread join.

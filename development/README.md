@@ -142,8 +142,38 @@ logical DLL names, for example
 filenames before worker binding. Unknown modules fail without a native load
 attempt. A replacement still unloads the old binding under the existing module
 lifecycle contract. Module binding ownership remains in the module service,
-separate from ordinary retained asset IDs. The DLL filter is deliberately the
-current Windows profile; Linux shared-library deployment is not introduced here.
+separate from ordinary retained asset IDs. Linux builds retain the same `.dll`
+filenames for their ELF shared libraries; see [Linux builds](../docs/project/linux_ci.md).
+
+## Virtual bundle roots
+
+[`BundleBakeRequest` and `BundleLoadRequest`](../docs/assets/asynchronous_asset_services.md#bundles)
+create read-only virtual roots with no native directory. Baking captures a
+directory-backed subtree; loading reads a saved bundle file. The requested root
+is separate from the source and any save path. Existing, reserved and draining
+root names cannot be reused or merged. Tests use `.bdl`; filenames/extensions
+are chosen by the requester.
+
+The conditioning worker prepares a private directory from validated bundle
+bytes. The Host installs only that subtree into the live image, preserving other
+roots and intervening updates. Bundle entries retain folded names, optional
+`physicalName`, offsets and sizes. Ordinary file entries do not acquire observed
+sizes. Runtime asset IDs and cache associations stay in the live image and Host
+bookkeeping; the stored bundle remains immutable.
+
+Logical loads traverse the live hierarchy once and protect the resolved bundle
+range before use. Raw/baked assets borrow storage; parsed/decoded results own
+their output. Cache reuse and concurrent uncached loads follow the ordinary
+policy. A complete bundle view can also be traversed directly without this image
+or sub-file IDs.
+
+Refreshing an open virtual root succeeds without scanning or changing its cache.
+Closure rejects new resolution, cache hits and refresh; already retained sub-file
+IDs remain usable and individually savable. Final disposal removes the root and
+cache associations before notification, allowing the root name to be reused.
+Only the requesting thread instance may close the original bundle. See the
+[bundle specification](../docs/assets/bundle_specification.md) for ownership,
+complete-view conventions and final notification delivery.
 
 ## Refresh, writes and cached resources
 
@@ -208,14 +238,14 @@ The core filesystem-image suite generates a process/tag-qualified
 discovery, DLL filtering/collisions, write permissions, refresh reconciliation,
 failed scans and cache metadata. The Executive exercise adds queued refreshes,
 concurrent access, cache reuse, disposal/reload and read-only rejection checks.
-This stage has been validated on Windows Debug x64, not Linux or Android and
-not a new full Debug/Release x64/Win32 matrix. The directory query has a basic
-POSIX branch, at the same development scope as the existing file loading/saving.
+Windows and Linux tests exercise directory-backed and virtual roots; see the
+[completed-work record](../docs/project/completed_milestones.md#bundle-assets-and-virtual-bindings)
+for dated configurations and coverage. Android remains unvalidated.
 
 ## Deliberate limitations
 
 The current cache does not provide image-option variants, explicit hot replacement,
-automatic invalidation on external byte changes, shared-consumer retention or
+automatic invalidation on external byte changes, general shared-consumer retention or
 automatic eviction. Root refresh reconciles inventory; it does not replace
 existing borrowed asset views with newly loaded content. Watching, source-version
 tracking and general editor/bulk-query APIs are not implemented.

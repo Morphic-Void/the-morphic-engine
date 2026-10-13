@@ -1,6 +1,6 @@
 # Current scope
 
-Updated 4 October 2026. The selected consolidation is complete, including
+Updated 13 October 2026. The selected consolidation is complete, including
 the rendering DLL stub and Executive-controlled startup in `f91ded3`.
 The subsequent development filesystem-image stage is complete and accepted,
 including the first-pass review corrections. See the
@@ -11,6 +11,21 @@ This stage supplies hierarchical logical-root inventory, write permissions,
 executable-directory DLL discovery, queued per-root refresh and retained-asset
 cache associations. Both log roots are excluded from inventory; `test-output:`
 remains included. The old deferred filesystem design is superseded in full.
+
+## Bundle review and closeout
+
+The bundle system and completed-system review corrections are committed through
+`8d57ef1`. The [bundle reference](../assets/bundle_specification.md) describes the
+final format, public requests, requester ownership, retained lifetimes and worker
+roles. The [completed-work record](../project/completed_milestones.md#bundle-assets-and-virtual-bindings)
+contains prerequisites, implementation/review checkpoints and validation evidence.
+The implementation plan is retired and documentation closeout is reviewed.
+Shader-specific integration remains outside this work.
+
+The next selected discussion is the
+[debug-macro investigation](engine_backlog.md#diagnostics-and-developer-tooling).
+Establish missing coverage and discuss findings before making macro additions or
+changes. This note records the next task; it does not start that investigation.
 
 ## Next work
 

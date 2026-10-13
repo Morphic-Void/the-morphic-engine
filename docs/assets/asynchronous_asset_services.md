@@ -34,8 +34,9 @@ that asset. The request owns its destination filename, but does not own the asse
 It captures image encoding and document-writing settings by value. JSON output
 defaults to strict JSON, with the existing writer options available explicitly.
 
-`AssetDisposeRequest` carries only a retained `CAssetId` and can be sent by any
-connected thread. The Host rejects further saves using that ID once disposal is
+`AssetDisposeRequest` carries only a retained `CAssetId`. Ordinary assets may be
+disposed of by any connected thread; an original bundle ID is restricted to its
+requesting thread instance. The Host rejects further saves using that ID once disposal is
 accepted, waits for accepted operations using it to finish, and destroys the
 asset. `AssetDisposeResult` returns the same ID and a status, with no views.
 Invalid, stale and already pending disposal IDs return `invalid_asset`.
@@ -117,32 +118,51 @@ publication, and describing a retained asset does not modify it.
 ## Bundles
 
 `BundleBakeRequest` owns `paths.source_root`, `paths.subdirectory` and `paths.root`.
-It captures a directory-backed inventory and builds on the I/O worker, then
-publishes an original bundle ID bound under the destination root. An empty
+It captures a directory-backed inventory and builds on the I/O worker. The
+conditioning worker prepares a private binding directory, then the Host publishes
+an original bundle ID bound under the destination root. An empty
 subdirectory selects the entire source root. `BundleLoadRequest` owns the logical
 physical-file path `paths.file` and destination `paths.root`, reads at 128-byte
-alignment, validates and publishes in the same way. Both return `AssetResult`
-with `bundle_view()`. Roots are reserved before dispatch and released on failure.
+alignment, validates on the conditioning worker and publishes in the same way.
+Both return `AssetResult` with `bundle_view()`. Roots are reserved before dispatch
+and released on failure.
+The Host commits only the prepared subtree, preserving unrelated image updates.
+Built bundles reuse their validated immutable view during preparation.
+Empty files and unsupported inventory entries are skipped; empty directories are
+pruned. An empty result is rejected, and a genuine file-size or read failure fails
+the operation. The requester keeps source content unchanged throughout baking.
 
 `BundleReferenceRequest { source }` is a POD request accepting an open original
 or complete-view bundle ID. Each success returns a distinct retained ID and the
 same complete view. Save a complete bundle with the existing `AssetSaveRequest`
 using raw format and an independently chosen destination filename.
 
-Disposing the original ID immediately closes new admissions. Retained sub-files
+The requesting thread instance owns management of the bundle; other threads may
+use its view and acquire references but cannot dispose of the original ID.
+An unauthorised disposal returns `invalid_request`. The owner coordinates
+complete-view quiescence and release before disposal. Copying a view or reusing a cached ID
+does not add a reference; newly retained records borrowing bundle bytes do.
+
+Owner disposal of the original ID immediately closes new admissions. Retained sub-files
 and accepted operations protect storage until released; independent conversion
 outputs keep their own lifetimes. Existing sub-file IDs remain usable and
 individually savable after closure. Clients must release complete-view references
 before requesting original-ID disposal. The Host removes the drained virtual
 root and storage before sending `BundleDisposedNotification { asset }` at slot
-`-1` to the disposing Executive instance. Invalid disposal requests still receive
-immediate correlated rejection responses. See the
+`-1` to the management owner. Complete-bundle saves and reference acquisitions
+are rejected after closure, including those using additional complete-view IDs;
+previously accepted operations finish normally. A late complete-view reference
+is diagnosed and must still be released before storage is destroyed.
+The Host retires notification routes before destroying any requester package,
+including Rendering. Replacement threads never inherit them. Invalid disposal
+requests still receive immediate correlated rejection responses. See the
 [bundle specification](bundle_specification.md) for validation, lifetime and
 notification delivery details.
 
 ## Completion and failures
 
-Every accepted request produces one correlated `AssetResult`, including failure.
+Every load, transfer, save or bundle-reference request produces one correlated
+`AssetResult`, including failure. Disposal uses the separate results described above.
 The original client slot is returned; worker slots are private operation indices.
 Admission completes when the requested representation is ready. Combined saves
 complete after conditioning and file writing, or at the first failure.
@@ -154,7 +174,9 @@ An image result points to the immutable published `CImageView` stored beside its
 Host-owned buffer. The client calls `image_view()` to copy that view locally;
 local metadata changes do not alter the published view, while texels remain shared.
 Discard results and failures without a retained asset return no views.
-Retained views remain valid until Host shutdown. The image view's address stays
+Views borrow their retained record's storage and must be quiesced before its
+disposal or cleanup; complete-bundle use must also cease before bundle closure.
+The image view's address stays
 stable when its owning envelope moves into the asset repository.
 
 Document parsing returns only `document_findings` and `document_policy` alongside
@@ -252,8 +274,8 @@ inspection.
 The [module lifecycle harness](../modules/asynchronous_module_lifecycle.md#validation)
 covers disposal during outstanding saves and module teardown, bundle root reuse,
 surviving sub-file references, batch borrowing, late complete-view replies and
-notification retirement across Executive replacement. Its bundle cases restore
-the Executive's allocation-attribution baseline before exit.
+notification retirement across Executive replacement and Rendering exit.
+Its bundle cases restore the Executive's allocation-attribution baseline before exit.
 
 Historical build matrices and completion commits are recorded in
 [completed milestones](../project/completed_milestones.md). Protocol and

@@ -8,12 +8,14 @@ Date:   12 Sep 2026
 
 # Remaining engine backlog
 
-Updated 4 October 2026. This consolidates unresolved scope from the interim
+Updated 13 October 2026. This consolidates unresolved scope from the interim
 capture. The parser, image view, concrete asset services and Executive acceptance
 are complete. The asynchronous module/disposal work is committed; the separate
 rendering DLL stub is implemented and accepted. Actual rendering remains
 deferred. The [development filesystem image](../../development/README.md) is
 also complete and accepted, including the first-pass review corrections.
+The [bundle system](../assets/bundle_specification.md) and its architectural
+review corrections are complete through `8d57ef1`.
 The [deferred design](consolidation_deferred_design.md) preserves useful future
 ideas, not the superseded filesystem implementation proposal.
 [Current scope](current_scope_backlog.md) sets priorities.
@@ -22,6 +24,15 @@ The sections below are deferred scope, not an implementation schedule.
 
 ## Diagnostics and developer tooling
 
+- Audit the debug-macro gap noted during bundle Stage 4 review (12 October 2026).
+  Direct `debug_system::submit_event()` calls occur in asset disposal and Host
+  lifecycle handling. Search for `MV_INTERNAL_USAGE_POINT` outside
+  `core/debug/macros.hpp` to identify callers. Investigate existing macro coverage
+  and why callers use direct submission, including intentional low-level/test
+  uses. Discuss the findings before making additions or changes, preserving event
+  severity, condition/event kind and existing continuation behaviour. This work
+  follows the bundle review corrections and documentation closeout in
+  [current scope](current_scope_backlog.md#bundle-review-and-closeout).
 - Expand debug reporting, fatal capture and controlled shutdown as concrete
   consumers require. Preserve early startup/late shutdown, bounded dedicated
   MPMC communication and the allocation-at-creation discipline documented in
@@ -49,9 +60,10 @@ The sections below are deferred scope, not an implementation schedule.
 - Finish allocator bootstrap ordering before removing the fallback allocator:
   install Host allocation routing before registries, module loads and thread
   creation, then make fallback use a reportable invariant and controlled shutdown.
-- Build a tool-independent description that preserves Core as per-consumer
-  shared source. Attempt Linux compilation/linking, distinguish portable-Core
-  issues from missing platform implementations, and enable cross-platform checks.
+- CMake Linux builds and GCC/Clang CI now preserve Core as per-consumer shared
+  source. Extend platform coverage as consumers require; conventional `.so`
+  runtime naming and final deployment bindings remain separate work. See
+  [Linux CI](../project/linux_ci.md) for the implemented build boundary.
 - Extend the existing thread packages/context and identity/name registry for
   remaining provisioning and per-thread service requirements. Audit role/sub-role
   identity and TLS needs against existing code before adding layers.
@@ -149,8 +161,8 @@ gameplay integration rather than owning the primitive geometry library.
 - [Filesystem limitations](filesystem_asset_mapping.md): deployment/platform
   bindings, UGC integration, explicit asset replacement/variants and additional
   consumer needs. Directory discovery, logical resolution, queued refresh,
-  write updates and basic caching already exist.
-- [Deferred design](consolidation_deferred_design.md): reference counting/cache
+  write updates, basic caching and read-only bundle roots already exist.
+- [Deferred design](consolidation_deferred_design.md): general reference counting/cache
   eviction, document navigation, save-game integration using existing baked value
   editing, bundled outputs, module accounting periods, overlays, trust and later
   image transforms.

@@ -18,6 +18,74 @@ Permanent behavior and architectural contracts belong in the subsystem
 documents linked from each milestone. Current and future work belongs in
 `future_work_notes.md` and the backlog.
 
+## Bundle assets and virtual bindings
+
+Completed and reviewed through 13 October 2026. Bundles provide one immutable,
+128-byte-aligned allocation containing a baked directory and tightly packed file
+extents, with a mandatory trailing zero for each file. Deterministic baking skips
+empty files and unsupported entries and prunes empty directories; real query/read
+failures reject the whole operation. Complete views support strict relative lookup
+and document traversal without the live filesystem image.
+
+Bake/load requests publish an ordinary retained asset and a read-only virtual
+root together. The requesting thread instance owns original-ID disposal, while
+any thread may use protected views. Retained records borrowing storage and accepted
+operations protect the bundle through closure; independent conversion results
+have independent lifetimes. Existing sub-files remain usable and savable after
+closure. Final disposal releases storage and the root before notifying the owner;
+outgoing requester packages retire their notification routes.
+
+| Checkpoint | Delivered outcome |
+| --- | --- |
+| `61e9654` | File-size query distinguishing empty files from errors, and loading directly into caller storage. |
+| `45aa731` | Resizable baked-document blocks, prefix views and complete-buffer adoption/persistence. |
+| `56cc04d` | Bundle format validation and immutable direct views. |
+| `ec09716` | Deterministic construction with direct file reads into final storage. |
+| `27b00ad` | Separate collection move-assignment ownership fixes found during binding work. |
+| `165191d` | Virtual bindings and stable directory-backed bake-source capture. |
+| `0b20519` | Host storage ownership, retained-record accounting and deferred final disposal. |
+| `04fa30c` | Public requests and I/O-worker integration. |
+| `c81634e` | Runtime acceptance, persistence and lifecycle coverage. |
+| `8c6e217` | Linux test portability corrections and Windows/Linux CI acceptance updates. |
+| `ef7e939` | Requester management ownership and notification retirement for all departing packages. |
+| `8c1fb1f` | Named build-failure diagnostics with captured original-cased source paths. |
+| `df46e7c` | Admission from the live image's resolved bundle ranges, eliminating duplicate baked lookup. |
+| `8d57ef1` | Conditioning-worker validation/preparation and transactional Host subtree installation without whole-image bake/promote. |
+
+The final publication path preserves unrelated Host image changes made while
+preparation is outstanding. Controlled tests cover failed dispatch, pending-work
+shutdown and allocation rollback. Real worker and DLL fixtures cover cache reuse,
+concurrent misses, refresh, sub-file saves after closure, independent conversions,
+queued/inline batch borrowers, Executive replacement and Rendering-owned bundles.
+Shader files are opaque test data; shader integration is separate consumer work.
+
+Validation checkpoints:
+
+- The six-stage acceptance passed Windows Debug/Release x64/Win32 builds and
+  ordinary suites. All 32 lifecycle cases at that checkpoint passed Debug x64
+  with one/two workers, Release x64 with two and Release Win32 with one.
+- The Linux/CI follow-up passed GCC 13.3 and Clang 18.1 Debug/Release builds and
+  all three CTest cases on Ubuntu 24.04 in WSL. Windows Debug x64 ordinary tests
+  and Host-worker acceptance across all four Windows configurations also passed.
+  Workflow checks passed locally; these results do not claim hosted CI execution.
+- After the architectural corrections, Windows Debug x64 build and ordinary
+  tests passed, including 1,839 FilesystemImage, 321 BundleService and 277
+  BundleRequests checks (`bundle-conditioning-final`, process 68364). All 33
+  lifecycle cases passed with one and two workers (`lifecycle-runtime-8582e4cb`
+  and `lifecycle-runtime-7f408af8`), including execution-role checks. Linux GCC
+  Debug build and all three CTest cases passed in `build/linux-texture`.
+  Policy, diff and line-ending checks passed. The earlier full matrices were
+  not repeated for the architectural corrections.
+
+Counts and local ignored logs describe those checkpoints, not permanent APIs.
+The completed implementation plan is retired. Maintained references are the
+[bundle specification](../assets/bundle_specification.md),
+[asset services](../assets/asynchronous_asset_services.md),
+[filesystem image](../../development/README.md) and
+[module lifecycle](../modules/asynchronous_module_lifecycle.md).
+The debug-macro investigation remains separate work in the
+[backlog](../backlog/engine_backlog.md#diagnostics-and-developer-tooling).
+
 ## Schema system and refinement
 
 Completed through 4 October 2026. The [schema reference](../schema/README.md)

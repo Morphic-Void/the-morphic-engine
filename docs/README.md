@@ -15,6 +15,8 @@ or that work has been authorised.
 - [Image view](image/image_view.md): drawing, copying, access and TGA metadata.
 - [Asynchronous asset services](assets/asynchronous_asset_services.md): requests,
   ownership, conditioning, results, diagnostics and disposal.
+- [Bundle specification](assets/bundle_specification.md): directory format,
+  virtual bindings, asset references and disposal.
 - [Development filesystem image](../development/README.md): logical roots,
   hierarchical inventory, DLL redirection, queued refresh and cache associations.
 - [Host bootstrap configuration](project/bootstrap_configuration.md): the

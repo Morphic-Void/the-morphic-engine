@@ -111,7 +111,7 @@ or a dedicated conditioning worker. Both harnesses stage an isolated development
 filesystem under `build/`, retaining its logs and output for inspection without
 inventorying accumulated output from other runs.
 
-Windows CI runs the ordinary suites, Host-worker harness and all 32 lifecycle
+Windows CI runs the ordinary suites, Host-worker harness and all 33 lifecycle
 cases with one and two requested workers in Debug/Release on x64 and x86.
 Its diagnostics include the isolated Host-worker and lifecycle logs and output.
 [Linux CI](linux_ci.md) runs GCC/Clang Debug/Release builds, ordinary suites and

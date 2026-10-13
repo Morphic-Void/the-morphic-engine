@@ -35,7 +35,7 @@ live until explicit disposal, dependent-module cleanup or shutdown. The
 and joins affected threads before dependency cleanup and I/O-worker unbinding.
 The [batch runner pool](../modules/batch_runners.md) executes coarse module work
 under the requester's ownership and exit control. These bounded services do not
-implement reference counting, automatic cache eviction, cancellation or general
+implement general client reference counting, automatic cache eviction, cancellation or general
 dependency orchestration. The former deferred filesystem
 design is superseded by the implementation, not awaiting completion. Its useful
 remaining considerations are in [filesystem limitations](filesystem_asset_mapping.md).
@@ -71,6 +71,13 @@ Explicit disposal is now implemented, with Host operations drained before
 destruction and other borrowers quiesced by convention. Simple reference counting
 without per-client tokens remains a possible later direction; its mechanics are
 undecided and it is not required by the current disposal path.
+
+[Bundle backing](../assets/bundle_specification.md#references-and-disposal) now has
+a specific implemented count of retained records and accepted operations. Closing
+the binding preserves existing sub-file lifetimes until those uses are released.
+Complete-view acquisition creates a distinct disposable record; copying views or
+reusing a cached ID does not. Broader ordinary-asset reference counting remains
+unselected and must account for this existing contract.
 
 Questions include acquisition/release, initial retained uses after transfer or
 load, Host uses during operations, borrowed-view responsibility, final reclamation
