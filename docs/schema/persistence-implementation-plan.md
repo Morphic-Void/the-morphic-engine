@@ -11,8 +11,8 @@ Date:   14 Oct 2026
 ## Status and scope
 
 This plan translates the agreed [revision](persistence-and-aggregation.md) into
-eight implementation and review stages. Stages 1-3 are implemented and user-reviewed;
-stage 4 is implemented for review, with validation recorded below. Stages 5-8
+eight implementation and review stages. Stages 1-4 are implemented and user-reviewed;
+stage 5 is implemented for review, with validation recorded below. Stages 6-8
 have not started. Work stays in the shared
 checkout; stage boundaries do not imply automatic commits, branches or separate
 implementing chats. Further implementation and commits require user instruction.
@@ -54,8 +54,8 @@ Add public `baked_instances_block.hpp` and `baked_bulk_data_block.hpp` alongside
 the existing role headers, with corresponding implementation files. Put shared
 options and diagnostics in `data_block.hpp`; keep common format parsing and
 assembly helpers private to schema implementation. The block headers and
-attachment APIs and live bake overloads now exist; description materialisation
-and stripping interfaces remain planned. The public
+attachment APIs, live bake overloads and description materialisation now exist;
+stripping interfaces remain planned. The public
 blocks do not depend on Host services.
 
 Use `SDataBlockLoadOptions { bool compare_embedded{ false }; }`,
@@ -297,12 +297,12 @@ passed with their existing alignment and separator rules.
 
 ## Stage 5: materialisation from descriptions
 
-- [ ] Implement the four description/schema overload combinations per block,
+- [x] Implement the four description/schema overload combinations per block,
   preparing private document storage and constructing the complete payload using
   existing defaults, inheritance and complete-record rules.
-- [ ] Apply output form after consuming required values, then reuse stage 4's
+- [x] Apply output form after consuming required values, then reuse stage 4's
   metadata/assembly path. Do not patch caller documents or bundle bytes.
-- [ ] Keep JSON parsing outside the block API. Demonstrate explicit parse/load,
+- [x] Keep JSON parsing outside the block API. Demonstrate explicit parse/load,
   caller-side materialisation, and optional later admission/save. No partial
   binary repair or combined asynchronous workflow is introduced.
 
@@ -311,6 +311,44 @@ construction, insufficient records, stripped descriptions requiring missing
 binary, all output forms and zero-byte types. Destroy the source after success
 and continue using the result. Failures leave source and destination contracts
 intact and never return handles into deleted preparation documents.
+
+Implemented for review on 14 October 2026. Each block exposes the four explicit
+overloads and reuses shared private construction support. Live input is baked
+privately; baked input is generically promoted and re-baked privately. Existing
+baked-role materialisation supplies the complete payload and publishes reserved
+locators only in that private document. Its failures map occurrences back to
+the original tree by child ordinals without allocating diagnostic scratch.
+
+Successful preparation promotes only the selected role section. Bulk data
+counts are made explicit before removing arrays; instance declarations survive
+embedded/external output and are removed for stripped output. Assembly replaces
+source persistence metadata and publishes the complete block transactionally.
+Valid offsets, including gaps, retain their lower-level materialisation meaning.
+Required reserved locator fields and the existing rejection of stripped input
+are unchanged. No live-role promotion or binary-to-literal reconstruction is
+needed. Source descriptions and their asset associations are untouched.
+
+Coverage includes the full overload/output matrix, defaults, nested inheritance,
+complete/incomplete bulk records, missing/empty sections, zero-byte records,
+inferred counts, source byte preservation and destruction, comparison-enabled
+reattachment, diagnostic source locations and rejected allocations throughout
+preparation, materialisation, assembly and attachment. The runtime API documents
+explicit parsing followed by construction and optional later owning transfer;
+Host persistence and end-to-end admission/save remain stages 7 and 8.
+
+Validation: Debug x64 solution build and all ordinary Core tests passed with
+`Schema: 59452 passed, 0 failed`, using:
+
+```powershell
+& 'C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe' .\MorphicEngine.sln /t:Build /m:1 /p:Configuration=Debug /p:Platform=x64 /v:minimal
+.\build\bin\x64\Debug\MorphicTests.exe -t1 --log-tag=data-block-materialise-stage5-check
+```
+
+Validation ran outside the sandbox for the established PDB toolchain limitation.
+Logs use suffix `data-block-materialise-stage5-check.p53824.log` under
+`development/logical-roots/test-logs/`. The solution policy validator reported no
+errors or warnings. Diff whitespace, tracked line endings and documentation
+links passed. No project registrations, layout or generator changes were needed.
 
 ## Stage 6: stripping completed data
 

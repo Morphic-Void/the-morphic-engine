@@ -54,6 +54,18 @@ Completed blocks and copied-file adoption also exercise exact file-size capacity
 with generic baked-document tests checking minimum and non-alignment-multiple
 capacities, preserved attribution and clean deallocation.
 
+Description materialisation tests cover all four source/schema overloads for
+both roles and all output forms. They check defaults and nested instance
+inheritance, complete bulk records, valid and unset offsets, inferred counts,
+missing/empty sections, zero-byte records, replacement of persistence metadata
+and omission of unrelated root sections. Sources remain byte-equivalent and
+can be destroyed before the result is consumed or reattached with comparison.
+Failures cover invalid preconditions, unknown types, locators, counts,
+insufficient values and stripped descriptions. Diagnostics map back to original
+live/baked values. Each construction allocation is rejected in turn, checking
+empty destinations, released schema references, temporary cleanup and location
+lifetimes. JSON parsing is exercised separately from the block API.
+
 Logs and generated files include the tag and process ID. The runner prints their
 paths; default output is beneath `development/logical-roots/test-output` and
 logs beneath `development/logical-roots/test-logs`.

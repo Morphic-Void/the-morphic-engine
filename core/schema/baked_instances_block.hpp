@@ -14,6 +14,7 @@
 #define SCHEMA_BAKED_INSTANCES_BLOCK_HPP_INCLUDED
 
 #include "schema/data_block.hpp"
+#include "schema/data_output.hpp"
 #include "assets/asset_repository.hpp"
 
 namespace schema
@@ -41,6 +42,17 @@ public:
         const SDataBlockLoadOptions& options, SInstancesBlockDiagnostic& diagnostic) noexcept;
     [[nodiscard]] bool attach_asset(CAssetId asset, CByteConstView bytes, CLiveSchema& schema,
         const SDataBlockLoadOptions& options, SInstancesBlockDiagnostic& diagnostic) noexcept;
+
+    //  Construct independent complete storage from sufficient description values.
+    //  Requires an empty destination; failure preserves source and destination.
+    [[nodiscard]] bool materialise(const CLiveDocument& description, CBakedSchema& schema,
+        EDataOutputForm form, SInstancesBlockDiagnostic& diagnostic) noexcept;
+    [[nodiscard]] bool materialise(const CLiveDocument& description, CLiveSchema& schema,
+        EDataOutputForm form, SInstancesBlockDiagnostic& diagnostic) noexcept;
+    [[nodiscard]] bool materialise(const CBakedDocument& description, CBakedSchema& schema,
+        EDataOutputForm form, SInstancesBlockDiagnostic& diagnostic) noexcept;
+    [[nodiscard]] bool materialise(const CBakedDocument& description, CLiveSchema& schema,
+        EDataOutputForm form, SInstancesBlockDiagnostic& diagnostic) noexcept;
 
     //  Clear the role before releasing/forgetting backing. All users must be quiescent.
     void clear() noexcept;

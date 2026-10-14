@@ -27,8 +27,13 @@ They validate and initialise before publishing state, preserve source ownership
 on failure, and clear their roles before releasing backing. Complete file bytes
 remain available after schema invalidation. Live-role bake overloads construct
 these completed blocks using existing output preparation, then persistence
-metadata, bounded assembly and final attachment. Description materialisation,
-stripping and Host service integration stages are not yet implemented.
+metadata, bounded assembly and final attachment. Block materialisation accepts
+live or baked descriptions and constructs a complete payload using existing
+defaults, inheritance and complete bulk-record rules. It publishes reserved
+locators in private storage, then applies the requested output form and assembles
+an independent completed block. Source descriptions are unchanged. JSON parsing
+remains a caller step. Stripping existing blocks and Host service integration
+stages are not yet implemented.
 The existing bake overloads returning separate owners remain available.
 
 ## Purpose and scope

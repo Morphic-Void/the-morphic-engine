@@ -35,7 +35,7 @@ Include the header for the role or operation being used:
 | `baked_instances.hpp`, `live_instances.hpp` | Instance loading, observation and live editing/output. |
 | `baked_bulk_data.hpp`, `live_bulk_data.hpp` | Bulk data loading, observation and live capture/output. |
 | `data_block.hpp` | Shared persistence load options, backing states and block diagnostic vocabulary. |
-| `baked_instances_block.hpp`, `baked_bulk_data_block.hpp` | Completed file ownership, specialised attachment and local storage release. |
+| `baked_instances_block.hpp`, `baked_bulk_data_block.hpp` | Completed file ownership, specialised attachment, description materialisation and local storage release. |
 | `data_remap.hpp` | Remap planning and execution between binary views. |
 | `unused_storage.hpp` | Explicit clearing of unused binary storage. |
 
@@ -152,9 +152,66 @@ stage but clears both outer and nested locations into temporary output.
 
 The first implementation uses temporary description, prefix, payload and final
 storage, plus validation/role scratch. Direct construction into final allocation
-remains a later optimisation. Description materialisation, stripping and
-complete-buffer Host persistence remain later implementation stages. Existing
+remains a later optimisation. Stripping existing blocks and complete-buffer Host
+persistence remain later implementation stages. Existing
 lower-level baking APIs remain available.
+
+### Materialisation from descriptions
+
+Both blocks provide `materialise(description, schema, form, diagnostic)` with
+four explicit overloads: `const CLiveDocument&` or `const CBakedDocument&`, each
+with `CLiveSchema&` or `CBakedSchema&`. The operation requires an empty block,
+a ready description, an already resolved caller schema and a valid output form.
+It constructs the whole payload; there is no supplied-payload or partial-repair
+argument. The source remains unchanged on success and failure.
+
+The source follows the existing role description grammar, including reserved
+unsigned `locator.offset` and Boolean `locator.valid` fields. Materialisation
+honours valid offsets and computes unset offsets in document traversal order.
+It uses a private mutable baked copy, so publishing reserved locators never
+patches the caller's live document, baked asset or bundle storage. Instances use
+schema defaults and parent inheritance; every bulk data record must be complete.
+A `stripped: true` source reports `binary_required`, including empty sections,
+as in the lower-level materialisers. A missing role section produces an empty
+completed block. Other root sections are not included in the output, and source
+persistence metadata is replaced with the new file's metadata.
+
+After construction, generic document promotion copies the selected section.
+Embedded output retains source values; external output retains instance
+declarations but removes bulk data arrays; stripped output removes both kinds
+of values and marks the document. Bulk data counts inferred from arrays are
+made explicit before values can be removed, including for zero-byte records.
+The result uses the same contiguous assembly and final attachment as live baking.
+It retains valid source offsets, including gaps; it does not promise packing.
+
+Preparation uses temporary live/baked documents, a payload owner and role
+scratch before final assembly. Direct construction into final storage remains
+a later optimisation. Generic promotion and baking failures identify their
+stage without inferring a resource cause from Boolean translation results.
+Materialisation failures retain the precise role reason and map occurrences
+back to the original live or baked tree by child ordinals. Unmappable locations
+are cleared. Final-attachment locations into temporary output are also cleared.
+An occupied destination is preserved, and an empty destination stays empty on
+failure. Successful output no longer depends on the source description's lifetime.
+
+JSON parsing remains an explicit caller step, for example:
+
+```cpp
+CLiveDocument description;
+const auto parsed = document_parser::parse(json_bytes, description);
+if (!parsed.accepted()) return false; // Report the parser's diagnostics.
+schema::CBakedBulkDataBlock block;
+schema::SBulkDataBlockDiagnostic diagnostic;
+if (!block.materialise(description, caller_schema,
+    schema::EDataOutputForm::external, diagnostic)) return false;
+description.deallocate(); // The completed block is independent.
+// Consume block.bulk_data(), or release_local() for later owning transfer.
+```
+
+Include `data_model/document_parser.hpp` and the relevant block header. The
+same sequence accepts a baked description produced by parsing/loading. Optional
+Host admission and save follow construction under the caller's existing asset
+ownership model; their full-buffer persistence integration is a later stage.
 
 `schema::k_max_alignment` in `resolved_schema.hpp` defines the maximum supported
 type alignment and the common base alignment of instance/bulk data buffers (128 bytes).

@@ -10,6 +10,7 @@
 
 #include "schema/baked_instances_block.hpp"
 #include "schema/data_block_attachment.hpp"
+#include "schema/data_block_construction.hpp"
 
 #include <utility>
 
@@ -85,6 +86,30 @@ bool CBakedInstancesBlock::attach_asset(const CAssetId asset, const CByteConstVi
     const SDataBlockLoadOptions& options, SInstancesBlockDiagnostic& diagnostic) noexcept
 {
     return attach(asset, bytes, schema, options, diagnostic);
+}
+
+bool CBakedInstancesBlock::materialise(const CLiveDocument& description, CBakedSchema& schema,
+    const EDataOutputForm form, SInstancesBlockDiagnostic& diagnostic) noexcept
+{
+    return detail::materialise_data_block(description, *this, schema, form, detail::EDataBlockKind::instances, diagnostic);
+}
+
+bool CBakedInstancesBlock::materialise(const CLiveDocument& description, CLiveSchema& schema,
+    const EDataOutputForm form, SInstancesBlockDiagnostic& diagnostic) noexcept
+{
+    return detail::materialise_data_block(description, *this, schema, form, detail::EDataBlockKind::instances, diagnostic);
+}
+
+bool CBakedInstancesBlock::materialise(const CBakedDocument& description, CBakedSchema& schema,
+    const EDataOutputForm form, SInstancesBlockDiagnostic& diagnostic) noexcept
+{
+    return detail::materialise_data_block(description, *this, schema, form, detail::EDataBlockKind::instances, diagnostic);
+}
+
+bool CBakedInstancesBlock::materialise(const CBakedDocument& description, CLiveSchema& schema,
+    const EDataOutputForm form, SInstancesBlockDiagnostic& diagnostic) noexcept
+{
+    return detail::materialise_data_block(description, *this, schema, form, detail::EDataBlockKind::instances, diagnostic);
 }
 
 void CBakedInstancesBlock::clear() noexcept

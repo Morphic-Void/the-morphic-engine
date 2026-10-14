@@ -10,6 +10,7 @@
 
 #include "schema/baked_bulk_data_block.hpp"
 #include "schema/data_block_attachment.hpp"
+#include "schema/data_block_construction.hpp"
 
 #include <utility>
 
@@ -84,6 +85,30 @@ bool CBakedBulkDataBlock::attach_asset(const CAssetId asset, const CByteConstVie
     const SDataBlockLoadOptions& options, SBulkDataBlockDiagnostic& diagnostic) noexcept
 {
     return attach(asset, bytes, schema, options, diagnostic);
+}
+
+bool CBakedBulkDataBlock::materialise(const CLiveDocument& description, CBakedSchema& schema,
+    const EDataOutputForm form, SBulkDataBlockDiagnostic& diagnostic) noexcept
+{
+    return detail::materialise_data_block(description, *this, schema, form, detail::EDataBlockKind::bulk_data, diagnostic);
+}
+
+bool CBakedBulkDataBlock::materialise(const CLiveDocument& description, CLiveSchema& schema,
+    const EDataOutputForm form, SBulkDataBlockDiagnostic& diagnostic) noexcept
+{
+    return detail::materialise_data_block(description, *this, schema, form, detail::EDataBlockKind::bulk_data, diagnostic);
+}
+
+bool CBakedBulkDataBlock::materialise(const CBakedDocument& description, CBakedSchema& schema,
+    const EDataOutputForm form, SBulkDataBlockDiagnostic& diagnostic) noexcept
+{
+    return detail::materialise_data_block(description, *this, schema, form, detail::EDataBlockKind::bulk_data, diagnostic);
+}
+
+bool CBakedBulkDataBlock::materialise(const CBakedDocument& description, CLiveSchema& schema,
+    const EDataOutputForm form, SBulkDataBlockDiagnostic& diagnostic) noexcept
+{
+    return detail::materialise_data_block(description, *this, schema, form, detail::EDataBlockKind::bulk_data, diagnostic);
 }
 
 void CBakedBulkDataBlock::clear() noexcept

@@ -317,9 +317,8 @@ struct SSchemaFixture
     CBakedDocumentBlock storage;
     CBakedSchema baked;
 
-    bool build()
+    bool build(const std::string& json = R"({"types":{"structures":{"Zero":{"members":[]}}}})")
     {
-        const std::string json = R"({"types":{"structures":{"Zero":{"members":[]}}}})";
         CLiveDocument document;
         SDiagnostic diagnostic;
         return document_parser::parse(CByteConstView{ reinterpret_cast<const std::uint8_t*>(json.data()), json.size(), 1u }, document).accepted() &&
@@ -991,6 +990,294 @@ static void test_completed_bakes(TTestContext& ctx)
     test_bake_allocation_failures<true>(ctx);
     test_bake_allocation_failures<false>(ctx);
 }
+static const std::string materialisation_types = R"({"types":{"structures":{
+    "Zero":{"members":[]},
+    "Pair":{"members":[{"a":{"type":"u8","default":5}},{"b":{"type":"u8","default":9}}]}}}})";
+
+template<bool Instances>
+static std::string materialisation_description(const unsigned content)
+{
+    if (content == 0u) return "{}";
+    if (content == 1u) return Instances ? R"({"instances":{}})" : R"({"data":{}})";
+    if (content == 2u)
+    {
+        return Instances ? R"({"instances":{"Zero":{"zero":{"locator":{"offset":0,"valid":false}}}}})" :
+            R"({"data":{"Zero":{"zero":{"locator":{"offset":0,"valid":false},"data":[{},{}]}}}})";
+    }
+    //  Construction selects only its role and replaces stale persistence metadata.
+    return Instances ? R"({"fileType":"old","version":0,"payloadSize":999,"types":{},
+        "data":{"unrelated":true},"instances":{"Pair":{
+        "base":{"locator":{"offset":8,"valid":true},"declaration":{"a":3},
+            "specialisation":{"child":{"locator":{"offset":4294967295,"valid":false},"declaration":{"b":7},
+                "specialisation":{"deep":{"locator":{"offset":0,"valid":false}}}}}},
+        "defaults":{"locator":{"offset":0,"valid":false}}}}})" :
+        R"({"fileType":"old","version":0,"payloadSize":999,"types":{},
+        "instances":{"unrelated":true},"data":{"Pair":{
+        "base":{"locator":{"offset":8,"valid":true},"data":[{"a":3,"b":9},{"a":5,"b":7}]},
+        "next":{"locator":{"offset":4294967295,"valid":false,"count":1,"size":2},"data":[[1,2]]}}}})";
+}
+
+static bool parse_description(const std::string& text, CLiveDocument& document)
+{
+    return document_parser::parse(CByteConstView{ reinterpret_cast<const std::uint8_t*>(text.data()), text.size(), 1u }, document).accepted();
+}
+
+template<bool Instances, bool Baked, class TSchema>
+static void test_materialised_blocks(TTestContext& ctx, TSchema& schema)
+{
+    using T = SBlockTraits<Instances>;
+    for (const auto form : { EDataOutputForm::embedded, EDataOutputForm::external, EDataOutputForm::stripped })
+    {
+        for (unsigned content = 0u; content != 4u; ++content)
+        {
+            CLiveDocument live;
+            CBakedDocumentBlock baked;
+            if (!parse_description(materialisation_description<Instances>(content), live) || !document_translation::bake(live, baked))
+            { TEST_EXPECT(ctx, false); continue; }
+            const auto source_bytes = byte_snapshot(baked.bytes());
+            const auto source_root = live.root();
+            const auto run = [&](const auto& source)
+            {
+                typename T::Block output;
+                typename T::Diagnostic diagnostic;
+                seed(diagnostic.block);
+                diagnostic.role.reason = T::Reason::unknown_type;
+                const bool ok = output.materialise(source, schema, form, diagnostic);
+                TEST_EXPECT(ctx, ok);
+                if (!ok)
+                {
+                    std::cerr << "Materialisation: instances=" << Instances << " baked=" << Baked << " content=" << content
+                        << " form=" << static_cast<unsigned>(form) << " stage=" << static_cast<unsigned>(diagnostic.block.stage)
+                        << " reason=" << static_cast<unsigned>(diagnostic.block.reason) << " role=" << static_cast<unsigned>(diagnostic.role.reason) << '\n';
+                    return;
+                }
+                TEST_EXPECT(ctx, output.loaded_ready() && output.backing() == EEntityBacking::local && !output.asset_id() &&
+                    diagnostic.block.stage == EDataBlockStage::none && diagnostic.block.reason == EDataBlockReason::none &&
+                    diagnostic.block.location.kind == EDataBlockLocationKind::none && diagnostic.role.reason == T::Reason::none);
+                SDataBlockView view;
+                SDataBlockDiagnostic format;
+                TEST_EXPECT(ctx, validate_data_block(output.file_bytes().data(), output.file_bytes().size(), T::kind, view, format));
+                TEST_EXPECT(ctx, view.stripped == (form == EDataOutputForm::stripped) &&
+                    !view.document.object_child(view.document.root(), CStringView{ "types" }) &&
+                    !view.document.object_child(view.document.root(), CStringView{ Instances ? "data" : "instances" }));
+                if (content < 3u) TEST_EXPECT(ctx, view.payload.size() == 0u && output.file_bytes().size() == view.document.byte_count());
+                if (content == 2u)
+                {
+                    if constexpr (Instances)
+                    {
+                        SInstanceEntryView entry;
+                        TEST_EXPECT(ctx, output.instances().entry(output.instances().find_base(CStringView{ "Zero" }, CStringView{ "zero" }), entry) &&
+                            entry.byte_count == 0u && entry.bytes == nullptr);
+                    }
+                    else
+                    {
+                        SBulkDataEntryView entry;
+                        TEST_EXPECT(ctx, output.bulk_data().entry(output.bulk_data().find_entry(CStringView{ "Zero" }, CStringView{ "zero" }), entry) &&
+                            entry.count == 2u && entry.byte_count == 0u && entry.bytes == nullptr);
+                    }
+                }
+                if (content == 3u)
+                {
+                    const auto& role = T::role(output);
+                    const auto query = role.document_query();
+                    if constexpr (Instances)
+                    {
+                        const auto base = role.find_base(CStringView{ "Pair" }, CStringView{ "base" });
+                        const auto child = role.find_specialisation(base, CStringView{ "child" });
+                        const auto deep = role.find_specialisation(child, CStringView{ "deep" });
+                        const auto defaults = role.find_base(CStringView{ "Pair" }, CStringView{ "defaults" });
+                        SInstanceEntryView entry;
+                        TEST_EXPECT(ctx, role.entry(base, entry) && entry.offset == 8u && entry.byte_count == 2u && entry.bytes[0] == 3u && entry.bytes[1] == 9u);
+                        TEST_EXPECT(ctx, role.entry(child, entry) && entry.offset == 10u && entry.bytes[0] == 3u && entry.bytes[1] == 7u);
+                        TEST_EXPECT(ctx, role.entry(deep, entry) && entry.offset == 12u && entry.bytes[0] == 3u && entry.bytes[1] == 7u);
+                        TEST_EXPECT(ctx, role.entry(defaults, entry) && entry.offset == 14u && entry.bytes[0] == 5u && entry.bytes[1] == 9u);
+                        for (const auto handle : { base, child })
+                            TEST_EXPECT(ctx, static_cast<bool>(query.object_child(handle, CStringView{ "declaration" })) == (form != EDataOutputForm::stripped));
+                    }
+                    else
+                    {
+                        const auto base = role.find_entry(CStringView{ "Pair" }, CStringView{ "base" });
+                        const auto next = role.find_entry(CStringView{ "Pair" }, CStringView{ "next" });
+                        SBulkDataEntryView entry;
+                        TEST_EXPECT(ctx, role.entry(base, entry) && entry.offset == 8u && entry.count == 2u && entry.byte_count == 4u &&
+                            entry.bytes[0] == 3u && entry.bytes[1] == 9u && entry.bytes[2] == 5u && entry.bytes[3] == 7u);
+                        TEST_EXPECT(ctx, role.entry(next, entry) && entry.offset == 12u && entry.count == 1u && entry.bytes[0] == 1u && entry.bytes[1] == 2u);
+                        for (const auto handle : { base, next })
+                            TEST_EXPECT(ctx, static_cast<bool>(query.object_child(handle, CStringView{ "data" })) == (form == EDataOutputForm::embedded));
+                    }
+                }
+                CBakedDocumentBlock live_check;
+                TEST_EXPECT(ctx, live.root() == source_root && document_translation::bake(live, live_check) && same_bytes(live_check.bytes(), source_bytes));
+                TEST_EXPECT(ctx, same_bytes(baked.bytes(), source_bytes));
+                const auto output_address = output.file_bytes().data();
+                TEST_EXPECT(ctx, !output.materialise(source, schema, form, diagnostic) &&
+                    diagnostic.block.reason == EDataBlockReason::destination_not_empty && output.file_bytes().data() == output_address);
+                const auto payload_snapshot = byte_snapshot(T::role(output).payload_view());
+                live.deallocate();
+                baked.deallocate();
+                TEST_EXPECT(ctx, output.loaded_ready() && same_bytes(T::role(output).payload_view(), payload_snapshot));
+                CBakedDocumentBlock owner;
+                TEST_EXPECT(ctx, output.release_local(owner));
+                TEST_EXPECT(ctx, owner.buffer_capacity() == owner.buffer_bytes().size());
+                typename T::Block reattached;
+                TEST_EXPECT(ctx, reattached.adopt_local(std::move(owner), schema, { true }, diagnostic) &&
+                    same_bytes(T::role(reattached).payload_view(), payload_snapshot));
+            };
+            if constexpr (Baked) run(baked.document());
+            else run(live);
+        }
+    }
+}
+
+template<bool Instances, bool Baked, class TSchema>
+static void test_materialisation_failures(TTestContext& ctx, TSchema& schema)
+{
+    using T = SBlockTraits<Instances>;
+    typename T::Block output;
+    typename T::Diagnostic diagnostic;
+    const std::string section = Instances ? "instances" : "data";
+    struct SCase { std::string text; typename T::Reason reason; };
+    const SCase cases[] = {
+        { "[]", T::Reason::invalid_input },
+        { "{\"" + section + "\":[]}", T::Reason::invalid_input },
+        { "{\"stripped\":true,\"" + section + "\":{}}", T::Reason::binary_required },
+        { "{\"" + section + "\":{\"Unknown\":{}}}", T::Reason::unknown_type },
+        { "{\"" + section + "\":{\"Pair\":{\"bad\":{}}}}", T::Reason::missing_property },
+        { "{\"" + section + "\":{\"Pair\":{\"bad\":{\"locator\":{\"offset\":0,\"valid\":false,\"count\":0}" +
+            (Instances ? "" : ",\"data\":[[1,2]]") + "}}}}", T::Reason::invalid_count }
+    };
+    for (const auto& item : cases)
+    {
+        CLiveDocument live;
+        CBakedDocumentBlock baked;
+        TEST_EXPECT(ctx, parse_description(item.text, live) && document_translation::bake(live, baked));
+        const auto snapshot = byte_snapshot(baked.bytes());
+        const auto run = [&](const auto& source)
+        {
+            TEST_EXPECT(ctx, !output.materialise(source, schema, EDataOutputForm::stripped, diagnostic));
+            TEST_EXPECT(ctx, diagnostic.block.stage == EDataBlockStage::materialisation &&
+                diagnostic.block.reason == EDataBlockReason::specialised_failure && diagnostic.role.reason == item.reason);
+            TEST_EXPECT(ctx, output.backing() == EEntityBacking::none && !T::role(output).document_ready());
+            if constexpr (Baked)
+                TEST_EXPECT(ctx, diagnostic.block.location.kind == EDataBlockLocationKind::source_baked_value &&
+                    source.contains(diagnostic.block.location.baked_value));
+            else
+                TEST_EXPECT(ctx, diagnostic.block.location.kind == EDataBlockLocationKind::source_live_node &&
+                    source.contains(diagnostic.block.location.live_node));
+            using Access = std::conditional_t<Instances, SInstanceHandleAccess, SBulkDataHandleAccess>;
+            const auto occurrence = Access::occurrence(diagnostic.role.occurrence);
+            if constexpr (Baked) TEST_EXPECT(ctx, occurrence.baked == diagnostic.block.location.baked_value);
+            else TEST_EXPECT(ctx, occurrence.live == diagnostic.block.location.live_node);
+        };
+        if constexpr (Baked) run(baked.document());
+        else run(live);
+        CBakedDocumentBlock live_check;
+        TEST_EXPECT(ctx, document_translation::bake(live, live_check) && same_bytes(live_check.bytes(), snapshot) && same_bytes(baked.bytes(), snapshot));
+    }
+    //  Construction still rejects invalid values when the requested output drops them.
+    const std::string invalid = Instances ? R"({"instances":{"Pair":{"bad":{
+        "locator":{"offset":0,"valid":false},"declaration":{"unknown":1}}}}})" :
+        R"({"data":{"Pair":{"bad":{"locator":{"offset":0,"valid":false},"data":[{"a":1}]}}}})";
+    CLiveDocument live;
+    CBakedDocumentBlock baked;
+    TEST_EXPECT(ctx, parse_description(invalid, live) && document_translation::bake(live, baked));
+    const auto run = [&](const auto& source)
+    {
+        TEST_EXPECT(ctx, !output.materialise(source, schema, EDataOutputForm::stripped, diagnostic));
+        if constexpr (Instances) TEST_EXPECT(ctx, diagnostic.role.reason == EInstanceLoadReason::invalid_declaration);
+        else TEST_EXPECT(ctx, diagnostic.role.reason == EBulkDataLoadReason::incomplete_record);
+        TEST_EXPECT(ctx, diagnostic.block.stage == EDataBlockStage::materialisation);
+        TEST_EXPECT(ctx, !output.materialise(source, schema, static_cast<EDataOutputForm>(255u), diagnostic) &&
+            diagnostic.block.stage == EDataBlockStage::preconditions && diagnostic.block.reason == EDataBlockReason::invalid_option);
+        CBakedSchema unavailable;
+        TEST_EXPECT(ctx, !output.materialise(source, unavailable, EDataOutputForm::embedded, diagnostic) &&
+            diagnostic.block.stage == EDataBlockStage::schema_binding && diagnostic.block.reason == EDataBlockReason::schema_unavailable);
+    };
+    if constexpr (Baked)
+    {
+        run(baked.document());
+        TEST_EXPECT(ctx, !output.materialise(CBakedDocument{}, schema, EDataOutputForm::embedded, diagnostic));
+    }
+    else
+    {
+        run(live);
+        TEST_EXPECT(ctx, !output.materialise(CLiveDocument{}, schema, EDataOutputForm::embedded, diagnostic));
+    }
+    TEST_EXPECT(ctx, diagnostic.block.stage == EDataBlockStage::preconditions && diagnostic.block.reason == EDataBlockReason::invalid_input);
+}
+
+template<bool Instances, bool Baked>
+static void test_materialisation_allocations(TTestContext& ctx)
+{
+    using T = SBlockTraits<Instances>;
+    SSchemaFixture schemas;
+    CLiveDocument live;
+    CBakedDocumentBlock baked;
+    TEST_EXPECT(ctx, schemas.build(materialisation_types) && parse_description(materialisation_description<Instances>(3u), live) &&
+        document_translation::bake(live, baked));
+    const auto snapshot = byte_snapshot(baked.bytes());
+    bool completed{}, materialisation{}, promotion{}, assembly{}, attachment{};
+    for (std::size_t fail_on = 0u; fail_on != 2048u && !completed; ++fail_on)
+    {
+        SAllocationFailures failures{ 0u, fail_on };
+        memory::CMemoryAllocator allocator{ &failures, &allocate_block_test, &tests::deallocate_test_memory };
+        memory::CMemoryContext context{ allocator };
+        {
+            const tests::TMemoryContextScope scope{ &context };
+            typename T::Block output;
+            typename T::Diagnostic diagnostic;
+            if constexpr (Baked) completed = output.materialise(baked.document(), schemas.baked, EDataOutputForm::stripped, diagnostic);
+            else completed = output.materialise(live, schemas.baked, EDataOutputForm::stripped, diagnostic);
+            if (!completed)
+            {
+                TEST_EXPECT(ctx, output.backing() == EEntityBacking::none && !T::role(output).document_ready() &&
+                    schemas.baked.reference_count() == 0u && diagnostic.block.reason != EDataBlockReason::none);
+                const auto stage = diagnostic.block.stage;
+                materialisation |= stage == EDataBlockStage::materialisation;
+                promotion |= stage == EDataBlockStage::document_promotion;
+                assembly |= stage == EDataBlockStage::assembly;
+                attachment |= stage == EDataBlockStage::format_validation || stage == EDataBlockStage::specialised_loading;
+                if (diagnostic.block.location.kind != EDataBlockLocationKind::none)
+                {
+                    TEST_EXPECT(ctx, stage == EDataBlockStage::materialisation);
+                    if constexpr (Baked) TEST_EXPECT(ctx, baked.document().contains(diagnostic.block.location.baked_value));
+                    else TEST_EXPECT(ctx, live.contains(diagnostic.block.location.live_node));
+                }
+                else TEST_EXPECT(ctx, !diagnostic.role.occurrence);
+            }
+        }
+        TEST_EXPECT(ctx, context.is_attribution_empty() && schemas.baked.reference_count() == 0u && same_bytes(baked.bytes(), snapshot));
+    }
+    TEST_EXPECT(ctx, completed && materialisation && promotion && assembly && attachment);
+    CBakedDocumentBlock live_check;
+    TEST_EXPECT(ctx, document_translation::bake(live, live_check) && same_bytes(live_check.bytes(), snapshot));
+}
+
+static void test_materialisation(TTestContext& ctx)
+{
+    SSchemaFixture schemas;
+    if (!schemas.build(materialisation_types)) { TEST_EXPECT(ctx, false); return; }
+    test_materialised_blocks<true, true>(ctx, schemas.live);
+    test_materialised_blocks<true, false>(ctx, schemas.live);
+    test_materialised_blocks<false, true>(ctx, schemas.live);
+    test_materialised_blocks<false, false>(ctx, schemas.live);
+    test_materialised_blocks<true, true>(ctx, schemas.baked);
+    test_materialised_blocks<true, false>(ctx, schemas.baked);
+    test_materialised_blocks<false, true>(ctx, schemas.baked);
+    test_materialised_blocks<false, false>(ctx, schemas.baked);
+    test_materialisation_failures<true, true>(ctx, schemas.live);
+    test_materialisation_failures<true, false>(ctx, schemas.live);
+    test_materialisation_failures<false, true>(ctx, schemas.live);
+    test_materialisation_failures<false, false>(ctx, schemas.live);
+    test_materialisation_failures<true, true>(ctx, schemas.baked);
+    test_materialisation_failures<true, false>(ctx, schemas.baked);
+    test_materialisation_failures<false, true>(ctx, schemas.baked);
+    test_materialisation_failures<false, false>(ctx, schemas.baked);
+    test_materialisation_allocations<true, true>(ctx);
+    test_materialisation_allocations<true, false>(ctx);
+    test_materialisation_allocations<false, true>(ctx);
+    test_materialisation_allocations<false, false>(ctx);
+}
 }   // namespace
 
 void run_schema_data_block_cases(tests::TTestContext& context)
@@ -1001,4 +1288,5 @@ void run_schema_data_block_cases(tests::TTestContext& context)
     test_layout(context);
     test_blocks(context);
     test_completed_bakes(context);
+    test_materialisation(context);
 }

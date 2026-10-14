@@ -34,6 +34,90 @@ static bool append_metadata(CLiveDocument& document, const CNodeKey value, SData
     return true;
 }
 
+bool prepare_materialisation(const CLiveDocument& source, CBakedDocumentBlock& output, SDataBlockDiagnostic& diagnostic) noexcept
+{
+    if (!document_translation::bake(source, output))
+    {
+        return construction_failure(diagnostic, EDataBlockStage::document_bake, EDataBlockReason::document_bake_failed);
+    }
+    return true;
+}
+
+bool prepare_materialisation(const CBakedDocument& source, CBakedDocumentBlock& output, SDataBlockDiagnostic& diagnostic) noexcept
+{
+    CLiveDocument description;
+    if (!document_translation::promote(source, description))
+    {
+        return construction_failure(diagnostic, EDataBlockStage::document_promotion, EDataBlockReason::document_promotion_failed);
+    }
+    return prepare_materialisation(description, output, diagnostic);
+}
+
+static bool strip_instance_declarations(CLiveDocument& document, const CNodeKey group, const unsigned depth = 0u) noexcept
+{
+    if (depth >= 256u) return false;
+    for (CNodeKey entry = document.first_child(group); entry; entry = document.next_sibling(entry))
+    {
+        const CNodeKey declaration = document.object_child(entry, CStringView{ "declaration" });
+        if (declaration && !document.erase(declaration)) return false;
+        const CNodeKey children = document.object_child(entry, CStringView{ "specialisation" });
+        if (children && !strip_instance_declarations(document, children, depth + 1u)) return false;
+    }
+    return true;
+}
+
+bool prepare_materialised_output(const CBakedDocument& source, const EDataBlockKind kind,
+    const EDataOutputForm form, CLiveDocument& output, SDataBlockDiagnostic& diagnostic) noexcept
+{
+    //  The source has passed role materialisation. Copy only its selected section;
+    //  persistence metadata belongs to the newly assembled file.
+    const CStringView section_name{ (kind == EDataBlockKind::instances) ? "instances" : "data" };
+    if (!document_translation::promote_root_member(source, section_name, output))
+    {
+        return construction_failure(diagnostic, EDataBlockStage::document_promotion, EDataBlockReason::document_promotion_failed);
+    }
+    CNodeKey section = output.object_child(output.root(), section_name);
+    if (!section)
+    {
+        section = output.create_object(section_name);
+        if (!append_metadata(output, section, diagnostic)) return false;
+    }
+    for (CNodeKey group = output.first_child(section); group; group = output.next_sibling(group))
+    {
+        if (kind == EDataBlockKind::instances)
+        {
+            if ((form == EDataOutputForm::stripped) && !strip_instance_declarations(output, group))
+            {
+                return construction_failure(diagnostic, EDataBlockStage::description_preparation, EDataBlockReason::description_preparation_failed);
+            }
+            continue;
+        }
+        for (CNodeKey entry = output.first_child(group); entry; entry = output.next_sibling(entry))
+        {
+            const CNodeKey values = output.object_child(entry, CStringView{ "data" });
+            const CNodeKey locator = output.object_child(entry, CStringView{ "locator" });
+
+            //  An inferred count must survive removal of the values, including
+            //  for zero-byte records whose count cannot be derived from size.
+            if (!output.object_child(locator, CStringView{ "count" }))
+            {
+                const CNodeKey count = output.create_unsigned_integer(output.child_count(values), CStringView{ "count" });
+                if (!count || !output.append_child(locator, count).succeeded())
+                {
+                    return construction_failure(diagnostic, EDataBlockStage::description_preparation, EDataBlockReason::description_preparation_failed);
+                }
+            }
+            if ((form != EDataOutputForm::embedded) && !output.erase(values))
+            {
+                return construction_failure(diagnostic, EDataBlockStage::description_preparation, EDataBlockReason::description_preparation_failed);
+            }
+        }
+    }
+    if ((form == EDataOutputForm::stripped) &&
+        !append_metadata(output, output.create_boolean(true, CStringView{ "stripped" }), diagnostic)) return false;
+    return true;
+}
+
 bool assemble_data_block(CLiveDocument& description, const CByteConstView payload,
     const EDataBlockKind kind, CBakedDocumentBlock& output, SDataBlockDiagnostic& diagnostic) noexcept
 {
@@ -56,7 +140,7 @@ bool assemble_data_block(CLiveDocument& description, const CByteConstView payloa
     {
         return construction_failure(diagnostic, EDataBlockStage::preconditions, EDataBlockReason::invalid_input);
     }
-    const CStringView identifier{ kind == EDataBlockKind::instances ? "morphic-instance-data" : "morphic-bulk-data" };
+    const CStringView identifier{ (kind == EDataBlockKind::instances) ? "morphic-instance-data" : "morphic-bulk-data" };
     if (!append_metadata(description, description.create_string(identifier, CStringView{ "fileType" }), diagnostic) ||
         !append_metadata(description, description.create_unsigned_integer(k_data_block_version, CStringView{ "version" }), diagnostic) ||
         !append_metadata(description, description.create_unsigned_integer(payload.size(), CStringView{ "payloadSize" }), diagnostic))
@@ -87,8 +171,8 @@ bool assemble_data_block(CLiveDocument& description, const CByteConstView payloa
     std::memcpy(storage.data(), document_bytes.data(), document_bytes.size());
     if (payload.size() != 0u)
     {
-        std::memset(storage.data() + document_bytes.size(), 0, layout.payload_offset - document_bytes.size());
-        std::memcpy(storage.data() + layout.payload_offset, payload.data(), payload.size());
+        std::memset((storage.data() + document_bytes.size()), 0, (layout.payload_offset - document_bytes.size()));
+        std::memcpy((storage.data() + layout.payload_offset), payload.data(), payload.size());
     }
 
     //  Generic adoption validates the prefix and preserves the entire buffer.
