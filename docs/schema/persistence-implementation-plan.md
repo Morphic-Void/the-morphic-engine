@@ -11,10 +11,9 @@ Date:   14 Oct 2026
 ## Status and scope
 
 This plan translates the agreed [revision](persistence-and-aggregation.md) into
-eight implementation and review stages. Stages 1-6 are implemented and user-reviewed;
-stage 7 is implemented for review, with validation recorded below. Stage 8
-has not started. Work stays in the shared
-checkout; stage boundaries do not imply automatic commits, branches or separate
+eight implementation and review stages. Stages 1-7 are implemented and user-reviewed;
+stage 8 is implemented for review, with validation recorded below. Work stays in
+the shared checkout; stage boundaries do not imply automatic commits, branches or separate
 implementing chats. Further implementation and commits require user instruction.
 
 Deliver `.bid` and `.bbd` persistence, owning specialised blocks, live baking,
@@ -464,25 +463,103 @@ workflows and broader integration matrix.
 
 ## Stage 8: acceptance and documentation completion
 
-- [ ] Exercise live bake -> local block -> owning Host transfer -> attach -> save
+- [x] Exercise live bake -> local block -> owning Host transfer -> attach -> save
   -> loose reload for `.bid` and `.bbd`, checking exact complete-file bytes.
-- [ ] Exercise JSON load -> explicit materialisation -> admission/save, with
+- [x] Exercise JSON load -> explicit materialisation -> admission/save, with
   independent disposal of the parsed source and no hidden schema lifetime.
-- [ ] Build a bundle from saved files through the filesystem image; load each
+- [x] Build a bundle from saved files through the filesystem image; load each
   complete entry, attach, close the bundle, save retained sub-files to a writable
   root and dispose them under existing lifetime rules. Verify bundle padding is
   excluded and writes to bundle entries are rejected.
-- [ ] Test Host success followed by specialised attachment failure, source versus
+- [x] Test Host success followed by specialised attachment failure, source versus
   discard retention, save failure preserving a retained asset, and admitted work
   draining before disposal. Use existing Host/lifecycle harnesses rather than
   inventing an alternative asynchronous test environment.
-- [ ] Cover explicit whole-bundle saving after a permitted bounded mutable change
+- [x] Cover explicit whole-bundle saving after a permitted bounded mutable change
   to its backing bytes, retaining valid structure. Reload and verify current
   bytes were saved. Verify an independent promoted document does not mutate its
   source bundle; do not add production mutable access solely for this test.
-- [ ] Update schema specification/runtime API/validation and asset/bundle
+- [x] Update schema specification/runtime API/validation and asset/bundle
   references to describe implemented contracts. Keep the revision as rationale,
   mark completed stages with validation evidence, and update the backlog/status.
+
+Implemented for review on 14 October 2026. `BundleRequests` exercises both block
+roles with shared and dedicated real workers: live baking, local release and
+owning admission, schema attachment, complete binary saving and physical reload;
+JSON parsing followed by explicit stripped materialisation, parsed-source disposal
+and discard-retention saving; bundle creation from saved files, exact entry views,
+attachment, closure and loose-file saving/reloading. It checks typed values,
+complete bytes, schema reference release, failed attachment without asset loss,
+source/discard retention on save failure, and disposal after admitted saves drain.
+
+The explicit bundle-save case preserves mutable access from owned test storage
+before publication, edits an existing scalar only while borrowers are quiescent,
+and checks that the prior disk file stays unchanged until saving. Reload verifies
+the complete current bytes and edited value. Independent document promotion is
+also checked against an unchanged source entry. No production API, format,
+ownership or automatic persistence changes were required for these workflows.
+
+The initial Release x64 matrix exposed a stage 4 test assumption: two independent
+payload preparations were required to match even in newly created inter-entry
+alignment gaps. Diagnostics isolated the differences to gap bytes 2 and 3,
+which preparation previously left unspecified. Following review, the user chose
+to zero newly created gaps. Output preparation now clears only gaps between
+copied extents, preserving every record byte; materialisation clears newly
+allocated leading and inter-entry gaps. Zero-byte entries do not reset the prior
+extent. Loading, saving and stripping remain byte-preserving. The tests retain
+complete-entry checks and exact copy/reattachment snapshots, and again compare
+entire independently prepared payloads. Nonzero-filled allocation tests directly
+check the new gaps, repeated output and preserved internal record padding.
+
+Before the gap-zeroing follow-up, solution builds and ordinary Core tests passed
+in Debug/Release on x64 and x86 (Win32 output). Every configuration reported `BundleRequests: 883 passed`
+and `Schema: 61630 passed`, with zero failures. The commands use the installed
+MSBuild path recorded in stage 7:
+
+```powershell
+& $msbuild .\MorphicEngine.sln /t:Build /m:1 /p:Configuration=<Debug|Release> /p:Platform=<x64|x86> /v:minimal
+.\build\bin\<x64|Win32>\<Debug|Release>\MorphicTests.exe -t1 --log-tag=persistence-stage8-final-<configuration>
+.\tests\module_lifecycle\run_tests.ps1 -Configuration Debug -Platform x64 -WorkerCount 2 -SkipSolutionBuild
+.\tests\module_lifecycle\run_tests.ps1 -Configuration Debug -Platform x64 -WorkerCount 1 -SkipBuild
+```
+
+Core log suffixes under `development/logical-roots/test-logs/`:
+
+| Configuration | Log suffix |
+| --- | --- |
+| Debug x64 | `persistence-stage8-final-dbg64.p82928.log` |
+| Debug Win32 | `persistence-stage8-final-dbg32.p80760.log` |
+| Release x64 | `persistence-stage8-final-rel64.p52432.log` |
+| Release Win32 | `persistence-stage8-final-rel32.p81752.log` |
+
+Both Debug x64 lifecycle runs passed all cases, including disposal during save,
+bundle closure, replacement and shutdown. Runtime logs are under
+`build/lifecycle-runtime-5d368a87/` (two workers) and
+`build/lifecycle-runtime-e046bd84/` (one worker). Stage 7's passing Host worker
+harness result is reused because Host/worker production code is unchanged; the
+new request workflows themselves ran with both routing modes in every Core run.
+
+Validation ran outside the sandbox for the established toolchain limitation.
+The policy validator reported zero errors/warnings and its one expected negative
+identity-test suppression. Diff whitespace, tracked line endings and local
+documentation links passed. No project registration, format, layout or generator
+changes were needed. The eight-stage persistence scope is implemented, pending
+user review of this final stage; separate aggregation and allocation optimisations
+remain outside this work.
+
+The gap-zeroing follow-up was validated with fresh solution builds and ordinary
+Core runs in all four configurations. Each reported `Schema: 61740 passed` and
+`BundleRequests: 883 passed`, with zero failures. The build commands above were
+reused; test tags were `payload-gaps-dbg64`, `payload-gaps-dbg32`,
+`payload-gaps-rel64` and `payload-gaps-rel32`. Their respective log suffixes are
+`.p10736.log`, `.p81100.log`, `.p92576.log` and `.p92920.log` under the same log root.
+The nonzero-filled allocation cases cover both roles and all output forms,
+including zero-byte entries, preserved internal padding, unchanged source bytes,
+repeated whole-file equality and newly materialised leading/explicit-offset gaps.
+Existing supplied-payload, stripping and loose/bundle persistence checks also
+passed. Host service/lifetime code is unchanged, so its passing worker/lifecycle
+results above are retained. Policy, diff, line-ending and documentation link
+checks passed again. These changes remain part of the uncommitted stage 8 review.
 
 ## Validation and review discipline
 

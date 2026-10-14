@@ -803,7 +803,30 @@ static void test_completed_bake(TTestContext& ctx, TSourceSchema& source_schema,
             SDataBlockDiagnostic format_diagnostic;
             TEST_EXPECT(ctx, validate_data_block(bytes.data(), bytes.size(), T::kind, view, format_diagnostic));
             TEST_EXPECT(ctx, view.stripped == (form == EDataOutputForm::stripped));
+            //  Newly packed gaps are zero; complete records retain their source bytes.
             TEST_EXPECT(ctx, same_bytes(view.payload, byte_snapshot(baseline_payload.const_view())));
+            const std::string completed_snapshot = byte_snapshot(view.payload);
+            const auto compare_entry = [&](const auto actual_handle, const auto baseline_handle)
+            {
+                std::conditional_t<Instances, SInstanceEntryView, SBulkDataEntryView> actual_entry, baseline_entry;
+                const bool found = T::role(result).entry(actual_handle, actual_entry) && baseline.entry(baseline_handle, baseline_entry);
+                TEST_EXPECT(ctx, found);
+                if (!found) return;
+                TEST_EXPECT(ctx, actual_entry.offset == baseline_entry.offset && actual_entry.byte_count == baseline_entry.byte_count &&
+                    (actual_entry.byte_count == 0u || std::memcmp(actual_entry.bytes, baseline_entry.bytes, static_cast<std::size_t>(actual_entry.byte_count)) == 0));
+                if constexpr (!Instances) TEST_EXPECT(ctx, actual_entry.count == baseline_entry.count && actual_entry.stride == baseline_entry.stride);
+            };
+            const char* types[]{ "Zero", "u8", "u32" };
+            const char* names[]{ "zero", "one", "wide" };
+            for (unsigned entry = 0u; entry < (content == 2u ? 3u : content); ++entry)
+            {
+                if constexpr (Instances)
+                    compare_entry(result.instances().find_base(CStringView{ types[entry] }, CStringView{ names[entry] }),
+                        baseline.find_base(CStringView{ types[entry] }, CStringView{ names[entry] }));
+                else
+                    compare_entry(result.bulk_data().find_entry(CStringView{ types[entry] }, CStringView{ names[entry] }),
+                        baseline.find_entry(CStringView{ types[entry] }, CStringView{ names[entry] }));
+            }
             TEST_EXPECT(ctx, T::role(result).payload_view().data() == view.payload.data());
             if (content < 2u)
             {
@@ -819,6 +842,7 @@ static void test_completed_bake(TTestContext& ctx, TSourceSchema& source_schema,
                 {
                     const auto base = result.instances().find_base(CStringView{ "u8" }, CStringView{ "one" });
                     const auto child = result.instances().find_specialisation(base, CStringView{ "child" });
+                    compare_entry(child, baseline.find_specialisation(baseline.find_base(CStringView{ "u8" }, CStringView{ "one" }), CStringView{ "child" }));
                     SInstanceEntryView base_entry, child_entry;
                     TEST_EXPECT(ctx, result.instances().entry(base, base_entry) && result.instances().entry(child, child_entry));
                     TEST_EXPECT(ctx, base_entry.bytes[0] == 9u && child_entry.bytes[0] == 11u && child_entry.parent == base);
@@ -841,7 +865,7 @@ static void test_completed_bake(TTestContext& ctx, TSourceSchema& source_schema,
             TEST_EXPECT(ctx, !source.bake(result, destination_schema, form, diagnostic) &&
                 diagnostic.block.reason == EDataBlockReason::destination_not_empty && result.file_bytes().data() == bytes.data());
             source.clear();
-            TEST_EXPECT(ctx, result.loaded_ready() && same_bytes(T::role(result).payload_view(), byte_snapshot(baseline_payload.const_view())));
+            TEST_EXPECT(ctx, result.loaded_ready() && same_bytes(T::role(result).payload_view(), completed_snapshot));
             //  Reattach a separately allocated copy, then release the original.
             CByteBuffer copied;
             CBakedDocumentBlock owner;
@@ -851,7 +875,7 @@ static void test_completed_bake(TTestContext& ctx, TSourceSchema& source_schema,
             CBakedDocumentBlock original_owner;
             TEST_EXPECT(ctx, result.release_local(original_owner) && original_owner.buffer_capacity() == bytes.size());
             original_owner.deallocate();
-            TEST_EXPECT(ctx, independent.loaded_ready() && same_bytes(T::role(independent).payload_view(), byte_snapshot(baseline_payload.const_view())));
+            TEST_EXPECT(ctx, independent.loaded_ready() && same_bytes(T::role(independent).payload_view(), completed_snapshot));
             TEST_EXPECT(ctx, independent.release_local(owner) && owner.buffer_capacity() == bytes.size());
         }
     }
@@ -973,6 +997,72 @@ static void test_bake_allocation_failures(TTestContext& ctx)
     TEST_EXPECT(ctx, completed && preparation && document_bake && assembly && attachment);
 }
 
+static void* MV_STD_ABI_CALL allocate_poisoned_payload(void*, const std::size_t alignment, const std::size_t bytes) noexcept
+{
+    void* const result = tests::allocate_test_memory(nullptr, alignment, bytes);
+    if (result) std::memset(result, 0xa5, bytes);
+    return result;
+}
+
+template<bool Instances>
+static void test_new_payload_gaps(TTestContext& ctx)
+{
+    using T = SBlockTraits<Instances>;
+    memory::CMemoryAllocator allocator{ nullptr, &allocate_poisoned_payload, &tests::deallocate_test_memory };
+    memory::CMemoryContext context{ allocator };
+    {
+        const tests::TMemoryContextScope scope{ &context };
+        SSchemaFixture schemas;
+        TEST_EXPECT(ctx, schemas.build(R"({"types":{"structures":{
+            "Zero":{"members":[]},"Padded":{"members":[{"a":{"type":"u8"}},{"b":{"type":"u32"}}]}}}})"));
+        typename T::Live source;
+        typename T::RoleDiagnostic role_diagnostic;
+        TEST_EXPECT(ctx, source.initialise(schemas.baked));
+        alignas(128) const std::uint8_t small[]{ 1u };
+        alignas(128) const std::uint8_t padded[]{ 7u, 0xa5u, 0xa5u, 0xa5u, 42u, 0u, 0u, 0u };
+        if constexpr (Instances)
+        {
+            TEST_EXPECT(ctx, source.capture_base(CStringView{ "u8" }, CStringView{ "first" }, CByteConstView{ small, sizeof(small), 128u }, role_diagnostic));
+            TEST_EXPECT(ctx, source.capture_base(CStringView{ "Zero" }, CStringView{ "empty" }, {}, role_diagnostic));
+            TEST_EXPECT(ctx, source.capture_base(CStringView{ "Padded" }, CStringView{ "last" }, CByteConstView{ padded, sizeof(padded), 128u }, role_diagnostic));
+        }
+        else
+        {
+            TEST_EXPECT(ctx, source.capture(CStringView{ "u8" }, CStringView{ "first" }, CByteConstView{ small, sizeof(small), 128u }, 1u, role_diagnostic));
+            TEST_EXPECT(ctx, source.capture(CStringView{ "Zero" }, CStringView{ "empty" }, {}, 1u, role_diagnostic));
+            TEST_EXPECT(ctx, source.capture(CStringView{ "Padded" }, CStringView{ "last" }, CByteConstView{ padded, sizeof(padded), 128u }, 1u, role_diagnostic));
+        }
+        const auto original = byte_snapshot(source.payload_view());
+        CLiveDocument description;
+        const std::string text = Instances ? R"({"instances":{
+            "u8":{"first":{"locator":{"offset":2,"valid":true},"declaration":1}},
+            "Zero":{"empty":{"locator":{"offset":0,"valid":true},"declaration":{}}},
+            "Padded":{"last":{"locator":{"offset":8,"valid":true},"declaration":{"a":7,"b":42}}}}})" : R"({"data":{
+            "u8":{"first":{"locator":{"offset":2,"valid":true},"data":[1]}},
+            "Zero":{"empty":{"locator":{"offset":0,"valid":true},"data":[{}]}},
+            "Padded":{"last":{"locator":{"offset":8,"valid":true},"data":[{"a":7,"b":42}]}}}})";
+        TEST_EXPECT(ctx, document_parser::parse(CByteConstView{ reinterpret_cast<const std::uint8_t*>(text.data()), text.size() }, description).accepted());
+        for (const auto form : { EDataOutputForm::embedded, EDataOutputForm::external, EDataOutputForm::stripped })
+        {
+            typename T::Block output, repeated, materialised;
+            typename T::Diagnostic diagnostic;
+            TEST_EXPECT(ctx, source.bake(output, schemas.baked, form, diagnostic));
+            const auto bytes = T::role(output).payload_view();
+            TEST_EXPECT(ctx, bytes.size() == 12u && bytes.data()[0] == 1u && std::memcmp(bytes.data() + 4u, padded, sizeof(padded)) == 0);
+            for (std::size_t i = 1u; i != 4u; ++i) TEST_EXPECT(ctx, bytes.data()[i] == 0u);
+            TEST_EXPECT(ctx, source.bake(repeated, schemas.baked, form, diagnostic) && same_bytes(repeated.file_bytes(), byte_snapshot(output.file_bytes())));
+            TEST_EXPECT(ctx, same_bytes(source.payload_view(), original));
+            TEST_EXPECT(ctx, materialised.materialise(description, schemas.baked, form, diagnostic));
+            const auto constructed = T::role(materialised).payload_view();
+            TEST_EXPECT(ctx, constructed.size() == 16u && constructed.data()[2] == 1u &&
+                std::memcmp(constructed.data() + 8u, padded, sizeof(padded)) == 0);
+            for (std::size_t i = 0u; i != 8u; ++i)
+                if (i != 2u) TEST_EXPECT(ctx, constructed.data()[i] == 0u);
+        }
+    }
+    TEST_EXPECT(ctx, context.is_attribution_empty());
+}
+
 static void test_completed_bakes(TTestContext& ctx)
 {
     SSchemaFixture source, destination;
@@ -989,6 +1079,8 @@ static void test_completed_bakes(TTestContext& ctx)
     test_bake_failures<false>(ctx);
     test_bake_allocation_failures<true>(ctx);
     test_bake_allocation_failures<false>(ctx);
+    test_new_payload_gaps<true>(ctx);
+    test_new_payload_gaps<false>(ctx);
 }
 static const std::string materialisation_types = R"({"types":{"structures":{
     "Zero":{"members":[]},

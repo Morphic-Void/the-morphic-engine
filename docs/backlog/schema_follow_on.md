@@ -85,7 +85,7 @@ contracts for local and Host backing. It also records live baking, description
 materialisation and document-promotion stripping interfaces, with contiguous
 completed blocks and private staged construction permitted. Direct construction
 into final allocation is an expected later optimisation. Host loading, admission
-and saving will preserve the full buffer while exposing a separate document-prefix
+and saving preserve the full buffer while exposing a separate document-prefix
 view. Explicit bundle saves write current storage; automatic bundle persistence
 and writes to bundle entries are outside scope. Shared load options and layered
 diagnostic contracts now distinguish format, schema binding, specialised loading
@@ -104,8 +104,10 @@ implemented and user-reviewed, as are stage 2 format validation and diagnostics.
 Stage 3 ownership, attachment and release are also user-reviewed. Stage 4 live
 baking into completed blocks is also user-reviewed. Stage 5 description
 materialisation and stage 6 completed-block stripping are also user-reviewed.
-Stage 7 Host complete-buffer preservation is implemented for review. Stage 8
-end-to-end acceptance has not started.
+Stage 7 Host complete-buffer preservation is also user-reviewed. Stage 8
+end-to-end acceptance and documentation completion are implemented for review.
+Persistence is implemented; aggregation, collision policies, complete-document
+composition and direct construction into final allocation remain separate work.
 
 Required implementation work-plan pass (stage 1):
 

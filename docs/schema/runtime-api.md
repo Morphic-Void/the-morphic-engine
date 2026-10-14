@@ -44,7 +44,7 @@ Include the header for the role or operation being used:
 support; live data headers also include the corresponding baked header for shared
 diagnostics and views.
 
-### Persistence envelope foundation
+### Persistence envelope
 
 `SDataBlockLoadOptions` defaults `compare_embedded` to false. Block diagnostics
 carry a stage, reason and optional source location; `SInstancesBlockDiagnostic`
@@ -181,6 +181,8 @@ of values and marks the document. Bulk data counts inferred from arrays are
 made explicit before values can be removed, including for zero-byte records.
 The result uses the same contiguous assembly and final attachment as live baking.
 It retains valid source offsets, including gaps; it does not promise packing.
+Newly allocated bytes before and between nonempty entry extents are zeroed.
+This does not clear padding within individual values or change supplied payloads.
 
 Preparation uses temporary live/baked documents, a payload owner and role
 scratch before final assembly. Direct construction into final storage remains
@@ -216,6 +218,36 @@ views cover the exact entry range, excluding bundle padding, and use the existin
 retained lease. JSON saving serialises only the document. See the
 [asset service contracts](../assets/asynchronous_asset_services.md) for cache,
 alignment and disposal rules. Schema binding and attachment remain caller-side.
+
+### Host persistence orchestration
+
+Use `EAssetFileFormat::baked` and request 128-byte alignment for completed `.bid`
+and `.bbd` loads. Extensions help identify files visually; they do not select a
+Host format or replace the block's content validation. Keep type definitions
+separately owned and resolved before attaching either role.
+
+| Route | Caller sequence |
+| --- | --- |
+| Live bake | Bake into a completed block; consume locally or release its local storage for admission. |
+| JSON/baked description | Parse/load the description; call `materialise()`; release the independent source when finished. |
+| Local admission | `release_local()` into `BakedAssetTransfer::storage.value`; submit through owning transport; attach a new block using the returned ID and full `byte_view()`. |
+| Complete file | Load as baked at alignment 128; call `attach_asset()` with the returned ID, full bytes, caller schema, options and diagnostic. |
+| Binary save | Submit `AssetSaveRequest` with the retained ID and baked format to a writable filesystem destination. |
+| Release | Quiesce role users, clear the block, then dispose the asset separately after any admitted work has drained. |
+
+Successful Host loading establishes retained bytes, not schema compatibility.
+Failed attachment leaves the caller responsible for the still-retained asset;
+it may retry with the correct schema or dispose it. Source retention keeps a
+successfully admitted asset available even if saving fails. Discard retention
+returns no retained interface and releases temporary backing after work completes.
+A save result in transit does not itself extend a borrowed view's lifetime.
+
+Bundle entries follow the same attachment sequence and existing retained backing
+lease. Closing a bundle prevents new loads but retained entries remain usable and
+can be saved to writable filesystem destinations. Writes to bundle entries are
+rejected. An explicit whole-bundle save writes its current bytes; edits do not
+trigger automatic dirty tracking or persistence. Promotion creates independent
+document storage and does not modify the source bundle.
 
 ### Stripping completed blocks
 
@@ -783,8 +815,8 @@ zero-count entry is not output-ready.
 Packing traverses the live document rather than record creation history, aligns
 each nonempty extent to its resolved type and rewrites the output offsets. It
 copies complete record bytes, including internal padding, and drops unreferenced
-working extents without clearing newly created gaps. Zero-byte entries retain
-their positive count and use offset zero, including between nonempty entries.
+working extents. Newly created inter-entry alignment gaps are zeroed. Zero-byte
+entries retain their positive count and use offset zero, including between nonempty entries.
 The output payload is independent of the source even in embedded form; a caller
 writing embedded-only text need not save it as a sidecar.
 
@@ -950,7 +982,9 @@ explicitly resolved baked or live destination schema. It checks every used
 type for structural and value-interpretation compatibility, reconciles declarations
 for retained-value forms, then packs complete
 snapshots in document hierarchy order. Nonempty extents have type alignment;
-zero-byte extents use offset zero. A failed preparation leaves both outputs
+newly created gaps between them are zeroed without changing any snapshot bytes,
+including internal padding. Zero-byte extents use offset zero and do not reset
+the end of the preceding nonempty extent. A failed preparation leaves both outputs
 unpublished. Diagnostics identify a failing source occurrence where applicable.
 
 Both `EDataOutputForm::external` and `embedded` regenerate declarations from
@@ -1166,10 +1200,12 @@ with a role is required for a directly supplied query and buffer.
 `CLiveInstances::clear_unused_storage()` and
 `CLiveBulkData::clear_unused_storage()` use their current document, bound
 schema and owned payload through the same document-buffer operation. Callers
-may invoke clearing on live backing, but packing can create new gaps or copy
-aggregate padding, so deterministic binary output calls it on the final
-output buffer as well. No construction, capture, remap or output operation
-invokes it automatically.
+may invoke clearing on live backing. Packing zeroes new inter-entry gaps but
+preserves aggregate padding and unused bits copied inside records; callers
+requiring those to be canonical can clear the final output buffer as well.
+No construction, capture, remap or output operation invokes this broader
+unused-storage operation automatically. Loading, ordinary saving and stripping
+preserve all existing payload bytes, including nonzero gaps.
 
 The default preserves unused bits in bit-storage words. Pass
 `EUnusedBits::clear` to zero only bits outside declared field masks; declared

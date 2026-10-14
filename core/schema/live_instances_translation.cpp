@@ -585,13 +585,19 @@ bool CLiveInstances::prepare_output_to(CLiveDocument& document, CByteBuffer& pay
         diagnostic.reason = EInstanceLoadReason::allocation_failed;
         return false;
     }
+    std::size_t copied_end{};
     for (std::size_t i = 0u; i < output_records.size(); ++i)
     {
         const SInstanceOutputRecord& record = output_records[i];
         if (record.extent != 0u)
-        {
+        {   //  Clear only newly created gaps; complete snapshots retain their bytes.
+            if (record.offset > copied_end)
+            {
+                std::memset((staged_payload.data() + copied_end), 0, (record.offset - copied_end));
+            }
             const SRecord& original = m_records[record.source];
             std::memcpy((staged_payload.data() + record.offset), (m_payload.data() + original.offset), record.extent);
+            copied_end = static_cast<std::size_t>(record.offset) + record.extent;
         }
     }
     document = std::move(staged_document);

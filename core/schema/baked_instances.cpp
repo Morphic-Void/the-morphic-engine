@@ -557,9 +557,18 @@ bool CBakedInstances::materialise(CByteBuffer& returned_owner, SInstanceDiagnost
     }
     const CResolvedSchema* const schema = m_binding.resolved();
     detail::CDocumentRead document{ m_document };
+    std::size_t constructed_end{};
     for (std::size_t ordinal = 0u; ordinal < staged.size(); ++ordinal)
     {
         const SRecord& record = staged[ordinal];
+        if (record.extent != 0u)
+        {   //  This payload is new; supplied payloads never pass through construction.
+            if (record.offset > constructed_end)
+            {
+                std::memset((payload.data() + constructed_end), 0, (record.offset - constructed_end));
+            }
+            constructed_end = static_cast<std::size_t>(record.offset) + record.extent;
+        }
         std::uint8_t* const target = (record.extent == 0u) ? nullptr : (payload.data() + record.offset);
         const detail::SOccurrence declaration{ record.declaration };
         detail::SValueDiagnostic value_error;

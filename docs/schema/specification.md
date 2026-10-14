@@ -18,8 +18,8 @@ Future work and unresolved proposals live in the
 Completed delivery history is summarised in the
 [project milestones](../project/completed_milestones.md#schema-system-and-refinement).
 
-The persistence work currently supplies shared diagnostics and internal
-validation of the version 1 instance/bulk data file envelope described in the
+Persistence supplies shared diagnostics and validation of the version 1
+instance/bulk data file envelope described in the
 [revision](persistence-and-aggregation.md#agreed-version-1-persistence-format).
 `CBakedInstancesBlock` and `CBakedBulkDataBlock` contain the specialised roles
 and either own one complete allocation or borrow a retained asset range.
@@ -36,8 +36,36 @@ remains a caller step. Completed blocks can be stripped through generic document
 promotion, preserving inferred bulk data counts and every payload byte in an
 independent output allocation. Generic Host loading, admission and binary saving
 preserve complete buffers for loose files and bundle entries; specialised
-attachment remains a caller step. Cross-layer acceptance is the remaining stage.
+attachment remains a caller step.
 The existing bake overloads returning separate owners remain available.
+
+Completed instance files use `.bid`; completed bulk data files use `.bbd`.
+Their `fileType` identifiers are `morphic-instance-data` and `morphic-bulk-data`.
+Both carry unsigned `version: 1` and `payloadSize` metadata and exactly one role
+section, `instances` or `data`, with an optional Boolean `stripped` marker.
+The base is 128-byte aligned. A nonempty payload starts at the first 128-byte
+boundary after the baked document, with zero container padding; an empty payload
+ends at the document's exact length. The file ends at the payload's exact end,
+excluding spare capacity and external bundle separators/padding. The complete
+file is bounded by the existing 2 GiB ceiling. See the version 1 envelope for the
+full validation order and empty-content rules.
+
+The caller supplies and owns the resolved schema; no compatibility signature or
+schema identity is persisted. Binary data is authoritative, with embedded-value
+comparison available through `SDataBlockLoadOptions::compare_embedded`. Loading
+never repairs missing binary data. Materialisation constructs all required data
+from a sufficient description as a separate operation. `.btd` remains an ordinary
+types-only baked document without persisted resolved lookups. Bundles provide
+combined loading while these specialised files retain their separate identities.
+
+Fresh payload construction zeroes unused bytes before and between nonempty entry
+extents. Live output packing likewise zeroes the alignment gaps it creates while
+copying each complete record unchanged, including its internal padding and unused
+bits. Zero-byte entries occupy no storage and do not reset the preceding extent.
+This is a writer/construction rule: loading, saving and stripping retain existing
+payload bytes, including nonzero gaps and trailing bytes. Readers do not require
+payload gaps to be zero; only the document-to-payload container padding has that
+format requirement.
 
 ## Purpose and scope
 

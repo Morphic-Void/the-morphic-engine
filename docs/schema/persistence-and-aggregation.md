@@ -22,7 +22,8 @@ and block ownership, attachment and release are implemented and user-reviewed.
 Live baking into completed blocks is implemented and user-reviewed.
 Description materialisation is implemented and user-reviewed. Completed-block
 stripping is implemented and user-reviewed. Host complete-buffer preservation
-is implemented for stage 7 review; end-to-end acceptance remains. This revision
+is implemented and user-reviewed; stage 8 acceptance and documentation completion
+are implemented for review. This revision
 is not a detailed implementation plan or authority to begin code changes. Required work
 passes identified below must be included when implementation is planned.
 
@@ -176,6 +177,13 @@ are permitted, as in the existing supplied-payload loaders. Those bytes form
 part of the entity and are preserved when saving it. Ordinary saving must not
 silently repack or truncate the payload; construction/output preparation may
 produce packed storage.
+
+New payload construction zeroes bytes before and between nonempty entry extents.
+Output packing zeroes the inter-entry alignment gaps it creates while copying
+complete records unchanged, including internal padding and unused bits. This
+does not impose zero padding on existing payloads: loading, saving and stripping
+preserve their gaps and trailing bytes exactly. Zero-byte entries do not reset
+the preceding nonempty extent when clearing new gaps.
 
 ### Binary authority and comparison
 
@@ -944,13 +952,13 @@ to be considered when defining an owner or transfer API.
 
 ## Open design decisions
 
-The persistence scope decisions are settled sufficiently to prepare a concrete
-implementation plan. The agreed contracts include the version 1 format, binary
-authority with opt-in comparison, block lifecycle and construction, contiguous
+The persistence scope decisions are settled and implemented through the
+[implementation plan](persistence-implementation-plan.md). The contracts include
+the version 1 format, binary authority with opt-in comparison, block lifecycle and construction, contiguous
 completed storage, document-based stripping, Host full-buffer persistence,
 diagnostics, caller-supplied schemas, all-or-nothing materialisation and explicit
-caller-side construction after parsing. Bulk data naming standardisation is a
-required work pass without compatibility aliases.
+caller-side construction after parsing. Bulk data naming standardisation is
+complete without compatibility aliases.
 
 Explicit bundle saving writes current storage. Automatic bundle persistence,
 writes to bundle entries and compatibility signatures remain outside this work.
@@ -958,8 +966,8 @@ writes to bundle entries and compatibility signatures remain outside this work.
 ### Implementation planning details
 
 The [implementation plan](persistence-implementation-plan.md) now addresses these
-items. They remain implementation and review work, not unresolved persistence
-scope decisions:
+items. They are implemented, with final acceptance and documentation awaiting
+stage 8 review, rather than unresolved persistence scope decisions:
 
 - Diagnostic stage/reason enum type names, exact field layouts and location
   discriminator representation, plus final declarations of the construction
@@ -968,8 +976,8 @@ scope decisions:
 - Delivery sequencing of the bulk data standardisation pass and the persistence
   changes. The naming pass is implemented and user-reviewed as stage 1.
 - Concrete Host integration changes and an audit of consumers of prefix-only
-  views, including load, transfer, result, cache and save paths. Implemented for
-  stage 7 review; schema-specific cross-layer acceptance remains in stage 8.
+  views, including load, transfer, result, cache and save paths. Stage 7 is
+  user-reviewed; schema-specific cross-layer acceptance is included in stage 8.
 - Initial staged allocation strategy, checked sizing and temporary-memory costs,
   using existing preparation facilities followed by final assembly.
 - Focused validation coverage for complete-byte preservation, loose-file/bundle

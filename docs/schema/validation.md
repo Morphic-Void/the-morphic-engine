@@ -78,6 +78,13 @@ through source validation, promotion, baking, assembly and final attachment.
 Temporary-output diagnostics are cleared and all private allocations and schema
 bindings are released on failure.
 
+New-payload gap tests use an allocator that fills every allocation with nonzero
+bytes. Both roles and all output forms check zeroed alignment gaps, repeated
+byte-identical output, preserved source and internal record padding, and zero-byte
+entries between nonempty extents. Description materialisation additionally checks
+leading and explicit-offset gaps. Existing supplied-payload, stripping and Host
+persistence tests continue checking exact preservation of existing nonzero bytes.
+
 Host complete-buffer coverage lives in `BakedDocumentTransfer`, `BundleService`
 and `BundleRequests`. It checks appended bytes through owning transfer, loose
 loading, borrowed bundle views, cache reuse and binary saving, with separate
@@ -86,8 +93,26 @@ requested alignment, reject mismatched cache representations, reparse JSON outpu
 reject writes into bundles and save retained entries after bundle closure.
 File workflows exercise shared and dedicated conditioning workers. The real
 `tests/host_workers/run_tests.ps1` harness also checks bootstrap and worker routing.
-Schema-specific cross-layer workflows remain in stage 8 of the
-[persistence plan](persistence-implementation-plan.md).
+Schema-specific cross-layer workflows in the same request suite exercise both
+`.bid` and `.bbd` with a shared caller-owned schema: live bake, release/admission,
+attachment, complete binary save and physical reload; JSON load, explicit
+materialisation and independent parsed-source disposal; bundle construction from
+saved files, attachment, closure and loose saving/reloading. Typed entry values
+and complete file bytes are checked at each boundary. Further cases cover failed
+attachment after successful Host loading, source/discard retention, retained
+assets after save failure, and disposal waiting for admitted saves. Both shared
+and dedicated worker routes run these cases.
+
+A bounded mutable document edit in test-owned bundle storage verifies that an
+explicit whole-bundle save writes current bytes. The prior disk file remains
+unchanged before saving; a promoted independent document leaves its source
+unchanged. The test retains mutable access before Host publication and mutates
+only while borrowers are quiescent; it adds no production mutation API.
+
+The [persistence plan](persistence-implementation-plan.md) records the final
+Debug/Release x64/Win32 Core matrix, Host worker acceptance and Debug x64 module
+lifecycle harness with one and two workers. The lifecycle harness covers actual
+DLL retirement, in-flight saving, bundle closure and shutdown.
 
 Logs and generated files include the tag and process ID. The runner prints their
 paths; default output is beneath `development/logical-roots/test-output` and

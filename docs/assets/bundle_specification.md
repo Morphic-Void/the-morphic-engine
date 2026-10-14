@@ -310,8 +310,15 @@ views around resizing; never resize while published views or asynchronous
 borrowers remain in use. Bundle schema, layout validation and lookup remain
 separate: a valid baked prefix alone does not validate a complete bundle.
 
-Once the completed bundle is published, its complete backing storage remains
-immutable. Runtime asset references and cache associations stay outside it.
+Published views are read-only; directory structure, file extents and allocation
+addresses remain fixed. Runtime asset references and cache associations stay
+outside the bundle. An explicitly authorised bounded content edit through an
+existing mutable document view requires writable backing and quiescent borrowers;
+it must preserve directory structure and file extents. There is no new public
+mutable bundle access or dirty-state mechanism. Explicit whole-bundle saving
+writes the current complete bytes, including such edits, while independent
+document promotion leaves the source bundle unchanged. No change automatically
+rewrites the source file, and virtual entry paths remain read-only.
 
 ## Loading and virtual binding
 
@@ -795,6 +802,10 @@ identities/views rather than lists of entries or arbitrary payload content.
 in `MorphicTests -t1` cover the format, deterministic construction, bindings,
 retained lifetimes and real/controlled worker routing. Failure coverage includes
 allocation rollback, failed dispatch and shutdown with preparation pending.
+`BundleRequests` also exercises `.bid`/`.bbd` typed attachment and exact byte
+preservation through bundle closure and loose saving, plus explicit whole-bundle
+saving after a bounded document edit. See the
+[schema validation coverage](../schema/validation.md).
 
 The normal Executive exercises bake/reference/save/close/reload. The
 [DLL lifecycle harness](../modules/asynchronous_module_lifecycle.md#validation)

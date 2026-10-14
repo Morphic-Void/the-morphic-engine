@@ -1012,12 +1012,18 @@ bool CLiveBulkData::prepare_output_to(CLiveDocument& document, CByteBuffer& payl
         diagnostic.reason = EBulkDataLoadReason::allocation_failed;
         return false;
     }
+    std::size_t copied_end{};
     for (std::size_t index = 0u; index < records.size(); ++index)
     {
         const SBulkDataOutputRecord& record = records[index];
         if (record.extent != 0u)
-        {
+        {   //  Clear only newly created gaps; complete records retain their bytes.
+            if (record.offset > copied_end)
+            {
+                std::memset((staged_payload.data() + copied_end), 0, (record.offset - copied_end));
+            }
             std::memcpy((staged_payload.data() + record.offset), record.bytes, record.extent);
+            copied_end = static_cast<std::size_t>(record.offset) + record.extent;
         }
     }
     if (form == EDataOutputForm::embedded)
