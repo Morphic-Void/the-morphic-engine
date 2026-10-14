@@ -41,7 +41,7 @@ enum class EUnusedBits : std::uint8_t { preserve = 0u, clear };
 //  The supplied writable view defines the used payload range. Locator metadata
 //  identifies occupied extents; every other byte in the view is cleared.
 [[nodiscard]] bool clear_unused_storage(const CResolvedSchema& schema, const CInstanceDocumentQuery& document, const CByteView payload, const EUnusedBits bits = EUnusedBits::preserve) noexcept;
-[[nodiscard]] bool clear_unused_storage(const CResolvedSchema& schema, const CBulkDocumentQuery& document, const CByteView payload, const EUnusedBits bits = EUnusedBits::preserve) noexcept;
+[[nodiscard]] bool clear_unused_storage(const CResolvedSchema& schema, const CBulkDataDocumentQuery& document, const CByteView payload, const EUnusedBits bits = EUnusedBits::preserve) noexcept;
 
 }   // namespace schema
 

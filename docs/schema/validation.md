@@ -59,15 +59,15 @@ existing runtime coverage. Source/project changes use the repository's
 | Resolution and queries | Live/baked parity, forward references, cycle/duplicate rejection, exact property sets, named/ordinal agreement, occurrence mapping, clear/move/re-resolution lifetimes. |
 | Types and layout | Empty type identities and zero-byte members; nested and count-one arrays; natural and explicit layout; increased alignment; overlap/bounds diagnostic order; recursive gaps; the inclusive 2 GiB extent ceiling. |
 | Values and defaults | Integer boundaries and signedness; floating rounding, overflow, signed zero and special strings; existing fp16 conversion; enum aliases and implicit first-label defaults; UNORM/SNORM raw codes and floating inputs. |
-| Input structure | Complete bulk records; instance defaults and inherited positional tails; named singleton normalisation and scalar shorthand; invalid nulls, excess values and unsupported aggregate defaults. |
+| Input structure | Complete bulk data records; instance defaults and inherited positional tails; named singleton normalisation and scalar shorthand; invalid nulls, excess values and unsupported aggregate defaults. |
 | Ownership and failure | Non-owning baked views, owned live payloads, schema binding invalidation, non-destructive translation, allocation-failure cleanup and the publication rules of each operation. |
-| Capture and editing | Independent snapshots, selected-value preservation, parent-before-child propagation, repair of discarded unrepresentable selections, and bulk replacement after reconciliation/promotion. |
+| Capture and editing | Independent snapshots, selected-value preservation, parent-before-child propagation, repair of discarded unrepresentable selections, and bulk data replacement after reconciliation/promotion. |
 | Reconciliation and output | Binary authority, changed defaults, immediate-parent comparison, shortest necessary array prefixes, embedded/external reload, encoded fidelity and source preservation. |
 | Stripped output | Required payloads, navigation/binary access, schema/default retention, empty types, malformed markers, contradictory declarations, promotion reconstruction and exact raw encodings. |
 | Integer presentation | Declared-type policies, full-width masks, nested defaults, structural thresholds, live/baked sources, strict JSON, repeated preparation and inferred structure details. |
 | Remapping | Exact-type direct-member matching, default-sensitive compound compatibility, partial/no-match plans, destination claims, range coalescing, all copy paths, exact-stride preflight and untouched unmatched bytes. |
 | Unused storage | Nested padding and optional unused-bit clearing, preservation of every addressable field, complete fixed-array views, document gaps, idempotence and failure before writes. |
-| Access cost | Baked sorted indexes, ordered live records, cached bulk type bindings, compatibility caching, retained physical-member order and allocation-free access/clearing. |
+| Access cost | Baked sorted indexes, ordered live records, cached bulk data type bindings, compatibility caching, retained physical-member order and allocation-free access/clearing. |
 
 The data-model suites separately cover integer metadata, string flags, subtree
 copying, promotion/baking and their allocation failures. Schema-specific rules
@@ -79,9 +79,9 @@ promise general timing improvements or that all name lookup is indexed.
 
 `test_schema_sample` reads [schema-example.json](schema-example.json) through the
 engine parser, bakes and resolves its schema, checks expected layouts, generates
-compiler fixtures, materialises instances and bulk records, promotes both roles,
+compiler fixtures, materialises instances and bulk data records, promotes both roles,
 and checks embedded/external baking and reload. Its eleven type definitions,
-eleven instance declarations and three bulk records exercise more than resolution.
+eleven instance declarations and three bulk data records exercise more than resolution.
 See the [sample notes](schema-example-notes.md) for expected values and layouts.
 
 ## Validation history

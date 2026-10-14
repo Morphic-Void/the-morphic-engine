@@ -6,7 +6,7 @@
 //  Authors: Ritchie Brannan / OpenAI Codex
 //  Date:    01 Oct 26
 //
-//  Live bulk ownership, capture, promotion, reconciliation and baked output.
+//  Live bulk data ownership, capture, promotion, reconciliation and baked output.
 
 #include "schema/live_bulk_data.hpp"
 #include "schema/type_compatibility.hpp"
@@ -41,12 +41,12 @@ namespace schema
     return false;
 }
 
-struct SDetachedBulkNodes
+struct SDetachedBulkDataNodes
 {
     CLiveDocument& document;
     CNodeKey group, entry, locator;
 
-    ~SDetachedBulkNodes() noexcept
+    ~SDetachedBulkDataNodes() noexcept
     {
         if (entry.is_valid() && document.contains(entry) && document.is_detached(entry))
         {
@@ -161,20 +161,20 @@ void CLiveBulkData::disable() noexcept
 //  Queries and payload access
 //==============================================================================
 
-CBulkDocumentQuery CLiveBulkData::document_query() const noexcept
+CBulkDataDocumentQuery CLiveBulkData::document_query() const noexcept
 {
-    return CBulkDocumentQuery{ m_document };
+    return CBulkDataDocumentQuery{ m_document };
 }
 
-CBulkHandle CLiveBulkData::data_root() const noexcept
+CBulkDataHandle CLiveBulkData::data_root() const noexcept
 {
-    const CBulkDocumentQuery query = document_query();
+    const CBulkDataDocumentQuery query = document_query();
     return query.object_child(query.root(), CStringView{ "data" });
 }
 
-bool CLiveBulkData::record_index(const CBulkHandle handle, std::size_t& index) const noexcept
+bool CLiveBulkData::record_index(const CBulkDataHandle handle, std::size_t& index) const noexcept
 {
-    const detail::SOccurrence occurrence = detail::SBulkHandleAccess::occurrence(handle);
+    const detail::SOccurrence occurrence = detail::SBulkDataHandleAccess::occurrence(handle);
     if (!loaded_ready() || !occurrence.is_live())
     {
         return false;
@@ -182,19 +182,19 @@ bool CLiveBulkData::record_index(const CBulkHandle handle, std::size_t& index) c
     return find_live_record(m_records, occurrence.live, index);
 }
 
-CBulkHandle CLiveBulkData::find_entry(const CStringView& type, const CStringView& name) const noexcept
+CBulkDataHandle CLiveBulkData::find_entry(const CStringView& type, const CStringView& name) const noexcept
 {
     if (!loaded_ready())
     {
         return {};
     }
-    const CBulkDocumentQuery query = document_query();
-    const CBulkHandle found = query.object_child(query.object_child(data_root(), type), name);
+    const CBulkDataDocumentQuery query = document_query();
+    const CBulkDataHandle found = query.object_child(query.object_child(data_root(), type), name);
     std::size_t index{};
-    return record_index(found, index) ? found : CBulkHandle{};
+    return record_index(found, index) ? found : CBulkDataHandle{};
 }
 
-bool CLiveBulkData::observe(const SRecord& record, SBulkEntryView& result) const noexcept
+bool CLiveBulkData::observe(const SRecord& record, SBulkDataEntryView& result) const noexcept
 {
     const CResolvedSchema* const schema = m_binding.resolved();
     const CSchemaIndex type = record.type;
@@ -206,7 +206,7 @@ bool CLiveBulkData::observe(const SRecord& record, SBulkEntryView& result) const
     {
         return false;
     }
-    SBulkEntryView value;
+    SBulkDataEntryView value;
     value.type = type;
     value.count = record.count;
     value.offset = record.offset;
@@ -217,20 +217,20 @@ bool CLiveBulkData::observe(const SRecord& record, SBulkEntryView& result) const
     return true;
 }
 
-bool CLiveBulkData::entry(const CBulkHandle handle, SBulkEntryView& result) const noexcept
+bool CLiveBulkData::entry(const CBulkDataHandle handle, SBulkDataEntryView& result) const noexcept
 {
     std::size_t index{};
     return record_index(handle, index) && observe(m_records[index], result);
 }
 
-bool CLiveBulkData::mutable_entry(const CBulkHandle handle, SMutableBulkEntryView& result) noexcept
+bool CLiveBulkData::mutable_entry(const CBulkDataHandle handle, SMutableBulkDataEntryView& result) noexcept
 {
-    SBulkEntryView value;
+    SBulkDataEntryView value;
     if (!entry(handle, value))
     {
         return false;
     }
-    SMutableBulkEntryView mutable_value;
+    SMutableBulkDataEntryView mutable_value;
     mutable_value.type = value.type;
     mutable_value.count = value.count;
     mutable_value.offset = value.offset;
@@ -254,15 +254,15 @@ bool CLiveBulkData::clear_unused_storage(const EUnusedBits bits) noexcept
 //  Capture and entry editing
 //==============================================================================
 
-CBulkHandle CLiveBulkData::store(const CStringView& type, const CStringView& name,
+CBulkDataHandle CLiveBulkData::store(const CStringView& type, const CStringView& name,
     const CByteConstView& source, const std::uint32_t count, const bool unpopulated,
-    const bool replace, SBulkDiagnostic& diagnostic) noexcept
+    const bool replace, SBulkDataDiagnostic& diagnostic) noexcept
 {
     diagnostic = {};
     const CResolvedSchema* const schema = m_binding.resolved();
     if (!loaded_ready() || type.empty() || name.empty() || !schema)
     {
-        diagnostic.reason = EBulkLoadReason::invalid_input;
+        diagnostic.reason = EBulkDataLoadReason::invalid_input;
         return {};
     }
     const CSchemaIndex type_index = schema->find_type(type);
@@ -270,18 +270,18 @@ CBulkHandle CLiveBulkData::store(const CStringView& type, const CStringView& nam
     std::uint32_t extent{};
     if (!type_index.is_valid() || !schema->type(type_index, layout))
     {
-        diagnostic.reason = EBulkLoadReason::unknown_type;
+        diagnostic.reason = EBulkDataLoadReason::unknown_type;
         return {};
     }
     if (!extent_for(layout, count, extent))
     {
-        diagnostic.reason = EBulkLoadReason::invalid_range;
+        diagnostic.reason = EBulkDataLoadReason::invalid_range;
         return {};
     }
     if (!unpopulated && (extent != 0u) && (!source.is_ready() || (source.size() < extent) ||
         ((reinterpret_cast<std::uintptr_t>(source.data()) & (layout.alignment - 1u)) != 0u)))
     {
-        diagnostic.reason = EBulkLoadReason::invalid_range;
+        diagnostic.reason = EBulkDataLoadReason::invalid_range;
         return {};
     }
     CByteBuffer type_storage, name_storage;
@@ -289,16 +289,16 @@ CBulkHandle CLiveBulkData::store(const CStringView& type, const CStringView& nam
     if (!document_translation::stabilise_document_name(type, type_storage, stable_type) ||
         !document_translation::stabilise_document_name(name, name_storage, stable_name))
     {
-        diagnostic.reason = EBulkLoadReason::allocation_failed;
+        diagnostic.reason = EBulkDataLoadReason::allocation_failed;
         return {};
     }
-    const CBulkHandle existing = find_entry(stable_type, stable_name);
+    const CBulkDataHandle existing = find_entry(stable_type, stable_name);
     if (existing.is_valid() && !replace)
     {
-        diagnostic.reason = EBulkLoadReason::invalid_input;
+        diagnostic.reason = EBulkDataLoadReason::invalid_input;
         return {};
     }
-    const CNodeKey data = detail::SBulkHandleAccess::occurrence(data_root()).live;
+    const CNodeKey data = detail::SBulkDataHandleAccess::occurrence(data_root()).live;
     CNodeKey group = m_document.object_child(data, stable_type);
     const bool new_group = !group.is_valid();
     std::size_t record_ordinal{};
@@ -319,7 +319,7 @@ CBulkHandle CLiveBulkData::store(const CStringView& type, const CStringView& nam
             offset = (position + alignment - 1u) & ~(alignment - 1u);
             if ((offset > memory::k_byte_size_ceiling) || (extent > (memory::k_byte_size_ceiling - offset)))
             {
-                diagnostic.reason = EBulkLoadReason::invalid_range;
+                diagnostic.reason = EBulkDataLoadReason::invalid_range;
                 return {};
             }
         }
@@ -329,17 +329,17 @@ CBulkHandle CLiveBulkData::store(const CStringView& type, const CStringView& nam
         group = m_document.create_object(stable_type);
         if (!group.is_valid())
         {
-            diagnostic.reason = EBulkLoadReason::allocation_failed;
+            diagnostic.reason = EBulkDataLoadReason::allocation_failed;
             return {};
         }
     }
     CNodeKey entry_node = replacing ? prior.entry : m_document.create_object(stable_name);
     CNodeKey locator = make_locator(m_document, offset, count, extent);
-    SDetachedBulkNodes cleanup{ m_document, new_group ? group : CNodeKey{}, (replacing ? CNodeKey{} : entry_node), locator };
+    SDetachedBulkDataNodes cleanup{ m_document, new_group ? group : CNodeKey{}, (replacing ? CNodeKey{} : entry_node), locator };
     if (!entry_node.is_valid() || !locator.is_valid() ||
         (!replacing && (!append_node(m_document, entry_node, locator) || !m_records.reserve(m_records.size() + 1u))))
     {
-        diagnostic.reason = EBulkLoadReason::allocation_failed;
+        diagnostic.reason = EBulkDataLoadReason::allocation_failed;
         return {};
     }
     CByteBuffer staged;
@@ -347,7 +347,7 @@ CBulkHandle CLiveBulkData::store(const CStringView& type, const CStringView& nam
     {
         if (!staged.allocate(extent, k_max_alignment) || !staged.set_size(extent))
         {
-            diagnostic.reason = EBulkLoadReason::allocation_failed;
+            diagnostic.reason = EBulkDataLoadReason::allocation_failed;
             return {};
         }
         std::memcpy(staged.data(), source.data(), extent);
@@ -357,7 +357,7 @@ CBulkHandle CLiveBulkData::store(const CStringView& type, const CStringView& nam
         const std::size_t required = static_cast<std::size_t>(offset) + extent;
         if (!m_payload.reserve(required, k_max_alignment) || !m_payload.set_size(required))
         {
-            diagnostic.reason = EBulkLoadReason::allocation_failed;
+            diagnostic.reason = EBulkDataLoadReason::allocation_failed;
             return {};
         }
     }
@@ -367,14 +367,14 @@ CBulkHandle CLiveBulkData::store(const CStringView& type, const CStringView& nam
         const CNodeKey old_payload = m_document.detach_payload(old_locator);
         if (!old_payload.is_valid())
         {
-            diagnostic.reason = EBulkLoadReason::allocation_failed;
+            diagnostic.reason = EBulkDataLoadReason::allocation_failed;
             return {};
         }
         if (!m_document.set_name(locator, CStringView{}) ||
             !m_document.attach_payload(old_locator, locator).is_valid())
         {
             disable();
-            diagnostic.reason = EBulkLoadReason::invalid_locator;
+            diagnostic.reason = EBulkDataLoadReason::invalid_locator;
             return {};
         }
         (void)m_document.erase(old_payload);
@@ -382,7 +382,7 @@ CBulkHandle CLiveBulkData::store(const CStringView& type, const CStringView& nam
         if (old_data.is_valid() && !m_document.erase(old_data))
         {
             disable();
-            diagnostic.reason = EBulkLoadReason::invalid_input;
+            diagnostic.reason = EBulkDataLoadReason::invalid_input;
             return {};
         }
         m_records[record_ordinal] = { entry_node, group, type_index, count, offset, extent };
@@ -396,13 +396,13 @@ CBulkHandle CLiveBulkData::store(const CStringView& type, const CStringView& nam
             {
                 (void)m_document.erase(group);
             }
-            diagnostic.reason = EBulkLoadReason::allocation_failed;
+            diagnostic.reason = EBulkDataLoadReason::allocation_failed;
             return {};
         }
         if (!m_records.push_back({ entry_node, group, type_index, count, offset, extent }))
         {
             disable();
-            diagnostic.reason = EBulkLoadReason::allocation_failed;
+            diagnostic.reason = EBulkDataLoadReason::allocation_failed;
             return {};
         }
     }
@@ -413,32 +413,32 @@ CBulkHandle CLiveBulkData::store(const CStringView& type, const CStringView& nam
     cleanup.group = {};
     cleanup.entry = {};
     cleanup.locator = {};
-    return detail::SBulkHandleAccess::make(detail::SOccurrence{ entry_node });
+    return detail::SBulkDataHandleAccess::make(detail::SOccurrence{ entry_node });
 }
 
-CBulkHandle CLiveBulkData::capture(const CStringView& type, const CStringView& name,
-    const CByteConstView& source, const std::uint32_t count, SBulkDiagnostic& diagnostic) noexcept
+CBulkDataHandle CLiveBulkData::capture(const CStringView& type, const CStringView& name,
+    const CByteConstView& source, const std::uint32_t count, SBulkDataDiagnostic& diagnostic) noexcept
 {
     return store(type, name, source, count, false, true, diagnostic);
 }
 
-CBulkHandle CLiveBulkData::create_unpopulated(const CStringView& type, const CStringView& name,
-    const std::uint32_t count, SBulkDiagnostic& diagnostic) noexcept
+CBulkDataHandle CLiveBulkData::create_unpopulated(const CStringView& type, const CStringView& name,
+    const std::uint32_t count, SBulkDataDiagnostic& diagnostic) noexcept
 {
     return store(type, name, {}, count, true, false, diagnostic);
 }
 
-CBulkHandle CLiveBulkData::create_records(const CStringView& type, const CStringView& name,
-    const CBulkDocumentQuery& source_query, const CBulkHandle records_array, SBulkDiagnostic& diagnostic) noexcept
+CBulkDataHandle CLiveBulkData::create_records(const CStringView& type, const CStringView& name,
+    const CBulkDataDocumentQuery& source_query, const CBulkDataHandle records_array, SBulkDataDiagnostic& diagnostic) noexcept
 {
     diagnostic = {};
-    const detail::SOccurrence array = detail::SBulkHandleAccess::occurrence(records_array);
+    const detail::SOccurrence array = detail::SBulkDataHandleAccess::occurrence(records_array);
     const detail::CDocumentRead& document = source_query.m_query;
     const CResolvedSchema* const schema = m_binding.resolved();
     if (!loaded_ready() || !schema || !document.contains(array) ||
         (document.value_kind(array) != EDocumentValueKind::array))
     {
-        diagnostic.reason = EBulkLoadReason::invalid_input;
+        diagnostic.reason = EBulkDataLoadReason::invalid_input;
         return {};
     }
     const CSchemaIndex type_index = schema->find_type(type);
@@ -447,18 +447,18 @@ CBulkHandle CLiveBulkData::create_records(const CStringView& type, const CString
     std::uint32_t extent{};
     if (!type_index.is_valid() || !schema->type(type_index, layout))
     {
-        diagnostic.reason = EBulkLoadReason::unknown_type;
+        diagnostic.reason = EBulkDataLoadReason::unknown_type;
         return {};
     }
     if (!extent_for(layout, count, extent))
     {
-        diagnostic.reason = EBulkLoadReason::invalid_range;
+        diagnostic.reason = EBulkDataLoadReason::invalid_range;
         return {};
     }
     CByteBuffer bytes;
     if (extent != 0u && (!bytes.allocate(extent, k_max_alignment) || !bytes.set_size(extent)))
     {
-        diagnostic.reason = EBulkLoadReason::allocation_failed;
+        diagnostic.reason = EBulkDataLoadReason::allocation_failed;
         return {};
     }
     detail::SOccurrence item = document.first_child(array);
@@ -468,17 +468,17 @@ CBulkHandle CLiveBulkData::create_records(const CStringView& type, const CString
             ((layout.category == ECategory::structure) ? schema->find_member(type_index, document.name(item)) :
                 ((layout.category == ECategory::bit_structure) ? schema->find_field(type_index, document.name(item)) : CSchemaIndex{})))
         {
-            diagnostic.reason = EBulkLoadReason::invalid_input;
-            diagnostic.occurrence = detail::SBulkHandleAccess::make(item);
+            diagnostic.reason = EBulkDataLoadReason::invalid_input;
+            diagnostic.occurrence = detail::SBulkDataHandleAccess::make(item);
             return {};
         }
         detail::SValueDiagnostic value_error;
         if (!detail::construct_value(*schema, document, type_index, item,
             (layout.size == 0u) ? nullptr : (bytes.data() + (layout.size * ordinal)),
-            static_cast<std::size_t>(layout.size), detail::EConstructionMode::complete_bulk, value_error, document.is_object_entry(item)))
+            static_cast<std::size_t>(layout.size), detail::EConstructionMode::complete_bulk_data, value_error, document.is_object_entry(item)))
         {
-            diagnostic.reason = EBulkLoadReason::incomplete_record;
-            diagnostic.occurrence = detail::SBulkHandleAccess::make(value_error.occurrence.is_valid() ? value_error.occurrence : item);
+            diagnostic.reason = EBulkDataLoadReason::incomplete_record;
+            diagnostic.occurrence = detail::SBulkDataHandleAccess::make(value_error.occurrence.is_valid() ? value_error.occurrence : item);
             return {};
         }
         item = document.next_sibling(item);
@@ -486,13 +486,13 @@ CBulkHandle CLiveBulkData::create_records(const CStringView& type, const CString
     return store(type, name, bytes.const_view(), count, false, false, diagnostic);
 }
 
-bool CLiveBulkData::rename_entry(const CBulkHandle handle, const CStringView& name) noexcept
+bool CLiveBulkData::rename_entry(const CBulkDataHandle handle, const CStringView& name) noexcept
 {
     std::size_t index{};
     return !name.empty() && record_index(handle, index) && m_document.set_name(m_records[index].entry, name);
 }
 
-bool CLiveBulkData::erase_entry(const CBulkHandle handle) noexcept
+bool CLiveBulkData::erase_entry(const CBulkDataHandle handle) noexcept
 {
     std::size_t index{};
     if (!record_index(handle, index))
@@ -518,10 +518,10 @@ bool CLiveBulkData::erase_entry(const CBulkHandle handle) noexcept
 
 //  Output helpers keep all construction within the staged document.
 
-class CBulkReconstructor
+class CBulkDataReconstructor
 {
 public:
-    CBulkReconstructor(CLiveDocument& document, const CResolvedSchema& schema, EBulkLoadReason& reason) noexcept :
+    CBulkDataReconstructor(CLiveDocument& document, const CResolvedSchema& schema, EBulkDataLoadReason& reason) noexcept :
         m_document(document), m_schema(schema), m_reason(reason) {}
 
     [[nodiscard]] bool records(const CNodeKey entry, const CSchemaIndex type,
@@ -535,30 +535,30 @@ private:
 
     CLiveDocument& m_document;
     const CResolvedSchema& m_schema;
-    EBulkLoadReason& m_reason;
+    EBulkDataLoadReason& m_reason;
 };
 
-CNodeKey CBulkReconstructor::scalar(const CSchemaIndex type, const std::uint64_t bits,
+CNodeKey CBulkDataReconstructor::scalar(const CSchemaIndex type, const std::uint64_t bits,
     const unsigned width, const CStringView& name) noexcept
 {
     EScalarDecodeReason decoded;
     const CNodeKey value = decode_document_scalar(m_document, m_schema, type, bits, width, name, decoded);
     if (!value)
     {
-        m_reason = (decoded == EScalarDecodeReason::invalid_type) ? EBulkLoadReason::incompatible_schema :
-            ((decoded == EScalarDecodeReason::unrepresentable_value) ? EBulkLoadReason::unrepresentable_value :
-                EBulkLoadReason::allocation_failed);
+        m_reason = (decoded == EScalarDecodeReason::invalid_type) ? EBulkDataLoadReason::incompatible_schema :
+            ((decoded == EScalarDecodeReason::unrepresentable_value) ? EBulkDataLoadReason::unrepresentable_value :
+                EBulkDataLoadReason::allocation_failed);
     }
     return value;
 }
 
-CNodeKey CBulkReconstructor::value(const CSchemaIndex type, const std::uint8_t* const bytes,
+CNodeKey CBulkDataReconstructor::value(const CSchemaIndex type, const std::uint8_t* const bytes,
     const CStringView& name, const bool in_array, const unsigned depth) noexcept
 {
     SType layout;
     if ((depth >= 256u) || !m_schema.type(type, layout))
     {
-        m_reason = EBulkLoadReason::incompatible_schema;
+        m_reason = EBulkDataLoadReason::incompatible_schema;
         return {};
     }
     if ((layout.category == ECategory::primitive) || (layout.category == ECategory::enumeration))
@@ -566,9 +566,9 @@ CNodeKey CBulkReconstructor::value(const CSchemaIndex type, const std::uint8_t* 
         const CNodeKey decoded = scalar(type,
             read_scalar_bits(bytes, static_cast<std::size_t>(layout.size)),
             static_cast<unsigned>(layout.size * 8u), name);
-        if (!decoded && (m_reason == EBulkLoadReason::none))
+        if (!decoded && (m_reason == EBulkDataLoadReason::none))
         {
-            m_reason = EBulkLoadReason::allocation_failed;
+            m_reason = EBulkDataLoadReason::allocation_failed;
         }
         return decoded;
     }
@@ -581,7 +581,7 @@ CNodeKey CBulkReconstructor::value(const CSchemaIndex type, const std::uint8_t* 
     const CNodeKey result = array ? m_document.create_array(name) : m_document.create_object(name);
     if (!result)
     {
-        m_reason = EBulkLoadReason::allocation_failed;
+        m_reason = EBulkDataLoadReason::allocation_failed;
         return {};
     }
     for (std::uint32_t index = 0u; index < layout.count; ++index)
@@ -592,7 +592,7 @@ CNodeKey CBulkReconstructor::value(const CSchemaIndex type, const std::uint8_t* 
             SMember member;
             if (!m_schema.member(m_schema.member_at(type, index), member))
             {
-                m_reason = EBulkLoadReason::incompatible_schema;
+                m_reason = EBulkDataLoadReason::incompatible_schema;
             }
             else
             {
@@ -610,7 +610,7 @@ CNodeKey CBulkReconstructor::value(const CSchemaIndex type, const std::uint8_t* 
             SField field;
             if (!m_schema.field(m_schema.field_at(type, index), field))
             {
-                m_reason = EBulkLoadReason::incompatible_schema;
+                m_reason = EBulkDataLoadReason::incompatible_schema;
             }
             else
             {
@@ -620,13 +620,13 @@ CNodeKey CBulkReconstructor::value(const CSchemaIndex type, const std::uint8_t* 
         }
         else
         {
-            m_reason = EBulkLoadReason::incompatible_schema;
+            m_reason = EBulkDataLoadReason::incompatible_schema;
         }
         if (!child || !append_node(m_document, result, child))
         {
-            if (m_reason == EBulkLoadReason::none)
+            if (m_reason == EBulkDataLoadReason::none)
             {
-                m_reason = EBulkLoadReason::allocation_failed;
+                m_reason = EBulkDataLoadReason::allocation_failed;
             }
             (void)m_document.erase(result);
             return {};
@@ -635,20 +635,20 @@ CNodeKey CBulkReconstructor::value(const CSchemaIndex type, const std::uint8_t* 
     return result;
 }
 
-bool CBulkReconstructor::records(const CNodeKey entry, const CSchemaIndex type,
+bool CBulkDataReconstructor::records(const CNodeKey entry, const CSchemaIndex type,
     const std::uint8_t* const bytes, const std::uint32_t count) noexcept
 {
     SType layout;
     if (!m_schema.type(type, layout))
     {
-        m_reason = EBulkLoadReason::incompatible_schema;
+        m_reason = EBulkDataLoadReason::incompatible_schema;
         return false;
     }
     //  Every explicit record needs at least one node; reject impossible expansions before traversal.
     if ((count > static_cast<std::uint32_t>(INT32_MAX)) ||
         (count > (memory::k_byte_size_ceiling / sizeof(CLiveNode))))
     {
-        m_reason = EBulkLoadReason::invalid_range;
+        m_reason = EBulkDataLoadReason::invalid_range;
         return false;
     }
     const CNodeKey array = m_document.create_array(CStringView{ "data" });
@@ -657,7 +657,7 @@ bool CBulkReconstructor::records(const CNodeKey entry, const CSchemaIndex type,
         (!encoded.allocate(static_cast<std::size_t>(layout.size), k_max_alignment) ||
             !encoded.set_size(static_cast<std::size_t>(layout.size)))))
     {
-        m_reason = EBulkLoadReason::allocation_failed;
+        m_reason = EBulkDataLoadReason::allocation_failed;
         return false;
     }
     for (std::uint32_t ordinal = 0u; ordinal < count; ++ordinal)
@@ -666,18 +666,18 @@ bool CBulkReconstructor::records(const CNodeKey entry, const CSchemaIndex type,
         const CNodeKey item = value(type, original, {}, true, 0u);
         if (!item || !append_node(m_document, array, item))
         {
-            if (m_reason == EBulkLoadReason::none)
+            if (m_reason == EBulkDataLoadReason::none)
             {
-                m_reason = EBulkLoadReason::allocation_failed;
+                m_reason = EBulkDataLoadReason::allocation_failed;
             }
             return false;
         }
         detail::SValueDiagnostic error;
         if (!detail::construct_value(m_schema, detail::CDocumentRead{ m_document }, type, detail::SOccurrence{ item },
-            encoded.data(), encoded.size(), detail::EConstructionMode::complete_bulk, error) ||
+            encoded.data(), encoded.size(), detail::EConstructionMode::complete_bulk_data, error) ||
             !detail::compare_encoded(m_schema, type, original, encoded.size(), encoded.data(), encoded.size()))
         {
-            m_reason = EBulkLoadReason::unrepresentable_value;
+            m_reason = EBulkDataLoadReason::unrepresentable_value;
             return false;
         }
     }
@@ -688,36 +688,36 @@ bool CBulkReconstructor::records(const CNodeKey entry, const CSchemaIndex type,
 //  Promotion
 //==============================================================================
 
-bool CLiveBulkData::promote_from(const CBakedBulkData& source, SBulkDiagnostic& diagnostic) noexcept
+bool CLiveBulkData::promote_from(const CBakedBulkData& source, SBulkDataDiagnostic& diagnostic) noexcept
 {
     diagnostic = {};
     const CResolvedSchema* const original = source.m_binding.resolved();
     const CResolvedSchema* const target = m_binding.resolved();
     if (!source.loaded_ready() || !loaded_ready() || !original || !target)
     {
-        diagnostic.reason = EBulkLoadReason::invalid_input;
+        diagnostic.reason = EBulkDataLoadReason::invalid_input;
         return false;
     }
     if (!m_records.reserve(source.m_records.size()))
     {
-        diagnostic.reason = EBulkLoadReason::allocation_failed;
+        diagnostic.reason = EBulkDataLoadReason::allocation_failed;
         return false;
     }
     if (source.m_payload.size() != 0u)
     {
         if (!m_payload.allocate(source.m_payload.size(), k_max_alignment) || !m_payload.set_size(source.m_payload.size()))
         {
-            diagnostic.reason = EBulkLoadReason::allocation_failed;
+            diagnostic.reason = EBulkDataLoadReason::allocation_failed;
             return false;
         }
         std::memcpy(m_payload.data(), source.m_payload.data(), source.m_payload.size());
     }
-    CBulkReconstructor reconstructor{ m_document, *target, diagnostic.reason };
+    CBulkDataReconstructor reconstructor{ m_document, *target, diagnostic.reason };
     CTypeCompatibility compatibility{ *original, *target, ETypeMatch::representation };
     const CBakedDocument& baked = source.m_document;
     const bool stripped = source.values_stripped();
     const CBakedValueIndex source_data = baked.object_child(baked.root(), CStringView{ "data" });
-    const CNodeKey destination_data = detail::SBulkHandleAccess::occurrence(data_root()).live;
+    const CNodeKey destination_data = detail::SBulkDataHandleAccess::occurrence(data_root()).live;
     for (CBakedValueIndex group = baked.first_child(source_data); group.is_valid(); group = baked.next_sibling(group))
     {
         const CStringView type_name = baked.name(group);
@@ -727,13 +727,13 @@ bool CLiveBulkData::promote_from(const CBakedBulkData& source, SBulkDiagnostic& 
         if (match != ETypeMatchResult::match)
         {
             diagnostic.reason = (match == ETypeMatchResult::allocation_failed) ?
-                EBulkLoadReason::allocation_failed : EBulkLoadReason::incompatible_schema;
+                EBulkDataLoadReason::allocation_failed : EBulkDataLoadReason::incompatible_schema;
             return false;
         }
         const CNodeKey live_group = m_document.create_object(type_name);
         if (!append_node(m_document, destination_data, live_group))
         {
-            diagnostic.reason = EBulkLoadReason::allocation_failed;
+            diagnostic.reason = EBulkDataLoadReason::allocation_failed;
             return false;
         }
         for (CBakedValueIndex baked_entry = baked.first_child(group); baked_entry.is_valid(); baked_entry = baked.next_sibling(baked_entry))
@@ -746,7 +746,7 @@ bool CLiveBulkData::promote_from(const CBakedBulkData& source, SBulkDiagnostic& 
             }
             if (record == nullptr)
             {
-                diagnostic.reason = EBulkLoadReason::invalid_input;
+                diagnostic.reason = EBulkDataLoadReason::invalid_input;
                 return false;
             }
             const CNodeKey live_entry = m_document.create_object(baked.name(baked_entry));
@@ -755,7 +755,7 @@ bool CLiveBulkData::promote_from(const CBakedBulkData& source, SBulkDiagnostic& 
                 !append_node(m_document, live_group, live_entry) ||
                 !m_records.push_back({ live_entry, live_group, target_type, record->count, record->offset, record->extent }))
             {
-                diagnostic.reason = EBulkLoadReason::allocation_failed;
+                diagnostic.reason = EBulkDataLoadReason::allocation_failed;
                 return false;
             }
             if ((stripped || baked.object_child(baked_entry, CStringView{ "data" })) &&
@@ -779,18 +779,18 @@ void CLiveBulkData::take_from(CLiveBulkData& source) noexcept
     source.m_loaded = false;
 }
 
-bool CBakedBulkData::promote(CLiveBulkData& destination, CBakedSchema& schema, SBulkDiagnostic& diagnostic) const noexcept
+bool CBakedBulkData::promote(CLiveBulkData& destination, CBakedSchema& schema, SBulkDataDiagnostic& diagnostic) const noexcept
 {
     diagnostic = {};
     if (!loaded_ready() || destination.document_ready() || destination.m_binding.is_attached() || !schema.resolved_ready())
     {
-        diagnostic.reason = EBulkLoadReason::invalid_input;
+        diagnostic.reason = EBulkDataLoadReason::invalid_input;
         return false;
     }
     CLiveBulkData staged;
     if (!staged.initialise(schema))
     {
-        diagnostic.reason = EBulkLoadReason::allocation_failed;
+        diagnostic.reason = EBulkDataLoadReason::allocation_failed;
         return false;
     }
     if (!staged.promote_from(*this, diagnostic))
@@ -802,18 +802,18 @@ bool CBakedBulkData::promote(CLiveBulkData& destination, CBakedSchema& schema, S
     return true;
 }
 
-bool CBakedBulkData::promote(CLiveBulkData& destination, CLiveSchema& schema, SBulkDiagnostic& diagnostic) const noexcept
+bool CBakedBulkData::promote(CLiveBulkData& destination, CLiveSchema& schema, SBulkDataDiagnostic& diagnostic) const noexcept
 {
     diagnostic = {};
     if (!loaded_ready() || destination.document_ready() || destination.m_binding.is_attached() || !schema.resolved_ready())
     {
-        diagnostic.reason = EBulkLoadReason::invalid_input;
+        diagnostic.reason = EBulkDataLoadReason::invalid_input;
         return false;
     }
     CLiveBulkData staged;
     if (!staged.initialise(schema))
     {
-        diagnostic.reason = EBulkLoadReason::allocation_failed;
+        diagnostic.reason = EBulkDataLoadReason::allocation_failed;
         return false;
     }
     if (!staged.promote_from(*this, diagnostic))
@@ -829,13 +829,13 @@ bool CBakedBulkData::promote(CLiveBulkData& destination, CLiveSchema& schema, SB
 //  Binary reconciliation
 //==============================================================================
 
-bool CLiveBulkData::reconcile(SBulkDiagnostic& diagnostic) noexcept
+bool CLiveBulkData::reconcile(SBulkDataDiagnostic& diagnostic) noexcept
 {
     diagnostic = {};
     const CResolvedSchema* const schema = m_binding.resolved();
     if (!loaded_ready() || !schema)
     {
-        diagnostic.reason = EBulkLoadReason::invalid_input;
+        diagnostic.reason = EBulkDataLoadReason::invalid_input;
         return false;
     }
     CLiveDocument document;
@@ -844,27 +844,27 @@ bool CLiveBulkData::reconcile(SBulkDiagnostic& diagnostic) noexcept
         !append_node(document, document.root(), document.create_object(CStringView{ "data" })) ||
         !records.reserve(m_records.size()))
     {
-        diagnostic.reason = EBulkLoadReason::allocation_failed;
+        diagnostic.reason = EBulkDataLoadReason::allocation_failed;
         return false;
     }
-    CBulkReconstructor reconstructor{ document, *schema, diagnostic.reason };
+    CBulkDataReconstructor reconstructor{ document, *schema, diagnostic.reason };
     const CNodeKey root = document.object_child(document.root(), CStringView{ "data" });
-    const CNodeKey old_root = detail::SBulkHandleAccess::occurrence(data_root()).live;
+    const CNodeKey old_root = detail::SBulkDataHandleAccess::occurrence(data_root()).live;
     for (CNodeKey group = m_document.first_child(old_root); group; group = m_document.next_sibling(group))
     {
         if (!append_node(document, root, document.create_object(m_document.name(group))))
         {
-            diagnostic.reason = EBulkLoadReason::allocation_failed;
+            diagnostic.reason = EBulkDataLoadReason::allocation_failed;
             return false;
         }
     }
     for (std::size_t i = 0u; i < m_records.size(); ++i)
     {
         const SRecord& source = m_records[i];
-        SBulkEntryView value;
+        SBulkDataEntryView value;
         if (!observe(source, value))
         {
-            diagnostic.reason = EBulkLoadReason::invalid_input;
+            diagnostic.reason = EBulkDataLoadReason::invalid_input;
             return false;
         }
         const CNodeKey group = document.object_child(root, m_document.name(source.group));
@@ -873,12 +873,12 @@ bool CLiveBulkData::reconcile(SBulkDiagnostic& diagnostic) noexcept
         if (!entry || !append_node(document, entry, locator) || !append_node(document, group, entry) ||
             !records.push_back({ entry, group, source.type, source.count, source.offset, source.extent }))
         {
-            diagnostic.reason = EBulkLoadReason::allocation_failed;
+            diagnostic.reason = EBulkDataLoadReason::allocation_failed;
             return false;
         }
         if (!reconstructor.records(entry, value.type, value.bytes, value.count))
         {
-            diagnostic.occurrence = detail::SBulkHandleAccess::make(detail::SOccurrence{ source.entry });
+            diagnostic.occurrence = detail::SBulkDataHandleAccess::make(detail::SOccurrence{ source.entry });
             return false;
         }
     }
@@ -891,7 +891,7 @@ bool CLiveBulkData::reconcile(SBulkDiagnostic& diagnostic) noexcept
 //  Output preparation and baking
 //==============================================================================
 
-struct SBulkOutputRecord
+struct SBulkDataOutputRecord
 {
     CNodeKey source, destination;
     CSchemaIndex type;
@@ -901,7 +901,7 @@ struct SBulkOutputRecord
 
 bool CLiveBulkData::prepare_output_to(CLiveDocument& document, CByteBuffer& payload,
     const CResolvedSchema& destination_schema, const EDataOutputForm form,
-    SBulkDiagnostic& diagnostic) const noexcept
+    SBulkDataDiagnostic& diagnostic) const noexcept
 {
     diagnostic = {};
     const CResolvedSchema* const source_schema = m_binding.resolved();
@@ -909,7 +909,7 @@ bool CLiveBulkData::prepare_output_to(CLiveDocument& document, CByteBuffer& payl
         ((form != EDataOutputForm::embedded) && (form != EDataOutputForm::external) &&
             (form != EDataOutputForm::stripped)))
     {
-        diagnostic.reason = EBulkLoadReason::invalid_input;
+        diagnostic.reason = EBulkDataLoadReason::invalid_input;
         return false;
     }
     CLiveDocument staged_document;
@@ -918,19 +918,19 @@ bool CLiveBulkData::prepare_output_to(CLiveDocument& document, CByteBuffer& payl
     const CNodeKey data = staged_root ? staged_document.create_object(CStringView{ "data" }) : CNodeKey{};
     if (!staged_root || !append_node(staged_document, staged_root, data))
     {
-        diagnostic.reason = EBulkLoadReason::allocation_failed;
+        diagnostic.reason = EBulkDataLoadReason::allocation_failed;
         return false;
     }
     if ((form == EDataOutputForm::stripped) &&
         !append_node(staged_document, staged_root, staged_document.create_boolean(true, CStringView{ "stripped" })))
     {
-        diagnostic.reason = EBulkLoadReason::allocation_failed;
+        diagnostic.reason = EBulkDataLoadReason::allocation_failed;
         return false;
     }
     CTypeCompatibility compatibility{ *source_schema, destination_schema, ETypeMatch::representation };
-    TPodVector<SBulkOutputRecord> records;
+    TPodVector<SBulkDataOutputRecord> records;
     std::uint32_t cursor{};
-    const CNodeKey source_data = detail::SBulkHandleAccess::occurrence(data_root()).live;
+    const CNodeKey source_data = detail::SBulkDataHandleAccess::occurrence(data_root()).live;
     for (CNodeKey group = m_document.first_child(source_data); group; group = m_document.next_sibling(group))
     {
         if (!m_document.first_child(group))
@@ -944,21 +944,21 @@ bool CLiveBulkData::prepare_output_to(CLiveDocument& document, CByteBuffer& payl
         if (match != ETypeMatchResult::match)
         {
             diagnostic.reason = (match == ETypeMatchResult::allocation_failed) ?
-                EBulkLoadReason::allocation_failed : EBulkLoadReason::incompatible_schema;
-            diagnostic.occurrence = detail::SBulkHandleAccess::make(detail::SOccurrence{ group });
+                EBulkDataLoadReason::allocation_failed : EBulkDataLoadReason::incompatible_schema;
+            diagnostic.occurrence = detail::SBulkDataHandleAccess::make(detail::SOccurrence{ group });
             return false;
         }
         SType layout;
         if (!destination_schema.type(destination_type, layout))
         {
-            diagnostic.reason = EBulkLoadReason::incompatible_schema;
-            diagnostic.occurrence = detail::SBulkHandleAccess::make(detail::SOccurrence{ group });
+            diagnostic.reason = EBulkDataLoadReason::incompatible_schema;
+            diagnostic.occurrence = detail::SBulkDataHandleAccess::make(detail::SOccurrence{ group });
             return false;
         }
         const CNodeKey output_group = staged_document.create_object(type_name);
         if (!append_node(staged_document, data, output_group))
         {
-            diagnostic.reason = EBulkLoadReason::allocation_failed;
+            diagnostic.reason = EBulkDataLoadReason::allocation_failed;
             return false;
         }
         for (CNodeKey entry = m_document.first_child(group); entry; entry = m_document.next_sibling(entry))
@@ -969,11 +969,11 @@ bool CLiveBulkData::prepare_output_to(CLiveDocument& document, CByteBuffer& payl
             {
                 source_record = &m_records[index];
             }
-            SBulkEntryView value;
+            SBulkDataEntryView value;
             if (!source_record || !observe(*source_record, value) || (value.count == 0u) || (value.byte_count > UINT32_MAX))
             {
-                diagnostic.reason = EBulkLoadReason::invalid_input;
-                diagnostic.occurrence = detail::SBulkHandleAccess::make(detail::SOccurrence{ entry });
+                diagnostic.reason = EBulkDataLoadReason::invalid_input;
+                diagnostic.occurrence = detail::SBulkDataHandleAccess::make(detail::SOccurrence{ entry });
                 return false;
             }
             std::uint32_t offset{};
@@ -984,8 +984,8 @@ bool CLiveBulkData::prepare_output_to(CLiveDocument& document, CByteBuffer& payl
                 if ((offset > memory::k_byte_size_ceiling) ||
                     (value.byte_count > (memory::k_byte_size_ceiling - offset)))
                 {
-                    diagnostic.reason = EBulkLoadReason::invalid_range;
-                    diagnostic.occurrence = detail::SBulkHandleAccess::make(detail::SOccurrence{ entry });
+                    diagnostic.reason = EBulkDataLoadReason::invalid_range;
+                    diagnostic.occurrence = detail::SBulkDataHandleAccess::make(detail::SOccurrence{ entry });
                     return false;
                 }
                 cursor = offset + static_cast<std::uint32_t>(value.byte_count);
@@ -998,7 +998,7 @@ bool CLiveBulkData::prepare_output_to(CLiveDocument& document, CByteBuffer& payl
                 !records.push_back({ entry, output_entry, destination_type, value.bytes,
                     value.count, offset, static_cast<std::uint32_t>(value.byte_count) }))
             {
-                diagnostic.reason = EBulkLoadReason::allocation_failed;
+                diagnostic.reason = EBulkDataLoadReason::allocation_failed;
                 return false;
             }
         }
@@ -1007,12 +1007,12 @@ bool CLiveBulkData::prepare_output_to(CLiveDocument& document, CByteBuffer& payl
     if ((cursor != 0u) && (!staged_payload.allocate(static_cast<std::size_t>(cursor), k_max_alignment) ||
         !staged_payload.set_size(static_cast<std::size_t>(cursor))))
     {
-        diagnostic.reason = EBulkLoadReason::allocation_failed;
+        diagnostic.reason = EBulkDataLoadReason::allocation_failed;
         return false;
     }
     for (std::size_t index = 0u; index < records.size(); ++index)
     {
-        const SBulkOutputRecord& record = records[index];
+        const SBulkDataOutputRecord& record = records[index];
         if (record.extent != 0u)
         {
             std::memcpy((staged_payload.data() + record.offset), record.bytes, record.extent);
@@ -1020,13 +1020,13 @@ bool CLiveBulkData::prepare_output_to(CLiveDocument& document, CByteBuffer& payl
     }
     if (form == EDataOutputForm::embedded)
     {
-        CBulkReconstructor reconstructor{ staged_document, destination_schema, diagnostic.reason };
+        CBulkDataReconstructor reconstructor{ staged_document, destination_schema, diagnostic.reason };
         for (std::size_t index = 0u; index < records.size(); ++index)
         {
-            const SBulkOutputRecord& record = records[index];
+            const SBulkDataOutputRecord& record = records[index];
             if (!reconstructor.records(record.destination, record.type, record.bytes, record.count))
             {
-                diagnostic.occurrence = detail::SBulkHandleAccess::make(detail::SOccurrence{ record.source });
+                diagnostic.occurrence = detail::SBulkDataHandleAccess::make(detail::SOccurrence{ record.source });
                 return false;
             }
         }
@@ -1037,22 +1037,22 @@ bool CLiveBulkData::prepare_output_to(CLiveDocument& document, CByteBuffer& payl
 }
 
 bool CLiveBulkData::prepare_output(CLiveDocument& document, CByteBuffer& payload,
-    CBakedSchema& destination_schema, const EDataOutputForm form, SBulkDiagnostic& diagnostic) const noexcept
+    CBakedSchema& destination_schema, const EDataOutputForm form, SBulkDataDiagnostic& diagnostic) const noexcept
 {
     if (!destination_schema.resolved_ready())
     {
-        diagnostic = { EBulkLoadReason::invalid_input, {} };
+        diagnostic = { EBulkDataLoadReason::invalid_input, {} };
         return false;
     }
     return prepare_output_to(document, payload, *destination_schema.resolved(), form, diagnostic);
 }
 
 bool CLiveBulkData::prepare_output(CLiveDocument& document, CByteBuffer& payload,
-    CLiveSchema& destination_schema, const EDataOutputForm form, SBulkDiagnostic& diagnostic) const noexcept
+    CLiveSchema& destination_schema, const EDataOutputForm form, SBulkDataDiagnostic& diagnostic) const noexcept
 {
     if (!destination_schema.resolved_ready())
     {
-        diagnostic = { EBulkLoadReason::invalid_input, {} };
+        diagnostic = { EBulkDataLoadReason::invalid_input, {} };
         return false;
     }
     return prepare_output_to(document, payload, *destination_schema.resolved(), form, diagnostic);
@@ -1060,13 +1060,13 @@ bool CLiveBulkData::prepare_output(CLiveDocument& document, CByteBuffer& payload
 
 template<class TSchema>
 bool CLiveBulkData::bake_to(CBakedDocumentBlock& block, CByteBuffer& payload, CBakedBulkData& role,
-    TSchema& destination_schema, const EDataOutputForm form, SBulkDiagnostic& diagnostic) const noexcept
+    TSchema& destination_schema, const EDataOutputForm form, SBulkDataDiagnostic& diagnostic) const noexcept
 {
     diagnostic = {};
     if (block.is_ready() || payload.is_ready() || role.document_ready() ||
         role.m_binding.is_attached() || !destination_schema.resolved_ready())
     {
-        diagnostic.reason = EBulkLoadReason::invalid_input;
+        diagnostic.reason = EBulkDataLoadReason::invalid_input;
         return false;
     }
     CLiveDocument prepared;
@@ -1078,7 +1078,7 @@ bool CLiveBulkData::bake_to(CBakedDocumentBlock& block, CByteBuffer& payload, CB
     CBakedDocumentBlock prepared_block;
     if (!document_translation::bake(prepared, prepared_block))
     {
-        diagnostic.reason = EBulkLoadReason::allocation_failed;
+        diagnostic.reason = EBulkDataLoadReason::allocation_failed;
         return false;
     }
     CBakedBulkData prepared_role;
@@ -1086,9 +1086,9 @@ bool CLiveBulkData::bake_to(CBakedDocumentBlock& block, CByteBuffer& payload, CB
         !prepared_role.bind_schema(destination_schema) ||
         !prepared_role.load_supplied(prepared_payload.const_view(), false, diagnostic))
     {
-        if (diagnostic.reason == EBulkLoadReason::none)
+        if (diagnostic.reason == EBulkDataLoadReason::none)
         {
-            diagnostic.reason = EBulkLoadReason::invalid_input;
+            diagnostic.reason = EBulkDataLoadReason::invalid_input;
         }
         diagnostic.occurrence = {};
         return false;
@@ -1100,13 +1100,13 @@ bool CLiveBulkData::bake_to(CBakedDocumentBlock& block, CByteBuffer& payload, CB
 }
 
 bool CLiveBulkData::bake(CBakedDocumentBlock& block, CByteBuffer& payload, CBakedBulkData& role,
-    CBakedSchema& destination_schema, const EDataOutputForm form, SBulkDiagnostic& diagnostic) const noexcept
+    CBakedSchema& destination_schema, const EDataOutputForm form, SBulkDataDiagnostic& diagnostic) const noexcept
 {
     return bake_to(block, payload, role, destination_schema, form, diagnostic);
 }
 
 bool CLiveBulkData::bake(CBakedDocumentBlock& block, CByteBuffer& payload, CBakedBulkData& role,
-    CLiveSchema& destination_schema, const EDataOutputForm form, SBulkDiagnostic& diagnostic) const noexcept
+    CLiveSchema& destination_schema, const EDataOutputForm form, SBulkDataDiagnostic& diagnostic) const noexcept
 {
     return bake_to(block, payload, role, destination_schema, form, diagnostic);
 }

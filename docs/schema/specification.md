@@ -22,12 +22,12 @@ Completed delivery history is summarised in the
 
 The schema system describes logical data types and their physical
 representations. It supports ordinary structures, enums, fixed arrays and
-bit structures, with instance/bulk materialisation and exact-type remapping.
+bit structures, with instance/bulk data materialisation and exact-type remapping.
 Packed structure layout is not supported.
 
 Schema definitions and instance data are distinct.  A definition declares the
 meaning, layout, size, alignment, and members of a type.  An instance supplies
-values of a declared type. Bulk instance data may be represented as binary or
+values of a declared type. Bulk data may be represented as binary or
 document values, with JSON used for definitions, metadata, and ordinary small
 instances. CSV is not a core encoding.
 
@@ -60,7 +60,7 @@ representation through the implemented common read adapter.
 ```text
 Live or baked schema document -> common resolver -> resolved schema
 Instance document + schema access -> that document's instance byte buffer
-Bulk document + schema access -> that document's bulk byte buffer
+Bulk data document + schema access -> that document's bulk data byte buffer
 ```
 
 The **resolved schema** is constructed at runtime and is never serialised.
@@ -75,7 +75,7 @@ There are three logical document roles with separate user-facing interfaces:
 type definitions, instances, and bulk data. These remain logically separate even
 when loaded from one combined baked document. Each role has the same query
 interface in its live and baked forms; mutation belongs to the live form.
-Instance and bulk documents consume the common schema access interface with
+Instance and bulk data documents consume the common schema access interface with
 either live or baked schema backing. The role-specific query interfaces share a
 read adapter; schema wrappers manage client bindings and reference protection.
 
@@ -84,8 +84,8 @@ including the other sections, for source navigation and diagnostics. Their
 role-specific operations act only on the data they specialise in. Schema wrappers
 provide a separate `types_root()` accessor to identify the schema section, and
 schema editing is confined to that section, including creation of a missing
-`types` entry; it cannot change instance or bulk content. The same separation
-applies to instance and bulk wrappers. Each live role wrapper owns its own
+`types` entry; it cannot change instance or bulk data content. The same separation
+applies to instance and bulk data wrappers. Each live role wrapper owns its own
 document, rather than sharing a higher-level live document owner.
 
 The wrappers layered over the data model are:
@@ -103,7 +103,7 @@ backing alive while any remaining view needs it, including views for other logic
 roles in a combined document. Promotion and baking preserve their source;
 callers explicitly dispose of versions and owned blocks when no longer needed.
 
-The same ownership separation applies to baked instance and bulk payloads.
+The same ownership separation applies to baked instance and bulk data payloads.
 `CBakedInstances` and `CBakedBulkData` hold non-owning binary views, not owning
 byte buffers. The associated payload allocation is external to the wrapper and
 may be owned locally or by the host, independently of the baked document block.
@@ -117,7 +117,7 @@ Borrowed access to those buffers does not transfer ownership. Promotion copies
 the baked payload into live-owned storage; baking creates new externally owned
 payload storage without taking the live source's buffer.
 
-Instance and bulk documents reference their schema through inter-document
+Instance and bulk data documents reference their schema through inter-document
 reference counts. These do not own or extend the schema wrapper's lifetime.
 Mutation of a referenced live schema fails without changes. Replacing a referenced
 schema emits a diagnostic-only assertion report in every build. A referenced
@@ -147,7 +147,7 @@ through allocation failure is not required. Access is single-threaded, including
 within a multi-threaded system. This stability applies within the same schema,
 not across independently promoted/baked documents.
 
-Public document handles have three role types: schema, instance and bulk. Live
+Public document handles have three role types: schema, instance and bulk data. Live
 and baked wrappers of one role share its public handle type, with potentially
 different internal interpretation. Handles carry no individual document identity;
 using one with another document or representation is caller error. Live handles
@@ -177,11 +177,11 @@ is the main expected source of such failures because live editing is mediated.
 
 Loading always establishes binary backing for instances and bulk data, either
 from supplied binary data or by materialising embedded document values. Each
-logical instance document has one associated byte buffer; each logical bulk
+logical instance document has one associated byte buffer; each logical bulk data
 document has its own byte buffer. These are per-document associations, not two
 global buffers shared by every document. A payload reference therefore needs
 only an offset within its associated buffer, without a per-entry buffer ID.
-Bulk counts and checked extents are still necessary. The locator contract below
+Bulk data counts and checked extents are still necessary. The locator contract below
 defines locations; the caller supplies the binary file association.
 
 When baked loading receives a host-owned payload, it binds a view after the
@@ -197,7 +197,7 @@ releasing caller-supplied backing.
 
 The starting managed representation is a baked wrapper with associated binary
 backing (loaded directly or created on load) and resolved schema access. Promotion
-constructs a new live representation and copies the associated instance/bulk
+constructs a new live representation and copies the associated instance/bulk data
 binary backing into independent storage. The baked source, its backing data and
 its existing connections remain unchanged and usable on success or failure.
 The extra allocation and copying are intentional. Failure must not publish a
@@ -212,12 +212,12 @@ source resolution remains available to its existing consumers. The new result
 must use the live document's strings and occurrences and must not depend on the
 old baked backing. Source handles remain scoped to the source resolution; they
 do not become handles into the new version. A schema is supplied explicitly when
-creating, promoting or baking an instance/bulk document. Conversion does not
+creating, promoting or baking an instance/bulk data document. Conversion does not
 inherit its source's schema reference. Ordinary schema-matching rules determine
 success during the operation, without a separate pre-validation pass. Existing
 connections are not automatically redirected.
 
-For bulk promotion with an explicitly supplied different
+For bulk data promotion with an explicitly supplied different
 schema: referenced types must match in structure and value interpretation.
 Compare type and field names by text, member order, physical layout, primitive
 types, array counts, enum labels/values and bit masks/interpretations recursively.
@@ -245,7 +245,7 @@ with an owned `CBakedDocumentBlock` and independent copies of associated binary
 payloads. It preserves the live source and its existing connections on success
 or failure. Ownership of the new document block and payload buffer can subsequently
 be transferred to the host; the baked query wrapper uses views over both.
-Baking returns the wrapper, owned document block and (for instances/bulk) owned
+Baking returns the wrapper, owned document block and (for instances/bulk data) owned
 payload buffer as separate components. The caller manages their joint lifetime,
 and may save or transfer either backing allocation independently. Baking
 a schema does not resolve its new baked wrapper: the caller may only want to save
@@ -254,7 +254,7 @@ required lifetime. Callers dispose of either version explicitly when it is
 no longer required, after accounting for its remaining users.
 
 Schema promotion and baking copy only the `types` section into an independent
-document with its own root object. Instance and bulk sections of a combined
+document with its own root object. Instance and bulk data sections of a combined
 source are not included in that schema result; the combined source remains
 unchanged. Baking does not require the live schema to be resolved, but its
 schema document content must be representable in the baked data model. Conversion
@@ -262,12 +262,12 @@ requires empty destinations and preserves source and destinations on failure;
 it does not publish a partly constructed result. Diagnostics from failed
 promotion must not retain handles into a destroyed temporary live document.
 
-Instance and bulk promotion retain different document content:
+Instance and bulk data promotion retain different document content:
 
 - An instance document retains names and the nested specialisation hierarchy,
   with offsets to complete binary snapshots. Declarations are regenerated from
   those snapshots against destination defaults or the immediate parent.
-- A bulk document regenerates existing embedded record arrays from binary and
+- A bulk data document regenerates existing embedded record arrays from binary and
   retains ordinary reference-only entries without adding arrays. Promotion of
   explicitly stripped output regenerates complete arrays. Organisation, offsets
   and collection information are retained in all cases.
@@ -292,11 +292,11 @@ output keeps declaration information and the hierarchy needed to reconstruct
 complete values. Embedded instances use the existing named
 declarations and inheritance hierarchy, without an additional flattened-value
 field. Binary output stores each instance's complete independent snapshot.
-Bulk record arrays can be retained for review or omitted with binary backing.
+Bulk data record arrays can be retained for review or omitted with binary backing.
 These forms remain fully editable after promotion. Embedded text still includes
 locator objects so later baking has the reserved nodes needed by loading.
 
-The optional stripped form removes instance/specialisation declarations and bulk
+The optional stripped form removes instance/specialisation declarations and bulk data
 record arrays, retaining navigation, names, type associations, hierarchy and
 valid locators with sizes/counts. It copies the binary directly without requiring
 document-representable values. Schema definitions and defaults remain intact.
@@ -317,7 +317,7 @@ operations; the data-model layer does not manage schema payloads.
 ### Locators, loading and buffers
 
 Each instance/specialisation object has a sibling `locator` object alongside its
-existing contents. Each named bulk entry is an object containing `locator` and,
+existing contents. Each named bulk data entry is an object containing `locator` and,
 when embedded records are present, `data`. A locator contains a zero-based unsigned
 32-bit `offset` into that logical document's buffer and a separate Boolean `valid`:
 
@@ -327,16 +327,16 @@ when embedded records are present, `data`. A locator contains a zero-based unsig
 
 Optional `size` equals resolved type size (including padding) times record count.
 Stride equals resolved type size. Instance `count` defaults to one, may be present
-in baked input only as one, and is stripped from live instance documents. Bulk
+in baked input only as one, and is stripped from live instance documents. Bulk data
 count is optional for manual editing, but absent embedded `data` requires at least
 one of `count` or `size`. For a zero-byte resolved type, absent embedded `data`
 requires an explicit positive `count`: `size: 0` cannot determine the record count.
 An embedded array supplies its count even when its records occupy no bytes.
 Supplied size/count are checked against the type and any
-embedded array. A live bulk collection may temporarily have zero records; baked
-bulk collections may not. Valid locator extents in a buffer must not overlap.
+embedded array. A live bulk data collection may temporarily have zero records; baked
+bulk data collections may not. Valid locator extents in a buffer must not overlap.
 
-Live bulk creation can also allocate an unpopulated named array for a resolved
+Live bulk data creation can also allocate an unpopulated named array for a resolved
 type and requested record count, without embedded records or a source payload.
 It allocates the aligned extent in the document's associated buffer and records
 its locator and count/size, making the array available as a remapping destination.
@@ -355,16 +355,16 @@ replacement value, permitting widening and narrowing while preserving signedness
 notation, prefix and structural flags. Integer payload slots remain 64-bit;
 document floating values remain binary64.
 
-Instance/bulk buffers have 128-byte base alignment. Supplied buffers lacking it
+Instance/bulk data buffers have 128-byte base alignment. Supplied buffers lacking it
 are rejected rather than copied into aligned storage. New entries append aligned
-extents. Larger bulk replacements append and leave old bytes unreferenced;
+extents. Larger bulk data replacements append and leave old bytes unreferenced;
 same-size/smaller replacements may retain their offset. Working buffers do not
 compact, and live offsets need not follow document order. Baking creates a new
 buffer in document traversal order with matching baked locators; baked extents
 follow document order. Promotion/baking remain non-destructive copies, even
 when output reorders payloads.
 
-Instance and bulk construction does not require a blanket zero-fill pass.
+Instance and bulk data construction does not require a blanket zero-fill pass.
 An optional caller-invoked operation clears unaddressable storage, as described
 under gaps and storage initialisation. For deterministic binary output, invoke
 it on the final output buffer after packing and copying, so it covers the final
@@ -376,7 +376,7 @@ binary file when creating/loading the document. File matching is manual; schema
 or layout identity embedded in the file is beyond this work.
 
 When both embedded and binary representations are loaded, comparing them is an
-optional validation path for instances and bulk. Distribution can skip comparison
+optional validation path for instances and bulk data. Distribution can skip comparison
 for speed. With it disabled, saved binary snapshots are authoritative until an
 edit; loading does not rebuild them from declarations.
 Comparison converts embedded values to their destination encodings and compares
@@ -385,7 +385,7 @@ match exactly, including signed zero and distinct SNORM codes, except that all
 NaN encodings compare equal because document text does not express NaN payloads.
 No floating-point tolerance or decoded-value equivalence is applied.
 
-Load failure is fatal only to the affected logical instance/bulk document, never
+Load failure is fatal only to the affected logical instance/bulk data document, never
 to its resolved schema, even if their views share a physical baked block. Failed
 append leaves existing entries usable. Appended bytes may remain unreferenced,
 but no locator for the failed entry is published. Failed validation or staging
@@ -494,18 +494,18 @@ records solely to duplicate document navigation.
 **Resolved data** is instance data converted into the physical representation
 described by the resolved schema.  It is distinct from the schema's runtime
 machinery and will frequently be serialised.  Data formats include entirely
-binary blobs as the principal bulk-data path and, in
+binary blobs as the principal bulk data path and, in
 limited cases, document-form instances distributed as baked documents or JSON
 text.  Baking a document alone does not make it resolved schema or resolved
 data.
 
 Each instance document materialises loaded values into its associated byte buffer;
-each bulk document uses a separate associated buffer. Live wrappers own these
+each bulk data document uses a separate associated buffer. Live wrappers own these
 buffers; baked wrappers borrow them from external owners. Selection of an individual named instance can
 then copy its contiguous physical representation into adequate caller storage, without
 reinterpreting document values on every access. Capture from application storage
 updates or appends binary values and the associated live reference document.
-Bulk records follow the same model. No application-wide population wrapper is
+Bulk data records follow the same model. No application-wide population wrapper is
 planned. These interfaces and their ownership/lifetime contracts are implemented
 and documented in the runtime API guide.
 
@@ -525,13 +525,13 @@ value interpretation and signedness; a mask constant is not an enum field value.
 These constants describe the fields; instance storage remains the declared
 base storage type.  No operational code is implied by these declaration forms.
 
-Instance and bulk implementations use binary buffers as the common runtime
+Instance and bulk data implementations use binary buffers as the common runtime
 representation, with document conversion at load and output boundaries. Binary
 file packaging is separate from in-memory materialisation. Source-code ingestion
 remains deferred.
 
 The implementation resolves and inspects schemas, generates C++ declarations,
-and supports instance and bulk construction, editing and output. Resolution
+and supports instance and bulk data construction, editing and output. Resolution
 covers all described type categories:
 integers, floating point, booleans, enums, general/nested structures, fixed
 arrays, and bit structures. Declaration validation compiles C++17 output and checks
@@ -560,7 +560,7 @@ one instance wrapper and its associated byte buffer cover the complete `instance
 section, including all base instances and specialisation branches. Each branch
 provides a naming scope within that logical document, not an independently loaded
 document or buffer. Separate instance documents each have their own wrapper and
-buffer. A combined baked document may still carry schema, instance and bulk roles.
+buffer. A combined baked document may still carry schema, instance and bulk data roles.
 
 Reference ordering differs between definitions and instances. Structure
 definitions may refer to types declared later in the definitions document.
@@ -604,7 +604,7 @@ Built-in primitive spellings do not need to be redeclared.
 ### Document layout
 
 The embedded-value package separates three concerns. Working instance
-documents preserve declarations and add binary offsets; working bulk documents
+documents preserve declarations and add binary offsets; working bulk data documents
 can remove embedded records once backed by binary. Output projects the information
 needed for its selected form. Locator syntax is specified under loading and buffers.
 
@@ -632,16 +632,16 @@ regardless of the textual ordering of the two containers. The surrounding
 package and type-descriptor forms are illustrated by the accepted sample;
 later extensions are recorded separately.
 
-The bulk collection name identifies the array, not its individual
+The bulk data collection name identifies the array, not its individual
 records; it does not introduce references between those records.
-Embedded bulk records require every member explicitly, recursively through nested records
+Embedded bulk data records require every member explicitly, recursively through nested records
 and bit structures. Positional structures and fixed arrays must have their full
 declared lengths here; short-input/default completion belongs to `instances`,
 not `data`. Gaps are not members; the caller may explicitly clear them through
 the unused-storage operation.
-Separately, the live bulk API can allocate an unpopulated array to fill later
+Separately, the live bulk data API can allocate an unpopulated array to fill later
 through remapping or other explicit writes; it requires no embedded record array.
-Binary payload association, instance construction and bulk-data processing are
+Binary payload association, instance construction and bulk data processing are
 implemented through the live/baked roles described in the runtime API guide.
 
 ### Definition validation and assembly
@@ -662,7 +662,7 @@ Allowed properties are listed below; `*` marks required properties:
 
 Package sections and categories are objects; absent categories are empty.
 `stripped` is an optional Boolean marker for data roles. Resolution validates
-package shape and `types`, not instance/bulk values. Definitions and descriptors
+package shape and `types`, not instance/bulk data values. Definitions and descriptors
 are objects. Enum `values` is a non-empty named object. Structure `members` is an
 ordered array and may be empty; bit-structure `members` must be non-empty.
 Singleton member wrappers follow the document model's normalisation rules.
@@ -705,7 +705,7 @@ definitions documents or type namespaces merely because inputs came from
 different files.
 
 Source ingestion and manifest-driven generation are separate future work, recorded
-in the [follow-on notes](../backlog/schema_follow_on.md). Instance and bulk
+in the [follow-on notes](../backlog/schema_follow_on.md). Instance and bulk data
 documents consume the resolved configuration without redefining its types.
 Automatic remap setup receives source and destination structure definitions;
 it does not require an authored member-pair document.
@@ -821,7 +821,7 @@ the resolved layout; missing defaults are not materialised.
 Plain document copying and schema wrapper baking/promotion preserve existing
 metadata; callers explicitly request canonical schema output through this API.
 
-Instance and bulk scalar reconstruction applies the same declared-type rules as
+Instance and bulk data scalar reconstruction applies the same declared-type rules as
 schema defaults. This includes promotion, reconciliation, selection decoding and
 output preparation. A bit-field value uses its logical declared type for notation,
 not the narrower field width; its mask uses the containing storage width.
@@ -840,7 +840,7 @@ The caller formats or logs it while the input document remains alive; the
 [runtime guide](runtime-api.md#limits-and-diagnostics) describes its fields.
 Schema-resolution failure
 already has the empty-result contract specified under ownership and access.
-Instance/bulk load failure is confined to that logical document, including when
+Instance/bulk data load failure is confined to that logical document, including when
 its baked input shares a block with schema definitions.
 
 ## Primitive physical types
@@ -1129,7 +1129,7 @@ uninitialised fields. It is idempotent and requires writable storage with valid
 layout and range information. Like remapping, it can use a layout-driven traversal;
 it does not need a second schema representation or source-value buffer.
 
-Unpopulated bulk arrays have
+Unpopulated bulk data arrays have
 no zero-fill guarantee. Raw copies and whole-aggregate remaps continue to copy
 source padding; running the optional pass afterward removes byte padding and,
 when explicitly enabled, unused bitfield bits.
@@ -1317,7 +1317,7 @@ this does not require an override to redeclare that type. Earlier
 specialisations do not restrict which of those members later steps may change.
 Missing bases, invalid members, and circular specialisation are hard errors.
 
-Instance/bulk load errors invalidate that logical document and leave its schema
+Instance/bulk data load errors invalidate that logical document and leave its schema
 valid, regardless of whether the views share a physical baked block.
 
 Specialisation and overrides change values only.  They never change the
@@ -1462,29 +1462,29 @@ Our explicit tie rule follows
 it defines this encoder's deterministic result without promising bit-identical
 results from every hardware conversion permitted by those APIs.
 
-### Instance and bulk operation boundaries
+### Instance and bulk data operation boundaries
 
-The instance and bulk interfaces each manage a document association and a separate
+The instance and bulk data interfaces each manage a document association and a separate
 binary byte buffer. Embedded values are converted through the resolved schema on
-load, applying instance defaults/specialisation or complete-bulk-record rules as
+load, applying instance defaults/specialisation or complete bulk data record rules as
 appropriate. A specialisation copies a completed base and applies its changes
 into its own extent. Loading reference-form input uses the associated binary
 block with matching physical representation. Repeated access need not redo
 document conversion or layout calculation.
 
 Capture of an individual named instance updates an existing extent or appends an
-extent and updates/adds its live document entry. Bulk capture follows the same
+extent and updates/adds its live document entry. Bulk data capture follows the same
 model for a named record array. Instance documents retain declarations as well
-as binary offsets; bulk documents need not retain embedded records. Specialisation
+as binary offsets; bulk data documents need not retain embedded records. Specialisation
 capture uses the retained selection and updates descendants. Role handles, borrowed
 view lifetimes and buffer placement follow the rules above; implemented signatures
-are documented in the runtime API guide. Replacing a bulk entry through raw
+are documented in the runtime API guide. Replacing a bulk data entry through raw
 capture removes any existing embedded record array, leaving a reference to the
 new bytes. Reconciliation or embedded output can regenerate complete records.
 
 `CLiveBulkData` supports creating a named, unpopulated array by resolved type and
 record count. It uses the same aligned allocation, bounds checks and failed-append
-publication rules as other bulk creation. The resulting handle supplies a bounded
+publication rules as other bulk data creation. The resulting handle supplies a bounded
 destination view to the existing remapping executor. One or more mappings may
 populate the array; allocation does not promise zero-filled backing.
 The caller must populate required record fields before reading or exporting them.
@@ -1517,14 +1517,14 @@ Binary views across mutation/growth are caller-managed; no held-view tracking is
 
 Document declarations and completed binary values serve coordinated roles.
 Output builds a new live document as described under promotion, baking and
-output. Full output obtains completed values from binary; bulk references expand
+output. Full output obtains completed values from binary; bulk data references expand
 into record arrays. Reference output retains offsets and writes each associated
 block. Text versus baked output is independent of embedded, external or stripped data.
-For baked instance/bulk output, the payload owner remains external to the baked
+For baked instance/bulk data output, the payload owner remains external to the baked
 wrapper, just like the document-block owner. The caller can save newly generated
 payloads or transfer them to the host without extracting storage from a wrapper.
 Export does not destructively strip the working instance declarations or require
-bulk records to remain duplicated in the working document.
+bulk data records to remain duplicated in the working document.
 
 Full output for a specialisation reads its completed values from its own binary
 extent. All instance output retains instance names and the inheritance hierarchy;
@@ -1564,16 +1564,16 @@ from binary. Recognition is contextual to compound values; named scalar array
 elements remain invalid. Both live and baked roles use this interpretation
 without changing the parser.
 
-The same contextual interpretation applies to the outer array of bulk records.
+The same contextual interpretation applies to the outer array of bulk data records.
 A named singleton record must still supply every member of its declared type;
-the bulk completeness rule does not acquire instance defaults or inheritance.
+the bulk data completeness rule does not acquire instance defaults or inheritance.
 
 A structure with exactly one primitive or enum member,
 or a bit structure with one scalar field, accepts that scalar directly as a
 shorthand value. This rule applies wherever such a value is expected: an
 instance declaration, a specialisation selection, a nested member, an array
-element or a bulk record. For `Value { a: u8 }`, `1`, `[1]` and `{"a":1}` select
-the same member and encode the same value. A bulk collection of two `Value`
+element or a bulk data record. For `Value { a: u8 }`, `1`, `[1]` and `{"a":1}` select
+the same member and encode the same value. A bulk data collection of two `Value`
 records accepts `[1,2]`, `[[1],[2]]` or `[{"a":1},{"a":2}]`; its outer array
 still supplies two records rather than assigning one record twice.
 
@@ -1589,7 +1589,7 @@ comparison rule: NaNs compare equal, while padding and unused bits are ignored.
 Noncanonical Boolean codes and enum codes without labels cannot be embedded
 faithfully under that rule and are rejected with a diagnostic. Embedded and
 external instance output reconcile declarations and therefore reject such values.
-Stripped output for either role, and reference-only external bulk output, preserve
+Stripped output for either role, and reference-only external bulk data output, preserve
 their exact binary encodings without generating document literals.
 
 Binary loading/copying assumes matching offsets, stride, byte order and primitive
@@ -1679,7 +1679,7 @@ There are no supplied record counts, copied-count output or execution
 diagnostic: execution returns success/failure after checking memory validity
 before any writes. Zero-byte types impose no storage limit, and an entirely
 zero-byte transfer is a successful no-op without a logical count. Setup retains
-diagnostics for actionable construction failures. Instance/bulk callers extract
+diagnostics for actionable construction failures. Instance/bulk data callers extract
 entry views and use the same executor without separate handle-based overloads.
 
 Remapping into a live instance, whether a base or specialisation, changes only
@@ -1691,15 +1691,15 @@ Subsequent conversion reconciles declarations from the resulting snapshots.
 
 The primary destination is an application-owned data buffer outside the schema
 system, with its representation described by the destination resolved layout;
-it requires no instance or bulk document. Sources may be baked or live instances
-or bulk data. Writing into live instance or bulk backing within the schema system
+it requires no instance or bulk data document. Sources may be baked or live instances
+or bulk data. Writing into live instance or bulk data backing within the schema system
 is an additional destination path through the same bounded binary executor.
 
 Fast runtime binary updates are the primary remapping use case. Creating new
 document forms from remapped results is a separate workflow. The live instance
-and bulk roles expose `reconcile(diagnostic)` to rebuild their whole document
+and bulk data roles expose `reconcile(diagnostic)` to rebuild their whole document
 from current binary values. It never modifies payload bytes or propagates parent
-values into descendants. Bulk entries receive complete records; instance bases
+values into descendants. Bulk data entries receive complete records; instance bases
 and specialisations follow the defaults/parent comparison rule above. Publication
 is atomic: failure retains the old document and handles. Success replaces the
 document, invalidating its handles, while payload allocation, offsets and views

@@ -64,7 +64,7 @@ namespace detail
 //  Internal construction and diagnostics
 //==============================================================================
 
-enum class EConstructionMode : std::uint8_t { instance, complete_bulk };
+enum class EConstructionMode : std::uint8_t { instance, complete_bulk_data };
 
 struct SValueDiagnostic
 {

@@ -29,7 +29,7 @@ class CResolver;
 //  Layout limits
 //==============================================================================
 
-//  Maximum supported type alignment and base alignment of instance/bulk buffers.
+//  Maximum supported type alignment and base alignment of instance/bulk data buffers.
 constexpr std::uint32_t k_max_alignment = 128u;
 
 //==============================================================================

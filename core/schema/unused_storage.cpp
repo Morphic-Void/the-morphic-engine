@@ -355,15 +355,15 @@ template<class TQuery, class THandle>
     return true;
 }
 
-[[nodiscard]] static bool collect_bulk(const CResolvedSchema& schema, const CBulkDocumentQuery& query,
+[[nodiscard]] static bool collect_bulk_data(const CResolvedSchema& schema, const CBulkDataDocumentQuery& query,
     const EUnusedBits bits, TPodVector<SClearExtent>& extents) noexcept
 {
-    const CBulkHandle root = query.root();
+    const CBulkDataHandle root = query.root();
     if (!query.is_ready() || (query.value_kind(root) != EDocumentValueKind::object))
     {
         return false;
     }
-    const CBulkHandle data = query.object_child(root, CStringView{ "data" });
+    const CBulkDataHandle data = query.object_child(root, CStringView{ "data" });
     if (!data)
     {
         return true;
@@ -372,7 +372,7 @@ template<class TQuery, class THandle>
     {
         return false;
     }
-    for (CBulkHandle group = query.first_child(data); group; group = query.next_sibling(group))
+    for (CBulkDataHandle group = query.first_child(data); group; group = query.next_sibling(group))
     {
         const CSchemaIndex type = schema.find_type(query.name(group));
         SType layout;
@@ -382,13 +382,13 @@ template<class TQuery, class THandle>
         {
             return false;
         }
-        for (CBulkHandle entry = query.first_child(group); entry; entry = query.next_sibling(entry))
+        for (CBulkDataHandle entry = query.first_child(group); entry; entry = query.next_sibling(entry))
         {
             if (!query.is_object_entry(entry) || (query.value_kind(entry) != EDocumentValueKind::object))
             {
                 return false;
             }
-            for (CBulkHandle property = query.first_child(entry); property; property = query.next_sibling(property))
+            for (CBulkDataHandle property = query.first_child(entry); property; property = query.next_sibling(property))
             {
                 const CStringView name = query.name(property);
                 if (!(name == CStringView{ "locator" }) && !(name == CStringView{ "data" }))
@@ -396,7 +396,7 @@ template<class TQuery, class THandle>
                     return false;
                 }
             }
-            CBulkHandle count_node, size_node;
+            CBulkDataHandle count_node, size_node;
             std::uint64_t offset{}, stated_count{}, stated_size{};
             if (!locator(query, entry, count_node, size_node, offset) ||
                 (count_node && (!query.unsigned_integer_value(count_node, stated_count) || (stated_count > UINT32_MAX))) ||
@@ -404,7 +404,7 @@ template<class TQuery, class THandle>
             {
                 return false;
             }
-            const CBulkHandle embedded = query.object_child(entry, CStringView{ "data" });
+            const CBulkDataHandle embedded = query.object_child(entry, CStringView{ "data" });
             std::uint64_t count{};
             if (embedded)
             {
@@ -417,7 +417,7 @@ template<class TQuery, class THandle>
                 {
                     return false;
                 }
-                for (CBulkHandle value = query.first_child(embedded); value; value = query.next_sibling(value))
+                for (CBulkDataHandle value = query.first_child(embedded); value; value = query.next_sibling(value))
                 {
                     if (query.is_object_entry(value) &&
                         !((layout.category == ECategory::structure) ? schema.find_member(type, query.name(value)) :
@@ -575,10 +575,10 @@ bool clear_unused_storage(const CResolvedSchema& schema, const CInstanceDocument
     return true;
 }
 
-bool clear_unused_storage(const CResolvedSchema& schema, const CBulkDocumentQuery& document, const CByteView payload, const EUnusedBits bits) noexcept
+bool clear_unused_storage(const CResolvedSchema& schema, const CBulkDataDocumentQuery& document, const CByteView payload, const EUnusedBits bits) noexcept
 {
     TPodVector<SClearExtent> extents;
-    if (!schema.is_ready() || !valid_bits(bits) || !collect_bulk(schema, document, bits, extents) ||
+    if (!schema.is_ready() || !valid_bits(bits) || !collect_bulk_data(schema, document, bits, extents) ||
         !preflight_extents(schema, payload, extents))
     {
         return false;

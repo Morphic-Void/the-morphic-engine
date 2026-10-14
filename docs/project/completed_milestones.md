@@ -89,14 +89,14 @@ The debug-macro investigation remains separate work in the
 ## Schema system and refinement
 
 Completed through 4 October 2026. The [schema reference](../schema/README.md)
-describes live/baked schema, instance and bulk roles; shared resolution; faithful
+describes live/baked schema, instance and bulk data roles; shared resolution; faithful
 C++17 declarations; binary loading/materialisation and capture; coordinated
 instance editing; binary-authoritative reconciliation; embedded, external and
 stripped baking; exact-type remapping; and optional unused-storage clearing.
 
 The subsequent refinement removes quadratic record and descendant bookkeeping,
 indexes baked entry lookup and physical-member traversal, uses ordered live
-records directly, caches bulk type bindings and shares compatibility checks.
+records directly, caches bulk data type bindings and shares compatibility checks.
 Scalar decoding and document copying share implementations, while subtree copying
 and whole-document promotion retain their distinct traversal policies. The file,
 conditional/parameter and style passes clarify responsibilities without adding

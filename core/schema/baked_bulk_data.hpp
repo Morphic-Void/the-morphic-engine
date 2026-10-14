@@ -6,7 +6,7 @@
 //  Authors: Ritchie Brannan / OpenAI Codex
 //  Date:    01 Oct 26
 //
-//  Non-owning baked bulk role with explicit schema and payload associations.
+//  Non-owning baked bulk data role with explicit schema and payload associations.
 
 //  Public entry point for borrowed bulk data. Includes shared schema/query types.
 //  record_index.hpp supplies private storage required by the class definition.
@@ -27,7 +27,7 @@ namespace schema
 //  Loading diagnostics
 //==============================================================================
 
-enum class EBulkLoadReason : std::uint8_t
+enum class EBulkDataLoadReason : std::uint8_t
 {
     none = 0u,
     invalid_input,
@@ -46,17 +46,17 @@ enum class EBulkLoadReason : std::uint8_t
     binary_required
 };
 
-struct SBulkDiagnostic
+struct SBulkDataDiagnostic
 {
-    EBulkLoadReason reason{ EBulkLoadReason::none };
-    CBulkHandle occurrence;
+    EBulkDataLoadReason reason{ EBulkDataLoadReason::none };
+    CBulkDataHandle occurrence;
 };
 
 //==============================================================================
 //  Borrowed entry view
 //==============================================================================
 
-struct SBulkEntryView
+struct SBulkDataEntryView
 {
     CSchemaIndex type;
     std::uint32_t count{}, offset{};
@@ -65,7 +65,7 @@ struct SBulkEntryView
 };
 
 //==============================================================================
-//  Baked bulk role
+//  Baked bulk data role
 //==============================================================================
 
 class CBakedBulkData
@@ -98,10 +98,10 @@ public:
     //  alignment. The materialised owner is returned separately and must be
     //  unallocated on entry; neither backing allocation belongs to this wrapper.
     //  Stripped documents require load_supplied; there are no embedded values to compare.
-    [[nodiscard]] bool load_supplied(const CByteConstView& payload, const bool compare_embedded, SBulkDiagnostic& diagnostic) noexcept;
-    [[nodiscard]] bool materialise(CByteBuffer& returned_owner, SBulkDiagnostic& diagnostic) noexcept;
-    [[nodiscard]] bool promote(class CLiveBulkData& destination, CBakedSchema& schema, SBulkDiagnostic& diagnostic) const noexcept;
-    [[nodiscard]] bool promote(class CLiveBulkData& destination, CLiveSchema& schema, SBulkDiagnostic& diagnostic) const noexcept;
+    [[nodiscard]] bool load_supplied(const CByteConstView& payload, const bool compare_embedded, SBulkDataDiagnostic& diagnostic) noexcept;
+    [[nodiscard]] bool materialise(CByteBuffer& returned_owner, SBulkDataDiagnostic& diagnostic) noexcept;
+    [[nodiscard]] bool promote(class CLiveBulkData& destination, CBakedSchema& schema, SBulkDataDiagnostic& diagnostic) const noexcept;
+    [[nodiscard]] bool promote(class CLiveBulkData& destination, CLiveSchema& schema, SBulkDataDiagnostic& diagnostic) const noexcept;
 
     //==============================================================================
     //  Queries and payload access
@@ -110,10 +110,10 @@ public:
     [[nodiscard]] bool document_ready() const noexcept { return m_document.is_ready(); }
     [[nodiscard]] bool values_stripped() const noexcept;
     [[nodiscard]] bool loaded_ready() const noexcept { return m_loaded && m_binding.is_usable(); }
-    [[nodiscard]] CBulkDocumentQuery document_query() const noexcept;
-    [[nodiscard]] CBulkHandle data_root() const noexcept;
-    [[nodiscard]] CBulkHandle find_entry(const CStringView& type, const CStringView& name) const noexcept;
-    [[nodiscard]] bool entry(const CBulkHandle handle, SBulkEntryView& result) const noexcept;
+    [[nodiscard]] CBulkDataDocumentQuery document_query() const noexcept;
+    [[nodiscard]] CBulkDataHandle data_root() const noexcept;
+    [[nodiscard]] CBulkDataHandle find_entry(const CStringView& type, const CStringView& name) const noexcept;
+    [[nodiscard]] bool entry(const CBulkDataHandle handle, SBulkDataEntryView& result) const noexcept;
     [[nodiscard]] CByteConstView payload_view() const noexcept { return loaded_ready() ? m_payload : CByteConstView{}; }
     void clear() noexcept;
 
@@ -133,11 +133,11 @@ private:
         bool prior_valid{};
     };
 
-    [[nodiscard]] bool fail(SBulkDiagnostic& diagnostic, const EBulkLoadReason reason, const CBakedValueIndex occurrence) const noexcept;
+    [[nodiscard]] bool fail(SBulkDataDiagnostic& diagnostic, const EBulkDataLoadReason reason, const CBakedValueIndex occurrence) const noexcept;
     void clear_loaded() noexcept;
     [[nodiscard]] bool plan(const bool supplied, const std::size_t payload_size,
-        TPodVector<SRecord>& records, std::size_t& total_size, SBulkDiagnostic& diagnostic) const noexcept;
-    [[nodiscard]] bool compare_embedded(const TPodVector<SRecord>& records, const CByteConstView& payload, SBulkDiagnostic& diagnostic) const noexcept;
+        TPodVector<SRecord>& records, std::size_t& total_size, SBulkDataDiagnostic& diagnostic) const noexcept;
+    [[nodiscard]] bool compare_embedded(const TPodVector<SRecord>& records, const CByteConstView& payload, SBulkDataDiagnostic& diagnostic) const noexcept;
 
     //==============================================================================
     //  Borrowed state and record index

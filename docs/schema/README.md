@@ -7,8 +7,9 @@ Date:   25 Sep 2026
 
 # Schema documentation
 
-These documents describe the implemented schema system. Historical plans and
-decision transcripts are not required to interpret its current contracts.
+These documents describe the implemented schema system and separately identified
+future revisions. Historical plans and decision transcripts are not required to
+interpret its current contracts.
 
 | Document | Purpose |
 | --- | --- |
@@ -16,6 +17,8 @@ decision transcripts are not required to interpret its current contracts.
 | [Runtime API](runtime-api.md) | Public entry points, file map, lifetimes, diagnostics and implementation limits. |
 | [Validation](validation.md) | Regression coverage and generated C++ layout checks. |
 | [Example](schema-example.json) and [notes](schema-example-notes.md) | Authoring example, expected layouts, numeric notation and materialisation rules. |
+| [Persistence and aggregation revision](persistence-and-aggregation.md) | Agreed future direction and reasoning for separate data entities, shared definitions, aggregation and document composition; not yet implemented. |
+| [Persistence implementation plan](persistence-implementation-plan.md) | Eight review stages for naming, block persistence, construction, Host integration and acceptance; naming implemented and user-reviewed, persistence stages not yet started. |
 | [Follow-on work](../backlog/schema_follow_on.md) | Future direction and unresolved design questions, separate from current requirements. |
 | [Header survey](header-survey.md) | Historical source research supporting the ingestion discussion. |
 

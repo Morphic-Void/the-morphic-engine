@@ -6,10 +6,10 @@
 //  Authors: Ritchie Brannan / OpenAI Codex
 //  Date:    01 Oct 26
 //
-//  Owned live bulk document and aligned working payload.
+//  Owned live bulk data document and aligned working payload.
 
 //  Public entry point for owned bulk data. The baked-role include also supplies
-//  shared bulk views and diagnostics; output and clearing policies are included.
+//  shared bulk data views and diagnostics; output and clearing policies are included.
 
 #pragma once
 
@@ -27,7 +27,7 @@ namespace schema
 //  Mutable entry view
 //==============================================================================
 
-struct SMutableBulkEntryView
+struct SMutableBulkDataEntryView
 {
     CSchemaIndex type;
     std::uint32_t count{}, offset{};
@@ -36,7 +36,7 @@ struct SMutableBulkEntryView
 };
 
 //==============================================================================
-//  Live bulk role
+//  Live bulk data role
 //==============================================================================
 
 class CLiveBulkData
@@ -63,11 +63,11 @@ public:
 
     [[nodiscard]] bool document_ready() const noexcept { return m_document.is_ready(); }
     [[nodiscard]] bool loaded_ready() const noexcept { return m_loaded && m_binding.is_usable(); }
-    [[nodiscard]] CBulkDocumentQuery document_query() const noexcept;
-    [[nodiscard]] CBulkHandle data_root() const noexcept;
-    [[nodiscard]] CBulkHandle find_entry(const CStringView& type, const CStringView& name) const noexcept;
-    [[nodiscard]] bool entry(const CBulkHandle handle, SBulkEntryView& result) const noexcept;
-    [[nodiscard]] bool mutable_entry(const CBulkHandle handle, SMutableBulkEntryView& result) noexcept;
+    [[nodiscard]] CBulkDataDocumentQuery document_query() const noexcept;
+    [[nodiscard]] CBulkDataHandle data_root() const noexcept;
+    [[nodiscard]] CBulkDataHandle find_entry(const CStringView& type, const CStringView& name) const noexcept;
+    [[nodiscard]] bool entry(const CBulkDataHandle handle, SBulkDataEntryView& result) const noexcept;
+    [[nodiscard]] bool mutable_entry(const CBulkDataHandle handle, SMutableBulkDataEntryView& result) noexcept;
     [[nodiscard]] CByteConstView payload_view() const noexcept { return loaded_ready() ? m_payload.const_view() : CByteConstView{}; }
     [[nodiscard]] bool clear_unused_storage(const EUnusedBits bits = EUnusedBits::preserve) noexcept;
 
@@ -76,33 +76,33 @@ public:
     //==============================================================================
 
     //  Rebuild complete records; success invalidates document handles, not payload views.
-    [[nodiscard]] bool reconcile(SBulkDiagnostic& diagnostic) noexcept;
+    [[nodiscard]] bool reconcile(SBulkDataDiagnostic& diagnostic) noexcept;
 
     //==============================================================================
     //  Creation and editing
     //==============================================================================
 
-    [[nodiscard]] CBulkHandle create_records(const CStringView& type, const CStringView& name,
-        const CBulkDocumentQuery& source_query, const CBulkHandle records_array, SBulkDiagnostic& diagnostic) noexcept;
-    [[nodiscard]] CBulkHandle capture(const CStringView& type, const CStringView& name,
-        const CByteConstView& source, const std::uint32_t count, SBulkDiagnostic& diagnostic) noexcept;
-    [[nodiscard]] CBulkHandle create_unpopulated(const CStringView& type, const CStringView& name,
-        const std::uint32_t count, SBulkDiagnostic& diagnostic) noexcept;
-    [[nodiscard]] bool rename_entry(const CBulkHandle handle, const CStringView& name) noexcept;
-    [[nodiscard]] bool erase_entry(const CBulkHandle handle) noexcept;
+    [[nodiscard]] CBulkDataHandle create_records(const CStringView& type, const CStringView& name,
+        const CBulkDataDocumentQuery& source_query, const CBulkDataHandle records_array, SBulkDataDiagnostic& diagnostic) noexcept;
+    [[nodiscard]] CBulkDataHandle capture(const CStringView& type, const CStringView& name,
+        const CByteConstView& source, const std::uint32_t count, SBulkDataDiagnostic& diagnostic) noexcept;
+    [[nodiscard]] CBulkDataHandle create_unpopulated(const CStringView& type, const CStringView& name,
+        const std::uint32_t count, SBulkDataDiagnostic& diagnostic) noexcept;
+    [[nodiscard]] bool rename_entry(const CBulkDataHandle handle, const CStringView& name) noexcept;
+    [[nodiscard]] bool erase_entry(const CBulkDataHandle handle) noexcept;
 
     //==============================================================================
     //  Output preparation and baking
     //==============================================================================
 
     [[nodiscard]] bool prepare_output(CLiveDocument& document, CByteBuffer& payload,
-        CBakedSchema& destination_schema, const EDataOutputForm form, SBulkDiagnostic& diagnostic) const noexcept;
+        CBakedSchema& destination_schema, const EDataOutputForm form, SBulkDataDiagnostic& diagnostic) const noexcept;
     [[nodiscard]] bool prepare_output(CLiveDocument& document, CByteBuffer& payload,
-        CLiveSchema& destination_schema, const EDataOutputForm form, SBulkDiagnostic& diagnostic) const noexcept;
+        CLiveSchema& destination_schema, const EDataOutputForm form, SBulkDataDiagnostic& diagnostic) const noexcept;
     [[nodiscard]] bool bake(CBakedDocumentBlock& block, CByteBuffer& payload, CBakedBulkData& role,
-        CBakedSchema& destination_schema, const EDataOutputForm form, SBulkDiagnostic& diagnostic) const noexcept;
+        CBakedSchema& destination_schema, const EDataOutputForm form, SBulkDataDiagnostic& diagnostic) const noexcept;
     [[nodiscard]] bool bake(CBakedDocumentBlock& block, CByteBuffer& payload, CBakedBulkData& role,
-        CLiveSchema& destination_schema, const EDataOutputForm form, SBulkDiagnostic& diagnostic) const noexcept;
+        CLiveSchema& destination_schema, const EDataOutputForm form, SBulkDataDiagnostic& diagnostic) const noexcept;
 
 private:
     //==============================================================================
@@ -119,17 +119,17 @@ private:
     };
 
     [[nodiscard]] bool initialise_document(const std::size_t initial_node_capacity) noexcept;
-    [[nodiscard]] bool record_index(const CBulkHandle handle, std::size_t& index) const noexcept;
-    [[nodiscard]] bool observe(const SRecord& record, SBulkEntryView& result) const noexcept;
-    [[nodiscard]] CBulkHandle store(const CStringView& type, const CStringView& name,
+    [[nodiscard]] bool record_index(const CBulkDataHandle handle, std::size_t& index) const noexcept;
+    [[nodiscard]] bool observe(const SRecord& record, SBulkDataEntryView& result) const noexcept;
+    [[nodiscard]] CBulkDataHandle store(const CStringView& type, const CStringView& name,
         const CByteConstView& source, const std::uint32_t count, const bool unpopulated,
-        const bool replace, SBulkDiagnostic& diagnostic) noexcept;
-    [[nodiscard]] bool promote_from(const CBakedBulkData& source, SBulkDiagnostic& diagnostic) noexcept;
+        const bool replace, SBulkDataDiagnostic& diagnostic) noexcept;
+    [[nodiscard]] bool promote_from(const CBakedBulkData& source, SBulkDataDiagnostic& diagnostic) noexcept;
     [[nodiscard]] bool prepare_output_to(CLiveDocument& document, CByteBuffer& payload,
-        const CResolvedSchema& destination_schema, const EDataOutputForm form, SBulkDiagnostic& diagnostic) const noexcept;
+        const CResolvedSchema& destination_schema, const EDataOutputForm form, SBulkDataDiagnostic& diagnostic) const noexcept;
     template<class TSchema>
     [[nodiscard]] bool bake_to(CBakedDocumentBlock& block, CByteBuffer& payload, CBakedBulkData& role,
-        TSchema& destination_schema, const EDataOutputForm form, SBulkDiagnostic& diagnostic) const noexcept;
+        TSchema& destination_schema, const EDataOutputForm form, SBulkDataDiagnostic& diagnostic) const noexcept;
     void take_from(CLiveBulkData& source) noexcept;
     void disable() noexcept;
 

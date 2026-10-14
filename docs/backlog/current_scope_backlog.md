@@ -43,7 +43,7 @@ explicit-layout overlap checking. The
 records completion; the [validation guide](../schema/validation.md) describes checks.
 
 Integer presentation is implemented in the data model and applied by canonical
-schema output and instance/bulk reconstruction. The
+schema output and instance/bulk data reconstruction. The
 [schema follow-on notes](schema_follow_on.md) preserve the next design discussion:
 fp16 conversion, related C++/shader representations, simple trait-based
 serialisation, selectable declaration output, document/binary packaging and

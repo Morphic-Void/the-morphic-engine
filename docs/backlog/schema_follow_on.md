@@ -68,12 +68,49 @@ complete C++17 buffer; the more selective interface is not implemented.
 
 ### Document and binary packaging
 
-Consider saving a schema document and its binary components as a combined object.
-This is adjacent to the user's pack-file idea: a mount point could represent a
-file containing multiple files and a directory, or the equivalent loose form
-used during construction. Packaging ownership, component association and the
-boundary with schema code remain open. Existing schema roles keep document and
-payload owners separate; the filesystem image is currently directory-backed.
+The [persistence and aggregation revision](../schema/persistence-and-aggregation.md)
+records the direction agreed on 14 October 2026. Shared type definitions remain
+separately associated with independently created data. A baked instance document
+and its binary payload form one persistence entity, as do a baked bulk data document
+and its payload. The implemented bundle system supplies combined loading where
+needed; a combined types/instances/bulk data file is not the mandatory normal form.
+
+Definition merging, instance aggregation and bulk data aggregation have separate
+responsibilities. Complete document composition assembles already reconciled
+sections and does not resolve collisions. The revision now includes the agreed
+version 1 persistence format with binary-authoritative loading and opt-in value
+comparison, caller-supplied schema binding without compatibility
+signatures, and the `CBakedInstancesBlock`/`CBakedBulkDataBlock` access and lifecycle
+contracts for local and Host backing. It also records live baking, description
+materialisation and document-promotion stripping interfaces, with contiguous
+completed blocks and private staged construction permitted. Direct construction
+into final allocation is an expected later optimisation. Host loading, admission
+and saving will preserve the full buffer while exposing a separate document-prefix
+view. Explicit bundle saves write current storage; automatic bundle persistence
+and writes to bundle entries are outside scope. Shared load options and layered
+diagnostic contracts now distinguish format, schema binding, specialised loading
+and construction failures, with explicit location lifetime rules. Materialisation
+is all or nothing, and parsing is followed by explicit caller-side construction
+and optional Host admission/save. Diagnostic representation and delivery stages
+are specified in the implementation plan; merge policies remain separate future
+design work.
+Existing schema baking still returns separate document and payload owners.
+
+The [concrete implementation plan](../schema/persistence-implementation-plan.md)
+organises delivery into eight review stages, starting with the naming pass and
+ending with real Host/bundle acceptance and documentation. Stage 1 naming is
+implemented and user-reviewed; stages 2-8 have not started.
+
+Required implementation work-plan pass (stage 1):
+
+- [x] Standardise the schema domain on "bulk data" in prose and
+  `BulkData`/`bulk_data` in identifiers. Rename supporting types and helpers,
+  update call sites, tests and maintained documentation, and check for stale
+  names. Follow the mapping in the
+  [revision](../schema/persistence-and-aggregation.md#agreed-bulk-data-terminology-and-standardisation-pass).
+  Keep generic bulk-operation terminology and persisted format names unchanged.
+  Update consumers together without compatibility aliases as the first review
+  stage; validate with applicable builds and existing schema tests.
 
 ## Earlier source-ingestion direction
 

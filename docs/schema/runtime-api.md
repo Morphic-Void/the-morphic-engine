@@ -10,16 +10,16 @@ Date:   27 Sep 2026
 This page describes the implemented schema interfaces, lifetimes and limits.
 The [specification](specification.md) defines grammar and semantics;
 [validation](validation.md) describes regression and compiler checks.
-Schema wrappers, promotion/baking, live/baked instance and bulk roles, and
+Schema wrappers, promotion/baking, live/baked instance and bulk data roles, and
 bounded direct-member remapping share the contracts below. Future extensions
 are discussed separately in the [follow-on notes](../backlog/schema_follow_on.md).
 
 `schema::CSchemaDocumentQuery` exposes read-only tree, name and scalar queries
 through `CSchemaHandle` occurrences. Its internal adapter reads either a live or
 baked document. A baked query copies the non-owning view, while a live query
-borrows its document. `CInstanceDocumentQuery` and `CBulkDocumentQuery` offer the
+borrows its document. `CInstanceDocumentQuery` and `CBulkDataDocumentQuery` offer the
 same original-root read surface with their distinct role handles. Schema,
-instance and bulk role-handle types are distinct.
+instance and bulk data role-handle types are distinct.
 The small role-query forwarding methods are inline in `document_query.hpp`,
 grouped by class at the end of the header after the interface declarations.
 Live/baked dispatch remains in the shared adapter in `document_query.cpp`.
@@ -33,7 +33,7 @@ Include the header for the role or operation being used:
 | `schema_wrappers.hpp` | Live/baked schema ownership, editing and client bindings. |
 | `resolved_schema.hpp` | Resolved layouts, defaults, diagnostics, schema document output and C++ generation. |
 | `baked_instances.hpp`, `live_instances.hpp` | Instance loading, observation and live editing/output. |
-| `baked_bulk_data.hpp`, `live_bulk_data.hpp` | Bulk loading, observation and live capture/output. |
+| `baked_bulk_data.hpp`, `live_bulk_data.hpp` | Bulk data loading, observation and live capture/output. |
 | `data_remap.hpp` | Remap planning and execution between binary views. |
 | `unused_storage.hpp` | Explicit clearing of unused binary storage. |
 
@@ -43,7 +43,7 @@ support; live data headers also include the corresponding baked header for share
 diagnostics and views.
 
 `schema::k_max_alignment` in `resolved_schema.hpp` defines the maximum supported
-type alignment and the common base alignment of instance/bulk buffers (128 bytes).
+type alignment and the common base alignment of instance/bulk data buffers (128 bytes).
 Allocation, supplied-payload checks and staging offsets use the same constant.
 
 `record_index.hpp`, `type_compatibility.hpp`, `value_codec.hpp`,
@@ -64,7 +64,7 @@ The implementation files follow those responsibilities:
 | `live_instances.cpp` | Instance lifetime, bindings, queries and creation. |
 | `live_instances_edit.cpp` | Capture, selection editing and descendant propagation. |
 | `live_instances_translation.cpp` | Instance declaration reconstruction, promotion, reconciliation and baking. |
-| `live_bulk_data.cpp` | Live bulk ownership, capture, queries, reconciliation and translation. |
+| `live_bulk_data.cpp` | Live bulk data ownership, capture, queries, reconciliation and translation. |
 | `value_codec.cpp` | Shared value construction, decoding and comparison. |
 | `type_compatibility.cpp` | Cached structural compatibility checks. |
 | `data_remap.cpp`, `unused_storage.cpp` | Remap planning/execution and explicit unused-storage clearing. |
@@ -87,12 +87,12 @@ and baking. Creation and translation share private append/locator helpers on
 `CLiveInstances`. Editing and translation use the shared scalar decoder with
 their respective diagnostic policies. This split adds no public header.
 
-Selection overlays and bulk document reconstruction also use stack-local
+Selection overlays and bulk data document reconstruction also use stack-local
 operation objects for their fixed inputs. Overlay traversal depth remains
 separate from the excluded selection's path depth. The value writer retains its
 construction mode for the operation and shares compound-input preparation
 between structures and bit structures. Their positional-entry rules and first
-diagnostic ordering remain distinct; this consolidation does not change bulk
+diagnostic ordering remain distinct; this consolidation does not change bulk data
 completeness, instance defaults or alternative inheritance.
 
 ## Schema wrappers and client bindings
@@ -273,7 +273,7 @@ bake/promotion operations continue to preserve input metadata.
 | Counts, offsets, sizes, alignments | Adaptive decimal/hexadecimal, decimal through 65535. |
 
 The ordinary rules apply to enum definitions and integer defaults, including
-nested array defaults, and to integers reconstructed for instance/bulk documents.
+nested array defaults, and to integers reconstructed for instance/bulk data documents.
 Signed-domain values retain `+`/`-`; unsigned values have no sign. The canonical
 hex prefix is `0x`. A small `u32` value prints as `0x01`, while a 32-bit mask
 prints as `0x00000001`. Metadata storage width remains the measured minimum in
@@ -290,7 +290,7 @@ It does not materialise missing defaults or array elements.
 Data-role promotion, reconciliation, selection decoding and output preparation
 share the scalar policy. Bit-field values follow their logical declared type;
 enum values remain label strings. Rebuilt locator integers use the structural
-policy in every output form, including stripped output. Raw bulk capture still
+policy in every output form, including stripped output. Raw bulk data capture still
 constructs locators without decoding records. Input declarations copied without
 reconstruction retain their metadata until a reconstruction operation is requested.
 
@@ -351,7 +351,7 @@ detail::construct_alternative(schema, document, type, declaration, base,
     base_size, destination, destination_size, diagnostic);
 ```
 
-`complete_bulk` mode requires every recursively addressable member, bit field
+`complete_bulk_data` mode requires every recursively addressable member, bit field
 and array position. Instance mode fills omitted values from schema defaults;
 short positional input uses defaults, including an explicit array-default
 prefix. An alternative copies its immediate parent's complete bytes into a
@@ -364,7 +364,7 @@ A structure with exactly one primitive or enum member also accepts a scalar
 value as shorthand for selecting that member. The same rule applies to a bit
 structure with one scalar field. For `Value { a: u8 }`, `1`, `[1]` and `{"a":1}`
 are equivalent initialisers. This applies to roots, nested members, array
-elements, instance selections and bulk records. It does not recursively unwrap
+elements, instance selections and bulk data records. It does not recursively unwrap
 an array or compound member, and multi-member or empty compounds still require
 aggregate input. Null remains invalid; scalar range, enum-label and bitfield
 interpretation rules are unchanged. Capture and embedded output may emit the
@@ -372,7 +372,7 @@ equivalent explicit aggregate form while retaining the same selected member.
 
 The internal `construct_value` singleton-element flag identifies a named
 compound member unwrapped by the parser at an outer record-array position.
-Bulk callers supply this context explicitly; names on primitive array elements
+Bulk data callers supply this context explicitly; names on primitive array elements
 remain invalid. Named singleton records still undergo complete-record checks.
 
 Both byte spans are bounded separately and must cover the resolved type size
@@ -397,7 +397,7 @@ carry the index with its records; clearing releases it.
 Live roles binary-search their record vectors directly, without auxiliary index
 storage or maintenance. Entry keys are strictly increasing in record order:
 creation appends a fresh monotonic key, replacement and renaming preserve it,
-and bulk erasure preserves the order of the remaining records. Promotion and
+and bulk data erasure preserves the order of the remaining records. Promotion and
 reconciliation create fresh entry keys in record order, even when document
 groups or specialisation branches are interleaved. Whole-owner transfers
 preserve that order. Future mutation paths must preserve this invariant.
@@ -405,10 +405,10 @@ preserve that order. Future mutation paths must preserve this invariant.
 Neither role performs lazy construction or allocation during entry lookup or
 instance hierarchy navigation. Name lookup remains a separate search; rendering
 consumers can resolve names during preparation and retain entry handles or
-bounded payload views under the existing lifetime rules. A bulk collection
+bounded payload views under the existing lifetime rules. A bulk data collection
 contributes one record-table entry regardless of its payload record count.
 
-Live bulk records retain their resolved type index, so access by handle does
+Live bulk data records retain their resolved type index, so access by handle does
 not repeat a schema type-name search. Binding availability is checked on each
 operation. Bound schemas cannot be edited or replaced; successful unchanged
 re-resolution preserves indices, while failed resolution makes access unavailable
@@ -424,7 +424,7 @@ identities and, for definition matching, both default descriptions. Completed
 matches and proven root mismatches can be reused within the operation; unfinished
 comparisons are discarded on failure. No cache survives schema re-resolution.
 
-Scalar decoding is shared by bulk output and instance capture, editing and
+Scalar decoding is shared by bulk data output and instance capture, editing and
 reconciliation. The codec also shares little-endian scalar bit access with
 construction and comparison. Role-specific traversal and diagnostic mapping stay
 with their callers, including the checks that generated literals reproduce
@@ -441,7 +441,7 @@ source access. The subtree walk retains its 256-level depth bound and incrementa
 growth; promotion retains its iterative walk, node reservation and staged
 publication. Baked access gains no additional storage or work.
 
-## Baked bulk role
+## Baked bulk data role
 
 `CBakedBulkData` attaches to an immutable `CBakedDocument` view or a
 `CMutableBakedDocument` view. Both borrow their block bytes. Bind a resolved
@@ -449,7 +449,7 @@ publication. Baked access gains no additional storage or work.
 owner invalidates the binding on destruction; `loaded_ready()` then becomes
 false. `clear()` releases the binding, records and payload view. The wrapper
 never owns the external payload. `document_query()` reads the original root;
-`data_root()` selects its bulk section. `find_entry()` and `entry()` expose
+`data_root()` selects its bulk data section. `find_entry()` and `entry()` expose
 validated type, count, offset, stride, byte extent and borrowed byte pointer.
 
 Each `data.<type>.<name>` entry is an object with a required `locator` and
@@ -478,16 +478,16 @@ mutable document view with `valid: true`; a read-only view cannot publish them.
 The caller receives the owner, while the wrapper keeps a non-owning view. A
 zero-byte-only payload can use the canonical empty view. Moving the owner keeps
 the payload address stable; destroying or reallocating it invalidates the view.
-`SBulkDiagnostic` reports the first failure reason and a bulk occurrence when
+`SBulkDataDiagnostic` reports the first failure reason and a bulk data occurrence when
 available. Failure leaves the role unready.
 
-## Live bulk role
+## Live bulk data role
 
 `CLiveBulkData` owns its live document and one 128-byte-aligned working payload.
 `initialise()` takes a resolved baked or live schema explicitly and creates an
 empty `data` section. `CBakedBulkData::promote(destination, schema, diagnostic)`
 requires a loaded, usable source and an empty destination. It copies only the
-bulk section into an independent live document and copies the complete associated
+bulk data section into an independent live document and copies the complete associated
 payload into independent storage. Existing embedded record arrays are regenerated
 from binary; ordinary reference-only entries remain references. Stripped input
 instead regenerates complete arrays, as described under [stripped data output](#stripped-data-output).
@@ -510,7 +510,7 @@ cannot be expressed faithfully report `unrepresentable_value`; record expansions
 that cannot fit the document's node/storage limits report `invalid_range`.
 Callers must initialise unpopulated storage before reconciling it.
 
-`document_query()` reads the live document's original root through `CBulkHandle`
+`document_query()` reads the live document's original root through `CBulkDataHandle`
 occurrences. `data_root()`, `find_entry()` and `entry()` mirror the baked role;
 `mutable_entry()` returns matching metadata and a bounded `CByteView`. Zero-byte
 entries have a canonical empty view and may have positive or zero record counts.
@@ -524,8 +524,8 @@ document mutation and binary views may expire after buffer growth. A retained
 entry handle remains meaningful while its entry node survives.
 
 `create_records(type, name, source_query, records_array, diagnostic)` accepts a
-record array in a baked or live `CBulkDocumentQuery` and constructs every record
-in `complete_bulk` mode. Named singleton outer elements are interpreted as
+record array in a baked or live `CBulkDataDocumentQuery` and constructs every record
+in `complete_bulk_data` mode. Named singleton outer elements are interpreted as
 compound members, consistently with nested arrays. Every declared
 member and array element must be supplied, including zero-byte types; schema
 defaults do not fill omissions. It rejects a
@@ -544,7 +544,7 @@ or exporting such an entry. Neither promotion nor later raw capture substitutes
 destination-schema defaults for authoritative bytes.
 
 For `Value { a: u8 }`, `[1,2]`, `[[1],[2]]` and `[{"a":1},{"a":2}]` each
-supply two complete records. The outer array is the bulk collection; each
+supply two complete records. The outer array is the bulk data collection; each
 element initialises one record. A stated locator count must match that array's
 length. A scalar cannot initialise a multi-member record, and a named singleton
 record cannot omit other required members.
@@ -559,7 +559,7 @@ that state disables the live role and reports a critical event. `clear()`
 releases its document, payload and schema link. Entry views also provide the
 bounded storage used by the implemented remapping operations below.
 
-## Bulk output and baking
+## Bulk data output and baking
 
 `CLiveBulkData::prepare_output(document, payload, destination_schema, form,
 diagnostic)` creates a separate live document and 128-byte-aligned packed payload.
@@ -568,7 +568,7 @@ types must match the source in structure and value interpretation; defaults may
 differ. Both destinations must be empty. `EDataOutputForm::embedded` adds complete
 record arrays decoded from binary; `external` omits them. Both forms retain valid
 reserved locators with positive counts. Text versus baked document encoding is a
-separate caller choice. An entirely empty bulk collection is valid, while a named
+separate caller choice. An entirely empty bulk data collection is valid, while a named
 zero-count entry is not output-ready.
 
 Packing traverses the live document rather than record creation history, aligns
@@ -630,7 +630,7 @@ declarations are not converted. With comparison enabled, the loader constructs
 base and descendant snapshots in separate scratch storage, parent before child,
 then compares addressable encoded fields against the supplied payload. Expected
 children never use supplied parent bytes. Comparison follows the encoded rules
-described for the bulk role.
+described for the bulk data role.
 
 `materialise(returned_owner, diagnostic)` takes an unallocated output buffer,
 constructs each base with defaults and each child as an independent alternative
@@ -772,8 +772,8 @@ and `bake()` overloads. The former `demote()` APIs are now named `bake()`,
 including `CLiveSchema::bake()`; no compatibility aliases are provided.
 
 Stripped output removes every instance/specialisation `declaration` and every
-embedded bulk `data` array. It retains type groups, names, the specialisation
-hierarchy and valid locators with offsets, sizes and bulk counts. Complete binary
+embedded bulk data `data` array. It retains type groups, names, the specialisation
+hierarchy and valid locators with offsets, sizes and bulk data counts. Complete binary
 snapshots are packed and copied exactly, including padding, without scalar
 decoding. Schema baking still copies the complete `types` section, including all
 definitions and defaults; the data output choice never reduces the schema.
@@ -794,12 +794,12 @@ including for empty collections and zero-byte types. Those cases may use the
 explicit supplied route with a canonical empty payload.
 
 Promotion reconstructs instance declarations against destination defaults and
-parent snapshots, and reconstructs complete bulk arrays. The resulting live
+parent snapshots, and reconstructs complete bulk data arrays. The resulting live
 documents have no stripping marker and support normal editing. A raw scalar
 that cannot be expressed by the document grammar can be baked stripped and read
 from binary, but promotion reports `unrepresentable_value` without publishing
 a partial result. The existing embedded and external forms retain their previous
-behaviour: both regenerate instance declarations, while external bulk output
+behaviour: both regenerate instance declarations, while external bulk data output
 omits arrays and its promotion keeps reference-only entries.
 
 For example, a stripped instance document can contain:
@@ -893,8 +893,8 @@ For example, after constructing a plan from the expected resolved types and
 creating any live destination entry, read both sources afresh:
 
 ```cpp
-SBulkEntryView a, b;
-if (baked_bulk.entry(baked_handle, a) && live_bulk.entry(live_handle, b) &&
+SBulkDataEntryView a, b;
+if (baked_bulk_data.entry(baked_handle, a) && live_bulk_data.entry(live_handle, b) &&
     (a.type == expected_a) && (b.type == expected_b))
 {
     const CByteConstView sources[] = {
@@ -902,10 +902,10 @@ if (baked_bulk.entry(baked_handle, a) && live_bulk.entry(live_handle, b) &&
         CByteConstView{ b.bytes, static_cast<std::size_t>(b.byte_count) }
     };
     const bool filled_external = plan.execute(sources, 2u, application_buffer.view());
-    SMutableBulkEntryView target;
-    if (live_bulk.mutable_entry(target_handle, target) && (target.type == expected_destination))
+    SMutableBulkDataEntryView target;
+    if (live_bulk_data.mutable_entry(target_handle, target) && (target.type == expected_destination))
     {
-        const bool filled_live_bulk = plan.execute(sources, 2u, target.bytes);
+        const bool filled_live_bulk_data = plan.execute(sources, 2u, target.bytes);
     }
 }
 ```
@@ -942,7 +942,7 @@ partial trailing value fails without processing earlier values. A canonical
 empty view succeeds for a zero-byte type; a nonempty view against such a type
 is rejected because it has no typed bytes to classify.
 
-`clear_unused_storage(schema, instance_query, writable_payload)` and the bulk
+`clear_unused_storage(schema, instance_query, writable_payload)` and the bulk data
 query overload clear typed gaps in every located extent, plus all unreferenced
 bytes within the supplied view's logical used range. This includes alignment
 gaps and holes left by live replacements or erasure. Zero-byte or zero-count
@@ -1116,7 +1116,7 @@ enum underlying types/values, mask types/values, standard layout and trivial
 copyability, including `fp16data_t`. Support requires successful compiler fidelity
 validation for the target ABI. The full authoring sample is a positive schema
 resolution and C++ layout fixture. The role-loader tests exercise its instance
-and bulk sections separately; those remain outside the resolver's validation scope.
+and bulk data sections separately; those remain outside the resolver's validation scope.
 
 Record sizes are available through `record_sizes()` for review and are printed
 by the suite. They are measurements, not a serialization format or promised ABI.

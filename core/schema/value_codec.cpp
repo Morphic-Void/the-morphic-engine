@@ -142,7 +142,7 @@ namespace detail
 //  Internal construction policy and scalar helpers
 //==============================================================================
 
-enum class EWriteMode : std::uint8_t { instance, bulk, alternative };
+enum class EWriteMode : std::uint8_t { instance, bulk_data, alternative };
 constexpr unsigned k_max_value_depth = 256u;
 
 bool is_scalar_shorthand(const CResolvedSchema& schema, const CSchemaIndex type,
@@ -336,7 +336,7 @@ bool CValueWriter::prepare_compound(const CSchemaIndex type, const SType& layout
     {
         return fail(EReason::invalid_range, source, type);
     }
-    if ((m_mode == EWriteMode::bulk) && (!source.is_valid() || (input.supplied != layout.count)))
+    if ((m_mode == EWriteMode::bulk_data) && (!source.is_valid() || (input.supplied != layout.count)))
     {
         return fail(EReason::missing_property, source, type);
     }
@@ -448,7 +448,7 @@ bool CValueWriter::structure(const CSchemaIndex type, const SType& layout, const
                 return fail(EReason::invalid_input, child, member.type);
             }
         }
-        if ((m_mode == EWriteMode::bulk) && !child.is_valid())
+        if ((m_mode == EWriteMode::bulk_data) && !child.is_valid())
         {
             return fail(EReason::missing_property, source, member.type);
         }
@@ -494,14 +494,14 @@ bool CValueWriter::array(const CSchemaIndex type, const CSchemaIndex description
     {
         return fail(EReason::invalid_range, source, type);
     }
-    if ((m_mode == EWriteMode::bulk) && (supplied != layout.count))
+    if ((m_mode == EWriteMode::bulk_data) && (supplied != layout.count))
     {
         return fail(EReason::missing_property, source, type);
     }
 
     //  Omitted zero-byte elements need no physical default work. Authored
     //  elements still pass through recursive shape and count validation.
-    const std::uint32_t visited = (m_mode == EWriteMode::bulk || element.size != 0u) ?
+    const std::uint32_t visited = (m_mode == EWriteMode::bulk_data || element.size != 0u) ?
         (m_mode == EWriteMode::alternative ? supplied : layout.count) : supplied;
     SOccurrence positional = source.is_valid() ? m_document.first_child(source) : SOccurrence{};
     for (std::uint32_t ordinal = 0u; ordinal < visited; ++ordinal)
@@ -516,7 +516,7 @@ bool CValueWriter::array(const CSchemaIndex type, const CSchemaIndex description
             continue;
         }
         CSchemaIndex element_default;
-        if ((m_mode != EWriteMode::bulk) &&
+        if ((m_mode != EWriteMode::bulk_data) &&
             !m_schema.default_element(type, description, ordinal, element_default))
         {
             return fail(EReason::invalid_default, source, type);
@@ -567,7 +567,7 @@ bool CValueWriter::bit_structure(const CSchemaIndex type, const SType& layout, c
         {
             positional = m_document.next_sibling(positional);
         }
-        if ((m_mode == EWriteMode::bulk) && !child.is_valid())
+        if ((m_mode == EWriteMode::bulk_data) && !child.is_valid())
         {
             return fail(EReason::missing_property, source, field.type);
         }
@@ -625,7 +625,7 @@ bool CValueWriter::write(const CSchemaIndex type, const CSchemaIndex description
         case ECategory::primitive:
         case ECategory::enumeration:
         {
-            if ((m_mode == EWriteMode::bulk) && !source.is_valid())
+            if ((m_mode == EWriteMode::bulk_data) && !source.is_valid())
             {
                 return fail(EReason::missing_property, source, type);
             }
@@ -786,7 +786,7 @@ bool construct_value(const CResolvedSchema& schema, const CDocumentRead& documen
         return false;
     }
     CValueWriter writer{ schema, document,
-        ((mode == EConstructionMode::complete_bulk) ? EWriteMode::bulk : EWriteMode::instance), diagnostic };
+        ((mode == EConstructionMode::complete_bulk_data) ? EWriteMode::bulk_data : EWriteMode::instance), diagnostic };
     return writer.write(type, {}, declaration, destination, static_cast<std::size_t>(layout.size), 0u, singleton_element);
 }
 

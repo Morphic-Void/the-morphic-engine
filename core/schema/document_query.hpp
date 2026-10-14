@@ -35,7 +35,7 @@ class CBakedBulkData;
 class CLiveBulkData;
 class CSchemaHandle;
 class CInstanceHandle;
-class CBulkHandle;
+class CBulkDataHandle;
 
 //==============================================================================
 //  Document value kinds
@@ -105,10 +105,10 @@ struct SInstanceHandleAccess
     [[nodiscard]] static constexpr SOccurrence occurrence(const CInstanceHandle handle) noexcept;
 };
 
-struct SBulkHandleAccess
+struct SBulkDataHandleAccess
 {
-    [[nodiscard]] static constexpr CBulkHandle make(const SOccurrence occurrence) noexcept;
-    [[nodiscard]] static constexpr SOccurrence occurrence(const CBulkHandle handle) noexcept;
+    [[nodiscard]] static constexpr CBulkDataHandle make(const SOccurrence occurrence) noexcept;
+    [[nodiscard]] static constexpr SOccurrence occurrence(const CBulkDataHandle handle) noexcept;
 };
 
 //  One read adapter for either document representation.
@@ -317,79 +317,79 @@ private:
 };
 
 //==============================================================================
-//  Bulk document handle
+//  Bulk data document handle
 //==============================================================================
 
-class CBulkHandle
+class CBulkDataHandle
 {
 public:
-    constexpr CBulkHandle() noexcept = default;
+    constexpr CBulkDataHandle() noexcept = default;
     [[nodiscard]] constexpr bool is_valid() const noexcept { return m_occurrence.is_valid(); }
     [[nodiscard]] explicit constexpr operator bool() const noexcept { return is_valid(); }
 
 private:
-    explicit constexpr CBulkHandle(const detail::SOccurrence occurrence) noexcept : m_occurrence(occurrence) {}
-    friend struct detail::SBulkHandleAccess;
+    explicit constexpr CBulkDataHandle(const detail::SOccurrence occurrence) noexcept : m_occurrence(occurrence) {}
+    friend struct detail::SBulkDataHandleAccess;
     friend class CBakedBulkData;
     friend class CLiveBulkData;
     detail::SOccurrence m_occurrence;
 };
 
-[[nodiscard]] constexpr bool operator==(const CBulkHandle lhs, const CBulkHandle rhs) noexcept;
-[[nodiscard]] constexpr bool operator!=(const CBulkHandle lhs, const CBulkHandle rhs) noexcept;
+[[nodiscard]] constexpr bool operator==(const CBulkDataHandle lhs, const CBulkDataHandle rhs) noexcept;
+[[nodiscard]] constexpr bool operator!=(const CBulkDataHandle lhs, const CBulkDataHandle rhs) noexcept;
 
-constexpr CBulkHandle detail::SBulkHandleAccess::make(const detail::SOccurrence occurrence) noexcept
+constexpr CBulkDataHandle detail::SBulkDataHandleAccess::make(const detail::SOccurrence occurrence) noexcept
 {
-    return CBulkHandle{ occurrence };
+    return CBulkDataHandle{ occurrence };
 }
 
-constexpr detail::SOccurrence detail::SBulkHandleAccess::occurrence(const CBulkHandle handle) noexcept
+constexpr detail::SOccurrence detail::SBulkDataHandleAccess::occurrence(const CBulkDataHandle handle) noexcept
 {
     return handle.m_occurrence;
 }
 
-[[nodiscard]] constexpr bool operator==(const CBulkHandle lhs, const CBulkHandle rhs) noexcept
+[[nodiscard]] constexpr bool operator==(const CBulkDataHandle lhs, const CBulkDataHandle rhs) noexcept
 {
-    return detail::SBulkHandleAccess::occurrence(lhs) == detail::SBulkHandleAccess::occurrence(rhs);
+    return detail::SBulkDataHandleAccess::occurrence(lhs) == detail::SBulkDataHandleAccess::occurrence(rhs);
 }
 
-[[nodiscard]] constexpr bool operator!=(const CBulkHandle lhs, const CBulkHandle rhs) noexcept
+[[nodiscard]] constexpr bool operator!=(const CBulkDataHandle lhs, const CBulkDataHandle rhs) noexcept
 {
     return !(lhs == rhs);
 }
 
 //==============================================================================
-//  Bulk document query
+//  Bulk data document query
 //==============================================================================
 
-//  Read-only original-root query with bulk-specific handles. Baked backing is
+//  Read-only original-root query with bulk data handles. Baked backing is
 //  borrowed; handles and returned strings require their originating document.
-class CBulkDocumentQuery
+class CBulkDataDocumentQuery
 {
 public:
-    CBulkDocumentQuery() noexcept = default;
-    explicit CBulkDocumentQuery(const CLiveDocument& document) noexcept;
-    explicit CBulkDocumentQuery(const CBakedDocument& document) noexcept;
+    CBulkDataDocumentQuery() noexcept = default;
+    explicit CBulkDataDocumentQuery(const CLiveDocument& document) noexcept;
+    explicit CBulkDataDocumentQuery(const CBakedDocument& document) noexcept;
 
     [[nodiscard]] bool is_ready() const noexcept;
-    [[nodiscard]] CBulkHandle root() const noexcept;
-    [[nodiscard]] bool contains(const CBulkHandle value) const noexcept;
-    [[nodiscard]] EDocumentValueKind value_kind(const CBulkHandle value) const noexcept;
-    [[nodiscard]] CBulkHandle object_child(const CBulkHandle object, const CStringView& name) const noexcept;
-    [[nodiscard]] CBulkHandle parent(const CBulkHandle value) const noexcept;
-    [[nodiscard]] CBulkHandle first_child(const CBulkHandle value) const noexcept;
-    [[nodiscard]] CBulkHandle next_sibling(const CBulkHandle value) const noexcept;
-    [[nodiscard]] CBulkHandle array_at(const CBulkHandle value, const std::uint32_t ordinal) const noexcept;
-    [[nodiscard]] std::uint32_t child_count(const CBulkHandle value) const noexcept;
-    [[nodiscard]] bool is_object_entry(const CBulkHandle value) const noexcept;
-    [[nodiscard]] CPropertyNameId name_id(const CBulkHandle value) const noexcept;
-    [[nodiscard]] CStringView name(const CBulkHandle value) const noexcept;
+    [[nodiscard]] CBulkDataHandle root() const noexcept;
+    [[nodiscard]] bool contains(const CBulkDataHandle value) const noexcept;
+    [[nodiscard]] EDocumentValueKind value_kind(const CBulkDataHandle value) const noexcept;
+    [[nodiscard]] CBulkDataHandle object_child(const CBulkDataHandle object, const CStringView& name) const noexcept;
+    [[nodiscard]] CBulkDataHandle parent(const CBulkDataHandle value) const noexcept;
+    [[nodiscard]] CBulkDataHandle first_child(const CBulkDataHandle value) const noexcept;
+    [[nodiscard]] CBulkDataHandle next_sibling(const CBulkDataHandle value) const noexcept;
+    [[nodiscard]] CBulkDataHandle array_at(const CBulkDataHandle value, const std::uint32_t ordinal) const noexcept;
+    [[nodiscard]] std::uint32_t child_count(const CBulkDataHandle value) const noexcept;
+    [[nodiscard]] bool is_object_entry(const CBulkDataHandle value) const noexcept;
+    [[nodiscard]] CPropertyNameId name_id(const CBulkDataHandle value) const noexcept;
+    [[nodiscard]] CStringView name(const CBulkDataHandle value) const noexcept;
     [[nodiscard]] CStringView property_name(const CPropertyNameId id) const noexcept;
-    [[nodiscard]] CStringView string_value(const CBulkHandle value) const noexcept;
-    [[nodiscard]] bool boolean_value(const CBulkHandle value, bool& result) const noexcept;
-    [[nodiscard]] bool signed_integer_value(const CBulkHandle value, std::int64_t& result) const noexcept;
-    [[nodiscard]] bool unsigned_integer_value(const CBulkHandle value, std::uint64_t& result) const noexcept;
-    [[nodiscard]] bool floating_point_value(const CBulkHandle value, double& result) const noexcept;
+    [[nodiscard]] CStringView string_value(const CBulkDataHandle value) const noexcept;
+    [[nodiscard]] bool boolean_value(const CBulkDataHandle value, bool& result) const noexcept;
+    [[nodiscard]] bool signed_integer_value(const CBulkDataHandle value, std::int64_t& result) const noexcept;
+    [[nodiscard]] bool unsigned_integer_value(const CBulkDataHandle value, std::uint64_t& result) const noexcept;
+    [[nodiscard]] bool floating_point_value(const CBulkDataHandle value, double& result) const noexcept;
 
 private:
     friend class CLiveBulkData;
@@ -621,110 +621,110 @@ inline CInstanceDocumentQuery::CInstanceDocumentQuery(const CBakedDocument& docu
 }
 
 //==============================================================================
-//  CBulkDocumentQuery out of class function bodies
+//  CBulkDataDocumentQuery out of class function bodies
 //==============================================================================
 
-inline CBulkDocumentQuery::CBulkDocumentQuery(const CLiveDocument& document) noexcept : m_query(document)
+inline CBulkDataDocumentQuery::CBulkDataDocumentQuery(const CLiveDocument& document) noexcept : m_query(document)
 {
 }
 
-inline CBulkDocumentQuery::CBulkDocumentQuery(const CBakedDocument& document) noexcept : m_query(document)
+inline CBulkDataDocumentQuery::CBulkDataDocumentQuery(const CBakedDocument& document) noexcept : m_query(document)
 {
 }
 
-[[nodiscard]] inline bool CBulkDocumentQuery::is_ready() const noexcept
+[[nodiscard]] inline bool CBulkDataDocumentQuery::is_ready() const noexcept
 {
     return m_query.is_ready();
 }
 
-[[nodiscard]] inline CBulkHandle CBulkDocumentQuery::root() const noexcept
+[[nodiscard]] inline CBulkDataHandle CBulkDataDocumentQuery::root() const noexcept
 {
-    return detail::SBulkHandleAccess::make(m_query.root());
+    return detail::SBulkDataHandleAccess::make(m_query.root());
 }
 
-[[nodiscard]] inline bool CBulkDocumentQuery::contains(const CBulkHandle value) const noexcept
+[[nodiscard]] inline bool CBulkDataDocumentQuery::contains(const CBulkDataHandle value) const noexcept
 {
-    return m_query.contains(detail::SBulkHandleAccess::occurrence(value));
+    return m_query.contains(detail::SBulkDataHandleAccess::occurrence(value));
 }
 
-[[nodiscard]] inline EDocumentValueKind CBulkDocumentQuery::value_kind(const CBulkHandle value) const noexcept
+[[nodiscard]] inline EDocumentValueKind CBulkDataDocumentQuery::value_kind(const CBulkDataHandle value) const noexcept
 {
-    return m_query.value_kind(detail::SBulkHandleAccess::occurrence(value));
+    return m_query.value_kind(detail::SBulkDataHandleAccess::occurrence(value));
 }
 
-[[nodiscard]] inline CBulkHandle CBulkDocumentQuery::object_child(const CBulkHandle object, const CStringView& name) const noexcept
+[[nodiscard]] inline CBulkDataHandle CBulkDataDocumentQuery::object_child(const CBulkDataHandle object, const CStringView& name) const noexcept
 {
-    return detail::SBulkHandleAccess::make(m_query.object_child(detail::SBulkHandleAccess::occurrence(object), name));
+    return detail::SBulkDataHandleAccess::make(m_query.object_child(detail::SBulkDataHandleAccess::occurrence(object), name));
 }
 
-[[nodiscard]] inline CBulkHandle CBulkDocumentQuery::parent(const CBulkHandle value) const noexcept
+[[nodiscard]] inline CBulkDataHandle CBulkDataDocumentQuery::parent(const CBulkDataHandle value) const noexcept
 {
-    return detail::SBulkHandleAccess::make(m_query.parent(detail::SBulkHandleAccess::occurrence(value)));
+    return detail::SBulkDataHandleAccess::make(m_query.parent(detail::SBulkDataHandleAccess::occurrence(value)));
 }
 
-[[nodiscard]] inline CBulkHandle CBulkDocumentQuery::first_child(const CBulkHandle value) const noexcept
+[[nodiscard]] inline CBulkDataHandle CBulkDataDocumentQuery::first_child(const CBulkDataHandle value) const noexcept
 {
-    return detail::SBulkHandleAccess::make(m_query.first_child(detail::SBulkHandleAccess::occurrence(value)));
+    return detail::SBulkDataHandleAccess::make(m_query.first_child(detail::SBulkDataHandleAccess::occurrence(value)));
 }
 
-[[nodiscard]] inline CBulkHandle CBulkDocumentQuery::next_sibling(const CBulkHandle value) const noexcept
+[[nodiscard]] inline CBulkDataHandle CBulkDataDocumentQuery::next_sibling(const CBulkDataHandle value) const noexcept
 {
-    return detail::SBulkHandleAccess::make(m_query.next_sibling(detail::SBulkHandleAccess::occurrence(value)));
+    return detail::SBulkDataHandleAccess::make(m_query.next_sibling(detail::SBulkDataHandleAccess::occurrence(value)));
 }
 
-[[nodiscard]] inline CBulkHandle CBulkDocumentQuery::array_at(const CBulkHandle value, const std::uint32_t ordinal) const noexcept
+[[nodiscard]] inline CBulkDataHandle CBulkDataDocumentQuery::array_at(const CBulkDataHandle value, const std::uint32_t ordinal) const noexcept
 {
-    return detail::SBulkHandleAccess::make(m_query.array_at(detail::SBulkHandleAccess::occurrence(value), ordinal));
+    return detail::SBulkDataHandleAccess::make(m_query.array_at(detail::SBulkDataHandleAccess::occurrence(value), ordinal));
 }
 
-[[nodiscard]] inline std::uint32_t CBulkDocumentQuery::child_count(const CBulkHandle value) const noexcept
+[[nodiscard]] inline std::uint32_t CBulkDataDocumentQuery::child_count(const CBulkDataHandle value) const noexcept
 {
-    return m_query.child_count(detail::SBulkHandleAccess::occurrence(value));
+    return m_query.child_count(detail::SBulkDataHandleAccess::occurrence(value));
 }
 
-[[nodiscard]] inline bool CBulkDocumentQuery::is_object_entry(const CBulkHandle value) const noexcept
+[[nodiscard]] inline bool CBulkDataDocumentQuery::is_object_entry(const CBulkDataHandle value) const noexcept
 {
-    return m_query.is_object_entry(detail::SBulkHandleAccess::occurrence(value));
+    return m_query.is_object_entry(detail::SBulkDataHandleAccess::occurrence(value));
 }
 
-[[nodiscard]] inline CPropertyNameId CBulkDocumentQuery::name_id(const CBulkHandle value) const noexcept
+[[nodiscard]] inline CPropertyNameId CBulkDataDocumentQuery::name_id(const CBulkDataHandle value) const noexcept
 {
-    return m_query.name_id(detail::SBulkHandleAccess::occurrence(value));
+    return m_query.name_id(detail::SBulkDataHandleAccess::occurrence(value));
 }
 
-[[nodiscard]] inline CStringView CBulkDocumentQuery::name(const CBulkHandle value) const noexcept
+[[nodiscard]] inline CStringView CBulkDataDocumentQuery::name(const CBulkDataHandle value) const noexcept
 {
-    return m_query.name(detail::SBulkHandleAccess::occurrence(value));
+    return m_query.name(detail::SBulkDataHandleAccess::occurrence(value));
 }
 
-[[nodiscard]] inline CStringView CBulkDocumentQuery::property_name(const CPropertyNameId id) const noexcept
+[[nodiscard]] inline CStringView CBulkDataDocumentQuery::property_name(const CPropertyNameId id) const noexcept
 {
     return m_query.property_name(id);
 }
 
-[[nodiscard]] inline CStringView CBulkDocumentQuery::string_value(const CBulkHandle value) const noexcept
+[[nodiscard]] inline CStringView CBulkDataDocumentQuery::string_value(const CBulkDataHandle value) const noexcept
 {
-    return m_query.string_value(detail::SBulkHandleAccess::occurrence(value));
+    return m_query.string_value(detail::SBulkDataHandleAccess::occurrence(value));
 }
 
-[[nodiscard]] inline bool CBulkDocumentQuery::boolean_value(const CBulkHandle value, bool& result) const noexcept
+[[nodiscard]] inline bool CBulkDataDocumentQuery::boolean_value(const CBulkDataHandle value, bool& result) const noexcept
 {
-    return m_query.boolean_value(detail::SBulkHandleAccess::occurrence(value), result);
+    return m_query.boolean_value(detail::SBulkDataHandleAccess::occurrence(value), result);
 }
 
-[[nodiscard]] inline bool CBulkDocumentQuery::signed_integer_value(const CBulkHandle value, std::int64_t& result) const noexcept
+[[nodiscard]] inline bool CBulkDataDocumentQuery::signed_integer_value(const CBulkDataHandle value, std::int64_t& result) const noexcept
 {
-    return m_query.signed_integer_value(detail::SBulkHandleAccess::occurrence(value), result);
+    return m_query.signed_integer_value(detail::SBulkDataHandleAccess::occurrence(value), result);
 }
 
-[[nodiscard]] inline bool CBulkDocumentQuery::unsigned_integer_value(const CBulkHandle value, std::uint64_t& result) const noexcept
+[[nodiscard]] inline bool CBulkDataDocumentQuery::unsigned_integer_value(const CBulkDataHandle value, std::uint64_t& result) const noexcept
 {
-    return m_query.unsigned_integer_value(detail::SBulkHandleAccess::occurrence(value), result);
+    return m_query.unsigned_integer_value(detail::SBulkDataHandleAccess::occurrence(value), result);
 }
 
-[[nodiscard]] inline bool CBulkDocumentQuery::floating_point_value(const CBulkHandle value, double& result) const noexcept
+[[nodiscard]] inline bool CBulkDataDocumentQuery::floating_point_value(const CBulkDataHandle value, double& result) const noexcept
 {
-    return m_query.floating_point_value(detail::SBulkHandleAccess::occurrence(value), result);
+    return m_query.floating_point_value(detail::SBulkDataHandleAccess::occurrence(value), result);
 }
 
 }   // namespace schema

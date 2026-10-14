@@ -9,12 +9,12 @@ Date:   25 Sep 2026
 
 [schema-example.json](schema-example.json) illustrates layout, short input and
 `detail.internal` as the internal-layout marker. Its `types` section is a resolver
-and C++ compiler acceptance fixture. The instance and bulk sections illustrate
+and C++ compiler acceptance fixture. The instance and bulk data sections illustrate
 materialisation with reserved locators and are exercised by data-role tests,
 including live instance baking and reload.
 The [specification](specification.md) defines the semantics.
 
-The instance and bulk entries use unset locators for materialisation. Named
+The instance and bulk data entries use unset locators for materialisation. Named
 declarations and inheritance form the intended embedded instance representation; no
 additional flattened-value field is required. See the [runtime API](runtime-api.md)
 for interfaces and [validation](validation.md) for regression and compiler checks.
@@ -53,7 +53,7 @@ strict-JSON tools should consume the writer's strict mode instead.
 | Bit structure | Integer `storage` describes the containing word; ordered named `members` select fields with non-zero contiguous `mask` values. |
 | Bit member | `type` gives the field's base/logical type: an integer, `b8`, or a named enum. Optional `interpretation` retains specialised meaning such as `unorm`; optional scalar `default` belongs to this field definition. |
 | Instance | `instances` groups named instances by type. Each base or specialisation reserves a `locator`; `declaration` holds supplied values when present, and `specialisation` holds named children inheriting from that instance. An absent declaration selects no values: a base uses defaults and a child inherits unchanged. |
-| Bulk collection | `data` groups named collections by type. Each collection is an object with a `locator` and optional `data` array of complete unnamed records. The sample's unset locator reserves `offset`, `valid`, and `count` for materialisation. Records have no specialisation mechanism. |
+| Bulk data collection | `data` groups named collections by type. Each collection is an object with a `locator` and optional `data` array of complete unnamed records. The sample's unset locator reserves `offset`, `valid`, and `count` for materialisation. Records have no specialisation mechanism. |
 
 Leaf instances omit `specialisation` in this form. A member's `type` accepts
 either a named type or an array descriptor containing both `element` and
@@ -98,7 +98,7 @@ padding; construction does not require blanket zeroing. `ColourRgba10A2` covers 
 The `unorm` spelling is retained from the original sample. The revised design
 uses nearest floating quantisation with ties away from zero and clamping for
 `unorm` and `snorm`, raw integer codes for input/defaults/output, and conventional
-decoding. Schema-default quantisation and the baked instance/bulk construction
+decoding. Schema-default quantisation and the baked instance/bulk data construction
 codecs, live data roles and decoding are implemented. The type separation
 uses the containing storage type for generated mask constants,
 so a shifted mask need not fit the logical field type or its enum value set.
@@ -130,7 +130,7 @@ so a shifted mask need not fit the logical field type or its enum value set.
 - `Material.base` gets `alpha`, `z`, and roughness 0.5 from defaults. `polished`
   changes roughness to 0.1; its child `hidden` preserves that roughness and
   changes only visibility. Sibling `rough` inherits from `base`, not `polished`.
-- Bulk records must explicitly supply all members, including nested members
+- Bulk data records must explicitly supply all members, including nested members
   and full fixed-array extents. Their nested `Position` values use positional
   form, ordinary `uv` arrays have exactly two elements, and colours use names.
 
@@ -162,7 +162,7 @@ each `InternalRecord`'s padding. That member brings the enclosing structure's
 natural alignment to 16 without a separate increase on `ArrayExamples`.
 There are no format/version headers, bit offsets/widths, or gap-fill directives.
 
-Embedded bulk records must explicitly supply every member. Instance construction
+Embedded bulk data records must explicitly supply every member. Instance construction
 instead applies defaults and inheritance. The `offset` and structure `detail`
 rules are recorded in the [specification](specification.md#explicit-offsets-and-structure-details).
 Natural structure size is computed from members and alignment. An explicit-offset
@@ -213,12 +213,12 @@ including a minimum hex width derived from parsed digit counts. A generic round
 trip preserves `0x0001` and expands `0x1` to `0x01`; it does not select formatting
 from schema types. `CResolvedSchema::prepare_output()` sets the data model's
 presentation metadata for full-width masks and other schema-specific rules.
-Instance and bulk reconstruction apply the same ordinary integer policy.
+Instance and bulk data reconstruction apply the same ordinary integer policy.
 
 ## Review checks performed
 
 `test_schema_sample` in `Schema_test_suite.cpp` reads this file through the engine's
 Morphic parser, bakes and resolves its schema, checks layouts, generates C++
-validation fixtures, materialises its bulk and instance data, promotes both roles,
+validation fixtures, materialises its bulk data and instance data, promotes both roles,
 and exercises embedded/external baking and reload. Generated declarations are
 compiled by the separate layout-validation checks.
