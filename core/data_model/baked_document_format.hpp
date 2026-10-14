@@ -148,6 +148,8 @@ namespace baked_document_format
 
 //  Root-only document, including the two canonical empty string-table entries.
 constexpr std::size_t k_min_document_size = sizeof(SBakedDocumentHeader) + sizeof(SBakedValueRecord) + (2u * sizeof(SBakedStringReference)) + 2u;
+
+//  Minimum rounded capacity emitted by the baker, not an adoption requirement.
 constexpr std::size_t k_min_block_capacity = (k_min_document_size + k_block_alignment - 1u) & ~(k_block_alignment - 1u);
 
 } // namespace baked_document_format

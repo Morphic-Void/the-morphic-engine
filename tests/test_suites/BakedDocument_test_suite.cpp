@@ -1447,7 +1447,7 @@ static void test_adoption_rejections(TTestContext& ctx)
     static_assert(baked_document_format::k_min_block_capacity == 128u);
     expect_adoption_rejected(ctx, [](CByteBuffer& bytes) { bytes.deallocate(); });
     expect_adoption_rejected(ctx, [&ctx](CByteBuffer& bytes) { TEST_EXPECT(ctx, bytes.reallocate(0u, 64u, 32u)); });
-    expect_adoption_rejected(ctx, [&ctx](CByteBuffer& bytes) { TEST_EXPECT(ctx, bytes.reallocate(baked_document_format::k_min_document_size, (baked_document_format::k_min_block_capacity + 1u), 32u)); });
+    expect_adoption_rejected(ctx, [&ctx](CByteBuffer& bytes) { TEST_EXPECT(ctx, bytes.reallocate(baked_document_format::k_min_document_size - 1u, baked_document_format::k_min_document_size - 1u, 32u)); });
     expect_adoption_rejected(ctx, [&ctx](CByteBuffer& bytes) { TEST_EXPECT(ctx, bytes.set_size(0u)); });
     expect_adoption_rejected(ctx, [&ctx](CByteBuffer& bytes) { TEST_EXPECT(ctx, bytes.set_size(sizeof(SBakedDocumentHeader) - 1u)); });
     expect_adoption_rejected(ctx, [&ctx](CByteBuffer& bytes) { TEST_EXPECT(ctx, bytes.set_size((baked_document_format::k_min_document_size - 1u))); });
@@ -1542,6 +1542,45 @@ static void test_misaligned_adoption(TTestContext& ctx)
         TEST_EXPECT(ctx, source.is_ready() && source.data() == pointer && !destination.is_ready());
     }
     TEST_EXPECT(ctx, context.is_attribution_empty());
+}
+
+static void test_exact_capacity_adoption(TTestContext& ctx)
+{
+    tests::TAllocatorFixture fixture;
+    memory::CMemoryAllocator allocator{ &fixture, &tests::allocate_test_memory, &tests::deallocate_test_memory };
+    memory::CMemoryContext context{ allocator };
+    for (const std::size_t alignment : { 32u, 128u })
+    {
+        for (const std::size_t capacity : { 114u, 129u, 259u })
+        {
+            for (const bool preserve : { false, true })
+            {
+                {
+                    const tests::TMemoryContextScope scope{ &context };
+                    CByteBuffer source;
+                    TEST_EXPECT(ctx, prepare_root(source));
+                    TEST_EXPECT(ctx, source.reallocate(capacity, capacity, alignment));
+                    const std::size_t document_size = baked_document_format::k_min_document_size;
+                    if (capacity > document_size) std::memset(source.data() + document_size, 0xa5, capacity - document_size);
+                    const auto* const pointer = source.data();
+                    const auto attribution = source.memory_attribution();
+                    CBakedDocumentBlock block;
+                    TEST_EXPECT(ctx, preserve ? block.adopt_buffer(std::move(source)) : block.adopt(std::move(source)));
+                    TEST_EXPECT(ctx, !source.is_ready() && block.document().check_integrity());
+                    TEST_EXPECT(ctx, block.bytes().data() == pointer && block.bytes().size() == document_size &&
+                        block.buffer_capacity() == capacity && block.buffer_bytes().size() == (preserve ? capacity : document_size));
+                    TEST_EXPECT(ctx, block.buffer_bytes().align() == alignment &&
+                        block.memory_attribution().source == attribution.source &&
+                        block.memory_attribution().allocation_size == attribution.allocation_size);
+                    //  Allocation conditioning is separate from the byte token's capacity.
+                    TEST_EXPECT(ctx, attribution.allocation_size == memory::condition_bytes(alignment, capacity));
+                    if (preserve && capacity > document_size)
+                        TEST_EXPECT(ctx, block.buffer_bytes().data()[document_size] == 0xa5 && block.buffer_bytes().data()[capacity - 1u] == 0xa5);
+                }
+                TEST_EXPECT(ctx, context.is_attribution_empty());
+            }
+        }
+    }
 }
 
 static void test_adoption_lifetime(TTestContext& ctx)
@@ -2033,6 +2072,7 @@ int run_baked_document_tests()
     baked_document_storage_tests::test_adoption_rejections(ctx);
     baked_document_storage_tests::test_misaligned_adoption(ctx);
     baked_document_storage_tests::test_adoption_lifetime(ctx);
+    baked_document_storage_tests::test_exact_capacity_adoption(ctx);
     baked_document_storage_tests::test_views_from_validated_block(ctx);
     baked_document_storage_tests::test_appended_storage(ctx);
     baked_document_storage_tests::test_resizing_storage(ctx);

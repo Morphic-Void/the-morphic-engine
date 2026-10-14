@@ -21,7 +21,7 @@ multibyte integers are little-endian and floating payloads are IEEE-754
 binary64. The owning block uses framework allocation and consists of exactly
 one allocation. Baking scratch is external to that allocation. A bound block's
 base address is 32-byte aligned; its exact serialized size need not be. Owning
-storage capacity is a multiple of 32 bytes, separate from that exact extent.
+storage capacity may be exact-sized or larger; it need not be a multiple of 32.
 The value-record section is likewise 32-byte aligned.
 
 The current format retains family magic bytes `MBD2` and uses version 5.
@@ -90,7 +90,8 @@ the view and no checked layout reconstruction is repeated by accessors.
 `value_count` is at least one. Both string-reference counts and both string-byte
 counts are at least one because each table physically contains its empty
 string. The minimum document is therefore 114 bytes: the header, one root record,
-two string references and two NUL bytes. Its minimum owning capacity is 128 bytes.
+two string references and two NUL bytes. It can be adopted with an exact
+114-byte buffer capacity; the current baker emits rounded capacity of 128 bytes.
 
 ## Value records
 
@@ -289,8 +290,9 @@ constant time. Setters allocate no storage and preserve the serialized extent.
 
 `CBakedDocumentBlock::adopt(CByteBuffer&&)` takes no separate type or extent.
 Before inspecting content, it checks buffer readiness, actual 32-byte address
-alignment, capacity divisible by 32 and at least 128 bytes, and enough logical
-bytes for the header. The header identifies the format and exact extent, which
+alignment and enough logical bytes for the header. Capacity need not be rounded:
+the underlying `CByteBuffer` uses a memory-token stride of 1, with its count
+equal to byte capacity. The header identifies the format and exact extent, which
 must be at least 114 bytes, no greater than the buffer's logical size and at most
 2 GiB. Full document validation precedes changing either owner. Failure,
 including validation scratch-allocation failure, preserves both source and
@@ -299,6 +301,10 @@ changing the allocation's address or memory attribution. Logical padding and
 larger capacity are permitted; adoption does not inspect their contents. After
 validation, adoption sets the source's logical size to the exact document extent
 without reallocating and moves the buffer into the block, retaining its capacity.
+
+The memory context independently conditions the physical allocation size to
+alignment and accounts for that conditioned size on allocation and release.
+That allocator detail does not constrain token capacity or serialized length.
 
 Block `bytes()` exposes only the exact serialized extent. Baking and aligned
 file loading zero spare capacity, but it is not part of the saved document.

@@ -218,6 +218,7 @@ public:
 
     //  Adopt checked document storage, trimming logical size to the document.
     //  Both adoption paths validate the prefix; failure preserves both owners.
+    //  The base must be 32-byte aligned; capacity need not be alignment-multiple.
     [[nodiscard]] bool adopt(CByteBuffer&& source) noexcept;
 
     //  Retain the complete logical buffer, including uninterpreted appended bytes.

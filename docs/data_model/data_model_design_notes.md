@@ -492,7 +492,10 @@ The block privately owns a `CByteBuffer`. Its public `memory_attribution()` and
 `unsafe_replace_memory_context_without_accounting()` forward to that buffer.
 Checked adoption validates before normalising logical size to the exact document
 extent and moving the buffer, preserving both owners on failure. Capacity and
-the allocation's address and attribution are unchanged. A populated block is
+the allocation's address and attribution are unchanged. Exact byte capacity is
+allowed: the buffer's memory token has stride 1, while
+base-address alignment remains mandatory. The memory context's allocation-size
+conditioning is independent of buffer capacity and serialized extent. An adopted block is
 therefore already validated: `CBakedDocument{block}` and `block.document()`
 construct borrowed views without revalidation or scratch allocation. No separate
 view is retained in the block, and neither route extends the storage lifetime.

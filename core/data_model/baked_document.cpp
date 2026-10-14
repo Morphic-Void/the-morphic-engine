@@ -556,8 +556,6 @@ bool CBakedDocumentBlock::adopt_storage(CByteBuffer&& source, const bool preserv
 {
     if (!source.is_ready() ||
         ((reinterpret_cast<std::uintptr_t>(source.data()) & (baked_document_format::k_block_alignment - 1u)) != 0u) ||
-        ((source.capacity() & (baked_document_format::k_block_alignment - 1u)) != 0u) ||
-        (source.capacity() < baked_document_format::k_min_block_capacity) ||
         (source.size() < sizeof(SBakedDocumentHeader)))
     {
         return false;
