@@ -18,6 +18,12 @@ Future work and unresolved proposals live in the
 Completed delivery history is summarised in the
 [project milestones](../project/completed_milestones.md#schema-system-and-refinement).
 
+The persistence work currently supplies shared diagnostics and internal
+validation of the version 1 instance/bulk data file envelope described in the
+[revision](persistence-and-aggregation.md#agreed-version-1-persistence-format).
+The owning block, construction and Host integration stages are not yet
+implemented; existing role loading and baking interfaces remain in use.
+
 ## Purpose and scope
 
 The schema system describes logical data types and their physical

@@ -23,6 +23,17 @@ and the related document-model suites. For example, after building Debug x64:
 .\build\bin\x64\Debug\MorphicTests.exe -t1 --log-tag=schema-check
 ```
 
+The Schema suite also runs
+[SchemaDataBlock_test_cases.cpp](../../tests/test_suites/SchemaDataBlock_test_cases.cpp).
+These cases assemble persistence files from generic baked documents and separate
+payload bytes without a schema block writer. They cover both content kinds,
+metadata type/version errors, unknown/missing properties, empty sections and
+zero-byte descriptions, bounded header failures, alignment, truncation and extra
+bytes, every container-padding length and offending byte, and diagnostic reset
+and source locations. Pure layout tests cover the exact 2 GiB limit and integer
+overflow without large allocations. A rejected scratch allocation verifies
+failure cleanup and conservative reporting by the generic document validator.
+
 Logs and generated files include the tag and process ID. The runner prints their
 paths; default output is beneath `development/logical-roots/test-output` and
 logs beneath `development/logical-roots/test-logs`.

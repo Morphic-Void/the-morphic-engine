@@ -882,6 +882,12 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\document_query.hpp">
       <Filter>Core\include\schema</Filter>
     </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\data_block.hpp">
+      <Filter>Core\include\schema</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\data_block_format.hpp">
+      <Filter>Core\include\schema</Filter>
+    </ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\resolved_schema.hpp">
       <Filter>Core\include\schema</Filter>
     </ClInclude>
@@ -928,6 +934,9 @@
       <Filter>Core\include\schema</Filter>
     </ClInclude>
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\document_query.cpp">
+      <Filter>Core\src\schema</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\data_block_format.cpp">
       <Filter>Core\src\schema</Filter>
     </ClCompile>
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\resolved_schema.cpp">

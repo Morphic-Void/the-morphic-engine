@@ -34,6 +34,7 @@ Include the header for the role or operation being used:
 | `resolved_schema.hpp` | Resolved layouts, defaults, diagnostics, schema document output and C++ generation. |
 | `baked_instances.hpp`, `live_instances.hpp` | Instance loading, observation and live editing/output. |
 | `baked_bulk_data.hpp`, `live_bulk_data.hpp` | Bulk data loading, observation and live capture/output. |
+| `data_block.hpp` | Shared persistence load options and block diagnostic vocabulary; owning block interfaces are not yet implemented. |
 | `data_remap.hpp` | Remap planning and execution between binary views. |
 | `unused_storage.hpp` | Explicit clearing of unused binary storage. |
 
@@ -41,6 +42,33 @@ Include the header for the role or operation being used:
 `data_output.hpp` supplies output policy. Role headers include their required
 support; live data headers also include the corresponding baked header for shared
 diagnostics and views.
+
+### Persistence envelope foundation
+
+`SDataBlockLoadOptions` defaults `compare_embedded` to false. Block diagnostics
+carry a stage, reason and optional source location; `SInstancesBlockDiagnostic`
+and `SBulkDataBlockDiagnostic` also retain the corresponding role diagnostic.
+Locations identify a source live node, baked value or byte offset from the whole
+file. They own no storage and must not retain handles into discarded temporary
+documents. The [revision](persistence-and-aggregation.md#diagnostics-and-failure-reporting)
+defines the reporting contract for the forthcoming block operations.
+
+`data_block_format.hpp/.cpp` is internal schema implementation support. It
+validates the version 1 `.bid`/`.bbd` envelope and returns borrowed document,
+section and payload views only on success. Output and diagnostic are reset on
+entry. It checks base alignment, the bounded baked prefix, allowed root fields,
+required metadata, checked total extent and zero container padding. Empty
+sections require zero payload bytes; a nonempty section may describe zero-byte
+types. Typed entries and payload interpretation remain the existing roles'
+responsibility. This helper is not a public owning-block or Host loading API.
+
+Metadata traversal rejects unknown root properties in document order, then
+checks required members and their types/values in fixed format order. Declared
+sizes are checked before padding is read. Header errors have byte locations when
+known; validated metadata errors have source baked-value locations. A missing
+member points to the root. Generic baked validation returns only `bool`, so
+`invalid_document` reports unsuccessful validation without distinguishing corrupt
+input from its internal scratch allocation failure.
 
 `schema::k_max_alignment` in `resolved_schema.hpp` defines the maximum supported
 type alignment and the common base alignment of instance/bulk data buffers (128 bytes).

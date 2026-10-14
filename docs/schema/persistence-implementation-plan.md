@@ -11,8 +11,9 @@ Date:   14 Oct 2026
 ## Status and scope
 
 This plan translates the agreed [revision](persistence-and-aggregation.md) into
-eight implementation and review stages. Stage 1 is implemented and user-reviewed, with
-validation recorded below; stages 2-8 have not started. Work stays in the shared
+eight implementation and review stages. Stage 1 is implemented and user-reviewed;
+stage 2 is implemented for review, with validation recorded below. Stages 3-8
+have not started. Work stays in the shared
 checkout; stage boundaries do not imply automatic commits, branches or separate
 implementing chats. Further implementation and commits require user instruction.
 
@@ -144,28 +145,47 @@ versions encountered `LNK1101` for `MSPDB140.DLL` in the sandbox. No toolchain o
 build-script changes were made. Logs use suffix
 `bulk-data-naming-stage1.p91376.log` under
 `development/logical-roots/test-logs/`. Line-ending policy, diff whitespace and
-documentation link checks passed. Stage 1 was reviewed and approved for commit by the user on 14 October 2026;
-no later implementation stage has started.
+documentation link checks passed. Stage 1 was reviewed and approved for commit
+by the user on 14 October 2026.
 
 ## Stage 2: format and diagnostics
 
-- [ ] Add the common declarations above and private bounded format validation.
+- [x] Add the common declarations above and private bounded format validation.
   Return document and payload slices only after safe extent calculations.
-- [ ] Enforce version 1 identifiers, unsigned metadata, strict root members,
+- [x] Enforce version 1 identifiers, unsigned metadata, strict root members,
   section selection, `stripped` type, base alignment, exact file length, zero
   container padding and the complete-file 2 GiB ceiling. Preserve the existing
   baked encoding and reserved-header rules. Typed entry validation stays in the
   existing roles. Do not treat a zero-byte payload as missing data.
-- [ ] Define format checks in deterministic order: safe header bounds and
+- [x] Define format checks in deterministic order: safe header bounds and
   encoding, root metadata and required section, checked payload placement and
   exact extent, then padding. Report unavailable details conservatively.
-- [ ] Add independently assembled fixtures and malformed variants to the Core
+- [x] Add independently assembled fixtures and malformed variants to the Core
   schema tests; avoid relying exclusively on the new writer to test its reader.
 
 Review cases: both file kinds; empty sections; zero-byte payloads; property type
 and version errors; truncation/extra bytes; alignment and arithmetic boundaries;
 nonzero padding; unknown root properties; wrong section/content kind. Exercise
 limit arithmetic without allocating multi-gigabyte fixtures.
+
+Implemented for review on 14 October 2026 in `data_block.hpp` and internal
+`data_block_format.hpp/.cpp`, with focused cases in
+`SchemaDataBlock_test_cases.cpp` called by the existing Schema suite. Header and
+metadata validation publishes no partial views; typed entry checks remain for
+the existing roles at attachment. No stage 3 owner or Host changes are included.
+
+Validation: Debug x64 solution build and all ordinary Core tests passed with
+`Schema: 53970 passed, 0 failed`, using:
+
+```powershell
+.\tools\invoke_sandbox_build.ps1 -MSBuildPath 'C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe' -RunTests -TestMode 1 -LogTag data-block-format-stage2
+```
+
+The command ran outside the sandbox because of the previously established PDB
+toolchain limitation. Logs use suffix `data-block-format-stage2.p90836.log` under
+`development/logical-roots/test-logs/`. Line-ending policy, diff whitespace,
+documentation links and Visual Studio XML checks passed. Visual Studio item and
+filter files retain their existing CRLF, encoding and final-newline state.
 
 ## Stage 3: ownership, attachment and release
 

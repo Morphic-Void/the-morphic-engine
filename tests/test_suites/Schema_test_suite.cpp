@@ -8,6 +8,7 @@
 //  Schema boundary, lifecycle and allocation tests with compiler-check fixtures.
 
 #include "tests/test_suites/Schema_test_suite.hpp"
+#include "tests/test_suites/SchemaDataBlock_test_cases.hpp"
 #include "schema/resolved_schema.hpp"
 #include "schema/document_query.hpp"
 #include "schema/schema_wrappers.hpp"
@@ -8779,6 +8780,7 @@ static void test_data_remap_wide_enum(TTestContext& ctx)
 int run_schema_tests()
 {
     tests::TTestContext ctx;
+    run_schema_data_block_cases(ctx);
     schema_tests::test_success(ctx);
     schema_tests::test_empty_types(ctx);
     schema_tests::test_explicit_layout(ctx);
