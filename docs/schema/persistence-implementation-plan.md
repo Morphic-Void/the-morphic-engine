@@ -11,8 +11,8 @@ Date:   14 Oct 2026
 ## Status and scope
 
 This plan translates the agreed [revision](persistence-and-aggregation.md) into
-eight implementation and review stages. Stages 1-4 are implemented and user-reviewed;
-stage 5 is implemented for review, with validation recorded below. Stages 6-8
+eight implementation and review stages. Stages 1-5 are implemented and user-reviewed;
+stage 6 is implemented for review, with validation recorded below. Stages 7-8
 have not started. Work stays in the shared
 checkout; stage boundaries do not imply automatic commits, branches or separate
 implementing chats. Further implementation and commits require user instruction.
@@ -54,8 +54,8 @@ Add public `baked_instances_block.hpp` and `baked_bulk_data_block.hpp` alongside
 the existing role headers, with corresponding implementation files. Put shared
 options and diagnostics in `data_block.hpp`; keep common format parsing and
 assembly helpers private to schema implementation. The block headers and
-attachment APIs, live bake overloads and description materialisation now exist;
-stripping interfaces remain planned. The public
+attachment APIs, live bake overloads, description materialisation and stripping
+interfaces now exist. The public
 blocks do not depend on Host services.
 
 Use `SDataBlockLoadOptions { bool compare_embedded{ false }; }`,
@@ -352,19 +352,51 @@ links passed. No project registrations, layout or generator changes were needed.
 
 ## Stage 6: stripping completed data
 
-- [ ] Implement `strip_to()` through generic document promotion/copying, preserve
+- [x] Implement `strip_to()` through generic document promotion/copying, preserve
   or derive required metadata before removing values, set the stripped marker,
   re-bake and copy the original payload unchanged into a new complete allocation.
-- [ ] Preserve payload-relative offsets, counts, gaps, unused bits and trailing
+- [x] Preserve payload-relative offsets, counts, gaps, unused bits and trailing
   bytes. Rebuild role state for the new document; do not promote through a live
   specialised role or decode binary values into literals.
-- [ ] Treat already stripped input as an independent equivalent output, following
+- [x] Treat already stripped input as an independent equivalent output, following
   the same empty-destination and source-preservation rules.
 
 Review cases: both roles/schema kinds, local and borrowed sources, inferred bulk
 data counts, changed document length, already stripped input and binary values
 that cannot be represented as document literals. Use byte-for-byte payload
 assertions, including unreferenced storage; document byte identity is not required.
+
+Implemented for review on 14 October 2026. Both blocks expose const `strip_to()`
+overloads for live and baked destination schemas. Shared construction support
+validates the source envelope, promotes only the role section, preserves loaded
+bulk data counts before removing arrays, removes instance declarations throughout
+the hierarchy and assembles a new stripped file with the entire original payload.
+Final attachment rebuilds role state against the new document and stable storage.
+The source must remain loaded and ready; destination schema matching remains
+the caller's responsibility. No live-role promotion, value comparison, binary
+reconstruction or asset ownership operation is introduced.
+
+Tests use independently assembled complete files with gaps and trailing bytes,
+noncanonical booleans, unused bit-field storage and mismatching retained values.
+They cover local/borrowed backing, both source and destination schema kinds,
+empty and zero-byte content, counts inferred from arrays and sizes, changed
+document lengths, already stripped output, source disposal and reattachment.
+Precondition, schema and allocation failures preserve the source and empty
+destination; final-attachment diagnostics clear private output locations.
+
+Validation: Debug x64 solution build and all ordinary Core tests passed with
+`Schema: 61366 passed, 0 failed`, using:
+
+```powershell
+& 'C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe' .\MorphicEngine.sln /t:Build /m:1 /p:Configuration=Debug /p:Platform=x64 /v:minimal
+.\build\bin\x64\Debug\MorphicTests.exe -t1 --log-tag=data-block-strip-stage6-check
+```
+
+Validation ran outside the sandbox for the established PDB toolchain limitation.
+Logs use suffix `data-block-strip-stage6-check.p30288.log` under
+`development/logical-roots/test-logs/`. The solution policy validator reported no
+errors or warnings. Diff whitespace, tracked line endings and documentation
+links passed. No project registrations, layout or generator changes were needed.
 
 ## Stage 7: Host complete-buffer preservation
 

@@ -112,6 +112,18 @@ bool CBakedInstancesBlock::materialise(const CBakedDocument& description, CLiveS
     return detail::materialise_data_block(description, *this, schema, form, detail::EDataBlockKind::instances, diagnostic);
 }
 
+bool CBakedInstancesBlock::strip_to(CBakedInstancesBlock& destination, CBakedSchema& schema,
+    SInstancesBlockDiagnostic& diagnostic) const noexcept
+{
+    return detail::strip_data_block(*this, m_role, destination, schema, detail::EDataBlockKind::instances, diagnostic);
+}
+
+bool CBakedInstancesBlock::strip_to(CBakedInstancesBlock& destination, CLiveSchema& schema,
+    SInstancesBlockDiagnostic& diagnostic) const noexcept
+{
+    return detail::strip_data_block(*this, m_role, destination, schema, detail::EDataBlockKind::instances, diagnostic);
+}
+
 void CBakedInstancesBlock::clear() noexcept
 {
     m_role.clear();

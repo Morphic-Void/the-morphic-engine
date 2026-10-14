@@ -66,10 +66,10 @@ static bool strip_instance_declarations(CLiveDocument& document, const CNodeKey 
     return true;
 }
 
-bool prepare_materialised_output(const CBakedDocument& source, const EDataBlockKind kind,
-    const EDataOutputForm form, CLiveDocument& output, SDataBlockDiagnostic& diagnostic) noexcept
+bool prepare_data_block_output(const CBakedDocument& source, const EDataBlockKind kind,
+    const EDataOutputForm form, const CBakedBulkData* const bulk_data, CLiveDocument& output, SDataBlockDiagnostic& diagnostic) noexcept
 {
-    //  The source has passed role materialisation. Copy only its selected section;
+    //  The source has passed role loading. Copy only its selected section;
     //  persistence metadata belongs to the newly assembled file.
     const CStringView section_name{ (kind == EDataBlockKind::instances) ? "instances" : "data" };
     if (!document_translation::promote_root_member(source, section_name, output))
@@ -101,13 +101,23 @@ bool prepare_materialised_output(const CBakedDocument& source, const EDataBlockK
             //  for zero-byte records whose count cannot be derived from size.
             if (!output.object_child(locator, CStringView{ "count" }))
             {
-                const CNodeKey count = output.create_unsigned_integer(output.child_count(values), CStringView{ "count" });
+                std::uint32_t record_count = output.child_count(values);
+                if (bulk_data)
+                {
+                    SBulkDataEntryView record;
+                    if (!bulk_data->entry(bulk_data->find_entry(output.name(group), output.name(entry)), record))
+                    {
+                        return construction_failure(diagnostic, EDataBlockStage::description_preparation, EDataBlockReason::description_preparation_failed);
+                    }
+                    record_count = record.count;
+                }
+                const CNodeKey count = output.create_unsigned_integer(record_count, CStringView{ "count" });
                 if (!count || !output.append_child(locator, count).succeeded())
                 {
                     return construction_failure(diagnostic, EDataBlockStage::description_preparation, EDataBlockReason::description_preparation_failed);
                 }
             }
-            if ((form != EDataOutputForm::embedded) && !output.erase(values))
+            if (values && (form != EDataOutputForm::embedded) && !output.erase(values))
             {
                 return construction_failure(diagnostic, EDataBlockStage::description_preparation, EDataBlockReason::description_preparation_failed);
             }

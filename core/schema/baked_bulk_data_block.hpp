@@ -54,6 +54,13 @@ public:
     [[nodiscard]] bool materialise(const CBakedDocument& description, CLiveSchema& schema,
         EDataOutputForm form, SBulkDataBlockDiagnostic& diagnostic) noexcept;
 
+    //  Remove retained values into an independent block, preserving every payload byte.
+    //  Requires a loaded source and empty destination; failure preserves both.
+    [[nodiscard]] bool strip_to(CBakedBulkDataBlock& destination, CBakedSchema& schema,
+        SBulkDataBlockDiagnostic& diagnostic) const noexcept;
+    [[nodiscard]] bool strip_to(CBakedBulkDataBlock& destination, CLiveSchema& schema,
+        SBulkDataBlockDiagnostic& diagnostic) const noexcept;
+
     //  Clear the role before releasing/forgetting backing. All users must be quiescent.
     void clear() noexcept;
     [[nodiscard]] bool release_local(CBakedDocumentBlock& output) noexcept;

@@ -32,8 +32,9 @@ live or baked descriptions and constructs a complete payload using existing
 defaults, inheritance and complete bulk-record rules. It publishes reserved
 locators in private storage, then applies the requested output form and assembles
 an independent completed block. Source descriptions are unchanged. JSON parsing
-remains a caller step. Stripping existing blocks and Host service integration
-stages are not yet implemented.
+remains a caller step. Completed blocks can be stripped through generic document
+promotion, preserving inferred bulk data counts and every payload byte in an
+independent output allocation. Host service integration is not yet implemented.
 The existing bake overloads returning separate owners remain available.
 
 ## Purpose and scope

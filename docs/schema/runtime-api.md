@@ -35,7 +35,7 @@ Include the header for the role or operation being used:
 | `baked_instances.hpp`, `live_instances.hpp` | Instance loading, observation and live editing/output. |
 | `baked_bulk_data.hpp`, `live_bulk_data.hpp` | Bulk data loading, observation and live capture/output. |
 | `data_block.hpp` | Shared persistence load options, backing states and block diagnostic vocabulary. |
-| `baked_instances_block.hpp`, `baked_bulk_data_block.hpp` | Completed file ownership, specialised attachment, description materialisation and local storage release. |
+| `baked_instances_block.hpp`, `baked_bulk_data_block.hpp` | Completed file ownership, attachment, materialisation, stripping and local storage release. |
 | `data_remap.hpp` | Remap planning and execution between binary views. |
 | `unused_storage.hpp` | Explicit clearing of unused binary storage. |
 
@@ -152,8 +152,8 @@ stage but clears both outer and nested locations into temporary output.
 
 The first implementation uses temporary description, prefix, payload and final
 storage, plus validation/role scratch. Direct construction into final allocation
-remains a later optimisation. Stripping existing blocks and complete-buffer Host
-persistence remain later implementation stages. Existing
+remains a later optimisation. Complete-buffer Host persistence remains a later
+implementation stage. Existing
 lower-level baking APIs remain available.
 
 ### Materialisation from descriptions
@@ -212,6 +212,40 @@ Include `data_model/document_parser.hpp` and the relevant block header. The
 same sequence accepts a baked description produced by parsing/loading. Optional
 Host admission and save follow construction under the caller's existing asset
 ownership model; their full-buffer persistence integration is a later stage.
+
+### Stripping completed blocks
+
+Both blocks expose const `strip_to(destination, schema, diagnostic)` overloads
+for `CLiveSchema&` and `CBakedSchema&`. The destination is the same block kind
+as the source. It must be empty, the source must be loaded and ready, and the
+caller-supplied destination schema must already be resolved. Self-stripping and
+occupied destinations are rejected unchanged, including destinations whose
+schema binding has become unavailable. A source with an invalidated binding
+cannot be stripped; its complete bytes remain available for release or saving.
+
+Stripping validates the complete source envelope, generically promotes its
+selected document section, removes instance declarations recursively or bulk
+data arrays, and sets `stripped: true`. Missing bulk data counts are taken from
+the source's loaded entries before arrays are removed. This preserves counts
+inferred from either arrays or byte sizes, including zero-byte record counts.
+Existing locator offsets, counts and sizes are retained. Persistence metadata
+is rebuilt for the output document and unchanged payload length.
+
+The entire declared payload is copied byte for byte into a new contiguous
+allocation: offsets, gaps, unused bits and trailing storage are preserved.
+There is no specialised live-role promotion, literal reconstruction, embedded
+comparison or repacking. Binary values without faithful document literals can
+therefore be stripped. The final specialised role is attached to the new
+document and payload, whose addresses and document indices may differ.
+The caller remains responsible for supplying the correct schema.
+
+Already stripped input produces an independent equivalent block. Local and
+asset-backed sources use the same path and remain unchanged. No asset is
+retained or disposed implicitly; the caller may release the source after a
+successful strip. Failure leaves an empty destination empty, cleans up private
+allocations and bindings, and preserves the source. Source format failures may
+retain source locations; final-attachment failures retain their stage and role
+reason but clear locations into the discarded output document.
 
 `schema::k_max_alignment` in `resolved_schema.hpp` defines the maximum supported
 type alignment and the common base alignment of instance/bulk data buffers (128 bytes).

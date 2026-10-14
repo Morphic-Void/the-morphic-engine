@@ -111,6 +111,18 @@ bool CBakedBulkDataBlock::materialise(const CBakedDocument& description, CLiveSc
     return detail::materialise_data_block(description, *this, schema, form, detail::EDataBlockKind::bulk_data, diagnostic);
 }
 
+bool CBakedBulkDataBlock::strip_to(CBakedBulkDataBlock& destination, CBakedSchema& schema,
+    SBulkDataBlockDiagnostic& diagnostic) const noexcept
+{
+    return detail::strip_data_block(*this, m_role, destination, schema, detail::EDataBlockKind::bulk_data, diagnostic);
+}
+
+bool CBakedBulkDataBlock::strip_to(CBakedBulkDataBlock& destination, CLiveSchema& schema,
+    SBulkDataBlockDiagnostic& diagnostic) const noexcept
+{
+    return detail::strip_data_block(*this, m_role, destination, schema, detail::EDataBlockKind::bulk_data, diagnostic);
+}
+
 void CBakedBulkDataBlock::clear() noexcept
 {
     m_role.clear();

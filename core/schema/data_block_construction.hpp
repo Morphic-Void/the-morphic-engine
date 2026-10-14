@@ -6,7 +6,7 @@
 //  Authors: Ritchie Brannan / OpenAI Codex
 //  Date:    14 Oct 26
 //
-//  Private completed-file assembly, live baking and description materialisation.
+//  Private completed-file assembly, live baking, materialisation and stripping.
 
 #pragma once
 
@@ -29,8 +29,11 @@ namespace schema::detail
 
 [[nodiscard]] bool prepare_materialisation(const CLiveDocument& source, CBakedDocumentBlock& output, SDataBlockDiagnostic& diagnostic) noexcept;
 [[nodiscard]] bool prepare_materialisation(const CBakedDocument& source, CBakedDocumentBlock& output, SDataBlockDiagnostic& diagnostic) noexcept;
-[[nodiscard]] bool prepare_materialised_output(const CBakedDocument& source, EDataBlockKind kind,
-    EDataOutputForm form, CLiveDocument& output, SDataBlockDiagnostic& diagnostic) noexcept;
+
+//  A loaded bulk data role supplies counts when stripping complete payloads.
+//  Materialised descriptions instead carry the complete embedded arrays.
+[[nodiscard]] bool prepare_data_block_output(const CBakedDocument& source, EDataBlockKind kind,
+    EDataOutputForm form, const CBakedBulkData* bulk_data, CLiveDocument& output, SDataBlockDiagnostic& diagnostic) noexcept;
 
 //  Preparation preserves tree shape. Map a temporary baked occurrence by its
 //  child ordinals, without allocating diagnostic scratch or assuming live IDs.
@@ -123,12 +126,71 @@ template<class TDocument, class TBlock, class TSchema, class TDiagnostic>
     }
     role.clear();
     CLiveDocument description;
-    if (!prepare_materialised_output(prepared.document(), kind, form, description, diagnostic.block)) return false;
+    if (!prepare_data_block_output(prepared.document(), kind, form, nullptr, description, diagnostic.block))
+    {
+        return false;
+    }
     prepared.deallocate();
     CBakedDocumentBlock complete;
-    if (!assemble_data_block(description, payload.const_view(), kind, complete, diagnostic.block)) return false;
+    if (!assemble_data_block(description, payload.const_view(), kind, complete, diagnostic.block))
+    {
+        return false;
+    }
     if (!destination.adopt_local(std::move(complete), schema, {}, diagnostic))
     {
+        diagnostic.block.location = {};
+        diagnostic.role.occurrence = {};
+        return false;
+    }
+    return true;
+}
+
+template<class TBlock, class TRole, class TSchema, class TDiagnostic>
+[[nodiscard]] static bool strip_data_block(const TBlock& source, const TRole& role, TBlock& destination,
+    TSchema& schema, const EDataBlockKind kind, TDiagnostic& diagnostic) noexcept
+{
+    diagnostic = {};
+    diagnostic.block.stage = EDataBlockStage::preconditions;
+    if (destination.backing() != EEntityBacking::none)
+    {
+        diagnostic.block.reason = EDataBlockReason::destination_not_empty;
+        return false;
+    }
+    if (!source.loaded_ready())
+    {
+        diagnostic.block.reason = EDataBlockReason::invalid_input;
+        return false;
+    }
+    if (!schema.resolved_ready())
+    {
+        diagnostic.block.stage = EDataBlockStage::schema_binding;
+        diagnostic.block.reason = EDataBlockReason::schema_unavailable;
+        return false;
+    }
+    const CByteConstView bytes = source.file_bytes();
+    SDataBlockView view;
+    if (!validate_data_block(bytes.data(), bytes.size(), kind, view, diagnostic.block))
+    {
+        return false;
+    }
+    const CBakedBulkData* bulk_data = nullptr;
+    if constexpr (std::is_same_v<TRole, CBakedBulkData>)
+    {
+        bulk_data = &role;
+    }
+    CLiveDocument description;
+    if (!prepare_data_block_output(view.document, kind, EDataOutputForm::stripped, bulk_data, description, diagnostic.block))
+    {
+        return false;
+    }
+    CBakedDocumentBlock complete;
+    if (!assemble_data_block(description, view.payload, kind, complete, diagnostic.block))
+    {
+        return false;
+    }
+    if (!destination.adopt_local(std::move(complete), schema, {}, diagnostic))
+    {
+        //  Attachment observes the new private document, whose indices can differ.
         diagnostic.block.location = {};
         diagnostic.role.occurrence = {};
         return false;

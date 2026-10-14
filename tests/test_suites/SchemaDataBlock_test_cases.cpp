@@ -1278,6 +1278,254 @@ static void test_materialisation(TTestContext& ctx)
     test_materialisation_allocations<false, true>(ctx);
     test_materialisation_allocations<false, false>(ctx);
 }
+static const std::string stripping_types = R"({"types":{
+    "structures":{"Zero":{"members":[]}},
+    "bit_structures":{"Flags":{"storage":"u8","members":[{"flag":{"type":"b8","mask":1}}]}}}})";
+
+template<bool Instances>
+static bool build_strip_fixture(SFixture& fixture, const unsigned content)
+{
+    using T = SBlockTraits<Instances>;
+    if (content == 0u) return fixture.build(envelope(T::kind));
+    const std::string zero = Instances ? R"({"zero":{"locator":{"offset":0,"valid":true,"size":0}}})" :
+        R"({"zero":{"locator":{"offset":0,"valid":true},"data":[{},{},{}]}})";
+    if (content == 1u) return fixture.build(envelope(T::kind, "0", "{\"Zero\":" + zero + "}"));
+    const bool retained = content == 2u;
+    std::string section;
+    if constexpr (Instances)
+    {
+        section = "{\"Zero\":" + zero + ",\"b8\":{\"one\":{\"locator\":{\"offset\":2,\"valid\":true,\"size\":1}" +
+            std::string{ retained ? ",\"declaration\":false" : "" } +
+            ",\"specialisation\":{\"child\":{\"locator\":{\"offset\":6,\"valid\":true,\"size\":1}" +
+            std::string{ retained ? ",\"declaration\":true" : "" } + "}}}},\"Flags\":{\"bits\":{\"locator\":{\"offset\":9,\"valid\":true,\"size\":1}" +
+            std::string{ retained ? ",\"declaration\":{\"flag\":false}" : "" } + "}}}";
+    }
+    else
+    {
+        section = "{\"Zero\":" + (retained ? zero : R"({"zero":{"locator":{"offset":0,"valid":true,"count":3,"size":0}}})") +
+            ",\"b8\":{\"one\":{\"locator\":{\"offset\":2,\"valid\":true" +
+            std::string{ retained ? "},\"data\":[false,true]" : ",\"size\":2}" } +
+            "},\"two\":{\"locator\":{\"offset\":6,\"valid\":true,\"size\":2}}}," +
+            "\"Flags\":{\"bits\":{\"locator\":{\"offset\":9,\"valid\":true,\"count\":1}" +
+            std::string{ retained ? ",\"data\":[{\"flag\":false}]" : "" } + "}}}";
+    }
+    if (!fixture.build(envelope(T::kind, "17", section, content == 4u ? ",\"stripped\":true" : ""), 17u)) return false;
+    //  Noncanonical booleans, unused flag bits and unreferenced bytes are opaque.
+    auto* const payload = fixture.file.data() + fixture.payload_offset;
+    for (unsigned index = 0u; index != 17u; ++index) payload[index] = static_cast<std::uint8_t>(0xa0u + index);
+    payload[2] = 2u;
+    payload[3] = 3u;
+    payload[6] = 4u;
+    payload[7] = 5u;
+    payload[9] = 0xfdu;
+    return true;
+}
+
+template<bool Instances, class TSourceSchema, class TDestinationSchema>
+static void test_stripped_blocks(TTestContext& ctx, TSourceSchema& source_schema, TDestinationSchema& destination_schema)
+{
+    using T = SBlockTraits<Instances>;
+    for (const bool borrowed : { false, true })
+    {
+        for (unsigned content = 0u; content != 5u; ++content)
+        {
+            SFixture fixture;
+            if (!build_strip_fixture<Instances>(fixture, content)) { TEST_EXPECT(ctx, false); continue; }
+            const auto original = byte_snapshot(fixture.file.const_view());
+            CBakedDocumentBlock owner;
+            TEST_EXPECT(ctx, owner.adopt_buffer(std::move(fixture.file)));
+            CAssetRepository assets;
+            CAssetId id;
+            typename T::Block source, destination;
+            typename T::Diagnostic diagnostic;
+            if (borrowed)
+            {
+                TEST_EXPECT(ctx, assets.initialise());
+                CErasedOwner erased = CErasedOwner::create<BakedDocumentAsset>();
+                auto* const stored = erased.payload<BakedDocumentAsset>();
+                if (!stored) { TEST_EXPECT(ctx, false); continue; }
+                stored->block = std::move(owner);
+                const auto bytes = static_cast<const CBakedDocumentBlock&>(stored->block).buffer_bytes();
+                id = assets.insert(std::move(erased));
+                TEST_EXPECT(ctx, source.attach_asset(id, bytes, source_schema, {}, diagnostic));
+            }
+            else TEST_EXPECT(ctx, source.adopt_local(std::move(owner), source_schema, {}, diagnostic));
+            if (!source.loaded_ready()) { TEST_EXPECT(ctx, false); continue; }
+            const auto source_address = source.file_bytes().data();
+            const auto source_root = T::role(source).document_query().root();
+            const auto payload = byte_snapshot(T::role(source).payload_view());
+            seed(diagnostic.block);
+            diagnostic.role.reason = T::Reason::unknown_type;
+            TEST_EXPECT(ctx, source.strip_to(destination, destination_schema, diagnostic));
+            if (!destination.loaded_ready()) { TEST_EXPECT(ctx, false); continue; }
+            TEST_EXPECT(ctx, diagnostic.block.stage == EDataBlockStage::none && diagnostic.block.reason == EDataBlockReason::none &&
+                diagnostic.block.location.kind == EDataBlockLocationKind::none && diagnostic.role.reason == T::Reason::none);
+            TEST_EXPECT(ctx, destination.backing() == EEntityBacking::local && !destination.asset_id() &&
+                destination.file_bytes().data() != source_address && same_bytes(T::role(destination).payload_view(), payload));
+            SDataBlockView view;
+            SDataBlockDiagnostic format;
+            TEST_EXPECT(ctx, validate_data_block(destination.file_bytes().data(), destination.file_bytes().size(), T::kind, view, format) && view.stripped);
+            if (content == 2u) TEST_EXPECT(ctx, view.document.byte_count() != fixture.prefix.document().byte_count());
+            if (content < 2u) TEST_EXPECT(ctx, destination.file_bytes().size() == view.document.byte_count() && view.payload.size() == 0u);
+            const auto& role = T::role(destination);
+            const auto query = role.document_query();
+            if (content >= 2u)
+            {
+                if constexpr (Instances)
+                {
+                    const auto base = role.find_base(CStringView{ "b8" }, CStringView{ "one" });
+                    const auto child = role.find_specialisation(base, CStringView{ "child" });
+                    const auto bits = role.find_base(CStringView{ "Flags" }, CStringView{ "bits" });
+                    SInstanceEntryView entry;
+                    TEST_EXPECT(ctx, role.entry(base, entry) && entry.offset == 2u && entry.bytes[0] == 2u);
+                    TEST_EXPECT(ctx, role.entry(child, entry) && entry.offset == 6u && entry.bytes[0] == 4u && entry.parent == base);
+                    TEST_EXPECT(ctx, role.entry(bits, entry) && entry.offset == 9u && entry.bytes[0] == 0xfdu);
+                    for (const auto handle : { base, child, bits }) TEST_EXPECT(ctx, !query.object_child(handle, CStringView{ "declaration" }));
+                }
+                else
+                {
+                    SBulkDataEntryView entry;
+                    for (const auto name : { "one", "two" })
+                    {
+                        const auto handle = role.find_entry(CStringView{ "b8" }, CStringView{ name });
+                        TEST_EXPECT(ctx, role.entry(handle, entry) && entry.count == 2u && entry.byte_count == 2u);
+                        TEST_EXPECT(ctx, entry.offset == (name[0] == 'o' ? 2u : 6u) && !query.object_child(handle, CStringView{ "data" }));
+                        std::uint64_t count{};
+                        TEST_EXPECT(ctx, query.unsigned_integer_value(query.object_child(query.object_child(handle, CStringView{ "locator" }), CStringView{ "count" }), count) && count == 2u);
+                    }
+                    const auto bits = role.find_entry(CStringView{ "Flags" }, CStringView{ "bits" });
+                    TEST_EXPECT(ctx, role.entry(bits, entry) && entry.offset == 9u && entry.count == 1u && entry.bytes[0] == 0xfdu &&
+                        !query.object_child(bits, CStringView{ "data" }));
+                }
+            }
+            if (content != 0u)
+            {
+                if constexpr (Instances)
+                {
+                    SInstanceEntryView entry;
+                    TEST_EXPECT(ctx, role.entry(role.find_base(CStringView{ "Zero" }, CStringView{ "zero" }), entry) && entry.byte_count == 0u);
+                }
+                else
+                {
+                    SBulkDataEntryView entry;
+                    const auto zero = role.find_entry(CStringView{ "Zero" }, CStringView{ "zero" });
+                    TEST_EXPECT(ctx, role.entry(zero, entry) && entry.byte_count == 0u && entry.count == 3u && !query.object_child(zero, CStringView{ "data" }));
+                }
+            }
+            TEST_EXPECT(ctx, source.file_bytes().data() == source_address && same_bytes(source.file_bytes(), original) && source.loaded_ready() &&
+                T::role(source).document_query().root() == source_root && source.asset_id() == id);
+            TEST_EXPECT(ctx, !source.strip_to(source, source_schema, diagnostic) && diagnostic.block.reason == EDataBlockReason::destination_not_empty);
+            TEST_EXPECT(ctx, !source.strip_to(destination, destination_schema, diagnostic) && diagnostic.block.reason == EDataBlockReason::destination_not_empty);
+            if (borrowed) TEST_EXPECT(ctx, assets.resolve(id) != nullptr);
+            source.clear();
+            if (borrowed) TEST_EXPECT(ctx, assets.resolve(id) != nullptr && assets.erase(id));
+            TEST_EXPECT(ctx, destination.loaded_ready() && same_bytes(role.payload_view(), payload));
+            //  Already stripped data produces a separate allocation with identical payload.
+            typename T::Block again;
+            TEST_EXPECT(ctx, destination.strip_to(again, destination_schema, diagnostic) && again.file_bytes().data() != destination.file_bytes().data());
+            destination.clear();
+            TEST_EXPECT(ctx, again.loaded_ready() && same_bytes(T::role(again).payload_view(), payload));
+            TEST_EXPECT(ctx, again.release_local(owner) && owner.buffer_capacity() == owner.buffer_bytes().size());
+            TEST_EXPECT(ctx, destination.adopt_local(std::move(owner), destination_schema, { true }, diagnostic) && same_bytes(role.payload_view(), payload));
+        }
+    }
+}
+
+template<bool Instances>
+static void test_stripping_failures(TTestContext& ctx)
+{
+    using T = SBlockTraits<Instances>;
+    SSchemaFixture schemas;
+    TEST_EXPECT(ctx, schemas.build(stripping_types));
+    typename T::Block source, destination;
+    typename T::Diagnostic diagnostic;
+    TEST_EXPECT(ctx, !source.strip_to(destination, schemas.baked, diagnostic) &&
+        diagnostic.block.stage == EDataBlockStage::preconditions && diagnostic.block.reason == EDataBlockReason::invalid_input);
+    SFixture fixture;
+    TEST_EXPECT(ctx, build_strip_fixture<Instances>(fixture, 2u));
+    CBakedDocumentBlock owner;
+    TEST_EXPECT(ctx, owner.adopt_buffer(std::move(fixture.file)) && source.adopt_local(std::move(owner), schemas.live, {}, diagnostic));
+    const auto snapshot = byte_snapshot(source.file_bytes());
+    CBakedSchema unavailable;
+    TEST_EXPECT(ctx, !source.strip_to(destination, unavailable, diagnostic) && diagnostic.block.stage == EDataBlockStage::schema_binding &&
+        diagnostic.block.reason == EDataBlockReason::schema_unavailable);
+    SSchemaFixture missing_types;
+    TEST_EXPECT(ctx, missing_types.build(R"({"types":{}})"));
+    TEST_EXPECT(ctx, !source.strip_to(destination, missing_types.baked, diagnostic) && diagnostic.block.stage == EDataBlockStage::specialised_loading &&
+        diagnostic.block.reason == EDataBlockReason::specialised_failure && diagnostic.role.reason == T::Reason::unknown_type);
+    TEST_EXPECT(ctx, diagnostic.block.location.kind == EDataBlockLocationKind::none && !diagnostic.role.occurrence &&
+        destination.backing() == EEntityBacking::none && missing_types.baked.reference_count() == 0u && same_bytes(source.file_bytes(), snapshot));
+    {
+        SSchemaFixture temporary;
+        TEST_EXPECT(ctx, temporary.build(stripping_types) && source.strip_to(destination, temporary.baked, diagnostic));
+    }
+    TEST_EXPECT(ctx, !destination.loaded_ready());
+    const auto occupied = byte_snapshot(destination.file_bytes());
+    TEST_EXPECT(ctx, !source.strip_to(destination, schemas.baked, diagnostic) && diagnostic.block.reason == EDataBlockReason::destination_not_empty &&
+        same_bytes(destination.file_bytes(), occupied));
+    typename T::Block empty;
+    TEST_EXPECT(ctx, !destination.strip_to(empty, schemas.baked, diagnostic) && diagnostic.block.reason == EDataBlockReason::invalid_input &&
+        empty.backing() == EEntityBacking::none && same_bytes(destination.file_bytes(), occupied));
+}
+
+template<bool Instances>
+static void test_stripping_allocations(TTestContext& ctx)
+{
+    using T = SBlockTraits<Instances>;
+    SSchemaFixture schemas;
+    SFixture fixture;
+    TEST_EXPECT(ctx, schemas.build(stripping_types) && build_strip_fixture<Instances>(fixture, 2u));
+    CBakedDocumentBlock owner;
+    typename T::Block source;
+    typename T::Diagnostic diagnostic;
+    TEST_EXPECT(ctx, owner.adopt_buffer(std::move(fixture.file)) && source.adopt_local(std::move(owner), schemas.live, {}, diagnostic));
+    const auto snapshot = byte_snapshot(source.file_bytes());
+    bool completed{}, validation{}, promotion{}, bake{}, assembly{}, attachment{};
+    for (std::size_t fail_on = 0u; fail_on != 1024u && !completed; ++fail_on)
+    {
+        SAllocationFailures failures{ 0u, fail_on };
+        memory::CMemoryAllocator allocator{ &failures, &allocate_block_test, &tests::deallocate_test_memory };
+        memory::CMemoryContext context{ allocator };
+        {
+            const tests::TMemoryContextScope scope{ &context };
+            typename T::Block destination;
+            completed = source.strip_to(destination, schemas.baked, diagnostic);
+            if (!completed)
+            {
+                TEST_EXPECT(ctx, destination.backing() == EEntityBacking::none && !T::role(destination).document_ready() &&
+                    schemas.baked.reference_count() == 0u && diagnostic.block.reason != EDataBlockReason::none);
+                const auto stage = diagnostic.block.stage;
+                validation |= stage == EDataBlockStage::format_validation;
+                promotion |= stage == EDataBlockStage::document_promotion;
+                bake |= stage == EDataBlockStage::document_bake;
+                assembly |= stage == EDataBlockStage::assembly;
+                attachment |= stage == EDataBlockStage::specialised_loading;
+                TEST_EXPECT(ctx, !diagnostic.role.occurrence && diagnostic.block.location.kind == EDataBlockLocationKind::none);
+            }
+            TEST_EXPECT(ctx, source.loaded_ready() && schemas.live.reference_count() == 1u && same_bytes(source.file_bytes(), snapshot));
+        }
+        TEST_EXPECT(ctx, context.is_attribution_empty() && schemas.baked.reference_count() == 0u);
+    }
+    TEST_EXPECT(ctx, completed && validation && promotion && bake && assembly && attachment);
+}
+
+static void test_stripping(TTestContext& ctx)
+{
+    SSchemaFixture source, destination;
+    if (!source.build(stripping_types) || !destination.build(stripping_types)) { TEST_EXPECT(ctx, false); return; }
+    test_stripped_blocks<true>(ctx, source.live, destination.live);
+    test_stripped_blocks<true>(ctx, source.live, destination.baked);
+    test_stripped_blocks<true>(ctx, source.baked, destination.live);
+    test_stripped_blocks<true>(ctx, source.baked, destination.baked);
+    test_stripped_blocks<false>(ctx, source.live, destination.live);
+    test_stripped_blocks<false>(ctx, source.live, destination.baked);
+    test_stripped_blocks<false>(ctx, source.baked, destination.live);
+    test_stripped_blocks<false>(ctx, source.baked, destination.baked);
+    test_stripping_failures<true>(ctx);
+    test_stripping_failures<false>(ctx);
+    test_stripping_allocations<true>(ctx);
+    test_stripping_allocations<false>(ctx);
+}
 }   // namespace
 
 void run_schema_data_block_cases(tests::TTestContext& context)
@@ -1289,4 +1537,5 @@ void run_schema_data_block_cases(tests::TTestContext& context)
     test_blocks(context);
     test_completed_bakes(context);
     test_materialisation(context);
+    test_stripping(context);
 }

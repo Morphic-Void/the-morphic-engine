@@ -20,8 +20,9 @@ Remaining integration details and design decisions are identified separately.
 The naming standardisation, shared diagnostics and internal format validation
 and block ownership, attachment and release are implemented and user-reviewed.
 Live baking into completed blocks is implemented and user-reviewed.
-Description materialisation is implemented for stage 5 review; stripping and
-Host integration are not yet implemented. This revision is not a
+Description materialisation is implemented and user-reviewed. Completed-block
+stripping is implemented for stage 6 review; Host integration is not yet
+implemented. This revision is not a
 detailed implementation plan or authority to begin code changes. Required work
 passes identified below must be included when implementation is planned.
 

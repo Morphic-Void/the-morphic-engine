@@ -66,6 +66,18 @@ live/baked values. Each construction allocation is rejected in turn, checking
 empty destinations, released schema references, temporary cleanup and location
 lifetimes. JSON parsing is exercised separately from the block API.
 
+Completed-block stripping tests cover both roles, all source/destination schema
+combinations, local and repository-backed borrowed sources, empty and zero-byte
+content, retained/external/already-stripped descriptions and inferred bulk data
+counts from arrays and byte sizes. Byte comparisons include payload gaps,
+trailing storage, noncanonical booleans and unused flag bits. Tests check new
+document lengths, recursive instance declaration removal, reattachment, source
+independence and no implicit asset disposal. Failures cover self/occupied
+destinations, unavailable bindings, missing destination types and each allocation
+through source validation, promotion, baking, assembly and final attachment.
+Temporary-output diagnostics are cleared and all private allocations and schema
+bindings are released on failure.
+
 Logs and generated files include the tag and process ID. The runner prints their
 paths; default output is beneath `development/logical-roots/test-output` and
 logs beneath `development/logical-roots/test-logs`.
