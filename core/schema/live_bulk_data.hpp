@@ -23,6 +23,9 @@
 namespace schema
 {
 
+class CBakedBulkDataBlock;
+struct SBulkDataBlockDiagnostic;
+
 //==============================================================================
 //  Mutable entry view
 //==============================================================================
@@ -103,6 +106,12 @@ public:
         CBakedSchema& destination_schema, const EDataOutputForm form, SBulkDataDiagnostic& diagnostic) const noexcept;
     [[nodiscard]] bool bake(CBakedDocumentBlock& block, CByteBuffer& payload, CBakedBulkData& role,
         CLiveSchema& destination_schema, const EDataOutputForm form, SBulkDataDiagnostic& diagnostic) const noexcept;
+
+    //  Complete contiguous persistence output; destination must be empty.
+    [[nodiscard]] bool bake(CBakedBulkDataBlock& destination, CBakedSchema& schema,
+        const EDataOutputForm form, SBulkDataBlockDiagnostic& diagnostic) const noexcept;
+    [[nodiscard]] bool bake(CBakedBulkDataBlock& destination, CLiveSchema& schema,
+        const EDataOutputForm form, SBulkDataBlockDiagnostic& diagnostic) const noexcept;
 
 private:
     //==============================================================================

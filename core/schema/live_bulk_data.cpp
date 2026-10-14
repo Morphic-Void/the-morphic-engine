@@ -9,6 +9,8 @@
 //  Live bulk data ownership, capture, promotion, reconciliation and baked output.
 
 #include "schema/live_bulk_data.hpp"
+#include "schema/baked_bulk_data_block.hpp"
+#include "schema/data_block_construction.hpp"
 #include "schema/type_compatibility.hpp"
 #include "schema/value_codec.hpp"
 #include "schema/integer_notation.hpp"
@@ -1097,6 +1099,18 @@ bool CLiveBulkData::bake_to(CBakedDocumentBlock& block, CByteBuffer& payload, CB
     payload = std::move(prepared_payload);
     role.take_from(prepared_role);
     return true;
+}
+
+bool CLiveBulkData::bake(CBakedBulkDataBlock& destination, CBakedSchema& schema,
+    const EDataOutputForm form, SBulkDataBlockDiagnostic& diagnostic) const noexcept
+{
+    return detail::bake_data_block(*this, destination, schema, form, detail::EDataBlockKind::bulk_data, diagnostic);
+}
+
+bool CLiveBulkData::bake(CBakedBulkDataBlock& destination, CLiveSchema& schema,
+    const EDataOutputForm form, SBulkDataBlockDiagnostic& diagnostic) const noexcept
+{
+    return detail::bake_data_block(*this, destination, schema, form, detail::EDataBlockKind::bulk_data, diagnostic);
 }
 
 bool CLiveBulkData::bake(CBakedDocumentBlock& block, CByteBuffer& payload, CBakedBulkData& role,

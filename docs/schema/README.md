@@ -18,7 +18,7 @@ interpret its current contracts.
 | [Validation](validation.md) | Regression coverage and generated C++ layout checks. |
 | [Example](schema-example.json) and [notes](schema-example-notes.md) | Authoring example, expected layouts, numeric notation and materialisation rules. |
 | [Persistence and aggregation revision](persistence-and-aggregation.md) | Agreed direction and reasoning for separate data entities, shared definitions, aggregation and composition; implementation status is recorded in the plan. |
-| [Persistence implementation plan](persistence-implementation-plan.md) | Eight review stages; naming and format validation reviewed, block ownership/attachment implemented for review, construction and Host integration still planned. |
+| [Persistence implementation plan](persistence-implementation-plan.md) | Eight review stages; naming, format and ownership reviewed; completed-block live baking implemented for review; materialisation, stripping and Host integration still planned. |
 | [Follow-on work](../backlog/schema_follow_on.md) | Future direction and unresolved design questions, separate from current requirements. |
 | [Header survey](header-survey.md) | Historical source research supporting the ingestion discussion. |
 

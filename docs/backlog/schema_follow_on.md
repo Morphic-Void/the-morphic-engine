@@ -94,14 +94,15 @@ is all or nothing, and parsing is followed by explicit caller-side construction
 and optional Host admission/save. Diagnostic representation and delivery stages
 are specified in the implementation plan; merge policies remain separate future
 design work.
-Existing schema baking still returns separate document and payload owners.
+Schema baking supports both the existing separate document/payload owners and
+the new completed-block overloads.
 
 The [concrete implementation plan](../schema/persistence-implementation-plan.md)
 organises delivery into eight review stages, starting with the naming pass and
 ending with real Host/bundle acceptance and documentation. Stage 1 naming is
 implemented and user-reviewed, as are stage 2 format validation and diagnostics.
-Stage 3 ownership, attachment and release are implemented for review. Stages 4-8
-have not started.
+Stage 3 ownership, attachment and release are also user-reviewed. Stage 4 live
+baking into completed blocks is implemented for review. Stages 5-8 have not started.
 
 Required implementation work-plan pass (stage 1):
 

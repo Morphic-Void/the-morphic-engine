@@ -894,6 +894,9 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\baked_bulk_data_block.hpp">
       <Filter>Core\include\schema</Filter>
     </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\data_block_construction.hpp">
+      <Filter>Core\include\schema</Filter>
+    </ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\data_block_format.hpp">
       <Filter>Core\include\schema</Filter>
     </ClInclude>
@@ -949,6 +952,9 @@
       <Filter>Core\src\schema</Filter>
     </ClCompile>
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\baked_bulk_data_block.cpp">
+      <Filter>Core\src\schema</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\data_block_construction.cpp">
       <Filter>Core\src\schema</Filter>
     </ClCompile>
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\data_block_format.cpp">

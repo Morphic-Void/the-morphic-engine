@@ -120,8 +120,41 @@ without copying and leaves the block empty. Failure preserves both objects.
 Release works after schema invalidation. All consumers must be quiescent before
 clear, destruction or release.
 
-The block construction methods and complete-buffer Host persistence are later
-implementation stages. Existing lower-level baking APIs remain available.
+### Live baking into completed blocks
+
+`CLiveInstances::bake(destination, schema, form, diagnostic)` and
+`CLiveBulkData::bake(destination, schema, form, diagnostic)` accept their
+corresponding completed block and block diagnostic, with explicit overloads for
+`CBakedSchema&` and `CLiveSchema&`. Include the live-role and corresponding
+block headers. These const operations require a loaded source, an empty
+destination, a resolved destination schema and a valid `EDataOutputForm`.
+
+The existing `prepare_output()` supplies a private description and packed
+authoritative payload. Instances retain reconstructed declarations in embedded
+and external forms, removing them for stripped output. Bulk data retains record
+values only in embedded form. All forms carry the complete authoritative binary
+payload, including a canonical zero-byte payload where appropriate.
+
+Shared private `data_block_construction.hpp/.cpp` appends the version 1
+metadata, bakes the document, checks the complete extent and copies it and the
+payload into one 128-byte-aligned allocation with zero container padding.
+The byte buffer is requested with exact file-size capacity. The document owner
+accepts it because its memory-token stride is 1; allocator-level size
+conditioning does not change the logical file size.
+Final adoption binds the specialised role only after this allocation is stable.
+Success is independent of the source document and bytes; failure preserves the
+source and any occupied destination.
+
+Preparation preserves specialised reasons and source live locations. Generic
+metadata/document/assembly failures use step-level reasons when no precise
+resource diagnosis is available. Final attachment preserves its reason and
+stage but clears both outer and nested locations into temporary output.
+
+The first implementation uses temporary description, prefix, payload and final
+storage, plus validation/role scratch. Direct construction into final allocation
+remains a later optimisation. Description materialisation, stripping and
+complete-buffer Host persistence remain later implementation stages. Existing
+lower-level baking APIs remain available.
 
 `schema::k_max_alignment` in `resolved_schema.hpp` defines the maximum supported
 type alignment and the common base alignment of instance/bulk data buffers (128 bytes).

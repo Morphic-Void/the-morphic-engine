@@ -11,8 +11,8 @@ Date:   14 Oct 2026
 ## Status and scope
 
 This plan translates the agreed [revision](persistence-and-aggregation.md) into
-eight implementation and review stages. Stages 1-2 are implemented and user-reviewed;
-stage 3 is implemented for review, with validation recorded below. Stages 4-8
+eight implementation and review stages. Stages 1-3 are implemented and user-reviewed;
+stage 4 is implemented for review, with validation recorded below. Stages 5-8
 have not started. Work stays in the shared
 checkout; stage boundaries do not imply automatic commits, branches or separate
 implementing chats. Further implementation and commits require user instruction.
@@ -54,7 +54,8 @@ Add public `baked_instances_block.hpp` and `baked_bulk_data_block.hpp` alongside
 the existing role headers, with corresponding implementation files. Put shared
 options and diagnostics in `data_block.hpp`; keep common format parsing and
 assembly helpers private to schema implementation. The block headers and
-attachment APIs now exist; construction interfaces remain planned. The public
+attachment APIs and live bake overloads now exist; description materialisation
+and stripping interfaces remain planned. The public
 blocks do not depend on Host services.
 
 Use `SDataBlockLoadOptions { bool compare_embedded{ false }; }`,
@@ -235,11 +236,11 @@ encoding and final-newline state are preserved.
 
 ## Stage 4: completed blocks from live baking
 
-- [ ] Add the live-role bake overloads, reusing existing output preparation and
+- [x] Add the live-role bake overloads, reusing existing output preparation and
   preserving embedded/external/stripped semantics and source binary snapshots.
-- [ ] Add persistence metadata and assemble one aligned final allocation with
+- [x] Add persistence metadata and assemble one aligned final allocation with
   zero container padding; attach the destination role only after storage is final.
-- [ ] Share checked sizing/assembly code between both roles without merging their
+- [x] Share checked sizing/assembly code between both roles without merging their
   specialised semantics. Keep source roles unchanged and failure transactional.
 
 Initial storage may include a temporary live description, baked prefix, prepared
@@ -254,6 +255,45 @@ instance specialisation snapshots, bulk data counts, alignment and stable final
 views. Reattach completed bytes independently and compare payloads against the
 existing lower-level output. Test reachable failure paths and allocation failures
 where existing test facilities support deterministic injection.
+
+Implemented for review on 14 October 2026. The new live-role overloads reuse
+`prepare_output()` and share `data_block_construction.hpp/.cpp` for metadata,
+checked sizing and final assembly. Final attachment uses the stage 3 adoption
+path only after storage is complete. Preparation diagnostics retain source live
+locations; final-attachment diagnostics clear temporary-output locations.
+
+Tests cover both source/destination schema kinds, all three forms, empty and
+zero-byte output, edited instance snapshots and specialisations, bulk data counts,
+byte-for-byte comparison with existing baking, source independence and copied-file
+reattachment. Failure cases cover preconditions, unavailable/incompatible schemas,
+unrepresentable embedded values and allocation failures throughout construction.
+Validation: the final Debug x64 solution build and all ordinary Core tests
+passed with `Schema: 57188 passed, 0 failed`, using:
+
+```powershell
+& 'C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe' .\MorphicEngine.sln /t:Build /m:1 /p:Configuration=Debug /p:Platform=x64 /v:minimal
+.\build\bin\x64\Debug\MorphicTests.exe -t1 --log-tag=data-block-bake-stage4-final
+```
+
+Validation ran outside the sandbox for the established PDB toolchain limitation.
+Logs use suffix `data-block-bake-stage4-final.p30240.log` under
+`development/logical-roots/test-logs/`. Diff whitespace, source line endings,
+documentation links and Visual Studio XML checks passed. Item/filter CRLF,
+encoding and final-newline state are preserved.
+
+Following review, confirmed that `CByteBuffer` uses memory-token stride 1.
+Generic baked adoption now accepts exact byte capacity, retaining base alignment
+and bounded document validation. Stage 4 assembly requests exact file-size
+capacity. Physical allocation conditioning remains the memory context's concern;
+bundle separator/alignment rules remain in the bundle layer. Regression tests
+cover 114-, 129- and 259-byte capacities at 32- and 128-byte base alignment,
+both adoption forms, unchanged attribution and clean release. The updated Debug
+x64 solution build and all ordinary Core tests passed:
+`BakedDocument: 6304 passed, 0 failed` and `Schema: 57260 passed, 0 failed`.
+The test command was
+`MorphicTests.exe -t1 --log-tag=data-block-exact-capacity`; logs use suffix
+`data-block-exact-capacity.p25500.log`. Bundle and bundle-builder suites also
+passed with their existing alignment and separator rules.
 
 ## Stage 5: materialisation from descriptions
 

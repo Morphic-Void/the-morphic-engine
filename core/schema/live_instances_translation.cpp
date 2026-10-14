@@ -9,6 +9,8 @@
 //  Instance promotion, binary reconciliation and baked output.
 
 #include "schema/live_instances.hpp"
+#include "schema/baked_instances_block.hpp"
+#include "schema/data_block_construction.hpp"
 #include "schema/type_compatibility.hpp"
 #include "schema/value_codec.hpp"
 #include "data_model/document_translation.hpp"
@@ -658,6 +660,18 @@ bool CLiveInstances::bake_to(CBakedDocumentBlock& block, CByteBuffer& payload, C
     payload = std::move(prepared_payload);
     role.take_from(prepared_role);
     return true;
+}
+
+bool CLiveInstances::bake(CBakedInstancesBlock& destination, CBakedSchema& schema,
+    const EDataOutputForm form, SInstancesBlockDiagnostic& diagnostic) const noexcept
+{
+    return detail::bake_data_block(*this, destination, schema, form, detail::EDataBlockKind::instances, diagnostic);
+}
+
+bool CLiveInstances::bake(CBakedInstancesBlock& destination, CLiveSchema& schema,
+    const EDataOutputForm form, SInstancesBlockDiagnostic& diagnostic) const noexcept
+{
+    return detail::bake_data_block(*this, destination, schema, form, detail::EDataBlockKind::instances, diagnostic);
 }
 
 bool CLiveInstances::bake(CBakedDocumentBlock& block, CByteBuffer& payload, CBakedInstances& role,

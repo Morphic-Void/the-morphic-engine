@@ -42,6 +42,18 @@ stripped content, opt-in comparison, opaque payload gaps/trailing bytes and
 source-preserving failure diagnostics. Each preparation allocation is rejected
 in turn to verify cleanup, diagnostic propagation and retained local ownership.
 
+Completed live-bake tests cover all source/destination schema combinations and
+output forms, comparing payloads against existing lower-level baking. They
+exercise edited instance snapshots and specialisations, bulk data counts, empty
+and zero-byte content, metadata, alignment, padding, source independence and
+copied-file reattachment with comparison enabled. Failures check invalid
+preconditions, schema availability/compatibility, unrepresentable retained values
+and each construction allocation, including final attachment. Source locations
+survive preparation failures; temporary output locations do not escape cleanup.
+Completed blocks and copied-file adoption also exercise exact file-size capacity,
+with generic baked-document tests checking minimum and non-alignment-multiple
+capacities, preserved attribution and clean deallocation.
+
 Logs and generated files include the tag and process ID. The runner prints their
 paths; default output is beneath `development/logical-roots/test-output` and
 logs beneath `development/logical-roots/test-logs`.

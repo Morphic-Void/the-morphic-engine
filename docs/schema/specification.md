@@ -25,9 +25,11 @@ validation of the version 1 instance/bulk data file envelope described in the
 and either own one complete allocation or borrow a retained asset range.
 They validate and initialise before publishing state, preserve source ownership
 on failure, and clear their roles before releasing backing. Complete file bytes
-remain available after schema invalidation. Construction and Host service
-integration stages are not yet implemented; existing role baking interfaces
-remain in use.
+remain available after schema invalidation. Live-role bake overloads construct
+these completed blocks using existing output preparation, then persistence
+metadata, bounded assembly and final attachment. Description materialisation,
+stripping and Host service integration stages are not yet implemented.
+The existing bake overloads returning separate owners remain available.
 
 ## Purpose and scope
 

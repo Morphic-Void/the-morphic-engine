@@ -23,6 +23,9 @@
 namespace schema
 {
 
+class CBakedInstancesBlock;
+struct SInstancesBlockDiagnostic;
+
 //==============================================================================
 //  Selection paths and mutable views
 //==============================================================================
@@ -123,6 +126,12 @@ public:
         CBakedSchema& destination_schema, const EDataOutputForm form, SInstanceDiagnostic& diagnostic) const noexcept;
     [[nodiscard]] bool bake(CBakedDocumentBlock& block, CByteBuffer& payload, CBakedInstances& role,
         CLiveSchema& destination_schema, const EDataOutputForm form, SInstanceDiagnostic& diagnostic) const noexcept;
+
+    //  Complete contiguous persistence output; destination must be empty.
+    [[nodiscard]] bool bake(CBakedInstancesBlock& destination, CBakedSchema& schema,
+        const EDataOutputForm form, SInstancesBlockDiagnostic& diagnostic) const noexcept;
+    [[nodiscard]] bool bake(CBakedInstancesBlock& destination, CLiveSchema& schema,
+        const EDataOutputForm form, SInstancesBlockDiagnostic& diagnostic) const noexcept;
 
 private:
     //==============================================================================

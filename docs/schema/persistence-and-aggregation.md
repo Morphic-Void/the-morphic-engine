@@ -18,8 +18,9 @@ interface, construction, Host persistence and diagnostic contracts below are
 also agreed.
 Remaining integration details and design decisions are identified separately.
 The naming standardisation, shared diagnostics and internal format validation
-are implemented and user-reviewed. Block ownership, attachment and release are
-implemented for stage 3 review; construction and Host integration are not yet
+and block ownership, attachment and release are implemented and user-reviewed.
+Live baking into completed blocks is implemented for stage 4 review.
+Description materialisation, stripping and Host integration are not yet
 implemented. This revision is not a
 detailed implementation plan or authority to begin code changes. Required work
 passes identified below must be included when implementation is planned.
