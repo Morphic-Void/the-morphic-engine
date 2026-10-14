@@ -17,9 +17,10 @@ mechanisms are agreed direction. The version 1 persistence format and block
 interface, construction, Host persistence and diagnostic contracts below are
 also agreed.
 Remaining integration details and design decisions are identified separately.
-The naming standardisation pass is implemented and user-reviewed. Shared
-diagnostics and internal format validation are implemented for stage 2 review;
-owning blocks, construction and Host integration are not yet implemented. This revision is not a
+The naming standardisation, shared diagnostics and internal format validation
+are implemented and user-reviewed. Block ownership, attachment and release are
+implemented for stage 3 review; construction and Host integration are not yet
+implemented. This revision is not a
 detailed implementation plan or authority to begin code changes. Required work
 passes identified below must be included when implementation is planned.
 

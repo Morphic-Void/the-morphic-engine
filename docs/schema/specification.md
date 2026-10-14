@@ -21,8 +21,13 @@ Completed delivery history is summarised in the
 The persistence work currently supplies shared diagnostics and internal
 validation of the version 1 instance/bulk data file envelope described in the
 [revision](persistence-and-aggregation.md#agreed-version-1-persistence-format).
-The owning block, construction and Host integration stages are not yet
-implemented; existing role loading and baking interfaces remain in use.
+`CBakedInstancesBlock` and `CBakedBulkDataBlock` contain the specialised roles
+and either own one complete allocation or borrow a retained asset range.
+They validate and initialise before publishing state, preserve source ownership
+on failure, and clear their roles before releasing backing. Complete file bytes
+remain available after schema invalidation. Construction and Host service
+integration stages are not yet implemented; existing role baking interfaces
+remain in use.
 
 ## Purpose and scope
 

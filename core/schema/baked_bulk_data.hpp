@@ -123,6 +123,7 @@ private:
     //==============================================================================
 
     friend class CLiveBulkData;
+    friend class CBakedBulkDataBlock;
     void take_from(CBakedBulkData& source) noexcept;
     struct SRecord
     {

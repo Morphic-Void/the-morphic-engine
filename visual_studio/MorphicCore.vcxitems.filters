@@ -885,6 +885,15 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\data_block.hpp">
       <Filter>Core\include\schema</Filter>
     </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\data_block_attachment.hpp">
+      <Filter>Core\include\schema</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\baked_instances_block.hpp">
+      <Filter>Core\include\schema</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\baked_bulk_data_block.hpp">
+      <Filter>Core\include\schema</Filter>
+    </ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\data_block_format.hpp">
       <Filter>Core\include\schema</Filter>
     </ClInclude>
@@ -934,6 +943,12 @@
       <Filter>Core\include\schema</Filter>
     </ClInclude>
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\document_query.cpp">
+      <Filter>Core\src\schema</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\baked_instances_block.cpp">
+      <Filter>Core\src\schema</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\baked_bulk_data_block.cpp">
       <Filter>Core\src\schema</Filter>
     </ClCompile>
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\data_block_format.cpp">

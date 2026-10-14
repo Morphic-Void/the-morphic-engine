@@ -99,8 +99,9 @@ Existing schema baking still returns separate document and payload owners.
 The [concrete implementation plan](../schema/persistence-implementation-plan.md)
 organises delivery into eight review stages, starting with the naming pass and
 ending with real Host/bundle acceptance and documentation. Stage 1 naming is
-implemented and user-reviewed; stage 2 format validation and diagnostics are
-implemented for review. Stages 3-8 have not started.
+implemented and user-reviewed, as are stage 2 format validation and diagnostics.
+Stage 3 ownership, attachment and release are implemented for review. Stages 4-8
+have not started.
 
 Required implementation work-plan pass (stage 1):
 

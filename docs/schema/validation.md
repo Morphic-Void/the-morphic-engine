@@ -34,6 +34,14 @@ and source locations. Pure layout tests cover the exact 2 GiB limit and integer
 overflow without large allocations. A rejected scratch allocation verifies
 failure cleanup and conservative reporting by the generic document validator.
 
+Completed-block tests exercise both instance/bulk data and live/baked schema
+combinations. They check pointer-preserving adoption/release, occupied
+destinations and outputs, repository-backed borrowed attachment without hidden
+disposal, role binding counts, schema destruction, empty/zero-byte content,
+stripped content, opt-in comparison, opaque payload gaps/trailing bytes and
+source-preserving failure diagnostics. Each preparation allocation is rejected
+in turn to verify cleanup, diagnostic propagation and retained local ownership.
+
 Logs and generated files include the tag and process ID. The runner prints their
 paths; default output is beneath `development/logical-roots/test-output` and
 logs beneath `development/logical-roots/test-logs`.

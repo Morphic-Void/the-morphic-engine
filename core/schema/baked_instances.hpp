@@ -125,6 +125,7 @@ private:
     //==============================================================================
 
     friend class CLiveInstances;
+    friend class CBakedInstancesBlock;
     static constexpr std::uint32_t k_no_parent = UINT32_MAX;
 
     struct SRecord

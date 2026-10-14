@@ -34,7 +34,8 @@ Include the header for the role or operation being used:
 | `resolved_schema.hpp` | Resolved layouts, defaults, diagnostics, schema document output and C++ generation. |
 | `baked_instances.hpp`, `live_instances.hpp` | Instance loading, observation and live editing/output. |
 | `baked_bulk_data.hpp`, `live_bulk_data.hpp` | Bulk data loading, observation and live capture/output. |
-| `data_block.hpp` | Shared persistence load options and block diagnostic vocabulary; owning block interfaces are not yet implemented. |
+| `data_block.hpp` | Shared persistence load options, backing states and block diagnostic vocabulary. |
+| `baked_instances_block.hpp`, `baked_bulk_data_block.hpp` | Completed file ownership, specialised attachment and local storage release. |
 | `data_remap.hpp` | Remap planning and execution between binary views. |
 | `unused_storage.hpp` | Explicit clearing of unused binary storage. |
 
@@ -51,7 +52,7 @@ and `SBulkDataBlockDiagnostic` also retain the corresponding role diagnostic.
 Locations identify a source live node, baked value or byte offset from the whole
 file. They own no storage and must not retain handles into discarded temporary
 documents. The [revision](persistence-and-aggregation.md#diagnostics-and-failure-reporting)
-defines the reporting contract for the forthcoming block operations.
+defines the reporting contract for block operations.
 
 `data_block_format.hpp/.cpp` is internal schema implementation support. It
 validates the version 1 `.bid`/`.bbd` envelope and returns borrowed document,
@@ -69,6 +70,58 @@ known; validated metadata errors have source baked-value locations. A missing
 member points to the root. Generic baked validation returns only `bool`, so
 `invalid_document` reports unsuccessful validation without distinguishing corrupt
 input from its internal scratch allocation failure.
+
+### Completed data blocks
+
+`CBakedInstancesBlock` and `CBakedBulkDataBlock` contain their respective baked
+roles and are non-copyable and non-movable. Include their dedicated headers.
+`instances()` and `bulk_data()` return const references; the role cannot be
+cleared or rebound independently of its block.
+
+Both expose `backing()` (`EEntityBacking::none/local/asset`), `loaded_ready()`,
+`asset_id()` and `file_bytes()`. The last returns the complete contiguous file
+extent, not just the document prefix or spare allocation capacity. It remains
+available if schema destruction invalidates typed readiness.
+
+Both provide these overloads for `CLiveSchema&` and `CBakedSchema&`:
+
+```cpp
+bool adopt_local(CBakedDocumentBlock&& source, Schema& schema,
+    const SDataBlockLoadOptions& options, Diagnostic& diagnostic) noexcept;
+bool attach_asset(CAssetId asset, CByteConstView bytes, Schema& schema,
+    const SDataBlockLoadOptions& options, Diagnostic& diagnostic) noexcept;
+bool release_local(CBakedDocumentBlock& output) noexcept;
+void clear() noexcept;
+```
+
+`Schema` and `Diagnostic` above denote the concrete schema overload and the
+corresponding `SInstancesBlockDiagnostic` or `SBulkDataBlockDiagnostic`, not
+public template parameters. All fallible operations are `[[nodiscard]]`.
+
+Adoption and attachment require an empty destination and reset diagnostics on
+entry. They validate the envelope, require an already resolved caller schema,
+then prepare the existing specialised role with `load_supplied()`. Only success
+publishes state or consumes local ownership. The shared private
+`data_block_attachment.hpp` helper preserves specialised failure reasons and
+maps their occurrences to source baked-value locations. It reports
+`schema_unavailable` before binding an unresolved schema. Binding failure is
+reported separately without guessing a resource failure.
+
+`attach_asset()` requires a valid ID and borrows the caller-protected range. It
+does not verify that the ID owns the supplied pointer, acquire a reference or
+send Host messages. The caller must keep that asset retained. Empty and local
+blocks return an invalid asset ID.
+
+`clear()` and destruction clear the role and binding before releasing local
+storage or forgetting borrowed storage. Capture a borrowed asset ID first if
+needed for later caller-managed disposal. `release_local()` requires local
+backing and an unallocated output; success transfers the complete allocation
+without copying and leaves the block empty. Failure preserves both objects.
+Release works after schema invalidation. All consumers must be quiescent before
+clear, destruction or release.
+
+The block construction methods and complete-buffer Host persistence are later
+implementation stages. Existing lower-level baking APIs remain available.
 
 `schema::k_max_alignment` in `resolved_schema.hpp` defines the maximum supported
 type alignment and the common base alignment of instance/bulk data buffers (128 bytes).

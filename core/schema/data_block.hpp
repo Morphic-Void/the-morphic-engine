@@ -19,6 +19,8 @@
 namespace schema
 {
 
+enum class EEntityBacking : std::uint8_t { none = 0u, local, asset };
+
 struct SDataBlockLoadOptions
 {
     bool compare_embedded{ false };

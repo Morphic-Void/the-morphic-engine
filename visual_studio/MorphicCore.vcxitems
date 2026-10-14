@@ -60,6 +60,9 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\baked_bulk_data.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\data_output.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\data_block.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\data_block_attachment.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\baked_instances_block.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\baked_bulk_data_block.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\data_block_format.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\live_bulk_data.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\baked_instances.hpp" />
@@ -149,6 +152,8 @@
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\unused_storage.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\schema_wrappers.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\baked_bulk_data.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\baked_instances_block.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\baked_bulk_data_block.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\data_block_format.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\live_bulk_data.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\baked_instances.cpp" />

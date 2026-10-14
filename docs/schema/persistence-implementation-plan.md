@@ -11,8 +11,8 @@ Date:   14 Oct 2026
 ## Status and scope
 
 This plan translates the agreed [revision](persistence-and-aggregation.md) into
-eight implementation and review stages. Stage 1 is implemented and user-reviewed;
-stage 2 is implemented for review, with validation recorded below. Stages 3-8
+eight implementation and review stages. Stages 1-2 are implemented and user-reviewed;
+stage 3 is implemented for review, with validation recorded below. Stages 4-8
 have not started. Work stays in the shared
 checkout; stage boundaries do not imply automatic commits, branches or separate
 implementing chats. Further implementation and commits require user instruction.
@@ -53,8 +53,9 @@ without changing the agreed interfaces or widening scope.
 Add public `baked_instances_block.hpp` and `baked_bulk_data_block.hpp` alongside
 the existing role headers, with corresponding implementation files. Put shared
 options and diagnostics in `data_block.hpp`; keep common format parsing and
-assembly helpers private to schema implementation. These are planned filenames,
-not existing APIs. Do not make the public blocks depend on Host services.
+assembly helpers private to schema implementation. The block headers and
+attachment APIs now exist; construction interfaces remain planned. The public
+blocks do not depend on Host services.
 
 Use `SDataBlockLoadOptions { bool compare_embedded{ false }; }`,
 `SInstancesBlockDiagnostic` and `SBulkDataBlockDiagnostic`. Following stage 1, the
@@ -189,14 +190,14 @@ filter files retain their existing CRLF, encoding and final-newline state.
 
 ## Stage 3: ownership, attachment and release
 
-- [ ] Implement both block classes with a contained existing role, local complete
+- [x] Implement both block classes with a contained existing role, local complete
   owner or borrowed Host range/ID, and the revision's observation methods.
-- [ ] Validate and initialise against stable bytes before consuming adopted
+- [x] Validate and initialise against stable bytes before consuming adopted
   ownership or publishing an attached block. Use a narrow internal mechanism for
   committing prepared role state; do not add public role movement or rebinding.
-- [ ] Implement ordered clear/destruction and local release. No Host messages,
+- [x] Implement ordered clear/destruction and local release. No Host messages,
   extra asset references, hidden disposal or storage resizing after publication.
-- [ ] Preserve lower-level diagnostics, with valid source locations, including
+- [x] Preserve lower-level diagnostics, with valid source locations, including
   schema-unavailable, unknown-type, range/overlap and comparison failures.
 
 Review cases: live and baked schema overloads, successful local adoption, borrowed
@@ -205,6 +206,32 @@ release into empty/occupied outputs, destruction order and schema invalidation.
 Verify bytes remain savable/releasable when typed readiness is lost. A local
 borrowed fixture can test attachment mechanics; real Host lifetime is stage 8.
 Confirm opt-in comparison and acceptance of payload gaps/trailing storage.
+
+Implemented for review on 14 October 2026 in `baked_instances_block.hpp/.cpp`
+and `baked_bulk_data_block.hpp/.cpp`. The shared private attachment helper
+validates the envelope and prepares the existing specialised role before
+publishing any ownership or binding. A narrow friendship reuses each role's
+existing private state-transfer method. Public roles remain non-movable.
+
+The extended independent fixtures exercise both schema overloads, local
+ownership and repository-backed borrowed ranges, failure preservation, retained
+diagnostic locations, opt-in comparison, schema destruction, and allocation
+failure cleanup. An observed deallocation also verifies that the schema binding
+is released before local file backing is freed.
+Construction and Host service changes remain in later stages.
+
+Validation: Debug x64 solution build and all ordinary Core tests passed with
+`Schema: 54470 passed, 0 failed`, using:
+
+```powershell
+.\tools\invoke_sandbox_build.ps1 -MSBuildPath 'C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe' -RunTests -TestMode 1 -LogTag data-block-ownership-stage3
+```
+
+The command ran outside the sandbox for the established PDB toolchain
+limitation. Logs use suffix `data-block-ownership-stage3.p75396.log` under
+`development/logical-roots/test-logs/`. Diff whitespace, source line endings,
+documentation links and Visual Studio XML checks passed. Item/filter CRLF,
+encoding and final-newline state are preserved.
 
 ## Stage 4: completed blocks from live baking
 
