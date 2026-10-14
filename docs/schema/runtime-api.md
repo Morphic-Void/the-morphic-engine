@@ -152,9 +152,7 @@ stage but clears both outer and nested locations into temporary output.
 
 The first implementation uses temporary description, prefix, payload and final
 storage, plus validation/role scratch. Direct construction into final allocation
-remains a later optimisation. Complete-buffer Host persistence remains a later
-implementation stage. Existing
-lower-level baking APIs remain available.
+remains a later optimisation. Existing lower-level baking APIs remain available.
 
 ### Materialisation from descriptions
 
@@ -211,7 +209,13 @@ description.deallocate(); // The completed block is independent.
 Include `data_model/document_parser.hpp` and the relevant block header. The
 same sequence accepts a baked description produced by parsing/loading. Optional
 Host admission and save follow construction under the caller's existing asset
-ownership model; their full-buffer persistence integration is a later stage.
+ownership model. Host baked loads, owning admission and binary saves preserve the
+complete logical buffer. `AssetResult::byte_view()` includes appended data;
+`document_view()` remains limited to the validated document prefix. Bundle-backed
+views cover the exact entry range, excluding bundle padding, and use the existing
+retained lease. JSON saving serialises only the document. See the
+[asset service contracts](../assets/asynchronous_asset_services.md) for cache,
+alignment and disposal rules. Schema binding and attachment remain caller-side.
 
 ### Stripping completed blocks
 

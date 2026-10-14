@@ -65,20 +65,31 @@ writable directory. The non-inventoried log roots are write-only through this
 interface, and their writes do not add file entries. Disposal removes the image's
 matching cache IDs without removing the files.
 TGA decode options deliberately do not distinguish cache entries in this stage.
+Cache hits must also provide the requested representation and byte alignment.
+Successful saves associate retained raw/raw, baked/baked and image/TGA pairs;
+JSON output is parsed afresh on loading. Complete bundles and converted output
+do not masquerade as ordinary raw or baked cached assets.
 
 | Format | Processing | Returned interface |
 | --- | --- | --- |
 | Raw | File I/O worker reads bytes | Borrowed byte view |
-| Baked | File I/O worker reads aligned bytes; Host validates and adopts | `CBakedDocument` |
+| Baked | File I/O worker reads aligned bytes; Host validates and adopts the complete buffer | Full byte view and prefix `CBakedDocument` |
 | JSON | File I/O worker reads bytes; conditioning worker parses locally and bakes | `CBakedDocument` |
 | TGA | File I/O worker reads bytes; conditioning worker decodes | `image::CImageView` |
 
 For virtual bundle roots, raw and baked views borrow the retained bundle storage
 directly; JSON and TGA still use the conditioning worker and produce independent
 results. Requests above 128-byte alignment are rejected before cache reuse.
-Baked views cover the validated document prefix even when the stored file has
-trailing bytes. Admission protects bundle storage through conversion and result
-publication, and late completion cannot repopulate a closed binding's cache.
+Baked `byte_view()` covers the complete logical file; `document_view()` covers
+only the validated document prefix. Bundle entries expose their exact stored
+range, excluding separators and alignment padding. Admission protects bundle
+storage through conversion and result publication, and late completion cannot
+repopulate a closed binding's cache.
+
+Loose baked loads use `adopt_buffer()`; owning baked transfers and binary saves
+preserve that complete extent, excluding spare allocation capacity. JSON saves
+serialise only the document. Appended bytes are opaque to the generic Host;
+consumers validate any enclosing format and attach specialised interfaces.
 
 Baked loads request at least 32-byte alignment. Other loads preserve the file
 primitive's alignment policy and 16-byte floor. The existing primitive rejects

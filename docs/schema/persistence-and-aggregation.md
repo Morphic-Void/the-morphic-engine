@@ -21,9 +21,9 @@ The naming standardisation, shared diagnostics and internal format validation
 and block ownership, attachment and release are implemented and user-reviewed.
 Live baking into completed blocks is implemented and user-reviewed.
 Description materialisation is implemented and user-reviewed. Completed-block
-stripping is implemented for stage 6 review; Host integration is not yet
-implemented. This revision is not a
-detailed implementation plan or authority to begin code changes. Required work
+stripping is implemented and user-reviewed. Host complete-buffer preservation
+is implemented for stage 7 review; end-to-end acceptance remains. This revision
+is not a detailed implementation plan or authority to begin code changes. Required work
 passes identified below must be included when implementation is planned.
 
 The [persistence implementation plan](persistence-implementation-plan.md) defines
@@ -931,11 +931,11 @@ Inspection of the current code identified the following reusable facilities:
   payload ranges and full-buffer persistence without changing baked-document
   encoding.
 
-These are foundations rather than completed implementation of this revision.
-Ordinary Host baked-document loading currently adopts and exposes only the
-document prefix. The agreed Host extension replaces that prefix-only persistence
-contract with complete-buffer preservation; specialised attachment validates the
-enclosing instance or bulk data format separately.
+These foundations support the staged implementation recorded in the plan.
+Host baked-document loading now adopts and exposes the complete logical file
+range, including exact bundle-entry ranges. Document navigation remains limited
+to its validated prefix; specialised attachment validates the enclosing instance
+or bulk data format separately.
 
 The single persisted entity also does not imply that all resolved metadata and
 runtime lookup indexes are stored in its file. Existing resolution and role
@@ -968,7 +968,8 @@ scope decisions:
 - Delivery sequencing of the bulk data standardisation pass and the persistence
   changes. The naming pass is implemented and user-reviewed as stage 1.
 - Concrete Host integration changes and an audit of consumers of prefix-only
-  views, including load, transfer, result, cache and save paths.
+  views, including load, transfer, result, cache and save paths. Implemented for
+  stage 7 review; schema-specific cross-layer acceptance remains in stage 8.
 - Initial staged allocation strategy, checked sizing and temporary-memory costs,
   using existing preparation facilities followed by final assembly.
 - Focused validation coverage for complete-byte preservation, loose-file/bundle

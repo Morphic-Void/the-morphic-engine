@@ -34,7 +34,9 @@ locators in private storage, then applies the requested output form and assemble
 an independent completed block. Source descriptions are unchanged. JSON parsing
 remains a caller step. Completed blocks can be stripped through generic document
 promotion, preserving inferred bulk data counts and every payload byte in an
-independent output allocation. Host service integration is not yet implemented.
+independent output allocation. Generic Host loading, admission and binary saving
+preserve complete buffers for loose files and bundle entries; specialised
+attachment remains a caller step. Cross-layer acceptance is the remaining stage.
 The existing bake overloads returning separate owners remain available.
 
 ## Purpose and scope

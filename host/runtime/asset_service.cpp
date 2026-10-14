@@ -39,6 +39,18 @@ static EAssetStatus texture_asset_status(const ETextureStatus status) noexcept
     }
 }
 
+static bool matches_load_format(const EAssetKind kind, const EAssetFileFormat format) noexcept
+{
+    switch (format)
+    {
+        case EAssetFileFormat::raw: return kind == EAssetKind::raw;
+        case EAssetFileFormat::baked:
+        case EAssetFileFormat::json: return kind == EAssetKind::baked;
+        case EAssetFileFormat::tga: return kind == EAssetKind::image;
+        default: return false;
+    }
+}
+
 //==============================================================================
 //  Service lifetime and completion publication
 //==============================================================================
@@ -211,9 +223,9 @@ AssetResult CAssetService::retain_bundle_file(const CBundleOperation& operation,
         if (header.total_size > bytes.size()) return result;
         CBakedDocument document;
         if (!document.reset(bytes.data(), header.total_size)) return result;
-        //  Match ordinary baked-file adoption: expose only the checked prefix.
-        result.set_baked_view(BakedAssetView{
-            memory::CMemoryConstView{ bytes.data(), document.byte_count(), 1u, bytes.align() }, document });
+
+        //  Preserve the exact entry range; navigation uses only its checked prefix.
+        result.set_baked_view(BakedAssetView{ memory, document });
     }
     else return result;
 
@@ -349,7 +361,7 @@ void CAssetService::describe_views(TOwner& source, AssetResult& result) noexcept
     }
     else if (BakedDocumentAsset* const baked = source.template payload<BakedDocumentAsset>())
     {
-        const CByteConstView bytes = baked->block.bytes();
+        const CByteConstView bytes = static_cast<const CBakedDocumentBlock&>(baked->block).buffer_bytes();
         result.set_baked_view(BakedAssetView{
             memory::CMemoryConstView{ bytes.data(), bytes.size(), 1u, bytes.align() }, baked->block.document() });
     }
@@ -407,11 +419,13 @@ void CAssetService::finish_operation(const std::int32_t slot, const EAssetStatus
         }
         else if (operation.save_requested && (operation.phase == EPhase::saving))
         {
-            //  Complete bundles and live sources do not represent ordinary
-            //  raw/baked loads of the saved file. Keep the association only
-            //  where the retained representation can satisfy that load.
-            const CAssetId cached = ((operation.working_views.kind != EAssetKind::live) &&
-                (operation.working_views.kind != EAssetKind::bundle)) ? operation.retained_asset : CAssetId{};
+            //  Keep associations only for representations that satisfy the load.
+            //  JSON output needs fresh parsing; complete bundles are not raw assets.
+            const bool load_representation =
+                ((operation.working_views.kind == EAssetKind::raw) && (operation.save_settings.format == EAssetFileFormat::raw)) ||
+                ((operation.working_views.kind == EAssetKind::baked) && (operation.save_settings.format == EAssetFileFormat::baked)) ||
+                ((operation.working_views.kind == EAssetKind::image) && (operation.save_settings.format == EAssetFileFormat::tga));
+            const CAssetId cached = load_representation ? operation.retained_asset : CAssetId{};
             updated = m_filesystem->written(operation.logical_file, operation.file, cached.query_value(),
                 static_cast<std::uint64_t>(operation.save_settings.format));
         }
@@ -772,8 +786,10 @@ void CAssetService::request(threading::CErasedOwnerMsg& message, threading::CThr
             describe_views((*record), views);
             const std::uint32_t findings = m_filesystem->cached_findings(operation.logical_file);
             const bool json = (load->format == EAssetFileFormat::json);
-            const bool adequate_alignment = !views.byte_view().is_ready() || (views.byte_view().align() >= std::max(load->alignment, std::size_t{ 16u }));
-            if (adequate_alignment && (!json || (findings != UINT32_MAX)))
+            const std::size_t minimum_alignment = (load->format == EAssetFileFormat::baked) ? 32u : 16u;
+            const bool adequate_alignment = !views.byte_view().is_ready() ||
+                (views.byte_view().align() >= std::max(load->alignment, minimum_alignment));
+            if (matches_load_format(views.kind, load->format) && adequate_alignment && (!json || (findings != UINT32_MAX)))
             {
                 if (json)
                 {
@@ -1095,7 +1111,7 @@ void CAssetService::complete_file_load(const std::int32_t slot) noexcept
     {
         operation.candidate_owner = CErasedOwner::create<BakedDocumentAsset>();
         BakedDocumentAsset* const source = operation.candidate_owner.payload<BakedDocumentAsset>();
-        if ((source == nullptr) || !source->block.adopt(std::move(loaded->buffer)))
+        if ((source == nullptr) || !source->block.adopt_buffer(std::move(loaded->buffer)))
         {
             finish_operation(slot, ((source == nullptr) ? EAssetStatus::allocation_failed : EAssetStatus::conditioning_failed));
             return;

@@ -454,6 +454,44 @@ static void test_appended_file_round_trip(TTestContext& ctx)
     platform::filesystem::removeFile(platform::path::makeNativePath(path.c_str()));
 }
 
+static void test_complete_buffer_request(TTestContext& ctx)
+{
+    CContexts contexts;
+    const tests::TMemoryContextScope source_scope{ &contexts.executive };
+    threading::transports::CErasedOwnerMsgTransport transport{ module_ids::executable, &contexts.transport, &contexts.host };
+    TEST_EXPECT(ctx, transport.initialise(1u));
+    CErasedOwner owner = CErasedOwner::create<BakedAssetTransfer>();
+    auto* request = owner.payload<BakedAssetTransfer>();
+    TEST_EXPECT(ctx, request != nullptr);
+    if (!request) return;
+    bake(ctx, request->storage.value);
+    const auto prefix = request->storage.value.bytes().size();
+    TEST_EXPECT(ctx, request->storage.value.resize_buffer(prefix + 129u, 128u));
+    std::memset(request->storage.value.buffer_bytes().data() + prefix, 0x5a, 129u);
+    const auto bytes = static_cast<const CBakedDocumentBlock&>(request->storage.value).buffer_bytes();
+    const std::vector<std::uint8_t> snapshot(bytes.data(), bytes.data() + bytes.size());
+    threading::CErasedOwnerMsg message;
+    message.set_message_type<BakedAssetTransfer>();
+    message.set_async_slot(23);
+    message.set_owner(std::move(owner));
+    TEST_EXPECT(ctx, transport.post(std::move(message)) && contexts.executive.is_attribution_empty());
+    threading::CErasedOwnerMsg received;
+    TEST_EXPECT(ctx, transport.read(received) && received.is_message_a<BakedAssetTransfer>());
+    auto* transferred = received.owner().payload<BakedAssetTransfer>();
+    TEST_EXPECT(ctx, transferred == request && received.owner().memory_context() == &contexts.host);
+    const auto complete = static_cast<const CBakedDocumentBlock&>(transferred->storage.value).buffer_bytes();
+    TEST_EXPECT(ctx, complete.data() == bytes.data() && complete.size() == snapshot.size() &&
+        std::memcmp(complete.data(), snapshot.data(), snapshot.size()) == 0);
+    AssetResult result;
+    result.set_baked_view({ memory::CMemoryConstView{ complete.data(), complete.size(), 1u, complete.align() }, transferred->storage.value.document() });
+    TEST_EXPECT(ctx, result.byte_view().data() == complete.data() && result.byte_view().size() == complete.size() &&
+        result.document_view().byte_count() == prefix);
+    auto released = received.take_owner();
+    released.destroy();
+    transport.deallocate();
+    expect_empty(ctx, contexts);
+}
+
 }   //  namespace baked_document_transfer_tests
 
 int run_baked_document_transfer_tests()
@@ -465,6 +503,7 @@ int run_baked_document_transfer_tests()
     baked_document_transfer_tests::test_rejected_and_unread_messages(ctx);
     baked_document_transfer_tests::test_aligned_file_round_trip(ctx);
     baked_document_transfer_tests::test_appended_file_round_trip(ctx);
+    baked_document_transfer_tests::test_complete_buffer_request(ctx);
     std::cout << "BakedDocumentTransfer: " << ctx.passed << " passed, " << ctx.failed << " failed\n";
     return (ctx.failed == 0u) ? 0 : 1;
 }

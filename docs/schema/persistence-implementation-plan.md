@@ -11,9 +11,9 @@ Date:   14 Oct 2026
 ## Status and scope
 
 This plan translates the agreed [revision](persistence-and-aggregation.md) into
-eight implementation and review stages. Stages 1-5 are implemented and user-reviewed;
-stage 6 is implemented for review, with validation recorded below. Stages 7-8
-have not started. Work stays in the shared
+eight implementation and review stages. Stages 1-6 are implemented and user-reviewed;
+stage 7 is implemented for review, with validation recorded below. Stage 8
+has not started. Work stays in the shared
 checkout; stage boundaries do not imply automatic commits, branches or separate
 implementing chats. Further implementation and commits require user instruction.
 
@@ -400,19 +400,19 @@ links passed. No project registrations, layout or generator changes were needed.
 
 ## Stage 7: Host complete-buffer preservation
 
-- [ ] In `host/runtime/asset_service.cpp`, switch loose baked load adoption to
+- [x] In `host/runtime/asset_service.cpp`, switch loose baked load adoption to
   `adopt_buffer()` and owned baked result bytes to `buffer_bytes()`.
-- [ ] Preserve the entire exact entry range in `retain_bundle_file()` while
+- [x] Preserve the entire exact entry range in `retain_bundle_file()` while
   retaining its separately validated document prefix and existing backing lease.
   Audit cached returns and alignment checks for the same result contract.
-- [ ] Audit `BakedAssetTransfer`, retained records, `AssetResult::byte_view()` and
+- [x] Audit `BakedAssetTransfer`, retained records, `AssetResult::byte_view()` and
   baked saving so complete logical extents survive all paths. Keep document
   views prefix-only and JSON output document-only. Do not add a schema asset kind,
   unmanaged schema transport or new reference mechanism.
-- [ ] Audit save cache associations and byte-length assumptions across consumers.
+- [x] Audit save cache associations and byte-length assumptions across consumers.
   A cached record must supply the representation and alignment requested; document
   navigation must not accidentally use the full appended extent as document size.
-- [ ] Keep writable filesystem destination checks and current bundle closure
+- [x] Keep writable filesystem destination checks and current bundle closure
   rules. Explicit whole-bundle saves use current bytes; no dirty-state machinery,
   automatic persistence or bundle-entry writes are added.
 
@@ -423,6 +423,44 @@ bundle service/request and Host acceptance tests. Ordinary prefix-only baked
 files must continue working; arbitrary appended bytes are preserved generically
 without claiming schema-format validity. Review loose and bundle paths together
 so no public full-buffer contract is delivered for only one source kind.
+
+Implemented for review on 14 October 2026. Loose baked adoption and owned views
+preserve the complete logical buffer. Bundle-backed baked views retain the exact
+entry extent, excluding bundle separators and padding. Both retain a separately
+validated document prefix. Owning transfers, repository records and binary saving
+already preserve the supplied extent; no additional ownership mechanism is needed.
+JSON output continues to serialise only the document.
+
+Cache reuse checks the requested representation and alignment. Save associations
+retain raw/raw, baked/baked and image/TGA pairs; JSON output requires fresh parsing.
+Existing TGA decode-option cache semantics are unchanged. Bundle-entry writes
+remain prohibited, and explicit whole-bundle saves retain their current-byte
+contract without automatic persistence.
+
+Tests extend `BakedDocumentTransfer`, `BundleService` and `BundleRequests` with
+appended-byte transfer and attribution, loose/bundle full views, spare-capacity
+exclusion, alignment upgrades, mismatched cache representations, binary/JSON saves,
+and saving a retained entry after bundle closure. Real file workflows run with
+shared and dedicated conditioning workers.
+
+Validation: Debug x64 solution build and all ordinary Core tests passed, including
+`BakedDocumentTransfer: 610`, `BundleService: 323`, `BundleRequests: 443` and
+`Schema: 61366`, each with zero failures:
+
+```powershell
+& 'C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe' .\MorphicEngine.sln /t:Build /m:1 /p:Configuration=Debug /p:Platform=x64 /v:minimal
+.\build\bin\x64\Debug\MorphicTests.exe -t1 --log-tag=host-full-buffer-stage7
+.\tests\host_workers\run_tests.ps1 -Configuration Debug -Platform x64
+```
+
+The Host worker harness passed bootstrap rejection cases and worker requests
+0, 1, 2, 3, 9 and 128. Core logs use suffix
+`host-full-buffer-stage7.p89004.log` under `development/logical-roots/test-logs/`;
+Host harness logs are under `build/host-workers-47499310/`. Validation ran outside
+the sandbox for the established toolchain limitation. The solution policy validator
+reported no errors or warnings. Diff whitespace, tracked line endings and
+documentation links passed. Stage 8 retains the schema-specific end-to-end
+workflows and broader integration matrix.
 
 ## Stage 8: acceptance and documentation completion
 

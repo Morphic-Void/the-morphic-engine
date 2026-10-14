@@ -78,6 +78,17 @@ through source validation, promotion, baking, assembly and final attachment.
 Temporary-output diagnostics are cleared and all private allocations and schema
 bindings are released on failure.
 
+Host complete-buffer coverage lives in `BakedDocumentTransfer`, `BundleService`
+and `BundleRequests`. It checks appended bytes through owning transfer, loose
+loading, borrowed bundle views, cache reuse and binary saving, with separate
+prefix-only navigation. Cases exclude spare capacity and bundle padding, upgrade
+requested alignment, reject mismatched cache representations, reparse JSON output,
+reject writes into bundles and save retained entries after bundle closure.
+File workflows exercise shared and dedicated conditioning workers. The real
+`tests/host_workers/run_tests.ps1` harness also checks bootstrap and worker routing.
+Schema-specific cross-layer workflows remain in stage 8 of the
+[persistence plan](persistence-implementation-plan.md).
+
 Logs and generated files include the tag and process ID. The runner prints their
 paths; default output is beneath `development/logical-roots/test-output` and
 logs beneath `development/logical-roots/test-logs`.

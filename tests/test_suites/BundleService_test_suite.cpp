@@ -40,18 +40,21 @@ bool make_bundle(CBakedDocumentBlock& block)
     CBakedDocumentBlock baked;
     if (!parse(R"({"raw":{},"baked":{}})", inventory) || !parse(R"({"answer":42})", document) ||
         !document_translation::bake(document, baked)) return false;
+    const std::size_t prefix_size = baked.bytes().size();
+    if (!baked.resize_buffer(prefix_size + 19u, 128u)) return false;
+    std::memset(baked.buffer_bytes().data() + prefix_size, 0x5a, 19u);
     TPodVector<bundle::SBuildSource> sources;
     if (!sources.push_back({ inventory.object_child(inventory.root(), CStringView{ "raw" }), "raw" }) ||
         !sources.push_back({ inventory.object_child(inventory.root(), CStringView{ "baked" }), "baked" })) return false;
     const bundle::detail::SBuildIo io{ &baked,
         [](void* state, const char* name, std::size_t& size) noexcept
         {
-            size = (name[0] == 'r') ? 3u : static_cast<CBakedDocumentBlock*>(state)->bytes().size();
+            size = (name[0] == 'r') ? 3u : static_cast<CBakedDocumentBlock*>(state)->buffer_bytes().size();
             return true;
         },
         [](void* state, const char* name, const CByteView& bytes) noexcept
         {
-            const void* source = (name[0] == 'r') ? static_cast<const void*>("abc") : static_cast<CBakedDocumentBlock*>(state)->bytes().data();
+            const void* source = (name[0] == 'r') ? static_cast<const void*>("abc") : static_cast<CBakedDocumentBlock*>(state)->buffer_bytes().data();
             std::memcpy(bytes.data(), source, bytes.size());
             return true;
         } };
@@ -216,6 +219,9 @@ void test_closure_and_retained_records(TTestContext& ctx)
     TEST_EXPECT(ctx, fixture.image.cached_asset("pack:/raw", 0u) == 0u);
     const auto late = fixture.service.retain_bundle_file(moved, EAssetFileFormat::baked);
     TEST_EXPECT(ctx, late.asset && late.document_view().is_ready());
+    TEST_EXPECT(ctx, late.byte_view().size() == late.document_view().byte_count() + 19u &&
+        late.byte_view().size() == moved.bytes().size() && late.byte_view().data() == moved.bytes().data());
+    TEST_EXPECT(ctx, late.byte_view().data()[late.byte_view().size() - 1u] == 0x5au);
     moved.reset();
     TEST_EXPECT(ctx, fixture.service.is_idle());
     TEST_EXPECT(ctx, std::memcmp(snapshot.data(), bytes.data(), bytes.size()) == 0);

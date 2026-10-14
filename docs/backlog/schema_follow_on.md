@@ -103,8 +103,9 @@ ending with real Host/bundle acceptance and documentation. Stage 1 naming is
 implemented and user-reviewed, as are stage 2 format validation and diagnostics.
 Stage 3 ownership, attachment and release are also user-reviewed. Stage 4 live
 baking into completed blocks is also user-reviewed. Stage 5 description
-materialisation is also user-reviewed. Stage 6 completed-block stripping is
-implemented for review. Stages 7-8 have not started.
+materialisation and stage 6 completed-block stripping are also user-reviewed.
+Stage 7 Host complete-buffer preservation is implemented for review. Stage 8
+end-to-end acceptance has not started.
 
 Required implementation work-plan pass (stage 1):
 

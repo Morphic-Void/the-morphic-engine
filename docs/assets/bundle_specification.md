@@ -777,9 +777,11 @@ payload or turn a skipped empty/unsupported entry into an error.
 
 Ordinary `AssetLoadRequest` resolves virtual entries before cache reuse, rejects
 alignment above 128 bytes, and protects uncached input until completion. Raw and
-baked loads publish direct retained views on the Host; baked views expose only
-the validated document prefix, matching ordinary baked-file loads with trailing
-storage. JSON and TGA use the existing conditioning worker and publish independent
+baked loads publish direct retained views on the Host. Their byte views expose
+the exact entry range, excluding separators and alignment padding; baked document
+views separately expose the validated prefix. Binary saving preserves the complete
+entry even after bundle closure while its retained asset remains alive.
+JSON and TGA use the existing conditioning worker and publish independent
 results. Cache updates carry the admission-time binding identity.
 
 Runtime ownership also covers published view metadata. Lookup state remains

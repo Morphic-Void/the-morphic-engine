@@ -198,6 +198,8 @@ struct TAssetTransferRequest
 
 using RawAssetTransfer = TAssetTransferRequest<CByteBuffer>;
 using ImageAssetTransfer = TAssetTransferRequest<CByteRectBuffer>;
+
+//  Transfers the complete logical buffer, including bytes after the document.
 using BakedAssetTransfer = TAssetTransferRequest<CBakedDocumentBlock>;
 using LiveAssetTransfer = TAssetTransferRequest<CLiveDocument>;
 
@@ -326,8 +328,8 @@ enum class EAssetKind : std::uint8_t { none = 0, raw, image, baked, live, encode
 
 struct BakedAssetView
 {
-    memory::CMemoryConstView bytes;
-    CBakedDocument document;
+    memory::CMemoryConstView bytes; // Complete logical file or exact bundle-entry range.
+    CBakedDocument document;        // Validated document prefix; appended bytes are opaque.
 };
 
 union AssetViews

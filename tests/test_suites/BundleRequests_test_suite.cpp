@@ -99,7 +99,9 @@ struct SFixture
         if (!document_parser::parse(CByteConstView{ reinterpret_cast<const std::uint8_t*>(json), sizeof(json) - 1u }, doc).accepted() ||
             !document_translation::bake(doc, block)) return false;
         document_size = block.bytes().size();
-        if (!block.resize_buffer(document_size + 11u) || !write(directory + "/Input/Raw", "abc", 3u) ||
+        if (!block.resize_buffer(document_size + 11u)) return false;
+        std::memset(block.buffer_bytes().data() + document_size, 0xa5, 11u);
+        if (!write(directory + "/Input/Raw", "abc", 3u) ||
             !write(directory + "/Input/Data.json", json, sizeof(json) - 1u) ||
             !write(directory + "/Input/Image.tga", tga, sizeof(tga)) ||
             !write(directory + "/Input/Document.baked", block.buffer_bytes().data(), block.buffer_bytes().size()) ||
@@ -198,13 +200,14 @@ struct SFixture
         if (status != EAssetStatus::success) TEST_EXPECT(ctx, !value.asset && value.kind == EAssetKind::none);
         return value;
     }
-    void save(TTestContext& ctx, std::int32_t slot, CAssetId asset, const char* file)
+    void save(TTestContext& ctx, std::int32_t slot, CAssetId asset, const char* file,
+        EAssetFileFormat format = EAssetFileFormat::raw)
     {
         auto owner = CErasedOwner::create<AssetSaveRequest>();
         auto* value = owner.payload<AssetSaveRequest>();
         TEST_EXPECT(ctx, value && value->file.set(file));
         value->source = asset;
-        value->settings.format = EAssetFileFormat::raw;
+        value->settings.format = format;
         request<AssetSaveRequest>(slot, std::move(owner));
     }
     void dispose(TTestContext& ctx, CAssetId asset)
@@ -259,7 +262,7 @@ void test_public_workflow(TTestContext& ctx, bool dedicated)
     const auto baked = fixture.result(ctx, 8);
     TEST_EXPECT(ctx, baked.document_view().is_ready() && baked.byte_view().data() ==
         original.bundle_view().lookup(CStringView{ "document.baked" }).bytes.data());
-    TEST_EXPECT(ctx, baked.byte_view().size() == fixture.document_size);
+    TEST_EXPECT(ctx, baked.byte_view().size() == fixture.document_size + 11u && baked.document_view().byte_count() == fixture.document_size);
     fixture.load(ctx, 81, "work:/Input/Document.baked", EAssetFileFormat::baked);
     const auto ordinary = fixture.result(ctx, 81);
     TEST_EXPECT(ctx, ordinary.byte_view().size() == baked.byte_view().size() &&
@@ -319,6 +322,107 @@ void test_public_workflow(TTestContext& ctx, bool dedicated)
     TEST_EXPECT(ctx, copy.size() == 3u && std::memcmp(copy.data(), "abc", 3u) == 0);
     fixture.dispose(ctx, survivor.asset);
     fixture.closed(ctx, loaded.asset);
+    TEST_EXPECT(ctx, fixture.service.is_idle() && !fixture.service.failed());
+}
+
+void test_complete_baked_buffers(TTestContext& ctx, bool dedicated)
+{
+    SFixture fixture;
+    if (!fixture.initialise(dedicated)) { TEST_EXPECT(ctx, false); return; }
+    const auto physical = platform::filesystem::loadFile((fixture.directory + "/Input/Document.baked").c_str(), 0u, 128u);
+    const auto matches = [&](const CByteConstView bytes)
+    {
+        return bytes.size() == physical.size() && std::memcmp(bytes.data(), physical.data(), physical.size()) == 0;
+    };
+    const auto check = [&](const AssetResult& result)
+    {
+        TEST_EXPECT(ctx, result.kind == EAssetKind::baked && result.document_view().check_integrity());
+        TEST_EXPECT(ctx, result.document_view().byte_count() == fixture.document_size && matches(result.byte_view()));
+    };
+    fixture.load(ctx, 1, "work:/Input/Document.baked", EAssetFileFormat::baked);
+    const auto loose = fixture.result(ctx, 1);
+    check(loose);
+    fixture.load(ctx, 2, "work:/Input/Document.baked", EAssetFileFormat::baked, 128u);
+    const auto aligned = fixture.result(ctx, 2);
+    check(aligned);
+    TEST_EXPECT(ctx, aligned.byte_view().align() >= 128u && aligned.asset != loose.asset);
+    fixture.load(ctx, 3, "work:/Input/Document.baked", EAssetFileFormat::baked, 128u);
+    TEST_EXPECT(ctx, fixture.result(ctx, 3).asset == aligned.asset);
+
+    //  A stale/mismatched cache association cannot turn a raw view into a baked result.
+    fixture.load(ctx, 4, "work:/Input/Document.baked", EAssetFileFormat::raw, 128u);
+    const auto raw = fixture.result(ctx, 4);
+    TEST_EXPECT(ctx, fixture.image.loaded("work:/Input/Document.baked", raw.asset.query_value(),
+        static_cast<std::uint64_t>(EAssetFileFormat::baked), 0u, fixture.image.write_serial()));
+    fixture.load(ctx, 5, "work:/Input/Document.baked", EAssetFileFormat::baked, 128u);
+    const auto corrected = fixture.result(ctx, 5);
+    check(corrected);
+    TEST_EXPECT(ctx, corrected.asset != raw.asset);
+
+    auto transfer = CErasedOwner::create<BakedAssetTransfer>();
+    auto* request = transfer.payload<BakedAssetTransfer>();
+    TEST_EXPECT(ctx, request != nullptr);
+    if (!request) return;
+    CByteBuffer storage;
+    TEST_EXPECT(ctx, storage.construct_and_copy_from(physical.const_view()) && storage.reserve(physical.size() + 256u));
+    TEST_EXPECT(ctx, request->storage.value.adopt_buffer(std::move(storage)));
+    const void* transferred = request->storage.value.buffer_bytes().data();
+    TEST_EXPECT(ctx, request->storage.value.buffer_capacity() > physical.size());
+    fixture.request<BakedAssetTransfer>(6, std::move(transfer));
+    const auto admitted = fixture.result(ctx, 6);
+    check(admitted);
+    TEST_EXPECT(ctx, admitted.byte_view().data() == transferred);
+    fixture.save(ctx, 7, admitted.asset, "work:/complete.baked", EAssetFileFormat::baked);
+    TEST_EXPECT(ctx, fixture.result(ctx, 7).asset == admitted.asset);
+    auto saved = platform::filesystem::loadFile((fixture.directory + "/complete.baked").c_str());
+    TEST_EXPECT(ctx, matches(saved.const_view()));
+    fixture.load(ctx, 8, "work:/complete.baked", EAssetFileFormat::baked, 128u);
+    TEST_EXPECT(ctx, fixture.result(ctx, 8).asset == admitted.asset);
+    //  A stronger alignment forces a physical reload and must retain the same extent.
+    fixture.load(ctx, 9, "work:/complete.baked", EAssetFileFormat::baked, 256u);
+    const auto reloaded = fixture.result(ctx, 9);
+    check(reloaded);
+    TEST_EXPECT(ctx, reloaded.asset != admitted.asset && reloaded.byte_view().align() >= 256u);
+
+    fixture.save(ctx, 10, admitted.asset, "work:/document.json", EAssetFileFormat::json);
+    TEST_EXPECT(ctx, fixture.result(ctx, 10).asset == admitted.asset && matches(admitted.byte_view()));
+    TEST_EXPECT(ctx, fixture.image.cached_asset("work:/document.json", static_cast<std::uint64_t>(EAssetFileFormat::json)) == 0u);
+    const auto json = platform::filesystem::loadFile((fixture.directory + "/document.json").c_str());
+    CLiveDocument parsed;
+    TEST_EXPECT(ctx, document_parser::parse(json.const_view(), parsed).accepted());
+    std::uint64_t answer{};
+    TEST_EXPECT(ctx, parsed.unsigned_integer_value(parsed.object_child(parsed.root(), CStringView{ "answer" }), answer) && answer == 42u);
+    fixture.load(ctx, 11, "work:/document.json", EAssetFileFormat::json);
+    const auto json_loaded = fixture.result(ctx, 11);
+    TEST_EXPECT(ctx, json_loaded.asset != admitted.asset && json_loaded.byte_view().size() == json_loaded.document_view().byte_count());
+    for (const auto id : { loose.asset, aligned.asset, raw.asset, corrected.asset, admitted.asset, reloaded.asset, json_loaded.asset }) fixture.dispose(ctx, id);
+
+    fixture.bake(ctx, 12);
+    const auto bundle = fixture.result(ctx, 12);
+    fixture.load(ctx, 13, "pack:/document.baked", EAssetFileFormat::baked, 128u);
+    const auto borrowed = fixture.result(ctx, 13);
+    check(borrowed);
+    const auto entry = bundle.bundle_view().lookup(CStringView{ "document.baked" });
+    TEST_EXPECT(ctx, borrowed.byte_view().data() == entry.bytes.data() && borrowed.byte_view().size() == entry.bytes.count());
+    fixture.load(ctx, 14, "pack:/document.baked", EAssetFileFormat::baked, 128u);
+    TEST_EXPECT(ctx, fixture.result(ctx, 14).asset == borrowed.asset);
+    fixture.save(ctx, 15, borrowed.asset, "pack:/document.baked", EAssetFileFormat::baked);
+    AssetResult rejected;
+    TEST_EXPECT(ctx, fixture.receive(rejected, 15) && rejected.status == EAssetStatus::write_failed && rejected.asset == borrowed.asset);
+    TEST_EXPECT(ctx, matches(borrowed.byte_view()));
+    fixture.service.request_disposal({ bundle.asset }, 16, fixture.client);
+    fixture.service.complete_disposals();
+    TEST_EXPECT(ctx, fixture.image.root_state("pack:") == ERootState::closed);
+    fixture.save(ctx, 17, borrowed.asset, "work:/retained.baked", EAssetFileFormat::baked);
+    TEST_EXPECT(ctx, fixture.result(ctx, 17).asset == borrowed.asset);
+    saved = platform::filesystem::loadFile((fixture.directory + "/retained.baked").c_str());
+    TEST_EXPECT(ctx, matches(saved.const_view()));
+    fixture.dispose(ctx, borrowed.asset);
+    fixture.closed(ctx, bundle.asset);
+    fixture.load(ctx, 18, "work:/retained.baked", EAssetFileFormat::baked, 128u);
+    const auto independent = fixture.result(ctx, 18);
+    check(independent);
+    fixture.dispose(ctx, independent.asset);
     TEST_EXPECT(ctx, fixture.service.is_idle() && !fixture.service.failed());
 }
 
@@ -485,6 +589,8 @@ int run_bundle_request_tests()
     TTestContext ctx;
     test_public_workflow(ctx, false);
     test_public_workflow(ctx, true);
+    test_complete_baked_buffers(ctx, false);
+    test_complete_baked_buffers(ctx, true);
     test_failed_work(ctx);
     test_preparation_handoff(ctx);
     test_controlled_failures(ctx);
