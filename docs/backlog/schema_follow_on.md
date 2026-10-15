@@ -68,8 +68,11 @@ complete C++17 buffer; the more selective interface is not implemented.
 
 ### Document and binary packaging
 
+Persistence is complete; the remaining work is aggregation and composition.
+
 The [persistence and aggregation revision](../schema/persistence-and-aggregation.md)
-records the direction agreed on 14 October 2026. Shared type definitions remain
+records the completed persistence direction and ongoing aggregation design
+agreements. Shared type definitions remain
 separately associated with independently created data. A baked instance document
 and its binary payload form one persistence entity, as do a baked bulk data document
 and its payload. The implemented bundle system supplies combined loading where
@@ -91,34 +94,43 @@ and writes to bundle entries are outside scope. Shared load options and layered
 diagnostic contracts now distinguish format, schema binding, specialised loading
 and construction failures, with explicit location lifetime rules. Materialisation
 is all or nothing, and parsing is followed by explicit caller-side construction
-and optional Host admission/save. Diagnostic representation and delivery stages
-are specified in the implementation plan; merge policies remain separate future
-design work.
+and optional Host admission/save. Implemented diagnostic representation is
+documented in the [runtime API](../schema/runtime-api.md#completed-data-blocks);
+aggregation contracts remain active design work in the revision.
 Schema baking supports both the existing separate document/payload owners and
 the new completed-block overloads.
 
-The [concrete implementation plan](../schema/persistence-implementation-plan.md)
-organises delivery into eight review stages, starting with the naming pass and
-ending with real Host/bundle acceptance and documentation. Stage 1 naming is
-implemented and user-reviewed, as are stage 2 format validation and diagnostics.
-Stage 3 ownership, attachment and release are also user-reviewed. Stage 4 live
-baking into completed blocks is also user-reviewed. Stage 5 description
-materialisation and stage 6 completed-block stripping are also user-reviewed.
-Stage 7 Host complete-buffer preservation is also user-reviewed. Stage 8
-end-to-end acceptance and documentation completion are implemented for review.
-Persistence is implemented; aggregation, collision policies, complete-document
-composition and direct construction into final allocation remain separate work.
+All eight persistence stages are complete, user-reviewed and committed, ending
+with stage 8 and gap zeroing in `dfe076d`. Newly created payload gaps are zeroed;
+loading, saving and stripping preserve existing payload bytes. The
+[persistence milestone](../project/completed_milestones.md#schema-instance-and-bulk-data-persistence)
+records delivery and validation evidence; the implementation plan is retired.
+The completed naming pass standardised "bulk data" and `BulkData`/`bulk_data`
+without compatibility aliases. The
+[revision](../schema/persistence-and-aggregation.md#agreed-bulk-data-terminology-and-standardisation-pass)
+retains the naming convention and migration mapping.
 
-Required implementation work-plan pass (stage 1):
+### Remaining aggregation and composition design
 
-- [x] Standardise the schema domain on "bulk data" in prose and
-  `BulkData`/`bulk_data` in identifiers. Rename supporting types and helpers,
-  update call sites, tests and maintained documentation, and check for stale
-  names. Follow the mapping in the
-  [revision](../schema/persistence-and-aggregation.md#agreed-bulk-data-terminology-and-standardisation-pass).
-  Keep generic bulk-operation terminology and persisted format names unchanged.
-  Update consumers together without compatibility aliases as the first review
-  stage; validate with applicable builds and existing schema tests.
+Active design covers non-destructive definition merging, validated schema
+switching and pairwise instance/bulk data aggregation. Agreed contracts include
+recursive instance specialisations, bulk data prefix matching, literal shared
+schema ownership, binary-preserving schema switching, transactional destination
+replacement, form conversion, scalar and presentation merging, normalisation,
+first-encounter ordering and zeroed unused storage in new aggregates. Public
+merges take two specialised source references without adapters or a schema
+argument; the views already carry their schema associations.
+
+Remaining work includes result backing/view signatures, mixed live/baked overloads,
+diagnostics, reference translation, validation and implementation planning.
+Complete document composition remains separate: it assembles already reconciled
+sections and does not resolve collisions. See the
+[revision's remaining design](../schema/persistence-and-aggregation.md#next-discussion-shared-schema-aggregation).
+
+Direct construction into final allocation and selected type-definition subsets
+remain optional optimisations. Compatibility signatures, persisted resolved
+lookups, automatic bundle persistence and bundle-entry writes were excluded from
+the completed persistence scope; they are not outstanding completion requirements.
 
 ## Earlier source-ingestion direction
 

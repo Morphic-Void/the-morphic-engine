@@ -105,9 +105,14 @@ consolidation and five-part tidying phase are complete through `db82da7`.
 The subsequent performance pass completes inline query forwarding, shared
 physical-member ordering and sorted explicit-layout overlap checking. General
 schema name lookup remains caller-managed. Canonical schema output and data-role
-reconstruction now apply the data model's integer presentation modes. Remaining
-discussions cover conversion, related representations, typed serialisation,
-selectable generation, packaging and source ingestion, as recorded in the
+reconstruction now apply the data model's integer presentation modes. All eight
+instance/bulk data persistence stages are complete and user-reviewed through
+`dfe076d`, including complete-buffer Host persistence and new-payload gap zeroing.
+The [persistence milestone](../project/completed_milestones.md#schema-instance-and-bulk-data-persistence)
+records delivery and validation; its completed implementation plan is retired.
+Remaining discussions cover conversion, related representations,
+typed serialisation, selectable generation, aggregation/composition and source
+ingestion, as recorded in the
 [schema follow-on notes](schema_follow_on.md).
 Configuration, localisation, state capture/reconstruction and graphics metadata
 remain potential consumers, to be selected as separate work.

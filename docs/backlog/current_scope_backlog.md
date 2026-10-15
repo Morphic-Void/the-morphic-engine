@@ -1,6 +1,6 @@
 # Current scope
 
-Updated 13 October 2026. The selected consolidation is complete, including
+Updated 14 October 2026. The selected consolidation is complete, including
 the rendering DLL stub and Executive-controlled startup in `f91ded3`.
 The subsequent development filesystem-image stage is complete and accepted,
 including the first-pass review corrections. See the
@@ -43,11 +43,18 @@ explicit-layout overlap checking. The
 records completion; the [validation guide](../schema/validation.md) describes checks.
 
 Integer presentation is implemented in the data model and applied by canonical
-schema output and instance/bulk data reconstruction. The
-[schema follow-on notes](schema_follow_on.md) preserve the next design discussion:
+schema output and instance/bulk data reconstruction. All eight instance/bulk data
+persistence stages are complete, user-reviewed and committed through `dfe076d`,
+including Host complete-buffer preservation and new-payload gap zeroing. The
+[persistence milestone](../project/completed_milestones.md#schema-instance-and-bulk-data-persistence)
+records delivery and validation; the completed implementation plan is retired.
+The [schema follow-on notes](schema_follow_on.md) preserve the next design discussion:
 fp16 conversion, related C++/shader representations, simple trait-based
-serialisation, selectable declaration output, document/binary packaging and
-source ingestion. Their design and scope are not yet an implementation plan.
+serialisation, selectable declaration output, aggregation/composition and
+source ingestion. Shared-schema aggregation design is active: the
+[revision](../schema/persistence-and-aggregation.md#next-discussion-shared-schema-aggregation)
+records agreed merge contracts and remaining interface decisions. These follow-ons
+are not yet an implementation plan.
 General schema name lookup remains caller-managed. The completed consolidation
 does not authorise further implementation.
 

@@ -109,7 +109,7 @@ unchanged before saving; a promoted independent document leaves its source
 unchanged. The test retains mutable access before Host publication and mutates
 only while borrowers are quiescent; it adds no production mutation API.
 
-The [persistence plan](persistence-implementation-plan.md) records the final
+The [persistence milestone](../project/completed_milestones.md#schema-instance-and-bulk-data-persistence) records the final
 Debug/Release x64/Win32 Core matrix, Host worker acceptance and Debug x64 module
 lifecycle harness with one and two workers. The lifecycle harness covers actual
 DLL retirement, in-flight saving, bundle closure and shutdown.

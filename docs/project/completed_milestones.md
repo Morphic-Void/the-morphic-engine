@@ -18,6 +18,79 @@ Permanent behavior and architectural contracts belong in the subsystem
 documents linked from each milestone. Current and future work belongs in
 `future_work_notes.md` and the backlog.
 
+## Schema instance and bulk data persistence
+
+Completed, user-reviewed and committed through 14 October 2026. All eight stages
+are complete, including the new-payload gap-zeroing follow-up in `dfe076d`.
+`.bid` and `.bbd` files retain a baked description and its binary payload as one
+contiguous persistence entity. `CBakedInstancesBlock` and `CBakedBulkDataBlock`
+expose contained specialised interfaces with caller-owned schema bindings and
+the existing local/Host asset lifetime model.
+
+| Stage | Checkpoint | Delivered outcome |
+| --- | --- | --- |
+| 1 | `f709d79` | Bulk data naming standardisation across APIs, consumers, tests and documentation, without compatibility aliases. |
+| 2 | `d043ce3` | Version 1 format validation, shared load options and layered diagnostics with bounded location lifetimes. |
+| 3 | `26d28e5` | Completed-block ownership, local adoption/release and borrowed Host attachment with failure preservation. |
+| 4 | `48454ef` | Live baking into independent, contiguous completed instance and bulk data blocks. |
+| 5 | `bdedfa6` | All-or-nothing materialisation from live/baked descriptions, with caller-side parsing and construction orchestration. |
+| 6 | `905ed1c` | Stripping through document promotion and rebaking, preserving payload bytes while allowing a smaller complete allocation. |
+| 7 | `27d4f89` | Complete-buffer Host loading, admission and binary saving for loose files and bundle-backed entries. |
+| 8 | `dfe076d` | End-to-end acceptance, maintained documentation and zeroing of newly created payload gaps. |
+
+The separately reviewed data-model change `3fe1f2d` permits exact-capacity baked
+document adoption; buffer size need not be an alignment multiple. Completed
+schema files retain their required aligned payload base without importing bundle
+entry padding or terminators into their logical file range.
+
+Binary data remains authoritative, with opt-in retained-value comparison and
+mandatory structural checks. Construction zeroes newly created leading and
+inter-entry gaps while preserving copied record bytes, internal padding and
+unused bits. Loading, saving and stripping preserve existing payload bytes.
+Document navigation remains prefix-only while file access and persistence retain
+the complete logical buffer. Explicit whole-bundle saving writes current bytes;
+automatic bundle persistence and writes to bundle entries are not provided.
+
+Validation checkpoints:
+
+- After gap zeroing, fresh Windows solution builds and ordinary Core runs passed
+  in Debug/Release on x64/Win32. Each reported 61,740 Schema checks and 883
+  BundleRequests checks, with zero failures. Core log suffixes under
+  `development/logical-roots/test-logs/` are `payload-gaps-dbg64.p10736.log`,
+  `payload-gaps-dbg32.p81100.log`, `payload-gaps-rel64.p92576.log` and
+  `payload-gaps-rel32.p92920.log`.
+- The acceptance workflows cover both file roles through live bake, local
+  release/Host admission, attachment, save and physical reload; JSON parsing and
+  explicit materialisation; bundle creation, closure and retained sub-file saves;
+  attachment/save failures, source/discard retention and disposal after accepted
+  saves drain. Shared and dedicated worker routes run these cases. Nonzero-filled
+  allocation tests cover new gaps, zero-byte entries, unchanged source and record
+  bytes, and repeatable output.
+- Debug x64 module lifecycle acceptance passed with one and two workers before
+  the gap-only follow-up. Logs are in `build/lifecycle-runtime-e046bd84/` and
+  `build/lifecycle-runtime-5d368a87/`, respectively. Stage 7 Host-worker acceptance
+  passed bootstrap rejection and worker requests 0, 1, 2, 3, 9 and 128, recorded
+  in `build/host-workers-47499310/`; its Core log suffix is
+  `host-full-buffer-stage7.p89004.log`. These results were reused because the
+  follow-up did not change Host service or lifetime code.
+- Policy validation, diff whitespace, tracked line endings and documentation
+  links passed. Counts and local ignored logs describe historical checkpoints;
+  this documentation closeout does not claim new build, runtime or Linux results.
+
+The completed persistence implementation plan is retired. Permanent contracts
+and test coverage are maintained in the [schema specification](../schema/specification.md),
+[runtime API](../schema/runtime-api.md#completed-data-blocks),
+[validation guide](../schema/validation.md) and
+[asset services](../assets/asynchronous_asset_services.md). Intermediate delivery
+and validation detail remains in Git history.
+
+The [aggregation revision](../schema/persistence-and-aggregation.md#separate-merge-and-aggregation-operations)
+and [follow-on notes](../backlog/schema_follow_on.md#remaining-aggregation-and-composition-design)
+remain active design and planning references. Definition merging, validated
+schema switching, instance/bulk data aggregation and complete-document composition
+are not delivered by this milestone. Direct construction into final allocation
+remains an optional optimisation, not unfinished persistence work.
+
 ## Bundle assets and virtual bindings
 
 Completed and reviewed through 13 October 2026. Bundles provide one immutable,
