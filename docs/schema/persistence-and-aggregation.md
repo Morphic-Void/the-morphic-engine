@@ -1105,13 +1105,13 @@ APIs are unchanged.
 
 ### Separate validated schema-switch operation
 
-Changing an instance or bulk data document's schema association is a separate,
-explicit operation. It supports association with a different live or baked
-schema owner while preserving the binary representation. Descriptions may change
-where necessary to preserve that representation under the target schema; the
-requested representation form and existing ownership model are retained. The
-result uses the selected target owner literally, allowing subsequent aggregation
-to check owner identity alone.
+Changing an instance or bulk data document view's schema association is a
+separate, explicit validation operation, applicable to both live and baked
+document views and to either a live or baked target schema owner. Success changes
+the associated schema; failure leaves the association unchanged. The document,
+binary payload, representation form and backing ownership remain unchanged in
+either case. The result uses the selected target owner literally, allowing
+subsequent aggregation to check owner identity alone.
 
 The operation requires a usable current association and a resolved, usable target
 schema. It validates before replacing the current association:
@@ -1147,8 +1147,11 @@ switched, including nested construction, array defaults and instance inheritance
 | Absent from both | No default conflict. |
 
 These rules identify admissible default differences; none authorises a change
-to the binary representation. Value equality alone does not establish default
-use: an explicit value may equal a default without depending on it. Evaluate
+to the document or its binary interpretation or representation. An admissible
+default difference still requires validation that the unchanged document and
+any existing payload preserve their interpretation under the target schema.
+Value equality alone does not establish default use: an explicit value may equal
+a default without depending on it. Evaluate
 effective construction and current dependence rather than guessing from payload
 bytes or trusting stale descriptions. Hypothetical future entries and edits are
 not data currently being switched. Stripped complete snapshots require no
@@ -1157,53 +1160,54 @@ to preserve.
 
 For binary-backed data, preserve the complete existing payload byte-for-byte,
 including padding and unused bits. Do not repack it, normalise its encodings or
-replace authoritative bytes with reconstructed values. Retained descriptions may
-be adjusted so that they continue to describe that representation under the target
-schema. Stripped data remains stripped. Any later reconstruction must respect the
-preserved binary representation and the existing permitted-value semantics.
+replace authoritative bytes with reconstructed values. Retained descriptions
+remain unchanged. Reject the switch if the target changes the binary
+interpretation or preservation would require a description change. Stripped data
+remains stripped. Any later reconstruction must respect the preserved binary
+representation and the existing permitted-value semantics.
 
 For document-only data, establish its effective binary representation under the
-source schema, then verify that the prepared target description produces the
-same representation under the target schema. Make formerly defaulted values
-explicit where necessary. Private materialisation for this validation does not
-change the requested document-only output form. If preservation cannot be
-achieved, the switch fails without changing the source.
+source schema, then verify that the unchanged description produces the same
+representation under the target schema. Private materialisation may be used for
+validation, but does not publish a payload or change the document-only form.
+If preservation would require making defaulted values explicit or otherwise
+rewriting the description, reject the switch.
 
 For example, if an omitted `speed` member has implicit value `0` in the source
-schema and the target adds an explicit default of `12`, the default difference
-is admissible but the existing value must remain `0`. The target description
-must express `0` where necessary rather than silently acquiring `12`.
+schema and the target adds an explicit default of `12`, the presence/absence
+difference is admissible under the default rules, but switching a document-only
+instance would change its effective value. Reject that switch; do not insert an
+explicit `0` to make it possible.
 
-This refines the original unchanged-description contract: description content
-and its baked encoding may change, but binary data must not. Presentation and
-supported auxiliary metadata follow the agreed preservation rules. Schema
-switching preserves existing padding and unused bytes; aggregation separately
-zeroes them in newly constructed output.
+Description content, its existing baked encoding, presentation and auxiliary
+metadata remain unchanged. The switch constructs no replacement document or
+backing storage and performs no representation conversion.
 
 The operation uses the existing local/Host asset ownership and caller-owned schema
 binding mechanisms. It does not acquire ownership of either schema, introduce a
-new retention mechanism or modify shared Host asset bytes implicitly. The caller
+new retention mechanism or modify shared Host asset bytes. The caller
 keeps the source backing and both schemas usable and unchanged during preparation,
-and keeps the target usable afterwards. How replacement descriptions are stored
-for immutable or Host-backed inputs remains part of the concrete interface design.
+and keeps the target usable afterwards. Immutable and Host-backed descriptions
+remain attached to their existing backing.
 
-The new association, any adjusted description and rebuilt runtime state are
-published together only after all validation and allocation succeed. Missing or
+The new association and any rebuilt schema-dependent runtime state are published
+together only after all validation and allocation succeed. Missing or
 mismatching used definitions, incompatible defaults, failure to preserve the
 binary representation, unavailable schemas, invalid target interpretation, and
 allocation or size failures must not partially switch the document. Failure
-preserves the original binding, loaded state, document, payload and backing ownership; an originally
-usable source remains usable. Diagnostics identify the failing validation or
-construction step without requiring the caller to discard the source. A failed
-switch does not repair an association that was already invalid on entry.
+preserves the original binding, loaded state, document, payload and backing
+ownership; an originally usable source remains usable. Diagnostics identify the
+failing validation or runtime-state preparation step without requiring the caller
+to discard the source. A failed switch does not repair an association that was
+already invalid on entry.
 
 Current baked-role `bind_schema()` is not this operation: it clears loaded state
 before binding and does not compare the source and target definitions. Subsequent
 loading validates against the new schema without proving equivalence to the old
 interpretation. Existing promotion and output preparation provide type-mapping
 and representation-checking foundations, but also construct new output and do
-not supply the agreed switch contract. Live roles and completed blocks need an
-explicit interface for validated switching.
+not supply the agreed switch contract. Live and baked roles, including those
+contained in completed blocks, need an explicit interface for validated switching.
 
 Concrete overloads, success-time handle/view invalidation and quiescence rules,
 diagnostic types, and the implementation of definition/default-use comparison and
