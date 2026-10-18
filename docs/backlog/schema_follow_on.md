@@ -119,6 +119,23 @@ default expresses no merge preference and yields to an explicit default;
 conflicting supplied defaults fail. Preserve the established scalar, array and
 presentation-merging rules, and validate type layout and interpretation.
 
+Each type-schema input must independently resolve. Equivalent natural and explicit
+layouts are accepted, but layout-changing alignment, member/enum order and
+referenced type identity remain significant. Merge original declarations and
+presentation rather than normalised resolver output. References remain names;
+final resolution establishes the result's own identities. The selected interface
+shape is two existing read-only document views and an independently owned,
+validated live document result. Adoption into a schema owner and baking remain
+separate operations, preserving existing bound-owner replacement restrictions.
+The agreed `merge_type_schemas` function uses stage/reason diagnostics, original
+source locations for conflicts and resolver detail for validation failures.
+It constructs and validates a private live document, then publishes through the
+existing non-failing move assignment. Occupied destinations and source/destination
+aliasing are supported; the same document may supply both sources under the
+ordinary rules. Diagnostics never retain temporary-result handles. See the
+[interface and diagnostics](../schema/persistence-and-aggregation.md#agreed-type-schema-merge-function-and-diagnostics)
+and [publication mechanism](../schema/persistence-and-aggregation.md#agreed-type-schema-transactional-publication).
+
 Instance and bulk data merging now use document-only working input/output, with
 other forms converted at the boundary. Retained instance declarations contribute
 directly. Promote stripped instances against their original schema, recovering
@@ -132,11 +149,12 @@ selections or presentation. Source storage remains unchanged.
 Recursive specialisations, bulk data prefix matching, transactional replacement,
 presentation merging and first-encounter ordering remain. The former binary
 snapshot equality rule, matching-form output selector, literal same-owner source
-precondition and specialised-role overload matrix are superseded. Concrete
-document interfaces, schema context, boundary ownership, metadata handling,
-diagnostics and reference translation remain to be designed. This is not an
-implementation plan. Implemented schema switching still preserves binary data;
-document merging and subsequent construction are separate operations.
+precondition and specialised-role overload matrix are superseded. Type-schema
+merge design is ready for implementation planning. Data-merge document interfaces,
+schema context, boundary ownership, metadata handling and diagnostics remain to
+be designed. This is not an implementation plan. Implemented schema
+switching still preserves binary data; document merging and subsequent
+construction are separate operations.
 
 Complete document composition remains separate: it assembles already merged
 document sections and does not resolve collisions. See the

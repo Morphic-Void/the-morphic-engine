@@ -123,11 +123,14 @@ typed serialisation, selectable generation, aggregation/composition and source
 ingestion, as recorded in the
 [schema follow-on notes](schema_follow_on.md).
 The 18 October aggregation revision prioritises type-schema merging, with absent
-defaults yielding to explicit defaults. Data merging uses document-only working
-input/output; stripped instances are promoted against their original schema,
-then merged declarations are constructed using the merged schema. This design
-replaces the earlier binary-snapshot aggregation and matching-form interface
-proposal; implementation remains unselected.
+defaults yielding to explicit defaults. Independently valid type-schema document
+views merge into a validated live document, preserving original presentation and
+compatible resolved layout; schema adoption and baking are separate. Data merging
+uses document-only working input/output; stripped instances are promoted against
+their original schema, then merged declarations are constructed using the merged
+schema. The type-schema merge function, diagnostics and staged move publication
+are agreed. This design replaces the earlier binary-snapshot aggregation and
+matching-form interface proposal; implementation remains future work.
 Configuration, localisation, state capture/reconstruction and graphics metadata
 remain potential consumers, to be selected as separate work.
 

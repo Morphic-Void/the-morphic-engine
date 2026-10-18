@@ -61,12 +61,17 @@ fp16 conversion, related C++/shader representations, simple trait-based
 serialisation, selectable declaration output, aggregation/composition and
 source ingestion. Aggregation design now starts with type-schema merging:
 absent defaults yield to explicit defaults, with conflicting supplied values
-rejected. Data merging uses document-only working form; stripped instances are
-promoted against their original schema before merging, and binary is later
-constructed using the merged schema. The
+rejected. Each type-schema input must independently resolve; merging preserves
+original declarations/presentation and compatible resolved layout. Two read-only
+document views produce an independently owned, validated live document, with
+schema adoption and baking separate. Data merging uses document-only working
+form; stripped instances are promoted against their original schema before
+merging, and binary is later constructed using the merged schema. The
 [revision](../schema/persistence-and-aggregation.md#next-discussion-shared-schema-aggregation)
 records agreed merge contracts and remaining interface decisions. These follow-ons
-are not yet an implementation plan.
+are not yet an implementation plan. The type-schema merge signature, structured
+diagnostics and staged move publication are agreed; instance/bulk data interfaces
+remain design work.
 General document object-child indexing and persistent live cursors remain
 deferred. The completed consolidation does not authorise further implementation.
 

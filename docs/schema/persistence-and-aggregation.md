@@ -793,9 +793,26 @@ Type-schema merging is the first remaining work item. Distinct type names are
 included together. Same-name types must retain compatible layout and value
 interpretation, including their referenced definitions. Members, member order,
 array extents, enum definitions and bit-field interpretations cannot be silently
-extended or changed by ordinary missing-field merging. Definition references and
-source-local identities must be translated, and the complete result must resolve
-successfully before publication.
+extended or changed by ordinary missing-field merging.
+
+Each input must independently resolve as a valid type schema before merging.
+One input cannot supply missing dependencies or repair invalid declarations in
+the other. The complete merged result must also resolve successfully before
+publication.
+
+Compatibility is based on resolved layout and interpretation. Natural layout
+and explicitly supplied layout metadata are compatible when they resolve to
+the same layout. Explicit alignment that changes the effective layout conflicts;
+the absent-default rule below does not make omitted layout a wildcard. Member
+order, enum label order and referenced type identity remain significant, even
+when a different declaration could occupy the same number of bytes.
+
+Merge the original document declarations and their presentation, using resolved
+information only to check compatibility. Do not first regenerate declarations
+with `CResolvedSchema::prepare_output`: its normalisation can change presentation
+and add layout metadata. Type references remain their declared type-name strings.
+Resolving the completed result establishes its own local identities and indexes;
+no persistent source-index translation table is required.
 
 Explicit defaults use the following merge policy:
 
@@ -832,10 +849,10 @@ then constructs `10`; a declaration explicitly supplying `speed: 0` constructs
 zero. Two explicit schema defaults of `0` and `10` conflict.
 
 Presentation-only differences do not establish a type conflict. Preserve and
-combine them under the presentation rules below. The existing resolved-type
-comparison and output facilities are reusable foundations, but definition
-comparison alone is not this merge policy: the merge needs supplied-default
-presence as well as resolved layout and interpretation.
+combine them under the presentation rules below. Existing resolved-type
+comparison is a reusable foundation, but definition comparison alone is not
+this merge policy: the merge needs supplied-default presence as well as resolved
+layout and interpretation.
 
 ### Instance and bulk data document merging
 
@@ -982,9 +999,9 @@ Host-backed sources remain borrowed. Merging does not overwrite assets or bundle
 entries, acquire asset references, send disposal requests, admit output or save
 it automatically. Displaced borrowed state follows the existing ownership
 contract; callers release old asset retention only after remaining consumers
-have finished. Exact destination signatures and the internal non-failing
-replacement mechanism remain design work. Existing persistence APIs retain
-their empty-destination requirements.
+have finished. The type-schema destination and non-failing replacement mechanism
+are specified below; instance/bulk data destination mechanisms remain design
+work. Existing persistence APIs retain their empty-destination requirements.
 
 ### Separate validated schema-switch operation
 
@@ -1014,11 +1031,18 @@ changes the implemented switching contract.
 ### Agreed source and result forms
 
 The merge core has one semantic working form: document-only input and output.
-Other forms are converted at the boundary. This does not yet select live versus
-baked document storage as the public API representation; existing document query
-and copying facilities may avoid unnecessary physical conversions. Type-schema
-merging consumes definitions, including explicit-default presence and presentation,
-and produces a separately validated definition document.
+Other forms are converted at the boundary. Type-schema merging accepts two
+read-only `CSchemaDocumentQuery` views, each of which can refer to a live or baked
+document, and produces an independently owned, validated `CLiveDocument`.
+It consumes definitions, including explicit-default presence and presentation;
+it does not aggregate instance or bulk data sections. Inputs need not be
+physically converted to live storage merely to read them.
+
+Adoption into a live schema and baking are separate boundary operations. The
+result carries no schema-owner binding or retained resolved cache. Existing
+restrictions on replacing schema owners with attached consumers still apply;
+merging does not bypass them. The concrete public document representation for
+instance and bulk data merging remains to be selected.
 
 | Data input | Preparation before document merging |
 | --- | --- |
@@ -1097,20 +1121,135 @@ the merged schema supplies the context for validation and later construction.
 Already attached sources need not first undergo a binary-preserving switch to
 the merged owner merely to contribute their declarations.
 
-Concrete source/view types, destination ownership and schema-context parameters
-remain to be specified. Prefer one merge implementation over the standard document
-form, with live/baked and binary-backed conversion at the boundary. No new public
-adapter, universal owner, attached document-only role state or overload family
-is selected by this revision.
+For type schemas, the two existing read-only views and independently owned live
+document result are selected above. The agreed function, diagnostics and
+publication mechanism are specified below. Conflicts identify both original
+source locations, without retaining handles into discarded temporary output.
+
+For instance and bulk data merging, concrete source/view types, destination
+ownership and schema-context parameters remain to be specified. Prefer one merge
+implementation over the standard document form, with live/baked and binary-backed
+conversion at the boundary. No new public adapter, universal owner, attached
+document-only role state or overload family is selected by this revision.
 
 The earlier proposed `EAggregationOutputForm`, `SAggregationOptions` and
 role-to-block `aggregate_instances(...)` / `aggregate_bulk_data(...)` signatures
 are retired design proposals, not implemented APIs. Output form selection and
 optional consistency checking belong to explicitly designed boundary operations.
-The `bool` plus diagnostic-output convention can be retained; diagnostics must
-distinguish conversion, definition conflicts, declaration conflicts and final
-validation/construction failures. Exact structures and location lifetimes remain
-open, including how diagnostics relate temporary promoted nodes to original input.
+The `bool` plus diagnostic-output convention applies to type-schema merging.
+For instance/bulk data merging, diagnostics must distinguish conversion,
+declaration conflicts and final validation/construction failures. Their exact
+structures and location lifetimes remain open, including how diagnostics relate
+temporary promoted nodes to original input.
+
+### Agreed type-schema merge function and diagnostics
+
+The following interface is agreed design, not an implemented API:
+
+```cpp
+namespace schema
+{
+
+enum class ESchemaMergeStage : std::uint8_t
+{
+    none = 0u,
+    first_source_validation,
+    second_source_validation,
+    compatibility,
+    document_merge,
+    result_validation
+};
+
+enum class ESchemaMergeReason : std::uint8_t
+{
+    none = 0u,
+    invalid_source,
+    incompatible_type,
+    conflicting_value,
+    allocation_failed,
+    storage_limit,
+    construction_failed,
+    invalid_result
+};
+
+struct SSchemaMergeDiagnostic
+{
+    ESchemaMergeStage stage{ ESchemaMergeStage::none };
+    ESchemaMergeReason reason{ ESchemaMergeReason::none };
+    CSchemaHandle first;
+    CSchemaHandle second;
+    SDiagnostic validation;
+};
+
+[[nodiscard]] bool merge_type_schemas(
+    const CSchemaDocumentQuery& first,
+    const CSchemaDocumentQuery& second,
+    CLiveDocument& destination,
+    SSchemaMergeDiagnostic& diagnostic) noexcept;
+
+}   // namespace schema
+```
+
+Each view can refer to a live or baked document, including mixed input forms.
+The result is an independently owned live type-schema document. Adoption into
+a schema owner and baking remain separate operations. No output-form selector,
+schema-owner argument or live/baked overload matrix is required.
+
+The destination may be empty, occupied, or explicitly supplied as either source.
+An occupied destination contributes only when supplied as a source. The same
+document may supply both source arguments and follows the ordinary merge rules;
+aliasing does not bypass validation or conflict checks.
+
+Diagnostics follow the existing stage/reason and borrowed-location conventions:
+
+| Failure | Diagnostic |
+| --- | --- |
+| Invalid first or second source | The corresponding source-validation stage and `invalid_source`, retaining the resolver's complete `SDiagnostic`. Its handles and ranges belong to that source. |
+| Incompatible resolved types | `compatibility` / `incompatible_type`, with `first` and `second` identifying the original type declarations. |
+| Conflicting supplied values, including defaults | `document_merge` / `conflicting_value`, with `first` and `second` identifying the conflicting original values. |
+| Allocation or storage limit | The stage where it failed and `allocation_failed` or `storage_limit`, only where the underlying operation distinguishes that cause. |
+| Other document construction failure | `document_merge` / `construction_failed`; do not guess a more specific resource cause. |
+| Invalid completed schema | `result_validation` / `invalid_result`, retaining the resolver's reason and stage in `validation`. Clear all temporary-document handles and ranges. |
+
+Resource failures during resolution retain the underlying resolver detail, with
+the same source/temporary-location rules. For source validation, the corresponding
+`first` or `second` location may identify the resolver's occurrence; the other
+remains unset. Unavailable locations remain unset. For merge conflicts,
+`validation` remains defaulted; the two source handles identify the conflict.
+
+Report the first failure and clear the diagnostic on success. Diagnostics own
+no document storage; source locations remain usable only while the corresponding
+source document and its identities remain valid. Final-result diagnostics must
+not expose handles into destroyed staging storage. No output-to-source provenance
+map is required merely to retain those temporary locations.
+
+### Agreed type-schema transactional publication
+
+Use private staging and the existing non-failing `CLiveDocument` move assignment:
+
+1. Independently resolve both source documents.
+2. Check overlapping types using the existing representation comparison and
+   merge original declarations and presentation into a private
+   `CLiveDocument staged`. Apply the explicit-default policy to the declarations,
+   not effective defaults from the resolved types.
+3. Resolve the complete staged document before publication.
+4. Release temporary resolvers and comparison state before replacing any document
+   they borrow. Preserve only valid source diagnostics on failure.
+5. Publish with `destination = std::move(staged)`.
+
+All source reads, construction, validation and allocation finish before the final
+move. Failure discards staging and preserves both sources and the destination,
+including existing handles/views. Success invalidates previous destination
+handles/views; a source that aliases the destination is replaced only at that
+point. Other sources remain unchanged. The completed result borrows no source
+storage and retains no resolved cache.
+
+The existing move assignment transfers ownership without a fallible publication
+step. No new transaction class, rollback mechanism, friend access or schema-owner
+state is needed. Existing bound-owner replacement restrictions still apply to
+separate adoption into a schema owner. This is transactional publication within
+the existing caller-controlled lifetime/concurrency contract, not synchronisation
+for concurrent readers.
 
 ### Agreed normalisation of descriptions and metadata
 
@@ -1289,6 +1428,16 @@ absent-versus-explicit default merging and document-only working input/output.
 Stripped instances are promoted against their original schema to recover minimal
 declarations before merging; later construction uses the merged defaults.
 
+Type-schema inputs must each be independently valid. Resolved layout and
+interpretation determine compatibility, including equivalent natural and explicit
+layouts; the original declarations supply defaults and presentation. References
+remain names and result resolution creates fresh local identities. The selected
+interface shape is two existing read-only document views and an independently
+owned, validated live document result, with adoption and baking kept separate.
+The `merge_type_schemas` signature, structured diagnostics, same-source behaviour
+and staged move publication are now agreed above. Their implementation remains
+future work.
+
 Scalar and presentation merging, ordinary-array equality, bulk data prefix
 matching, recursive specialisations, first-encounter ordering and transactional
 replacement remain applicable. The former binary-snapshot merge predicate,
@@ -1297,20 +1446,17 @@ matrix are superseded. Implemented attachment and switching remain unchanged.
 
 Remaining decisions are:
 
-- Concrete type-schema merge interfaces, dependency/reference translation,
-  structural compatibility checks and final combined-schema validation. Reuse
-  resolved comparison where appropriate while preserving explicit-default
-  presence for the new default policy.
-- Concrete document source/view and destination types, schema-context parameters,
-  aliasing details, same-object-as-both-sources behaviour and non-failing
-  replacement machinery. Live versus baked working storage is not yet selected.
+- Concrete instance/bulk data document source/view and destination types,
+  schema-context parameters, aliasing details and replacement machinery. Live
+  versus baked public document storage for these operations is not yet selected.
 - Boundary conversion for stripped instances and incomplete bulk data, independent
   document ownership after dropping temporary binary, and removal/invalidation
   of source storage metadata. Keep source backing and original schemas alive
   until conversion finishes.
-- Diagnostics for definition conflicts, declaration conflicts, conversion and
+- Instance/bulk data diagnostics for declaration conflicts, conversion and
   construction failures, including source locations after temporary promotion.
-  Optional consistency checks must remain explicit.
+  Optional consistency checks must remain explicit. Type-schema diagnostics are
+  settled above.
 - Composition signatures and any convenience orchestration of conversion, merge
   and later construction, without adding merge-time representation states.
 
@@ -1319,9 +1465,9 @@ the completed schema work does not authorise this follow-on implementation.
 
 ### Separate remaining capabilities
 
-| Work | Outstanding design |
+| Work | Remaining work |
 | --- | --- |
-| Definition merging | First priority: interfaces, dependency/reference translation, compatible type structure, explicit-default merge policy, presentation and final validation. |
+| Definition merging | First priority: implementation planning for the agreed merge function, independently valid document views, compatibility/default/presentation policy, structured diagnostics and staged publication of a validated live result. |
 | Schema switching | Implemented with checked/trusted modes and unchanged storage/handles; distinct from merge/reconstruction. |
 | Instance aggregation | Document declarations and recursive hierarchy merging, original-schema stripped-input promotion, diagnostics and transactional output. |
 | Bulk data aggregation | Complete document record merging with prefix matching; conversion of missing descriptions, diagnostics and transactional output. |
