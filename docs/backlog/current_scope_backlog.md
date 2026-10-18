@@ -72,7 +72,12 @@ records agreed merge contracts and remaining interface decisions. The type-schem
 merge signature, structured diagnostics and staged move publication are implemented;
 see the [runtime API](../schema/runtime-api.md#type-schema-merging) and
 [completed plan](../project/type_schema_merge_implementation_plan.md).
-Instance/bulk data interfaces remain design work.
+Instance/bulk data aggregation has agreed existing query views, one resolved
+merged-schema context, independent live output and staged move publication.
+Validation reuses construction admission without disposable binary; boundary
+conversion publishes caller-owned documents and keeps its diagnostics separate.
+The `merge_instances` and `merge_bulk_data` signatures and typed diagnostic
+contracts are agreed. Conversion APIs and implementation plans remain design work.
 General document object-child indexing and persistent live cursors remain
 deferred. The completed consolidation does not authorise further implementation.
 

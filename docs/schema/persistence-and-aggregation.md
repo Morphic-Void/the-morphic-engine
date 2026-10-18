@@ -17,7 +17,8 @@ blocks retain document and binary storage, while data roles carry schema
 associations and support atomic attachment and checked/trusted switching.
 The earlier persistence stages and gap-zeroing follow-up ended in `dfe076d`.
 
-The 18 October type-schema merge design is now implemented. An absent explicit
+The 18 October type-schema merge design is implemented and committed in
+`ca087e2`. An absent explicit
 default expresses no preference during schema merging
 and yields to an explicit default. Conflicting supplied defaults fail. Data
 merging uses document-only working input and output, with other forms converted
@@ -36,9 +37,11 @@ binary-preserving schema-switch and persistence contracts are unchanged.
 
 Type-schema merging is documented in the
 [runtime API](runtime-api.md#type-schema-merging). Instance/bulk data aggregation
-and complete document composition remain design work: their concrete interfaces,
-boundary conversion details, diagnostics and implementation plans are not yet
-settled. This revision does not authorise those later operations.
+and complete document composition remain design work. Data aggregation now has
+agreed function signatures, typed diagnostic contracts, document views,
+resolved-schema context, live output ownership, validation and publication
+boundaries. Conversion APIs and implementation plans remain to be settled. This
+revision does not authorise those later operations.
 
 The [persistence milestone](../project/completed_milestones.md#schema-instance-and-bulk-data-persistence)
 and [role milestone](../project/completed_milestones.md#schema-role-attachment-and-construction)
@@ -754,9 +757,10 @@ need not become "bulk data". The persisted `data` section, `.bbd` extension and
 ## Separate merge and aggregation operations
 
 Merging remains needed, but its responsibilities belong to the individual domains.
-The following operations are conceptually separate; exact APIs and whether they
-share internal construction machinery remain undecided. These are unimplemented
-follow-on capabilities, separate from the completed persistence scope.
+The following operations are conceptually separate. Type-schema merging is
+implemented; data-aggregation interfaces are agreed but unimplemented. Boundary
+conversion APIs and any shared internal merge machinery remain design work,
+separate from the completed persistence scope.
 
 | Operation | Responsibility |
 | --- | --- |
@@ -876,6 +880,16 @@ Bulk data records must be fully specified; defaults do not fill missing record
 values. Prefix matching is not concatenation, and arrays within each record keep
 the shape required by the type schema. Instance and bulk data names occupy
 separate domains.
+
+Merge corresponding records in the common prefix, including their presentation,
+then retain any tail from the longer sequence. Merely selecting the longer input
+would lose presentation preferences contributed by the shorter input.
+
+Equivalent typed spellings are not automatically normalised before merging.
+For example, a named declaration `{"x": 1}` and a positional declaration `[1]`
+conflict when both are supplied at the same location, even if construction would
+produce equal values. The existing document kind, scalar and array rules apply;
+typed equivalence is not an additional merge predicate.
 
 Source handles, resolved type indices and payload offsets are not destination
 identities. Translate references and parents. Storage-derived metadata such as
@@ -1000,9 +1014,9 @@ Host-backed sources remain borrowed. Merging does not overwrite assets or bundle
 entries, acquire asset references, send disposal requests, admit output or save
 it automatically. Displaced borrowed state follows the existing ownership
 contract; callers release old asset retention only after remaining consumers
-have finished. The type-schema destination and non-failing replacement mechanism
-are specified below; instance/bulk data destination mechanisms remain design
-work. Existing persistence APIs retain their empty-destination requirements.
+have finished. All three merge operations use independent live-document staging
+and non-failing move replacement. Existing persistence APIs retain their
+empty-destination requirements.
 
 ### Separate validated schema-switch operation
 
@@ -1042,8 +1056,13 @@ physically converted to live storage merely to read them.
 Adoption into a live schema and baking are separate boundary operations. The
 result carries no schema-owner binding or retained resolved cache. Existing
 restrictions on replacing schema owners with attached consumers still apply;
-merging does not bypass them. The concrete public document representation for
-instance and bulk data merging remains to be selected.
+merging does not bypass them. Instance aggregation uses the existing
+`CInstanceDocumentQuery`; bulk data aggregation uses `CBulkDataDocumentQuery`.
+Both accept live or baked documents, including mixed source forms, and produce
+an independent `CLiveDocument`. Add only the small read-only query capabilities
+needed for presentation and efficient matching; no new public adapter is needed.
+The result contains only `instances` or `data`, respectively, with no type schema,
+binary package or retained schema binding.
 
 | Data input | Preparation before document merging |
 | --- | --- |
@@ -1057,7 +1076,10 @@ converted. Zero-byte types still require the explicit complete-package route;
 a zero-length payload is not a request to invent missing data. Partially described
 bulk data must become complete at the boundary; exact conversion APIs remain to
 be designed. Record counts and shapes must validate rather than being silently
-repaired.
+repaired. Validate supplied locator/count/size information before removing source
+locators and the stripped-state marker from the working document. Complete bulk
+record sequences determine their counts; later binary construction generates new
+locators. Discarding storage metadata must not hide malformed source input.
 
 For stripped instances, promotion must use the original schema, before its
 association is lost or replaced. Base instances are reconstructed as differences
@@ -1127,21 +1149,166 @@ document result are selected above. The agreed function, diagnostics and
 publication mechanism are specified below. Conflicts identify both original
 source locations, without retaining handles into discarded temporary output.
 
-For instance and bulk data merging, concrete source/view types, destination
-ownership and schema-context parameters remain to be specified. Prefer one merge
-implementation over the standard document form, with live/baked and binary-backed
-conversion at the boundary. No new public adapter, universal owner, attached
-document-only role state or overload family is selected by this revision.
+For instance and bulk data merging, the selected views are
+`CInstanceDocumentQuery` and `CBulkDataDocumentQuery`, respectively; the destination
+is an independently owned `CLiveDocument`. Each operation receives one ready,
+read-only `CResolvedSchema` for the merged schema. Generic input documents have
+no binding to switch. Original schemas are required by binary-to-document
+conversion, not by the merge core. The agreed function and diagnostic declarations
+are specified below; they are not yet implemented.
+
+Use one merge implementation per operation over prepared document input, with
+binary-backed conversion at the boundary. No universal owner, attached
+document-only role state or live/baked overload family is needed. Extract shared
+internal merge mechanics from type-schema merging only where the data operations
+demonstrate a concrete need; a generic public merge framework is not selected.
 
 The earlier proposed `EAggregationOutputForm`, `SAggregationOptions` and
 role-to-block `aggregate_instances(...)` / `aggregate_bulk_data(...)` signatures
 are retired design proposals, not implemented APIs. Output form selection and
 optional consistency checking belong to explicitly designed boundary operations.
-The `bool` plus diagnostic-output convention applies to type-schema merging.
-For instance/bulk data merging, diagnostics must distinguish conversion,
-declaration conflicts and final validation/construction failures. Their exact
-structures and location lifetimes remain open, including how diagnostics relate
-temporary promoted nodes to original input.
+Use the existing `bool` plus diagnostic-output convention for the data operations
+too. Conversion diagnostics remain separate from merge diagnostics. Conversion
+failures identify original source entries. Successful conversion publishes a
+caller-owned document; merge diagnostics may therefore borrow locations in that
+document for as long as the caller preserves it. No persistent provenance map
+from reconstructed values back to stripped data is required. Any later combined
+convenience operation must explicitly settle its own diagnostic lifetimes.
+
+### Agreed data-aggregation functions and diagnostics
+
+The following interfaces are agreed design, not implemented APIs:
+
+```cpp
+namespace schema
+{
+
+enum class EDataMergeStage : std::uint8_t
+{
+    none = 0u,
+    preconditions,
+    first_source_validation,
+    second_source_validation,
+    document_merge,
+    result_validation
+};
+
+enum class EDataMergeReason : std::uint8_t
+{
+    none = 0u,
+    invalid_schema,
+    invalid_source,
+    conflicting_value,
+    allocation_failed,
+    storage_limit,
+    construction_failed,
+    invalid_result
+};
+
+struct SInstanceMergeDiagnostic
+{
+    EDataMergeStage stage{ EDataMergeStage::none };
+    EDataMergeReason reason{ EDataMergeReason::none };
+    CInstanceHandle first;
+    CInstanceHandle second;
+    SInstanceDiagnostic validation;
+};
+
+struct SBulkDataMergeDiagnostic
+{
+    EDataMergeStage stage{ EDataMergeStage::none };
+    EDataMergeReason reason{ EDataMergeReason::none };
+    CBulkDataHandle first;
+    CBulkDataHandle second;
+    SBulkDataDiagnostic validation;
+};
+
+[[nodiscard]] bool merge_instances(
+    const CInstanceDocumentQuery& first,
+    const CInstanceDocumentQuery& second,
+    const CResolvedSchema& schema,
+    CLiveDocument& destination,
+    SInstanceMergeDiagnostic& diagnostic) noexcept;
+
+[[nodiscard]] bool merge_bulk_data(
+    const CBulkDataDocumentQuery& first,
+    const CBulkDataDocumentQuery& second,
+    const CResolvedSchema& schema,
+    CLiveDocument& destination,
+    SBulkDataMergeDiagnostic& diagnostic) noexcept;
+
+}   // namespace schema
+```
+
+`schema` is the ready, resolved merged schema. The functions do not resolve it,
+convert binary-backed input or construct a binary package. Each source is a
+prepared document view; live/baked combinations use the same interface. Results
+contain only `instances` or `data`, respectively. Occupied destinations and
+either/both-source aliasing follow the publication contract below.
+
+The stage/reason enums are shared, while source locations and nested validation
+diagnostics retain their existing instance or bulk data types. There is no
+compatibility stage: both prepared inputs are interpreted against the same
+supplied schema. Unknown types, incomplete bulk records and invalid declarations
+are source-validation failures.
+
+| Failure | Diagnostic |
+| --- | --- |
+| Supplied schema is not ready | `preconditions` / `invalid_schema`, with no document locations or nested validation detail. |
+| Invalid prepared input | Corresponding source-validation stage and `invalid_source`, retaining the existing domain diagnostic in `validation`. |
+| Conflicting declarations or records | `document_merge` / `conflicting_value`, with both source locations and defaulted `validation`. |
+| Allocation or storage limit | The stage where it failed and the specific resource reason, only when identified by the underlying operation. |
+| Other document node-construction failure | `document_merge` / `construction_failed`; do not invent a more specific resource cause. |
+| Invalid completed document | `result_validation` / `invalid_result`, retaining the domain validation reason but clearing its temporary occurrence. |
+
+For source-validation failures, populate the corresponding `first` or `second`
+handle from the nested occurrence where available; leave the other unset. The
+source-validation stage identifies the owner of nested locations. For conflicts,
+the two handles identify the supplied conflicting values. Unavailable locations
+remain unset. Resource failures during validation follow the same source versus
+temporary-result location rules and retain available domain validation detail.
+For all result-validation failures, leave both source handles unset and clear
+`validation.occurrence`; no staging handle may escape.
+
+Report the first failure and clear the entire diagnostic on success. Diagnostics
+own no document storage. Their source locations remain valid only while the
+corresponding supplied document and its identities remain valid, including when
+that input is a caller-owned conversion result. Conversion failures remain in the
+separate conversion API; no conversion stage or temporary-input provenance map
+is added to these merge diagnostics. Later binary-construction errors likewise
+belong to the separate construction operation.
+
+### Agreed data-aggregation validation and publication
+
+Validate each prepared input independently against the supplied merged schema,
+then validate the completed document before publication. One input cannot repair
+an invalid declaration or incomplete bulk record in the other. Validation observes
+explicit instance selections without expanding defaults or inheritance into the
+document. Ordinary retained declarations are not automatically reconciled; raw
+binary edits contribute only after explicit reconciliation by the caller.
+
+Reuse the existing construction admission rules for value types, scalar ranges,
+named/positional selections and complete bulk records. The value codec currently
+shares admission between writing and comparison against existing bytes; extend
+that shared logic with declaration-only validation instead of implementing another
+validator or constructing a disposable binary package. Keep entry shape, instance
+hierarchy and size-limit validation shared with the existing data paths too.
+Validation does not attach a data role or retain a resolved cache in the output.
+
+Construction uses a private live document, preserving the agreed ordering,
+presentation and omission rules. Finish all fallible construction and result
+validation, then release temporary borrowed state before publishing through
+`destination = std::move(staged)`. An occupied destination contributes only if
+explicitly supplied as a source. Either or both sources may alias the destination;
+same-source merging still follows ordinary validation and merge rules. Failure
+preserves sources and destination; success invalidates old destination identities.
+No rollback owner or failing publication step is needed.
+
+Final-result diagnostics must not retain locations in discarded staging storage.
+Source conflicts identify the supplied prepared documents, including caller-owned
+conversion results. Later binary construction remains a separate operation with
+its own failure boundary; composition and combined orchestration remain future
+design work.
 
 ### Agreed type-schema merge function and diagnostics
 
@@ -1447,19 +1614,26 @@ replacement remain applicable. The former binary-snapshot merge predicate,
 matching-form selection, same-owner role precondition and specialised overload
 matrix are superseded. Implemented attachment and switching remain unchanged.
 
+Data-aggregation source views and output ownership are now agreed: existing
+instance/bulk data queries, one resolved merged-schema context and an independent
+live document containing the selected section. Each input and the result validate
+without constructing disposable binary. Staged move publication supports occupied
+and source-aliased destinations. Conversion validates storage metadata before
+removing it and publishes caller-owned documents; conversion diagnostics stay
+separate from merge diagnostics. The `merge_instances` and `merge_bulk_data`
+signatures and their shared stage/reason enums with typed location diagnostics
+are agreed above. See the
+[interfaces and diagnostics](#agreed-data-aggregation-functions-and-diagnostics)
+and [validation and publication decisions](#agreed-data-aggregation-validation-and-publication).
+
 Remaining decisions are:
 
-- Concrete instance/bulk data document source/view and destination types,
-  schema-context parameters, aliasing details and replacement machinery. Live
-  versus baked public document storage for these operations is not yet selected.
-- Boundary conversion for stripped instances and incomplete bulk data, independent
-  document ownership after dropping temporary binary, and removal/invalidation
-  of source storage metadata. Keep source backing and original schemas alive
-  until conversion finishes.
-- Instance/bulk data diagnostics for declaration conflicts, conversion and
-  construction failures, including source locations after temporary promotion.
-  Optional consistency checks must remain explicit. Type-schema diagnostics are
-  settled above.
+- Concrete boundary conversion APIs for stripped instances and incomplete bulk
+  data, reusing promotion/reconciliation and publishing independent document-only
+  storage. Keep source backing and original schemas alive until conversion finishes.
+- Conversion diagnostic details and any later combined operation's mapping from
+  temporary promoted nodes to original input. Standalone merge diagnostics borrow
+  caller-owned prepared inputs. Optional consistency checks remain explicit.
 - Composition signatures and any convenience orchestration of conversion, merge
   and later construction, without adding merge-time representation states.
 

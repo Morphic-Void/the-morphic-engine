@@ -152,9 +152,17 @@ snapshot equality rule, matching-form output selector, literal same-owner source
 precondition and specialised-role overload matrix are superseded. Type-schema
 merging is complete; see the [runtime API](../schema/runtime-api.md#type-schema-merging)
 and [completed plan](../project/type_schema_merge_implementation_plan.md).
-Data-merge document interfaces,
-schema context, boundary ownership, metadata handling and diagnostics remain to
-be designed. Those later operations have no implementation plan. Implemented schema
+Data aggregation now has agreed existing instance/bulk data query inputs, a
+resolved merged-schema context and independent live-document output. Validate
+each prepared input and the result through shared construction admission without
+allocating disposable binary; publish by staged move with source aliasing allowed.
+Boundary conversion validates storage metadata before removing it and publishes
+caller-owned documents. Conversion diagnostics stay separate; merge diagnostics
+borrow prepared-input locations. The `merge_instances` and `merge_bulk_data`
+signatures, shared stage/reason enums and separate typed diagnostics are agreed;
+see the [interface contract](../schema/persistence-and-aggregation.md#agreed-data-aggregation-functions-and-diagnostics).
+Conversion APIs remain design work. Those operations have no implementation plan.
+Implemented schema
 switching still preserves binary data; document merging and subsequent
 construction are separate operations.
 
