@@ -77,7 +77,11 @@ merged-schema context, independent live output and staged move publication.
 Validation reuses construction admission without disposable binary; boundary
 conversion publishes caller-owned documents and keeps its diagnostics separate.
 The `merge_instances` and `merge_bulk_data` signatures and typed diagnostic
-contracts are agreed. Conversion APIs and implementation plans remain design work.
+contracts are agreed. A [data aggregation implementation plan](../project/data_aggregation_implementation_plan.md)
+has been revised after review; implementation has not started. Prepared-root and
+schema-backing lifetime rules are settled. Retain cheap declaration-depth checks
+and allow implicit depth failures during later construction. Conversion APIs and
+composition remain separate design work.
 General document object-child indexing and persistent live cursors remain
 deferred. The completed consolidation does not authorise further implementation.
 

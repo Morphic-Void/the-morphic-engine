@@ -161,7 +161,13 @@ caller-owned documents. Conversion diagnostics stay separate; merge diagnostics
 borrow prepared-input locations. The `merge_instances` and `merge_bulk_data`
 signatures, shared stage/reason enums and separate typed diagnostics are agreed;
 see the [interface contract](../schema/persistence-and-aggregation.md#agreed-data-aggregation-functions-and-diagnostics).
-Conversion APIs remain design work. Those operations have no implementation plan.
+The [data aggregation implementation plan](../project/data_aggregation_implementation_plan.md)
+has been revised after review and covers the document merge cores, complementary
+declaration validation sharing admission helpers, and shared construction. Strict
+prepared roots and the schema-backing destination guard are settled. Retain cheap
+declaration-depth checks and allow implicit depth failures during later
+construction. Implementation has not started. Conversion APIs and composition
+remain separate design work without implementation plans.
 Implemented schema
 switching still preserves binary data; document merging and subsequent
 construction are separate operations.

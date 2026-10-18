@@ -40,8 +40,9 @@ Type-schema merging is documented in the
 and complete document composition remain design work. Data aggregation now has
 agreed function signatures, typed diagnostic contracts, document views,
 resolved-schema context, live output ownership, validation and publication
-boundaries. Conversion APIs and implementation plans remain to be settled. This
-revision does not authorise those later operations.
+boundaries. A [data aggregation implementation plan](../project/data_aggregation_implementation_plan.md)
+has been revised after review; implementation has not started. Conversion APIs and their
+delivery plans remain separate. This revision does not authorise implementation.
 
 The [persistence milestone](../project/completed_milestones.md#schema-instance-and-bulk-data-persistence)
 and [role milestone](../project/completed_milestones.md#schema-role-attachment-and-construction)
@@ -1254,7 +1255,7 @@ are source-validation failures.
 
 | Failure | Diagnostic |
 | --- | --- |
-| Supplied schema is not ready | `preconditions` / `invalid_schema`, with no document locations or nested validation detail. |
+| Supplied schema is not ready, or destination replacement would invalidate its backing document | `preconditions` / `invalid_schema`, with no document locations or nested validation detail. |
 | Invalid prepared input | Corresponding source-validation stage and `invalid_source`, retaining the existing domain diagnostic in `validation`. |
 | Conflicting declarations or records | `document_merge` / `conflicting_value`, with both source locations and defaulted `validation`. |
 | Allocation or storage limit | The stage where it failed and the specific resource reason, only when identified by the underlying operation. |
@@ -1280,6 +1281,20 @@ belong to the separate construction operation.
 
 ### Agreed data-aggregation validation and publication
 
+Prepared input is an object root containing only the selected `instances` or
+`data` section. An absent section is empty; a present section must be an object.
+Always emit the selected object section in the result. Empty groups/sections are
+valid, but a present bulk entry with an empty record sequence remains invalid.
+Reject locators, stripped markers, persistence-envelope fields and unrelated root
+sections. Boundary conversion should extract the selected section directly, not
+introduce another document copy solely to normalise its root.
+
+The destination must not back the supplied resolved schema: resolved names and
+other source access still borrow that document. Reject this case with a narrow
+internal identity check as `preconditions` / `invalid_schema`. Do not impose a
+general ban on harmless read-only sharing or introduce a hidden schema copy,
+new binding or alias registry. Source/destination aliasing remains supported.
+
 Validate each prepared input independently against the supplied merged schema,
 then validate the completed document before publication. One input cannot repair
 an invalid declaration or incomplete bulk record in the other. Validation observes
@@ -1287,13 +1302,30 @@ explicit instance selections without expanding defaults or inheritance into the
 document. Ordinary retained declarations are not automatically reconciled; raw
 binary edits contribute only after explicit reconciliation by the caller.
 
-Reuse the existing construction admission rules for value types, scalar ranges,
-named/positional selections and complete bulk records. The value codec currently
-shares admission between writing and comparison against existing bytes; extend
-that shared logic with declaration-only validation instead of implementing another
-validator or constructing a disposable binary package. Keep entry shape, instance
-hierarchy and size-limit validation shared with the existing data paths too.
-Validation does not attach a data role or retain a resolved cache in the output.
+Reuse the existing construction admission rules through small common helpers for
+scalar/enum conversion, bit-field constraints, value shape, named/positional
+selection and completeness. Add a complementary declaration traversal rather than
+a third operation throughout the value writer. It visits supplied selections with
+indexed schema lookup, without default expansion, payload access or a disposable
+binary package. Preserve existing writer/comparison behaviour and diagnostic
+precedence; do not duplicate their admission rules in the new traversal.
+
+Use a small prepared-document walker, extracting entry/property checks and checked
+extent arithmetic only where existing callers genuinely share the rule. Locator
+validation and record gathering stay with their storage-specific callers. A broad
+loader rewrite or universal configurable loader is not a prerequisite. Validation
+does not attach a data role or retain a resolved cache in the output.
+
+Keep cheap depth checks on declaration paths already visited, and allow implicit
+depth failures during later binary construction. Do not add a depth-summary cache,
+extra schema-graph traversal or omitted-value expansion solely to predict those
+failures. Cached type resolution does not prove that every implicit path fits the
+codec's depth budget, so merge success does not guarantee later construction.
+Retain existing construction guards and discard private partial construction
+output on failure; the merged document remains unchanged. The agreed
+[depth policy](../project/data_aggregation_implementation_plan.md#agreed-construction-depth-policy)
+accepts rare later failure rather than adding validation and scratch allocation
+to successful merges.
 
 Construction uses a private live document, preserving the agreed ordering,
 presentation and omission rules. Finish all fallible construction and result
@@ -1637,9 +1669,13 @@ Remaining decisions are:
 - Composition signatures and any convenience orchestration of conversion, merge
   and later construction, without adding merge-time representation states.
 
-These remaining data-aggregation/composition decisions precede their implementation
-plans. The type-schema plan is complete; neither it nor the completed
-schema work authorises follow-on implementation.
+The conversion/composition decisions precede their own implementation plans.
+The [data aggregation plan](../project/data_aggregation_implementation_plan.md)
+covers the agreed prepared-document merge cores and their shared validation and
+construction only. Strict prepared roots, the schema-backing destination guard and
+the depth policy are settled: retain cheap declaration-path checks and allow
+implicit depth failure during later construction. The type-schema plan is complete;
+neither completed work nor the new plan authorises implementation.
 
 ### Separate remaining capabilities
 
