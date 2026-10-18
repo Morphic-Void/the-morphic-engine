@@ -81,18 +81,20 @@ needed; a combined types/instances/bulk data file is not the mandatory normal fo
 Definition merging, instance aggregation and bulk data aggregation have separate
 responsibilities. Complete document composition assembles already reconciled
 sections and does not resolve collisions. The revision now includes the agreed
-version 1 persistence format with binary-authoritative loading and opt-in value
-comparison, caller-supplied schema binding without compatibility
-signatures, and the `CBakedInstancesBlock`/`CBakedBulkDataBlock` access and lifecycle
-contracts for local and Host backing. It also records live baking, description
+version 1 persistence format with schema-independent block validation and
+separate role attachment to authoritative binary data, with opt-in retained-value
+comparison. Callers supply the role's schema without compatibility signatures;
+`CBakedInstancesBlock`/`CBakedBulkDataBlock` manage local or Host backing without
+holding that association. It also records live baking, description
 materialisation and document-promotion stripping interfaces, with contiguous
-completed blocks and private staged construction permitted. Direct construction
-into final allocation is an expected later optimisation. Host loading, admission
+completed blocks and private staged construction permitted. Live baking now
+writes records directly into the final allocation; description
+materialisation still uses temporary payload storage. Host loading, admission
 and saving preserve the full buffer while exposing a separate document-prefix
 view. Explicit bundle saves write current storage; automatic bundle persistence
-and writes to bundle entries are outside scope. Shared load options and layered
-diagnostic contracts now distinguish format, schema binding, specialised loading
-and construction failures, with explicit location lifetime rules. Materialisation
+and writes to bundle entries are outside scope. Layered diagnostic contracts
+distinguish storage-format, role attachment and construction failures, with
+explicit location lifetime rules. Materialisation
 is all or nothing, and parsing is followed by explicit caller-side construction
 and optional Host admission/save. Implemented diagnostic representation is
 documented in the [runtime API](../schema/runtime-api.md#completed-data-blocks);
@@ -112,8 +114,11 @@ retains the naming convention and migration mapping.
 
 ### Remaining aggregation and composition design
 
-Active design covers non-destructive definition merging, validated schema
-switching and pairwise instance/bulk data aggregation. Agreed contracts include
+Active design covers non-destructive definition merging and pairwise
+instance/bulk data aggregation. Checked/trusted schema switching is implemented
+on data roles. Blocks are schema-independent storage; initial role attachment
+validates or constructs a complete package. The earlier associated document-only
+aggregation assumptions need revisiting under this model. Agreed contracts include
 recursive instance specialisations, bulk data prefix matching, literal shared
 schema ownership, binary-preserving schema switching, transactional destination
 replacement, form conversion, scalar and presentation merging, normalisation,
@@ -127,8 +132,8 @@ Complete document composition remains separate: it assembles already reconciled
 sections and does not resolve collisions. See the
 [revision's remaining design](../schema/persistence-and-aggregation.md#next-discussion-shared-schema-aggregation).
 
-Direct construction into final allocation and selected type-definition subsets
-remain optional optimisations. Compatibility signatures, persisted resolved
+Direct final storage for description materialisation and selected type-definition
+subsets remain optional optimisations. Compatibility signatures, persisted resolved
 lookups, automatic bundle persistence and bundle-entry writes were excluded from
 the completed persistence scope; they are not outstanding completion requirements.
 
@@ -253,6 +258,33 @@ layout, independent array strides and generated C output remain unsupported.
 They are not automatically selected by ingestion or the shader-representation
 discussion. A convenience catalogue of graphics formats, CSV review export and
 a general instance-reference path language are also unselected ideas.
-General schema name lookup remains caller-managed. Combining the distinct
+Resolved schema name lookup is indexed; callers can retain resolved indices for
+repeated access. Combining the distinct
 subtree-copy and whole-document-promotion traversals is not selected; their
 shared value construction is already implemented.
+
+## Completed construction refinements and remaining costs
+
+Native copying, promotion and controlled schema/role construction now use a
+private attachment path which skips sibling-name and ancestry scans already
+made redundant by source/schema invariants. Ordinary editing and arbitrary
+reader adapters retain checked attachment. Copies reuse same-document string
+IDs or temporary mappings containing only copied IDs. Whole baked promotion
+preloads string domains in lexical order, avoiding sorted-index shifts.
+
+Instance reconciliation now compares and emits in one traversal with stack-local
+lazy containers and pending array prefixes. It retains minimal declarations and
+shortest prefixes without aggregate-wide re-comparison. The final binary-fidelity
+check remains a separate bounded traversal.
+
+These changes are implemented and validated; the
+[role and construction milestone](../project/completed_milestones.md#schema-role-attachment-and-construction)
+records their completion and checks.
+
+Distinct strings admitted in arbitrary order still shift the string table's
+sorted index. Extending preloading to selected copies or mixed generated output
+would need to balance temporary planning/storage against the selected size.
+Live instance edits currently stage by scanning the record tail even when only
+a small descendant subtree is affected; that scan is linear per edit but could
+be restricted to the affected subtree. Neither requires changes to schema
+attachment or switching.

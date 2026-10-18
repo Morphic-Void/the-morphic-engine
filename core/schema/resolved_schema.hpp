@@ -237,8 +237,8 @@ public:
     CResolvedSchema& operator=(const CResolvedSchema&) = delete;
     [[nodiscard]] bool resolve(const CBakedDocument& document, SDiagnostic& diagnostic) noexcept;
     [[nodiscard]] bool resolve(const CLiveDocument& document, SDiagnostic& diagnostic) noexcept;
-    [[nodiscard]] bool resolve(const CSchemaDocumentQuery& document, SDiagnostic& diagnostic) noexcept;
     [[nodiscard]] bool resolve(SDiagnostic& diagnostic) noexcept;
+    [[nodiscard]] bool resolve(const CSchemaDocumentQuery& document, SDiagnostic& diagnostic) noexcept;
     void clear() noexcept;
 
     [[nodiscard]] bool is_ready() const noexcept { return m_ready; }
@@ -249,27 +249,29 @@ public:
     //  source mutation; suitable for text writing, adoption or document baking.
     [[nodiscard]] bool prepare_output(CLiveDocument& destination, SDiagnostic& diagnostic) const noexcept;
 
-    [[nodiscard]] CStringView name(const CPropertyNameId id) const noexcept;
-
     //  Type catalogue and checked record access
     [[nodiscard]] CSchemaIndex find_type(const CStringView& name) const noexcept;
+    [[nodiscard]] CStringView name(const CPropertyNameId id) const noexcept;
     [[nodiscard]] std::uint32_t definition_count() const noexcept;
     [[nodiscard]] CSchemaIndex definition_at(const std::uint32_t ordinal) const noexcept;
+    [[nodiscard]] bool definition_ordinal(const CSchemaIndex type, std::uint32_t& ordinal) const noexcept;
     [[nodiscard]] bool type(const CSchemaIndex index, SType& result) const noexcept;
     [[nodiscard]] CSchemaIndex member_at(const CSchemaIndex type, const std::uint32_t ordinal) const noexcept;
 
     //  Offset order, with declaration ordinal breaking ties. Includes empty members.
     //  Prepared during resolution; observation allocates nothing.
     [[nodiscard]] CSchemaIndex physical_member_at(const CSchemaIndex type, const std::uint32_t ordinal) const noexcept;
-    [[nodiscard]] CSchemaIndex find_member(const CSchemaIndex type, const CStringView& name) const noexcept;
-    [[nodiscard]] bool member(const CSchemaIndex index, SMember& result) const noexcept;
+
     [[nodiscard]] CSchemaIndex label_at(const CSchemaIndex type, const std::uint32_t ordinal) const noexcept;
-    [[nodiscard]] CSchemaIndex find_label(const CSchemaIndex type, const CStringView& name) const noexcept;
-    [[nodiscard]] CSchemaIndex first_label_for_value(const CSchemaIndex type, const SScalar& value) const noexcept;
-    [[nodiscard]] bool label(const CSchemaIndex index, SLabel& result) const noexcept;
     [[nodiscard]] CSchemaIndex field_at(const CSchemaIndex type, const std::uint32_t ordinal) const noexcept;
-    [[nodiscard]] CSchemaIndex find_field(const CSchemaIndex type, const CStringView& name) const noexcept;
+    [[nodiscard]] bool member(const CSchemaIndex index, SMember& result) const noexcept;
+    [[nodiscard]] bool label(const CSchemaIndex index, SLabel& result) const noexcept;
     [[nodiscard]] bool field(const CSchemaIndex index, SField& result) const noexcept;
+    [[nodiscard]] CSchemaIndex find_member(const CSchemaIndex type, const CStringView& name) const noexcept;
+    [[nodiscard]] bool member_ordinal(const CSchemaIndex type, const CSchemaIndex member, std::uint32_t& ordinal) const noexcept;
+    [[nodiscard]] CSchemaIndex find_label(const CSchemaIndex type, const CStringView& name) const noexcept;
+    [[nodiscard]] CSchemaIndex find_field(const CSchemaIndex type, const CStringView& name) const noexcept;
+    [[nodiscard]] CSchemaIndex first_label_for_value(const CSchemaIndex type, const SScalar& value) const noexcept;
 
     //  Defaults
     //  Zero description requests implicit defaults; compounds refer callers to
@@ -284,7 +286,6 @@ public:
 
 private:
     friend class CLiveSchema;
-    void rebind_live_document(const CLiveDocument& document) noexcept;
 
     struct STypeRecord
     {
@@ -351,16 +352,22 @@ private:
     static CSchemaIndex index(const std::uint32_t kind, const std::uint32_t ordinal) noexcept;
     static std::uint32_t ordinal(const CSchemaIndex index) noexcept;
     static bool is_kind(const CSchemaIndex index, const std::uint32_t kind, const std::size_t size) noexcept;
-    CSchemaIndex lookup_type(const CStringView& name) const noexcept;
+    void rebind_live_document(const CLiveDocument& document) noexcept;
     const STypeRecord* type_record(const CSchemaIndex index) const noexcept;
-    template<class T> SRecordRange<T> child_range(const CSchemaIndex type, const ECategory category, const TPodVector<T>& records) const noexcept;
+    CSchemaIndex lookup_type(const CStringView& name) const noexcept;
     CSchemaIndex child_at(const CSchemaIndex type, const std::uint32_t ordinal, const ECategory category, const std::uint32_t kind) const noexcept;
+    template<class T> SRecordRange<T> child_range(const CSchemaIndex type, const ECategory category, const TPodVector<T>& records) const noexcept;
     CSchemaDocumentQuery m_document;
     TPodVector<STypeRecord> m_types;
+    TPodVector<std::uint32_t> m_type_names;
     TPodVector<SMemberRecord> m_members;
+    TPodVector<std::uint32_t> m_member_names;
     TPodVector<std::uint32_t> m_member_order; //  Physical-order ordinals in each type's member range.
     TPodVector<SLabel> m_labels;
+    TPodVector<std::uint32_t> m_label_names;
+    TPodVector<std::uint32_t> m_label_values; //  Numeric order, with the first declaration winning aliases.
     TPodVector<SField> m_fields;
+    TPodVector<std::uint32_t> m_field_names;
     TPodVector<SDefaultRecord> m_defaults;
     TPodVector<SMapping> m_mapping;
     std::uint32_t m_definitions{};

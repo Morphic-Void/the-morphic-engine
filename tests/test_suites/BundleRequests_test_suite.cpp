@@ -37,7 +37,7 @@ namespace
 using tests::TTestContext;
 using filesystem_image::ERootState;
 
-std::uint32_t MV_STD_ABI_CALL echo(void* data) noexcept
+std::uint32_t MV_STD_ABI_CALL echo(void* const data) noexcept
 {
     auto& resources = *static_cast<threading::CThreadResources*>(data);
     threading::CThreadContext context(resources);
@@ -57,7 +57,7 @@ std::uint32_t MV_STD_ABI_CALL echo(void* data) noexcept
     return 0u;
 }
 
-bool write(const std::string& file, const void* bytes, std::size_t size)
+bool write(const std::string& file, const void* const bytes, const std::size_t size)
 {
     return platform::filesystem::saveFile(file.c_str(), CByteConstView{ static_cast<const std::uint8_t*>(bytes), size });
 }
@@ -78,7 +78,7 @@ struct SFixture
     bool controlled{ false };
     std::size_t document_size{ 0u };
 
-    explicit SFixture(bool echo_io = false) :
+    explicit SFixture(const bool echo_io = false) :
         io({ thread_ids::bg_file_io, module_ids::executable, platform::threading::EThreadPriority::Normal,
             echo_io ? &echo : host::host_worker_thread_entry_point() }, conversion), controlled(echo_io) {}
 
@@ -90,7 +90,7 @@ struct SFixture
         service.detach_client(client);
         service.deallocate();
     }
-    bool initialise(bool separate)
+    bool initialise(const bool separate)
     {
         dedicated = separate;
         directory = std::filesystem::path(test_environment::test_output_path(separate ? "bundle-requests-two" : "bundle-requests-one")).generic_string();
@@ -151,7 +151,7 @@ struct SFixture
         message.set_owner(std::move(owner));
         service.complete(message, io);
     }
-    template<typename T> bool receive(T& result, std::int32_t slot)
+    template<typename T> bool receive(T& result, const std::int32_t slot)
     {
         platform::system::CPerfCounter timer;
         (void)timer.update();
@@ -166,7 +166,7 @@ struct SFixture
         }
         return false;
     }
-    template<typename T> void request(std::int32_t slot, CErasedOwner&& owner)
+    template<typename T> void request(const std::int32_t slot, CErasedOwner&& owner)
     {
         threading::CErasedOwnerMsg message;
         message.set_message_type<T>();
@@ -174,7 +174,7 @@ struct SFixture
         message.set_owner(std::move(owner));
         service.request(message, client);
     }
-    void bake(TTestContext& ctx, std::int32_t slot, const char* root = "pack:", const char* directory_name = "Input")
+    void bake(TTestContext& ctx, const std::int32_t slot, const char* const root = "pack:", const char* const directory_name = "Input")
     {
         auto owner = CErasedOwner::create<BundleBakeRequest>();
         auto* value = owner.payload<BundleBakeRequest>();
@@ -182,14 +182,14 @@ struct SFixture
             value->paths.subdirectory.set(directory_name) && value->paths.root.set(root));
         request<BundleBakeRequest>(slot, std::move(owner));
     }
-    void load_bundle(TTestContext& ctx, std::int32_t slot, const char* file, const char* root = "pack:")
+    void load_bundle(TTestContext& ctx, const std::int32_t slot, const char* const file, const char* const root = "pack:")
     {
         auto owner = CErasedOwner::create<BundleLoadRequest>();
         auto* value = owner.payload<BundleLoadRequest>();
         TEST_EXPECT(ctx, value && value->paths.file.set(file) && value->paths.root.set(root));
         request<BundleLoadRequest>(slot, std::move(owner));
     }
-    void load(TTestContext& ctx, std::int32_t slot, const char* file, EAssetFileFormat format, std::size_t alignment = 16u)
+    void load(TTestContext& ctx, const std::int32_t slot, const char* const file, const EAssetFileFormat format, const std::size_t alignment = 16u)
     {
         auto owner = CErasedOwner::create<AssetLoadRequest>();
         auto* value = owner.payload<AssetLoadRequest>();
@@ -198,15 +198,15 @@ struct SFixture
         value->alignment = alignment;
         request<AssetLoadRequest>(slot, std::move(owner));
     }
-    AssetResult result(TTestContext& ctx, std::int32_t slot, EAssetStatus status = EAssetStatus::success)
+    AssetResult result(TTestContext& ctx, const std::int32_t slot, const EAssetStatus status = EAssetStatus::success)
     {
         AssetResult value;
         TEST_EXPECT(ctx, receive(value, slot) && value.status == status);
         if (status != EAssetStatus::success) TEST_EXPECT(ctx, !value.asset && value.kind == EAssetKind::none);
         return value;
     }
-    void save(TTestContext& ctx, std::int32_t slot, CAssetId asset, const char* file,
-        EAssetFileFormat format = EAssetFileFormat::raw)
+    void save(TTestContext& ctx, const std::int32_t slot, const CAssetId asset, const char* const file,
+        const EAssetFileFormat format = EAssetFileFormat::raw)
     {
         auto owner = CErasedOwner::create<AssetSaveRequest>();
         auto* value = owner.payload<AssetSaveRequest>();
@@ -215,13 +215,13 @@ struct SFixture
         value->settings.format = format;
         request<AssetSaveRequest>(slot, std::move(owner));
     }
-    void dispose(TTestContext& ctx, CAssetId asset)
+    void dispose(TTestContext& ctx, const CAssetId asset)
     {
         service.request_disposal({ asset }, 99, client);
         AssetDisposeResult value;
         TEST_EXPECT(ctx, receive(value, 99) && value.asset == asset && value.status == EAssetStatus::success);
     }
-    void closed(TTestContext& ctx, CAssetId asset)
+    void closed(TTestContext& ctx, const CAssetId asset)
     {
         BundleDisposedNotification notice;
         TEST_EXPECT(ctx, receive(notice, -1) && notice.asset == asset);
@@ -229,7 +229,7 @@ struct SFixture
     }
 };
 
-void test_public_workflow(TTestContext& ctx, bool dedicated)
+void test_public_workflow(TTestContext& ctx, const bool dedicated)
 {
     SFixture fixture;
     const bool ready = fixture.initialise(dedicated);
@@ -330,7 +330,7 @@ void test_public_workflow(TTestContext& ctx, bool dedicated)
     TEST_EXPECT(ctx, fixture.service.is_idle() && !fixture.service.failed());
 }
 
-void test_complete_baked_buffers(TTestContext& ctx, bool dedicated)
+void test_complete_baked_buffers(TTestContext& ctx, const bool dedicated)
 {
     SFixture fixture;
     if (!fixture.initialise(dedicated)) { TEST_EXPECT(ctx, false); return; }
@@ -431,7 +431,7 @@ void test_complete_baked_buffers(TTestContext& ctx, bool dedicated)
     TEST_EXPECT(ctx, fixture.service.is_idle() && !fixture.service.failed());
 }
 
-bool same_bytes(CByteConstView bytes, const std::vector<std::uint8_t>& expected)
+bool same_bytes(const CByteConstView bytes, const std::vector<std::uint8_t>& expected)
 {
     return bytes.size() == expected.size() && std::memcmp(bytes.data(), expected.data(), expected.size()) == 0;
 }
@@ -443,6 +443,7 @@ void test_schema_persistence(TTestContext& ctx, SFixture& fixture, schema::CBake
     using Live = std::conditional_t<Instances, schema::CLiveInstances, schema::CLiveBulkData>;
     using Diagnostic = std::conditional_t<Instances, schema::SInstancesBlockDiagnostic, schema::SBulkDataBlockDiagnostic>;
     using RoleDiagnostic = std::conditional_t<Instances, schema::SInstanceDiagnostic, schema::SBulkDataDiagnostic>;
+    using Role = std::conditional_t<Instances, schema::CBakedInstances, schema::CBakedBulkData>;
     const char* file = Instances ? "work:/Input/instances.bid" : "work:/Input/bulk-data.bbd";
     const char* entry_file = Instances ? "pack:/instances.bid" : "pack:/bulk-data.bbd";
     const char* entry_name = Instances ? "instances.bid" : "bulk-data.bbd";
@@ -452,16 +453,19 @@ void test_schema_persistence(TTestContext& ctx, SFixture& fixture, schema::CBake
     const auto check_role = [&](const Block& block)
     {
         TEST_EXPECT(ctx, block.loaded_ready());
+        Role role;
+        RoleDiagnostic error;
+        TEST_EXPECT(ctx, role.set_document(block.document()) && role.attach_schema(schema, block.payload_view(), true, error));
         if constexpr (Instances)
         {
             schema::SInstanceEntryView entry;
-            TEST_EXPECT(ctx, block.instances().entry(block.instances().find_base(CStringView{ "Pair" }, CStringView{ "sample" }), entry));
+            TEST_EXPECT(ctx, role.entry(role.find_base(CStringView{ "Pair" }, CStringView{ "sample" }), entry));
             TEST_EXPECT(ctx, entry.byte_count == 2u && std::memcmp(entry.bytes, values, 2u) == 0);
         }
         else
         {
             schema::SBulkDataEntryView entry;
-            TEST_EXPECT(ctx, block.bulk_data().entry(block.bulk_data().find_entry(CStringView{ "Pair" }, CStringView{ "sample" }), entry));
+            TEST_EXPECT(ctx, role.entry(role.find_entry(CStringView{ "Pair" }, CStringView{ "sample" }), entry));
             TEST_EXPECT(ctx, entry.count == 2u && entry.byte_count == 4u && std::memcmp(entry.bytes, values, 4u) == 0);
         }
     };
@@ -486,7 +490,7 @@ void test_schema_persistence(TTestContext& ctx, SFixture& fixture, schema::CBake
     fixture.request<BakedAssetTransfer>(1, std::move(owner));
     const auto admitted = fixture.result(ctx, 1);
     Block attached;
-    TEST_EXPECT(ctx, attached.attach_asset(admitted.asset, admitted.byte_view(), schema, { true }, diagnostic));
+    TEST_EXPECT(ctx, attached.attach_asset(admitted.asset, admitted.byte_view(), diagnostic));
     TEST_EXPECT(ctx, same_bytes(attached.file_bytes(), snapshot) && attached.file_bytes().data() == bytes.data());
     check_role(attached);
     fixture.save(ctx, 2, admitted.asset, file, EAssetFileFormat::baked);
@@ -504,10 +508,11 @@ void test_schema_persistence(TTestContext& ctx, SFixture& fixture, schema::CBake
     constexpr char empty_types[] = R"({"types":{}})";
     TEST_EXPECT(ctx, document_parser::parse(CByteConstView{ reinterpret_cast<const std::uint8_t*>(empty_types), sizeof(empty_types) - 1u }, empty).accepted() &&
         missing.try_adopt(std::move(empty)) && missing.resolve(schema_diagnostic));
-    TEST_EXPECT(ctx, !attached.attach_asset(loaded.asset, loaded.byte_view(), missing, {}, diagnostic) &&
-        attached.backing() == schema::EEntityBacking::none && diagnostic.block.stage == schema::EDataBlockStage::specialised_loading);
-    TEST_EXPECT(ctx, same_bytes(loaded.byte_view(), snapshot) && missing.reference_count() == 0u);
-    TEST_EXPECT(ctx, attached.attach_asset(loaded.asset, loaded.byte_view(), schema, { true }, diagnostic));
+    TEST_EXPECT(ctx, attached.attach_asset(loaded.asset, loaded.byte_view(), diagnostic));
+    Role rejected;
+    TEST_EXPECT(ctx, rejected.set_document(attached.document()) &&
+        !rejected.attach_schema(missing, attached.payload_view(), true, role_diagnostic));
+    TEST_EXPECT(ctx, attached.loaded_ready() && same_bytes(loaded.byte_view(), snapshot) && missing.reference_count() == 0u);
     check_role(attached);
 
     //  Parsing and materialisation are separate operations with independent owners.
@@ -533,7 +538,7 @@ void test_schema_persistence(TTestContext& ctx, SFixture& fixture, schema::CBake
     TEST_EXPECT(ctx, same_bytes(saved.const_view(), stripped));
     fixture.load(ctx, 7, copy_file, EAssetFileFormat::baked, 128u);
     const auto stripped_load = fixture.result(ctx, 7);
-    TEST_EXPECT(ctx, materialised.attach_asset(stripped_load.asset, stripped_load.byte_view(), schema, {}, diagnostic));
+    TEST_EXPECT(ctx, materialised.attach_asset(stripped_load.asset, stripped_load.byte_view(), diagnostic));
     check_role(materialised);
     materialised.clear();
     fixture.dispose(ctx, stripped_load.asset);
@@ -543,7 +548,7 @@ void test_schema_persistence(TTestContext& ctx, SFixture& fixture, schema::CBake
     fixture.load(ctx, 9, entry_file, EAssetFileFormat::baked, 128u);
     const auto borrowed = fixture.result(ctx, 9);
     Block bundled;
-    TEST_EXPECT(ctx, bundled.attach_asset(borrowed.asset, borrowed.byte_view(), schema, { true }, diagnostic));
+    TEST_EXPECT(ctx, bundled.attach_asset(borrowed.asset, borrowed.byte_view(), diagnostic));
     const auto entry = bundle.bundle_view().lookup(CStringView{ entry_name });
     TEST_EXPECT(ctx, same_bytes(bundled.file_bytes(), snapshot) && bundled.file_bytes().data() == entry.bytes.data() &&
         bundled.file_bytes().size() == entry.bytes.count());
@@ -566,7 +571,7 @@ void test_schema_persistence(TTestContext& ctx, SFixture& fixture, schema::CBake
     fixture.closed(ctx, bundle.asset);
     fixture.load(ctx, 13, copy_file, EAssetFileFormat::baked, 128u);
     const auto restored = fixture.result(ctx, 13);
-    TEST_EXPECT(ctx, same_bytes(restored.byte_view(), snapshot) && bundled.attach_asset(restored.asset, restored.byte_view(), schema, { true }, diagnostic));
+    TEST_EXPECT(ctx, same_bytes(restored.byte_view(), snapshot) && bundled.attach_asset(restored.asset, restored.byte_view(), diagnostic));
     check_role(bundled);
     bundled.clear();
     fixture.dispose(ctx, restored.asset);
@@ -605,7 +610,7 @@ void test_schema_persistence(TTestContext& ctx, SFixture& fixture, schema::CBake
     TEST_EXPECT(ctx, schema.reference_count() == 0u && fixture.service.is_idle() && !fixture.service.failed());
 }
 
-void test_schema_workflows(TTestContext& ctx, bool dedicated)
+void test_schema_workflows(TTestContext& ctx, const bool dedicated)
 {
     SFixture fixture;
     if (!fixture.initialise(dedicated)) { TEST_EXPECT(ctx, false); return; }
@@ -623,7 +628,7 @@ void test_schema_workflows(TTestContext& ctx, bool dedicated)
     test_schema_persistence<false>(ctx, fixture, schema);
 }
 
-void test_current_bundle_save(TTestContext& ctx, bool dedicated)
+void test_current_bundle_save(TTestContext& ctx, const bool dedicated)
 {
     SFixture fixture;
     if (!fixture.initialise(dedicated)) { TEST_EXPECT(ctx, false); return; }

@@ -257,7 +257,7 @@ bool CResolvedSchema::prepare_output(CLiveDocument& destination, SDiagnostic& di
     }
     const CSchemaOutputQuery source{ m_document, rules };
     const CSchemaHandle types = source.object_child(source.root(), CStringView{ "types" });
-    const CNodeKey copied = document_translation::copy_subtree(staged, source, types, CStringView{ "types" });
+    const CNodeKey copied = document_translation::detail::copy_valid_subtree(staged, source, types, CStringView{ "types" });
     if (!copied || !staged.append_child(staged.root(), copied).succeeded())
     {
         diagnostic.reason = EReason::translation_failed;

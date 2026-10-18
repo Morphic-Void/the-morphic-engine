@@ -18,14 +18,66 @@ Permanent behavior and architectural contracts belong in the subsystem
 documents linked from each milestone. Current and future work belongs in
 `future_work_notes.md` and the backlog.
 
+## Schema role attachment and construction
+
+Implemented and validated on 17 October 2026, after the committed persistence
+milestone below. This records the current implementation and review, not a new
+commit checkpoint or user acceptance of the remaining aggregation design.
+
+Instance and bulk data blocks now retain only document/payload storage. Separate
+live/baked data roles carry schema associations. Initial attachment validates an
+existing package or constructs missing binary data atomically. Checked switching
+reuses representation and value-construction validation against the unchanged
+payload, including changed defaults; stale retained descriptions can reject the
+switch and reconciliation stays explicit. Trusted switching remaps type indices
+without repeating compatibility proof and can restore access after schema loss.
+Both modes preserve document handles, payload addresses/bytes and backing.
+
+Resolved type/member/field and enum lookup uses indexes. Record/group queries
+use temporary neighbour cursors with logarithmic fallback; switches reuse parent
+record types, remapping walks source selections, and live baking copies directly
+into final payload storage. Construction shares value admission and attachment
+commit logic while avoiding redundant sibling-name and ancestry scans for known
+valid sources and schema-driven builders. Native copies reuse string IDs or
+sparse temporary mappings; whole baked promotion preloads both string domains
+in lexical order. Ordinary editing and arbitrary readers retain checked paths.
+
+Instance reconciliation compares and emits in one traversal, lazily creating
+containers and required array prefixes. It preserves minimal declarations,
+parent-snapshot inheritance and existing scalar semantics, then independently
+verifies the generated declaration against the payload. Failure discards staged
+output without changing the source role.
+
+Debug/Release x64/Win32 solution builds and ordinary `-t1` runs passed after the
+construction changes. Each run reported 64,789 Schema, 13,289 BakedDocument and
+915 BundleRequests checks, with zero failures. Logs are
+`development/construction-build-{dbg64,dbg32,rel64,rel32}.log` and
+`development/construction-tests-{dbg64,dbg32,rel64,rel32}.log`. Regression coverage
+includes sparse string IDs, reversed name order, checked arbitrary readers,
+unready destinations, equal array gaps, deep nested changes, zero-size layouts
+and allocation-failure rollback. Policy, diff and line-ending checks passed.
+This documentation review adds no code changes and does not repeat that matrix.
+
+The [runtime API](../schema/runtime-api.md#initial-attachment-and-schema-switching),
+[data-model construction contract](../data_model/revised_data_model.md) and
+[validation guide](../schema/validation.md) describe the current implementation.
+Arbitrary-order distinct-string insertion can still shift a quadratic total of
+sorted-index entries; selected copies do not preload unrelated strings. Live
+instance edits still scan the record tail linearly. These costs and the separate,
+unimplemented aggregation/composition work remain in the
+[follow-on notes](../backlog/schema_follow_on.md).
+
 ## Schema instance and bulk data persistence
 
 Completed, user-reviewed and committed through 14 October 2026. All eight stages
 are complete, including the new-payload gap-zeroing follow-up in `dfe076d`.
 `.bid` and `.bbd` files retain a baked description and its binary payload as one
 contiguous persistence entity. `CBakedInstancesBlock` and `CBakedBulkDataBlock`
-expose contained specialised interfaces with caller-owned schema bindings and
-the existing local/Host asset lifetime model.
+originally exposed contained specialised interfaces. The 17 October rework
+separates schema-independent block storage from caller-owned typed roles and
+adds atomic attachment and checked/trusted switching. See the current
+[runtime contract](../schema/runtime-api.md#initial-attachment-and-schema-switching).
+The existing local/Host asset lifetime model remains in use.
 
 | Stage | Checkpoint | Delivered outcome |
 | --- | --- | --- |
@@ -88,8 +140,9 @@ The [aggregation revision](../schema/persistence-and-aggregation.md#separate-mer
 and [follow-on notes](../backlog/schema_follow_on.md#remaining-aggregation-and-composition-design)
 remain active design and planning references. Definition merging, validated
 schema switching, instance/bulk data aggregation and complete-document composition
-are not delivered by this milestone. Direct construction into final allocation
-remains an optional optimisation, not unfinished persistence work.
+were not delivered by this historical milestone. The subsequent schema rework
+implements switching and direct final-payload copying for live baking;
+aggregation and composition remain separate work.
 
 ## Bundle assets and virtual bindings
 
@@ -173,7 +226,9 @@ records directly, caches bulk data type bindings and shares compatibility checks
 Scalar decoding and document copying share implementations, while subtree copying
 and whole-document promotion retain their distinct traversal policies. The file,
 conditional/parameter and style passes clarify responsibilities without adding
-allocation to read paths. General schema name lookup remains caller-managed.
+allocation to read paths. General schema name lookup remained caller-managed at
+that checkpoint; the [17 October rework](#schema-role-attachment-and-construction)
+adds resolved name indexes and further construction improvements.
 
 Representative checkpoints are `db82da7` (style/header closeout), `06962f7`
 (physical traversal/query forwarding), `3e3e25c` (data-model integer presentation),

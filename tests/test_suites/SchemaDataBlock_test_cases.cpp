@@ -38,8 +38,8 @@ static_assert(std::is_trivially_copyable_v<SInstancesBlockDiagnostic>);
 static_assert(std::is_trivially_copyable_v<SBulkDataBlockDiagnostic>);
 static_assert(!std::is_copy_constructible_v<CBakedInstancesBlock> && !std::is_move_constructible_v<CBakedInstancesBlock>);
 static_assert(!std::is_copy_constructible_v<CBakedBulkDataBlock> && !std::is_move_constructible_v<CBakedBulkDataBlock>);
-static_assert(std::is_same_v<decltype(std::declval<CBakedInstancesBlock&>().instances()), const CBakedInstances&>);
-static_assert(std::is_same_v<decltype(std::declval<CBakedBulkDataBlock&>().bulk_data()), const CBakedBulkData&>);
+static_assert(std::is_same_v<decltype(std::declval<CBakedInstancesBlock&>().document()), const CBakedDocument&>);
+static_assert(std::is_same_v<decltype(std::declval<CBakedBulkDataBlock&>().document()), const CBakedDocument&>);
 
 struct SFixture
 {
@@ -84,7 +84,7 @@ static void expect_empty(TTestContext& ctx, const SDataBlockView& view)
     TEST_EXPECT(ctx, !view.document.is_ready() && !view.section && !view.payload.is_ready() && !view.stripped);
 }
 
-static void expect_failure(TTestContext& ctx, const void* bytes, const std::size_t size,
+static void expect_failure(TTestContext& ctx, const void* const bytes, const std::size_t size,
     const EDataBlockKind kind, const EDataBlockReason reason, const EDataBlockLocationKind location,
     const CBakedValueIndex value = {}, const std::uint64_t offset = 0u,
     const EDataBlockStage stage = EDataBlockStage::format_validation)
@@ -103,7 +103,6 @@ static void expect_failure(TTestContext& ctx, const void* bytes, const std::size
 
 static void test_valid(TTestContext& ctx)
 {
-    TEST_EXPECT(ctx, !SDataBlockLoadOptions{}.compare_embedded);
     TEST_EXPECT(ctx, SInstancesBlockDiagnostic{}.role.reason == EInstanceLoadReason::none &&
         SBulkDataBlockDiagnostic{}.role.reason == EBulkDataLoadReason::none);
     for (const auto kind : { EDataBlockKind::instances, EDataBlockKind::bulk_data })
@@ -337,10 +336,23 @@ struct SBlockTraits
     using Reason = std::conditional_t<Instances, EInstanceLoadReason, EBulkDataLoadReason>;
     static constexpr EDataBlockKind kind = Instances ? EDataBlockKind::instances : EDataBlockKind::bulk_data;
 
-    static const auto& role(const Block& block)
+    static auto query(const Block& block)
     {
-        if constexpr (Instances) return block.instances();
-        else return block.bulk_data();
+        return std::conditional_t<Instances, CInstanceDocumentQuery, CBulkDataDocumentQuery>{ block.document() };
+    }
+
+    static bool stripped(const Block& block)
+    {
+        bool value{};
+        const auto& document = block.document();
+        (void)document.boolean_value(document.object_child(document.root(), CStringView{ "stripped" }), value);
+        return value;
+    }
+
+    template<class TSchema>
+    static bool attach(Role& role, const Block& block, TSchema& schema, RoleDiagnostic& diagnostic, const bool compare = true)
+    {
+        return role.set_document(block.document()) && role.attach_schema(schema, block.payload_view(), compare, diagnostic);
     }
 
     static std::string entry(const unsigned offset, const bool embedded = false)
@@ -356,20 +368,24 @@ struct SBlockTraits
         return "{\"u8\":{\"one\":" + entry(2u, embedded) + ",\"two\":" + entry(6u, embedded) + "}}";
     }
 
-    static void check_entry(TTestContext& ctx, const Block& block, const std::uint8_t* payload)
+    template<class TSchema>
+    static void check_entry(TTestContext& ctx, const Block& block, TSchema& schema, const std::uint8_t* const payload)
     {
+        Role role;
+        RoleDiagnostic diagnostic;
+        TEST_EXPECT(ctx, attach(role, block, schema, diagnostic, false));
         if constexpr (Instances)
         {
             SInstanceEntryView entry;
-            const auto handle = block.instances().find_base(CStringView{ "u8" }, CStringView{ "one" });
-            TEST_EXPECT(ctx, handle && block.instances().entry(handle, entry));
+            const auto handle = role.find_base(CStringView{ "u8" }, CStringView{ "one" });
+            TEST_EXPECT(ctx, handle && role.entry(handle, entry));
             TEST_EXPECT(ctx, entry.offset == 2u && entry.byte_count == 1u && entry.bytes == payload + 2u);
         }
         else
         {
             SBulkDataEntryView entry;
-            const auto handle = block.bulk_data().find_entry(CStringView{ "u8" }, CStringView{ "one" });
-            TEST_EXPECT(ctx, handle && block.bulk_data().entry(handle, entry));
+            const auto handle = role.find_entry(CStringView{ "u8" }, CStringView{ "one" });
+            TEST_EXPECT(ctx, handle && role.entry(handle, entry));
             TEST_EXPECT(ctx, entry.offset == 2u && entry.count == 1u && entry.byte_count == 1u && entry.bytes == payload + 2u);
         }
     }
@@ -389,36 +405,36 @@ static void test_block_ownership(TTestContext& ctx, TSchema& schema)
     TEST_EXPECT(ctx, source.adopt_buffer(std::move(fixture.file)));
     typename T::Block block;
     TEST_EXPECT(ctx, block.backing() == EEntityBacking::none && !block.loaded_ready() && !block.asset_id() &&
-        block.file_bytes().data() == nullptr && !T::role(block).document_ready());
+        block.file_bytes().data() == nullptr && !block.document().is_ready());
     CBakedDocumentBlock extracted;
     TEST_EXPECT(ctx, !block.release_local(extracted));
     seed(diagnostic.block);
     diagnostic.role.reason = T::Reason::unknown_type;
-    TEST_EXPECT(ctx, block.adopt_local(std::move(source), schema, { true }, diagnostic));
+    TEST_EXPECT(ctx, block.adopt_local(std::move(source), diagnostic));
     TEST_EXPECT(ctx, diagnostic.block.reason == EDataBlockReason::none && diagnostic.role.reason == T::Reason::none &&
         diagnostic.block.location.kind == EDataBlockLocationKind::none);
     TEST_EXPECT(ctx, !source.is_ready() && source.buffer_capacity() == 0u);
-    TEST_EXPECT(ctx, schema.reference_count() == 1u && block.loaded_ready() && block.backing() == EEntityBacking::local && !block.asset_id());
+    TEST_EXPECT(ctx, schema.reference_count() == 0u && block.loaded_ready() && block.backing() == EEntityBacking::local && !block.asset_id());
     TEST_EXPECT(ctx, block.file_bytes().data() == original && block.file_bytes().size() == file_size);
-    T::check_entry(ctx, block, original + fixture.payload_offset);
+    T::check_entry(ctx, block, schema, (original + fixture.payload_offset));
 
     SFixture replacement;
     TEST_EXPECT(ctx, replacement.build(envelope(T::kind)));
     TEST_EXPECT(ctx, source.adopt_buffer(std::move(replacement.file)));
     const auto* const other = source.buffer_bytes().data();
-    TEST_EXPECT(ctx, !block.adopt_local(std::move(source), schema, {}, diagnostic));
+    TEST_EXPECT(ctx, !block.adopt_local(std::move(source), diagnostic));
     TEST_EXPECT(ctx, diagnostic.block.stage == EDataBlockStage::preconditions &&
         diagnostic.block.reason == EDataBlockReason::destination_not_empty && diagnostic.role.reason == T::Reason::none);
-    TEST_EXPECT(ctx, source.buffer_bytes().data() == other && block.file_bytes().data() == original && schema.reference_count() == 1u);
-    TEST_EXPECT(ctx, !block.attach_asset({}, {}, schema, {}, diagnostic) &&
+    TEST_EXPECT(ctx, source.buffer_bytes().data() == other && block.file_bytes().data() == original && schema.reference_count() == 0u);
+    TEST_EXPECT(ctx, !block.attach_asset({}, {}, diagnostic) &&
         diagnostic.block.reason == EDataBlockReason::destination_not_empty);
     TEST_EXPECT(ctx, !block.release_local(source) && source.buffer_bytes().data() == other && block.loaded_ready());
     TEST_EXPECT(ctx, block.release_local(extracted));
     TEST_EXPECT(ctx, schema.reference_count() == 0u && block.backing() == EEntityBacking::none &&
-        !T::role(block).document_ready() && !block.file_bytes().is_ready());
+        !block.document().is_ready() && !block.file_bytes().is_ready());
     TEST_EXPECT(ctx, extracted.buffer_bytes().data() == original && extracted.buffer_bytes().size() == file_size &&
         std::memcmp(original, snapshot.data(), file_size) == 0);
-    TEST_EXPECT(ctx, block.adopt_local(std::move(extracted), schema, {}, diagnostic));
+    TEST_EXPECT(ctx, block.adopt_local(std::move(extracted), diagnostic));
     block.clear();
     block.clear();
     TEST_EXPECT(ctx, schema.reference_count() == 0u && !block.loaded_ready() && !block.asset_id());
@@ -433,19 +449,19 @@ static void test_block_ownership(TTestContext& ctx, TSchema& schema)
     const CByteConstView borrowed = static_cast<const CBakedDocumentBlock&>(stored->block).buffer_bytes();
     const CAssetId id = assets.insert(std::move(owner));
     TEST_EXPECT(ctx, id.is_valid());
-    TEST_EXPECT(ctx, !block.attach_asset({}, borrowed, schema, {}, diagnostic) &&
+    TEST_EXPECT(ctx, !block.attach_asset({}, borrowed, diagnostic) &&
         diagnostic.block.reason == EDataBlockReason::invalid_input && block.backing() == EEntityBacking::none);
-    TEST_EXPECT(ctx, !block.attach_asset(id, {}, schema, {}, diagnostic) && assets.resolve(id) != nullptr &&
+    TEST_EXPECT(ctx, !block.attach_asset(id, {}, diagnostic) && assets.resolve(id) != nullptr &&
         schema.reference_count() == 0u);
-    TEST_EXPECT(ctx, block.attach_asset(id, borrowed, schema, {}, diagnostic));
+    TEST_EXPECT(ctx, block.attach_asset(id, borrowed, diagnostic));
     TEST_EXPECT(ctx, block.backing() == EEntityBacking::asset && block.asset_id() == id && block.loaded_ready() &&
-        block.file_bytes().data() == other && schema.reference_count() == 1u);
+        block.file_bytes().data() == other && schema.reference_count() == 0u);
     TEST_EXPECT(ctx, !block.release_local(extracted) && !extracted.is_ready());
     block.clear();
     TEST_EXPECT(ctx, !block.asset_id() && !block.file_bytes().is_ready() && schema.reference_count() == 0u && assets.resolve(id) != nullptr);
     {
         typename T::Block temporary;
-        TEST_EXPECT(ctx, temporary.attach_asset(id, borrowed, schema, {}, diagnostic));
+        TEST_EXPECT(ctx, temporary.attach_asset(id, borrowed, diagnostic));
     }
     TEST_EXPECT(ctx, schema.reference_count() == 0u && assets.resolve(id) != nullptr && stored->block.is_ready());
     TEST_EXPECT(ctx, assets.erase(id));
@@ -473,21 +489,17 @@ static void test_block_failures(TTestContext& ctx, TSchema& schema)
         TEST_EXPECT(ctx, source.adopt_buffer(std::move(fixture.file)));
         typename T::Block block;
         typename T::Diagnostic diagnostic;
-        TEST_EXPECT(ctx, !block.adopt_local(std::move(source), schema, { item.compare }, diagnostic));
-        TEST_EXPECT(ctx, block.backing() == EEntityBacking::none && !T::role(block).document_ready() && !block.loaded_ready());
-        TEST_EXPECT(ctx, source.buffer_bytes().data() == original && schema.reference_count() == 0u &&
-            std::memcmp(original, snapshot.data(), snapshot.size()) == 0);
-        TEST_EXPECT(ctx, diagnostic.block.stage == EDataBlockStage::specialised_loading &&
-            diagnostic.block.reason == EDataBlockReason::specialised_failure && diagnostic.role.reason == item.reason);
-        //  Temporary preparation is gone; both locations still address source bytes.
-        const auto query = std::conditional_t<Instances, CInstanceDocumentQuery, CBulkDataDocumentQuery>{ source.document() };
-        TEST_EXPECT(ctx, query.contains(diagnostic.role.occurrence) &&
-            diagnostic.block.location.kind == EDataBlockLocationKind::source_baked_value);
-        TEST_EXPECT(ctx, source.document().value_type(diagnostic.block.location.baked_value) != EBakedValueType::invalid);
+        TEST_EXPECT(ctx, block.adopt_local(std::move(source), diagnostic));
+        typename T::Role role;
+        typename T::RoleDiagnostic error;
+        TEST_EXPECT(ctx, !T::attach(role, block, schema, error, item.compare));
+        TEST_EXPECT(ctx, block.loaded_ready() && block.file_bytes().data() == original && !role.loaded_ready());
+        TEST_EXPECT(ctx, schema.reference_count() == 0u && std::memcmp(original, snapshot.data(), snapshot.size()) == 0);
+        TEST_EXPECT(ctx, error.reason == item.reason && T::query(block).contains(error.occurrence));
         if (item.compare)
         {
-            TEST_EXPECT(ctx, block.adopt_local(std::move(source), schema, {}, diagnostic));
-            TEST_EXPECT(ctx, block.loaded_ready() && diagnostic.role.reason == T::Reason::none);
+            TEST_EXPECT(ctx, role.attach_schema(schema, block.payload_view(), false, error));
+            TEST_EXPECT(ctx, role.loaded_ready() && error.reason == T::Reason::none);
         }
     }
 
@@ -505,9 +517,9 @@ static void test_block_failures(TTestContext& ctx, TSchema& schema)
             {
                 typename T::Block block;
                 typename T::Diagnostic diagnostic;
-                TEST_EXPECT(ctx, block.adopt_local(std::move(source), schema, { true }, diagnostic));
-                TEST_EXPECT(ctx, block.loaded_ready() && T::role(block).values_stripped() == stripped &&
-                    T::role(block).payload_view().size() == 0u && schema.reference_count() == 1u);
+                TEST_EXPECT(ctx, block.adopt_local(std::move(source), diagnostic));
+                TEST_EXPECT(ctx, block.loaded_ready() && T::stripped(block) == stripped &&
+                    block.payload_view().size() == 0u && schema.reference_count() == 0u);
             }
             TEST_EXPECT(ctx, schema.reference_count() == 0u);
         }
@@ -521,7 +533,7 @@ static void test_block_failures(TTestContext& ctx, TSchema& schema)
     typename T::Block block;
     typename T::Diagnostic diagnostic;
     diagnostic.role.reason = T::Reason::unknown_type;
-    TEST_EXPECT(ctx, !block.adopt_local(std::move(source), schema, {}, diagnostic));
+    TEST_EXPECT(ctx, !block.adopt_local(std::move(source), diagnostic));
     TEST_EXPECT(ctx, source.is_ready() && block.backing() == EEntityBacking::none &&
         diagnostic.block.stage == EDataBlockStage::format_validation &&
         diagnostic.block.reason == EDataBlockReason::unknown_property && diagnostic.role.reason == T::Reason::none);
@@ -538,24 +550,24 @@ static void test_schema_lifetime(TTestContext& ctx)
     const auto* const original = fixture.file.data();
     CBakedDocumentBlock source;
     TEST_EXPECT(ctx, source.adopt_buffer(std::move(fixture.file)));
+    typename T::Role role;
+    typename T::RoleDiagnostic error;
     {
         SSchemaFixture schemas;
         auto& schema = [&]() -> auto& { if constexpr (Baked) return schemas.baked; else return schemas.live; }();
-        TEST_EXPECT(ctx, !block.adopt_local(std::move(source), schema, {}, diagnostic));
-        TEST_EXPECT(ctx, source.is_ready() && block.backing() == EEntityBacking::none &&
-            diagnostic.block.stage == EDataBlockStage::schema_binding &&
-            diagnostic.block.reason == EDataBlockReason::schema_unavailable && diagnostic.role.reason == T::Reason::none);
+        TEST_EXPECT(ctx, block.adopt_local(std::move(source), diagnostic));
+        TEST_EXPECT(ctx, role.set_document(block.document()) && !role.attach_schema(schema, block.payload_view(), false, error));
         TEST_EXPECT(ctx, schemas.build());
-        TEST_EXPECT(ctx, block.adopt_local(std::move(source), schema, {}, diagnostic));
-        TEST_EXPECT(ctx, schema.reference_count() == 1u);
+        TEST_EXPECT(ctx, role.attach_schema(schema, block.payload_view(), false, error) && schema.reference_count() == 1u);
     }
-    TEST_EXPECT(ctx, !block.loaded_ready() && block.backing() == EEntityBacking::local && block.file_bytes().data() == original);
+    TEST_EXPECT(ctx, !role.loaded_ready() && block.loaded_ready() && block.backing() == EEntityBacking::local && block.file_bytes().data() == original);
+    role.clear();
     SSchemaFixture replacement;
     TEST_EXPECT(ctx, replacement.build());
-    TEST_EXPECT(ctx, !block.adopt_local(std::move(source), replacement.live, {}, diagnostic) &&
+    TEST_EXPECT(ctx, !block.adopt_local(std::move(source), diagnostic) &&
         diagnostic.block.reason == EDataBlockReason::destination_not_empty && replacement.live.reference_count() == 0u);
     TEST_EXPECT(ctx, block.release_local(source) && source.buffer_bytes().data() == original);
-    TEST_EXPECT(ctx, block.adopt_local(std::move(source), replacement.baked, {}, diagnostic));
+    TEST_EXPECT(ctx, block.adopt_local(std::move(source), diagnostic));
     TEST_EXPECT(ctx, block.loaded_ready());
     TEST_EXPECT(ctx, block.release_local(source));
 
@@ -571,13 +583,13 @@ static void test_schema_lifetime(TTestContext& ctx)
         SSchemaFixture schemas;
         TEST_EXPECT(ctx, schemas.build());
         auto& schema = [&]() -> auto& { if constexpr (Baked) return schemas.baked; else return schemas.live; }();
-        TEST_EXPECT(ctx, block.attach_asset(id, bytes, schema, {}, diagnostic));
-        T::check_entry(ctx, block, original + fixture.payload_offset);
+        TEST_EXPECT(ctx, block.attach_asset(id, bytes, diagnostic));
+        T::check_entry(ctx, block, schema, (original + fixture.payload_offset));
     }
-    TEST_EXPECT(ctx, !block.loaded_ready() && block.backing() == EEntityBacking::asset &&
+    TEST_EXPECT(ctx, block.loaded_ready() && block.backing() == EEntityBacking::asset &&
         block.asset_id() == id && block.file_bytes().data() == original && block.file_bytes().size() == bytes.size());
     TEST_EXPECT(ctx, !block.release_local(source) && !source.is_ready());
-    TEST_EXPECT(ctx, !block.attach_asset(id, bytes, replacement.live, {}, diagnostic) &&
+    TEST_EXPECT(ctx, !block.attach_asset(id, bytes, diagnostic) &&
         diagnostic.block.reason == EDataBlockReason::destination_not_empty);
     block.clear();
     TEST_EXPECT(ctx, assets.resolve(id) != nullptr && assets.erase(id));
@@ -590,7 +602,7 @@ struct SReleaseObserver
     bool released{}, unbound_before_release{};
 };
 
-static bool MV_STD_ABI_CALL deallocate_observed_block(void* state, const std::size_t alignment, void* pointer) noexcept
+static bool MV_STD_ABI_CALL deallocate_observed_block(void* const state, const std::size_t alignment, void* const pointer) noexcept
 {
     auto& observer = *static_cast<SReleaseObserver*>(state);
     if (pointer == observer.backing)
@@ -626,8 +638,8 @@ static void test_block_destruction_order(TTestContext& ctx)
         {
             typename T::Block block;
             typename T::Diagnostic diagnostic;
-            TEST_EXPECT(ctx, block.adopt_local(std::move(source), schemas.baked, {}, diagnostic));
-            TEST_EXPECT(ctx, schemas.baked.reference_count() == 1u && !observer.released);
+            TEST_EXPECT(ctx, block.adopt_local(std::move(source), diagnostic));
+            TEST_EXPECT(ctx, schemas.baked.reference_count() == 0u && !observer.released);
         }
         TEST_EXPECT(ctx, observer.released && observer.unbound_before_release);
     }
@@ -639,7 +651,7 @@ struct SAllocationFailures
     std::size_t calls{}, fail_on{};
 };
 
-static void* MV_STD_ABI_CALL allocate_block_test(void* state, const std::size_t alignment, const std::size_t bytes) noexcept
+static void* MV_STD_ABI_CALL allocate_block_test(void* const state, const std::size_t alignment, const std::size_t bytes) noexcept
 {
     auto& failures = *static_cast<SAllocationFailures*>(state);
     if (failures.calls++ == failures.fail_on) return nullptr;
@@ -658,7 +670,6 @@ static void test_block_allocation_failures(TTestContext& ctx)
     TEST_EXPECT(ctx, source.adopt_buffer(std::move(fixture.file)));
     const auto* const original = source.buffer_bytes().data();
     bool completed{};
-    bool role_failure{};
     //  Fail each preparation allocation in turn, including opt-in comparison.
     for (std::size_t fail_on = 0u; fail_on != 128u && !completed; ++fail_on)
     {
@@ -669,23 +680,22 @@ static void test_block_allocation_failures(TTestContext& ctx)
             const tests::TMemoryContextScope scope{ &context };
             typename T::Block block;
             typename T::Diagnostic diagnostic;
-            completed = block.adopt_local(std::move(source), schemas.baked, { true }, diagnostic);
+            completed = block.adopt_local(std::move(source), diagnostic);
             if (completed)
             {
                 TEST_EXPECT(ctx, block.release_local(source));
             }
             else
             {
-                TEST_EXPECT(ctx, block.backing() == EEntityBacking::none && !T::role(block).document_ready());
+                TEST_EXPECT(ctx, block.backing() == EEntityBacking::none && !block.document().is_ready());
                 TEST_EXPECT(ctx, diagnostic.block.reason == EDataBlockReason::invalid_document ||
                     (diagnostic.block.reason == EDataBlockReason::specialised_failure && diagnostic.role.reason == T::Reason::allocation_failed));
-                role_failure |= diagnostic.role.reason == T::Reason::allocation_failed;
             }
             TEST_EXPECT(ctx, source.buffer_bytes().data() == original && schemas.baked.reference_count() == 0u);
         }
         TEST_EXPECT(ctx, context.is_attribution_empty());
     }
-    TEST_EXPECT(ctx, completed && role_failure);
+    TEST_EXPECT(ctx, completed);
 }
 
 static void test_blocks(TTestContext& ctx)
@@ -797,6 +807,9 @@ static void test_completed_bake(TTestContext& ctx, TSourceSchema& source_schema,
             }
             TEST_EXPECT(ctx, result.loaded_ready() && result.backing() == EEntityBacking::local && !result.asset_id() &&
                 diagnostic.block.reason == EDataBlockReason::none && diagnostic.role.reason == T::Reason::none);
+            typename T::Role result_role;
+            typename T::RoleDiagnostic result_error;
+            TEST_EXPECT(ctx, T::attach(result_role, result, destination_schema, result_error));
             const auto bytes = result.file_bytes();
             TEST_EXPECT(ctx, (reinterpret_cast<std::uintptr_t>(bytes.data()) & 127u) == 0u);
             SDataBlockView view;
@@ -809,7 +822,7 @@ static void test_completed_bake(TTestContext& ctx, TSourceSchema& source_schema,
             const auto compare_entry = [&](const auto actual_handle, const auto baseline_handle)
             {
                 std::conditional_t<Instances, SInstanceEntryView, SBulkDataEntryView> actual_entry, baseline_entry;
-                const bool found = T::role(result).entry(actual_handle, actual_entry) && baseline.entry(baseline_handle, baseline_entry);
+                const bool found = result_role.entry(actual_handle, actual_entry) && baseline.entry(baseline_handle, baseline_entry);
                 TEST_EXPECT(ctx, found);
                 if (!found) return;
                 TEST_EXPECT(ctx, actual_entry.offset == baseline_entry.offset && actual_entry.byte_count == baseline_entry.byte_count &&
@@ -821,13 +834,13 @@ static void test_completed_bake(TTestContext& ctx, TSourceSchema& source_schema,
             for (unsigned entry = 0u; entry < (content == 2u ? 3u : content); ++entry)
             {
                 if constexpr (Instances)
-                    compare_entry(result.instances().find_base(CStringView{ types[entry] }, CStringView{ names[entry] }),
+                    compare_entry(result_role.find_base(CStringView{ types[entry] }, CStringView{ names[entry] }),
                         baseline.find_base(CStringView{ types[entry] }, CStringView{ names[entry] }));
                 else
-                    compare_entry(result.bulk_data().find_entry(CStringView{ types[entry] }, CStringView{ names[entry] }),
+                    compare_entry(result_role.find_entry(CStringView{ types[entry] }, CStringView{ names[entry] }),
                         baseline.find_entry(CStringView{ types[entry] }, CStringView{ names[entry] }));
             }
-            TEST_EXPECT(ctx, T::role(result).payload_view().data() == view.payload.data());
+            TEST_EXPECT(ctx, result.payload_view().data() == view.payload.data());
             if (content < 2u)
             {
                 TEST_EXPECT(ctx, bytes.size() == view.document.byte_count() && view.payload.size() == 0u && view.payload.data() == nullptr);
@@ -837,27 +850,27 @@ static void test_completed_bake(TTestContext& ctx, TSourceSchema& source_schema,
                 const std::size_t offset = ((view.document.byte_count() + 127u) / 128u) * 128u;
                 TEST_EXPECT(ctx, view.payload.data() == bytes.data() + offset && bytes.size() == offset + view.payload.size());
                 for (std::size_t index = view.document.byte_count(); index != offset; ++index) TEST_EXPECT(ctx, bytes.data()[index] == 0u);
-                const auto query = T::role(result).document_query();
+                const auto query = T::query(result);
                 if constexpr (Instances)
                 {
-                    const auto base = result.instances().find_base(CStringView{ "u8" }, CStringView{ "one" });
-                    const auto child = result.instances().find_specialisation(base, CStringView{ "child" });
+                    const auto base = result_role.find_base(CStringView{ "u8" }, CStringView{ "one" });
+                    const auto child = result_role.find_specialisation(base, CStringView{ "child" });
                     compare_entry(child, baseline.find_specialisation(baseline.find_base(CStringView{ "u8" }, CStringView{ "one" }), CStringView{ "child" }));
                     SInstanceEntryView base_entry, child_entry;
-                    TEST_EXPECT(ctx, result.instances().entry(base, base_entry) && result.instances().entry(child, child_entry));
+                    TEST_EXPECT(ctx, result_role.entry(base, base_entry) && result_role.entry(child, child_entry));
                     TEST_EXPECT(ctx, base_entry.bytes[0] == 9u && child_entry.bytes[0] == 11u && child_entry.parent == base);
                     TEST_EXPECT(ctx, static_cast<bool>(query.object_child(base, CStringView{ "declaration" })) == (form != EDataOutputForm::stripped));
                     TEST_EXPECT(ctx, static_cast<bool>(query.object_child(child, CStringView{ "declaration" })) == (form != EDataOutputForm::stripped));
                 }
                 else
                 {
-                    const auto handle = result.bulk_data().find_entry(CStringView{ "u8" }, CStringView{ "one" });
+                    const auto handle = result_role.find_entry(CStringView{ "u8" }, CStringView{ "one" });
                     SBulkDataEntryView entry;
-                    TEST_EXPECT(ctx, result.bulk_data().entry(handle, entry));
+                    TEST_EXPECT(ctx, result_role.entry(handle, entry));
                     TEST_EXPECT(ctx, entry.count == 2u && entry.bytes[0] == 9u && entry.bytes[1] == 8u);
                     TEST_EXPECT(ctx, static_cast<bool>(query.object_child(handle, CStringView{ "data" })) == (form == EDataOutputForm::embedded));
-                    const auto zero = result.bulk_data().find_entry(CStringView{ "Zero" }, CStringView{ "zero" });
-                    TEST_EXPECT(ctx, result.bulk_data().entry(zero, entry) && entry.count == 3u && entry.byte_count == 0u && entry.bytes == nullptr);
+                    const auto zero = result_role.find_entry(CStringView{ "Zero" }, CStringView{ "zero" });
+                    TEST_EXPECT(ctx, result_role.entry(zero, entry) && entry.count == 3u && entry.byte_count == 0u && entry.bytes == nullptr);
                 }
             }
             TEST_EXPECT(ctx, source.loaded_ready() && source.document_query().root() == original_root &&
@@ -865,17 +878,18 @@ static void test_completed_bake(TTestContext& ctx, TSourceSchema& source_schema,
             TEST_EXPECT(ctx, !source.bake(result, destination_schema, form, diagnostic) &&
                 diagnostic.block.reason == EDataBlockReason::destination_not_empty && result.file_bytes().data() == bytes.data());
             source.clear();
-            TEST_EXPECT(ctx, result.loaded_ready() && same_bytes(T::role(result).payload_view(), completed_snapshot));
+            TEST_EXPECT(ctx, result.loaded_ready() && same_bytes(result.payload_view(), completed_snapshot));
             //  Reattach a separately allocated copy, then release the original.
             CByteBuffer copied;
             CBakedDocumentBlock owner;
             TEST_EXPECT(ctx, copied.construct_and_copy_from(bytes) && owner.adopt_buffer(std::move(copied)));
             typename T::Block independent;
-            TEST_EXPECT(ctx, independent.adopt_local(std::move(owner), destination_schema, { true }, diagnostic));
+            TEST_EXPECT(ctx, independent.adopt_local(std::move(owner), diagnostic));
             CBakedDocumentBlock original_owner;
+            result_role.clear();
             TEST_EXPECT(ctx, result.release_local(original_owner) && original_owner.buffer_capacity() == bytes.size());
             original_owner.deallocate();
-            TEST_EXPECT(ctx, independent.loaded_ready() && same_bytes(T::role(independent).payload_view(), completed_snapshot));
+            TEST_EXPECT(ctx, independent.loaded_ready() && same_bytes(independent.payload_view(), completed_snapshot));
             TEST_EXPECT(ctx, independent.release_local(owner) && owner.buffer_capacity() == bytes.size());
         }
     }
@@ -943,7 +957,7 @@ static void test_bake_failures(TTestContext& ctx)
     TEST_EXPECT(ctx, external == !Instances);
     destination.clear();
     TEST_EXPECT(ctx, noncanonical.bake(destination, schemas.baked, EDataOutputForm::stripped, diagnostic));
-    TEST_EXPECT(ctx, destination.loaded_ready() && T::role(destination).payload_view().data()[0] == 2u);
+    TEST_EXPECT(ctx, destination.loaded_ready() && destination.payload_view().data()[0] == 2u);
 }
 
 template<bool Instances>
@@ -968,7 +982,7 @@ static void test_bake_allocation_failures(TTestContext& ctx)
             completed = source.bake(output, schemas.baked, EDataOutputForm::embedded, diagnostic);
             if (!completed)
             {
-                TEST_EXPECT(ctx, output.backing() == EEntityBacking::none && !T::role(output).document_ready() &&
+                TEST_EXPECT(ctx, output.backing() == EEntityBacking::none && !output.document().is_ready() &&
                     schemas.baked.reference_count() == 0u && diagnostic.block.reason != EDataBlockReason::none);
                 const auto stage = diagnostic.block.stage;
                 preparation |= stage == EDataBlockStage::description_preparation;
@@ -1047,13 +1061,13 @@ static void test_new_payload_gaps(TTestContext& ctx)
             typename T::Block output, repeated, materialised;
             typename T::Diagnostic diagnostic;
             TEST_EXPECT(ctx, source.bake(output, schemas.baked, form, diagnostic));
-            const auto bytes = T::role(output).payload_view();
+            const auto bytes = output.payload_view();
             TEST_EXPECT(ctx, bytes.size() == 12u && bytes.data()[0] == 1u && std::memcmp(bytes.data() + 4u, padded, sizeof(padded)) == 0);
             for (std::size_t i = 1u; i != 4u; ++i) TEST_EXPECT(ctx, bytes.data()[i] == 0u);
             TEST_EXPECT(ctx, source.bake(repeated, schemas.baked, form, diagnostic) && same_bytes(repeated.file_bytes(), byte_snapshot(output.file_bytes())));
             TEST_EXPECT(ctx, same_bytes(source.payload_view(), original));
             TEST_EXPECT(ctx, materialised.materialise(description, schemas.baked, form, diagnostic));
-            const auto constructed = T::role(materialised).payload_view();
+            const auto constructed = materialised.payload_view();
             TEST_EXPECT(ctx, constructed.size() == 16u && constructed.data()[2] == 1u &&
                 std::memcmp(constructed.data() + 8u, padded, sizeof(padded)) == 0);
             for (std::size_t i = 0u; i != 8u; ++i)
@@ -1146,6 +1160,9 @@ static void test_materialised_blocks(TTestContext& ctx, TSchema& schema)
                 TEST_EXPECT(ctx, output.loaded_ready() && output.backing() == EEntityBacking::local && !output.asset_id() &&
                     diagnostic.block.stage == EDataBlockStage::none && diagnostic.block.reason == EDataBlockReason::none &&
                     diagnostic.block.location.kind == EDataBlockLocationKind::none && diagnostic.role.reason == T::Reason::none);
+                typename T::Role output_role;
+                typename T::RoleDiagnostic output_error;
+                TEST_EXPECT(ctx, T::attach(output_role, output, schema, output_error));
                 SDataBlockView view;
                 SDataBlockDiagnostic format;
                 TEST_EXPECT(ctx, validate_data_block(output.file_bytes().data(), output.file_bytes().size(), T::kind, view, format));
@@ -1158,19 +1175,19 @@ static void test_materialised_blocks(TTestContext& ctx, TSchema& schema)
                     if constexpr (Instances)
                     {
                         SInstanceEntryView entry;
-                        TEST_EXPECT(ctx, output.instances().entry(output.instances().find_base(CStringView{ "Zero" }, CStringView{ "zero" }), entry) &&
+                        TEST_EXPECT(ctx, output_role.entry(output_role.find_base(CStringView{ "Zero" }, CStringView{ "zero" }), entry) &&
                             entry.byte_count == 0u && entry.bytes == nullptr);
                     }
                     else
                     {
                         SBulkDataEntryView entry;
-                        TEST_EXPECT(ctx, output.bulk_data().entry(output.bulk_data().find_entry(CStringView{ "Zero" }, CStringView{ "zero" }), entry) &&
+                        TEST_EXPECT(ctx, output_role.entry(output_role.find_entry(CStringView{ "Zero" }, CStringView{ "zero" }), entry) &&
                             entry.count == 2u && entry.byte_count == 0u && entry.bytes == nullptr);
                     }
                 }
                 if (content == 3u)
                 {
-                    const auto& role = T::role(output);
+                    const auto& role = output_role;
                     const auto query = role.document_query();
                     if constexpr (Instances)
                     {
@@ -1204,16 +1221,17 @@ static void test_materialised_blocks(TTestContext& ctx, TSchema& schema)
                 const auto output_address = output.file_bytes().data();
                 TEST_EXPECT(ctx, !output.materialise(source, schema, form, diagnostic) &&
                     diagnostic.block.reason == EDataBlockReason::destination_not_empty && output.file_bytes().data() == output_address);
-                const auto payload_snapshot = byte_snapshot(T::role(output).payload_view());
+                const auto payload_snapshot = byte_snapshot(output.payload_view());
                 live.deallocate();
                 baked.deallocate();
-                TEST_EXPECT(ctx, output.loaded_ready() && same_bytes(T::role(output).payload_view(), payload_snapshot));
+                TEST_EXPECT(ctx, output.loaded_ready() && same_bytes(output.payload_view(), payload_snapshot));
                 CBakedDocumentBlock owner;
+                output_role.clear();
                 TEST_EXPECT(ctx, output.release_local(owner));
                 TEST_EXPECT(ctx, owner.buffer_capacity() == owner.buffer_bytes().size());
                 typename T::Block reattached;
-                TEST_EXPECT(ctx, reattached.adopt_local(std::move(owner), schema, { true }, diagnostic) &&
-                    same_bytes(T::role(reattached).payload_view(), payload_snapshot));
+                TEST_EXPECT(ctx, reattached.adopt_local(std::move(owner), diagnostic) &&
+                    same_bytes(reattached.payload_view(), payload_snapshot));
             };
             if constexpr (Baked) run(baked.document());
             else run(live);
@@ -1249,7 +1267,7 @@ static void test_materialisation_failures(TTestContext& ctx, TSchema& schema)
             TEST_EXPECT(ctx, !output.materialise(source, schema, EDataOutputForm::stripped, diagnostic));
             TEST_EXPECT(ctx, diagnostic.block.stage == EDataBlockStage::materialisation &&
                 diagnostic.block.reason == EDataBlockReason::specialised_failure && diagnostic.role.reason == item.reason);
-            TEST_EXPECT(ctx, output.backing() == EEntityBacking::none && !T::role(output).document_ready());
+            TEST_EXPECT(ctx, output.backing() == EEntityBacking::none && !output.document().is_ready());
             if constexpr (Baked)
                 TEST_EXPECT(ctx, diagnostic.block.location.kind == EDataBlockLocationKind::source_baked_value &&
                     source.contains(diagnostic.block.location.baked_value));
@@ -1322,7 +1340,7 @@ static void test_materialisation_allocations(TTestContext& ctx)
             else completed = output.materialise(live, schemas.baked, EDataOutputForm::stripped, diagnostic);
             if (!completed)
             {
-                TEST_EXPECT(ctx, output.backing() == EEntityBacking::none && !T::role(output).document_ready() &&
+                TEST_EXPECT(ctx, output.backing() == EEntityBacking::none && !output.document().is_ready() &&
                     schemas.baked.reference_count() == 0u && diagnostic.block.reason != EDataBlockReason::none);
                 const auto stage = diagnostic.block.stage;
                 materialisation |= stage == EDataBlockStage::materialisation;
@@ -1439,13 +1457,13 @@ static void test_stripped_blocks(TTestContext& ctx, TSourceSchema& source_schema
                 stored->block = std::move(owner);
                 const auto bytes = static_cast<const CBakedDocumentBlock&>(stored->block).buffer_bytes();
                 id = assets.insert(std::move(erased));
-                TEST_EXPECT(ctx, source.attach_asset(id, bytes, source_schema, {}, diagnostic));
+                TEST_EXPECT(ctx, source.attach_asset(id, bytes, diagnostic));
             }
-            else TEST_EXPECT(ctx, source.adopt_local(std::move(owner), source_schema, {}, diagnostic));
+            else TEST_EXPECT(ctx, source.adopt_local(std::move(owner), diagnostic));
             if (!source.loaded_ready()) { TEST_EXPECT(ctx, false); continue; }
             const auto source_address = source.file_bytes().data();
-            const auto source_root = T::role(source).document_query().root();
-            const auto payload = byte_snapshot(T::role(source).payload_view());
+            const auto source_root = T::query(source).root();
+            const auto payload = byte_snapshot(source.payload_view());
             seed(diagnostic.block);
             diagnostic.role.reason = T::Reason::unknown_type;
             TEST_EXPECT(ctx, source.strip_to(destination, destination_schema, diagnostic));
@@ -1453,13 +1471,15 @@ static void test_stripped_blocks(TTestContext& ctx, TSourceSchema& source_schema
             TEST_EXPECT(ctx, diagnostic.block.stage == EDataBlockStage::none && diagnostic.block.reason == EDataBlockReason::none &&
                 diagnostic.block.location.kind == EDataBlockLocationKind::none && diagnostic.role.reason == T::Reason::none);
             TEST_EXPECT(ctx, destination.backing() == EEntityBacking::local && !destination.asset_id() &&
-                destination.file_bytes().data() != source_address && same_bytes(T::role(destination).payload_view(), payload));
+                destination.file_bytes().data() != source_address && same_bytes(destination.payload_view(), payload));
             SDataBlockView view;
             SDataBlockDiagnostic format;
             TEST_EXPECT(ctx, validate_data_block(destination.file_bytes().data(), destination.file_bytes().size(), T::kind, view, format) && view.stripped);
             if (content == 2u) TEST_EXPECT(ctx, view.document.byte_count() != fixture.prefix.document().byte_count());
             if (content < 2u) TEST_EXPECT(ctx, destination.file_bytes().size() == view.document.byte_count() && view.payload.size() == 0u);
-            const auto& role = T::role(destination);
+            typename T::Role role;
+            typename T::RoleDiagnostic role_error;
+            TEST_EXPECT(ctx, T::attach(role, destination, destination_schema, role_error));
             const auto query = role.document_query();
             if (content >= 2u)
             {
@@ -1505,7 +1525,7 @@ static void test_stripped_blocks(TTestContext& ctx, TSourceSchema& source_schema
                 }
             }
             TEST_EXPECT(ctx, source.file_bytes().data() == source_address && same_bytes(source.file_bytes(), original) && source.loaded_ready() &&
-                T::role(source).document_query().root() == source_root && source.asset_id() == id);
+                T::query(source).root() == source_root && source.asset_id() == id);
             TEST_EXPECT(ctx, !source.strip_to(source, source_schema, diagnostic) && diagnostic.block.reason == EDataBlockReason::destination_not_empty);
             TEST_EXPECT(ctx, !source.strip_to(destination, destination_schema, diagnostic) && diagnostic.block.reason == EDataBlockReason::destination_not_empty);
             if (borrowed) TEST_EXPECT(ctx, assets.resolve(id) != nullptr);
@@ -1515,10 +1535,11 @@ static void test_stripped_blocks(TTestContext& ctx, TSourceSchema& source_schema
             //  Already stripped data produces a separate allocation with identical payload.
             typename T::Block again;
             TEST_EXPECT(ctx, destination.strip_to(again, destination_schema, diagnostic) && again.file_bytes().data() != destination.file_bytes().data());
+            role.clear();
             destination.clear();
-            TEST_EXPECT(ctx, again.loaded_ready() && same_bytes(T::role(again).payload_view(), payload));
+            TEST_EXPECT(ctx, again.loaded_ready() && same_bytes(again.payload_view(), payload));
             TEST_EXPECT(ctx, again.release_local(owner) && owner.buffer_capacity() == owner.buffer_bytes().size());
-            TEST_EXPECT(ctx, destination.adopt_local(std::move(owner), destination_schema, { true }, diagnostic) && same_bytes(role.payload_view(), payload));
+            TEST_EXPECT(ctx, destination.adopt_local(std::move(owner), diagnostic) && same_bytes(destination.payload_view(), payload));
         }
     }
 }
@@ -1536,7 +1557,7 @@ static void test_stripping_failures(TTestContext& ctx)
     SFixture fixture;
     TEST_EXPECT(ctx, build_strip_fixture<Instances>(fixture, 2u));
     CBakedDocumentBlock owner;
-    TEST_EXPECT(ctx, owner.adopt_buffer(std::move(fixture.file)) && source.adopt_local(std::move(owner), schemas.live, {}, diagnostic));
+    TEST_EXPECT(ctx, owner.adopt_buffer(std::move(fixture.file)) && source.adopt_local(std::move(owner), diagnostic));
     const auto snapshot = byte_snapshot(source.file_bytes());
     CBakedSchema unavailable;
     TEST_EXPECT(ctx, !source.strip_to(destination, unavailable, diagnostic) && diagnostic.block.stage == EDataBlockStage::schema_binding &&
@@ -1545,19 +1566,19 @@ static void test_stripping_failures(TTestContext& ctx)
     TEST_EXPECT(ctx, missing_types.build(R"({"types":{}})"));
     TEST_EXPECT(ctx, !source.strip_to(destination, missing_types.baked, diagnostic) && diagnostic.block.stage == EDataBlockStage::specialised_loading &&
         diagnostic.block.reason == EDataBlockReason::specialised_failure && diagnostic.role.reason == T::Reason::unknown_type);
-    TEST_EXPECT(ctx, diagnostic.block.location.kind == EDataBlockLocationKind::none && !diagnostic.role.occurrence &&
+    TEST_EXPECT(ctx, diagnostic.block.location.kind == EDataBlockLocationKind::none && diagnostic.role.occurrence &&
         destination.backing() == EEntityBacking::none && missing_types.baked.reference_count() == 0u && same_bytes(source.file_bytes(), snapshot));
     {
         SSchemaFixture temporary;
         TEST_EXPECT(ctx, temporary.build(stripping_types) && source.strip_to(destination, temporary.baked, diagnostic));
     }
-    TEST_EXPECT(ctx, !destination.loaded_ready());
+    TEST_EXPECT(ctx, destination.loaded_ready());
     const auto occupied = byte_snapshot(destination.file_bytes());
     TEST_EXPECT(ctx, !source.strip_to(destination, schemas.baked, diagnostic) && diagnostic.block.reason == EDataBlockReason::destination_not_empty &&
         same_bytes(destination.file_bytes(), occupied));
     typename T::Block empty;
-    TEST_EXPECT(ctx, !destination.strip_to(empty, schemas.baked, diagnostic) && diagnostic.block.reason == EDataBlockReason::invalid_input &&
-        empty.backing() == EEntityBacking::none && same_bytes(destination.file_bytes(), occupied));
+    TEST_EXPECT(ctx, destination.strip_to(empty, schemas.baked, diagnostic) &&
+        empty.backing() == EEntityBacking::local && same_bytes(destination.file_bytes(), occupied));
 }
 
 template<bool Instances>
@@ -1570,7 +1591,7 @@ static void test_stripping_allocations(TTestContext& ctx)
     CBakedDocumentBlock owner;
     typename T::Block source;
     typename T::Diagnostic diagnostic;
-    TEST_EXPECT(ctx, owner.adopt_buffer(std::move(fixture.file)) && source.adopt_local(std::move(owner), schemas.live, {}, diagnostic));
+    TEST_EXPECT(ctx, owner.adopt_buffer(std::move(fixture.file)) && source.adopt_local(std::move(owner), diagnostic));
     const auto snapshot = byte_snapshot(source.file_bytes());
     bool completed{}, validation{}, promotion{}, bake{}, assembly{}, attachment{};
     for (std::size_t fail_on = 0u; fail_on != 1024u && !completed; ++fail_on)
@@ -1584,7 +1605,7 @@ static void test_stripping_allocations(TTestContext& ctx)
             completed = source.strip_to(destination, schemas.baked, diagnostic);
             if (!completed)
             {
-                TEST_EXPECT(ctx, destination.backing() == EEntityBacking::none && !T::role(destination).document_ready() &&
+                TEST_EXPECT(ctx, destination.backing() == EEntityBacking::none && !destination.document().is_ready() &&
                     schemas.baked.reference_count() == 0u && diagnostic.block.reason != EDataBlockReason::none);
                 const auto stage = diagnostic.block.stage;
                 validation |= stage == EDataBlockStage::format_validation;
@@ -1592,9 +1613,10 @@ static void test_stripping_allocations(TTestContext& ctx)
                 bake |= stage == EDataBlockStage::document_bake;
                 assembly |= stage == EDataBlockStage::assembly;
                 attachment |= stage == EDataBlockStage::specialised_loading;
-                TEST_EXPECT(ctx, !diagnostic.role.occurrence && diagnostic.block.location.kind == EDataBlockLocationKind::none);
+                TEST_EXPECT(ctx, (!diagnostic.role.occurrence || T::query(source).contains(diagnostic.role.occurrence)) &&
+                    diagnostic.block.location.kind == EDataBlockLocationKind::none);
             }
-            TEST_EXPECT(ctx, source.loaded_ready() && schemas.live.reference_count() == 1u && same_bytes(source.file_bytes(), snapshot));
+            TEST_EXPECT(ctx, source.loaded_ready() && schemas.live.reference_count() == 0u && same_bytes(source.file_bytes(), snapshot));
         }
         TEST_EXPECT(ctx, context.is_attribution_empty() && schemas.baked.reference_count() == 0u);
     }

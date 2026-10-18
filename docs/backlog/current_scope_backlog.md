@@ -1,6 +1,6 @@
 # Current scope
 
-Updated 14 October 2026. The selected consolidation is complete, including
+Updated 17 October 2026. The selected consolidation is complete, including
 the rendering DLL stub and Executive-controlled startup in `f91ded3`.
 The subsequent development filesystem-image stage is complete and accepted,
 including the first-pass review corrections. See the
@@ -48,6 +48,14 @@ persistence stages are complete, user-reviewed and committed through `dfe076d`,
 including Host complete-buffer preservation and new-payload gap zeroing. The
 [persistence milestone](../project/completed_milestones.md#schema-instance-and-bulk-data-persistence)
 records delivery and validation; the completed implementation plan is retired.
+The subsequent [role and construction rework](../project/completed_milestones.md#schema-role-attachment-and-construction)
+is implemented and validated: blocks are schema-independent storage, data roles
+attach atomically and support checked/trusted switching without changing binary
+data. Resolved schema lookup is indexed, controlled document construction avoids
+repeated attachment checks, and reconciliation compares/emits in one traversal
+with a separate final fidelity check. Full baked promotion preloads strings in
+lexical order; arbitrary-order string insertion and per-edit record-tail scans
+remain documented costs.
 The [schema follow-on notes](schema_follow_on.md) preserve the next design discussion:
 fp16 conversion, related C++/shader representations, simple trait-based
 serialisation, selectable declaration output, aggregation/composition and
@@ -55,8 +63,8 @@ source ingestion. Shared-schema aggregation design is active: the
 [revision](../schema/persistence-and-aggregation.md#next-discussion-shared-schema-aggregation)
 records agreed merge contracts and remaining interface decisions. These follow-ons
 are not yet an implementation plan.
-General schema name lookup remains caller-managed. The completed consolidation
-does not authorise further implementation.
+General document object-child indexing and persistent live cursors remain
+deferred. The completed consolidation does not authorise further implementation.
 
 Vulkan is the primary rendering API planned for first implementation; DirectX
 is deferred. The current rendering DLL only waits for an exit request.

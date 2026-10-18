@@ -330,14 +330,8 @@ bool CGenerator::dependency(const CSchemaIndex type_index, const unsigned depth)
     {
         return dependency(type_info.element_or_storage, (depth + 1u));
     }
-    for (std::uint32_t definition_ordinal = 0u; definition_ordinal < m_schema.definition_count(); ++definition_ordinal)
-    {
-        if (m_schema.definition_at(definition_ordinal) == type_index)
-        {
-            return definition(definition_ordinal, (depth + 1u));
-        }
-    }
-    return fail(EReason::invalid_input);
+    std::uint32_t ordinal{};
+    return m_schema.definition_ordinal(type_index, ordinal) ? definition(ordinal, (depth + 1u)) : fail(EReason::invalid_input);
 }
 
 bool CGenerator::has_increased_alignment(const CSchemaIndex type_index, bool& result) noexcept
@@ -360,19 +354,13 @@ bool CGenerator::has_increased_alignment(const CSchemaIndex type_index, bool& re
     {
         return true;
     }
-    for (std::uint32_t ordinal = 0u; ordinal < m_schema.definition_count(); ++ordinal)
+    std::uint32_t ordinal{};
+    if (!m_schema.definition_ordinal(current, ordinal) || !m_emitted[ordinal])
     {
-        if (m_schema.definition_at(ordinal) == current)
-        {
-            if (!m_emitted[ordinal])
-            {
-                return fail(EReason::invalid_input);
-            }
-            result = m_emitted[ordinal] == 2u;
-            return true;
-        }
+        return fail(EReason::invalid_input);
     }
-    return fail(EReason::invalid_input);
+    result = m_emitted[ordinal] == 2u;
+    return true;
 }
 
 bool CGenerator::native_structure_layout(const CSchemaIndex type_index, const SType& type_info,

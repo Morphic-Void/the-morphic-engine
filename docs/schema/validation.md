@@ -12,6 +12,10 @@ The [specification](specification.md) defines behaviour and the
 observable results, failure boundaries and generated layout fidelity. Private
 record organisation is not a public ABI or a substitute for those checks.
 
+The [role and construction milestone](../project/completed_milestones.md#schema-role-attachment-and-construction)
+records the latest completed four-configuration validation checkpoint. The
+earlier persistence and schema milestones retain their historical counts.
+
 ## Running the checks
 
 Build and run `MorphicTests` using the repository's
@@ -37,8 +41,9 @@ failure cleanup and conservative reporting by the generic document validator.
 Completed-block tests exercise both instance/bulk data and live/baked schema
 combinations. They check pointer-preserving adoption/release, occupied
 destinations and outputs, repository-backed borrowed attachment without hidden
-disposal, role binding counts, schema destruction, empty/zero-byte content,
-stripped content, opt-in comparison, opaque payload gaps/trailing bytes and
+disposal, absence of block-held schema references, schema-independent storage
+readiness, explicit role attachment, empty/zero-byte content, stripped content,
+opt-in role comparison, opaque payload gaps/trailing bytes and
 source-preserving failure diagnostics. Each preparation allocation is rejected
 in turn to verify cleanup, diagnostic propagation and retained local ownership.
 
@@ -73,10 +78,19 @@ counts from arrays and byte sizes. Byte comparisons include payload gaps,
 trailing storage, noncanonical booleans and unused flag bits. Tests check new
 document lengths, recursive instance declaration removal, reattachment, source
 independence and no implicit asset disposal. Failures cover self/occupied
-destinations, unavailable bindings, missing destination types and each allocation
+destinations, unavailable supplied schemas, missing destination types and each allocation
 through source validation, promotion, baking, assembly and final attachment.
 Temporary-output diagnostics are cleared and all private allocations and schema
 bindings are released on failure.
+
+Schema-switch tests exercise all four data roles against live and baked targets.
+They cover changed and overridden defaults, nested arrays, bit fields, signed
+zero, partially declared child inheritance, reordered type indices, empty groups,
+zero-byte packages and deep specialisation chains. Success and failure preserve
+handles, payload addresses and bytes. Allocation sweeps check atomic binding
+replacement and temporary-only allocation. Stale declarations fail checked
+switches while trusted switches and explicit reconciliation remain available;
+trusted switching also restores typed access after the previous schema dies.
 
 New-payload gap tests use an allocator that fills every allocation with nonzero
 bytes. Both roles and all output forms check zeroed alignment gaps, repeated
@@ -158,13 +172,23 @@ existing runtime coverage. Source/project changes use the repository's
 | Integer presentation | Declared-type policies, full-width masks, nested defaults, structural thresholds, live/baked sources, strict JSON, repeated preparation and inferred structure details. |
 | Remapping | Exact-type direct-member matching, default-sensitive compound compatibility, partial/no-match plans, destination claims, range coalescing, all copy paths, exact-stride preflight and untouched unmatched bytes. |
 | Unused storage | Nested padding and optional unused-bit clearing, preservation of every addressable field, complete fixed-array views, document gaps, idempotence and failure before writes. |
-| Access cost | Baked sorted indexes, ordered live records, cached bulk data type bindings, compatibility caching, retained physical-member order and allocation-free access/clearing. |
+| Access cost | Baked sorted indexes, ordered live records, neighbour cursors with bounded fallback, scoped name and enum-value indices, parent-index schema switching, source-driven remapping, cached storage preflight and allocation-free clearing after preflight. |
 
 The data-model suites separately cover integer metadata, string flags, subtree
 copying, promotion/baking and their allocation failures. Schema-specific rules
 reuse those facilities rather than introducing a second document implementation.
 Allocation and complexity tests establish their measured properties; they do not
 promise general timing improvements or that all name lookup is indexed.
+Focused regressions cover reverse/shuffled/sparse named input, allocation-free
+ordered value checks, shuffled-input allocation failures, exact duplicate
+diagnostics, enum alias and signedness boundaries, and nested storage preflight
+failure before writes.
+Construction regressions also cover wide reverse-ordered objects, sparse source
+string IDs under an allocation ceiling, same-document ID reuse, checked arbitrary
+readers and deep promotion. Reconciliation covers delayed scalar/compound array
+prefixes, deep last-descendant changes, enormous zero-byte arrays and allocation
+failures during lazy container construction. Traversal bounds follow from the
+single-pass implementation; these tests do not impose wall-clock thresholds.
 
 ## Authoring sample
 

@@ -17,9 +17,7 @@
 namespace schema
 {
 
-template<class TSchema>
-bool CBakedBulkDataBlock::adopt(CBakedDocumentBlock&& block, TSchema& schema,
-    const SDataBlockLoadOptions& options, SBulkDataBlockDiagnostic& diagnostic) noexcept
+bool CBakedBulkDataBlock::adopt_local(CBakedDocumentBlock&& block, SBulkDataBlockDiagnostic& diagnostic) noexcept
 {
     diagnostic = {};
     if (m_backing != EEntityBacking::none)
@@ -27,64 +25,41 @@ bool CBakedBulkDataBlock::adopt(CBakedDocumentBlock&& block, TSchema& schema,
         return detail::data_block_precondition(diagnostic.block, EDataBlockReason::destination_not_empty);
     }
     const CByteConstView bytes = static_cast<const CBakedDocumentBlock&>(block).buffer_bytes();
-    CBakedBulkData prepared;
-    if (!detail::prepare_data_block(bytes, detail::EDataBlockKind::bulk_data, schema, options, prepared, diagnostic))
+    detail::SDataBlockView view;
+    if (!detail::validate_data_block(bytes.data(), bytes.size(), detail::EDataBlockKind::bulk_data, view, diagnostic.block))
     {
         return false;
     }
-
-    //  No fallible work remains. Moving storage preserves all prepared addresses.
     m_local = std::move(block);
-    m_role.take_from(prepared);
+    m_document = view.document;
+    m_payload = view.payload;
     m_bytes = bytes;
     m_backing = EEntityBacking::local;
     return true;
 }
 
-template<class TSchema>
-bool CBakedBulkDataBlock::attach(const CAssetId asset, const CByteConstView bytes, TSchema& schema,
-    const SDataBlockLoadOptions& options, SBulkDataBlockDiagnostic& diagnostic) noexcept
+bool CBakedBulkDataBlock::attach_asset(const CAssetId asset, const CByteConstView bytes, SBulkDataBlockDiagnostic& diagnostic) noexcept
 {
     diagnostic = {};
     if (m_backing != EEntityBacking::none)
     {
         return detail::data_block_precondition(diagnostic.block, EDataBlockReason::destination_not_empty);
     }
-    if (!asset.is_valid()) return detail::data_block_precondition(diagnostic.block, EDataBlockReason::invalid_input);
-    CBakedBulkData prepared;
-    if (!detail::prepare_data_block(bytes, detail::EDataBlockKind::bulk_data, schema, options, prepared, diagnostic))
+    if (!asset.is_valid())
+    {
+        return detail::data_block_precondition(diagnostic.block, EDataBlockReason::invalid_input);
+    }
+    detail::SDataBlockView view;
+    if (!detail::validate_data_block(bytes.data(), bytes.size(), detail::EDataBlockKind::bulk_data, view, diagnostic.block))
     {
         return false;
     }
-    m_role.take_from(prepared);
+    m_document = view.document;
+    m_payload = view.payload;
     m_bytes = bytes;
     m_asset = asset;
     m_backing = EEntityBacking::asset;
     return true;
-}
-
-bool CBakedBulkDataBlock::adopt_local(CBakedDocumentBlock&& block, CBakedSchema& schema,
-    const SDataBlockLoadOptions& options, SBulkDataBlockDiagnostic& diagnostic) noexcept
-{
-    return adopt(std::move(block), schema, options, diagnostic);
-}
-
-bool CBakedBulkDataBlock::attach_asset(const CAssetId asset, const CByteConstView bytes, CBakedSchema& schema,
-    const SDataBlockLoadOptions& options, SBulkDataBlockDiagnostic& diagnostic) noexcept
-{
-    return attach(asset, bytes, schema, options, diagnostic);
-}
-
-bool CBakedBulkDataBlock::adopt_local(CBakedDocumentBlock&& block, CLiveSchema& schema,
-    const SDataBlockLoadOptions& options, SBulkDataBlockDiagnostic& diagnostic) noexcept
-{
-    return adopt(std::move(block), schema, options, diagnostic);
-}
-
-bool CBakedBulkDataBlock::attach_asset(const CAssetId asset, const CByteConstView bytes, CLiveSchema& schema,
-    const SDataBlockLoadOptions& options, SBulkDataBlockDiagnostic& diagnostic) noexcept
-{
-    return attach(asset, bytes, schema, options, diagnostic);
 }
 
 bool CBakedBulkDataBlock::materialise(const CLiveDocument& description, CBakedSchema& schema,
@@ -114,18 +89,19 @@ bool CBakedBulkDataBlock::materialise(const CBakedDocument& description, CLiveSc
 bool CBakedBulkDataBlock::strip_to(CBakedBulkDataBlock& destination, CBakedSchema& schema,
     SBulkDataBlockDiagnostic& diagnostic) const noexcept
 {
-    return detail::strip_data_block(*this, m_role, destination, schema, detail::EDataBlockKind::bulk_data, diagnostic);
+    return detail::strip_data_block(*this, destination, schema, detail::EDataBlockKind::bulk_data, diagnostic);
 }
 
 bool CBakedBulkDataBlock::strip_to(CBakedBulkDataBlock& destination, CLiveSchema& schema,
     SBulkDataBlockDiagnostic& diagnostic) const noexcept
 {
-    return detail::strip_data_block(*this, m_role, destination, schema, detail::EDataBlockKind::bulk_data, diagnostic);
+    return detail::strip_data_block(*this, destination, schema, detail::EDataBlockKind::bulk_data, diagnostic);
 }
 
 void CBakedBulkDataBlock::clear() noexcept
 {
-    m_role.clear();
+    m_document.clear();
+    m_payload = {};
     m_local.deallocate();
     m_bytes = {};
     m_asset = {};
@@ -135,7 +111,8 @@ void CBakedBulkDataBlock::clear() noexcept
 bool CBakedBulkDataBlock::release_local(CBakedDocumentBlock& output) noexcept
 {
     if ((m_backing != EEntityBacking::local) || (output.buffer_capacity() != 0u)) return false;
-    m_role.clear();
+    m_document.clear();
+    m_payload = {};
     output = std::move(m_local);
     m_bytes = {};
     m_asset = {};

@@ -27,15 +27,24 @@ namespace schema
 {
 
 //==============================================================================
-//  Compatibility cache storage
+//  Operation-local ordinal hash index
 //==============================================================================
 
-//  Compatibility-pair ordinals at at most half occupancy. Reserve may rehash;
-//  insert/find/erase never allocate. No pointers into the pair table survive.
+//  Caller-owned record ordinals at at most half occupancy. Reserve may rehash;
+//  insert/find/erase never allocate. No pointers into the record table survive.
 class COrdinalHashIndex
 {
 public:
     static constexpr std::uint32_t k_missing_record = UINT32_MAX;
+
+    [[nodiscard]] static std::uint32_t hash_key(std::uint64_t value) noexcept
+    {
+        value ^= value >> 30u;
+        value *= 0xbf58476d1ce4e5b9ull;
+        value ^= value >> 27u;
+        value *= 0x94d049bb133111ebull;
+        return static_cast<std::uint32_t>(value ^ (value >> 31u));
+    }
 
     template<class THash>
     [[nodiscard]] bool reserve(const std::size_t count, const std::size_t existing, const THash& hash) noexcept
@@ -166,8 +175,8 @@ private:
 
     [[nodiscard]] static std::uint32_t hash(const SPair& pair) noexcept;
     [[nodiscard]] ETypeMatchResult add(const SPair pair) noexcept;
-    [[nodiscard]] ETypeMatchResult inspect(const SPair pair) noexcept;
     [[nodiscard]] bool same_header(const SType& source, const SType& destination) const noexcept;
+    [[nodiscard]] ETypeMatchResult inspect(const SPair pair) noexcept;
 
     const CResolvedSchema& m_source;
     const CResolvedSchema& m_destination;
@@ -175,6 +184,91 @@ private:
     TPodVector<SPair> m_pairs;
     COrdinalHashIndex m_index;
 };
+
+namespace detail
+{
+
+//  Document identities and record order survive a schema switch. Stage only
+//  owner-local type indices; the caller publishes them with its new binding.
+template<bool Instances, class TRecords>
+[[nodiscard]] static ETypeMatchResult prepare_schema_switch(const CDocumentRead& document, const SOccurrence section,
+    const CResolvedSchema* const source, const CResolvedSchema& target, const bool checked,
+    const TRecords& records, TPodVector<CSchemaIndex>& types, SOccurrence& failure) noexcept
+{
+    if (checked && !source)
+    {
+        return ETypeMatchResult::invalid_input;
+    }
+    CTypeCompatibility compatibility{ source ? *source : target, target, ETypeMatch::representation };
+    for (SOccurrence group = document.first_child(section); group.is_valid(); group = document.next_sibling(group))
+    {
+        failure = group;
+        const CStringView name = document.name(group);
+        const CSchemaIndex proposed = target.find_type(name);
+        if (!proposed)
+        {
+            return ETypeMatchResult::mismatch;
+        }
+        if (checked)
+        {
+            const auto result = compatibility.compare(source->find_type(name), proposed);
+            if (result != ETypeMatchResult::match)
+            {
+                return result;
+            }
+        }
+    }
+    if (!types.reserve(records.size()))
+    {
+        return ETypeMatchResult::allocation_failed;
+    }
+    SOccurrence previous_group;
+    CSchemaIndex previous_type;
+    for (std::size_t i = 0u; i < records.size(); ++i)
+    {
+        failure = SOccurrence{ records[i].entry };
+        if constexpr (Instances)
+        {
+            //  Records are parent-before-child, including interleaved groups.
+            //  A specialisation inherits its parent's already resolved type.
+            if (records[i].parent != UINT32_MAX)
+            {
+                if (records[i].parent >= i)
+                {
+                    return ETypeMatchResult::invalid_input;
+                }
+                const CSchemaIndex inherited = types[records[i].parent];
+                if (!types.push_back(inherited))
+                {
+                    return ETypeMatchResult::allocation_failed;
+                }
+                continue;
+            }
+        }
+        const SOccurrence group = document.parent(failure);
+        if (!group.is_valid() || (document.parent(group) != section))
+        {
+            return ETypeMatchResult::invalid_input;
+        }
+        if (group != previous_group)
+        {
+            previous_type = target.find_type(document.name(group));
+            if (!previous_type)
+            {
+                return ETypeMatchResult::mismatch;
+            }
+            previous_group = group;
+        }
+        if (!types.push_back(previous_type))
+        {
+            return ETypeMatchResult::allocation_failed;
+        }
+    }
+    failure = {};
+    return ETypeMatchResult::match;
+}
+
+}   // namespace detail
 
 }   // namespace schema
 

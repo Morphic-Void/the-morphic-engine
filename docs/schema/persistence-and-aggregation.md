@@ -4,7 +4,7 @@ License: MIT (see LICENSE file in repository root)
 File:   persistence-and-aggregation.md
 Author: Ritchie Brannan
 Drafting and editorial assistance: OpenAI Codex
-Date:   15 Oct 2026
+Date:   17 Oct 2026
 
 # Schema persistence and aggregation revision
 
@@ -12,11 +12,12 @@ Date:   15 Oct 2026
 
 This document records the revised direction and persistence discussion on
 14 October 2026, and the merge discussion on 15 October 2026, with their reasoning.
-Shared definitions, caller-supplied schema binding, a contained specialised
-interface, and reuse of existing ownership
-mechanisms are agreed direction. The version 1 persistence format and block
-interface, construction, Host persistence and diagnostic contracts below are
-also agreed.
+The 17 October revision separates storage blocks from typed roles and
+implements atomic attachment and checked/trusted schema switching. Schema
+associations belong to data roles; blocks retain only document and binary storage.
+This supersedes earlier contained-role and associated-document-only assumptions.
+The version 1 persistence format and block interface, construction, Host
+persistence and diagnostic contracts below are also agreed.
 All eight persistence stages are complete, user-reviewed and committed, including
 the gap-zeroing follow-up. Stage 8 and that follow-up were committed in `dfe076d`.
 The completed scope includes naming, format validation and diagnostics, ownership,
@@ -37,7 +38,7 @@ The completed persistence implementation plan is retired. The
 records all eight delivery stages, commit checkpoints and validation evidence.
 Implemented interfaces and diagnostic representation are maintained in the
 [runtime API](runtime-api.md#completed-data-blocks). This revision remains active
-for aggregation, schema-switch and composition design and planning; that work is
+for aggregation and composition design and planning; that work is
 not completed or authorised for implementation by the persistence milestone.
 
 The [schema specification](specification.md) and [runtime API](runtime-api.md)
@@ -89,10 +90,10 @@ The revised design retains these distinct roles:
 | Bundle | Package related files for combined loading and access. |
 
 An instance or bulk data entity is saved, loaded, owned and referenced as a single
-entity. It contains and exposes its specialised interface rather than requiring
-callers to maintain a separate interface attachment. Its document and binary
-ranges share backing storage; callers should not have to maintain two unrelated
-owners to keep the entity usable. The corresponding classes are
+entity. Its document and binary ranges share backing storage. The storage block
+exposes those views without a schema association; the caller attaches a separate
+specialised data role to them and supplies that role's schema. The corresponding
+storage classes are
 `schema::CBakedInstancesBlock` and `schema::CBakedBulkDataBlock`, following the
 existing `CBakedDocumentBlock` naming convention. Their contracts are defined below.
 
@@ -251,19 +252,18 @@ models, without adding another reference count or retention mechanism:
 | Retained loose-file entity | Host asset record owns the complete allocation. | Existing asset disposal request and completion. |
 | Retained bundle-backed entity | Host sub-file record protects a range through its existing bundle backing lease. | Dispose the sub-file record; the Host releases its bundle protection. |
 
-The caller's entity contains the specialised interface and, for Host-backed data,
-records the retained asset ID that supplies its bytes. Storing that ID or copying
+The caller's block holds storage and, for Host-backed data, records the retained
+asset ID. Typed roles are attached separately to its document and payload. Storing that ID or copying
 a borrowed view does not acquire an additional reference. Host backing leases
 remain Host-managed; the caller does not retain the containing bundle separately.
 
-Attachment validates the complete file range, attaches the document and payload,
-binds the supplied schema and builds the role state before exposing a usable
-entity. Construction finishes resizing and materialisation before publication.
+Block attachment validates the complete file range and publishes document and
+payload views. Separate role attachment binds a schema and builds typed state. Construction finishes resizing and materialisation before publication.
 Failure must not publish a partially usable entity. Adoption and attachment
 require an empty destination; replacement in place is outside this interface.
 
 For retained backing, the caller first quiesces all uses and borrowed entry views,
-then clears the contained interface and its schema binding. When responsible for
+then clears borrowing roles and the block. When responsible for
 the backing asset's disposal, the caller uses `AssetDisposeRequest` and its normal
 completion. Clearing or destroying the local interface must not silently send an
 asynchronous disposal request. Cache hits can share an asset ID; consumers still
@@ -400,131 +400,24 @@ storage are reflected by a later explicit save of that current storage.
 
 ## Block interfaces and lifecycle contracts
 
-`CBakedInstancesBlock` contains a `CBakedInstances`; `CBakedBulkDataBlock` contains
-a `CBakedBulkData`. Both start empty and are non-copyable and non-movable, matching
-their contained roles. Moving a completed storage block is a separate operation
-from moving a bound specialised interface.
-
-Every completed block has one contiguous document-plus-payload file range,
-whether locally owned or Host-backed. The naming follows `CBakedDocumentBlock`,
-but these blocks also manage their specialised role and backing association.
-Private construction may use separate temporary document and payload owners;
-no split or partially constructed state is exposed through the block interface.
-
-### Specialised access and observations
-
-The respective accessors are:
-
-```cpp
-const CBakedInstances& instances() const noexcept;
-const CBakedBulkData& bulk_data() const noexcept;
-```
-
-Each returns a const reference to the contained role. Existing navigation, entry
-and payload queries, and promotion are accessed through that role. The block does
-not duplicate those methods. No mutable role accessor is exposed: callers cannot
-independently clear the contained role, replace its document or rebind its schema.
-An empty block exposes its empty role, whose normal readiness checks apply.
-
-Both blocks share these observations:
-
-```cpp
-enum class EEntityBacking : std::uint8_t { none, local, asset };
-
-EEntityBacking backing() const noexcept;
-bool loaded_ready() const noexcept;
-CAssetId asset_id() const noexcept;
-CByteConstView file_bytes() const noexcept;
-```
-
-`backing()` distinguishes empty storage, a locally owned block and a retained
-Host asset. There is no bundle-specific state; retained loose files and bundle
-entries both use `asset`. `asset_id()` is invalid for empty or local blocks.
-
-`loaded_ready()` follows the contained role's current typed readiness, including
-schema binding validity. `file_bytes()` exposes the full persisted extent as a
-read-only view, excluding spare allocation capacity and any enclosing bundle
-padding. It is empty on an empty block. It remains available if the schema becomes
-unavailable, because backing storage can still be saved or released independently
-of typed interpretation. Neither query detects premature Host disposal; callers
-must continue protecting borrowed storage under the existing asset contract.
-
-### Adoption, attachment and failure
-
-The lifecycle operation names and arguments are:
+`CBakedInstancesBlock` and `CBakedBulkDataBlock` are schema-independent storage
+owners/borrowers. They expose `document()`, `payload_view()`, `file_bytes()`,
+`backing()`, `asset_id()` and storage-only `loaded_ready()`. Typed operations
+use a separate `CBakedInstances` or `CBakedBulkData` borrowing their views.
 
 | Operation | Contract |
 | --- | --- |
-| `adopt_local(block, schema, options, diagnostic)` | Validate a complete `CBakedDocumentBlock` and take its ownership only on success. |
-| `attach_asset(asset, bytes, schema, options, diagnostic)` | Validate and borrow a complete retained file range, recording its valid `CAssetId` without acquiring another backing reference. |
-| `clear()` | Clear the role and binding, then release local storage or forget the Host association; leave the block empty. |
-| `release_local(output_block)` | Clear the role and move local storage into an empty `CBakedDocumentBlock`, leaving the source block empty. |
+| `adopt_local(block, diagnostic)` | Validate the envelope and consume local ownership only on success. |
+| `attach_asset(asset, bytes, diagnostic)` | Validate and borrow caller-protected bytes without acquiring a reference. |
+| `clear()` | Release local storage or forget the borrowed asset; caller first quiesces borrowing roles. |
+| `release_local(output)` | Transfer local storage without copying into an unallocated document block. |
 
-Adoption, attachment and release report success or failure. Schema overloads
-accept either a resolved `CBakedSchema&` or `CLiveSchema&`. Local adoption accepts
-the source block by rvalue reference but consumes it only after validation and
-role initialisation succeed. Attachment accepts a `CAssetId` and a complete
-`CByteConstView` from the same successful asset result. The caller must supply the
-correct pair: recording an ID does not verify ownership of an arbitrary pointer.
-
-Both blocks use `SDataBlockLoadOptions`, containing only
-`bool compare_embedded{ false };` initially. Diagnostics follow the shared
-reporting contracts below while retaining specialised instance or bulk data
-failure detail.
-
-Both adoption and attachment require a completely empty destination and publish
-a fully initialised role only on success:
-
-- Failure on an empty destination leaves it empty.
-- Failure of local adoption preserves the source block and its ownership.
-- Failure of Host attachment neither modifies nor disposes the backing asset.
-- Calling either operation on an occupied destination fails without changing it,
-  its existing binding or its source input.
-
-An occupied block whose schema has become unavailable is still occupied;
-`loaded_ready() == false` does not make it eligible for adoption or attachment.
-Replacement requires explicit clearing and subsequent initialisation. There is
-no replacement-in-place operation in this interface.
-
-### Clearing and local storage transfer
-
-`clear()` first clears the contained role, releasing its schema binding and
-lookup state. It then releases local storage, or forgets the Host asset ID and
-borrowed range, and sets the backing state to `none`. Clearing an empty block is
-harmless. Destruction performs the same cleanup order. Neither operation sends a
-Host message or disposes a retained asset.
-
-For Host-backed blocks, callers capture the asset ID before clearing if they
-will need it for disposal. They submit `AssetDisposeRequest` separately when
-responsible for that record, coordinating with any other consumers sharing its
-ID. Clearing this local block alone does not establish that those consumers have
-finished.
-
-`release_local()` requires local backing and an empty output block. Host-backed
-and empty sources are rejected; the operation cannot extract an allocation owned
-by the Host or a containing bundle. Failed precondition checks preserve both
-source and output. On success it clears the role and transfers the complete
-allocation without copying its bytes. Releasing owned storage does not require
-the bound schema to remain usable.
-
-The local-to-Host transition is therefore explicit:
-
-```text
-CBakedInstancesBlock or CBakedBulkDataBlock with local backing
-    -> release_local into a CBakedDocumentBlock
-    -> owning transfer/admission through the existing Host mechanism
-    -> attach_asset using the returned asset ID, complete bytes and caller schema
-```
-
-The bound role and its runtime lookup state are not transported. Until the
-owning message is accepted, the extracted storage remains locally owned by the
-block or message holding it. A rejected post does not automatically reconstruct
-the original typed block; storage remains available under the existing transport
-failure contract.
-
-All uses of the contained role and borrowed entry/file views must be quiescent
-before clearing, destruction or local release. No public mutable file-byte or
-storage-resize accessor is introduced; construction completes before attachment.
+Adoption/attachment require an empty destination. Failure preserves both inputs
+and destination. No schema argument or load options are involved. Schema lifetime
+cannot change block readiness. Clear/destruction sends no Host message; asset
+disposal remains caller-managed. Both block types remain non-copyable/non-movable.
+The [runtime API](runtime-api.md#completed-data-blocks) provides signatures and
+the separate typed-attachment example.
 
 ## Construction interfaces and completed storage
 
@@ -551,7 +444,7 @@ These operations report success or failure. Live baking adds overloads accepting
 the corresponding block destination. Materialisation accepts either a
 `const CLiveDocument&` or `const CBakedDocument&`. Baking and stripping leave their
 source unchanged and are const operations. Schema overloads accept a resolved
-`CBakedSchema&` or `CLiveSchema&` for the destination interface; schema selection
+`CBakedSchema&` or `CLiveSchema&` during construction; schema selection
 and lifetime remain the caller's responsibility. `form` is the existing
 `EDataOutputForm`, retaining its embedded, external and stripped meanings.
 Diagnostic semantics are specified below; implemented overload declarations are
@@ -561,8 +454,8 @@ documented in the [runtime API](runtime-api.md#completed-data-blocks).
 
 Live baking reuses the current output preparation to produce the description and
 packed authoritative payload. It adds the persistence metadata, bakes the
-document and assembles the aligned complete file before initialising the
-contained specialised role against that final allocation.
+document and allocates the final aligned file. Records copy directly into its
+payload region before envelope validation and storage adoption.
 
 Materialisation prepares a private description and uses the existing type,
 default, inheritance and bulk data record rules to construct the payload. Values
@@ -603,15 +496,14 @@ their established semantics.
 ### Construction ownership and failure
 
 All construction operations require an empty destination. An occupied
-destination is rejected unchanged, including when its schema binding is no longer
-usable. A failed construction leaves an initially empty destination empty and
+destination is rejected unchanged. A failed construction leaves an initially empty destination empty and
 cleans up temporary allocations and bindings. It preserves the source document,
 source payload and any source asset association. No partially usable role or
 intermediate buffer is published.
 
 On success the destination owns one contiguous complete file allocation and
-exposes its initialised specialised role. All resizing and copying finish before
-the role is attached to stable final storage. `file_bytes()` therefore always
+exposes its document and payload views. Typed roles attach separately after
+all resizing and copying have finished. `file_bytes()` therefore always
 describes one complete range, and `release_local()` transfers one allocation,
 irrespective of the construction route.
 
@@ -635,17 +527,12 @@ specified here.
 
 ### Allocation strategy and later optimisation
 
-The initial implementation may reuse existing baking and materialisation APIs
-that produce separate document and payload owners, followed by a final assembly
-copy into the contiguous allocation. Contiguity is a completed-block contract,
-not a requirement that every private intermediate state share one allocation.
-
-Direct construction into the final allocation is a likely later optimisation,
-to be introduced at an appropriate point in the work to reduce copying and peak
-temporary memory. It is not a prerequisite for the first implementation. The
-public construction, failure and ownership contracts and persisted format remain
-the same. Its timing, sizing strategy and bounds on temporary memory and
-validation work remain implementation decisions.
+Live-role contiguous baking shares description/record planning with separate
+output but copies records directly into the final allocation, eliminating the
+intermediate packed payload and final typed reload. Description materialisation
+still constructs a temporary payload before assembly. Stripping copies unchanged
+source bytes into independent output. Further optimisation of materialisation
+does not change file, ownership or failure contracts.
 
 ## Live use, binary construction and retained document content
 
@@ -657,8 +544,8 @@ Baked instance and bulk data facilities continue to support both supplied binary
 and construction of missing binary data from sufficient document values, under
 the existing type, default, specialisation and bulk data record rules. Integrating
 those facilities with the new persistence units should reuse their established
-semantics. Private temporary payload owners are permitted initially; direct
-construction into final storage is the later optimisation described above.
+semantics. Live baking now writes records directly into final storage;
+description materialisation retains a temporary payload owner.
 
 Document values may be retained or omitted. Stripped output retains the names,
 type references, hierarchy and locators needed for navigation and binary access
@@ -700,8 +587,8 @@ byte-preserving stripping contract.
 
 Payload-relative offsets, gaps and trailing bytes within the declared payload
 are preserved; stripping does not repack or reconstruct binary data. The changed
-document can have a different baked length and node indices, so the destination
-role is initialised against the new document and final payload location.
+document can have a different baked length and node indices; any destination
+role must attach to those new storage views.
 Already stripped input produces an independent equivalent block under the same
 contract. Local and Host-backed sources follow the same transformation, with no
 source mutation or implicit asset disposal.
@@ -718,16 +605,10 @@ retention and saving use `AssetResult`, existing `EAssetStatus` values and parse
 findings. Schema block operations use structured caller-side diagnostics without
 enlarging the Host completion message or transporting schema bindings.
 
-### Shared options and diagnostic structure
+### Shared diagnostic structure
 
-Both block types use the same load options:
-
-```cpp
-struct SDataBlockLoadOptions
-{
-    bool compare_embedded{ false };
-};
-```
+Block attachment has no schema or comparison options. Value comparison belongs
+to the separate role attachment.
 
 `SInstancesBlockDiagnostic` and `SBulkDataBlockDiagnostic` each contain a shared
 stage, a shared block-level reason, optional location information, and the
@@ -755,10 +636,11 @@ callers supply logging, filenames, operation context and user-facing messages.
 | Specialised loading | Validate instance or bulk data structure, type references, locators and ranges, plus embedded values when comparison is requested. |
 | Construction steps | Distinguish description preparation, payload materialisation, document promotion, document baking and final assembly. |
 
-Attachment checks preconditions, the format envelope, schema binding and then
-specialised loading. Construction checks its preconditions and required schema
+Block attachment checks preconditions and the format envelope. Schema-dependent
+construction/stripping uses transient typed roles; ordinary block adoption does
+not bind a schema or validate typed entries. Construction checks its preconditions and required schema
 availability before preparing output; its diagnostic identifies the actual step
-that failed, including final specialised attachment. Input descriptions are not
+that failed, including final envelope validation. Input descriptions are not
 required to be valid completed persistence files before construction.
 
 Format reasons distinguish invalid baked documents, unsupported document
@@ -782,15 +664,14 @@ A truncated completed file is a format error, not a materialisation request.
 Comparison remains opt-in, and a comparison failure never replaces authoritative
 binary data with document values.
 
-An unresolved or invalidated supplied schema reports `schema_unavailable`.
-Otherwise unsuccessful binding reports `schema_binding_failed` unless a more
-specific cause is established. Unknown types and incompatible layouts discovered
+An unresolved schema supplied for construction or stripping reports
+`schema_unavailable`. Unknown types and incompatible layouts discovered
 during specialised validation retain their role diagnostics. These errors do not
 prove historical schema identity or introduce compatibility signatures.
 
-Later schema invalidation makes `loaded_ready()` false through the existing
-binding machinery. It does not retroactively change the diagnostic returned by
-a successful operation or discard the retained complete bytes.
+Later schema invalidation makes a typed role's `loaded_ready()` false through
+the existing binding machinery. It does not affect block readiness, discard
+storage or retroactively change a successful operation's diagnostic.
 
 Construction preserves lower-level reasons where available. Allocation failure
 is reported when established, and storage-limit/overflow failures are distinct
@@ -1067,10 +948,11 @@ This staging permits destination/source aliasing without overwriting input still
 needed by the merge. The result owns independent document and binary storage;
 it does not borrow storage from any source or from the displaced destination.
 Specialised data destinations bind to the same caller-owned schema as the sources
-through the existing binding mechanism. A generic document owner supplies backing;
-the specialised interface over that backing carries the schema association,
-including for document-only data. Absence of a binary payload does not require
-another association mechanism. The old destination's content and binding are not source
+through the existing binding mechanism. A separately backed specialised result
+requires both its document and complete binary package; the role carries the
+schema association. Generic document-only output has no attached data role.
+The source/result interfaces for document-only aggregation remain to be settled
+under this boundary. The old destination's content and binding are not source
 preconditions unless that destination is also one of the two sources.
 
 Any failure before commit discards temporary construction state and preserves
@@ -1105,117 +987,27 @@ APIs are unchanged.
 
 ### Separate validated schema-switch operation
 
-Changing an instance or bulk data document view's schema association is a
-separate, explicit validation operation, applicable to both live and baked
-document views and to either a live or baked target schema owner. Success changes
-the associated schema; failure leaves the association unchanged. The document,
-binary payload, representation form and backing ownership remain unchanged in
-either case. The result uses the selected target owner literally, allowing
-subsequent aggregation to check owner identity alone.
+Implemented on all four live/baked data roles as
+`switch_schema(schema, ESchemaSwitchMode::checked/trusted, diagnostic)`, with
+live and baked target-schema overloads. Checked switching validates the used
+representation and runs shared construction rules against existing bytes.
+Trusted switching skips that proof while resolving target type names and indices.
+Both preserve documents, handles, indexes, payload bytes/addresses and storage
+ownership; failures preserve the original binding. No description replacement,
+default-use provenance tracking or runtime-record rebuilding is involved.
 
-The operation requires a usable current association and a resolved, usable target
-schema. It validates before replacing the current association:
+Initial `attach_schema()` either validates a supplied complete package or
+constructs one from descriptions. There is no associated document-only state.
+Zero-byte packages are complete attached states. A checked switch can reject
+stale descriptions after raw binary editing; reconciliation is explicit.
+Trusted switching can restore a known-compatible association after schema loss.
+The full implemented contract is in the
+[runtime API](runtime-api.md#initial-attachment-and-schema-switching).
 
-- Every type used by the document must resolve in the target schema under the
-  corresponding type name. Its complete dependency graph must match in layout,
-  enum meanings and other non-default semantic properties. Defaults follow the
-  compatibility rules below. Matching sizes or representation compatibility
-  alone is insufficient.
-- Validation covers the entire used type definition, not just members mentioned
-  explicitly in retained descriptions. Stripping, defaults and inheritance do
-  not remove types or dependencies from validation.
-- Unrelated definitions may differ or exist in only one schema. A document can
-  therefore switch to a larger merged schema containing compatible used
-  definitions without requiring whole-schema equality.
-- Apart from the agreed default exceptions, used definitions must already match;
-  the permissive combination of missing fields allowed by definition merging is
-  not a general schema-switch equivalence rule. A change to a used definition's
-  interpretation or layout requires a separate explicit conversion, not a switch
-  that silently reinterprets existing data.
-- Build the source-to-target type mapping and validate the document and any
-  supplied payload under the target association. Rebuild schema-dependent
-  records and lookup state rather than reusing source resolved indices.
-
-Default compatibility is evaluated against effective use in the data being
-switched, including nested construction, array defaults and instance inheritance:
-
-| Corresponding defaults | Compatibility rule |
-| --- | --- |
-| Present in both and unchanged | Accept. |
-| Present in both and different | Accept only if the default is unused in the data being switched. |
-| Present in only one schema | Accept the presence/absence difference. |
-| Absent from both | No default conflict. |
-
-These rules identify admissible default differences; none authorises a change
-to the document or its binary interpretation or representation. An admissible
-default difference still requires validation that the unchanged document and
-any existing payload preserve their interpretation under the target schema.
-Value equality alone does not establish default use: an explicit value may equal
-a default without depending on it. Evaluate
-effective construction and current dependence rather than guessing from payload
-bytes or trusting stale descriptions. Hypothetical future entries and edits are
-not data currently being switched. Stripped complete snapshots require no
-recovery of historical default use; their existing bytes provide the representation
-to preserve.
-
-For binary-backed data, preserve the complete existing payload byte-for-byte,
-including padding and unused bits. Do not repack it, normalise its encodings or
-replace authoritative bytes with reconstructed values. Retained descriptions
-remain unchanged. Reject the switch if the target changes the binary
-interpretation or preservation would require a description change. Stripped data
-remains stripped. Any later reconstruction must respect the preserved binary
-representation and the existing permitted-value semantics.
-
-For document-only data, establish its effective binary representation under the
-source schema, then verify that the unchanged description produces the same
-representation under the target schema. Private materialisation may be used for
-validation, but does not publish a payload or change the document-only form.
-If preservation would require making defaulted values explicit or otherwise
-rewriting the description, reject the switch.
-
-For example, if an omitted `speed` member has implicit value `0` in the source
-schema and the target adds an explicit default of `12`, the presence/absence
-difference is admissible under the default rules, but switching a document-only
-instance would change its effective value. Reject that switch; do not insert an
-explicit `0` to make it possible.
-
-Description content, its existing baked encoding, presentation and auxiliary
-metadata remain unchanged. The switch constructs no replacement document or
-backing storage and performs no representation conversion.
-
-The operation uses the existing local/Host asset ownership and caller-owned schema
-binding mechanisms. It does not acquire ownership of either schema, introduce a
-new retention mechanism or modify shared Host asset bytes. The caller
-keeps the source backing and both schemas usable and unchanged during preparation,
-and keeps the target usable afterwards. Immutable and Host-backed descriptions
-remain attached to their existing backing.
-
-The new association and any rebuilt schema-dependent runtime state are published
-together only after all validation and allocation succeed. Missing or
-mismatching used definitions, incompatible defaults, failure to preserve the
-binary representation, unavailable schemas, invalid target interpretation, and
-allocation or size failures must not partially switch the document. Failure
-preserves the original binding, loaded state, document, payload and backing
-ownership; an originally usable source remains usable. Diagnostics identify the
-failing validation or runtime-state preparation step without requiring the caller
-to discard the source. A failed switch does not repair an association that was
-already invalid on entry.
-
-Current baked-role `bind_schema()` is not this operation: it clears loaded state
-before binding and does not compare the source and target definitions. Subsequent
-loading validates against the new schema without proving equivalence to the old
-interpretation. Existing promotion and output preparation provide type-mapping
-and representation-checking foundations, but also construct new output and do
-not supply the agreed switch contract. Live and baked roles, including those
-contained in completed blocks, need an explicit interface for validated switching.
-
-Concrete overloads, success-time handle/view invalidation and quiescence rules,
-diagnostic types, and the implementation of definition/default-use comparison and
-binary-preservation checks remain open.
-The source's specialised interface already carries its runtime association,
-including before binary loading or materialisation. Access to that binding and
-source state is an implementation concern; no persisted schema-owner identity
-or additional document-only association mechanism is introduced.
+This replaces the earlier default-conflict table, document-only switching and
+contained-role proposals. Remaining aggregation designs below must use the new
+role/storage boundaries; document-only aggregation source/result handling needs
+revisiting before implementation.
 
 ### Agreed source and result forms
 
@@ -1255,8 +1047,9 @@ Existing `EDataOutputForm` values are not a direct mapping to these three comple
 forms; selection uses a separate aggregation enum. Internal mapping to existing
 construction paths remains implementation work.
 
-Document-only sources can be materialised using their associated schema. Retained
-descriptions can be stripped while preserving binary data. Binary-backed sources
+Descriptions can be materialised when the caller explicitly supplies a schema;
+how document-only sources enter aggregation remains an interface decision.
+Retained descriptions can be stripped while preserving binary data. Binary-backed sources
 can be promoted to full descriptions, including document-only output, using the
 authoritative binary values. Internal conversion is allowed where useful; an
 unnecessary conversion need not be performed when direct comparison and copying
@@ -1277,8 +1070,8 @@ types: `CLiveInstances` / `CBakedInstances` and `CLiveBulkData` / `CBakedBulkDat
 There are no public source adapters, source arrays or source-count arguments.
 Combining more than two sources is the caller's sequence of pairwise merges.
 
-Completed blocks provide their contained roles through `instances()` or
-`bulk_data()`; local or Host-backed storage does not require another source kind.
+Completed blocks provide document/payload views to separately attached roles;
+local or Host-backed storage does not require another source kind.
 The first source is processed before the second for first-encounter ordering.
 The destination may alias either source, with replacement only after successful
 construction. All source backing and schema lifetime requirements remain the
@@ -1291,18 +1084,10 @@ owner. An occupied destination's old association is irrelevant unless it is also
 a source. Aggregation never establishes a substitute source association or performs
 an implicit validated schema switch.
 
-The specialised source interface, its schema binding and its backing storage are
-distinct. Generic `CLiveDocument` and `CBakedDocument` objects do not themselves
-carry the binding and are not direct public merge sources, but this does not make
-document-only schema data unassociated. Instance and bulk data interfaces already
-carry their schema association independently of whether binary data is present.
-
-In particular, existing baked roles support `set_document()` and `bind_schema()`
-before binary loading or materialisation. Aggregation must handle that associated
-document-only state and validate sufficient descriptions under the existing form
-rules, rather than impose binary-loaded readiness on every source. Access to the
-existing binding identity and source state may require internal accessors or small
-interface extensions; it is not a new ownership or schema-association design.
+The specialised source interface, schema binding and backing storage are distinct.
+Generic documents carry no binding. Initial attachment now produces a complete
+binary package, so the previous associated document-only source proposal is
+superseded. Its aggregation interface must be reconsidered before implementation.
 
 Source backing may be owned locally or retained through the Host. Aggregation
 borrows the specialised views over that storage; observing the schema binding
@@ -1319,27 +1104,28 @@ The existing destination types supply these backing and interface facilities:
 
 | Destination facility | Backing and specialised interface | Supported result form |
 | --- | --- | --- |
-| `CLiveDocument` | Generic editable document backing; the specialised result interface is separate. | Document only. |
-| `CBakedDocumentBlock` | Generic baked document backing; the specialised result interface is separate. | Document only. |
+| `CLiveDocument` | Generic editable document backing, without a schema association. | Document only; aggregation result interface unresolved. |
+| `CBakedDocumentBlock` | Generic baked document backing, without a schema association. | Document only; aggregation result interface unresolved. |
 | `CLiveInstances` / `CLiveBulkData` | Own working document/payload storage and expose the specialised interface. | Full descriptions and binary data, editable. |
-| `CBakedInstancesBlock` / `CBakedBulkDataBlock` | Own or attach complete backing and expose a contained specialised interface. | Completed document + binary or stripped document + binary. |
+| `CBakedInstancesBlock` / `CBakedBulkDataBlock` | Own or attach complete backing; typed roles attach separately. | Completed document + binary or stripped document + binary. |
 
 The generic owners in this table are backing facilities, not interchangeable
 schema-associated source views. For overloads involving separate backing and
 views, the remaining interface task is to specify which backing and specialised
-view the operation replaces or returns. It is not to invent another binding for
-document-only data. The specialised result uses the common schema owner obtained
-from the sources, and its backing must remain valid for its lifetime.
+view the operation replaces or returns. Document-only source/result handling
+must be revised before implementation; it cannot rely on an attached data role
+without binary storage. A specialised result uses the common schema owner
+obtained from the sources, and its backing must remain valid for its lifetime.
 
 Where new backing is required, prepare that storage and the corresponding view
-before publishing the result. Schema switching that adjusts an immutable or
-Host-backed description has the same backing/view distinction: a replacement
-may be needed, while the old backing and caller retention remain valid until
-successful publication. Shared Host storage is not implicitly rewritten.
+before publishing the result. Aggregation or form conversion may need replacement
+backing, while the old backing and caller retention remain valid until successful
+publication. Schema switching preserves the existing description, payload and
+backing in both modes. Shared Host storage is not implicitly rewritten.
 
 Every destination overload supports the agreed empty/occupied and explicit
 destination/source aliasing contracts through private construction and replacement.
-Passing `destination.instances()` or `destination.bulk_data()` as either source
+Passing a role borrowing destination storage as either source
 is a supported aliasing case. Existing owners containing a specialised interface
 remain the natural destination arguments; exact signatures for separate
 backing/view results remain to be refined.
@@ -1647,18 +1433,13 @@ document scalar equality, presentation merging, normalisation of stale
 descriptions and auxiliary metadata, output ordering, binary layout, and
 pairwise typed-source aggregation, source-derived schema association, destination
 overloads and output-selection interfaces above.
-These are design agreements, not implemented capabilities or authority to begin
-implementation.
+Schema switching is implemented as described above. The remaining aggregation
+agreements are design work, not authority to begin implementation.
 
 Remaining decisions are:
 
-- Schema-switch interfaces for live roles, baked roles and completed blocks;
-  result backing/view replacement; implementation of used-definition/default-use
-  comparison and binary-preservation checks; replacement descriptions for
-  immutable or Host-backed inputs; success-time handle/view invalidation,
-  quiescence and diagnostics. Same-owner association, default compatibility,
-  binary preservation with necessary description changes, used-type/dependency
-  validation and failure preservation are settled.
+- Document-only aggregation source/result handling under the revised atomic
+  attachment model; attached data roles now always have complete packages.
 - Result backing/view signatures where these are separate, the mixed live/baked
   source-pair overload matrix, same-object-as-both-sources behaviour, aggregation
   diagnostic contents and location contracts, and the internal mechanism for a
@@ -1666,8 +1447,7 @@ Remaining decisions are:
   adapters or schema argument, source-derived common-owner association,
   destination ownership, aliasing and failure preservation are settled. Specialised
   sources already carry their schema association; exposing existing binding
-  identity and document-only readiness is implementation work, not a new lifetime
-  or association mechanism.
+  identity is implementation work; document-only handling needs revised interfaces.
 - Internal mapping of selected forms to existing output construction paths.
   `EAggregationOutputForm`, `SAggregationOptions`, destination/form validation,
   default matching-form behaviour and explicit selection for partially described
@@ -1685,7 +1465,7 @@ Remaining decisions are:
 | Work | Outstanding design |
 | --- | --- |
 | Definition merging | Dependency/reference mapping, combined-schema validation, interfaces and diagnostics under the agreed recursive, scalar-equality and presentation rules. |
-| Validated schema switching | Concrete interfaces, definition/default-use validation, binary-preservation checks, description replacement, runtime-state rebuilding, handle/view contracts and diagnostics under the agreed atomic switch contract. |
+| Schema switching | Implemented with checked/trusted modes, shared construction validation and unchanged storage/handles; see the runtime API. |
 | Instance aggregation | Separate result backing/view signatures, mixed-pair overloads, remaining boundary cases, diagnostics, replacement machinery and implementation of the agreed pairwise interfaces, normalisation and packing rules. |
 | Bulk data aggregation | Separate result backing/view signatures, mixed-pair overloads, remaining boundary cases, diagnostics, replacement machinery and implementation of the agreed pairwise interfaces, normalisation and packing rules; no implicit concatenation. |
 | Complete document composition | Interface and retained/reconstructed-value policy for already reconciled `types`, `instances` and `data` sections; no collision resolution. |

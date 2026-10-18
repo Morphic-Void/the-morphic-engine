@@ -57,6 +57,31 @@ template<class TRecords, class TKey, class TOrdinal>
     return false;
 }
 
+//  Operation-local cursors favour repeated or neighbouring keys, with a bounded
+//  fallback for shuffled access. The records must remain sorted and unchanged.
+template<class TRecords, class TKey, class TOrdinal>
+[[nodiscard]] static bool find_near_record(const TRecords& records, const TKey key, TOrdinal& cursor) noexcept
+{
+    if (cursor < records.size())
+    {
+        if (records[cursor].entry == key)
+        {
+            return true;
+        }
+        if (((cursor + 1u) < records.size()) && (records[cursor + 1u].entry == key))
+        {
+            ++cursor;
+            return true;
+        }
+        if (cursor && (records[cursor - 1u].entry == key))
+        {
+            --cursor;
+            return true;
+        }
+    }
+    return find_live_record(records, key, cursor);
+}
+
 //==============================================================================
 //  Baked record index
 //==============================================================================

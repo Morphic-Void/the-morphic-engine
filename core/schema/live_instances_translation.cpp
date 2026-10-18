@@ -14,6 +14,7 @@
 #include "schema/type_compatibility.hpp"
 #include "schema/value_codec.hpp"
 #include "data_model/document_translation.hpp"
+#include "data_model/document_copy.hpp"
 #include "memory/memory_policies.hpp"
 
 #include <cstring>
@@ -39,10 +40,29 @@ public:
     }
 
     [[nodiscard]] CNodeKey decode(const CSchemaIndex type, const std::uint8_t* const bytes,
-        const std::uint8_t* const baseline, const CStringView name, const bool required = false,
-        const unsigned depth = 0u) noexcept;
+        const std::uint8_t* const baseline, const CStringView name) noexcept
+    {
+        return decode(type, bytes, baseline, name, nullptr, 0u);
+    }
 
 private:
+    //  Stack-local output state. An equal subtree allocates nothing. Before a
+    //  changed descendant is emitted, ensure ancestors and preceding array slots
+    //  in output order; no subtree is compared again to make that decision.
+    struct SFrame
+    {
+        SFrame* parent;
+        SType layout;
+        const std::uint8_t* bytes;
+        CStringView name;
+        CNodeKey output;
+        std::uint32_t current{}, emitted{};
+    };
+
+    [[nodiscard]] bool ensure_before_child(SFrame& frame) noexcept;
+    [[nodiscard]] CNodeKey equal_element(const CSchemaIndex type, const SType& layout, const std::uint8_t* const bytes) noexcept;
+    [[nodiscard]] CNodeKey decode(const CSchemaIndex type, const std::uint8_t* const bytes,
+        const std::uint8_t* const baseline, const CStringView name, SFrame* const parent, const unsigned depth) noexcept;
     [[nodiscard]] CNodeKey decode_scalar(const CSchemaIndex type, const std::uint64_t bits,
         const unsigned width, const CStringView& name) noexcept;
 
@@ -64,9 +84,59 @@ CNodeKey CInstanceReconciler::decode_scalar(const CSchemaIndex type, const std::
     return value;
 }
 
+CNodeKey CInstanceReconciler::equal_element(const CSchemaIndex type, const SType& layout,
+    const std::uint8_t* const bytes) noexcept
+{
+    if ((layout.category == ECategory::primitive) || (layout.category == ECategory::enumeration))
+    {
+        return decode_scalar(type, read_scalar_bits(bytes, static_cast<std::size_t>(layout.size)),
+            static_cast<unsigned>(layout.size * 8u), {});
+    }
+    const CNodeKey result = (layout.category == ECategory::array) ? m_document.create_array() : m_document.create_object();
+    if (!result) m_reason = EInstanceLoadReason::allocation_failed;
+    return result;
+}
+
+bool CInstanceReconciler::ensure_before_child(SFrame& frame) noexcept
+{
+    if (!frame.output)
+    {
+        if (frame.parent && !ensure_before_child(*frame.parent))
+        {
+            return false;
+        }
+        frame.output = (frame.layout.category == ECategory::array) ?
+            m_document.create_array(frame.name) : m_document.create_object(frame.name);
+        if (!frame.output)
+        {
+            m_reason = EInstanceLoadReason::allocation_failed;
+            return false;
+        }
+    }
+    if ((frame.layout.category == ECategory::array) && (frame.emitted < frame.current))
+    {
+        SType element;
+        (void)m_schema.type(frame.layout.element_or_storage, element);
+        for (; frame.emitted < frame.current; ++frame.emitted)
+        {
+            const std::size_t offset = static_cast<std::size_t>(frame.layout.stride * frame.emitted);
+            const CNodeKey child = equal_element(frame.layout.element_or_storage, element,
+                frame.bytes ? frame.bytes + offset : nullptr);
+            if (!child || !document_translation::detail::CDocumentConstruction::append(m_document, frame.output, child))
+            {
+                if (m_reason == EInstanceLoadReason::none)
+                {
+                    m_reason = EInstanceLoadReason::allocation_failed;
+                }
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 CNodeKey CInstanceReconciler::decode(const CSchemaIndex type, const std::uint8_t* const bytes,
-    const std::uint8_t* const baseline, const CStringView name, const bool required,
-    const unsigned depth) noexcept
+    const std::uint8_t* const baseline, const CStringView name, SFrame* const parent, const unsigned depth) noexcept
 {
     SType layout;
     if ((depth >= k_max_depth) || !m_schema.type(type, layout))
@@ -75,93 +145,80 @@ CNodeKey CInstanceReconciler::decode(const CSchemaIndex type, const std::uint8_t
         return {};
     }
     const std::size_t size = static_cast<std::size_t>(layout.size);
-    const bool equal = detail::compare_encoded(m_schema, type, bytes, size, baseline, size);
-    if (equal && !required)
+
+    //  In particular, never expand enormous arrays of zero-size elements.
+    if (size == 0u)
     {
         return {};
     }
     if ((layout.category == ECategory::primitive) || (layout.category == ECategory::enumeration))
     {
+        if (detail::compare_encoded(m_schema, type, bytes, size, baseline, size))
+        {
+            return {};
+        }
+        if (parent && !ensure_before_child(*parent))
+        {
+            return {};
+        }
         return decode_scalar(type, read_scalar_bits(bytes, size), static_cast<unsigned>(size * 8u), name);
     }
+    SFrame frame{ parent, layout, bytes, name, {} };
     const bool array = layout.category == ECategory::array;
-    const CNodeKey result = array ? m_document.create_array(name) : m_document.create_object(name);
-    if (!result)
-    {
-        m_reason = EInstanceLoadReason::allocation_failed;
-        return {};
-    }
-    std::uint32_t count = equal ? 0u : layout.count;
-    if (array && !equal)
-    {
-        SType element;
-        (void)m_schema.type(layout.element_or_storage, element);
-        while (count)
-        {
-            const std::size_t offset = static_cast<std::size_t>(layout.stride * (count - 1u));
-            if (!detail::compare_encoded(m_schema, layout.element_or_storage,
-                (bytes ? bytes + offset : nullptr), static_cast<std::size_t>(element.size),
-                (baseline ? baseline + offset : nullptr), static_cast<std::size_t>(element.size)))
-            {
-                break;
-            }
-            --count;
-        }
-    }
-    for (std::uint32_t i = 0u; (i < count) && (m_reason == EInstanceLoadReason::none); ++i)
+    for (; (frame.current < layout.count) && (m_reason == EInstanceLoadReason::none); ++frame.current)
     {
         CNodeKey child;
         if (layout.category == ECategory::bit_structure)
         {
             SField field;
-            (void)m_schema.field(m_schema.field_at(type, i), field);
+            (void)m_schema.field(m_schema.field_at(type, frame.current), field);
             const std::uint64_t actual = read_scalar_bits(bytes, size) & field.mask;
             if (actual != (read_scalar_bits(baseline, size) & field.mask))
             {
-                child = decode_scalar(field.type, (actual >> field.shift), field.width, m_schema.name(field.name));
+                if (!ensure_before_child(frame))
+                {
+                    break;
+                }
+                child = decode_scalar(field.type, actual >> field.shift, field.width, m_schema.name(field.name));
             }
         }
         else
         {
             CSchemaIndex child_type = layout.element_or_storage;
-            std::size_t offset = static_cast<std::size_t>(layout.stride * i);
+            std::size_t offset = static_cast<std::size_t>(layout.stride * frame.current);
             CStringView child_name;
             if (!array)
             {
                 SMember member;
-                (void)m_schema.member(m_schema.member_at(type, i), member);
+                (void)m_schema.member(m_schema.member_at(type, frame.current), member);
                 child_type = member.type;
                 offset = static_cast<std::size_t>(member.offset);
                 child_name = m_schema.name(member.name);
             }
-            child = decode(child_type,
-                (bytes ? bytes + offset : nullptr), (baseline ? baseline + offset : nullptr),
-                child_name, array, (depth + 1u));
+            child = decode(child_type, (bytes ? bytes + offset : nullptr), (baseline ? baseline + offset : nullptr),
+                child_name, &frame, (depth + 1u));
         }
-        if (child && !m_document.append_child(result, child).succeeded())
+        if (child)
         {
-            (void)m_document.erase(child);
-            m_reason = EInstanceLoadReason::allocation_failed;
+            if (!document_translation::detail::CDocumentConstruction::append(m_document, frame.output, child))
+            {
+                m_reason = EInstanceLoadReason::allocation_failed;
+            }
+            frame.emitted = frame.current + 1u;
         }
     }
     if (m_reason != EInstanceLoadReason::none)
     {
-        (void)m_document.erase(result);
+        if (frame.output) (void)m_document.erase(frame.output);
         return {};
     }
-    return result;
+    return frame.output;
 }
 
 CNodeKey CLiveInstances::output_declaration(CLiveDocument& target, const SRecord& record,
-    const CResolvedSchema& schema, const CSchemaIndex destination_type,
-    EInstanceLoadReason& reason) const noexcept
+    const CResolvedSchema& schema, const CSchemaIndex destination_type, EInstanceLoadReason& reason) const noexcept
 {
-    CByteBuffer defaults, reconstructed;
-    if (record.extent && (!reconstructed.allocate(record.extent, k_max_alignment) || !reconstructed.set_size(record.extent)))
-    {
-        reason = EInstanceLoadReason::allocation_failed;
-        return {};
-    }
+    CByteBuffer defaults;
     const detail::CDocumentRead read{ target };
     detail::SValueDiagnostic error;
     const bool base = record.parent == k_no_parent;
@@ -176,7 +233,7 @@ CNodeKey CLiveInstances::output_declaration(CLiveDocument& target, const SRecord
         if (!detail::construct_value(schema, read, destination_type, {}, defaults.data(), defaults.size(),
             detail::EConstructionMode::instance, error))
         {
-            reason = EInstanceLoadReason::unrepresentable_value;
+            reason = detail::value_failure(error, EInstanceLoadReason::unrepresentable_value);
             return {};
         }
         baseline = defaults.data();
@@ -192,19 +249,20 @@ CNodeKey CLiveInstances::output_declaration(CLiveDocument& target, const SRecord
     {
         return {};
     }
+
     //  Verify the generated declaration, including literals that cannot preserve raw encodings.
-    const bool constructed = base ? detail::construct_value(schema, read, destination_type,
-        detail::SOccurrence{ result }, reconstructed.data(), reconstructed.size(), detail::EConstructionMode::instance, error) :
-        detail::construct_alternative(schema, read, destination_type, detail::SOccurrence{ result }, baseline,
-            record.extent, reconstructed.data(), reconstructed.size(), error);
-    if (!constructed || !detail::compare_encoded(schema, destination_type, bytes, record.extent,
-        reconstructed.data(), reconstructed.size()))
+    bool matches{};
+    const bool checked = base ? detail::check_value(schema, read, destination_type,
+        detail::SOccurrence{ result }, bytes, record.extent, detail::EConstructionMode::instance, matches, error) :
+        detail::check_alternative(schema, read, destination_type, detail::SOccurrence{ result }, baseline,
+            record.extent, bytes, record.extent, matches, error);
+    if (!checked || !matches)
     {
         if (result)
         {
             (void)target.erase(result);
         }
-        reason = EInstanceLoadReason::unrepresentable_value;
+        reason = detail::value_failure(error, EInstanceLoadReason::unrepresentable_value);
         return {};
     }
     return result;
@@ -213,6 +271,25 @@ CNodeKey CLiveInstances::output_declaration(CLiveDocument& target, const SRecord
 //==============================================================================
 //  Promotion
 //==============================================================================
+
+struct STranslatedInstanceGroup
+{
+    detail::SOccurrence entry;
+    CNodeKey group;
+    CSchemaIndex type;
+};
+
+static void order_groups(TPodVector<STranslatedInstanceGroup>& groups) noexcept
+{
+    if (groups.size() > 1u)
+    {
+        std::sort(groups.data(), (groups.data() + groups.size()),
+            [](const STranslatedInstanceGroup& a, const STranslatedInstanceGroup& b)
+            {
+                return a.entry.query_value() < b.entry.query_value();
+            });
+    }
+}
 
 bool CLiveInstances::promote_from(const CBakedInstances& source, SInstanceDiagnostic& diagnostic) noexcept
 {
@@ -226,6 +303,7 @@ bool CLiveInstances::promote_from(const CBakedInstances& source, SInstanceDiagno
     CTypeCompatibility compatibility{ *original, *target, ETypeMatch::representation };
     const CBakedValueIndex instances = source.m_document.object_child(source.m_document.root(), CStringView{ "instances" });
     const CNodeKey live_instances = detail::SInstanceHandleAccess::occurrence(instances_root()).live;
+    TPodVector<STranslatedInstanceGroup> groups;
     for (CBakedValueIndex group = source.m_document.first_child(instances); group; group = source.m_document.next_sibling(group))
     {
         const CStringView name = source.m_document.name(group);
@@ -238,12 +316,16 @@ bool CLiveInstances::promote_from(const CBakedInstances& source, SInstanceDiagno
                 EInstanceLoadReason::allocation_failed : EInstanceLoadReason::incompatible_schema;
             return false;
         }
-        if (!append_node(m_document, live_instances, m_document.create_object(name)))
+        const CNodeKey translated = m_document.create_object(name);
+        if (!document_translation::detail::CDocumentConstruction::append(m_document, live_instances, translated) ||
+            !groups.push_back({ detail::SOccurrence{ group }, translated, destination_type }))
         {
             diagnostic.reason = EInstanceLoadReason::allocation_failed;
             return false;
         }
     }
+    order_groups(groups);
+    std::size_t group_cursor{};
     if (!m_records.reserve(source.m_records.size()))
     {
         diagnostic.reason = EInstanceLoadReason::allocation_failed;
@@ -265,25 +347,31 @@ bool CLiveInstances::promote_from(const CBakedInstances& source, SInstanceDiagno
         const CBakedValueIndex baked_group = source.m_document.parent((record.parent == CBakedInstances::k_no_parent) ?
             record.entry : source.m_records[record.parent].entry);
         CNodeKey group{};
+        CSchemaIndex type;
         if (record.parent == CBakedInstances::k_no_parent)
         {
-            group = m_document.object_child(live_instances, source.m_document.name(baked_group));
+            if (!find_near_record(groups, detail::SOccurrence{ baked_group }, group_cursor))
+            {
+                diagnostic.reason = EInstanceLoadReason::invalid_input;
+                return false;
+            }
+            group = groups[group_cursor].group;
+            type = groups[group_cursor].type;
         }
         else
         {
+            type = m_records[record.parent].type;
             group = m_document.object_child(m_records[record.parent].entry, CStringView{ "specialisation" });
             if (!group)
             {
                 group = m_document.create_object(CStringView{ "specialisation" });
-                if (!append_node(m_document, m_records[record.parent].entry, group))
+                if (!document_translation::detail::CDocumentConstruction::append(m_document, m_records[record.parent].entry, group))
                 {
                     diagnostic.reason = EInstanceLoadReason::allocation_failed;
                     return false;
                 }
             }
         }
-        const CSchemaIndex type = (record.parent == CBakedInstances::k_no_parent) ?
-            target->find_type(source.m_document.name(baked_group)) : m_records[record.parent].type;
         const CNodeKey entry = m_document.create_object(source.m_document.name(record.entry));
         const CNodeKey locator = make_locator(m_document, record.offset, record.extent);
         SRecord promoted{ entry, {}, group, type, record.parent, record.offset, record.extent };
@@ -292,9 +380,9 @@ bool CLiveInstances::promote_from(const CBakedInstances& source, SInstanceDiagno
         {
             return false;
         }
-        if (!entry || !append_node(m_document, entry, locator) ||
-            (promoted.declaration && !append_node(m_document, entry, promoted.declaration)) ||
-            !append_node(m_document, group, entry) || !m_records.push_back(promoted))
+        if (!entry || !document_translation::detail::CDocumentConstruction::append(m_document, entry, locator) ||
+            (promoted.declaration && !document_translation::detail::CDocumentConstruction::append(m_document, entry, promoted.declaration)) ||
+            !document_translation::detail::CDocumentConstruction::append(m_document, group, entry) || !m_records.push_back(promoted))
         {
             diagnostic.reason = EInstanceLoadReason::allocation_failed;
             return false;
@@ -365,7 +453,7 @@ bool CLiveInstances::reconcile(SInstanceDiagnostic& diagnostic) noexcept
     CLiveDocument document;
     TPodVector<SRecord> records;
     if (!document.initialise() || !document.set_root_type(ELiveValueType::object) ||
-        !append_node(document, document.root(), document.create_object(CStringView{ "instances" })) ||
+        !document_translation::detail::CDocumentConstruction::append(document, document.root(), document.create_object(CStringView{ "instances" })) ||
         !records.reserve(m_records.size()))
     {
         diagnostic.reason = EInstanceLoadReason::allocation_failed;
@@ -373,21 +461,30 @@ bool CLiveInstances::reconcile(SInstanceDiagnostic& diagnostic) noexcept
     }
     const CNodeKey root = document.object_child(document.root(), CStringView{ "instances" });
     const CNodeKey old_root = detail::SInstanceHandleAccess::occurrence(instances_root()).live;
+    TPodVector<STranslatedInstanceGroup> groups;
     for (CNodeKey group = m_document.first_child(old_root); group; group = m_document.next_sibling(group))
     {
-        if (!append_node(document, root, document.create_object(m_document.name(group))))
+        const CNodeKey translated = document.create_object(m_document.name(group));
+        if (!document_translation::detail::CDocumentConstruction::append(document, root, translated) || !groups.push_back({ detail::SOccurrence{ group }, translated, {} }))
         {
             diagnostic.reason = EInstanceLoadReason::allocation_failed;
             return false;
         }
     }
+    order_groups(groups);
+    std::size_t group_cursor{};
     for (std::size_t i = 0u; i < m_records.size(); ++i)
     {
         const SRecord& source = m_records[i];
         CNodeKey group;
         if (source.parent == k_no_parent)
         {
-            group = document.object_child(root, m_document.name(source.group));
+            if (!find_near_record(groups, detail::SOccurrence{ source.group }, group_cursor))
+            {
+                diagnostic.reason = EInstanceLoadReason::invalid_input;
+                return false;
+            }
+            group = groups[group_cursor].group;
         }
         else
         {
@@ -396,7 +493,7 @@ bool CLiveInstances::reconcile(SInstanceDiagnostic& diagnostic) noexcept
             if (!group)
             {
                 group = document.create_object(CStringView{ "specialisation" });
-                if (!append_node(document, parent, group))
+                if (!document_translation::detail::CDocumentConstruction::append(document, parent, group))
                 {
                     diagnostic.reason = EInstanceLoadReason::allocation_failed;
                     return false;
@@ -411,8 +508,8 @@ bool CLiveInstances::reconcile(SInstanceDiagnostic& diagnostic) noexcept
             diagnostic.occurrence = detail::SInstanceHandleAccess::make(detail::SOccurrence{ source.entry });
             return false;
         }
-        if (!entry || !append_node(document, entry, locator) || (declaration && !append_node(document, entry, declaration)) ||
-            !append_node(document, group, entry) ||
+        if (!entry || !document_translation::detail::CDocumentConstruction::append(document, entry, locator) || (declaration && !document_translation::detail::CDocumentConstruction::append(document, entry, declaration)) ||
+            !document_translation::detail::CDocumentConstruction::append(document, group, entry) ||
             !records.push_back({ entry, declaration, group, source.type, source.parent, source.offset, source.extent }))
         {
             diagnostic.reason = EInstanceLoadReason::allocation_failed;
@@ -441,7 +538,7 @@ struct SInstanceOutputFrame
 
 bool CLiveInstances::prepare_output_to(CLiveDocument& document, CByteBuffer& payload,
     const CResolvedSchema& destination_schema, const EDataOutputForm form,
-    SInstanceDiagnostic& diagnostic) const noexcept
+    SInstanceDiagnostic& diagnostic, SDataBlockDiagnostic* const block_diagnostic) const noexcept
 {
     diagnostic = {};
     const CResolvedSchema* const source_schema = m_binding.resolved();
@@ -453,14 +550,14 @@ bool CLiveInstances::prepare_output_to(CLiveDocument& document, CByteBuffer& pay
     }
     CLiveDocument staged_document;
     if (!staged_document.initialise() || !staged_document.set_root_type(ELiveValueType::object) ||
-        !append_node(staged_document, staged_document.root(), staged_document.create_object(CStringView{ "instances" })))
+        !document_translation::detail::CDocumentConstruction::append(staged_document, staged_document.root(), staged_document.create_object(CStringView{ "instances" })))
     {
         diagnostic.reason = EInstanceLoadReason::allocation_failed;
         return false;
     }
     const CNodeKey output_instances = staged_document.object_child(staged_document.root(), CStringView{ "instances" });
     if ((form == EDataOutputForm::stripped) &&
-        !append_node(staged_document, staged_document.root(), staged_document.create_boolean(true, CStringView{ "stripped" })))
+        !document_translation::detail::CDocumentConstruction::append(staged_document, staged_document.root(), staged_document.create_boolean(true, CStringView{ "stripped" })))
     {
         diagnostic.reason = EInstanceLoadReason::allocation_failed;
         return false;
@@ -483,7 +580,7 @@ bool CLiveInstances::prepare_output_to(CLiveDocument& document, CByteBuffer& pay
             return false;
         }
         const CNodeKey output_group = staged_document.create_object(type_name);
-        if (!append_node(staged_document, output_instances, output_group))
+        if (!document_translation::detail::CDocumentConstruction::append(staged_document, output_instances, output_group))
         {
             diagnostic.reason = EInstanceLoadReason::allocation_failed;
             return false;
@@ -541,7 +638,7 @@ bool CLiveInstances::prepare_output_to(CLiveDocument& document, CByteBuffer& pay
             }
             const CNodeKey output_entry = staged_document.create_object(m_document.name(source_entry));
             const CNodeKey locator = make_locator(staged_document, offset, record->extent);
-            if (!output_entry || !append_node(staged_document, output_entry, locator))
+            if (!output_entry || !document_translation::detail::CDocumentConstruction::append(staged_document, output_entry, locator))
             {
                 diagnostic.reason = EInstanceLoadReason::allocation_failed;
                 return false;
@@ -553,12 +650,12 @@ bool CLiveInstances::prepare_output_to(CLiveDocument& document, CByteBuffer& pay
                 diagnostic.occurrence = detail::SInstanceHandleAccess::make(detail::SOccurrence{ source_entry });
                 return false;
             }
-            if (declaration && !append_node(staged_document, output_entry, declaration))
+            if (declaration && !document_translation::detail::CDocumentConstruction::append(staged_document, output_entry, declaration))
             {
                 diagnostic.reason = EInstanceLoadReason::allocation_failed;
                 return false;
             }
-            if (!append_node(staged_document, frame.group, output_entry) ||
+            if (!document_translation::detail::CDocumentConstruction::append(staged_document, frame.group, output_entry) ||
                 !output_records.push_back({ record_index, offset, record->extent }))
             {
                 diagnostic.reason = EInstanceLoadReason::allocation_failed;
@@ -568,7 +665,7 @@ bool CLiveInstances::prepare_output_to(CLiveDocument& document, CByteBuffer& pay
             if (source_children && m_document.first_child(source_children))
             {
                 const CNodeKey output_children = staged_document.create_object(CStringView{ "specialisation" });
-                if (!append_node(staged_document, output_entry, output_children) || !frames.push_back(frame))
+                if (!document_translation::detail::CDocumentConstruction::append(staged_document, output_entry, output_children) || !frames.push_back(frame))
                 {
                     diagnostic.reason = EInstanceLoadReason::allocation_failed;
                     return false;
@@ -579,12 +676,22 @@ bool CLiveInstances::prepare_output_to(CLiveDocument& document, CByteBuffer& pay
         }
     }
     CByteBuffer staged_payload;
-    if ((cursor != 0u) && (!staged_payload.allocate(static_cast<std::size_t>(cursor), k_max_alignment) ||
+    std::uint8_t* payload_bytes{};
+    if (block_diagnostic)
+    {
+        if (!detail::prepare_data_block_storage(staged_document, cursor, detail::EDataBlockKind::instances,
+            staged_payload, payload_bytes, *block_diagnostic))
+        {
+            return false;
+        }
+    }
+    else if ((cursor != 0u) && (!staged_payload.allocate(static_cast<std::size_t>(cursor), k_max_alignment) ||
         !staged_payload.set_size(static_cast<std::size_t>(cursor))))
     {
         diagnostic.reason = EInstanceLoadReason::allocation_failed;
         return false;
     }
+    if (!block_diagnostic) payload_bytes = staged_payload.data();
     std::size_t copied_end{};
     for (std::size_t i = 0u; i < output_records.size(); ++i)
     {
@@ -593,10 +700,10 @@ bool CLiveInstances::prepare_output_to(CLiveDocument& document, CByteBuffer& pay
         {   //  Clear only newly created gaps; complete snapshots retain their bytes.
             if (record.offset > copied_end)
             {
-                std::memset((staged_payload.data() + copied_end), 0, (record.offset - copied_end));
+                std::memset((payload_bytes + copied_end), 0, (record.offset - copied_end));
             }
             const SRecord& original = m_records[record.source];
-            std::memcpy((staged_payload.data() + record.offset), (m_payload.data() + original.offset), record.extent);
+            std::memcpy((payload_bytes + record.offset), (m_payload.data() + original.offset), record.extent);
             copied_end = static_cast<std::size_t>(record.offset) + record.extent;
         }
     }
@@ -652,8 +759,7 @@ bool CLiveInstances::bake_to(CBakedDocumentBlock& block, CByteBuffer& payload, C
     }
     CBakedInstances prepared_role;
     if (!prepared_role.set_document(prepared_block.document()) ||
-        !prepared_role.bind_schema(destination_schema) ||
-        !prepared_role.load_supplied(prepared_payload.const_view(), false, diagnostic))
+        !prepared_role.attach_schema(destination_schema, prepared_payload.const_view(), false, diagnostic))
     {
         if (diagnostic.reason == EInstanceLoadReason::none)
         {
@@ -668,16 +774,27 @@ bool CLiveInstances::bake_to(CBakedDocumentBlock& block, CByteBuffer& payload, C
     return true;
 }
 
+template<class TSchema>
+bool CLiveInstances::bake_to(CBakedInstancesBlock& destination, TSchema& schema,
+    const EDataOutputForm form, SInstancesBlockDiagnostic& diagnostic) const noexcept
+{
+    return detail::bake_data_block(*this, destination, schema, form, diagnostic,
+        [&](CLiveDocument& document, CByteBuffer& storage) noexcept
+        {
+            return prepare_output_to(document, storage, *schema.resolved(), form, diagnostic.role, &diagnostic.block);
+        });
+}
+
 bool CLiveInstances::bake(CBakedInstancesBlock& destination, CBakedSchema& schema,
     const EDataOutputForm form, SInstancesBlockDiagnostic& diagnostic) const noexcept
 {
-    return detail::bake_data_block(*this, destination, schema, form, detail::EDataBlockKind::instances, diagnostic);
+    return bake_to(destination, schema, form, diagnostic);
 }
 
 bool CLiveInstances::bake(CBakedInstancesBlock& destination, CLiveSchema& schema,
     const EDataOutputForm form, SInstancesBlockDiagnostic& diagnostic) const noexcept
 {
-    return detail::bake_data_block(*this, destination, schema, form, detail::EDataBlockKind::instances, diagnostic);
+    return bake_to(destination, schema, form, diagnostic);
 }
 
 bool CLiveInstances::bake(CBakedDocumentBlock& block, CByteBuffer& payload, CBakedInstances& role,

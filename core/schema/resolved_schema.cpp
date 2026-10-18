@@ -9,6 +9,7 @@
 //  Resolve live/baked definitions, references, defaults and physical layouts.
 
 #include "schema/resolved_schema.hpp"
+#include "schema/type_compatibility.hpp"
 #include "schema/value_conversion.hpp"
 #include "memory/memory_policies.hpp"
 
@@ -194,10 +195,15 @@ CResolvedSchema& CResolvedSchema::operator=(CResolvedSchema&& source) noexcept
         clear();
         m_document = source.m_document;
         m_types = std::move(source.m_types);
+        m_type_names = std::move(source.m_type_names);
         m_members = std::move(source.m_members);
+        m_member_names = std::move(source.m_member_names);
         m_member_order = std::move(source.m_member_order);
         m_labels = std::move(source.m_labels);
+        m_label_names = std::move(source.m_label_names);
+        m_label_values = std::move(source.m_label_values);
         m_fields = std::move(source.m_fields);
+        m_field_names = std::move(source.m_field_names);
         m_defaults = std::move(source.m_defaults);
         m_mapping = std::move(source.m_mapping);
         m_definitions = source.m_definitions;
@@ -213,10 +219,15 @@ void CResolvedSchema::clear() noexcept
     m_definitions = 0u;
     m_document = {};
     m_types.deallocate();
+    m_type_names.deallocate();
     m_members.deallocate();
+    m_member_names.deallocate();
     m_member_order.deallocate();
     m_labels.deallocate();
+    m_label_names.deallocate();
+    m_label_values.deallocate();
     m_fields.deallocate();
+    m_field_names.deallocate();
     m_defaults.deallocate();
     m_mapping.deallocate();
 }
@@ -234,6 +245,51 @@ const CResolvedSchema::STypeRecord* CResolvedSchema::type_record(const CSchemaIn
     return is_kind(i, resolver_util::k_type, m_types.size()) ? &m_types[ordinal(i)] : nullptr;
 }
 
+//  Name IDs belong to one document. Keep declaration records in their original
+//  order and search small ordinal permutations with integer comparisons.
+template<class T>
+static void order_names(const TPodVector<T>& records, TPodVector<std::uint32_t>& order,
+    const std::uint32_t first, const std::uint32_t count) noexcept
+{
+    for (std::uint32_t i = 0u; i < count; ++i)
+    {
+        order[first + i] = first + i;
+    }
+    if (count > 1u)
+    {
+        std::sort((order.data() + first), (order.data() + first + count),
+            [&records](const std::uint32_t a, const std::uint32_t b)
+            {
+                return records[a].name.query_value() < records[b].name.query_value();
+            });
+    }
+}
+
+template<class T>
+[[nodiscard]] static std::uint32_t find_named_record(const TPodVector<T>& records,
+    const TPodVector<std::uint32_t>& order, const std::uint32_t first,
+    const std::uint32_t count, const CPropertyNameId name) noexcept
+{
+    if (!name.is_valid())
+    {
+        return UINT32_MAX;
+    }
+    std::uint32_t low = first, high = first + count;
+    while (low < high)
+    {
+        const std::uint32_t mid = low + ((high - low) / 2u);
+        if (records[order[mid]].name.query_value() < name.query_value())
+        {
+            low = mid + 1u;
+        }
+        else
+        {
+            high = mid;
+        }
+    }
+    return ((low < (first + count)) && (records[order[low]].name == name)) ? order[low] : UINT32_MAX;
+}
+
 CSchemaIndex CResolvedSchema::lookup_type(const CStringView& name) const noexcept
 {
     for (std::uint32_t type_slot = 1u; type_slot <= resolver_util::k_primitive_count; ++type_slot)
@@ -243,14 +299,9 @@ CSchemaIndex CResolvedSchema::lookup_type(const CStringView& name) const noexcep
             return index(resolver_util::k_type, (type_slot - 1u));
         }
     }
-    for (std::uint32_t type_slot = resolver_util::k_primitive_count; type_slot < (resolver_util::k_primitive_count + m_definitions); ++type_slot)
-    {
-        if (resolver_util::equal(name, m_document.property_name(m_types[type_slot].name)))
-        {
-            return index(resolver_util::k_type, type_slot);
-        }
-    }
-    return {};
+    const std::uint32_t found = find_named_record(m_types, m_type_names, resolver_util::k_primitive_count,
+        m_definitions, m_document.find_property_name_id(name));
+    return found != UINT32_MAX ? index(resolver_util::k_type, found) : CSchemaIndex{};
 }
 
 CSchemaIndex CResolvedSchema::find_type(const CStringView& name) const noexcept
@@ -271,6 +322,17 @@ std::uint32_t CResolvedSchema::definition_count() const noexcept
 CSchemaIndex CResolvedSchema::definition_at(const std::uint32_t n) const noexcept
 {
     return (m_ready && (n < m_definitions)) ? index(resolver_util::k_type, (resolver_util::k_primitive_count + n)) : CSchemaIndex{};
+}
+
+bool CResolvedSchema::definition_ordinal(const CSchemaIndex type, std::uint32_t& result) const noexcept
+{
+    if (!m_ready || !is_kind(type, resolver_util::k_type, (resolver_util::k_primitive_count + m_definitions)) ||
+        (ordinal(type) < resolver_util::k_primitive_count))
+    {
+        return false;
+    }
+    result = ordinal(type) - resolver_util::k_primitive_count;
+    return true;
 }
 
 bool CResolvedSchema::type(const CSchemaIndex index, SType& result) const noexcept
@@ -365,57 +427,90 @@ CResolvedSchema::SRecordRange<T> CResolvedSchema::child_range(const CSchemaIndex
 CSchemaIndex CResolvedSchema::find_member(const CSchemaIndex type, const CStringView& name) const noexcept
 {
     const SRecordRange<SMemberRecord> members = child_range(type, ECategory::structure, m_members);
-    for (std::uint32_t member_ordinal = 0u; member_ordinal < members.count; ++member_ordinal)
+    const std::uint32_t found = find_named_record(m_members, m_member_names, members.first, members.count,
+        m_document.find_property_name_id(name));
+    return found != UINT32_MAX ? index(resolver_util::k_member, found) : CSchemaIndex{};
+}
+
+bool CResolvedSchema::member_ordinal(const CSchemaIndex type, const CSchemaIndex member, std::uint32_t& result) const noexcept
+{
+    const auto members = child_range(type, ECategory::structure, m_members);
+    if (!is_kind(member, resolver_util::k_member, m_members.size()) || (ordinal(member) < members.first) ||
+        ((ordinal(member) - members.first) >= members.count))
     {
-        const SMemberRecord& member = members.at(m_members, member_ordinal);
-        if (resolver_util::equal(name, m_document.property_name(member.name)))
-        {
-            return index(resolver_util::k_member, (members.first + member_ordinal));
-        }
+        return false;
     }
-    return {};
+    result = ordinal(member) - members.first;
+    return true;
 }
 
 CSchemaIndex CResolvedSchema::find_label(const CSchemaIndex type, const CStringView& name) const noexcept
 {
     const SRecordRange<SLabel> labels = child_range(type, ECategory::enumeration, m_labels);
-    for (std::uint32_t label_ordinal = 0u; label_ordinal < labels.count; ++label_ordinal)
-    {
-        const SLabel& label = labels.at(m_labels, label_ordinal);
-        if (resolver_util::equal(name, m_document.property_name(label.name)))
-        {
-            return index(resolver_util::k_label, (labels.first + label_ordinal));
-        }
-    }
-    return {};
+    const std::uint32_t found = find_named_record(m_labels, m_label_names, labels.first, labels.count,
+        m_document.find_property_name_id(name));
+    return found != UINT32_MAX ? index(resolver_util::k_label, found) : CSchemaIndex{};
 }
 
 CSchemaIndex CResolvedSchema::find_field(const CSchemaIndex type, const CStringView& name) const noexcept
 {
     const SRecordRange<SField> fields = child_range(type, ECategory::bit_structure, m_fields);
-    for (std::uint32_t field_ordinal = 0u; field_ordinal < fields.count; ++field_ordinal)
-    {
-        const SField& field = fields.at(m_fields, field_ordinal);
-        if (resolver_util::equal(name, m_document.property_name(field.name)))
-        {
-            return index(resolver_util::k_field, (fields.first + field_ordinal));
-        }
-    }
-    return {};
+    const std::uint32_t found = find_named_record(m_fields, m_field_names, fields.first, fields.count,
+        m_document.find_property_name_id(name));
+    return found != UINT32_MAX ? index(resolver_util::k_field, found) : CSchemaIndex{};
+}
+
+[[nodiscard]] static std::uint64_t label_value_key(const SScalar& value) noexcept
+{
+    return value.kind == EScalar::signed_integer ?
+        static_cast<std::uint64_t>(value.value.signed_value) ^ (UINT64_C(1) << 63u) : value.value.unsigned_value;
 }
 
 CSchemaIndex CResolvedSchema::first_label_for_value(const CSchemaIndex type, const SScalar& value) const noexcept
 {
     const SRecordRange<SLabel> labels = child_range(type, ECategory::enumeration, m_labels);
-    for (std::uint32_t label_ordinal = 0u; label_ordinal < labels.count; ++label_ordinal)
+    if (!labels.count || (value.kind != EScalar::signed_integer && value.kind != EScalar::unsigned_integer))
     {
-        const SLabel& label = labels.at(m_labels, label_ordinal);
-        if (resolver_util::scalar_equal(value, label.value))
+        return {};
+    }
+    SScalar query = value;
+    if (query.kind != m_labels[labels.first].value.kind)
+    {
+        if (query.kind == EScalar::signed_integer)
         {
-            return index(resolver_util::k_label, (labels.first + label_ordinal));
+            if (query.value.signed_value < 0)
+            {
+                return {};
+            }
+            query.value.unsigned_value = static_cast<std::uint64_t>(query.value.signed_value);
+            query.kind = EScalar::unsigned_integer;
+        }
+        else
+        {
+            if (query.value.unsigned_value > INT64_MAX)
+            {
+                return {};
+            }
+            query.value.signed_value = static_cast<std::int64_t>(query.value.unsigned_value);
+            query.kind = EScalar::signed_integer;
         }
     }
-    return {};
+    const std::uint64_t key = label_value_key(query);
+    std::uint32_t low = labels.first, high = labels.first + labels.count;
+    while (low < high)
+    {
+        const std::uint32_t mid = low + ((high - low) / 2u);
+        if (label_value_key(m_labels[m_label_values[mid]].value) < key)
+        {
+            low = mid + 1u;
+        }
+        else
+        {
+            high = mid;
+        }
+    }
+    return ((low < (labels.first + labels.count)) && resolver_util::scalar_equal(value, m_labels[m_label_values[low]].value)) ?
+        index(resolver_util::k_label, m_label_values[low]) : CSchemaIndex{};
 }
 
 bool CResolvedSchema::default_value(const CSchemaIndex type, const CSchemaIndex description, SDefault& result) const noexcept
@@ -563,6 +658,7 @@ private:
     SDiagnostic& m_diagnostic;
     EStage m_stage{ EStage::declarations };
     CSchemaHandle m_context_type, m_context_member;
+    COrdinalHashIndex m_type_index;
 };
 
 CResolver::CResolver(CResolvedSchema& owner, SDiagnostic& diagnostic) noexcept
@@ -686,19 +782,47 @@ bool CResolver::names(const CSchemaHandle& container, const bool array, const CS
     {
         return fail(EReason::invalid_input, container);
     }
-    for (CSchemaHandle declaration = m_document.first_child(container); declaration; declaration = m_document.next_sibling(declaration))
+
+    //  Objects already enforce unique names. Named array elements need a
+    //  duplicate check; sort IDs while retaining their declaration ordinals.
+    TPodVector<std::uint64_t> names;
+    std::uint32_t duplicate = UINT32_MAX, related = UINT32_MAX;
+    if (array && (m_document.child_count(container) > 1u))
+    {
+        if (!names.reserve(m_document.child_count(container)))
+        {
+            return fail(EReason::allocation_failed, container);
+        }
+        std::uint32_t ordinal{};
+        for (CSchemaHandle child = m_document.first_child(container); child; child = m_document.next_sibling(child), ++ordinal)
+        {
+            if (!names.push_back((static_cast<std::uint64_t>(m_document.name_id(child).query_value()) << 32u) | ordinal))
+            {
+                return fail(EReason::allocation_failed, child);
+            }
+        }
+        if (names.size() > 1u) std::sort(names.data(), (names.data() + names.size()));
+        for (std::size_t i = 1u; i < names.size(); ++i)
+        {
+            if (((names[i] >> 32u) == (names[i - 1u] >> 32u)) && (static_cast<std::uint32_t>(names[i]) < duplicate))
+            {
+                duplicate = static_cast<std::uint32_t>(names[i]);
+                related = static_cast<std::uint32_t>(names[i - 1u]);
+            }
+        }
+    }
+    std::uint32_t ordinal{};
+    CSchemaHandle prior;
+    for (CSchemaHandle declaration = m_document.first_child(container); declaration; declaration = m_document.next_sibling(declaration), ++ordinal)
     {
         if (!valid_identifier(m_document.name(declaration)))
         {
             return fail(EReason::invalid_identifier, declaration);
         }
-        for (CSchemaHandle prior = m_document.first_child(container); prior != declaration;
-            prior = m_document.next_sibling(prior))
+        if (ordinal == related) prior = declaration;
+        if (ordinal == duplicate)
         {
-            if (m_document.name_id(prior) == m_document.name_id(declaration))
-            {
-                return fail(EReason::duplicate_declaration, declaration, prior);
-            }
+            return fail(EReason::duplicate_declaration, declaration, prior);
         }
     }
     return true;
@@ -717,20 +841,42 @@ bool CResolver::declarations(const CSchemaHandle& container, const ECategory cat
         {
             return fail(EReason::invalid_identifier, declaration);
         }
-        const CSchemaIndex existing = m_schema.lookup_type(m_document.name(declaration));
-        if (existing)
+
+        //  Check built-ins before the operation-local declaration index.
+        for (std::uint32_t i = 1u; i <= resolver_util::k_primitive_count; ++i)
         {
-            return fail(EReason::duplicate_declaration, declaration, m_schema.type_record(existing)->source);
+            if (resolver_util::equal(m_document.name(declaration), resolver_util::k_primitives[i]))
+            {
+                return fail(EReason::duplicate_declaration, declaration);
+            }
+        }
+        const CPropertyNameId name = m_document.name_id(declaration);
+        const auto hash = [this](const std::size_t i)
+        {
+            return COrdinalHashIndex::hash_key(m_schema.m_types[resolver_util::k_primitive_count + i].name.query_value());
+        };
+        const std::uint32_t existing = m_type_index.find(COrdinalHashIndex::hash_key(name.query_value()), [this, name](const std::uint32_t i)
+            {
+                return m_schema.m_types[resolver_util::k_primitive_count + i].name == name;
+            });
+        if (existing != COrdinalHashIndex::k_missing_record)
+        {
+            return fail(EReason::duplicate_declaration, declaration,
+                m_schema.m_types[resolver_util::k_primitive_count + existing].source);
+        }
+        if (!m_type_index.reserve((static_cast<std::size_t>(m_schema.m_definitions) + 1u), m_schema.m_definitions, hash))
+        {
+            return fail(EReason::allocation_failed, declaration);
         }
         if (!grow(m_schema.m_types, 1u, declaration))
         {
             return false;
         }
         TTypeRecord& type_record = m_schema.m_types.last();
-        type_record.name = m_document.name_id(declaration);
+        type_record.name = name;
         type_record.source = declaration;
         type_record.category = category;
-        ++m_schema.m_definitions;
+        m_type_index.insert(m_schema.m_definitions++, COrdinalHashIndex::hash_key(name.query_value()));
         if (!map(declaration, m_schema.index(resolver_util::k_type, static_cast<std::uint32_t>(m_schema.m_types.size() - 1u))))
         {
             return false;
@@ -789,6 +935,12 @@ bool CResolver::run() noexcept
             return false;
         }
     }
+    if (!grow(m_schema.m_type_names, static_cast<std::uint32_t>(m_schema.m_types.size()), types))
+    {
+        return false;
+    }
+    order_names(m_schema.m_types, m_schema.m_type_names, resolver_util::k_primitive_count, m_schema.m_definitions);
+    m_type_index = {};
     for (std::uint32_t type_ordinal = 0u; type_ordinal < m_schema.m_definitions; ++type_ordinal)
     {
         if (!resolve_type(m_schema.index(resolver_util::k_type, (type_ordinal + resolver_util::k_primitive_count)), 0u))
@@ -853,7 +1005,9 @@ bool CResolver::enumeration(TTypeRecord& type_record) noexcept
     }
     type_record.first = static_cast<std::uint32_t>(m_schema.m_labels.size());
     type_record.count = m_document.child_count(values);
-    if (!grow(m_schema.m_labels, type_record.count, values))
+    if (!grow(m_schema.m_labels, type_record.count, values) ||
+        !grow(m_schema.m_label_names, type_record.count, values) ||
+        !grow(m_schema.m_label_values, type_record.count, values))
     {
         return false;
     }
@@ -869,6 +1023,21 @@ bool CResolver::enumeration(TTypeRecord& type_record) noexcept
         {
             return false;
         }
+    }
+    order_names(m_schema.m_labels, m_schema.m_label_names, type_record.first, type_record.count);
+    for (std::uint32_t i = 0u; i < type_record.count; ++i)
+    {
+        m_schema.m_label_values[type_record.first + i] = type_record.first + i;
+    }
+    if (type_record.count > 1u)
+    {
+        std::sort((m_schema.m_label_values.data() + type_record.first),
+            (m_schema.m_label_values.data() + type_record.first + type_record.count),
+            [this](const std::uint32_t a, const std::uint32_t b)
+            {
+                const auto av = label_value_key(m_schema.m_labels[a].value), bv = label_value_key(m_schema.m_labels[b].value);
+                return (av < bv) || ((av == bv) && (a < b));
+            });
     }
     return true;
 }
@@ -1005,6 +1174,7 @@ bool CResolver::structure(TTypeRecord& type_record, const unsigned depth) noexce
     type_record.alignment_log2 = 0u;
     type_record.set_flag(TTypeRecord::k_named_components, type_record.count != 0u);
     if (!grow(m_schema.m_members, type_record.count, members) ||
+        !grow(m_schema.m_member_names, type_record.count, members) ||
         !grow(m_schema.m_member_order, type_record.count, members))
     {
         return false;
@@ -1076,6 +1246,7 @@ bool CResolver::structure(TTypeRecord& type_record, const unsigned depth) noexce
         }
     }
     m_context_member = {};
+    order_names(m_schema.m_members, m_schema.m_member_names, type_record.first, type_record.count);
     return structure_layout(type_record, explicit_offsets, has_storage);
 }
 
@@ -1316,13 +1487,13 @@ bool CResolver::scalar(const CSchemaIndex type, const CSchemaHandle& source, SSc
     const TTypeRecord type_record = *m_schema.type_record(type);
     if (type_record.category == ECategory::enumeration)
     {
-        for (std::uint32_t label_ordinal = 0u; label_ordinal < type_record.count; ++label_ordinal)
+        if (m_document.value_kind(source) == EDocumentValueKind::string)
         {
-            const SLabel& label = m_schema.m_labels[type_record.first + label_ordinal];
-            if ((m_document.value_kind(source) == EDocumentValueKind::string) &&
-                resolver_util::equal(m_document.string_value(source), m_document.property_name(label.name)))
+            const std::uint32_t found = find_named_record(m_schema.m_labels, m_schema.m_label_names,
+                type_record.first, type_record.count, m_document.find_property_name_id(m_document.string_value(source)));
+            if (found != UINT32_MAX)
             {
-                result = label.value;
+                result = m_schema.m_labels[found].value;
                 return true;
             }
         }
@@ -1419,7 +1590,8 @@ bool CResolver::bit_structure(TTypeRecord& type_record, const unsigned depth) no
     }
     type_record.first = static_cast<std::uint32_t>(m_schema.m_fields.size());
     type_record.count = m_document.child_count(members);
-    if (!grow(m_schema.m_fields, type_record.count, members))
+    if (!grow(m_schema.m_fields, type_record.count, members) ||
+        !grow(m_schema.m_field_names, type_record.count, members))
     {
         return false;
     }
@@ -1494,7 +1666,10 @@ bool CResolver::bit_structure(TTypeRecord& type_record, const unsigned depth) no
             }
         }
         used |= field.mask;
-        if (logical.category == ECategory::enumeration)
+        if (logical.category == ECategory::enumeration &&
+            (!resolver_util::fits(m_schema.m_labels[m_schema.m_label_values[logical.first]].value, field.signed_value, field.width) ||
+                !resolver_util::fits(m_schema.m_labels[m_schema.m_label_values[logical.first + logical.count - 1u]].value,
+                    field.signed_value, field.width)))
         {
             for (std::uint32_t label = 0u; label < logical.count; ++label)
             {
@@ -1580,6 +1755,7 @@ bool CResolver::bit_structure(TTypeRecord& type_record, const unsigned depth) no
             return false;
         }
     }
+    order_names(m_schema.m_fields, m_schema.m_field_names, type_record.first, type_record.count);
     type_record.set_flag(TTypeRecord::k_gaps, (used != resolver_util::max_unsigned(static_cast<unsigned>(type_record.size * 8u))));
     return true;
 }

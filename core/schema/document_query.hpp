@@ -128,6 +128,7 @@ public:
     [[nodiscard]] CPropertyNameId name_id(const SOccurrence value) const noexcept;
     [[nodiscard]] CStringView name(const SOccurrence value) const noexcept;
     [[nodiscard]] CStringView property_name(const CPropertyNameId id) const noexcept;
+    [[nodiscard]] CPropertyNameId find_property_name_id(const CStringView& name) const noexcept;
     [[nodiscard]] SOccurrence parent(const SOccurrence value) const noexcept;
     [[nodiscard]] SOccurrence first_child(const SOccurrence value) const noexcept;
     [[nodiscard]] SOccurrence next_sibling(const SOccurrence value) const noexcept;
@@ -224,6 +225,7 @@ public:
     [[nodiscard]] CPropertyNameId name_id(const CSchemaHandle value) const noexcept;
     [[nodiscard]] CStringView name(const CSchemaHandle value) const noexcept;
     [[nodiscard]] CStringView property_name(const CPropertyNameId id) const noexcept;
+    [[nodiscard]] CPropertyNameId find_property_name_id(const CStringView& name) const noexcept;
     [[nodiscard]] CStringView string_value(const CSchemaHandle value) const noexcept;
     [[nodiscard]] bool boolean_value(const CSchemaHandle value, bool& result) const noexcept;
     [[nodiscard]] bool signed_integer_value(const CSchemaHandle value, std::int64_t& result) const noexcept;
@@ -476,6 +478,11 @@ inline CSchemaDocumentQuery::CSchemaDocumentQuery(const CBakedDocument& document
 [[nodiscard]] inline CStringView CSchemaDocumentQuery::property_name(const CPropertyNameId id) const noexcept
 {
     return m_query.property_name(id);
+}
+
+[[nodiscard]] inline CPropertyNameId CSchemaDocumentQuery::find_property_name_id(const CStringView& name) const noexcept
+{
+    return m_query.find_property_name_id(name);
 }
 
 [[nodiscard]] inline CStringView CSchemaDocumentQuery::string_value(const CSchemaHandle value) const noexcept

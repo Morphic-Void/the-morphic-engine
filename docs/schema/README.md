@@ -19,6 +19,7 @@ interpret its current contracts.
 | [Example](schema-example.json) and [notes](schema-example-notes.md) | Authoring example, expected layouts, numeric notation and materialisation rules. |
 | [Persistence and aggregation revision](persistence-and-aggregation.md) | Completed persistence contracts and reasoning; remaining aggregation and composition design, beginning with shared-schema aggregation. |
 | [Persistence milestone](../project/completed_milestones.md#schema-instance-and-bulk-data-persistence) | Completed eight-stage delivery, commit checkpoints and validation evidence, including gap zeroing; the implementation plan is retired. |
+| [Role and construction milestone](../project/completed_milestones.md#schema-role-attachment-and-construction) | Schema-independent blocks, atomic attachment, checked/trusted switching, indexed lookup and construction/reconciliation refinements. |
 | [Follow-on work](../backlog/schema_follow_on.md) | Future direction and unresolved design questions, separate from current requirements. |
 | [Header survey](header-survey.md) | Historical source research supporting the ingestion discussion. |
 
@@ -28,7 +29,15 @@ bulk data; shared resolution; C++ declaration generation; loading, capture and
 editing; binary-authoritative reconciliation; embedded, external and stripped
 output; exact-type remapping; and explicit unused-storage clearing. Canonical
 schema output and reconstructed data apply the data model's integer presentation
-metadata. General name lookup remains caller-managed.
+metadata. Resolved type, member, field and enum lookup uses indexes; callers can
+retain resolved indices for repeated access.
+
+Instance and bulk data blocks hold document/payload storage independently of
+schemas. The live/baked data roles carry schema associations. Initial attachment
+validates an existing package or constructs its missing binary data; checked and
+trusted schema switching preserve storage and document handles. Reconciliation
+is explicit and rebuilds retained descriptions from authoritative binary values.
+See the [attachment contract](runtime-api.md#initial-attachment-and-schema-switching).
 
 The [header and implementation map](runtime-api.md#header-organisation) identifies
 public entry points and internal support. General document copying, parsing,

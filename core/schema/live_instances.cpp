@@ -9,6 +9,7 @@
 //  Live instance ownership, queries and creation.
 
 #include "schema/live_instances.hpp"
+#include "schema/type_compatibility.hpp"
 #include "schema/value_codec.hpp"
 #include "schema/integer_notation.hpp"
 #include "data_model/document_copy.hpp"
@@ -116,6 +117,68 @@ bool CLiveInstances::initialise(CLiveSchema& schema, const std::size_t capacity)
     staged.m_loaded = true;
     take_from(staged);
     return true;
+}
+
+template<class TSchema>
+bool CLiveInstances::switch_to(TSchema& schema, const ESchemaSwitchMode mode, SInstanceDiagnostic& diagnostic) noexcept
+{
+    diagnostic = {};
+    if (!m_loaded || ((mode != ESchemaSwitchMode::checked) && (mode != ESchemaSwitchMode::trusted)))
+    {
+        diagnostic.reason = EInstanceLoadReason::invalid_input;
+        return false;
+    }
+    CSchemaBinding proposed;
+    if (!proposed.bind(schema))
+    {
+        diagnostic.reason = EInstanceLoadReason::invalid_input;
+        return false;
+    }
+    const detail::CDocumentRead document{ m_document };
+    TPodVector<CSchemaIndex> types;
+    detail::SOccurrence failure;
+    const auto result = detail::prepare_schema_switch<true>(document,
+        document.object_child(document.root(), CStringView{ "instances" }), m_binding.resolved(), *proposed.resolved(),
+        mode == ESchemaSwitchMode::checked, m_records, types, failure);
+    if (result != ETypeMatchResult::match)
+    {
+        diagnostic.reason = (result == ETypeMatchResult::allocation_failed) ? EInstanceLoadReason::allocation_failed :
+            (result == ETypeMatchResult::invalid_input) ? EInstanceLoadReason::invalid_input : EInstanceLoadReason::incompatible_schema;
+        diagnostic.occurrence = detail::SInstanceHandleAccess::make(failure);
+        return false;
+    }
+    const CByteConstView payload = m_payload.const_view();
+    if (mode == ESchemaSwitchMode::checked)
+    {
+        detail::SValueDiagnostic error;
+        const auto checked = detail::check_instance_records(*proposed.resolved(), document, m_records, payload.data(),
+            [&](const std::size_t i) noexcept
+            {
+                return types[i];
+            }, error);
+        if (checked != detail::EValueCheck::match)
+        {
+            diagnostic.reason = detail::value_failure(error, ((checked == detail::EValueCheck::mismatch) ? EInstanceLoadReason::embedded_mismatch : EInstanceLoadReason::invalid_declaration));
+            diagnostic.occurrence = detail::SInstanceHandleAccess::make(error.occurrence);
+            return false;
+        }
+    }
+    for (std::size_t i = 0u; i < m_records.size(); ++i)
+    {
+        m_records[i].type = types[i];
+    }
+    m_binding = std::move(proposed);
+    return true;
+}
+
+bool CLiveInstances::switch_schema(CBakedSchema& schema, const ESchemaSwitchMode mode, SInstanceDiagnostic& diagnostic) noexcept
+{
+    return switch_to(schema, mode, diagnostic);
+}
+
+bool CLiveInstances::switch_schema(CLiveSchema& schema, const ESchemaSwitchMode mode, SInstanceDiagnostic& diagnostic) noexcept
+{
+    return switch_to(schema, mode, diagnostic);
 }
 
 void CLiveInstances::clear() noexcept
@@ -367,7 +430,7 @@ CInstanceHandle CLiveInstances::append_instance(const CSchemaIndex type, const s
     CNodeKey copied_declaration;
     if (declaration.is_valid())
     {
-        copied_declaration = document_translation::copy_subtree(m_document, source, declaration, CStringView{ "declaration" });
+        copied_declaration = document_translation::detail::copy_valid_subtree(m_document, source, declaration, CStringView{ "declaration" });
         if (!append_node(m_document, instance, copied_declaration))
         {
             if (copied_declaration && m_document.is_detached(copied_declaration))
@@ -455,7 +518,7 @@ CInstanceHandle CLiveInstances::create_base(const CStringView& type, const CStri
     if (!detail::construct_value(*schema, document, type_index, value, encoded.data(),
         encoded.size(), detail::EConstructionMode::instance, error))
     {
-        diagnostic.reason = EInstanceLoadReason::invalid_declaration;
+        diagnostic.reason = detail::value_failure(error, EInstanceLoadReason::invalid_declaration);
         diagnostic.occurrence = detail::SInstanceHandleAccess::make(error.occurrence);
         return {};
     }
@@ -495,7 +558,7 @@ CInstanceHandle CLiveInstances::create_specialisation(const CInstanceHandle pare
         (parent_record.extent ? (m_payload.data() + parent_record.offset) : nullptr), parent_record.extent,
         encoded.data(), encoded.size(), error))
     {
-        diagnostic.reason = EInstanceLoadReason::invalid_declaration;
+        diagnostic.reason = detail::value_failure(error, EInstanceLoadReason::invalid_declaration);
         diagnostic.occurrence = detail::SInstanceHandleAccess::make(error.occurrence);
         return {};
     }

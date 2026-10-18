@@ -66,7 +66,7 @@ namespace schema
 }
 
 template<std::size_t Width>
-static void copy_records(const std::uint8_t* source, std::uint8_t* destination,
+static void copy_records(const std::uint8_t* const source, std::uint8_t* const destination,
     const std::size_t source_step, const std::size_t destination_step,
     const std::size_t count, const std::size_t width) noexcept
 {
@@ -131,9 +131,11 @@ bool CDataRemapPlan::initialise(const SRemapSourceType* const sources, const std
         diagnostic.reason = ERemapReason::unknown_type;
         return false;
     }
+
     //  Resolved layouts already satisfy the single-allocation size ceiling.
     m_destination = { static_cast<std::uint32_t>(destination.size), static_cast<std::uint32_t>(destination.stride),
         static_cast<std::uint32_t>(destination.alignment) };
+
     //  Resolved direct members cannot overlap. Only another source claiming
     //  the same nonempty destination member can create an overlapping write.
     TPodVector<std::uint8_t> claimed;
@@ -147,12 +149,8 @@ bool CDataRemapPlan::initialise(const SRemapSourceType* const sources, const std
     {
         std::fill_n(claimed.data(), claimed.size(), std::uint8_t{});
     }
-    struct SNamedMember
-    {
-        CSchemaIndex index;
-        CPropertyNameId name;
-    };
-    TPodVector<SNamedMember> source_members;
+    struct SMatchedMember { CSchemaIndex source, destination; std::uint32_t ordinal{}; };
+    TPodVector<SMatchedMember> matches;
     for (std::size_t slot = 0u; slot < source_count; ++slot)
     {
         diagnostic.source = slot;
@@ -177,8 +175,8 @@ bool CDataRemapPlan::initialise(const SRemapSourceType* const sources, const std
             clear();
             return false;
         }
-        source_members.clear();
-        if (!source_members.reserve(source.count))
+        matches.clear();
+        if (!matches.reserve(std::min(source.count, destination.count)))
         {
             diagnostic.reason = ERemapReason::allocation_failed;
             clear();
@@ -194,23 +192,40 @@ bool CDataRemapPlan::initialise(const SRemapSourceType* const sources, const std
                 clear();
                 return false;
             }
-            if (!source_members.push_back({ index, member.name }))
+            const CSchemaIndex destination_index = destination_schema.find_member(destination_type, input.schema->name(member.name));
+            if (!destination_index)
+            {
+                continue;
+            }
+            std::uint32_t ordinal{};
+            if (!destination_schema.member_ordinal(destination_type, destination_index, ordinal))
+            {
+                diagnostic.reason = ERemapReason::invalid_input;
+                clear();
+                return false;
+            }
+            if (!matches.push_back({ index, destination_index, ordinal }))
             {
                 diagnostic.reason = ERemapReason::allocation_failed;
                 clear();
                 return false;
             }
         }
-        if (source_members.size() > 1u)
+        if (matches.size() > 1u)
         {
-            std::sort(source_members.data(), (source_members.data() + source_members.size()),
-                [&](const SNamedMember& a, const SNamedMember& b) noexcept
-                { return input.schema->name(a.name) < input.schema->name(b.name); });
+            //  Preserve destination-order diagnostics without scanning every
+            //  destination member for each source.
+            std::sort(matches.data(), (matches.data() + matches.size()),
+                [](const SMatchedMember& a, const SMatchedMember& b)
+                {
+                    return a.ordinal < b.ordinal;
+                });
         }
         CTypeCompatibility compatibility{ *input.schema, destination_schema, ETypeMatch::definition };
-        for (std::uint32_t i = 0u; i < destination.count; ++i)
+        for (std::size_t matched = 0u; matched < matches.size(); ++matched)
         {
-            const CSchemaIndex destination_index = destination_schema.member_at(destination_type, i);
+            const std::uint32_t i = matches[matched].ordinal;
+            const CSchemaIndex destination_index = matches[matched].destination;
             SMember dm;
             if (!destination_schema.member(destination_index, dm))
             {
@@ -218,25 +233,7 @@ bool CDataRemapPlan::initialise(const SRemapSourceType* const sources, const std
                 clear();
                 return false;
             }
-            const CStringView name = destination_schema.name(dm.name);
-            std::size_t begin = 0u, end = source_members.size();
-            while (begin < end)
-            {
-                const std::size_t middle = begin + ((end - begin) / 2u);
-                if (input.schema->name(source_members[middle].name) < name)
-                {
-                    begin = middle + 1u;
-                }
-                else
-                {
-                    end = middle;
-                }
-            }
-            if ((begin == source_members.size()) || !(input.schema->name(source_members[begin].name) == name))
-            {
-                continue;
-            }
-            const CSchemaIndex source_index = source_members[begin].index;
+            const CSchemaIndex source_index = matches[matched].source;
             SMember sm;
             if (!input.schema->member(source_index, sm))
             {

@@ -25,6 +25,10 @@ namespace schema
 class CSchemaBinding;
 class CLiveSchema;
 
+//  Checked proves used-type and retained-value compatibility without changing
+//  bytes. Trusted relies on the caller's proof, but still resolves type names.
+enum class ESchemaSwitchMode : std::uint8_t { checked = 0u, trusted };
+
 //==============================================================================
 //  Internal binding state
 //==============================================================================

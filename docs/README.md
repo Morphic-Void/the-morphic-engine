@@ -11,7 +11,8 @@ or that work has been authorised.
 - [Document model](data_model/README.md): semantic model, text grammar,
   parsing/reporting and baked storage format.
 - [Schema system](schema/README.md): live/baked schema and data roles, resolution,
-  generated declarations, loading, editing, output, remapping and unused storage.
+  schema-independent persistence blocks, attachment/switching, generated
+  declarations, editing, reconciliation, output, remapping and unused storage.
 - [Image view](image/image_view.md): drawing, copying, access and TGA metadata.
 - [Asynchronous asset services](assets/asynchronous_asset_services.md): requests,
   ownership, conditioning, results, diagnostics and disposal.
@@ -43,7 +44,7 @@ or that work has been authorised.
   and [filesystem limitations and future considerations](backlog/filesystem_asset_mapping.md).
 - [Schema source-ingestion survey](schema/header-survey.md).
 - [Schema follow-on work](backlog/schema_follow_on.md): conversion, related
-  representations, typed serialisation, generation, packaging and ingestion.
+  representations, typed serialisation, generation, aggregation and ingestion.
 - [Future work notes](project/future_work_notes.md).
 
 ## Rationale and project record

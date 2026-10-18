@@ -205,6 +205,9 @@
     <Filter Include="Docs\schema">
       <UniqueIdentifier>{add2f474-9480-46d6-8107-5b0d3d6da5aa}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Docs\development">
+      <UniqueIdentifier>{1c19eabd-b22b-5ed9-8990-dc9f4039b171}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\assets\internal\bundle_builder_io.hpp"><Filter>Core\include\assets\internal</Filter></ClInclude>
@@ -841,6 +844,60 @@
     <None Include="$(MSBuildThisFileDirectory)..\development\logical-roots\logs\.gitkeep">
       <Filter>Logs</Filter>
     </None>
+    <None Include="$(MSBuildThisFileDirectory)..\docs\architecture\why_morphic_engine.md">
+      <Filter>Docs\architecture</Filter>
+    </None>
+    <None Include="$(MSBuildThisFileDirectory)..\docs\assets\bundle_specification.md">
+      <Filter>Docs\assets</Filter>
+    </None>
+    <None Include="$(MSBuildThisFileDirectory)..\docs\backlog\message_ownership_simplification.md">
+      <Filter>Docs\backlog</Filter>
+    </None>
+    <None Include="$(MSBuildThisFileDirectory)..\docs\backlog\schema_follow_on.md">
+      <Filter>Docs\backlog</Filter>
+    </None>
+    <None Include="$(MSBuildThisFileDirectory)..\docs\backlog\testing_framework_consolidation.md">
+      <Filter>Docs\backlog</Filter>
+    </None>
+    <None Include="$(MSBuildThisFileDirectory)..\docs\modules\texture_codec.md">
+      <Filter>Docs\modules</Filter>
+    </None>
+    <None Include="$(MSBuildThisFileDirectory)..\docs\project\bootstrap_configuration.md">
+      <Filter>Docs\project</Filter>
+    </None>
+    <None Include="$(MSBuildThisFileDirectory)..\docs\project\building_and_testing.md">
+      <Filter>Docs\project</Filter>
+    </None>
+    <None Include="$(MSBuildThisFileDirectory)..\docs\project\linux_ci.md">
+      <Filter>Docs\project</Filter>
+    </None>
+    <None Include="$(MSBuildThisFileDirectory)..\docs\project\policy_validator.md">
+      <Filter>Docs\project</Filter>
+    </None>
+    <None Include="$(MSBuildThisFileDirectory)..\docs\project\windows_ci.md">
+      <Filter>Docs\project</Filter>
+    </None>
+    <None Include="$(MSBuildThisFileDirectory)..\docs\schema\persistence-and-aggregation.md">
+      <Filter>Docs\schema</Filter>
+    </None>
+    <None Include="$(MSBuildThisFileDirectory)..\docs\schema\specification.md">
+      <Filter>Docs\schema</Filter>
+    </None>
+    <None Include="$(MSBuildThisFileDirectory)..\docs\schema\validation.md">
+      <Filter>Docs\schema</Filter>
+    </None>
+    <None Include="$(MSBuildThisFileDirectory)..\AGENTS.md">
+      <Filter>Docs</Filter>
+    </None>
+    <None Include="$(MSBuildThisFileDirectory)..\CODE_OF_CONDUCT.md">
+      <Filter>Docs</Filter>
+    </None>
+    <None Include="$(MSBuildThisFileDirectory)..\THIRD_PARTY_LICENSES.md">
+      <Filter>Docs</Filter>
+    </None>
+    <None Include="$(MSBuildThisFileDirectory)..\development\README.md">
+      <Filter>Docs\development</Filter>
+    </None>
     <None Include="$(MSBuildThisFileDirectory)..\README.md">
       <Filter>Docs</Filter>
     </None>
@@ -859,13 +916,7 @@
     <None Include="$(MSBuildThisFileDirectory)..\docs\schema\runtime-api.md">
       <Filter>Docs\schema</Filter>
     </None>
-    <None Include="$(MSBuildThisFileDirectory)..\docs\schema\implementation-contract.md">
-      <Filter>Docs\schema</Filter>
-    </None>
     <None Include="$(MSBuildThisFileDirectory)..\docs\schema\schema-example-notes.md">
-      <Filter>Docs\schema</Filter>
-    </None>
-    <None Include="$(MSBuildThisFileDirectory)..\docs\schema\design.md">
       <Filter>Docs\schema</Filter>
     </None>
     <None Include="$(MSBuildThisFileDirectory)..\docs\schema\header-survey.md">

@@ -84,13 +84,26 @@ public:
 
     //  Attach only an empty wrapper. Both forms borrow their document bytes;
     //  the mutable form permits reserved locator publication on materialisation.
+    void clear() noexcept;
     [[nodiscard]] bool set_document(const CBakedDocument& document) noexcept;
     [[nodiscard]] bool set_document(const CMutableBakedDocument& document) noexcept;
-    [[nodiscard]] bool bind_schema(CBakedSchema& schema) noexcept;
-    [[nodiscard]] bool bind_schema(CLiveSchema& schema) noexcept;
+
+    //  Attachment publishes a complete association. Overloads distinguish a
+    //  supplied (possibly zero-byte) binary from construction of a new binary.
+    //  Supplied bytes are borrowed. Construction returns an owner to the caller
+    //  and borrows its stable allocation; the output must be unallocated.
+    //  Stripped descriptions require the supplied-payload overload.
+    [[nodiscard]] bool attach_schema(CBakedSchema& schema, const CByteConstView& payload, const bool compare_embedded, SBulkDataDiagnostic& diagnostic) noexcept;
+    [[nodiscard]] bool attach_schema(CBakedSchema& schema, CByteBuffer& returned_owner, SBulkDataDiagnostic& diagnostic) noexcept;
+    [[nodiscard]] bool attach_schema(CLiveSchema& schema, const CByteConstView& payload, const bool compare_embedded, SBulkDataDiagnostic& diagnostic) noexcept;
+    [[nodiscard]] bool attach_schema(CLiveSchema& schema, CByteBuffer& returned_owner, SBulkDataDiagnostic& diagnostic) noexcept;
+
+    //  Switch only the schema association; all document and payload identities survive.
+    [[nodiscard]] bool switch_schema(CBakedSchema& schema, const ESchemaSwitchMode mode, SBulkDataDiagnostic& diagnostic) noexcept;
+    [[nodiscard]] bool switch_schema(CLiveSchema& schema, const ESchemaSwitchMode mode, SBulkDataDiagnostic& diagnostic) noexcept;
 
     //==============================================================================
-    //  Loading and promotion
+    //  Promotion
     //==============================================================================
 
     //  The explicit supplied path admits a canonical empty view for a document
@@ -98,8 +111,6 @@ public:
     //  alignment. The materialised owner is returned separately and must be
     //  unallocated on entry; neither backing allocation belongs to this wrapper.
     //  Stripped documents require load_supplied; there are no embedded values to compare.
-    [[nodiscard]] bool load_supplied(const CByteConstView& payload, const bool compare_embedded, SBulkDataDiagnostic& diagnostic) noexcept;
-    [[nodiscard]] bool materialise(CByteBuffer& returned_owner, SBulkDataDiagnostic& diagnostic) noexcept;
     [[nodiscard]] bool promote(class CLiveBulkData& destination, CBakedSchema& schema, SBulkDataDiagnostic& diagnostic) const noexcept;
     [[nodiscard]] bool promote(class CLiveBulkData& destination, CLiveSchema& schema, SBulkDataDiagnostic& diagnostic) const noexcept;
 
@@ -115,16 +126,13 @@ public:
     [[nodiscard]] CBulkDataHandle find_entry(const CStringView& type, const CStringView& name) const noexcept;
     [[nodiscard]] bool entry(const CBulkDataHandle handle, SBulkDataEntryView& result) const noexcept;
     [[nodiscard]] CByteConstView payload_view() const noexcept { return loaded_ready() ? m_payload : CByteConstView{}; }
-    void clear() noexcept;
-
 private:
     //==============================================================================
     //  Private planning and records
     //==============================================================================
 
     friend class CLiveBulkData;
-    friend class CBakedBulkDataBlock;
-    void take_from(CBakedBulkData& source) noexcept;
+
     struct SRecord
     {
         CBakedValueIndex entry, data, offset_node, valid_node;
@@ -136,9 +144,17 @@ private:
 
     [[nodiscard]] bool fail(SBulkDataDiagnostic& diagnostic, const EBulkDataLoadReason reason, const CBakedValueIndex occurrence) const noexcept;
     void clear_loaded() noexcept;
+    void take_from(CBakedBulkData& source) noexcept;
+    template<class TSchema>
+    [[nodiscard]] bool attach_to(TSchema& schema, CByteBuffer* const returned_owner, const CByteConstView& payload,
+        const bool compare_embedded, SBulkDataDiagnostic& diagnostic) noexcept;
+    template<class TSchema>
+    [[nodiscard]] bool switch_to(TSchema& schema, const ESchemaSwitchMode mode, SBulkDataDiagnostic& diagnostic) noexcept;
     [[nodiscard]] bool plan(const bool supplied, const std::size_t payload_size,
         TPodVector<SRecord>& records, std::size_t& total_size, SBulkDataDiagnostic& diagnostic) const noexcept;
     [[nodiscard]] bool compare_embedded(const TPodVector<SRecord>& records, const CByteConstView& payload, SBulkDataDiagnostic& diagnostic) const noexcept;
+    [[nodiscard]] bool load_supplied(const CByteConstView& payload, const bool compare_embedded, SBulkDataDiagnostic& diagnostic) noexcept;
+    [[nodiscard]] bool materialise(CByteBuffer& returned_owner, SBulkDataDiagnostic& diagnostic) noexcept;
 
     //==============================================================================
     //  Borrowed state and record index

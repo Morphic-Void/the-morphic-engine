@@ -84,20 +84,28 @@ public:
     CBakedInstances& operator=(CBakedInstances&&) = delete;
     ~CBakedInstances() noexcept = default;
 
+    void clear() noexcept;
     [[nodiscard]] bool set_document(const CBakedDocument& document) noexcept;
     [[nodiscard]] bool set_document(const CMutableBakedDocument& document) noexcept;
-    [[nodiscard]] bool bind_schema(CBakedSchema& schema) noexcept;
-    [[nodiscard]] bool bind_schema(CLiveSchema& schema) noexcept;
+
+    //  Attachment publishes a complete association. Overloads distinguish a
+    //  supplied (possibly zero-byte) binary from construction of a new binary.
+    //  Supplied bytes are borrowed. Construction returns an owner to the caller
+    //  and borrows its stable allocation; the output must be unallocated.
+    //  Stripped descriptions require the supplied-payload overload.
+    [[nodiscard]] bool attach_schema(CBakedSchema& schema, const CByteConstView& payload, const bool compare_embedded, SInstanceDiagnostic& diagnostic) noexcept;
+    [[nodiscard]] bool attach_schema(CBakedSchema& schema, CByteBuffer& returned_owner, SInstanceDiagnostic& diagnostic) noexcept;
+    [[nodiscard]] bool attach_schema(CLiveSchema& schema, const CByteConstView& payload, const bool compare_embedded, SInstanceDiagnostic& diagnostic) noexcept;
+    [[nodiscard]] bool attach_schema(CLiveSchema& schema, CByteBuffer& returned_owner, SInstanceDiagnostic& diagnostic) noexcept;
+
+    //  Switch only the schema association; all document and payload identities survive.
+    [[nodiscard]] bool switch_schema(CBakedSchema& schema, const ESchemaSwitchMode mode, SInstanceDiagnostic& diagnostic) noexcept;
+    [[nodiscard]] bool switch_schema(CLiveSchema& schema, const ESchemaSwitchMode mode, SInstanceDiagnostic& diagnostic) noexcept;
 
     //==============================================================================
-    //  Loading and promotion
+    //  Promotion
     //==============================================================================
 
-    //  Supplied payloads are borrowed. Materialisation returns the owner to the
-    //  caller and borrows its stable allocation. An unallocated output is required.
-    //  Stripped documents require load_supplied; there are no embedded values to compare.
-    [[nodiscard]] bool load_supplied(const CByteConstView& payload, const bool compare_embedded, SInstanceDiagnostic& diagnostic) noexcept;
-    [[nodiscard]] bool materialise(CByteBuffer& returned_owner, SInstanceDiagnostic& diagnostic) noexcept;
     [[nodiscard]] bool promote(class CLiveInstances& destination, CBakedSchema& schema, SInstanceDiagnostic& diagnostic) const noexcept;
     [[nodiscard]] bool promote(class CLiveInstances& destination, CLiveSchema& schema, SInstanceDiagnostic& diagnostic) const noexcept;
 
@@ -117,7 +125,6 @@ public:
     [[nodiscard]] CInstanceHandle parent_instance(const CInstanceHandle instance) const noexcept;
     [[nodiscard]] bool entry(const CInstanceHandle handle, SInstanceEntryView& result) const noexcept;
     [[nodiscard]] CByteConstView payload_view() const noexcept { return loaded_ready() ? m_payload : CByteConstView{}; }
-    void clear() noexcept;
 
 private:
     //==============================================================================
@@ -125,7 +132,6 @@ private:
     //==============================================================================
 
     friend class CLiveInstances;
-    friend class CBakedInstancesBlock;
     static constexpr std::uint32_t k_no_parent = UINT32_MAX;
 
     struct SRecord
@@ -133,7 +139,7 @@ private:
         CBakedValueIndex entry, declaration, offset_node, valid_node;
         CSchemaIndex type;
         std::uint32_t parent{ k_no_parent };
-        std::uint32_t offset{}, scratch_offset{}, extent{};
+        std::uint32_t offset{}, extent{};
         bool prior_valid{};
     };
 
@@ -143,16 +149,22 @@ private:
         std::uint32_t parent{ k_no_parent };
     };
 
-    [[nodiscard]] bool fail(SInstanceDiagnostic& diagnostic, const EInstanceLoadReason reason,
-        const CBakedValueIndex occurrence) const noexcept;
+    [[nodiscard]] bool fail(SInstanceDiagnostic& diagnostic, const EInstanceLoadReason reason, const CBakedValueIndex occurrence) const noexcept;
     void clear_loaded() noexcept;
+    void take_from(CBakedInstances& source) noexcept;
+    template<class TSchema>
+    [[nodiscard]] bool attach_to(TSchema& schema, CByteBuffer* const returned_owner, const CByteConstView& payload,
+        const bool compare_embedded, SInstanceDiagnostic& diagnostic) noexcept;
+    template<class TSchema>
+    [[nodiscard]] bool switch_to(TSchema& schema, const ESchemaSwitchMode mode, SInstanceDiagnostic& diagnostic) noexcept;
     [[nodiscard]] bool record_index(const CInstanceHandle handle, std::uint32_t& result) const noexcept;
     [[nodiscard]] bool plan(const bool supplied, const std::size_t supplied_size,
-        TPodVector<SRecord>& records, std::size_t& payload_size, std::size_t& scratch_size,
+        TPodVector<SRecord>& records, std::size_t& payload_size,
         SInstanceDiagnostic& diagnostic) const noexcept;
     [[nodiscard]] bool compare_embedded(const TPodVector<SRecord>& records, const CByteConstView& payload,
-        const std::size_t scratch_size, SInstanceDiagnostic& diagnostic) const noexcept;
-    void take_from(CBakedInstances& source) noexcept;
+        SInstanceDiagnostic& diagnostic) const noexcept;
+    [[nodiscard]] bool load_supplied(const CByteConstView& payload, const bool compare_embedded, SInstanceDiagnostic& diagnostic) noexcept;
+    [[nodiscard]] bool materialise(CByteBuffer& returned_owner, SInstanceDiagnostic& diagnostic) noexcept;
 
     //==============================================================================
     //  Borrowed state and record index

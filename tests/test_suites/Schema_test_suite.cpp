@@ -851,8 +851,8 @@ static void test_schema_sample(TTestContext& ctx)
     CByteBuffer payload;
     SBulkDataDiagnostic bulk_data_error;
     TEST_EXPECT(ctx, sample_schema.set_document(block.document()) && sample_schema.resolve(schema_error));
-    TEST_EXPECT(ctx, bulk_data.set_document(mutable_document) && bulk_data.bind_schema(sample_schema));
-    TEST_EXPECT(ctx, bulk_data.materialise(payload, bulk_data_error));
+    TEST_EXPECT(ctx, bulk_data.set_document(mutable_document));
+    TEST_EXPECT(ctx, bulk_data.attach_schema(sample_schema, payload, bulk_data_error));
     SBulkDataEntryView triangle;
     TEST_EXPECT(ctx, bulk_data.entry(bulk_data.find_entry(CStringView{ "Vertex" }, CStringView{ "triangle" }), triangle) &&
         triangle.count == 3u && triangle.stride == 24u && triangle.byte_count == 72u && triangle.bytes != nullptr);
@@ -866,8 +866,8 @@ static void test_schema_sample(TTestContext& ctx)
     CBakedInstances instances;
     CByteBuffer instance_payload;
     SInstanceDiagnostic instance_error;
-    TEST_EXPECT(ctx, instances.set_document(mutable_document) && instances.bind_schema(sample_schema));
-    TEST_EXPECT(ctx, instances.materialise(instance_payload, instance_error));
+    TEST_EXPECT(ctx, instances.set_document(mutable_document));
+    TEST_EXPECT(ctx, instances.attach_schema(sample_schema, instance_payload, instance_error));
     const CInstanceHandle vector = instances.find_base(CStringView{ "Vector4" }, CStringView{ "base" });
     const CInstanceHandle padded = instances.find_specialisation(vector, CStringView{ "padded" });
     const CInstanceHandle vertex = instances.find_base(CStringView{ "Vertex" }, CStringView{ "base" });
@@ -903,8 +903,8 @@ static void test_schema_sample(TTestContext& ctx)
                 vector_view.bytes, static_cast<std::size_t>(vector_view.byte_count),
                 output_view.bytes, static_cast<std::size_t>(output_view.byte_count)));
         CBakedInstances reloaded;
-        TEST_EXPECT(ctx, reloaded.set_document(output_block.document()) && reloaded.bind_schema(sample_schema) &&
-            reloaded.load_supplied(output_payload.const_view(), form == EDataOutputForm::embedded, instance_error));
+        TEST_EXPECT(ctx, reloaded.set_document(output_block.document()) &&
+            reloaded.attach_schema(sample_schema, output_payload.const_view(), form == EDataOutputForm::embedded, instance_error));
     }
 }
 
@@ -1714,6 +1714,20 @@ static void test_record_index_scaling(TTestContext& ctx)
         //  Count actual key observations, not elapsed time. A linear scan fails this bound.
         TEST_EXPECT(ctx, found && observations < (count * 48u));
     }
+    for (unsigned mode = 0u; mode < 3u; ++mode)
+    {
+        std::uint32_t cursor{};
+        observations = 0u;
+        bool found = true;
+        for (std::uint32_t i = 0u; i < count; ++i)
+        {
+            const std::uint32_t wanted = mode == 0u ? i : mode == 1u ? count - i - 1u : (i * 2053u) % count;
+            found = found && find_near_record(records, records[wanted].entry, cursor) && cursor == wanted;
+        }
+        TEST_EXPECT(ctx, found && observations < count * (mode < 2u ? 4u : 48u));
+        const auto previous = cursor;
+        TEST_EXPECT(ctx, !find_near_record(records, SCountedEntryKey{ 1u, &observations }, cursor) && cursor == previous);
+    }
     TEST_EXPECT(ctx, records.erase(count / 2u));
     std::uint32_t unchanged = 123u;
     TEST_EXPECT(ctx, !find_live_record(records, SCountedEntryKey{ (std::uint64_t{ (count / 2u) + 1u } << 32u) | 7u,
@@ -1775,10 +1789,10 @@ static void test_role_index_access(TTestContext& ctx)
     CLiveInstances live_instances;
     SBulkDataDiagnostic bulk_data_error;
     SInstanceDiagnostic instance_error;
-    TEST_EXPECT(ctx, bulk_data.set_document(block.document()) && bulk_data.bind_schema(schema) &&
-        bulk_data.load_supplied(CByteConstView{ bytes, sizeof(bytes), 128u }, false, bulk_data_error) &&
-        instances.set_document(block.document()) && instances.bind_schema(schema) &&
-        instances.load_supplied(CByteConstView{ bytes, sizeof(bytes), 128u }, false, instance_error) &&
+    TEST_EXPECT(ctx, bulk_data.set_document(block.document()) &&
+        bulk_data.attach_schema(schema, CByteConstView{ bytes, sizeof(bytes), 128u }, false, bulk_data_error) &&
+        instances.set_document(block.document()) &&
+        instances.attach_schema(schema, CByteConstView{ bytes, sizeof(bytes), 128u }, false, instance_error) &&
         bulk_data.promote(live_bulk_data, schema, bulk_data_error) && instances.promote(live_instances, schema, instance_error));
 
     const auto check = [&](auto& collections, auto& configurations)
@@ -1836,8 +1850,8 @@ static void test_role_index_access(TTestContext& ctx)
     check(live_bulk_data, live_instances);
     TEST_EXPECT(ctx, live_bulk_data.reconcile(bulk_data_error) && live_instances.reconcile(instance_error));
     check(live_bulk_data, live_instances);
-    TEST_EXPECT(ctx, bulk_data.load_supplied(CByteConstView{ bytes, sizeof(bytes), 128u }, false, bulk_data_error) &&
-        instances.load_supplied(CByteConstView{ bytes, sizeof(bytes), 128u }, false, instance_error));
+    TEST_EXPECT(ctx, bulk_data.switch_schema(schema, ESchemaSwitchMode::trusted, bulk_data_error) &&
+        instances.switch_schema(schema, ESchemaSwitchMode::trusted, instance_error));
     check(bulk_data, instances);
 
     CLiveInstances interleaved;
@@ -3980,14 +3994,14 @@ static void test_baked_bulk_data(TTestContext& ctx)
     SDiagnostic schema_error;
     TEST_EXPECT(ctx, baked_schema.set_document(supplied_block.document()) && baked_schema.resolve(schema_error));
     CBakedBulkData supplied;
-    TEST_EXPECT(ctx, supplied.set_document(supplied_block.document()) && supplied.bind_schema(baked_schema));
+    TEST_EXPECT(ctx, supplied.set_document(supplied_block.document()));
     const CBulkDataDocumentQuery query = supplied.document_query();
     TEST_EXPECT(ctx, query.is_ready() && query.root() && query.name(supplied.data_root()) == CStringView{ "data" });
     TEST_EXPECT(ctx, query.object_child(query.root(), CStringView{ "instances" }));
     TEST_EXPECT(ctx, query.object_child(query.root(), CStringView{ "types" }));
     alignas(128) std::uint8_t bytes[128] = { 1u, 2u, 3u, 4u, 5u, 6u };
     SBulkDataDiagnostic error;
-    TEST_EXPECT(ctx, supplied.load_supplied(CByteConstView{ bytes, 6u, 128u }, true, error));
+    TEST_EXPECT(ctx, supplied.attach_schema(baked_schema, CByteConstView{ bytes, 6u, 128u }, true, error));
     const CBulkDataHandle first = supplied.find_entry(CStringView{ "Pair" }, CStringView{ "first" });
     const CBulkDataHandle second = supplied.find_entry(CStringView{ "Pair" }, CStringView{ "second" });
     SBulkDataEntryView first_view, second_view;
@@ -3997,13 +4011,13 @@ static void test_baked_bulk_data(TTestContext& ctx)
         second_view.offset == 4u && second_view.bytes == bytes + 4u);
     TEST_EXPECT(ctx, query.parent(first) == query.object_child(supplied.data_root(), CStringView{ "Pair" }));
     bytes[0] = 9u;
-    TEST_EXPECT(ctx, !supplied.load_supplied(CByteConstView{ bytes, 6u, 128u }, true, error) &&
-        error.reason == EBulkDataLoadReason::embedded_mismatch && !supplied.loaded_ready());
-    TEST_EXPECT(ctx, supplied.load_supplied(CByteConstView{ bytes, 6u, 128u }, false, error));
+    TEST_EXPECT(ctx, !supplied.switch_schema(baked_schema, ESchemaSwitchMode::checked, error) &&
+        error.reason == EBulkDataLoadReason::embedded_mismatch && supplied.loaded_ready());
+    TEST_EXPECT(ctx, supplied.switch_schema(baked_schema, ESchemaSwitchMode::trusted, error));
     TEST_EXPECT(ctx, supplied.entry(first, first_view) && first_view.bytes[0] == 9u);
     CBakedBulkData misaligned;
-    TEST_EXPECT(ctx, misaligned.set_document(supplied_block.document()) && misaligned.bind_schema(baked_schema));
-    TEST_EXPECT(ctx, !misaligned.load_supplied(CByteConstView{ bytes + 1u, 6u, 1u }, false, error) &&
+    TEST_EXPECT(ctx, misaligned.set_document(supplied_block.document()));
+    TEST_EXPECT(ctx, !misaligned.attach_schema(baked_schema, CByteConstView{ bytes + 1u, 6u, 1u }, false, error) &&
         error.reason == EBulkDataLoadReason::invalid_range);
     supplied.clear();
     TEST_EXPECT(ctx, !supplied.document_ready() && !supplied.loaded_ready());
@@ -4018,9 +4032,9 @@ static void test_baked_bulk_data(TTestContext& ctx)
     TEST_EXPECT(ctx, bake(material_text, material_block));
     CMutableBakedDocument mutable_document{ material_block };
     CBakedBulkData material;
-    TEST_EXPECT(ctx, material.set_document(mutable_document) && material.bind_schema(baked_schema));
+    TEST_EXPECT(ctx, material.set_document(mutable_document));
     CByteBuffer owner;
-    TEST_EXPECT(ctx, material.materialise(owner, error) && material.loaded_ready());
+    TEST_EXPECT(ctx, material.attach_schema(baked_schema, owner, error) && material.loaded_ready());
     const CBulkDataHandle second_material = material.find_entry(CStringView{ "Pair" }, CStringView{ "second" });
     SBulkDataEntryView material_view;
     TEST_EXPECT(ctx, material.entry(second_material, material_view) && material_view.offset == 4u &&
@@ -4050,10 +4064,9 @@ static void test_baked_bulk_data(TTestContext& ctx)
     CBakedDocumentBlock readonly_block;
     TEST_EXPECT(ctx, bake(readonly_text, readonly_block));
     CBakedBulkData readonly_material;
-    TEST_EXPECT(ctx, readonly_material.set_document(readonly_block.document()) &&
-        readonly_material.bind_schema(baked_schema));
+    TEST_EXPECT(ctx, readonly_material.set_document(readonly_block.document()));
     CByteBuffer readonly_owner;
-    TEST_EXPECT(ctx, readonly_material.materialise(readonly_owner, error));
+    TEST_EXPECT(ctx, readonly_material.attach_schema(baked_schema, readonly_owner, error));
     TEST_EXPECT(ctx, readonly_material.entry(readonly_material.find_entry(CStringView{ "Pair" },
         CStringView{ "ready" }), material_view) && material_view.byte_count == 2u &&
         material_view.bytes[0] == 11u && material_view.bytes[1] == 12u);
@@ -4065,11 +4078,11 @@ static void test_baked_bulk_data(TTestContext& ctx)
         {
             tests::TMemoryContextScope scope{ &context };
             CBakedBulkData attempt;
-            TEST_EXPECT(ctx, attempt.set_document(readonly_block.document()) && attempt.bind_schema(baked_schema));
+            TEST_EXPECT(ctx, attempt.set_document(readonly_block.document()));
             CByteBuffer output;
             failing.fail_on = failing.calls + failure_offset;
             SBulkDataDiagnostic allocation_error;
-            TEST_EXPECT(ctx, !attempt.materialise(output, allocation_error) &&
+            TEST_EXPECT(ctx, !attempt.attach_schema(baked_schema, output, allocation_error) &&
                 allocation_error.reason == EBulkDataLoadReason::allocation_failed &&
                 !attempt.loaded_ready() && !output.is_ready());
         }
@@ -4082,16 +4095,16 @@ static void test_baked_bulk_data(TTestContext& ctx)
     CBakedDocumentBlock empty_block;
     TEST_EXPECT(ctx, bake(empty_text, empty_block));
     CBakedBulkData empty_bulk_data;
-    TEST_EXPECT(ctx, empty_bulk_data.set_document(empty_block.document()) && empty_bulk_data.bind_schema(baked_schema));
-    TEST_EXPECT(ctx, !empty_bulk_data.load_supplied(CByteConstView{}, false, error) &&
+    TEST_EXPECT(ctx, empty_bulk_data.set_document(empty_block.document()));
+    TEST_EXPECT(ctx, !empty_bulk_data.attach_schema(baked_schema, CByteConstView{}, false, error) &&
         error.reason == EBulkDataLoadReason::invalid_count);
     const std::string empty_valid_text = "{" + definitions + R"(,"data":{"Empty":{
         "many":{"locator":{"offset":0,"valid":true,"count":4294967295,"size":0}}}}})";
     CBakedDocumentBlock empty_valid_block;
     TEST_EXPECT(ctx, bake(empty_valid_text, empty_valid_block));
     CBakedBulkData empty_valid;
-    TEST_EXPECT(ctx, empty_valid.set_document(empty_valid_block.document()) && empty_valid.bind_schema(baked_schema));
-    TEST_EXPECT(ctx, empty_valid.load_supplied(CByteConstView{}, false, error));
+    TEST_EXPECT(ctx, empty_valid.set_document(empty_valid_block.document()));
+    TEST_EXPECT(ctx, empty_valid.attach_schema(baked_schema, CByteConstView{}, false, error));
     TEST_EXPECT(ctx, empty_valid.entry(empty_valid.find_entry(CStringView{ "Empty" }, CStringView{ "many" }), material_view) &&
         material_view.count == UINT32_MAX && material_view.byte_count == 0u && material_view.bytes == nullptr);
     const std::string empty_embedded_text = "{" + definitions + R"(,"data":{"Empty":{
@@ -4100,9 +4113,9 @@ static void test_baked_bulk_data(TTestContext& ctx)
     TEST_EXPECT(ctx, bake(empty_embedded_text, empty_embedded_block));
     CMutableBakedDocument empty_mutable{ empty_embedded_block };
     CBakedBulkData empty_material;
-    TEST_EXPECT(ctx, empty_material.set_document(empty_mutable) && empty_material.bind_schema(baked_schema));
+    TEST_EXPECT(ctx, empty_material.set_document(empty_mutable));
     CByteBuffer empty_owner;
-    TEST_EXPECT(ctx, empty_material.materialise(empty_owner, error) && empty_material.loaded_ready());
+    TEST_EXPECT(ctx, empty_material.attach_schema(baked_schema, empty_owner, error) && empty_material.loaded_ready());
     TEST_EXPECT(ctx, empty_material.entry(empty_material.find_entry(CStringView{ "Empty" },
         CStringView{ "one" }), material_view) && material_view.count == 1u &&
         material_view.byte_count == 0u && material_view.bytes == nullptr);
@@ -4125,9 +4138,9 @@ static void test_baked_bulk_data(TTestContext& ctx)
     TEST_EXPECT(ctx, wide_schema.set_document(wide_block.document()) && wide_schema.resolve(schema_error));
     CMutableBakedDocument wide_mutable{ wide_block };
     CBakedBulkData wide_bulk_data;
-    TEST_EXPECT(ctx, wide_bulk_data.set_document(wide_mutable) && wide_bulk_data.bind_schema(wide_schema));
+    TEST_EXPECT(ctx, wide_bulk_data.set_document(wide_mutable));
     CByteBuffer wide_owner;
-    TEST_EXPECT(ctx, wide_bulk_data.materialise(wide_owner, error));
+    TEST_EXPECT(ctx, wide_bulk_data.attach_schema(wide_schema, wide_owner, error));
     const CBulkDataHandle wide_second = wide_bulk_data.find_entry(CStringView{ "Pair" }, CStringView{ "second" });
     TEST_EXPECT(ctx, wide_bulk_data.entry(wide_second, material_view) && material_view.offset == 256u &&
         material_view.bytes[0] == 1u && material_view.bytes[1] == 2u);
@@ -4137,9 +4150,9 @@ static void test_baked_bulk_data(TTestContext& ctx)
         CBakedDocumentBlock block;
         TEST_EXPECT(ctx, bake("{" + definitions + ",\"data\":" + data + "}", block));
         CBakedBulkData bulk_data;
-        TEST_EXPECT(ctx, bulk_data.set_document(block.document()) && bulk_data.bind_schema(baked_schema));
+        TEST_EXPECT(ctx, bulk_data.set_document(block.document()));
         SBulkDataDiagnostic diagnostic;
-        TEST_EXPECT(ctx, !bulk_data.load_supplied(CByteConstView{ bytes, 6u, 128u }, false, diagnostic) &&
+        TEST_EXPECT(ctx, !bulk_data.attach_schema(baked_schema, CByteConstView{ bytes, 6u, 128u }, false, diagnostic) &&
             diagnostic.reason == reason && !bulk_data.loaded_ready());
     };
     reject_supplied(R"({"Pair":{"bad":{"data":[{"a":1,"b":2}]}}})", EBulkDataLoadReason::missing_property);
@@ -4170,10 +4183,9 @@ static void test_baked_bulk_data(TTestContext& ctx)
     CBakedDocumentBlock unchecked_block;
     TEST_EXPECT(ctx, bake(unchecked_text, unchecked_block));
     CBakedBulkData unchecked_bulk_data;
-    TEST_EXPECT(ctx, unchecked_bulk_data.set_document(unchecked_block.document()) &&
-        unchecked_bulk_data.bind_schema(baked_schema));
-    TEST_EXPECT(ctx, unchecked_bulk_data.load_supplied(CByteConstView{ bytes, 6u, 128u }, false, error));
-    TEST_EXPECT(ctx, !unchecked_bulk_data.load_supplied(CByteConstView{ bytes, 6u, 128u }, true, error) &&
+    TEST_EXPECT(ctx, unchecked_bulk_data.set_document(unchecked_block.document()));
+    TEST_EXPECT(ctx, unchecked_bulk_data.attach_schema(baked_schema, CByteConstView{ bytes, 6u, 128u }, false, error));
+    TEST_EXPECT(ctx, !unchecked_bulk_data.switch_schema(baked_schema, ESchemaSwitchMode::checked, error) &&
         error.reason == EBulkDataLoadReason::incomplete_record);
 
     const std::string incomplete_text = "{" + definitions + R"(,"data":{"Pair":{"bad":{
@@ -4181,14 +4193,14 @@ static void test_baked_bulk_data(TTestContext& ctx)
     CBakedDocumentBlock incomplete_block;
     TEST_EXPECT(ctx, bake(incomplete_text, incomplete_block));
     CBakedBulkData readonly_bulk_data;
-    TEST_EXPECT(ctx, readonly_bulk_data.set_document(incomplete_block.document()) && readonly_bulk_data.bind_schema(baked_schema));
+    TEST_EXPECT(ctx, readonly_bulk_data.set_document(incomplete_block.document()));
     CByteBuffer rejected_owner;
-    const bool readonly_result = readonly_bulk_data.materialise(rejected_owner, error);
+    const bool readonly_result = readonly_bulk_data.attach_schema(baked_schema, rejected_owner, error);
     TEST_EXPECT(ctx, !readonly_result && error.reason == EBulkDataLoadReason::invalid_locator && !rejected_owner.is_ready());
     CMutableBakedDocument incomplete_mutable{ incomplete_block };
     CBakedBulkData incomplete_bulk_data;
-    TEST_EXPECT(ctx, incomplete_bulk_data.set_document(incomplete_mutable) && incomplete_bulk_data.bind_schema(baked_schema));
-    const bool incomplete_result = incomplete_bulk_data.materialise(rejected_owner, error);
+    TEST_EXPECT(ctx, incomplete_bulk_data.set_document(incomplete_mutable));
+    const bool incomplete_result = incomplete_bulk_data.attach_schema(baked_schema, rejected_owner, error);
     TEST_EXPECT(ctx, !incomplete_result && error.reason == EBulkDataLoadReason::incomplete_record && !rejected_owner.is_ready());
     const CBakedDocument unchanged = incomplete_block.document();
     const CBakedValueIndex bad_locator = unchanged.object_child(unchanged.object_child(
@@ -4202,8 +4214,8 @@ static void test_baked_bulk_data(TTestContext& ctx)
     {
         CBakedSchema temporary;
         TEST_EXPECT(ctx, temporary.set_document(supplied_block.document()) && temporary.resolve(schema_error));
-        TEST_EXPECT(ctx, invalidated.set_document(supplied_block.document()) && invalidated.bind_schema(temporary));
-        TEST_EXPECT(ctx, invalidated.load_supplied(CByteConstView{ bytes, 6u, 128u }, false, error));
+        TEST_EXPECT(ctx, invalidated.set_document(supplied_block.document()));
+        TEST_EXPECT(ctx, invalidated.attach_schema(temporary, CByteConstView{ bytes, 6u, 128u }, false, error));
     }
     TEST_EXPECT(ctx, !invalidated.loaded_ready() && !invalidated.find_entry(CStringView{ "Pair" }, CStringView{ "first" }));
     invalidated.clear();
@@ -4213,8 +4225,8 @@ static void test_baked_bulk_data(TTestContext& ctx)
     CLiveSchema live_schema;
     TEST_EXPECT(ctx, live_schema.try_adopt(std::move(parsed_schema)) && live_schema.resolve(schema_error));
     CBakedBulkData live_bound;
-    TEST_EXPECT(ctx, live_bound.set_document(supplied_block.document()) && live_bound.bind_schema(live_schema));
-    TEST_EXPECT(ctx, live_bound.load_supplied(CByteConstView{ bytes, 6u, 128u }, false, error));
+    TEST_EXPECT(ctx, live_bound.set_document(supplied_block.document()));
+    TEST_EXPECT(ctx, live_bound.attach_schema(live_schema, CByteConstView{ bytes, 6u, 128u }, false, error));
 }
 
 static void test_singular_values(TTestContext& ctx)
@@ -4318,15 +4330,15 @@ static void test_singular_values(TTestContext& ctx)
             CMutableBakedDocument mutable_document{ block };
             CBakedBulkData baked;
             CByteBuffer payload;
-            TEST_EXPECT(ctx, baked.set_document(mutable_document) && baked.bind_schema(schema) && baked.materialise(payload, error));
-            TEST_EXPECT(ctx, baked.load_supplied(payload.const_view(), true, error) &&
+            TEST_EXPECT(ctx, baked.set_document(mutable_document) && baked.attach_schema(schema, payload, error));
+            TEST_EXPECT(ctx, baked.switch_schema(schema, ESchemaSwitchMode::checked, error) &&
                 clear_unused_storage(*schema.resolved(), baked.document_query(), payload.view(), EUnusedBits::clear));
             TEST_EXPECT(ctx, payload.size() == 2u && payload.data()[0] == 1u && payload.data()[1] == 2u);
             CBakedDocumentBlock output_block;
             CByteBuffer output_payload;
             CBakedBulkData output_role;
             TEST_EXPECT(ctx, live.bake(output_block, output_payload, output_role, schema, EDataOutputForm::embedded, error) &&
-                output_role.load_supplied(output_payload.const_view(), true, error));
+                output_role.switch_schema(schema, ESchemaSwitchMode::checked, error));
             CDocumentWriteOptions options;
             options.mode = EDocumentWriteMode::strict_json;
             const CDocumentWriteResult written = document_writer::write(output_block.document(), options);
@@ -4335,8 +4347,7 @@ static void test_singular_values(TTestContext& ctx)
             CBakedDocumentBlock reparsed;
             CBakedBulkData reloaded;
             CByteBuffer reloaded_payload;
-            TEST_EXPECT(ctx, bake(output_text, reparsed) && reloaded.set_document(reparsed.document()) &&
-                reloaded.bind_schema(schema) && reloaded.materialise(reloaded_payload, error) &&
+            TEST_EXPECT(ctx, bake(output_text, reparsed) && reloaded.set_document(reparsed.document()) && reloaded.attach_schema(schema, reloaded_payload, error) &&
                 reloaded_payload.size() == 2u && reloaded_payload.data()[0] == 1u && reloaded_payload.data()[1] == 2u);
         }
     }
@@ -4395,7 +4406,7 @@ static void test_singular_values(TTestContext& ctx)
     CByteBuffer output_payload;
     CBakedInstances output_role;
     TEST_EXPECT(ctx, instances.bake(output_block, output_payload, output_role, schema, EDataOutputForm::embedded, error) &&
-        output_role.load_supplied(output_payload.const_view(), true, error));
+        output_role.switch_schema(schema, ESchemaSwitchMode::checked, error));
     const CInstanceHandle output_base = output_role.find_base(CStringView{ "Bag" }, CStringView{ "base" });
     TEST_EXPECT(ctx, output_role.entry(output_role.find_specialisation(output_base, CStringView{ "untouched" }), view) &&
         view.bytes[0] == 4u && view.bytes[1] == 5u && view.bytes[2] == 8u);
@@ -4413,9 +4424,9 @@ static void test_singular_values(TTestContext& ctx)
         CBakedDocumentBlock reparsed;
         CBakedInstances reloaded;
         CByteBuffer materialised;
-        TEST_EXPECT(ctx, bake(text, reparsed) && reloaded.set_document(reparsed.document()) && reloaded.bind_schema(schema));
-        TEST_EXPECT(ctx, (form == EDataOutputForm::embedded) ? reloaded.materialise(materialised, error) :
-            reloaded.load_supplied(prepared_payload.const_view(), true, error));
+        TEST_EXPECT(ctx, bake(text, reparsed) && reloaded.set_document(reparsed.document()));
+        TEST_EXPECT(ctx, (form == EDataOutputForm::embedded) ? reloaded.attach_schema(schema, materialised, error) :
+            reloaded.attach_schema(schema, prepared_payload.const_view(), true, error));
         const CInstanceHandle reloaded_base = reloaded.find_base(CStringView{ "Bag" }, CStringView{ "base" });
         TEST_EXPECT(ctx, reloaded.entry(reloaded.find_specialisation(reloaded_base, CStringView{ "untouched" }), view) &&
             view.bytes[0] == 4u && view.bytes[1] == 5u && view.bytes[2] == 8u);
@@ -4426,8 +4437,8 @@ static void test_singular_values(TTestContext& ctx)
         "specialisation":{"child":{"locator":{"offset":1,"valid":true},"declaration":2}}}}}})", scalar_block));
     CBakedInstances scalar_source;
     CByteBuffer scalar_payload;
-    TEST_EXPECT(ctx, scalar_source.set_document(scalar_block.document()) && scalar_source.bind_schema(schema) &&
-        scalar_source.materialise(scalar_payload, error) && scalar_source.load_supplied(scalar_payload.const_view(), true, error));
+    TEST_EXPECT(ctx, scalar_source.set_document(scalar_block.document()) &&
+        scalar_source.attach_schema(schema, scalar_payload, error) && scalar_source.switch_schema(schema, ESchemaSwitchMode::checked, error));
     CLiveInstances scalar_live;
     TEST_EXPECT(ctx, scalar_source.promote(scalar_live, schema, error));
     const CInstanceHandle scalar_base = scalar_live.find_base(CStringView{ "Value" }, CStringView{ "base" });
@@ -4456,8 +4467,8 @@ static void test_instance_promotion_groups(TTestContext& ctx)
     alignas(128) std::uint8_t bytes[128] = { 4u, 5u };
     CBakedInstances source;
     SInstanceDiagnostic error;
-    TEST_EXPECT(ctx, source.set_document(instance_block.document()) && source.bind_schema(schema) &&
-        source.load_supplied(CByteConstView{ bytes, 2u, 128u }, true, error));
+    TEST_EXPECT(ctx, source.set_document(instance_block.document()) &&
+        source.attach_schema(schema, CByteConstView{ bytes, 2u, 128u }, true, error));
     CLiveInstances live, rejected_missing, changed_defaults;
     TEST_EXPECT(ctx, !source.promote(rejected_missing, missing, error) &&
         error.reason == EInstanceLoadReason::incompatible_schema && !rejected_missing.document_ready() &&
@@ -4546,14 +4557,34 @@ static void test_instance_default_preservation(TTestContext& ctx)
         CBakedInstances source;
         CByteBuffer bytes;
         SInstanceDiagnostic error;
-        TEST_EXPECT(ctx, bake(source_text, instance_block) && source.set_document(instance_block.document()) &&
-            source.bind_schema(original) && source.materialise(bytes, error));
+        TEST_EXPECT(ctx, bake(source_text, instance_block) && source.set_document(instance_block.document()) && source.attach_schema(original, bytes, error));
+        //  Switching keeps declarations: only the fully overridden default is irrelevant.
+        const bool switchable = std::strcmp(item.declaration, "9") == 0;
+        CLiveInstances switching;
+        TEST_EXPECT(ctx, source.promote(switching, original, error));
+        const auto check_switch = [&](auto& role, auto& target)
+        {
+            const auto root = role.instances_root();
+            const CByteConstView before = role.payload_view();
+            TEST_EXPECT(ctx, role.switch_schema(target, ESchemaSwitchMode::checked, error) == switchable);
+            if (!switchable)
+            {
+                TEST_EXPECT(ctx, error.reason == EInstanceLoadReason::embedded_mismatch);
+            }
+            TEST_EXPECT(ctx, role.loaded_ready() && role.instances_root() == root &&
+                role.payload_view().data() == before.data() && role.payload_view().size() == before.size());
+            TEST_EXPECT(ctx, role.switch_schema(original, ESchemaSwitchMode::trusted, error));
+        };
+        check_switch(source, changed);
+        check_switch(source, live_changed);
+        check_switch(switching, changed);
+        check_switch(switching, live_changed);
         //  The array-prefix case pins the authoritative snapshot, including a raw-written preceding element.
         for (std::size_t i = 0u; i < 3u; ++i)
         {
             bytes.data()[layout.size * i] = item.first_byte;
         }
-        TEST_EXPECT(ctx, source.load_supplied(bytes.const_view(), false, error));
+        TEST_EXPECT(ctx, source.switch_schema(original, ESchemaSwitchMode::trusted, error));
         CLiveInstances unchanged;
         TEST_EXPECT(ctx, source.promote(unchanged, original, error));
         const auto check_output = [&](auto& destination)
@@ -4588,8 +4619,7 @@ static void test_instance_default_preservation(TTestContext& ctx)
                     CBakedDocumentBlock reparsed;
                     CBakedInstances reloaded;
                     CByteBuffer reconstructed;
-                    TEST_EXPECT(ctx, bake(text, reparsed) && reloaded.set_document(reparsed.document()) &&
-                        reloaded.bind_schema(destination) && reloaded.materialise(reconstructed, error) &&
+                    TEST_EXPECT(ctx, bake(text, reparsed) && reloaded.set_document(reparsed.document()) && reloaded.attach_schema(destination, reconstructed, error) &&
                         reconstructed.size() == bytes.size() &&
                         std::memcmp(reconstructed.data(), bytes.data(), bytes.size()) == 0);
                     CBakedDocumentBlock baked_output_block;
@@ -4674,8 +4704,8 @@ static void test_instance_default_preservation(TTestContext& ctx)
         CBakedInstances source;
         CLiveInstances live, rejected;
         SInstanceDiagnostic error;
-        TEST_EXPECT(ctx, source.set_document(instance_block.document()) && source.bind_schema(original) &&
-            source.load_supplied(CByteConstView{ bytes, 1u, 128u }, false, error));
+        TEST_EXPECT(ctx, source.set_document(instance_block.document()) &&
+            source.attach_schema(original, CByteConstView{ bytes, 1u, 128u }, false, error));
         TEST_EXPECT(ctx, !source.promote(live, original, error) &&
             error.reason == EInstanceLoadReason::unrepresentable_value && !live.document_ready());
         TEST_EXPECT(ctx, live.initialise(original));
@@ -4724,9 +4754,9 @@ static void test_binary_reconciliation(TTestContext& ctx)
         99u,10u,20u,30u,40u,5u,7u,0xf9u,0u,0u,0u,0x80u,2u,1u,0x56u,0x78u };
     CBakedInstances source;
     SInstanceDiagnostic error;
-    TEST_EXPECT(ctx, source.set_document(source_block.document()) && source.bind_schema(schema) &&
-        !source.load_supplied(CByteConstView{ bytes, 48u, 128u }, true, error) &&
-        source.load_supplied(CByteConstView{ bytes, 48u, 128u }, false, error));
+    TEST_EXPECT(ctx, source.set_document(source_block.document()) &&
+        !source.attach_schema(schema, CByteConstView{ bytes, 48u, 128u }, true, error) &&
+        source.attach_schema(schema, CByteConstView{ bytes, 48u, 128u }, false, error));
     CLiveInstances live;
     TEST_EXPECT(ctx, source.promote(live, schema, error));
     const auto check = [&](auto& instances)
@@ -4756,7 +4786,7 @@ static void test_binary_reconciliation(TTestContext& ctx)
         CByteBuffer payload;
         CBakedInstances result;
         TEST_EXPECT(ctx, live.bake(block, payload, result, schema, form, error) &&
-            result.load_supplied(payload.const_view(), true, error));
+            result.switch_schema(schema, ESchemaSwitchMode::checked, error));
         check(result);
         const CDocumentWriteResult written = document_writer::write(block.document());
         TEST_EXPECT(ctx, written.report.succeeded());
@@ -4764,8 +4794,8 @@ static void test_binary_reconciliation(TTestContext& ctx)
         CBakedInstances material;
         CByteBuffer reconstructed;
         const std::string text{ reinterpret_cast<const char*>(written.output.data()), written.report.logical_text_byte_size };
-        TEST_EXPECT(ctx, bake(text, reparsed) && material.set_document(reparsed.document()) && material.bind_schema(schema) &&
-            material.materialise(reconstructed, error));
+        TEST_EXPECT(ctx, bake(text, reparsed) && material.set_document(reparsed.document()) &&
+            material.attach_schema(schema, reconstructed, error));
         const CSchemaIndex type = schema.resolved()->find_type(CStringView{ "Root" });
         for (std::size_t i = 0u; i < 3u; ++i)
         {
@@ -4837,6 +4867,141 @@ static void test_binary_reconciliation(TTestContext& ctx)
         }
         TEST_EXPECT(ctx, succeeded);
     }
+}
+
+static void test_reconciliation_traversal(TTestContext& ctx)
+{
+    CBakedDocumentBlock definitions;
+    CBakedSchema schema;
+    SDiagnostic schema_error;
+    TEST_EXPECT(ctx, bake(R"({"types":{"structures":{
+        "Cell":{"members":[{"x":{"type":"u8"}},{"y":{"type":"u8"}}]},
+        "Rows":{"members":[{"values":{"type":{"element":"Cell","count":256}}}]},
+        "Scalars":{"members":[{"values":{"type":{"element":"u8","count":256}}}]},
+        "Empty":{"members":[]},
+        "Sparse":{"members":[{"empty":{"type":{"element":"Empty","count":4294967295}}},{"x":{"type":"u8"}}]}
+    }}})", definitions) && schema.set_document(definitions.document()) && schema.resolve(schema_error));
+    SInstanceDiagnostic error;
+    for (const bool compounds : { false, true })
+    {
+        const CStringView type = compounds ? CStringView{ "Rows" } : CStringView{ "Scalars" };
+        for (const unsigned last : { 0u, 127u, 255u })
+        {
+            CLiveInstances live;
+            TEST_EXPECT(ctx, live.initialise(schema));
+            CInstanceHandle base = live.create_base(type, CStringView{ "base" }, {}, {}, error);
+            SMutableInstanceEntryView bytes;
+            TEST_EXPECT(ctx, base && live.mutable_entry(base, bytes));
+            const unsigned stride = compounds ? 2u : 1u;
+            bytes.bytes.data()[stride * last] = 7u;
+            if (last == 255u) bytes.bytes.data()[stride * 127u] = 3u;
+            const auto* const payload = live.payload_view().data();
+            TEST_EXPECT(ctx, live.reconcile(error) && live.payload_view().data() == payload &&
+                live.switch_schema(schema, ESchemaSwitchMode::checked, error));
+            base = live.find_base(type, CStringView{ "base" });
+            SInstanceEntryView entry;
+            TEST_EXPECT(ctx, live.entry(base, entry));
+            const auto query = live.document_query();
+            const auto values = query.object_child(entry.declaration, CStringView{ "values" });
+            TEST_EXPECT(ctx, query.child_count(values) == last + 1u);
+            unsigned ordinal{};
+            for (auto item = query.first_child(values); item; item = query.next_sibling(item), ++ordinal)
+            {
+                const std::uint64_t expected = ordinal == last ? 7u : ((last == 255u && ordinal == 127u) ? 3u : 0u);
+                std::uint64_t actual{};
+                if (compounds)
+                {
+                    TEST_EXPECT(ctx, query.child_count(item) == (expected ? 1u : 0u));
+                    if (expected)
+                    {
+                        TEST_EXPECT(ctx, query.unsigned_integer_value(query.object_child(item, CStringView{ "x" }), actual) &&
+                            actual == expected);
+                    }
+                }
+                else
+                {
+                    TEST_EXPECT(ctx, query.unsigned_integer_value(item, actual) && actual == expected);
+                }
+            }
+        }
+    }
+    CLiveInstances sparse;
+    TEST_EXPECT(ctx, sparse.initialise(schema));
+    auto sparse_base = sparse.create_base(CStringView{ "Sparse" }, CStringView{ "base" }, {}, {}, error);
+    SMutableInstanceEntryView sparse_bytes;
+    TEST_EXPECT(ctx, sparse_base && sparse.mutable_entry(sparse_base, sparse_bytes) && sparse_bytes.bytes.size() == 1u);
+    sparse_bytes.bytes.data()[0] = 9u;
+    TEST_EXPECT(ctx, sparse.reconcile(error));
+    SInstanceEntryView sparse_entry;
+    TEST_EXPECT(ctx, sparse.entry(sparse.find_base(CStringView{ "Sparse" }, CStringView{ "base" }), sparse_entry) &&
+        sparse.document_query().child_count(sparse_entry.declaration) == 1u);
+
+    //  Every level has an equal preceding sibling and a changed last descendant.
+    //  Ancestor-wide comparisons would repeatedly revisit the same prefix.
+    std::string nested = R"({"types":{"structures":{)";
+    constexpr unsigned depth = 64u;
+    for (unsigned level = 0u; level < depth; ++level)
+    {
+        if (level) nested += ',';
+        nested += "\"N" + std::to_string(level) + "\":{\"members\":[{\"keep\":{\"type\":\"u8\"}},{\"next\":{\"type\":";
+        nested += level + 1u == depth ? "\"u8\"" : "{\"element\":\"N" + std::to_string(level + 1u) + "\",\"count\":1}";
+        nested += "}}]}";
+    }
+    nested += R"(,"Gap":{"members":[{"values":{"type":{"element":"N0","count":3}}}]}}}})";
+    CBakedDocumentBlock deep_definitions;
+    CBakedSchema deep_schema;
+    TEST_EXPECT(ctx, bake(nested, deep_definitions) && deep_schema.set_document(deep_definitions.document()) && deep_schema.resolve(schema_error));
+    bool succeeded{};
+    for (std::size_t fail_on = 0u; (fail_on < 256u) && !succeeded; ++fail_on)
+    {
+        SFailingAllocator failing{ 0u, SIZE_MAX };
+        memory::CMemoryAllocator allocator{ &failing, &allocate_with_failure, &tests::deallocate_test_memory };
+        memory::CMemoryContext context{ allocator };
+        {
+            tests::TMemoryContextScope scope{ &context };
+            CLiveInstances live;
+            TEST_EXPECT(ctx, live.initialise(deep_schema));
+            const auto base = live.create_base(CStringView{ "Gap" }, CStringView{ "base" }, {}, {}, error);
+            SMutableInstanceEntryView bytes;
+            TEST_EXPECT(ctx, base && live.mutable_entry(base, bytes) && bytes.bytes.size() == 3u * (depth + 1u));
+            bytes.bytes.data()[3u * (depth + 1u) - 1u] = 13u;
+            const auto* const payload = live.payload_view().data();
+            failing.fail_on = failing.calls + fail_on;
+            succeeded = live.reconcile(error);
+            failing.fail_on = SIZE_MAX;
+            TEST_EXPECT(ctx, live.payload_view().data() == payload && payload[3u * (depth + 1u) - 1u] == 13u);
+            if (!succeeded)
+            {
+                TEST_EXPECT(ctx, error.reason == EInstanceLoadReason::allocation_failed &&
+                    live.find_base(CStringView{ "Gap" }, CStringView{ "base" }) == base);
+            }
+            else
+            {
+                SInstanceEntryView entry;
+                TEST_EXPECT(ctx, live.entry(live.find_base(CStringView{ "Gap" }, CStringView{ "base" }), entry));
+                const auto query = live.document_query();
+                const auto values = query.object_child(entry.declaration, CStringView{ "values" });
+                TEST_EXPECT(ctx, query.child_count(values) == 3u && query.child_count(query.array_at(values, 0u)) == 0u &&
+                    query.child_count(query.array_at(values, 1u)) == 0u);
+                auto selection = query.array_at(values, 2u);
+                for (unsigned level = 0u; level < depth; ++level)
+                {
+                    TEST_EXPECT(ctx, query.child_count(selection) == 1u);
+                    selection = query.object_child(selection, CStringView{ "next" });
+                    if (level + 1u != depth)
+                    {
+                        TEST_EXPECT(ctx, query.child_count(selection) == 1u);
+                        selection = query.first_child(selection);
+                    }
+                }
+                std::uint64_t value{};
+                TEST_EXPECT(ctx, query.unsigned_integer_value(selection, value) && value == 13u &&
+                    live.switch_schema(deep_schema, ESchemaSwitchMode::checked, error));
+            }
+        }
+        TEST_EXPECT(ctx, context.is_attribution_empty());
+    }
+    TEST_EXPECT(ctx, succeeded);
 }
 
 static void test_instance_selection_repair(TTestContext& ctx)
@@ -4959,8 +5124,8 @@ static void test_live_instances(TTestContext& ctx)
     alignas(128) std::uint8_t source_bytes[128] = { 1u, 2u, 9u, 2u };
     CBakedInstances source;
     SInstanceDiagnostic error;
-    TEST_EXPECT(ctx, source.set_document(source_block.document()) && source.bind_schema(schema) &&
-        source.load_supplied(CByteConstView{ source_bytes, 4u, 128u }, false, error));
+    TEST_EXPECT(ctx, source.set_document(source_block.document()) &&
+        source.attach_schema(schema, CByteConstView{ source_bytes, 4u, 128u }, false, error));
     CLiveInstances live;
     TEST_EXPECT(ctx, source.promote(live, schema, error) && live.loaded_ready() && live.document_ready());
     const CInstanceHandle base = live.find_base(CStringView{ "Pair" }, CStringView{ "base" });
@@ -5010,8 +5175,8 @@ static void test_live_instances(TTestContext& ctx)
     alignas(128) std::uint8_t stale_bytes[128] = { 1u, 2u, 9u, 2u };
     CBakedInstances stale_source;
     CLiveInstances stale_live;
-    TEST_EXPECT(ctx, stale_source.set_document(stale_block.document()) && stale_source.bind_schema(schema) &&
-        stale_source.load_supplied(CByteConstView{ stale_bytes, 4u, 128u }, false, error) &&
+    TEST_EXPECT(ctx, stale_source.set_document(stale_block.document()) &&
+        stale_source.attach_schema(schema, CByteConstView{ stale_bytes, 4u, 128u }, false, error) &&
         stale_source.promote(stale_live, schema, error));
     const CInstanceHandle stale_base = stale_live.find_base(CStringView{ "Pair" }, CStringView{ "base" });
     const CInstanceHandle stale_child = stale_live.find_specialisation(stale_base, CStringView{ "child" });
@@ -5229,18 +5394,17 @@ static void test_live_instance_output(TTestContext& ctx)
         CBakedDocumentBlock strict_reparsed;
         TEST_EXPECT(ctx, bake(strict_text, strict_reparsed));
         CBakedInstances reload;
-        TEST_EXPECT(ctx, reload.set_document(reparsed.document()) && reload.bind_schema(schema) &&
-            reload.load_supplied(payload.const_view(), form == EDataOutputForm::embedded, error));
+        TEST_EXPECT(ctx, reload.set_document(reparsed.document()) &&
+            reload.attach_schema(schema, payload.const_view(), form == EDataOutputForm::embedded, error));
         CBakedInstances strict_reload;
         TEST_EXPECT(ctx, strict_reload.set_document(strict_reparsed.document()) &&
-            strict_reload.bind_schema(schema) &&
-            strict_reload.load_supplied(payload.const_view(), form == EDataOutputForm::embedded, error));
+            strict_reload.attach_schema(schema, payload.const_view(), form == EDataOutputForm::embedded, error));
         if (form == EDataOutputForm::embedded)
         {
             CBakedInstances material;
             CByteBuffer material_owner;
-            TEST_EXPECT(ctx, material.set_document(reparsed.document()) && material.bind_schema(schema) &&
-                material.materialise(material_owner, error));
+            TEST_EXPECT(ctx, material.set_document(reparsed.document()) &&
+                material.attach_schema(schema, material_owner, error));
             SInstanceEntryView material_view;
             const CInstanceHandle material_base = material.find_base(CStringView{ "Bag" }, CStringView{ "bag" });
             TEST_EXPECT(ctx, material.entry(material.find_specialisation(material_base,
@@ -5398,8 +5562,8 @@ static void test_live_instance_output_boundaries(TTestContext& ctx)
     TEST_EXPECT(ctx, bake(R"({"instances":{"Pair":{"one":{"locator":{"offset":0,"valid":true}}},
         "Empty":{"zero":{"locator":{"offset":2,"valid":true}}}}})", legacy_empty_block));
     CBakedInstances legacy_empty;
-    TEST_EXPECT(ctx, legacy_empty.set_document(legacy_empty_block.document()) && legacy_empty.bind_schema(schema) &&
-        legacy_empty.load_supplied(CByteConstView{ first_bytes, 2u, 128u }, false, error));
+    TEST_EXPECT(ctx, legacy_empty.set_document(legacy_empty_block.document()) &&
+        legacy_empty.attach_schema(schema, CByteConstView{ first_bytes, 2u, 128u }, false, error));
 
     const std::string stale_text = R"({"instances":{"Pair":{"base":{
         "locator":{"offset":0,"valid":true},"declaration":{"a":1,"b":2},
@@ -5410,8 +5574,8 @@ static void test_live_instance_output_boundaries(TTestContext& ctx)
     alignas(128) std::uint8_t stale_bytes[128] = { 1u, 2u, 1u, 9u };
     CBakedInstances stale;
     CLiveInstances stale_live;
-    TEST_EXPECT(ctx, stale.set_document(stale_block.document()) && stale.bind_schema(schema) &&
-        stale.load_supplied(CByteConstView{ stale_bytes, 4u, 128u }, false, error) &&
+    TEST_EXPECT(ctx, stale.set_document(stale_block.document()) &&
+        stale.attach_schema(schema, CByteConstView{ stale_bytes, 4u, 128u }, false, error) &&
         stale.promote(stale_live, schema, error));
     CLiveDocument embedded;
     CByteBuffer embedded_payload;
@@ -5429,8 +5593,8 @@ static void test_live_instance_output_boundaries(TTestContext& ctx)
     alignas(128) std::uint8_t child_mismatch_bytes[128] = { 1u, 2u, 7u, 9u };
     CBakedInstances child_mismatch;
     CLiveInstances child_mismatch_live;
-    TEST_EXPECT(ctx, child_mismatch.set_document(stale_block.document()) && child_mismatch.bind_schema(schema) &&
-        child_mismatch.load_supplied(CByteConstView{ child_mismatch_bytes, 4u, 128u }, false, error) &&
+    TEST_EXPECT(ctx, child_mismatch.set_document(stale_block.document()) &&
+        child_mismatch.attach_schema(schema, CByteConstView{ child_mismatch_bytes, 4u, 128u }, false, error) &&
         child_mismatch.promote(child_mismatch_live, schema, error));
     CLiveDocument rejected_child;
     CByteBuffer rejected_child_payload;
@@ -5450,8 +5614,8 @@ static void test_live_instance_output_boundaries(TTestContext& ctx)
     alignas(128) std::uint8_t omitted_bytes[128] = { 1u, 7u };
     CBakedInstances omitted;
     CLiveInstances omitted_live;
-    TEST_EXPECT(ctx, omitted.set_document(omitted_block.document()) && omitted.bind_schema(schema) &&
-        omitted.load_supplied(CByteConstView{ omitted_bytes, 2u, 128u }, false, error) &&
+    TEST_EXPECT(ctx, omitted.set_document(omitted_block.document()) &&
+        omitted.attach_schema(schema, CByteConstView{ omitted_bytes, 2u, 128u }, false, error) &&
         omitted.promote(omitted_live, schema, error));
     CLiveDocument rejected;
     CByteBuffer rejected_payload;
@@ -5501,8 +5665,7 @@ static void test_live_instance_output_boundaries(TTestContext& ctx)
     CBakedInstances scalar_source;
     CLiveInstances scalar_live;
     TEST_EXPECT(ctx, scalar_source.set_document(scalar_source_block.document()) &&
-        scalar_source.bind_schema(scalar_schema) &&
-        scalar_source.load_supplied(CByteConstView{ scalar_bytes, 2u, 128u }, false, error) &&
+        scalar_source.attach_schema(scalar_schema, CByteConstView{ scalar_bytes, 2u, 128u }, false, error) &&
         scalar_source.promote(scalar_live, scalar_schema, error));
     CLiveDocument scalar_output;
     CByteBuffer scalar_payload;
@@ -5525,8 +5688,7 @@ static void test_live_instance_output_boundaries(TTestContext& ctx)
     CBakedInstances edge_source;
     CLiveInstances edge_live;
     TEST_EXPECT(ctx, edge_source.set_document(edge_source_block.document()) &&
-        edge_source.bind_schema(edge_schema) &&
-        edge_source.load_supplied(CByteConstView{ unusual_boolean, 2u, 128u }, false, error));
+        edge_source.attach_schema(edge_schema, CByteConstView{ unusual_boolean, 2u, 128u }, false, error));
     TEST_EXPECT(ctx, !edge_source.promote(edge_live, edge_schema, error) &&
         error.reason == EInstanceLoadReason::unrepresentable_value && !edge_live.document_ready());
     TEST_EXPECT(ctx, edge_live.initialise(edge_schema));
@@ -5549,8 +5711,7 @@ static void test_live_instance_output_boundaries(TTestContext& ctx)
     CBakedInstances unknown_enum_source;
     CLiveInstances unknown_enum_live;
     TEST_EXPECT(ctx, unknown_enum_source.set_document(edge_source_block.document()) &&
-        unknown_enum_source.bind_schema(edge_schema) &&
-        unknown_enum_source.load_supplied(CByteConstView{ unusual_boolean, 2u, 128u }, false, error));
+        unknown_enum_source.attach_schema(edge_schema, CByteConstView{ unusual_boolean, 2u, 128u }, false, error));
     TEST_EXPECT(ctx, !unknown_enum_source.promote(unknown_enum_live, edge_schema, error) &&
         error.reason == EInstanceLoadReason::unrepresentable_value && !unknown_enum_live.document_ready());
     TEST_EXPECT(ctx, unknown_enum_live.initialise(edge_schema));
@@ -5749,13 +5910,12 @@ static void test_stripped_baking(TTestContext& ctx)
             CBakedDocumentBlock reloaded_block;
             CBakedInstances reloaded;
             CByteBuffer absent;
-            TEST_EXPECT(ctx, bake(text, reloaded_block) && reloaded.set_document(CMutableBakedDocument{ reloaded_block }) &&
-                reloaded.bind_schema(destination) && reloaded.values_stripped());
-            TEST_EXPECT(ctx, !reloaded.materialise(absent, error) &&
+            TEST_EXPECT(ctx, bake(text, reloaded_block) && reloaded.set_document(CMutableBakedDocument{ reloaded_block }) && reloaded.values_stripped());
+            TEST_EXPECT(ctx, !reloaded.attach_schema(destination, absent, error) &&
                 (error.reason == EInstanceLoadReason::binary_required) && !absent.is_ready() && !reloaded.loaded_ready());
-            TEST_EXPECT(ctx, !reloaded.load_supplied({}, false, error) &&
+            TEST_EXPECT(ctx, !reloaded.attach_schema(destination, {}, false, error) &&
                 (error.reason == EInstanceLoadReason::invalid_range));
-            TEST_EXPECT(ctx, reloaded.load_supplied(payload.const_view(), true, error));
+            TEST_EXPECT(ctx, reloaded.attach_schema(destination, payload.const_view(), true, error));
             CLiveInstances promoted;
             TEST_EXPECT(ctx, reloaded.promote(promoted, destination, error));
             CBakedDocumentBlock retained_block;
@@ -5763,13 +5923,13 @@ static void test_stripped_baking(TTestContext& ctx)
             CByteBuffer retained_payload;
             TEST_EXPECT(ctx, promoted.bake(retained_block, retained_payload, retained, destination,
                 EDataOutputForm::embedded, error) && !retained.values_stripped() &&
-                retained.load_supplied(retained_payload.const_view(), true, error) &&
+                retained.switch_schema(destination, ESchemaSwitchMode::checked, error) &&
                 (retained_payload.size() == payload.size()) &&
                 (std::memcmp(retained_payload.data(), payload.data(), payload.size()) == 0));
             CBakedInstances reconstructed;
             CByteBuffer reconstructed_payload;
-            TEST_EXPECT(ctx, reconstructed.set_document(CMutableBakedDocument{ retained_block }) && reconstructed.bind_schema(destination) &&
-                reconstructed.materialise(reconstructed_payload, error) &&
+            TEST_EXPECT(ctx, reconstructed.set_document(CMutableBakedDocument{ retained_block }) &&
+                reconstructed.attach_schema(destination, reconstructed_payload, error) &&
                 (reconstructed_payload.size() == payload.size()) &&
                 (std::memcmp(reconstructed_payload.data(), payload.data(), payload.size()) == 0));
         }
@@ -5792,12 +5952,12 @@ static void test_stripped_baking(TTestContext& ctx)
             clear_unused_storage(*destination.resolved(), bulk_data_role.document_query(), bulk_data_payload.view()));
         CBakedBulkData bulk_data_reloaded;
         CByteBuffer absent;
-        TEST_EXPECT(ctx, bulk_data_reloaded.set_document(CMutableBakedDocument{ bulk_data_block }) && bulk_data_reloaded.bind_schema(destination));
-        TEST_EXPECT(ctx, !bulk_data_reloaded.materialise(absent, bulk_data_error) &&
+        TEST_EXPECT(ctx, bulk_data_reloaded.set_document(CMutableBakedDocument{ bulk_data_block }));
+        TEST_EXPECT(ctx, !bulk_data_reloaded.attach_schema(destination, absent, bulk_data_error) &&
             (bulk_data_error.reason == EBulkDataLoadReason::binary_required) && !absent.is_ready());
-        TEST_EXPECT(ctx, !bulk_data_reloaded.load_supplied({}, false, bulk_data_error) &&
+        TEST_EXPECT(ctx, !bulk_data_reloaded.attach_schema(destination, {}, false, bulk_data_error) &&
             (bulk_data_error.reason == EBulkDataLoadReason::invalid_range));
-        TEST_EXPECT(ctx, bulk_data_reloaded.load_supplied(bulk_data_payload.const_view(), true, bulk_data_error));
+        TEST_EXPECT(ctx, bulk_data_reloaded.attach_schema(destination, bulk_data_payload.const_view(), true, bulk_data_error));
         for (const EDocumentWriteMode mode : { EDocumentWriteMode::strict_json, EDocumentWriteMode::morphic })
         {
             CDocumentWriteOptions options;
@@ -5807,9 +5967,8 @@ static void test_stripped_baking(TTestContext& ctx)
             const std::string text{ reinterpret_cast<const char*>(written.output.data()), written.report.logical_text_byte_size };
             CBakedDocumentBlock text_block;
             CBakedBulkData text_role;
-            TEST_EXPECT(ctx, bake(text, text_block) && text_role.set_document(text_block.document()) &&
-                text_role.bind_schema(destination) && text_role.values_stripped() &&
-                text_role.load_supplied(bulk_data_payload.const_view(), true, bulk_data_error) &&
+            TEST_EXPECT(ctx, bake(text, text_block) && text_role.set_document(text_block.document()) && text_role.values_stripped() &&
+                text_role.attach_schema(destination, bulk_data_payload.const_view(), true, bulk_data_error) &&
                 text_role.entry(text_role.find_entry(CStringView{ "Pair" }, CStringView{ "records" }), bulk_data_value) &&
                 (bulk_data_value.count == 2u) && (bulk_data_value.bytes[3] == 9u));
         }
@@ -5860,9 +6019,12 @@ static void test_stripped_baking(TTestContext& ctx)
         TEST_EXPECT(ctx, instances.bake(block, payload, role, schema, EDataOutputForm::stripped, error) &&
             bulk_data.bake(bulk_data_block, bulk_data_payload, bulk_data_role, schema, EDataOutputForm::stripped, bulk_data_error) &&
             !payload.is_ready() && !bulk_data_payload.is_ready());
-        TEST_EXPECT(ctx, !role.materialise(absent, error) && (error.reason == EInstanceLoadReason::binary_required) &&
-            !bulk_data_role.materialise(absent, bulk_data_error) && (bulk_data_error.reason == EBulkDataLoadReason::binary_required));
-        TEST_EXPECT(ctx, role.load_supplied({}, true, error) && bulk_data_role.load_supplied({}, true, bulk_data_error));
+        CBakedInstances unmaterialised;
+        CBakedBulkData unmaterialised_bulk;
+        TEST_EXPECT(ctx, unmaterialised.set_document(block.document()) && unmaterialised_bulk.set_document(bulk_data_block.document()));
+        TEST_EXPECT(ctx, !unmaterialised.attach_schema(schema, absent, error) && (error.reason == EInstanceLoadReason::binary_required) &&
+            !unmaterialised_bulk.attach_schema(schema, absent, bulk_data_error) && (bulk_data_error.reason == EBulkDataLoadReason::binary_required));
+        TEST_EXPECT(ctx, role.switch_schema(schema, ESchemaSwitchMode::checked, error) && bulk_data_role.switch_schema(schema, ESchemaSwitchMode::checked, bulk_data_error));
     }
 
     //  A marker cannot hide malformed metadata or retained value declarations.
@@ -5875,10 +6037,10 @@ static void test_stripped_baking(TTestContext& ctx)
         SInstanceDiagnostic error;
         SBulkDataDiagnostic bulk_data_error;
         TEST_EXPECT(ctx, bake(std::string{ "{\"types\":{},\"stripped\":" } + marker + "}", block) &&
-            instances.set_document(block.document()) && instances.bind_schema(schema) &&
-            bulk_data.set_document(block.document()) && bulk_data.bind_schema(schema));
-        TEST_EXPECT(ctx, !instances.load_supplied({}, false, error) && (error.reason == EInstanceLoadReason::invalid_input) &&
-            !bulk_data.load_supplied({}, false, bulk_data_error) && (bulk_data_error.reason == EBulkDataLoadReason::invalid_input) &&
+            instances.set_document(block.document()) &&
+            bulk_data.set_document(block.document()));
+        TEST_EXPECT(ctx, !instances.attach_schema(schema, {}, false, error) && (error.reason == EInstanceLoadReason::invalid_input) &&
+            !bulk_data.attach_schema(schema, {}, false, bulk_data_error) && (bulk_data_error.reason == EBulkDataLoadReason::invalid_input) &&
             !resolved.resolve(block.document(), schema_error));
     }
     CBakedDocumentBlock combined;
@@ -5893,11 +6055,11 @@ static void test_stripped_baking(TTestContext& ctx)
     TEST_EXPECT(ctx, bake(R"({"stripped":true,"instances":{"Empty":{"zero":{
         "locator":{"offset":0,"valid":true},"declaration":{}}}},"data":{"Empty":{"zero":{
         "locator":{"offset":0,"valid":true,"count":1},"data":[{}]}}}})", contradictory) &&
-        contradictory_instances.set_document(contradictory.document()) && contradictory_instances.bind_schema(schema) &&
-        contradictory_bulk_data.set_document(contradictory.document()) && contradictory_bulk_data.bind_schema(schema));
-    TEST_EXPECT(ctx, !contradictory_instances.load_supplied({}, false, error) &&
+        contradictory_instances.set_document(contradictory.document()) &&
+        contradictory_bulk_data.set_document(contradictory.document()));
+    TEST_EXPECT(ctx, !contradictory_instances.attach_schema(schema, {}, false, error) &&
         (error.reason == EInstanceLoadReason::invalid_declaration) &&
-        !contradictory_bulk_data.load_supplied({}, false, bulk_data_error) && (bulk_data_error.reason == EBulkDataLoadReason::invalid_input));
+        !contradictory_bulk_data.attach_schema(schema, {}, false, bulk_data_error) && (bulk_data_error.reason == EBulkDataLoadReason::invalid_input));
 }
 
 static void test_stripped_baking_raw_values(TTestContext& ctx)
@@ -5923,7 +6085,7 @@ static void test_stripped_baking_raw_values(TTestContext& ctx)
     TEST_EXPECT(ctx, instances.bake(block, payload, role, schema, EDataOutputForm::stripped, error) &&
         bulk_data.bake(bulk_data_block, bulk_data_payload, bulk_data_role, schema, EDataOutputForm::stripped, bulk_data_error) &&
         (payload.data()[0] == 2u) && (bulk_data_payload.data()[0] == 2u) &&
-        role.load_supplied(payload.const_view(), true, error) && bulk_data_role.load_supplied(bulk_data_payload.const_view(), true, bulk_data_error));
+        role.switch_schema(schema, ESchemaSwitchMode::checked, error) && bulk_data_role.switch_schema(schema, ESchemaSwitchMode::checked, bulk_data_error));
     CLiveInstances promoted;
     CLiveBulkData promoted_bulk_data;
     TEST_EXPECT(ctx, !role.promote(promoted, schema, error) && (error.reason == EInstanceLoadReason::unrepresentable_value) &&
@@ -5986,8 +6148,8 @@ static void test_live_instance_boundaries(TTestContext& ctx)
     alignas(128) std::uint8_t updated[128] = { 5u, 6u };
     CBakedInstances source;
     SInstanceDiagnostic error;
-    TEST_EXPECT(ctx, source.set_document(source_block.document()) && source.bind_schema(schema) &&
-        source.load_supplied(CByteConstView{ original, 4u, 128u }, false, error));
+    TEST_EXPECT(ctx, source.set_document(source_block.document()) &&
+        source.attach_schema(schema, CByteConstView{ original, 4u, 128u }, false, error));
 
     std::size_t promotion_failures{}, promotion_successes{};
     for (std::size_t failure_offset = 0u; (failure_offset < 128u) && !promotion_successes; ++failure_offset)
@@ -6155,8 +6317,7 @@ static void test_live_instance_boundaries(TTestContext& ctx)
     alignas(128) std::uint8_t array_bytes[128] = { 1u, 0u, 0u };
     CBakedInstances array_source;
     TEST_EXPECT(ctx, array_source.set_document(array_source_block.document()) &&
-        array_source.bind_schema(short_schema) &&
-        array_source.load_supplied(CByteConstView{ array_bytes, 3u, 128u }, false, error));
+        array_source.attach_schema(short_schema, CByteConstView{ array_bytes, 3u, 128u }, false, error));
     CLiveInstances equal_tail, changed_tail;
     TEST_EXPECT(ctx, array_source.promote(equal_tail, long_schema, error));
     TEST_EXPECT(ctx, array_source.promote(changed_tail, different_schema, error) && changed_tail.loaded_ready());
@@ -6233,13 +6394,13 @@ static void test_baked_instances(TTestContext& ctx)
     TEST_EXPECT(ctx, bake(source, block));
     CMutableBakedDocument mutable_document{ block };
     CBakedInstances instances;
-    TEST_EXPECT(ctx, instances.set_document(mutable_document) && instances.bind_schema(schema));
+    TEST_EXPECT(ctx, instances.set_document(mutable_document));
     const CInstanceDocumentQuery query = instances.document_query();
     TEST_EXPECT(ctx, query.root() && query.name(instances.instances_root()) == CStringView{ "instances" } &&
         query.object_child(query.root(), CStringView{ "data" }));
     CByteBuffer owner;
     SInstanceDiagnostic error;
-    TEST_EXPECT(ctx, instances.materialise(owner, error) && instances.loaded_ready());
+    TEST_EXPECT(ctx, instances.attach_schema(schema, owner, error) && instances.loaded_ready());
     const CInstanceHandle base = instances.find_base(CStringView{ "Vec" }, CStringView{ "base" });
     const CInstanceHandle first = instances.find_specialisation(base, CStringView{ "first" });
     const CInstanceHandle deep = instances.find_specialisation(first, CStringView{ "deep" });
@@ -6282,8 +6443,8 @@ static void test_baked_instances(TTestContext& ctx)
     TEST_EXPECT(ctx, changed.boolean_value(changed.object_child(base_locator, CStringView{ "valid" }), valid) && valid);
 
     CBakedInstances supplied;
-    TEST_EXPECT(ctx, supplied.set_document(block.document()) && supplied.bind_schema(schema));
-    TEST_EXPECT(ctx, supplied.load_supplied(owner.const_view(), true, error));
+    TEST_EXPECT(ctx, supplied.set_document(block.document()));
+    TEST_EXPECT(ctx, supplied.attach_schema(schema, owner.const_view(), true, error));
     const std::uint8_t* const owned_address = owner.const_view().data();
     CByteBuffer moved_owner{ std::move(owner) };
     TEST_EXPECT(ctx, supplied.payload_view().data() == owned_address && moved_owner.const_view().data() == owned_address);
@@ -6293,11 +6454,13 @@ static void test_baked_instances(TTestContext& ctx)
     {
         std::memcpy(altered, moved_owner.data(), moved_owner.size());
         altered[base_view.offset + 3u] ^= 1u;
-        TEST_EXPECT(ctx, supplied.load_supplied(CByteConstView{ altered, moved_owner.size(), 128u }, false, error));
-        TEST_EXPECT(ctx, !supplied.load_supplied(CByteConstView{ altered, moved_owner.size(), 128u }, true, error) &&
-            error.reason == EInstanceLoadReason::embedded_mismatch && !supplied.loaded_ready());
+        supplied.clear();
+        TEST_EXPECT(ctx, supplied.set_document(block.document()) &&
+            supplied.attach_schema(schema, CByteConstView{ altered, moved_owner.size(), 128u }, false, error));
+        TEST_EXPECT(ctx, !supplied.switch_schema(schema, ESchemaSwitchMode::checked, error) &&
+            error.reason == EInstanceLoadReason::embedded_mismatch && supplied.loaded_ready());
     }
-    TEST_EXPECT(ctx, supplied.document_query().is_ready() && !supplied.entry(base, base_view));
+    TEST_EXPECT(ctx, supplied.document_query().is_ready() && supplied.entry(base, base_view));
     supplied.clear();
     TEST_EXPECT(ctx, moved_owner.const_view().data() == owned_address);
 
@@ -6306,15 +6469,15 @@ static void test_baked_instances(TTestContext& ctx)
     CLiveSchema live_schema;
     TEST_EXPECT(ctx, live_schema.try_adopt(std::move(parsed_schema)) && live_schema.resolve(schema_error));
     CBakedInstances live_bound;
-    TEST_EXPECT(ctx, live_bound.set_document(block.document()) && live_bound.bind_schema(live_schema));
-    TEST_EXPECT(ctx, live_bound.load_supplied(moved_owner.const_view(), true, error));
+    TEST_EXPECT(ctx, live_bound.set_document(block.document()));
+    TEST_EXPECT(ctx, live_bound.attach_schema(live_schema, moved_owner.const_view(), true, error));
 
     CBakedInstances invalidated;
     {
         CBakedSchema temporary;
         TEST_EXPECT(ctx, temporary.set_document(schema_block.document()) && temporary.resolve(schema_error));
-        TEST_EXPECT(ctx, invalidated.set_document(block.document()) && invalidated.bind_schema(temporary));
-        TEST_EXPECT(ctx, invalidated.load_supplied(moved_owner.const_view(), false, error));
+        TEST_EXPECT(ctx, invalidated.set_document(block.document()));
+        TEST_EXPECT(ctx, invalidated.attach_schema(temporary, moved_owner.const_view(), false, error));
     }
     TEST_EXPECT(ctx, !invalidated.loaded_ready() && !invalidated.find_base(CStringView{ "Vec" }, CStringView{ "base" }) &&
         invalidated.document_query().is_ready());
@@ -6328,8 +6491,8 @@ static void test_baked_instances(TTestContext& ctx)
         CBakedSchema retry_schema;
         TEST_EXPECT(ctx, retry_schema.set_document(schema_block.document()) && retry_schema.resolve(schema_error));
         CBakedInstances retry_client;
-        TEST_EXPECT(ctx, retry_client.set_document(block.document()) && retry_client.bind_schema(retry_schema));
-        TEST_EXPECT(ctx, retry_client.load_supplied(moved_owner.const_view(), false, error));
+        TEST_EXPECT(ctx, retry_client.set_document(block.document()));
+        TEST_EXPECT(ctx, retry_client.attach_schema(retry_schema, moved_owner.const_view(), false, error));
         failing.fail_on = failing.calls;
         TEST_EXPECT(ctx, !retry_schema.resolve(schema_error) && !retry_client.loaded_ready() &&
             retry_client.document_query().is_ready());
@@ -6356,9 +6519,9 @@ static void test_baked_instance_rejections(TTestContext& ctx)
         CBakedDocumentBlock block;
         TEST_EXPECT(ctx, bake("{\"instances\":" + entries + "}", block));
         CBakedInstances instances;
-        TEST_EXPECT(ctx, instances.set_document(block.document()) && instances.bind_schema(schema));
+        TEST_EXPECT(ctx, instances.set_document(block.document()));
         SInstanceDiagnostic diagnostic;
-        TEST_EXPECT(ctx, !instances.load_supplied(CByteConstView{ bytes, 4u, 128u }, false, diagnostic) &&
+        TEST_EXPECT(ctx, !instances.attach_schema(schema, CByteConstView{ bytes, 4u, 128u }, false, diagnostic) &&
             diagnostic.reason == reason && !instances.loaded_ready() && instances.document_query().is_ready());
     };
     reject(R"({"Missing":{"a":{"locator":{"offset":0,"valid":true}}}})", EInstanceLoadReason::unknown_type);
@@ -6386,35 +6549,37 @@ static void test_baked_instance_rejections(TTestContext& ctx)
     CBakedDocumentBlock incomplete_block;
     TEST_EXPECT(ctx, bake(incomplete, incomplete_block));
     CBakedInstances unchecked;
-    TEST_EXPECT(ctx, unchecked.set_document(incomplete_block.document()) && unchecked.bind_schema(schema));
+    TEST_EXPECT(ctx, unchecked.set_document(incomplete_block.document()));
     SInstanceDiagnostic error;
-    TEST_EXPECT(ctx, unchecked.load_supplied(CByteConstView{ bytes, 4u, 128u }, false, error));
+    TEST_EXPECT(ctx, unchecked.attach_schema(schema, CByteConstView{ bytes, 4u, 128u }, false, error));
     //  A short base declaration is valid and fills the second member from defaults.
     alignas(128) std::uint8_t short_bytes[128] = { 1u, 0u };
-    TEST_EXPECT(ctx, unchecked.load_supplied(CByteConstView{ short_bytes, 2u, 128u }, true, error));
+    unchecked.clear();
+    TEST_EXPECT(ctx, unchecked.set_document(incomplete_block.document()) &&
+        unchecked.attach_schema(schema, CByteConstView{ short_bytes, 2u, 128u }, true, error));
     const std::string bad_value = R"({"instances":{"Pair":{"a":{
         "locator":{"offset":0,"valid":true},"declaration":{"missing":1}}}}})";
     CBakedDocumentBlock bad_block;
     TEST_EXPECT(ctx, bake(bad_value, bad_block));
     CBakedInstances bad;
-    TEST_EXPECT(ctx, bad.set_document(bad_block.document()) && bad.bind_schema(schema));
-    TEST_EXPECT(ctx, bad.load_supplied(CByteConstView{ bytes, 4u, 128u }, false, error));
-    TEST_EXPECT(ctx, !bad.load_supplied(CByteConstView{ bytes, 4u, 128u }, true, error) &&
-        error.reason == EInstanceLoadReason::invalid_declaration && !bad.loaded_ready());
+    TEST_EXPECT(ctx, bad.set_document(bad_block.document()));
+    TEST_EXPECT(ctx, bad.attach_schema(schema, CByteConstView{ bytes, 4u, 128u }, false, error));
+    TEST_EXPECT(ctx, !bad.switch_schema(schema, ESchemaSwitchMode::checked, error) &&
+        error.reason == EInstanceLoadReason::invalid_declaration && bad.loaded_ready());
 
     const std::string unset = R"({"instances":{"Pair":{"a":{
         "locator":{"offset":4294967295,"valid":false},"declaration":[1,2]}}}})";
     CBakedDocumentBlock unset_block;
     TEST_EXPECT(ctx, bake(unset, unset_block));
     CBakedInstances immutable;
-    TEST_EXPECT(ctx, immutable.set_document(unset_block.document()) && immutable.bind_schema(schema));
+    TEST_EXPECT(ctx, immutable.set_document(unset_block.document()));
     CByteBuffer refused_owner;
-    TEST_EXPECT(ctx, !immutable.materialise(refused_owner, error) &&
+    TEST_EXPECT(ctx, !immutable.attach_schema(schema, refused_owner, error) &&
         error.reason == EInstanceLoadReason::invalid_locator && !refused_owner.is_ready());
     CMutableBakedDocument mutable_unset{ unset_block };
     CBakedInstances material;
-    TEST_EXPECT(ctx, material.set_document(mutable_unset) && material.bind_schema(schema));
-    TEST_EXPECT(ctx, material.materialise(refused_owner, error));
+    TEST_EXPECT(ctx, material.set_document(mutable_unset));
+    TEST_EXPECT(ctx, material.attach_schema(schema, refused_owner, error));
     SInstanceEntryView view;
     TEST_EXPECT(ctx, material.entry(material.find_base(CStringView{ "Pair" }, CStringView{ "a" }), view) &&
         view.offset == 0u && view.bytes[0] == 1u && view.bytes[1] == 2u);
@@ -6433,13 +6598,13 @@ static void test_baked_instance_rejections(TTestContext& ctx)
         "locator":{"offset":0,"valid":true,"size":0,"count":1},
         "specialisation":{"same":{"locator":{"offset":0,"valid":true}}}}}}})", zero_block));
     CBakedInstances zero;
-    TEST_EXPECT(ctx, zero.set_document(zero_block.document()) && zero.bind_schema(schema));
-    TEST_EXPECT(ctx, zero.load_supplied(CByteConstView{}, true, error));
+    TEST_EXPECT(ctx, zero.set_document(zero_block.document()));
+    TEST_EXPECT(ctx, zero.attach_schema(schema, CByteConstView{}, true, error));
     TEST_EXPECT(ctx, zero.entry(zero.find_base(CStringView{ "Empty" }, CStringView{ "zero" }), view) &&
         view.byte_count == 0u && view.bytes == nullptr);
     CBakedInstances misaligned;
-    TEST_EXPECT(ctx, misaligned.set_document(incomplete_block.document()) && misaligned.bind_schema(schema));
-    TEST_EXPECT(ctx, !misaligned.load_supplied(CByteConstView{ bytes + 1u, 4u, 1u }, false, error) &&
+    TEST_EXPECT(ctx, misaligned.set_document(incomplete_block.document()));
+    TEST_EXPECT(ctx, !misaligned.attach_schema(schema, CByteConstView{ bytes + 1u, 4u, 1u }, false, error) &&
         error.reason == EInstanceLoadReason::invalid_range);
 }
 
@@ -6460,10 +6625,10 @@ static void test_baked_instance_boundaries(TTestContext& ctx)
     TEST_EXPECT(ctx, bake(bad_text, bad_block));
     CMutableBakedDocument bad_mutable{ bad_block };
     CBakedInstances bad;
-    TEST_EXPECT(ctx, bad.set_document(bad_mutable) && bad.bind_schema(schema));
+    TEST_EXPECT(ctx, bad.set_document(bad_mutable));
     CByteBuffer unchanged_owner;
     SInstanceDiagnostic error;
-    TEST_EXPECT(ctx, !bad.materialise(unchanged_owner, error) &&
+    TEST_EXPECT(ctx, !bad.attach_schema(schema, unchanged_owner, error) &&
         error.reason == EInstanceLoadReason::invalid_declaration && !unchanged_owner.is_ready() && !bad.loaded_ready());
     const CBakedDocument unchanged = bad_block.document();
     const CBakedValueIndex bad_locator = unchanged.object_child(unchanged.object_child(unchanged.object_child(
@@ -6478,9 +6643,9 @@ static void test_baked_instance_boundaries(TTestContext& ctx)
     CBakedDocumentBlock ready_block;
     TEST_EXPECT(ctx, bake(ready_text, ready_block));
     CBakedInstances readonly;
-    TEST_EXPECT(ctx, readonly.set_document(ready_block.document()) && readonly.bind_schema(schema));
+    TEST_EXPECT(ctx, readonly.set_document(ready_block.document()));
     CByteBuffer readonly_owner;
-    TEST_EXPECT(ctx, readonly.materialise(readonly_owner, error));
+    TEST_EXPECT(ctx, readonly.attach_schema(schema, readonly_owner, error));
     SInstanceEntryView view;
     TEST_EXPECT(ctx, readonly.entry(readonly.find_base(CStringView{ "Pair" }, CStringView{ "ready" }), view) &&
         view.byte_count == 2u && view.bytes[0] == 1u && view.bytes[1] == 2u);
@@ -6492,11 +6657,11 @@ static void test_baked_instance_boundaries(TTestContext& ctx)
         {
             tests::TMemoryContextScope scope{ &context };
             CBakedInstances attempt;
-            TEST_EXPECT(ctx, attempt.set_document(ready_block.document()) && attempt.bind_schema(schema));
+            TEST_EXPECT(ctx, attempt.set_document(ready_block.document()));
             CByteBuffer output;
             failing.fail_on = failing.calls + failure_offset;
             SInstanceDiagnostic allocation_error;
-            TEST_EXPECT(ctx, !attempt.materialise(output, allocation_error) &&
+            TEST_EXPECT(ctx, !attempt.attach_schema(schema, output, allocation_error) &&
                 allocation_error.reason == EInstanceLoadReason::allocation_failed &&
                 !attempt.loaded_ready() && !output.is_ready());
         }
@@ -6516,9 +6681,9 @@ static void test_baked_instance_boundaries(TTestContext& ctx)
     TEST_EXPECT(ctx, bake(wide_text, wide_block));
     CMutableBakedDocument wide_mutable{ wide_block };
     CBakedInstances wide;
-    TEST_EXPECT(ctx, wide.set_document(wide_mutable) && wide.bind_schema(schema));
+    TEST_EXPECT(ctx, wide.set_document(wide_mutable));
     CByteBuffer wide_owner;
-    TEST_EXPECT(ctx, wide.materialise(wide_owner, error));
+    TEST_EXPECT(ctx, wide.attach_schema(schema, wide_owner, error));
     TEST_EXPECT(ctx, wide.entry(wide.find_base(CStringView{ "Pair" }, CStringView{ "second" }), view) &&
         view.offset == 256u && view.bytes[0] == 1u && view.bytes[1] == 2u);
 
@@ -6531,8 +6696,8 @@ static void test_baked_instance_boundaries(TTestContext& ctx)
     CBakedDocumentBlock deep_block;
     TEST_EXPECT(ctx, bake("{\"instances\":{\"Empty\":{\"root\":" + nested + "}}}", deep_block));
     CBakedInstances deep;
-    TEST_EXPECT(ctx, deep.set_document(deep_block.document()) && deep.bind_schema(schema));
-    TEST_EXPECT(ctx, deep.load_supplied(CByteConstView{}, true, error));
+    TEST_EXPECT(ctx, deep.set_document(deep_block.document()));
+    TEST_EXPECT(ctx, deep.attach_schema(schema, CByteConstView{}, true, error));
     CInstanceHandle step = deep.find_base(CStringView{ "Empty" }, CStringView{ "root" });
     for (unsigned depth = 0u; depth < 110u && step; ++depth)
     {
@@ -6546,17 +6711,17 @@ static void test_baked_instance_boundaries(TTestContext& ctx)
     CBakedDocumentBlock nan_block;
     TEST_EXPECT(ctx, bake(nan_text, nan_block));
     CBakedInstances nan;
-    TEST_EXPECT(ctx, nan.set_document(nan_block.document()) && nan.bind_schema(schema));
+    TEST_EXPECT(ctx, nan.set_document(nan_block.document()));
     alignas(128) std::uint8_t nan_bytes[128] = { 1u, 0u, 0xc0u, 0xffu };
-    TEST_EXPECT(ctx, nan.load_supplied(CByteConstView{ nan_bytes, 4u, 128u }, true, error));
+    TEST_EXPECT(ctx, nan.attach_schema(schema, CByteConstView{ nan_bytes, 4u, 128u }, true, error));
     const std::string zero_text = R"({"instances":{"f32":{"zero":{
         "locator":{"offset":0,"valid":true},"declaration":-0.0}}}})";
     CBakedDocumentBlock signed_zero_block;
     TEST_EXPECT(ctx, bake(zero_text, signed_zero_block));
     CBakedInstances signed_zero;
-    TEST_EXPECT(ctx, signed_zero.set_document(signed_zero_block.document()) && signed_zero.bind_schema(schema));
+    TEST_EXPECT(ctx, signed_zero.set_document(signed_zero_block.document()));
     alignas(128) std::uint8_t plus_zero[128]{};
-    TEST_EXPECT(ctx, !signed_zero.load_supplied(CByteConstView{ plus_zero, 4u, 128u }, true, error) &&
+    TEST_EXPECT(ctx, !signed_zero.attach_schema(schema, CByteConstView{ plus_zero, 4u, 128u }, true, error) &&
         error.reason == EInstanceLoadReason::embedded_mismatch);
 }
 
@@ -6576,10 +6741,10 @@ static void test_baked_instance_staging(TTestContext& ctx)
     TEST_EXPECT(ctx, bake(bad_child, bad_block));
     CMutableBakedDocument bad_mutable{ bad_block };
     CBakedInstances bad;
-    TEST_EXPECT(ctx, bad.set_document(bad_mutable) && bad.bind_schema(schema));
+    TEST_EXPECT(ctx, bad.set_document(bad_mutable));
     CByteBuffer unchanged_owner;
     SInstanceDiagnostic error;
-    TEST_EXPECT(ctx, !bad.materialise(unchanged_owner, error) &&
+    TEST_EXPECT(ctx, !bad.attach_schema(schema, unchanged_owner, error) &&
         error.reason == EInstanceLoadReason::invalid_declaration && !unchanged_owner.is_ready());
     const CBakedDocument bad_document = bad_block.document();
     const CBakedValueIndex bad_base = bad_document.object_child(bad_document.object_child(
@@ -6611,11 +6776,11 @@ static void test_baked_instance_staging(TTestContext& ctx)
         {
             tests::TMemoryContextScope scope{ &context };
             CBakedInstances attempt;
-            TEST_EXPECT(ctx, attempt.set_document(good_mutable) && attempt.bind_schema(schema));
+            TEST_EXPECT(ctx, attempt.set_document(good_mutable));
             CByteBuffer output;
             failing.fail_on = failing.calls + failure_offset;
             SInstanceDiagnostic allocation_error;
-            materialised = attempt.materialise(output, allocation_error);
+            materialised = attempt.attach_schema(schema, output, allocation_error);
             if (materialised)
             {
                 SInstanceEntryView child;
@@ -6645,10 +6810,10 @@ static void test_baked_instance_staging(TTestContext& ctx)
         {
             tests::TMemoryContextScope scope{ &context };
             CBakedInstances attempt;
-            TEST_EXPECT(ctx, attempt.set_document(good_block.document()) && attempt.bind_schema(schema));
+            TEST_EXPECT(ctx, attempt.set_document(good_block.document()));
             failing.fail_on = failing.calls + failure_offset;
             SInstanceDiagnostic allocation_error;
-            compared = attempt.load_supplied(CByteConstView{ expected_bytes, 4u, 128u }, true, allocation_error);
+            compared = attempt.attach_schema(schema, CByteConstView{ expected_bytes, 4u, 128u }, true, allocation_error);
             if (compared)
             {
                 TEST_EXPECT(ctx, attempt.loaded_ready());
@@ -6674,14 +6839,13 @@ static void test_baked_instance_staging(TTestContext& ctx)
     CBakedSchema combined_schema;
     TEST_EXPECT(ctx, combined_schema.set_document(combined_block.document()) && combined_schema.resolve(schema_error));
     CBakedBulkData surviving_bulk_data;
-    TEST_EXPECT(ctx, surviving_bulk_data.set_document(combined_block.document()) && surviving_bulk_data.bind_schema(combined_schema));
+    TEST_EXPECT(ctx, surviving_bulk_data.set_document(combined_block.document()));
     SInstanceDiagnostic instance_error;
     SBulkDataDiagnostic bulk_data_error;
-    TEST_EXPECT(ctx, surviving_bulk_data.load_supplied(CByteConstView{ expected_bytes, 2u, 128u }, true, bulk_data_error));
+    TEST_EXPECT(ctx, surviving_bulk_data.attach_schema(combined_schema, CByteConstView{ expected_bytes, 2u, 128u }, true, bulk_data_error));
     CBakedInstances rejected_instances;
-    TEST_EXPECT(ctx, rejected_instances.set_document(combined_block.document()) &&
-        rejected_instances.bind_schema(combined_schema));
-    TEST_EXPECT(ctx, !rejected_instances.load_supplied(CByteConstView{ expected_bytes, 2u, 128u }, false, instance_error) &&
+    TEST_EXPECT(ctx, rejected_instances.set_document(combined_block.document()));
+    TEST_EXPECT(ctx, !rejected_instances.attach_schema(combined_schema, CByteConstView{ expected_bytes, 2u, 128u }, false, instance_error) &&
         instance_error.reason == EInstanceLoadReason::invalid_count && !rejected_instances.loaded_ready() &&
         combined_schema.resolved_ready() && surviving_bulk_data.loaded_ready());
     SBulkDataEntryView surviving_entry;
@@ -6754,8 +6918,8 @@ static void test_bulk_data_replacement_after_reconciliation(TTestContext& ctx)
             else
             {
                 CBakedBulkData source;
-                TEST_EXPECT(ctx, source.set_document(source_block.document()) && source.bind_schema(schema) &&
-                    source.load_supplied(CByteConstView{ original, sizeof(original), 128u }, true, error) &&
+                TEST_EXPECT(ctx, source.set_document(source_block.document()) &&
+                    source.attach_schema(schema, CByteConstView{ original, sizeof(original), 128u }, true, error) &&
                     source.promote(live, schema, error));
             }
             const CBulkDataHandle entry = live.find_entry(CStringView{ "b8" }, CStringView{ "records" });
@@ -6778,7 +6942,7 @@ static void test_bulk_data_replacement_after_reconciliation(TTestContext& ctx)
                 CByteBuffer output_payload;
                 CBakedBulkData output;
                 TEST_EXPECT(ctx, live.bake(output_block, output_payload, output, schema,
-                    EDataOutputForm::embedded, error) && output.load_supplied(output_payload.const_view(), true, error));
+                    EDataOutputForm::embedded, error) && output.switch_schema(schema, ESchemaSwitchMode::checked, error));
                 const CBulkDataDocumentQuery output_query = output.document_query();
                 const CBulkDataHandle output_entry = output.find_entry(CStringView{ "b8" }, CStringView{ "records" });
                 TEST_EXPECT(ctx, output_query.child_count(output_query.object_child(output_entry, CStringView{ "data" })) == count);
@@ -6816,9 +6980,9 @@ static void test_live_bulk_data(TTestContext& ctx)
         CBakedDocumentBlock source_block;
         TEST_EXPECT(ctx, bake(bulk_data_text, source_block));
         CBakedBulkData baked;
-        TEST_EXPECT(ctx, baked.set_document(source_block.document()) && baked.bind_schema(source_schema));
+        TEST_EXPECT(ctx, baked.set_document(source_block.document()));
         SBulkDataDiagnostic error;
-        TEST_EXPECT(ctx, baked.load_supplied(CByteConstView{ authoritative, 4u, 128u }, false, error));
+        TEST_EXPECT(ctx, baked.attach_schema(source_schema, CByteConstView{ authoritative, 4u, 128u }, false, error));
         TEST_EXPECT(ctx, baked.promote(live, destination_schema, error) && live.loaded_ready());
         TEST_EXPECT(ctx, !baked.promote(live, destination_schema, error) &&
             error.reason == EBulkDataLoadReason::invalid_input);
@@ -6927,8 +7091,7 @@ static void test_live_bulk_data(TTestContext& ctx)
         mismatch_bulk_data_block));
     CBakedBulkData mismatch_source;
     TEST_EXPECT(ctx, mismatch_source.set_document(mismatch_bulk_data_block.document()) &&
-        mismatch_source.bind_schema(source_schema) &&
-        mismatch_source.load_supplied(CByteConstView{ replacement, 2u, 128u }, false, error));
+        mismatch_source.attach_schema(source_schema, CByteConstView{ replacement, 2u, 128u }, false, error));
     CLiveBulkData rejected;
     TEST_EXPECT(ctx, !mismatch_source.promote(rejected, incompatible_schema, error) &&
         error.reason == EBulkDataLoadReason::incompatible_schema && !rejected.document_ready());
@@ -7042,8 +7205,8 @@ static void test_live_bulk_data_output(TTestContext& ctx)
     CBakedDocumentBlock prepared_block;
     TEST_EXPECT(ctx, document_translation::bake(prepared, prepared_block));
     CBakedBulkData supplied;
-    TEST_EXPECT(ctx, supplied.set_document(prepared_block.document()) && supplied.bind_schema(destination_schema) &&
-        supplied.load_supplied(packed.const_view(), true, error));
+    TEST_EXPECT(ctx, supplied.set_document(prepared_block.document()) &&
+        supplied.attach_schema(destination_schema, packed.const_view(), true, error));
     SBulkDataEntryView output_view;
     TEST_EXPECT(ctx, supplied.entry(supplied.find_entry(CStringView{ "Padded" }, CStringView{ "old" }), output_view) &&
         (output_view.offset == 0u) && (output_view.count == 2u) &&
@@ -7076,8 +7239,8 @@ static void test_live_bulk_data_output(TTestContext& ctx)
         TEST_EXPECT(ctx, parse_live(text, reparsed) && document_translation::bake(reparsed, reparsed_block));
         CBakedBulkData reloaded;
         CByteBuffer materialised;
-        TEST_EXPECT(ctx, reloaded.set_document(reparsed_block.document()) && reloaded.bind_schema(destination_schema) &&
-            reloaded.materialise(materialised, error));
+        TEST_EXPECT(ctx, reloaded.set_document(reparsed_block.document()) &&
+            reloaded.attach_schema(destination_schema, materialised, error));
         TEST_EXPECT(ctx, reloaded.entry(reloaded.find_entry(CStringView{ "Padded" }, CStringView{ "old" }), output_view) &&
             (output_view.count == 2u) && detail::compare_encoded(*destination_schema.resolved(), output_view.type,
                 output_view.bytes, 8u, replacement, 8u) &&
@@ -7122,8 +7285,8 @@ static void test_live_bulk_data_output(TTestContext& ctx)
         CBakedDocumentBlock reparsed_block;
         TEST_EXPECT(ctx, parse_live(text, reparsed) && document_translation::bake(reparsed, reparsed_block));
         CBakedBulkData reloaded;
-        TEST_EXPECT(ctx, reloaded.set_document(reparsed_block.document()) && reloaded.bind_schema(destination_schema) &&
-            reloaded.load_supplied(baked_output_payload.const_view(), false, error));
+        TEST_EXPECT(ctx, reloaded.set_document(reparsed_block.document()) &&
+            reloaded.attach_schema(destination_schema, baked_output_payload.const_view(), false, error));
         TEST_EXPECT(ctx, reloaded.entry(reloaded.find_entry(CStringView{ "Padded" }, CStringView{ "after" }), output_view) &&
             (output_view.offset == 16u) && std::memcmp(output_view.bytes, first, 8u) == 0);
         TEST_EXPECT(ctx, reloaded.entry(reloaded.find_entry(CStringView{ "Mode" }, CStringView{ "choice" }), output_view) &&
@@ -7194,8 +7357,8 @@ static void test_live_bulk_data_output_boundaries(TTestContext& ctx)
     CBakedDocumentBlock embedded_block;
     TEST_EXPECT(ctx, document_translation::bake(embedded, embedded_block));
     CBakedBulkData embedded_role;
-    TEST_EXPECT(ctx, embedded_role.set_document(embedded_block.document()) && embedded_role.bind_schema(schema) &&
-        embedded_role.load_supplied(embedded_payload.const_view(), true, error));
+    TEST_EXPECT(ctx, embedded_role.set_document(embedded_block.document()) &&
+        embedded_role.attach_schema(schema, embedded_payload.const_view(), true, error));
     const CBulkDataDocumentQuery query{ embedded };
     const CBulkDataHandle data = query.object_child(query.root(), CStringView{ "data" });
     const CBulkDataHandle mode_entry = query.object_child(query.object_child(data, CStringView{ "Mode" }),
@@ -7228,8 +7391,8 @@ static void test_live_bulk_data_output_boundaries(TTestContext& ctx)
         TEST_EXPECT(ctx, parse_live(text, reparsed) && document_translation::bake(reparsed, reparsed_block));
         CBakedBulkData reloaded;
         CByteBuffer materialised;
-        TEST_EXPECT(ctx, reloaded.set_document(reparsed_block.document()) && reloaded.bind_schema(schema) &&
-            reloaded.materialise(materialised, error));
+        TEST_EXPECT(ctx, reloaded.set_document(reparsed_block.document()) &&
+            reloaded.attach_schema(schema, materialised, error));
         TEST_EXPECT(ctx, reloaded.entry(reloaded.find_entry(CStringView{ "f32" },
             CStringView{ "negative_zero" }), view) && std::memcmp(view.bytes, signed_zero, 4u) == 0);
         TEST_EXPECT(ctx, reloaded.entry(reloaded.find_entry(CStringView{ "f32" }, CStringView{ "nan" }), view) &&
@@ -7529,8 +7692,8 @@ static void test_live_bulk_data_failures_and_matching(TTestContext& ctx)
         "Mask":{"one":{"locator":{"offset":3,"valid":true,"count":1}}}}})", bulk_data_block));
     CBakedBulkData source;
     SBulkDataDiagnostic error;
-    TEST_EXPECT(ctx, source.set_document(bulk_data_block.document()) && source.bind_schema(physical_schema) &&
-        source.load_supplied(CByteConstView{ bytes, 4u, 128u }, false, error));
+    TEST_EXPECT(ctx, source.set_document(bulk_data_block.document()) &&
+        source.attach_schema(physical_schema, CByteConstView{ bytes, 4u, 128u }, false, error));
     std::size_t promotion_failures{}, promotion_successes{};
     for (std::size_t failure_offset = 0u; failure_offset < 40u; ++failure_offset)
     {
@@ -7606,8 +7769,8 @@ static void test_live_bulk_data_failures_and_matching(TTestContext& ctx)
     TEST_EXPECT(ctx, bake(R"({"data":{"S18":{"many":{"locator":{
         "offset":0,"valid":true,"count":4294967295,"size":0}}}}})", shared_bulk_data_block));
     CBakedBulkData shared_source;
-    TEST_EXPECT(ctx, shared_source.set_document(shared_bulk_data_block.document()) && shared_source.bind_schema(shared_schema) &&
-        shared_source.load_supplied({}, false, error));
+    TEST_EXPECT(ctx, shared_source.set_document(shared_bulk_data_block.document()) &&
+        shared_source.attach_schema(shared_schema, {}, false, error));
     CLiveBulkData shared_destination;
     TEST_EXPECT(ctx, shared_source.promote(shared_destination, shared_schema, error));
     SBulkDataEntryView many;
@@ -8310,11 +8473,10 @@ static void test_data_remap_role_views(TTestContext& ctx)
     const bool baked_bulk_data_document = bake(R"({"data":{"SourceA":{"array":{
         "locator":{"offset":0,"valid":true},"data":[1,2]}}}})", bulk_data_block);
     TEST_EXPECT(ctx, baked_bulk_data_document);
-    const bool baked_bulk_data_bound = baked_bulk_data_document && baked_bulk_data.set_document(bulk_data_block.document()) &&
-        baked_bulk_data.bind_schema(schema);
+    const bool baked_bulk_data_bound = baked_bulk_data_document && baked_bulk_data.set_document(bulk_data_block.document());
     TEST_EXPECT(ctx, baked_bulk_data_bound);
     const bool baked_bulk_data_ready = baked_bulk_data_bound &&
-        baked_bulk_data.load_supplied(CByteConstView{ baked_bulk_data_bytes, 2u, 128u }, false, bulk_data_error);
+        baked_bulk_data.attach_schema(schema, CByteConstView{ baked_bulk_data_bytes, 2u, 128u }, false, bulk_data_error);
     TEST_EXPECT(ctx, baked_bulk_data_ready);
     CLiveBulkData live_bulk_data;
     alignas(128) std::uint8_t live_bulk_data_bytes[128]{ 0x31u, 0x32u };
@@ -8400,8 +8562,8 @@ static void test_data_remap_role_views(TTestContext& ctx)
     alignas(128) std::uint8_t baked_instance_bytes[128]{ 0x71u };
     const bool baked_instance_ready = bake(R"({"instances":{"SourceA":{"one":{
         "locator":{"offset":0,"valid":true}}}}})", instance_block) &&
-        baked_instances.set_document(instance_block.document()) && baked_instances.bind_schema(schema) &&
-        baked_instances.load_supplied(CByteConstView{ baked_instance_bytes, 1u, 128u }, false, instance_error);
+        baked_instances.set_document(instance_block.document()) &&
+        baked_instances.attach_schema(schema, CByteConstView{ baked_instance_bytes, 1u, 128u }, false, instance_error);
     TEST_EXPECT(ctx, baked_instance_ready);
     CLiveInstances live_instances;
     alignas(128) std::uint8_t live_instance_bytes[128]{ 0x81u };
@@ -8535,7 +8697,7 @@ static void test_data_remap_role_views(TTestContext& ctx)
     CByteBuffer reconciled_payload;
     CBakedInstances reconciled_role;
     TEST_EXPECT(ctx, live_instances.bake(reconciled_block, reconciled_payload, reconciled_role, schema,
-        EDataOutputForm::embedded, instance_error) && reconciled_role.load_supplied(reconciled_payload.const_view(), true, instance_error));
+        EDataOutputForm::embedded, instance_error) && reconciled_role.switch_schema(schema, ESchemaSwitchMode::checked, instance_error));
     live_instances.clear();
     TEST_EXPECT(ctx, !live_instances.mutable_entry(empty, writable) && writable.type == empty_saved.type &&
         writable.byte_count == empty_saved.byte_count && writable.bytes.is_empty());
@@ -8775,6 +8937,467 @@ static void test_data_remap_wide_enum(TTestContext& ctx)
     }
 }
 
+template<bool Instances, bool Live, class TSchema>
+static void test_schema_switch_role(TTestContext& ctx, CBakedSchema& original, TSchema& target,
+    CBakedSchema& incompatible, const CBakedDocument& definitions)
+{
+    using TBaked = std::conditional_t<Instances, CBakedInstances, CBakedBulkData>;
+    using TLive = std::conditional_t<Instances, CLiveInstances, CLiveBulkData>;
+    using TDiagnostic = std::conditional_t<Instances, SInstanceDiagnostic, SBulkDataDiagnostic>;
+    using TView = std::conditional_t<Instances, SInstanceEntryView, SBulkDataEntryView>;
+    const char* text = Instances ? R"({"instances":{"Item":{"base":{"locator":{"offset":0,"valid":false},
+        "declaration":{"b":9,"a":7},"specialisation":{"child":{"locator":{"offset":0,"valid":false}}}}}}})" :
+        R"({"data":{"Item":{"base":{"locator":{"offset":0,"valid":false},"data":[{"b":9,"a":7},{"b":9,"a":7}]}}}})";
+    CBakedDocumentBlock block;
+    CByteBuffer owner;
+    TBaked baked;
+    TLive live;
+    TDiagnostic diagnostic;
+    TEST_EXPECT(ctx, bake(text, block) && baked.set_document(CMutableBakedDocument{ block }) &&
+        baked.attach_schema(original, owner, diagnostic));
+    if (!baked.loaded_ready())
+    {
+        return;
+    }
+    //  Meaningless storage is retained, rather than reconstructed or cleared.
+    for (std::size_t i = 0u; i < owner.size(); i += 8u)
+    {
+        owner.data()[i + 1u] = 0xcdu;
+    }
+    if constexpr (Live) TEST_EXPECT(ctx, baked.promote(live, original, diagnostic));
+    auto& role = [&]() -> auto&
+    {
+        if constexpr (Live)
+        {
+            return live;
+        }
+        else
+        {
+            return baked;
+        }
+    }();
+    const auto handle = [&]()
+    {
+        if constexpr (Instances)
+        {
+            return role.find_base(CStringView{ "Item" }, CStringView{ "base" });
+        }
+        else
+        {
+            return role.find_entry(CStringView{ "Item" }, CStringView{ "base" });
+        }
+    }();
+    const auto root = role.document_query().root();
+    const auto payload = role.payload_view();
+    const std::string snapshot{ reinterpret_cast<const char*>(payload.data()), payload.size() };
+    const auto preserved = [&]()
+    {
+        TView view;
+        return role.loaded_ready() && role.document_query().root() == root && role.entry(handle, view) &&
+            role.payload_view().data() == payload.data() && role.payload_view().size() == snapshot.size() &&
+            std::memcmp(payload.data(), snapshot.data(), snapshot.size()) == 0;
+    };
+    TView view;
+    TEST_EXPECT(ctx, original.resolved()->find_type(CStringView{ "Item" }) != target.resolved()->find_type(CStringView{ "Item" }));
+    TEST_EXPECT(ctx, role.switch_schema(target, ESchemaSwitchMode::checked, diagnostic) && preserved() &&
+        role.entry(handle, view) && view.type == target.resolved()->find_type(CStringView{ "Item" }));
+    TEST_EXPECT(ctx, !role.switch_schema(incompatible, ESchemaSwitchMode::checked, diagnostic) && preserved() &&
+        role.entry(handle, view) && view.type == target.resolved()->find_type(CStringView{ "Item" }));
+    CBakedSchema unresolved;
+    TEST_EXPECT(ctx, !role.switch_schema(unresolved, ESchemaSwitchMode::trusted, diagnostic) && preserved());
+    TEST_EXPECT(ctx, !role.switch_schema(original, static_cast<ESchemaSwitchMode>(255u), diagnostic) && preserved());
+    TEST_EXPECT(ctx, role.switch_schema(original, ESchemaSwitchMode::trusted, diagnostic) && preserved());
+
+    for (const auto mode : { ESchemaSwitchMode::checked, ESchemaSwitchMode::trusted })
+    {
+        bool completed{};
+        std::size_t failures{};
+        const auto references = original.reference_count();
+        for (std::size_t fail_on = 0u; fail_on < 128u && !completed; ++fail_on)
+        {
+            SFailingAllocator failing{ 0u, fail_on };
+            memory::CMemoryAllocator allocator{ &failing, &allocate_with_failure, &tests::deallocate_test_memory };
+            memory::CMemoryContext context{ allocator };
+            {
+                tests::TMemoryContextScope scope{ &context };
+                completed = role.switch_schema(target, mode, diagnostic);
+                if (!completed)
+                {
+                    ++failures;
+                    TEST_EXPECT(ctx, diagnostic.reason == decltype(diagnostic.reason)::allocation_failed);
+                    TEST_EXPECT(ctx, original.reference_count() == references && target.reference_count() == 0u &&
+                        role.entry(handle, view) && view.type == original.resolved()->find_type(CStringView{ "Item" }));
+                }
+                TEST_EXPECT(ctx, preserved());
+            }
+            //  Only temporary indices/comparison state allocate during switching.
+            TEST_EXPECT(ctx, context.is_attribution_empty());
+        }
+        TEST_EXPECT(ctx, completed && failures != 0u && role.switch_schema(original, ESchemaSwitchMode::trusted, diagnostic));
+    }
+    {
+        CBakedSchema temporary;
+        SDiagnostic error;
+        TEST_EXPECT(ctx, temporary.set_document(definitions) && temporary.resolve(error) &&
+            role.switch_schema(temporary, ESchemaSwitchMode::trusted, diagnostic));
+    }
+    TEST_EXPECT(ctx, !role.loaded_ready() && role.document_query().root() == root &&
+        !role.switch_schema(original, ESchemaSwitchMode::checked, diagnostic));
+    TEST_EXPECT(ctx, role.switch_schema(original, ESchemaSwitchMode::trusted, diagnostic) && preserved());
+
+    if constexpr (Live && Instances)
+    {
+        SMutableInstanceEntryView raw;
+        TEST_EXPECT(ctx, role.mutable_entry(handle, raw));
+        raw.bytes.data()[0] = 8u;
+        TEST_EXPECT(ctx, !role.switch_schema(target, ESchemaSwitchMode::checked, diagnostic) &&
+            diagnostic.reason == EInstanceLoadReason::embedded_mismatch && role.entry(handle, view) && view.bytes[0] == 8u);
+        TEST_EXPECT(ctx, role.switch_schema(target, ESchemaSwitchMode::trusted, diagnostic));
+        TEST_EXPECT(ctx, role.reconcile(diagnostic) && role.switch_schema(original, ESchemaSwitchMode::checked, diagnostic));
+    }
+}
+
+static void test_schema_switching(TTestContext& ctx)
+{
+    const std::string original_text = R"({"types":{"structures":{"Item":{"members":[
+        {"a":{"type":"u8","default":1}},{"b":{"type":"u32","default":3}}]}}}})";
+    const std::string target_text = R"({"types":{"structures":{"Ahead":{"members":[]},"Item":{"members":[
+        {"a":{"type":"u8","default":2}},{"b":{"type":"u32","default":4}}]}}}})";
+    CBakedDocumentBlock definitions, target_definitions, incompatible_definitions;
+    CBakedSchema original, target, incompatible;
+    CLiveDocument live_definitions;
+    CLiveSchema live_target;
+    SDiagnostic error;
+    TEST_EXPECT(ctx, bake(original_text, definitions) && original.set_document(definitions.document()) && original.resolve(error) &&
+        bake(target_text, target_definitions) && target.set_document(target_definitions.document()) && target.resolve(error) &&
+        parse_live(target_text, live_definitions) && live_target.try_adopt(std::move(live_definitions)) && live_target.resolve(error) &&
+        bake(R"({"types":{"structures":{"Item":{"members":[{"a":{"type":"u16"}},{"b":{"type":"u32"}}]}}}})", incompatible_definitions) &&
+        incompatible.set_document(incompatible_definitions.document()) && incompatible.resolve(error));
+    if (!original.resolved_ready() || !target.resolved_ready() || !live_target.resolved_ready() || !incompatible.resolved_ready())
+    {
+        return;
+    }
+    test_schema_switch_role<true, false>(ctx, original, target, incompatible, definitions.document());
+    test_schema_switch_role<true, true>(ctx, original, target, incompatible, definitions.document());
+    test_schema_switch_role<false, false>(ctx, original, target, incompatible, definitions.document());
+    test_schema_switch_role<false, true>(ctx, original, target, incompatible, definitions.document());
+    test_schema_switch_role<true, false>(ctx, original, live_target, incompatible, definitions.document());
+    test_schema_switch_role<true, true>(ctx, original, live_target, incompatible, definitions.document());
+    test_schema_switch_role<false, false>(ctx, original, live_target, incompatible, definitions.document());
+    test_schema_switch_role<false, true>(ctx, original, live_target, incompatible, definitions.document());
+
+    CBakedDocumentBlock empty_definitions, empty_document;
+    CBakedSchema empty_schema;
+    TEST_EXPECT(ctx, bake(R"({"types":{"structures":{"Empty":{"members":[]}}}})", empty_definitions) &&
+        empty_schema.set_document(empty_definitions.document()) && empty_schema.resolve(error) &&
+        bake(R"({"instances":{"Empty":{}},"data":{"Empty":{}}})", empty_document));
+    CBakedInstances instances;
+    CBakedBulkData bulk;
+    SInstanceDiagnostic instance_error;
+    SBulkDataDiagnostic bulk_error;
+    CByteBuffer instance_payload, bulk_payload;
+    TEST_EXPECT(ctx, instances.set_document(empty_document.document()) && instances.attach_schema(empty_schema, instance_payload, instance_error) &&
+        bulk.set_document(empty_document.document()) && bulk.attach_schema(empty_schema, bulk_payload, bulk_error));
+    for (const auto mode : { ESchemaSwitchMode::checked, ESchemaSwitchMode::trusted })
+    {
+        TEST_EXPECT(ctx, !instances.switch_schema(original, mode, instance_error) && !bulk.switch_schema(original, mode, bulk_error));
+        TEST_EXPECT(ctx, instances.switch_schema(empty_schema, mode, instance_error) && bulk.switch_schema(empty_schema, mode, bulk_error) &&
+            instances.loaded_ready() && bulk.loaded_ready() && !instances.payload_view().data() && !bulk.payload_view().data());
+    }
+    //  A zero-byte package is already attached; a second initial attachment is refused.
+    TEST_EXPECT(ctx, !instances.attach_schema(empty_schema, instance_payload, instance_error) &&
+        !bulk.attach_schema(empty_schema, bulk_payload, bulk_error));
+
+    CLiveInstances deep;
+    TEST_EXPECT(ctx, deep.initialise(empty_schema));
+    auto parent = deep.create_base(CStringView{ "Empty" }, CStringView{ "base" }, {}, {}, instance_error);
+    for (unsigned depth = 0u; depth < 300u; ++depth)
+        parent = deep.create_specialisation(parent, CStringView{ "child" }, {}, {}, instance_error);
+    SInstanceEntryView last;
+    TEST_EXPECT(ctx, parent && deep.switch_schema(empty_schema, ESchemaSwitchMode::checked, instance_error) &&
+        deep.switch_schema(empty_schema, ESchemaSwitchMode::trusted, instance_error) && deep.entry(parent, last));
+
+    CBakedDocumentBlock array_definitions;
+    CBakedSchema array_schema;
+    CLiveDocument selection;
+    CLiveInstances partial;
+    TEST_EXPECT(ctx, bake(R"({"types":{"structures":{"Pair":{"members":[{"x":{"type":"u8","default":1}},
+        {"y":{"type":"u8","default":2}}]},"Item":{"members":[{"rows":{"type":{"element":"Pair","count":2}}}]}}}})", array_definitions) &&
+        array_schema.set_document(array_definitions.document()) && array_schema.resolve(error) &&
+        parse_live(R"({"rows":[{"x":9}]})", selection) && partial.initialise(array_schema));
+    const CInstanceDocumentQuery selection_query{ selection };
+    const auto base = partial.create_base(CStringView{ "Item" }, CStringView{ "base" }, {}, {}, instance_error);
+    const auto child = partial.create_specialisation(base, CStringView{ "child" }, selection_query, selection_query.root(), instance_error);
+    CBakedDocumentBlock partial_document;
+    CByteBuffer partial_payload;
+    CBakedInstances partial_baked;
+    TEST_EXPECT(ctx, child && partial.bake(partial_document, partial_payload, partial_baked,
+        array_schema, EDataOutputForm::embedded, instance_error));
+    SMutableInstanceEntryView mutable_child;
+    TEST_EXPECT(ctx, partial.mutable_entry(child, mutable_child));
+    const auto baked_child = partial_baked.find_specialisation(
+        partial_baked.find_base(CStringView{ "Item" }, CStringView{ "base" }), CStringView{ "child" });
+    SInstanceEntryView baked_child_view;
+    TEST_EXPECT(ctx, partial_baked.entry(baked_child, baked_child_view));
+    for (const std::size_t offset : { 1u, 3u })
+    {
+        //  The parent stays valid. Corrupt an omitted nested field or array tail
+        //  in a partially specified child, exercising inherited-value checking.
+        mutable_child.bytes.data()[offset] = 7u;
+        partial_payload.data()[baked_child_view.offset + offset] = 7u;
+        const auto reject = [&](auto& role, auto handle)
+        {
+            const auto bytes = role.payload_view();
+            SInstanceEntryView current;
+            TEST_EXPECT(ctx, !role.switch_schema(array_schema, ESchemaSwitchMode::checked, instance_error) &&
+                instance_error.reason == EInstanceLoadReason::embedded_mismatch && role.entry(handle, current) &&
+                current.bytes[offset] == 7u && role.payload_view().data() == bytes.data());
+        };
+        reject(partial, child);
+        reject(partial_baked, baked_child);
+        mutable_child.bytes.data()[offset] = 2u;
+        partial_payload.data()[baked_child_view.offset + offset] = 2u;
+    }
+    TEST_EXPECT(ctx, partial.switch_schema(array_schema, ESchemaSwitchMode::checked, instance_error) &&
+        partial_baked.switch_schema(array_schema, ESchemaSwitchMode::checked, instance_error));
+}
+
+static void test_schema_lookup_and_cursor_paths(TTestContext& ctx)
+{
+    //  Live IDs follow insertion history; baked IDs follow string order. Every
+    //  scoped lookup must retain declaration order and use its own name table.
+    CLiveDocument live;
+    CBakedDocumentBlock block;
+    TEST_EXPECT(ctx, parse_live(fixture, live) && document_translation::bake(live, block));
+    for (const auto query : { CSchemaDocumentQuery{ live }, CSchemaDocumentQuery{ block.document() } })
+    {
+        CResolvedSchema schema;
+        SDiagnostic error;
+        TEST_EXPECT(ctx, schema.resolve(query, error));
+        for (std::uint32_t i = 0u; i < schema.definition_count(); ++i)
+        {
+            const auto type = schema.definition_at(i);
+            SType layout;
+            std::uint32_t ordinal = UINT32_MAX;
+            TEST_EXPECT(ctx, schema.type(type, layout) && schema.find_type(schema.name(layout.name)) == type &&
+                schema.definition_ordinal(type, ordinal) && ordinal == i);
+            for (std::uint32_t j = 0u; j < layout.count; ++j)
+            {
+                if (layout.category == ECategory::structure)
+                {
+                    SMember member;
+                    const auto index = schema.member_at(type, j);
+                    TEST_EXPECT(ctx, schema.member(index, member) && schema.find_member(type, schema.name(member.name)) == index &&
+                        schema.member_ordinal(type, index, ordinal) && ordinal == j);
+                }
+                else if (layout.category == ECategory::enumeration)
+                {
+                    SLabel label;
+                    const auto index = schema.label_at(type, j);
+                    TEST_EXPECT(ctx, schema.label(index, label) && schema.find_label(type, schema.name(label.name)) == index);
+                }
+                else if (layout.category == ECategory::bit_structure)
+                {
+                    SField field;
+                    const auto index = schema.field_at(type, j);
+                    TEST_EXPECT(ctx, schema.field(index, field) && schema.find_field(type, schema.name(field.name)) == index);
+                }
+            }
+        }
+        std::uint32_t unchanged = 91u;
+        TEST_EXPECT(ctx, !schema.definition_ordinal(schema.find_type(CStringView{ "u8" }), unchanged) && unchanged == 91u);
+        TEST_EXPECT(ctx, !schema.find_member(schema.find_type(CStringView{ "Vector4" }), CStringView{ "tag" }) &&
+            !schema.find_label(schema.find_type(CStringView{ "Mode" }), CStringView{ "negative" }));
+        SScalar value;
+        value.kind = EScalar::signed_integer;
+        value.value.signed_value = 2;
+        const auto mode = schema.find_type(CStringView{ "Mode" });
+        TEST_EXPECT(ctx, schema.first_label_for_value(mode, value) == schema.label_at(mode, 0u));
+        value.value.signed_value = INT64_MIN;
+        const auto signed_type = schema.find_type(CStringView{ "WideSigned" });
+        TEST_EXPECT(ctx, schema.first_label_for_value(signed_type, value) == schema.label_at(signed_type, 0u));
+        value.kind = EScalar::unsigned_integer;
+        value.value.unsigned_value = INT64_MAX;
+        TEST_EXPECT(ctx, schema.first_label_for_value(signed_type, value) == schema.label_at(signed_type, 1u));
+        value.value.unsigned_value = UINT64_MAX;
+        const auto unsigned_type = schema.find_type(CStringView{ "WideUnsigned" });
+        TEST_EXPECT(ctx, !schema.first_label_for_value(signed_type, value) &&
+            schema.first_label_for_value(unsigned_type, value) == schema.label_at(unsigned_type, 0u));
+        value.kind = EScalar::signed_integer;
+        value.value.signed_value = -1;
+        TEST_EXPECT(ctx, !schema.first_label_for_value(unsigned_type, value));
+    }
+
+    constexpr unsigned count = 64u;
+    std::string definitions = R"({"types":{"structures":{"Wide":{"members":[)";
+    for (unsigned i = 0u; i < count; ++i)
+    {
+        if (i) definitions += ',';
+        definitions += "{\"m" + std::to_string((i * 37u) % count) + "\":{\"type\":\"u8\"}}";
+    }
+    definitions += "]}}}}";
+    CBakedDocumentBlock definitions_block;
+    CResolvedSchema schema;
+    if (!resolve(ctx, definitions, definitions_block, schema))
+    {
+        return;
+    }
+    const auto type = schema.find_type(CStringView{ "Wide" });
+    for (unsigned mode = 0u; mode < 5u; ++mode)
+    {
+        std::string text = "{";
+        for (unsigned i = 0u; i < count; ++i)
+        {
+            const unsigned position = (mode == 1u || mode == 4u) ? count - i - 1u : mode == 3u ? (i * 13u) % count : i;
+            if (mode == 2u && position % 3u == 1u)
+            {
+                continue;
+            }
+            if (text.size() > 1u) text += ',';
+            const unsigned name = (position * 37u) % count;
+            text += "\"m" + std::to_string(name) + "\":" + std::to_string(name + 1u);
+        }
+        if (mode == 4u) text += ",\"unknown\":1";
+        text += '}';
+        CLiveDocument declaration;
+        CBakedDocumentBlock declaration_block;
+        TEST_EXPECT(ctx, parse_live(text, declaration) && document_translation::bake(declaration, declaration_block));
+        for (const auto read : { detail::CDocumentRead{ declaration }, detail::CDocumentRead{ declaration_block.document() } })
+        {
+            std::uint8_t bytes[count]{}, baseline[count], alternative[count];
+            std::memset(baseline, 0xa5, sizeof(baseline));
+            for (unsigned i = 0u; i < count; ++i)
+                bytes[i] = mode == 2u && i % 3u == 1u ? 0u : static_cast<std::uint8_t>((i * 37u) % count + 1u);
+            detail::SValueDiagnostic error;
+            bool matches{};
+            SFailingAllocator failing{ 0u, 0u };
+            memory::CMemoryAllocator allocator{ &failing, &allocate_with_failure, &tests::deallocate_test_memory };
+            memory::CMemoryContext context{ allocator };
+            {
+                tests::TMemoryContextScope scope{ &context };
+                const bool checked = detail::check_value(schema, read, type, read.root(), bytes, sizeof(bytes),
+                    detail::EConstructionMode::instance, matches, error);
+                if (mode == 0u || mode == 2u)
+                {
+                    TEST_EXPECT(ctx, checked && matches && failing.calls == 0u);
+                    TEST_EXPECT(ctx, detail::construct_value(schema, read, type, read.root(), bytes, sizeof(bytes),
+                        detail::EConstructionMode::instance, error) && failing.calls == 0u);
+                }
+                else
+                {
+                    TEST_EXPECT(ctx, !checked && !matches && error.reason ==
+                        (mode == 4u ? EReason::unknown_property : EReason::allocation_failed));
+                    TEST_EXPECT(ctx, failing.calls == (mode == 4u ? 0u : 1u));
+                }
+            }
+            TEST_EXPECT(ctx, context.is_attribution_empty());
+            if (mode == 4u)
+            {
+                continue;
+            }
+            TEST_EXPECT(ctx, detail::construct_value(schema, read, type, read.root(), bytes, sizeof(bytes),
+                detail::EConstructionMode::instance, error));
+            for (unsigned i = 0u; i < count; ++i)
+                TEST_EXPECT(ctx, bytes[i] == (mode == 2u && i % 3u == 1u ? 0u : (i * 37u) % count + 1u));
+            TEST_EXPECT(ctx, detail::construct_alternative(schema, read, type, read.root(), baseline, sizeof(baseline),
+                alternative, sizeof(alternative), error) && detail::check_alternative(schema, read, type, read.root(),
+                    baseline, sizeof(baseline), alternative, sizeof(alternative), matches, error) && matches);
+        }
+    }
+}
+
+static void test_unused_storage_cached_preflight(TTestContext& ctx)
+{
+    std::string text = R"({"types":{"bit_structures":{"Bits":{"storage":"u8","members":[{"flag":{"type":"b8","mask":1}}]}},"structures":{"Leaf":{"detail":{"size":2},"members":[{"bits":{"type":"Bits","offset":0}}]})";
+    for (unsigned i = 0u; i < 48u; ++i)
+        text += ",\"T" + std::to_string(i) + "\":{\"members\":[{\"v\":{\"type\":\"" +
+            (i ? "T" + std::to_string(i - 1u) : std::string("Leaf")) + "\"}}]}";
+    text += R"(,"Root":{"members":[{"values":{"type":{"element":"T47","count":16}}}]}}}})";
+    CBakedDocumentBlock block;
+    CResolvedSchema schema;
+    if (!resolve(ctx, text, block, schema))
+    {
+        return;
+    }
+    const auto type = schema.find_type(CStringView{ "Root" });
+    std::uint8_t bytes[32];
+    for (const auto policy : { EUnusedBits::preserve, EUnusedBits::clear })
+    {
+        bool completed{};
+        for (std::size_t fail_on = 0u; fail_on < 128u && !completed; ++fail_on)
+        {
+            std::memset(bytes, 0xff, sizeof(bytes));
+            SFailingAllocator failing{ 0u, fail_on };
+            memory::CMemoryAllocator allocator{ &failing, &allocate_with_failure, &tests::deallocate_test_memory };
+            memory::CMemoryContext context{ allocator };
+            {
+                tests::TMemoryContextScope scope{ &context };
+                completed = clear_unused_storage(schema, type, CByteView{ bytes, sizeof(bytes) }, policy);
+            }
+            TEST_EXPECT(ctx, context.is_attribution_empty());
+            for (std::size_t i = 0u; i < sizeof(bytes); ++i)
+                TEST_EXPECT(ctx, bytes[i] == (!completed ? 0xffu : (i % 2u ? 0u : policy == EUnusedBits::clear ? 1u : 0xffu)));
+        }
+        TEST_EXPECT(ctx, completed);
+    }
+
+    //  Resolve shallower definitions first, then revisit a cached leaf at the
+    //  preflight depth boundary. A cache hit must not bypass that boundary.
+    std::string depth_text = R"({"types":{"structures":{"Leaf":{"detail":{"size":2},"members":[{"v":{"type":"u8","offset":0}}]})";
+    for (unsigned i = 0u; i < 254u; ++i)
+        depth_text += ",\"T" + std::to_string(i) + "\":{\"members\":[{\"v\":{\"type\":\"" +
+            (i ? "T" + std::to_string(i - 1u) : std::string("Leaf")) + "\"}}]}";
+    depth_text += R"(,"Allowed":{"members":[{"shallow":{"type":"Leaf"}},{"deep":{"type":"T252"}}]},"Rejected":{"members":[{"shallow":{"type":"Leaf"}},{"deep":{"type":"T253"}}]}}}})";
+    CBakedDocumentBlock depth_block;
+    CResolvedSchema depth_schema;
+    if (!resolve(ctx, depth_text, depth_block, depth_schema))
+    {
+        return;
+    }
+    std::uint8_t small[4]{ 0xff, 0xff, 0xff, 0xff };
+    TEST_EXPECT(ctx, clear_unused_storage(depth_schema, depth_schema.find_type(CStringView{ "Allowed" }),
+        CByteView{ small, sizeof(small) }) && small[0] == 0xffu && small[1] == 0u && small[2] == 0xffu && small[3] == 0u);
+    std::memset(small, 0xff, sizeof(small));
+    TEST_EXPECT(ctx, !clear_unused_storage(depth_schema, depth_schema.find_type(CStringView{ "Rejected" }),
+        CByteView{ small, sizeof(small) }) && small[0] == 0xffu && small[1] == 0xffu && small[2] == 0xffu && small[3] == 0xffu);
+}
+
+static void test_schema_sorted_duplicate_diagnostics(TTestContext& ctx)
+{
+    struct SCase { const char* names[4]; unsigned failed, related; EReason reason; };
+    const SCase cases[]{
+        { { "z", "a", "a", "z" }, 2u, 1u, EReason::duplicate_declaration },
+        { { "z", "z", "a", "a" }, 1u, 0u, EReason::duplicate_declaration },
+        { { "bad-name", "z", "z", "a" }, 0u, UINT32_MAX, EReason::invalid_identifier },
+        { { "z", "z", "bad-name", "a" }, 1u, 0u, EReason::duplicate_declaration }
+    };
+    for (const auto& test : cases)
+    {
+        std::string text = R"({"types":{"structures":{"Record":{"members":[)";
+        for (unsigned i = 0u; i < 4u; ++i)
+        {
+            if (i) text += ',';
+            text += "{\"" + std::string(test.names[i]) + "\":{\"type\":\"u8\"}}";
+        }
+        text += "]}}}}";
+        CLiveDocument live;
+        CBakedDocumentBlock block;
+        TEST_EXPECT(ctx, parse_live(text, live) && document_translation::bake(live, block));
+        for (const auto query : { CSchemaDocumentQuery{ live }, CSchemaDocumentQuery{ block.document() } })
+        {
+            const auto types = query.object_child(query.root(), CStringView{ "types" });
+            const auto structures = query.object_child(types, CStringView{ "structures" });
+            const auto record = query.object_child(structures, CStringView{ "Record" });
+            const auto members = query.object_child(record, CStringView{ "members" });
+            CResolvedSchema schema;
+            SDiagnostic error;
+            TEST_EXPECT(ctx, !schema.resolve(query, error) && error.reason == test.reason &&
+                error.occurrence == query.array_at(members, test.failed) &&
+                error.related == (test.related == UINT32_MAX ? CSchemaHandle{} : query.array_at(members, test.related)));
+        }
+    }
+}
+
 }   // namespace schema_tests
 
 int run_schema_tests()
@@ -8829,7 +9452,12 @@ int run_schema_tests()
     schema_tests::test_live_instances(ctx);
     schema_tests::test_instance_promotion_groups(ctx);
     schema_tests::test_instance_default_preservation(ctx);
+    schema_tests::test_schema_switching(ctx);
+    schema_tests::test_schema_lookup_and_cursor_paths(ctx);
+    schema_tests::test_schema_sorted_duplicate_diagnostics(ctx);
+    schema_tests::test_unused_storage_cached_preflight(ctx);
     schema_tests::test_binary_reconciliation(ctx);
+    schema_tests::test_reconciliation_traversal(ctx);
     schema_tests::test_instance_selection_repair(ctx);
     schema_tests::test_singular_values(ctx);
     schema_tests::test_live_instance_output(ctx);

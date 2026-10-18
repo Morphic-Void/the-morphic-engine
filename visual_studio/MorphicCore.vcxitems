@@ -272,9 +272,7 @@
     <None Include="$(MSBuildThisFileDirectory)..\docs\project\future_work_notes.md" />
     <None Include="$(MSBuildThisFileDirectory)..\docs\schema\README.md" />
     <None Include="$(MSBuildThisFileDirectory)..\docs\schema\runtime-api.md" />
-    <None Include="$(MSBuildThisFileDirectory)..\docs\schema\implementation-contract.md" />
     <None Include="$(MSBuildThisFileDirectory)..\docs\schema\schema-example-notes.md" />
-    <None Include="$(MSBuildThisFileDirectory)..\docs\schema\design.md" />
     <None Include="$(MSBuildThisFileDirectory)..\docs\schema\header-survey.md" />
     <None Include="$(MSBuildThisFileDirectory)..\docs\schema\schema-example.json" />
     <None Include="$(MSBuildThisFileDirectory)..\docs\system\erased_owner.md" />
@@ -286,6 +284,24 @@
     <None Include="$(MSBuildThisFileDirectory)..\docs\threading\transports\TQueueTransport.md" />
     <None Include="$(MSBuildThisFileDirectory)..\docs\threading\transports\TRingTransport.md" />
     <None Include="$(MSBuildThisFileDirectory)..\development\logical-roots\logs\.gitkeep" />
+    <None Include="$(MSBuildThisFileDirectory)..\docs\architecture\why_morphic_engine.md" />
+    <None Include="$(MSBuildThisFileDirectory)..\docs\assets\bundle_specification.md" />
+    <None Include="$(MSBuildThisFileDirectory)..\docs\backlog\message_ownership_simplification.md" />
+    <None Include="$(MSBuildThisFileDirectory)..\docs\backlog\schema_follow_on.md" />
+    <None Include="$(MSBuildThisFileDirectory)..\docs\backlog\testing_framework_consolidation.md" />
+    <None Include="$(MSBuildThisFileDirectory)..\docs\modules\texture_codec.md" />
+    <None Include="$(MSBuildThisFileDirectory)..\docs\project\bootstrap_configuration.md" />
+    <None Include="$(MSBuildThisFileDirectory)..\docs\project\building_and_testing.md" />
+    <None Include="$(MSBuildThisFileDirectory)..\docs\project\linux_ci.md" />
+    <None Include="$(MSBuildThisFileDirectory)..\docs\project\policy_validator.md" />
+    <None Include="$(MSBuildThisFileDirectory)..\docs\project\windows_ci.md" />
+    <None Include="$(MSBuildThisFileDirectory)..\docs\schema\persistence-and-aggregation.md" />
+    <None Include="$(MSBuildThisFileDirectory)..\docs\schema\specification.md" />
+    <None Include="$(MSBuildThisFileDirectory)..\docs\schema\validation.md" />
+    <None Include="$(MSBuildThisFileDirectory)..\AGENTS.md" />
+    <None Include="$(MSBuildThisFileDirectory)..\CODE_OF_CONDUCT.md" />
+    <None Include="$(MSBuildThisFileDirectory)..\THIRD_PARTY_LICENSES.md" />
+    <None Include="$(MSBuildThisFileDirectory)..\development\README.md" />
     <None Include="$(MSBuildThisFileDirectory)..\README.md" />
   </ItemGroup>
   <ItemGroup>

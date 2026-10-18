@@ -22,18 +22,23 @@
 namespace schema::detail
 {
 
+//  Allocate the final file after preparing its description. The caller fills
+//  the returned payload directly, then adopts the complete storage.
+[[nodiscard]] bool prepare_data_block_storage(CLiveDocument& description, const std::size_t payload_size,
+    const EDataBlockKind kind, CByteBuffer& storage, std::uint8_t*& payload, SDataBlockDiagnostic& diagnostic) noexcept;
+
 //  Consumes no payload ownership. Mutates only the private prepared description.
 //  Output must be empty and is published only after complete assembly.
-[[nodiscard]] bool assemble_data_block(CLiveDocument& description, CByteConstView payload,
-    EDataBlockKind kind, CBakedDocumentBlock& output, SDataBlockDiagnostic& diagnostic) noexcept;
+[[nodiscard]] bool assemble_data_block(CLiveDocument& description, const CByteConstView payload,
+    const EDataBlockKind kind, CBakedDocumentBlock& output, SDataBlockDiagnostic& diagnostic) noexcept;
 
 [[nodiscard]] bool prepare_materialisation(const CLiveDocument& source, CBakedDocumentBlock& output, SDataBlockDiagnostic& diagnostic) noexcept;
 [[nodiscard]] bool prepare_materialisation(const CBakedDocument& source, CBakedDocumentBlock& output, SDataBlockDiagnostic& diagnostic) noexcept;
 
 //  A loaded bulk data role supplies counts when stripping complete payloads.
 //  Materialised descriptions instead carry the complete embedded arrays.
-[[nodiscard]] bool prepare_data_block_output(const CBakedDocument& source, EDataBlockKind kind,
-    EDataOutputForm form, const CBakedBulkData* bulk_data, CLiveDocument& output, SDataBlockDiagnostic& diagnostic) noexcept;
+[[nodiscard]] bool prepare_data_block_output(const CBakedDocument& source, const EDataBlockKind kind,
+    const EDataOutputForm form, const CBakedBulkData* const bulk_data, CLiveDocument& output, SDataBlockDiagnostic& diagnostic) noexcept;
 
 //  Preparation preserves tree shape. Map a temporary baked occurrence by its
 //  child ordinals, without allocating diagnostic scratch or assuming live IDs.
@@ -93,13 +98,7 @@ template<class TDocument, class TBlock, class TSchema, class TDiagnostic>
         diagnostic.block.reason = EDataBlockReason::invalid_document;
         return false;
     }
-    if (!role.bind_schema(schema))
-    {
-        diagnostic.block.stage = EDataBlockStage::schema_binding;
-        diagnostic.block.reason = EDataBlockReason::schema_binding_failed;
-        return false;
-    }
-    if (!role.materialise(payload, diagnostic.role))
+    if (!role.attach_schema(schema, payload, diagnostic.role))
     {
         diagnostic.block.stage = EDataBlockStage::materialisation;
         diagnostic.block.reason = EDataBlockReason::specialised_failure;
@@ -136,7 +135,7 @@ template<class TDocument, class TBlock, class TSchema, class TDiagnostic>
     {
         return false;
     }
-    if (!destination.adopt_local(std::move(complete), schema, {}, diagnostic))
+    if (!destination.adopt_local(std::move(complete), diagnostic))
     {
         diagnostic.block.location = {};
         diagnostic.role.occurrence = {};
@@ -145,8 +144,8 @@ template<class TDocument, class TBlock, class TSchema, class TDiagnostic>
     return true;
 }
 
-template<class TBlock, class TRole, class TSchema, class TDiagnostic>
-[[nodiscard]] static bool strip_data_block(const TBlock& source, const TRole& role, TBlock& destination,
+template<class TBlock, class TSchema, class TDiagnostic>
+[[nodiscard]] static bool strip_data_block(const TBlock& source, TBlock& destination,
     TSchema& schema, const EDataBlockKind kind, TDiagnostic& diagnostic) noexcept
 {
     diagnostic = {};
@@ -173,6 +172,14 @@ template<class TBlock, class TRole, class TSchema, class TDiagnostic>
     {
         return false;
     }
+    using TRole = std::conditional_t<std::is_same_v<TDiagnostic, SInstancesBlockDiagnostic>, CBakedInstances, CBakedBulkData>;
+    TRole role;
+    if (!role.set_document(view.document) || !role.attach_schema(schema, view.payload, false, diagnostic.role))
+    {
+        diagnostic.block.stage = EDataBlockStage::specialised_loading;
+        diagnostic.block.reason = EDataBlockReason::specialised_failure;
+        return false;
+    }
     const CBakedBulkData* bulk_data = nullptr;
     if constexpr (std::is_same_v<TRole, CBakedBulkData>)
     {
@@ -188,7 +195,7 @@ template<class TBlock, class TRole, class TSchema, class TDiagnostic>
     {
         return false;
     }
-    if (!destination.adopt_local(std::move(complete), schema, {}, diagnostic))
+    if (!destination.adopt_local(std::move(complete), diagnostic))
     {
         //  Attachment observes the new private document, whose indices can differ.
         diagnostic.block.location = {};
@@ -198,9 +205,9 @@ template<class TBlock, class TRole, class TSchema, class TDiagnostic>
     return true;
 }
 
-template<class TSource, class TBlock, class TSchema, class TDiagnostic>
+template<class TSource, class TBlock, class TSchema, class TDiagnostic, class TPrepare>
 [[nodiscard]] static bool bake_data_block(const TSource& source, TBlock& destination, TSchema& schema,
-    const EDataOutputForm form, const EDataBlockKind kind, TDiagnostic& diagnostic) noexcept
+    const EDataOutputForm form, TDiagnostic& diagnostic, const TPrepare prepare) noexcept
 {
     diagnostic = {};
     diagnostic.block.stage = EDataBlockStage::preconditions;
@@ -227,8 +234,12 @@ template<class TSource, class TBlock, class TSchema, class TDiagnostic>
     }
     CLiveDocument description;
     CByteBuffer payload;
-    if (!source.prepare_output(description, payload, schema, form, diagnostic.role))
+    if (!prepare(description, payload))
     {
+        if (diagnostic.block.reason != EDataBlockReason::none)
+        {
+            return false;
+        }
         diagnostic.block.stage = EDataBlockStage::description_preparation;
         diagnostic.block.reason = EDataBlockReason::specialised_failure;
 
@@ -255,11 +266,13 @@ template<class TSource, class TBlock, class TSchema, class TDiagnostic>
         return false;
     }
     CBakedDocumentBlock complete;
-    if (!assemble_data_block(description, payload.const_view(), kind, complete, diagnostic.block))
+    if (!complete.adopt_buffer(std::move(payload)))
     {
+        diagnostic.block.stage = EDataBlockStage::assembly;
+        diagnostic.block.reason = EDataBlockReason::assembly_failed;
         return false;
     }
-    if (!destination.adopt_local(std::move(complete), schema, {}, diagnostic))
+    if (!destination.adopt_local(std::move(complete), diagnostic))
     {
         //  Final validation sees temporary output, not the caller's source.
         diagnostic.block.location = {};

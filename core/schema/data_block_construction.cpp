@@ -128,11 +128,12 @@ bool prepare_data_block_output(const CBakedDocument& source, const EDataBlockKin
     return true;
 }
 
-bool assemble_data_block(CLiveDocument& description, const CByteConstView payload,
-    const EDataBlockKind kind, CBakedDocumentBlock& output, SDataBlockDiagnostic& diagnostic) noexcept
+bool prepare_data_block_storage(CLiveDocument& description, const std::size_t payload_size,
+    const EDataBlockKind kind, CByteBuffer& storage, std::uint8_t*& payload, SDataBlockDiagnostic& diagnostic) noexcept
 {
     diagnostic = {};
-    if (output.buffer_capacity() != 0u)
+    payload = nullptr;
+    if (storage.is_ready())
     {
         return construction_failure(diagnostic, EDataBlockStage::preconditions, EDataBlockReason::destination_not_empty);
     }
@@ -153,7 +154,7 @@ bool assemble_data_block(CLiveDocument& description, const CByteConstView payloa
     const CStringView identifier{ (kind == EDataBlockKind::instances) ? "morphic-instance-data" : "morphic-bulk-data" };
     if (!append_metadata(description, description.create_string(identifier, CStringView{ "fileType" }), diagnostic) ||
         !append_metadata(description, description.create_unsigned_integer(k_data_block_version, CStringView{ "version" }), diagnostic) ||
-        !append_metadata(description, description.create_unsigned_integer(payload.size(), CStringView{ "payloadSize" }), diagnostic))
+        !append_metadata(description, description.create_unsigned_integer(payload_size, CStringView{ "payloadSize" }), diagnostic))
     {
         return false;
     }
@@ -164,11 +165,10 @@ bool assemble_data_block(CLiveDocument& description, const CByteConstView payloa
     }
     SDataBlockLayout layout;
     EDataBlockReason reason;
-    if (!data_block_layout(prefix.bytes().size(), payload.size(), layout, reason))
+    if (!data_block_layout(prefix.bytes().size(), payload_size, layout, reason))
     {
         return construction_failure(diagnostic, EDataBlockStage::assembly, reason);
     }
-    CByteBuffer storage;
     if (!storage.allocate(layout.file_size, k_data_block_alignment))
     {
         return construction_failure(diagnostic, EDataBlockStage::assembly, EDataBlockReason::allocation_failed);
@@ -179,11 +179,28 @@ bool assemble_data_block(CLiveDocument& description, const CByteConstView payloa
     }
     const CByteConstView document_bytes = prefix.bytes();
     std::memcpy(storage.data(), document_bytes.data(), document_bytes.size());
-    if (payload.size() != 0u)
+    if (payload_size != 0u)
     {
         std::memset((storage.data() + document_bytes.size()), 0, (layout.payload_offset - document_bytes.size()));
-        std::memcpy((storage.data() + layout.payload_offset), payload.data(), payload.size());
+        payload = storage.data() + layout.payload_offset;
     }
+    return true;
+}
+
+bool assemble_data_block(CLiveDocument& description, const CByteConstView payload,
+    const EDataBlockKind kind, CBakedDocumentBlock& output, SDataBlockDiagnostic& diagnostic) noexcept
+{
+    if (output.buffer_capacity() != 0u)
+    {
+        return construction_failure(diagnostic, EDataBlockStage::preconditions, EDataBlockReason::destination_not_empty);
+    }
+    CByteBuffer storage;
+    std::uint8_t* destination{};
+    if (!prepare_data_block_storage(description, payload.size(), kind, storage, destination, diagnostic))
+    {
+        return false;
+    }
+    if (payload.size() != 0u) std::memcpy(destination, payload.data(), payload.size());
 
     //  Generic adoption validates the prefix and preserves the entire buffer.
     //  Its Boolean failure does not establish an allocation-failure diagnosis.

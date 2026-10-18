@@ -122,6 +122,12 @@ CStringView CDocumentRead::property_name(const CPropertyNameId id) const noexcep
         ((m_backing == EBacking::baked) ? m_baked.property_name(id) : CStringView{});
 }
 
+CPropertyNameId CDocumentRead::find_property_name_id(const CStringView& name) const noexcept
+{
+    return (m_backing == EBacking::live) ? m_live->find_property_name_id(name) :
+        ((m_backing == EBacking::baked) ? m_baked.find_property_name_id(name) : CPropertyNameId{});
+}
+
 SOccurrence CDocumentRead::parent(const SOccurrence value) const noexcept
 {
     return live_value(value) ? SOccurrence{ m_live->parent(value.live) } :

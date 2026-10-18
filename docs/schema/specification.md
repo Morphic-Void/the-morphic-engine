@@ -21,23 +21,28 @@ Completed delivery history is summarised in the
 Persistence supplies shared diagnostics and validation of the version 1
 instance/bulk data file envelope described in the
 [revision](persistence-and-aggregation.md#agreed-version-1-persistence-format).
-`CBakedInstancesBlock` and `CBakedBulkDataBlock` contain the specialised roles
-and either own one complete allocation or borrow a retained asset range.
-They validate and initialise before publishing state, preserve source ownership
-on failure, and clear their roles before releasing backing. Complete file bytes
-remain available after schema invalidation. Live-role bake overloads construct
-these completed blocks using existing output preparation, then persistence
-metadata, bounded assembly and final attachment. Block materialisation accepts
-live or baked descriptions and constructs a complete payload using existing
-defaults, inheritance and complete bulk-record rules. It publishes reserved
-locators in private storage, then applies the requested output form and assembles
-an independent completed block. Source descriptions are unchanged. JSON parsing
-remains a caller step. Completed blocks can be stripped through generic document
-promotion, preserving inferred bulk data counts and every payload byte in an
-independent output allocation. Generic Host loading, admission and binary saving
-preserve complete buffers for loose files and bundle entries; specialised
-attachment remains a caller step.
-The existing bake overloads returning separate owners remain available.
+`CBakedInstancesBlock` and `CBakedBulkDataBlock` own or borrow complete
+document-plus-binary storage without retaining a schema or typed role. Envelope
+validation precedes storage publication. Typed instance/bulk data roles borrow
+that storage and carry their own schema associations. Schema destruction
+invalidates typed access without affecting storage readiness or saving.
+
+Initial schema attachment validates an existing package or constructs the whole
+package from a sufficient description. Both routes publish a complete association
+atomically. Checked switching validates used representation and unchanged
+declarations against existing bytes, reusing construction rules for defaults and
+inheritance. It may reject a stale declaration/binary mismatch; reconciliation is
+explicit. Trusted switching relies on the caller's compatibility assertion while
+still resolving target-owned type indices. Both modes preserve storage, document
+identities and binary bytes; failure preserves the old association. See the
+[attachment and switching contract](runtime-api.md#initial-attachment-and-schema-switching).
+
+Live baking copies records directly into final contiguous storage after preparing
+the output description. Materialisation uses private description/payload storage,
+publishes reserved locators privately and assembles independent output. Stripping
+removes retained values while preserving every payload byte. Generic Host loading,
+admission and binary saving preserve complete buffers; role attachment remains
+caller-side. Existing bake overloads returning separate owners remain available.
 
 Completed instance files use `.bid`; completed bulk data files use `.bbd`.
 Their `fileType` identifiers are `morphic-instance-data` and `morphic-bulk-data`.
@@ -52,7 +57,7 @@ full validation order and empty-content rules.
 
 The caller supplies and owns the resolved schema; no compatibility signature or
 schema identity is persisted. Binary data is authoritative, with embedded-value
-comparison available through `SDataBlockLoadOptions::compare_embedded`. Loading
+comparison selected on the data role's `attach_schema()` call. Loading
 never repairs missing binary data. Materialisation constructs all required data
 from a sufficient description as a separate operation. `.btd` remains an ordinary
 types-only baked document without persisted resolved lookups. Bundles provide
@@ -166,8 +171,9 @@ Borrowed access to those buffers does not transfer ownership. Promotion copies
 the baked payload into live-owned storage; baking creates new externally owned
 payload storage without taking the live source's buffer.
 
-Instance and bulk data documents reference their schema through inter-document
-reference counts. These do not own or extend the schema wrapper's lifetime.
+Instance and bulk data roles reference their schema through client reference
+counts. Generic documents and storage blocks carry no schema association. These
+references do not own or extend the schema wrapper's lifetime.
 Mutation of a referenced live schema fails without changes. Replacing a referenced
 schema emits a diagnostic-only assertion report in every build. A referenced
 schema cannot be moved. Failure should leave a safely
@@ -350,7 +356,7 @@ record arrays, retaining navigation, names, type associations, hierarchy and
 valid locators with sizes/counts. It copies the binary directly without requiring
 document-representable values. Schema definitions and defaults remain intact.
 The root Boolean `stripped` marks both data sections when true; absent or false
-means ordinary document semantics. A marked document requires `load_supplied`
+means ordinary document semantics. A marked document requires supplied-payload attachment
 with its binary payload and cannot be materialised from defaults or inheritance.
 This holds even for empty collections and zero-byte types, which may explicitly
 load a canonical empty payload. Value-bearing declarations or arrays contradict
@@ -548,10 +554,13 @@ limited cases, document-form instances distributed as baked documents or JSON
 text.  Baking a document alone does not make it resolved schema or resolved
 data.
 
-Each instance document materialises loaded values into its associated byte buffer;
-each bulk data document uses a separate associated buffer. Live wrappers own these
-buffers; baked wrappers borrow them from external owners. Selection of an individual named instance can
-then copy its contiguous physical representation into adequate caller storage, without
+Attaching a schema to instance or bulk data descriptions without binary data
+validates the descriptions and materialises a complete associated byte buffer.
+Attachment to existing binary data validates its structure and optionally compares
+retained values; the payload remains authoritative and unchanged. Live wrappers
+own their buffers; baked wrappers borrow them from external owners. Selection of
+an individual named instance can then copy its contiguous physical representation
+into adequate caller storage, without
 reinterpreting document values on every access. Capture from application storage
 updates or appends binary values and the associated live reference document.
 Bulk data records follow the same model. No application-wide population wrapper is
@@ -773,8 +782,10 @@ structures can declare the same member spelling. Type references resolve against
 the definitions catalogue; enum labels resolve within their declared enum.
 Text equality across documents does not make their local identifiers interchangeable.
 The resolver records type relationships and occurrence mappings during resolution.
-General name lookup scans the relevant ordered range; callers can retain resolved
-indices for repeated access.
+Resolved name lookup uses the document's logarithmic interned-name lookup followed
+by binary search of a scoped ordinal index. Declaration order is preserved;
+callers can retain resolved indices for repeated access. Name IDs from different
+documents are never compared directly.
 
 The current reference model is:
 

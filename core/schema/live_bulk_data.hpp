@@ -25,6 +25,7 @@ namespace schema
 
 class CBakedBulkDataBlock;
 struct SBulkDataBlockDiagnostic;
+struct SDataBlockDiagnostic;
 
 //==============================================================================
 //  Mutable entry view
@@ -58,6 +59,10 @@ public:
 
     [[nodiscard]] bool initialise(CBakedSchema& schema, const std::size_t initial_node_capacity = 0u) noexcept;
     [[nodiscard]] bool initialise(CLiveSchema& schema, const std::size_t initial_node_capacity = 0u) noexcept;
+
+    //  Switch only the schema association; all document and payload identities survive.
+    [[nodiscard]] bool switch_schema(CBakedSchema& schema, const ESchemaSwitchMode mode, SBulkDataDiagnostic& diagnostic) noexcept;
+    [[nodiscard]] bool switch_schema(CLiveSchema& schema, const ESchemaSwitchMode mode, SBulkDataDiagnostic& diagnostic) noexcept;
     void clear() noexcept;
 
     //==============================================================================
@@ -75,13 +80,6 @@ public:
     [[nodiscard]] bool clear_unused_storage(const EUnusedBits bits = EUnusedBits::preserve) noexcept;
 
     //==============================================================================
-    //  Binary reconciliation
-    //==============================================================================
-
-    //  Rebuild complete records; success invalidates document handles, not payload views.
-    [[nodiscard]] bool reconcile(SBulkDataDiagnostic& diagnostic) noexcept;
-
-    //==============================================================================
     //  Creation and editing
     //==============================================================================
 
@@ -93,6 +91,13 @@ public:
         const std::uint32_t count, SBulkDataDiagnostic& diagnostic) noexcept;
     [[nodiscard]] bool rename_entry(const CBulkDataHandle handle, const CStringView& name) noexcept;
     [[nodiscard]] bool erase_entry(const CBulkDataHandle handle) noexcept;
+
+    //==============================================================================
+    //  Binary reconciliation
+    //==============================================================================
+
+    //  Rebuild complete records; success invalidates document handles, not payload views.
+    [[nodiscard]] bool reconcile(SBulkDataDiagnostic& diagnostic) noexcept;
 
     //==============================================================================
     //  Output preparation and baking
@@ -128,20 +133,24 @@ private:
     };
 
     [[nodiscard]] bool initialise_document(const std::size_t initial_node_capacity) noexcept;
+    template<class TSchema>
+    [[nodiscard]] bool switch_to(TSchema& schema, const ESchemaSwitchMode mode, SBulkDataDiagnostic& diagnostic) noexcept;
+    void disable() noexcept;
     [[nodiscard]] bool record_index(const CBulkDataHandle handle, std::size_t& index) const noexcept;
     [[nodiscard]] bool observe(const SRecord& record, SBulkDataEntryView& result) const noexcept;
     [[nodiscard]] CBulkDataHandle store(const CStringView& type, const CStringView& name,
         const CByteConstView& source, const std::uint32_t count, const bool unpopulated,
         const bool replace, SBulkDataDiagnostic& diagnostic) noexcept;
     [[nodiscard]] bool promote_from(const CBakedBulkData& source, SBulkDataDiagnostic& diagnostic) noexcept;
+    void take_from(CLiveBulkData& source) noexcept;
     [[nodiscard]] bool prepare_output_to(CLiveDocument& document, CByteBuffer& payload,
-        const CResolvedSchema& destination_schema, const EDataOutputForm form, SBulkDataDiagnostic& diagnostic) const noexcept;
+        const CResolvedSchema& destination_schema, const EDataOutputForm form, SBulkDataDiagnostic& diagnostic, SDataBlockDiagnostic* const block_diagnostic = nullptr) const noexcept;
     template<class TSchema>
     [[nodiscard]] bool bake_to(CBakedDocumentBlock& block, CByteBuffer& payload, CBakedBulkData& role,
         TSchema& destination_schema, const EDataOutputForm form, SBulkDataDiagnostic& diagnostic) const noexcept;
-    void take_from(CLiveBulkData& source) noexcept;
-    void disable() noexcept;
-
+    template<class TSchema>
+    [[nodiscard]] bool bake_to(CBakedBulkDataBlock& destination, TSchema& schema,
+        const EDataOutputForm form, SBulkDataBlockDiagnostic& diagnostic) const noexcept;
     //==============================================================================
     //  Owned state
     //==============================================================================

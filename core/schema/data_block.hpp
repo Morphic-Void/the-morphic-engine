@@ -6,7 +6,7 @@
 //  Authors: Ritchie Brannan / OpenAI Codex
 //  Date:    14 Oct 26
 //
-//  Shared options and diagnostics for completed instance and bulk data blocks.
+//  Backing states and diagnostics for completed instance and bulk data blocks.
 
 #pragma once
 
@@ -20,11 +20,6 @@ namespace schema
 {
 
 enum class EEntityBacking : std::uint8_t { none = 0u, local, asset };
-
-struct SDataBlockLoadOptions
-{
-    bool compare_embedded{ false };
-};
 
 enum class EDataBlockStage : std::uint8_t
 {
@@ -59,7 +54,6 @@ enum class EDataBlockReason : std::uint8_t
     file_length_mismatch,
     nonzero_padding,
     schema_unavailable,
-    schema_binding_failed,
     specialised_failure,
     allocation_failed,
     description_preparation_failed,

@@ -49,7 +49,7 @@ inline void write_scalar_bits(std::uint8_t* const bytes, const std::size_t size,
 //  Scalar decoding
 //==============================================================================
 
-enum class EScalarDecodeReason : std::uint8_t { none, invalid_type, unrepresentable_value, allocation_failed };
+enum class EScalarDecodeReason : std::uint8_t { none = 0u, invalid_type, unrepresentable_value, allocation_failed };
 
 //  Produce a document literal from a scalar encoding. Width is the storage or
 //  bit-field width. Callers retain reconstruction checks for exact encoded fidelity.
@@ -64,13 +64,42 @@ namespace detail
 //  Internal construction and diagnostics
 //==============================================================================
 
-enum class EConstructionMode : std::uint8_t { instance, complete_bulk_data };
+enum class EConstructionMode : std::uint8_t { instance = 0u, complete_bulk_data };
 
 struct SValueDiagnostic
 {
     EReason reason{ EReason::none };
     SOccurrence occurrence;
     CSchemaIndex type;
+};
+
+template<class TReason>
+[[nodiscard]] static TReason value_failure(const SValueDiagnostic& diagnostic, const TReason invalid) noexcept
+{
+    return diagnostic.reason == EReason::allocation_failed ? TReason::allocation_failed : invalid;
+}
+
+//  Traverse named selections in schema declaration order. Already ordered
+//  objects use a forward cursor without allocations; shuffled objects get an
+//  operation-local sorted index. Query children in increasing declaration order;
+//  the selected object and schema must remain unchanged during the traversal.
+class CObjectSelection
+{
+public:
+    [[nodiscard]] bool prepare(const CResolvedSchema& schema, const CDocumentRead& document,
+        const CSchemaIndex type, const ECategory category, const SOccurrence source, SValueDiagnostic& diagnostic) noexcept;
+    [[nodiscard]] SOccurrence child(const CSchemaIndex selected) noexcept;
+
+private:
+    struct SNamedInput { CSchemaIndex selected; SOccurrence source; };
+    [[nodiscard]] CSchemaIndex component(const SOccurrence source) const noexcept;
+    const CResolvedSchema* m_schema{};
+    const CDocumentRead* m_document{};
+    CSchemaIndex m_type, m_selected;
+    ECategory m_category{};
+    SOccurrence m_cursor;
+    TPodVector<SNamedInput> m_named;
+    std::size_t m_next{};
 };
 
 //  Scalar spelling is only shorthand for a compound with one scalar member.
@@ -93,6 +122,88 @@ struct SValueDiagnostic
     const CSchemaIndex type, const SOccurrence declaration, const std::uint8_t* const base,
     const std::size_t base_size, std::uint8_t* const destination, const std::size_t destination_size,
     SValueDiagnostic& diagnostic) noexcept;
+
+//  Run the same construction rules against existing bytes, without writing or
+//  allocating a reconstructed value. A valid declaration can still mismatch;
+//  declaration errors take precedence over a mismatch within that value.
+[[nodiscard]] bool check_value(const CResolvedSchema& schema, const CDocumentRead& document,
+    const CSchemaIndex type, const SOccurrence declaration, const std::uint8_t* const bytes,
+    const std::size_t size, const EConstructionMode mode, bool& matches, SValueDiagnostic& diagnostic,
+    const bool singleton_element = false) noexcept;
+[[nodiscard]] bool check_alternative(const CResolvedSchema& schema, const CDocumentRead& document,
+    const CSchemaIndex type, const SOccurrence declaration, const std::uint8_t* const base,
+    const std::size_t base_size, const std::uint8_t* const bytes, const std::size_t size,
+    bool& matches, SValueDiagnostic& diagnostic) noexcept;
+
+enum class EValueCheck : std::uint8_t { match = 0u, mismatch, invalid };
+
+//  Live/baked loading and switching share the same record-level checks. The
+//  type selector observes either current or staged owner-local indices.
+template<class TRecords, class TType>
+[[nodiscard]] static EValueCheck check_instance_records(const CResolvedSchema& schema, const CDocumentRead& document,
+    const TRecords& records, const std::uint8_t* const payload, const TType& type_at, SValueDiagnostic& error) noexcept
+{
+    for (std::size_t i = 0u; i < records.size(); ++i)
+    {
+        const auto& record = records[i];
+        const std::uint8_t* const bytes = record.extent ? payload + record.offset : nullptr;
+        bool matches{}, valid{};
+        if (record.parent == UINT32_MAX)
+        {
+            valid = check_value(schema, document, type_at(i), SOccurrence{ record.declaration },
+                bytes, record.extent, EConstructionMode::instance, matches, error);
+        }
+        else
+        {
+            const auto& parent = records[record.parent];
+            valid = check_alternative(schema, document, type_at(i), SOccurrence{ record.declaration },
+                parent.extent ? payload + parent.offset : nullptr, parent.extent, bytes, record.extent, matches, error);
+        }
+        if (!valid || !matches)
+        {
+        if (!error.occurrence.is_valid()) error.occurrence = SOccurrence{ record.entry };
+            return valid ? EValueCheck::mismatch : EValueCheck::invalid;
+        }
+    }
+    return EValueCheck::match;
+}
+
+template<class TRecords, class TType>
+[[nodiscard]] static EValueCheck check_bulk_records(const CResolvedSchema& schema, const CDocumentRead& document,
+    const TRecords& records, const std::uint8_t* const payload, const TType& type_at, SValueDiagnostic& error) noexcept
+{
+    for (std::size_t i = 0u; i < records.size(); ++i)
+    {
+        const auto& record = records[i];
+        const SOccurrence data = document.object_child(SOccurrence{ record.entry }, CStringView{ "data" });
+        if (!data.is_valid())
+        {
+            continue;
+        }
+        SType layout;
+        if (!schema.type(type_at(i), layout))
+        {
+            error = { EReason::unknown_type, SOccurrence{ record.entry }, type_at(i) };
+            return EValueCheck::invalid;
+        }
+        SOccurrence item = document.first_child(data);
+        for (std::uint32_t ordinal = 0u; ordinal < record.count; ++ordinal)
+        {
+            const std::size_t offset = record.offset + static_cast<std::size_t>(layout.size) * ordinal;
+            bool matches{};
+            const bool valid = check_value(schema, document, type_at(i), item,
+                layout.size ? payload + offset : nullptr, static_cast<std::size_t>(layout.size),
+                EConstructionMode::complete_bulk_data, matches, error, document.is_object_entry(item));
+            if (!valid || !matches)
+            {
+                if (!error.occurrence.is_valid()) error.occurrence = item;
+                return valid ? EValueCheck::mismatch : EValueCheck::invalid;
+            }
+            item = document.next_sibling(item);
+        }
+    }
+    return EValueCheck::match;
+}
 
 //==============================================================================
 //  Encoded-value comparison

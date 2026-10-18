@@ -103,13 +103,21 @@ output and remapping. Its review repairs, binary-authoritative reconciliation,
 optional stripped baking, lookup/remap improvements, scalar/document-copy
 consolidation and five-part tidying phase are complete through `db82da7`.
 The subsequent performance pass completes inline query forwarding, shared
-physical-member ordering and sorted explicit-layout overlap checking. General
-schema name lookup remains caller-managed. Canonical schema output and data-role
-reconstruction now apply the data model's integer presentation modes. All eight
+physical-member ordering and sorted explicit-layout overlap checking. Canonical
+schema output and data-role reconstruction now apply the data model's integer
+presentation modes. All eight
 instance/bulk data persistence stages are complete and user-reviewed through
 `dfe076d`, including complete-buffer Host persistence and new-payload gap zeroing.
 The [persistence milestone](../project/completed_milestones.md#schema-instance-and-bulk-data-persistence)
 records delivery and validation; its completed implementation plan is retired.
+The [17 October role and construction rework](../project/completed_milestones.md#schema-role-attachment-and-construction)
+separates block storage from schema-bound data roles and implements atomic
+attachment plus checked/trusted switching over unchanged binary packages.
+Resolved type/member/field/enum indexes, temporary neighbour cursors, controlled
+construction, string-ID reuse and single-pass reconciliation remove repeated
+lookup, attachment and aggregate-comparison work. Full baked promotion preloads
+string domains lexically. Arbitrary-order string insertion and linear per-edit
+record-tail staging remain follow-on costs recorded in the notes.
 Remaining discussions cover conversion, related representations,
 typed serialisation, selectable generation, aggregation/composition and source
 ingestion, as recorded in the

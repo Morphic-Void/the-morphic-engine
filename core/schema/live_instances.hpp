@@ -25,12 +25,13 @@ namespace schema
 
 class CBakedInstancesBlock;
 struct SInstancesBlockDiagnostic;
+struct SDataBlockDiagnostic;
 
 //==============================================================================
 //  Selection paths and mutable views
 //==============================================================================
 
-enum class EInstanceSelectionStepKind : std::uint8_t { member, element };
+enum class EInstanceSelectionStepKind : std::uint8_t { member = 0u, element };
 
 struct SInstanceSelectionStep
 {
@@ -69,6 +70,10 @@ public:
 
     [[nodiscard]] bool initialise(CBakedSchema& schema, const std::size_t capacity = 0u) noexcept;
     [[nodiscard]] bool initialise(CLiveSchema& schema, const std::size_t capacity = 0u) noexcept;
+
+    //  Switch only the schema association; all document and payload identities survive.
+    [[nodiscard]] bool switch_schema(CBakedSchema& schema, const ESchemaSwitchMode mode, SInstanceDiagnostic& diagnostic) noexcept;
+    [[nodiscard]] bool switch_schema(CLiveSchema& schema, const ESchemaSwitchMode mode, SInstanceDiagnostic& diagnostic) noexcept;
     void clear() noexcept;
 
     //==============================================================================
@@ -90,13 +95,6 @@ public:
     [[nodiscard]] bool clear_unused_storage(const EUnusedBits bits = EUnusedBits::preserve) noexcept;
 
     //==============================================================================
-    //  Binary reconciliation
-    //==============================================================================
-
-    //  Rebuild declarations from snapshots; success invalidates document handles, not payload views.
-    [[nodiscard]] bool reconcile(SInstanceDiagnostic& diagnostic) noexcept;
-
-    //==============================================================================
     //  Creation and editing
     //==============================================================================
 
@@ -113,6 +111,13 @@ public:
         SInstanceDiagnostic& diagnostic) noexcept;
     [[nodiscard]] bool remove_selection(const CInstanceHandle instance, const SInstanceSelectionStep* const steps,
         const std::size_t step_count, SInstanceDiagnostic& diagnostic) noexcept;
+
+    //==============================================================================
+    //  Binary reconciliation
+    //==============================================================================
+
+    //  Rebuild declarations from snapshots; success invalidates document handles, not payload views.
+    [[nodiscard]] bool reconcile(SInstanceDiagnostic& diagnostic) noexcept;
 
     //==============================================================================
     //  Output preparation and baking
@@ -153,8 +158,11 @@ private:
     [[nodiscard]] static CNodeKey make_locator(CLiveDocument& document, const std::uint32_t offset, const std::uint32_t extent) noexcept;
 
     [[nodiscard]] bool initialise_document(const std::size_t capacity) noexcept;
+    template<class TSchema>
+    [[nodiscard]] bool switch_to(TSchema& schema, const ESchemaSwitchMode mode, SInstanceDiagnostic& diagnostic) noexcept;
+    void disable() noexcept;
+    void take_from(CLiveInstances& source) noexcept;
     [[nodiscard]] bool record_index(const CInstanceHandle instance, std::uint32_t& index) const noexcept;
-    [[nodiscard]] bool promote_from(const CBakedInstances& source, SInstanceDiagnostic& diagnostic) noexcept;
     [[nodiscard]] CInstanceHandle append_instance(const CSchemaIndex type, const std::uint32_t parent,
         const CStringView& type_name, const CStringView& name, const detail::CDocumentRead& source,
         const detail::SOccurrence declaration, const CByteConstView& complete, SInstanceDiagnostic& diagnostic) noexcept;
@@ -163,15 +171,16 @@ private:
     [[nodiscard]] CNodeKey output_declaration(CLiveDocument& target, const SRecord& record,
         const CResolvedSchema& schema, const CSchemaIndex destination_type,
         EInstanceLoadReason& reason) const noexcept;
+    [[nodiscard]] bool promote_from(const CBakedInstances& source, SInstanceDiagnostic& diagnostic) noexcept;
     [[nodiscard]] bool prepare_output_to(CLiveDocument& document, CByteBuffer& payload,
         const CResolvedSchema& destination_schema, const EDataOutputForm form,
-        SInstanceDiagnostic& diagnostic) const noexcept;
+        SInstanceDiagnostic& diagnostic, SDataBlockDiagnostic* const block_diagnostic = nullptr) const noexcept;
     template<class TSchema>
     [[nodiscard]] bool bake_to(CBakedDocumentBlock& block, CByteBuffer& payload, CBakedInstances& role,
         TSchema& destination_schema, const EDataOutputForm form, SInstanceDiagnostic& diagnostic) const noexcept;
-    void take_from(CLiveInstances& source) noexcept;
-    void disable() noexcept;
-
+    template<class TSchema>
+    [[nodiscard]] bool bake_to(CBakedInstancesBlock& destination, TSchema& schema,
+        const EDataOutputForm form, SInstancesBlockDiagnostic& diagnostic) const noexcept;
     //==============================================================================
     //  Owned state
     //==============================================================================

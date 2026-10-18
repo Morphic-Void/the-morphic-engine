@@ -15,16 +15,6 @@
 namespace schema
 {
 
-//  Mix the complete pair of 32-bit identities before reducing it to a bucket hash.
-[[nodiscard]] static std::uint32_t index_hash(std::uint64_t value) noexcept
-{
-    value ^= value >> 30u;
-    value *= 0xbf58476d1ce4e5b9ull;
-    value ^= value >> 27u;
-    value *= 0x94d049bb133111ebull;
-    return static_cast<std::uint32_t>(value ^ (value >> 31u));
-}
-
 [[nodiscard]] static bool same_scalar(const SScalar& a, const SScalar& b) noexcept
 {
     if (a.kind != b.kind)
@@ -49,7 +39,7 @@ std::uint32_t CTypeCompatibility::hash(const SPair& pair) noexcept
 {
     const std::uint64_t types = (static_cast<std::uint64_t>(pair.source.query_value()) << 32u) | pair.destination.query_value();
     const std::uint64_t defaults = (static_cast<std::uint64_t>(pair.source_default.query_value()) << 32u) | pair.destination_default.query_value();
-    return index_hash(index_hash(types) ^ defaults);
+    return COrdinalHashIndex::hash_key(COrdinalHashIndex::hash_key(types) ^ defaults);
 }
 
 ETypeMatchResult CTypeCompatibility::add(const SPair pair) noexcept

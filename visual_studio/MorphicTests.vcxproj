@@ -197,6 +197,8 @@
     <ClInclude Include="..\tests\test_suites\TextLinter_test_suite.hpp" />
   </ItemGroup>
   <ItemGroup>
+    <None Include="..\tests\shader\fixtures\poc\LICENSE.txt" />
+    <None Include="..\tests\shader\fixtures\poc\ORIGIN.txt" />
     <None Include="..\development\logical-roots\dev-source\test_input.tga" />
   </ItemGroup>
   <ItemGroup>
