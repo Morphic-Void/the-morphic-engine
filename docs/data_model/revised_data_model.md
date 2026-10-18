@@ -492,6 +492,13 @@ Promotion constructs a new compact live document from an explicitly validated
 baked view. It creates fresh live keys and string IDs while preserving order,
 names, payload kinds, numeric intent and string contents.
 
+Whole-document promotion preloads the baked string domains in lexical order,
+so each sorted-index insertion appends at the end. Selected-member promotion
+imports only encountered strings. Native copies retain same-document string IDs
+or use temporary source-to-destination mappings, with current/neighbour lookup
+cursors and logarithmic fallback. Mapping storage depends on distinct copied
+strings, not the largest source ID. Numeric IDs remain document-local.
+
 A failed promotion must not publish a partially constructed destination as a
 coherent live document. It need not preserve unused capacity or allocation
 history.
@@ -514,6 +521,12 @@ limit. Invalid source identities, exhausted depth or construction/attachment
 failure return an invalid key and erase partial copied nodes. Existing destination
 values remain intact; unused capacity and interned strings need not be rolled
 back. Promotion retains its separate traversal without this depth limit.
+
+Controlled construction shares the ordinary attachment commit and local checks,
+but skips repeated duplicate-sibling and ancestry scans when the source or
+resolved schema establishes unique names and the builder creates disjoint nodes.
+Public editing, final attachment to an existing object and arbitrary reader
+adapters retain their checks. No persistent construction state is added.
 
 `document_translation::stabilise_document_name` retains a name in caller-owned
 storage before a mutation can invalidate its borrowed bytes. It rejects an

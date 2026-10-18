@@ -30,6 +30,7 @@
 #include "data_model/live_document_node.hpp"
 
 struct SLiveDocumentTestAccess;
+namespace document_translation::detail { class CDocumentConstruction; }
 
 //==============================================================================
 //  On-demand document analysis
@@ -105,11 +106,14 @@ public:
 
     [[nodiscard]] CPropertyNameId name_id(const CNodeKey value) const noexcept;
     [[nodiscard]] CStringView name(const CNodeKey value) const noexcept;
-    //  Absent removes the name; present empty assigns the canonical empty name.
+
     [[nodiscard]] bool set_name(const CNodeKey value, const CStringView& name) noexcept;
+    [[nodiscard]] bool remove_name(const CNodeKey value) noexcept;
+    [[nodiscard]] bool set_empty_name(const CNodeKey value) noexcept;
     [[nodiscard]] CNodeKey object_child(const CNodeKey object, const CPropertyNameId name) const noexcept;
     [[nodiscard]] CNodeKey object_child(const CNodeKey object, const CStringView& name) const noexcept;
     [[nodiscard]] CStringView property_name(const CPropertyNameId id) const noexcept;
+    [[nodiscard]] CPropertyNameId find_property_name_id(const CStringView& name) const noexcept;
     [[nodiscard]] CStringView string_value(const CStringValueId id) const noexcept;
     [[nodiscard]] CPropertyNameId property_name_id_at_rank(const std::uint32_t rank) const noexcept;
     [[nodiscard]] CStringValueId string_value_id_at_rank(const std::uint32_t rank) const noexcept;
@@ -190,6 +194,7 @@ private:
     //  Internal translation and test access
     friend class CBakedDocumentBaker;
     friend class CLiveDocumentPromoter;
+    friend class document_translation::detail::CDocumentConstruction;
     friend struct SLiveDocumentTestAccess;
 
     //  Internal operation state
@@ -223,6 +228,8 @@ private:
         const SPreparedString& prepared_name) noexcept;
     [[nodiscard]] CNodeKey create_empty_node(const CPropertyNameId name) noexcept;
     [[nodiscard]] CNodeKey create_container(const ELiveValueType type, const SPreparedString& prepared_name) noexcept;
+    [[nodiscard]] CNodeKey create_value(const ELiveValueType type, const std::uint64_t payload_bits,
+        const CIntegerMetadata metadata, const CPropertyNameId name, const bool object_entry) noexcept;
     [[nodiscard]] bool insert_root_pair() noexcept;
 
     //  Node lookup
@@ -256,7 +263,9 @@ private:
     [[nodiscard]] bool query_ancestry(const LiveNodeSlot value, const LiveNodeSlot sought, bool& found) noexcept;
 
     //  Structural mutation
-    [[nodiscard]] CLiveAttachmentResult attach_child(const CNodeKey destination, const CNodeKey candidate, const SAttachmentPosition& position) noexcept;
+    [[nodiscard]] CLiveAttachmentResult append_constructed_child(const CNodeKey destination, const CNodeKey candidate) noexcept;
+    [[nodiscard]] CLiveAttachmentResult attach_child(const CNodeKey destination, const CNodeKey candidate,
+        const SAttachmentPosition& position, const bool constructed = false) noexcept;
     [[nodiscard]] bool detach_value(const LiveNodeSlot value) noexcept;
     [[nodiscard]] bool clear_root() noexcept;
     [[nodiscard]] bool move_value_payload(const LiveNodeSlot target, const LiveNodeSlot source) noexcept;

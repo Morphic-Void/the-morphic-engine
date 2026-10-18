@@ -414,20 +414,25 @@ CNodeKey CLiveDocument::object_child(const CNodeKey object, const CPropertyNameI
 
 CNodeKey CLiveDocument::object_child(const CNodeKey object, const CStringView& name_value) const noexcept
 {
-    if ((value_type(object) != ELiveValueType::object) || (name_value.string() == nullptr))
+    return object_child(object, find_property_name_id(name_value));
+}
+
+CPropertyNameId CLiveDocument::find_property_name_id(const CStringView& name_value) const noexcept
+{
+    if (!is_ready() || (name_value.string() == nullptr))
     {
-        return CNodeKey{};
+        return {};
     }
     if (name_value.length() == 0u)
     {
-        return object_child(object, CPropertyNameId{ CPropertyNameId::k_empty_value });
+        return CPropertyNameId{ CPropertyNameId::k_empty_value };
     }
     const std::size_t id = m_property_names.find_id(name_value.string(), name_value.length());
     if ((id == CStableStrings::k_invalid_id) || (id >= CPropertyNameId::k_invalid_value))
     {
-        return CNodeKey{};
+        return {};
     }
-    return object_child(object, CPropertyNameId{ static_cast<std::uint32_t>(id) });
+    return CPropertyNameId{ static_cast<std::uint32_t>(id) };
 }
 
 bool CLiveDocument::set_name(const CNodeKey key, const CStringView& name_value) noexcept
@@ -468,6 +473,16 @@ bool CLiveDocument::set_name(const CNodeKey key, const CStringView& name_value) 
     }
     value_node(key)->set_name(id, present);
     return true;
+}
+
+bool CLiveDocument::remove_name(const CNodeKey key) noexcept
+{
+    return set_name(key, CStringView{});
+}
+
+bool CLiveDocument::set_empty_name(const CNodeKey key) noexcept
+{
+    return set_name(key, CStringView{ "" });
 }
 
 bool CLiveDocument::suppresses_newline_escaping(const CNodeKey key) const noexcept
@@ -711,43 +726,26 @@ CNodeKey CLiveDocument::create_string(const CStringView& value, const CStringVie
         return CNodeKey{};
     }
 
-    CNodeKey key;
-    if (!allocate_key(key))
-    {
-        return CNodeKey{};
-    }
-
     CPropertyNameId name_id;
     CStringValueId value_id;
     if (!intern_property_name(prepared_name, name_id) ||
         !intern_string_value(prepared_value, value_id))
     {
-        return CNodeKey{};
+        return {};
     }
-
-    CLiveNode new_node{};
-    new_node.initialise_value(ELiveValueType::string, value_id.query_value(), name_id, CIntegerMetadata{}, prepared_name.bytes != nullptr);
-
-    if (m_nodes.insert(key, new_node) < 0)
-    {
-        return CNodeKey{};
-    }
-
-    return key;
+    return create_value(ELiveValueType::string, value_id.query_value(), CIntegerMetadata{}, name_id, prepared_name.bytes != nullptr);
 }
 
 CNodeKey CLiveDocument::create_array(const CStringView& name_value) noexcept
 {
     SPreparedString prepared_name;
-    return prepare_string(name_value, prepared_name) ?
-        create_container(ELiveValueType::array, prepared_name) : CNodeKey{};
+    return prepare_string(name_value, prepared_name) ? create_container(ELiveValueType::array, prepared_name) : CNodeKey{};
 }
 
 CNodeKey CLiveDocument::create_object(const CStringView& name_value) noexcept
 {
     SPreparedString prepared_name;
-    return prepare_string(name_value, prepared_name) ?
-        create_container(ELiveValueType::object, prepared_name) : CNodeKey{};
+    return prepare_string(name_value, prepared_name) ? create_container(ELiveValueType::object, prepared_name) : CNodeKey{};
 }
 
 CLiveAttachmentResult CLiveDocument::append_child(const CNodeKey destination, const CNodeKey candidate) noexcept
@@ -1258,27 +1256,9 @@ CNodeKey CLiveDocument::create_scalar(
         return CNodeKey{};
     }
 
-    CNodeKey key;
-    if (!allocate_key(key))
-    {
-        return CNodeKey{};
-    }
-
     CPropertyNameId name_id;
-    if (!intern_property_name(prepared_name, name_id))
-    {
-        return CNodeKey{};
-    }
-
-    CLiveNode new_node{};
-    new_node.initialise_value(type, payload_bits, name_id, metadata, prepared_name.bytes != nullptr);
-
-    if (m_nodes.insert(key, new_node) < 0)
-    {
-        return CNodeKey{};
-    }
-
-    return key;
+    return intern_property_name(prepared_name, name_id) ?
+        create_value(type, payload_bits, metadata, name_id, prepared_name.bytes != nullptr) : CNodeKey{};
 }
 
 CNodeKey CLiveDocument::create_empty_node(const CPropertyNameId name) noexcept
@@ -1301,36 +1281,47 @@ CNodeKey CLiveDocument::create_container(const ELiveValueType type, const SPrepa
         return CNodeKey{};
     }
 
-    CNodeKey value_key;
-    CNodeKey aggregate_key;
-    if (!allocate_key(value_key) || !allocate_key(aggregate_key))
-    {
-        return CNodeKey{};
-    }
-
     CPropertyNameId name_id;
-    if (!intern_property_name(prepared_name, name_id))
-    {
-        return CNodeKey{};
-    }
+    return intern_property_name(prepared_name, name_id) ?
+        create_value(type, 0u, CIntegerMetadata{}, name_id, prepared_name.bytes != nullptr) : CNodeKey{};
+}
 
+CNodeKey CLiveDocument::create_value(const ELiveValueType type, const std::uint64_t payload_bits,
+    const CIntegerMetadata metadata, const CPropertyNameId name, const bool object_entry) noexcept
+{
+    if (!is_ready() || !name.is_valid() ||
+        (!name.is_empty() && !m_property_names.is_valid_id(name.query_value())) ||
+        (type == ELiveValueType::invalid) ||
+        ((type == ELiveValueType::string) && (payload_bits != 0u) &&
+            ((payload_bits >= CStringValueId::k_invalid_value) || !m_string_values.is_valid_id(static_cast<std::size_t>(payload_bits)))))
+    {
+        return {};
+    }
+    const bool container = live_value_type_is_container(type);
+    CNodeKey value_key, aggregate_key;
+    if (!allocate_key(value_key) || (container && !allocate_key(aggregate_key)))
+    {
+        return {};
+    }
     CLiveNode value{};
-    value.initialise_value(type, 0u, name_id, CIntegerMetadata{}, prepared_name.bytes != nullptr);
+    value.initialise_value(type, payload_bits, name, metadata, object_entry);
     const LiveNodeSlot value_slot = m_nodes.insert(value_key, value);
     if (value_slot < 0)
     {
-        return CNodeKey{};
+        return {};
     }
-
-    CLiveNode aggregate{};
-    aggregate.initialise_aggregate(value_slot, live_aggregate_kind_for_value_type(type), CPropertyNameId{ CPropertyNameId::k_empty_value });
-    const LiveNodeSlot aggregate_slot = m_nodes.insert(aggregate_key, aggregate);
-    if (aggregate_slot < 0)
+    if (container)
     {
-        (void)m_nodes.erase(value_slot);
-        return CNodeKey{};
+        CLiveNode aggregate{};
+        aggregate.initialise_aggregate(value_slot, live_aggregate_kind_for_value_type(type), CPropertyNameId{ CPropertyNameId::k_empty_value });
+        const LiveNodeSlot aggregate_slot = m_nodes.insert(aggregate_key, aggregate);
+        if (aggregate_slot < 0)
+        {
+            (void)m_nodes.erase(value_slot);
+            return {};
+        }
+        value_node(value_slot)->set_value_owned_aggregate_slot(aggregate_slot);
     }
-    value_node(value_slot)->set_value_owned_aggregate_slot(aggregate_slot);
     return value_key;
 }
 
@@ -1696,7 +1687,19 @@ bool CLiveDocument::query_ancestry(const LiveNodeSlot value, const LiveNodeSlot 
     return false;
 }
 
-CLiveAttachmentResult CLiveDocument::attach_child(const CNodeKey destination, const CNodeKey candidate, const SAttachmentPosition& position) noexcept
+CLiveAttachmentResult CLiveDocument::append_constructed_child(const CNodeKey destination, const CNodeKey candidate) noexcept
+{
+    SAttachmentPosition position;
+    const CLiveNode* const aggregate = aggregate_for_value(destination);
+    if (aggregate != nullptr)
+    {
+        position.previous = aggregate->aggregate_last_child_slot();
+    }
+    return attach_child(destination, candidate, position, true);
+}
+
+CLiveAttachmentResult CLiveDocument::attach_child(const CNodeKey destination, const CNodeKey candidate,
+    const SAttachmentPosition& position, const bool constructed) noexcept
 {
     if (!is_ready())
     {
@@ -1800,7 +1803,10 @@ CLiveAttachmentResult CLiveDocument::attach_child(const CNodeKey destination, co
                 ELiveAttachmentRejection::object_entry_required :
                 ELiveAttachmentRejection::corrupt_structure);
     }
-    if (aggregate->aggregate_kind() == ELiveAggregateKind::object)
+
+    //  Construction preserves unique source/schema names and only links fresh,
+    //  disjoint subtrees. All local checks and the commit remain shared.
+    if (!constructed && (aggregate->aggregate_kind() == ELiveAggregateKind::object))
     {
         LiveNodeSlot existing = aggregate->aggregate_first_child_slot();
         for (std::uint32_t visited = 0u; existing >= 0; ++visited)
@@ -1819,8 +1825,8 @@ CLiveAttachmentResult CLiveDocument::attach_child(const CNodeKey destination, co
             existing = existing_node->value_next_sibling_slot();
         }
     }
-    bool cycle = false;
-    if (!query_ancestry(destination_slot, candidate_slot, cycle))
+    bool cycle = destination_slot == candidate_slot;
+    if (!constructed && !query_ancestry(destination_slot, candidate_slot, cycle))
     {
         return attachment_rejection(ELiveAttachmentRejection::corrupt_structure);
     }

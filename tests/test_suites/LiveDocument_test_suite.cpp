@@ -2161,18 +2161,20 @@ static void test_names_roots_and_metadata(TTestContext& ctx)
     TEST_EXPECT(ctx, !document.object_child(document.root(), CStringView{}).is_valid());
     TEST_EXPECT(ctx, !document.set_root_type(ELiveValueType::array));
     TEST_EXPECT(ctx, !document.set_name(named, CStringView{}));
+    TEST_EXPECT(ctx, !document.remove_name(named));
     TEST_EXPECT(ctx, !document.set_name(document.root(), empty));
     const CNodeKey ordinary = document.create_null(CStringView{ "$morphic-empty" });
     TEST_EXPECT(ctx, document.append_child(document.root(), ordinary).succeeded());
     TEST_EXPECT(ctx, !document.set_name(ordinary, empty));
+    TEST_EXPECT(ctx, !document.set_empty_name(ordinary));
     TEST_EXPECT(ctx, document.set_name(named, CStringView{ "renamed" }));
     TEST_EXPECT(ctx, document.set_name(ordinary, empty));
     TEST_EXPECT(ctx, document.object_child(document.root(), empty) == ordinary);
     TEST_EXPECT(ctx, document.detach(ordinary));
-    TEST_EXPECT(ctx, document.set_name(ordinary, CStringView{}));
+    TEST_EXPECT(ctx, document.remove_name(ordinary));
     TEST_EXPECT(ctx, !document.is_object_entry(ordinary));
     TEST_EXPECT(ctx, !document.append_child(document.root(), ordinary).succeeded());
-    TEST_EXPECT(ctx, document.set_name(ordinary, empty));
+    TEST_EXPECT(ctx, document.set_empty_name(ordinary));
     TEST_EXPECT(ctx, document.append_child(document.root(), ordinary).succeeded());
 
     TEST_EXPECT(ctx, document.set_newline_escaping_suppressed(named, true));

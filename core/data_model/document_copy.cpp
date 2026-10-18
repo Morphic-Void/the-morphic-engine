@@ -15,6 +15,66 @@
 namespace document_translation
 {
 
+bool detail::CDocumentConstruction::append(CLiveDocument& target, const CNodeKey parent, const CNodeKey child) noexcept
+{
+    if (!child)
+    {
+        return false;
+    }
+    if (target.append_constructed_child(parent, child).succeeded())
+    {
+        return true;
+    }
+    if (target.is_detached(child)) (void)target.erase(child);
+    return false;
+}
+
+CPropertyNameId detail::CDocumentConstruction::name(CLiveDocument& target, const CStringView& text) noexcept
+{
+    if (!target.is_ready())
+    {
+        return {};
+    }
+    CLiveDocument::SPreparedString prepared;
+    CPropertyNameId id;
+    return target.prepare_string(text, prepared) && target.intern_property_name(prepared, id) ? id : CPropertyNameId{};
+}
+
+//  Imported text has already been admitted by a separate source document.
+//  Same-document copying retains its IDs and never borrows growing string views.
+CPropertyNameId detail::CDocumentConstruction::import_name(CLiveDocument& target, const CStringView& text) noexcept
+{
+    if (!target.is_ready())
+    {
+        return {};
+    }
+    CLiveDocument::SPreparedString prepared;
+    prepared.bytes = text.string();
+    prepared.size = text.length();
+    CPropertyNameId id;
+    return target.intern_property_name(prepared, id) ? id : CPropertyNameId{};
+}
+
+CStringValueId detail::CDocumentConstruction::import_string(CLiveDocument& target, const CStringView& text) noexcept
+{
+    if (!target.is_ready())
+    {
+        return {};
+    }
+    CLiveDocument::SPreparedString prepared;
+    prepared.bytes = text.string();
+    prepared.size = text.length();
+    CStringValueId id;
+    return target.intern_string_value(prepared, id) ? id : CStringValueId{};
+}
+
+CNodeKey detail::CDocumentConstruction::create(CLiveDocument& target, const ELiveValueType kind,
+    const std::uint64_t bits, const CIntegerMetadata metadata, const CPropertyNameId name,
+    const bool object_entry) noexcept
+{
+    return target.create_value(kind, bits, metadata, name, object_entry);
+}
+
 //==============================================================================
 //  Name stabilisation
 //==============================================================================

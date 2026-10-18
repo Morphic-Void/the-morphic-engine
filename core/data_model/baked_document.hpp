@@ -99,6 +99,7 @@ public:
     [[nodiscard]] CPropertyNameId property_name_id_at_rank(const std::uint32_t rank) const noexcept;
     [[nodiscard]] CStringValueId string_value_id_at_rank(const std::uint32_t rank) const noexcept;
     [[nodiscard]] CStringView property_name(const CPropertyNameId id) const noexcept;
+    [[nodiscard]] CPropertyNameId find_property_name_id(const CStringView& name) const noexcept;
     [[nodiscard]] CStringView string_value(const CStringValueId id) const noexcept;
 
     //  Tree relationships
@@ -140,7 +141,6 @@ private:
     [[nodiscard]] const std::uint8_t* data() const noexcept;
     [[nodiscard]] const SBakedDocumentHeader* header() const noexcept;
     [[nodiscard]] const SBakedValueRecord* value_record(const CBakedValueIndex value) const noexcept;
-    [[nodiscard]] CPropertyNameId find_property_name_id(const CStringView& name) const noexcept;
     [[nodiscard]] CStringView string_from(
         const std::uint32_t id,
         const std::uint32_t references_offset,

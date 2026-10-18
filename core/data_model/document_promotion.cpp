@@ -72,16 +72,20 @@ bool CLiveDocumentPromoter::build() noexcept
     {
         return false;
     }
+    document_translation::detail::CNativeValueCopier<CBakedDocument> copier{ m_destination, m_source };
+    if (!m_select_root_member && !copier.preload_strings())
+    {
+        return false;
+    }
     for (std::uint32_t index = 1u; index < m_values.size(); ++index)
     {
         SPromotedValue& value = m_values[index];
-        value.destination = document_translation::detail::create_value_copy(
-            m_destination, m_source, value.source, m_source.name(value.source));
+        value.destination = copier.copy(value.source, {}, false);
         if (!value.destination.is_valid())
         {
             return false;
         }
-        if (!m_destination.append_child(m_values[value.parent_index].destination, value.destination).succeeded())
+        if (!m_destination.append_constructed_child(m_values[value.parent_index].destination, value.destination).succeeded())
         {
             return false;
         }

@@ -1958,6 +1958,85 @@ static void test_copy_routes(TTestContext& ctx)
         (destination.value_count() == count) && destination.check_integrity());
 }
 
+//  Arbitrary adapters retain checked attachment even when based on a native view.
+struct CDuplicateNameReader : CBakedDocument
+{
+    explicit CDuplicateNameReader(const CBakedDocument& source) noexcept : CBakedDocument(source) {}
+    [[nodiscard]] CStringView name(const CBakedValueIndex) const noexcept
+    {
+        return CStringView{ "duplicate" };
+    }
+};
+
+static void test_constructed_copy(TTestContext& ctx)
+{
+    CLiveDocument source;
+    TEST_EXPECT(ctx, source.initialise());
+    constexpr unsigned count = 1024u;
+    for (unsigned i = count; i != 0u; --i)
+    {
+        const std::string name = "name-" + std::to_string(10000u + i);
+        const std::string text = "text-" + std::to_string(10000u + i);
+        TEST_EXPECT(ctx, source.append_child(source.root(), source.create_string(
+            CStringView{ text.c_str(), text.size() }, CStringView{ name.c_str(), name.size() })).succeeded());
+    }
+    CBakedDocumentBlock block;
+    TEST_EXPECT(ctx, document_translation::bake(source, block));
+    const CBakedDocument baked = block.document();
+    CLiveDocument unready;
+    TEST_EXPECT(ctx, !document_translation::copy_subtree(unready, source, source.root(), CStringView{ "copy" }) &&
+        !document_translation::copy_subtree(unready, baked, baked.root(), CStringView{ "copy" }) && unready.initialise());
+    for (unsigned route = 0u; route < 4u; ++route)
+    {
+        CLiveDocument destination;
+        TEST_EXPECT(ctx, destination.initialise());
+        CLiveDocument& target = (route == 2u) ? source : destination;
+        CNodeKey copied;
+        if (route == 0u)
+        {
+            copied = document_translation::copy_subtree(target, source, source.root(), CStringView{ "copy" });
+        }
+        if (route == 1u)
+        {
+            copied = document_translation::copy_subtree(target, baked, baked.root(), CStringView{ "copy" });
+        }
+        if (route == 2u)
+        {
+            copied = document_translation::copy_subtree(target, source, source.root(), source.name(source.first_child(source.root())));
+        }
+        if (route == 3u)
+        {
+            TEST_EXPECT(ctx, document_translation::promote(baked, target));
+            copied = target.root();
+            CBakedDocumentBlock round_trip;
+            TEST_EXPECT(ctx, document_translation::bake(target, round_trip) && round_trip.bytes().size() == block.bytes().size() &&
+                std::memcmp(round_trip.bytes().data(), block.bytes().data(), block.bytes().size()) == 0);
+        }
+        TEST_EXPECT(ctx, copied && target.child_count(copied) == count && target.check_integrity());
+        CNodeKey original = source.first_child(source.root());
+        for (CNodeKey child = target.first_child(copied); child; child = target.next_sibling(child))
+        {
+            TEST_EXPECT(ctx, target.name(child) == source.name(original) && target.string_value(child) == source.string_value(original));
+            if (route == 2u)
+            {
+                TEST_EXPECT(ctx, target.name_id(child) == source.name_id(original) && target.string_value_id(child) == source.string_value_id(original));
+            }
+            original = source.next_sibling(original);
+        }
+        TEST_EXPECT(ctx, !original);
+        if (route == 2u)
+        {
+            TEST_EXPECT(ctx, target.append_child(target.root(), copied).rejection == ELiveAttachmentRejection::duplicate_object_name);
+            TEST_EXPECT(ctx, target.is_detached(copied) && target.erase(copied));
+        }
+    }
+    CLiveDocument checked;
+    TEST_EXPECT(ctx, checked.initialise());
+    const CDuplicateNameReader duplicate{ baked };
+    TEST_EXPECT(ctx, !document_translation::copy_subtree(checked, duplicate, duplicate.root(), CStringView{ "copy" }) &&
+        checked.value_count() == 1u && checked.check_integrity());
+}
+
 static void test_copy_depth(TTestContext& ctx)
 {
     CLiveDocument source, destination;
@@ -1983,18 +2062,61 @@ static void test_copy_depth(TTestContext& ctx)
     //  Promotion retains its iterative traversal and has no subtree-copy depth cap.
     TEST_EXPECT(ctx, document_translation::promote(baked, destination) &&
         (destination.value_count() == source.value_count()) && destination.check_integrity());
+    for (unsigned depth = 256u; depth < 1024u; ++depth)
+    {
+        const CNodeKey child = source.create_array();
+        TEST_EXPECT(ctx, source.append_child(parent, child).succeeded());
+        parent = child;
+    }
+    CBakedDocumentBlock deep;
+    TEST_EXPECT(ctx, document_translation::bake(source, deep) && document_translation::promote(deep.document(), destination) &&
+        destination.value_count() == source.value_count() && destination.check_integrity());
 }
 
 struct SFailingCopyAllocator
 {
-    std::size_t calls{}, fail_on{ SIZE_MAX };
+    std::size_t calls{}, fail_on{ SIZE_MAX }, maximum_bytes{ SIZE_MAX };
 
     static void* MV_STD_ABI_CALL allocate(void* const state, const std::size_t alignment, const std::size_t bytes) noexcept
     {
         auto& fixture = *static_cast<SFailingCopyAllocator*>(state);
-        return (fixture.calls++ == fixture.fail_on) ? nullptr : tests::allocate_test_memory(nullptr, alignment, bytes);
+        return ((fixture.calls++ == fixture.fail_on) || (bytes > fixture.maximum_bytes)) ? nullptr :
+            tests::allocate_test_memory(nullptr, alignment, bytes);
     }
 };
+
+static void test_sparse_copy_string_ids(TTestContext& ctx)
+{
+    CLiveDocument source;
+    TEST_EXPECT(ctx, source.initialise());
+    CNodeKey selected;
+    bool built = true;
+    for (unsigned i = 0u; i < 8192u && built; ++i)
+    {
+        const std::string text = "entry-" + std::to_string(10000u + i);
+        const CStringView view{ text.c_str(), text.size() };
+        const CNodeKey value = source.create_string(view, view);
+        built = value && ((i == 8191u) || source.erase(value));
+        selected = value;
+    }
+    TEST_EXPECT(ctx, built && source.name_id(selected).query_value() >= 8192u);
+    const CNodeKey array = source.create_array();
+    TEST_EXPECT(ctx, source.append_child(array, selected).succeeded());
+    SFailingCopyAllocator fixture;
+    fixture.maximum_bytes = 16384u;
+    memory::CMemoryAllocator allocator{ &fixture, &SFailingCopyAllocator::allocate, &tests::deallocate_test_memory };
+    memory::CMemoryContext context{ allocator };
+    {
+        const tests::TMemoryContextScope scope{ &context };
+        CLiveDocument target;
+        TEST_EXPECT(ctx, target.initialise());
+        //  A two-value copy must not allocate a dense map up to the late source ID.
+        const CNodeKey copy = document_translation::copy_subtree(target, source, array, {});
+        TEST_EXPECT(ctx, copy && target.child_count(copy) == 1u &&
+            target.string_value(target.first_child(copy)) == source.string_value(selected) && target.check_integrity());
+    }
+    TEST_EXPECT(ctx, context.is_attribution_empty() && source.erase(array));
+}
 
 static void test_promotion_failure_staging(TTestContext& ctx)
 {
@@ -2079,7 +2201,9 @@ int run_baked_document_tests()
     baked_document_storage_tests::test_baking_storage(ctx);
     document_copy_tests::test_copy_routes(ctx);
     document_copy_tests::test_copy_depth(ctx);
+    document_copy_tests::test_constructed_copy(ctx);
     document_copy_tests::test_promotion_failure_staging(ctx);
+    document_copy_tests::test_sparse_copy_string_ids(ctx);
 
     std::cout << "BakedDocument: " << ctx.passed << " passed, " << ctx.failed << " failed\n";
     return (ctx.failed == 0) ? 0 : 1;
