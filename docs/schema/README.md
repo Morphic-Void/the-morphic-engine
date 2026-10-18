@@ -17,7 +17,7 @@ interpret its current contracts.
 | [Runtime API](runtime-api.md) | Public entry points, file map, lifetimes, diagnostics and implementation limits. |
 | [Validation](validation.md) | Regression coverage and generated C++ layout checks. |
 | [Example](schema-example.json) and [notes](schema-example-notes.md) | Authoring example, expected layouts, numeric notation and materialisation rules. |
-| [Persistence and aggregation revision](persistence-and-aggregation.md) | Completed persistence contracts and reasoning; remaining aggregation and composition design, beginning with shared-schema aggregation. |
+| [Persistence and aggregation revision](persistence-and-aggregation.md) | Completed persistence contracts; remaining design starts with type-schema/default merging and document-only data merging, promoting stripped instances against their original schema. |
 | [Persistence milestone](../project/completed_milestones.md#schema-instance-and-bulk-data-persistence) | Completed eight-stage delivery, commit checkpoints and validation evidence, including gap zeroing; the implementation plan is retired. |
 | [Role and construction milestone](../project/completed_milestones.md#schema-role-attachment-and-construction) | Schema-independent blocks, atomic attachment, checked/trusted switching, indexed lookup and construction/reconciliation refinements. |
 | [Follow-on work](../backlog/schema_follow_on.md) | Future direction and unresolved design questions, separate from current requirements. |

@@ -122,6 +122,12 @@ Remaining discussions cover conversion, related representations,
 typed serialisation, selectable generation, aggregation/composition and source
 ingestion, as recorded in the
 [schema follow-on notes](schema_follow_on.md).
+The 18 October aggregation revision prioritises type-schema merging, with absent
+defaults yielding to explicit defaults. Data merging uses document-only working
+input/output; stripped instances are promoted against their original schema,
+then merged declarations are constructed using the merged schema. This design
+replaces the earlier binary-snapshot aggregation and matching-form interface
+proposal; implementation remains unselected.
 Configuration, localisation, state capture/reconstruction and graphics metadata
 remain potential consumers, to be selected as separate work.
 

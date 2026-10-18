@@ -114,22 +114,32 @@ retains the naming convention and migration mapping.
 
 ### Remaining aggregation and composition design
 
-Active design covers non-destructive definition merging and pairwise
-instance/bulk data aggregation. Checked/trusted schema switching is implemented
-on data roles. Blocks are schema-independent storage; initial role attachment
-validates or constructs a complete package. The earlier associated document-only
-aggregation assumptions need revisiting under this model. Agreed contracts include
-recursive instance specialisations, bulk data prefix matching, literal shared
-schema ownership, binary-preserving schema switching, transactional destination
-replacement, form conversion, scalar and presentation merging, normalisation,
-first-encounter ordering and zeroed unused storage in new aggregates. Public
-merges take two specialised source references without adapters or a schema
-argument; the views already carry their schema associations.
+The 18 October revision prioritises type-schema merging. A missing explicit
+default expresses no merge preference and yields to an explicit default;
+conflicting supplied defaults fail. Preserve the established scalar, array and
+presentation-merging rules, and validate type layout and interpretation.
 
-Remaining work includes result backing/view signatures, mixed live/baked overloads,
-diagnostics, reference translation, validation and implementation planning.
-Complete document composition remains separate: it assembles already reconciled
-sections and does not resolve collisions. See the
+Instance and bulk data merging now use document-only working input/output, with
+other forms converted at the boundary. Retained instance declarations contribute
+directly. Promote stripped instances against their original schema, recovering
+only differences from defaults or the immediate parent, before dropping binary
+from the working representation. Reconstruct missing bulk data descriptions as
+complete records. Later binary construction uses the merged schema and
+declarations, so adopted defaults and merged parent declarations may intentionally
+change instance values. Stripped data cannot recover lost explicit default-equal
+selections or presentation. Source storage remains unchanged.
+
+Recursive specialisations, bulk data prefix matching, transactional replacement,
+presentation merging and first-encounter ordering remain. The former binary
+snapshot equality rule, matching-form output selector, literal same-owner source
+precondition and specialised-role overload matrix are superseded. Concrete
+document interfaces, schema context, boundary ownership, metadata handling,
+diagnostics and reference translation remain to be designed. This is not an
+implementation plan. Implemented schema switching still preserves binary data;
+document merging and subsequent construction are separate operations.
+
+Complete document composition remains separate: it assembles already merged
+document sections and does not resolve collisions. See the
 [revision's remaining design](../schema/persistence-and-aggregation.md#next-discussion-shared-schema-aggregation).
 
 Direct final storage for description materialisation and selected type-definition

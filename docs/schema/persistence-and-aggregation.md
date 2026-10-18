@@ -4,48 +4,48 @@ License: MIT (see LICENSE file in repository root)
 File:   persistence-and-aggregation.md
 Author: Ritchie Brannan
 Drafting and editorial assistance: OpenAI Codex
-Date:   17 Oct 2026
+Date:   18 Oct 2026
 
 # Schema persistence and aggregation revision
 
 ## Status and scope
 
-This document records the revised direction and persistence discussion on
-14 October 2026, and the merge discussion on 15 October 2026, with their reasoning.
-The 17 October revision separates storage blocks from typed roles and
-implements atomic attachment and checked/trusted schema switching. Schema
-associations belong to data roles; blocks retain only document and binary storage.
-This supersedes earlier contained-role and associated-document-only assumptions.
-The version 1 persistence format and block interface, construction, Host
-persistence and diagnostic contracts below are also agreed.
-All eight persistence stages are complete, user-reviewed and committed, including
-the gap-zeroing follow-up. Stage 8 and that follow-up were committed in `dfe076d`.
-The completed scope includes naming, format validation and diagnostics, ownership,
-live baking, materialisation, stripping, Host complete-buffer preservation and
-end-to-end acceptance. The remaining functional work is definition merging,
-instance/bulk data aggregation and complete document composition, described
-separately below. The merge rules, form conversion, permitted-value policies,
-same-owner schema association, separate validated schema-switch contract,
-aggregation ownership and replacement, scalar equality, presentation merging,
-normalisation of retained descriptions and metadata, output ordering and binary
-layout recorded below are agreed direction. Pairwise aggregation interfaces with
-typed source references, destination overloads and output selection are also agreed below.
-Remaining interface decisions and the implementation plan are not yet settled;
-this revision does not authorise further implementation.
+This document records the persistence discussion of 14 October 2026 and the
+merge discussion of 15 October, revised on 17 and 18 October. Persistence is
+implemented. The schema role rework is user-reviewed and committed in `2b99f48`:
+blocks retain document and binary storage, while data roles carry schema
+associations and support atomic attachment and checked/trusted switching.
+The earlier persistence stages and gap-zeroing follow-up ended in `dfe076d`.
 
-The completed persistence implementation plan is retired. The
-[persistence milestone](../project/completed_milestones.md#schema-instance-and-bulk-data-persistence)
-records all eight delivery stages, commit checkpoints and validation evidence.
-Implemented interfaces and diagnostic representation are maintained in the
-[runtime API](runtime-api.md#completed-data-blocks). This revision remains active
-for aggregation and composition design and planning; that work is
-not completed or authorised for implementation by the persistence milestone.
+The 18 October design revision makes type-schema merging the first remaining
+focus. An absent explicit default expresses no preference during schema merging
+and yields to an explicit default. Conflicting supplied defaults fail. Data
+merging uses document-only working input and output, with other forms converted
+at the boundary. Retained instance declarations contribute directly. Stripped
+instances are promoted against their original schema before merging, recovering
+minimal differences along the defaults, instance and specialisation chain.
+Binary data is subsequently constructed from merged declarations using the
+merged schema; adopting a default may intentionally change the resulting values.
 
-The [schema specification](specification.md) and [runtime API](runtime-api.md)
-continue to describe implemented behaviour. This revision supersedes the earlier
-proposal that a combined file exposing types, instances and bulk data should be
-the mandatory normal persistence form. It also develops the packaging discussion
-in the [follow-on notes](../backlog/schema_follow_on.md#document-and-binary-packaging).
+This supersedes the previous binary-snapshot aggregation rules, matching-source
+form selection, same-owner source-binding precondition, and specialised-role
+source/destination overload proposal. Scalar and presentation merging, recursive
+instance hierarchy merging, array rules, bulk data prefix matching, transactional
+replacement and output ordering remain applicable as revised below. The existing
+binary-preserving schema-switch and persistence contracts are unchanged.
+
+Definition merging, instance/bulk data aggregation and complete document
+composition remain unimplemented design work. Concrete interfaces, boundary
+conversion details, diagnostics and an implementation plan are not yet settled.
+This revision does not authorise implementation.
+
+The [persistence milestone](../project/completed_milestones.md#schema-instance-and-bulk-data-persistence)
+and [role milestone](../project/completed_milestones.md#schema-role-attachment-and-construction)
+record completed work. The [schema specification](specification.md) and
+[runtime API](runtime-api.md) describe implemented behaviour. This revision
+remains the design reference for follow-on merging and composition; a combined
+file containing types, instances and bulk data is not the mandatory runtime or
+persistence form.
 
 ## Expected use and reasoning
 
@@ -760,87 +760,110 @@ follow-on capabilities, separate from the completed persistence scope.
 | Operation | Responsibility |
 | --- | --- |
 | Definition merging | Reconcile independently produced type definitions and their dependencies. |
-| Instance aggregation | Combine instance groups and their binary snapshots while preserving specialisation relationships. |
-| Bulk data aggregation | Combine bulk data groups and their binary records. |
+| Instance aggregation | Merge instance declarations and their specialisation hierarchy in document form. |
+| Bulk data aggregation | Merge bulk data groups and complete record descriptions in document form. |
 
 ### Agreed non-destructive merge rules
 
-Merging combines supplied information without silently replacing conflicting
-content. A field present in only one source is included in the result. A field
-present in both sources must merge successfully under the following rules;
-otherwise the entire merge fails. Absence is not a conflicting value, whereas
-an explicit null or empty value is supplied content.
+The merge core combines document content. A field present in only one source is
+included in the result. Content supplied by both sources must agree under the
+following rules or the entire merge fails. There is no automatic renaming or
+first/last-source precedence for conflicting values. Schema-aware structural
+checks still apply; generic object union must not change the layout or
+interpretation of a same-name type.
 
 | Content | Merge rule |
 | --- | --- |
-| Objects | Combine fields recursively. |
-| Scalar values | Require matching values; conflicting values or incompatible value kinds fail. |
-| Arrays other than the outer bulk data record sequence | Require equal lengths and merge corresponding elements recursively when directly merging descriptions. No prefix extension. |
-| Outer bulk data record sequence | The shorter sequence must exactly match the prefix of the longer under the agreed value-comparison rules. Retain the longer sequence. |
+| Objects | Combine fields recursively, subject to the schema type rules below. |
+| Scalar values | Require matching values under the document scalar equality rules. |
+| Arrays other than the outer bulk data record sequence | Require equal lengths and recursively merge corresponding elements. No prefix extension. |
+| Outer bulk data record sequence | Require the shorter sequence to match the longer prefix under the document value rules; retain the longer sequence. |
 
-The bulk data prefix rule is an exception for the sequence of records in an
-entry, not a rule for arbitrary arrays. Arrays inside binary records retain the
-shape required by the common definition schema. Document scalar equality and
-presentation merging follow the agreed rules below; compatible binary layout
-alone is not definition equality.
+The equal-length rule includes type-definition arrays, defaults supplied by both
+sources, instance declaration arrays, positional structure descriptions and
+supported auxiliary-metadata arrays. An array field supplied by only one source
+survives. Arrays are not matched by embedded names, treated as sets or implicitly
+concatenated. A valid short instance initializer remains a short initializer;
+its default/inheritance completion does not relax the merge length rule when
+both declarations explicitly supply that array.
 
-The equal-length rule covers type-definition arrays (including default arrays),
-instance declaration arrays, positional structure descriptions and supported
-auxiliary-metadata arrays. An array field supplied by only one source survives
-under the missing-field rule; when both supply it, the applicable length rule
-applies. Array elements are not matched by embedded names or treated as sets,
-and arrays are not implicitly concatenated. Arrays inside individual bulk data
-records retain their schema-defined shape.
+### Type-schema merging and defaults
 
-An instance declaration may validly supply only a prefix of a fixed-size array,
-with omitted values supplied by defaults or inheritance. This existing construction
-behaviour does not make the underlying value variable-length or extend the bulk
-data prefix exception to instance arrays. Direct document-only merging still
-requires equal lengths where both descriptions supply the array. Binary-backed
-sources instead compare authoritative snapshots and normalise descriptions;
-differing lengths in stale or redundant retained descriptions do not independently
-create a conflict. An explicit conversion of document-only sources into binary
-form may likewise establish their effective values before binary comparison.
+Type-schema merging is the first remaining work item. Distinct type names are
+included together. Same-name types must retain compatible layout and value
+interpretation, including their referenced definitions. Members, member order,
+array extents, enum definitions and bit-field interpretations cannot be silently
+extended or changed by ordinary missing-field merging. Definition references and
+source-local identities must be translated, and the complete result must resolve
+successfully before publication.
 
-Definitions with the same type name are combined under these recursive rules.
-Defaults and semantic metadata participate: missing fields can be added, but
-conflicting supplied values fail. Matching names do not require identical sets
-of supplied fields.
-Distinct type names are included together. Definition references and document
-identities must be translated into the destination, and the combined definitions
-must remain valid. Automatic renaming and first/last-source conflict precedence
-are not part of this merge.
+Explicit defaults use the following merge policy:
 
-Instance and bulk data aggregation requires the literal same usable definition
-schema owner for every source and the result. Independently loaded or resolved
-owners do not meet that requirement merely because their definitions match.
-Aggregation checks the association; it does not compare separate schemas,
-switch bindings or reconcile definitions implicitly. Callers explicitly switch
-sources to the chosen common owner using the operation below before aggregating.
-Definition merging is separate: extending a definition does not automatically
-make existing binary data compatible with its resulting layout.
+| Source defaults | Result |
+| --- | --- |
+| Neither source supplies a default | Leave the default unspecified. |
+| Only one source supplies a default | Retain that explicit default and its presentation. |
+| Both supply matching defaults | Merge them using the existing scalar, array and presentation rules. |
+| Both supply conflicting defaults | Reject the merge. |
 
-Base instances collide by type and name. Matching bases must have matching own
-content, with child specialisations combined recursively rather than compared
-as one indivisible subtree. Under a matching parent, distinct specialisation
-names are included; colliding names require matching own content and recursive
-combination of their children. Own content follows the document merge rules and,
-where binary data exists, the snapshot comparison rules below. Each complete
-snapshot remains authoritative; merging children does not recompute it from
-the merged parent.
+A missing default means no preference for this merge. It is not an explicit zero,
+null or empty array. Runtime construction still gives an omitted default its
+ordinary effective meaning: zero, the first enum value, or nested type defaults.
+The merge must preserve whether a default was supplied until this policy has
+been applied; comparing only effective defaults would wrongly reject an absent
+zero default against an explicitly supplied nonzero default. An explicit null
+is not absence and remains invalid wherever the schema disallows it.
 
-Bulk data entries collide by type and name. Their metadata follows the document
-merge rules and their record sequences follow the prefix rule. This is not
-concatenation: two differing record prefixes fail rather than being appended.
-Instance and bulk data names occupy separate domains.
+The rule applies at each supported default declaration, including members and
+bit fields. When only one source supplies an array default, retain that supplied
+array. When both supply arrays, the existing equal-length and recursive-value
+rules apply. Omitted tails are completed by normal construction after merging;
+merging does not expand an array default to its declared extent.
 
-Source handles, document identities, payload offsets and resolved type indices
-are not destination identities. Aggregation must remap parents and references
-and construct valid destination locators. Generated storage metadata such as
-offsets, payload sizes and the resulting bulk data count is derived from the
-output, rather than treated as conflicting user content merely because source
-placements or sequence lengths differ. Output placement follows the agreed
-ordering and binary layout rules below.
+Adopting an explicit default can intentionally change the binary reconstructed
+for instances that omit that value. This is distinct from schema switching,
+which preserves an already constructed binary package. Conflicting explicit
+instance values still fail document merging; an explicit instance declaration
+takes precedence over the resulting schema default.
+
+For example, if one schema omits the default for `speed` and the other supplies
+`10`, the merged schema supplies `10`. An instance declaration omitting `speed`
+then constructs `10`; a declaration explicitly supplying `speed: 0` constructs
+zero. Two explicit schema defaults of `0` and `10` conflict.
+
+Presentation-only differences do not establish a type conflict. Preserve and
+combine them under the presentation rules below. The existing resolved-type
+comparison and output facilities are reusable foundations, but definition
+comparison alone is not this merge policy: the merge needs supplied-default
+presence as well as resolved layout and interpretation.
+
+### Instance and bulk data document merging
+
+Base instances collide by type and name. Merge their declarations under the
+document rules and combine child specialisations recursively. Under a matching
+parent, distinct specialisation names survive; matching names merge their own
+declarations and children. A missing declaration contributes no explicit values.
+Absence follows schema defaults for a base and parent inheritance for a
+specialisation. It does not demand equality with another source's previously
+materialised snapshot.
+
+The resulting instance binary is constructed from the merged declarations and
+merged schema, visiting each parent before its specialisations. New defaults or
+merged parent declarations may therefore change inherited values. This is
+intentional reconstruction, not preservation of source snapshots.
+
+Bulk data entries collide by type and name. Merge supported metadata under the
+document rules and apply the prefix rule to their complete record sequences.
+Bulk data records must be fully specified; defaults do not fill missing record
+values. Prefix matching is not concatenation, and arrays within each record keep
+the shape required by the type schema. Instance and bulk data names occupy
+separate domains.
+
+Source handles, resolved type indices and payload offsets are not destination
+identities. Translate references and parents. Storage-derived metadata such as
+locators, payload size and record counts must be removed or regenerated at the
+boundary rather than treated as conflicting user content. Old locators must
+never make reconstructed output appear to borrow discarded source bytes.
 
 ### Agreed document scalar equality
 
@@ -923,67 +946,45 @@ of presentation and do not grant precedence for semantic conflicts.
 
 ### Agreed aggregation ownership and replacement
 
-Instance and bulk data aggregation borrow their sources for the duration of the
-operation and construct an independently owned result. The destination may be
-empty or occupied, and may itself be explicitly supplied as a source. An occupied
-destination does not implicitly contribute its content to the merge: only the
-two explicit source arguments determine the input.
+Merging borrows two explicit sources and constructs independently owned document
+output. The destination may be empty or occupied and may itself be explicitly
+supplied as a source. An occupied destination does not implicitly contribute its
+content: only the two source arguments determine the merge.
 
 | Destination on entry | Successful operation |
 | --- | --- |
-| Empty | Publish the completed result. |
-| Occupied, not a source | Replace its old content with the aggregate of the explicit sources. |
-| Occupied and explicitly a source | Read its original content during construction, then replace it with the aggregate. |
+| Empty | Publish the completed document result. |
+| Occupied, not a source | Replace its old content with the merge of the explicit sources. |
+| Occupied and explicitly a source | Read its original content, then replace it with the merge. |
 
-Construct the entire replacement privately, including its document, any binary
-payload, schema binding and specialised runtime lookup state. Validate the source
-associations, permitted values, merge compatibility and requested output form
-before committing the replacement. The final commit must not fail: all fallible
-validation, conversion and allocation finish before the destination is changed.
-Only once the replacement is complete and ready may the displaced destination
-state be released under its existing ownership rules. Peak memory may therefore
-include both the old destination and the full replacement.
+Construct and validate the replacement privately. All fallible validation,
+translation and allocation finish before destination publication; the final
+replacement must not fail. Failure discards temporary state and preserves the
+sources and destination, including any associated payloads, bindings, ownership
+and existing handles/views. Success invalidates old destination handles/views;
+other sources remain unchanged. Peak memory may include the old destination,
+converted working inputs and the complete replacement.
 
-This staging permits destination/source aliasing without overwriting input still
-needed by the merge. The result owns independent document and binary storage;
-it does not borrow storage from any source or from the displaced destination.
-Specialised data destinations bind to the same caller-owned schema as the sources
-through the existing binding mechanism. A separately backed specialised result
-requires both its document and complete binary package; the role carries the
-schema association. Generic document-only output has no attached data role.
-The source/result interfaces for document-only aggregation remain to be settled
-under this boundary. The old destination's content and binding are not source
-preconditions unless that destination is also one of the two sources.
+The document-only merge result has no data-role binding and borrows no source
+storage. A later binary-construction operation attaches a role to the selected
+merged schema using the existing contracts. Failure of that separate operation
+does not retroactively undo an already completed document merge. If a future
+convenience operation combines conversion, merge and construction, it must stage
+all requested output before publication; its interface is not yet selected.
 
-Any failure before commit discards temporary construction state and preserves
-every source and the destination, including their documents, payload bytes,
-schema bindings, loaded state, backing ownership and existing handles/views.
-Temporary allocations and bindings are released. No partial result is published,
-and no failed operation requires the caller to reconstruct the prior destination.
+Callers keep borrowed documents, any conversion payloads and the schemas used
+for conversion/validation usable and unchanged throughout their operations.
+They prevent concurrent mutation of sources and concurrent access to the
+destination during replacement. This introduces no new synchronisation or
+lifetime mechanism.
 
-On success, sources other than the destination remain unchanged. If the
-destination is also a source, replacement of its original state is intentional.
-Callers must treat handles and views obtained from the old destination as invalid
-after successful replacement; they must reacquire them from the result.
-
-The caller keeps all borrowed source documents, payload backing and the common
-schema usable and unchanged during construction. It prevents concurrent mutation
-of sources and concurrent access to the destination during replacement. This is
-transactional replacement, not a concurrent-publication guarantee, and introduces
-no new lifetime or synchronisation mechanism.
-
-For Host-backed inputs or an occupied Host-backed destination, the caller retains
-the existing assets through construction and replacement. Aggregation constructs
-a new locally owned result; it does not overwrite the old asset, modify a bundle
-entry, acquire asset references or send disposal requests. Clearing displaced
-borrowed state follows the existing block contract. The caller releases any old
-asset retention only once no remaining consumer needs it. Successful replacement
-does not automatically admit or save the new result through the Host.
-
-These are agreed aggregation contracts. The overload families are specified
-below; the internal mechanism for committing fully prepared state remains to be
-designed. Existing empty-destination requirements of persistence construction
-APIs are unchanged.
+Host-backed sources remain borrowed. Merging does not overwrite assets or bundle
+entries, acquire asset references, send disposal requests, admit output or save
+it automatically. Displaced borrowed state follows the existing ownership
+contract; callers release old asset retention only after remaining consumers
+have finished. Exact destination signatures and the internal non-failing
+replacement mechanism remain design work. Existing persistence APIs retain
+their empty-destination requirements.
 
 ### Separate validated schema-switch operation
 
@@ -1004,369 +1005,229 @@ Trusted switching can restore a known-compatible association after schema loss.
 The full implemented contract is in the
 [runtime API](runtime-api.md#initial-attachment-and-schema-switching).
 
-This replaces the earlier default-conflict table, document-only switching and
-contained-role proposals. Remaining aggregation designs below must use the new
-role/storage boundaries; document-only aggregation source/result handling needs
-revisiting before implementation.
+This replaces the earlier document-only switching and contained-role proposals.
+The document-only merge workflow below is a separate construction operation: it
+can adopt defaults and rebuild binary, while switching preserves the existing
+package. It neither requires a successful checked switch before merging nor
+changes the implemented switching contract.
 
 ### Agreed source and result forms
 
-Without a requested result form, the merge requires every source to have the
-same complete form from the table below and produces that form. With an explicit
-result form, mixed sources may be normalised through promotion, materialisation
-or stripping in private working storage. The source form is classified by the
-available descriptions and binary content, including the stripped marker where
-applicable, rather than by live/baked storage or loose-file/bundle backing.
+The merge core has one semantic working form: document-only input and output.
+Other forms are converted at the boundary. This does not yet select live versus
+baked document storage as the public API representation; existing document query
+and copying facilities may avoid unnecessary physical conversions. Type-schema
+merging consumes definitions, including explicit-default presence and presentation,
+and produces a separately validated definition document.
 
-| Result form | Required content |
+| Data input | Preparation before document merging |
 | --- | --- |
-| Document only | Descriptions sufficient to represent the data without a binary payload. |
-| Document + binary | Complete descriptions and the authoritative binary data. |
-| Stripped document + binary | Navigation, type associations and locators with the authoritative binary data; value descriptions omitted. |
+| Ordinary instance declarations, with or without retained binary | Use the declarations directly. Omitted values remain omitted. |
+| Stripped instances with complete binary | Promote against the original schema, then use the reconstructed declarations without the binary package. |
+| Complete bulk data descriptions | Use the complete record descriptions. |
+| Stripped or reference-only bulk data with complete binary | Reconstruct the missing complete record descriptions against the original schema before merging. |
 
-A stripped document without its payload is not a complete merge source. An
-occupied destination's existing content does not select or constrain the result
-form. Its existing form participates in source-form checks only when it is
-explicitly supplied as a source. The destination owner's type must support the
-selected result form as specified below. Live and baked documents can share a
-conceptual form, as can loose-file and bundle-backed sources.
+A stripped input without its required binary is incomplete and cannot be
+converted. Zero-byte types still require the explicit complete-package route;
+a zero-length payload is not a request to invent missing data. Partially described
+bulk data must become complete at the boundary; exact conversion APIs remain to
+be designed. Record counts and shapes must validate rather than being silently
+repaired.
 
-Partially described or reference-only bulk data with a complete supplied payload
-requires an explicitly selected result form. This includes existing bulk data
-`EDataOutputForm::external` output that omits record descriptions without setting
-the stripped marker, and sources mixing described and reference-only entries.
-Such inputs are rejected by default matching-form operation, even if all sources
-have the same incomplete descriptive coverage. Explicit selection permits
-normalisation to full descriptions or stripped output; it does not introduce a
-fourth, partially described result form. The required payload must still be
-present and valid.
+For stripped instances, promotion must use the original schema, before its
+association is lost or replaced. Base instances are reconstructed as differences
+from that schema's effective defaults. Each specialisation is reconstructed as
+differences from its immediate parent's complete snapshot, which already reflects
+the preceding defaults/instance/specialisation chain. Promotion does not populate
+every member. Unchanged nested members and wholly unchanged declarations are
+omitted. Arrays retain the shortest prefix through their last changed element;
+earlier equal elements appear only as needed to preserve positional meaning.
 
-The selector and overload families below express the default matching-form
-policy and explicit selection requirement for partially described bulk data.
-Existing `EDataOutputForm` values are not a direct mapping to these three complete
-forms; selection uses a separate aggregation enum. Internal mapping to existing
-construction paths remains implementation work.
+A child restoring a schema-default value still declares it when it differs from
+the immediate parent; promotion compares against the parent, not directly against
+the schema at every level.
 
-Descriptions can be materialised when the caller explicitly supplies a schema;
-how document-only sources enter aggregation remains an interface decision.
-Retained descriptions can be stripped while preserving binary data. Binary-backed sources
-can be promoted to full descriptions, including document-only output, using the
-authoritative binary values. Internal conversion is allowed where useful; an
-unnecessary conversion need not be performed when direct comparison and copying
-produce the required result. No partially described result form is introduced.
+For example, a stripped base storing `speed = 0` under an original implicit-zero
+default promotes with `speed` omitted. If the merged schema adopts default `10`,
+reconstruction from that declaration produces `10`, as intended. Promoting against
+the merged schema instead would emit an explicit zero to preserve the old
+snapshot, defeating this default-adoption policy.
 
-For example, a retained three-record source and a stripped five-record source
-with a matching prefix fail the matching-form precondition. An explicit stripped
-result retains five records; an explicit full-description result reconstructs
-the needed descriptions and retains five records. Neither route silently drops
-records or presents three descriptions as a complete five-record description.
+Stripping has already erased whether a default-equal value was originally
+explicit. The minimal reconstructed declaration becomes the merge input; that
+lost distinction and value presentation cannot be recovered. Ordinary retained
+instance declarations are not automatically promoted or reconciled: doing so
+could remove explicit values or presentation that remain available to merge.
+Binary edits intended to contribute must be explicitly reconciled first. The
+merge does not silently refresh retained declarations from binary data.
+
+Promotion currently produces a live role with its own document and payload.
+The planned boundary conversion must extract independent document-only storage
+and remove or invalidate storage-derived metadata before releasing temporary
+binary ownership. It must not create a live/baked data role attached without a
+complete binary package. Source blocks, roles, payloads and bindings remain
+unchanged; dropping binary refers to the working representation, not destroying
+source storage.
+
+The workflow is: merge type definitions; prepare document inputs, using original
+schemas wherever promotion is required; merge declarations/complete records;
+then optionally construct binary with the merged schema. These first two steps
+may be ordered independently provided original schemas remain available and
+promotion is not redirected to the merged schema.
+
+The previous matching-source-form policy and aggregation-specific output-form
+selector are superseded. Live/baked storage, retained/stripped inputs and final
+persistence forms belong to boundary conversion. Existing attachment,
+materialisation and output facilities supply later binary/persistence output;
+merging does not itself promise to preserve source binary bytes.
 
 ### Agreed pairwise aggregation interfaces
 
-Use synchronous free functions `aggregate_instances(...)` and
-`aggregate_bulk_data(...)` taking exactly two borrowed source references and one
-destination. Public overloads distinguish live and baked specialised source
-types: `CLiveInstances` / `CBakedInstances` and `CLiveBulkData` / `CBakedBulkData`.
-There are no public source adapters, source arrays or source-count arguments.
-Combining more than two sources is the caller's sequence of pairwise merges.
+The operations remain separate and pairwise: type-schema merging, instance
+aggregation and bulk data aggregation each combine two explicit sources into
+one independently owned result. First-source then second-source encounter order
+and transactional replacement remain applicable. Combining additional sources is
+a sequence of pairwise operations.
 
-Completed blocks provide document/payload views to separately attached roles;
-local or Host-backed storage does not require another source kind.
-The first source is processed before the second for first-encounter ordering.
-The destination may alias either source, with replacement only after successful
-construction. All source backing and schema lifetime requirements remain the
-caller's responsibility through the operation.
+The previous specialised-role overload matrix, prohibition on a schema argument,
+and requirement that all sources already bind the literal same schema owner are
+superseded by the document-only working form. Generic documents do not carry a
+schema binding. Original schemas are needed for stripped-input promotion, while
+the merged schema supplies the context for validation and later construction.
+Already attached sources need not first undergo a binary-preserving switch to
+the merged owner merely to contribute their declarations.
 
-There is no schema argument. Both sources must already expose an association
-with the literal same usable schema owner. The operation observes those bindings,
-rejects different or unusable owners, and binds a specialised result to the common
-owner. An occupied destination's old association is irrelevant unless it is also
-a source. Aggregation never establishes a substitute source association or performs
-an implicit validated schema switch.
+Concrete source/view types, destination ownership and schema-context parameters
+remain to be specified. Prefer one merge implementation over the standard document
+form, with live/baked and binary-backed conversion at the boundary. No new public
+adapter, universal owner, attached document-only role state or overload family
+is selected by this revision.
 
-The specialised source interface, schema binding and backing storage are distinct.
-Generic documents carry no binding. Initial attachment now produces a complete
-binary package, so the previous associated document-only source proposal is
-superseded. Its aggregation interface must be reconsidered before implementation.
-
-Source backing may be owned locally or retained through the Host. Aggregation
-borrows the specialised views over that storage; observing the schema binding
-does not transfer backing ownership or add retention. There remains no schema
-parameter or public adapter at the merge boundary.
-
-Internal adapters or promotion to a standard working form may share implementation
-between overloads while preserving the agreed data and failure contracts. Mixed
-live/baked pairs can be represented by explicit overloads; the supported mixed-pair
-matrix remains to be specified. These choices introduce neither a universal
-result owner nor another lifetime mechanism.
-
-The existing destination types supply these backing and interface facilities:
-
-| Destination facility | Backing and specialised interface | Supported result form |
-| --- | --- | --- |
-| `CLiveDocument` | Generic editable document backing, without a schema association. | Document only; aggregation result interface unresolved. |
-| `CBakedDocumentBlock` | Generic baked document backing, without a schema association. | Document only; aggregation result interface unresolved. |
-| `CLiveInstances` / `CLiveBulkData` | Own working document/payload storage and expose the specialised interface. | Full descriptions and binary data, editable. |
-| `CBakedInstancesBlock` / `CBakedBulkDataBlock` | Own or attach complete backing; typed roles attach separately. | Completed document + binary or stripped document + binary. |
-
-The generic owners in this table are backing facilities, not interchangeable
-schema-associated source views. For overloads involving separate backing and
-views, the remaining interface task is to specify which backing and specialised
-view the operation replaces or returns. Document-only source/result handling
-must be revised before implementation; it cannot rely on an attached data role
-without binary storage. A specialised result uses the common schema owner
-obtained from the sources, and its backing must remain valid for its lifetime.
-
-Where new backing is required, prepare that storage and the corresponding view
-before publishing the result. Aggregation or form conversion may need replacement
-backing, while the old backing and caller retention remain valid until successful
-publication. Schema switching preserves the existing description, payload and
-backing in both modes. Shared Host storage is not implicitly rewritten.
-
-Every destination overload supports the agreed empty/occupied and explicit
-destination/source aliasing contracts through private construction and replacement.
-Passing a role borrowing destination storage as either source
-is a supported aliasing case. Existing owners containing a specialised interface
-remain the natural destination arguments; exact signatures for separate
-backing/view results remain to be refined.
-
-The destination type constrains which selected forms it can hold; it does not
-silently select a different form or authorise conversion. An incompatible
-form/destination combination fails while preserving all inputs and the destination.
-For example, a live specialised destination cannot receive stripped output.
-`matching_sources` with document-only inputs cannot silently materialise a binary
-result merely because a completed-block destination was supplied.
-
-Use these aggregation-specific selection types:
-
-```cpp
-enum class EAggregationOutputForm : std::uint8_t
-{
-    matching_sources = 0u,
-    document_only,
-    document_and_binary,
-    stripped_document_and_binary
-};
-
-struct SAggregationOptions
-{
-    EAggregationOutputForm form{
-        EAggregationOutputForm::matching_sources };
-    bool compare_embedded{};
-};
-```
-
-`compare_embedded` requests the strict retained-description consistency check
-before normalisation. Without it, binary-authoritative refresh applies. Matching
-source form is the default; conversion of mixed forms and partially described
-bulk data requires an explicit result selection as agreed above.
-
-The agreed operation shape is illustrated by one overload:
-
-```cpp
-[[nodiscard]] bool aggregate_instances(
-    const CLiveInstances& first,
-    const CLiveInstances& second,
-    CBakedInstancesBlock& destination,
-    const SAggregationOptions& options,
-    SInstancesAggregationDiagnostic& diagnostic) noexcept;
-```
-
-Provide corresponding overloads for baked specialised sources and each supported
-destination. `aggregate_bulk_data(...)` mirrors this shape with two bulk data
-role references, the bulk data destination owners and
-`SBulkDataAggregationDiagnostic`. The schema is obtained from the source bindings
-whether that owner is live or baked; it is not another public parameter.
-
-The `bool` result and diagnostic-output shape are agreed. Diagnostic names above
-remain provisional until their contents and location contracts are designed.
-Separate result backing/view signatures, mixed live/baked source-pair overloads,
-same-object-as-both-sources behaviour and the internal replacement mechanism
-remain to be specified. The interface accepts a pair, so empty and single-source
-lists are not public API cases. These are planned interfaces, not declarations
-already implemented in the codebase.
+The earlier proposed `EAggregationOutputForm`, `SAggregationOptions` and
+role-to-block `aggregate_instances(...)` / `aggregate_bulk_data(...)` signatures
+are retired design proposals, not implemented APIs. Output form selection and
+optional consistency checking belong to explicitly designed boundary operations.
+The `bool` plus diagnostic-output convention can be retained; diagnostics must
+distinguish conversion, definition conflicts, declaration conflicts and final
+validation/construction failures. Exact structures and location lifetimes remain
+open, including how diagnostics relate temporary promoted nodes to original input.
 
 ### Agreed normalisation of descriptions and metadata
 
-For binary-backed sources, binary values determine merge compatibility. Retained
-value descriptions are a secondary representation and do not override those
-values. Where the result needs descriptions, normalisation produces descriptions
-consistent with the authoritative binary data. Consistent descriptions may be
-reused; stale values are replaced in private result storage. A stripped result
-omits value descriptions as requested. Neither route changes a source before
-the agreed destination replacement commit.
+Document values determine merge compatibility after boundary preparation.
+Retained declarations are not automatically replaced by binary-authoritative
+reconstruction. If raw binary edits should contribute, the caller explicitly
+reconciles them before merging. Optional consistency checking may reject a
+mismatch at the boundary; it must not silently select another source of truth.
+Ordinary persistence loading remains binary-authoritative under its existing
+contract.
 
-For example, two colliding records whose binary `speed` member is `12` can merge
-even if their retained descriptions say `10` and `12`; the resulting description
-must represent `12`. If their binary `speed` values differ, the collision fails
-even if their descriptions match. Here `speed` is an ordinary schema-defined
-value member. Record counts and array lengths are structural constraints, not
-stale scalar descriptions to repair: they must satisfy source validation and
-the agreed array and bulk data prefix rules. Output counts are derived from the
-successfully merged structure; inconsistent source counts are not silently fixed.
+For instances, preserve explicit selections and omissions through document
+merging. A missing selection adopts the merged schema default or merged parent
+value during later construction. Do not expand every member into the working
+document or minimise existing declarations against the merged defaults, since
+either can change the intended default/inheritance behaviour. Stripped inputs
+use the minimal declarations obtained under their original schema as described
+above. Bulk data preparation produces complete records, not default-dependent
+instance declarations.
 
-Stale retained values do not independently create conflicts after normalisation.
-This is a consequence of binary authority, not permission to discard conflicting
-semantic metadata. Document-only sources have no separate binary truth: their
-descriptions are authoritative and follow the agreed document merge rules.
-
-Description-versus-binary consistency checking remains opt-in. If explicitly
-requested, a discrepancy fails validation before normalisation can replace or
-strip the stale description. Otherwise, normalisation follows the authoritative
-binary values. This does not weaken structural or permitted-value validation,
-and it does not change routine persistence loading behaviour.
-
-| Content | Normalisation policy |
+| Content | Preparation and merge policy |
 | --- | --- |
-| Integer notation, minimum digits, prefixes and newline-escaping preferences | Preserve where applicable to the corresponding reconstructed value; combine using the agreed presentation rules. |
-| Names, type associations and instance hierarchy | Preserve their meaning and remap runtime identities as required. |
+| Retained integer notation, minimum digits, prefixes and newline-escaping preferences | Preserve and combine under the agreed presentation rules. |
+| Reconstructed values with no retained presentation | Use existing schema/output defaults; lost source presentation is unavailable. |
+| Names, type associations and instance hierarchy | Preserve meaning and translate source-local identities. |
 | Supported annotations and other non-value semantic fields | Preserve and merge recursively; conflicting supplied content fails. |
-| Locators, payload size, resulting record counts and stripped-state markers | Regenerate for the output form and layout rather than merge source storage details. |
+| Locators, payload size, resulting record counts and stripped-state markers | Remove or regenerate at the relevant conversion/construction boundary. |
 
-A stale value can still carry valid presentation intent. If a retained integer
-is written as `0x000A` but its authoritative value is `12`, reconstruction can
-produce `0x000C`, preserving its four-digit hexadecimal preference. Recalculate
-integer storage-width metadata where necessary so that it remains valid for
-the reconstructed value; presentation does not constrain storage to an invalid
-width.
-
-Where a reconstructed value has no retained presentation preference, use the
-existing schema/output defaults. A generated default must not override an
-explicit retained preference merely because reconstruction happened internally.
-Presentation preferences from retained sources combine under the agreed radix,
-digit, prefix and newline-escaping rules. Stripped output deliberately removes
-value descriptions and their attached presentation preferences; no hidden
-storage is introduced to retain them.
-
-Auxiliary metadata preservation applies only to content supported at its
-location. Current specialised entry formats and completed-file roots restrict
-their permitted properties. Normalisation does not introduce arbitrary annotation
-fields or silently accept unknown properties: unsupported content fails validation
-rather than disappearing. Permitted non-value semantic content is not replaced
-by binary reconstruction and remains subject to ordinary merge conflicts.
-
-Concrete handling of value-path correspondence, presentation provenance during
-reconstruction, consistency-check options and diagnostics remains implementation
-design work. The normalisation policies themselves are settled.
+Supported annotations remain limited by each existing document format. This
+revision neither introduces arbitrary annotation fields nor permits unsupported
+content to disappear silently. Validation must reject unsupported properties.
+Presentation merging applies to equal supplied values; it cannot resolve a
+semantic conflict or recreate preferences removed by stripping.
 
 ### Agreed binary equality and permitted values
 
-Binary comparison uses the common definition schema. Colliding instances compare
-their own complete snapshots; bulk data entries compare corresponding records
-over the shorter sequence. Stripped descriptions do not remove binary fields
-from comparison. Binary values derived from defaults or inheritance still
-participate even where no explicit document field was supplied.
+The earlier rule requiring colliding instance snapshots to match is superseded.
+Existing binary is input to explicit boundary reconstruction where descriptions
+are unavailable; it is not a second equality condition on a document merge.
+Schema-default changes and merged parent declarations can intentionally change
+new instance snapshots. Bulk data prefix matching compares the complete document
+records obtained at the boundary under the document scalar and array rules.
 
-Padding is ignored when deciding whether binary data matches. Storage placement
-and gaps between entries likewise do not establish value conflicts. For types
-that permit NaNs, NaN payload differences do not matter. Other addressable
-encodings must match; the merge introduces no numerical tolerance. The existing
-`compare_encoded` implementation already ignores padding and unused bit positions
-and treats NaN payloads as equivalent, providing a comparison foundation.
+Conversion must validate that supplied binary values can be represented under
+the applicable schema. Noncanonical booleans and enum values without declared
+labels remain invalid conversion input. The permitted fp16 domain excludes
+infinity and NaN; stripped input must not bypass that restriction. This does not
+change ordinary persistence loading or select a new fp16 conversion policy.
 
-Noncanonical boolean encodings and enum values without declared labels are
-invalid merge input. The permitted fp16 domain excludes infinity and NaN.
-Existing fp16 nonfinite encodings must not be admitted through stripped input.
-Conversion from wider values into fp16 follows the intended finite-output
-conversion policy; this is distinct from accepting an already encoded forbidden
-fp16 value. The fp16 policy is deliberate for real-time use and must not be
-changed to preserve infinity or NaN as part of this work.
+Existing promotion and reconciliation verify that generated declarations
+reproduce meaningful source values under the original schema. Reuse that
+validation and its failure reporting at the conversion boundary. The existing
+`compare_encoded` rules ignore padding and unused bits and equate NaN payloads
+where NaNs are permitted. Those reconstruction checks do not replace the recorded
+document scalar equality rules with a binary merge predicate.
 
-Conversion between forms is expected to support permitted schema-defined values.
-Failures include invalid data, incorrect or incompatible schemas, resource and
-representation-size limits. Noncanonical booleans, undeclared enum values and
-fp16 nonfinite encodings
-are outside the agreed permitted input domain, not a general inability of
-documents to represent valid merge data. NaN payload distinctions and padding
-need not survive document-only reconstruction.
-
-Retained and stripped sources must meet the same permitted-value rules. Where
-these checks live, their diagnostics, and the exact fp16 conversion paths to
-reuse remain implementation-design decisions. This agreement does not claim
-that the completed persistence loaders already enforce every merge admission
-rule or authorise changes to their existing contracts.
+Dropping binary representation can lose padding, unused bits and NaN payload
+identities. These are not preserved by the document-only merge contract. Source
+buffers themselves remain unchanged. Invalid or unrepresentable values and
+allocation/size-limit failures reject conversion without partial publication.
 
 ### Agreed output ordering and binary layout
 
-Named object members follow first-encounter order. Process the first source and
-then the second, retain the first occurrence of each name in place, merge a
-matching name from the second source at that location, and append previously
-unseen names as they are encountered. Apply this recursively to named groups, entries and instance
-specialisations. Names, not ordinal positions, identify matching members: there
-is no positional matching or pinning based on where a name appeared in a source.
+Named object members follow first-encounter order: process the first source,
+merge matching names from the second at their existing position, then append
+previously unseen names. Apply this recursively to groups, entries and instance
+specialisations. Array order remains significant: ordinary arrays require equal
+lengths, while the outer bulk data sequence uses the prefix rule and retains the
+longer sequence in its existing order.
 
-Object order is a convenient output convention, not part of equality or conflict
-handling. Reversing source order may change document order. Array order and
-length rules are unchanged: definition arrays require equal lengths and recursive
-element merging, while bulk data record arrays require the shorter sequence to
-match the longer prefix. The surviving bulk data sequence keeps its record order.
+This output convention does not authorise reordering the members or enum labels
+of a same-name schema type where order affects layout, positional construction
+or implicit defaults. Type-schema validation must preserve that meaning.
 
-Pack binary entries in resulting document traversal order. Instance traversal
-visits each parent before its specialisations and traverses each subtree before
-the next sibling. Each bulk data entry occupies one contiguous sequence of
-records. Align each nonempty entry to its schema-required alignment, retaining
-schema-defined member offsets, array strides and record sizes. Regenerate
-locators for the resulting positions. Distinct entries have independent storage
-even when their values match; packing does not introduce shared payload extents.
+The merge result itself has no binary layout. A later construction step creates
+new snapshots/records from the merged document and merged schema, deriving fresh
+locators and counts. Visit instance parents before descendants; each bulk data
+entry occupies a contiguous record sequence. Pack entries in document traversal
+order using their schema-required alignment, member offsets, array strides and
+record sizes. Distinct entries have independent storage. Zero-sized entries
+consume no payload storage.
 
-Completed files retain the existing 128-byte-aligned payload base. Individual
-entries require their type alignment, not an additional 128-byte boundary each.
-Source gaps and trailing slack are omitted. The logical payload ends at the last
-occupied extent, including tail padding required by that extent's type, without
-extra trailing alignment rounding. Zero-sized entries consume no payload storage.
-Existing zero-payload and contiguous completed-block format rules still apply.
+Completed output retains a 128-byte-aligned payload base. Source gaps and trailing
+slack are not copied. The payload ends at the last occupied extent, including
+schema-required record tail padding, without extra trailing alignment rounding.
+The existing complete-block and zero-payload format rules remain applicable.
 
-Zero padding and unused storage throughout the newly constructed aggregate,
-including entries supplied by only one source, rather than selecting a source's
-incidental bytes to preserve:
+The previously agreed policy for newly constructed aggregate binary remains:
+zero structure/array padding, record tail padding, unused bit positions,
+inter-entry alignment gaps and document-to-payload padding. Use the existing
+unused-storage facility with `EUnusedBits::clear` on private constructed output
+where necessary. A declared value is not unused storage because it is omitted,
+inherited or zero. Reconstructed NaNs need not retain source payload bits.
 
-- Padding within structures and array strides, including record tail padding.
-- Unused bit positions in bit structures.
-- Alignment gaps between entries.
-- The document-to-payload alignment gap in a completed file.
-
-Unused storage is determined by the schema. A declared field is not unused merely
-because its description is absent, its value is inherited, or its value is zero.
-The existing `clear_unused_storage` facility with `EUnusedBits::clear` provides
-a foundation for clearing padding and unused bits in private result storage.
-
-NaN payload bits are part of value encodings, not padding. Since their differences
-do not affect equality, preserve the encoding copied from the selected source
-rather than introducing NaN canonicalisation: use the first matching instance
-snapshot, or the longer bulk data sequence with the first source winning equal
-lengths. Clear that copied storage's padding and unused bits. When output-form
-conversion reconstructs values, the already agreed NaN equivalence still applies;
-source NaN payload distinctions need not survive that conversion.
-
-All packing and clearing occur in private destination storage. Sources remain
-unchanged through construction, including when the destination is explicitly a
-source; only the successful replacement commit releases the displaced state.
-The zeroing policy is for newly aggregated output. Ordinary loading, saving and
-stripping retain their existing byte-preservation contracts.
-
-Aggregation is not a prerequisite for saving an independently created instance or
-bulk data entity. Packaging several entities into a bundle likewise does not require
-merging their documents or payloads.
+All construction occurs in independent destination storage. Ordinary loading,
+saving, stripping and schema switching retain their existing byte-preservation
+contracts. Aggregation is not required to save an independent entity or package
+separate entities into a bundle.
 
 ## Complete document composition
 
-It remains useful to produce a complete document containing `types`, `instances`
-and `data`, for inspection, interchange or further preparation. This is a
-separate, unimplemented composition operation over already compatible,
-reconciled inputs.
+Composition remains a separate, unimplemented operation assembling compatible
+`types`, `instances` and `data` sections into a document for inspection,
+interchange or further preparation. Multiple sources within a domain are merged
+first; composition does not resolve collisions, overwrite competing sections or
+introduce another default policy.
 
-Composition does not resolve collisions. Multiple sources within one domain are
-merged or aggregated before composition, leaving a coherent definitions section,
-instance section and bulk data section to assemble. Their distinct root members can
-then be placed into one document without choosing between competing definitions
-or entries. An unmet input precondition must not imply silent overwriting or an
-implicit conflict policy.
+Compose the merged type definitions with document-only instance declarations
+and complete bulk data records. Preserve instance omissions and specialisation
+hierarchy so later construction uses the merged defaults and inheritance chain.
+Boundary preparation must recover missing descriptions before composition;
+locators alone are not value descriptions. Construct binary afterwards when
+required using the ordinary domain-specific construction paths.
 
-The composition interface and its use of the agreed merge form-conversion
-contract remain to be designed. Assembling navigation and locator metadata
-alone does not recover omitted values; full descriptions require reconstruction
-from the associated binary data where needed. A composed document is useful
-output, but does not become the mandatory runtime owner or persistence form.
+The concrete composition interface and storage-metadata handling remain design
+work. A composed document does not become the mandatory runtime owner or require
+a new combined binary persistence format.
 
 ## Existing implementation foundations
 
@@ -1403,8 +1264,8 @@ or bulk data format separately.
 
 The single persisted entity also does not imply that all resolved metadata and
 runtime lookup indexes are stored in its file. Resolution and role loading build
-auxiliary runtime state. Completed blocks manage their role state under the
-caller-owned schema and existing asset lifetime contracts above.
+auxiliary runtime state. Completed blocks manage storage; separately attached roles manage typed state
+under the caller-owned schema and existing lifetime contracts above.
 
 ## Open design decisions
 
@@ -1422,64 +1283,58 @@ writes to bundle entries and compatibility signatures remain outside this work.
 
 ### Next discussion: shared-schema aggregation
 
-The discussion has settled the non-destructive merge rules, recursive instance
-specialisation merging, remaining array rules, bulk data prefix matching,
-form-selection defaults and explicit selection for partially described bulk data,
-form conversion, padding
-comparison, permitted binary values, same-owner schema association, separate
-validated schema switching with default compatibility and binary preservation,
-aggregation ownership and transactional replacement,
-document scalar equality, presentation merging, normalisation of stale
-descriptions and auxiliary metadata, output ordering, binary layout, and
-pairwise typed-source aggregation, source-derived schema association, destination
-overloads and output-selection interfaces above.
-Schema switching is implemented as described above. The remaining aggregation
-agreements are design work, not authority to begin implementation.
+Type-schema merging is now the first focus, ahead of instance/bulk data
+aggregation and complete document composition. The 18 October revision settles
+absent-versus-explicit default merging and document-only working input/output.
+Stripped instances are promoted against their original schema to recover minimal
+declarations before merging; later construction uses the merged defaults.
+
+Scalar and presentation merging, ordinary-array equality, bulk data prefix
+matching, recursive specialisations, first-encounter ordering and transactional
+replacement remain applicable. The former binary-snapshot merge predicate,
+matching-form selection, same-owner role precondition and specialised overload
+matrix are superseded. Implemented attachment and switching remain unchanged.
 
 Remaining decisions are:
 
-- Document-only aggregation source/result handling under the revised atomic
-  attachment model; attached data roles now always have complete packages.
-- Result backing/view signatures where these are separate, the mixed live/baked
-  source-pair overload matrix, same-object-as-both-sources behaviour, aggregation
-  diagnostic contents and location contracts, and the internal mechanism for a
-  non-failing replacement commit. Exactly two typed source references, no public
-  adapters or schema argument, source-derived common-owner association,
-  destination ownership, aliasing and failure preservation are settled. Specialised
-  sources already carry their schema association; exposing existing binding
-  identity is implementation work; document-only handling needs revised interfaces.
-- Internal mapping of selected forms to existing output construction paths.
-  `EAggregationOutputForm`, `SAggregationOptions`, destination/form validation,
-  default matching-form behaviour and explicit selection for partially described
-  bulk data are settled.
-- Normalisation implementation: value-path correspondence, presentation
-  provenance and consistency-check options/diagnostics. Binary-authoritative
-  refresh of stale descriptions, structural count validation, presentation
-  preservation, semantic metadata merging and storage-metadata regeneration
-  are settled.
-- Definition dependency/reference translation, final combined-schema validation,
-  permitted-value validation placement and conflict/conversion diagnostics.
+- Concrete type-schema merge interfaces, dependency/reference translation,
+  structural compatibility checks and final combined-schema validation. Reuse
+  resolved comparison where appropriate while preserving explicit-default
+  presence for the new default policy.
+- Concrete document source/view and destination types, schema-context parameters,
+  aliasing details, same-object-as-both-sources behaviour and non-failing
+  replacement machinery. Live versus baked working storage is not yet selected.
+- Boundary conversion for stripped instances and incomplete bulk data, independent
+  document ownership after dropping temporary binary, and removal/invalidation
+  of source storage metadata. Keep source backing and original schemas alive
+  until conversion finishes.
+- Diagnostics for definition conflicts, declaration conflicts, conversion and
+  construction failures, including source locations after temporary promotion.
+  Optional consistency checks must remain explicit.
+- Composition signatures and any convenience orchestration of conversion, merge
+  and later construction, without adding merge-time representation states.
+
+These are design decisions to discuss before producing an implementation plan;
+the completed schema work does not authorise this follow-on implementation.
 
 ### Separate remaining capabilities
 
 | Work | Outstanding design |
 | --- | --- |
-| Definition merging | Dependency/reference mapping, combined-schema validation, interfaces and diagnostics under the agreed recursive, scalar-equality and presentation rules. |
-| Schema switching | Implemented with checked/trusted modes, shared construction validation and unchanged storage/handles; see the runtime API. |
-| Instance aggregation | Separate result backing/view signatures, mixed-pair overloads, remaining boundary cases, diagnostics, replacement machinery and implementation of the agreed pairwise interfaces, normalisation and packing rules. |
-| Bulk data aggregation | Separate result backing/view signatures, mixed-pair overloads, remaining boundary cases, diagnostics, replacement machinery and implementation of the agreed pairwise interfaces, normalisation and packing rules; no implicit concatenation. |
-| Complete document composition | Interface and retained/reconstructed-value policy for already reconciled `types`, `instances` and `data` sections; no collision resolution. |
+| Definition merging | First priority: interfaces, dependency/reference translation, compatible type structure, explicit-default merge policy, presentation and final validation. |
+| Schema switching | Implemented with checked/trusted modes and unchanged storage/handles; distinct from merge/reconstruction. |
+| Instance aggregation | Document declarations and recursive hierarchy merging, original-schema stripped-input promotion, diagnostics and transactional output. |
+| Bulk data aggregation | Complete document record merging with prefix matching; conversion of missing descriptions, diagnostics and transactional output. |
+| Complete document composition | Assembly of already merged document sections; no collision resolution or mandatory combined persistence owner. |
 
-These capabilities do not reopen the completed persistence contracts. Internal
-form conversion is allowed under the agreed merge contract; permitted values
-are expected to support reconstruction without preserving padding or NaN payload
-distinctions. Remaining interface details and an implementation plan remain
-future work; the aggregation interface families above are agreed.
+Boundary conversion and later binary construction reuse existing facilities.
+Their concrete APIs and the implementation plan remain future work.
 
 ### Optional later optimisations
 
-Direct construction into final allocation remains a likely later optimisation
-of the completed staged construction path; it is not a missing persistence stage.
+Live baking already copies records directly into final payload storage. Extending
+direct final storage to description materialisation remains optional; it is not
+a missing persistence stage.
 
 Selected subsets of type definitions may be useful for some live release data.
 This remains a possible optimisation, not a requirement to duplicate or prune

@@ -59,7 +59,11 @@ remain documented costs.
 The [schema follow-on notes](schema_follow_on.md) preserve the next design discussion:
 fp16 conversion, related C++/shader representations, simple trait-based
 serialisation, selectable declaration output, aggregation/composition and
-source ingestion. Shared-schema aggregation design is active: the
+source ingestion. Aggregation design now starts with type-schema merging:
+absent defaults yield to explicit defaults, with conflicting supplied values
+rejected. Data merging uses document-only working form; stripped instances are
+promoted against their original schema before merging, and binary is later
+constructed using the merged schema. The
 [revision](../schema/persistence-and-aggregation.md#next-discussion-shared-schema-aggregation)
 records agreed merge contracts and remaining interface decisions. These follow-ons
 are not yet an implementation plan.
