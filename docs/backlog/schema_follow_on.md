@@ -114,7 +114,7 @@ retains the naming convention and migration mapping.
 
 ### Remaining aggregation and composition design
 
-The 18 October revision prioritises type-schema merging. A missing explicit
+Type-schema merging was implemented on 18 October. A missing explicit
 default expresses no merge preference and yields to an explicit default;
 conflicting supplied defaults fail. Preserve the established scalar, array and
 presentation-merging rules, and validate type layout and interpretation.
@@ -127,7 +127,7 @@ final resolution establishes the result's own identities. The selected interface
 shape is two existing read-only document views and an independently owned,
 validated live document result. Adoption into a schema owner and baking remain
 separate operations, preserving existing bound-owner replacement restrictions.
-The agreed `merge_type_schemas` function uses stage/reason diagnostics, original
+The implemented `merge_type_schemas` function uses stage/reason diagnostics, original
 source locations for conflicts and resolver detail for validation failures.
 It constructs and validates a private live document, then publishes through the
 existing non-failing move assignment. Occupied destinations and source/destination
@@ -150,9 +150,9 @@ Recursive specialisations, bulk data prefix matching, transactional replacement,
 presentation merging and first-encounter ordering remain. The former binary
 snapshot equality rule, matching-form output selector, literal same-owner source
 precondition and specialised-role overload matrix are superseded. Type-schema
-merge design has a prepared
-[implementation plan](../project/type_schema_merge_implementation_plan.md);
-implementation has not started. Data-merge document interfaces,
+merging is complete; see the [runtime API](../schema/runtime-api.md#type-schema-merging)
+and [completed plan](../project/type_schema_merge_implementation_plan.md).
+Data-merge document interfaces,
 schema context, boundary ownership, metadata handling and diagnostics remain to
 be designed. Those later operations have no implementation plan. Implemented schema
 switching still preserves binary data; document merging and subsequent

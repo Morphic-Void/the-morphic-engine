@@ -12,9 +12,40 @@ The [specification](specification.md) defines behaviour and the
 observable results, failure boundaries and generated layout fidelity. Private
 record organisation is not a public ABI or a substitute for those checks.
 
-The [role and construction milestone](../project/completed_milestones.md#schema-role-attachment-and-construction)
+The [type-schema merge milestone](../project/completed_milestones.md#type-schema-merging)
 records the latest completed four-configuration validation checkpoint. The
-earlier persistence and schema milestones retain their historical counts.
+earlier role, persistence and schema milestones retain their historical counts.
+
+## Type schema merge coverage
+
+`SchemaMerge_test_cases.cpp` runs within the Schema suite. It covers independent
+source validation, equivalent natural/explicit layouts, structural/reference
+conflicts, absent/explicit defaults, exact document scalar equality and integer
+presentation. All newline-escaping preference combinations are checked across
+live/baked inputs. One-sided copies in either source position preserve integer
+domain/width, notation/prefix and string presentation, both for whole subtrees and
+defaults within shared types; partial default arrays retain their supplied length.
+Mixed live/baked inputs exercise both successful output and source
+diagnostics. The result is checked after releasing its inputs, and adopted/baked
+through existing schema APIs. Instance construction confirms adoption of a merged
+default while preserving an explicit declaration; bound-owner replacement remains
+rejected.
+
+Occupied destinations and first/second/both-source aliasing exercise publication.
+Each allocation attempt is rejected in turn for representative merges, checking
+unchanged source/destination documents, retained handles, clean attribution and
+sanitised result-validation diagnostics. Shared and one-sided nesting at document
+depths 255/256 checks the common limit; shared nesting uses an explicit work stack
+to avoid overflowing the Debug C++ stack. Shared dependency graphs and objects on
+both sides of the small-object matching threshold exercise indexed paths.
+
+Growth fixtures merge 128, 512 and 2,048 overlapping types in reverse encounter
+order, with repeated strings and one additional type. Timings are observations,
+not pass/fail thresholds, and include input/result resolution. The construction
+path sorts and preloads strings once, releases preparation vectors before node
+construction, uses existing string indexes thereafter and builds temporary name-ID
+indexes only for larger shared objects. Timing evidence and its limits are in
+the milestone; no worst-case claim is made for existing resolver/cache internals.
 
 ## Running the checks
 

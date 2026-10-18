@@ -1,6 +1,14 @@
 # Type schema merge implementation plan
 
-Status: reviewed and revised on 18 October 2026; implementation has not started.
+Status: implemented on 18 October 2026. The stages below retain the reviewed
+scope; they are not outstanding tasks. Current behaviour is in the
+[runtime API](../schema/runtime-api.md#type-schema-merging), and delivery evidence
+is recorded in the [milestone](completed_milestones.md#type-schema-merging).
+
+The implementation uses an explicit operation-local work stack for shared
+document nesting: recursive object matching overflowed the Debug C++ stack at
+the accepted depth boundary. One-sided subtrees still reuse the existing bounded
+copy walker. The document-depth budget and public contract are unchanged.
 
 Implement the agreed
 [type-schema merge contract](../schema/persistence-and-aggregation.md#type-schema-merging-and-defaults)
@@ -12,8 +20,8 @@ presentation, and publish only after all fallible work succeeds.
 This plan covers type-schema merging only. Instance/bulk data aggregation,
 stripped-input promotion, composition, binary reconstruction and convenience
 orchestration remain separate work. Existing schema attachment, switching and
-bound-owner replacement rules remain unchanged. Preparing this plan does not
-authorise implementation or commits.
+bound-owner replacement rules remain unchanged. Completion of this plan does not
+authorise later aggregation work or commits.
 
 ## Code placement and reuse
 

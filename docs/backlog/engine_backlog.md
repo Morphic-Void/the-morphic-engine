@@ -122,17 +122,19 @@ Remaining discussions cover conversion, related representations,
 typed serialisation, selectable generation, aggregation/composition and source
 ingestion, as recorded in the
 [schema follow-on notes](schema_follow_on.md).
-The 18 October aggregation revision prioritises type-schema merging, with absent
+Type-schema merging was implemented on 18 October, with absent
 defaults yielding to explicit defaults. Independently valid type-schema document
 views merge into a validated live document, preserving original presentation and
 compatible resolved layout; schema adoption and baking are separate. Data merging
 uses document-only working input/output; stripped instances are promoted against
 their original schema, then merged declarations are constructed using the merged
 schema. The type-schema merge function, diagnostics and staged move publication
-are agreed. This design replaces the earlier binary-snapshot aggregation and
-matching-form interface proposal; implementation remains future work.
-The [type-schema merge plan](../project/type_schema_merge_implementation_plan.md)
-sets out the implementation and validation checkpoints without starting delivery.
+are implemented. The remaining data-aggregation design replaces the earlier
+binary-snapshot aggregation and matching-form interface proposal; its
+implementation remains future work. The
+[completed type-schema merge plan](../project/type_schema_merge_implementation_plan.md)
+records the reviewed scope; current behaviour is in the
+[runtime API](../schema/runtime-api.md#type-schema-merging).
 Configuration, localisation, state capture/reconstruction and graphics metadata
 remain potential consumers, to be selected as separate work.
 

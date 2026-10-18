@@ -59,7 +59,7 @@ remain documented costs.
 The [schema follow-on notes](schema_follow_on.md) preserve the next design discussion:
 fp16 conversion, related C++/shader representations, simple trait-based
 serialisation, selectable declaration output, aggregation/composition and
-source ingestion. Aggregation design now starts with type-schema merging:
+source ingestion. Type-schema merging is implemented:
 absent defaults yield to explicit defaults, with conflicting supplied values
 rejected. Each type-schema input must independently resolve; merging preserves
 original declarations/presentation and compatible resolved layout. Two read-only
@@ -69,9 +69,10 @@ form; stripped instances are promoted against their original schema before
 merging, and binary is later constructed using the merged schema. The
 [revision](../schema/persistence-and-aggregation.md#next-discussion-shared-schema-aggregation)
 records agreed merge contracts and remaining interface decisions. The type-schema
-merge signature, structured diagnostics and staged move publication are agreed,
-with a prepared [implementation plan](../project/type_schema_merge_implementation_plan.md).
-Implementation has not started; instance/bulk data interfaces remain design work.
+merge signature, structured diagnostics and staged move publication are implemented;
+see the [runtime API](../schema/runtime-api.md#type-schema-merging) and
+[completed plan](../project/type_schema_merge_implementation_plan.md).
+Instance/bulk data interfaces remain design work.
 General document object-child indexing and persistent live cursors remain
 deferred. The completed consolidation does not authorise further implementation.
 

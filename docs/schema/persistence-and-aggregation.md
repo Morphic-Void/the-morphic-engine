@@ -17,8 +17,8 @@ blocks retain document and binary storage, while data roles carry schema
 associations and support atomic attachment and checked/trusted switching.
 The earlier persistence stages and gap-zeroing follow-up ended in `dfe076d`.
 
-The 18 October design revision makes type-schema merging the first remaining
-focus. An absent explicit default expresses no preference during schema merging
+The 18 October type-schema merge design is now implemented. An absent explicit
+default expresses no preference during schema merging
 and yields to an explicit default. Conflicting supplied defaults fail. Data
 merging uses document-only working input and output, with other forms converted
 at the boundary. Retained instance declarations contribute directly. Stripped
@@ -34,10 +34,11 @@ instance hierarchy merging, array rules, bulk data prefix matching, transactiona
 replacement and output ordering remain applicable as revised below. The existing
 binary-preserving schema-switch and persistence contracts are unchanged.
 
-Definition merging, instance/bulk data aggregation and complete document
-composition remain unimplemented design work. Concrete interfaces, boundary
-conversion details, diagnostics and an implementation plan are not yet settled.
-This revision does not authorise implementation.
+Type-schema merging is documented in the
+[runtime API](runtime-api.md#type-schema-merging). Instance/bulk data aggregation
+and complete document composition remain design work: their concrete interfaces,
+boundary conversion details, diagnostics and implementation plans are not yet
+settled. This revision does not authorise those later operations.
 
 The [persistence milestone](../project/completed_milestones.md#schema-instance-and-bulk-data-persistence)
 and [role milestone](../project/completed_milestones.md#schema-role-attachment-and-construction)
@@ -789,7 +790,7 @@ both declarations explicitly supply that array.
 
 ### Type-schema merging and defaults
 
-Type-schema merging is the first remaining work item. Distinct type names are
+Type-schema merging is implemented. Distinct type names are
 included together. Same-name types must retain compatible layout and value
 interpretation, including their referenced definitions. Members, member order,
 array extents, enum definitions and bit-field interpretations cannot be silently
@@ -1144,7 +1145,7 @@ temporary promoted nodes to original input.
 
 ### Agreed type-schema merge function and diagnostics
 
-The following interface is agreed design, not an implemented API:
+The following agreed interface is implemented in `schema_merge.hpp`:
 
 ```cpp
 namespace schema
@@ -1422,8 +1423,8 @@ writes to bundle entries and compatibility signatures remain outside this work.
 
 ### Next discussion: shared-schema aggregation
 
-Type-schema merging is now the first focus, ahead of instance/bulk data
-aggregation and complete document composition. The 18 October revision settles
+Type-schema merging is complete; instance/bulk data aggregation and complete
+document composition remain. The 18 October revision settles
 absent-versus-explicit default merging and document-only working input/output.
 Stripped instances are promoted against their original schema to recover minimal
 declarations before merging; later construction uses the merged defaults.
@@ -1435,9 +1436,10 @@ remain names and result resolution creates fresh local identities. The selected
 interface shape is two existing read-only document views and an independently
 owned, validated live document result, with adoption and baking kept separate.
 The `merge_type_schemas` signature, structured diagnostics, same-source behaviour
-and staged move publication are now agreed above. Their implementation remains
-future work, with checkpoints in the
-[implementation plan](../project/type_schema_merge_implementation_plan.md).
+and staged move publication are implemented. The
+[completed plan](../project/type_schema_merge_implementation_plan.md) records the
+reviewed scope, and the [runtime API](runtime-api.md#type-schema-merging) describes
+the delivered operation.
 
 Scalar and presentation merging, ordinary-array equality, bulk data prefix
 matching, recursive specialisations, first-encounter ordering and transactional
@@ -1462,14 +1464,14 @@ Remaining decisions are:
   and later construction, without adding merge-time representation states.
 
 These remaining data-aggregation/composition decisions precede their implementation
-plans. The type-schema plan is prepared separately; neither it nor the completed
+plans. The type-schema plan is complete; neither it nor the completed
 schema work authorises follow-on implementation.
 
 ### Separate remaining capabilities
 
 | Work | Remaining work |
 | --- | --- |
-| Definition merging | First priority: implementation under the prepared plan for the agreed merge function, independently valid document views, compatibility/default/presentation policy, structured diagnostics and staged publication of a validated live result. |
+| Definition merging | Implemented: independently valid document views, compatibility/default/presentation policy, structured diagnostics and staged publication of a validated live result. |
 | Schema switching | Implemented with checked/trusted modes and unchanged storage/handles; distinct from merge/reconstruction. |
 | Instance aggregation | Document declarations and recursive hierarchy merging, original-schema stripped-input promotion, diagnostics and transactional output. |
 | Bulk data aggregation | Complete document record merging with prefix matching; conversion of missing descriptions, diagnostics and transactional output. |

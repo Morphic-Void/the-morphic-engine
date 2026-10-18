@@ -32,6 +32,7 @@ Include the header for the role or operation being used:
 | --- | --- |
 | `schema_wrappers.hpp` | Live/baked schema ownership, editing and client bindings. |
 | `resolved_schema.hpp` | Resolved layouts, defaults, diagnostics, schema document output and C++ generation. |
+| `schema_merge.hpp` | Transactional type-schema document merging, preserving declarations and combining presentation. |
 | `baked_instances.hpp`, `live_instances.hpp` | Instance loading, observation and live editing/output. |
 | `baked_bulk_data.hpp`, `live_bulk_data.hpp` | Bulk data loading, observation and live capture/output. |
 | `data_block.hpp` | Backing states and block diagnostic vocabulary. |
@@ -524,6 +525,69 @@ emitted padding but cannot recover an adaptive policy; preparing schema output
 again restores that policy. Strict JSON writing emits decimal values using the
 existing writer option. See the
 [data-model numeric contract](../data_model/revised_data_model.md#numeric-values).
+
+## Type schema merging
+
+`schema::merge_type_schemas` combines two independently valid type-schema
+documents into an independently owned `CLiveDocument`:
+
+```cpp
+schema::SSchemaMergeDiagnostic diagnostic;
+CLiveDocument merged;
+const bool accepted = schema::merge_type_schemas(
+    schema::CSchemaDocumentQuery{ first },
+    schema::CSchemaDocumentQuery{ second },
+    merged, diagnostic);
+```
+
+Each query can refer to live or baked storage, including mixed inputs. Only the
+`types` section contributes; instance/data sections and the `stripped` root marker
+are not copied. Both inputs must resolve independently, so one cannot supply a
+missing dependency in the other. Matching type names require the same resolved
+layout and interpretation, including referenced names, member order, enum label
+order and bit-field semantics. Equivalent natural and explicit layouts can merge.
+
+The merge operates on original declarations, without normalising them through
+`prepare_output`. A missing explicit default yields to a supplied default; two
+supplied defaults must agree under the document scalar/array rules. Omitted
+defaults and array tails are not materialised. Defaults remain restricted to
+the existing schema grammar. Presentation is combined under the
+[agreed rules](persistence-and-aggregation.md#agreed-presentation-merging).
+Objects retain first-source field order followed by second-only fields in their
+encounter order. Arrays supplied by both sources require equal lengths and merge
+positionally. The independently resolved result receives its own runtime indices.
+
+The destination may be empty, occupied or explicitly supplied as either/both
+sources. An occupied destination is not an implicit input. Construction and final
+resolution use private staging; publication uses non-failing move assignment.
+Failure preserves all sources, the destination and their handles/views. Success
+invalidates previous destination identities, including a source that aliases it.
+Other sources remain unchanged, and the result borrows no input storage. Callers
+keep sources unchanged during the call and exclude concurrent destination access.
+Adoption into a schema owner and baking are separate operations, retaining their
+existing bound-owner and empty-destination restrictions.
+
+`SSchemaMergeDiagnostic` reports the first failure with stage/reason, two optional
+source handles and nested resolver detail. First/second source-validation stages
+identify the owner of resolver locations. Structural conflicts identify both
+original type declarations; supplied-value conflicts identify both original
+values. Result-validation failure retains resolver reason/stage but clears all
+temporary handles and ranges. Diagnostics own no storage and are cleared on
+success. Allocation/storage-limit causes are reported when known; construction
+helpers returning only failure use `construction_failed`.
+
+Preparation, merge and copy share a document-depth limit: `types` is depth zero,
+and depth 256 is rejected as `document_merge` / `storage_limit`. Resolver graph
+limits remain separate. A shared-document traversal uses an explicit work stack;
+one-sided branches reuse the bounded document copy walker. Empty/small objects
+avoid matching-index allocations; wide objects use temporary sorted name-ID
+indexes. Names and strings are preloaded in lexical order, then preparation
+vectors are released and construction uses existing logarithmic string lookup.
+There is no retained secondary string index or resolved cache in the result.
+
+This operation constructs a merged schema; it does not switch existing data roles
+or merge their documents. Later instance construction may adopt newly supplied
+defaults, whereas checked schema switching preserves an existing binary package.
 
 ## Defaults
 

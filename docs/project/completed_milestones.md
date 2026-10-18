@@ -18,6 +18,52 @@ Permanent behavior and architectural contracts belong in the subsystem
 documents linked from each milestone. Current and future work belongs in
 `future_work_notes.md` and the backlog.
 
+## Type schema merging
+
+Implemented and validated on 18 October 2026. This records implementation and
+validation, not a commit checkpoint or user acceptance of later aggregation work.
+The [runtime API](../schema/runtime-api.md#type-schema-merging) documents the
+interface; the [completed plan](type_schema_merge_implementation_plan.md) retains
+the reviewed scope.
+
+`merge_type_schemas` accepts independently valid live/baked document views and
+publishes an independently owned live document containing only merged types.
+It reuses schema resolution, representation compatibility and internal document
+construction. Original declarations, default presence, encounter order and
+presentation are preserved under the agreed merge rules. Missing defaults yield
+to explicit defaults; conflicting explicit values reject the operation.
+
+Construction preloads sorted, deduplicated strings, then uses existing document
+indexes. Small shared objects use bounded local matching; larger objects use a
+temporary name-ID index. Shared nesting uses an explicit work stack after boundary
+testing exposed excessive recursive Debug stack usage; one-sided subtrees reuse
+the existing bounded copy walker. Both paths retain the same depth limit.
+
+Publication is a non-failing move after result validation and destruction of
+temporary borrowed state. Failure preserves occupied destinations and source
+aliases. Allocation-failure sweeps cover separate, first-source, second-source
+and both-source destinations, including diagnostic lifetime and cleanup checks.
+Tests also cover mixed live/baked sources, independent output lifetime, scalar
+and presentation rules, schema adoption/baking, instance defaults, shared
+dependencies, and accepted/rejected depth boundaries.
+
+Debug/Release x64/Win32 solution builds and ordinary `-t1` runs passed. Each run
+reported 70,429 Schema checks with zero failures. One concurrent Debug x64 run
+had an unrelated filesystem scan failure; its isolated rerun passed all suites.
+Logs are `build/schema-merge-final-{debug32,release64,release32}.log` and
+`build/schema-merge-final-debug64-alone.log`. The five CMake source-extraction
+unit tests also passed.
+
+Release x64 reverse-order growth fixtures took approximately 5.05, 22.05 and
+99.88 ms for 128, 512 and 2,048 overlapping types, respectively. Measurements
+include source/result resolution and exclude fixture parsing. The observed
+roughly 4.4-4.5-fold time increase for fourfold input growth is consistent with
+the intended linear/logarithmic construction paths; it is not a timing threshold
+or a worst-case guarantee for existing resolver/cache internals.
+
+Instance/bulk data aggregation, stripped-instance promotion and composition
+remain separate future work.
+
 ## Schema role attachment and construction
 
 Implemented and validated on 17 October 2026, after the committed persistence
