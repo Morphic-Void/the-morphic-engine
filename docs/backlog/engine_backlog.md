@@ -131,6 +131,8 @@ their original schema, then merged declarations are constructed using the merged
 schema. The type-schema merge function, diagnostics and staged move publication
 are agreed. This design replaces the earlier binary-snapshot aggregation and
 matching-form interface proposal; implementation remains future work.
+The [type-schema merge plan](../project/type_schema_merge_implementation_plan.md)
+sets out the implementation and validation checkpoints without starting delivery.
 Configuration, localisation, state capture/reconstruction and graphics metadata
 remain potential consumers, to be selected as separate work.
 

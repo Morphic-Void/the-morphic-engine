@@ -294,6 +294,7 @@
     <None Include="$(MSBuildThisFileDirectory)..\docs\project\building_and_testing.md" />
     <None Include="$(MSBuildThisFileDirectory)..\docs\project\linux_ci.md" />
     <None Include="$(MSBuildThisFileDirectory)..\docs\project\policy_validator.md" />
+    <None Include="$(MSBuildThisFileDirectory)..\docs\project\type_schema_merge_implementation_plan.md" />
     <None Include="$(MSBuildThisFileDirectory)..\docs\project\windows_ci.md" />
     <None Include="$(MSBuildThisFileDirectory)..\docs\schema\persistence-and-aggregation.md" />
     <None Include="$(MSBuildThisFileDirectory)..\docs\schema\specification.md" />

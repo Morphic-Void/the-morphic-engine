@@ -874,6 +874,9 @@
     <None Include="$(MSBuildThisFileDirectory)..\docs\project\policy_validator.md">
       <Filter>Docs\project</Filter>
     </None>
+    <None Include="$(MSBuildThisFileDirectory)..\docs\project\type_schema_merge_implementation_plan.md">
+      <Filter>Docs\project</Filter>
+    </None>
     <None Include="$(MSBuildThisFileDirectory)..\docs\project\windows_ci.md">
       <Filter>Docs\project</Filter>
     </None>

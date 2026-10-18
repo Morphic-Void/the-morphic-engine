@@ -1436,7 +1436,8 @@ interface shape is two existing read-only document views and an independently
 owned, validated live document result, with adoption and baking kept separate.
 The `merge_type_schemas` signature, structured diagnostics, same-source behaviour
 and staged move publication are now agreed above. Their implementation remains
-future work.
+future work, with checkpoints in the
+[implementation plan](../project/type_schema_merge_implementation_plan.md).
 
 Scalar and presentation merging, ordinary-array equality, bulk data prefix
 matching, recursive specialisations, first-encounter ordering and transactional
@@ -1460,21 +1461,22 @@ Remaining decisions are:
 - Composition signatures and any convenience orchestration of conversion, merge
   and later construction, without adding merge-time representation states.
 
-These are design decisions to discuss before producing an implementation plan;
-the completed schema work does not authorise this follow-on implementation.
+These remaining data-aggregation/composition decisions precede their implementation
+plans. The type-schema plan is prepared separately; neither it nor the completed
+schema work authorises follow-on implementation.
 
 ### Separate remaining capabilities
 
 | Work | Remaining work |
 | --- | --- |
-| Definition merging | First priority: implementation planning for the agreed merge function, independently valid document views, compatibility/default/presentation policy, structured diagnostics and staged publication of a validated live result. |
+| Definition merging | First priority: implementation under the prepared plan for the agreed merge function, independently valid document views, compatibility/default/presentation policy, structured diagnostics and staged publication of a validated live result. |
 | Schema switching | Implemented with checked/trusted modes and unchanged storage/handles; distinct from merge/reconstruction. |
 | Instance aggregation | Document declarations and recursive hierarchy merging, original-schema stripped-input promotion, diagnostics and transactional output. |
 | Bulk data aggregation | Complete document record merging with prefix matching; conversion of missing descriptions, diagnostics and transactional output. |
 | Complete document composition | Assembly of already merged document sections; no collision resolution or mandatory combined persistence owner. |
 
 Boundary conversion and later binary construction reuse existing facilities.
-Their concrete APIs and the implementation plan remain future work.
+Their concrete APIs and implementation plans remain future work.
 
 ### Optional later optimisations
 

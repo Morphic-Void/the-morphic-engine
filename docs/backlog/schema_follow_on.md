@@ -150,9 +150,11 @@ Recursive specialisations, bulk data prefix matching, transactional replacement,
 presentation merging and first-encounter ordering remain. The former binary
 snapshot equality rule, matching-form output selector, literal same-owner source
 precondition and specialised-role overload matrix are superseded. Type-schema
-merge design is ready for implementation planning. Data-merge document interfaces,
+merge design has a prepared
+[implementation plan](../project/type_schema_merge_implementation_plan.md);
+implementation has not started. Data-merge document interfaces,
 schema context, boundary ownership, metadata handling and diagnostics remain to
-be designed. This is not an implementation plan. Implemented schema
+be designed. Those later operations have no implementation plan. Implemented schema
 switching still preserves binary data; document merging and subsequent
 construction are separate operations.
 

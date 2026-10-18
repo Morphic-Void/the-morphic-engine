@@ -68,10 +68,10 @@ schema adoption and baking separate. Data merging uses document-only working
 form; stripped instances are promoted against their original schema before
 merging, and binary is later constructed using the merged schema. The
 [revision](../schema/persistence-and-aggregation.md#next-discussion-shared-schema-aggregation)
-records agreed merge contracts and remaining interface decisions. These follow-ons
-are not yet an implementation plan. The type-schema merge signature, structured
-diagnostics and staged move publication are agreed; instance/bulk data interfaces
-remain design work.
+records agreed merge contracts and remaining interface decisions. The type-schema
+merge signature, structured diagnostics and staged move publication are agreed,
+with a prepared [implementation plan](../project/type_schema_merge_implementation_plan.md).
+Implementation has not started; instance/bulk data interfaces remain design work.
 General document object-child indexing and persistent live cursors remain
 deferred. The completed consolidation does not authorise further implementation.
 
