@@ -78,7 +78,12 @@ shares construction admission, visits supplied declarations without disposable
 binary, and retains cheap depth checks; implicit depth failures remain with later
 construction. The [runtime API](../schema/runtime-api.md#instance-and-bulk-data-aggregation)
 and [completed plan](../project/data_aggregation_implementation_plan.md) record the
-contracts. Boundary conversion APIs and composition remain separate design work.
+contracts. The [preparation interfaces and policies](../schema/persistence-and-aggregation.md#agreed-document-preparation-interfaces)
+are agreed but unimplemented: original-schema reconstruction, whole-entry bulk
+preparation, selected-section extraction, explicit retained/binary comparison and
+transactional document-only output. Embedded types and sibling values do not
+influence extraction. Preparation needs an implementation plan; composition
+remains separate design work.
 General document object-child indexing and persistent live cursors remain
 deferred. The completed consolidation does not authorise further implementation.
 

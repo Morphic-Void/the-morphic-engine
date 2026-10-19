@@ -671,7 +671,11 @@ validation clears all temporary locations. Known allocation/storage failures ret
 their resource reason; opaque construction failures use `construction_failed`.
 Success clears the diagnostic. See the full
 [diagnostic contract](persistence-and-aggregation.md#agreed-data-aggregation-functions-and-diagnostics).
-Boundary conversion APIs and complete-document composition remain separate work.
+Boundary preparation and complete-document composition remain unimplemented.
+The [agreed preparation contract](persistence-and-aggregation.md#agreed-document-preparation-interfaces)
+specifies document-only and supplied-binary overloads, whole-entry reconstruction,
+selected-section extraction and separate diagnostics; these are design declarations,
+not available runtime entry points. Composition interfaces remain design work.
 
 ## Defaults
 

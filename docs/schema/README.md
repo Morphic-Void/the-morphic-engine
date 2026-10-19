@@ -17,7 +17,7 @@ interpret its current contracts.
 | [Runtime API](runtime-api.md) | Public entry points, file map, lifetimes, diagnostics and implementation limits. |
 | [Validation](validation.md) | Regression coverage and generated C++ layout checks. |
 | [Example](schema-example.json) and [notes](schema-example-notes.md) | Authoring example, expected layouts, numeric notation and materialisation rules. |
-| [Persistence and aggregation revision](persistence-and-aggregation.md) | Persistence and implemented type/data merge contracts; remaining boundary conversion promotes stripped instances against their original schema. |
+| [Persistence and aggregation revision](persistence-and-aggregation.md) | Persistence and implemented type/data merge contracts; agreed, unimplemented preparation interfaces, whole-entry reconstruction and selected-section extraction; remaining composition design. |
 | [Type schema merge implementation plan](../project/type_schema_merge_implementation_plan.md) | Completed reviewed scope and implementation notes; current behaviour is in the runtime API. |
 | [Data aggregation implementation plan](../project/data_aggregation_implementation_plan.md) | Completed scope of the prepared instance/bulk merge cores, shared admission and construction; conversion and composition remain separate. |
 | [Persistence milestone](../project/completed_milestones.md#schema-instance-and-bulk-data-persistence) | Completed eight-stage delivery, commit checkpoints and validation evidence, including gap zeroing; the implementation plan is retired. |

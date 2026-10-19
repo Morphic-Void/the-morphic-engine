@@ -162,9 +162,18 @@ Cheap explicit depth checks remain, while implicit failures belong to later bina
 construction. See the [runtime API](../schema/runtime-api.md#instance-and-bulk-data-aggregation)
 and [completed plan](../project/data_aggregation_implementation_plan.md).
 
-Boundary conversion APIs and composition remain separate design work. Conversion
-must validate storage metadata before removing it and publish caller-owned
-documents. Its diagnostics remain separate; merge locations borrow prepared inputs.
+The [19 October preparation contract](../schema/persistence-and-aggregation.md#agreed-document-preparation-interfaces)
+agrees document-only and supplied-binary overloads of `prepare_instances_document`
+and `prepare_bulk_data_document`, with typed preparation diagnostics and staged
+publication. Preparation is not implemented. It preserves retained descriptions,
+reconstructs stripped instances against their original schema and reconstructs
+bulk records only when an entire entry description is absent. Present incomplete
+records and count mismatches fail. Optional retained/binary comparison is explicit.
+Selected-section extraction validates applicable metadata before removing it;
+embedded types and sibling section values never influence the result. The supplied
+source schema is the sole authority. Conversion publishes caller-owned documents;
+its diagnostics remain separate, and merge locations borrow prepared inputs.
+Preparation needs a reviewed implementation plan; composition remains design work.
 Implemented schema
 switching still preserves binary data; document merging and subsequent
 construction are separate operations.

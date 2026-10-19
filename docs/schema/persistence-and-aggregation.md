@@ -4,14 +4,15 @@ License: MIT (see LICENSE file in repository root)
 File:   persistence-and-aggregation.md
 Author: Ritchie Brannan
 Drafting and editorial assistance: OpenAI Codex
-Date:   18 Oct 2026
+Date:   19 Oct 2026
 
 # Schema persistence and aggregation revision
 
 ## Status and scope
 
 This document records the persistence discussion of 14 October 2026 and the
-merge discussion of 15 October, revised on 17 and 18 October. Persistence is
+merge discussion of 15 October, revised on 17 and 18 October, and the document
+preparation decisions of 19 October. Persistence is
 implemented. The schema role rework is user-reviewed and committed in `2b99f48`:
 blocks retain document and binary storage, while data roles carry schema
 associations and support atomic attachment and checked/trusted switching.
@@ -39,9 +40,10 @@ Type-schema merging and prepared instance/bulk data aggregation are implemented;
 see the [type merge API](runtime-api.md#type-schema-merging) and
 [data aggregation API](runtime-api.md#instance-and-bulk-data-aggregation). The
 [data aggregation plan](../project/data_aggregation_implementation_plan.md) records
-the reviewed implementation scope. Conversion APIs and complete document
-composition remain separate design work; this revision does not authorise their
-implementation.
+the reviewed implementation scope; data aggregation is committed in `36ef3d9`.
+The [document preparation contract](#agreed-document-preparation-interfaces)
+is agreed but not implemented. Complete document composition remains design work;
+this revision does not authorise preparation or composition implementation.
 
 The [persistence milestone](../project/completed_milestones.md#schema-instance-and-bulk-data-persistence)
 and [role milestone](../project/completed_milestones.md#schema-role-attachment-and-construction)
@@ -759,8 +761,8 @@ need not become "bulk data". The persisted `data` section, `.bbd` extension and
 Merging remains needed, but its responsibilities belong to the individual domains.
 The following operations are conceptually separate and implemented. Type-schema
 and prepared data merging share internal document construction while retaining
-their domain-specific validation. Boundary conversion APIs remain design work,
-separate from the completed merge and persistence scopes.
+their domain-specific validation. Boundary preparation interfaces are agreed but
+unimplemented, separate from the completed merge and persistence scopes.
 
 | Operation | Responsibility |
 | --- | --- |
@@ -1074,9 +1076,10 @@ binary package or retained schema binding.
 A stripped input without its required binary is incomplete and cannot be
 converted. Zero-byte types still require the explicit complete-package route;
 a zero-length payload is not a request to invent missing data. Partially described
-bulk data must become complete at the boundary; exact conversion APIs remain to
-be designed. Record counts and shapes must validate rather than being silently
-repaired. Validate supplied locator/count/size information before removing source
+bulk data must become complete at the boundary under the
+[whole-entry rule](#agreed-whole-entry-bulk-data-preparation). Record counts and
+shapes must validate rather than being silently repaired. Validate supplied
+locator/count/size information before removing source
 locators and the stripped-state marker from the working document. Complete bulk
 record sequences determine their counts; later binary construction generates new
 locators. Discarding storage metadata must not hide malformed source input.
@@ -1155,7 +1158,7 @@ is an independently owned `CLiveDocument`. Each operation receives one ready,
 read-only `CResolvedSchema` for the merged schema. Generic input documents have
 no binding to switch. Original schemas are required by binary-to-document
 conversion, not by the merge core. The agreed function and diagnostic declarations
-are specified below; they are not yet implemented.
+are specified below and implemented.
 
 Use one merge implementation per operation over prepared document input, with
 binary-backed conversion at the boundary. No universal owner, attached
@@ -1548,6 +1551,206 @@ saving, stripping and schema switching retain their existing byte-preservation
 contracts. Aggregation is not required to save an independent entity or package
 separate entities into a bundle.
 
+## Agreed document preparation interfaces
+
+Agreed on 19 October 2026; not yet implemented. Preparation converts one source
+into independent document-only storage suitable for the existing merge cores.
+It does not merge, attach or switch schemas, reconcile retained descriptions,
+or construct a completed binary package. Already prepared documents may go
+directly to merging without another preparation or copy.
+
+Use two overloads per domain, following the existing query and diagnostic-output
+conventions:
+
+```cpp
+[[nodiscard]] bool prepare_instances_document(
+    const CInstanceDocumentQuery& source,
+    const CResolvedSchema& source_schema,
+    CLiveDocument& destination,
+    SInstancePreparationDiagnostic& diagnostic) noexcept;
+
+[[nodiscard]] bool prepare_instances_document(
+    const CInstanceDocumentQuery& source,
+    const CResolvedSchema& source_schema,
+    const CByteConstView& payload,
+    const bool compare_embedded,
+    CLiveDocument& destination,
+    SInstancePreparationDiagnostic& diagnostic) noexcept;
+
+[[nodiscard]] bool prepare_bulk_data_document(
+    const CBulkDataDocumentQuery& source,
+    const CResolvedSchema& source_schema,
+    CLiveDocument& destination,
+    SBulkDataPreparationDiagnostic& diagnostic) noexcept;
+
+[[nodiscard]] bool prepare_bulk_data_document(
+    const CBulkDataDocumentQuery& source,
+    const CResolvedSchema& source_schema,
+    const CByteConstView& payload,
+    const bool compare_embedded,
+    CLiveDocument& destination,
+    SBulkDataPreparationDiagnostic& diagnostic) noexcept;
+```
+
+Existing queries cover live and baked documents; no role-owner overload family
+or new public source adapter is selected. `source_schema` must be ready and is
+the caller-supplied schema describing the source, including its original defaults.
+The merged schema belongs to later merge validation and binary construction.
+Preparation retains no schema binding.
+
+The overloads distinguish no supplied binary from an explicitly supplied complete
+package with a possibly zero-byte payload. The document-only overload accepts
+ordinary descriptions and supported preconstruction metadata. It rejects
+stripped input and storage references requiring an unavailable binary package;
+it must not silently discard an unverifiable binary dependency. The supplied
+overload validates applicable locators, counts, sizes, alignment, ranges and
+coverage under existing storage rules before removing metadata. An empty payload
+does not authorise inventing missing data; zero-byte types retain their explicit
+package and count requirements.
+
+Retained instance declarations preserve explicit selections, omissions,
+specialisation hierarchy and presentation. An absent declaration in unstripped
+input means inheritance, not missing information to reconstruct. Stripped
+instances reconstruct minimal differences against original schema defaults for
+bases and immediate parent snapshots for specialisations, as specified above.
+Lost explicit default-equal selections and presentation cannot be recovered.
+
+`compare_embedded` is explicit, with no default argument. When false, valid
+retained descriptions remain authoritative even if binary edits have made them
+stale. When true, disagreement with supplied binary fails. It controls only
+retained-description comparison, not storage validation or representability
+checks for reconstructed values. Binary edits contribute through explicit
+reconciliation; preparation never silently selects a different source of truth.
+
+### Agreed whole-entry bulk data preparation
+
+An entry is the complete record sequence belonging to one named bulk data entry,
+not an individual record or member. Each entry has one source for its values:
+
+| Entry description | Preparation |
+| --- | --- |
+| Complete retained `data` array | Validate and preserve the full description and presentation; compare with supplied binary only when requested. |
+| No `data` property | Require supplied binary and validated locator/count metadata; reconstruct the entire record sequence. |
+| Present array containing incomplete or malformed records | Reject; do not fill member or record holes from binary. |
+| Present array shorter or longer than its declared count | Reject the count mismatch; do not recover or discard a tail. |
+| Present empty array | Apply existing count rules; empty is not absent. |
+
+A document may contain some completely described entries and some reference-only
+entries. Missing descriptions are reconstructed as complete records, without
+instance-style default omission. This does not relax stripped-format admission:
+descriptions remain forbidden where the stripped marker forbids them. Neither
+metadata nor supplied record shapes are silently repaired.
+
+### Agreed selected-section extraction
+
+Preparation extracts only `instances` or `data`, according to the function called.
+It accepts combined documents containing the recognised `types`, `instances` and
+`data` sections without letting unselected content influence prepared values.
+
+- Check that the root is an object, root properties are recognised, and present
+  recognised section containers have the required object shape. Reject unknown
+  root properties rather than silently dropping potentially meaningful content.
+- Fully validate and prepare only the selected domain. Do not semantically
+  validate sibling data sections or resolve, compare, merge or use embedded
+  `types`. The explicit `source_schema` is the sole schema authority, including
+  defaults, type identity and interpretation.
+- Validate known storage metadata applicable to the selected domain before
+  removing it. Unselected sections and their entry metadata do not supply values,
+  counts, locators or other preparation context for the selected domain.
+- Preserve supported names, declarations, hierarchy and presentation within the
+  selected section. Reject unsupported fields there. Known sibling sections are
+  deliberately excluded from output.
+- Always publish a root containing exactly the selected section. If that section
+  is absent, publish an explicit empty object, subject to valid applicable
+  metadata. Remove locators and stripped-state metadata; output contains neither
+  binary storage nor a schema association.
+
+For example, an unknown type used only by an unselected bulk data section does
+not prevent instance preparation. An unknown root property or a malformed
+section container does. Embedded type definitions, including defaults that
+disagree with the supplied schema, are not consulted. Whole-document semantic
+validation remains a separate caller operation.
+
+This broader extraction boundary does not loosen the merge cores' strict
+prepared-root admission: preparation publishes exactly the form they accept.
+
+### Agreed preparation diagnostics and publication
+
+Use shared stages/reasons and typed existing domain detail, separately from
+merge diagnostics:
+
+```cpp
+enum class EDataPreparationStage : std::uint8_t
+{
+    none = 0u,
+    preconditions,
+    source_validation,
+    document_preparation,
+    result_validation
+};
+
+enum class EDataPreparationReason : std::uint8_t
+{
+    none = 0u,
+    invalid_schema,
+    invalid_source,
+    allocation_failed,
+    storage_limit,
+    construction_failed,
+    invalid_result
+};
+
+struct SInstancePreparationDiagnostic
+{
+    EDataPreparationStage stage{ EDataPreparationStage::none };
+    EDataPreparationReason reason{ EDataPreparationReason::none };
+    SInstanceDiagnostic detail;
+};
+
+struct SBulkDataPreparationDiagnostic
+{
+    EDataPreparationStage stage{ EDataPreparationStage::none };
+    EDataPreparationReason reason{ EDataPreparationReason::none };
+    SBulkDataDiagnostic detail;
+};
+```
+
+Unavailable schemas and schema-backing destination aliases fail at preconditions
+with `invalid_schema`. Source admission failures use `invalid_source`; existing
+domain detail distinguishes, for example, `binary_required`, `invalid_locator`,
+`invalid_count` and `embedded_mismatch`. Unrepresentable binary values fail with
+`invalid_source` and `unrepresentable_value` detail at the stage that discovers
+them, including reconstruction during `document_preparation`. Invalid completed
+output uses `result_validation` / `invalid_result`. Report allocation and storage
+limits distinctly only when the underlying operation establishes the cause;
+otherwise document construction failure uses `construction_failed`.
+
+Report the first failure and clear the whole diagnostic on success. Detail
+occurrences borrow original source nodes where available; reconstruction failures
+may identify the original entry. Unavailable locations remain unset. Final-result
+validation retains reason detail but clears all handles into temporary output.
+No persistent source-provenance map is required. The caller owns successful
+prepared documents, so later merge diagnostics can borrow their locations under
+the usual document lifetime rules.
+
+Construct a private live document, validate the prepared result under
+`source_schema`, and publish through the existing non-failing move assignment.
+Occupied destinations and source/destination aliasing are supported. Failure
+preserves sources, destination and existing handles; successful replacement
+invalidates old destination views. Reject replacement of the document backing
+`source_schema`. Other borrowed views remain subject to caller-managed lifetimes;
+source storage, payload and schema must remain usable throughout preparation.
+
+Reuse the existing copying, string preparation, value validation and
+reconstruction machinery through narrow internal helpers. Do not implement
+preparation by promoting an entire temporary live role: that copies payload
+storage and can reconstruct retained declarations that must instead be preserved.
+Borrow source bytes and reconstruct only missing descriptions. Existing scratch
+storage for original defaults and representability verification is permitted;
+no disposable complete output payload or new owner class is required. Retain
+existing cheap depth checks and failure semantics rather than adding a graph
+preflight. A separate reviewed implementation plan remains necessary.
+
 ## Complete document composition
 
 Composition remains a separate, unimplemented operation assembling compatible
@@ -1622,9 +1825,9 @@ writes to bundle entries and compatibility signatures remain outside this work.
 ### Next discussion: shared-schema aggregation
 
 Type-schema merging and prepared instance/bulk data aggregation are complete.
-Boundary conversion APIs and complete document composition remain. The 18 October
-revision settles
-absent-versus-explicit default merging and document-only working input/output.
+Boundary preparation implementation and complete document composition remain.
+The 18 October revision settles absent-versus-explicit default merging and
+document-only working input/output.
 Stripped instances are promoted against their original schema to recover minimal
 declarations before merging; later construction uses the merged defaults.
 
@@ -1658,18 +1861,17 @@ are implemented as specified above. See the
 [interfaces and diagnostics](#agreed-data-aggregation-functions-and-diagnostics)
 and [validation and publication decisions](#agreed-data-aggregation-validation-and-publication).
 
-Remaining decisions are:
+The [19 October preparation contract](#agreed-document-preparation-interfaces)
+settles the four overloads, diagnostics, whole-entry bulk reconstruction and
+selected-section extraction. Only the selected domain and explicitly supplied
+source schema determine prepared values; embedded type definitions do not.
+Preparation remains unimplemented and needs its own reviewed implementation plan.
 
-- Concrete boundary conversion APIs for stripped instances and incomplete bulk
-  data, reusing promotion/reconciliation and publishing independent document-only
-  storage. Keep source backing and original schemas alive until conversion finishes.
-- Conversion diagnostic details and any later combined operation's mapping from
-  temporary promoted nodes to original input. Standalone merge diagnostics borrow
-  caller-owned prepared inputs. Optional consistency checks remain explicit.
-- Composition signatures and any convenience orchestration of conversion, merge
-  and later construction, without adding merge-time representation states.
-
-The conversion/composition decisions precede their own implementation plans.
+Remaining design decisions concern composition signatures and any later
+convenience orchestration of preparation, merge and construction. A combined
+operation would need its own diagnostic-location lifetime contract; standalone
+preparation and merging need no persistent provenance map. Composition design
+precedes its implementation plan.
 The [data aggregation plan](../project/data_aggregation_implementation_plan.md)
 covers the agreed prepared-document merge cores and their shared validation and
 construction only. Strict prepared roots, the schema-backing destination guard and
@@ -1683,12 +1885,13 @@ neither completed work nor these plans authorise conversion/composition implemen
 | --- | --- |
 | Definition merging | Implemented: independently valid document views, compatibility/default/presentation policy, structured diagnostics and staged publication of a validated live result. |
 | Schema switching | Implemented with checked/trusted modes and unchanged storage/handles; distinct from merge/reconstruction. |
-| Instance aggregation | Implemented prepared declaration/hierarchy merging, diagnostics and transactional output. Original-schema stripped-input conversion API remains separate. |
-| Bulk data aggregation | Implemented complete-record prefix merging, diagnostics and transactional output. Missing-description conversion API remains separate. |
+| Instance aggregation | Implemented prepared declaration/hierarchy merging, diagnostics and transactional output. Original-schema preparation interface agreed; implementation remains separate. |
+| Bulk data aggregation | Implemented complete-record prefix merging, diagnostics and transactional output. Whole-entry preparation interface agreed; implementation remains separate. |
 | Complete document composition | Assembly of already merged document sections; no collision resolution or mandatory combined persistence owner. |
 
-Boundary conversion and later binary construction reuse existing facilities.
-Their concrete APIs and implementation plans remain future work.
+Boundary preparation will reuse existing facilities under the agreed API; its
+implementation plan remains future work. Later binary construction already uses
+the existing domain-specific construction interfaces.
 
 ### Optional later optimisations
 
