@@ -96,6 +96,11 @@ public:
     //  Root-reachable count only. Detached storage is excluded.
     [[nodiscard]] std::uint32_t value_count() const noexcept;
 
+    //  Root-reachable maximum depth, counting the root as zero. Returns zero
+    //  when unavailable. Iterative O(values) time, no allocation or depth limit.
+    //  Trusts established structure; use check_integrity() for a full audit.
+    [[nodiscard]] std::uint32_t maximum_depth() const noexcept;
+
     //  Document-owned values, including detached values.
     [[nodiscard]] bool contains(const CNodeKey value) const noexcept;
 

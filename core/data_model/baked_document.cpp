@@ -47,6 +47,41 @@ bool CBakedDocument::check_integrity() const noexcept
     return is_ready() && validate(data(), byte_count());
 }
 
+std::uint32_t CBakedDocument::maximum_depth() const noexcept
+{
+    const CBakedValueIndex root_value = root();
+    CBakedValueIndex current = root_value;
+    std::uint32_t depth{}, maximum{};
+    while (current.is_valid())
+    {
+        const CBakedValueIndex child = first_child(current);
+        if (child.is_valid())
+        {
+            current = child;
+            ++depth;
+            if (depth > maximum) maximum = depth;
+            continue;
+        }
+        CBakedValueIndex next;
+        while (current != root_value)
+        {
+            next = next_sibling(current);
+            if (next.is_valid())
+            {
+                break;
+            }
+            current = parent(current);
+            --depth;
+        }
+        if (current == root_value)
+        {
+            return maximum;
+        }
+        current = next;
+    }
+    return 0u;
+}
+
 CStringView CBakedDocument::property_name(const CPropertyNameId id) const noexcept
 {
     if (!is_ready() || !id.is_valid())

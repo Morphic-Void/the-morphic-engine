@@ -86,6 +86,10 @@ public:
     [[nodiscard]] std::size_t byte_count() const noexcept;
     [[nodiscard]] CBakedValueIndex root() const noexcept;
     [[nodiscard]] std::uint32_t value_count() const noexcept;
+
+    //  Root is depth zero; an unavailable view also returns zero. Iterative
+    //  O(values) time, no allocation or depth limit. Trusts validated storage.
+    [[nodiscard]] std::uint32_t maximum_depth() const noexcept;
     [[nodiscard]] std::uint32_t property_name_count() const noexcept;
     [[nodiscard]] std::uint32_t string_value_count() const noexcept;
 

@@ -2050,13 +2050,16 @@ static void test_copy_depth(TTestContext& ctx)
     }
     const CNodeKey at_limit = document_translation::copy_subtree(destination, source, source.root(), {});
     TEST_EXPECT(ctx, at_limit && destination.erase(at_limit));
+    TEST_EXPECT(ctx, source.maximum_depth() == 255u);
     TEST_EXPECT(ctx, source.append_child(parent, source.create_null()).succeeded());
+    TEST_EXPECT(ctx, source.maximum_depth() == 256u);
     const auto before = destination.value_count();
     TEST_EXPECT(ctx, !document_translation::copy_subtree(destination, source, source.root(), {}) &&
         (destination.value_count() == before) && destination.check_integrity());
     CBakedDocumentBlock block;
     TEST_EXPECT(ctx, document_translation::bake(source, block));
     const CBakedDocument baked = block.document();
+    TEST_EXPECT(ctx, baked.maximum_depth() == 256u);
     TEST_EXPECT(ctx, !document_translation::copy_subtree(destination, baked, baked.root(), {}) &&
         (destination.value_count() == before) && destination.check_integrity());
     //  Promotion retains its iterative traversal and has no subtree-copy depth cap.
@@ -2071,6 +2074,8 @@ static void test_copy_depth(TTestContext& ctx)
     CBakedDocumentBlock deep;
     TEST_EXPECT(ctx, document_translation::bake(source, deep) && document_translation::promote(deep.document(), destination) &&
         destination.value_count() == source.value_count() && destination.check_integrity());
+    TEST_EXPECT(ctx, (source.maximum_depth() == 1023u) && (deep.document().maximum_depth() == 1023u) &&
+        (destination.maximum_depth() == 1023u));
 }
 
 struct SFailingCopyAllocator
@@ -2084,6 +2089,49 @@ struct SFailingCopyAllocator
             tests::allocate_test_memory(nullptr, alignment, bytes);
     }
 };
+
+static void test_maximum_depth(TTestContext& ctx)
+{
+    CLiveDocument source;
+    CBakedDocument unavailable;
+    TEST_EXPECT(ctx, (source.maximum_depth() == 0u) && (unavailable.maximum_depth() == 0u));
+    TEST_EXPECT(ctx, source.initialise() && (source.maximum_depth() == 0u));
+    CBakedDocumentBlock empty;
+    TEST_EXPECT(ctx, document_translation::bake(source, empty) && (empty.document().maximum_depth() == 0u));
+    TEST_EXPECT(ctx, source.set_root_type(ELiveValueType::array));
+    TEST_EXPECT(ctx, source.maximum_depth() == 0u);
+    const CNodeKey branch = source.create_array();
+    const CNodeKey inner = source.create_array();
+    const CNodeKey leaf = source.create_null();
+    TEST_EXPECT(ctx, source.append_child(source.root(), source.create_null()).succeeded());
+    TEST_EXPECT(ctx, source.append_child(source.root(), branch).succeeded());
+    TEST_EXPECT(ctx, source.append_child(branch, inner).succeeded() && source.append_child(inner, leaf).succeeded());
+    TEST_EXPECT(ctx, source.append_child(source.root(), source.create_null()).succeeded());
+    const CNodeKey detached = source.create_array();
+    CNodeKey parent = detached;
+    for (unsigned i = 0u; i < 8u; ++i)
+    {
+        const CNodeKey child = source.create_array();
+        TEST_EXPECT(ctx, source.append_child(parent, child).succeeded());
+        parent = child;
+    }
+    CBakedDocumentBlock baked;
+    TEST_EXPECT(ctx, document_translation::bake(source, baked));
+    SFailingCopyAllocator fixture{ 0u, 0u };
+    memory::CMemoryAllocator allocator{ &fixture, &SFailingCopyAllocator::allocate, &tests::deallocate_test_memory };
+    memory::CMemoryContext context{ allocator };
+    {
+        tests::TMemoryContextScope scope{ &context };
+        TEST_EXPECT(ctx, (source.maximum_depth() == 3u) && (baked.document().maximum_depth() == 3u));
+        TEST_EXPECT(ctx, fixture.calls == 0u);
+    }
+    TEST_EXPECT(ctx, context.is_attribution_empty());
+    TEST_EXPECT(ctx, source.erase(leaf) && (source.maximum_depth() == 2u));
+    TEST_EXPECT(ctx, source.append_child(source.root(), detached).succeeded() && (source.maximum_depth() == 9u));
+    TEST_EXPECT(ctx, document_translation::bake(source, baked) && (baked.document().maximum_depth() == 9u));
+    TEST_EXPECT(ctx, source.erase(detached) && (source.maximum_depth() == 2u));
+    TEST_EXPECT(ctx, source.check_integrity());
+}
 
 static void test_sparse_copy_string_ids(TTestContext& ctx)
 {
@@ -2201,6 +2249,7 @@ int run_baked_document_tests()
     baked_document_storage_tests::test_baking_storage(ctx);
     document_copy_tests::test_copy_routes(ctx);
     document_copy_tests::test_copy_depth(ctx);
+    document_copy_tests::test_maximum_depth(ctx);
     document_copy_tests::test_constructed_copy(ctx);
     document_copy_tests::test_promotion_failure_staging(ctx);
     document_copy_tests::test_sparse_copy_string_ids(ctx);

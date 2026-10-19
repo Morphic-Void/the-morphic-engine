@@ -159,6 +159,16 @@ maintain permanent root-reachable reference counts or distinct-used-string
 totals. Baking or a requested analysis discovers references by walking the
 tree.
 
+`CLiveDocument::maximum_depth()` and `CBakedDocument::maximum_depth()` provide
+optional root-reachable depth probes. The root has depth zero; each child adds
+one, including scalar and empty values. An empty root or unavailable document
+returns zero; callers can use `is_ready()` to distinguish those cases. Detached
+live subtrees are excluded. Both probes walk iteratively in O(reachable values)
+time with constant scratch space, no allocation and no recursive depth limit.
+They trust established document structure rather than performing an integrity
+audit. They measure document topology, not implicit schema/default construction
+depth, and are not automatically run by merging or binary construction.
+
 The live document exposes each string domain's ID at a requested lexical rank.
 Rank zero is the canonical empty ID; an unavailable rank is invalid. These
 observations permit deterministic public-only baking and serialisation without

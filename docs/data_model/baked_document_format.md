@@ -248,6 +248,12 @@ already-validated storage without revalidation or allocation. It does not accept
 a const block, a const byte view or a `CBakedDocument` as an attachment source.
 Both view classes borrow storage and require it to outlive their use.
 
+The reading view's `maximum_depth()` reports the deepest value with the root at
+depth zero, matching `CLiveDocument::maximum_depth()`. Empty roots and unavailable
+views return zero. The optional query uses an iterative O(value count) walk,
+constant scratch space and no allocation; it imposes no recursive depth limit
+and does not change or revalidate the already-validated storage.
+
 The editor's `baked()` accessor returns `const CBakedDocument&`, even from a
 non-const editor, for all reading operations. Callers can copy that reading view
 for transport or independent rebinding; they cannot rebind the editor through

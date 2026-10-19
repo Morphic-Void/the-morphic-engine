@@ -349,6 +349,65 @@ std::uint32_t CLiveDocument::value_count() const noexcept
     return analyse(result) ? result.value_count : 0u;
 }
 
+std::uint32_t CLiveDocument::maximum_depth() const noexcept
+{
+    if (!is_ready())
+    {
+        return 0u;
+    }
+    const LiveNodeSlot root_slot = node_slot(m_root);
+    LiveNodeSlot current = root_slot;
+    std::uint32_t depth{}, maximum{}, visited{};
+    while (visited++ < m_nodes.occupied_count())
+    {
+        const CLiveNode* value = value_node(current);
+        if (value == nullptr)
+        {
+            return 0u;
+        }
+        if (live_value_type_is_container(value->value_type()))
+        {
+            const CLiveNode* const aggregate = node(value->value_owned_aggregate_slot());
+            if ((aggregate == nullptr) || !aggregate->is_aggregate_record())
+            {
+                return 0u;
+            }
+            if (aggregate->aggregate_first_child_slot() >= 0)
+            {
+                current = aggregate->aggregate_first_child_slot();
+                ++depth;
+                if (depth > maximum) maximum = depth;
+                continue;
+            }
+        }
+        while (current != root_slot)
+        {
+            if ((value == nullptr) || (depth == 0u))
+            {
+                return 0u;
+            }
+            if (value->value_next_sibling_slot() >= 0)
+            {
+                break;
+            }
+            const CLiveNode* const aggregate = node(value->value_parent_aggregate_slot());
+            if ((aggregate == nullptr) || !aggregate->is_aggregate_record())
+            {
+                return 0u;
+            }
+            current = aggregate->aggregate_owner_value_slot();
+            value = value_node(current);
+            --depth;
+        }
+        if (current == root_slot)
+        {
+            return maximum;
+        }
+        current = value->value_next_sibling_slot();
+    }
+    return 0u;
+}
+
 bool CLiveDocument::contains(const CNodeKey value) const noexcept
 {
     return value_node(value) != nullptr;
