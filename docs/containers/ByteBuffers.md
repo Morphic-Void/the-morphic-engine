@@ -171,6 +171,8 @@ append(data, size):
 
 - appends source bytes to the logical end
 - grows capacity if required
+- with non-null data, ensures the 4 KiB minimum capacity even when size is zero,
+  providing lazy initialisation without changing logical size
 - fails if allocation fails or data is null with non-zero size
 - succeeds with no effect when data is null and size is zero
 
@@ -179,6 +181,7 @@ append(size, clear):
 - extends the logical size by size bytes
 - if clear is true, the appended region is zeroed
 - otherwise the appended region is uninitialised
+- when size is zero, returns buffer validity without allocating storage
 
 ### Logical size changes
 
@@ -215,13 +218,28 @@ resize(size, align):
 
 reserve(min_capacity, align):
 
-- ensures capacity >= min_capacity using the growth policy
+- ensures capacity >= max(min_capacity, 4 KiB), applying the growth policy only
+  when current capacity is below that requirement
 - logical size is unchanged
+- sufficient capacity is reused unless a stronger alignment requires relocation
+- reserving zero establishes at least the 4 KiB minimum capacity, including on
+  an empty buffer or one with a smaller exact allocation
 
 ensure_free(extra, align):
 
 - ensures at least extra bytes of free space beyond current size
 - logical size is unchanged
+- uses reserve, including its capacity-reuse and alignment rules
+
+Automatic buffer growth uses a 4 KiB minimum capacity and a 64 KiB capped
+growth step. The cap controls incremental growth; a large request jumps directly
+to a sufficient capacity in one allocation. Vector growth has its own policy.
+Known-size construction can reserve once, or use allocate/reallocate for exact
+capacity. Filling reserved storage does not grow it while capacity and alignment
+remain sufficient, subject to reserve's 4 KiB minimum. Pointer-based appends with
+non-null data retain this minimum even for zero bytes; null-source zero-length
+appends and size-only zero-length appends do not allocate.
+Failed growth or alignment upgrades preserve the existing buffer and contents.
 
 shrink_to_fit():
 

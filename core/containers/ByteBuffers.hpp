@@ -695,8 +695,9 @@ inline void CByteBuffer::unsafe_replace_memory_context_without_accounting(
 
 [[nodiscard]] inline bool CByteBuffer::reserve(const std::size_t minimum_capacity, const std::size_t align) noexcept
 {
+    const std::size_t required_capacity = std::max(minimum_capacity, memory::k_buffer_growth_policy_min_capacity);
     return (minimum_capacity <= memory::k_byte_size_ceiling) ?
-        reallocate(m_meta.size, std::max(memory::buffer_growth_policy(minimum_capacity, memory::k_byte_size_ceiling), m_meta.capacity), align) :
+        reallocate(m_meta.size, ((required_capacity > m_meta.capacity) ? memory::buffer_growth_policy(minimum_capacity, memory::k_byte_size_ceiling) : m_meta.capacity), align) :
         false;
 }
 

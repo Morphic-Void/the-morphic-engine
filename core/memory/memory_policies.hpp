@@ -155,7 +155,7 @@ inline std::size_t buffer_growth_policy(
     const std::size_t maximum_capacity) noexcept
 {   //  default policy when additional capacity is required for automatic buffer growth
     return std::min(
-        std::max(capped_growth_rate_curve(required, k_buffer_growth_policy_min_capacity, maximum_capacity),
+        std::max(capped_growth_rate_curve(required, k_buffer_growth_policy_capped_rate, maximum_capacity),
             k_buffer_growth_policy_min_capacity),
         maximum_capacity);
 }

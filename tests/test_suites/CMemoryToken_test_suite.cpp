@@ -220,6 +220,19 @@ void test_growth_policy_ceiling(TTestContext& ctx)
     TEST_EXPECT(ctx, memory::vector_growth_policy(1u, 100u) == 32u);
     TEST_EXPECT(ctx, memory::vector_growth_policy(100u, 100u) == 100u);
     TEST_EXPECT(ctx, memory::buffer_growth_policy(1u, 2048u) == 2048u);
+    TEST_EXPECT(ctx, memory::buffer_growth_policy(1u, memory::k_byte_size_ceiling) == 4096u);
+    TEST_EXPECT(ctx, memory::buffer_growth_policy(65536u, memory::k_byte_size_ceiling) == 98304u);
+    TEST_EXPECT(ctx, memory::buffer_growth_policy(1048577u, memory::k_byte_size_ceiling) == 1114112u);
+    TEST_EXPECT(ctx, memory::buffer_growth_policy(1u, 0u) == 0u);
+    std::size_t previous{};
+    const std::size_t required_sizes[]{ 0u, 1u, 4095u, 4096u, 4097u, 65535u, 65536u, 65537u,
+        (memory::k_byte_size_ceiling - 1u), memory::k_byte_size_ceiling };
+    for (const std::size_t required : required_sizes)
+    {
+        const auto capacity = memory::buffer_growth_policy(required, memory::k_byte_size_ceiling);
+        TEST_EXPECT(ctx, (capacity >= required) && (capacity >= previous) && (capacity <= memory::k_byte_size_ceiling));
+        previous = capacity;
+    }
     TEST_EXPECT(ctx, memory::default_growth_policy(1u, 16u) == 16u);
 }
 

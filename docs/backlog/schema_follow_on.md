@@ -220,10 +220,28 @@ copied bytes. Reserved string imports and copied-subtree emission now have expli
 no-further-allocation tests. Reconstruction beyond the structural minimum still grows.
 Unrelated sibling growth and omitted sparse array extent produce no extra allocations.
 
-Investigate the buffer policy first: its declared cap is 65,536 bytes, but the
-current growth calculation passes the 4,096-byte minimum as the capped step.
-Vector and buffer caps are distinct. Bulk reservation can jump directly to a known
-capacity; these incremental growth caps do not force a series of small reserve calls.
+The separately authorised buffer correction restores the declared 65,536-byte cap
+while retaining the 4,096-byte minimum. The 4 KiB cap introduced in `4afec1e` was a
+deliberate temporary test setting that was unintentionally left in place.
+Buffer reserve now applies growth policy only when capacity is insufficient for
+the request or the 4 KiB minimum, while retaining alignment upgrades and failure
+preservation. Reserving zero and pointer-based zero-length appends with non-null
+data establish that minimum capacity for lazy initialisation. Null-source and
+size-only zero-length appends retain their existing no-allocation behaviour.
+Vector policy is unchanged.
+Bulk reservation can jump directly to a known capacity; incremental growth caps do
+not force a series of small reserve calls. Exact capacity at or above the minimum
+can also be filled without premature growth. See
+[buffer growth operations](../containers/ByteBuffers.md#growth-operations).
+
+Focused allocation, alignment, minimum-reservation, zero-length append and
+failure-preservation tests pass in
+Debug/Release x64 and Win32, together with all ordinary `-t1` suites. A single
+buffer filled to 1 MiB uses 25, 21, 9 and 1 allocations for append sizes of one
+byte, 4 KiB, 64 KiB and 1 MiB respectively; exact and rounded pre-reservation
+both permit filling without further allocation. Logs are
+`build/buffer-append-restore-{debug64,debug32,release64,release32}-{build,tests}.log`.
+
 Review whether geometric growth is appropriate for remaining transient vectors or
 document slot storage, considering individual and bulk operations separately.
 Compare time, cumulative copied bytes and peak retained capacity; preserve existing

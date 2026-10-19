@@ -497,15 +497,9 @@ static void test_resource_failure_cursors(TTestContext& ctx)
     }
     TEST_EXPECT(ctx, completed && failed_after_prefix);
 
-    //  End the text immediately before the buffer's next growth recommendation.
+    //  Fill the buffer exactly with text, leaving no room for its terminator.
     //  Rejected growth for its physical terminator must retain the EOF cursor.
-    const std::size_t capacity = memory::k_buffer_growth_policy_min_capacity;
-    std::size_t threshold = 1u;
-    while (memory::buffer_growth_policy(threshold, memory::k_byte_size_ceiling) <= capacity)
-    {
-        ++threshold;
-    }
-    const std::size_t payload_bytes = threshold - 1u;
+    const std::size_t payload_bytes = memory::k_buffer_growth_policy_min_capacity;
     const std::size_t wide_count = (payload_bytes - 2u) / 3u;
     const std::size_t ascii_count = (payload_bytes - 2u) % 3u;
     const std::string full = std::string("a\r\n") + std::string(wide_count, '\x93') + std::string(ascii_count, 'z');
