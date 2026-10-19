@@ -44,6 +44,9 @@ the reviewed implementation scope; data aggregation is committed in `36ef3d9`.
 The [document preparation contract](#agreed-document-preparation-interfaces)
 and [composition contract](#complete-document-composition) are agreed but not
 implemented. This revision does not authorise their implementation.
+The [preparation and composition plan](../project/document_preparation_composition_implementation_plan.md)
+records the reviewed code reuse, delivery stages and verification, including the
+agreed storage-metadata admission rules. Implementation remains separate.
 
 The [persistence milestone](../project/completed_milestones.md#schema-instance-and-bulk-data-persistence)
 and [role milestone](../project/completed_milestones.md#schema-role-attachment-and-construction)
@@ -1622,6 +1625,88 @@ retained-description comparison, not storage validation or representability
 checks for reconstructed values. Binary edits contribute through explicit
 reconciliation; preparation never silently selects a different source of truth.
 
+### Agreed preparation storage-metadata admission
+
+Agreed on 19 October 2026. These rules supplement the preparation interfaces
+and selected-section extraction policy; they are not yet implemented.
+
+These are preparation rules, not changes to ordinary persistence loading or
+materialisation. The payload argument, when supplied, belongs to the selected
+domain only. Other sections never contribute offsets, counts, types or bytes.
+
+**Root metadata.** Recognise `types`, `instances`, `data`, `stripped`, `fileType`,
+`version` and `payloadSize`; reject other root properties. Check recognised
+section container shapes without inspecting sibling contents.
+
+| Root form | Document-only overload | Supplied-binary overload |
+| --- | --- | --- |
+| No envelope fields; `stripped` absent or false | Accept retained descriptions, subject to the locator rules below. | Accept a role-style description with validated supplied locators; no envelope is required. |
+| No envelope fields; `stripped: true` | Reject with `binary_required`, including zero-byte data. | Accept stripped input, with valid locators and the existing prohibition on retained values. |
+| All of `fileType`, `version`, `payloadSize` | Reject with `binary_required` after checking the claims' shape and internal consistency, even if `payloadSize` is zero. | Validate the complete metadata group and require an explicitly supplied package. |
+| Some but not all envelope fields | Reject as missing required metadata. | Reject as missing required metadata. |
+
+`stripped`, when present, must be Boolean and is independent of the envelope
+group. `fileType` must be the string `morphic-instance-data` or
+`morphic-bulk-data` matching the selected operation. `version` must be unsigned
+integer 1. `payloadSize` must be an unsigned integer within existing size limits
+and must equal the supplied payload view's logical byte length, not allocation
+capacity or the last occupied extent. A complete metadata group requires the
+selected section object, even when empty. A missing selected section is otherwise
+empty; missing or empty selected sections require an empty supplied payload.
+
+Recognised sibling sections remain allowed alongside a complete metadata group
+for extraction. Their contents remain outside semantic validation. This is a
+projection of metadata claims for the selected domain, not admission of that
+combined document as a valid `.bid`/`.bbd` file. The existing file loader's stricter
+root whitelist remains unchanged. A mismatched `fileType` is rejected, not treated
+as metadata belonging to a sibling section and silently discarded.
+
+**Entry locators.** A present locator must be an object containing only `offset`,
+`valid`, optional `count` and optional `size`. Require `offset` and `valid`;
+`offset` is an unsigned integer within the existing 32-bit offset limit and
+`valid` is Boolean. Count and size use existing unsigned integer and extent rules.
+
+| Locator state for a selected entry | Document-only overload | Supplied-binary overload |
+| --- | --- | --- |
+| Absent | Accept if the retained description is sufficient. | Reject as missing locator, even if retained values exist and comparison is disabled. |
+| Present, `valid: false` | Accept as a preconstruction placeholder if retained values suffice; validate metadata, then omit the locator from output. | Reject as invalid locator; never invent a location in supplied bytes. |
+| Present, `valid: true` | Reject with `binary_required`; the claimed association needs its explicit package. | Validate alignment, ordered extents, overlap and payload bounds using existing role rules. |
+
+Document-only inputs may mix absent locators and placeholders. A false locator's
+offset is checked for its required representation/range but is not an address:
+do not impose alignment or overlap checks on that unused number, require zero,
+calculate a replacement offset, or require mutable source storage. Output's
+prospective packed extent is checked by the existing final prepared validator.
+
+For instances, supplied `count` must equal 1 and supplied `size` must equal the
+resolved type size. For bulk entries with a retained array, its positive length
+determines the count; supplied count and size must agree with the entire sequence.
+Without an array, the supplied-binary route uses an explicit positive count or,
+where existing rules permit, derives it from size divisible by nonzero record
+size. Zero-size records require explicit count when descriptions are absent.
+Counts and extents must stay within existing limits. Missing instance declarations
+in ordinary input still mean inheritance; missing bulk arrays require binary.
+
+All selected entries on the supplied-binary route require valid locators,
+including zero-byte entries. Validate the payload view and its existing 128-byte
+nonempty base-alignment requirement before access. Apply the established zero-size
+offset/overlap rules without inventing a new positive-extent requirement. Gaps
+and trailing slack remain permitted; do not require the last extent to equal
+`payloadSize` or require internal payload gaps/padding to be zero. `compare_embedded`
+does not relax any metadata check. An explicit empty payload is still a supplied
+package; it is never inferred from the absence of the argument.
+
+**Diagnostics and precedence.** Use `source_validation` and `invalid_source` for
+these failures, with existing domain detail: `unknown_property`,
+`missing_property`, `invalid_input` for wrong envelope type/identifier/version,
+`invalid_locator`, `invalid_count`, `invalid_range`, `overlap` or `binary_required`
+as appropriate. Identify the offending original property or entry. Check root
+shape/metadata and applicable package requirements before visiting entries; then
+visit entries in document order, validating locator structure and count/size
+claims before reporting an unavailable package for a valid locator. Resource
+failures retain the agreed specific operation reason where known. No new public
+diagnostic enum members are needed.
+
 ### Agreed whole-entry bulk data preparation
 
 An entry is the complete record sequence belonging to one named bulk data entry,
@@ -1749,7 +1834,8 @@ Borrow source bytes and reconstruct only missing descriptions. Existing scratch
 storage for original defaults and representability verification is permitted;
 no disposable complete output payload or new owner class is required. Retain
 existing cheap depth checks and failure semantics rather than adding a graph
-preflight. A separate reviewed implementation plan remains necessary.
+preflight. The [reviewed implementation plan](../project/document_preparation_composition_implementation_plan.md)
+records the concrete sharing and verification; implementation remains separate.
 
 ## Complete document composition
 
@@ -1879,8 +1965,9 @@ that aliases it. Output owns its document storage and retains no resolver, schem
 binding or source dependency. Other borrowed views remain subject to the existing
 caller-managed lifetime rules; inputs remain usable and unchanged during the
 operation until any final aliased replacement. No transaction class, rollback
-mechanism or persistent provenance map is needed. A reviewed implementation plan
-remains separate from this agreed contract.
+mechanism or persistent provenance map is needed. The
+[reviewed implementation plan](../project/document_preparation_composition_implementation_plan.md)
+records delivery stages without authorising implementation.
 
 ## Existing implementation foundations
 
@@ -1977,12 +2064,15 @@ The [19 October preparation contract](#agreed-document-preparation-interfaces)
 settles the four overloads, diagnostics, whole-entry bulk reconstruction and
 selected-section extraction. Only the selected domain and explicitly supplied
 source schema determine prepared values; embedded type definitions do not.
-Preparation remains unimplemented and needs its own reviewed implementation plan.
+Preparation remains unimplemented. The
+[joint implementation plan](../project/document_preparation_composition_implementation_plan.md)
+incorporates the review corrections and agreed storage-metadata admission.
 
 The [composition contract](#complete-document-composition) also settles three
 types-required overloads, prepared single-domain inputs, typed diagnostics and
 staged publication after one resolution and validation of each supplied data
-domain. Preparation and composition both need reviewed implementation plans.
+domain. The joint plan covers preparation first, then composition; neither is
+authorised for implementation by the design or reviewed plan.
 Any later convenience orchestration of preparation, merge and construction
 remains separate design work, including its diagnostic-location lifetime
 contract. Standalone operations need no persistent provenance map.
@@ -2004,8 +2094,8 @@ neither completed work nor these plans authorise conversion/composition implemen
 | Complete document composition | Three types-required overloads, diagnostics and validation/publication policy agreed; implementation remains separate. No collision resolution or mandatory combined persistence owner. |
 
 Boundary preparation and composition will reuse existing facilities under their
-agreed APIs; implementation plans remain future work. Later binary construction
-already uses the existing domain-specific construction interfaces.
+agreed APIs and reviewed implementation plan. Later binary construction already
+uses the existing domain-specific construction interfaces.
 
 ### Optional later optimisations
 

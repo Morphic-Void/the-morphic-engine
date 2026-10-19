@@ -173,7 +173,12 @@ Selected-section extraction validates applicable metadata before removing it;
 embedded types and sibling section values never influence the result. The supplied
 source schema is the sole authority. Conversion publishes caller-owned documents;
 its diagnostics remain separate, and merge locations borrow prepared inputs.
-Preparation needs a reviewed implementation plan.
+The [joint preparation/composition implementation plan](../project/document_preparation_composition_implementation_plan.md)
+incorporates the review corrections, with preparation delivered first. The
+[storage-metadata admission rules](../schema/persistence-and-aggregation.md#agreed-preparation-storage-metadata-admission)
+are agreed: descriptions and unbound placeholders may stand alone; valid locators
+or completed-envelope claims require an explicit package. Partial envelopes fail,
+and extraction does not relax the existing persisted-file root whitelist.
 Implemented schema
 switching still preserves binary data; document merging and subsequent
 construction are separate operations.
@@ -186,8 +191,9 @@ contents and presentation. Resolve supplied types once, validate each data domai
 against that resolution, then copy privately and publish by non-failing move.
 There is no repeated result resolution/semantic validation, binary construction
 or collision resolution. Typed diagnostics borrow source locations; occupied and
-source-aliased destinations are supported. Composition also needs a reviewed
-implementation plan; combined orchestration remains separate design work.
+source-aliased destinations are supported. The joint plan then covers composition;
+implementation is not yet authorised. Combined orchestration remains separate
+design work.
 
 Direct final storage for description materialisation and selected type-definition
 subsets remain optional optimisations. Compatibility signatures, persisted resolved

@@ -877,6 +877,9 @@
     <None Include="$(MSBuildThisFileDirectory)..\docs\project\data_aggregation_implementation_plan.md">
       <Filter>Docs\project</Filter>
     </None>
+    <None Include="$(MSBuildThisFileDirectory)..\docs\project\document_preparation_composition_implementation_plan.md">
+      <Filter>Docs\project</Filter>
+    </None>
     <None Include="$(MSBuildThisFileDirectory)..\docs\project\type_schema_merge_implementation_plan.md">
       <Filter>Docs\project</Filter>
     </None>
