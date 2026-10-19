@@ -173,14 +173,21 @@ Selected-section extraction validates applicable metadata before removing it;
 embedded types and sibling section values never influence the result. The supplied
 source schema is the sole authority. Conversion publishes caller-owned documents;
 its diagnostics remain separate, and merge locations borrow prepared inputs.
-Preparation needs a reviewed implementation plan; composition remains design work.
+Preparation needs a reviewed implementation plan.
 Implemented schema
 switching still preserves binary data; document merging and subsequent
 construction are separate operations.
 
-Complete document composition remains separate: it assembles already merged
-document sections and does not resolve collisions. See the
-[revision's remaining design](../schema/persistence-and-aggregation.md#next-discussion-shared-schema-aggregation).
+The [composition contract](../schema/persistence-and-aggregation.md#complete-document-composition)
+is agreed but unimplemented. Three `compose_document` overloads require a types
+document and instances, bulk data, or both. Inputs are prepared single-domain
+documents; output copies sections in types/instances/data order, preserving
+contents and presentation. Resolve supplied types once, validate each data domain
+against that resolution, then copy privately and publish by non-failing move.
+There is no repeated result resolution/semantic validation, binary construction
+or collision resolution. Typed diagnostics borrow source locations; occupied and
+source-aliased destinations are supported. Composition also needs a reviewed
+implementation plan; combined orchestration remains separate design work.
 
 Direct final storage for description materialisation and selected type-definition
 subsets remain optional optimisations. Compatibility signatures, persisted resolved

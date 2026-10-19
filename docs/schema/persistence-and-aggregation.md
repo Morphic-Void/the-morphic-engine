@@ -12,7 +12,7 @@ Date:   19 Oct 2026
 
 This document records the persistence discussion of 14 October 2026 and the
 merge discussion of 15 October, revised on 17 and 18 October, and the document
-preparation decisions of 19 October. Persistence is
+preparation and composition decisions of 19 October. Persistence is
 implemented. The schema role rework is user-reviewed and committed in `2b99f48`:
 blocks retain document and binary storage, while data roles carry schema
 associations and support atomic attachment and checked/trusted switching.
@@ -42,8 +42,8 @@ see the [type merge API](runtime-api.md#type-schema-merging) and
 [data aggregation plan](../project/data_aggregation_implementation_plan.md) records
 the reviewed implementation scope; data aggregation is committed in `36ef3d9`.
 The [document preparation contract](#agreed-document-preparation-interfaces)
-is agreed but not implemented. Complete document composition remains design work;
-this revision does not authorise preparation or composition implementation.
+and [composition contract](#complete-document-composition) are agreed but not
+implemented. This revision does not authorise their implementation.
 
 The [persistence milestone](../project/completed_milestones.md#schema-instance-and-bulk-data-persistence)
 and [role milestone](../project/completed_milestones.md#schema-role-attachment-and-construction)
@@ -1753,22 +1753,134 @@ preflight. A separate reviewed implementation plan remains necessary.
 
 ## Complete document composition
 
-Composition remains a separate, unimplemented operation assembling compatible
+Agreed on 19 October 2026; not yet implemented. Composition assembles compatible
 `types`, `instances` and `data` sections into a document for inspection,
 interchange or further preparation. Multiple sources within a domain are merged
 first; composition does not resolve collisions, overwrite competing sections or
 introduce another default policy.
 
-Compose the merged type definitions with document-only instance declarations
-and complete bulk data records. Preserve instance omissions and specialisation
-hierarchy so later construction uses the merged defaults and inheritance chain.
-Boundary preparation must recover missing descriptions before composition;
-locators alone are not value descriptions. Construct binary afterwards when
-required using the ordinary domain-specific construction paths.
+### Agreed composition interfaces and input policy
 
-The concrete composition interface and storage-metadata handling remain design
-work. A composed document does not become the mandatory runtime owner or require
-a new combined binary persistence format.
+Always supply one types document and either an instances document, a bulk data
+document, or both. Use three overloads in `namespace schema`:
+
+```cpp
+[[nodiscard]] bool compose_document(
+    const CSchemaDocumentQuery& types,
+    const CInstanceDocumentQuery& instances,
+    CLiveDocument& destination,
+    SDocumentCompositionDiagnostic& diagnostic) noexcept;
+
+[[nodiscard]] bool compose_document(
+    const CSchemaDocumentQuery& types,
+    const CBulkDataDocumentQuery& bulk_data,
+    CLiveDocument& destination,
+    SDocumentCompositionDiagnostic& diagnostic) noexcept;
+
+[[nodiscard]] bool compose_document(
+    const CSchemaDocumentQuery& types,
+    const CInstanceDocumentQuery& instances,
+    const CBulkDataDocumentQuery& bulk_data,
+    CLiveDocument& destination,
+    SDocumentCompositionDiagnostic& diagnostic) noexcept;
+```
+
+Existing queries admit live, baked and mixed storage. Each input must be a
+prepared, single-domain document: the types document contains its `types` object,
+and each data document contains only its respective prepared section. Reject
+unrelated root properties, locators and stripped descriptions. Extraction and
+missing-description reconstruction belong to preparation, not composition.
+Ordinary prepared descriptions need not have been produced by a particular API.
+
+Output is an independently owned `CLiveDocument`, with sections in fixed order:
+`types`, then `instances` if supplied, then `data` if supplied. An omitted domain
+remains absent. A supplied empty data document produces an explicit empty section,
+including when its root has no selected section, as allowed by prepared-data
+validation. Within each section preserve declaration order, values, presentation,
+instance omissions and specialisation hierarchy exactly. Do not merge, reconcile,
+expand defaults or construct binary.
+
+The supplied types document is the sole schema authority. There is no separate
+resolved-schema argument or schema-owner association. Later binary construction
+uses the composed definitions, defaults and inheritance through existing
+domain-specific construction paths. A composed document is not a mandatory
+runtime owner and does not introduce a combined binary persistence format.
+
+### Agreed composition diagnostics
+
+```cpp
+enum class EDocumentCompositionStage : std::uint8_t
+{
+    none = 0u,
+    types_validation,
+    instances_validation,
+    bulk_data_validation,
+    document_composition
+};
+
+enum class EDocumentCompositionReason : std::uint8_t
+{
+    none = 0u,
+    invalid_source,
+    allocation_failed,
+    storage_limit,
+    construction_failed
+};
+
+struct SDocumentCompositionDiagnostic
+{
+    EDocumentCompositionStage stage{ EDocumentCompositionStage::none };
+    EDocumentCompositionReason reason{ EDocumentCompositionReason::none };
+    SDiagnostic types;
+    SInstanceDiagnostic instances;
+    SBulkDataDiagnostic bulk_data;
+};
+```
+
+Only the relevant detail field is populated. Source admission and semantic
+validation failures report `invalid_source` at the corresponding validation
+stage, with existing resolver or domain detail. Allocation and storage failures
+retain their specific reason only where the underlying operation distinguishes
+them; otherwise copying/construction failure uses `construction_failed` at
+`document_composition`.
+
+Report the first failure. Validation locations identify original source nodes;
+copying failures retain a source location where available. Unavailable detail
+remains empty, and no diagnostic contains handles into discarded staging storage.
+Diagnostic locations borrow their corresponding input document under existing
+lifetime rules. Success clears the whole diagnostic.
+
+### Agreed composition validation and publication
+
+1. Admit the types-only input and resolve its definitions once into a temporary
+   `CResolvedSchema`.
+2. Validate each supplied data document against that resolution using existing
+   prepared-document validation, in instances-then-bulk order. These checks also
+   enforce the strict single-domain input forms.
+3. Copy the selected sections into a private live document using existing
+   document construction and string preparation facilities. Checked construction
+   still reports allocation, storage and depth failures.
+4. Finish all source reads and release the temporary resolver before replacing
+   any document it borrows.
+5. Publish through the existing non-failing `CLiveDocument` move assignment.
+
+Do not repeat schema resolution or semantic validation over the composed result.
+Composition copies validated sections without changing their contents or
+relationships, so one resolution, one validation of each supplied data domain
+and one copy of each selected section suffice. This differs from merging, where
+newly combined declarations require result validation. No disposable binary
+construction or implicit-depth graph preflight is required; implicit depth
+failures can still occur during later binary construction.
+
+Occupied destinations and destination/source aliasing are supported. Failure
+preserves all inputs, destination storage and existing handles. Success replaces
+only the destination and invalidates its old handles/views, including an input
+that aliases it. Output owns its document storage and retains no resolver, schema
+binding or source dependency. Other borrowed views remain subject to the existing
+caller-managed lifetime rules; inputs remain usable and unchanged during the
+operation until any final aliased replacement. No transaction class, rollback
+mechanism or persistent provenance map is needed. A reviewed implementation plan
+remains separate from this agreed contract.
 
 ## Existing implementation foundations
 
@@ -1867,11 +1979,13 @@ selected-section extraction. Only the selected domain and explicitly supplied
 source schema determine prepared values; embedded type definitions do not.
 Preparation remains unimplemented and needs its own reviewed implementation plan.
 
-Remaining design decisions concern composition signatures and any later
-convenience orchestration of preparation, merge and construction. A combined
-operation would need its own diagnostic-location lifetime contract; standalone
-preparation and merging need no persistent provenance map. Composition design
-precedes its implementation plan.
+The [composition contract](#complete-document-composition) also settles three
+types-required overloads, prepared single-domain inputs, typed diagnostics and
+staged publication after one resolution and validation of each supplied data
+domain. Preparation and composition both need reviewed implementation plans.
+Any later convenience orchestration of preparation, merge and construction
+remains separate design work, including its diagnostic-location lifetime
+contract. Standalone operations need no persistent provenance map.
 The [data aggregation plan](../project/data_aggregation_implementation_plan.md)
 covers the agreed prepared-document merge cores and their shared validation and
 construction only. Strict prepared roots, the schema-backing destination guard and
@@ -1887,11 +2001,11 @@ neither completed work nor these plans authorise conversion/composition implemen
 | Schema switching | Implemented with checked/trusted modes and unchanged storage/handles; distinct from merge/reconstruction. |
 | Instance aggregation | Implemented prepared declaration/hierarchy merging, diagnostics and transactional output. Original-schema preparation interface agreed; implementation remains separate. |
 | Bulk data aggregation | Implemented complete-record prefix merging, diagnostics and transactional output. Whole-entry preparation interface agreed; implementation remains separate. |
-| Complete document composition | Assembly of already merged document sections; no collision resolution or mandatory combined persistence owner. |
+| Complete document composition | Three types-required overloads, diagnostics and validation/publication policy agreed; implementation remains separate. No collision resolution or mandatory combined persistence owner. |
 
-Boundary preparation will reuse existing facilities under the agreed API; its
-implementation plan remains future work. Later binary construction already uses
-the existing domain-specific construction interfaces.
+Boundary preparation and composition will reuse existing facilities under their
+agreed APIs; implementation plans remain future work. Later binary construction
+already uses the existing domain-specific construction interfaces.
 
 ### Optional later optimisations
 

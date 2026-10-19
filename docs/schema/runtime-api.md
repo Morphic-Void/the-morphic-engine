@@ -675,7 +675,11 @@ Boundary preparation and complete-document composition remain unimplemented.
 The [agreed preparation contract](persistence-and-aggregation.md#agreed-document-preparation-interfaces)
 specifies document-only and supplied-binary overloads, whole-entry reconstruction,
 selected-section extraction and separate diagnostics; these are design declarations,
-not available runtime entry points. Composition interfaces remain design work.
+not available runtime entry points. The [composition contract](persistence-and-aggregation.md#complete-document-composition)
+also agrees three types-required overloads over prepared documents, diagnostics
+and staged publication after one schema resolution and validation of each supplied
+data domain. Composition likewise remains unimplemented; no repeated result
+resolution or semantic validation is selected.
 
 ## Defaults
 

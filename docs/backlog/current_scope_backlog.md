@@ -82,8 +82,10 @@ contracts. The [preparation interfaces and policies](../schema/persistence-and-a
 are agreed but unimplemented: original-schema reconstruction, whole-entry bulk
 preparation, selected-section extraction, explicit retained/binary comparison and
 transactional document-only output. Embedded types and sibling values do not
-influence extraction. Preparation needs an implementation plan; composition
-remains separate design work.
+influence extraction. The [composition contract](../schema/persistence-and-aggregation.md#complete-document-composition)
+also agrees three types-required overloads, prepared single-domain inputs,
+diagnostics and staged publication after one resolution and validation of each
+supplied data domain. Both operations need reviewed implementation plans.
 General document object-child indexing and persistent live cursors remain
 deferred. The completed consolidation does not authorise further implementation.
 
