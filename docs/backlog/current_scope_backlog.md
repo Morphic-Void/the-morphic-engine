@@ -79,16 +79,16 @@ binary, and retains cheap depth checks; implicit depth failures remain with late
 construction. The [runtime API](../schema/runtime-api.md#instance-and-bulk-data-aggregation)
 and [completed plan](../project/data_aggregation_implementation_plan.md) record the
 contracts. The [preparation interfaces and policies](../schema/persistence-and-aggregation.md#agreed-document-preparation-interfaces)
-are agreed but unimplemented: original-schema reconstruction, whole-entry bulk
+are implemented: original-schema reconstruction, whole-entry bulk
 preparation, selected-section extraction, explicit retained/binary comparison and
 transactional document-only output. Embedded types and sibling values do not
 influence extraction. The [composition contract](../schema/persistence-and-aggregation.md#complete-document-composition)
-also agrees three types-required overloads, prepared single-domain inputs,
+also implements three types-required overloads, prepared single-domain inputs,
 diagnostics and staged publication after one resolution and validation of each
 supplied data domain. Their [joint implementation plan](../project/document_preparation_composition_implementation_plan.md)
 incorporates review corrections and the [agreed storage-metadata admission](../schema/persistence-and-aggregation.md#agreed-preparation-storage-metadata-admission):
 descriptions/placeholders may stand alone, while valid locators and envelope
-claims require an explicit package. Implementation is not yet authorised.
+claims require an explicit package. See the [delivery record](../project/completed_milestones.md#document-preparation-and-composition).
 General document object-child indexing and persistent live cursors remain
 deferred. The completed consolidation does not authorise further implementation.
 

@@ -18,6 +18,69 @@ Permanent behavior and architectural contracts belong in the subsystem
 documents linked from each milestone. Current and future work belongs in
 `future_work_notes.md` and the backlog.
 
+## Document preparation and composition
+
+Implemented on 19 October 2026 from the
+[reviewed plan](document_preparation_composition_implementation_plan.md), after
+separate user authorisation. This records delivery, not user review or a commit
+checkpoint. See the [runtime API](../schema/runtime-api.md#document-preparation-and-composition).
+
+Four preparation overloads extract selected live/baked sections under the original
+resolved schema, preserve retained descriptions and reconstruct only stripped
+instances or wholly absent bulk arrays. Storage metadata validates before removal;
+unrelated sibling contents never affect extraction. Three composition overloads
+require a types document and one or both prepared data domains, resolve types once,
+validate each domain and copy sections into independent live storage. Both operations
+publish through non-failing move, support occupied/source-aliased destinations and
+preserve original storage and handles on failure. Preparation rejects output backing
+its supplied schema; composition releases its local resolver before publication.
+
+Shared locator/range, reconstruction and string/construction helpers serve existing
+roles and merges too. No temporary role/payload copy, default expansion in composition,
+second composition resolution or depth preflight was introduced. Source values use
+one validation/comparison path; prepared results retain their required validation.
+
+Verification includes mixed input forms, complete metadata tables, original defaults
+and parent inheritance, whole-entry rules, presentation, invalid encodings, cumulative
+copied/reconstructed depth, aliasing, allocation-failure sweeps and integrated
+preparation/merge/composition/construction. Adding 4,096 unrelated sibling properties
+or growing an omitted array from 1 to 100 million elements leaves allocation counts
+and requested bytes unchanged. Repeated-type scaling excludes per-entry metadata
+worklists. Capacity planning now reserves unique string storage, copied node slots,
+known structural nodes and preparation sibling batches without an extra traversal.
+Reserved imports and live/baked subtree copies have no-further-allocation tests.
+At 2,048 entries, preparation/composition allocation requests fall from 190/201 to
+73/57; combined requested bytes fall from 33,568,064 to 16,385,536. These totals
+are aggregate requests, not peak memory or measured copied bytes. Reconstruction
+beyond the known minimum still grows. The buffer cap remains a
+[separate follow-up](../backlog/schema_follow_on.md#shared-container-growth-during-document-construction).
+`SDataLocator::valid` follows the occurrence members; x64 and Win32 layout probes
+confirm that its size stays 96 bytes, with outer padding moved to the end.
+
+Debug/Release x64 and Win32 solution builds and ordinary `-t1` suites pass, each
+with 89,994 Schema checks and 13,319 BakedDocument checks, zero failures across
+all suites. Logs are
+`build/preallocation-{debug64,debug32,release64,release32}-{build,tests}.log`.
+
+The final failure-injection addition uses a parent with 64 specialisations and a
+following base sibling. It confirms failure of the later batch reservation for
+empty, occupied and source-aliased destinations, unchanged state and handles,
+cleanup, and eventual complete output. Debug/Release x64 builds and ordinary
+`-t1` suites pass with 90,108 Schema checks each and zero failures. These final
+coverage-only runs are recorded in
+`build/batch-reservation-{debug64,release64}-{build,tests}.log`.
+
+The five CMake source-extraction tests pass; the actual test-project manifest
+includes every new translation unit. Whitespace, line endings, local document
+links and Visual Studio registration/filter visibility checks pass. Visual Studio
+item/filter encoding, CRLF and terminal-newline state are preserved.
+Non-incremental linking uses the existing environment workaround without changing
+project settings.
+
+Release x64 preparation plus composition for 32, 128, 512 and 2,048 reconstructed
+entries took 0.748, 2.847, 12.093 and 56.787 ms in the recorded run. Timings are
+supporting observations; allocation/work bounds are the regression assertions.
+
 ## Instance and bulk data aggregation
 
 Implemented on 18 October 2026 from the

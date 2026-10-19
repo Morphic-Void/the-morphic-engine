@@ -7,10 +7,10 @@ Date:   19 Oct 2026
 
 # Document preparation and composition implementation plan
 
-Status: reviewed and corrected on 19 October 2026; implementation is not
-authorised by this plan. Storage-metadata admission is now agreed and recorded
-in the design reference. These additions preserve the agreed public interfaces
-and existing loading/materialisation behaviour.
+Status: implemented on 19 October 2026 following separate user authorisation.
+The reviewed storage-metadata admission and public contracts are unchanged.
+This document retains the reviewed plan as delivery history; user review and
+commits remain separate from implementation. Verification is recorded below.
 Implements the agreed [preparation contract](../schema/persistence-and-aggregation.md#agreed-document-preparation-interfaces)
 and [composition contract](../schema/persistence-and-aggregation.md#complete-document-composition),
 recorded in `335e4b9` and `62e2ea0`. Prepared instance/bulk merging is complete in
@@ -216,6 +216,16 @@ valid because sources and schema outlive staging construction; retain no second
 text-to-ID map after preload. Extra unused candidate names from reconstruction
 metadata are acceptable; reconstructing values twice to find exact strings is not.
 
+Size each fresh destination string domain from its unique non-empty candidates,
+including the leading and trailing NUL bytes per stored string. Use the internal
+construction helper to initialise that domain once before importing strings.
+Count scalar slots and container pairs during the existing copied-subtree walk.
+Preparation adds its known structural containers; composition adds its root and
+any missing section containers, then initialises node storage with that capacity.
+Reserve preparation groups from the selected section's child count and entry
+storage in discovered sibling batches. Reconstructed value nodes beyond the known
+structural minimum retain ordinary growth: no expansion/counting preflight is added.
+
 Use native unique-name/disjoint-subtree invariants with `CDocumentConstruction`
 and `copy_subtree_impl<true>`. The latter's creation callback can reuse prepared
 string IDs/imports and preserve integer and newline presentation. Cross-document
@@ -374,3 +384,74 @@ passing matrix without a new change or unresolved concern.
 - Check documentation links, filter visibility, whitespace and line endings.
   Preserve user formatting and keep manual review and commits separate from
   implementation authorisation.
+
+## Delivery and verification — 19 October 2026
+
+Delivered `data_preparation.hpp/.cpp` and `document_composition.hpp/.cpp` with the
+agreed four and three overloads. Shared internals are `data_storage_validation.hpp`,
+`data_reconstruction.hpp/.cpp` and `document_construction.hpp/.cpp`. Existing role
+planning uses the small locator/range helpers; existing promotion, reconciliation
+and output paths use the extracted reconstructors. Merge string preparation shares
+the collector/preload without changing merge policies or prepared validation.
+
+Preparation retains source entry/parent ordinals, borrows payload spans, lazily
+reuses one base-default buffer per group, copies retained descriptions directly and
+checks the completed prepared result. Composition resolves once, validates supplied
+data domains, copies selected sections once and releases the resolver before final
+move. Strings are collected in one operation-wide batch, including distinct reachable
+reconstruction types, and candidate storage dies before node emission. No temporary
+roles, binary copies, provenance maps or additional depth preflight were introduced.
+
+`DocumentBoundary_test_cases.cpp` covers both source representations, all overloads,
+root/envelope combinations, locators and count inference, stripped hierarchies,
+whole-entry reconstruction, comparison selection, invalid encodings, empty groups,
+integer/string presentation, cumulative copied/reconstructed depth and implicit
+construction failure. Allocation-failure sweeps exercise empty, occupied and aliased
+destinations, diagnostic lifetimes, unchanged source/payload bytes and memory
+attribution. Composition also aliases its types source and survives source release.
+The integrated preparation/merge/composition/construction workflow verifies adopted
+defaults, explicit default-equal declarations, stripped children restoring original
+defaults and complete reconstructed bulk records.
+
+Holding selected input fixed while adding 4,096 unrelated sibling properties
+produces identical allocation counts and requested bytes. Holding sparse declarations
+fixed while increasing an omitted array from 1 to 100 million elements does too.
+Geometric repeated-type fixtures use internal arrays and reverse-ordered entry names;
+allocation bounds exclude a schema-metadata worklist per entry. Timings are recorded,
+not asserted. All translation units and test files are registered in Visual Studio
+and included in the generated CMake test-project source manifest.
+
+The reviewed capacity planning reduces backing growth without changing shared
+container policy. In the x64 fixture, 2,048 reconstructed entries followed by
+composition change as follows:
+
+| Operation | Allocation requests before / after | Requested bytes before / after |
+| --- | ---: | ---: |
+| Preparation | 190 / 73 | 16,778,656 / 13,989,920 |
+| Composition | 201 / 57 | 16,789,408 / 2,395,616 |
+
+Totals cover all containers in each operation and include freed/replaced allocations;
+they are neither an individual container's growth trace, peak memory nor measured
+copied bytes. Focused tests verify that reserved string imports and live/baked subtree
+emission allocate no further backing storage, eliminating reallocation copies in
+those phases. Existing failure sweeps retain transactional and aliasing coverage.
+Reconstruction still grows beyond the cheaply known structural minimum. The buffer
+cap and broader growth-policy investigation remain a separate
+[follow-up](../backlog/schema_follow_on.md#shared-container-growth-during-document-construction).
+No end-to-end linear-allocation claim is made.
+
+Final build/test logs use
+`build/preallocation-{debug64,debug32,release64,release32}-{build,tests}.log`.
+The [completed milestone](completed_milestones.md#document-preparation-and-composition)
+records final verification results: all four solution configurations and ordinary
+`-t1` runs pass with 89,994 Schema checks each and zero failures across the suites.
+The five CMake source-extraction tests and documentation/filter/line-ending audits
+also pass.
+
+The final failure-injection addition uses a parent with 64 specialisations and a
+following base sibling. It confirms failure of the later batch reservation for
+empty, occupied and source-aliased destinations, unchanged state and handles,
+cleanup, and eventual complete output. Debug/Release x64 builds and ordinary
+`-t1` suites pass with 90,108 Schema checks each and zero failures. These final
+coverage-only runs are recorded in
+`build/batch-reservation-{debug64,release64}-{build,tests}.log`.

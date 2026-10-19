@@ -9,6 +9,7 @@
 //  Shared internal document merging and operation-wide string preparation.
 
 #include "schema/document_merge.hpp"
+#include "schema/document_construction.hpp"
 #include "data_model/document_copy.hpp"
 
 #include <algorithm>
@@ -73,9 +74,6 @@ private:
 
     [[nodiscard]] CNodeKey value(const SOccurrence first, const SOccurrence second, const unsigned depth) noexcept;
     [[nodiscard]] bool fail(const EDocumentMergeReason reason, const SOccurrence first = {}, const SOccurrence second = {}) noexcept;
-    [[nodiscard]] bool collect(const CDocumentRead& source, const SOccurrence value, const bool first,
-        const unsigned depth, TPodVector<CStringView>& names, TPodVector<CStringView>& strings) noexcept;
-    [[nodiscard]] bool preload(TPodVector<CStringView>& strings, const bool names) noexcept;
     [[nodiscard]] CNodeKey create(const CDocumentRead& source, const SOccurrence value, const SCopiedValue& data, const bool suppress_newlines) noexcept;
     [[nodiscard]] CNodeKey copy(const CDocumentRead& source, const SOccurrence value, const unsigned depth) noexcept;
     [[nodiscard]] bool objects(const CNodeKey target, const SOccurrence first, const SOccurrence second, const unsigned depth) noexcept;
@@ -91,16 +89,23 @@ private:
 
 bool CDocumentMerger::prepare(const SOccurrence first, const SOccurrence second, const CStringView& section) noexcept
 {
-    //  Both vectors die before construction. The document's own string indexes
-    //  perform all subsequent lookups; no parallel text-to-ID map is retained.
-    TPodVector<CStringView> names, strings;
-    if (!names.push_back(section))
+    CDocumentStrings strings;
+    const auto failure = [&](const bool first_source) noexcept
     {
-        return fail(EDocumentMergeReason::allocation_failed);
+        const auto& error = strings.diagnostic();
+        const auto reason = (error.reason == EDocumentBuildReason::allocation_failed) ? EDocumentMergeReason::allocation_failed :
+            ((error.reason == EDocumentBuildReason::storage_limit) ? EDocumentMergeReason::storage_limit : EDocumentMergeReason::construction_failed);
+        return fail(reason, (first_source ? error.occurrence : SOccurrence{}), (first_source ? SOccurrence{} : error.occurrence));
+    };
+    if (!strings.name(section) || !strings.collect(m_first, first, 0u))
+    {
+        return failure(true);
     }
-    return collect(m_first, first, true, 0u, names, strings) &&
-        collect(m_second, second, false, 0u, names, strings) &&
-        preload(names, true) && preload(strings, false);
+    if (!strings.collect(m_second, second, 0u) || !strings.preload(m_target))
+    {
+        return failure(false);
+    }
+    return true;
 }
 
 CNodeKey CDocumentMerger::merge(const SOccurrence first, const SOccurrence second, const unsigned depth) noexcept
@@ -236,61 +241,6 @@ bool CDocumentMerger::fail(const EDocumentMergeReason reason, const SOccurrence 
         m_diagnostic.second = second;
     }
     return false;
-}
-
-bool CDocumentMerger::collect(const CDocumentRead& source, const SOccurrence value, const bool first,
-    const unsigned depth, TPodVector<CStringView>& names, TPodVector<CStringView>& strings) noexcept
-{
-    if (!value)
-    {
-        return true;
-    }
-    if (depth >= document_limits::k_max_recursion_depth)
-    {
-        return fail(EDocumentMergeReason::storage_limit, (first ? value : SOccurrence{}), (first ? SOccurrence{} : value));
-    }
-    const bool named = source.is_object_entry(value);
-    const bool string = source.value_kind(value) == EDocumentValueKind::string;
-    if ((named && (names.size() == memory::t_max_elements<CStringView>())) ||
-        (string && (strings.size() == memory::t_max_elements<CStringView>())))
-    {
-        return fail(EDocumentMergeReason::storage_limit);
-    }
-    if ((named && !names.push_back(source.name(value))) || (string && !strings.push_back(source.string_value(value))))
-    {
-        return fail(EDocumentMergeReason::allocation_failed);
-    }
-    for (SOccurrence child = source.first_child(value); child; child = source.next_sibling(child))
-    {
-        if (!collect(source, child, first, (depth + 1u), names, strings))
-        {
-            return false;
-        }
-    }
-    return true;
-}
-
-bool CDocumentMerger::preload(TPodVector<CStringView>& strings, const bool names) noexcept
-{
-    if (strings.size() > 1u)
-    {
-        std::sort(strings.data(), (strings.data() + strings.size()),
-            [](const CStringView& a, const CStringView& b) noexcept { return a.relationship(b) < 0; });
-    }
-    for (std::size_t i = 0u; i < strings.size(); ++i)
-    {
-        if (i && (strings[i] == strings[i - 1u]))
-        {
-            continue;
-        }
-        const bool imported = names ? CDocumentConstruction::import_name(m_target, strings[i]).is_valid() :
-            CDocumentConstruction::import_string(m_target, strings[i]).is_valid();
-        if (!imported)
-        {
-            return fail(EDocumentMergeReason::construction_failed);
-        }
-    }
-    return true;
 }
 
 CNodeKey CDocumentMerger::create(const CDocumentRead& source, const SOccurrence value, const SCopiedValue& data, const bool suppress_newlines) noexcept

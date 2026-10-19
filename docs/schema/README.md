@@ -17,10 +17,10 @@ interpret its current contracts.
 | [Runtime API](runtime-api.md) | Public entry points, file map, lifetimes, diagnostics and implementation limits. |
 | [Validation](validation.md) | Regression coverage and generated C++ layout checks. |
 | [Example](schema-example.json) and [notes](schema-example-notes.md) | Authoring example, expected layouts, numeric notation and materialisation rules. |
-| [Persistence and aggregation revision](persistence-and-aggregation.md) | Persistence and implemented type/data merge contracts; agreed, unimplemented preparation and composition interfaces, diagnostics, validation and publication policies. |
+| [Persistence and aggregation revision](persistence-and-aggregation.md) | Implemented persistence, type/data merging, preparation and composition contracts, diagnostics and publication policies. |
 | [Type schema merge implementation plan](../project/type_schema_merge_implementation_plan.md) | Completed reviewed scope and implementation notes; current behaviour is in the runtime API. |
-| [Data aggregation implementation plan](../project/data_aggregation_implementation_plan.md) | Completed scope of the prepared instance/bulk merge cores, shared admission and construction; conversion and composition remain separate. |
-| [Document preparation and composition implementation plan](../project/document_preparation_composition_implementation_plan.md) | Reviewed delivery stages, shared validation/reconstruction/copying, string preparation, agreed metadata admission and verification; implementation remains separate. |
+| [Data aggregation implementation plan](../project/data_aggregation_implementation_plan.md) | Completed scope of the prepared instance/bulk merge cores, shared admission and construction; preparation and composition are separate implemented boundaries. |
+| [Document preparation and composition implementation plan](../project/document_preparation_composition_implementation_plan.md) | Completed delivery, shared validation/reconstruction/copying, sorted string preparation, metadata admission and verification evidence. |
 | [Persistence milestone](../project/completed_milestones.md#schema-instance-and-bulk-data-persistence) | Completed eight-stage delivery, commit checkpoints and validation evidence, including gap zeroing; the implementation plan is retired. |
 | [Role and construction milestone](../project/completed_milestones.md#schema-role-attachment-and-construction) | Schema-independent blocks, atomic attachment, checked/trusted switching, indexed lookup and construction/reconciliation refinements. |
 | [Follow-on work](../backlog/schema_follow_on.md) | Future direction and unresolved design questions, separate from current requirements. |

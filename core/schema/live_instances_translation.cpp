@@ -13,6 +13,7 @@
 #include "schema/data_block_construction.hpp"
 #include "schema/type_compatibility.hpp"
 #include "schema/value_codec.hpp"
+#include "schema/data_reconstruction.hpp"
 #include "data_model/document_translation.hpp"
 #include "data_model/document_copy.hpp"
 #include "memory/memory_policies.hpp"
@@ -26,192 +27,6 @@ namespace schema
 //==============================================================================
 //  Binary-authoritative declaration reconstruction
 //==============================================================================
-
-//  Compare meaningful encoded values; old declarations are not an input.
-class CInstanceReconciler
-{
-public:
-    CInstanceReconciler(CLiveDocument& document, const CResolvedSchema& schema,
-        EInstanceLoadReason& reason) noexcept :
-        m_document(document), m_schema(schema), m_reason(reason)
-    {
-    }
-
-    [[nodiscard]] CNodeKey decode(const CSchemaIndex type, const std::uint8_t* const bytes,
-        const std::uint8_t* const baseline, const CStringView name) noexcept
-    {
-        return decode(type, bytes, baseline, name, nullptr, 0u);
-    }
-
-private:
-    //  Stack-local output state. An equal subtree allocates nothing. Before a
-    //  changed descendant is emitted, ensure ancestors and preceding array slots
-    //  in output order; no subtree is compared again to make that decision.
-    struct SFrame
-    {
-        SFrame* parent;
-        SType layout;
-        const std::uint8_t* bytes;
-        CStringView name;
-        CNodeKey output;
-        std::uint32_t current{}, emitted{};
-    };
-
-    [[nodiscard]] bool ensure_before_child(SFrame& frame) noexcept;
-    [[nodiscard]] CNodeKey equal_element(const CSchemaIndex type, const SType& layout, const std::uint8_t* const bytes) noexcept;
-    [[nodiscard]] CNodeKey decode(const CSchemaIndex type, const std::uint8_t* const bytes,
-        const std::uint8_t* const baseline, const CStringView name, SFrame* const parent, const unsigned depth) noexcept;
-    [[nodiscard]] CNodeKey decode_scalar(const CSchemaIndex type, const std::uint64_t bits,
-        const unsigned width, const CStringView& name) noexcept;
-
-    CLiveDocument& m_document;
-    const CResolvedSchema& m_schema;
-    EInstanceLoadReason& m_reason;
-};
-
-CNodeKey CInstanceReconciler::decode_scalar(const CSchemaIndex type, const std::uint64_t bits,
-    const unsigned width, const CStringView& name) noexcept
-{
-    EScalarDecodeReason decoded;
-    const CNodeKey value = decode_document_scalar(m_document, m_schema, type, bits, width, name, decoded);
-    if (!value)
-    {
-        m_reason = (decoded == EScalarDecodeReason::allocation_failed) ?
-            EInstanceLoadReason::allocation_failed : EInstanceLoadReason::unrepresentable_value;
-    }
-    return value;
-}
-
-CNodeKey CInstanceReconciler::equal_element(const CSchemaIndex type, const SType& layout,
-    const std::uint8_t* const bytes) noexcept
-{
-    if ((layout.category == ECategory::primitive) || (layout.category == ECategory::enumeration))
-    {
-        return decode_scalar(type, read_scalar_bits(bytes, static_cast<std::size_t>(layout.size)),
-            static_cast<unsigned>(layout.size * 8u), {});
-    }
-    const CNodeKey result = (layout.category == ECategory::array) ? m_document.create_array() : m_document.create_object();
-    if (!result) m_reason = EInstanceLoadReason::allocation_failed;
-    return result;
-}
-
-bool CInstanceReconciler::ensure_before_child(SFrame& frame) noexcept
-{
-    if (!frame.output)
-    {
-        if (frame.parent && !ensure_before_child(*frame.parent))
-        {
-            return false;
-        }
-        frame.output = (frame.layout.category == ECategory::array) ?
-            m_document.create_array(frame.name) : m_document.create_object(frame.name);
-        if (!frame.output)
-        {
-            m_reason = EInstanceLoadReason::allocation_failed;
-            return false;
-        }
-    }
-    if ((frame.layout.category == ECategory::array) && (frame.emitted < frame.current))
-    {
-        SType element;
-        (void)m_schema.type(frame.layout.element_or_storage, element);
-        for (; frame.emitted < frame.current; ++frame.emitted)
-        {
-            const std::size_t offset = static_cast<std::size_t>(frame.layout.stride * frame.emitted);
-            const CNodeKey child = equal_element(frame.layout.element_or_storage, element,
-                frame.bytes ? frame.bytes + offset : nullptr);
-            if (!child || !document_translation::detail::CDocumentConstruction::append(m_document, frame.output, child))
-            {
-                if (m_reason == EInstanceLoadReason::none)
-                {
-                    m_reason = EInstanceLoadReason::allocation_failed;
-                }
-                return false;
-            }
-        }
-    }
-    return true;
-}
-
-CNodeKey CInstanceReconciler::decode(const CSchemaIndex type, const std::uint8_t* const bytes,
-    const std::uint8_t* const baseline, const CStringView name, SFrame* const parent, const unsigned depth) noexcept
-{
-    SType layout;
-    if ((depth >= document_limits::k_max_recursion_depth) || !m_schema.type(type, layout))
-    {
-        m_reason = EInstanceLoadReason::unrepresentable_value;
-        return {};
-    }
-    const std::size_t size = static_cast<std::size_t>(layout.size);
-
-    //  In particular, never expand enormous arrays of zero-size elements.
-    if (size == 0u)
-    {
-        return {};
-    }
-    if ((layout.category == ECategory::primitive) || (layout.category == ECategory::enumeration))
-    {
-        if (detail::compare_encoded(m_schema, type, bytes, size, baseline, size))
-        {
-            return {};
-        }
-        if (parent && !ensure_before_child(*parent))
-        {
-            return {};
-        }
-        return decode_scalar(type, read_scalar_bits(bytes, size), static_cast<unsigned>(size * 8u), name);
-    }
-    SFrame frame{ parent, layout, bytes, name, {} };
-    const bool array = layout.category == ECategory::array;
-    for (; (frame.current < layout.count) && (m_reason == EInstanceLoadReason::none); ++frame.current)
-    {
-        CNodeKey child;
-        if (layout.category == ECategory::bit_structure)
-        {
-            SField field;
-            (void)m_schema.field(m_schema.field_at(type, frame.current), field);
-            const std::uint64_t actual = read_scalar_bits(bytes, size) & field.mask;
-            if (actual != (read_scalar_bits(baseline, size) & field.mask))
-            {
-                if (!ensure_before_child(frame))
-                {
-                    break;
-                }
-                child = decode_scalar(field.type, actual >> field.shift, field.width, m_schema.name(field.name));
-            }
-        }
-        else
-        {
-            CSchemaIndex child_type = layout.element_or_storage;
-            std::size_t offset = static_cast<std::size_t>(layout.stride * frame.current);
-            CStringView child_name;
-            if (!array)
-            {
-                SMember member;
-                (void)m_schema.member(m_schema.member_at(type, frame.current), member);
-                child_type = member.type;
-                offset = static_cast<std::size_t>(member.offset);
-                child_name = m_schema.name(member.name);
-            }
-            child = decode(child_type, (bytes ? bytes + offset : nullptr), (baseline ? baseline + offset : nullptr),
-                child_name, &frame, (depth + 1u));
-        }
-        if (child)
-        {
-            if (!document_translation::detail::CDocumentConstruction::append(m_document, frame.output, child))
-            {
-                m_reason = EInstanceLoadReason::allocation_failed;
-            }
-            frame.emitted = frame.current + 1u;
-        }
-    }
-    if (m_reason != EInstanceLoadReason::none)
-    {
-        if (frame.output) (void)m_document.erase(frame.output);
-        return {};
-    }
-    return frame.output;
-}
 
 CNodeKey CLiveInstances::output_declaration(CLiveDocument& target, const SRecord& record,
     const CResolvedSchema& schema, const CSchemaIndex destination_type, EInstanceLoadReason& reason) const noexcept
@@ -241,28 +56,8 @@ CNodeKey CLiveInstances::output_declaration(CLiveDocument& target, const SRecord
         baseline = record.extent ? (m_payload.data() + m_records[record.parent].offset) : nullptr;
     }
     const std::uint8_t* const bytes = record.extent ? (m_payload.data() + record.offset) : nullptr;
-    CInstanceReconciler reconciler{ target, schema, reason };
-    const CNodeKey result = reconciler.decode(destination_type, bytes, baseline, CStringView{ "declaration" });
-    if (reason != EInstanceLoadReason::none)
-    {
-        return {};
-    }
-
-    //  Verify the generated declaration, including literals that cannot preserve raw encodings.
-    bool matches{};
-    const bool checked = base ? detail::check_value(schema, read, destination_type,
-        detail::SOccurrence{ result }, bytes, record.extent, detail::EConstructionMode::instance, matches, error) :
-        detail::check_alternative(schema, read, destination_type, detail::SOccurrence{ result }, baseline,
-            record.extent, bytes, record.extent, matches, error);
-    if (!checked || !matches)
-    {
-        if (result)
-        {
-            (void)target.erase(result);
-        }
-        reason = detail::value_failure(error, EInstanceLoadReason::unrepresentable_value);
-        return {};
-    }
+    CNodeKey result;
+    (void)detail::reconstruct_instance(target, schema, destination_type, bytes, baseline, record.extent, base, result, reason);
     return result;
 }
 

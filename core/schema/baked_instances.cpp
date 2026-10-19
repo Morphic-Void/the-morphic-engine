@@ -12,6 +12,7 @@
 #include "schema/type_compatibility.hpp"
 #include "schema/value_codec.hpp"
 #include "schema/data_document_validation.hpp"
+#include "schema/data_storage_validation.hpp"
 #include "memory/memory_policies.hpp"
 
 #include <cstring>
@@ -424,35 +425,18 @@ bool CBakedInstances::plan(const bool supplied, const std::size_t supplied_size,
             {
                 return fail(diagnostic, EInstanceLoadReason::missing_property, instance);
             }
-            for (CBakedValueIndex property = m_document.first_child(locator); property.is_valid(); property = m_document.next_sibling(property))
+            detail::SDataLocator parsed;
+            detail::SOccurrence failure;
+            EInstanceLoadReason reason{};
+            if (!detail::read_data_locator(detail::CDocumentRead{ m_document }, detail::SOccurrence{ locator },
+                false, layout.size, parsed, reason, failure))
             {
-                const CStringView name = m_document.name(property);
-                if (!instance_name_is(name, "offset") && !instance_name_is(name, "valid") &&
-                    !instance_name_is(name, "count") && !instance_name_is(name, "size"))
-                {
-                    return fail(diagnostic, EInstanceLoadReason::unknown_property, property);
-                }
+                return fail(diagnostic, reason, failure.baked);
             }
-            const CBakedValueIndex offset_node = m_document.object_child(locator, CStringView{ "offset" });
-            const CBakedValueIndex valid_node = m_document.object_child(locator, CStringView{ "valid" });
-            const CBakedValueIndex count_node = m_document.object_child(locator, CStringView{ "count" });
-            const CBakedValueIndex size_node = m_document.object_child(locator, CStringView{ "size" });
-            std::uint64_t raw_offset{}, raw_count{}, raw_size{};
-            bool prior_valid{};
-            if (!offset_node.is_valid() || !valid_node.is_valid() ||
-                !m_document.unsigned_integer_value(offset_node, raw_offset) || (raw_offset > UINT32_MAX) ||
-                !m_document.boolean_value(valid_node, prior_valid))
-            {
-                return fail(diagnostic, EInstanceLoadReason::invalid_locator, locator);
-            }
-            if (count_node.is_valid() && (!m_document.unsigned_integer_value(count_node, raw_count) || (raw_count != 1u)))
-            {
-                return fail(diagnostic, EInstanceLoadReason::invalid_count, count_node);
-            }
-            if (size_node.is_valid() && (!m_document.unsigned_integer_value(size_node, raw_size) || (raw_size != layout.size)))
-            {
-                return fail(diagnostic, EInstanceLoadReason::invalid_range, size_node);
-            }
+            const CBakedValueIndex offset_node = parsed.offset_node.baked;
+            const CBakedValueIndex valid_node = parsed.valid_node.baked;
+            const std::uint64_t raw_offset = parsed.offset;
+            const bool prior_valid = parsed.valid;
             if (supplied && !prior_valid)
             {
                 return fail(diagnostic, EInstanceLoadReason::invalid_locator, valid_node);
@@ -466,21 +450,11 @@ bool CBakedInstances::plan(const bool supplied, const std::size_t supplied_size,
             {
                 return fail(diagnostic, EInstanceLoadReason::invalid_range, locator);
             }
-            if ((offset < cursor) && ((layout.size != 0u) || (offset != 0u)))
+            if (!detail::check_data_range(offset, layout.size, layout.alignment, cursor, supplied, supplied_size, reason))
             {
-                return fail(diagnostic, EInstanceLoadReason::overlap, locator);
-            }
-            if ((offset > UINT32_MAX) || (offset > memory::k_byte_size_ceiling) ||
-                ((offset & (layout.alignment - 1u)) != 0u) ||
-                (layout.size > (memory::k_byte_size_ceiling - offset)))
-            {
-                return fail(diagnostic, EInstanceLoadReason::invalid_range, locator);
+                return fail(diagnostic, reason, locator);
             }
             const std::uint64_t end = offset + layout.size;
-            if (supplied && (end > supplied_size))
-            {
-                return fail(diagnostic, EInstanceLoadReason::invalid_range, locator);
-            }
             if (records.size() >= k_no_parent)
             {
                 return fail(diagnostic, EInstanceLoadReason::invalid_range, instance);

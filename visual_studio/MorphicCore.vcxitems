@@ -54,6 +54,11 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\document_merge.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\data_document_validation.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\data_merge.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\data_storage_validation.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\document_construction.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\document_composition.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\data_reconstruction.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\data_preparation.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\schema_merge.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\data_model\document_copy.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\value_codec.hpp" />
@@ -154,6 +159,10 @@
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\document_merge.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\data_document_validation.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\data_merge.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\document_construction.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\document_composition.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\data_reconstruction.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\data_preparation.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\schema_merge.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\data_model\document_copy.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\value_codec.cpp" />

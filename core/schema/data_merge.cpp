@@ -19,55 +19,6 @@
 namespace schema
 {
 
-//  Domain diagnostics share entry admission reasons, with a distinct name for
-//  invalid supplied values. Keep typed handles at this public boundary only.
-template<class TReason>
-[[nodiscard]] static TReason validation_reason(const detail::EDataValidationReason reason) noexcept
-{
-    switch (reason)
-    {
-        case detail::EDataValidationReason::missing_property:
-        {
-            return TReason::missing_property;
-        }
-        case detail::EDataValidationReason::unknown_property:
-        {
-            return TReason::unknown_property;
-        }
-        case detail::EDataValidationReason::unknown_type:
-        {
-            return TReason::unknown_type;
-        }
-        case detail::EDataValidationReason::invalid_count:
-        {
-            return TReason::invalid_count;
-        }
-        case detail::EDataValidationReason::allocation_failed:
-        {
-            return TReason::allocation_failed;
-        }
-        case detail::EDataValidationReason::storage_limit:
-        {
-            return TReason::invalid_range;
-        }
-        case detail::EDataValidationReason::invalid_value:
-        {
-            if constexpr (std::is_same_v<TReason, EInstanceLoadReason>)
-            {
-                return TReason::invalid_declaration;
-            }
-            else
-            {
-                return TReason::incomplete_record;
-            }
-        }
-        default:
-        {
-            return TReason::invalid_input;
-        }
-    }
-}
-
 template<class TAccess, class TDiagnostic>
 [[nodiscard]] static bool validate_source(const detail::CDocumentRead& document, const CResolvedSchema& schema,
     const bool bulk, const EDataMergeStage stage, TDiagnostic& diagnostic) noexcept
@@ -81,7 +32,7 @@ template<class TAccess, class TDiagnostic>
     diagnostic.reason = (error.reason == detail::EDataValidationReason::allocation_failed) ? EDataMergeReason::allocation_failed :
         ((error.reason == detail::EDataValidationReason::storage_limit) ? EDataMergeReason::storage_limit :
             ((stage == EDataMergeStage::result_validation) ? EDataMergeReason::invalid_result : EDataMergeReason::invalid_source));
-    diagnostic.validation.reason = validation_reason<decltype(diagnostic.validation.reason)>(error.reason);
+    diagnostic.validation.reason = detail::data_validation_reason<decltype(diagnostic.validation.reason)>(error.reason);
     if (stage != EDataMergeStage::result_validation)
     {
         diagnostic.validation.occurrence = TAccess::make(error.occurrence);

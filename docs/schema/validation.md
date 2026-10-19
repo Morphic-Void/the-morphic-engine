@@ -12,9 +12,40 @@ The [specification](specification.md) defines behaviour and the
 observable results, failure boundaries and generated layout fidelity. Private
 record organisation is not a public ABI or a substitute for those checks.
 
-The [data aggregation milestone](../project/completed_milestones.md#instance-and-bulk-data-aggregation)
+The [preparation/composition milestone](../project/completed_milestones.md#document-preparation-and-composition)
 records the latest validation checkpoint. Earlier milestones retain their
 historical counts.
+
+## Document preparation and composition coverage
+
+`DocumentBoundary_test_cases.cpp` runs within the Schema suite. Live/baked tests
+cover all preparation and composition overloads, selected-section independence,
+strict composition roots, every envelope presence combination, domain identifiers,
+empty packages, locator shape/count/size/alignment/ranges, zero-size records, gaps
+and trailing slack. Retained values preserve omissions and presentation; comparison
+can reject a mismatch without reconciling it. Stripped instances reconstruct changes
+against original defaults/parents, including restored defaults and array prefixes.
+Bulk reconstruction applies only to missing whole arrays; partial/empty arrays fail.
+Noncanonical booleans, unknown enums and disallowed fp16 values reject reconstruction.
+
+Failure injection covers each allocation attempt until success for retained and
+reconstructed preparation in both domains and composition, with empty, occupied and
+source-aliased destinations. Source documents, payload bytes and destination handles
+survive failure; temporary result occurrences are cleared and attribution empties.
+Schema-backing destinations are rejected by preparation. Composition safely replaces
+its types source and output survives source release. Deep tests cover cumulative
+selected-section budgets for copying and reconstruction, explicit specialisations
+and deferred implicit construction failure; composition does not expand defaults.
+
+Integration prepares against original schemas, merges types/data, composes, extracts
+again and constructs values through the existing codec, verifying default adoption,
+retained explicit defaults, stripped specialisations and complete bulk records.
+Unrelated sibling growth and omitted array extent do not change allocation counts
+or bytes. Geometric repeated-type fixtures exercise internal arrays, reverse names
+and sorted preload. Existing capped shared-container growth still increases total
+backing allocation bytes; this is a separately agreed follow-up, not a claimed
+linear end-to-end allocation result. See the
+[delivery evidence](../project/document_preparation_composition_implementation_plan.md#delivery-and-verification--19-october-2026).
 
 ## Instance and bulk data aggregation coverage
 

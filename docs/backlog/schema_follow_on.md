@@ -68,10 +68,10 @@ complete C++17 buffer; the more selective interface is not implemented.
 
 ### Document and binary packaging
 
-Persistence is complete; the remaining work is aggregation and composition.
+Persistence, type/data merging, document preparation and composition are implemented.
 
 The [persistence and aggregation revision](../schema/persistence-and-aggregation.md)
-records the completed persistence direction and ongoing aggregation design
+records the completed persistence direction and implemented aggregation design
 agreements. Shared type definitions remain
 separately associated with independently created data. A baked instance document
 and its binary payload form one persistence entity, as do a baked bulk data document
@@ -112,7 +112,7 @@ without compatibility aliases. The
 [revision](../schema/persistence-and-aggregation.md#agreed-bulk-data-terminology-and-standardisation-pass)
 retains the naming convention and migration mapping.
 
-### Remaining aggregation and composition design
+### Aggregation and composition delivery
 
 Type-schema merging was implemented on 18 October. A missing explicit
 default expresses no merge preference and yields to an explicit default;
@@ -165,7 +165,7 @@ and [completed plan](../project/data_aggregation_implementation_plan.md).
 The [19 October preparation contract](../schema/persistence-and-aggregation.md#agreed-document-preparation-interfaces)
 agrees document-only and supplied-binary overloads of `prepare_instances_document`
 and `prepare_bulk_data_document`, with typed preparation diagnostics and staged
-publication. Preparation is not implemented. It preserves retained descriptions,
+publication. Preparation is implemented. It preserves retained descriptions,
 reconstructs stripped instances against their original schema and reconstructs
 bulk records only when an entire entry description is absent. Present incomplete
 records and count mismatches fail. Optional retained/binary comparison is explicit.
@@ -184,21 +184,53 @@ switching still preserves binary data; document merging and subsequent
 construction are separate operations.
 
 The [composition contract](../schema/persistence-and-aggregation.md#complete-document-composition)
-is agreed but unimplemented. Three `compose_document` overloads require a types
+is implemented. Three `compose_document` overloads require a types
 document and instances, bulk data, or both. Inputs are prepared single-domain
 documents; output copies sections in types/instances/data order, preserving
 contents and presentation. Resolve supplied types once, validate each data domain
 against that resolution, then copy privately and publish by non-failing move.
 There is no repeated result resolution/semantic validation, binary construction
 or collision resolution. Typed diagnostics borrow source locations; occupied and
-source-aliased destinations are supported. The joint plan then covers composition;
-implementation is not yet authorised. Combined orchestration remains separate
-design work.
+source-aliased destinations are supported. The [delivery record](../project/completed_milestones.md#document-preparation-and-composition)
+records verification. Combined orchestration remains separate design work.
 
 Direct final storage for description materialisation and selected type-definition
 subsets remain optional optimisations. Compatibility signatures, persisted resolved
 lookups, automatic bundle persistence and bundle-entry writes were excluded from
 the completed persistence scope; they are not outstanding completion requirements.
+
+### Shared-container growth during document construction
+
+Recorded on 19 October 2026 during preparation/composition verification. The user
+explicitly chose a separate follow-up rather than broadening that implementation.
+`memory::vector_growth_policy` caps capacity increments at 1,024 elements and is
+used by `TPodVector` and ordered/unordered slot backing; buffer growth is also
+capped. Repeated incremental growth therefore reallocates/copies increasing backing
+ranges and can produce quadratic cumulative allocation/copying costs at large sizes.
+This is independent of sorted string-index insertion and semantic traversal.
+
+The x64 fixture prepares reference-only bulk entries of one internal-array/enum
+type, then composes them with types. Subsequent, separately authorised capacity
+planning reserves fresh string domains, copied nodes, known structural nodes and
+preparation sibling batches. At 2,048 entries it reduces preparation/composition
+allocation requests from 190/201 to 73/57 and combined requested bytes from
+33,568,064 to 16,385,536. These are aggregate requests across all containers, including
+replaced allocations, not a single container's growth trace, peak memory or measured
+copied bytes. Reserved string imports and copied-subtree emission now have explicit
+no-further-allocation tests. Reconstruction beyond the structural minimum still grows.
+Unrelated sibling growth and omitted sparse array extent produce no extra allocations.
+
+Investigate the buffer policy first: its declared cap is 65,536 bytes, but the
+current growth calculation passes the 4,096-byte minimum as the capped step.
+Vector and buffer caps are distinct. Bulk reservation can jump directly to a known
+capacity; these incremental growth caps do not force a series of small reserve calls.
+Review whether geometric growth is appropriate for remaining transient vectors or
+document slot storage, considering individual and bulk operations separately.
+Compare time, cumulative copied bytes and peak retained capacity; preserve existing
+resource ceilings, allocation-failure guarantees and stable identities. Do not add
+schema-depth or reconstruction preflights simply to predict exact node counts.
+Any shared growth-policy change needs separate agreement and container/data-model
+regressions, not an incidental change to the preparation API.
 
 ## Earlier source-ingestion direction
 

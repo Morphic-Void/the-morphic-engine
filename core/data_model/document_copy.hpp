@@ -46,6 +46,9 @@ class CDocumentConstruction
 public:
     [[nodiscard]] static bool append(CLiveDocument& target, const CNodeKey parent, const CNodeKey child) noexcept;
     [[nodiscard]] static CPropertyNameId name(CLiveDocument& target, const CStringView& text) noexcept;
+
+    //  Reserve a fresh string domain before importing admitted source text.
+    [[nodiscard]] static bool initialise_strings(CLiveDocument& target, const bool names, const std::size_t count, const std::size_t bytes) noexcept;
     [[nodiscard]] static CPropertyNameId import_name(CLiveDocument& target, const CStringView& text) noexcept;
     [[nodiscard]] static CStringValueId import_string(CLiveDocument& target, const CStringView& text) noexcept;
     [[nodiscard]] static CNodeKey create(CLiveDocument& target, const ELiveValueType kind,

@@ -42,11 +42,12 @@ see the [type merge API](runtime-api.md#type-schema-merging) and
 [data aggregation plan](../project/data_aggregation_implementation_plan.md) records
 the reviewed implementation scope; data aggregation is committed in `36ef3d9`.
 The [document preparation contract](#agreed-document-preparation-interfaces)
-and [composition contract](#complete-document-composition) are agreed but not
-implemented. This revision does not authorise their implementation.
+and [composition contract](#complete-document-composition) are implemented on
+19 October 2026 following separate user authorisation.
 The [preparation and composition plan](../project/document_preparation_composition_implementation_plan.md)
 records the reviewed code reuse, delivery stages and verification, including the
-agreed storage-metadata admission rules. Implementation remains separate.
+agreed storage-metadata admission rules and delivery evidence. Commits and user
+review remain separate from implementation.
 
 The [persistence milestone](../project/completed_milestones.md#schema-instance-and-bulk-data-persistence)
 and [role milestone](../project/completed_milestones.md#schema-role-attachment-and-construction)
@@ -761,11 +762,11 @@ need not become "bulk data". The persisted `data` section, `.bbd` extension and
 
 ## Separate merge and aggregation operations
 
-Merging remains needed, but its responsibilities belong to the individual domains.
+Merging responsibilities belong to the individual domains.
 The following operations are conceptually separate and implemented. Type-schema
 and prepared data merging share internal document construction while retaining
-their domain-specific validation. Boundary preparation interfaces are agreed but
-unimplemented, separate from the completed merge and persistence scopes.
+their domain-specific validation. Boundary preparation and composition are also
+implemented as separate document-only operations.
 
 | Operation | Responsibility |
 | --- | --- |
@@ -1344,8 +1345,8 @@ No rollback owner or failing publication step is needed.
 Final-result diagnostics must not retain locations in discarded staging storage.
 Source conflicts identify the supplied prepared documents, including caller-owned
 conversion results. Later binary construction remains a separate operation with
-its own failure boundary; composition and combined orchestration remain future
-design work.
+its own failure boundary. Composition is a separate implemented operation;
+combined convenience orchestration remains future design work.
 
 ### Agreed type-schema merge function and diagnostics
 
@@ -1556,7 +1557,7 @@ separate entities into a bundle.
 
 ## Agreed document preparation interfaces
 
-Agreed on 19 October 2026; not yet implemented. Preparation converts one source
+Agreed and implemented on 19 October 2026. Preparation converts one source
 into independent document-only storage suitable for the existing merge cores.
 It does not merge, attach or switch schemas, reconcile retained descriptions,
 or construct a completed binary package. Already prepared documents may go
@@ -1628,7 +1629,7 @@ reconciliation; preparation never silently selects a different source of truth.
 ### Agreed preparation storage-metadata admission
 
 Agreed on 19 October 2026. These rules supplement the preparation interfaces
-and selected-section extraction policy; they are not yet implemented.
+and selected-section extraction policy; they are implemented.
 
 These are preparation rules, not changes to ordinary persistence loading or
 materialisation. The payload argument, when supplied, belongs to the selected
@@ -1835,11 +1836,11 @@ storage for original defaults and representability verification is permitted;
 no disposable complete output payload or new owner class is required. Retain
 existing cheap depth checks and failure semantics rather than adding a graph
 preflight. The [reviewed implementation plan](../project/document_preparation_composition_implementation_plan.md)
-records the concrete sharing and verification; implementation remains separate.
+records the concrete sharing and verification.
 
 ## Complete document composition
 
-Agreed on 19 October 2026; not yet implemented. Composition assembles compatible
+Agreed and implemented on 19 October 2026. Composition assembles compatible
 `types`, `instances` and `data` sections into a document for inspection,
 interchange or further preparation. Multiple sources within a domain are merged
 first; composition does not resolve collisions, overwrite competing sections or
@@ -2021,10 +2022,10 @@ complete without compatibility aliases.
 Explicit bundle saving writes current storage. Automatic bundle persistence,
 writes to bundle entries and compatibility signatures remain outside this work.
 
-### Next discussion: shared-schema aggregation
+### Completed shared-schema aggregation boundaries
 
-Type-schema merging and prepared instance/bulk data aggregation are complete.
-Boundary preparation implementation and complete document composition remain.
+Type-schema merging, prepared instance/bulk data aggregation, boundary
+preparation and complete document composition are implemented.
 The 18 October revision settles absent-versus-explicit default merging and
 document-only working input/output.
 Stripped instances are promoted against their original schema to recover minimal
@@ -2064,15 +2065,15 @@ The [19 October preparation contract](#agreed-document-preparation-interfaces)
 settles the four overloads, diagnostics, whole-entry bulk reconstruction and
 selected-section extraction. Only the selected domain and explicitly supplied
 source schema determine prepared values; embedded type definitions do not.
-Preparation remains unimplemented. The
+Preparation is implemented. The
 [joint implementation plan](../project/document_preparation_composition_implementation_plan.md)
 incorporates the review corrections and agreed storage-metadata admission.
 
 The [composition contract](#complete-document-composition) also settles three
 types-required overloads, prepared single-domain inputs, typed diagnostics and
 staged publication after one resolution and validation of each supplied data
-domain. The joint plan covers preparation first, then composition; neither is
-authorised for implementation by the design or reviewed plan.
+domain. Both are implemented following separate user authorisation; the joint
+plan records the delivery and verification.
 Any later convenience orchestration of preparation, merge and construction
 remains separate design work, including its diagnostic-location lifetime
 contract. Standalone operations need no persistent provenance map.
@@ -2080,21 +2081,21 @@ The [data aggregation plan](../project/data_aggregation_implementation_plan.md)
 covers the agreed prepared-document merge cores and their shared validation and
 construction only. Strict prepared roots, the schema-backing destination guard and
 the depth policy are settled: retain cheap declaration-path checks and allow
-implicit depth failure during later construction. Both merge plans are complete;
-neither completed work nor these plans authorise conversion/composition implementation.
+implicit depth failure during later construction. Both merge plans and the
+preparation/composition plan are complete. Further work requires separate scope.
 
-### Separate remaining capabilities
+### Separate delivered capabilities
 
-| Work | Remaining work |
+| Work | Delivered behaviour |
 | --- | --- |
 | Definition merging | Implemented: independently valid document views, compatibility/default/presentation policy, structured diagnostics and staged publication of a validated live result. |
 | Schema switching | Implemented with checked/trusted modes and unchanged storage/handles; distinct from merge/reconstruction. |
-| Instance aggregation | Implemented prepared declaration/hierarchy merging, diagnostics and transactional output. Original-schema preparation interface agreed; implementation remains separate. |
-| Bulk data aggregation | Implemented complete-record prefix merging, diagnostics and transactional output. Whole-entry preparation interface agreed; implementation remains separate. |
-| Complete document composition | Three types-required overloads, diagnostics and validation/publication policy agreed; implementation remains separate. No collision resolution or mandatory combined persistence owner. |
+| Instance aggregation | Implemented prepared declaration/hierarchy merging, diagnostics and transactional output. Original-schema preparation is implemented. |
+| Bulk data aggregation | Implemented complete-record prefix merging, diagnostics and transactional output. Whole-entry preparation is implemented. |
+| Complete document composition | Implemented three types-required overloads with typed diagnostics and transactional publication. No collision resolution or mandatory combined persistence owner. |
 
-Boundary preparation and composition will reuse existing facilities under their
-agreed APIs and reviewed implementation plan. Later binary construction already
+Boundary preparation and composition reuse shared admission, reconstruction and
+document construction under their agreed APIs. Later binary construction already
 uses the existing domain-specific construction interfaces.
 
 ### Optional later optimisations

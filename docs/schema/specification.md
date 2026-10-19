@@ -713,6 +713,23 @@ other arrays require equal lengths. See the
 [runtime aggregation contract](runtime-api.md#instance-and-bulk-data-aggregation)
 for diagnostics, lifetimes, depth limits and transactional publication.
 
+`prepare_instances_document` and `prepare_bulk_data_document` produce this boundary
+form from selected live/baked sections using the explicitly supplied original
+schema. Retained descriptions preserve omissions and presentation. Stripped
+instances reconstruct differences against original defaults/immediate parents;
+only wholly absent bulk arrays reconstruct from bytes. Applicable storage metadata
+validates before removal; embedded types and other section contents do not affect
+selected values. An explicit payload view is required for valid locators, complete
+persistence envelopes and stripped descriptions, including zero-byte packages.
+
+`compose_document` requires a types-only document and one or both prepared data
+domains. It resolves types once, validates each supplied domain and copies the
+sections in types/instances/data order into independent live storage. Supplied
+empty domains remain explicit; omitted domains remain absent. Composition does
+not expand defaults or create binary storage. Both boundaries publish atomically
+and preserve sources and occupied destinations on failure. See the
+[runtime boundary API](runtime-api.md#document-preparation-and-composition).
+
 ### Definition validation and assembly
 
 Allowed properties are listed below; `*` marks required properties:

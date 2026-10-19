@@ -119,7 +119,7 @@ lookup, attachment and aggregate-comparison work. Full baked promotion preloads
 string domains lexically. Arbitrary-order string insertion and linear per-edit
 record-tail staging remain follow-on costs recorded in the notes.
 Remaining discussions cover conversion, related representations,
-typed serialisation, selectable generation, aggregation/composition and source
+typed serialisation, selectable generation, convenience orchestration and source
 ingestion, as recorded in the
 [schema follow-on notes](schema_follow_on.md).
 Type-schema merging was implemented on 18 October, with absent
@@ -129,9 +129,10 @@ compatible resolved layout; schema adoption and baking are separate. Data mergin
 uses document-only working input/output; stripped instances are promoted against
 their original schema, then merged declarations are constructed using the merged
 schema. The type-schema merge function, diagnostics and staged move publication
-are implemented. The remaining data-aggregation design replaces the earlier
-binary-snapshot aggregation and matching-form interface proposal; its
-implementation remains future work. The
+are implemented. Prepared data aggregation, original-schema preparation and
+types-required document composition are also implemented, replacing the earlier
+binary-snapshot aggregation and matching-form interface proposal. Shared-container
+growth remains a separately agreed follow-up. The
 [completed type-schema merge plan](../project/type_schema_merge_implementation_plan.md)
 records the reviewed scope; current behaviour is in the
 [runtime API](../schema/runtime-api.md#type-schema-merging).

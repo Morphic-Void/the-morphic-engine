@@ -40,6 +40,16 @@ CPropertyNameId detail::CDocumentConstruction::name(CLiveDocument& target, const
     return target.prepare_string(text, prepared) && target.intern_property_name(prepared, id) ? id : CPropertyNameId{};
 }
 
+bool detail::CDocumentConstruction::initialise_strings(CLiveDocument& target, const bool names, const std::size_t count, const std::size_t bytes) noexcept
+{
+    CStableStrings& strings = names ? target.m_property_names : target.m_string_values;
+    if (!target.is_ready() || (strings.memory_attribution().source_state != memory::EMemorySourceState::empty))
+    {
+        return false;
+    }
+    return count ? strings.initialise(count, bytes) : (bytes == 0u);
+}
+
 //  Imported text has already been admitted by a separate source document.
 //  Same-document copying retains its IDs and never borrows growing string views.
 CPropertyNameId detail::CDocumentConstruction::import_name(CLiveDocument& target, const CStringView& text) noexcept

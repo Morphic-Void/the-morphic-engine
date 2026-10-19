@@ -34,6 +34,8 @@ Include the header for the role or operation being used:
 | `resolved_schema.hpp` | Resolved layouts, defaults, diagnostics, schema document output and C++ generation. |
 | `schema_merge.hpp` | Transactional type-schema document merging, preserving declarations and combining presentation. |
 | `data_merge.hpp` | Transactional aggregation of prepared instance declarations or complete bulk records under one resolved schema. |
+| `data_preparation.hpp` | Selected-section extraction and original-schema reconstruction into prepared documents. |
+| `document_composition.hpp` | Types-required composition of prepared sections into an independent document. |
 | `baked_instances.hpp`, `live_instances.hpp` | Instance loading, observation and live editing/output. |
 | `baked_bulk_data.hpp`, `live_bulk_data.hpp` | Bulk data loading, observation and live capture/output. |
 | `data_block.hpp` | Backing states and block diagnostic vocabulary. |
@@ -671,15 +673,97 @@ validation clears all temporary locations. Known allocation/storage failures ret
 their resource reason; opaque construction failures use `construction_failed`.
 Success clears the diagnostic. See the full
 [diagnostic contract](persistence-and-aggregation.md#agreed-data-aggregation-functions-and-diagnostics).
-Boundary preparation and complete-document composition remain unimplemented.
-The [agreed preparation contract](persistence-and-aggregation.md#agreed-document-preparation-interfaces)
-specifies document-only and supplied-binary overloads, whole-entry reconstruction,
-selected-section extraction and separate diagnostics; these are design declarations,
-not available runtime entry points. The [composition contract](persistence-and-aggregation.md#complete-document-composition)
-also agrees three types-required overloads over prepared documents, diagnostics
-and staged publication after one schema resolution and validation of each supplied
-data domain. Composition likewise remains unimplemented; no repeated result
-resolution or semantic validation is selected.
+
+## Document preparation and composition
+
+`data_preparation.hpp` supplies four overloads:
+
+```cpp
+bool prepare_instances_document(const CInstanceDocumentQuery& source,
+    const CResolvedSchema& source_schema, CLiveDocument& destination,
+    SInstancePreparationDiagnostic& diagnostic) noexcept;
+bool prepare_instances_document(const CInstanceDocumentQuery& source,
+    const CResolvedSchema& source_schema, const CByteConstView& payload,
+    const bool compare_embedded, CLiveDocument& destination,
+    SInstancePreparationDiagnostic& diagnostic) noexcept;
+bool prepare_bulk_data_document(const CBulkDataDocumentQuery& source,
+    const CResolvedSchema& source_schema, CLiveDocument& destination,
+    SBulkDataPreparationDiagnostic& diagnostic) noexcept;
+bool prepare_bulk_data_document(const CBulkDataDocumentQuery& source,
+    const CResolvedSchema& source_schema, const CByteConstView& payload,
+    const bool compare_embedded, CLiveDocument& destination,
+    SBulkDataPreparationDiagnostic& diagnostic) noexcept;
+```
+
+Queries accept live or baked documents. The ready original schema is the sole
+semantic authority: embedded types and sibling section contents are ignored;
+recognised root containers and applicable storage metadata are checked. Output
+always contains exactly the selected `instances` or `data` object, including when
+empty. Storage fields are omitted. Retained declarations, record arrays, ordering,
+empty containers and presentation survive unchanged. Already prepared documents
+can go directly to merging without this additional copy.
+
+Stripped instances require the supplied-payload overload and reconstruct minimal
+changes against original defaults or their immediate parent snapshot. Missing
+whole bulk arrays reconstruct complete records; present incomplete or empty arrays
+are rejected. Comparison of retained descriptions with supplied bytes is optional
+and explicit; reconstruction always checks representability. This operation neither
+copies payload storage nor changes source descriptions, schemas or bindings.
+
+Supported unbound locator placeholders can stand alone. Valid locators and complete
+`fileType`/`version`/`payloadSize` envelopes require an explicit payload view, even
+for zero bytes; partial envelopes fail. Supplied entries require valid locators,
+checked counts, offsets, alignment and spans. Gaps and trailing slack are accepted.
+See the full [storage admission table](persistence-and-aggregation.md#agreed-preparation-storage-metadata-admission).
+Physical file/padding validation remains the block loader's responsibility.
+
+Preparation stages are `preconditions`, `source_validation`,
+`document_preparation` and `result_validation`. The shared reason enum distinguishes
+invalid schema/source/result, known allocation/storage limits and opaque construction
+failure. Diagnostics retain the domain's reason and original source occurrence;
+result validation clears temporary occurrences. Destination backing the supplied
+resolved schema is rejected before work. Success clears the diagnostic.
+
+`document_composition.hpp` supplies three overloads:
+
+```cpp
+bool compose_document(const CSchemaDocumentQuery& types,
+    const CInstanceDocumentQuery& instances, CLiveDocument& destination,
+    SDocumentCompositionDiagnostic& diagnostic) noexcept;
+bool compose_document(const CSchemaDocumentQuery& types,
+    const CBulkDataDocumentQuery& bulk_data, CLiveDocument& destination,
+    SDocumentCompositionDiagnostic& diagnostic) noexcept;
+bool compose_document(const CSchemaDocumentQuery& types,
+    const CInstanceDocumentQuery& instances, const CBulkDataDocumentQuery& bulk_data,
+    CLiveDocument& destination, SDocumentCompositionDiagnostic& diagnostic) noexcept;
+```
+
+Types input must contain only a required `types` object. Data inputs obey the strict
+prepared-root rules. Types resolve once; instances then bulk data validate against
+that resolution. Sections copy in `types`, `instances`, `data` order, preserving
+contents and presentation. Missing supplied data sections become empty objects;
+unsupplied domains are omitted. There is no second result resolution, default
+expansion, binary construction, merging or schema association.
+
+Composition stages identify types validation, instances validation, bulk data
+validation or document composition. Reasons distinguish invalid input, known
+allocation/storage limits and construction failure. Only the relevant typed detail
+field is populated, with a source occurrence where available. Success clears all
+fields. See the [diagnostic contract](persistence-and-aggregation.md#agreed-composition-diagnostics).
+
+Both operations build private, independently owned live storage and publish through
+non-failing move assignment. Empty, occupied and source-aliased destinations are
+supported; failures preserve destination bytes and handles. Borrowed inputs must
+remain valid and unchanged during the call. Composition releases its local resolver
+before replacing an aliased types document. Ordinary external-borrower replacement
+rules still apply. Section-relative depth checks accompany traversal/construction;
+no maximum-depth preflight or implicit default-depth prediction is added.
+
+Strings from retained sections and reconstruction metadata are combined into one
+sorted preload. Only distinct reachable reconstruction types are visited, including
+internal array types, without expanding their element counts. The document's own
+string indexes serve later lookup. Candidate vectors are released before emission;
+no second text-to-ID map or per-record metadata collector persists.
 
 ## Defaults
 

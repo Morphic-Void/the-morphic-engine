@@ -15,6 +15,13 @@
 
 #include "schema/resolved_schema.hpp"
 
+#include <type_traits>
+
+namespace schema
+{
+enum class EInstanceLoadReason : std::uint8_t;
+}
+
 namespace schema::detail
 {
 
@@ -36,6 +43,55 @@ struct SDataValidationDiagnostic
     EDataValidationReason reason{ EDataValidationReason::none };
     SOccurrence occurrence;
 };
+
+//  Domain diagnostics share entry admission reasons, with a distinct name for
+//  invalid supplied values. Keep typed handles at this public boundary only.
+template<class TReason>
+[[nodiscard]] static TReason data_validation_reason(const EDataValidationReason reason) noexcept
+{
+    switch (reason)
+    {
+        case EDataValidationReason::missing_property:
+        {
+            return TReason::missing_property;
+        }
+        case EDataValidationReason::unknown_property:
+        {
+            return TReason::unknown_property;
+        }
+        case EDataValidationReason::unknown_type:
+        {
+            return TReason::unknown_type;
+        }
+        case EDataValidationReason::invalid_count:
+        {
+            return TReason::invalid_count;
+        }
+        case EDataValidationReason::allocation_failed:
+        {
+            return TReason::allocation_failed;
+        }
+        case EDataValidationReason::storage_limit:
+        {
+            return TReason::invalid_range;
+        }
+        case EDataValidationReason::invalid_value:
+        {
+            if constexpr (std::is_same_v<TReason, EInstanceLoadReason>)
+            {
+                return TReason::invalid_declaration;
+            }
+            else
+            {
+                return TReason::incomplete_record;
+            }
+        }
+        default:
+        {
+            return TReason::invalid_input;
+        }
+    }
+}
 
 [[nodiscard]] bool data_entry_property(const CStringView& name, const bool bulk, const bool stored) noexcept;
 [[nodiscard]] bool align_data_offset(const std::uint64_t position, const std::uint64_t alignment, std::uint64_t& result) noexcept;

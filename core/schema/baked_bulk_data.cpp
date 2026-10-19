@@ -12,6 +12,7 @@
 #include "schema/type_compatibility.hpp"
 #include "schema/value_codec.hpp"
 #include "schema/data_document_validation.hpp"
+#include "schema/data_storage_validation.hpp"
 #include "memory/memory_policies.hpp"
 
 #include <cstring>
@@ -366,37 +367,21 @@ bool CBakedBulkData::plan(const bool supplied, const std::size_t payload_size,
             {
                 return fail(diagnostic, EBulkDataLoadReason::missing_property, entry);
             }
-            for (CBakedValueIndex property = m_document.first_child(locator); property.is_valid(); property = m_document.next_sibling(property))
+            detail::SDataLocator parsed;
+            detail::SOccurrence failure;
+            EBulkDataLoadReason reason{};
+            if (!detail::read_data_locator(detail::CDocumentRead{ m_document }, detail::SOccurrence{ locator },
+                true, layout.size, parsed, reason, failure))
             {
-                const CStringView name = m_document.name(property);
-                if (!bulk_data_name_is(name, "offset") && !bulk_data_name_is(name, "valid") &&
-                    !bulk_data_name_is(name, "count") && !bulk_data_name_is(name, "size"))
-                {
-                    return fail(diagnostic, EBulkDataLoadReason::unknown_property, property);
-                }
+                return fail(diagnostic, reason, failure.baked);
             }
-            const CBakedValueIndex offset_node = m_document.object_child(locator, CStringView{ "offset" });
-            const CBakedValueIndex valid_node = m_document.object_child(locator, CStringView{ "valid" });
-            const CBakedValueIndex count_node = m_document.object_child(locator, CStringView{ "count" });
-            const CBakedValueIndex size_node = m_document.object_child(locator, CStringView{ "size" });
-            std::uint64_t raw_offset{}, raw_count{}, raw_size{};
-            bool prior_valid{};
-            if (!offset_node.is_valid() || !valid_node.is_valid() ||
-                !m_document.unsigned_integer_value(offset_node, raw_offset) || (raw_offset > UINT32_MAX) ||
-                !m_document.boolean_value(valid_node, prior_valid))
-            {
-                return fail(diagnostic, EBulkDataLoadReason::invalid_locator, locator);
-            }
-            if (count_node.is_valid() && (!m_document.unsigned_integer_value(count_node, raw_count) ||
-                (raw_count == 0u) || (raw_count > UINT32_MAX)))
-            {
-                return fail(diagnostic, EBulkDataLoadReason::invalid_count, count_node);
-            }
-            if (size_node.is_valid() && (!m_document.unsigned_integer_value(size_node, raw_size) ||
-                (raw_size > memory::k_byte_size_ceiling)))
-            {
-                return fail(diagnostic, EBulkDataLoadReason::invalid_range, size_node);
-            }
+            const CBakedValueIndex offset_node = parsed.offset_node.baked;
+            const CBakedValueIndex valid_node = parsed.valid_node.baked;
+            const CBakedValueIndex count_node = parsed.count_node.baked;
+            const CBakedValueIndex size_node = parsed.size_node.baked;
+            const std::uint64_t raw_offset = parsed.offset;
+            const std::uint64_t raw_count = parsed.count, raw_size = parsed.size;
+            const bool prior_valid = parsed.valid;
             std::uint64_t count{};
             if (embedded.is_valid())
             {
@@ -443,22 +428,11 @@ bool CBakedBulkData::plan(const bool supplied, const std::size_t payload_size,
                     return fail(diagnostic, EBulkDataLoadReason::invalid_range, locator);
                 }
             }
-            if ((offset < cursor) && ((extent != 0u) || (offset != 0u)))
+            if (!detail::check_data_range(offset, extent, layout.alignment, cursor, supplied, payload_size, reason))
             {
-                return fail(diagnostic, EBulkDataLoadReason::overlap, locator);
-            }
-            if ((offset > UINT32_MAX) ||
-                (offset > memory::k_byte_size_ceiling) ||
-                ((offset & (layout.alignment - 1u)) != 0u) ||
-                (extent > (memory::k_byte_size_ceiling - offset)))
-            {
-                return fail(diagnostic, EBulkDataLoadReason::invalid_range, locator);
+                return fail(diagnostic, reason, locator);
             }
             const std::uint64_t end = offset + extent;
-            if (supplied && (end > payload_size))
-            {
-                return fail(diagnostic, EBulkDataLoadReason::invalid_range, locator);
-            }
             SRecord record;
             record.entry = entry;
             record.data = embedded;
