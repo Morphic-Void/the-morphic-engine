@@ -23,8 +23,6 @@ namespace schema
 //  Shared scalar decoding and selection lookup
 //==============================================================================
 
-constexpr unsigned k_max_depth = 256u;
-
 [[nodiscard]] static detail::SOccurrence selected_child(const CResolvedSchema& schema,
     const detail::CDocumentRead& document, const CSchemaIndex type, const SType& layout,
     const detail::SOccurrence selection, const std::uint32_t ordinal,
@@ -120,7 +118,7 @@ CNodeKey CInstanceSelectionDecoder::decode(const CSchemaIndex type, const detail
     const std::uint8_t* const bytes, const CStringView& name, const bool singleton_element,
     const unsigned depth, const TPodVector<SResolvedSelectionStep>* const discarded_steps) noexcept
 {
-    if (depth >= k_max_depth)
+    if (depth >= document_limits::k_max_recursion_depth)
     {
         m_error = EInstanceLoadReason::invalid_declaration;
         return {};
@@ -326,7 +324,7 @@ bool CSelectionOverlay::apply(const CSchemaIndex type, const detail::SOccurrence
     {
         return true;
     }
-    if (depth >= k_max_depth)
+    if (depth >= document_limits::k_max_recursion_depth)
     {
         return false;
     }

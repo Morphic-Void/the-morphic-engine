@@ -969,6 +969,15 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\type_compatibility.hpp">
       <Filter>Core\include\schema</Filter>
     </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\document_merge.hpp">
+      <Filter>Core\include\schema</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\data_document_validation.hpp">
+      <Filter>Core\include\schema</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\data_merge.hpp">
+      <Filter>Core\include\schema</Filter>
+    </ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\schema_merge.hpp">
       <Filter>Core\include\schema</Filter>
     </ClInclude>
@@ -1024,6 +1033,15 @@
       <Filter>Core\src\schema</Filter>
     </ClCompile>
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\type_compatibility.cpp">
+      <Filter>Core\src\schema</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\document_merge.cpp">
+      <Filter>Core\src\schema</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\data_document_validation.cpp">
+      <Filter>Core\src\schema</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\data_merge.cpp">
       <Filter>Core\src\schema</Filter>
     </ClCompile>
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\schema_merge.cpp">

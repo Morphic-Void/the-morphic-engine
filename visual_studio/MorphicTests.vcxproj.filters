@@ -50,6 +50,7 @@
     <ClCompile Include="..\tests\test_suites\Schema_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
     <ClCompile Include="..\tests\test_suites\SchemaDataBlock_test_cases.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
     <ClCompile Include="..\tests\test_suites\SchemaMerge_test_cases.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
+    <ClCompile Include="..\tests\test_suites\DataMerge_test_cases.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
     <ClCompile Include="..\tests\test_suites\ByteBuffers_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
     <ClCompile Include="..\tests\test_suites\PermutationValidation_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
     <ClCompile Include="..\tests\test_suites\ImageView_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
@@ -105,6 +106,7 @@
     <ClInclude Include="..\tests\test_suites\Schema_test_suite.hpp"><Filter>Tests\test_suites</Filter></ClInclude>
     <ClInclude Include="..\tests\test_suites\SchemaDataBlock_test_cases.hpp"><Filter>Tests\test_suites</Filter></ClInclude>
     <ClInclude Include="..\tests\test_suites\SchemaMerge_test_cases.hpp"><Filter>Tests\test_suites</Filter></ClInclude>
+    <ClInclude Include="..\tests\test_suites\DataMerge_test_cases.hpp"><Filter>Tests\test_suites</Filter></ClInclude>
     <ClInclude Include="..\tests\test_suites\ByteBuffers_test_suite.hpp"><Filter>Tests\test_suites</Filter></ClInclude>
     <ClInclude Include="..\tests\test_suites\PermutationValidation_test_suite.hpp"><Filter>Tests\test_suites</Filter></ClInclude>
     <ClInclude Include="..\tests\test_suites\ImageView_test_suite.hpp"><Filter>Tests\test_suites</Filter></ClInclude>

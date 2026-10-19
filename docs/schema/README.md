@@ -17,9 +17,9 @@ interpret its current contracts.
 | [Runtime API](runtime-api.md) | Public entry points, file map, lifetimes, diagnostics and implementation limits. |
 | [Validation](validation.md) | Regression coverage and generated C++ layout checks. |
 | [Example](schema-example.json) and [notes](schema-example-notes.md) | Authoring example, expected layouts, numeric notation and materialisation rules. |
-| [Persistence and aggregation revision](persistence-and-aggregation.md) | Persistence and type-schema merge contracts; remaining document-only data merging promotes stripped instances against their original schema. |
+| [Persistence and aggregation revision](persistence-and-aggregation.md) | Persistence and implemented type/data merge contracts; remaining boundary conversion promotes stripped instances against their original schema. |
 | [Type schema merge implementation plan](../project/type_schema_merge_implementation_plan.md) | Completed reviewed scope and implementation notes; current behaviour is in the runtime API. |
-| [Data aggregation implementation plan](../project/data_aggregation_implementation_plan.md) | Reviewed delivery plan for the agreed instance/bulk document merge cores; cheap depth checks retained, implicit depth failures deferred to construction, with conversion and composition separate. |
+| [Data aggregation implementation plan](../project/data_aggregation_implementation_plan.md) | Completed scope of the prepared instance/bulk merge cores, shared admission and construction; conversion and composition remain separate. |
 | [Persistence milestone](../project/completed_milestones.md#schema-instance-and-bulk-data-persistence) | Completed eight-stage delivery, commit checkpoints and validation evidence, including gap zeroing; the implementation plan is retired. |
 | [Role and construction milestone](../project/completed_milestones.md#schema-role-attachment-and-construction) | Schema-independent blocks, atomic attachment, checked/trusted switching, indexed lookup and construction/reconciliation refinements. |
 | [Follow-on work](../backlog/schema_follow_on.md) | Future direction and unresolved design questions, separate from current requirements. |

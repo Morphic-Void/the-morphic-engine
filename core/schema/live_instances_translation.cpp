@@ -23,8 +23,6 @@
 namespace schema
 {
 
-constexpr unsigned k_max_depth = 256u;
-
 //==============================================================================
 //  Binary-authoritative declaration reconstruction
 //==============================================================================
@@ -139,7 +137,7 @@ CNodeKey CInstanceReconciler::decode(const CSchemaIndex type, const std::uint8_t
     const std::uint8_t* const baseline, const CStringView name, SFrame* const parent, const unsigned depth) noexcept
 {
     SType layout;
-    if ((depth >= k_max_depth) || !m_schema.type(type, layout))
+    if ((depth >= document_limits::k_max_recursion_depth) || !m_schema.type(type, layout))
     {
         m_reason = EInstanceLoadReason::unrepresentable_value;
         return {};

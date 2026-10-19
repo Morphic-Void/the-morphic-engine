@@ -621,7 +621,7 @@ CNodeKey CBulkDataReconstructor::value(const CSchemaIndex type, const std::uint8
     const CStringView& name, const bool in_array, const unsigned depth) noexcept
 {
     SType layout;
-    if ((depth >= 256u) || !m_schema.type(type, layout))
+    if ((depth >= document_limits::k_max_recursion_depth) || !m_schema.type(type, layout))
     {
         m_reason = EBulkDataLoadReason::incompatible_schema;
         return {};

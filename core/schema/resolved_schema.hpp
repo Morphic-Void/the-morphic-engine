@@ -286,6 +286,7 @@ public:
 
 private:
     friend class CLiveSchema;
+    friend struct detail::SDocumentQueryAccess;
 
     struct STypeRecord
     {

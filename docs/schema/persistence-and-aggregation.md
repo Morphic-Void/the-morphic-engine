@@ -35,14 +35,13 @@ instance hierarchy merging, array rules, bulk data prefix matching, transactiona
 replacement and output ordering remain applicable as revised below. The existing
 binary-preserving schema-switch and persistence contracts are unchanged.
 
-Type-schema merging is documented in the
-[runtime API](runtime-api.md#type-schema-merging). Instance/bulk data aggregation
-and complete document composition remain design work. Data aggregation now has
-agreed function signatures, typed diagnostic contracts, document views,
-resolved-schema context, live output ownership, validation and publication
-boundaries. A [data aggregation implementation plan](../project/data_aggregation_implementation_plan.md)
-has been revised after review; implementation has not started. Conversion APIs and their
-delivery plans remain separate. This revision does not authorise implementation.
+Type-schema merging and prepared instance/bulk data aggregation are implemented;
+see the [type merge API](runtime-api.md#type-schema-merging) and
+[data aggregation API](runtime-api.md#instance-and-bulk-data-aggregation). The
+[data aggregation plan](../project/data_aggregation_implementation_plan.md) records
+the reviewed implementation scope. Conversion APIs and complete document
+composition remain separate design work; this revision does not authorise their
+implementation.
 
 The [persistence milestone](../project/completed_milestones.md#schema-instance-and-bulk-data-persistence)
 and [role milestone](../project/completed_milestones.md#schema-role-attachment-and-construction)
@@ -758,10 +757,10 @@ need not become "bulk data". The persisted `data` section, `.bbd` extension and
 ## Separate merge and aggregation operations
 
 Merging remains needed, but its responsibilities belong to the individual domains.
-The following operations are conceptually separate. Type-schema merging is
-implemented; data-aggregation interfaces are agreed but unimplemented. Boundary
-conversion APIs and any shared internal merge machinery remain design work,
-separate from the completed persistence scope.
+The following operations are conceptually separate and implemented. Type-schema
+and prepared data merging share internal document construction while retaining
+their domain-specific validation. Boundary conversion APIs remain design work,
+separate from the completed merge and persistence scopes.
 
 | Operation | Responsibility |
 | --- | --- |
@@ -1178,7 +1177,7 @@ convenience operation must explicitly settle its own diagnostic lifetimes.
 
 ### Agreed data-aggregation functions and diagnostics
 
-The following interfaces are agreed design, not implemented APIs:
+The following interfaces are implemented in `data_merge.hpp`:
 
 ```cpp
 namespace schema
@@ -1622,8 +1621,9 @@ writes to bundle entries and compatibility signatures remain outside this work.
 
 ### Next discussion: shared-schema aggregation
 
-Type-schema merging is complete; instance/bulk data aggregation and complete
-document composition remain. The 18 October revision settles
+Type-schema merging and prepared instance/bulk data aggregation are complete.
+Boundary conversion APIs and complete document composition remain. The 18 October
+revision settles
 absent-versus-explicit default merging and document-only working input/output.
 Stripped instances are promoted against their original schema to recover minimal
 declarations before merging; later construction uses the merged defaults.
@@ -1646,7 +1646,7 @@ replacement remain applicable. The former binary-snapshot merge predicate,
 matching-form selection, same-owner role precondition and specialised overload
 matrix are superseded. Implemented attachment and switching remain unchanged.
 
-Data-aggregation source views and output ownership are now agreed: existing
+Implemented data-aggregation source views and output ownership use existing
 instance/bulk data queries, one resolved merged-schema context and an independent
 live document containing the selected section. Each input and the result validate
 without constructing disposable binary. Staged move publication supports occupied
@@ -1654,7 +1654,7 @@ and source-aliased destinations. Conversion validates storage metadata before
 removing it and publishes caller-owned documents; conversion diagnostics stay
 separate from merge diagnostics. The `merge_instances` and `merge_bulk_data`
 signatures and their shared stage/reason enums with typed location diagnostics
-are agreed above. See the
+are implemented as specified above. See the
 [interfaces and diagnostics](#agreed-data-aggregation-functions-and-diagnostics)
 and [validation and publication decisions](#agreed-data-aggregation-validation-and-publication).
 
@@ -1674,8 +1674,8 @@ The [data aggregation plan](../project/data_aggregation_implementation_plan.md)
 covers the agreed prepared-document merge cores and their shared validation and
 construction only. Strict prepared roots, the schema-backing destination guard and
 the depth policy are settled: retain cheap declaration-path checks and allow
-implicit depth failure during later construction. The type-schema plan is complete;
-neither completed work nor the new plan authorises implementation.
+implicit depth failure during later construction. Both merge plans are complete;
+neither completed work nor these plans authorise conversion/composition implementation.
 
 ### Separate remaining capabilities
 
@@ -1683,8 +1683,8 @@ neither completed work nor the new plan authorises implementation.
 | --- | --- |
 | Definition merging | Implemented: independently valid document views, compatibility/default/presentation policy, structured diagnostics and staged publication of a validated live result. |
 | Schema switching | Implemented with checked/trusted modes and unchanged storage/handles; distinct from merge/reconstruction. |
-| Instance aggregation | Document declarations and recursive hierarchy merging, original-schema stripped-input promotion, diagnostics and transactional output. |
-| Bulk data aggregation | Complete document record merging with prefix matching; conversion of missing descriptions, diagnostics and transactional output. |
+| Instance aggregation | Implemented prepared declaration/hierarchy merging, diagnostics and transactional output. Original-schema stripped-input conversion API remains separate. |
+| Bulk data aggregation | Implemented complete-record prefix merging, diagnostics and transactional output. Missing-description conversion API remains separate. |
 | Complete document composition | Assembly of already merged document sections; no collision resolution or mandatory combined persistence owner. |
 
 Boundary conversion and later binary construction reuse existing facilities.

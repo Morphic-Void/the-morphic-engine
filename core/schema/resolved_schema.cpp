@@ -32,7 +32,6 @@ namespace resolver_util
 static constexpr unsigned k_index_kind_shift = 29u;
 static constexpr std::uint32_t k_limit = (std::uint32_t{ 1u } << k_index_kind_shift) - 1u;
 static constexpr std::uint32_t k_type = 0u, k_member = 1u, k_label = 2u, k_field = 3u, k_default = 4u;
-static constexpr unsigned k_max_resolution_depth = 256u;
 static constexpr const char* k_primitives[] = { "", "i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64", "f16", "f32", "f64", "b8" };
 static constexpr std::uint8_t k_sizes[] = { 0, 1, 2, 4, 8, 1, 2, 4, 8, 2, 4, 8, 1 };
 
@@ -1050,7 +1049,7 @@ bool CResolver::reference(const CSchemaHandle& source, CSchemaIndex& result, con
     unsigned current_depth = depth;
     while (true)
     {
-        if (current_depth >= resolver_util::k_max_resolution_depth)
+        if (current_depth >= document_limits::k_max_recursion_depth)
         {
             return fail(EReason::storage_limit, current);
         }
@@ -1136,7 +1135,7 @@ bool CResolver::resolve_type(const CSchemaIndex type_index, const unsigned depth
     {
         return fail(EReason::cycle, type_record.source, m_context_type);
     }
-    if (depth >= resolver_util::k_max_resolution_depth)
+    if (depth >= document_limits::k_max_recursion_depth)
     {
         return fail(EReason::storage_limit, type_record.source);
     }
@@ -1526,7 +1525,7 @@ bool CResolver::make_default(const CSchemaIndex type, const CSchemaHandle& sourc
 
 bool CResolver::default_record(const CSchemaIndex type, const CSchemaHandle& source, const std::uint32_t slot, const unsigned depth) noexcept
 {
-    if (depth >= resolver_util::k_max_resolution_depth)
+    if (depth >= document_limits::k_max_recursion_depth)
     {
         return fail(EReason::storage_limit, source);
     }
@@ -1790,4 +1789,9 @@ bool CResolvedSchema::resolve(const CSchemaDocumentQuery& document, SDiagnostic&
     m_ready = true;
     return true;
 }
+bool detail::SDocumentQueryAccess::backs(const CResolvedSchema& schema, const CLiveDocument& document) noexcept
+{
+    return read(schema.m_document).backs(document);
+}
+
 }   // namespace schema

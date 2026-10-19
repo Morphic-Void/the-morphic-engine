@@ -107,6 +107,12 @@ private:
 [[nodiscard]] bool is_scalar_shorthand(const CResolvedSchema& schema, const CSchemaIndex type,
     const SType& layout, const CDocumentRead& document, const SOccurrence value) noexcept;
 
+//  Validate supplied declarations only. Omissions inherit/default later; no
+//  binary storage, implicit subtree expansion or writer selection index is needed.
+[[nodiscard]] bool validate_declaration(const CResolvedSchema& schema, const CDocumentRead& document,
+    const CSchemaIndex type, const SOccurrence declaration, const EConstructionMode mode,
+    SValueDiagnostic& diagnostic, const bool singleton_element = false) noexcept;
+
 //  Caller owns both the document and storage. The destination may be partially
 //  changed on failure and must then be discarded. Structure/array padding is
 //  untouched; a new bit-storage word is initialised as a unit.

@@ -11,6 +11,7 @@
 #include "schema/baked_instances.hpp"
 #include "schema/type_compatibility.hpp"
 #include "schema/value_codec.hpp"
+#include "schema/data_document_validation.hpp"
 #include "memory/memory_policies.hpp"
 
 #include <cstring>
@@ -28,17 +29,6 @@ namespace schema
     const CStringView expected{ literal };
     return (name.length() == expected.length()) &&
         ((name.length() == 0u) || (std::memcmp(name.string(), expected.string(), name.length()) == 0));
-}
-
-[[nodiscard]] static bool align_instance_offset(const std::uint64_t position, const std::uint64_t alignment, std::uint64_t& result) noexcept
-{
-    if ((alignment == 0u) || ((alignment & (alignment - 1u)) != 0u) ||
-        (position > (UINT64_MAX - (alignment - 1u))))
-    {
-        return false;
-    }
-    result = (position + alignment - 1u) & ~(alignment - 1u);
-    return result <= memory::k_byte_size_ceiling;
 }
 
 //==============================================================================
@@ -414,8 +404,7 @@ bool CBakedInstances::plan(const bool supplied, const std::size_t supplied_size,
             for (CBakedValueIndex property = m_document.first_child(instance); property.is_valid(); property = m_document.next_sibling(property))
             {
                 const CStringView name = m_document.name(property);
-                if (!instance_name_is(name, "locator") && !instance_name_is(name, "declaration") &&
-                    !instance_name_is(name, "specialisation"))
+                if (!detail::data_entry_property(name, false, true))
                 {
                     return fail(diagnostic, EInstanceLoadReason::unknown_property, property);
                 }
@@ -473,7 +462,7 @@ bool CBakedInstances::plan(const bool supplied, const std::size_t supplied_size,
                 return fail(diagnostic, EInstanceLoadReason::invalid_locator, valid_node);
             }
             std::uint64_t offset = raw_offset;
-            if (!prior_valid && !align_instance_offset(cursor, layout.alignment, offset))
+            if (!prior_valid && !detail::align_data_offset(cursor, layout.alignment, offset))
             {
                 return fail(diagnostic, EInstanceLoadReason::invalid_range, locator);
             }

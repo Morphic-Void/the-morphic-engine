@@ -72,16 +72,13 @@ records agreed merge contracts and remaining interface decisions. The type-schem
 merge signature, structured diagnostics and staged move publication are implemented;
 see the [runtime API](../schema/runtime-api.md#type-schema-merging) and
 [completed plan](../project/type_schema_merge_implementation_plan.md).
-Instance/bulk data aggregation has agreed existing query views, one resolved
-merged-schema context, independent live output and staged move publication.
-Validation reuses construction admission without disposable binary; boundary
-conversion publishes caller-owned documents and keeps its diagnostics separate.
-The `merge_instances` and `merge_bulk_data` signatures and typed diagnostic
-contracts are agreed. A [data aggregation implementation plan](../project/data_aggregation_implementation_plan.md)
-has been revised after review; implementation has not started. Prepared-root and
-schema-backing lifetime rules are settled. Retain cheap declaration-depth checks
-and allow implicit depth failures during later construction. Conversion APIs and
-composition remain separate design work.
+Prepared instance/bulk data aggregation is implemented with existing query views,
+one resolved schema, independent live output and staged publication. Validation
+shares construction admission, visits supplied declarations without disposable
+binary, and retains cheap depth checks; implicit depth failures remain with later
+construction. The [runtime API](../schema/runtime-api.md#instance-and-bulk-data-aggregation)
+and [completed plan](../project/data_aggregation_implementation_plan.md) record the
+contracts. Boundary conversion APIs and composition remain separate design work.
 General document object-child indexing and persistent live cursors remain
 deferred. The completed consolidation does not authorise further implementation.
 

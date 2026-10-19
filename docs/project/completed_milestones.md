@@ -18,6 +18,95 @@ Permanent behavior and architectural contracts belong in the subsystem
 documents linked from each milestone. Current and future work belongs in
 `future_work_notes.md` and the backlog.
 
+## Instance and bulk data aggregation
+
+Implemented on 18 October 2026 from the
+[reviewed plan](data_aggregation_implementation_plan.md). This records delivery
+and validation, not a commit checkpoint or user acceptance. See the
+[runtime API](../schema/runtime-api.md#instance-and-bulk-data-aggregation).
+
+`merge_instances` and `merge_bulk_data` accept prepared live/baked document views,
+one resolved merged schema and an independent live destination. Each input and
+the staged result validate independently. Instances retain explicit selections
+and recursive specialisations; bulk data merges matching record prefixes and
+retains the longer tail. Nested arrays use ordinary equality rules. Conversion,
+reconciliation, schema attachment and binary construction remain separate.
+
+The type merger's traversal, presentation, string preparation and construction
+now serve all three merge operations. Complementary declaration validation shares
+scalar/shape admission and visits supplied values without default expansion or
+payload allocation. Baked planning shares entry-property and extent/alignment
+helpers; no broad loader rewrite or extra document normalisation was introduced.
+Publication uses the existing non-failing move and supports occupied/source-aliased
+destinations. Destination-as-schema-backing is rejected before mutation.
+
+Cheap explicit depth checks remain; a valid merged document may fail later implicit
+binary construction at the existing depth limit. Regression tests exposed excess
+Debug stack usage in that pre-existing constructor. Extracting scalar handling
+from recursive dispatch and borrowing small storage/occurrence views reduced its
+frames without changing admission, writer/comparison order or the depth limit.
+The review follow-up replaces nested occurrence-selection expressions with
+ordinary branches: the actual MSVC x64 Debug `structure()` stack reservation is
+now 1,728 bytes, down from 2,160, with no additional helpers or allocations.
+Live and baked documents expose optional iterative `maximum_depth()` queries,
+counting the root as zero and excluding detached live values. These use constant
+scratch space, allocate nothing and impose no recursive depth cap; they do not
+predict implicit schema construction depth or add work to aggregation.
+
+Verification covers mixed forms, independent validation, scalar/presentation
+semantics, inheritance, schema-merge integration, aliasing, failure at each
+allocation attempt, diagnostic lifetimes, packed extent overflow, shared/copied
+document depth, explicit value depth and deferred implicit depth failures.
+Holding declarations fixed while changing an omitted array from 1 to 100 million
+elements produced identical allocation counts and requested bytes. Growth fixtures
+cover wide reversed instance groups and long record prefixes with repeated strings.
+Follow-up tests exercise deep specialisation chains with pending siblings,
+shared/one-sided paths and mixed source forms, including transactional rejection
+beyond the document-depth boundary. Fixed sparse declarations for 256 instances
+use 86 allocation requests and 593,920 requested bytes at schema widths 1, 128
+and 2,048 on x64. Release x64 live-input timings were 3.794, 3.891 and 3.872 ms;
+baked-input timings were 1.702, 1.777 and 1.919 ms. Probe tests cover empty,
+branched, detached and mutated trees, allocation denial and depth 1,023.
+
+Initial Debug/Release x64/Win32 solution builds and ordinary `-t1` runs passed, each with
+78,811 Schema checks and zero failures. The five CMake source-extraction tests
+passed, and the actual test-project manifest includes all new translation units.
+Final logs are `build/data-merge-final-{debug64,debug32,release64,release32}-tests.log`;
+build logs use the corresponding `-build.log` suffix (Debug x64 uses
+`build/data-merge-debug-build.log`). Non-incremental linking avoided an environment
+issue with stale/incompatible linker state; no project linker setting was changed.
+
+After the review follow-up, all four solution configurations and ordinary `-t1`
+runs passed again: 80,653 Schema checks and 13,319 BakedDocument checks per run,
+with zero failures across the suites. Logs are
+`build/depth-review-{debug64,debug32,release64,release32}-{build,tests}.log`.
+The rebuilt Debug x64 object's disassembly confirms the reduced frame reservation.
+Whitespace, line endings and changed-document Visual Studio visibility checks
+also passed.
+
+The 19 October manual-review follow-up centralised the unchanged 256-level budget
+as `document_limits::k_max_recursion_depth` in `data_model_types.hpp`, replacing
+literal checks and duplicate local constants across bounded document/schema
+paths. The hierarchy's 255-parent threshold is derived from the same constant;
+depth conventions and iterative probes remain unchanged. Debug x64 solution
+build and ordinary suites passed again with 80,653 Schema and 13,319
+BakedDocument checks, zero failures. Writer, structure, declaration-validation
+and encoded-comparison instructions match the preceding Debug x64 disassembly.
+Logs are `build/shared-depth-debug64-{build,tests}.log`.
+
+Release x64 measured 1.237, 5.404 and 24.220 ms for 128, 512 and 2,048 overlapping
+instances, and 0.375, 1.604 and 6.538 ms for bulk prefixes of those lengths. These
+include input/result validation and merge construction, excluding fixture parsing
+and schema resolution. Instance allocation requests were 76, 116 and 164; bulk
+requests were 41, 61 and 81. The observed roughly 4.1-4.5-fold time increase for
+fourfold input growth is consistent with linear/logarithmic traversal and indexed
+matching. Timings are not thresholds or worst-case guarantees for existing
+containers, string-byte comparisons or schema internals.
+
+Boundary conversion APIs for stripped instances and missing bulk descriptions,
+and complete-document composition, remain future work. No implementation of those
+operations is implied by completion of the prepared merge cores.
+
 ## Type schema merging
 
 Implemented and validated on 18 October 2026. This records implementation and
@@ -61,8 +150,8 @@ roughly 4.4-4.5-fold time increase for fourfold input growth is consistent with
 the intended linear/logarithmic construction paths; it is not a timing threshold
 or a worst-case guarantee for existing resolver/cache internals.
 
-Instance/bulk data aggregation, stripped-instance promotion and composition
-remain separate future work.
+Prepared instance/bulk aggregation was subsequently delivered in the milestone
+above. Boundary conversion APIs and composition remain separate future work.
 
 ## Schema role attachment and construction
 

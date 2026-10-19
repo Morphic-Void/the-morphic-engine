@@ -12,6 +12,7 @@
 #include "tests/test_suites/Schema_test_suite.hpp"
 #include "tests/test_suites/SchemaDataBlock_test_cases.hpp"
 #include "tests/test_suites/SchemaMerge_test_cases.hpp"
+#include "tests/test_suites/DataMerge_test_cases.hpp"
 #include "schema/resolved_schema.hpp"
 #include "schema/document_query.hpp"
 #include "schema/schema_wrappers.hpp"
@@ -9408,6 +9409,7 @@ int run_schema_tests()
     tests::TTestContext ctx;
     run_schema_data_block_cases(ctx);
     run_schema_merge_cases(ctx);
+    run_data_merge_cases(ctx);
     schema_tests::test_success(ctx);
     schema_tests::test_empty_types(ctx);
     schema_tests::test_explicit_layout(ctx);

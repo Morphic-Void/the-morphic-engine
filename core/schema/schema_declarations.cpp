@@ -23,7 +23,6 @@ bool valid_identifier(const CStringView& name) noexcept;
 namespace declaration_writer
 {
 
-static constexpr unsigned k_max_dependency_depth = 256u;
 static constexpr std::uint64_t k_decimal_limit = 65535u;
 
 class CGenerator
@@ -314,7 +313,7 @@ bool CGenerator::dependency(const CSchemaIndex type_index, const unsigned depth)
     {
         return fail(EReason::invalid_input);
     }
-    if (depth >= k_max_dependency_depth)
+    if (depth >= document_limits::k_max_recursion_depth)
     {
         return fail(EReason::storage_limit);
     }
@@ -499,7 +498,7 @@ bool CGenerator::definition(const std::uint32_t definition_ordinal, const unsign
     {
         return true;
     }
-    if (depth >= k_max_dependency_depth)
+    if (depth >= document_limits::k_max_recursion_depth)
     {
         return fail(EReason::storage_limit);
     }

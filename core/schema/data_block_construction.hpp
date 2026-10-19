@@ -46,7 +46,7 @@ template<class TDocument>
 [[nodiscard]] static auto materialisation_source_value(const TDocument& source, const CBakedDocument& prepared,
     const CBakedValueIndex value, const unsigned depth = 0u) noexcept -> decltype(source.root())
 {
-    if (!prepared.contains(value) || (depth >= 256u)) return {};
+    if (!prepared.contains(value) || (depth >= document_limits::k_max_recursion_depth)) return {};
     if (value == prepared.root()) return source.root();
     const auto parent = materialisation_source_value(source, prepared, prepared.parent(value), depth + 1u);
     if (!parent) return {};

@@ -215,4 +215,19 @@ CStringView CDocumentRead::string_value(const SOccurrence value) const noexcept
 
 }   // namespace detail
 
+const detail::CDocumentRead& detail::SDocumentQueryAccess::read(const CSchemaDocumentQuery& query) noexcept
+{
+    return query.m_query;
+}
+
+const detail::CDocumentRead& detail::SDocumentQueryAccess::read(const CInstanceDocumentQuery& query) noexcept
+{
+    return query.m_query;
+}
+
+const detail::CDocumentRead& detail::SDocumentQueryAccess::read(const CBulkDataDocumentQuery& query) noexcept
+{
+    return query.m_query;
+}
+
 }   // namespace schema

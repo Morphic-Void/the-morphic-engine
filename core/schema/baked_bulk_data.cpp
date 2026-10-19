@@ -11,6 +11,7 @@
 #include "schema/baked_bulk_data.hpp"
 #include "schema/type_compatibility.hpp"
 #include "schema/value_codec.hpp"
+#include "schema/data_document_validation.hpp"
 #include "memory/memory_policies.hpp"
 
 #include <cstring>
@@ -29,16 +30,6 @@ namespace schema
     const CStringView expected{ literal };
     return (name.length() == expected.length()) &&
         ((name.length() == 0u) || (std::memcmp(name.string(), expected.string(), name.length()) == 0));
-}
-
-[[nodiscard]] static bool align_bulk_data_offset(const std::uint64_t position, const std::uint64_t alignment, std::uint64_t& result) noexcept
-{
-    if ((alignment == 0u) || ((alignment & (alignment - 1u)) != 0u) || (position > (UINT64_MAX - (alignment - 1u))))
-    {
-        return false;
-    }
-    result = (position + alignment - 1u) & ~(alignment - 1u);
-    return result <= memory::k_byte_size_ceiling;
 }
 
 //==============================================================================
@@ -347,7 +338,7 @@ bool CBakedBulkData::plan(const bool supplied, const std::size_t payload_size,
             for (CBakedValueIndex property = m_document.first_child(entry); property.is_valid(); property = m_document.next_sibling(property))
             {
                 const CStringView name = m_document.name(property);
-                if (!bulk_data_name_is(name, "locator") && !bulk_data_name_is(name, "data"))
+                if (!detail::data_entry_property(name, true, true))
                 {
                     return fail(diagnostic, EBulkDataLoadReason::unknown_property, property);
                 }
@@ -427,11 +418,11 @@ bool CBakedBulkData::plan(const bool supplied, const std::size_t payload_size,
             {
                 count = raw_size / layout.size;
             }
-            if ((count == 0u) || (count > UINT32_MAX) || ((layout.size != 0u) && (count > (memory::k_byte_size_ceiling / layout.size))))
+            std::uint64_t extent{};
+            if (!detail::data_extent(layout, count, extent))
             {
                 return fail(diagnostic, EBulkDataLoadReason::invalid_count, locator);
             }
-            const std::uint64_t extent = layout.size * count;
             if (size_node.is_valid() && (raw_size != extent))
             {
                 return fail(diagnostic, EBulkDataLoadReason::invalid_range, size_node);
@@ -447,7 +438,7 @@ bool CBakedBulkData::plan(const bool supplied, const std::size_t payload_size,
             std::uint64_t offset = raw_offset;
             if (!prior_valid)
             {
-                if (!align_bulk_data_offset(cursor, layout.alignment, offset))
+                if (!detail::align_data_offset(cursor, layout.alignment, offset))
                 {
                     return fail(diagnostic, EBulkDataLoadReason::invalid_range, locator);
                 }

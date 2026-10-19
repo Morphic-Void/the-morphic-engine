@@ -7,10 +7,12 @@ Date:   18 Oct 2026
 
 # Instance and bulk data aggregation implementation plan
 
-Status: revised after review; implementation has not started. This plan implements
-the agreed [interfaces and diagnostics](../schema/persistence-and-aggregation.md#agreed-data-aggregation-functions-and-diagnostics)
+Status: implemented on 18 October 2026; validation is recorded in the
+[completion milestone](completed_milestones.md#instance-and-bulk-data-aggregation).
+The reviewed plan below records delivery of the agreed [interfaces and diagnostics](../schema/persistence-and-aggregation.md#agreed-data-aggregation-functions-and-diagnostics)
 and [validation/publication contract](../schema/persistence-and-aggregation.md#agreed-data-aggregation-validation-and-publication).
-Preparing or accepting the plan does not authorise implementation or commits.
+Implementation was separately authorised. This completed plan does not authorise
+commits or further conversion/composition work.
 
 ## Scope and boundaries
 
@@ -321,3 +323,33 @@ No new Host/graphics validation matrix is required.
   Completion requires all agreed semantics and failure guarantees, plus no
   regressions in type merging or existing role behaviour. Do not implement the
   unresolved conversion/composition APIs or commit without explicit instruction.
+
+## Implementation notes
+
+The shared `document_merge` engine serves type, instance and bulk wrappers; bulk
+prefix handling is restricted to the validated outer-record depth. The small
+`data_document_validation` walker shares property admission and extent/alignment
+helpers with baked planning. The complementary value traversal shares scalar and
+shape helpers while leaving writer/comparison selection order unchanged. Inputs
+remain borrowed, output remains independently owned, and no hidden binary package,
+normalisation copy or persistent string/depth cache is introduced.
+
+Depth testing exposed excessive Debug stack usage in the pre-existing writer.
+Scalar handling was extracted from its recursive dispatcher and small occurrence/
+storage views are borrowed within the writer. This preserves construction and
+comparison rules and allows the existing depth guard to report failure without
+raising the limit or adding an implicit-path preflight.
+
+Review follow-up replaces nested occurrence-selection conditional expressions
+with ordinary branches to avoid unnecessary Debug temporaries. Optional live and
+baked document `maximum_depth()` queries measure root-relative topology without
+recursion, allocation or an additional merge pass. They do not change the agreed
+policy of leaving implicit construction-depth failures to binary construction.
+Additional tests cover specialisation chains at the selected-section boundary
+and fixed sparse declarations against increasingly wide schemas.
+
+Manual-review follow-up centralises the existing 256-level budget as
+`document_limits::k_max_recursion_depth` in `data_model_types.hpp`. Bounded document
+and schema traversals share that value; the hierarchy admission check derives its
+existing 255-parent threshold from it. Comparison operators, starting depths,
+diagnostic precedence and the unbounded iterative document probes are unchanged.

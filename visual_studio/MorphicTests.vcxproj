@@ -118,6 +118,7 @@
     <ClCompile Include="..\tests\test_suites\Schema_test_suite.cpp" />
     <ClCompile Include="..\tests\test_suites\SchemaDataBlock_test_cases.cpp" />
     <ClCompile Include="..\tests\test_suites\SchemaMerge_test_cases.cpp" />
+    <ClCompile Include="..\tests\test_suites\DataMerge_test_cases.cpp" />
     <ClCompile Include="..\tests\test_suites\ByteBuffers_test_suite.cpp" />
     <ClCompile Include="..\tests\test_suites\PermutationValidation_test_suite.cpp" />
     <ClCompile Include="..\tests\test_suites\ImageView_test_suite.cpp" />
@@ -173,6 +174,7 @@
     <ClInclude Include="..\tests\test_suites\Schema_test_suite.hpp" />
     <ClInclude Include="..\tests\test_suites\SchemaDataBlock_test_cases.hpp" />
     <ClInclude Include="..\tests\test_suites\SchemaMerge_test_cases.hpp" />
+    <ClInclude Include="..\tests\test_suites\DataMerge_test_cases.hpp" />
     <ClInclude Include="..\tests\test_suites\ByteBuffers_test_suite.hpp" />
     <ClInclude Include="..\tests\test_suites\PermutationValidation_test_suite.hpp" />
     <ClInclude Include="..\tests\test_suites\ImageView_test_suite.hpp" />

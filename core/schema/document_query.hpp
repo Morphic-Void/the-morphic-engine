@@ -33,6 +33,10 @@ class CBakedInstances;
 class CLiveInstances;
 class CBakedBulkData;
 class CLiveBulkData;
+class CSchemaDocumentQuery;
+class CInstanceDocumentQuery;
+class CBulkDataDocumentQuery;
+class CResolvedSchema;
 class CSchemaHandle;
 class CInstanceHandle;
 class CBulkDataHandle;
@@ -73,6 +77,7 @@ struct SOccurrence
     explicit constexpr SOccurrence(const CBakedValueIndex index) noexcept : baked(index) {}
 
     [[nodiscard]] constexpr bool is_valid() const noexcept { return live.is_valid() != baked.is_valid(); }
+    [[nodiscard]] explicit constexpr operator bool() const noexcept { return is_valid(); }
     [[nodiscard]] constexpr bool is_live() const noexcept { return live.is_valid() && !baked.is_valid(); }
     [[nodiscard]] constexpr bool is_baked() const noexcept { return baked.is_valid() && !live.is_valid(); }
     [[nodiscard]] constexpr std::uint64_t query_value() const noexcept
@@ -111,6 +116,16 @@ struct SBulkDataHandleAccess
     [[nodiscard]] static constexpr SOccurrence occurrence(const CBulkDataHandle handle) noexcept;
 };
 
+class CDocumentRead;
+
+struct SDocumentQueryAccess
+{
+    [[nodiscard]] static const CDocumentRead& read(const CSchemaDocumentQuery& query) noexcept;
+    [[nodiscard]] static const CDocumentRead& read(const CInstanceDocumentQuery& query) noexcept;
+    [[nodiscard]] static const CDocumentRead& read(const CBulkDataDocumentQuery& query) noexcept;
+    [[nodiscard]] static bool backs(const CResolvedSchema& schema, const CLiveDocument& document) noexcept;
+};
+
 //  One read adapter for either document representation.
 class CDocumentRead
 {
@@ -119,6 +134,7 @@ public:
     explicit CDocumentRead(const CLiveDocument& document) noexcept;
     explicit CDocumentRead(const CBakedDocument& document) noexcept;
 
+    [[nodiscard]] bool backs(const CLiveDocument& document) const noexcept { return m_live == &document; }
     [[nodiscard]] bool is_ready() const noexcept;
     [[nodiscard]] SOccurrence root() const noexcept;
     [[nodiscard]] bool contains(const SOccurrence value) const noexcept;
@@ -235,6 +251,7 @@ public:
     [[nodiscard]] bool suppresses_newline_escaping(const CSchemaHandle value) const noexcept;
 
 private:
+    friend struct detail::SDocumentQueryAccess;
     detail::CDocumentRead m_query;
 };
 
@@ -315,6 +332,7 @@ public:
 
 private:
     friend class CLiveInstances;
+    friend struct detail::SDocumentQueryAccess;
     detail::CDocumentRead m_query;
 };
 
@@ -395,6 +413,7 @@ public:
 
 private:
     friend class CLiveBulkData;
+    friend struct detail::SDocumentQueryAccess;
     detail::CDocumentRead m_query;
 };
 

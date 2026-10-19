@@ -337,7 +337,7 @@ template<bool Constructed, class TSource, class TValue, class TCreate>
 [[nodiscard]] CNodeKey copy_subtree_impl(CLiveDocument& target, const TSource& source,
     const TValue value, const CStringView& name, const unsigned depth, TCreate& create, const bool root) noexcept
 {
-    if (!target.is_ready() || (depth >= 256u) || !source.contains(value))
+    if (!target.is_ready() || (depth >= document_limits::k_max_recursion_depth) || !source.contains(value))
     {
         return {};
     }

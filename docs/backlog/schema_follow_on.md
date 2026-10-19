@@ -152,22 +152,19 @@ snapshot equality rule, matching-form output selector, literal same-owner source
 precondition and specialised-role overload matrix are superseded. Type-schema
 merging is complete; see the [runtime API](../schema/runtime-api.md#type-schema-merging)
 and [completed plan](../project/type_schema_merge_implementation_plan.md).
-Data aggregation now has agreed existing instance/bulk data query inputs, a
-resolved merged-schema context and independent live-document output. Validate
-each prepared input and the result through shared construction admission without
-allocating disposable binary; publish by staged move with source aliasing allowed.
-Boundary conversion validates storage metadata before removing it and publishes
-caller-owned documents. Conversion diagnostics stay separate; merge diagnostics
-borrow prepared-input locations. The `merge_instances` and `merge_bulk_data`
-signatures, shared stage/reason enums and separate typed diagnostics are agreed;
-see the [interface contract](../schema/persistence-and-aggregation.md#agreed-data-aggregation-functions-and-diagnostics).
-The [data aggregation implementation plan](../project/data_aggregation_implementation_plan.md)
-has been revised after review and covers the document merge cores, complementary
-declaration validation sharing admission helpers, and shared construction. Strict
-prepared roots and the schema-backing destination guard are settled. Retain cheap
-declaration-depth checks and allow implicit depth failures during later
-construction. Implementation has not started. Conversion APIs and composition
-remain separate design work without implementation plans.
+Prepared data aggregation is implemented through `merge_instances` and
+`merge_bulk_data`: existing query views, one resolved merged schema, independent
+live output and typed diagnostics. Both sources and private output validate before
+non-failing publication. Complementary declaration validation shares construction
+admission without allocating disposable binary; document construction reuses the
+type merger. Strict prepared roots and the schema-backing destination guard apply.
+Cheap explicit depth checks remain, while implicit failures belong to later binary
+construction. See the [runtime API](../schema/runtime-api.md#instance-and-bulk-data-aggregation)
+and [completed plan](../project/data_aggregation_implementation_plan.md).
+
+Boundary conversion APIs and composition remain separate design work. Conversion
+must validate storage metadata before removing it and publish caller-owned
+documents. Its diagnostics remain separate; merge locations borrow prepared inputs.
 Implemented schema
 switching still preserves binary data; document merging and subsequent
 construction are separate operations.

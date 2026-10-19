@@ -702,6 +702,17 @@ through remapping or other explicit writes; it requires no embedded record array
 Binary payload association, instance construction and bulk data processing are
 implemented through the live/baked roles described in the runtime API guide.
 
+Prepared aggregation documents are a distinct boundary form: their root contains
+only `instances` or `data`, and entries omit locators and other storage metadata.
+Instances retain explicit declarations and specialisations; bulk entries require
+complete, nonempty record arrays. `merge_instances` and `merge_bulk_data` validate
+both sources and the staged result against one resolved schema, then publish an
+independent live document. They preserve omissions and do not construct binary
+data. Outer bulk arrays merge a matching common prefix and keep the longer tail;
+other arrays require equal lengths. See the
+[runtime aggregation contract](runtime-api.md#instance-and-bulk-data-aggregation)
+for diagnostics, lifetimes, depth limits and transactional publication.
+
 ### Definition validation and assembly
 
 Allowed properties are listed below; `*` marks required properties:

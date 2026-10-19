@@ -16,8 +16,7 @@
 namespace schema::detail
 {
 
-static bool construction_failure(SDataBlockDiagnostic& diagnostic, const EDataBlockStage stage,
-    const EDataBlockReason reason) noexcept
+static bool construction_failure(SDataBlockDiagnostic& diagnostic, const EDataBlockStage stage, const EDataBlockReason reason) noexcept
 {
     diagnostic = {};
     diagnostic.stage = stage;
@@ -55,7 +54,7 @@ bool prepare_materialisation(const CBakedDocument& source, CBakedDocumentBlock& 
 
 static bool strip_instance_declarations(CLiveDocument& document, const CNodeKey group, const unsigned depth = 0u) noexcept
 {
-    if (depth >= 256u) return false;
+    if (depth >= document_limits::k_max_recursion_depth) return false;
     for (CNodeKey entry = document.first_child(group); entry; entry = document.next_sibling(entry))
     {
         const CNodeKey declaration = document.object_child(entry, CStringView{ "declaration" });

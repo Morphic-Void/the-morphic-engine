@@ -33,6 +33,7 @@ Include the header for the role or operation being used:
 | `schema_wrappers.hpp` | Live/baked schema ownership, editing and client bindings. |
 | `resolved_schema.hpp` | Resolved layouts, defaults, diagnostics, schema document output and C++ generation. |
 | `schema_merge.hpp` | Transactional type-schema document merging, preserving declarations and combining presentation. |
+| `data_merge.hpp` | Transactional aggregation of prepared instance declarations or complete bulk records under one resolved schema. |
 | `baked_instances.hpp`, `live_instances.hpp` | Instance loading, observation and live editing/output. |
 | `baked_bulk_data.hpp`, `live_bulk_data.hpp` | Bulk data loading, observation and live capture/output. |
 | `data_block.hpp` | Backing states and block diagnostic vocabulary. |
@@ -588,6 +589,89 @@ There is no retained secondary string index or resolved cache in the result.
 This operation constructs a merged schema; it does not switch existing data roles
 or merge their documents. Later instance construction may adopt newly supplied
 defaults, whereas checked schema switching preserves an existing binary package.
+
+## Instance and bulk data aggregation
+
+`schema::merge_instances` and `schema::merge_bulk_data`, declared in
+`data_merge.hpp`, combine two prepared document views under one ready resolved
+schema. The corresponding queries can refer to live or baked storage in any
+combination. For example:
+
+```cpp
+schema::SInstanceMergeDiagnostic diagnostic;
+CLiveDocument merged;
+const bool accepted = schema::merge_instances(
+    schema::CInstanceDocumentQuery{ first },
+    schema::CInstanceDocumentQuery{ second },
+    resolved_schema, merged, diagnostic);
+```
+
+The bulk function has the same shape with `CBulkDataDocumentQuery` and
+`SBulkDataMergeDiagnostic`. Neither operation resolves/merges schemas, converts
+stored packages, attaches a role or allocates binary payloads. Prepare those
+inputs separately, keeping the supplied schema's backing document alive.
+
+Prepared roots contain only the selected `instances` or `data` object section.
+An absent section is empty, and output always contains that section, even for two
+empty inputs. Empty type groups are valid; present bulk entries require a nonempty
+`data` array. Locators, stripped markers, persistence fields and unrelated root
+sections are rejected. Each source validates independently; union cannot repair
+an incomplete record or an invalid declaration in either input.
+
+Instances preserve explicit selections and recursively merge specialisations.
+Omissions remain absent and inherit merged defaults or parent declarations during
+later construction. Bulk records must be complete. Their outer record arrays merge
+a matching common prefix and retain the longer tail, including presentation from
+both prefix contributors. Nested arrays and instance arrays require equal lengths;
+objects retain first-source order followed by second-only fields. Exact document
+value equality and presentation follow the type merger's rules; distinct named,
+positional or shorthand representations can conflict even when their encodings
+would agree. Nothing reconciles retained descriptions implicitly.
+
+Admission shares scalar, shape, selection and checked extent rules with existing
+construction/loading. It visits supplied declarations, uses indexed schema lookup,
+and checks prospective packed extents without allocating payload-sized scratch.
+The shared merger collects strings once, preloads sorted distinct values and uses
+existing string indexes thereafter. Shared subtrees use an explicit work stack;
+one-sided branches use the existing copier. New traversal/construction targets
+O(N log N) comparisons and O(N) scratch, with string-byte comparison costs separate.
+Validation scales with supplied declarations and required shape checks, not omitted
+array counts or effective parent snapshots.
+
+Cheap explicit value-depth and hierarchy checks remain. Collection, merging and
+copying count the selected section as depth zero and reject depth 256. Implicit
+construction paths are not preflighted: a successful merge can later fail binary
+construction on its existing depth/resource limits without changing the merged
+document. There is no additional schema-depth cache or graph pass.
+
+The common budget is `document_limits::k_max_recursion_depth` (256), declared in
+`data_model_types.hpp` and shared by bounded document copying and schema traversal,
+validation, construction, reconstruction and output paths. Each operation retains
+its existing depth counter and starting point; sharing the budget does not make
+document depth, hierarchy depth and implicit construction depth interchangeable.
+
+Callers can optionally inspect `CLiveDocument::maximum_depth()` or
+`CBakedDocument::maximum_depth()`. These allocation-free, iterative probes count
+the document root as zero (the selected merge section is therefore depth one).
+They measure actual document topology, including scalar leaves, and do not
+predict implicit construction depth or run automatically during aggregation.
+
+Publication validates private staging, releases temporary readers/scratch and uses
+non-failing move assignment. Sources can alias an occupied destination, including
+both sources being that destination. Failure preserves all original storage and
+identities; success replaces destination identities. The result owns its storage
+and remains usable after releasing inputs and schema. The destination must not
+back the supplied resolved schema; that case is `preconditions` / `invalid_schema`.
+An occupied destination is not an implicit contributor.
+
+`EDataMergeStage` and `EDataMergeReason` are shared; diagnostics retain typed
+instance/bulk source handles and the existing domain diagnostic. Source-validation
+errors identify the corresponding input. Conflicts identify both inputs. Final
+validation clears all temporary locations. Known allocation/storage failures retain
+their resource reason; opaque construction failures use `construction_failed`.
+Success clears the diagnostic. See the full
+[diagnostic contract](persistence-and-aggregation.md#agreed-data-aggregation-functions-and-diagnostics).
+Boundary conversion APIs and complete-document composition remain separate work.
 
 ## Defaults
 

@@ -22,6 +22,20 @@
 #include <type_traits>
 
 //==============================================================================
+//  Shared traversal budget
+//==============================================================================
+
+namespace document_limits
+{
+
+//  Recursive document/schema operations reject zero-based depth at this bound.
+//  Each operation retains its own starting point and depth semantics. Iterative
+//  document queries, parsing and translation do not inherit this limit.
+static constexpr unsigned k_max_recursion_depth = 256u;
+
+}   // namespace document_limits
+
+//==============================================================================
 //  Node identity
 //==============================================================================
 

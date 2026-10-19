@@ -12,9 +12,44 @@ The [specification](specification.md) defines behaviour and the
 observable results, failure boundaries and generated layout fidelity. Private
 record organisation is not a public ABI or a substitute for those checks.
 
-The [type-schema merge milestone](../project/completed_milestones.md#type-schema-merging)
-records the latest completed four-configuration validation checkpoint. The
-earlier role, persistence and schema milestones retain their historical counts.
+The [data aggregation milestone](../project/completed_milestones.md#instance-and-bulk-data-aggregation)
+records the latest validation checkpoint. Earlier milestones retain their
+historical counts.
+
+## Instance and bulk data aggregation coverage
+
+`DataMerge_test_cases.cpp` runs within the Schema suite. It checks prepared-root
+admission, independently invalid sources, recursive specialisations, omission,
+complete records, outer bulk prefixes, ordinary nested arrays, document scalar
+conflicts, presentation and all live/baked source pairings. Value-admission cases
+compare the complementary validator with existing writing and checking across
+named, positional, singleton, shorthand, enum, numeric, bit-field and zero-byte
+values. Writer/comparison diagnostics remain unchanged.
+
+Separate, occupied and first/second/both-source destinations exercise staged
+publication. Allocation-failure sweeps preserve original bytes/handles and memory
+attribution; final-result diagnostics discard temporary handles. Combined extents
+provide a natural final-validation failure, including for bulk data whose
+prepared validator allocates no scratch. Schema-backing output is rejected before
+mutation. Integration creates instances/specialisations and bulk records through
+existing roles under a merged schema, including inherited values and retained
+explicit default-equal declarations.
+
+Dependency-first type chains exercise successful merging followed by implicit
+depth failure during binary construction. Explicit declaration and shared/copied
+document-depth boundaries remain checked; omitted zero-byte array paths remain
+legal. Holding declarations constant while changing omitted array extents from
+1 to 100 million elements must leave merge allocation counts and requested bytes
+identical. Wide reversed instance groups and long bulk prefixes exercise growth
+and small-object matching thresholds. Timings are observations, not thresholds.
+
+Specialisation chains exercise pending sibling traversal through both source
+forms and shared/one-sided merging, including acceptance at section-relative
+depth 255 and transactional rejection beyond it. Sparse fixtures keep 256
+single-member declarations fixed while growing the schema from 1 to 128 and
+2,048 members; allocation counts and requested bytes must remain identical.
+Document tests check the optional live/baked `maximum_depth()` probes on empty,
+branched, detached and mutated trees and at depths beyond 256, without allocation.
 
 ## Type schema merge coverage
 

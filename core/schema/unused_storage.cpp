@@ -19,8 +19,6 @@
 namespace schema
 {
 
-static constexpr unsigned k_max_clear_depth = 256u;
-
 //==============================================================================
 //  Clearing extents and type validation
 //==============================================================================
@@ -88,7 +86,7 @@ private:
 
 bool CClearTypes::validate(const CSchemaIndex type, const unsigned depth, bool& has_work, unsigned& height) noexcept
 {
-    if (depth >= k_max_clear_depth)
+    if (depth >= document_limits::k_max_recursion_depth)
     {
         return false;
     }
@@ -97,7 +95,7 @@ bool CClearTypes::validate(const CSchemaIndex type, const unsigned depth, bool& 
     {
         height = found->height;
         has_work = found->has_work;
-        return height < k_max_clear_depth - depth;
+        return height < document_limits::k_max_recursion_depth - depth;
     }
     height = 0u;
     if (!inspect(type, depth, has_work, height))
@@ -130,7 +128,7 @@ bool CClearTypes::inspect(const CSchemaIndex type, const unsigned depth, bool& h
     const CResolvedSchema& schema = m_schema;
     const EUnusedBits bits = m_bits;
     SType layout;
-    if ((depth >= k_max_clear_depth) || !schema.type(type, layout) ||
+    if ((depth >= document_limits::k_max_recursion_depth) || !schema.type(type, layout) ||
         (layout.alignment == 0u) || (layout.alignment > std::numeric_limits<std::size_t>::max()) ||
         (layout.size > std::numeric_limits<std::size_t>::max()))
     {
