@@ -85,7 +85,6 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\debug\service.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\image\codec\tga.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\image\image_view.hpp" />
-    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\image\texture_data.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\memory\memory_context.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\memory\memory_policies.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\memory\memory_token.hpp" />
@@ -113,6 +112,12 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\system\system_type_registration.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\system\thread_ids.def" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\system\transported_types.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\assets\asset_messages.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\assets\asset_owner_payloads.def" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\system\service_messages.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\system\service_owner_payloads.def" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\image\image_messages.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\image\image_owner_payloads.def" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\system\TStaticLookup.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\system\type_id_binding_category.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\system\type_registration.hpp" />

@@ -17,7 +17,7 @@
 #include "system/erased_transport_admission.hpp"
 #include "system/system_context.hpp"
 #include "system/system_id_registry.hpp"
-#include "system/transported_types.hpp"
+#include "system/service_messages.hpp"
 #include "system/type_registration.hpp"
 #include "tests/test_suites/SystemTypeIdentity_test_suite.hpp"
 #include "tests/support/test_context.hpp"

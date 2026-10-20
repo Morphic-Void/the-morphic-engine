@@ -12,7 +12,7 @@
 #include <utility>
 
 #include "assets/asset_repository.hpp"
-#include "system/transported_types.hpp"
+#include "host/runtime/host_payloads.hpp"
 #include "tests/test_suites/AssetRepository_test_suite.hpp"
 #include "tests/support/test_context.hpp"
 

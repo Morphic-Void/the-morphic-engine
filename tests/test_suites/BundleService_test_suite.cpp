@@ -16,6 +16,7 @@
 #include "data_model/document_parser.hpp"
 #include "data_model/document_translation.hpp"
 #include "host/runtime/asset_service.hpp"
+#include "rendering/interface/texture_messages.hpp"
 #include "platform/threading/processor_relax.hpp"
 #include "tests/support/test_allocator.hpp"
 #include "tests/support/test_context.hpp"

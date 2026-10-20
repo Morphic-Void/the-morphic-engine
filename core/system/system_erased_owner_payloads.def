@@ -1,28 +1,10 @@
-//  Built-in SYSTEM erased-owner payload declarations.
-//  Include this file with:
-//  - MV_ERASED_OWNER_PAYLOAD(type)
-//  - MV_ERASED_OWNER_PAYLOAD_WITH_STORAGE(type, member)
+//  Built-in SYSTEM erased-owner payload catalogue.
+//  Define MV_ERASED_OWNER_PAYLOAD and MV_ERASED_OWNER_PAYLOAD_WITH_STORAGE.
+//  The same domain fragments generate eligibility and owner operations.
+//  Host and debug-image payloads remain SYSTEM until the LOCAL migration.
 
-MV_ERASED_OWNER_PAYLOAD_WITH_STORAGE(LoadedFile, buffer)
-MV_ERASED_OWNER_PAYLOAD_WITH_STORAGE(EncodedTga, buffer)
-MV_ERASED_OWNER_PAYLOAD_WITH_STORAGE(DecodedTga, buffer)
-MV_ERASED_OWNER_PAYLOAD_WITH_STORAGE(TextureEncodeRequest, input)
-MV_ERASED_OWNER_PAYLOAD(TextureDecodeRequest)
-MV_ERASED_OWNER_PAYLOAD_WITH_STORAGE(TextureEncodeResult, texture)
-MV_ERASED_OWNER_PAYLOAD_WITH_STORAGE(TextureDecodeResult, texture)
-MV_ERASED_OWNER_PAYLOAD_WITH_STORAGE(BakedDocumentAsset, block)
-MV_ERASED_OWNER_PAYLOAD(BorrowedBundleAsset)
-MV_ERASED_OWNER_PAYLOAD_WITH_STORAGE(BundleLoadRequest, paths)
-MV_ERASED_OWNER_PAYLOAD_WITH_STORAGE(BundleBakeRequest, paths)
-MV_ERASED_OWNER_PAYLOAD_WITH_STORAGE(BundleBuildResult, block)
-MV_ERASED_OWNER_PAYLOAD_WITH_STORAGE(RawAssetTransfer, storage)
-MV_ERASED_OWNER_PAYLOAD_WITH_STORAGE(ImageAssetTransfer, storage)
-MV_ERASED_OWNER_PAYLOAD_WITH_STORAGE(BakedAssetTransfer, storage)
-MV_ERASED_OWNER_PAYLOAD_WITH_STORAGE(LiveAssetTransfer, storage)
-MV_ERASED_OWNER_PAYLOAD_WITH_STORAGE(AssetLoadRequest, file)
-MV_ERASED_OWNER_PAYLOAD_WITH_STORAGE(AssetSaveRequest, file)
-MV_ERASED_OWNER_PAYLOAD_WITH_STORAGE(DocumentConditionResult, storage)
-MV_ERASED_OWNER_PAYLOAD_WITH_STORAGE(LiveDocumentAsset, document)
-MV_ERASED_OWNER_PAYLOAD_WITH_STORAGE(ModuleRequest, file)
-MV_ERASED_OWNER_PAYLOAD_WITH_STORAGE(FilesystemRefreshRequest, root)
-MV_ERASED_OWNER_PAYLOAD_WITH_STORAGE(FilesystemScanResult, document)
+#include "assets/asset_owner_payloads.def"
+#include "system/service_owner_payloads.def"
+#include "rendering/interface/texture_owner_payloads.def"
+#include "image/image_owner_payloads.def"
+#include "host/runtime/host_owner_payloads.def"

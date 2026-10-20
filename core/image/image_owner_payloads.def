@@ -1,0 +1,7 @@
+//  Host image SYSTEM erased-owner payload declarations.
+//  Include this file with:
+//  - MV_ERASED_OWNER_PAYLOAD(type)
+//  - MV_ERASED_OWNER_PAYLOAD_WITH_STORAGE(type, member)
+
+MV_ERASED_OWNER_PAYLOAD_WITH_STORAGE(EncodedTga, buffer)
+MV_ERASED_OWNER_PAYLOAD_WITH_STORAGE(DecodedTga, buffer)

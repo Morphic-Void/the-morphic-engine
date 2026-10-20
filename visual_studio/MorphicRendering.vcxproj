@@ -140,6 +140,9 @@
     <ClInclude Include="..\rendering\runtime\rendering_thread.hpp" />
     <ClInclude Include="..\rendering\runtime\basis_codec.hpp" />
     <ClInclude Include="..\rendering\runtime\texture_jobs.hpp" />
+    <ClInclude Include="..\rendering\interface\texture_data.hpp" />
+    <ClInclude Include="..\rendering\interface\texture_messages.hpp" />
+    <ClInclude Include="..\rendering\interface\texture_owner_payloads.def" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\external\SuiteUTF\SuiteUTF.vcxproj">

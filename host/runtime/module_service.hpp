@@ -14,8 +14,9 @@
 #define HOST_MODULE_SERVICE_HPP_INCLUDED
 
 #include "containers/TInstance.hpp"
+#include "filesystem/filesystem_image.hpp"
 #include "module/bound_module.hpp"
-#include "system/transported_types.hpp"
+#include "system/service_messages.hpp"
 #include "threading/CThreadPackage.hpp"
 
 namespace host

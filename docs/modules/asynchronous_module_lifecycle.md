@@ -201,7 +201,8 @@ thread. The process exits unsuccessfully and logs the failure.
 
 ## Implementation map
 
-- `core/system/transported_types.hpp`: requests, notices and worker exchange.
+- `core/system/service_messages.hpp`: public requests and notices.
+- `host/runtime/host_payloads.hpp`: private worker exchange, still SYSTEM registered.
 - `host/runtime/module_service.*`: admission, stable records, worker-job lifetime
   and completion routing, including thread-start completion.
 - `host/runtime/host.cpp`: bootstrap, queue draining and thread/package lifetime.

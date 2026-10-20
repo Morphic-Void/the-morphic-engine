@@ -540,7 +540,7 @@ contract; only original bundle disposal uses the final notification.
 ## Final disposal notification
 
 Use `BundleDisposedNotification { CAssetId asset; }`, declared and registered
-in `core/system/transported_types.hpp` and the system type catalogue.
+in `core/assets/asset_messages.hpp` and the system type catalogue.
 The ID identifies the original bundle asset, not the last sub-file or additional
 reference released. The notification carries no status, root string or borrowed
 view: it denotes completed destruction and removal of the associated virtual
@@ -739,7 +739,7 @@ The internal Host lifetime boundary is
   borrowers to have stopped and retires remaining records without notification.
 
 These are Host-internal methods. The public messages are registered in
-[`transported_types.hpp`](../../core/system/transported_types.hpp):
+[`asset_messages.hpp`](../../core/assets/asset_messages.hpp):
 
 | Request | Fields | Result |
 | --- | --- | --- |

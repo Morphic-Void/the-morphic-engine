@@ -23,6 +23,8 @@
     <ClInclude Include="..\host\module\types\local_type_ids.def"><Filter>Host\include\module\types</Filter></ClInclude>
     <ClInclude Include="..\host\module\types\local_type_ids.hpp"><Filter>Host\include\module\types</Filter></ClInclude>
     <ClInclude Include="..\host\module\types\local_types.hpp"><Filter>Host\include\module\types</Filter></ClInclude>
+    <ClInclude Include="..\host\runtime\host_payloads.hpp"><Filter>Host\include\runtime</Filter></ClInclude>
+    <ClInclude Include="..\host\runtime\host_owner_payloads.def"><Filter>Host\include\runtime</Filter></ClInclude>
     <ClInclude Include="..\host\runtime\host_worker_thread.hpp"><Filter>Host\include\runtime</Filter></ClInclude>
     <ClInclude Include="..\host\runtime\batch_pool.hpp"><Filter>Host\include\runtime</Filter></ClInclude>
     <ClInclude Include="..\host\runtime\host.hpp"><Filter>Host\include\runtime</Filter></ClInclude>

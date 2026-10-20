@@ -20,7 +20,8 @@
 #include "module/module_binding_context.hpp"
 #include "memory/memory_context.hpp"
 #include "system/system_context.hpp"
-#include "system/transported_types.hpp"
+#include "assets/asset_messages.hpp"
+#include "system/service_messages.hpp"
 #include "threading/CThreadPackage.hpp"
 #include "debug/macros.hpp"
 

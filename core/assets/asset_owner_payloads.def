@@ -1,0 +1,13 @@
+//  Asset and bundle SYSTEM erased-owner payload declarations.
+//  Include this file with:
+//  - MV_ERASED_OWNER_PAYLOAD(type)
+//  - MV_ERASED_OWNER_PAYLOAD_WITH_STORAGE(type, member)
+
+MV_ERASED_OWNER_PAYLOAD_WITH_STORAGE(BundleLoadRequest, paths)
+MV_ERASED_OWNER_PAYLOAD_WITH_STORAGE(BundleBakeRequest, paths)
+MV_ERASED_OWNER_PAYLOAD_WITH_STORAGE(RawAssetTransfer, storage)
+MV_ERASED_OWNER_PAYLOAD_WITH_STORAGE(ImageAssetTransfer, storage)
+MV_ERASED_OWNER_PAYLOAD_WITH_STORAGE(BakedAssetTransfer, storage)
+MV_ERASED_OWNER_PAYLOAD_WITH_STORAGE(LiveAssetTransfer, storage)
+MV_ERASED_OWNER_PAYLOAD_WITH_STORAGE(AssetLoadRequest, file)
+MV_ERASED_OWNER_PAYLOAD_WITH_STORAGE(AssetSaveRequest, file)

@@ -19,7 +19,8 @@
 #include "debug/macros.hpp"
 #include "platform/filesystem/file.hpp"
 #include "platform/threading/processor_relax.hpp"
-#include "system/transported_types.hpp"
+#include "assets/asset_messages.hpp"
+#include "system/service_messages.hpp"
 
 namespace module_lifecycle_tests
 {

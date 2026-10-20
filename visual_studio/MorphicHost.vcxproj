@@ -250,6 +250,8 @@
     <ClInclude Include="..\host\runtime\batch_pool.hpp" />
     <ClInclude Include="..\host\runtime\worker_policy.hpp" />
     <ClInclude Include="..\host\runtime\asset_service.hpp" />
+    <ClInclude Include="..\host\runtime\host_payloads.hpp" />
+    <ClInclude Include="..\host\runtime\host_owner_payloads.def" />
     <ClInclude Include="..\host\runtime\module_service.hpp" />
     <ClInclude Include="..\host\module\types\erased_owner_payloads.def" />
     <ClInclude Include="..\host\system\host_context.hpp" />

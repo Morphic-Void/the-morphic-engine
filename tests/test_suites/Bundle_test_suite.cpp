@@ -24,7 +24,7 @@
 #include "data_model/live_document.hpp"
 #include "filesystem/logical_path.hpp"
 #include "platform/threading/thread_lifetime.hpp"
-#include "system/transported_types.hpp"
+#include "assets/asset_messages.hpp"
 #include "tests/support/test_allocator.hpp"
 #include "tests/support/test_context.hpp"
 #include "tests/support/test_scopes.hpp"

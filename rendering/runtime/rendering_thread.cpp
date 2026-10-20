@@ -15,7 +15,7 @@
 #include "containers/TUnorderedCollection.hpp"
 #include "debug/macros.hpp"
 #include "module/module_binding_context.hpp"
-#include "system/transported_types.hpp"
+#include "rendering/interface/texture_messages.hpp"
 #include "threading/CThreadPackage.hpp"
 
 #include <utility>

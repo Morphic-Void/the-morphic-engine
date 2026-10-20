@@ -6,6 +6,7 @@
     <Filter Include="Rendering\include\module"><UniqueIdentifier>{13e342ba-1857-4f79-864b-beeb9e8355d4}</UniqueIdentifier></Filter>
     <Filter Include="Rendering\include\module\binding"><UniqueIdentifier>{e3f58065-f03a-43bd-adbb-58d24ba2ddc2}</UniqueIdentifier></Filter>
     <Filter Include="Rendering\include\module\types"><UniqueIdentifier>{c6587a47-c2b3-4424-88d3-8f32c2556a83}</UniqueIdentifier></Filter>
+    <Filter Include="Rendering\include\interface"><UniqueIdentifier>{89158e69-e0fb-43ee-ae93-19f87c54bc82}</UniqueIdentifier></Filter>
     <Filter Include="Rendering\include\runtime"><UniqueIdentifier>{48aab50b-ebbb-4290-b9eb-4f76a1c8ca27}</UniqueIdentifier></Filter>
     <Filter Include="Rendering\src"><UniqueIdentifier>{e1d67a2e-5792-45db-8309-077193253562}</UniqueIdentifier></Filter>
     <Filter Include="Rendering\src\module"><UniqueIdentifier>{d9adb579-60e3-4f99-b4d5-4ef54f36564b}</UniqueIdentifier></Filter>
@@ -22,6 +23,9 @@
     <ClInclude Include="..\rendering\module\types\local_types.hpp"><Filter>Rendering\include\module\types</Filter></ClInclude>
     <ClInclude Include="..\rendering\runtime\rendering_thread.hpp"><Filter>Rendering\include\runtime</Filter></ClInclude>
     <ClInclude Include="..\rendering\runtime\basis_codec.hpp"><Filter>Rendering\include\runtime</Filter></ClInclude>
+    <ClInclude Include="..\rendering\interface\texture_data.hpp"><Filter>Rendering\include\interface</Filter></ClInclude>
+    <ClInclude Include="..\rendering\interface\texture_messages.hpp"><Filter>Rendering\include\interface</Filter></ClInclude>
+    <ClInclude Include="..\rendering\interface\texture_owner_payloads.def"><Filter>Rendering\include\interface</Filter></ClInclude>
     <ClInclude Include="..\rendering\runtime\texture_jobs.hpp"><Filter>Rendering\include\runtime</Filter></ClInclude>
   </ItemGroup>
   <ItemGroup>

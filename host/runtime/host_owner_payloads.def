@@ -1,0 +1,12 @@
+//  Host-private SYSTEM erased-owner payload declarations.
+//  Include this file with:
+//  - MV_ERASED_OWNER_PAYLOAD(type)
+//  - MV_ERASED_OWNER_PAYLOAD_WITH_STORAGE(type, member)
+
+MV_ERASED_OWNER_PAYLOAD_WITH_STORAGE(LoadedFile, buffer)
+MV_ERASED_OWNER_PAYLOAD_WITH_STORAGE(BakedDocumentAsset, block)
+MV_ERASED_OWNER_PAYLOAD(BorrowedBundleAsset)
+MV_ERASED_OWNER_PAYLOAD_WITH_STORAGE(BundleBuildResult, block)
+MV_ERASED_OWNER_PAYLOAD_WITH_STORAGE(DocumentConditionResult, storage)
+MV_ERASED_OWNER_PAYLOAD_WITH_STORAGE(LiveDocumentAsset, document)
+MV_ERASED_OWNER_PAYLOAD_WITH_STORAGE(FilesystemScanResult, document)

@@ -1,0 +1,7 @@
+//  Public service SYSTEM erased-owner payload declarations.
+//  Include this file with:
+//  - MV_ERASED_OWNER_PAYLOAD(type)
+//  - MV_ERASED_OWNER_PAYLOAD_WITH_STORAGE(type, member)
+
+MV_ERASED_OWNER_PAYLOAD_WITH_STORAGE(ModuleRequest, file)
+MV_ERASED_OWNER_PAYLOAD_WITH_STORAGE(FilesystemRefreshRequest, root)

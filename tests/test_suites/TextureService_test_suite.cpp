@@ -13,6 +13,7 @@
 
 #include "host/runtime/asset_service.hpp"
 #include "platform/threading/processor_relax.hpp"
+#include "rendering/interface/texture_messages.hpp"
 #include "tests/support/test_context.hpp"
 #include "tests/test_suites/TextureService_test_suite.hpp"
 

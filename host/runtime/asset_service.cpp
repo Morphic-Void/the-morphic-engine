@@ -15,6 +15,8 @@
 
 #include "host/runtime/asset_service.hpp"
 #include "debug/macros.hpp"
+#include "image/image_messages.hpp"
+#include "rendering/interface/texture_messages.hpp"
 #include "filesystem/logical_path.hpp"
 
 namespace host

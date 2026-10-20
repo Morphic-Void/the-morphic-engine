@@ -12,6 +12,7 @@
 #include "host/system/host_context.hpp"
 #include "host/system/system_id_definitions.hpp"
 #include "debug/macros.hpp"
+#include "host/runtime/host_payloads.hpp"
 
 namespace host
 {

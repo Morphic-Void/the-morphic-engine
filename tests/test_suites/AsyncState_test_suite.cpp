@@ -11,7 +11,8 @@
 #include <type_traits>
 
 #include "system/async_state.hpp"
-#include "system/transported_types.hpp"
+#include "system/service_messages.hpp"
+#include "host/runtime/host_payloads.hpp"
 #include "tests/test_suites/AsyncState_test_suite.hpp"
 #include "tests/support/test_context.hpp"
 

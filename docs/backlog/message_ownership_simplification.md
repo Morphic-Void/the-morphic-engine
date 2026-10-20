@@ -27,9 +27,10 @@ handling and transfers between requests, operations and retained assets.
 ## Responsibility boundaries
 
 I/O is explicitly owned by the Host. Host conditioning is limited to data and
-transformations the Host can reasonably understand. TGA handling belongs to debug
-image infrastructure, separate from Rendering textures; shared byte storage does
-not make TGA and Basis processing one service responsibility.
+transformations the Host can reasonably understand. TGA is the image format the
+Host fully understands. Its handling supports debugging and diagnosis, but its
+contracts belong under `core/image`, separate from Rendering textures; shared
+byte storage does not make TGA and Basis processing one service responsibility.
 
 Rendering owns Basis Universal processing, input and output texture validation,
 format interpretation, codec configuration, metadata generation, job dispatch
@@ -441,7 +442,7 @@ codec shutdown and release of their borrowed inputs. Preserve current saving
 behaviour: encoded output can be saved as raw bytes; this pass does not add the
 same generic save route for decoded output.
 
-See [texture interface storage](../../core/image/texture_data.hpp),
+See [texture interface storage](../../rendering/interface/texture_data.hpp),
 [Rendering dispatch](../../rendering/runtime/rendering_thread.cpp),
 [codec implementation](../../rendering/runtime/basis_codec.cpp), and
 [texture conditioning contract](../modules/texture_codec.md).
@@ -480,7 +481,7 @@ The agreed target layout is:
 | `core/system/service_messages.hpp` | Public module and filesystem service contracts, unknown-message fallback and common storage registrations. |
 | `rendering/interface/texture_data.hpp` | Formats, options and plain texture storage metadata moved from `core/image/texture_data.hpp`. |
 | `rendering/interface/texture_messages.hpp` | Shared texture requests, work and results; no Basis implementation dependencies. |
-| `core/debug/image_messages.hpp` | TGA/debug image exchanges and storage declarations, separate from Rendering texture contracts. |
+| `core/image/image_messages.hpp` | Host-understood TGA image exchanges and storage for debug/diagnostic support, separate from Rendering texture contracts. |
 | `host/runtime/host_payloads.hpp` | Private file/document/bundle/module/filesystem work and retained wrappers, including bundle preparation state. |
 | `core/system/transported_types.hpp` | Internal definition aggregate for registration/operation generation; callers include their actual contract headers. |
 
@@ -643,9 +644,9 @@ See [asset operation storage](../../host/runtime/asset_service.hpp),
 ## Staged implementation plan
 
 Each stage is a reviewable unit; implementation and commits require separate user
-instruction. Stage 1 is complete as a design/documentation stage. The remaining
-stages describe future work and have not been implemented or validated by this
-document update.
+instruction. Stage 1 is complete as a design/documentation stage. Stage 2's
+declaration split was implemented on 20 October 2026. Stages 3 onward remain
+future work; the LOCAL conversion and message helpers have not been implemented.
 
 ### Stage 1 Placement, interfaces and coverage (complete)
 
@@ -690,7 +691,7 @@ compatibility auditing and exact diagnostic gaps are explicit implementation
 checks, not permission to broaden scope. If they reveal a conflict with the
 agreed contracts, bring that concrete conflict back for discussion.
 
-### Stage 2 Organise declarations
+### Stage 2 Organise declarations (implemented)
 
 Separate public service, Rendering-interface, Host-internal and debug image
 declarations. Keep identities, carrier layouts and runtime behaviour unchanged.
@@ -699,6 +700,17 @@ needed, preserving their repository-specific formatting rules.
 
 Validation: build affected binary components and test targets to verify complete
 registration visibility and dependency boundaries; run applicable policy checks.
+
+The split preserves all 53 existing C++ type bindings, all 23 owner registrations
+and their nested-storage members, declaration bodies, texture storage definitions
+and SYSTEM catalogue ordinals. Ordinary callers now include their contract
+headers; only SYSTEM owner-operation generation includes the full definition
+aggregate. Private registrations remain SYSTEM pending stage 3.
+
+Stage 2 validation passed: Windows Debug/Release builds and ordinary tests on
+x64/Win32, Debug x64 Host-worker acceptance and module lifecycle with one and two
+requested workers, standalone contract-header compilation, policy checks and
+project/text-format checks. Linux build/runtime verification remains for CI.
 
 ### Stage 3 Localise Host protocols
 

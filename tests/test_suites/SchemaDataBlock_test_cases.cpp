@@ -13,7 +13,7 @@
 #include "schema/baked_bulk_data_block.hpp"
 #include "schema/live_instances.hpp"
 #include "schema/live_bulk_data.hpp"
-#include "system/transported_types.hpp"
+#include "host/runtime/host_payloads.hpp"
 #include "data_model/document_parser.hpp"
 #include "data_model/document_translation.hpp"
 #include "tests/support/test_context.hpp"

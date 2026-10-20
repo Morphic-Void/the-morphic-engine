@@ -145,8 +145,14 @@ preserving canonical emptiness.
 
 Registered payloads include byte and image storage, baked and live documents,
 and owning request envelopes. The catalogue in
-`core/system/system_erased_owner_payloads.def` selects each payload's nested
-storage member. Those owners expose the common attribution interface, including
+`core/system/system_erased_owner_payloads.def` aggregates domain fragments that
+select each payload's nested storage member. The same fragments generate owner
+eligibility beside the contract declarations. The internal definition aggregate
+`core/system/transported_types.hpp` is used by operation generation; ordinary
+callers include their specific contract headers. Host-private payloads remain
+SYSTEM registered until the separate LOCAL migration.
+
+Those owners expose the common attribution interface, including
 explicitly unsafe context replacement without accounting. The carrier uses
 that hook only after preflight and the aggregate adjustment; see the
 [uniform attribution contract](../memory/memory_subsystem.md).

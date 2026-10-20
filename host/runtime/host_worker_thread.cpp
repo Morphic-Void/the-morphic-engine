@@ -22,7 +22,10 @@
 #include "platform/path/native_path.hpp"
 #include "platform/filesystem/file.hpp"
 #include "system/erased_owner.hpp"
-#include "system/transported_types.hpp"
+#include "assets/asset_messages.hpp"
+#include "system/service_messages.hpp"
+#include "image/image_messages.hpp"
+#include "host/runtime/host_payloads.hpp"
 #include "threading/CThreadPackage.hpp"
 
 namespace host

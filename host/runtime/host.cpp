@@ -24,7 +24,10 @@
 #include "platform/system/performance_counter.hpp"
 #include "platform/threading/processor_relax.hpp"
 #include "platform/threading/hw_thread_count.hpp"
-#include "system/transported_types.hpp"
+#include "assets/asset_messages.hpp"
+#include "system/service_messages.hpp"
+#include "rendering/interface/texture_messages.hpp"
+#include "host/runtime/host_payloads.hpp"
 #include "threading/CThreadPackage.hpp"
 
 #include "debug/macros.hpp"
