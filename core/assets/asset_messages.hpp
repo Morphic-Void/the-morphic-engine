@@ -103,6 +103,8 @@ using LiveAssetTransfer = TAssetTransferRequest<CLiveDocument>;
 
 struct AssetLoadRequest
 {
+    //  Logical image path, or native: followed by an absolute UTF-8 native path.
+    //  Native loads use normal conditioning/retention without image caching.
     CSimpleString file;
     EAssetFileFormat format{ EAssetFileFormat::raw };
     std::size_t alignment{ 16u };

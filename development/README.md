@@ -106,7 +106,7 @@ Discovery rejects ASCII case aliases
 and redirect collisions, rather than choosing an arbitrary file. This is a
 development resolver, not a security sandbox or full native-path canonicalizer.
 
-Loads must resolve an inventoried file before any I/O. Writes within inventoried
+Logical-root loads must resolve an inventoried file before any I/O. Writes within inventoried
 roots require an existing discovered writable parent directory; a new filename
 is allowed, but implicit directory creation is not. Non-inventoried roots are
 write-only through this interface: validated relative paths resolve beneath the
@@ -117,6 +117,31 @@ writes never add entries to those roots; refresh acknowledges the binding withou
 scanning its contents. `test-output:` remains inventoried, including ordinary
 readback and cache associations. Native load/save primitives remain available
 for low-level tests and bootstrap diagnostics.
+
+## Native mount
+
+`AssetLoadRequest` also accepts the reserved `native:` mount followed immediately
+by an absolute UTF-8 native filename, for example
+`native:C:\Users\ritch\Pictures\example.tga` on Windows or
+`native:/home/ritch/Pictures/example.tga` on Linux. The mount prefix is
+ASCII-case-insensitive; the filename retains its spelling and follows native
+filesystem case rules. Windows drive-absolute paths accept either slash form.
+Relative and drive-relative paths are rejected, and the existing native adapter's
+restrictions remain, including no Windows UNC or extended-length paths.
+
+The Host routes these asset loads before filesystem-image resolution. They use
+the ordinary file I/O and conditioning workers, format/alignment/options, result
+messages and retained-asset disposal. No image is required. Every load reads the
+file again; it neither consults the image cache nor adds file entries or cache
+associations, even if the physical file also has an indexed logical path.
+Missing files fail through normal native I/O. Invalid relative native requests
+report `invalid_request`.
+
+This mount has no manifest entry, inventory or refresh operation. Configured
+roots and virtual bundles cannot claim its name. It applies to `AssetLoadRequest`;
+saves, module loading and bundle load-and-bind requests keep their existing
+logical-path contracts. Loading bundle bytes as a native raw asset does not
+publish a virtual bundle root.
 
 ## Build-output redirect
 

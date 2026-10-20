@@ -43,6 +43,12 @@ namespace logical_path
     return true;
 }
 
+//  Reserved Host mount; never a configured directory or virtual bundle root.
+[[nodiscard]] inline bool is_native_mount(const CStringView root) noexcept
+{
+    return case_equal(root, CStringView{ "native:" });
+}
+
 [[nodiscard]] inline bool valid_component(const CStringView name) noexcept
 {
     if ((name.length() == 0u) || (name == CStringView{ "." }) || (name == CStringView{ ".." })) { return false; }

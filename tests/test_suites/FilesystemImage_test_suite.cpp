@@ -405,6 +405,36 @@ static bool parse_image(const char* input, CLiveDocument& document)
 
 static const char* const binding_image = R"({"roots":{"work:":{"source":"Some/Prefix","writable":true,"content":{"plain.txt":{}}}}})";
 
+static void test_reserved_native_mount(tests::TTestContext& ctx)
+{
+    using namespace filesystem_image;
+    CLiveDocument document;
+    CImage image;
+    TEST_EXPECT(ctx, parse_image(binding_image, document) && image.adopt(std::move(document)));
+    for (const char* name : { "native:", "NATIVE:", "NaTiVe:" })
+    {
+        std::uint64_t binding = 0u;
+        TEST_EXPECT(ctx, !image.reserve_bundle(name, binding) && binding == 0u);
+        SRootScan request;
+        request.inventory = false;
+        TEST_EXPECT(ctx, request.logical_root.set(name) && request.physical_path.set("unused"));
+        TEST_EXPECT(ctx, scan_root(request, document) == EScanStatus::invalid_manifest);
+    }
+    TEST_EXPECT(ctx, parse_image(R"({"roots":{"native:":{"source":"unused","inventory":false}}})", document));
+    TEST_EXPECT(ctx, !image.adopt(std::move(document)));
+    TEST_EXPECT(ctx, !image.integrate(document, 0u));
+    CSimpleString physical;
+    TEST_EXPECT(ctx, image.resolve("work:/plain.txt", false, physical));
+    TEST_EXPECT(ctx, image.root_state("native:") == ERootState::missing);
+
+    const std::string manifest = test_environment::test_output_path("native-reserved-manifest.json");
+    TEST_EXPECT(ctx, write(manifest,
+        R"({"schemaVersion":2,"roots":{"native:":{"source":"unused","inventory":false}}})"));
+    TEST_EXPECT(ctx, scan_manifest(manifest.c_str(), document) == EScanStatus::invalid_manifest);
+    std::error_code error;
+    TEST_EXPECT(ctx, std::filesystem::remove(manifest, error) && !error);
+}
+
 static bool make_bundle(CBakedDocumentBlock& block, bundle::CBundleView& view)
 {
     CLiveDocument input;
@@ -753,6 +783,7 @@ int run_filesystem_image_tests()
     filesystem_image_tests::test_case_identity(ctx);
     filesystem_image_tests::test_manual_case_mapping(ctx);
     filesystem_image_tests::test_virtual_bindings(ctx);
+    filesystem_image_tests::test_reserved_native_mount(ctx);
     filesystem_image_tests::test_bake_capture(ctx);
     filesystem_image_tests::test_binding_allocation_failures(ctx);
     filesystem_image_tests::test_deep_bundle_binding(ctx);

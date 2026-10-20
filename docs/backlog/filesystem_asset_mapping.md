@@ -80,9 +80,12 @@ do not expose mutable document pointers by default. Document-local keys are not
 durable file identities. General live/baked-document path navigation and
 hierarchy-aware dependency resolution remain separate possible consumer work.
 
-Ordinary Host loads require inventory membership. A future explicit-location
-import or load would need its own authority and lifetime contract; the availability
-of low-level file primitives is not an existing Host bypass.
+Ordinary logical-root Host loads require inventory membership. Explicit-location
+asset loads use the reserved [`native:` mount](../../development/README.md#native-mount):
+an absolute native filename enters the normal loading pipeline without image
+lookup, inventory updates or filename-cache reuse. Returned assets follow normal
+retention and disposal. This does not add native-path module loading, saving or
+bundle-root publication.
 
 ## Deployment and platform bindings
 

@@ -91,7 +91,7 @@ struct SFixture
         service.detach_client(client);
         service.deallocate();
     }
-    bool initialise(const bool separate)
+    bool initialise(const bool separate, const bool attach_image = true)
     {
         dedicated = separate;
         directory = std::filesystem::path(test_environment::test_output_path(separate ? "bundle-requests-two" : "bundle-requests-one")).generic_string();
@@ -121,7 +121,7 @@ struct SFixture
         scan.writable = true;
         if (!scan.logical_root.set("work:") || !scan.physical_path.set(directory.c_str()) ||
             (filesystem_image::scan_root(scan, doc) != filesystem_image::EScanStatus::success) || !image.adopt(std::move(doc))) return false;
-        service.set_filesystem(image);
+        if (attach_image) service.set_filesystem(image);
         return conversion.init() && service.initialise() && client.startup() && io.startup() &&
             (!dedicated || conditioning.startup()) && service.configure_workers(io, dedicated ? &conditioning : nullptr);
     }
@@ -229,6 +229,141 @@ struct SFixture
         TEST_EXPECT(ctx, image.root_state("pack:") == ERootState::missing);
     }
 };
+
+void test_native_loads(TTestContext& ctx, const bool dedicated, const bool attach_image)
+{
+    SFixture fixture;
+    const bool ready = fixture.initialise(dedicated, attach_image);
+    TEST_EXPECT(ctx, ready);
+    if (!ready) return;
+
+    //  Sibling of the only configured root: none of these files is inventoried.
+    const std::string external = fixture.directory + "-native";
+    std::error_code error;
+    std::filesystem::create_directories(external, error);
+    TEST_EXPECT(ctx, !error);
+    for (const char* name : { "Raw", "Data.json", "Image.tga", "Document.baked" })
+    {
+        TEST_EXPECT(ctx, std::filesystem::copy_file(fixture.directory + "/Input/" + name, external + "/" + name,
+            std::filesystem::copy_options::overwrite_existing, error) && !error);
+    }
+    const std::string physical = external + "/Mixed Case \xc3\xa9.bin";
+    TEST_EXPECT(ctx, write(physical, "abc", 3u));
+    std::string native = "NaTiVe:" + physical;
+#if MV_PLATFORM_WINDOWS
+    //  A file-picker spelling is accepted without applying logical-path rules.
+    for (char& byte : native) if (byte == '/') byte = '\\';
+#endif
+    CAssetId indexed;
+    if (attach_image)
+    {
+        fixture.load(ctx, 1, "work:/Input/Raw", EAssetFileFormat::raw);
+        indexed = fixture.result(ctx, 1).asset;
+        fixture.bake(ctx, 13, "NaTiVe:");
+        fixture.result(ctx, 13, EAssetStatus::invalid_request);
+    }
+    CBakedDocumentBlock before;
+    TEST_EXPECT(ctx, document_translation::bake(fixture.image.document(), before));
+    const auto serial = fixture.image.write_serial();
+
+    fixture.load(ctx, 2, native.c_str(), EAssetFileFormat::raw, 128u);
+    const auto first = fixture.result(ctx, 2);
+    TEST_EXPECT(ctx, first.kind == EAssetKind::raw && first.byte_view().size() == 3u &&
+        first.byte_view().align() >= 128u && std::memcmp(first.byte_view().data(), "abc", 3u) == 0);
+    TEST_EXPECT(ctx, write(physical, "xyz", 3u));
+    fixture.load(ctx, 3, native.c_str(), EAssetFileFormat::raw);
+    const auto second = fixture.result(ctx, 3);
+    TEST_EXPECT(ctx, second.asset != first.asset && second.byte_view().size() == 3u &&
+        std::memcmp(second.byte_view().data(), "xyz", 3u) == 0);
+    TEST_EXPECT(ctx, first.byte_view().size() == 3u && std::memcmp(first.byte_view().data(), "abc", 3u) == 0);
+    fixture.dispose(ctx, first.asset);
+    fixture.dispose(ctx, second.asset);
+
+    //  Even a physical file with an existing logical cache is loaded independently.
+    const std::string indexed_native = "native:" + fixture.directory + "/Input/Raw";
+    fixture.load(ctx, 4, indexed_native.c_str(), EAssetFileFormat::raw);
+    const auto independent = fixture.result(ctx, 4);
+    TEST_EXPECT(ctx, independent.asset && independent.asset != indexed);
+    fixture.dispose(ctx, independent.asset);
+    if (attach_image)
+    {
+        fixture.load(ctx, 5, "work:/Input/Raw", EAssetFileFormat::raw);
+        TEST_EXPECT(ctx, fixture.result(ctx, 5).asset == indexed);
+    }
+
+    for (const auto format : { EAssetFileFormat::json, EAssetFileFormat::baked, EAssetFileFormat::tga })
+    {
+        const char* name = (format == EAssetFileFormat::json) ? "Data.json" :
+            ((format == EAssetFileFormat::baked) ? "Document.baked" : "Image.tga");
+        const std::string file = "native:" + external + "/" + name;
+        fixture.load(ctx, 6, file.c_str(), format, 128u);
+        const auto loaded = fixture.result(ctx, 6);
+        if (format == EAssetFileFormat::tga)
+        {
+            TEST_EXPECT(ctx, loaded.kind == EAssetKind::image && loaded.image_view().is_ready() &&
+                loaded.image_view().width() == 1 && loaded.image_view().height() == 1);
+        }
+        else
+        {
+            const auto doc = loaded.document_view();
+            std::uint64_t answer = 0u;
+            TEST_EXPECT(ctx, loaded.kind == EAssetKind::baked && doc.check_integrity() &&
+                doc.unsigned_integer_value(doc.object_child(doc.root(), CStringView{ "answer" }), answer) && answer == 42u);
+            if (format == EAssetFileFormat::baked)
+                TEST_EXPECT(ctx, loaded.byte_view().align() >= 128u && loaded.byte_view().size() == fixture.document_size + 11u);
+            else TEST_EXPECT(ctx, loaded.document_policy == EDocumentPolicyStatus::accepted);
+        }
+        fixture.dispose(ctx, loaded.asset);
+    }
+
+    //  JSON policy is still evaluated by the normal conditioning worker.
+    const std::string policy_file = external + "/Policy.json";
+    constexpr char policy_json[] = "{\"answer\":+42}";
+    TEST_EXPECT(ctx, write(policy_file, policy_json, sizeof(policy_json) - 1u));
+    const std::string policy_native = "native:" + policy_file;
+    auto owner = CErasedOwner::create<AssetLoadRequest>();
+    auto* request = owner.payload<AssetLoadRequest>();
+    TEST_EXPECT(ctx, request && request->file.set(policy_native.c_str()));
+    if (request == nullptr) return;
+    request->format = EAssetFileFormat::json;
+    request->policy.allowed_features = document_policy::k_ascii;
+    fixture.request<AssetLoadRequest>(7, std::move(owner));
+    const auto rejected = fixture.result(ctx, 7, EAssetStatus::policy_rejected);
+    TEST_EXPECT(ctx, rejected.document_policy == EDocumentPolicyStatus::rejected);
+    fixture.load(ctx, 8, policy_native.c_str(), EAssetFileFormat::json);
+    const auto accepted = fixture.result(ctx, 8);
+    TEST_EXPECT(ctx, accepted.document_policy == EDocumentPolicyStatus::accepted);
+    fixture.dispose(ctx, accepted.asset);
+
+    for (const char* invalid : { "native:", "native:relative.bin", "native:C:relative.bin" })
+    {
+        fixture.load(ctx, 9, invalid, EAssetFileFormat::raw);
+        fixture.result(ctx, 9, EAssetStatus::invalid_request);
+    }
+#if MV_PLATFORM_WINDOWS
+    for (const char* invalid : { "native:/root-relative.bin", "native:\\root-relative.bin",
+        "native:\\\\server\\share\\file.bin", "native:\\\\?\\C:\\file.bin" })
+    {
+        fixture.load(ctx, 9, invalid, EAssetFileFormat::raw);
+        fixture.result(ctx, 9, EAssetStatus::invalid_request);
+    }
+#endif
+    const std::string missing = "native:" + external + "/missing.bin";
+    fixture.load(ctx, 10, missing.c_str(), EAssetFileFormat::raw);
+    fixture.result(ctx, 10, EAssetStatus::read_failed);
+    fixture.load(ctx, 11, physical.c_str(), EAssetFileFormat::raw);
+    fixture.result(ctx, 11, EAssetStatus::read_failed);
+    fixture.load(ctx, 12, "work:/missing.bin", EAssetFileFormat::raw);
+    fixture.result(ctx, 12, EAssetStatus::read_failed);
+
+    CBakedDocumentBlock after;
+    TEST_EXPECT(ctx, document_translation::bake(fixture.image.document(), after));
+    TEST_EXPECT(ctx, before.bytes().size() == after.bytes().size() &&
+        std::memcmp(before.bytes().data(), after.bytes().data(), before.bytes().size()) == 0);
+    TEST_EXPECT(ctx, fixture.image.write_serial() == serial && fixture.image.root_state("native:") == ERootState::missing);
+    if (indexed) fixture.dispose(ctx, indexed);
+    TEST_EXPECT(ctx, fixture.service.is_idle() && !fixture.service.failed());
+}
 
 void test_public_workflow(TTestContext& ctx, const bool dedicated)
 {
@@ -946,6 +1081,10 @@ void test_completion_contracts(TTestContext& ctx)
 int run_bundle_request_tests()
 {
     TTestContext ctx;
+    test_native_loads(ctx, false, true);
+    test_native_loads(ctx, true, true);
+    test_native_loads(ctx, false, false);
+    test_native_loads(ctx, true, false);
     test_public_workflow(ctx, false);
     test_public_workflow(ctx, true);
     test_complete_baked_buffers(ctx, false);

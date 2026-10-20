@@ -22,9 +22,24 @@
 #include "image/image_messages.hpp"
 #include "rendering/interface/texture_messages.hpp"
 #include "filesystem/logical_path.hpp"
+#include "platform/platform_defines.hpp"
 
 namespace host
 {
+
+//  Only absolute native filenames are admitted. Remaining native-path policy
+//  and UTF-8 conversion belong to the existing platform I/O boundary.
+static bool absolute_native_file(const CStringView path) noexcept
+{
+    if ((path.length() == 0u) || (std::strlen(path.cstring()) != path.length())) return false;
+#if MV_PLATFORM_WINDOWS
+    const char drive = logical_path::fold_ascii(path.cstring()[0]);
+    return (path.length() >= 3u) && (drive >= 'a') && (drive <= 'z') && (path.cstring()[1] == ':') &&
+        ((path.cstring()[2] == '/') || (path.cstring()[2] == '\\'));
+#else
+    return path.cstring()[0] == '/';
+#endif
+}
 
 static bool bundle_recipient_available(const threading::CThreadPackage& recipient) noexcept
 {
@@ -69,6 +84,7 @@ bool CAssetService::initialise() noexcept
 EAssetStatus CAssetService::reserve_bundle(const CStringView root, std::uint64_t& binding) noexcept
 {
     if ((m_filesystem == nullptr) || !m_filesystem->document().is_ready() || (root.length() < 2u) ||
+        logical_path::is_native_mount(root) ||
         (root.cstring()[root.length() - 1u] != ':') ||
         !logical_path::valid_component(CStringView{ root.cstring(), root.length() - 1u })) return EAssetStatus::invalid_request;
     if (m_filesystem->root_state(root.cstring()) != filesystem_image::ERootState::missing) return EAssetStatus::busy;
@@ -413,7 +429,7 @@ void CAssetService::finish_operation(const std::int32_t slot, const EAssetStatus
     if ((status == EAssetStatus::success) && (m_filesystem != nullptr))
     {
         bool updated = true;
-        if (operation.load_requested)
+        if (operation.load_requested && (operation.logical_file != nullptr))
         {
             updated = m_filesystem->loaded(operation.logical_file, operation.retained_asset.query_value(),
                 static_cast<std::uint64_t>(operation.load_format), operation.working_views.document_findings,
@@ -760,70 +776,89 @@ void CAssetService::request(threading::CErasedOwnerMsg& message, threading::CThr
             finish_operation(slot, EAssetStatus::invalid_request);
             return;
         }
-        operation.logical_file = operation.file;
-        filesystem_image::SResolvedSource resolved;
-        if ((m_filesystem == nullptr) || !m_filesystem->resolve(operation.logical_file, false, resolved))
+        if ((load->file.length() >= 7u) &&
+            logical_path::is_native_mount(CStringView{ operation.file, 7u }))
         {
-            finish_operation(slot, EAssetStatus::read_failed);
-            return;
-        }
-        operation.source_binding = resolved.binding;
-        operation.physical_file = std::move(resolved.physical_path);
-        if ((resolved.binding != 0u) && (load->alignment > bundle::k_alignment))
-        {
-            finish_operation(slot, EAssetStatus::invalid_request);
-            return;
-        }
-        if (resolved.binding == 0u) operation.file = operation.physical_file.cstring();
-        operation.admission_serial = m_filesystem->write_serial();
-        const CAssetId cached = m_assets.find_identity(m_filesystem->cached_asset(operation.logical_file, static_cast<std::uint64_t>(load->format)));
-        if (CAssetRecord* const record = disposal_pending(cached) ? nullptr : m_assets.resolve(cached))
-        {
-            AssetResult views;
-            describe_views((*record), views);
-            const std::uint32_t findings = m_filesystem->cached_findings(operation.logical_file);
-            const bool json = (load->format == EAssetFileFormat::json);
-            const std::size_t minimum_alignment = (load->format == EAssetFileFormat::baked) ? 32u : 16u;
-            const bool adequate_alignment = !views.byte_view().is_ready() ||
-                (views.byte_view().align() >= std::max(load->alignment, minimum_alignment));
-            if (matches_load_format(views.kind, load->format) && adequate_alignment && (!json || (findings != UINT32_MAX)))
+            const CStringView native{ operation.file + 7u, load->file.length() - 7u };
+            if (!absolute_native_file(native))
             {
-                if (json)
+                finish_operation(slot, EAssetStatus::invalid_request);
+                return;
+            }
+            if (!operation.physical_file.set(native.cstring()))
+            {
+                finish_operation(slot, EAssetStatus::allocation_failed);
+                return;
+            }
+            operation.file = operation.physical_file.cstring();
+        }
+        else
+        {
+            operation.logical_file = operation.file;
+            filesystem_image::SResolvedSource resolved;
+            if ((m_filesystem == nullptr) || !m_filesystem->resolve(operation.logical_file, false, resolved))
+            {
+                finish_operation(slot, EAssetStatus::read_failed);
+                return;
+            }
+            operation.source_binding = resolved.binding;
+            operation.physical_file = std::move(resolved.physical_path);
+            if ((resolved.binding != 0u) && (load->alignment > bundle::k_alignment))
+            {
+                finish_operation(slot, EAssetStatus::invalid_request);
+                return;
+            }
+            if (resolved.binding == 0u) operation.file = operation.physical_file.cstring();
+            operation.admission_serial = m_filesystem->write_serial();
+            const CAssetId cached = m_assets.find_identity(m_filesystem->cached_asset(operation.logical_file, static_cast<std::uint64_t>(load->format)));
+            if (CAssetRecord* const record = disposal_pending(cached) ? nullptr : m_assets.resolve(cached))
+            {
+                AssetResult views;
+                describe_views((*record), views);
+                const std::uint32_t findings = m_filesystem->cached_findings(operation.logical_file);
+                const bool json = (load->format == EAssetFileFormat::json);
+                const std::size_t minimum_alignment = (load->format == EAssetFileFormat::baked) ? 32u : 16u;
+                const bool adequate_alignment = !views.byte_view().is_ready() ||
+                    (views.byte_view().align() >= std::max(load->alignment, minimum_alignment));
+                if (matches_load_format(views.kind, load->format) && adequate_alignment && (!json || (findings != UINT32_MAX)))
                 {
-                    const CDocumentPolicyResult policy = document_policy::evaluate(findings, load->policy);
-                    operation.working_views.document_policy = policy.status;
-                    operation.working_views.document_findings = findings;
-                    if (!policy.accepted())
+                    if (json)
                     {
-                        finish_operation(slot, EAssetStatus::policy_rejected);
-                        return;
+                        const CDocumentPolicyResult policy = document_policy::evaluate(findings, load->policy);
+                        operation.working_views.document_policy = policy.status;
+                        operation.working_views.document_findings = findings;
+                        if (!policy.accepted())
+                        {
+                            finish_operation(slot, EAssetStatus::policy_rejected);
+                            return;
+                        }
+                        views.document_policy = policy.status;
+                        views.document_findings = findings;
                     }
-                    views.document_policy = policy.status;
-                    views.document_findings = findings;
+                    operation.retained_asset = cached;
+                    operation.working_views = views;
+                    finish_operation(slot, EAssetStatus::success);
+                    return;
                 }
-                operation.retained_asset = cached;
-                operation.working_views = views;
-                finish_operation(slot, EAssetStatus::success);
+            }
+            if (resolved.binding != 0u)
+            {
+                const auto status = begin_bundle_file(resolved, memory::condition_alignment(std::max(load->alignment, std::size_t{ 16u })), operation.bundle_input);
+                if (status != EAssetStatus::success)
+                {
+                    finish_operation(slot, status);
+                    return;
+                }
+                if ((load->format == EAssetFileFormat::raw) || (load->format == EAssetFileFormat::baked))
+                {
+                    operation.working_views = retain_bundle_file(operation.bundle_input, load->format);
+                    operation.retained_asset = operation.working_views.asset;
+                    const auto result = operation.working_views.status;
+                    finish_operation(slot, (result == EAssetStatus::invalid_request) ? EAssetStatus::conditioning_failed : result);
+                }
+                else begin_conditioning_load(slot, operation.bundle_input.bytes());
                 return;
             }
-        }
-        if (resolved.binding != 0u)
-        {
-            const auto status = begin_bundle_file(resolved, memory::condition_alignment(std::max(load->alignment, std::size_t{ 16u })), operation.bundle_input);
-            if (status != EAssetStatus::success)
-            {
-                finish_operation(slot, status);
-                return;
-            }
-            if ((load->format == EAssetFileFormat::raw) || (load->format == EAssetFileFormat::baked))
-            {
-                operation.working_views = retain_bundle_file(operation.bundle_input, load->format);
-                operation.retained_asset = operation.working_views.asset;
-                const auto result = operation.working_views.status;
-                finish_operation(slot, (result == EAssetStatus::invalid_request) ? EAssetStatus::conditioning_failed : result);
-            }
-            else begin_conditioning_load(slot, operation.bundle_input.bytes());
-            return;
         }
         FileLoadRequest request{ operation.file, ((load->format == EAssetFileFormat::baked) ? std::max(load->alignment, std::size_t{ 32u }) : load->alignment) };
         const auto outbound = threading::make_pod_message(slot, request);

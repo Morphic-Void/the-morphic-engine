@@ -72,10 +72,10 @@ remain in the Executive thread, separate from reusable request preparation.
 `AssetLoadRequest` owns the filename and selects the file format, requested byte
 alignment, JSON parse policy and TGA decode orientation. Every successful load
 returns a retained Host asset, possibly reusing the same cached identity.
-Filenames now use logical roots, such as `dev-source:/test_input.tga` and
+Filenames use logical roots, such as `dev-source:/test_input.tga` and
 `test-output:/result.json`. The [development filesystem image](../../development/README.md)
 defines lookup, write permission, refresh and cache-association rules. Loads
-require an inventoried file; saves may create a new file below a discovered
+through these roots require an inventoried file; saves may create a new file below a discovered
 writable directory. The non-inventoried log roots are write-only through this
 interface, and their writes do not add file entries. Disposal removes the image's
 matching cache IDs without removing the files.
@@ -84,6 +84,18 @@ Cache hits must also provide the requested representation and byte alignment.
 Successful saves associate retained raw/raw, baked/baked and image/TGA pairs;
 JSON output is parsed afresh on loading. Complete bundles and converted output
 do not masquerade as ordinary raw or baked cached assets.
+
+`AssetLoadRequest` additionally accepts `native:` followed by an absolute UTF-8
+native filename, such as `native:C:\Pictures\example.tga` or
+`native:/home/user/Pictures/example.tga`. This reserved mount uses the same I/O,
+conditioning, options, results and retained-asset lifetime, without requiring,
+consulting or updating the filesystem image. Each request reads afresh, including
+when the same physical file has a cached logical identity. The prefix is
+ASCII-case-insensitive; filename spelling is preserved. Relative paths report
+`invalid_request`; missing files report `read_failed`. Existing native-path
+restrictions remain, including no Windows UNC or extended-length support.
+The mount is specific to asset loads; saves and bundle load-and-bind requests
+continue to require logical paths. See the [native mount contract](../../development/README.md#native-mount).
 
 | Format | Processing | Returned interface |
 | --- | --- | --- |

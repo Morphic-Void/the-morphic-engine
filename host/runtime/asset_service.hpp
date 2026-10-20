@@ -120,7 +120,7 @@ private:
         bool load_requested{ false };
 
         const char* file{ nullptr };
-        const char* logical_file{ nullptr };    //  Backed by request_owner.
+        const char* logical_file{ nullptr };    //  Backed by request_owner; null for native loads.
         CSimpleString physical_file;            //  Stable backing borrowed by the I/O worker.
         std::uint64_t admission_serial{ 0u };
         AssetSaveSettings save_settings;        //  Borrowed writer options remain unchanged until completion.

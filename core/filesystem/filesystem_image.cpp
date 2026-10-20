@@ -189,7 +189,8 @@ static CNodeKey create_entry(CLiveDocument& doc, const CStringView name) noexcep
 
 static bool root_name(const CStringView name) noexcept
 {
-    if (!folded_name(name) || (name.length() < 2u) || (name.cstring()[name.length() - 1u] != ':')) { return false; }
+    if (!folded_name(name) || (name.length() < 2u) || (name.cstring()[name.length() - 1u] != ':') ||
+        logical_path::is_native_mount(name)) { return false; }
     CSimpleString identifier;
     return identifier.set(name.cstring(), (name.length() - 1u)) && relative_file(identifier.cstring()) &&
         (std::strchr(identifier.cstring(), '/') == nullptr);
