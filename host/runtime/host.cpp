@@ -406,14 +406,18 @@ void CHost::dispatch_refresh() noexcept
 
 void CHost::complete_scan(threading::CErasedOwnerMsg& message) noexcept
 {
-    if (!m_scan_in_flight)
+    const auto inspected = threading::inspect_owner_message<FilesystemScanResult>(message);
+    if (!m_scan_in_flight || (message.query_async_slot() != 0) ||
+        (inspected.state == threading::EOwnerMessageState::invalid))
     {
         m_filesystem_failed = true;
+        MV_CRITICAL_EVENT("Host: Invalid filesystem completion at slot {}, in_flight {}, message {}, payload {}",
+            message.query_async_slot(), m_scan_in_flight,
+            message.query_message_type_id().raw_value(), message.query_owner_type_id().raw_value());
         return;
     }
     m_scan_in_flight = false;
-    CErasedOwner owner = message.take_owner();
-    FilesystemScanResult* const result = owner.payload<FilesystemScanResult>();
+    FilesystemScanResult* const result = inspected.payload;
     const bool scanned = (result != nullptr) && (result->status == filesystem_image::EScanStatus::success);
     if (m_initial_scan)
     {

@@ -29,6 +29,7 @@
 #include "schema/live_bulk_data.hpp"
 #include "tests/environment/test_paths.hpp"
 #include "tests/support/test_context.hpp"
+#include "tests/support/test_scopes.hpp"
 #include "tests/test_suites/BundleRequests_test_suite.hpp"
 
 namespace
@@ -835,6 +836,89 @@ void test_controlled_failures(TTestContext& ctx)
     TEST_EXPECT(ctx, teardown.image.root_state("pack:") == ERootState::missing);
 }
 
+void test_completion_contracts(TTestContext& ctx)
+{
+    tests::TAssertionTestScope assertions{ ctx };
+    // File, bundle load/build, TGA decode/encode and document replies all use
+    // the same admission gate but retain their distinct ordinary failure codes.
+    for (int protocol = 0; protocol < 6; ++protocol)
+    {
+        for (const bool malformed : { false, true })
+        {
+            SFixture fixture(true);
+            const bool ready = fixture.initialise(false);
+            TEST_EXPECT(ctx, ready);
+            if (!ready) return;
+            if (protocol == 1) fixture.load_bundle(ctx, 80, "work:/Input/Document.baked");
+            else if (protocol == 2) fixture.bake(ctx, 80);
+            else if (protocol == 4)
+            {
+                auto owner = CErasedOwner::create<ImageAssetTransfer>();
+                auto* const transfer = owner.payload<ImageAssetTransfer>();
+                if (transfer == nullptr) { TEST_EXPECT(ctx, false); return; }
+                TEST_EXPECT(ctx, transfer->storage.value.allocate(4u, 1u, 16u));
+                TEST_EXPECT(ctx, transfer->storage.file.set("work:/encoded.tga"));
+                transfer->description = image::codec::tga::decoded_image_desc::RGBA;
+                transfer->settings.format = EAssetFileFormat::tga;
+                transfer->save = true;
+                transfer->retention = EAssetRetention::discard;
+                fixture.request<ImageAssetTransfer>(80, std::move(owner));
+            }
+            else fixture.load(ctx, 80, protocol == 3 ? "work:/Input/Image.tga" :
+                (protocol == 5 ? "work:/Input/Data.json" : "work:/Input/Raw"),
+                protocol == 3 ? EAssetFileFormat::tga : (protocol == 5 ? EAssetFileFormat::json : EAssetFileFormat::raw));
+
+            threading::CErasedPodMsg work;
+            if (!fixture.take_work(work)) { TEST_EXPECT(ctx, false); return; }
+            if ((protocol == 3) || (protocol == 5))
+            {
+                FileLoadRequest load;
+                TEST_EXPECT(ctx, work.copy_payload_to(load));
+                auto owner = CErasedOwner::create<LoadedFile>();
+                auto* const loaded = owner.payload<LoadedFile>();
+                if (loaded == nullptr) { TEST_EXPECT(ctx, false); return; }
+                loaded->buffer = platform::filesystem::loadFile(load.file, 0u, load.alignment);
+                TEST_EXPECT(ctx, loaded->buffer.is_ready());
+                fixture.complete<FileLoadResult>(work, std::move(owner));
+                if (!fixture.take_work(work)) { TEST_EXPECT(ctx, false); return; }
+            }
+            threading::CErasedOwnerMsg reply;
+            switch (protocol)
+            {
+                case 2: reply.set_message_type<BundleBuildResult>(); break;
+                case 3: reply.set_message_type<TgaDecodeResult>(); break;
+                case 4: reply.set_message_type<TgaEncodeResult>(); break;
+                case 5: reply.set_message_type<DocumentConditionResult>(); break;
+                default: reply.set_message_type<FileLoadResult>(); break;
+            }
+            reply.set_async_slot(work.query_async_slot());
+            if (malformed)
+            {
+                reply.set_owner(CErasedOwner::create<AssetLoadRequest>());
+                const auto* const payload = reply.owner().payload<AssetLoadRequest>();
+                assertions.expect_unconditional_assertion(ctx, [&] { fixture.service.complete(reply, fixture.io); });
+                TEST_EXPECT(ctx, fixture.service.failed() && !fixture.service.is_idle());
+                TEST_EXPECT(ctx, reply.owner().payload<AssetLoadRequest>() == payload);
+                if ((protocol == 1) || (protocol == 2))
+                    TEST_EXPECT(ctx, fixture.image.root_state("pack:") != ERootState::missing);
+                // Inputs and bundle reservations stay alive until joined-worker cleanup.
+                if (protocol == 3)
+                {
+                    TgaDecodeRequest decode;
+                    TEST_EXPECT(ctx, work.copy_payload_to(decode) && decode.view.is_ready() && decode.view.data()[2] == 2u);
+                }
+            }
+            else
+            {
+                fixture.service.complete(reply, fixture.io);
+                fixture.result(ctx, 80, protocol < 2 ? EAssetStatus::read_failed :
+                    ((protocol == 3) || (protocol == 4) ? EAssetStatus::conditioning_failed : EAssetStatus::allocation_failed));
+                TEST_EXPECT(ctx, !fixture.service.failed() && fixture.service.is_idle());
+            }
+        }
+    }
+}
+
 }   // namespace
 
 int run_bundle_request_tests()
@@ -851,6 +935,7 @@ int run_bundle_request_tests()
     test_failed_work(ctx);
     test_preparation_handoff(ctx);
     test_controlled_failures(ctx);
+    test_completion_contracts(ctx);
     std::cout << "BundleRequests: " << ctx.passed << " passed, " << ctx.failed << " failed\n";
     return ctx.exit_code();
 }

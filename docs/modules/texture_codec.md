@@ -65,6 +65,14 @@ inline completion can be handled immediately. The
 rendering thread then moves the output into the owning Host reply. Batch runners
 install the rendering module and memory context before invoking a job.
 
+The codec, jobs and replies share `ETextureStatus`, declared in
+`rendering/interface/texture_data.hpp`; its five numeric values are unchanged.
+Rendering updates the response payload in place and checks texture-view readiness
+before reporting success. Unusable output with a success status is diagnosed and
+returned as `codec_failed`. The Host checks generic backing bytes, retains the
+whole result owner, and exposes Rendering's metadata without interpreting it.
+Encode and decode share that Host retention sequence but keep distinct payloads.
+
 Rejected or discarded jobs produce `ETextureStatus::codec_failed`, which the
 Host maps to `EAssetStatus::conditioning_failed`. Job/result allocation failure
 uses the existing allocation-failure path. Each completed request releases only
@@ -89,6 +97,10 @@ It checks concurrent encode/encode, encode/decode and decode/decode admission,
 completion in a different order, retention until the last source borrower
 finishes, refusal of new borrowers once disposal is pending, and recovery after
 a failed codec operation. This does not depend on codec duration or scheduling.
+It also checks permitted empty completions, status mapping, missing output
+storage, retained addresses and hazards, and terminal rejection of malformed
+payloads, wrong sender/phase, unknown slots and duplicate completions. Rejected
+messages retain ownership, and pending worker inputs survive until cleanup.
 
 The ordinary `TextureBatch` suite loads the real rendering module and controls
 its batch queue. It checks inline and queued encode/decode, recovery after

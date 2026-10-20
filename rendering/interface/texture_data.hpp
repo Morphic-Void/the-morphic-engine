@@ -20,6 +20,12 @@
 
 #include "containers/ByteBuffers.hpp"
 
+//  Shared codec and completion outcomes; numeric values are part of the interface.
+enum class ETextureStatus : std::uint8_t
+{
+    success = 0, invalid_input, unsupported_format, allocation_failed, codec_failed
+};
+
 namespace image::texture
 {
 

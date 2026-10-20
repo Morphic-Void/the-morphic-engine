@@ -38,11 +38,6 @@ struct TextureDecodeWork
     const CByteConstView* input{ nullptr };
 };
 
-enum class ETextureStatus : std::uint8_t
-{
-    success = 0, invalid_input, unsupported_format, allocation_failed, codec_failed
-};
-
 struct TextureEncodeResult
 {
     image::texture::CEncodedTexture texture;

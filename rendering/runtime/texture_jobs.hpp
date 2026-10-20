@@ -38,7 +38,7 @@ public:
     void run() noexcept;
     static void MV_STD_ABI_CALL execute(void* const object) noexcept;
 
-    [[nodiscard]] basis_codec::EStatus status() const noexcept { return m_status; }
+    [[nodiscard]] ETextureStatus status() const noexcept { return m_status; }
     [[nodiscard]] const image::texture::CEncodedTexture& output() const noexcept { return m_output; }
     [[nodiscard]] image::texture::CEncodedTexture take_output() noexcept { return std::move(m_output); }
 
@@ -46,7 +46,7 @@ private:
     const image::texture::CInputView m_input;
     const image::texture::CEncodeOptions m_options;
     image::texture::CEncodedTexture m_output;
-    basis_codec::EStatus m_status{ basis_codec::EStatus::codec_failed };
+    ETextureStatus m_status{ ETextureStatus::codec_failed };
 };
 
 class CTextureDecodeJob final
@@ -62,7 +62,7 @@ public:
     void run() noexcept;
     static void MV_STD_ABI_CALL execute(void* const object) noexcept;
 
-    [[nodiscard]] basis_codec::EStatus status() const noexcept { return m_status; }
+    [[nodiscard]] ETextureStatus status() const noexcept { return m_status; }
     [[nodiscard]] const image::texture::CDecodedTexture& output() const noexcept { return m_output; }
     [[nodiscard]] image::texture::CDecodedTexture take_output() noexcept { return std::move(m_output); }
 
@@ -71,7 +71,7 @@ private:
     const image::texture::EStorageFormat m_target;
     const std::uint32_t m_level;
     image::texture::CDecodedTexture m_output;
-    basis_codec::EStatus m_status{ basis_codec::EStatus::codec_failed };
+    ETextureStatus m_status{ ETextureStatus::codec_failed };
 };
 
 }   //  namespace rendering

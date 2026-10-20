@@ -126,7 +126,17 @@ The `host-workers` bootstrap setting and hardware sizing policy are documented i
 The Host fixes the conditioning route at startup: `bg_conditioning` when the
 dedicated worker exists, otherwise `bg_file_io`. Each worker retains its own
 SPSC request and completion routes. Completion validates the worker, operation
-phase and result type before continuing the operation.
+phase, message identity and present payload type before taking ownership.
+Malformed payloads, unexpected senders/phases and unknown correlations are
+terminal protocol violations. Rejection leaves the supplied owner and pending
+operation storage intact; final shutdown joins workers before failing pending
+operations and releasing their inputs or bundle reservations.
+
+Permitted empty replies keep their ordinary failure mapping: file and bundle
+file loads report `read_failed`; TGA replies report `conditioning_failed`;
+document, bundle-build and texture replies report `allocation_failed`.
+Wrong present payload types never masquerade as these allocation-related empty
+replies. Bundle preparation still returns a POD status against Host-owned work.
 
 Node lookups keep query state local to each call, and every bake owns separate
 analysis and emission scratch, supporting concurrent read-only document access.

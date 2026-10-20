@@ -20,27 +20,18 @@
 namespace rendering::basis_codec
 {
 
-enum class EStatus : std::uint8_t
-{
-    success = 0,
-    invalid_input,
-    unsupported_format,
-    allocation_failed,
-    codec_failed
-};
-
 //  Initialize on the rendering thread before accepting codec work; shut down
 //  only after all accepted codec operations have completed.
 [[nodiscard]] bool initialise() noexcept;
 void shutdown() noexcept;
 
-[[nodiscard]] EStatus encode_ktx2(
+[[nodiscard]] ETextureStatus encode_ktx2(
     const image::texture::CInputView& input,
     const image::texture::CEncodeOptions& options,
     image::texture::CEncodedTexture& output) noexcept;
 
 //  Transcodes one mip level of a 2D KTX2 texture into one aligned buffer.
-[[nodiscard]] EStatus transcode_ktx2(
+[[nodiscard]] ETextureStatus transcode_ktx2(
     const CByteConstView& input,
     const image::texture::EStorageFormat target,
     const std::uint32_t level,

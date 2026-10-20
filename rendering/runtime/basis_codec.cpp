@@ -145,7 +145,7 @@ void shutdown() noexcept
     }
 }
 
-EStatus encode_ktx2(
+ETextureStatus encode_ktx2(
     const image::texture::CInputView& input,
     const image::texture::CEncodeOptions& options,
     image::texture::CEncodedTexture& output) noexcept
@@ -157,7 +157,7 @@ EStatus encode_ktx2(
     if (!s_initialized || !input.is_ready() || (pixel_bytes == 0u) ||
         ((input.bytes.row_width() % pixel_bytes) != 0u) || (options.max_pixels == 0u))
     {
-        return EStatus::invalid_input;
+        return ETextureStatus::invalid_input;
     }
     const std::size_t width_size = input.bytes.row_width() / pixel_bytes;
     const std::size_t height_size = input.bytes.row_count();
@@ -167,7 +167,7 @@ EStatus encode_ktx2(
         ((static_cast<std::uint64_t>(width_size) * height_size) > options.max_pixels) ||
         ((static_cast<std::uint64_t>(width_size) * height_size) > k_max_texture_pixels))
     {
-        return EStatus::invalid_input;
+        return ETextureStatus::invalid_input;
     }
     const bool hdr = (options.encoding == EEncoding::uastc_hdr_4x4);
     if (((options.encoding != EEncoding::uastc_ldr_4x4) && !hdr) ||
@@ -175,7 +175,7 @@ EStatus encode_ktx2(
         (hdr && (input.transfer != ETransfer::linear)) ||
         ((options.profile != EEncodeProfile::runtime_fast) && (options.profile != EEncodeProfile::build_quality)))
     {
-        return EStatus::unsupported_format;
+        return ETextureStatus::unsupported_format;
     }
 
     const std::uint32_t width = static_cast<std::uint32_t>(width_size);
@@ -220,7 +220,7 @@ EStatus encode_ktx2(
                     if (!read_hdr_component((pixel + (channel * component_bytes)), half, rgb[channel]))
                     {
                         MV_LOG(error, "Rendering Basis: HDR source rejected at {},{} channel {}", x, y, channel);
-                        return EStatus::invalid_input;
+                        return ETextureStatus::invalid_input;
                     }
                 }
                 images[0](x, y).set(rgb[0], rgb[1], rgb[2], 1.0f);
@@ -254,7 +254,7 @@ EStatus encode_ktx2(
     {
         MV_LOG(error, "Rendering Basis: encode failed");
         basisu::basis_free_data(encoded);
-        return EStatus::codec_failed;
+        return ETextureStatus::codec_failed;
     }
     const bool allocated = output.buffer.resize(encoded_size, 16u);
     if (allocated)
@@ -265,20 +265,20 @@ EStatus encode_ktx2(
     if (!allocated)
     {
         MV_LOG(error, "Rendering Basis: encoded buffer allocation failed ({} bytes)", encoded_size);
-        return EStatus::allocation_failed;
+        return ETextureStatus::allocation_failed;
     }
     if (!describe_ktx2(output.buffer.const_view(), output.description))
     {
         output.buffer.deallocate();
         MV_LOG(error, "Rendering Basis: encoded KTX2 metadata invalid");
-        return EStatus::codec_failed;
+        return ETextureStatus::codec_failed;
     }
     MV_LOG(detail, "Rendering Basis: encode succeeded, {} bytes, {} levels, HDR scale {}",
         encoded_size, output.description.levels, output.description.hdr_scale);
-    return EStatus::success;
+    return ETextureStatus::success;
 }
 
-EStatus transcode_ktx2(
+ETextureStatus transcode_ktx2(
     const CByteConstView& input,
     const image::texture::EStorageFormat target,
     const std::uint32_t level,
@@ -293,7 +293,7 @@ EStatus transcode_ktx2(
     CEncodedDescription source;
     if (!s_initialized || !describe_ktx2(input, source) || (level >= source.levels))
     {
-        return EStatus::invalid_input;
+        return ETextureStatus::invalid_input;
     }
     basist::transcoder_texture_format basis_target;
     switch (target)
@@ -303,7 +303,7 @@ EStatus transcode_ktx2(
         case EStorageFormat::bc7_unorm:
         case EStorageFormat::bc7_srgb: basis_target = basist::transcoder_texture_format::cTFBC7_RGBA; break;
         case EStorageFormat::bc6h_ufloat: basis_target = basist::transcoder_texture_format::cTFBC6H; break;
-        default: return EStatus::unsupported_format;
+        default: return ETextureStatus::unsupported_format;
     }
     const bool hdr_source = (source.encoding == EEncoding::uastc_hdr_4x4);
     if ((hdr_source != ((target == EStorageFormat::rgba16f) || (target == EStorageFormat::bc6h_ufloat))) ||
@@ -312,7 +312,7 @@ EStatus transcode_ktx2(
         !basist::basis_is_format_supported(basis_target, (hdr_source ?
             basist::basis_tex_format::cUASTC_HDR_4x4 : basist::basis_tex_format::cUASTC_LDR_4x4)))
     {
-        return EStatus::unsupported_format;
+        return ETextureStatus::unsupported_format;
     }
     basist::ktx2_transcoder transcoder;
     //  Preserve the last entry point if the third-party transcoder fails to return.
@@ -322,12 +322,12 @@ EStatus transcode_ktx2(
         !transcoder.start_transcoding())
     {
         MV_LOG(error, "Rendering Basis: transcoder initialization failed");
-        return EStatus::codec_failed;
+        return ETextureStatus::codec_failed;
     }
     basist::ktx2_image_level_info info;
     if (!transcoder.get_image_level_info(info, level, 0u, 0u))
     {
-        return EStatus::codec_failed;
+        return ETextureStatus::codec_failed;
     }
     const std::uint32_t width = info.m_orig_width;
     const std::uint32_t height = info.m_orig_height;
@@ -336,20 +336,20 @@ EStatus transcode_ktx2(
     if ((bytes == 0u) || (unit_bytes == 0u) || !output.buffer.resize(bytes, 16u))
     {
         MV_LOG(error, "Rendering Basis: transcode buffer allocation failed ({} bytes)", bytes);
-        return EStatus::allocation_failed;
+        return ETextureStatus::allocation_failed;
     }
     if (!transcoder.transcode_image_level(level, 0u, 0u, output.buffer.data(), (bytes / unit_bytes), basis_target))
     {
         output.buffer.deallocate();
         MV_LOG(error, "Rendering Basis: transcode failed");
-        return EStatus::codec_failed;
+        return ETextureStatus::codec_failed;
     }
     const bool blocks = (target == EStorageFormat::bc7_unorm) || (target == EStorageFormat::bc7_srgb) ||
         (target == EStorageFormat::bc6h_ufloat);
     const std::uint32_t row_units = blocks ? ((width + 3u) / 4u) : width;
     output.description = { width, height, level, (row_units * unit_bytes), target, source.transfer, source.hdr_scale };
     MV_LOG(detail, "Rendering Basis: transcode succeeded, {} bytes, HDR scale {}", bytes, source.hdr_scale);
-    return EStatus::success;
+    return ETextureStatus::success;
 }
 
 }   //  namespace rendering::basis_codec

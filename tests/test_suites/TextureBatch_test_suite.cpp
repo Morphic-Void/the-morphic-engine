@@ -223,7 +223,8 @@ static void test_jobs(tests::TTestContext& ctx, SFixture& fixture)
             CErasedOwner encoded = fixture.operation<TextureEncodeWork, TextureEncodeResult>(
                 ctx, encode, 10, queued, EBatchCompletion::executed, false);
             const TextureEncodeResult* const source = encoded.payload<TextureEncodeResult>();
-            TEST_EXPECT(ctx, ((source != nullptr) && (source->status == ETextureStatus::success)));
+            TEST_EXPECT(ctx, ((source != nullptr) && (source->status == ETextureStatus::success) &&
+                source->texture.view().is_ready()));
             if ((source == nullptr) || (source->status != ETextureStatus::success)) return;
             const CByteConstView bytes = source->texture.buffer.const_view();
             TextureDecodeRequest request;
@@ -240,6 +241,7 @@ static void test_jobs(tests::TTestContext& ctx, SFixture& fixture)
                 ctx, decode, 12, queued, EBatchCompletion::executed, queued);
             const TextureDecodeResult* const result = decoded.payload<TextureDecodeResult>();
             TEST_EXPECT(ctx, ((result != nullptr) && (result->status == ETextureStatus::success) &&
+                result->texture.view().is_ready() &&
                 (result->texture.buffer.size() == 64u) && (result->texture.buffer.data()[3] > 250u)));
         }
         fixture.stop();

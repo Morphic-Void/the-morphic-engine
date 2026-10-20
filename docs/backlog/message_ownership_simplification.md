@@ -314,8 +314,8 @@ Relevant implementation:
   `CAssetService::request`.
 - [Worker replies](../../host/runtime/host_worker_thread.cpp),
   `CHostWorkerThread::operate`.
-- [Executive posting helper](../../executive/runtime/executive_thread.cpp),
-  `CExecutiveThread::post`.
+- [Executive request preparation](../../executive/runtime/request_preparation.hpp),
+  with explicit posting in `CExecutiveThread`.
 
 ## Aggregate payloads by storage representation
 
@@ -420,20 +420,21 @@ Rendering should establish texture validity before reporting success. Move the
 current Host checks of texture-specific view readiness to that boundary; retain
 message/payload validation and generic storage checks needed by the Host.
 
-Propose one Host-private typed `finish_texture_result<TResult>(slot, message)`
-helper for the encode/decode retention sequence: inspect the message, handle
-permitted emptiness and domain status, check required storage, retain the owner,
-describe the view and complete the client operation. Sender/phase validation
-remains with dispatch. Keep distinct result types; do not force bundle publication
-or document conditioning through this helper.
+Stage 5 uses the Host-private `complete_texture_result<TResult>(slot)` for the
+encode/decode retention sequence: handle permitted emptiness and domain status,
+check required storage, retain the owner, describe the view and complete the
+client operation. The shared acceptance gate inspects before taking ownership;
+phase dispatch selects its expected protocol and worker. Keep distinct result
+types; do not force bundle publication or document conditioning through this
+helper.
 
 Update Rendering's response payload through `response.owner().payload<T>()`
 instead of taking the owner out and reinserting it. A separate helper is not
 needed for that change.
 
-Consider using one Rendering-interface status enum for the codec adapter and
-reply: `basis_codec::EStatus` and `ETextureStatus` currently express the same five
-outcomes. Host translation to `EAssetStatus` remains legitimate service adaptation.
+Stage 5 consolidates the codec adapter and reply on `ETextureStatus`; the former
+`basis_codec::EStatus` expressed the same five outcomes. Host translation to
+`EAssetStatus` remains legitimate service adaptation.
 
 Retain engine-owned byte buffers and plain metadata with component-local
 destruction authority. Completed texture storage must not gain a Basis object,
@@ -815,6 +816,41 @@ jobs. Reuse `TextureService`, `TextureBatch`, relevant bundle suites and lifecyc
 coverage. Verify complete baked-buffer preservation and schema attachment through
 the existing `BundleRequests` scenarios. Add focused coverage only for gaps or
 changed contracts; do not consolidate the testing framework in this stage.
+
+Implementation (20 October 2026): the Host-private
+`accept_worker_result<TMessage>` gate inspects before taking ownership, with the
+existing phase switch selecting the expected protocol and worker. Malformed
+present payloads now cause terminal service failure, as agreed, without retiring
+the pending operation or consuming the rejected message. Ordinary empty-result
+status mappings and domain continuation policies are unchanged. Filesystem scan
+completion uses borrowed inspection and checks its zero correlation and active
+scan before updating state.
+
+`complete_texture_result<TResult>(slot)` processes the already validated owner,
+sharing retention without a second inspection. The Host only checks backing
+bytes; Rendering checks texture-view readiness before publishing success.
+Rendering updates response payloads in place and retains its record allocation,
+job draining, record destruction and failed-post policies.
+
+The codec, jobs and messages now use the existing `ETextureStatus` from
+`rendering/interface/texture_data.hpp`, preserving its numeric values. The
+duplicate codec enum and conversion function are removed. Host translation into
+`EAssetStatus` remains. TGA handling, document partial-success retention, bundle
+preparation/disposal and storage lifetimes retain their domain-specific paths.
+
+Focused functional coverage extends `TextureService`, `TextureBatch` and
+`BundleRequests`, using public service boundaries and the real Rendering module.
+It distinguishes empty replies from malformed payloads across all asset owning
+completion protocols, checks terminal rejection without input destruction, and
+verifies texture status mapping, opaque metadata, retained addresses and hazards.
+
+Validation passed: Debug and Release solution builds and ordinary suites on x64
+and Win32; Debug x64 Host-worker acceptance; and all 33 lifecycle cases with each
+of one and two workers. Each ordinary run passed 151 `TextureService`, 989
+`BundleRequests` and 1068 `TextureBatch` checks, alongside the existing ownership,
+document and schema suites. Policy validation reported no errors or warnings;
+text-format and diff checks passed. Linux build/runtime verification remains for
+CI. Stage 6 reductions have not been started.
 
 ### Stage 6 Select remaining reductions
 

@@ -990,6 +990,25 @@ void CAssetService::complete(const threading::CErasedPodMsg& message, threading:
     }
 }
 
+template<typename TMessage>
+bool CAssetService::accept_worker_result(SOperation& operation, threading::CErasedOwnerMsg& message,
+    threading::CThreadPackage& worker, threading::CThreadPackage* const expected_worker) noexcept
+{
+    const auto inspected = threading::inspect_owner_message<TMessage>(message);
+    if ((&worker != expected_worker) || (inspected.state == threading::EOwnerMessageState::invalid))
+    {
+        m_failed = true;
+        MV_CRITICAL_EVENT("Host: Rejected asset completion at slot {}, phase {}, expected {}, message {}, payload {}, worker_match {}",
+            message.query_async_slot(), static_cast<std::uint32_t>(operation.phase), k_type_id_v<TMessage>.raw_value(),
+            message.query_message_type_id().raw_value(), message.query_owner_type_id().raw_value(), (&worker == expected_worker));
+        return false;
+    }
+    //  Each owning worker protocol permits an empty allocation-failure reply.
+    //  Domain handlers preserve their existing ordinary failure/status mapping.
+    operation.worker_result_owner = message.take_owner();
+    return true;
+}
+
 void CAssetService::complete(threading::CErasedOwnerMsg& message, threading::CThreadPackage& worker) noexcept
 {
     const std::int32_t slot = message.query_async_slot();
@@ -1001,86 +1020,57 @@ void CAssetService::complete(threading::CErasedOwnerMsg& message, threading::CTh
         return;
     }
     SOperation& operation = *pending;
-    const type_id identity = message.query_message_type_id();
     switch (operation.phase)
     {
         case EPhase::bundle_loading:
+        {
+            if (accept_worker_result<FileLoadResult>(operation, message, worker, m_file_io))
+                complete_bundle(slot);
+            return;
+        }
         case EPhase::bundle_building:
         {
-            const type_id expected = (operation.phase == EPhase::bundle_loading) ?
-                k_type_id_v<FileLoadResult> : k_type_id_v<BundleBuildResult>;
-            if ((identity == expected) && (&worker == m_file_io))
-            {
-                operation.worker_result_owner = message.take_owner();
+            if (accept_worker_result<BundleBuildResult>(operation, message, worker, m_file_io))
                 complete_bundle(slot);
-                return;
-            }
-            break;
+            return;
         }
         case EPhase::loading:
         {
-            if ((identity == k_type_id_v<FileLoadResult>) && (&worker == m_file_io))
-            {
-                operation.worker_result_owner = message.take_owner();
+            if (accept_worker_result<FileLoadResult>(operation, message, worker, m_file_io))
                 complete_file_load(slot);
-                return;
-            }
-            break;
+            return;
         }
         case EPhase::decoding:
         {
-            if ((identity == k_type_id_v<TgaDecodeResult>) && (&worker == m_conditioning))
-            {
-                operation.worker_result_owner = message.take_owner();
+            if (accept_worker_result<TgaDecodeResult>(operation, message, worker, m_conditioning))
                 complete_image_decode(slot);
-                return;
-            }
-            break;
+            return;
         }
         case EPhase::encoding:
         {
-            if ((identity == k_type_id_v<TgaEncodeResult>) && (&worker == m_conditioning))
-            {
-                operation.worker_result_owner = message.take_owner();
+            if (accept_worker_result<TgaEncodeResult>(operation, message, worker, m_conditioning))
                 complete_image_encode(slot);
-                return;
-            }
-            break;
+            return;
         }
         case EPhase::texture_encoding:
         {
-            if ((identity == k_type_id_v<TextureEncodeResult>) && (&worker == m_rendering))
-            {
-                operation.worker_result_owner = message.take_owner();
-                complete_texture_encode(slot);
-                return;
-            }
-            break;
+            if (accept_worker_result<TextureEncodeResult>(operation, message, worker, m_rendering))
+                complete_texture_result<TextureEncodeResult>(slot);
+            return;
         }
         case EPhase::texture_decoding:
         {
-            if ((identity == k_type_id_v<TextureDecodeResult>) && (&worker == m_rendering))
-            {
-                operation.worker_result_owner = message.take_owner();
-                complete_texture_decode(slot);
-                return;
-            }
-            break;
+            if (accept_worker_result<TextureDecodeResult>(operation, message, worker, m_rendering))
+                complete_texture_result<TextureDecodeResult>(slot);
+            return;
         }
         case EPhase::conditioning:
         {
-            if ((identity == k_type_id_v<DocumentConditionResult>) && (&worker == m_conditioning))
-            {
-                operation.worker_result_owner = message.take_owner();
+            if (accept_worker_result<DocumentConditionResult>(operation, message, worker, m_conditioning))
                 complete_document_conditioning(slot);
-                return;
-            }
-            break;
+            return;
         }
-        default:
-        {
-            break;
-        }
+        default: break;
     }
     m_failed = true;
     MV_CRITICAL_EVENT("Host: Asset completion does not match the active phase at slot {}", slot);
@@ -1225,10 +1215,11 @@ void CAssetService::complete_image_encode(const std::int32_t slot) noexcept
     return;
 }
 
-void CAssetService::complete_texture_encode(const std::int32_t slot) noexcept
+template<typename TResult>
+void CAssetService::complete_texture_result(const std::int32_t slot) noexcept
 {
     SOperation& operation = *m_operations.get_object(slot);
-    TextureEncodeResult* const result = operation.worker_result_owner.payload<TextureEncodeResult>();
+    TResult* const result = operation.worker_result_owner.payload<TResult>();
     if (result == nullptr)
     {
         finish_operation(slot, EAssetStatus::allocation_failed);
@@ -1239,31 +1230,7 @@ void CAssetService::complete_texture_encode(const std::int32_t slot) noexcept
         finish_operation(slot, texture_asset_status(result->status));
         return;
     }
-    if (!result->texture.view().is_ready())
-    {
-        finish_operation(slot, EAssetStatus::conditioning_failed);
-        return;
-    }
-    operation.candidate_owner = std::move(operation.worker_result_owner);
-    describe_views(operation.candidate_owner, operation.working_views);
-    finish_operation(slot, (retain_candidate(operation) ? EAssetStatus::success : EAssetStatus::allocation_failed));
-}
-
-void CAssetService::complete_texture_decode(const std::int32_t slot) noexcept
-{
-    SOperation& operation = *m_operations.get_object(slot);
-    TextureDecodeResult* const result = operation.worker_result_owner.payload<TextureDecodeResult>();
-    if (result == nullptr)
-    {
-        finish_operation(slot, EAssetStatus::allocation_failed);
-        return;
-    }
-    if (result->status != ETextureStatus::success)
-    {
-        finish_operation(slot, texture_asset_status(result->status));
-        return;
-    }
-    if (!result->texture.view().is_ready())
+    if (!result->texture.buffer.const_view().is_ready())
     {
         finish_operation(slot, EAssetStatus::conditioning_failed);
         return;

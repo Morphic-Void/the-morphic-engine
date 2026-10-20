@@ -25,18 +25,6 @@
 namespace rendering
 {
 
-static ETextureStatus texture_status(const basis_codec::EStatus status) noexcept
-{
-    switch (status)
-    {
-        case basis_codec::EStatus::success: return ETextureStatus::success;
-        case basis_codec::EStatus::invalid_input: return ETextureStatus::invalid_input;
-        case basis_codec::EStatus::unsupported_format: return ETextureStatus::unsupported_format;
-        case basis_codec::EStatus::allocation_failed: return ETextureStatus::allocation_failed;
-        default: return ETextureStatus::codec_failed;
-    }
-}
-
 //  Each record retains a stable job and its Host response until completion.
 //  Batch correlations name rendering records independently of Host slots.
 class CTextureRequests final
@@ -145,24 +133,32 @@ bool CTextureRequests::finish(const std::int32_t slot, const bool executed) noex
 {
     SRequest& pending = *m_requests.get_object(slot);
     threading::CErasedOwnerMsg response = std::move(pending.response);
-    CErasedOwner owner = response.take_owner();
     if (pending.encode)
     {
-        if (TextureEncodeResult* const result = owner.payload<TextureEncodeResult>())
+        if (TextureEncodeResult* const result = response.owner().payload<TextureEncodeResult>())
         {
-            result->status = executed ? texture_status(pending.encode->status()) : ETextureStatus::codec_failed;
+            result->status = executed ? pending.encode->status() : ETextureStatus::codec_failed;
             if (executed) result->texture = pending.encode->take_output();
+            if ((result->status == ETextureStatus::success) && !result->texture.view().is_ready())
+            {
+                MV_LOG(error, "Rendering: encode reported success without usable output at slot {}", response.query_async_slot());
+                result->status = ETextureStatus::codec_failed;
+            }
         }
     }
     if (pending.decode)
     {
-        if (TextureDecodeResult* const result = owner.payload<TextureDecodeResult>())
+        if (TextureDecodeResult* const result = response.owner().payload<TextureDecodeResult>())
         {
-            result->status = executed ? texture_status(pending.decode->status()) : ETextureStatus::codec_failed;
+            result->status = executed ? pending.decode->status() : ETextureStatus::codec_failed;
             if (executed) result->texture = pending.decode->take_output();
+            if ((result->status == ETextureStatus::success) && !result->texture.view().is_ready())
+            {
+                MV_LOG(error, "Rendering: decode reported success without usable output at slot {}", response.query_async_slot());
+                result->status = ETextureStatus::codec_failed;
+            }
         }
     }
-    response.set_owner(std::move(owner));
     (void)m_requests.erase(slot);
     return m_context.post(std::move(response));
 }

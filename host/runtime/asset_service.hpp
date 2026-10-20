@@ -153,6 +153,10 @@ private:
     template<typename TOwner>
     static void describe_views(TOwner& source, AssetResult& result) noexcept;
 
+    template<typename TMessage>
+    [[nodiscard]] bool accept_worker_result(SOperation& operation, threading::CErasedOwnerMsg& message,
+        threading::CThreadPackage& worker, threading::CThreadPackage* const expected_worker) noexcept;
+
     void complete_file_load(const std::int32_t slot) noexcept;
     void begin_conditioning_load(const std::int32_t slot, const CByteConstView bytes) noexcept;
     void complete_bundle(const std::int32_t slot) noexcept;
@@ -160,8 +164,8 @@ private:
     void complete_image_decode(const std::int32_t slot) noexcept;
     void complete_image_encode(const std::int32_t slot) noexcept;
     void complete_document_conditioning(const std::int32_t slot) noexcept;
-    void complete_texture_encode(const std::int32_t slot) noexcept;
-    void complete_texture_decode(const std::int32_t slot) noexcept;
+    template<typename TResult>
+    void complete_texture_result(const std::int32_t slot) noexcept;
 
     struct SBundleControl
     {
