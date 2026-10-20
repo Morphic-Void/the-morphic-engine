@@ -9,6 +9,7 @@
 #include <utility>      //  std::move
 
 #include "debug/macros.hpp"
+#include "system/erased_owner_transfer.hpp"
 #include "system/erased_owner_transport.hpp"
 #include "system/erased_transport_admission.hpp"
 
@@ -56,29 +57,7 @@ bool CErasedOwnerTransport::post(CErasedOwner&& owner) noexcept
         return false;
     }
 
-    memory::CMemoryContext* const transport_context = memory_context();
-    if (!owner.can_reattribute_to(transport_context))
-    {
-        return false;
-    }
-
-    memory::CMemoryContext* const source_context = owner.memory_context();
-    const bool reattributed = owner.reattribute(transport_context);
-    //  Preflight established ownership validity; accounting diagnostics cannot fail this transfer.
-    MV_CRITICAL_ASSERT(reattributed);
-    if (!reattributed)
-    {
-        return false;
-    }
-
-    const bool posted = m_transport.post(std::move(owner));
-    MV_CRITICAL_ASSERT(posted);
-    if (!posted)
-    {
-        const bool restored = owner.reattribute(source_context);
-        MV_CRITICAL_ASSERT(restored);
-    }
-    return posted;
+    return erased_owner_transfer::post(m_transport, std::move(owner), owner);
 }
 
 bool CErasedOwnerTransport::reading_is_valid() const noexcept

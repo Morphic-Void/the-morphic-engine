@@ -450,19 +450,22 @@ See [texture interface storage](../../rendering/interface/texture_data.hpp),
 
 ## Shared transport transfer mechanics
 
-As a separately reviewed follow-on, consider consolidating the common sequence in
+The selected stage 6 change consolidates the common ownership-transfer sequence in
 [direct owner posting](../../core/system/erased_owner_transport.cpp) and
 [owning-message posting](../../core/threading/messages/CErasedOwnerMsgTransport.cpp):
-preflight, capacity checking, source-context capture, reattribution, movement into
-the queue and restoration on failure.
+owner-attribution preflight, source-context capture, reattribution, movement into
+the queue and restoration on failure. The internal
+[`erased_owner_transfer::post`](../../core/system/erased_owner_transfer.hpp)
+helper shares that sequence without introducing transport policies or callbacks.
 
-A small internal helper could centralise that sequence and context compatibility
-checks. Preserve the public wrappers' differences: direct owner transport rejects
-emptiness, while an owning message may legitimately have no owner and has an
-additional message identity to admit. Preserve admission and rejection ordering.
+Admission, transport validity and capacity checks remain in the existing
+wrappers, in their existing order. Direct owner transport rejects emptiness,
+while an owning message may legitimately have no owner and has an additional
+message identity to admit. Recipient-context validation and read-side attribution
+remain unchanged. Unexpected insertion failure retains the critical assertion
+and source-attribution restoration; ordinary failures preserve caller ownership.
 
-The value is a single implementation of an invariant-sensitive algorithm. Avoid
-expanding this into a general transport policy framework.
+The value is a single implementation of an invariant-sensitive algorithm.
 
 ## Contract organisation
 
@@ -850,7 +853,7 @@ of one and two workers. Each ordinary run passed 151 `TextureService`, 989
 `BundleRequests` and 1068 `TextureBatch` checks, alongside the existing ownership,
 document and schema suites. Policy validation reported no errors or warnings;
 text-format and diff checks passed. Linux build/runtime verification remains for
-CI. Stage 6 reductions have not been started.
+CI. Stage 6 progress is recorded below.
 
 ### Stage 6 Select remaining reductions
 
@@ -867,3 +870,27 @@ or unresolved concern. Update implemented contract documentation at closeout.
 Reassess optional reductions as scaffolding and exercise flows are retired while
 preserving the underlying public contracts. The subsequent
 [testing consolidation](testing_framework_consolidation.md) remains separate.
+
+#### Transport consolidation implementation
+
+The reviewed first reduction shares the post-admission ownership-transfer
+sequence through `core/system/erased_owner_transfer.hpp`. Both concrete owning
+transports call it after their existing admission, validity and capacity checks.
+Public interfaces, identities, queue storage and read behaviour are unchanged.
+
+The erased-owner tests additionally check admission diagnostics on full queues,
+empty-message preservation when full, retained hazards and nested-buffer
+attribution, and message preservation on allocator incompatibility. Existing
+tests continue to cover successful transfers, empty completions, LOCAL boundaries
+and accounting diagnostics.
+
+Validation passed in Windows Debug and Release on x64 and Win32: solution builds
+and ordinary suites, including 947 erased-owner checks in each configuration.
+The Debug x64 Host-worker acceptance harness passed shared/dedicated-worker flows
+and startup validation. Policy validation reported no errors or warnings; text
+format and diff checks passed. Linux verification remains for CI.
+
+Byte-payload aggregation remains subject to a separate review. Resource-extraction
+helpers are deferred because the existing transfer handler already shares those
+mechanics. Baked/live wrappers, public transfer identities and distinct texture
+storage representations remain unchanged.

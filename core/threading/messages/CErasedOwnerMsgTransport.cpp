@@ -9,6 +9,7 @@
 #include <utility>      //  std::move
 
 #include "debug/macros.hpp"
+#include "system/erased_owner_transfer.hpp"
 #include "system/erased_transport_admission.hpp"
 #include "threading/messages/CErasedMessageTransports.hpp"
 
@@ -47,7 +48,6 @@ bool CErasedOwnerMsgTransport::post(threading::CErasedOwnerMsg&& msg) noexcept
     }
 
     CErasedOwner& owner = msg.owner();
-    memory::CMemoryContext* source_context = nullptr;
     if (owner.is_ready())
     {
         const erased_transport_admission::SDecision owner_decision =
@@ -65,32 +65,7 @@ bool CErasedOwnerMsgTransport::post(threading::CErasedOwnerMsg&& msg) noexcept
         return false;
     }
 
-    if (owner.is_ready())
-    {
-        memory::CMemoryContext* const transport_context = memory_context();
-        if (!owner.can_reattribute_to(transport_context))
-        {
-            return false;
-        }
-
-        source_context = owner.memory_context();
-        const bool reattributed = owner.reattribute(transport_context);
-        //  Preflight established ownership validity; accounting diagnostics cannot fail this transfer.
-        MV_CRITICAL_ASSERT(reattributed);
-        if (!reattributed)
-        {
-            return false;
-        }
-    }
-
-    const bool posted = m_transport.post(std::move(msg));
-    MV_CRITICAL_ASSERT(posted);
-    if (!posted && owner.is_ready())
-    {
-        const bool restored = owner.reattribute(source_context);
-        MV_CRITICAL_ASSERT(restored);
-    }
-    return posted;
+    return erased_owner_transfer::post(m_transport, std::move(msg), owner);
 }
 
 bool CErasedOwnerMsgTransport::reading_is_valid() const noexcept

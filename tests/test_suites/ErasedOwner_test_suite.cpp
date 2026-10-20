@@ -1060,7 +1060,7 @@ void test_erased_owner_transport_diagnostics(TTestContext& ctx)
     cross_component.deallocate();
 
     threading::transports::CErasedOwnerTransport capacity_transport(
-        module_ids::executable, &transport_context);
+        module_ids::executive, &executive_context);
     TEST_EXPECT(ctx, capacity_transport.initialise(1u));
     const std::uint32_t success_before = service->allocate_incident_id();
     const std::uint32_t capacity = capacity_transport.writable_count();
@@ -1071,8 +1071,23 @@ void test_erased_owner_transport_diagnostics(TTestContext& ctx)
     }
     TEST_EXPECT(ctx, service->allocate_incident_id() == success_before + 1u);
 
+    //  Admission still reports the LOCAL boundary violation when the queue is full.
+    CErasedOwner rejected_full =
+        CErasedOwner::create<test_environment::STestAssetLoadState>();
+    const auto* const rejected_full_payload =
+        rejected_full.payload<test_environment::STestAssetLoadState>();
+    const std::uint32_t rejected_full_before = service->allocate_incident_id();
+    TEST_EXPECT(ctx, !capacity_transport.post(std::move(rejected_full)));
+    TEST_EXPECT(ctx, service->allocate_incident_id() == rejected_full_before + 2u);
+    TEST_EXPECT(ctx, rejected_full.payload<test_environment::STestAssetLoadState>() == rejected_full_payload);
+    TEST_EXPECT(ctx, rejected_full.memory_context() == &producer_context);
+    TEST_EXPECT(ctx, capacity_transport.readable_count() == capacity);
+    rejected_full.destroy();
+
     CErasedOwner retained = CErasedOwner::create<RawAssetTransfer>();
     RawAssetTransfer* const retained_payload = retained.payload<RawAssetTransfer>();
+    TEST_EXPECT(ctx, retained_payload->storage.value.allocate(24u));
+    retained.add_hazard(mount_point_ids::asset);
     memory::CMemoryContext* const retained_context = retained.memory_context();
     const std::uint32_t retained_count =
         producer_context.get_live_allocation_count();
@@ -1083,6 +1098,8 @@ void test_erased_owner_transport_diagnostics(TTestContext& ctx)
     TEST_EXPECT(ctx, service->allocate_incident_id() == capacity_before + 1u);
     TEST_EXPECT(ctx, retained.payload<RawAssetTransfer>() == retained_payload);
     TEST_EXPECT(ctx, retained.memory_context() == retained_context);
+    TEST_EXPECT(ctx, retained.has_hazard(mount_point_ids::asset));
+    TEST_EXPECT(ctx, retained_payload->storage.value.memory_attribution().source == retained_context);
     TEST_EXPECT(ctx, producer_context.get_live_allocation_count() == retained_count);
     TEST_EXPECT(ctx, producer_context.get_live_allocated_bytes() == retained_bytes);
     TEST_EXPECT(ctx, capacity_transport.readable_count() == capacity);
@@ -1357,8 +1374,11 @@ void test_erased_owner_message_transport_diagnostics(TTestContext& ctx)
     TAllocatorState state;
     memory::CMemoryAllocator allocator(
         &state, allocate_test_memory, deallocate_test_memory, system_ids::host);
+    memory::CMemoryAllocator incompatible_allocator(
+        &state, allocate_test_memory, deallocate_test_memory, system_ids::host);
     memory::CMemoryContext producer_context(allocator, system_ids::host);
     memory::CMemoryContext executive_context(allocator, system_ids::executive);
+    memory::CMemoryContext incompatible_context(incompatible_allocator, system_ids::host);
     const TModuleIdScope module_scope(module_ids::executable);
 
     TInstance<debug_system::CDebugServiceState> service_owner =
@@ -1469,11 +1489,39 @@ void test_erased_owner_message_transport_diagnostics(TTestContext& ctx)
         TEST_EXPECT(ctx, capacity_transport.post(std::move(queued)));
     }
 
+    //  Fullness must not mask either message or payload admission diagnostics.
+    const std::uint32_t full_message_before = service->allocate_incident_id();
+    TEST_EXPECT(ctx, !capacity_transport.post(std::move(first_failure_message)));
+    TEST_EXPECT(ctx, service->allocate_incident_id() == full_message_before + 2u);
+    TEST_EXPECT(ctx, first_failure_message.is_message_a<test_environment::CTestRuntime>());
+    TEST_EXPECT(ctx, first_failure_message.query_async_slot() == 113);
+    TEST_EXPECT(ctx, first_failure_message.owner().payload<
+        test_environment::STestAssetLoadState>() == first_failure_payload);
+    const std::uint32_t full_payload_before = service->allocate_incident_id();
+    TEST_EXPECT(ctx, !capacity_transport.post(std::move(rejected_payload_message)));
+    TEST_EXPECT(ctx, service->allocate_incident_id() == full_payload_before + 2u);
+    TEST_EXPECT(ctx, rejected_payload_message.owner().payload<
+        test_environment::STestAssetLoadState>() == rejected_payload);
+    TEST_EXPECT(ctx, rejected_payload_message.owner().memory_context() == rejected_context);
+    TEST_EXPECT(ctx, rejected_payload_message.owner().has_hazard(mount_point_ids::asset));
+
+    threading::CErasedOwnerMsg empty_completion;
+    empty_completion.set_message_type<AssetResult>();
+    empty_completion.set_async_slot(116);
+    const std::uint32_t full_empty_before = service->allocate_incident_id();
+    TEST_EXPECT(ctx, !capacity_transport.post(std::move(empty_completion)));
+    TEST_EXPECT(ctx, service->allocate_incident_id() == full_empty_before + 1u);
+    TEST_EXPECT(ctx, empty_completion.is_message_a<AssetResult>());
+    TEST_EXPECT(ctx, empty_completion.query_async_slot() == 116);
+    TEST_EXPECT(ctx, !empty_completion.has_owner());
+
     threading::CErasedOwnerMsg retained;
     retained.set_message_type<AssetResult>();
     retained.set_async_slot(115);
     CErasedOwner retained_owner = CErasedOwner::create<RawAssetTransfer>();
     RawAssetTransfer* const retained_payload = retained_owner.payload<RawAssetTransfer>();
+    TEST_EXPECT(ctx, retained_payload->storage.value.allocate(24u));
+    retained_owner.add_hazard(mount_point_ids::asset);
     memory::CMemoryContext* const retained_context = retained_owner.memory_context();
     retained.set_owner(std::move(retained_owner));
     const std::uint32_t retained_count =
@@ -1487,10 +1535,40 @@ void test_erased_owner_message_transport_diagnostics(TTestContext& ctx)
     TEST_EXPECT(ctx, retained.query_async_slot() == 115);
     TEST_EXPECT(ctx, retained.owner().payload<RawAssetTransfer>() == retained_payload);
     TEST_EXPECT(ctx, retained.owner().memory_context() == retained_context);
+    TEST_EXPECT(ctx, retained.owner().has_hazard(mount_point_ids::asset));
+    TEST_EXPECT(ctx, retained_payload->storage.value.memory_attribution().source == retained_context);
     TEST_EXPECT(ctx, producer_context.get_live_allocation_count() == retained_count);
     TEST_EXPECT(ctx, producer_context.get_live_allocated_bytes() == retained_bytes);
     TEST_EXPECT(ctx, capacity_transport.readable_count() == capacity);
     retained.owner().destroy();
+    capacity_transport.deallocate();
+
+    TEST_EXPECT(ctx, capacity_transport.initialise(1u));
+    threading::CErasedOwnerMsg incompatible;
+    incompatible.set_message_type<AssetResult>();
+    incompatible.set_async_slot(117);
+    {
+        const TMemoryContextScope incompatible_scope(&incompatible_context);
+        incompatible.set_owner(CErasedOwner::create<RawAssetTransfer>());
+        TEST_EXPECT(ctx, incompatible.owner().payload<RawAssetTransfer>()->storage.value.allocate(24u));
+    }
+    RawAssetTransfer* const incompatible_payload = incompatible.owner().payload<RawAssetTransfer>();
+    incompatible.owner().add_hazard(mount_point_ids::asset);
+    const std::uint32_t incompatible_count = incompatible_context.get_live_allocation_count();
+    const std::uint64_t incompatible_bytes = incompatible_context.get_live_allocated_bytes();
+    const std::uint32_t compatibility_before = service->allocate_incident_id();
+    TEST_EXPECT(ctx, !capacity_transport.post(std::move(incompatible)));
+    TEST_EXPECT(ctx, service->allocate_incident_id() == compatibility_before + 1u);
+    TEST_EXPECT(ctx, incompatible.is_message_a<AssetResult>());
+    TEST_EXPECT(ctx, incompatible.query_async_slot() == 117);
+    TEST_EXPECT(ctx, incompatible.owner().payload<RawAssetTransfer>() == incompatible_payload);
+    TEST_EXPECT(ctx, incompatible.owner().memory_context() == &incompatible_context);
+    TEST_EXPECT(ctx, incompatible_payload->storage.value.memory_attribution().source == &incompatible_context);
+    TEST_EXPECT(ctx, incompatible.owner().has_hazard(mount_point_ids::asset));
+    TEST_EXPECT(ctx, incompatible_context.get_live_allocation_count() == incompatible_count);
+    TEST_EXPECT(ctx, incompatible_context.get_live_allocated_bytes() == incompatible_bytes);
+    TEST_EXPECT(ctx, capacity_transport.readable_count() == 0u);
+    incompatible.owner().destroy();
     capacity_transport.deallocate();
 
     rejected_payload_message.owner().destroy();
@@ -1498,6 +1576,7 @@ void test_erased_owner_message_transport_diagnostics(TTestContext& ctx)
     TEST_EXPECT(ctx, debug_system::uninstall_service(service));
     TEST_EXPECT(ctx, producer_context.is_attribution_empty());
     TEST_EXPECT(ctx, executive_context.is_attribution_empty());
+    TEST_EXPECT(ctx, incompatible_context.is_attribution_empty());
 }
 
 static void test_asset_request_aggregate_attribution(TTestContext& ctx)

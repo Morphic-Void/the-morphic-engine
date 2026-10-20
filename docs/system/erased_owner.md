@@ -213,6 +213,14 @@ reattribution, and queue mutation. A direct owner transport quietly rejects a
 canonical empty owner, and ordinary capacity, allocation, closed-transport, or
 attribution-compatibility failure is not reported as an identity breach.
 
+Both owning wrappers use the internal `erased_owner_transfer::post` helper after
+their admission, validity and capacity checks. It preflights owner attribution,
+captures the source context, reattributes to the transport and posts the complete
+value. An unexpected queue rejection triggers the existing critical assertion
+and restores the source attribution if execution continues. The caller retains
+ownership on failure. Empty messages skip attribution; the direct owner wrapper
+rejects emptiness before calling the helper.
+
 On successful post:
 
 - readiness, writable capacity, and source compatibility are checked before

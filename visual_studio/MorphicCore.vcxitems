@@ -95,6 +95,7 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\system\async_state.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\system\erased_owner_operations.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\system\erased_owner_registration.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\system\erased_owner_transfer.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\system\erased_owner_transport.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\system\erased_owner.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\system\erased_pod.hpp" />
