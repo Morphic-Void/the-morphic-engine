@@ -81,10 +81,6 @@ bool CGenerator::run(CByteBuffer& output) noexcept
     {
         return fail(EReason::invalid_identifier);
     }
-    if (m_schema.definition_count() > SIZE_MAX / sizeof(std::uint8_t))
-    {
-        return fail(EReason::storage_limit);
-    }
     for (std::uint32_t definition_ordinal = 0u; definition_ordinal < m_schema.definition_count(); ++definition_ordinal)
     {
         if (!m_emitted.push_back(std::uint8_t{}))
