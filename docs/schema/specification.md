@@ -16,11 +16,11 @@ the authoring example.
 Future work and unresolved proposals live in the
 [follow-on notes](../backlog/schema_follow_on.md), not in this specification.
 Completed delivery history is summarised in the
-[project milestones](../project/completed_milestones.md#schema-system-and-refinement).
+[project milestones](../project/completed_milestones.md#schema-delivery-status).
 
 Persistence supplies shared diagnostics and validation of the version 1
 instance/bulk data file envelope described in the
-[revision](persistence-and-aggregation.md#agreed-version-1-persistence-format).
+[persistence contract](persistence-and-aggregation.md#agreed-version-1-persistence-format).
 `CBakedInstancesBlock` and `CBakedBulkDataBlock` own or borrow complete
 document-plus-binary storage without retaining a schema or typed role. Envelope
 validation precedes storage publication. Typed instance/bulk data roles borrow

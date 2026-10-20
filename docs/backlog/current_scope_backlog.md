@@ -1,6 +1,6 @@
 # Current scope
 
-Updated 17 October 2026. The selected consolidation is complete, including
+Updated 20 October 2026. The selected consolidation is complete, including
 the rendering DLL stub and Executive-controlled startup in `f91ded3`.
 The subsequent development filesystem-image stage is complete and accepted,
 including the first-pass review corrections. See the
@@ -28,69 +28,34 @@ reports in every build without breakpoint or shutdown effects. The agreed
 contract in the [debug interface](../debug/debug_system_interface.md#mv_assert_reportformat_literal-).
 Low-level submission tests remain direct; no broader macro family is selected.
 
-## Next work
+## Schema closeout and next work
 
-The schema system is implemented, including live/baked roles, resolution,
-generated declarations, loading, editing, output, remapping and unused-storage
-clearing. Its review follow-ups include singular input and binary-authoritative
-document reconciliation, indexed lookup and remap setup, baking with optional
-value stripping, shared scalar decoding and document-copy construction. The
-organisation, conditional/parameter and style/comment tidying phase is complete
-through `db82da7`. The subsequent performance pass completes inline query
-forwarding, retained physical-member ordering for clearing/generation and sorted
-explicit-layout overlap checking. The
-[schema milestone](../project/completed_milestones.md#schema-system-and-refinement)
-records completion; the [validation guide](../schema/validation.md) describes checks.
+The schema persistence and aggregation work is complete, user-reviewed and
+committed through `aa90b9a`, followed by the separately requested buffer growth
+and reserve correction in `78fcfaf`. Delivered capabilities include:
 
-Integer presentation is implemented in the data model and applied by canonical
-schema output and instance/bulk data reconstruction. All eight instance/bulk data
-persistence stages are complete, user-reviewed and committed through `dfe076d`,
-including Host complete-buffer preservation and new-payload gap zeroing. The
-[persistence milestone](../project/completed_milestones.md#schema-instance-and-bulk-data-persistence)
-records delivery and validation; the completed implementation plan is retired.
-The subsequent [role and construction rework](../project/completed_milestones.md#schema-role-attachment-and-construction)
-is implemented and validated: blocks are schema-independent storage, data roles
-attach atomically and support checked/trusted switching without changing binary
-data. Resolved schema lookup is indexed, controlled document construction avoids
-repeated attachment checks, and reconciliation compares/emits in one traversal
-with a separate final fidelity check. Full baked promotion preloads strings in
-lexical order; arbitrary-order string insertion and per-edit record-tail scans
-remain documented costs.
-The [schema follow-on notes](schema_follow_on.md) preserve the next design discussion:
-fp16 conversion, related C++/shader representations, simple trait-based
-serialisation, selectable declaration output, aggregation/composition and
-source ingestion. Type-schema merging is implemented:
-absent defaults yield to explicit defaults, with conflicting supplied values
-rejected. Each type-schema input must independently resolve; merging preserves
-original declarations/presentation and compatible resolved layout. Two read-only
-document views produce an independently owned, validated live document, with
-schema adoption and baking separate. Data merging uses document-only working
-form; stripped instances are promoted against their original schema before
-merging, and binary is later constructed using the merged schema. The
-[revision](../schema/persistence-and-aggregation.md#next-discussion-shared-schema-aggregation)
-records agreed merge contracts and remaining interface decisions. The type-schema
-merge signature, structured diagnostics and staged move publication are implemented;
-see the [runtime API](../schema/runtime-api.md#type-schema-merging) and
-[completed plan](../project/type_schema_merge_implementation_plan.md).
-Prepared instance/bulk data aggregation is implemented with existing query views,
-one resolved schema, independent live output and staged publication. Validation
-shares construction admission, visits supplied declarations without disposable
-binary, and retains cheap depth checks; implicit depth failures remain with later
-construction. The [runtime API](../schema/runtime-api.md#instance-and-bulk-data-aggregation)
-and [completed plan](../project/data_aggregation_implementation_plan.md) record the
-contracts. The [preparation interfaces and policies](../schema/persistence-and-aggregation.md#agreed-document-preparation-interfaces)
-are implemented: original-schema reconstruction, whole-entry bulk
-preparation, selected-section extraction, explicit retained/binary comparison and
-transactional document-only output. Embedded types and sibling values do not
-influence extraction. The [composition contract](../schema/persistence-and-aggregation.md#complete-document-composition)
-also implements three types-required overloads, prepared single-domain inputs,
-diagnostics and staged publication after one resolution and validation of each
-supplied data domain. Their [joint implementation plan](../project/document_preparation_composition_implementation_plan.md)
-incorporates review corrections and the [agreed storage-metadata admission](../schema/persistence-and-aggregation.md#agreed-preparation-storage-metadata-admission):
-descriptions/placeholders may stand alone, while valid locators and envelope
-claims require an explicit package. See the [delivery record](../project/completed_milestones.md#document-preparation-and-composition).
-General document object-child indexing and persistent live cursors remain
-deferred. The completed consolidation does not authorise further implementation.
+- schema-independent document/payload blocks and explicit live/baked role attachment;
+- checked/trusted schema switching that preserves existing binary storage;
+- type-schema merging with independent input validation and explicit-default rules;
+- prepared instance/specialisation and bulk-prefix merging;
+- original-schema preparation of retained or stripped data into document-only form;
+- composition of types with one or both prepared data domains;
+- shared validation, reconstruction, sorted string preparation and pre-allocation.
+
+The [schema guide](../schema/README.md) describes current use and contracts.
+The [delivery record](../project/completed_milestones.md#schema-delivery-status)
+holds commit checkpoints and validation; the completed plans are retired.
+No merge, preparation or composition implementation stage remains open.
+
+The [schema follow-on notes](schema_follow_on.md) retain unselected discussions:
+typed serialisation, related C++/shader representations and conversion, selectable
+declaration generation, source ingestion, editor consumers and optional combined
+orchestration. Remaining container/string/editing costs are distinguished from
+the completed buffer correction. General object-child indexing and persistent
+live cursors are separate data-model work. No next schema implementation is
+selected by this documentation closeout.
+
+## Other future work
 
 Vulkan is the primary rendering API planned for first implementation; DirectX
 is deferred. The current rendering DLL only waits for an exit request.

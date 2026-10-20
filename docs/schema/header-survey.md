@@ -69,13 +69,16 @@ imply that every representable API record belongs in the model: its primary targ
 configuration and selected physical asset/upload records. Renderer descriptors
 and reflection objects are deliberately allowed to remain outside it.
 
-The material gaps are:
+The survey identified the following representational boundaries and possible
+ingestion decisions. Unions, raw-byte/blob fields and opaque handles/pointers
+are excluded from the current schema contract; they are not unfinished features
+or requirements to extend it.
 
-- A discriminated union type, or an explicit policy to model each alternative
-  as a separate schema. If supported, it needs storage size/alignment, named
+- A discriminated union type is unsupported; separate logical schemas can model
+  its alternatives. Any future union support would need storage size/alignment, named
   alternatives, optional active-tag association, and construction/JSON rules.
-  Anonymous unions need a stable generated or author-supplied name.
-- A raw-byte/blob field and opaque handles/pointers, or a clear exclusion.
+  Ingesting anonymous unions would also need stable generated or author-supplied names.
+- Raw-byte/blob fields and opaque handles/pointers remain excluded.
   `D3D12_SHADER_BYTECODE` (`d3d12.h`: 2196--2200) is a compact example: a
   pointer plus host-size length is an API descriptor, not portable instance
   data.
@@ -89,7 +92,7 @@ The material gaps are:
   pointers, SAL annotations, macro-selected branches, anonymous members,
   inheritance, and C++ methods/conversions.
 
-## Requirements for constrained header ingestion
+## Candidate policies for constrained header ingestion
 
 The earlier ingestion direction is preserved in the
 [follow-on notes](../backlog/schema_follow_on.md#constrained-direct-file-workflow): a
@@ -100,9 +103,11 @@ does not require a preprocessed header view. The SDK cases below are later
 coverage candidates, not a requirement to support complex headers in the first
 implementation.
 
-Ingestion remains limited to explicitly selected configuration or physical-data
-types; name/purpose extraction has a separate, less ambitious path. When the
-corresponding declaration forms are supported, it should:
+The proposed ingestion scope is limited to explicitly selected configuration or
+physical-data types; name/purpose extraction is a separate, less ambitious option.
+The following policies are candidates for a future consumer-driven design, not
+agreed implementation requirements. If the corresponding declaration forms are
+selected, the importer could:
 
 1. Accept selected named C-style `struct`/`enum` declarations and
    fixed-bound arrays after typedef resolution.

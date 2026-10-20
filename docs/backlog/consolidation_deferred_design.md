@@ -21,12 +21,13 @@ resolution, DLL redirect, queued root refresh and cache associations are now
 complete and accepted, including the first-pass review corrections.
 [Completed milestones](../project/completed_milestones.md) records the checkpoints.
 
-The [schema system](../schema/README.md) and its review, consolidation and tidying
-follow-ups are also complete through `db82da7`, including binary-authoritative
-reconciliation and baking with optional value stripping. Shared scalar decoding
-and document-copy construction are implemented; their completion does not select
-new consumers or the separate discussions in the
-[schema follow-on notes](schema_follow_on.md).
+The [schema system](../schema/README.md) now includes completed persistence,
+schema-independent blocks and role attachment/switching, type/data merging,
+original-schema preparation and complete-document composition. Its
+[delivery record](../project/completed_milestones.md#schema-delivery-status)
+records reviewed checkpoints through `aa90b9a` and the subsequent buffer correction
+in `78fcfaf`. Completion does not select new consumers or the separate discussions
+in the [schema follow-on notes](schema_follow_on.md).
 
 The [asset service](../assets/asynchronous_asset_services.md) supports retained
 transfers, one-shot transfer/conditioning/save and saves by ID. Retained assets

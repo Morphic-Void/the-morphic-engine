@@ -12,9 +12,10 @@ The [specification](specification.md) defines behaviour and the
 observable results, failure boundaries and generated layout fidelity. Private
 record organisation is not a public ABI or a substitute for those checks.
 
-The [preparation/composition milestone](../project/completed_milestones.md#document-preparation-and-composition)
-records the latest validation checkpoint. Earlier milestones retain their
-historical counts.
+The [schema delivery record](../project/completed_milestones.md#schema-delivery-status)
+records validation checkpoints, including the subsequent buffer correction and
+its all-configuration regression runs. Earlier milestones retain their historical
+counts; local build logs are evidence paths, not checked-in test dependencies.
 
 ## Document preparation and composition coverage
 
@@ -42,10 +43,17 @@ again and constructs values through the existing codec, verifying default adopti
 retained explicit defaults, stripped specialisations and complete bulk records.
 Unrelated sibling growth and omitted array extent do not change allocation counts
 or bytes. Geometric repeated-type fixtures exercise internal arrays, reverse names
-and sorted preload. Existing capped shared-container growth still increases total
-backing allocation bytes; this is a separately agreed follow-up, not a claimed
-linear end-to-end allocation result. See the
-[delivery evidence](../project/document_preparation_composition_implementation_plan.md#delivery-and-verification--19-october-2026).
+and sorted preload. Reserved string imports and copied live/baked subtrees have
+no-further-allocation checks. A parent with 64 specialisations and a following base
+sibling exercises failure of a later batch reservation for empty, occupied and
+source-aliased destinations, then eventual complete output.
+
+The buffer growth cap and reserve correction are complete, with original
+pointer-based append lazy initialisation preserved. Existing capped container
+growth and reconstruction beyond known capacity still prevent a claimed linear
+end-to-end allocation bound. See the
+[preparation evidence](../project/completed_milestones.md#document-preparation-and-composition)
+and [buffer checkpoint](../project/completed_milestones.md#buffer-growth-and-reservation).
 
 ## Instance and bulk data aggregation coverage
 

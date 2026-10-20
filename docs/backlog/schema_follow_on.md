@@ -4,16 +4,26 @@ License: MIT (see LICENSE file in repository root)
 File:   schema_follow_on.md
 Author: Ritchie Brannan
 Drafting and editorial assistance: OpenAI Codex
-Date:   4 Oct 2026
+Date:   20 Oct 2026
 
 # Schema follow-on work
 
 These notes preserve future direction separately from the implemented
 [specification](../schema/specification.md) and [runtime API](../schema/runtime-api.md).
 They are discussion inputs, not an implementation plan or authority to begin work.
-The follow-on coordinator chat will settle design, scope and sequencing before
-assigning implementation. Earlier proposals must be reassessed against current
-code and the user's more recent direction.
+Further work requires explicit selection of design, scope and sequencing.
+Earlier proposals must be reassessed against current code and the user's more
+recent direction.
+
+Selection and priority will follow the progression and concrete needs of other
+systems. The suggestions below are possible responses to those needs, not a
+standalone schema completion programme.
+
+Persistence, schema-independent blocks and role attachment/switching, type/data
+merging, document preparation and composition are complete and committed.
+The [delivery record](../project/completed_milestones.md#schema-delivery-status)
+owns history and verification; the [persistence and aggregation contract](../schema/persistence-and-aggregation.md)
+owns implemented behaviour. This backlog does not repeat those completed plans.
 
 ## Direction discussed on 4 October 2026
 
@@ -66,189 +76,51 @@ selection/order, duplicate handling and the boundary between generation options
 and representation metadata remain to be designed. Existing generation emits a
 complete C++17 buffer; the more selective interface is not implemented.
 
-### Document and binary packaging
+## Optional extensions to completed aggregation and persistence
 
-Persistence, type/data merging, document preparation and composition are implemented.
+The separate preparation, merge, composition and binary-construction APIs are
+implemented. A combined convenience operation could stage several of them as one
+transaction, but no interface is selected. Such a design must settle diagnostic
+locations when intermediate prepared documents are private, the lifetime of
+original schemas, and whether later construction failure discards the whole
+operation. Standalone calls need no persistent provenance map.
 
-The [persistence and aggregation revision](../schema/persistence-and-aggregation.md)
-records the completed persistence direction and implemented aggregation design
-agreements. Shared type definitions remain
-separately associated with independently created data. A baked instance document
-and its binary payload form one persistence entity, as do a baked bulk data document
-and its payload. The implemented bundle system supplies combined loading where
-needed; a combined types/instances/bulk data file is not the mandatory normal form.
+Live baking already copies records directly into final payload storage.
+Description materialisation still uses temporary payload storage; direct final
+storage there is an optional optimisation. Selected type-definition subsets may
+also help some consumers, but require a concrete need and dependency/ordering
+policy. Persisted document size, resolved metadata and lookup costs are distinct.
 
-Definition merging, instance aggregation and bulk data aggregation have separate
-responsibilities. Complete document composition assembles already reconciled
-sections and does not resolve collisions. The revision now includes the agreed
-version 1 persistence format with schema-independent block validation and
-separate role attachment to authoritative binary data, with opt-in retained-value
-comparison. Callers supply the role's schema without compatibility signatures;
-`CBakedInstancesBlock`/`CBakedBulkDataBlock` manage local or Host backing without
-holding that association. It also records live baking, description
-materialisation and document-promotion stripping interfaces, with contiguous
-completed blocks and private staged construction permitted. Live baking now
-writes records directly into the final allocation; description
-materialisation still uses temporary payload storage. Host loading, admission
-and saving preserve the full buffer while exposing a separate document-prefix
-view. Explicit bundle saves write current storage; automatic bundle persistence
-and writes to bundle entries are outside scope. Layered diagnostic contracts
-distinguish storage-format, role attachment and construction failures, with
-explicit location lifetime rules. Materialisation
-is all or nothing, and parsing is followed by explicit caller-side construction
-and optional Host admission/save. Implemented diagnostic representation is
-documented in the [runtime API](../schema/runtime-api.md#completed-data-blocks);
-aggregation contracts remain active design work in the revision.
-Schema baking supports both the existing separate document/payload owners and
-the new completed-block overloads.
-
-All eight persistence stages are complete, user-reviewed and committed, ending
-with stage 8 and gap zeroing in `dfe076d`. Newly created payload gaps are zeroed;
-loading, saving and stripping preserve existing payload bytes. The
-[persistence milestone](../project/completed_milestones.md#schema-instance-and-bulk-data-persistence)
-records delivery and validation evidence; the implementation plan is retired.
-The completed naming pass standardised "bulk data" and `BulkData`/`bulk_data`
-without compatibility aliases. The
-[revision](../schema/persistence-and-aggregation.md#agreed-bulk-data-terminology-and-standardisation-pass)
-retains the naming convention and migration mapping.
-
-### Aggregation and composition delivery
-
-Type-schema merging was implemented on 18 October. A missing explicit
-default expresses no merge preference and yields to an explicit default;
-conflicting supplied defaults fail. Preserve the established scalar, array and
-presentation-merging rules, and validate type layout and interpretation.
-
-Each type-schema input must independently resolve. Equivalent natural and explicit
-layouts are accepted, but layout-changing alignment, member/enum order and
-referenced type identity remain significant. Merge original declarations and
-presentation rather than normalised resolver output. References remain names;
-final resolution establishes the result's own identities. The selected interface
-shape is two existing read-only document views and an independently owned,
-validated live document result. Adoption into a schema owner and baking remain
-separate operations, preserving existing bound-owner replacement restrictions.
-The implemented `merge_type_schemas` function uses stage/reason diagnostics, original
-source locations for conflicts and resolver detail for validation failures.
-It constructs and validates a private live document, then publishes through the
-existing non-failing move assignment. Occupied destinations and source/destination
-aliasing are supported; the same document may supply both sources under the
-ordinary rules. Diagnostics never retain temporary-result handles. See the
-[interface and diagnostics](../schema/persistence-and-aggregation.md#agreed-type-schema-merge-function-and-diagnostics)
-and [publication mechanism](../schema/persistence-and-aggregation.md#agreed-type-schema-transactional-publication).
-
-Instance and bulk data merging now use document-only working input/output, with
-other forms converted at the boundary. Retained instance declarations contribute
-directly. Promote stripped instances against their original schema, recovering
-only differences from defaults or the immediate parent, before dropping binary
-from the working representation. Reconstruct missing bulk data descriptions as
-complete records. Later binary construction uses the merged schema and
-declarations, so adopted defaults and merged parent declarations may intentionally
-change instance values. Stripped data cannot recover lost explicit default-equal
-selections or presentation. Source storage remains unchanged.
-
-Recursive specialisations, bulk data prefix matching, transactional replacement,
-presentation merging and first-encounter ordering remain. The former binary
-snapshot equality rule, matching-form output selector, literal same-owner source
-precondition and specialised-role overload matrix are superseded. Type-schema
-merging is complete; see the [runtime API](../schema/runtime-api.md#type-schema-merging)
-and [completed plan](../project/type_schema_merge_implementation_plan.md).
-Prepared data aggregation is implemented through `merge_instances` and
-`merge_bulk_data`: existing query views, one resolved merged schema, independent
-live output and typed diagnostics. Both sources and private output validate before
-non-failing publication. Complementary declaration validation shares construction
-admission without allocating disposable binary; document construction reuses the
-type merger. Strict prepared roots and the schema-backing destination guard apply.
-Cheap explicit depth checks remain, while implicit failures belong to later binary
-construction. See the [runtime API](../schema/runtime-api.md#instance-and-bulk-data-aggregation)
-and [completed plan](../project/data_aggregation_implementation_plan.md).
-
-The [19 October preparation contract](../schema/persistence-and-aggregation.md#agreed-document-preparation-interfaces)
-agrees document-only and supplied-binary overloads of `prepare_instances_document`
-and `prepare_bulk_data_document`, with typed preparation diagnostics and staged
-publication. Preparation is implemented. It preserves retained descriptions,
-reconstructs stripped instances against their original schema and reconstructs
-bulk records only when an entire entry description is absent. Present incomplete
-records and count mismatches fail. Optional retained/binary comparison is explicit.
-Selected-section extraction validates applicable metadata before removing it;
-embedded types and sibling section values never influence the result. The supplied
-source schema is the sole authority. Conversion publishes caller-owned documents;
-its diagnostics remain separate, and merge locations borrow prepared inputs.
-The [joint preparation/composition implementation plan](../project/document_preparation_composition_implementation_plan.md)
-incorporates the review corrections, with preparation delivered first. The
-[storage-metadata admission rules](../schema/persistence-and-aggregation.md#agreed-preparation-storage-metadata-admission)
-are agreed: descriptions and unbound placeholders may stand alone; valid locators
-or completed-envelope claims require an explicit package. Partial envelopes fail,
-and extraction does not relax the existing persisted-file root whitelist.
-Implemented schema
-switching still preserves binary data; document merging and subsequent
-construction are separate operations.
-
-The [composition contract](../schema/persistence-and-aggregation.md#complete-document-composition)
-is implemented. Three `compose_document` overloads require a types
-document and instances, bulk data, or both. Inputs are prepared single-domain
-documents; output copies sections in types/instances/data order, preserving
-contents and presentation. Resolve supplied types once, validate each data domain
-against that resolution, then copy privately and publish by non-failing move.
-There is no repeated result resolution/semantic validation, binary construction
-or collision resolution. Typed diagnostics borrow source locations; occupied and
-source-aliased destinations are supported. The [delivery record](../project/completed_milestones.md#document-preparation-and-composition)
-records verification. Combined orchestration remains separate design work.
-
-Direct final storage for description materialisation and selected type-definition
-subsets remain optional optimisations. Compatibility signatures, persisted resolved
-lookups, automatic bundle persistence and bundle-entry writes were excluded from
-the completed persistence scope; they are not outstanding completion requirements.
+Compatibility signatures, persisted resolved lookups, automatic bundle
+persistence and bundle-entry writes were excluded from the delivered scope.
+They are not outstanding completion requirements or authorised follow-up tasks.
+Bundles already package separate files for combined loading; composition does
+not impose a mandatory combined schema/data persistence unit.
 
 ### Shared-container growth during document construction
 
-Recorded on 19 October 2026 during preparation/composition verification. The user
-explicitly chose a separate follow-up rather than broadening that implementation.
-`memory::vector_growth_policy` caps capacity increments at 1,024 elements and is
-used by `TPodVector` and ordered/unordered slot backing; buffer growth is also
-capped. Repeated incremental growth therefore reallocates/copies increasing backing
-ranges and can produce quadratic cumulative allocation/copying costs at large sizes.
-This is independent of sorted string-index insertion and semantic traversal.
+The separately requested buffer investigation is complete in `78fcfaf`: the
+temporary 4 KiB cap is restored to 64 KiB, and reserve avoids growth when capacity
+already satisfies the request and 4 KiB floor. Lazy initialisation is preserved.
+Vector growth policy is unchanged. The
+[buffer milestone](../project/completed_milestones.md#buffer-growth-and-reservation)
+records tests and single-buffer allocation measurements; the
+[preparation milestone](../project/completed_milestones.md#document-preparation-and-composition)
+records pre-allocation improvements and aggregate document-construction measurements.
 
-The x64 fixture prepares reference-only bulk entries of one internal-array/enum
-type, then composes them with types. Subsequent, separately authorised capacity
-planning reserves fresh string domains, copied nodes, known structural nodes and
-preparation sibling batches. At 2,048 entries it reduces preparation/composition
-allocation requests from 190/201 to 73/57 and combined requested bytes from
-33,568,064 to 16,385,536. These are aggregate requests across all containers, including
-replaced allocations, not a single container's growth trace, peak memory or measured
-copied bytes. Reserved string imports and copied-subtree emission now have explicit
-no-further-allocation tests. Reconstruction beyond the structural minimum still grows.
-Unrelated sibling growth and omitted sparse array extent produce no extra allocations.
+Remaining investigation, if selected, is whether geometric growth suits transient
+vectors or document slot storage. `vector_growth_policy` caps capacity increments
+at 1,024 elements; buffers retain a 64 KiB cap. Repeated unreserved incremental
+growth of contiguous storage can still accumulate quadratic copying at large sizes.
+Bulk reservation can jump directly to a known capacity, and schema operations
+already reserve distinct string storage, copied/known structural nodes and
+preparation sibling batches. Reconstruction beyond known capacity still grows.
 
-The separately authorised buffer correction restores the declared 65,536-byte cap
-while retaining the 4,096-byte minimum. The 4 KiB cap introduced in `4afec1e` was a
-deliberate temporary test setting that was unintentionally left in place.
-Buffer reserve now applies growth policy only when capacity is insufficient for
-the request or the 4 KiB minimum, while retaining alignment upgrades and failure
-preservation. Reserving zero and pointer-based zero-length appends with non-null
-data establish that minimum capacity for lazy initialisation. Null-source and
-size-only zero-length appends retain their existing no-allocation behaviour.
-Vector policy is unchanged.
-Bulk reservation can jump directly to a known capacity; incremental growth caps do
-not force a series of small reserve calls. Exact capacity at or above the minimum
-can also be filled without premature growth. See
-[buffer growth operations](../containers/ByteBuffers.md#growth-operations).
-
-Focused allocation, alignment, minimum-reservation, zero-length append and
-failure-preservation tests pass in
-Debug/Release x64 and Win32, together with all ordinary `-t1` suites. A single
-buffer filled to 1 MiB uses 25, 21, 9 and 1 allocations for append sizes of one
-byte, 4 KiB, 64 KiB and 1 MiB respectively; exact and rounded pre-reservation
-both permit filling without further allocation. Logs are
-`build/buffer-append-restore-{debug64,debug32,release64,release32}-{build,tests}.log`.
-
-Review whether geometric growth is appropriate for remaining transient vectors or
-document slot storage, considering individual and bulk operations separately.
-Compare time, cumulative copied bytes and peak retained capacity; preserve existing
-resource ceilings, allocation-failure guarantees and stable identities. Do not add
-schema-depth or reconstruction preflights simply to predict exact node counts.
-Any shared growth-policy change needs separate agreement and container/data-model
-regressions, not an incidental change to the preparation API.
+Compare individual and bulk operations, existing reserve/exact-allocation paths,
+cumulative copied bytes and peak retained capacity. Preserve resource ceilings,
+allocation-failure guarantees and stable identities. Container policy changes
+need separate agreement; do not add schema-depth or reconstruction preflights
+solely to predict exact node counts.
 
 ## Earlier source-ingestion direction
 
@@ -376,28 +248,22 @@ repeated access. Combining the distinct
 subtree-copy and whole-document-promotion traversals is not selected; their
 shared value construction is already implemented.
 
-## Completed construction refinements and remaining costs
+## Remaining construction and editing costs
 
-Native copying, promotion and controlled schema/role construction now use a
-private attachment path which skips sibling-name and ancestry scans already
-made redundant by source/schema invariants. Ordinary editing and arbitrary
-reader adapters retain checked attachment. Copies reuse same-document string
-IDs or temporary mappings containing only copied IDs. Whole baked promotion
-preloads string domains in lexical order, avoiding sorted-index shifts.
+The [role/construction milestone](../project/completed_milestones.md#schema-role-attachment-and-construction)
+records controlled attachment, string-ID reuse, lexical preload for whole baked
+promotion and single-pass reconciliation with a separate final fidelity check.
+Schema merge, preparation and composition now preload selected/generated strings
+and reserve cheaply known storage through their shared construction helper.
 
-Instance reconciliation now compares and emits in one traversal with stack-local
-lazy containers and pending array prefixes. It retains minimal declarations and
-shortest prefixes without aggregate-wide re-comparison. The final binary-fidelity
-check remains a separate bounded traversal.
+Distinct strings inserted in arbitrary order through ordinary editing can still
+shift a quadratic total of sorted-index entries. General selected-copy paths use
+only relevant string IDs; broader preloading there would need to justify its
+temporary planning cost for small copies. This is separate from the completed
+schema-operation preload.
 
-These changes are implemented and validated; the
-[role and construction milestone](../project/completed_milestones.md#schema-role-attachment-and-construction)
-records their completion and checks.
-
-Distinct strings admitted in arbitrary order still shift the string table's
-sorted index. Extending preloading to selected copies or mixed generated output
-would need to balance temporary planning/storage against the selected size.
-Live instance edits currently stage by scanning the record tail even when only
-a small descendant subtree is affected; that scan is linear per edit but could
-be restricted to the affected subtree. Neither requires changes to schema
-attachment or switching.
+Live instance edits stage by scanning the record tail even when only a small
+descendant subtree is affected. That scan is linear per edit and could be limited
+to the affected subtree. Neither potential optimisation requires changes to schema
+attachment or switching. General document object-child indexing and persistent
+live cursors remain separate [data-model follow-ons](engine_backlog.md#data-model-follow-ons).

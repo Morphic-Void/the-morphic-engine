@@ -12,7 +12,8 @@ or that work has been authorised.
   parsing/reporting and baked storage format.
 - [Schema system](schema/README.md): live/baked schema and data roles, resolution,
   schema-independent persistence blocks, attachment/switching, generated
-  declarations, editing, reconciliation, output, remapping and unused storage.
+  declarations, editing, reconciliation, output, remapping, unused-storage clearing,
+  type/data merging, document preparation and composition.
 - [Image view](image/image_view.md): drawing, copying, access and TGA metadata.
 - [Asynchronous asset services](assets/asynchronous_asset_services.md): requests,
   ownership, conditioning, results, diagnostics and disposal.
@@ -44,7 +45,8 @@ or that work has been authorised.
   and [filesystem limitations and future considerations](backlog/filesystem_asset_mapping.md).
 - [Schema source-ingestion survey](schema/header-survey.md).
 - [Schema follow-on work](backlog/schema_follow_on.md): conversion, related
-  representations, typed serialisation, generation, aggregation and ingestion.
+  representations, typed serialisation, selectable generation, ingestion and
+  optional orchestration beyond the completed aggregation APIs.
 - [Future work notes](project/future_work_notes.md).
 
 ## Rationale and project record

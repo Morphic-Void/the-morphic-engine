@@ -97,45 +97,21 @@ do not implement these general document lookup or cursor facilities.
 Qualify numeric conversion on additional supported standard-library toolchains
 using the existing boundary and round-trip corpus.
 
-The [schema system](../schema/README.md) implements document-based definitions,
-resolution, C++ declaration generation, live/baked instance and bulk data,
-output and remapping. Its review repairs, binary-authoritative reconciliation,
-optional stripped baking, lookup/remap improvements, scalar/document-copy
-consolidation and five-part tidying phase are complete through `db82da7`.
-The subsequent performance pass completes inline query forwarding, shared
-physical-member ordering and sorted explicit-layout overlap checking. Canonical
-schema output and data-role reconstruction now apply the data model's integer
-presentation modes. All eight
-instance/bulk data persistence stages are complete and user-reviewed through
-`dfe076d`, including complete-buffer Host persistence and new-payload gap zeroing.
-The [persistence milestone](../project/completed_milestones.md#schema-instance-and-bulk-data-persistence)
-records delivery and validation; its completed implementation plan is retired.
-The [17 October role and construction rework](../project/completed_milestones.md#schema-role-attachment-and-construction)
-separates block storage from schema-bound data roles and implements atomic
-attachment plus checked/trusted switching over unchanged binary packages.
-Resolved type/member/field/enum indexes, temporary neighbour cursors, controlled
-construction, string-ID reuse and single-pass reconciliation remove repeated
-lookup, attachment and aggregate-comparison work. Full baked promotion preloads
-string domains lexically. Arbitrary-order string insertion and linear per-edit
-record-tail staging remain follow-on costs recorded in the notes.
-Remaining discussions cover conversion, related representations,
-typed serialisation, selectable generation, convenience orchestration and source
-ingestion, as recorded in the
-[schema follow-on notes](schema_follow_on.md).
-Type-schema merging was implemented on 18 October, with absent
-defaults yielding to explicit defaults. Independently valid type-schema document
-views merge into a validated live document, preserving original presentation and
-compatible resolved layout; schema adoption and baking are separate. Data merging
-uses document-only working input/output; stripped instances are promoted against
-their original schema, then merged declarations are constructed using the merged
-schema. The type-schema merge function, diagnostics and staged move publication
-are implemented. Prepared data aggregation, original-schema preparation and
-types-required document composition are also implemented, replacing the earlier
-binary-snapshot aggregation and matching-form interface proposal. Shared-container
-growth remains a separately agreed follow-up. The
-[completed type-schema merge plan](../project/type_schema_merge_implementation_plan.md)
-records the reviewed scope; current behaviour is in the
-[runtime API](../schema/runtime-api.md#type-schema-merging).
+The [schema system](../schema/README.md) includes resolution, generation,
+live/baked roles, persistence, binary-authoritative reconciliation, exact-type
+remapping and explicit unused-storage clearing. Schema-independent blocks,
+atomic attachment and checked/trusted switching are complete. Type-schema merging,
+prepared instance/bulk merging, original-schema preparation and types-required
+composition are user-reviewed and committed through `aa90b9a`. The separate
+buffer cap/reserve correction is complete in `78fcfaf`; vector policy is unchanged.
+The [delivery record](../project/completed_milestones.md#schema-delivery-status)
+contains milestones and validation, with completed plans retired.
+
+Remaining discussions cover conversion and related representations, typed
+serialisation, selectable generation, convenience orchestration and source
+ingestion. Remaining costs include arbitrary-order string insertion, record-tail
+staging per edit and capped growth beyond reserved capacity. Scope and constraints
+are in the [schema follow-on notes](schema_follow_on.md).
 Configuration, localisation, state capture/reconstruction and graphics metadata
 remain potential consumers, to be selected as separate work.
 

@@ -18,12 +18,63 @@ Permanent behavior and architectural contracts belong in the subsystem
 documents linked from each milestone. Current and future work belongs in
 `future_work_notes.md` and the backlog.
 
+## Schema delivery status
+
+As of 20 October 2026, persistence, role attachment/switching, type-schema merging,
+instance/bulk data merging, document preparation and complete document composition
+are implemented, user-reviewed and committed. The completed implementation plans
+are retired; their reviewed history remains in Git. Current contracts are in the
+[schema guide](../schema/README.md), with unresolved work confined to the
+[follow-on notes](../backlog/schema_follow_on.md).
+
+| Completed capability | Commit checkpoint | Delivery record |
+| --- | --- | --- |
+| Instance/bulk data persistence and new-payload gap zeroing | `dfe076d` | [Persistence](#schema-instance-and-bulk-data-persistence) |
+| Data-model construction and copying | `d86f2c6` | [Role and construction refinements](#schema-role-attachment-and-construction) |
+| Schema-independent blocks and role attachment/switching | `2b99f48` | [Role and construction refinements](#schema-role-attachment-and-construction) |
+| Type-schema merging | `ca087e2` | [Type merging](#type-schema-merging) |
+| Optional live/baked document-depth probes | `4108f55` | [Aggregation and depth refinements](#instance-and-bulk-data-aggregation) |
+| Instance/bulk data aggregation and shared recursion budget | `36ef3d9` | [Data aggregation](#instance-and-bulk-data-aggregation) |
+| Document preparation, composition and pre-allocation | `aa90b9a` | [Preparation and composition](#document-preparation-and-composition) |
+| Restored buffer growth cap and reserve correction | `78fcfaf` | [Buffer growth](#buffer-growth-and-reservation) |
+
+Validation counts below belong to their recorded checkpoints, not a promise that
+the current suite count stays fixed. Build logs under `build/` and `development/`
+are local evidence paths and are not distributed documentation dependencies.
+
+## Buffer growth and reservation
+
+Completed, reviewed and committed on 19 October 2026 in `78fcfaf`, following the
+separate investigation requested during schema preparation/composition work.
+The 4 KiB growth cap was a deliberate temporary test setting unintentionally left
+in place. The policy now uses its declared 64 KiB cap and retains the 4 KiB minimum.
+`CByteBuffer::reserve` reuses capacity that satisfies both the request and minimum,
+while retaining alignment upgrades and failure preservation. `reserve(0)` and
+pointer-based zero-length append with non-null data retain lazy initialisation;
+the original append implementation is unchanged. Vector growth policy is unchanged.
+See the [buffer contract](../containers/ByteBuffers.md#growth-operations).
+
+All Debug/Release x64 and Win32 solution builds and ordinary `-t1` suites passed,
+including 239 ByteBuffers checks and 90,108 Schema checks per run, with zero
+failures. Tests cover minimum allocation, zero-length overload distinctions,
+alignment, allocation failure, exact/rounded reservation and bulk/incremental
+append. The linter EOF-failure fixture now fills actual capacity before forcing
+terminator growth. Logs are
+`build/buffer-append-restore-{debug64,debug32,release64,release32}-{build,tests}.log`.
+
+Filling one buffer to 1 MiB takes 25, 21, 9 and 1 allocation requests for append
+sizes of one byte, 4 KiB, 64 KiB and 1 MiB respectively. Exact and rounded
+pre-reservation permit filling without another allocation. These are single-buffer
+measurements, unlike the aggregate document-construction figures below. Capped
+incremental growth can still incur quadratic cumulative copying at large sizes;
+broader growth-policy changes remain [unselected](../backlog/schema_follow_on.md#shared-container-growth-during-document-construction).
+
 ## Document preparation and composition
 
-Implemented on 19 October 2026 from the
-[reviewed plan](document_preparation_composition_implementation_plan.md), after
-separate user authorisation. This records delivery, not user review or a commit
-checkpoint. See the [runtime API](../schema/runtime-api.md#document-preparation-and-composition).
+Completed, user-reviewed and committed on 19 October 2026 in `aa90b9a`, including
+pre-allocation and the final allocation-failure coverage. The implementation plan
+is retired. See the [runtime API](../schema/runtime-api.md#document-preparation-and-composition)
+and [contract](../schema/persistence-and-aggregation.md#agreed-document-preparation-interfaces).
 
 Four preparation overloads extract selected live/baked sections under the original
 resolved schema, preserve retained descriptions and reconstruct only stripped
@@ -49,11 +100,19 @@ and requested bytes unchanged. Repeated-type scaling excludes per-entry metadata
 worklists. Capacity planning now reserves unique string storage, copied node slots,
 known structural nodes and preparation sibling batches without an extra traversal.
 Reserved imports and live/baked subtree copies have no-further-allocation tests.
-At 2,048 entries, preparation/composition allocation requests fall from 190/201 to
-73/57; combined requested bytes fall from 33,568,064 to 16,385,536. These totals
-are aggregate requests, not peak memory or measured copied bytes. Reconstruction
-beyond the known minimum still grows. The buffer cap remains a
-[separate follow-up](../backlog/schema_follow_on.md#shared-container-growth-during-document-construction).
+At 2,048 reconstructed entries, the pre-allocation checkpoint recorded:
+
+| Operation | Allocation requests before / after | Requested bytes before / after |
+| --- | ---: | ---: |
+| Preparation | 190 / 73 | 16,778,656 / 13,989,920 |
+| Composition | 201 / 57 | 16,789,408 / 2,395,616 |
+
+Combined requested bytes fell from 33,568,064 to 16,385,536. These totals cover
+all containers, including freed/replaced allocations; they are not a single
+container's growth trace, peak memory or measured copied bytes. Reconstruction
+beyond the known minimum still grows. The subsequent
+[buffer correction](#buffer-growth-and-reservation) is complete; these measurements
+record the preceding pre-allocation checkpoint.
 `SDataLocator::valid` follows the occurrence members; x64 and Win32 layout probes
 confirm that its size stays 96 bytes, with outer padding moved to the end.
 
@@ -83,10 +142,10 @@ supporting observations; allocation/work bounds are the regression assertions.
 
 ## Instance and bulk data aggregation
 
-Implemented on 18 October 2026 from the
-[reviewed plan](data_aggregation_implementation_plan.md). This records delivery
-and validation, not a commit checkpoint or user acceptance. See the
-[runtime API](../schema/runtime-api.md#instance-and-bulk-data-aggregation).
+Implemented on 18 October 2026, then user-reviewed and committed on 19 October
+in `36ef3d9`, including the shared recursion-depth constant. The optional
+data-model depth probes were committed separately in `4108f55`. The implementation
+plan is retired. See the [runtime API](../schema/runtime-api.md#instance-and-bulk-data-aggregation).
 
 `merge_instances` and `merge_bulk_data` accept prepared live/baked document views,
 one resolved merged schema and an independent live destination. Each input and
@@ -166,17 +225,19 @@ fourfold input growth is consistent with linear/logarithmic traversal and indexe
 matching. Timings are not thresholds or worst-case guarantees for existing
 containers, string-byte comparisons or schema internals.
 
-Boundary conversion APIs for stripped instances and missing bulk descriptions,
-and complete-document composition, remain future work. No implementation of those
-operations is implied by completion of the prepared merge cores.
+Original-schema preparation for stripped instances and missing bulk descriptions,
+and complete-document composition, were subsequently delivered in `aa90b9a`;
+see the [boundary-operation milestone](#document-preparation-and-composition).
+They remain separate API operations from these prepared merge cores.
 
 ## Type schema merging
 
-Implemented and validated on 18 October 2026. This records implementation and
-validation, not a commit checkpoint or user acceptance of later aggregation work.
-The [runtime API](../schema/runtime-api.md#type-schema-merging) documents the
-interface; the [completed plan](type_schema_merge_implementation_plan.md) retains
-the reviewed scope.
+Completed, user-reviewed and committed on 18 October 2026 in `ca087e2`, including
+the newline-escaping and one-sided presentation tests added after review.
+The implementation plan is retired. The
+[runtime API](../schema/runtime-api.md#type-schema-merging) and
+[merge contract](../schema/persistence-and-aggregation.md#type-schema-merging-and-defaults)
+document the delivered behaviour.
 
 `merge_type_schemas` accepts independently valid live/baked document views and
 publishes an independently owned live document containing only merged types.
@@ -213,14 +274,15 @@ roughly 4.4-4.5-fold time increase for fourfold input growth is consistent with
 the intended linear/logarithmic construction paths; it is not a timing threshold
 or a worst-case guarantee for existing resolver/cache internals.
 
-Prepared instance/bulk aggregation was subsequently delivered in the milestone
-above. Boundary conversion APIs and composition remain separate future work.
+Prepared instance/bulk aggregation, original-schema preparation and composition
+were subsequently delivered in the milestones above. Combined convenience
+orchestration remains separate, unselected work.
 
 ## Schema role attachment and construction
 
-Implemented and validated on 17 October 2026, after the committed persistence
-milestone below. This records the current implementation and review, not a new
-commit checkpoint or user acceptance of the remaining aggregation design.
+Implemented and validated from 17 October 2026, then user-reviewed and committed
+on 18 October. Data-model construction/copying changes are in `d86f2c6`; schema
+attachment, switching and construction changes are in `2b99f48`.
 
 Instance and bulk data blocks now retain only document/payload storage. Separate
 live/baked data roles carry schema associations. Initial attachment validates an
@@ -254,16 +316,15 @@ construction changes. Each run reported 64,789 Schema, 13,289 BakedDocument and
 includes sparse string IDs, reversed name order, checked arbitrary readers,
 unready destinations, equal array gaps, deep nested changes, zero-size layouts
 and allocation-failure rollback. Policy, diff and line-ending checks passed.
-This documentation review adds no code changes and does not repeat that matrix.
 
 The [runtime API](../schema/runtime-api.md#initial-attachment-and-schema-switching),
 [data-model construction contract](../data_model/revised_data_model.md) and
 [validation guide](../schema/validation.md) describe the current implementation.
 Arbitrary-order distinct-string insertion can still shift a quadratic total of
 sorted-index entries; selected copies do not preload unrelated strings. Live
-instance edits still scan the record tail linearly. These costs and the separate,
-unimplemented aggregation/composition work remain in the
-[follow-on notes](../backlog/schema_follow_on.md).
+instance edits still scan the record tail linearly. These remaining costs are in
+the [follow-on notes](../backlog/schema_follow_on.md). Aggregation, preparation and
+composition were subsequently completed as recorded above.
 
 ## Schema instance and bulk data persistence
 
@@ -334,13 +395,12 @@ and test coverage are maintained in the [schema specification](../schema/specifi
 [asset services](../assets/asynchronous_asset_services.md). Intermediate delivery
 and validation detail remains in Git history.
 
-The [aggregation revision](../schema/persistence-and-aggregation.md#separate-merge-and-aggregation-operations)
-and [follow-on notes](../backlog/schema_follow_on.md#remaining-aggregation-and-composition-design)
-remain active design and planning references. Definition merging, validated
-schema switching, instance/bulk data aggregation and complete-document composition
-were not delivered by this historical milestone. The subsequent schema rework
-implements switching and direct final-payload copying for live baking;
-aggregation and composition remain separate work.
+Definition merging, validated schema switching, instance/bulk data aggregation,
+preparation and composition were delivered after this persistence checkpoint.
+Their [delivery records](#schema-delivery-status) and
+[current contracts](../schema/persistence-and-aggregation.md) supersede the earlier
+aggregation proposals. Only the unresolved extensions in the
+[follow-on notes](../backlog/schema_follow_on.md) remain future work.
 
 ## Bundle assets and virtual bindings
 

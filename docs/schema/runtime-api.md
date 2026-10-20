@@ -54,7 +54,7 @@ Block diagnostics carry a stage, reason and optional source location; `SInstance
 and `SBulkDataBlockDiagnostic` also retain the corresponding role diagnostic.
 Locations identify a source live node, baked value or byte offset from the whole
 file. They own no storage and must not retain handles into discarded temporary
-documents. The [revision](persistence-and-aggregation.md#diagnostics-and-failure-reporting)
+documents. The [persistence contract](persistence-and-aggregation.md#diagnostics-and-failure-reporting)
 defines the reporting contract for block operations.
 
 `data_block_format.hpp/.cpp` is internal schema implementation support. It
@@ -640,6 +640,8 @@ O(N log N) comparisons and O(N) scratch, with string-byte comparison costs separ
 Validation scales with supplied declarations and required shape checks, not omitted
 array counts or effective parent snapshots.
 
+### Construction-depth policy
+
 Cheap explicit value-depth and hierarchy checks remain. Collection, merging and
 copying count the selected section as depth zero and reject depth 256. Implicit
 construction paths are not preflighted: a successful merge can later fail binary
@@ -657,6 +659,8 @@ Callers can optionally inspect `CLiveDocument::maximum_depth()` or
 the document root as zero (the selected merge section is therefore depth one).
 They measure actual document topology, including scalar leaves, and do not
 predict implicit construction depth or run automatically during aggregation.
+
+### Publication and diagnostics
 
 Publication validates private staging, releases temporary readers/scratch and uses
 non-failing move assignment. Sources can alias an occupied destination, including
@@ -764,6 +768,40 @@ sorted preload. Only distinct reachable reconstruction types are visited, includ
 internal array types, without expanding their element counts. The document's own
 string indexes serve later lookup. Candidate vectors are released before emission;
 no second text-to-ID map or per-record metadata collector persists.
+
+### Shared document construction
+
+`document_construction.hpp/.cpp` supplies schema-internal string preparation and
+subtree copying for merging, preparation and composition. Borrowed name/string
+candidates are sorted and deduplicated in their respective domains. Unique counts
+and stored byte lengths initialise fresh string tables before ordered imports;
+the tables' own logarithmic lookup is reused during emission. Empty strings use
+their canonical entry. Candidate storage is released before node emission.
+
+The existing collection walk counts copied nodes, and callers add cheaply known
+structural nodes when initialising staging capacity. Preparation reserves group
+records and newly discovered sibling batches, including pending siblings while
+descending specialisations. Reconstruction can grow beyond that known minimum;
+there is no schema expansion or maximum-depth pass solely to predict capacity.
+Generated strings are collected once per distinct reachable reconstruction type,
+including internal arrays, without expanding element counts.
+Retained-only preparation skips reconstruction-metadata collection entirely.
+
+Instance reconstruction creates base-default scratch lazily when a stripped base
+needs it, then reuses that scratch within its type group. Specialisations borrow
+their immediate parent's binary bytes as the baseline. Retained-only preparation
+allocates no default scratch. Reconstruction still runs the subsequent
+`check_value`/`check_alternative` reproduction check when it emits no declaration;
+omission must not conceal an encoding that cannot be reproduced. The final
+prepared-document validation does not replace these binary reproduction checks.
+
+Private construction reuses `CDocumentConstruction` and the native subtree copier
+after admission establishes ownership/name invariants. Arbitrary editing remains
+checked. Count/byte overflow is rejected before allocation; failed reservations
+discard private state and preserve caller-owned sources/destinations. No new
+public unchecked builder, duplicate string index or transaction owner is involved.
+Pre-allocation removes repeated growth in reserved phases; it does not establish
+an end-to-end linear allocation bound for all containers and reconstruction.
 
 ## Defaults
 
@@ -1175,10 +1213,16 @@ explicit. Arrays retain the shortest prefix through their last differing element
 including necessary equal scalar elements before it. Nested compounds follow
 the same rules. Equal overrides and empty selections are removed regardless of
 their old spelling. No snapshot is changed or propagated to descendants.
-This applies to promotion, retained-value preparation/baking and both schema roles.
+This applies to promotion and to the live instance role's `prepare_output()` and
+`bake()` when retaining values, with either live or baked schemas.
 Old declaration values are not decoded or checked for agreement. Generated
 declarations must reproduce meaningful encoded values or the operation fails
 atomically with `unrepresentable_value`.
+
+The document-boundary function `prepare_instances_document()` has a different
+contract: it copies retained declarations unchanged and reconstructs only stripped
+instances against their original schema. Optional comparison checks retained
+declarations against binary; it does not reconcile or minimise them.
 
 `reconcile(diagnostic)` applies these rules explicitly to the live role after
 raw writes or remapping, using its bound schema. It stages the whole document;
