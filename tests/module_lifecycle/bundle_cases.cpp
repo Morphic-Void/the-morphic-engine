@@ -21,12 +21,13 @@
 #include "platform/threading/processor_relax.hpp"
 #include "assets/asset_messages.hpp"
 #include "system/service_messages.hpp"
+#include "tests/support/host_test_paths.hpp"
 
 namespace module_lifecycle_tests
 {
 
 static constexpr const char* k_root = "bundle-test:";
-static constexpr const char* k_saved = "test-output:/lifecycle-bundle.bdl";
+static constexpr const char* k_saved = "dev-workspace:/acceptance/lifecycle-bundle.bdl";
 
 class CBundleClient
 {
@@ -354,7 +355,9 @@ bool bundle_case(threading::CThreadContext& context, threading::CThreadResources
     if (std::strcmp(selected, "bundle-resume") == 0)
     {
         SHandoff handoff;
-        if (!client.load(result, "test-output:/bundle-handoff.bin") || (result.byte_view().size() != sizeof(handoff))) return false;
+        CSimpleString native;
+        if (!host_test_paths::native_output("bundle-handoff.bin", native) ||
+            !client.load(result, native.cstring()) || (result.byte_view().size() != sizeof(handoff))) return false;
         std::memcpy(&handoff, result.byte_view().data(), sizeof(handoff));
         if (!client.dispose(result.asset) || !client.refresh(EFilesystemStatus::invalid_root) ||
             !client.post(BundleReferenceRequest{ handoff.original }) || !client.result(result, EAssetStatus::invalid_asset) ||

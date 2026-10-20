@@ -1,5 +1,25 @@
 [
   {
+    "scenario": "retain_raw_on_save_failure",
+    "source": "host_worker_thread.cpp",
+    "message": "File save failed: development/logical-roots/test-output/asset-acceptance-missing-directory/output.bin"
+  },
+  {
+    "scenario": "discard_raw_on_save_failure",
+    "source": "host_worker_thread.cpp",
+    "message": "File save failed: development/logical-roots/test-output/asset-acceptance-missing-directory/output.bin"
+  },
+  {
+    "scenario": "retain_baked_on_save_failure",
+    "source": "host_worker_thread.cpp",
+    "message": "File save failed: development/logical-roots/test-output/asset-acceptance-missing-directory/output.bin"
+  },
+  {
+    "scenario": "reject_missing_file",
+    "source": "host_worker_thread.cpp",
+    "message": "File load failed: {runtime}/development/logical-roots/test-output/asset-acceptance-missing-directory/output.bin"
+  },
+  {
     "scenario": "reject_malformed_json",
     "source": "host_worker_thread.cpp",
     "message": "Document slot 0: structure: unexpected end at 1:8; element starts 1:2"

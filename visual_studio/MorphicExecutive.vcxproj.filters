@@ -21,6 +21,7 @@
     <ClInclude Include="..\executive\module\types\local_types.hpp"><Filter>Executive\include\module\types</Filter></ClInclude>
     <ClInclude Include="..\executive\runtime\executive_thread.hpp"><Filter>Executive\include\runtime</Filter></ClInclude>
     <ClInclude Include="..\executive\runtime\request_preparation.hpp"><Filter>Executive\include\runtime</Filter></ClInclude>
+    <ClInclude Include="..\tests\support\host_test_paths.hpp"><Filter>Executive\include\runtime</Filter></ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\executive\module\binding\executive_binding.cpp"><Filter>Executive\src\module\binding</Filter></ClCompile>

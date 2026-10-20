@@ -103,6 +103,7 @@
     <ClInclude Include="..\executive\module\types\local_types.hpp" />
     <ClInclude Include="..\executive\runtime\executive_thread.hpp" />
     <ClInclude Include="..\executive\runtime\request_preparation.hpp" />
+    <ClInclude Include="..\tests\support\host_test_paths.hpp" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\external\SuiteUTF\SuiteUTF.vcxproj">

@@ -4,8 +4,11 @@
 # Match deliberately exercised failures by source, text and scenario interval.
 # Incident IDs order the combined event/direct logs; file order cannot do so.
 
-function Assert-HostDiagnostics([string] $Events) {
+function Assert-HostDiagnostics([string] $Events, [string] $Runtime) {
     $expected = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'host_expected_diagnostics.json') -Raw | ConvertFrom-Json
+    foreach ($entry in $expected) {
+        $entry.message = $entry.message.Replace('{runtime}', $Runtime.Replace('\', '/'))
+    }
     $passes = @([regex]::Matches($Events, '(?m)^\[(\d+)\].*\[executive_thread\.cpp:\d+\] Executive: (\w+) passed\r?$') |
         ForEach-Object { [pscustomobject]@{ Id = [long] $_.Groups[1].Value; Scenario = $_.Groups[2].Value } } |
         Sort-Object Id)

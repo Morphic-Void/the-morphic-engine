@@ -51,7 +51,8 @@
     },
     "test-output:": {
       "source": "logical-roots/test-output",
-      "writable": true
+      "writable": true,
+      "inventory": false
     },
     "ugc-work:": {
       "source": "logical-roots/ugc-work",

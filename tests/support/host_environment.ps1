@@ -13,6 +13,7 @@ function New-HostTestEnvironment([string] $Repository, [string] $Name) {
     foreach ($root in $roots.PSObject.Properties) {
         $null = New-Item -ItemType Directory -Path (Join-Path $development $root.Value.source) -Force
     }
+    $null = New-Item -ItemType Directory -Path (Join-Path $development 'logical-roots/dev-workspace/acceptance') -Force
     Copy-Item -LiteralPath (Join-Path $Repository 'development/logical-roots/dev-source/test_input.tga') -Destination (Join-Path $development 'logical-roots/dev-source/test_input.tga')
     return $runtime
 }

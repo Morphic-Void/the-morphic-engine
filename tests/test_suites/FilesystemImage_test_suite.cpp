@@ -96,15 +96,20 @@ static void test_development_image(tests::TTestContext& ctx)
     TEST_EXPECT(ctx, !image.resolve("dev-source:/missing/new.json", true, physical));
     TEST_EXPECT(ctx, image.resolve("test-output:/new.json", true, physical));
     TEST_EXPECT(ctx, !image.resolve("ugc-installed:/new.json", true, physical));
-    for (const char* name : { "logs:", "test-logs:" })
+    for (const char* name : { "logs:", "test-logs:", "test-output:" })
     {
-        const CNodeKey log_root = root(image.document(), name);
-        TEST_EXPECT(ctx, log_root.is_valid());
-        TEST_EXPECT(ctx, !member(image.document(), log_root, "content").is_valid());
+        const CNodeKey output_root = root(image.document(), name);
+        TEST_EXPECT(ctx, output_root.is_valid());
+        TEST_EXPECT(ctx, !member(image.document(), output_root, "content").is_valid());
         bool inventory = true;
-        TEST_EXPECT(ctx, image.document().boolean_value(member(image.document(), log_root, "inventory"), inventory) && !inventory);
+        TEST_EXPECT(ctx, image.document().boolean_value(member(image.document(), output_root, "inventory"), inventory) && !inventory);
     }
-    TEST_EXPECT(ctx, member(image.document(), root(image.document(), "test-output:"), "content").is_valid());
+    const auto serial = image.write_serial();
+    TEST_EXPECT(ctx, image.resolve("test-output:/new.json", true, physical));
+    TEST_EXPECT(ctx, image.written("test-output:/new.json", physical.cstring(), 123u, 0u));
+    TEST_EXPECT(ctx, image.write_serial() == serial);
+    TEST_EXPECT(ctx, !member(image.document(), root(image.document(), "test-output:"), "content").is_valid());
+    TEST_EXPECT(ctx, !image.resolve("test-output:/new.json", false, physical));
     const CNodeKey input = entry(image.document(), "dev-source:", "test_input.tga");
     TEST_EXPECT(ctx, input.is_valid() && image.document().child_count(input) == 0u);
     TEST_EXPECT(ctx, !image.resolve("logs:/anything.log", false, physical));

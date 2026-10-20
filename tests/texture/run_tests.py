@@ -17,8 +17,10 @@ import subprocess
 import tempfile
 
 
-def check_diagnostics(events, repository):
+def check_diagnostics(events, repository, runtime):
     expected = json.loads((repository / "tests/support/host_expected_diagnostics.json").read_text(encoding="utf-8"))
+    for entry in expected:
+        entry["message"] = entry["message"].replace("{runtime}", runtime.as_posix())
     passes = sorted((int(incident), scenario) for incident, scenario in re.findall(
         r"(?m)^\[(\d+)\].*\[executive_thread\.cpp:\d+\] Executive: (\w+) passed\r?$", events))
     seen = set()
@@ -54,6 +56,7 @@ def main():
     shutil.copyfile(manifest, development / "root-manifest.json")
     for root in json.loads(manifest.read_text(encoding="utf-8"))["roots"].values():
         (development / root["source"]).mkdir(parents=True, exist_ok=True)
+    (development / "logical-roots/dev-workspace/acceptance").mkdir(parents=True, exist_ok=True)
     shutil.copyfile(repository / "development/logical-roots/dev-source/test_input.tga",
                     development / "logical-roots/dev-source/test_input.tga")
     config = runtime / "bootstrap.cfg"
@@ -72,13 +75,13 @@ def main():
     direct_log = logs[0].with_name(logs[0].name.replace("morphic_debug.", "morphic_debug_direct.", 1))
     direct_events = direct_log.read_text(encoding="utf-8")
     events = logs[0].read_text(encoding="utf-8") + direct_events
-    for expected in ("Asset acceptance: 71 sequential and 32 concurrent operations passed",
+    for expected in ("Asset acceptance: 73 sequential and 32 concurrent operations passed",
                      "Filesystem acceptance: 12 queued refresh, concurrent access and cache operations passed",
                      "Bundle acceptance: bake, reference, save, close and reload passed",
                      "Rendering Basis: shut down", "Host: Rendering thread joined"):
         if expected not in events:
             raise RuntimeError(f"Missing {expected!r}; inspect {logs[0]}")
-    check_diagnostics(events, repository)
+    check_diagnostics(events, repository, runtime)
     workers = re.search(r"Host: Background workers (\d+), dedicated conditioning workers (\d+), "
                         r"reported hardware threads (\d+)", events)
     if workers is None:
@@ -97,7 +100,7 @@ def main():
         if not re.search(rf"\[render_vulkan:{thread}\].*Rendering Basis: {operation}", direct_events):
             raise RuntimeError(f"Incorrect {operation} thread or module context; inspect {direct_log}")
     print(f"Host acceptance passed with {expected_workers} worker(s) "
-          "(71 sequential, 32 concurrent, 12 filesystem operations and bundle persistence).")
+          "(73 sequential, 32 concurrent, 12 filesystem operations and bundle persistence).")
 
 
 if __name__ == "__main__":

@@ -27,7 +27,7 @@ part of the platform adapter.
 | `state/` | `state:` | Crash reports and machine-specific runtime state | startup/on demand | ignored |
 | `logs/` | `logs:` | Runtime and development-tool diagnostics | no content inventory | ignored |
 | `test-logs/` | `test-logs:` | Test-infrastructure diagnostic output | no content inventory | ignored |
-| `test-output/` | `test-output:` | Generated test files, manifests and other non-log test artefacts | startup/on demand | ignored |
+| `test-output/` | `test-output:` | Generated test files, manifests and other non-log test artefacts | no content inventory | ignored |
 | `cache/` | `cache:` | Rebuildable local data | startup/on demand | ignored |
 | `ugc-work/` | `ugc-work:` | Editable local UGC projects | startup/on demand | ignored |
 | `ugc-inbox/` | `ugc-inbox:` | Imported/downloaded UGC awaiting validation | startup/on demand | ignored |
@@ -114,9 +114,9 @@ configured source without changing relative-path spelling, and native I/O checks
 whether their parent exists. These write-only roots have no inventory with which
 to resolve physical case or enforce case uniqueness. Successful
 writes never add entries to those roots; refresh acknowledges the binding without
-scanning its contents. `test-output:` remains inventoried, including ordinary
-readback and cache associations. Native load/save primitives remain available
-for low-level tests and bootstrap diagnostics.
+scanning its contents. `test-output:` uses this write-only binding; ordinary
+asset readback uses `native:` and does not create cache associations. Native
+load/save primitives remain available for low-level tests and bootstrap diagnostics.
 
 ## Native mount
 
@@ -243,20 +243,31 @@ representation and source-policy evidence. Disposal clears all matching file
 associations by removing `asset`; it does not remove the discovered file.
 Shared-consumer ownership and cache-variant lifetimes remain deferred.
 
-Test logs belong beneath `test-logs/`; all other test artefacts belong beneath
-`test-output/`.  The test runner uses process-ID and optional tag-qualified
+Test logs belong beneath `test-logs/`; general test artefacts belong beneath
+`test-output/`. Neither directory's contents enter the development image.
+The test runner uses process-ID and optional tag-qualified
 filenames in these roots. Its existing `--output-directory` override puts
 non-log files directly in that directory and logs in its `logs` child.
 The Executive acceptance exercise and DLL lifecycle fixtures currently use
 fixed non-log output filenames and must run serially.
+
+Host acceptance tests keep a small inventoried fixture in
+`dev-workspace/acceptance/` for image cache checks and saved bundle loading.
+It uses fixed filenames, so repeated runs do not grow this fixture. Isolated
+Host harnesses create the same directory in their own runtimes. Ordinary
+filesystem-image and bundle suites construct their own small inventories over
+test-specific directories; those explicit inventories are independent of the
+development manifest. General asset readback uses absolute UTF-8 `native:`
+paths, exercising file I/O and conditioning instead of returning cached assets.
 
 The shared input fixture lives at `dev-source/test_input.tga`. Host diagnostics
 use `logs/`, policy-validator reports use `logs/policy_validator/`, and the DLL
 lifecycle harness redirects Host diagnostics into `test-logs/`. Diagnostic sinks
 and test-only fixture setup still use physical paths. External writes to
 inventoried roots become visible at the next explicit root refresh; there is no
-watcher. Neither diagnostic root ever contributes content entries. Runtime asset
-requests use the logical resolver and update inventoried destinations on success.
+watcher. Neither diagnostic root nor general test output contributes content
+entries. Logical asset requests update inventoried destinations on success;
+native loads leave the image unchanged.
 
 The core filesystem-image suite generates a process/tag-qualified
 `filesystem-image.*.json` beneath `test-output/` for inspection. It exercises

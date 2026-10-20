@@ -47,6 +47,12 @@ to preview the targets. Run it after tests have finished; files still in use can
 cause cleanup to fail. Explicit output-directory overrides and isolated harness
 directories are not included.
 
+General test output is not inventoried by the development filesystem image.
+Host acceptance reads it back through `native:`. Image/cache and bundle-load
+checks use a small fixture under `development/logical-roots/dev-workspace/acceptance/`;
+its fixed filenames are reused across runs and are outside the cleanup script's
+scope. Isolated Host harnesses stage their own copy of this directory.
+
 The shared TGA input fixture is
 `development/logical-roots/dev-source/test_input.tga`. The engine's logs use
 `development/logical-roots/logs`, and policy-validator reports use its
@@ -101,7 +107,7 @@ building.
 
 ## Acceptance and lifecycle harnesses
 
-The Executive runs 71 sequential and 32 concurrent acceptance operations
+The Executive runs 73 sequential and 32 concurrent acceptance operations
 across raw, baked-document, JSON, TGA and LDR/HDR texture asset services, followed
 by filesystem checks and a bundle bake/reference/save/close/reload flow. The standalone DLL
 lifecycle harness, `tests/module_lifecycle/run_tests.ps1`, builds real module

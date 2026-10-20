@@ -119,8 +119,8 @@ foreach ($requested in @(0, 1, 2, 3, 9, 128)) {
     $directLog = Join-Path $runtime "development/logical-roots/test-logs/morphic_debug_direct.$tag.p$processId.log"
     $directEvents = Get-Content -LiteralPath $directLog -Raw
     $events = (Get-Content -LiteralPath $log -Raw) + $directEvents
-    Assert-HostDiagnostics -Events $events
-    if (!$events.Contains('Asset acceptance: 71 sequential and 32 concurrent operations passed') -or
+    Assert-HostDiagnostics -Events $events -Runtime $runtime
+    if (!$events.Contains('Asset acceptance: 73 sequential and 32 concurrent operations passed') -or
         !$events.Contains('Filesystem acceptance: 12 queued refresh, concurrent access and cache operations passed') -or
         !$events.Contains('Bundle acceptance: bake, reference, save, close and reload passed')) {
         throw "Acceptance flow incomplete: $log"

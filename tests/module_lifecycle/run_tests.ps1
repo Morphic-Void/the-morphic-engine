@@ -112,7 +112,7 @@ foreach ($case in @('bundle', 'bundle-inline', 'bundle-late-reference', 'bundle-
         }
         elseif ($case -in @('normal-startup', 'replace', 'replace-dependency', 'render-executive-replace')) {
             # Lifecycle assertion expectations are checked separately below.
-            Assert-HostDiagnostics -Events ($events -replace '(?m)^.*\[assert:.*(?:\r?\n|$)', '')
+            Assert-HostDiagnostics -Events ($events -replace '(?m)^.*\[assert:.*(?:\r?\n|$)', '') -Runtime $runtime
         }
         elseif ($errors.Count -ne 0) { throw "$case has unexpected errors: $log" }
         $assertions = [regex]::Matches($events, '\[assert:').Count
@@ -202,7 +202,7 @@ foreach ($case in @('bundle', 'bundle-inline', 'bundle-late-reference', 'bundle-
             if (!$events.Contains($expectedBatchExit)) { throw 'Batch exit did not drain terminal responses.' }
         }
         if (($case -in @('dependency', 'disposal', 'disposal-during-save')) -and !$events.Contains('Lifecycle fixture: operation 2 passed')) { throw 'Asset disposal check incomplete.' }
-        if (($case -in @('replace', 'replace-dependency', 'render-executive-replace')) -and !$events.Contains('Asset acceptance: 71 sequential and 32 concurrent operations passed')) { throw 'Replacement Executive did not complete its acceptance flow.' }
+        if (($case -in @('replace', 'replace-dependency', 'render-executive-replace')) -and !$events.Contains('Asset acceptance: 73 sequential and 32 concurrent operations passed')) { throw 'Replacement Executive did not complete its acceptance flow.' }
         if ($case -in @('disposal-during-save', 'render-drain')) {
             $saved = [IO.File]::ReadAllBytes((Join-Path $runtime 'development/logical-roots/test-output/lifecycle-disposal.bin'))
             if (($saved.Length -ne 16) -or @($saved | Where-Object { $_ -ne 0x5a }).Count) { throw 'Disposal corrupted the saved asset.' }
@@ -218,7 +218,7 @@ foreach ($case in @('bundle', 'bundle-inline', 'bundle-late-reference', 'bundle-
                     !$events.Contains('Executive: Exited')) { throw "$case did not stop cleanly before asset acceptance." }
             }
             elseif (($ready -lt $acknowledged) -or ($events.IndexOf('Executive: retain_raw passed') -lt $ready) -or
-                !$events.Contains('Asset acceptance: 71 sequential and 32 concurrent operations passed')) {
+                !$events.Contains('Asset acceptance: 73 sequential and 32 concurrent operations passed')) {
                 throw "$case did not wait for rendering readiness before asset acceptance."
             }
         }
@@ -229,7 +229,7 @@ foreach ($case in @('bundle', 'bundle-inline', 'bundle-late-reference', 'bundle-
         if (($case -eq 'render-executive-replace') -and !$events.Contains('Executive: Rendering ready (already loaded)')) { throw 'Replacement Executive did not reuse the available renderer.' }
         if ($starts -ne $joins) { throw "$case left a rendering thread unjoined." }
         if (($case -eq 'render-executive-replace') -and (($starts -ne 1) -or
-            ($events.IndexOf('Host: Rendering thread joined') -lt $events.IndexOf('Asset acceptance: 71 sequential and 32 concurrent operations passed')))) {
+            ($events.IndexOf('Host: Rendering thread joined') -lt $events.IndexOf('Asset acceptance: 73 sequential and 32 concurrent operations passed')))) {
             throw 'Rendering did not survive the Executive replacement and acceptance flow.'
         }
         if (($case -in @('ordinary', 'dependency', 'disposal', 'disposal-during-save', 'thread-failures', 'render-shutdown', 'render-shutdown-dependency', 'render-replace-dependency', 'render-executive-replace', 'render-drain', 'render-exit-disposal')) -and ($starts -eq 0)) {

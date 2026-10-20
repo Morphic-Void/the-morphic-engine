@@ -17,6 +17,8 @@
 !/development/logical-roots/test-logs/.gitkeep
 /development/logical-roots/test-output/*
 !/development/logical-roots/test-output/.gitkeep
+/development/logical-roots/dev-workspace/acceptance/*
+!/development/logical-roots/dev-workspace/acceptance/.gitkeep
 /development/logical-roots/cache/*
 !/development/logical-roots/cache/.gitkeep
 /development/logical-roots/ugc-work/*
