@@ -6,6 +6,8 @@
 //  Authors: Ritchie Brannan / OpenAI Codex
 //  Date:    12 Aug 26
 
+#include "tests/environment/local_type_ids.hpp"
+
 #include <cstdint>
 #include <iostream>
 #include <type_traits>
@@ -64,7 +66,7 @@ void test_repository_identity_and_reuse(TTestContext& ctx)
     TEST_EXPECT(ctx, repository.resolve(first_id) != nullptr);
     TEST_EXPECT(ctx, repository.resolve(second_id) != nullptr);
     TEST_EXPECT(ctx, repository.resolve(first_id)->query_type_id() ==
-        type_id{ k_system_type_id_v<LoadedFile> });
+        k_type_id_v<LoadedFile>);
     TEST_EXPECT(ctx, repository.resolve(first_id)->payload<LoadedFile>() != nullptr);
 
     CAssetRecord* const second_record = repository.resolve(second_id);

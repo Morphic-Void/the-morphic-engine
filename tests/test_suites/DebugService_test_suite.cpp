@@ -331,7 +331,7 @@ void test_argument_encoding(TTestContext& ctx)
         debug_system::EEventArgumentType::inline_text);
 
     const debug_system::SEventArguments system_id_arguments =
-        debug_system::encode_event_arguments(system_type_ids::file_load_request);
+        debug_system::encode_event_arguments(system_type_ids::asset_load_request);
     TEST_EXPECT(ctx, system_id_arguments.parameter_count == 1u);
     TEST_EXPECT(ctx,
         argument_type(system_id_arguments, 0u) ==
@@ -349,7 +349,7 @@ void test_argument_encoding(TTestContext& ctx)
             registered_local,
             unresolved_local,
             invalid_local,
-            type_id{ system_type_ids::file_load_request },
+            type_id{ system_type_ids::asset_load_request },
             type_id{ registered_local },
             malformed_generic);
     TEST_EXPECT(ctx, normalized_ids.parameter_count == 6u);
@@ -478,7 +478,7 @@ void test_argument_formatting(TTestContext& ctx)
     const int expected_type_output_size = std::snprintf(
         expected_type_output,
         sizeof(expected_type_output),
-        "file_load_request | unregistered-type:0x%08x | invalid-type:0x%08x",
+        "asset_load_request | unregistered-type:0x%08x | invalid-type:0x%08x",
         static_cast<unsigned int>(unregistered_type_id.raw_value()),
         0x00000002u);
     TEST_EXPECT(ctx, expected_type_output_size > 0);
@@ -488,7 +488,7 @@ void test_argument_formatting(TTestContext& ctx)
             sizeof(output),
             "{} | {} | {}",
             debug_system::encode_event_arguments(
-                system_type_ids::file_load_request,
+                system_type_ids::asset_load_request,
                 unregistered_type_id,
                 system_type_id{ 0x00000002u }),
             output_size) ==
@@ -759,19 +759,19 @@ void test_system_id_name_registry(TTestContext& ctx)
     TEST_EXPECT(ctx, system_id_registry::validate_all());
 
     const system_id_registry::STypeRegistration* const type_registration =
-        system_id_registry::find_type(system_type_ids::file_load_request);
+        system_id_registry::find_type(system_type_ids::asset_load_request);
     TEST_EXPECT(ctx, type_registration != nullptr);
     if (type_registration != nullptr)
     {
         TEST_EXPECT(ctx,
-            type_registration->index == system_type_ids::file_load_request_index);
+            type_registration->index == system_type_ids::asset_load_request_index);
     }
     const char* const type_name =
-        system_id_registry::lookup_type_name(system_type_ids::file_load_request);
+        system_id_registry::lookup_type_name(system_type_ids::asset_load_request);
     TEST_EXPECT(ctx, type_name != nullptr);
     if (type_name != nullptr)
     {
-        TEST_EXPECT(ctx, std::strcmp(type_name, "file_load_request") == 0);
+        TEST_EXPECT(ctx, std::strcmp(type_name, "asset_load_request") == 0);
     }
 
     const system_id_registry::SMountPointRegistration* const mount_registration =
@@ -1024,7 +1024,7 @@ void test_writer_and_direct_paths(TTestContext& ctx)
             debug_system::EShutdownReason::none,
             "typed {} {} {} {} {} {} {} {}",
             std::int32_t{ -7 },
-            system_type_ids::file_load_request,
+            system_type_ids::asset_load_request,
             debug_system::CInlineText16{ "payload" },
             local_type_ids::test_runtime,
             type_id{ local_type_ids::asset_load },
@@ -1174,7 +1174,7 @@ void test_writer_and_direct_paths(TTestContext& ctx)
     const int source_marker_size = std::snprintf(
         source_marker,
         sizeof(source_marker),
-        "[%s:%u] typed -7 file_load_request payload test_runtime asset_load "
+        "[%s:%u] typed -7 asset_load_request payload test_runtime asset_load "
         "executable:host executable host",
         source_suffix,
         source_line);

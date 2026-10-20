@@ -7,6 +7,8 @@
 //
 //  Persistence envelopes assembled without a schema block writer.
 
+#include "tests/environment/local_type_ids.hpp"
+
 #include "tests/test_suites/SchemaDataBlock_test_cases.hpp"
 #include "schema/data_block_format.hpp"
 #include "schema/baked_instances_block.hpp"

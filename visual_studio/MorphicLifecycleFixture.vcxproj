@@ -96,10 +96,14 @@
   <ItemGroup>
     <ClCompile Include="..\tests\module_lifecycle\fixture.cpp" />
     <ClCompile Include="..\tests\module_lifecycle\bundle_cases.cpp" />
-    <ClCompile Include="..\tests\environment\local_type_ids.cpp" />
+    <ClCompile Include="..\tests\module_lifecycle\local_type_ids.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\tests\module_lifecycle\bundle_cases.hpp" />
+    <ClInclude Include="..\tests\module_lifecycle\local_type_ids.hpp" />
+    <ClInclude Include="..\tests\module_lifecycle\local_type_ids.def" />
+    <ClInclude Include="..\tests\module_lifecycle\local_types.hpp" />
+    <ClInclude Include="..\tests\module_lifecycle\erased_owner_payloads.def" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\external\SuiteUTF\SuiteUTF.vcxproj">

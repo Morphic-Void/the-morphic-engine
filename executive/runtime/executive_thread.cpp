@@ -366,8 +366,8 @@ bool CExecutiveThread::startup() noexcept
 
 bool CExecutiveThread::initialise() noexcept
 {
-    const char* const registry_name = system_id_registry::lookup_type_name(system_type_ids::file_load_request);
-    if ((registry_name == nullptr) || (std::strcmp(registry_name, "file_load_request") != 0))
+    const char* const registry_name = system_id_registry::lookup_type_name(system_type_ids::asset_load_request);
+    if ((registry_name == nullptr) || (std::strcmp(registry_name, "asset_load_request") != 0))
     {
         fail(EFailure::registry, "system registry lookup");
         return false;

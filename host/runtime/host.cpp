@@ -12,6 +12,8 @@
 //
 //  The main host service thread for the engine.
 
+#include <local_type_ids.hpp>
+
 #include <algorithm>    //  std::min
 #include <cstdint>      //  std::int32_t, std::uint8_t, std::uint64_t
 

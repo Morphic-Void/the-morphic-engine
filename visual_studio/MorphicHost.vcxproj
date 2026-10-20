@@ -128,6 +128,11 @@
     <OutDir>$(SolutionDir)build\bin\$(Platform)\$(Configuration)\</OutDir>
     <IntDir>$(SolutionDir)build\obj\$(ProjectName)\$(Platform)\$(Configuration)\</IntDir>
   </PropertyGroup>
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <AdditionalIncludeDirectories>$(MSBuildThisFileDirectory)..\host\module\types;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
+  </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
@@ -252,6 +257,7 @@
     <ClInclude Include="..\host\runtime\asset_service.hpp" />
     <ClInclude Include="..\host\runtime\host_payloads.hpp" />
     <ClInclude Include="..\host\runtime\host_owner_payloads.def" />
+    <ClInclude Include="..\host\runtime\host_protocol_type_ids.def" />
     <ClInclude Include="..\host\runtime\module_service.hpp" />
     <ClInclude Include="..\host\module\types\erased_owner_payloads.def" />
     <ClInclude Include="..\host\system\host_context.hpp" />

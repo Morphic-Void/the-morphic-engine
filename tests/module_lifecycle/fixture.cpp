@@ -15,7 +15,7 @@
 #include "platform/system/performance_counter.hpp"
 #include "platform/threading/processor_relax.hpp"
 
-#include "tests/environment/local_type_ids.hpp"
+#include "tests/module_lifecycle/local_type_ids.hpp"
 #include "tests/module_lifecycle/bundle_cases.hpp"
 #include "module/module_binding_context.hpp"
 #include "memory/memory_context.hpp"

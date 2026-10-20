@@ -8,25 +8,13 @@
     type_macro(string_buffer) \
     type_macro(stable_strings) \
     type_macro(unrecognised_msg) \
-    type_macro(file_load_request) \
-    type_macro(file_save_request) \
-    type_macro(tga_encode_request) \
-    type_macro(tga_decode_request) \
-    type_macro(file_load_result) \
-    type_macro(file_save_result) \
-    type_macro(tga_encode_result) \
-    type_macro(tga_decode_result) \
     type_macro(texture_encode_work) \
     type_macro(texture_decode_work) \
     type_macro(texture_encode_request) \
     type_macro(texture_decode_request) \
     type_macro(texture_encode_result) \
     type_macro(texture_decode_result) \
-    type_macro(loaded_file) \
-    type_macro(encoded_tga) \
-    type_macro(decoded_tga) \
     type_macro(executive_thread_function) \
-    type_macro(baked_document_asset) \
     type_macro(raw_asset_transfer) \
     type_macro(image_asset_transfer) \
     type_macro(baked_asset_transfer) \
@@ -36,24 +24,12 @@
     type_macro(asset_dispose_request) \
     type_macro(asset_dispose_result) \
     type_macro(asset_result) \
-    type_macro(document_condition_request) \
-    type_macro(document_condition_result) \
-    type_macro(live_document_asset) \
     type_macro(module_request) \
     type_macro(module_result) \
-    type_macro(module_work_request) \
-    type_macro(module_work_result) \
     type_macro(rendering_thread_function) \
     type_macro(filesystem_refresh_request) \
     type_macro(filesystem_refresh_result) \
-    type_macro(filesystem_scan_request) \
-    type_macro(filesystem_scan_result) \
-    type_macro(borrowed_bundle_asset) \
     type_macro(bundle_disposed_notification) \
     type_macro(bundle_load_request) \
     type_macro(bundle_bake_request) \
-    type_macro(bundle_reference_request) \
-    type_macro(bundle_build_work) \
-    type_macro(bundle_build_result) \
-    type_macro(bundle_prepare_work) \
-    type_macro(bundle_prepare_result)
+    type_macro(bundle_reference_request)

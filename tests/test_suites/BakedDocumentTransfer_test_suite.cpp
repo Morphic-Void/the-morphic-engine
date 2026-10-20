@@ -101,12 +101,12 @@ static void expect_bytes(TTestContext& ctx, const CBakedDocumentBlock& block,
 
 static CErasedOwner make_owner(TTestContext& ctx)
 {
-    CErasedOwner owner = CErasedOwner::create<BakedDocumentAsset>();
-    BakedDocumentAsset* const asset = owner.payload<BakedDocumentAsset>();
+    CErasedOwner owner = CErasedOwner::create<BakedAssetTransfer>();
+    BakedAssetTransfer* const asset = owner.payload<BakedAssetTransfer>();
     TEST_EXPECT(ctx, asset != nullptr);
     if (asset != nullptr)
     {
-        bake(ctx, asset->block);
+        bake(ctx, asset->storage.value);
     }
     return owner;
 }
@@ -163,49 +163,49 @@ static void test_block_attribution(TTestContext& ctx)
 
 static void test_owner_attribution(TTestContext& ctx)
 {
-    static_assert(k_is_erased_owner_payload_v<BakedDocumentAsset>);
-    static_assert(k_system_type_id_v<BakedDocumentAsset> == system_type_ids::baked_document_asset);
-    static_assert(std::is_nothrow_move_constructible_v<BakedDocumentAsset>);
-    static_assert(!std::is_copy_constructible_v<BakedDocumentAsset>);
+    static_assert(k_is_erased_owner_payload_v<BakedAssetTransfer>);
+    static_assert(k_system_type_id_v<BakedAssetTransfer> == system_type_ids::baked_asset_transfer);
+    static_assert(std::is_nothrow_move_constructible_v<BakedAssetTransfer>);
+    static_assert(!std::is_copy_constructible_v<BakedAssetTransfer>);
     CContexts contexts;
     const tests::TMemoryContextScope source_scope{ &contexts.executive };
     CErasedOwner owner = make_owner(ctx);
-    BakedDocumentAsset* const payload = owner.payload<BakedDocumentAsset>();
+    BakedAssetTransfer* const payload = owner.payload<BakedAssetTransfer>();
     if (payload == nullptr)
     {
         return;
     }
-    const auto bytes = payload->block.bytes();
+    const auto bytes = payload->storage.value.bytes();
     const std::vector<std::uint8_t> snapshot(bytes.data(), bytes.data() + bytes.size());
     const std::uint64_t total_bytes = contexts.executive.get_live_allocated_bytes();
     const std::size_t allocation_calls = contexts.state.allocations;
     TEST_EXPECT(ctx, contexts.executive.get_live_allocation_count() == 2u);
-    TEST_EXPECT(ctx, total_bytes > payload->block.memory_attribution().allocation_size);
+    TEST_EXPECT(ctx, total_bytes > payload->storage.value.memory_attribution().allocation_size);
     owner.add_hazard(mount_point_ids::asset);
     TEST_EXPECT(ctx, !owner.can_reattribute_to(&contexts.incompatible) && !owner.reattribute(&contexts.incompatible));
-    TEST_EXPECT(ctx, owner.memory_context() == &contexts.executive && owner.payload<BakedDocumentAsset>() == payload);
+    TEST_EXPECT(ctx, owner.memory_context() == &contexts.executive && owner.payload<BakedAssetTransfer>() == payload);
     TEST_EXPECT(ctx, owner.reattribute(&contexts.host));
     TEST_EXPECT(ctx, contexts.executive.is_attribution_empty());
     TEST_EXPECT(ctx, contexts.host.get_live_allocation_count() == 2u && contexts.host.get_live_allocated_bytes() == total_bytes);
     TEST_EXPECT(ctx, owner.has_hazard(mount_point_ids::asset));
-    expect_bytes(ctx, payload->block, bytes.data(), snapshot);
+    expect_bytes(ctx, payload->storage.value, bytes.data(), snapshot);
     TEST_EXPECT(ctx, owner.reattribute(&contexts.executive));
     TEST_EXPECT(ctx, contexts.host.is_attribution_empty());
 
     //  A nested block moved independently into a different context must not
     //  let the owner silently attribute both allocations to a single source.
-    TEST_EXPECT(ctx, memory::reattribute(payload->block, &contexts.host));
+    TEST_EXPECT(ctx, memory::reattribute(payload->storage.value, &contexts.host));
     TEST_EXPECT(ctx, !owner.can_reattribute_to(&contexts.transport) && !owner.reattribute(&contexts.transport));
     TEST_EXPECT(ctx, contexts.executive.get_live_allocation_count() == 1u && contexts.host.get_live_allocation_count() == 1u);
     TEST_EXPECT(ctx, contexts.transport.is_attribution_empty());
-    TEST_EXPECT(ctx, memory::reattribute(payload->block, &contexts.executive));
+    TEST_EXPECT(ctx, memory::reattribute(payload->storage.value, &contexts.executive));
     TEST_EXPECT(ctx, owner.can_reattribute_to(&contexts.transport));
     TEST_EXPECT(ctx, contexts.state.allocations == allocation_calls);
     owner.destroy();
     expect_empty(ctx, contexts);
 
-    CErasedOwner empty_block = CErasedOwner::create<BakedDocumentAsset>();
-    TEST_EXPECT(ctx, !empty_block.payload<BakedDocumentAsset>()->block.is_ready());
+    CErasedOwner empty_block = CErasedOwner::create<BakedAssetTransfer>();
+    TEST_EXPECT(ctx, !empty_block.payload<BakedAssetTransfer>()->storage.value.is_ready());
     TEST_EXPECT(ctx, empty_block.reattribute(&contexts.host));
     TEST_EXPECT(ctx, contexts.executive.is_attribution_empty() && contexts.host.get_live_allocation_count() == 1u);
     empty_block.destroy();
@@ -220,18 +220,18 @@ static void test_message_and_repository(TTestContext& ctx)
     TEST_EXPECT(ctx, transport.initialise(1u));
     const std::uint64_t queue_bytes = contexts.transport.get_live_allocated_bytes();
     CErasedOwner owner = make_owner(ctx);
-    BakedDocumentAsset* const payload = owner.payload<BakedDocumentAsset>();
+    BakedAssetTransfer* const payload = owner.payload<BakedAssetTransfer>();
     if (payload == nullptr)
     {
         return;
     }
-    const auto bytes = payload->block.bytes();
+    const auto bytes = payload->storage.value.bytes();
     const std::vector<std::uint8_t> snapshot(bytes.data(), bytes.data() + bytes.size());
-    const CBakedDocument view = payload->block.document();
+    const CBakedDocument view = payload->storage.value.document();
     const std::uint64_t owned_bytes = contexts.executive.get_live_allocated_bytes();
     const std::size_t allocation_calls = contexts.state.allocations;
     threading::CErasedOwnerMsg message;
-    message.set_message_type<BakedDocumentAsset>();
+    message.set_message_type<BakedAssetTransfer>();
     message.set_async_slot(17);
     message.set_owner(std::move(owner));
     TEST_EXPECT(ctx, transport.post(std::move(message)));
@@ -241,12 +241,12 @@ static void test_message_and_repository(TTestContext& ctx)
     TEST_EXPECT(ctx, contexts.transport.get_live_allocated_bytes() == queue_bytes + owned_bytes);
     threading::CErasedOwnerMsg received;
     TEST_EXPECT(ctx, transport.read(received));
-    TEST_EXPECT(ctx, received.is_message_a<BakedDocumentAsset>() && received.query_async_slot() == 17);
-    TEST_EXPECT(ctx, received.owner().memory_context() == &contexts.host && received.owner().payload<BakedDocumentAsset>() == payload);
+    TEST_EXPECT(ctx, received.is_message_a<BakedAssetTransfer>() && received.query_async_slot() == 17);
+    TEST_EXPECT(ctx, received.owner().memory_context() == &contexts.host && received.owner().payload<BakedAssetTransfer>() == payload);
     TEST_EXPECT(ctx, contexts.transport.get_live_allocation_count() == 1u && contexts.transport.get_live_allocated_bytes() == queue_bytes);
     TEST_EXPECT(ctx, contexts.host.get_live_allocation_count() == 2u && contexts.host.get_live_allocated_bytes() == owned_bytes);
     TEST_EXPECT(ctx, contexts.state.allocations == allocation_calls);
-    expect_bytes(ctx, payload->block, bytes.data(), snapshot);
+    expect_bytes(ctx, payload->storage.value, bytes.data(), snapshot);
     TEST_EXPECT(ctx, view.check_integrity());
     {
         const tests::TMemoryContextScope host_scope{ &contexts.host };
@@ -256,8 +256,8 @@ static void test_message_and_repository(TTestContext& ctx)
         const CAssetId id = assets.insert(std::move(stored));
         TEST_EXPECT(ctx, id.is_valid() && stored.is_empty());
         const CAssetRecord* const record = assets.resolve(id);
-        TEST_EXPECT(ctx, record != nullptr && record->payload<BakedDocumentAsset>() == payload);
-        expect_bytes(ctx, payload->block, bytes.data(), snapshot);
+        TEST_EXPECT(ctx, record != nullptr && record->payload<BakedAssetTransfer>() == payload);
+        expect_bytes(ctx, payload->storage.value, bytes.data(), snapshot);
         const std::uint32_t live_allocations = contexts.host.get_live_allocation_count();
         const std::uint64_t live_bytes = contexts.host.get_live_allocated_bytes();
         TEST_EXPECT(ctx, assets.erase(id) && assets.resolve(id) == nullptr);
@@ -278,33 +278,33 @@ static void test_rejected_and_unread_messages(TTestContext& ctx)
     threading::transports::CErasedOwnerMsgTransport incompatible{ module_ids::executable, &contexts.incompatible };
     TEST_EXPECT(ctx, transport.initialise(1u) && incompatible.initialise(1u));
     CErasedOwner owner = make_owner(ctx);
-    BakedDocumentAsset* const payload = owner.payload<BakedDocumentAsset>();
+    BakedAssetTransfer* const payload = owner.payload<BakedAssetTransfer>();
     if (payload == nullptr)
     {
         return;
     }
-    const auto bytes = payload->block.bytes();
+    const auto bytes = payload->storage.value.bytes();
     const std::vector<std::uint8_t> snapshot(bytes.data(), bytes.data() + bytes.size());
     const std::uint64_t owned_bytes = contexts.executive.get_live_allocated_bytes();
     threading::CErasedOwnerMsg message;
-    message.set_message_type<BakedDocumentAsset>();
+    message.set_message_type<BakedAssetTransfer>();
     message.set_async_slot(29);
     message.set_owner(std::move(owner));
     TEST_EXPECT(ctx, !incompatible.post(std::move(message)));
-    TEST_EXPECT(ctx, message.owner().payload<BakedDocumentAsset>() == payload && message.query_async_slot() == 29);
+    TEST_EXPECT(ctx, message.owner().payload<BakedAssetTransfer>() == payload && message.query_async_slot() == 29);
     TEST_EXPECT(ctx, contexts.executive.get_live_allocation_count() == 2u && contexts.executive.get_live_allocated_bytes() == owned_bytes);
     while (transport.writable_count() != 0u)
     {
         threading::CErasedOwnerMsg filler;
-        filler.set_message_type<FileSaveResult>();
+        filler.set_message_type<AssetResult>();
         TEST_EXPECT(ctx, transport.post(std::move(filler)));
     }
     const std::size_t allocation_calls = contexts.state.allocations;
     TEST_EXPECT(ctx, !transport.post(std::move(message)));
-    TEST_EXPECT(ctx, message.is_message_a<BakedDocumentAsset>() && message.query_async_slot() == 29);
-    TEST_EXPECT(ctx, message.owner().memory_context() == &contexts.executive && message.owner().payload<BakedDocumentAsset>() == payload);
+    TEST_EXPECT(ctx, message.is_message_a<BakedAssetTransfer>() && message.query_async_slot() == 29);
+    TEST_EXPECT(ctx, message.owner().memory_context() == &contexts.executive && message.owner().payload<BakedAssetTransfer>() == payload);
     TEST_EXPECT(ctx, contexts.executive.get_live_allocation_count() == 2u && contexts.executive.get_live_allocated_bytes() == owned_bytes);
-    expect_bytes(ctx, payload->block, bytes.data(), snapshot);
+    expect_bytes(ctx, payload->storage.value, bytes.data(), snapshot);
     threading::CErasedOwnerMsg drained;
     while (transport.read(drained))
     {

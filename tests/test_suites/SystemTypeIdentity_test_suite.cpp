@@ -19,8 +19,10 @@
 #include "system/system_id_registry.hpp"
 #include "system/service_messages.hpp"
 #include "system/type_registration.hpp"
+#include "rendering/interface/texture_messages.hpp"
 #include "tests/test_suites/SystemTypeIdentity_test_suite.hpp"
 #include "tests/support/test_context.hpp"
+#include "tests/support/test_scopes.hpp"
 
 namespace identity_tests
 {
@@ -171,6 +173,50 @@ void test_registration_categories(TTestContext& ctx)
     static_assert(k_type_id_v<test_environment::STestAssetSaveState> == type_id{ local_type_ids::asset_save });
     TEST_EXPECT(ctx, system_type_ids::ops::is_valid_id(k_system_type_id_v<CByteBuffer>));
     TEST_EXPECT(ctx, local_type_ids::ops::is_valid_id(k_local_type_id_v<test_environment::CTestRuntime>));
+}
+
+template<typename... T>
+void expect_host_private_identities(TTestContext& ctx)
+{
+    static_assert((k_type_id_v<T>.is_local() && ...));
+    const tests::TModuleIdScope scope{ module_ids::executable };
+    for (const type_id identity : { k_type_id_v<T>... })
+    {
+        TEST_EXPECT(ctx, erased_transport_admission::classify(
+            identity, module_ids::executable).rejection ==
+            erased_transport_admission::ERejection::none);
+        for (const auto destination : { module_ids::executive, module_ids::render_vulkan })
+        {
+            TEST_EXPECT(ctx, erased_transport_admission::classify(
+                identity, destination).rejection ==
+                erased_transport_admission::ERejection::cross_component_local_identity);
+        }
+    }
+}
+
+void test_host_protocol_categories(TTestContext& ctx)
+{
+    expect_host_private_identities<FileLoadRequest, FileSaveRequest,
+        FileLoadResult, FileSaveResult, LoadedFile,
+        TgaEncodeRequest, TgaDecodeRequest, TgaEncodeResult, TgaDecodeResult,
+        EncodedTga, DecodedTga, BakedDocumentAsset, LiveDocumentAsset,
+        DocumentConditionRequest, DocumentConditionResult,
+        ModuleWorkRequest, ModuleWorkResult, FilesystemScanRequest, FilesystemScanResult,
+        BundleBuildWork, BundleBuildResult, BundlePrepareWork, BundlePrepareResult,
+        BorrowedBundleAsset>(ctx);
+
+    static_assert(k_type_id_v<AssetLoadRequest>.is_system());
+    static_assert(k_type_id_v<AssetSaveRequest>.is_system());
+    static_assert(k_type_id_v<ModuleRequest>.is_system());
+    static_assert(k_type_id_v<FilesystemRefreshRequest>.is_system());
+    static_assert(k_type_id_v<BundleLoadRequest>.is_system());
+    static_assert(k_type_id_v<BundleBakeRequest>.is_system());
+    static_assert(k_type_id_v<TextureEncodeRequest>.is_system());
+    static_assert(k_type_id_v<TextureDecodeRequest>.is_system());
+    static_assert(k_type_id_v<TextureEncodeWork>.is_system());
+    static_assert(k_type_id_v<TextureDecodeWork>.is_system());
+    static_assert(k_type_id_v<TextureEncodeResult>.is_system());
+    static_assert(k_type_id_v<TextureDecodeResult>.is_system());
 }
 
 void test_erased_transport_admission(TTestContext& ctx)
@@ -349,6 +395,7 @@ int run_system_type_identity_tests()
     identity_tests::test_encoding(ctx);
     identity_tests::test_category_bearing_identity(ctx);
     identity_tests::test_registration_categories(ctx);
+    identity_tests::test_host_protocol_categories(ctx);
     identity_tests::test_erased_transport_admission(ctx);
     identity_tests::test_advertised_identity_negotiation(ctx);
     identity_tests::test_local_names_and_lookup(ctx);

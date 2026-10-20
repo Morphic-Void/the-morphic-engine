@@ -8,6 +8,8 @@
 //
 //  Host admission, notification and storage for worker-owned binding transitions.
 
+#include <local_type_ids.hpp>
+
 #include "host/runtime/module_service.hpp"
 #include "host/system/host_context.hpp"
 #include "host/system/system_id_definitions.hpp"

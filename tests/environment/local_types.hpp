@@ -1,8 +1,8 @@
 //  Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited
 //  License: MIT (see LICENSE file in repository root)
 //
-//  MorphicTests-local runtime types. These fixtures deliberately model the
-//  properties required by Core tests without depending on Host-local types.
+//  MorphicTests-local runtime types and shared Host protocol declarations.
+//  This binary binds the protocols in its own catalogue, independently of Host.
 
 #pragma once
 
@@ -12,6 +12,9 @@
 #include <cstdint>
 
 #include "assets/asset_repository.hpp"
+
+#include "host/runtime/host_payloads.hpp"
+#include "image/image_messages.hpp"
 
 namespace test_environment
 {

@@ -20,7 +20,7 @@
 #include <new>          //  std::nothrow, aligned operator new[]/delete[]
 
 #include "host/system/host_context.hpp"
-#include "host/module/types/local_type_ids.hpp"
+#include <local_type_ids.hpp>
 #include "host/system/system_id_definitions.hpp"
 #include "platform/platform_defines.hpp"
 #include "memory/memory_policies.hpp"

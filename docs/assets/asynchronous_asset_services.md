@@ -246,8 +246,8 @@ until process exit; see the module lifecycle notes for that fallback.
   debug and diagnostic image flows.
 - `rendering/interface/texture_messages.hpp`: shared texture requests and work.
 - `host/runtime/host_payloads.hpp`: private worker exchanges and retained wrappers.
-  These still use SYSTEM identities; adjacent owner catalogues feed registration
-  and the shared operation table.
+  These and the TGA worker protocols use component-local identities. Adjacent
+  owner fragments feed the Host and service-test LOCAL operation tables.
 - `host/runtime/asset_service.*`: admission, retained storage, operation lifetimes,
   worker dispatch and correlated completion.
 - `host/runtime/host_worker_thread.cpp`: file and conditioning execution.

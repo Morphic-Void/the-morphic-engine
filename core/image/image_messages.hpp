@@ -19,8 +19,6 @@
 #include "containers/ByteBuffers.hpp"
 #include "image/codec/tga.hpp"
 #include "image/image_view.hpp"
-#include "system/erased_owner_registration.hpp"
-#include "system/system_type_registration.hpp"
 
 //==============================================================================
 //  Image conditioning: borrowed Host inputs and owning worker completions
@@ -49,19 +47,5 @@ struct DecodedTga
     //  Initialise after the buffer arrives at the Host; never change after publication.
     image::CImageView view;
 };
-
-//  Type bindings precede owning-payload eligibility.
-MV_REGISTER_SYSTEM_TYPE(TgaEncodeRequest, system_type_ids::tga_encode_request);
-MV_REGISTER_SYSTEM_TYPE(TgaDecodeRequest, system_type_ids::tga_decode_request);
-MV_REGISTER_SYSTEM_TYPE(TgaEncodeResult, system_type_ids::tga_encode_result);
-MV_REGISTER_SYSTEM_TYPE(TgaDecodeResult, system_type_ids::tga_decode_result);
-MV_REGISTER_SYSTEM_TYPE(EncodedTga, system_type_ids::encoded_tga);
-MV_REGISTER_SYSTEM_TYPE(DecodedTga, system_type_ids::decoded_tga);
-
-#define MV_ERASED_OWNER_PAYLOAD(type) MV_REGISTER_ERASED_OWNER_PAYLOAD(type);
-#define MV_ERASED_OWNER_PAYLOAD_WITH_STORAGE(type, member) MV_REGISTER_ERASED_OWNER_PAYLOAD(type);
-#include "image/image_owner_payloads.def"
-#undef MV_ERASED_OWNER_PAYLOAD_WITH_STORAGE
-#undef MV_ERASED_OWNER_PAYLOAD
 
 #endif  //  IMAGE_MESSAGES_HPP_INCLUDED

@@ -80,6 +80,9 @@ foreach(target IN ITEMS MorphicHost MorphicExecutive MorphicRendering MorphicTes
     set_target_properties(${target} PROPERTIES C_VISIBILITY_PRESET hidden CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN YES)
     add_dependencies(${target} MorphicPolicyCheck)
 endforeach()
+target_include_directories(MorphicHost PRIVATE "${CMAKE_SOURCE_DIR}/host/module/types")
+target_include_directories(MorphicTests PRIVATE "${CMAKE_SOURCE_DIR}/tests/environment")
+
 target_include_directories(MorphicRendering PRIVATE "${CMAKE_SOURCE_DIR}/external/basis_universal")
 target_compile_definitions(MorphicRendering PRIVATE
     BASISU_SUPPORT_SSE=0 BASISU_SUPPORT_OPENCL=0 BASISD_SUPPORT_KTX2_ZSTD=1)

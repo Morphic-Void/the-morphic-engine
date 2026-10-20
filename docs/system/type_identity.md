@@ -110,9 +110,13 @@ components use the neutral in-directory names `local_type_ids.def`,
 The component catalog header reopens `local_type_ids`, so ordinary component
 code uses names such as `local_type_ids::host_runtime` without an additional
 component prefix. Component catalog headers are binary-private and two
-components' catalogs must not be included in the same translation unit. Host
-tests therefore exercise only the Host catalog; Executive catalog generation
-and installation are compiled and validated in the Executive binary.
+components' catalogs must not be included in the same translation unit.
+MorphicTests composes the same Host-private protocol fragment into its own
+catalogue, alongside test-local types; it never links the Host catalogue.
+Shared Host sources select `<local_type_ids.hpp>` using the target's private
+include directory (`host/module/types` or `tests/environment`). Executive and
+Rendering generate and install their own catalogues in their respective binaries.
+Lifecycle fixture DLLs use the separate `tests/module_lifecycle` catalogue.
 
 Component `.def` files enumerate ordinary zero-based ordinals. Repeated
 inclusion generates IDs, C++ bindings, immutable registrations, and count
@@ -135,9 +139,10 @@ identity, termination, and zero fill. Missing, fabricated, corrupt, and
 unavailable registrations resolve to failure without allocation or dynamic
 registration.
 
-The host TGA continuation states and executive TGA continuation states are
-stored only in their component-owned `CASyncStates`. They therefore belong to
-their respective local tables rather than the system table. `TErasedPod` and
+Host file, TGA, document-conditioning, bundle-preparation, module-work and
+filesystem-scan protocols belong to its LOCAL table, together with their private
+retained owners. Public asset, bundle, module and filesystem requests, and the
+Rendering texture exchanges, retain SYSTEM identity. `TErasedPod` and
 `CASyncState` carry `type_id`, retain their existing fixed layouts, and accept
 either registered binding category.
 
@@ -176,8 +181,7 @@ admission.
 Message dispatch compares the umbrella value locally. An unrecognised value
 must be explicitly extracted as SYSTEM before it can enter the SYSTEM-only
 `UnrecognisedMsg` response or existing debug argument transport. Unknown LOCAL
-identity is represented by the debug system's bounded local-identity failure
-form rather than exported as a component-owned name.
+identity uses the debug system's bounded local-identity failure form.
 
 ## System Name Authority
 
@@ -195,6 +199,13 @@ name. The public installed-registry surface exposes the immutable view,
 validated lookup and formatting, and one complete `validate_all()` diagnostic;
 it does not duplicate raw table access or per-table validation APIs.
 
-The debug argument codes reserved for local-type text and local-type failure
-remain unsupported. Activating them and copying validated local names into
-events belong to the later transport phase.
+Debug arguments copy a registered LOCAL short name into the event while its
+originating catalogue is available. Unresolved LOCAL identities use the bounded
+failure form. Neither representation exports a pointer into a component table.
+
+SYSTEM ordinals are compiled into all binaries. Removing private entries during
+the messaging consolidation renumbers later identities. Transport IDs are not
+persisted in the current asset formats, but modules and lifecycle fixtures must
+be rebuilt and deployed with the Host. Registry validation checks table
+consistency, not agreement with another build's compiled ordinals; the binding
+ABI version alone does not detect this catalogue change.

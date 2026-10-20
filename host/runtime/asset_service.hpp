@@ -13,6 +13,8 @@
 #ifndef HOST_ASSET_SERVICE_HPP_INCLUDED
 #define HOST_ASSET_SERVICE_HPP_INCLUDED
 
+#include <local_type_ids.hpp>
+
 #include "assets/asset_repository.hpp"
 #include "containers/TUnorderedCollection.hpp"
 #include "assets/asset_messages.hpp"

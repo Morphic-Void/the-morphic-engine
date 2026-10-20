@@ -101,13 +101,13 @@ void test_erased_pod_redefinition_and_access(TTestContext& ctx)
 
     storage.set_tag(41u);
     UnrecognisedMsg& unrecognised = storage.redefine<UnrecognisedMsg>();
-    unrecognised.msg_id = system_type_ids::file_load_request;
+    unrecognised.msg_id = system_type_ids::asset_load_request;
 
     TEST_EXPECT(ctx, storage.query_type_id() == k_type_id_v<UnrecognisedMsg>);
     TEST_EXPECT(ctx, storage.query_tag() == 41u);
     TEST_EXPECT(ctx, storage.is_a<UnrecognisedMsg>());
     TEST_EXPECT(ctx, storage.payload<UnrecognisedMsg>() == &unrecognised);
-    TEST_EXPECT(ctx, storage.payload<UnrecognisedMsg>()->msg_id == system_type_ids::file_load_request);
+    TEST_EXPECT(ctx, storage.payload<UnrecognisedMsg>()->msg_id == system_type_ids::asset_load_request);
 
     const storage_type& const_storage = storage;
     TEST_EXPECT(ctx, const_storage.payload<UnrecognisedMsg>() == &unrecognised);
@@ -365,7 +365,7 @@ void test_thread_message_clears_previous_representation(TTestContext& ctx)
     const TgaEncodeRequest larger{};
     reused.assign_payload(larger);
 
-    const UnrecognisedMsg small{ system_type_ids::file_save_result };
+    const UnrecognisedMsg small{ system_type_ids::asset_dispose_result };
     reused.assign_payload(small);
 
     threading::CErasedPodMsg fresh;
@@ -400,6 +400,11 @@ void test_concrete_erased_pod_transport_admission(TTestContext& ctx)
     threading::transports::CErasedPodMsgTransport cross_component(
         module_ids::executive);
     TEST_EXPECT(ctx, cross_component.initialise_fixed(4u));
+    const threading::CErasedPodMsg private_snapshot = source;
+    TEST_EXPECT(ctx, !cross_component.post(source));
+    TEST_EXPECT(ctx, std::memcmp(&source, &private_snapshot, sizeof(source)) == 0);
+    TEST_EXPECT(ctx, !cross_component.read(received));
+    source.assign_payload(UnrecognisedMsg{ system_type_ids::asset_result });
     TEST_EXPECT(ctx, cross_component.post(source));
     TEST_EXPECT(ctx, cross_component.read(received));
     cross_component.deallocate();
@@ -529,7 +534,7 @@ void test_concrete_erased_pod_transport_diagnostics(TTestContext& ctx)
     local_cross_component.deallocate();
 
     threading::CErasedPodMsg system_message;
-    system_message.assign_payload(FileSaveResult{ true });
+    system_message.assign_payload(UnrecognisedMsg{ system_type_ids::asset_result });
     threading::transports::CErasedPodMsgTransport capacity_transport(
         module_ids::executable);
     TEST_EXPECT(ctx, capacity_transport.initialise_fixed(1u));

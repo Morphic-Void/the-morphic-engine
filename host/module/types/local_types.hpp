@@ -6,12 +6,15 @@
 //  Authors: Ritchie Brannan / OpenAI Codex
 //  Date:    17 Aug 26
 //
-//  Host-local runtime declaration.
+//  Host-local runtime and private protocol declarations.
 
 #pragma once
 
 #ifndef HOST_LOCAL_TYPES_HPP_INCLUDED
 #define HOST_LOCAL_TYPES_HPP_INCLUDED
+
+#include "host/runtime/host_payloads.hpp"
+#include "image/image_messages.hpp"
 
 namespace host
 {

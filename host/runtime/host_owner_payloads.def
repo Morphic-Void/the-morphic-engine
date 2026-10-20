@@ -1,12 +1,11 @@
-//  Host-private SYSTEM erased-owner payload declarations.
-//  Include this file with:
-//  - MV_ERASED_OWNER_PAYLOAD(type)
-//  - MV_ERASED_OWNER_PAYLOAD_WITH_STORAGE(type, member)
+//  Component-local erased-owner payload catalogue fragment.
+//  Defines MV_HOST_ERASED_OWNER_PAYLOADS(payload_macro, payload_with_storage_macro).
 
-MV_ERASED_OWNER_PAYLOAD_WITH_STORAGE(LoadedFile, buffer)
-MV_ERASED_OWNER_PAYLOAD_WITH_STORAGE(BakedDocumentAsset, block)
-MV_ERASED_OWNER_PAYLOAD(BorrowedBundleAsset)
-MV_ERASED_OWNER_PAYLOAD_WITH_STORAGE(BundleBuildResult, block)
-MV_ERASED_OWNER_PAYLOAD_WITH_STORAGE(DocumentConditionResult, storage)
-MV_ERASED_OWNER_PAYLOAD_WITH_STORAGE(LiveDocumentAsset, document)
-MV_ERASED_OWNER_PAYLOAD_WITH_STORAGE(FilesystemScanResult, document)
+#define MV_HOST_ERASED_OWNER_PAYLOADS(payload_macro, payload_with_storage_macro) \
+    payload_with_storage_macro(LoadedFile, buffer) \
+    payload_with_storage_macro(BakedDocumentAsset, block) \
+    payload_macro(BorrowedBundleAsset) \
+    payload_with_storage_macro(BundleBuildResult, block) \
+    payload_with_storage_macro(DocumentConditionResult, storage) \
+    payload_with_storage_macro(LiveDocumentAsset, document) \
+    payload_with_storage_macro(FilesystemScanResult, document)

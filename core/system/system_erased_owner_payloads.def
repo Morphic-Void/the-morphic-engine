@@ -1,10 +1,7 @@
 //  Built-in SYSTEM erased-owner payload catalogue.
 //  Define MV_ERASED_OWNER_PAYLOAD and MV_ERASED_OWNER_PAYLOAD_WITH_STORAGE.
 //  The same domain fragments generate eligibility and owner operations.
-//  Host and debug-image payloads remain SYSTEM until the LOCAL migration.
 
 #include "assets/asset_owner_payloads.def"
 #include "system/service_owner_payloads.def"
 #include "rendering/interface/texture_owner_payloads.def"
-#include "image/image_owner_payloads.def"
-#include "host/runtime/host_owner_payloads.def"

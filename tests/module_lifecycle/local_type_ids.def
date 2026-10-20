@@ -1,0 +1,5 @@
+//  Lifecycle-fixture-local type identity catalogue.
+//  Defines MV_LOCAL_TYPES(type_macro).
+
+#define MV_LOCAL_TYPES(type_macro) \
+    type_macro(lifecycle, module_lifecycle_tests::CFixtureModuleTag)

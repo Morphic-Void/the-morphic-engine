@@ -2,4 +2,9 @@
 //  Defines MV_LOCAL_ERASED_OWNER_PAYLOADS(payload_macro,
 //  payload_with_storage_macro).
 
-#define MV_LOCAL_ERASED_OWNER_PAYLOADS(payload_macro, payload_with_storage_macro)
+#include "host/runtime/host_owner_payloads.def"
+#include "image/image_owner_payloads.def"
+
+#define MV_LOCAL_ERASED_OWNER_PAYLOADS(payload_macro, payload_with_storage_macro) \
+    MV_HOST_ERASED_OWNER_PAYLOADS(payload_macro, payload_with_storage_macro) \
+    MV_IMAGE_ERASED_OWNER_PAYLOADS(payload_macro, payload_with_storage_macro)

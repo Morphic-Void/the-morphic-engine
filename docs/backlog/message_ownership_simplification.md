@@ -558,17 +558,23 @@ Each binary generates and installs one LOCAL registry and owner-operation table.
 The Host catalogue under `host/module/types/` and the test catalogue under
 `tests/environment/` compose the reusable protocol fragments separately.
 MorphicTests compiles Host service/worker code directly, so those translation
-units and the test fixtures must all use the test binary's composed catalogue.
+units and the ordinary tests must all use the test binary's composed catalogue.
 Do not include two component catalogues in one translation unit or link a second
 Host registry into the test binary. LOCAL ordinal values need not match between
 the Host and tests; identity is meaningful within the owning binary.
 
-The current Executive has a `file_load_request` SYSTEM registry probe, not a
-request using that protocol. Replace it with a genuine public contract identity
-while preserving registry-authority verification. Some tests transport
-`BakedDocumentAsset` or `LoadedFile` across simulated module boundaries. Move
-equivalent cross-module ownership/failure coverage to public transfer payloads,
-and test private wrappers locally; do not simply remove those tests.
+Shared Host sources include `<local_type_ids.hpp>` through a target-private
+include directory in Visual Studio and CMake. Declaration headers remain
+independent of the selected catalogue. Lifecycle fixture DLLs use their own
+catalogue under `tests/module_lifecycle/`; they do not inherit the ordinary
+tests' Host-private protocols or owner operations.
+
+The former Executive `file_load_request` registry probe was not a request using
+that protocol. Stage 3 replaces it with public `asset_load_request`, preserving
+registry-authority verification. Tests that previously transported
+`BakedDocumentAsset` or `LoadedFile` across simulated module boundaries now use
+public transfer payloads, retaining ownership/failure coverage. Private wrappers
+are tested within the owning component and for rejection at module boundaries.
 
 Removing SYSTEM entries renumbers generated IDs. Check numeric-ID persistence
 and compatibility assumptions before conversion and rebuild Host, modules, test
@@ -576,6 +582,17 @@ binaries and lifecycle fixtures together. An external compatibility dependency
 would require review rather than silently invalidating stored IDs or adding a
 new compatibility scheme. No change to identity encoding or transport admission
 rules is intended.
+
+The pre-conversion audit found no persisted transport type IDs in bundle,
+baked-document or schema data-block formats. Raw ID uses are encoding tests,
+dispatch, registry lookup and diagnostics, rather than saved asset identities.
+The DLL function queries and messages do depend on compiled SYSTEM ordinals.
+Registry validation checks the supplied table's internal consistency, not its
+agreement with an older binary's compiled catalogue; the existing binding ABI
+version does not detect this catalogue change. All participating binaries must
+therefore be rebuilt and deployed together. Mixed pre/post-conversion binaries
+are unsupported. No identity encoding, persistence format or ABI-version scheme
+is changed by this stage.
 
 See [transported types](../../core/system/transported_types.hpp),
 [system identities](../../core/system/system_type_ids.def) and
@@ -644,9 +661,9 @@ See [asset operation storage](../../host/runtime/asset_service.hpp),
 ## Staged implementation plan
 
 Each stage is a reviewable unit; implementation and commits require separate user
-instruction. Stage 1 is complete as a design/documentation stage. Stage 2's
-declaration split was implemented on 20 October 2026. Stages 3 onward remain
-future work; the LOCAL conversion and message helpers have not been implemented.
+instruction. Stage 1 is complete as a design/documentation stage. Stages 2 and 3's
+declaration split and LOCAL conversion were implemented on 20 October 2026.
+Stages 4 onward remain future work; the message helpers have not been implemented.
 
 ### Stage 1 Placement, interfaces and coverage (complete)
 
@@ -712,23 +729,29 @@ x64/Win32, Debug x64 Host-worker acceptance and module lifecycle with one and tw
 requested workers, standalone contract-header compilation, policy checks and
 project/text-format checks. Linux build/runtime verification remains for CI.
 
-### Stage 3 Localise Host protocols
+### Stage 3 Localise Host protocols (implemented)
 
-Convert the agreed private identities and nine owner registrations. Compose Host
-protocol fragments into the Host and test catalogues without adding a second
-registry to either binary. Keep public client contracts and Rendering exchanges
-SYSTEM. Apply bounded LOCAL names, replace the Executive registry probe and adapt
-cross-module tests to public payloads with equivalent coverage.
+Converted the agreed 24 private identities and nine owner registrations. Host
+and MorphicTests compose `host/runtime/host_protocol_type_ids.def` and the Host
+and image owner fragments into their separate LOCAL catalogues. The lifecycle
+DLL fixtures have an independent catalogue. Public client contracts and all six
+Rendering exchanges remain SYSTEM. LOCAL names fit the existing 15-byte limit.
+The Executive registry probe now uses public `asset_load_request`; cross-module
+ownership tests use `RawAssetTransfer` and `BakedAssetTransfer`.
 
-Audit numeric-ID compatibility assumptions before removing SYSTEM entries. Rebuild
-every participating binary and fixture together. Remove private dependencies from
-SYSTEM operation generation and update identity documentation, including stale
-descriptions of the test catalogue arrangement.
+The numeric compatibility audit above preceded conversion. Rebuild every
+participating binary and fixture together; old numeric message IDs are not
+compatible. SYSTEM operation generation no longer includes private declarations.
 
-Validation: registration/category checks, same-component success, independent
-message/owner boundary rejection, private storage accounting, real Executive and
-Rendering service flows, Host-worker and lifecycle harnesses. Confirm diagnostic
-identity handling still observes SYSTEM/LOCAL boundaries.
+Validation passed: Windows Debug/Release builds and ordinary tests on x64/Win32;
+Debug x64 Host-worker acceptance; all 33 lifecycle cases with one and two
+requested workers. Focused checks cover all 24 identity categories and all nine
+private owners, same-component transfer, independent message/owner rejection,
+nested-storage accounting and retained message/owner state after rejection.
+Existing public-transfer, diagnostic, bundle and schema coverage also passes.
+Policy, project/XML, text-format and public-header dependency checks passed.
+CMake includes select the corresponding component catalogue; Linux build/runtime
+verification remains for CI.
 
 ### Stage 4 Introduce helpers and migrate construction
 

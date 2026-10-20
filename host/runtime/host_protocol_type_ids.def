@@ -1,0 +1,28 @@
+//  Host-private protocol identities shared by Host and its service tests.
+//  Defines MV_HOST_PROTOCOL_TYPES(type_macro); names fit the LOCAL 15-byte limit.
+
+#define MV_HOST_PROTOCOL_TYPES(type_macro) \
+    type_macro(file_load_req, FileLoadRequest) \
+    type_macro(file_save_req, FileSaveRequest) \
+    type_macro(file_load_done, FileLoadResult) \
+    type_macro(file_save_done, FileSaveResult) \
+    type_macro(loaded_file, LoadedFile) \
+    type_macro(tga_encode_req, TgaEncodeRequest) \
+    type_macro(tga_decode_req, TgaDecodeRequest) \
+    type_macro(tga_encode_done, TgaEncodeResult) \
+    type_macro(tga_decode_done, TgaDecodeResult) \
+    type_macro(encoded_tga, EncodedTga) \
+    type_macro(decoded_tga, DecodedTga) \
+    type_macro(baked_document, BakedDocumentAsset) \
+    type_macro(live_document, LiveDocumentAsset) \
+    type_macro(borrowed_bundle, BorrowedBundleAsset) \
+    type_macro(bundle_build, BundleBuildWork) \
+    type_macro(bundle_built, BundleBuildResult) \
+    type_macro(bundle_prepare, BundlePrepareWork) \
+    type_macro(bundle_prepared, BundlePrepareResult) \
+    type_macro(doc_cond_req, DocumentConditionRequest) \
+    type_macro(doc_cond_result, DocumentConditionResult) \
+    type_macro(module_work, ModuleWorkRequest) \
+    type_macro(module_done, ModuleWorkResult) \
+    type_macro(filesystem_scan, FilesystemScanRequest) \
+    type_macro(filesystem_done, FilesystemScanResult)

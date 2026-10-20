@@ -1,6 +1,9 @@
 //  MorphicTests-local type identity catalog.
 
+#include "host/runtime/host_protocol_type_ids.def"
+
 #define MV_LOCAL_TYPES(type_macro) \
     type_macro(test_runtime, test_environment::CTestRuntime) \
     type_macro(asset_load, test_environment::STestAssetLoadState) \
-    type_macro(asset_save, test_environment::STestAssetSaveState)
+    type_macro(asset_save, test_environment::STestAssetSaveState) \
+    MV_HOST_PROTOCOL_TYPES(type_macro)

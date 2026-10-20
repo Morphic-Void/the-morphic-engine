@@ -6,6 +6,8 @@
 //  Authors: Ritchie Brannan / OpenAI Codex
 //  Date:    12 Aug 26
 
+#include "tests/environment/local_type_ids.hpp"
+
 #include <cstdint>
 #include <iostream>
 #include <type_traits>
@@ -71,7 +73,7 @@ void test_acquisition_redefinition_and_release(TTestContext& ctx)
     UnrecognisedMsg* const initial_payload = states.payload<UnrecognisedMsg>(first_slot);
     TEST_EXPECT(ctx, initial_payload != nullptr);
     TEST_EXPECT(ctx, initial_payload->msg_id == system_type_ids::undefined);
-    initial_payload->msg_id = system_type_ids::file_load_request;
+    initial_payload->msg_id = system_type_ids::asset_load_request;
 
     FileSaveResult* const redefined_payload = states.redefine<FileSaveResult>(first_slot);
     TEST_EXPECT(ctx, redefined_payload != nullptr);
@@ -123,7 +125,7 @@ void test_local_async_state(TTestContext& ctx)
     states.payload<local_type>(slot)->value = 91u;
     TEST_EXPECT(ctx, states.payload<local_type>(slot)->value == 91u);
 
-    FileSaveResult* const system_payload = states.redefine<FileSaveResult>(slot);
+    UnrecognisedMsg* const system_payload = states.redefine<UnrecognisedMsg>(slot);
     TEST_EXPECT(ctx, system_payload != nullptr);
     TEST_EXPECT(ctx, states.resolve(slot)->query_type_id().is_system());
     TEST_EXPECT(ctx, states.resolve(slot)->query_tag() == 19u);

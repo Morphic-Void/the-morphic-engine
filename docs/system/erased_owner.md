@@ -149,8 +149,11 @@ and owning request envelopes. The catalogue in
 select each payload's nested storage member. The same fragments generate owner
 eligibility beside the contract declarations. The internal definition aggregate
 `core/system/transported_types.hpp` is used by operation generation; ordinary
-callers include their specific contract headers. Host-private payloads remain
-SYSTEM registered until the separate LOCAL migration.
+callers include their specific contract headers. Host-private file, image,
+document, filesystem and bundle owners instead use the Host/image LOCAL
+fragments. The Host and service-test catalogues separately generate their
+eligibility and operations from those fragments. Public modules and lifecycle
+fixture DLLs do not compile these private operations.
 
 Those owners expose the common attribution interface, including
 explicitly unsafe context replacement without accounting. The carrier uses

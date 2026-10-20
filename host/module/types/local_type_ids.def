@@ -1,5 +1,8 @@
 //  Component-local type identity catalog.
 //  Defines MV_LOCAL_TYPES(type_macro).
 
+#include "host/runtime/host_protocol_type_ids.def"
+
 #define MV_LOCAL_TYPES(type_macro) \
-    type_macro(host_runtime, host::CHost)
+    type_macro(host_runtime, host::CHost) \
+    MV_HOST_PROTOCOL_TYPES(type_macro)

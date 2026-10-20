@@ -8,6 +8,8 @@
 //
 //  Shared Host worker for file I/O, asset conditioning and module binding.
 
+#include <local_type_ids.hpp>
+
 #include <cstdint>      //  std::uint32_t
 #include <utility>      //  std::move
 

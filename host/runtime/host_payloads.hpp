@@ -6,7 +6,7 @@
 //  Authors: Ritchie Brannan / OpenAI Codex
 //  Date:    20 Oct 26
 //
-//  Host worker exchanges and retained storage; SYSTEM identities until localisation.
+//  Host-private worker exchanges and retained storage; bindings belong to the component.
 
 #pragma once
 
@@ -19,8 +19,6 @@
 #include "assets/asset_messages.hpp"
 #include "filesystem/filesystem_image.hpp"
 #include "system/service_messages.hpp"
-#include "system/erased_owner_registration.hpp"
-#include "system/system_type_registration.hpp"
 
 //==============================================================================
 //  File I/O: borrowed Host inputs and worker completions
@@ -155,31 +153,5 @@ struct FilesystemScanResult
     CLiveDocument document;
     filesystem_image::EScanStatus status{ filesystem_image::EScanStatus::allocation_failed };
 };
-
-//  Type bindings precede owning-payload eligibility.
-MV_REGISTER_SYSTEM_TYPE(FileLoadRequest, system_type_ids::file_load_request);
-MV_REGISTER_SYSTEM_TYPE(FileSaveRequest, system_type_ids::file_save_request);
-MV_REGISTER_SYSTEM_TYPE(FileLoadResult, system_type_ids::file_load_result);
-MV_REGISTER_SYSTEM_TYPE(FileSaveResult, system_type_ids::file_save_result);
-MV_REGISTER_SYSTEM_TYPE(LoadedFile, system_type_ids::loaded_file);
-MV_REGISTER_SYSTEM_TYPE(BakedDocumentAsset, system_type_ids::baked_document_asset);
-MV_REGISTER_SYSTEM_TYPE(LiveDocumentAsset, system_type_ids::live_document_asset);
-MV_REGISTER_SYSTEM_TYPE(BorrowedBundleAsset, system_type_ids::borrowed_bundle_asset);
-MV_REGISTER_SYSTEM_TYPE(BundleBuildWork, system_type_ids::bundle_build_work);
-MV_REGISTER_SYSTEM_TYPE(BundleBuildResult, system_type_ids::bundle_build_result);
-MV_REGISTER_SYSTEM_TYPE(BundlePrepareWork, system_type_ids::bundle_prepare_work);
-MV_REGISTER_SYSTEM_TYPE(BundlePrepareResult, system_type_ids::bundle_prepare_result);
-MV_REGISTER_SYSTEM_TYPE(DocumentConditionRequest, system_type_ids::document_condition_request);
-MV_REGISTER_SYSTEM_TYPE(DocumentConditionResult, system_type_ids::document_condition_result);
-MV_REGISTER_SYSTEM_TYPE(ModuleWorkRequest, system_type_ids::module_work_request);
-MV_REGISTER_SYSTEM_TYPE(ModuleWorkResult, system_type_ids::module_work_result);
-MV_REGISTER_SYSTEM_TYPE(FilesystemScanRequest, system_type_ids::filesystem_scan_request);
-MV_REGISTER_SYSTEM_TYPE(FilesystemScanResult, system_type_ids::filesystem_scan_result);
-
-#define MV_ERASED_OWNER_PAYLOAD(type) MV_REGISTER_ERASED_OWNER_PAYLOAD(type);
-#define MV_ERASED_OWNER_PAYLOAD_WITH_STORAGE(type, member) MV_REGISTER_ERASED_OWNER_PAYLOAD(type);
-#include "host/runtime/host_owner_payloads.def"
-#undef MV_ERASED_OWNER_PAYLOAD_WITH_STORAGE
-#undef MV_ERASED_OWNER_PAYLOAD
 
 #endif  //  HOST_PAYLOADS_HPP_INCLUDED

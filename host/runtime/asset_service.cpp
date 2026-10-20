@@ -8,6 +8,8 @@
 //
 //  Compose file I/O and conditioning without transferring assets to clients.
 
+#include <local_type_ids.hpp>
+
 #include <algorithm>
 #include <cstring>
 #include <type_traits>

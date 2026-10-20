@@ -8,7 +8,6 @@
 //
 //  Internal definition aggregate for SYSTEM owner-operation generation.
 //  Ordinary callers include the specific contract headers they use.
-//  Host-private payloads remain SYSTEM registered until the LOCAL migration.
 
 #pragma once
 
@@ -18,7 +17,5 @@
 #include "assets/asset_messages.hpp"
 #include "system/service_messages.hpp"
 #include "rendering/interface/texture_messages.hpp"
-#include "image/image_messages.hpp"
-#include "host/runtime/host_payloads.hpp"
 
 #endif  //  TRANSPORTED_TYPES_HPP_INCLUDED
