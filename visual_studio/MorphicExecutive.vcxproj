@@ -93,6 +93,7 @@
     <ClCompile Include="..\executive\module\binding\executive_binding.cpp" />
     <ClCompile Include="..\executive\module\types\local_type_ids.cpp" />
     <ClCompile Include="..\executive\runtime\executive_thread.cpp" />
+    <ClCompile Include="..\executive\runtime\request_preparation.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\executive\module\binding\executive_binding.hpp" />
@@ -101,6 +102,7 @@
     <ClInclude Include="..\executive\module\types\local_type_ids.hpp" />
     <ClInclude Include="..\executive\module\types\local_types.hpp" />
     <ClInclude Include="..\executive\runtime\executive_thread.hpp" />
+    <ClInclude Include="..\executive\runtime\request_preparation.hpp" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\external\SuiteUTF\SuiteUTF.vcxproj">

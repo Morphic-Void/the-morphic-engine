@@ -8,6 +8,8 @@
 //
 //  Shared Host worker for file I/O, asset conditioning and module binding.
 
+#include "threading/messages/message_helpers.hpp"
+
 #include <local_type_ids.hpp>
 
 #include <cstdint>      //  std::uint32_t
@@ -452,8 +454,8 @@ void CHostWorkerThread::operate() noexcept
 
                     BundleBuildWork request;
                     (void)inbound_msg.copy_payload_to(request);
-                    CErasedOwner content = CErasedOwner::create<BundleBuildResult>();
-                    if (BundleBuildResult* const result = content.payload<BundleBuildResult>())
+                    auto completion = threading::make_owner_message<BundleBuildResult>(inbound_msg.query_async_slot());
+                    if (BundleBuildResult* const result = completion.owner().payload<BundleBuildResult>())
                     {
                         result->result.status = bundle::EBuildStatus::invalid_input;
                         if (request.input != nullptr)
@@ -470,12 +472,9 @@ void CHostWorkerThread::operate() noexcept
                     {
                         MV_LOG(error, "Bundle slot {}: result allocation failed", inbound_msg.query_async_slot());
                     }
-                    threading::CErasedOwnerMsg completion;
-                    completion.set_message_type<BundleBuildResult>();
-                    completion.set_async_slot(inbound_msg.query_async_slot());
-                    completion.set_owner(std::move(content));
                     if (!m_context.post(std::move(completion)))
                     {
+                        MV_LOG(error, "Host worker: completion delivery failed at slot {}", inbound_msg.query_async_slot());
                         m_failed = true;
                         return;
                     }
@@ -489,11 +488,10 @@ void CHostWorkerThread::operate() noexcept
                     BundlePrepareResult result;
                     if (inbound_msg.copy_payload_to(request) && (request.preparation != nullptr))
                         result.status = prepare_bundle(*request.preparation, inbound_msg.query_async_slot());
-                    threading::CErasedPodMsg completion;
-                    completion.set_async_slot(inbound_msg.query_async_slot());
-                    completion.assign_payload(result);
+                    const auto completion = threading::make_pod_message(inbound_msg.query_async_slot(), result);
                     if (!m_context.post(completion))
                     {
+                        MV_LOG(error, "Host worker: completion delivery failed at slot {}", inbound_msg.query_async_slot());
                         m_failed = true;
                         return;
                     }
@@ -505,8 +503,8 @@ void CHostWorkerThread::operate() noexcept
 
                     FilesystemScanRequest request;
                     (void)inbound_msg.copy_payload_to(request);
-                    CErasedOwner content = CErasedOwner::create<FilesystemScanResult>();
-                    if (FilesystemScanResult* const result = content.payload<FilesystemScanResult>())
+                    auto completion = threading::make_owner_message<FilesystemScanResult>(inbound_msg.query_async_slot());
+                    if (FilesystemScanResult* const result = completion.owner().payload<FilesystemScanResult>())
                     {
                         result->status = (request.root == nullptr) ?
                             filesystem_image::scan_manifest("development/root-manifest.json", result->document) :
@@ -518,12 +516,9 @@ void CHostWorkerThread::operate() noexcept
                                 static_cast<unsigned int>(result->status));
                         }
                     }
-                    threading::CErasedOwnerMsg completion;
-                    completion.set_message_type<FilesystemScanResult>();
-                    completion.set_async_slot(inbound_msg.query_async_slot());
-                    completion.set_owner(std::move(content));
                     if (!m_context.post(std::move(completion)))
                     {
+                        MV_LOG(error, "Host worker: completion delivery failed at slot {}", inbound_msg.query_async_slot());
                         m_failed = true;
                         return;
                     }
@@ -541,11 +536,10 @@ void CHostWorkerThread::operate() noexcept
                         result.status = perform_module_work(*request.work);
                     }
 
-                    threading::CErasedPodMsg completion;
-                    completion.set_async_slot(inbound_msg.query_async_slot());
-                    completion.assign_payload(result);
+                    const auto completion = threading::make_pod_message(inbound_msg.query_async_slot(), result);
                     if (!m_context.post(completion))
                     {
+                        MV_LOG(error, "Host worker: completion delivery failed at slot {}", inbound_msg.query_async_slot());
                         m_failed = true;
                         return;
                     }
@@ -557,22 +551,19 @@ void CHostWorkerThread::operate() noexcept
 
                     FileLoadRequest request;
                     (void)inbound_msg.copy_payload_to(request);
-                    CErasedOwner content = CErasedOwner::create<LoadedFile>();
-                    if (LoadedFile* const result = content.payload<LoadedFile>())
+                    auto outbound_msg = threading::make_owner_message<FileLoadResult>(inbound_msg.query_async_slot());
+                    if (LoadedFile* const result = outbound_msg.owner().payload<LoadedFile>())
                     {
                         result->buffer = platform::filesystem::loadFile(request.file, 0u, request.alignment);
                     }
-                    const LoadedFile* const loaded = content.payload<LoadedFile>();
+                    const LoadedFile* const loaded = outbound_msg.owner().payload<LoadedFile>();
                     if ((loaded == nullptr) || !loaded->buffer.is_ready())
                     {
                         MV_LOG_RICH(error, "File load failed: %s", ((request.file != nullptr) ? request.file : "<null path>"));
                     }
-                    threading::CErasedOwnerMsg outbound_msg;
-                    outbound_msg.set_message_type<FileLoadResult>();
-                    outbound_msg.set_async_slot(inbound_msg.query_async_slot());
-                    outbound_msg.set_owner(std::move(content));
                     if (!m_context.post(std::move(outbound_msg)))
                     {
+                        MV_LOG(error, "Host worker: completion delivery failed at slot {}", inbound_msg.query_async_slot());
                         m_failed = true;
                         return;
                     }
@@ -590,11 +581,10 @@ void CHostWorkerThread::operate() noexcept
                     {
                         MV_LOG_RICH(error, "File save failed: %s", ((request.file != nullptr) ? request.file : "<null path>"));
                     }
-                    threading::CErasedPodMsg outbound_msg;
-                    outbound_msg.set_async_slot(inbound_msg.query_async_slot());
-                    outbound_msg.assign_payload(result);
+                    const auto outbound_msg = threading::make_pod_message(inbound_msg.query_async_slot(), result);
                     if (!m_context.post(outbound_msg))
                     {
+                        MV_LOG(error, "Host worker: completion delivery failed at slot {}", inbound_msg.query_async_slot());
                         m_failed = true;
                         return;
                     }
@@ -606,17 +596,14 @@ void CHostWorkerThread::operate() noexcept
 
                     TgaEncodeRequest request;
                     (void)inbound_msg.copy_payload_to(request);
-                    CErasedOwner content = CErasedOwner::create<EncodedTga>();
-                    if (EncodedTga* const result = content.payload<EncodedTga>())
+                    auto outbound_msg = threading::make_owner_message<TgaEncodeResult>(inbound_msg.query_async_slot());
+                    if (EncodedTga* const result = outbound_msg.owner().payload<EncodedTga>())
                     {
                         result->buffer = image::codec::tga::encode(request.view, request.options);
                     }
-                    threading::CErasedOwnerMsg outbound_msg;
-                    outbound_msg.set_message_type<TgaEncodeResult>();
-                    outbound_msg.set_async_slot(inbound_msg.query_async_slot());
-                    outbound_msg.set_owner(std::move(content));
                     if (!m_context.post(std::move(outbound_msg)))
                     {
+                        MV_LOG(error, "Host worker: completion delivery failed at slot {}", inbound_msg.query_async_slot());
                         m_failed = true;
                         return;
                     }
@@ -628,20 +615,17 @@ void CHostWorkerThread::operate() noexcept
 
                     TgaDecodeRequest request;
                     (void)inbound_msg.copy_payload_to(request);
-                    CErasedOwner content = CErasedOwner::create<DecodedTga>();
-                    if (DecodedTga* const result = content.payload<DecodedTga>())
+                    auto outbound_msg = threading::make_owner_message<TgaDecodeResult>(inbound_msg.query_async_slot());
+                    if (DecodedTga* const result = outbound_msg.owner().payload<DecodedTga>())
                     {
                         result->buffer = image::codec::tga::decode(request.view, result->desc, request.decode_top_down);
                         //  The codec defaults to bottom-up rows; the image view uses a
                         //  top-left logical origin and reverses addressing for that storage.
                         result->storage_bottom_up = !request.decode_top_down;
                     }
-                    threading::CErasedOwnerMsg outbound_msg;
-                    outbound_msg.set_message_type<TgaDecodeResult>();
-                    outbound_msg.set_async_slot(inbound_msg.query_async_slot());
-                    outbound_msg.set_owner(std::move(content));
                     if (!m_context.post(std::move(outbound_msg)))
                     {
+                        MV_LOG(error, "Host worker: completion delivery failed at slot {}", inbound_msg.query_async_slot());
                         m_failed = true;
                         return;
                     }
@@ -653,8 +637,8 @@ void CHostWorkerThread::operate() noexcept
 
                     DocumentConditionRequest request;
                     (void)inbound_msg.copy_payload_to(request);
-                    CErasedOwner content = CErasedOwner::create<DocumentConditionResult>();
-                    if (DocumentConditionResult* const result = content.payload<DocumentConditionResult>())
+                    auto outbound_msg = threading::make_owner_message<DocumentConditionResult>(inbound_msg.query_async_slot());
+                    if (DocumentConditionResult* const result = outbound_msg.owner().payload<DocumentConditionResult>())
                     {
                         result->status = condition_document(request, inbound_msg.query_async_slot(), *result);
                     }
@@ -662,12 +646,9 @@ void CHostWorkerThread::operate() noexcept
                     {
                         MV_LOG(error, "Document slot {}: result allocation failed", inbound_msg.query_async_slot());
                     }
-                    threading::CErasedOwnerMsg outbound_msg;
-                    outbound_msg.set_message_type<DocumentConditionResult>();
-                    outbound_msg.set_async_slot(inbound_msg.query_async_slot());
-                    outbound_msg.set_owner(std::move(content));
                     if (!m_context.post(std::move(outbound_msg)))
                     {
+                        MV_LOG(error, "Host worker: completion delivery failed at slot {}", inbound_msg.query_async_slot());
                         m_failed = true;
                         return;
                     }
@@ -685,11 +666,10 @@ void CHostWorkerThread::operate() noexcept
 
                     UnrecognisedMsg unrecognised;
                     unrecognised.msg_id = unrecognised_id;
-                    threading::CErasedPodMsg outbound_msg;
-                    outbound_msg.set_async_slot(inbound_msg.query_async_slot());
-                    outbound_msg.assign_payload(unrecognised);
+                    const auto outbound_msg = threading::make_pod_message(inbound_msg.query_async_slot(), unrecognised);
                     if (!m_context.post(outbound_msg))
                     {
+                        MV_LOG(error, "Host worker: completion delivery failed at slot {}", inbound_msg.query_async_slot());
                         m_failed = true;
                         return;
                     }

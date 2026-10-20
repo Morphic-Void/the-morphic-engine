@@ -87,6 +87,32 @@ discover unknown nested ownership.
 
 `payload<T>()` returns a pointer only when the registered type ID matches.
 
+## Message construction and inspection
+
+`threading/messages/message_helpers.hpp` provides `make_pod_message(slot, value)`
+and `make_owner_message<TMessage>(slot)`. The owning helper sets the message
+identity and correlation before allocating its payload. Allocation failure
+therefore returns a typed, correlated message without an owner. Request
+preparation must check allocation before posting; services whose reply protocol
+permits an empty completion may send that state.
+
+`TMessagePayload<TMessage>::type` defaults to `TMessage`. The Host's
+`FileLoadResult` maps to `LoadedFile`, and the image contracts map
+`TgaEncodeResult`/`TgaDecodeResult` to `EncodedTga`/`DecodedTga`. These associations
+live beside their declarations and do not register identity or owner operations.
+
+`inspect_owner_message<TMessage>(message)` borrows the payload without moving
+ownership. It returns `present` with a matching pointer, `empty` for a matching
+message without an owner, or `invalid` for a wrong message or payload identity.
+A const message produces a const payload pointer. Temporary carriers are rejected
+at compile time; callers must also keep lvalue carriers alive while using an
+inspection. Inspection does not validate sender, correlation or operation phase,
+or decide whether an empty completion is permitted.
+
+`k_uncorrelated_slot` names the existing `-1` sentinel. Default message headers
+still use zero. These helpers do not post, retry, log admission failures or alter
+transport ownership rules.
+
 ## Component Operation Authority
 
 Each binary owns one immutable registry view with separate dense SYSTEM and

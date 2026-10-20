@@ -13,6 +13,7 @@
 #ifndef IMAGE_MESSAGES_HPP_INCLUDED
 #define IMAGE_MESSAGES_HPP_INCLUDED
 
+#include "threading/messages/message_helpers.hpp"
 #include <cstddef>
 #include <cstdint>
 
@@ -47,5 +48,13 @@ struct DecodedTga
     //  Initialise after the buffer arrives at the Host; never change after publication.
     image::CImageView view;
 };
+
+namespace threading
+{
+
+template<> struct TMessagePayload<TgaEncodeResult> { using type = EncodedTga; };
+template<> struct TMessagePayload<TgaDecodeResult> { using type = DecodedTga; };
+
+}   //  namespace threading
 
 #endif  //  IMAGE_MESSAGES_HPP_INCLUDED

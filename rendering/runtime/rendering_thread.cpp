@@ -8,6 +8,8 @@
 //
 //  Rendering module thread and asynchronous texture conditioning.
 
+#include "threading/messages/message_helpers.hpp"
+
 #include "rendering/runtime/rendering_thread.hpp"
 #include "rendering/runtime/basis_codec.hpp"
 #include "rendering/runtime/texture_jobs.hpp"
@@ -92,9 +94,8 @@ bool CTextureRequests::submit(const threading::CErasedPodMsg& message) noexcept
     pending.response = std::move(response);
     if (encoding)
     {
-        CErasedOwner owner = CErasedOwner::create<TextureEncodeResult>();
-        const bool allocated = (owner.payload<TextureEncodeResult>() != nullptr);
-        pending.response.set_owner(std::move(owner));
+        pending.response = threading::make_owner_message<TextureEncodeResult>(message.query_async_slot());
+        const bool allocated = pending.response.has_owner();
         const TextureEncodeRequest& request = *encode.request;
         const image::texture::CInputView input{ request.input.const_view(), request.format, request.transfer };
         if (!allocated || !pending.encode.emplace(input, request.options))
@@ -103,9 +104,8 @@ bool CTextureRequests::submit(const threading::CErasedPodMsg& message) noexcept
         }
         return dispatch(slot, (&CTextureEncodeJob::execute), pending.encode.operator->());
     }
-    CErasedOwner owner = CErasedOwner::create<TextureDecodeResult>();
-    const bool allocated = (owner.payload<TextureDecodeResult>() != nullptr);
-    pending.response.set_owner(std::move(owner));
+    pending.response = threading::make_owner_message<TextureDecodeResult>(message.query_async_slot());
+    const bool allocated = pending.response.has_owner();
     if (!allocated || !pending.decode.emplace((*decode.input), decode.request->target, decode.request->level))
     {
         return finish(slot, false);

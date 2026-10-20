@@ -771,6 +771,36 @@ preserving owner, payload address, attribution and hazards. Exercise the migrate
 caller boundary as well as the transport; a passing transport test alone does
 not prove that a wrapper preserves ownership.
 
+Implementation (20 October 2026): construction and inspection are in
+`core/threading/messages/message_helpers.hpp`, with the three differing payload
+associations beside their Host/image declarations. Executive preparation is in
+the separate private `request_preparation.hpp/.cpp` unit. The scenario dispatcher
+and fixture builders now prepare into a caller-owned message; controllers post
+explicitly and retain their existing terminal failure policy.
+
+POD construction and applicable owning request/reply construction have migrated
+in the Executive, Host services/workers and Rendering. Rendering still acquires
+its request record before allocating the result payload, preserving the typed
+empty reply when record allocation fails. Existing-owner forwarding and local
+asset-owner creation remain explicit. No identities or transport rules change.
+Completion validation, texture retention and in-place completion updates remain
+stage 5 work.
+
+The `MessageHelpers` suite compiles the actual Executive preparation unit.
+Coverage includes same/different payload pairs, typed empty allocation failure,
+const inspection and temporary-carrier rejection, occupied destinations, partial
+path preparation failure, storage preservation on failed preparation, rejected
+post and retry of both path-owning and transferred-storage requests, attribution,
+hazards, correlation and exactly-once cleanup. Existing functional suites and
+Host/lifecycle acceptance cover the migrated flows.
+
+Validation passed: Debug and Release solution builds and ordinary tests on x64
+and Win32, with 205 `MessageHelpers` checks in each configuration; Debug x64
+Host-worker acceptance; and all 33 lifecycle cases with each of one and two
+workers. Policy validation reported no errors or warnings. Project XML and text
+format checks passed, including the new files and Visual Studio metadata
+exceptions. Linux build/runtime verification remains for CI.
+
 ### Stage 5 Consolidate completion handling and texture code
 
 Apply non-consuming inspection while retaining sender/phase/correlation checks.

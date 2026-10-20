@@ -13,6 +13,7 @@
 #ifndef HOST_PAYLOADS_HPP_INCLUDED
 #define HOST_PAYLOADS_HPP_INCLUDED
 
+#include "threading/messages/message_helpers.hpp"
 #include <cstddef>
 #include <cstdint>
 
@@ -153,5 +154,12 @@ struct FilesystemScanResult
     CLiveDocument document;
     filesystem_image::EScanStatus status{ filesystem_image::EScanStatus::allocation_failed };
 };
+
+namespace threading
+{
+
+template<> struct TMessagePayload<FileLoadResult> { using type = LoadedFile; };
+
+}   //  namespace threading
 
 #endif  //  HOST_PAYLOADS_HPP_INCLUDED

@@ -130,6 +130,7 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\threading\messages\byte_view_payloads.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\threading\messages\CErasedMessageTransports.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\threading\messages\CErasedOwnerMsg.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\threading\messages\message_helpers.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\threading\messages\CErasedPodMsg.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\threading\messages\messages.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\threading\messages\SErasedMsgHeader.hpp" />

@@ -100,6 +100,7 @@
     <ClCompile Include="..\tests\manual\tga_round_trip.cpp" />
     <ClCompile Include="..\tests\support\file_helpers.cpp" />
     <ClCompile Include="..\tests\support\test_allocator.cpp" />
+    <ClCompile Include="..\executive\runtime\request_preparation.cpp" />
     <ClCompile Include="..\tests\test_suites\AssetRepository_test_suite.cpp" />
     <ClCompile Include="..\tests\test_suites\FilesystemImage_test_suite.cpp" />
     <ClCompile Include="..\tests\test_suites\File_test_suite.cpp" />
@@ -128,6 +129,7 @@
     <ClCompile Include="..\tests\test_suites\CMemoryView_test_suite.cpp" />
     <ClCompile Include="..\tests\test_suites\DebugService_test_suite.cpp" />
     <ClCompile Include="..\tests\test_suites\ErasedOwner_test_suite.cpp" />
+    <ClCompile Include="..\tests\test_suites\MessageHelpers_test_suite.cpp" />
     <ClCompile Include="..\tests\test_suites\ErasedPod_test_suite.cpp" />
     <ClCompile Include="..\tests\test_suites\LiveDocument_test_suite.cpp" />
     <ClCompile Include="..\tests\main\run_tests.cpp" />
@@ -185,6 +187,7 @@
     <ClInclude Include="..\tests\test_suites\CMemoryView_test_suite.hpp" />
     <ClInclude Include="..\tests\test_suites\DebugService_test_suite.hpp" />
     <ClInclude Include="..\tests\test_suites\ErasedOwner_test_suite.hpp" />
+    <ClInclude Include="..\tests\test_suites\MessageHelpers_test_suite.hpp" />
     <ClInclude Include="..\tests\test_suites\ErasedPod_test_suite.hpp" />
     <ClInclude Include="..\tests\test_suites\LiveDocument_test_suite.hpp" />
     <ClInclude Include="..\tests\main\run_tests.hpp" />

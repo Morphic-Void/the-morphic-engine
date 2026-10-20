@@ -8,12 +8,15 @@
 //
 //  Executive thread and asynchronous asset-service acceptance exercise.
 
+#include "threading/messages/message_helpers.hpp"
+
 #include <cstdint>      //  std::int32_t, std::uint32_t, std::uint64_t
 #include <cstring>      //  std::strcmp
 #include <limits>       //  std::numeric_limits
 #include <utility>      //  std::move
 
 #include "executive/runtime/executive_thread.hpp"
+#include "executive/runtime/request_preparation.hpp"
 #include "module/module_binding_context.hpp"
 
 #include "debug/macros.hpp"
@@ -271,18 +274,13 @@ private:
     [[nodiscard]] bool initialise() noexcept;
     [[nodiscard]] bool accept_rendering_notice(const threading::CErasedPodMsg& message) noexcept;
     void operate() noexcept;
-    [[nodiscard]] bool submit(const asset_acceptance::SScenario& scenario, const std::int32_t slot) noexcept;
+    [[nodiscard]] bool prepare_scenario(threading::CErasedOwnerMsg& pending, const asset_acceptance::SScenario& scenario, const std::int32_t slot) noexcept;
     [[nodiscard]] bool check(const asset_acceptance::SScenario& scenario, const AssetResult& result) noexcept;
-    template<typename T>
-    [[nodiscard]] bool post(const std::int32_t slot, CErasedOwner&& owner, const T* const request) noexcept;
-    [[nodiscard]] bool load(const std::int32_t slot, const EAssetFileFormat format, const char* const file, const CDocumentParseOptions policy = {}, const bool decode_top_down = true) noexcept;
-    [[nodiscard]] bool save(const std::int32_t slot, const CAssetId asset, const char* const file, const AssetSaveSettings& settings) noexcept;
-    [[nodiscard]] bool transfer_raw(const std::int32_t slot, const char* const text, const EAssetRetention retention, const bool save, const char* const file) noexcept;
-    [[nodiscard]] bool transfer_image(const std::int32_t slot, const bool greyscale, const bool storage_bottom_up, const EAssetRetention retention, const char* const file) noexcept;
-    [[nodiscard]] bool transfer_live(const std::int32_t slot, const EAssetRetention retention, const bool save, const char* const file, const AssetSaveSettings& settings) noexcept;
-    [[nodiscard]] bool transfer_baked(const std::int32_t slot, const EAssetRetention retention, const bool save, const char* const file, const AssetSaveSettings& settings) noexcept;
-    [[nodiscard]] bool encode_texture_fixture(const std::int32_t slot, const asset_acceptance::EScenario scenario) noexcept;
-    [[nodiscard]] bool decode_texture_fixture(const std::int32_t slot, const CAssetId source, const image::texture::EStorageFormat target, const std::uint32_t level = 0u) noexcept;
+    [[nodiscard]] bool prepare_raw_fixture(threading::CErasedOwnerMsg& pending, const std::int32_t slot, const char* const text, const EAssetRetention retention, const bool save, const char* const file) noexcept;
+    [[nodiscard]] bool prepare_image_fixture(threading::CErasedOwnerMsg& pending, const std::int32_t slot, const bool greyscale, const bool storage_bottom_up, const EAssetRetention retention, const char* const file) noexcept;
+    [[nodiscard]] bool prepare_live_fixture(threading::CErasedOwnerMsg& pending, const std::int32_t slot, const EAssetRetention retention, const bool save, const char* const file, const AssetSaveSettings& settings) noexcept;
+    [[nodiscard]] bool prepare_baked_fixture(threading::CErasedOwnerMsg& pending, const std::int32_t slot, const EAssetRetention retention, const bool save, const char* const file, const AssetSaveSettings& settings) noexcept;
+    [[nodiscard]] bool prepare_texture_fixture(threading::CErasedOwnerMsg& pending, const std::int32_t slot, const asset_acceptance::EScenario scenario) noexcept;
     [[nodiscard]] bool prepare_expected_document() noexcept;
     [[nodiscard]] bool submit_concurrent_saves() noexcept;
     [[nodiscard]] bool complete_concurrent_save(const threading::CErasedPodMsg& message) noexcept;
@@ -384,16 +382,14 @@ bool CExecutiveThread::initialise() noexcept
 
     //  Renderer selection belongs to this Executive; selector Executives may
     //  omit it entirely. Loading an occupied mount is resolved by its reply.
-    CErasedOwner owner = CErasedOwner::create<ModuleRequest>();
-    ModuleRequest* const request = owner.payload<ModuleRequest>();
-    if ((request == nullptr) || !request->file.set("package:/bin/MorphicRendering.dll"))
+    threading::CErasedOwnerMsg pending;
+    if (!request_preparation::prepare_module_request(pending, m_pending_slot,
+        module_ids::render_vulkan, EModuleAction::load, "package:/bin/MorphicRendering.dll"))
     {
-        fail(EFailure::submission, "rendering load submission");
+        fail(EFailure::submission, "rendering load preparation");
         return false;
     }
-    request->module = module_ids::render_vulkan;
-    request->action = EModuleAction::load;
-    if (!post(m_pending_slot, std::move(owner), request))
+    if (!m_context.post(std::move(pending)))
     {
         fail(EFailure::submission, "rendering load submission");
         return false;
@@ -441,121 +437,59 @@ bool CExecutiveThread::accept_rendering_notice(const threading::CErasedPodMsg& m
     return true;
 }
 
-template<typename T>
-bool CExecutiveThread::post(const std::int32_t slot, CErasedOwner&& owner, const T* const request) noexcept
-{
-    if (!owner || (request == nullptr))
-    {
-        return false;
-    }
-    threading::CErasedOwnerMsg message;
-    message.set_message_type<T>();
-    message.set_async_slot(slot);
-    message.set_owner(std::move(owner));
-    return m_context.post(std::move(message));
-}
-
-bool CExecutiveThread::load(const std::int32_t slot, const EAssetFileFormat format, const char* const file,
-    const CDocumentParseOptions policy, const bool decode_top_down) noexcept
-{
-    CErasedOwner owner = CErasedOwner::create<AssetLoadRequest>();
-    AssetLoadRequest* const request = owner.payload<AssetLoadRequest>();
-    if ((request == nullptr) || !request->file.set(file))
-    {
-        return false;
-    }
-    request->format = format;
-    request->alignment = 32u;
-    request->policy = policy;
-    request->decode_top_down = decode_top_down;
-    return post(slot, std::move(owner), request);
-}
-
-bool CExecutiveThread::save(const std::int32_t slot, const CAssetId asset, const char* const file, const AssetSaveSettings& settings) noexcept
-{
-    CErasedOwner owner = CErasedOwner::create<AssetSaveRequest>();
-    AssetSaveRequest* const request = owner.payload<AssetSaveRequest>();
-    if ((request == nullptr) || !request->file.set(file))
-    {
-        return false;
-    }
-    request->source = asset;
-    request->settings = settings;
-    return post(slot, std::move(owner), request);
-}
-
-bool CExecutiveThread::transfer_raw(const std::int32_t slot, const char* const text,
+bool CExecutiveThread::prepare_raw_fixture(threading::CErasedOwnerMsg& pending, const std::int32_t slot, const char* const text,
     const EAssetRetention retention, const bool save, const char* const file) noexcept
 {
-    CErasedOwner owner = CErasedOwner::create<RawAssetTransfer>();
-    RawAssetTransfer* const request = owner.payload<RawAssetTransfer>();
+    if (!request_preparation::can_prepare_request(pending, slot)) return false;
+    CByteBuffer bytes;
     const std::size_t size = std::strlen(text);
-    if ((request == nullptr) || !request->storage.value.resize(size) || (save && !request->storage.file.set(file)))
-    {
-        return false;
-    }
-    std::memcpy(request->storage.value.data(), text, size);
-    request->settings.format = EAssetFileFormat::raw;
-    request->save = save;
-    request->retention = retention;
-    return post(slot, std::move(owner), request);
+    if (!bytes.resize(size)) return false;
+    std::memcpy(bytes.data(), text, size);
+    return request_preparation::prepare_asset_transfer(pending, slot, bytes, retention, save, file,
+        asset_acceptance::save_settings(EAssetFileFormat::raw));
 }
 
-bool CExecutiveThread::transfer_image(const std::int32_t slot, const bool greyscale, const bool storage_bottom_up,
+bool CExecutiveThread::prepare_image_fixture(threading::CErasedOwnerMsg& pending, const std::int32_t slot, const bool greyscale, const bool storage_bottom_up,
     const EAssetRetention retention, const char* const file) noexcept
 {
-    CErasedOwner owner = CErasedOwner::create<ImageAssetTransfer>();
-    ImageAssetTransfer* const request = owner.payload<ImageAssetTransfer>();
-    if ((request == nullptr) || !request->storage.value.allocate((greyscale ? 7u : 28u), 5u, 16u) || !request->storage.file.set(file))
-    {
-        return false;
-    }
-    request->description = greyscale ? image::codec::tga::decoded_image_desc::Gray : image::codec::tga::decoded_image_desc::RGBA;
-    request->storage_bottom_up = storage_bottom_up;
-    const image::CImageView view{ request->storage.value.view(), request->description, storage_bottom_up };
+    if (!request_preparation::can_prepare_request(pending, slot)) return false;
+    CByteRectBuffer pixels;
+    if (!pixels.allocate((greyscale ? 7u : 28u), 5u, 16u)) return false;
+    const auto description = greyscale ? image::codec::tga::decoded_image_desc::Gray : image::codec::tga::decoded_image_desc::RGBA;
+    const image::CImageView view{ pixels.view(), description, storage_bottom_up };
     view.fill(0x7f345678u);
     view.plot(2, 3, 0xffaabbccu);
-    request->settings.format = EAssetFileFormat::tga;
-    request->settings.image = view.encode_options();
-    request->save = true;
-    request->retention = retention;
-    return post(slot, std::move(owner), request);
+    auto settings = asset_acceptance::save_settings(EAssetFileFormat::tga);
+    settings.image = view.encode_options();
+    if (!request_preparation::prepare_asset_transfer(pending, slot, pixels, retention, true, file, settings)) return false;
+    auto* const request = pending.owner().payload<ImageAssetTransfer>();
+    request->description = description;
+    request->storage_bottom_up = storage_bottom_up;
+    return true;
 }
 
-bool CExecutiveThread::transfer_live(const std::int32_t slot, const EAssetRetention retention, const bool save,
+bool CExecutiveThread::prepare_live_fixture(threading::CErasedOwnerMsg& pending, const std::int32_t slot, const EAssetRetention retention, const bool save,
     const char* const file, const AssetSaveSettings& settings) noexcept
 {
-    CErasedOwner owner = CErasedOwner::create<LiveAssetTransfer>();
-    LiveAssetTransfer* const request = owner.payload<LiveAssetTransfer>();
-    if ((request == nullptr) || !asset_acceptance::fixture_document(request->storage.value) || (save && !request->storage.file.set(file)))
-    {
-        return false;
-    }
-    request->retention = retention;
-    request->save = save;
-    request->settings = settings;
-    return post(slot, std::move(owner), request);
-}
-
-bool CExecutiveThread::transfer_baked(const std::int32_t slot, const EAssetRetention retention, const bool save,
-    const char* const file, const AssetSaveSettings& settings) noexcept
-{
-    CErasedOwner owner = CErasedOwner::create<BakedAssetTransfer>();
-    BakedAssetTransfer* const request = owner.payload<BakedAssetTransfer>();
+    if (!request_preparation::can_prepare_request(pending, slot)) return false;
     CLiveDocument document;
-    if ((request == nullptr) || !asset_acceptance::fixture_document(document) ||
-        !document_translation::bake(document, request->storage.value) || (save && !request->storage.file.set(file)))
-    {
-        return false;
-    }
-    request->save = save;
-    request->retention = retention;
-    request->settings = settings;
-    return post(slot, std::move(owner), request);
+    return asset_acceptance::fixture_document(document) &&
+        request_preparation::prepare_asset_transfer(pending, slot, document, retention, save, file, settings);
 }
 
-bool CExecutiveThread::encode_texture_fixture(const std::int32_t slot, const asset_acceptance::EScenario scenario) noexcept
+bool CExecutiveThread::prepare_baked_fixture(threading::CErasedOwnerMsg& pending, const std::int32_t slot, const EAssetRetention retention, const bool save,
+    const char* const file, const AssetSaveSettings& settings) noexcept
 {
+    if (!request_preparation::can_prepare_request(pending, slot)) return false;
+    CLiveDocument document;
+    CBakedDocumentBlock block;
+    return asset_acceptance::fixture_document(document) && document_translation::bake(document, block) &&
+        request_preparation::prepare_asset_transfer(pending, slot, block, retention, save, file, settings);
+}
+
+bool CExecutiveThread::prepare_texture_fixture(threading::CErasedOwnerMsg& pending, const std::int32_t slot, const asset_acceptance::EScenario scenario) noexcept
+{
+    if (!request_preparation::can_prepare_request(pending, slot)) return false;
     using namespace asset_acceptance;
     using namespace image::texture;
     const bool gray = (scenario == EScenario::encode_texture_gray_mips);
@@ -566,8 +500,8 @@ bool CExecutiveThread::encode_texture_fixture(const std::int32_t slot, const ass
     const bool mips = gray || (scenario == EScenario::encode_texture_float_mips);
     const std::uint32_t pixel_bytes = gray ? 1u : (hdr ? (full_float ? 16u : 8u) : 4u);
     const std::uint32_t row_bytes = (scenario == EScenario::reject_texture_row) ? 15u : (4u * pixel_bytes);
-    CErasedOwner owner = CErasedOwner::create<TextureEncodeRequest>();
-    TextureEncodeRequest* const request = owner.payload<TextureEncodeRequest>();
+    auto candidate = threading::make_owner_message<TextureEncodeRequest>(slot);
+    TextureEncodeRequest* const request = candidate.owner().payload<TextureEncodeRequest>();
     if ((request == nullptr) || !request->input.allocate(row_bytes, 4u, 16u))
     {
         return false;
@@ -621,21 +555,8 @@ bool CExecutiveThread::encode_texture_fixture(const std::int32_t slot, const ass
             }
         }
     }
-    return post(slot, std::move(owner), request);
-}
-
-bool CExecutiveThread::decode_texture_fixture(const std::int32_t slot, const CAssetId source, const image::texture::EStorageFormat target, const std::uint32_t level) noexcept
-{
-    CErasedOwner owner = CErasedOwner::create<TextureDecodeRequest>();
-    TextureDecodeRequest* const request = owner.payload<TextureDecodeRequest>();
-    if (request == nullptr)
-    {
-        return false;
-    }
-    request->source = source;
-    request->target = target;
-    request->level = level;
-    return post(slot, std::move(owner), request);
+    pending = std::move(candidate);
+    return true;
 }
 
 bool CExecutiveThread::prepare_expected_document() noexcept
@@ -644,37 +565,38 @@ bool CExecutiveThread::prepare_expected_document() noexcept
     return asset_acceptance::fixture_document(document) && document_translation::bake(document, m_expected);
 }
 
-bool CExecutiveThread::submit(const asset_acceptance::SScenario& scenario, const std::int32_t slot) noexcept
+bool CExecutiveThread::prepare_scenario(threading::CErasedOwnerMsg& pending, const asset_acceptance::SScenario& scenario, const std::int32_t slot) noexcept
 {
+    if (!request_preparation::can_prepare_request(pending, slot)) return false;
     using namespace asset_acceptance;
     switch (scenario.identity)
     {
         case EScenario::retain_raw:
         {
-            return transfer_raw(slot, fixture, EAssetRetention::source, false, nullptr);
+            return prepare_raw_fixture(pending, slot, fixture, EAssetRetention::source, false, nullptr);
         }
         case EScenario::save_retained_raw:
         case EScenario::save_raw_after_failure:
         {
-            return save(slot, m_raw.asset, raw_file, save_settings(EAssetFileFormat::raw));
+            return request_preparation::prepare_save_request(pending, slot, m_raw.asset, raw_file, save_settings(EAssetFileFormat::raw));
         }
         case EScenario::load_saved_raw:
         case EScenario::load_discarded_raw_output:
         {
-            return load(slot, EAssetFileFormat::raw, raw_file);
+            return request_preparation::prepare_load_request(pending, slot, EAssetFileFormat::raw, raw_file);
         }
         case EScenario::save_discarded_raw:
         case EScenario::write_invalid_binary:
         {
-            return transfer_raw(slot, fixture, EAssetRetention::discard, true, raw_file);
+            return prepare_raw_fixture(pending, slot, fixture, EAssetRetention::discard, true, raw_file);
         }
         case EScenario::load_tga:
         {
-            return load(slot, EAssetFileFormat::tga, "dev-source:/test_input.tga");
+            return request_preparation::prepare_load_request(pending, slot, EAssetFileFormat::tga, "dev-source:/test_input.tga");
         }
         case EScenario::load_tga_bottom_up:
         {
-            return load(slot, EAssetFileFormat::tga, "dev-source:/test_input.tga", {}, false);
+            return request_preparation::prepare_load_request(pending, slot, EAssetFileFormat::tga, "dev-source:/test_input.tga", {}, false);
         }
         case EScenario::encode_texture_gray_mips:
         case EScenario::encode_texture_float_mips:
@@ -687,101 +609,101 @@ bool CExecutiveThread::submit(const asset_acceptance::SScenario& scenario, const
         case EScenario::reject_texture_profile:
         case EScenario::encode_texture_ldr:
         {
-            return encode_texture_fixture(slot, scenario.identity);
+            return prepare_texture_fixture(pending, slot, scenario.identity);
         }
         case EScenario::decode_texture_ldr_bc7:
         {
-            return decode_texture_fixture(slot, m_ldr_texture.asset, image::texture::EStorageFormat::bc7_srgb);
+            return request_preparation::prepare_texture_decode_request(pending, slot, m_ldr_texture.asset, image::texture::EStorageFormat::bc7_srgb);
         }
         case EScenario::decode_texture_ldr_rgba:
         {
-            return decode_texture_fixture(slot, m_ldr_texture.asset, image::texture::EStorageFormat::rgba8);
+            return request_preparation::prepare_texture_decode_request(pending, slot, m_ldr_texture.asset, image::texture::EStorageFormat::rgba8);
         }
         case EScenario::encode_texture_hdr:
         {
-            return encode_texture_fixture(slot, scenario.identity);
+            return prepare_texture_fixture(pending, slot, scenario.identity);
         }
         case EScenario::decode_texture_hdr_bc6h:
         {
-            return decode_texture_fixture(slot, m_hdr_texture.asset, image::texture::EStorageFormat::bc6h_ufloat);
+            return request_preparation::prepare_texture_decode_request(pending, slot, m_hdr_texture.asset, image::texture::EStorageFormat::bc6h_ufloat);
         }
         case EScenario::decode_texture_hdr_half:
         {
-            return decode_texture_fixture(slot, m_hdr_texture.asset, image::texture::EStorageFormat::rgba16f);
+            return request_preparation::prepare_texture_decode_request(pending, slot, m_hdr_texture.asset, image::texture::EStorageFormat::rgba16f);
         }
         case EScenario::decode_texture_gray_bc7:
         {
-            return decode_texture_fixture(slot, m_ldr_texture.asset, image::texture::EStorageFormat::bc7_unorm, 0u);
+            return request_preparation::prepare_texture_decode_request(pending, slot, m_ldr_texture.asset, image::texture::EStorageFormat::bc7_unorm, 0u);
         }
         case EScenario::decode_texture_gray_mip:
         {
-            return decode_texture_fixture(slot, m_ldr_texture.asset, image::texture::EStorageFormat::rgba8, 2u);
+            return request_preparation::prepare_texture_decode_request(pending, slot, m_ldr_texture.asset, image::texture::EStorageFormat::rgba8, 2u);
         }
         case EScenario::decode_texture_float_mip:
         {
-            return decode_texture_fixture(slot, m_hdr_texture.asset, image::texture::EStorageFormat::rgba16f, 1u);
+            return request_preparation::prepare_texture_decode_request(pending, slot, m_hdr_texture.asset, image::texture::EStorageFormat::rgba16f, 1u);
         }
         case EScenario::reject_texture_level:
         {
-            return decode_texture_fixture(slot, m_ldr_texture.asset, image::texture::EStorageFormat::rgba8, 3u);
+            return request_preparation::prepare_texture_decode_request(pending, slot, m_ldr_texture.asset, image::texture::EStorageFormat::rgba8, 3u);
         }
         case EScenario::reject_texture_target:
         {
-            return decode_texture_fixture(slot, m_hdr_texture.asset, image::texture::EStorageFormat::rgba8, 0u);
+            return request_preparation::prepare_texture_decode_request(pending, slot, m_hdr_texture.asset, image::texture::EStorageFormat::rgba8, 0u);
         }
         case EScenario::reject_texture_bc7_transfer:
         {
-            return decode_texture_fixture(slot, m_ldr_texture.asset, image::texture::EStorageFormat::bc7_srgb, 0u);
+            return request_preparation::prepare_texture_decode_request(pending, slot, m_ldr_texture.asset, image::texture::EStorageFormat::bc7_srgb, 0u);
         }
         case EScenario::reject_texture_container:
         {
-            return decode_texture_fixture(slot, m_raw.asset, image::texture::EStorageFormat::rgba8, 0u);
+            return request_preparation::prepare_texture_decode_request(pending, slot, m_raw.asset, image::texture::EStorageFormat::rgba8, 0u);
         }
         case EScenario::reject_texture_asset:
         {
-            return decode_texture_fixture(slot, CAssetId{}, image::texture::EStorageFormat::rgba8, 0u);
+            return request_preparation::prepare_texture_decode_request(pending, slot, CAssetId{}, image::texture::EStorageFormat::rgba8, 0u);
         }
         case EScenario::save_retained_image:
         {
             AssetSaveSettings settings = save_settings(EAssetFileFormat::tga);
             settings.image = m_image_view.encode_options();
-            return save(slot, m_image.asset, image_file, settings);
+            return request_preparation::prepare_save_request(pending, slot, m_image.asset, image_file, settings);
         }
         case EScenario::reload_tga:
         {
-            return load(slot, EAssetFileFormat::tga, image_file);
+            return request_preparation::prepare_load_request(pending, slot, EAssetFileFormat::tga, image_file);
         }
         case EScenario::save_retained_greyscale:
         {
-            return transfer_image(slot, true, true, EAssetRetention::source, image_file);
+            return prepare_image_fixture(pending, slot, true, true, EAssetRetention::source, image_file);
         }
         case EScenario::save_discarded_rgba:
         {
-            return transfer_image(slot, false, false, EAssetRetention::discard, image_file);
+            return prepare_image_fixture(pending, slot, false, false, EAssetRetention::discard, image_file);
         }
         case EScenario::retain_live:
         {
             return prepare_expected_document() &&
-                transfer_live(slot, EAssetRetention::source, false, nullptr, save_settings(EAssetFileFormat::baked));
+                prepare_live_fixture(pending, slot, EAssetRetention::source, false, nullptr, save_settings(EAssetFileFormat::baked));
         }
         case EScenario::save_live_binary:
         {
-            return save(slot, m_live.asset, binary_file, save_settings(EAssetFileFormat::baked));
+            return request_preparation::prepare_save_request(pending, slot, m_live.asset, binary_file, save_settings(EAssetFileFormat::baked));
         }
         case EScenario::load_live_binary:
         case EScenario::load_mutated_live_binary:
         case EScenario::load_retained_baked_binary:
         {
-            return load(slot, EAssetFileFormat::baked, binary_file);
+            return request_preparation::prepare_load_request(pending, slot, EAssetFileFormat::baked, binary_file);
         }
         case EScenario::save_live_json:
         {
-            return save(slot, m_live.asset, json_file, save_settings(EAssetFileFormat::json));
+            return request_preparation::prepare_save_request(pending, slot, m_live.asset, json_file, save_settings(EAssetFileFormat::json));
         }
         case EScenario::load_live_json:
         case EScenario::load_baked_json:
         {
-            return load(slot, EAssetFileFormat::json, json_file);
+            return request_preparation::prepare_load_request(pending, slot, EAssetFileFormat::json, json_file);
         }
         case EScenario::mutate_live_and_save_binary:
         {   //  The preceding read has completed; the next save must bake this mutation.
@@ -792,102 +714,102 @@ bool CExecutiveThread::submit(const asset_acceptance::SScenario& scenario, const
             {
                 return false;
             }
-            return save(slot, m_live.asset, binary_file, save_settings(EAssetFileFormat::baked));
+            return request_preparation::prepare_save_request(pending, slot, m_live.asset, binary_file, save_settings(EAssetFileFormat::baked));
         }
         case EScenario::save_live_json_retain_baked:
         {
             return prepare_expected_document() &&
-                transfer_live(slot, EAssetRetention::baked, true, json_file, save_settings(EAssetFileFormat::json));
+                prepare_live_fixture(pending, slot, EAssetRetention::baked, true, json_file, save_settings(EAssetFileFormat::json));
         }
         case EScenario::save_retained_baked_binary:
         {
-            return save(slot, m_baked.asset, binary_file, save_settings(EAssetFileFormat::baked));
+            return request_preparation::prepare_save_request(pending, slot, m_baked.asset, binary_file, save_settings(EAssetFileFormat::baked));
         }
         case EScenario::save_discarded_baked_json:
         {
-            return transfer_baked(slot, EAssetRetention::discard, true, json_file, save_settings(EAssetFileFormat::json));
+            return prepare_baked_fixture(pending, slot, EAssetRetention::discard, true, json_file, save_settings(EAssetFileFormat::json));
         }
         case EScenario::retain_baked:
         {
-            return transfer_baked(slot, EAssetRetention::source, false, nullptr, save_settings(EAssetFileFormat::baked));
+            return prepare_baked_fixture(pending, slot, EAssetRetention::source, false, nullptr, save_settings(EAssetFileFormat::baked));
         }
         case EScenario::retain_baked_from_live:
         {
-            return transfer_live(slot, EAssetRetention::baked, false, nullptr, save_settings(EAssetFileFormat::baked));
+            return prepare_live_fixture(pending, slot, EAssetRetention::baked, false, nullptr, save_settings(EAssetFileFormat::baked));
         }
         case EScenario::retain_raw_on_save_failure:
         {
-            return transfer_raw(slot, fixture, EAssetRetention::source, true, failure_file);
+            return prepare_raw_fixture(pending, slot, fixture, EAssetRetention::source, true, failure_file);
         }
         case EScenario::discard_raw_on_save_failure:
         {
-            return transfer_raw(slot, fixture, EAssetRetention::discard, true, failure_file);
+            return prepare_raw_fixture(pending, slot, fixture, EAssetRetention::discard, true, failure_file);
         }
         case EScenario::retain_baked_on_save_failure:
         {
-            return transfer_live(slot, EAssetRetention::baked, true, failure_file, save_settings(EAssetFileFormat::baked));
+            return prepare_live_fixture(pending, slot, EAssetRetention::baked, true, failure_file, save_settings(EAssetFileFormat::baked));
         }
         case EScenario::reject_invalid_asset:
         {
-            return save(slot, CAssetId{}, raw_file, save_settings(EAssetFileFormat::raw));
+            return request_preparation::prepare_save_request(pending, slot, CAssetId{}, raw_file, save_settings(EAssetFileFormat::raw));
         }
         case EScenario::write_malformed_json:
         {
-            return transfer_raw(slot, "{broken", EAssetRetention::discard, true, raw_file);
+            return prepare_raw_fixture(pending, slot, "{broken", EAssetRetention::discard, true, raw_file);
         }
         case EScenario::reject_malformed_json:
         case EScenario::reject_invalid_encoding:
         case EScenario::reject_numeric_overflow:
         case EScenario::reject_unterminated_string:
         {
-            return load(slot, EAssetFileFormat::json, raw_file);
+            return request_preparation::prepare_load_request(pending, slot, EAssetFileFormat::json, raw_file);
         }
-        case EScenario::reject_missing_file: return load(slot, EAssetFileFormat::raw, failure_file);
+        case EScenario::reject_missing_file: return request_preparation::prepare_load_request(pending, slot, EAssetFileFormat::raw, failure_file);
         case EScenario::write_policy_rejected_json:
         {
-            return transfer_raw(slot, "{unquoted:1}", EAssetRetention::discard, true, raw_file);
+            return prepare_raw_fixture(pending, slot, "{unquoted:1}", EAssetRetention::discard, true, raw_file);
         }
         case EScenario::reject_disallowed_features:
         {
-            return load(slot, EAssetFileFormat::json, raw_file, CDocumentParseOptions{ document_policy::k_ascii });
+            return request_preparation::prepare_load_request(pending, slot, EAssetFileFormat::json, raw_file, CDocumentParseOptions{ document_policy::k_ascii });
         }
         case EScenario::reject_invalid_binary:
         {
-            return load(slot, EAssetFileFormat::baked, raw_file);
+            return request_preparation::prepare_load_request(pending, slot, EAssetFileFormat::baked, raw_file);
         }
         case EScenario::retain_baked_on_json_failure:
         {
             AssetSaveSettings settings = save_settings(EAssetFileFormat::json);
             settings.document.mode = static_cast<EDocumentWriteMode>(255u);
-            return transfer_live(slot, EAssetRetention::baked, true, json_file, settings);
+            return prepare_live_fixture(pending, slot, EAssetRetention::baked, true, json_file, settings);
         }
         case EScenario::save_discarded_live_binary:
         {
-            return transfer_live(slot, EAssetRetention::discard, true, binary_file, save_settings(EAssetFileFormat::baked));
+            return prepare_live_fixture(pending, slot, EAssetRetention::discard, true, binary_file, save_settings(EAssetFileFormat::baked));
         }
         case EScenario::save_discarded_live_json:
         {
-            return transfer_live(slot, EAssetRetention::discard, true, json_file, save_settings(EAssetFileFormat::json));
+            return prepare_live_fixture(pending, slot, EAssetRetention::discard, true, json_file, save_settings(EAssetFileFormat::json));
         }
         case EScenario::reject_invalid_tga:
         {
-            return load(slot, EAssetFileFormat::tga, raw_file);
+            return request_preparation::prepare_load_request(pending, slot, EAssetFileFormat::tga, raw_file);
         }
         case EScenario::write_invalid_encoding:
         {
-            return transfer_raw(slot, "\x81", EAssetRetention::discard, true, raw_file);
+            return prepare_raw_fixture(pending, slot, "\x81", EAssetRetention::discard, true, raw_file);
         }
         case EScenario::write_numeric_overflow:
         {
-            return transfer_raw(slot, "18446744073709551616", EAssetRetention::discard, true, raw_file);
+            return prepare_raw_fixture(pending, slot, "18446744073709551616", EAssetRetention::discard, true, raw_file);
         }
         case EScenario::reject_invalid_policy:
         {
-            return load(slot, EAssetFileFormat::json, json_file, CDocumentParseOptions{ 0x80000000u });
+            return request_preparation::prepare_load_request(pending, slot, EAssetFileFormat::json, json_file, CDocumentParseOptions{ 0x80000000u });
         }
         case EScenario::write_unterminated_string:
         {
-            return transfer_raw(slot, "\"unterminated", EAssetRetention::discard, true, raw_file);
+            return prepare_raw_fixture(pending, slot, "\"unterminated", EAssetRetention::discard, true, raw_file);
         }
         default:
         {   //  All current scenario identities are handled above; reject any future unhandled value.
@@ -1114,7 +1036,13 @@ bool CExecutiveThread::submit_concurrent_saves() noexcept
         path[digit_offset] = static_cast<char>('0' + (index / 10u));
         path[digit_offset + 1u] = static_cast<char>('0' + (index % 10u));
         const std::int32_t slot = m_concurrent_first_slot + static_cast<std::int32_t>(index);
-        if (!save(slot, m_live.asset, path, save_settings(EAssetFileFormat::json)))
+        threading::CErasedOwnerMsg pending;
+        if (!request_preparation::prepare_save_request(pending, slot, m_live.asset, path, save_settings(EAssetFileFormat::json)))
+        {
+            MV_LOG(error, "Executive: concurrent save {}: preparation failed", index);
+            return false;
+        }
+        if (!m_context.post(std::move(pending)))
         {
             MV_LOG(error, "Executive: concurrent save {}: submission failed", index);
             return false;
@@ -1151,24 +1079,33 @@ bool CExecutiveThread::complete_concurrent_save(const threading::CErasedPodMsg& 
 
 bool CExecutiveThread::start_filesystem_exercise() noexcept
 {
+    threading::CErasedOwnerMsg pending;
     m_phase = EPhase::filesystem;
     const char* roots[]{ "dev-source:", "test-output:", "unknown:" };
     for (std::int32_t index = 0; index < 3; ++index)
     {
-        CErasedOwner owner = CErasedOwner::create<FilesystemRefreshRequest>();
-        FilesystemRefreshRequest* const request = owner.payload<FilesystemRefreshRequest>();
-        if ((request == nullptr) || !request->root.set(roots[index]) || !post((1000 + index), std::move(owner), request))
+        if (!request_preparation::prepare_filesystem_request(pending, (1000 + index), roots[index]) ||
+            !m_context.post(std::move(pending)))
         {
+            MV_LOG(error, "Executive: filesystem refresh preparation or submission failed at slot {}", (1000 + index));
             return false;
         }
     }
-    return load(1003, EAssetFileFormat::tga, "dev-source:/test_input.tga") &&
-        save(1004, m_baked.asset, "test-output:/filesystem-concurrent.bin", asset_acceptance::save_settings(EAssetFileFormat::baked)) &&
-        load(1005, EAssetFileFormat::json, asset_acceptance::json_file);
+    const bool submitted =
+        (request_preparation::prepare_load_request(pending, 1003, EAssetFileFormat::tga, "dev-source:/test_input.tga") &&
+            m_context.post(std::move(pending))) &&
+        (request_preparation::prepare_save_request(pending, 1004, m_baked.asset, "test-output:/filesystem-concurrent.bin", asset_acceptance::save_settings(EAssetFileFormat::baked)) &&
+            m_context.post(std::move(pending))) &&
+        (request_preparation::prepare_load_request(pending, 1005, EAssetFileFormat::json, asset_acceptance::json_file) &&
+            m_context.post(std::move(pending)));
+    if (!submitted && pending.has_message_type())
+        MV_LOG(error, "Executive: filesystem concurrent submission failed at slot {}", pending.query_async_slot());
+    return submitted;
 }
 
 bool CExecutiveThread::complete_filesystem_exercise(const threading::CErasedPodMsg& message) noexcept
 {
+    threading::CErasedOwnerMsg pending;
     const std::int32_t step = message.query_async_slot() - 1000;
     if (m_filesystem_count < 6u)
     {
@@ -1203,9 +1140,7 @@ bool CExecutiveThread::complete_filesystem_exercise(const threading::CErasedPodM
             return true;
         }
         m_filesystem_step = 6;
-        threading::CErasedPodMsg disposal;
-        disposal.set_async_slot(1006);
-        disposal.assign_payload(AssetDisposeRequest{ m_image.asset });
+        const auto disposal = threading::make_pod_message(1006, AssetDisposeRequest{ m_image.asset });
         return m_context.post(disposal);
     }
     if (step != m_filesystem_step++)
@@ -1216,7 +1151,9 @@ bool CExecutiveThread::complete_filesystem_exercise(const threading::CErasedPodM
     {
         AssetDisposeResult result;
         return message.copy_payload_to(result) && (result.status == EAssetStatus::success) &&
-            (result.asset == m_image.asset) && load(1007, EAssetFileFormat::tga, "dev-source:/test_input.tga");
+            (result.asset == m_image.asset) &&
+            request_preparation::prepare_load_request(pending, 1007, EAssetFileFormat::tga, "dev-source:/test_input.tga") &&
+            m_context.post(std::move(pending));
     }
     AssetResult result;
     if (!message.copy_payload_to(result))
@@ -1232,22 +1169,26 @@ bool CExecutiveThread::complete_filesystem_exercise(const threading::CErasedPodM
                 return false;
             }
             m_image = result;
-            return load(1008, EAssetFileFormat::tga, "dev-source:/test_input.tga");
+            return request_preparation::prepare_load_request(pending, 1008, EAssetFileFormat::tga, "dev-source:/test_input.tga") &&
+                m_context.post(std::move(pending));
         }
         case 8:
         {
             return (result.status == EAssetStatus::success) && (result.asset == m_image.asset) &&
-                load(1009, EAssetFileFormat::raw, "dev-source:/filesystem-missing-file");
+                request_preparation::prepare_load_request(pending, 1009, EAssetFileFormat::raw, "dev-source:/filesystem-missing-file") &&
+                m_context.post(std::move(pending));
         }
         case 9:
         {
             return (result.status == EAssetStatus::read_failed) &&
-                save(1010, m_raw.asset, "package:/bin/MorphicExecutive.dll", asset_acceptance::save_settings(EAssetFileFormat::raw));
+                request_preparation::prepare_save_request(pending, 1010, m_raw.asset, "package:/bin/MorphicExecutive.dll", asset_acceptance::save_settings(EAssetFileFormat::raw)) &&
+                m_context.post(std::move(pending));
         }
         case 10:
         {
             return (result.status == EAssetStatus::write_failed) &&
-                load(1011, EAssetFileFormat::baked, "test-output:/filesystem-concurrent.bin");
+                request_preparation::prepare_load_request(pending, 1011, EAssetFileFormat::baked, "test-output:/filesystem-concurrent.bin") &&
+                m_context.post(std::move(pending));
         }
         case 11:
         {
@@ -1264,19 +1205,19 @@ bool CExecutiveThread::complete_filesystem_exercise(const threading::CErasedPodM
 
 bool CExecutiveThread::start_bundle_exercise() noexcept
 {
+    threading::CErasedOwnerMsg pending;
     m_phase = EPhase::bundle;
-    CErasedOwner owner = CErasedOwner::create<BundleBakeRequest>();
-    BundleBakeRequest* const request = owner.payload<BundleBakeRequest>();
-    return (request != nullptr) && request->paths.source_root.set("dev-source:") &&
-        request->paths.root.set("bundle-acceptance:") && post(2000, std::move(owner), request);
+    return request_preparation::prepare_bundle_bake_request(pending, 2000, "dev-source:", "bundle-acceptance:") &&
+        m_context.post(std::move(pending));
 }
 
 bool CExecutiveThread::complete_bundle_exercise(const threading::CErasedPodMsg& message) noexcept
 {
+    threading::CErasedOwnerMsg pending;
     if ((m_bundle_step == 4) || (m_bundle_step == 6))
     {
         BundleDisposedNotification notification;
-        if ((message.query_async_slot() != -1) || !message.copy_payload_to(notification) ||
+        if ((message.query_async_slot() != threading::k_uncorrelated_slot) || !message.copy_payload_to(notification) ||
             (notification.asset != m_bundle.asset)) return false;
         m_bundle = {};
         if (m_bundle_step == 6)
@@ -1287,10 +1228,9 @@ bool CExecutiveThread::complete_bundle_exercise(const threading::CErasedPodMsg& 
             return true;
         }
         ++m_bundle_step;
-        CErasedOwner owner = CErasedOwner::create<BundleLoadRequest>();
-        BundleLoadRequest* const request = owner.payload<BundleLoadRequest>();
-        return (request != nullptr) && request->paths.file.set("test-output:/bundle-acceptance.bdl") &&
-            request->paths.root.set("bundle-acceptance:") && post(2005, std::move(owner), request);
+        return request_preparation::prepare_bundle_load_request(pending, 2005,
+            "test-output:/bundle-acceptance.bdl", "bundle-acceptance:") &&
+            m_context.post(std::move(pending));
     }
     if (message.query_async_slot() != 2000 + m_bundle_step) return false;
     if (m_bundle_step == 2)
@@ -1298,7 +1238,8 @@ bool CExecutiveThread::complete_bundle_exercise(const threading::CErasedPodMsg& 
         AssetDisposeResult result;
         if (!message.copy_payload_to(result) || (result.status != EAssetStatus::success)) return false;
         ++m_bundle_step;
-        return save(2003, m_bundle.asset, "test-output:/bundle-acceptance.bdl", asset_acceptance::save_settings(EAssetFileFormat::raw));
+        return request_preparation::prepare_save_request(pending, 2003, m_bundle.asset, "test-output:/bundle-acceptance.bdl", asset_acceptance::save_settings(EAssetFileFormat::raw)) &&
+            m_context.post(std::move(pending));
     }
     AssetResult result;
     if (!message.copy_payload_to(result) || (result.status != EAssetStatus::success) ||
@@ -1313,30 +1254,26 @@ bool CExecutiveThread::complete_bundle_exercise(const threading::CErasedPodMsg& 
             if (!m_bundle_snapshot.allocate(bytes.size()) || !m_bundle_snapshot.set_size(bytes.size()) ||
                 (result.bundle_view().lookup(CStringView{ "test_input.tga" }).status != bundle::ELookupStatus::success)) return false;
             std::memcpy(m_bundle_snapshot.data(), bytes.data(), bytes.size());
-            outbound.set_async_slot(2001);
-            outbound.assign_payload(BundleReferenceRequest{ m_bundle.asset });
+            outbound = threading::make_pod_message(2001, BundleReferenceRequest{ m_bundle.asset });
             break;
         }
         case 1:
         {
             if ((result.asset == m_bundle.asset) || (result.byte_view().data() != m_bundle.byte_view().data())) return false;
-            outbound.set_async_slot(2002);
-            outbound.assign_payload(AssetDisposeRequest{ result.asset });
+            outbound = threading::make_pod_message(2002, AssetDisposeRequest{ result.asset });
             break;
         }
         case 3:
         {
             if (result.asset != m_bundle.asset) return false;
-            outbound.set_async_slot(2004);
-            outbound.assign_payload(AssetDisposeRequest{ m_bundle.asset });
+            outbound = threading::make_pod_message(2004, AssetDisposeRequest{ m_bundle.asset });
             break;
         }
         case 5:
         {
             if (!asset_acceptance::equal_bytes(result.byte_view(), m_bundle_snapshot.const_view())) return false;
             m_bundle = result;
-            outbound.set_async_slot(2006);
-            outbound.assign_payload(AssetDisposeRequest{ m_bundle.asset });
+            outbound = threading::make_pod_message(2006, AssetDisposeRequest{ m_bundle.asset });
             break;
         }
         default: return false;
@@ -1346,15 +1283,9 @@ bool CExecutiveThread::complete_bundle_exercise(const threading::CErasedPodMsg& 
 
 bool CExecutiveThread::request_system_shutdown() noexcept
 {
-    CErasedOwner owner = CErasedOwner::create<ModuleRequest>();
-    ModuleRequest* const request = owner.payload<ModuleRequest>();
-    if (request == nullptr)
-    {
-        return false;
-    }
-    request->module = module_ids::executive;
-    request->action = EModuleAction::unload;
-    if (!post(-1, std::move(owner), request))
+    threading::CErasedOwnerMsg pending;
+    if (!request_preparation::prepare_module_request(pending, threading::k_uncorrelated_slot,
+        module_ids::executive, EModuleAction::unload) || !m_context.post(std::move(pending)))
     {
         return false;
     }
@@ -1386,9 +1317,13 @@ void CExecutiveThread::operate() noexcept
                         fail(EFailure::submission, "system shutdown request");
                     }
                 }
-                else if ((m_phase == EPhase::sequential) && !submit(scenarios[m_scenario_index], m_pending_slot))
+                else if (m_phase == EPhase::sequential)
                 {
-                    fail(EFailure::submission, "initial asset request submission");
+                    threading::CErasedOwnerMsg pending;
+                    if (!prepare_scenario(pending, scenarios[m_scenario_index], m_pending_slot))
+                        fail(EFailure::submission, "initial asset request preparation");
+                    else if (!m_context.post(std::move(pending)))
+                        fail(EFailure::submission, "initial asset request submission");
                 }
                 continue;
             }
@@ -1447,10 +1382,11 @@ void CExecutiveThread::operate() noexcept
             else
             {
                 ++m_pending_slot;
-                if (!submit(scenarios[m_scenario_index], m_pending_slot))
-                {
+                threading::CErasedOwnerMsg pending;
+                if (!prepare_scenario(pending, scenarios[m_scenario_index], m_pending_slot))
+                    fail(EFailure::submission, "request preparation");
+                else if (!m_context.post(std::move(pending)))
                     fail(EFailure::submission, "request submission");
-                }
             }
         }
         else if (m_perf_counter.query_delta() > (ticks_per_second * 30u))
@@ -1481,9 +1417,11 @@ void CExecutiveThread::fail(const EFailure failure, const char* const reason) no
     {
         m_failure_code = static_cast<std::uint32_t>(failure);
         const char* const scenario = ((m_phase == EPhase::rendering_acknowledgement) || (m_phase == EPhase::rendering_completion)) ?
-            "rendering_startup" : ((m_scenario_index < asset_acceptance::scenario_count) ?
-                asset_acceptance::scenarios[m_scenario_index].name : "concurrent_saves");
-        MV_LOG_RICH(error, "Executive: %s failed: %s", scenario, reason);
+            "rendering_startup" : ((m_phase == EPhase::filesystem) ? "filesystem" :
+                ((m_phase == EPhase::bundle) ? "bundle" : ((m_scenario_index < asset_acceptance::scenario_count) ?
+                    asset_acceptance::scenarios[m_scenario_index].name : "concurrent_saves")));
+        MV_LOG_RICH(error, "Executive: %s failed: %s (scenario slot %d, filesystem step %d, bundle step %d)",
+            scenario, reason, m_pending_slot, m_filesystem_step, m_bundle_step);
         m_context.mark_failed(m_failure_code);
     }
 }

@@ -511,6 +511,9 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\threading\messages\CErasedOwnerMsg.hpp">
       <Filter>Core\include\threading\messages</Filter>
     </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\threading\messages\message_helpers.hpp">
+      <Filter>Core\include\threading\messages</Filter>
+    </ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\threading\messages\CErasedPodMsg.hpp">
       <Filter>Core\include\threading\messages</Filter>
     </ClInclude>

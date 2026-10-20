@@ -52,6 +52,21 @@ sender's message. Once accepted, resource ownership remains in the Host. Client
 interfaces grant access, not ownership. A retained live document is baked afresh
 for each save. Retaining a baked document instead selects an independent snapshot.
 
+The Executive prepares requests through its private
+`executive/runtime/request_preparation.hpp/.cpp` unit. The caller supplies a
+pending `CErasedOwnerMsg` and posts it explicitly after successful preparation.
+An occupied destination is diagnosed and left intact. Allocation or path-copy
+failure leaves the destination and any supplied resource unchanged. Resource
+transfer happens only after all fallible preparation steps succeed.
+
+After successful preparation, the pending message owns the transferred resource;
+the original resource variable is empty. A failed post preserves that pending
+message, including nested storage, attribution and hazards. The caller may retry
+the same message or explicitly abandon it. The current Executive exercise flows
+retain their terminal failure policy and release the local pending message on
+return; they do not introduce retries. Scenario selection and fixture generation
+remain in the Executive thread, separate from reusable request preparation.
+
 ## Loads and conditioning
 
 `AssetLoadRequest` owns the filename and selects the file format, requested byte

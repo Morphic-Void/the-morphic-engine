@@ -12,6 +12,8 @@
 //
 //  The main host service thread for the engine.
 
+#include "threading/messages/message_helpers.hpp"
+
 #include <local_type_ids.hpp>
 
 #include <algorithm>    //  std::min
@@ -241,8 +243,7 @@ bool CHost::initialise_runtime(const char* const executive_file) noexcept
     m_executive_request = std::move(owner);
     m_asset_service.set_filesystem(m_filesystem);
     m_module_service.set_filesystem(m_filesystem);
-    threading::CErasedPodMsg scan;
-    scan.assign_payload(FilesystemScanRequest{});
+    const auto scan = threading::make_pod_message(0, FilesystemScanRequest{});
     m_initial_scan = true;
     m_scan_in_flight = worker_package(0u)->post(scan);
     return m_scan_in_flight;
@@ -351,9 +352,7 @@ void CHost::receive_request(threading::CErasedOwnerMsg& message, threading::CThr
 
 void CHost::reply_refresh(threading::CThreadPackage& client, const std::int32_t slot, const EFilesystemStatus status) noexcept
 {
-    threading::CErasedPodMsg reply;
-    reply.set_async_slot(slot);
-    reply.assign_payload(FilesystemRefreshResult{ status });
+    const auto reply = threading::make_pod_message(slot, FilesystemRefreshResult{ status });
     if (!client.post(reply))
     {
         m_filesystem_failed = true;
@@ -390,8 +389,7 @@ void CHost::dispatch_refresh() noexcept
     }
     else if ((request != nullptr) && m_filesystem.prepare_scan(request->root.cstring(), m_root_scan))
     {
-        threading::CErasedPodMsg scan;
-        scan.assign_payload(FilesystemScanRequest{ &m_root_scan });
+        const auto scan = threading::make_pod_message(0, FilesystemScanRequest{ &m_root_scan });
         m_scan_serial = m_filesystem.write_serial();
         if (worker_package(0u)->post(scan))
         {
@@ -634,9 +632,7 @@ void CHost::run() noexcept
                 {
                     AssetResult result;
                     result.status = EAssetStatus::invalid_request;
-                    threading::CErasedPodMsg response;
-                    response.set_async_slot(message.query_async_slot());
-                    response.assign_payload(result);
+                    const auto response = threading::make_pod_message(message.query_async_slot(), result);
                     if (!package.post(response))
                     {
                         m_runtime_failed = true;

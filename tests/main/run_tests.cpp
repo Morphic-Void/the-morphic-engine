@@ -33,6 +33,7 @@
 #include "tests/test_suites/ImageView_test_suite.hpp"
 #include "tests/test_suites/LiveDocument_test_suite.hpp"
 #include "tests/test_suites/ErasedOwner_test_suite.hpp"
+#include "tests/test_suites/MessageHelpers_test_suite.hpp"
 #include "tests/test_suites/StringBuffers_test_suite.hpp"
 #include "tests/test_suites/SystemTypeIdentity_test_suite.hpp"
 #include "tests/test_suites/TInstance_test_suite.hpp"
@@ -263,6 +264,7 @@ int run_tests(ETestRunMode mode)
     cumulative_result += run_isolated_suite("CMemoryToken", &run_memory_token_tests);
     cumulative_result += run_isolated_suite("CMemoryView", &run_memory_view_tests);
     cumulative_result += run_isolated_suite("ErasedOwner", &run_erased_owner_tests);
+    cumulative_result += run_isolated_suite("MessageHelpers", &run_message_helpers_tests);
     cumulative_result += run_isolated_suite("ErasedPod", &run_erased_pod_tests);
     cumulative_result += run_isolated_suite("LiveDocument", &run_live_document_tests);
     cumulative_result += run_isolated_suite("TPodVector", &run_pod_vector_tests);

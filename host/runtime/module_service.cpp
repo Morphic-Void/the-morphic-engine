@@ -8,6 +8,8 @@
 //
 //  Host admission, notification and storage for worker-owned binding transitions.
 
+#include "threading/messages/message_helpers.hpp"
+
 #include <local_type_ids.hpp>
 
 #include "host/runtime/module_service.hpp"
@@ -44,9 +46,7 @@ CModuleService::SModuleRecord* CModuleService::find(const mount_point_ids::id_ty
 
 void CModuleService::reply(threading::CThreadPackage& client, const std::int32_t slot, const ModuleResult& result) noexcept
 {
-    threading::CErasedPodMsg message;
-    message.set_async_slot(slot);
-    message.assign_payload(result);
+    const auto message = threading::make_pod_message(slot, result);
     if (!client.post(message))
     {
         m_failed = true;
@@ -167,9 +167,7 @@ void CModuleService::dispatch(threading::CThreadPackage& worker, debug_system::C
     //  One outstanding module operation; the message identity separates this
     //  correlation space from asset-worker slots.
     m_worker_slot = (m_worker_slot == INT32_MAX) ? 0 : m_worker_slot + 1;
-    threading::CErasedPodMsg message;
-    message.set_async_slot(m_worker_slot);
-    message.assign_payload(ModuleWorkRequest{ &m_work });
+    const auto message = threading::make_pod_message(m_worker_slot, ModuleWorkRequest{ &m_work });
     if (!worker.post(message))
     {
         finish(EModuleStatus::delivery_failed);

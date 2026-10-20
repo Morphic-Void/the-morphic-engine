@@ -8,6 +8,8 @@
 //
 //  Compose file I/O and conditioning without transferring assets to clients.
 
+#include "threading/messages/message_helpers.hpp"
+
 #include <local_type_ids.hpp>
 
 #include <algorithm>
@@ -284,9 +286,7 @@ void CAssetService::finalise_bundles() noexcept
             (void)m_bundles.erase(slot); //  Storage and the root are gone before delivery.
             if ((recipient != nullptr) && bundle_recipient_available(*recipient))
             {
-                threading::CErasedPodMsg message;
-                message.assign_payload(result);
-                message.set_async_slot(-1);
+                const auto message = threading::make_pod_message(threading::k_uncorrelated_slot, result);
 
                 //  The recipient may exit between the state check and posting.
                 if (!recipient->post(message) && bundle_recipient_available(*recipient))
@@ -386,9 +386,7 @@ void CAssetService::describe_views(TOwner& source, AssetResult& result) noexcept
 template<typename TResult>
 void CAssetService::reply(threading::CThreadPackage& client, const std::int32_t slot, const TResult& result) noexcept
 {
-    threading::CErasedPodMsg message;
-    message.set_async_slot(slot);
-    message.assign_payload(result);
+    const auto message = threading::make_pod_message(slot, result);
     if (!client.post(message))
     {   //  A broken completion transport is terminal, never a silent success.
         m_failed = true;
@@ -679,7 +677,6 @@ void CAssetService::request(threading::CErasedOwnerMsg& message, threading::CThr
             return;
         }
         threading::CErasedPodMsg outbound;
-        outbound.set_async_slot(slot);
         if (bake != nullptr)
         {
             const char* const directory = (bake->paths.subdirectory.length() == 0u) ? "" : bake->paths.subdirectory.cstring();
@@ -689,7 +686,7 @@ void CAssetService::request(threading::CErasedOwnerMsg& message, threading::CThr
                 return;
             }
             operation.phase = EPhase::bundle_building;
-            outbound.assign_payload(BundleBuildWork{ &operation.bake_input });
+            outbound = threading::make_pod_message(slot, BundleBuildWork{ &operation.bake_input });
         }
         else
         {
@@ -700,7 +697,7 @@ void CAssetService::request(threading::CErasedOwnerMsg& message, threading::CThr
                 return;
             }
             operation.phase = EPhase::bundle_loading;
-            outbound.assign_payload(FileLoadRequest{ operation.physical_file.cstring(), bundle::k_alignment });
+            outbound = threading::make_pod_message(slot, FileLoadRequest{ operation.physical_file.cstring(), bundle::k_alignment });
         }
         if (!m_file_io->post(outbound)) finish_operation(slot, EAssetStatus::delivery_failed);
         return;
@@ -714,9 +711,7 @@ void CAssetService::request(threading::CErasedOwnerMsg& message, threading::CThr
             return;
         }
         operation.phase = EPhase::texture_encoding;
-        threading::CErasedPodMsg outbound;
-        outbound.set_async_slot(slot);
-        outbound.assign_payload(TextureEncodeWork{ encode });
+        const auto outbound = threading::make_pod_message(slot, TextureEncodeWork{ encode });
         if (!m_rendering->post(outbound))
         {
             finish_operation(slot, EAssetStatus::delivery_failed);
@@ -747,9 +742,7 @@ void CAssetService::request(threading::CErasedOwnerMsg& message, threading::CThr
         operation.texture_source = decode->source;
         operation.texture_source_view = bytes;
         operation.phase = EPhase::texture_decoding;
-        threading::CErasedPodMsg outbound;
-        outbound.set_async_slot(slot);
-        outbound.assign_payload(TextureDecodeWork{ decode, (&operation.texture_source_view) });
+        const auto outbound = threading::make_pod_message(slot, TextureDecodeWork{ decode, (&operation.texture_source_view) });
         if (!m_rendering->post(outbound))
         {
             finish_operation(slot, EAssetStatus::delivery_failed);
@@ -833,9 +826,7 @@ void CAssetService::request(threading::CErasedOwnerMsg& message, threading::CThr
             return;
         }
         FileLoadRequest request{ operation.file, ((load->format == EAssetFileFormat::baked) ? std::max(load->alignment, std::size_t{ 32u }) : load->alignment) };
-        threading::CErasedPodMsg outbound;
-        outbound.set_async_slot(slot);
-        outbound.assign_payload(request);
+        const auto outbound = threading::make_pod_message(slot, request);
         if ((m_file_io == nullptr) || !m_file_io->post(outbound))
         {
             finish_operation(slot, EAssetStatus::delivery_failed);
@@ -892,11 +883,10 @@ void CAssetService::begin_save_or_bake(const std::int32_t slot) noexcept
         return;
     }
     threading::CErasedPodMsg outbound;
-    outbound.set_async_slot(slot);
     if ((operation.working_views.kind == EAssetKind::image) && (operation.save_settings.format == EAssetFileFormat::tga))
     {
         operation.phase = EPhase::encoding;
-        outbound.assign_payload(TgaEncodeRequest{ operation.working_views.views.image->buffer_view(), operation.save_settings.image });
+        outbound = threading::make_pod_message(slot, TgaEncodeRequest{ operation.working_views.views.image->buffer_view(), operation.save_settings.image });
     }
     else if ((live || operation.working_views.document_view().is_ready()) &&
         (!operation.save_requested || (operation.save_settings.format == EAssetFileFormat::baked) ||
@@ -919,7 +909,7 @@ void CAssetService::begin_save_or_bake(const std::int32_t slot) noexcept
         }
         request.write_json = operation.save_requested && (operation.save_settings.format == EAssetFileFormat::json);
         request.options = &operation.save_settings.document;
-        outbound.assign_payload(request);
+        outbound = threading::make_pod_message(slot, request);
     }
     else if (((operation.working_views.kind == EAssetKind::raw) || (operation.working_views.kind == EAssetKind::bundle) ||
         (operation.working_views.kind == EAssetKind::encoded_texture)) &&
@@ -950,9 +940,7 @@ void CAssetService::begin_file_save(const std::int32_t slot, const CByteConstVie
     }
     operation.file = operation.physical_file.cstring();
     operation.phase = EPhase::saving;
-    threading::CErasedPodMsg outbound;
-    outbound.set_async_slot(slot);
-    outbound.assign_payload(FileSaveRequest{ operation.file, bytes });
+    const auto outbound = threading::make_pod_message(slot, FileSaveRequest{ operation.file, bytes });
     if ((m_file_io == nullptr) || !m_file_io->post(outbound))
     {
         finish_operation(slot, EAssetStatus::delivery_failed);
@@ -1138,11 +1126,10 @@ void CAssetService::begin_conditioning_load(const std::int32_t slot, const CByte
     SOperation& operation = *m_operations.get_object(slot);
     const AssetLoadRequest& load = *operation.request_owner.payload<AssetLoadRequest>();
     threading::CErasedPodMsg outbound;
-    outbound.set_async_slot(slot);
     if (operation.load_format == EAssetFileFormat::tga)
     {
         operation.phase = EPhase::decoding;
-        outbound.assign_payload(TgaDecodeRequest{ bytes, load.decode_top_down });
+        outbound = threading::make_pod_message(slot, TgaDecodeRequest{ bytes, load.decode_top_down });
     }
     else
     {
@@ -1150,7 +1137,7 @@ void CAssetService::begin_conditioning_load(const std::int32_t slot, const CByte
         DocumentConditionRequest request;
         request.set_text_source(bytes);
         request.policy = load.policy;
-        outbound.assign_payload(request);
+        outbound = threading::make_pod_message(slot, request);
     }
     if (!post_conditioning(outbound)) finish_operation(slot, EAssetStatus::delivery_failed);
 }
@@ -1198,9 +1185,7 @@ void CAssetService::complete_bundle(const std::int32_t slot) noexcept
 
     operation.worker_result_owner.destroy();
     operation.phase = EPhase::bundle_preparing;
-    threading::CErasedPodMsg outbound;
-    outbound.set_async_slot(slot);
-    outbound.assign_payload(BundlePrepareWork{ &operation.bundle_preparation });
+    const auto outbound = threading::make_pod_message(slot, BundlePrepareWork{ &operation.bundle_preparation });
     if (!post_conditioning(outbound)) finish_operation(slot, EAssetStatus::delivery_failed);
 }
 
