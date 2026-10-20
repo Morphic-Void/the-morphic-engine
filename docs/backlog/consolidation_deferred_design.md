@@ -1,6 +1,6 @@
 # Deferred resource and lifecycle design
 
-Updated 4 October 2026. These future ideas and open questions are preserved
+Updated 20 October 2026. These future ideas and open questions are preserved
 from the consolidation discussions. They are not implementation requirements,
 a priority list or authority to begin work. User direction and assistant-proposed
 alternatives are distinguished where they differ.
@@ -250,6 +250,32 @@ rich working structures may still be reconstructed locally from baked views.
 The implemented uniform attribution interface supersedes the old friendship-led
 wrapper redesign. Another generic byte-interpretation/type-erasure layer remains
 unselected. Payload descriptors would not replace content validation.
+
+## Remaining message and storage simplification
+
+The [messaging consolidation](../project/completed_milestones.md#message-and-ownership-consolidation)
+is complete through `3db76d6`. These optional ideas were deliberately left out of
+its closeout; none is an implementation requirement.
+
+- Resource-extraction helpers: the Host transfer handler already shares allocation,
+  hazard propagation, resource movement and view preparation across the typed
+  transfers. Revisit a named extraction boundary if another production caller
+  needs those mechanics. Preserve the distinction between independently owned
+  storage and borrowed bundle retention, which additionally requires a record lease.
+- Image-storage naming: `DecodedTga` also carries directly transferred images.
+  A representation-based name could improve clarity, but it removes little
+  boilerplate and is not selected.
+- Document wrappers: the baked/live wrappers remain small and provide simple
+  member-based ownership accounting. Removing them alone does not justify
+  extending registration to account directly for the underlying resource.
+
+Retain distinct public raw/image/baked/live transfer identities and the distinct
+Rendering texture storage representations. Request metadata and retained storage
+have different lifetimes. Future changes must preserve full logical buffers,
+including appended schema data, alignment, attribution, hazards and bundle leases.
+Scaffolding removal may reveal further useful reductions; it does not make the
+underlying public service contracts redundant. Broader asset-result redesign,
+new schema messages and generic retry or ownership frameworks remain unselected.
 
 ## Returning to these topics
 

@@ -28,6 +28,16 @@ reports in every build without breakpoint or shutdown effects. The agreed
 contract in the [debug interface](../debug/debug_system_interface.md#mv_assert_reportformat_literal-).
 Low-level submission tests remain direct; no broader macro family is selected.
 
+## Messaging closeout
+
+Message and ownership consolidation is complete, reviewed and committed through
+`3db76d6`. See the
+[completion record](../project/completed_milestones.md#message-and-ownership-consolidation)
+for delivered scope and validation. Optional extraction helpers and further
+wrapper changes remain [deferred](consolidation_deferred_design.md#remaining-message-and-storage-simplification).
+The [testing-framework review](testing_framework_consolidation.md) is a separate
+discussion; messaging closeout does not authorise its implementation.
+
 ## Schema closeout and next work
 
 The schema persistence and aggregation work is complete, user-reviewed and

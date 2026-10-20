@@ -130,5 +130,10 @@ Its diagnostics include the isolated Host-worker and lifecycle logs and output.
 [Linux CI](linux_ci.md) runs GCC/Clang Debug/Release builds, ordinary suites and
 the normal Host acceptance flow with one and two requested workers through CTest.
 
+The [messaging closeout validation record](linux_ci.md#messaging-consolidation-closeout-20-october-2026)
+distinguishes local validation of the messaging commits from the latest hosted
+Windows/Linux runs. Hosted success applies to the run's checked-out revision;
+local commits require a push before those workflows can validate them.
+
 The separate direct TGA round-trip helper is compiled into `MorphicTests` as a
 manual test but is intentionally not registered or invoked.

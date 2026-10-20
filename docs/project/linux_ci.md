@@ -105,6 +105,57 @@ retaining the console output, engine logs, bootstrap file and generated assets.
 
 ## Local validation
 
+### Messaging consolidation closeout, 20 October 2026
+
+The [messaging consolidation](completed_milestones.md#message-and-ownership-consolidation)
+is committed through `3db76d6`. CMake already selects separate Host and ordinary-test
+LOCAL catalogues through target-private include paths; source extraction follows
+the updated Visual Studio shared items. `MorphicOrdinary` includes the message
+helper, ownership, type-identity and completion-protocol tests. No workflow change
+is required to pick up this work.
+
+Local validation of `3db76d6` passed on Ubuntu 24.04 in WSL with GCC 13.3 and
+Clang 18.1, both Debug and Release. Each configuration built the engine, modules,
+policy checker and tests, then passed all three CTest entries: ordinary suites
+and Host acceptance with one and two requested workers. The five source-extraction
+tests also passed. Policy checks reported zero errors and warnings.
+
+Configure, build and test logs are in `build/messaging-closeout/`. The reused
+build directories are `build/linux-identity` (GCC Debug),
+`build/linux-identity-release` (GCC Release), `build/linux-bundle-clang-debug`
+(Clang Debug) and `build/linux-texture-clang-release` (Clang Release); their CTest
+and Host acceptance directories retain the detailed output. Windows
+Debug/Release x64/Win32 results for the same implementation are recorded in the
+[completion milestone](completed_milestones.md#message-and-ownership-consolidation)
+and were not repeated for this documentation-only closeout.
+
+The Windows workflow covers Debug/Release on x64/x86, ordinary suites, Host-worker
+acceptance and all lifecycle cases with one and two requested workers. Linux
+covers GCC/Clang Debug/Release, ordinary suites and Host acceptance with one and
+two requested workers. The Windows-specific lifecycle harness remains outside
+Linux CI; the two platforms do not claim identical integration coverage.
+
+Hosted status was checked on 20 October 2026: all four
+[Windows jobs](https://github.com/Morphic-Void/the-morphic-engine/actions/runs/39409579737)
+and all four [Linux jobs](https://github.com/Morphic-Void/the-morphic-engine/actions/runs/39409579727)
+passed at remote `main` revision `060791b`. That revision precedes the messaging
+commits. These hosted results do not validate `3db76d6`; confirmation of that
+revision requires the user's push and subsequent workflow runs.
+
+Compiler warnings observed during this check are recorded separately from policy
+validation: Clang reports the existing out-of-range comparison in
+`schema_declarations.cpp:84`; GCC Release reports a potential null-destination
+write in `BakedDocument_test_suite.cpp:1707`. The latter fixture proceeds to
+`memset` after non-fatal allocation expectations. That test source is unchanged
+by messaging consolidation. No warning suppression or production change was
+introduced as part of this documentation closeout.
+
+The separate follow-up commit `8ed19f1` removes the redundant schema comparison
+and guards test setup failures and buffer writes. GCC Release and Clang Debug
+builds passed without either warning; both configurations passed all three CTest
+entries. Policy, whitespace and line-ending checks also passed. Follow-up build
+and test logs are in `build/warning-fixes/`.
+
 ### Bundle integration and review corrections
 
 The [bundle completion record](completed_milestones.md#bundle-assets-and-virtual-bindings)

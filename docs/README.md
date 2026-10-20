@@ -8,6 +8,8 @@ or that work has been authorised.
 
 - [Memory and attribution](memory/memory_subsystem.md), with individual
   [container references](containers/ByteBuffers.md) alongside it.
+- [Message construction and ownership](system/erased_owner.md#message-construction-and-inspection),
+  with the [messaging completion record](project/completed_milestones.md#message-and-ownership-consolidation).
 - [Document model](data_model/README.md): semantic model, text grammar,
   parsing/reporting and baked storage format.
 - [Schema system](schema/README.md): live/baked schema and data roles, resolution,

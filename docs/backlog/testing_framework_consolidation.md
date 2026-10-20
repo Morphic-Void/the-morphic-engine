@@ -1,13 +1,14 @@
 # Testing framework consolidation discussion
 
-Updated 12 October 2026. These discussion points concern reducing intrusive
+Updated 20 October 2026. These discussion points concern reducing intrusive
 testing, improving functional coverage and simplifying shared test code. They
 are not an approved implementation plan or authority to begin implementation.
 
-The intended sequence is to finish the current bundle work, discuss and address
-[message and ownership consolidation](message_ownership_simplification.md), then
-review the testing framework and debug support. Initial discussions are expected
-on the afternoon of 13 October 2026, subject to completion of the bundle work.
+Bundle work and
+[message and ownership consolidation](../project/completed_milestones.md#message-and-ownership-consolidation)
+are complete. The testing-framework and debug-support reviews can now build on
+those implemented contracts; their scope and implementation remain separate
+decisions.
 
 The aim is a smaller maintenance surface with tests that protect observable
 contracts and remain useful when implementation details change. Fewer lines or

@@ -18,6 +18,61 @@ Permanent behavior and architectural contracts belong in the subsystem
 documents linked from each milestone. Current and future work belongs in
 `future_work_notes.md` and the backlog.
 
+## Message and ownership consolidation
+
+Completed, user-reviewed and committed on 20 October 2026 through `3db76d6`.
+The implementation plan is retired; its decisions and staged validation remain
+in Git history. Current contracts are documented in
+[erased ownership](../system/erased_owner.md),
+[type identity](../system/type_identity.md),
+[asynchronous asset services](../assets/asynchronous_asset_services.md) and
+[Rendering texture conditioning](../modules/texture_codec.md).
+
+| Completed change | Commit |
+| --- | --- |
+| Contract headers and domain owner catalogues | `f14b3f1` |
+| Host-private LOCAL identities and separate component catalogues | `96db309` |
+| Typed message helpers and caller-owned request preparation | `2e660e6` |
+| Completion validation, texture retention and shared texture status | `9d16916` |
+| Shared transport attribution/post/restore sequence | `e6f9a0f` |
+| Shared Host byte-storage payload | `3db76d6` |
+
+Public client and Rendering contracts remain SYSTEM. Host worker exchanges and
+retained implementation payloads use component-local identities and operations;
+ordinary tests and lifecycle fixtures have their own catalogues. Host owns I/O
+and supported document/TGA conditioning. Rendering owns texture interpretation
+and validity; Host retains engine-owned bytes and opaque metadata on its behalf.
+
+Construction preserves identity and correlation on allocation failure.
+Preparation leaves occupied destinations and source storage intact on failure;
+controllers post explicitly, and failed posts preserve ownership. Completion
+inspection borrows without consuming. Wrong payloads, workers or phases cause
+terminal protocol failure while accepted inputs remain alive for orderly cleanup.
+Permitted empty replies keep each service's existing status mapping.
+
+Texture completion shares retention mechanics and uses `ETextureStatus`
+throughout Rendering. The two owning transports share attribution preflight,
+posting and rollback while retaining admission order and different empty-owner
+policies. `ByteStorage` replaces `LoadedFile` and `EncodedTga`; file-load and
+TGA-encode completion identities remain distinct. Whole-owner movement,
+hazards, borrowed bundle leases, full baked-buffer extents and disposal ordering
+retain their existing contracts.
+
+Windows Debug/Release solution builds and ordinary suites passed on x64 and
+Win32 after each implementation stage. Final payload coverage includes 1,012
+bundle-request, 918 erased-owner, 205 message-helper and 131 type-identity checks
+per configuration. Debug x64 Host acceptance passed shared/dedicated-worker
+flows after both final reductions. All 33 lifecycle cases passed with one and
+two requested workers through completion consolidation. Policy and text-format
+checks passed. Linux closeout validation and hosted CI status are recorded in
+[Linux CI](linux_ci.md#messaging-consolidation-closeout-20-october-2026).
+
+Further extraction helpers and representation renaming are
+[deferred considerations](../backlog/consolidation_deferred_design.md#remaining-message-and-storage-simplification),
+not unfinished stages. The separate
+[testing-framework discussion](../backlog/testing_framework_consolidation.md)
+remains unselected implementation work.
+
 ## Schema delivery status
 
 As of 20 October 2026, persistence, role attachment/switching, type-schema merging,
