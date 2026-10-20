@@ -18,6 +18,7 @@
 #include <cstdint>
 
 #include "containers/ByteBuffers.hpp"
+#include "assets/asset_storage.hpp"
 #include "image/codec/tga.hpp"
 #include "image/image_view.hpp"
 
@@ -37,8 +38,6 @@ struct TgaDecodeRequest { CByteConstView view; bool decode_top_down; };
 struct TgaEncodeResult {};
 struct TgaDecodeResult {};
 
-struct EncodedTga { CByteBuffer buffer; };
-
 struct DecodedTga
 {
     CByteRectBuffer buffer;
@@ -52,7 +51,7 @@ struct DecodedTga
 namespace threading
 {
 
-template<> struct TMessagePayload<TgaEncodeResult> { using type = EncodedTga; };
+template<> struct TMessagePayload<TgaEncodeResult> { using type = ByteStorage; };
 template<> struct TMessagePayload<TgaDecodeResult> { using type = DecodedTga; };
 
 }   //  namespace threading

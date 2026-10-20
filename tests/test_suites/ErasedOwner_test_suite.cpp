@@ -189,7 +189,7 @@ void test_registration_and_empty_state(TTestContext& ctx)
     static_assert(k_system_type_id_v<CSimpleString> == system_type_ids::simple_string);
     static_assert(k_system_type_id_v<CStringBuffer> == system_type_ids::string_buffer);
     static_assert(k_system_type_id_v<CStableStrings> == system_type_ids::stable_strings);
-    static_assert(k_is_erased_owner_payload_v<LoadedFile>);
+    static_assert(k_is_erased_owner_payload_v<ByteStorage>);
     static_assert(k_is_erased_owner_payload_v<AssetLoadRequest>);
     static_assert(k_is_erased_owner_payload_v<AssetSaveRequest>);
     static_assert(k_is_erased_owner_payload_v<test_environment::STestAssetLoadState>);
@@ -209,8 +209,8 @@ void test_registration_and_empty_state(TTestContext& ctx)
     TEST_EXPECT(ctx, !owner.is_ready());
     TEST_EXPECT(ctx, !owner);
     TEST_EXPECT(ctx, owner.query_type_id() == type_ids::undefined);
-    TEST_EXPECT(ctx, owner.payload<LoadedFile>() == nullptr);
-    TEST_EXPECT(ctx, const_owner.payload<LoadedFile>() == nullptr);
+    TEST_EXPECT(ctx, owner.payload<ByteStorage>() == nullptr);
+    TEST_EXPECT(ctx, const_owner.payload<ByteStorage>() == nullptr);
     TEST_EXPECT(ctx, !owner.has_any_hazard());
     TEST_EXPECT(ctx, owner.hazard_mask() == 0u);
 
@@ -229,10 +229,8 @@ void test_operation_registry(TTestContext& ctx)
     TEST_EXPECT(ctx, erased_owner_operations::installed_view() != nullptr);
     TEST_EXPECT(ctx, !erased_owner_operations::install_view(expected_view));
 
-    const erased_owner_operations::SRegistration* const loaded_file =
-        erased_owner_operations::find(k_type_id_v<LoadedFile>);
-    const erased_owner_operations::SRegistration* const encoded_tga =
-        erased_owner_operations::find(k_type_id_v<EncodedTga>);
+    const erased_owner_operations::SRegistration* const byte_storage =
+        erased_owner_operations::find(k_type_id_v<ByteStorage>);
     const erased_owner_operations::SRegistration* const decoded_tga =
         erased_owner_operations::find(k_type_id_v<DecodedTga>);
     const erased_owner_operations::SRegistration* const asset_load_request =
@@ -241,10 +239,8 @@ void test_operation_registry(TTestContext& ctx)
         erased_owner_operations::find(k_type_id_v<AssetSaveRequest>);
     const erased_owner_operations::SRegistration* const host_file_load =
         erased_owner_operations::find(k_type_id_v<test_environment::STestAssetLoadState>);
-    TEST_EXPECT(ctx, (loaded_file != nullptr) &&
-        loaded_file->operations.is_complete());
-    TEST_EXPECT(ctx, (encoded_tga != nullptr) &&
-        encoded_tga->operations.is_complete());
+    TEST_EXPECT(ctx, (byte_storage != nullptr) &&
+        byte_storage->operations.is_complete());
     TEST_EXPECT(ctx, (decoded_tga != nullptr) &&
         decoded_tga->operations.is_complete());
     TEST_EXPECT(ctx, (asset_load_request != nullptr) &&
@@ -279,7 +275,7 @@ void test_private_owner_boundary(TTestContext& ctx)
         T* const payload = owner.template payload<T>();
         TEST_EXPECT(ctx, payload != nullptr);
         if (payload == nullptr) return;
-        if constexpr (std::is_same_v<T, LoadedFile> || std::is_same_v<T, EncodedTga>)
+        if constexpr (std::is_same_v<T, ByteStorage>)
         {
             TEST_EXPECT(ctx, payload->buffer.allocate(64u));
         }
@@ -646,7 +642,7 @@ void test_creation_accounting_and_destruction(TTestContext& ctx)
         TEST_EXPECT(ctx, owner.is_ready());
         TEST_EXPECT(ctx, owner.query_type_id() == k_type_id_v<RawAssetTransfer>);
         TEST_EXPECT(ctx, payload != nullptr);
-        TEST_EXPECT(ctx, owner.payload<EncodedTga>() == nullptr);
+        TEST_EXPECT(ctx, owner.payload<ByteStorage>() == nullptr);
         TEST_EXPECT(ctx, context.get_live_allocation_count() == 1u);
 
         TEST_EXPECT(ctx, payload->storage.value.allocate(64u, 16u));
@@ -673,7 +669,7 @@ void test_moves_and_hazards(TTestContext& ctx)
     TEST_EXPECT(ctx, moved.has_hazard(mount_point_ids::render));
     TEST_EXPECT(ctx, moved.payload<RawAssetTransfer>()->storage.value.is_ready());
 
-    CErasedOwner destination = CErasedOwner::create<EncodedTga>();
+    CErasedOwner destination = CErasedOwner::create<ByteStorage>();
     destination = std::move(moved);
     TEST_EXPECT(ctx, moved.is_empty());
     TEST_EXPECT(ctx, destination.payload<RawAssetTransfer>() == original_payload);
@@ -766,8 +762,8 @@ void test_all_registered_payload_reattribution(TTestContext& ctx)
     memory::CMemoryContext target_context(allocator, system_ids::host);
     const TMemoryContextScope context_scope(&source_context);
 
-    CErasedOwner encoded = CErasedOwner::create<EncodedTga>();
-    TEST_EXPECT(ctx, encoded.payload<EncodedTga>()->buffer.allocate(32u));
+    CErasedOwner encoded = CErasedOwner::create<ByteStorage>();
+    TEST_EXPECT(ctx, encoded.payload<ByteStorage>()->buffer.allocate(32u));
     TEST_EXPECT(ctx, encoded.reattribute(&target_context));
     TEST_EXPECT(ctx, encoded.memory_context() == &target_context);
     encoded.destroy();
@@ -1723,8 +1719,7 @@ int run_erased_owner_tests()
     test_registration_and_empty_state(ctx);
     test_operation_registry(ctx);
     test_operation_registry_failure_boundaries(ctx);
-    test_private_owner_boundary<LoadedFile>(ctx);
-    test_private_owner_boundary<EncodedTga>(ctx);
+    test_private_owner_boundary<ByteStorage>(ctx);
     test_private_owner_boundary<DecodedTga>(ctx);
     test_private_owner_boundary<BakedDocumentAsset>(ctx);
     test_private_owner_boundary<LiveDocumentAsset>(ctx);

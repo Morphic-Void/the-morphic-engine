@@ -55,7 +55,7 @@ struct TCanInspect : std::false_type {};
 template<typename T>
 struct TCanInspect<T, std::void_t<decltype(inspect_owner_message<FileLoadResult>(std::declval<T>()))>> : std::true_type {};
 
-template<typename TMessage, typename TPayload>
+template<typename TMessage, typename TPayload, typename TOtherMessage = ModuleResult>
 static void test_pair(TTestContext& ctx, SAllocator& allocator)
 {
     static_assert(std::is_same_v<typename TMessagePayload<TMessage>::type, TPayload>);
@@ -74,7 +74,7 @@ static void test_pair(TTestContext& ctx, SAllocator& allocator)
     TEST_EXPECT(ctx, message.query_async_slot() == 47 && message.owner().memory_context() == memory);
     TEST_EXPECT(ctx, message.owner().hazard_mask() == hazards);
 
-    message.set_message_type<ModuleResult>();
+    message.set_message_type<TOtherMessage>();
     TEST_EXPECT(ctx, inspect_owner_message<TMessage>(message).state == EOwnerMessageState::invalid);
     message.set_message_type<TMessage>();
     message.set_owner(CErasedOwner::create<BundleLoadRequest>());
@@ -90,7 +90,7 @@ static void test_pair(TTestContext& ctx, SAllocator& allocator)
     TEST_EXPECT(ctx, !message.has_owner());
     const auto empty = inspect_owner_message<TMessage>(message);
     TEST_EXPECT(ctx, empty.state == EOwnerMessageState::empty && empty.payload == nullptr);
-    message.set_message_type<ModuleResult>();
+    message.set_message_type<TOtherMessage>();
     TEST_EXPECT(ctx, inspect_owner_message<TMessage>(message).state == EOwnerMessageState::invalid);
 }
 
@@ -105,8 +105,9 @@ static void test_helpers(TTestContext& ctx, SAllocator& allocator)
     TEST_EXPECT(ctx, notice.is_payload_a<BundleDisposedNotification>() && notice.query_async_slot() == -1);
     test_pair<AssetLoadRequest, AssetLoadRequest>(ctx, allocator);
     test_pair<TextureEncodeResult, TextureEncodeResult>(ctx, allocator);
-    test_pair<FileLoadResult, LoadedFile>(ctx, allocator);
-    test_pair<TgaEncodeResult, EncodedTga>(ctx, allocator);
+    //  Shared storage must not make the two completion protocols interchangeable.
+    test_pair<FileLoadResult, ByteStorage, TgaEncodeResult>(ctx, allocator);
+    test_pair<TgaEncodeResult, ByteStorage, FileLoadResult>(ctx, allocator);
     test_pair<TgaDecodeResult, DecodedTga>(ctx, allocator);
 }
 

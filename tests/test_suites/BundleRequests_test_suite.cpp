@@ -802,8 +802,8 @@ void test_controlled_failures(TTestContext& ctx)
     //  A valid baked document can pass adoption but fail bundle publication.
     fixture.load_bundle(ctx, 3, "work:/Input/Document.baked");
     TEST_EXPECT(ctx, fixture.take_work(work));
-    auto loaded = CErasedOwner::create<LoadedFile>();
-    auto* file = loaded.payload<LoadedFile>();
+    auto loaded = CErasedOwner::create<ByteStorage>();
+    auto* file = loaded.payload<ByteStorage>();
     TEST_EXPECT(ctx, file != nullptr);
     file->buffer = platform::filesystem::loadFile((fixture.directory + "/Input/Document.baked").c_str(), 0u, 128u);
     CBakedDocument prefix;
@@ -839,12 +839,14 @@ void test_controlled_failures(TTestContext& ctx)
 void test_completion_contracts(TTestContext& ctx)
 {
     tests::TAssertionTestScope assertions{ ctx };
+    enum class EReply { empty, wrong_payload, wrong_byte_protocol };
     // File, bundle load/build, TGA decode/encode and document replies all use
     // the same admission gate but retain their distinct ordinary failure codes.
     for (int protocol = 0; protocol < 6; ++protocol)
     {
-        for (const bool malformed : { false, true })
+        for (const EReply scenario : { EReply::empty, EReply::wrong_payload, EReply::wrong_byte_protocol })
         {
+            if ((scenario == EReply::wrong_byte_protocol) && (protocol != 0) && (protocol != 4)) continue;
             SFixture fixture(true);
             const bool ready = fixture.initialise(false);
             TEST_EXPECT(ctx, ready);
@@ -874,8 +876,8 @@ void test_completion_contracts(TTestContext& ctx)
             {
                 FileLoadRequest load;
                 TEST_EXPECT(ctx, work.copy_payload_to(load));
-                auto owner = CErasedOwner::create<LoadedFile>();
-                auto* const loaded = owner.payload<LoadedFile>();
+                auto owner = CErasedOwner::create<ByteStorage>();
+                auto* const loaded = owner.payload<ByteStorage>();
                 if (loaded == nullptr) { TEST_EXPECT(ctx, false); return; }
                 loaded->buffer = platform::filesystem::loadFile(load.file, 0u, load.alignment);
                 TEST_EXPECT(ctx, loaded->buffer.is_ready());
@@ -892,7 +894,27 @@ void test_completion_contracts(TTestContext& ctx)
                 default: reply.set_message_type<FileLoadResult>(); break;
             }
             reply.set_async_slot(work.query_async_slot());
-            if (malformed)
+            if (scenario == EReply::wrong_byte_protocol)
+            {
+                //  The payload is valid for both protocols, but the completion tag is not.
+                if (protocol == 0) reply.set_message_type<TgaEncodeResult>();
+                else reply.set_message_type<FileLoadResult>();
+                reply.set_owner(CErasedOwner::create<ByteStorage>());
+                auto* const payload = reply.owner().payload<ByteStorage>();
+                TEST_EXPECT(ctx, payload != nullptr);
+                if (payload == nullptr) return;
+                TEST_EXPECT(ctx, payload->buffer.allocate(32u, 128u));
+                reply.owner().add_hazard(mount_point_ids::asset);
+                const auto* const context = reply.owner().memory_context();
+                assertions.expect_unconditional_assertion(ctx, [&] { fixture.service.complete(reply, fixture.io); });
+                TEST_EXPECT(ctx, fixture.service.failed() && !fixture.service.is_idle());
+                TEST_EXPECT(ctx, reply.owner().payload<ByteStorage>() == payload);
+                TEST_EXPECT(ctx, reply.query_async_slot() == work.query_async_slot());
+                TEST_EXPECT(ctx, reply.owner().memory_context() == context);
+                TEST_EXPECT(ctx, reply.owner().has_hazard(mount_point_ids::asset));
+                TEST_EXPECT(ctx, payload->buffer.is_ready() && payload->buffer.align() == 128u);
+            }
+            else if (scenario == EReply::wrong_payload)
             {
                 reply.set_owner(CErasedOwner::create<AssetLoadRequest>());
                 const auto* const payload = reply.owner().payload<AssetLoadRequest>();

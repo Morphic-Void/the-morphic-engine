@@ -2,5 +2,4 @@
 //  Defines MV_IMAGE_ERASED_OWNER_PAYLOADS(payload_macro, payload_with_storage_macro).
 
 #define MV_IMAGE_ERASED_OWNER_PAYLOADS(payload_macro, payload_with_storage_macro) \
-    payload_with_storage_macro(EncodedTga, buffer) \
     payload_with_storage_macro(DecodedTga, buffer)

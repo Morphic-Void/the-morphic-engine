@@ -101,11 +101,11 @@ Introduce a small typed layer above `CErasedOwnerMsg` for constructing and
 inspecting owning messages. Message identity, correlation and owner are currently
 assigned separately, and their relationship is checked by individual receivers.
 Asset requests require message and payload identities to match, whereas
-`FileLoadResult` deliberately carries the different payload type `LoadedFile`.
+`FileLoadResult` deliberately carries the different payload type `ByteStorage`.
 
 The compile-time `TMessagePayload<TMessage>` trait defaults its payload type to
-`TMessage`. The current differing pairs are `FileLoadResult` carrying `LoadedFile`,
-`TgaEncodeResult` carrying `EncodedTga`, and `TgaDecodeResult` carrying `DecodedTga`;
+`TMessage`. The current differing pairs are `FileLoadResult` carrying `ByteStorage`,
+`TgaEncodeResult` carrying `ByteStorage`, and `TgaDecodeResult` carrying `DecodedTga`;
 only these pairs need specialisations. Existing identity registration and owner
 eligibility remain required for both SYSTEM and LOCAL types; there is no new
 runtime registry. Whether an empty message is permitted stays with the receiving
@@ -142,7 +142,7 @@ and creates the associated payload inside the caller-owned message:
 
 ```cpp
 auto completion = make_owner_message<FileLoadResult>(slot);
-if (LoadedFile* const loaded = completion.owner().payload<LoadedFile>())
+if (ByteStorage* const loaded = completion.owner().payload<ByteStorage>())
 {
     loaded->buffer = platform::filesystem::loadFile(file, 0u, alignment);
 }
@@ -319,18 +319,19 @@ Relevant implementation:
 
 ## Aggregate payloads by storage representation
 
-This is an optional follow-on rather than a prerequisite for helpers. Share
-storage representations where the message already identifies the
-operation. `LoadedFile` and `EncodedTga` both contain only a `CByteBuffer`;
-their completion tags distinguish loading from encoding. One neutrally named
-byte-storage payload could serve both while preserving the separate completion
-identities.
+The selected stage 6 aggregation shares storage where the message already
+identifies the operation. The former `LoadedFile` and `EncodedTga` each contained
+only a `CByteBuffer`. Both are replaced by `ByteStorage`, declared in
+`core/assets/asset_storage.hpp`, while their separate completion tags continue to
+distinguish loading from encoding. Direct raw transfers also retain `ByteStorage`.
+Its single LOCAL identity and owner registration remain in the Host catalogues;
+the declaration header introduces no SYSTEM binding or owner eligibility.
 
 Be selective about further aggregation:
 
 | Candidate | Recommendation |
 | --- | --- |
-| `LoadedFile` and `EncodedTga` | Share one byte-storage payload; retain distinct completion identities. |
+| `LoadedFile` and `EncodedTga` | Replaced by `ByteStorage`; distinct completion identities retained. |
 | `DecodedTga` | Keep a dedicated image payload, but consider a representation-based name because it also stores directly transferred images. |
 | Baked and live document wrappers | Low priority. They are small and provide straightforward nested-storage registration. |
 | Raw, image, baked and live transfer requests | Keep distinct typed identities; their implementation is already aggregated through a template. |
@@ -532,16 +533,16 @@ executable and retained implementation wrappers become LOCAL.
 
 | Public contract retained as SYSTEM | Host-confined identities converted to LOCAL |
 | --- | --- |
-| `AssetLoadRequest`, `AssetResult` | `FileLoadRequest`, `FileLoadResult`, `LoadedFile` |
+| `AssetLoadRequest`, `AssetResult` | `FileLoadRequest`, `FileLoadResult`, `ByteStorage` |
 | `AssetSaveRequest` and transfer save options | `FileSaveRequest`, `FileSaveResult` |
-| Asset load/save and `ImageAssetTransfer` for debug images | `TgaEncodeRequest`, `TgaDecodeRequest`, `TgaEncodeResult`, `TgaDecodeResult`, `EncodedTga`, `DecodedTga` |
+| Asset load/save and `ImageAssetTransfer` for debug images | `TgaEncodeRequest`, `TgaDecodeRequest`, `TgaEncodeResult`, `TgaDecodeResult`, `ByteStorage`, `DecodedTga` |
 | Asset load/save, `BakedAssetTransfer`, `LiveAssetTransfer` | `DocumentConditionRequest`, `DocumentConditionResult`, `BakedDocumentAsset`, `LiveDocumentAsset` |
 | `ModuleRequest`, `ModuleResult` | `ModuleWorkRequest`, `ModuleWorkResult` |
 | `FilesystemRefreshRequest`, `FilesystemRefreshResult` | `FilesystemScanRequest`, `FilesystemScanResult` |
 | Bundle bake/load/reference and asset disposal contracts | `BundleBuildWork`, `BundleBuildResult`, `BundlePrepareWork`, `BundlePrepareResult`, `BorrowedBundleAsset` |
 
 This converts 24 identities, including nine eligible owner payloads:
-`LoadedFile`, `EncodedTga`, `DecodedTga`, `BakedDocumentAsset`,
+`ByteStorage`, `DecodedTga`, `BakedDocumentAsset`,
 `LiveDocumentAsset`, `DocumentConditionResult`, `FilesystemScanResult`,
 `BundleBuildResult` and `BorrowedBundleAsset`. Preserve their nested-storage
 accounting registrations.
@@ -890,7 +891,37 @@ The Debug x64 Host-worker acceptance harness passed shared/dedicated-worker flow
 and startup validation. Policy validation reported no errors or warnings; text
 format and diff checks passed. Linux verification remains for CI.
 
-Byte-payload aggregation remains subject to a separate review. Resource-extraction
-helpers are deferred because the existing transfer handler already shares those
-mechanics. Baked/live wrappers, public transfer identities and distinct texture
-storage representations remain unchanged.
+#### Byte-payload aggregation implementation
+
+The separately reviewed aggregation replaces `LoadedFile` and `EncodedTga` with
+`ByteStorage`, containing the same `CByteBuffer` member. Both completion protocols
+keep their own tags and payload associations. File-load failures still report
+`read_failed`; TGA-encode failures still report `conditioning_failed`. No owner
+movement, backing allocation, save borrowing, retention or disposal sequence changes.
+
+The Host catalogue keeps one `byte_storage` entry in the former `loaded_file`
+position and removes `encoded_tga`. Later LOCAL ordinals shift; SYSTEM identities
+do not change. The compatibility recheck found generated identity use in dispatch
+and registration, with no persisted private ordinals in asset formats. Host and
+ordinary tests generate their own catalogues and are rebuilt together.
+
+The helper tests inspect both completion protocols with present and empty owners,
+including rejection of the opposite completion tag. Host service tests additionally
+reject swapped file-load/TGA-encode tags carrying valid shared byte storage, leaving
+the owner and operation alive for the existing terminal cleanup. Duplicate storage
+registration and private-boundary checks are consolidated.
+
+Sharing storage deliberately removes the ability to distinguish its producer by
+payload identity alone. Message identity, worker and phase checks remain. No new
+status enum, compatibility alias or public byte-owner contract is introduced.
+
+Validation passed in Windows Debug and Release on x64 and Win32: solution builds
+and ordinary suites, including 1,012 bundle-request, 918 erased-owner, 205 message-helper
+and 131 type-identity checks in each configuration. The Debug x64 Host-worker
+acceptance harness passed shared/dedicated-worker flows. Policy validation reported
+no errors or warnings; text-format and diff checks passed. Linux verification
+remains for CI.
+
+Resource-extraction helpers remain deferred because the existing transfer handler
+already shares those mechanics. Baked/live wrappers, public transfer identities
+and distinct texture storage representations remain unchanged.

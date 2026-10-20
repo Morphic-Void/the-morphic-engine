@@ -18,12 +18,13 @@
 #include <cstdint>
 
 #include "assets/asset_messages.hpp"
+#include "assets/asset_storage.hpp"
 #include "filesystem/filesystem_image.hpp"
 #include "system/service_messages.hpp"
 
 //==============================================================================
 //  File I/O: borrowed Host inputs and worker completions
-//  FileLoadResult identifies an owning reply whose payload is LoadedFile.
+//  FileLoadResult identifies an owning reply whose payload is ByteStorage.
 //==============================================================================
 
 struct FileLoadRequest { const char* file; std::size_t alignment{ 16u }; };
@@ -31,7 +32,6 @@ struct FileSaveRequest { const char* file; CByteConstView view; };
 
 struct FileLoadResult {};
 struct FileSaveResult { bool success; };
-struct LoadedFile { CByteBuffer buffer; };
 
 //==============================================================================
 //  Retained document storage
@@ -158,7 +158,7 @@ struct FilesystemScanResult
 namespace threading
 {
 
-template<> struct TMessagePayload<FileLoadResult> { using type = LoadedFile; };
+template<> struct TMessagePayload<FileLoadResult> { using type = ByteStorage; };
 
 }   //  namespace threading
 

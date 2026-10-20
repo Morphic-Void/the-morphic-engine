@@ -114,6 +114,7 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\system\thread_ids.def" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\system\transported_types.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\assets\asset_messages.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\assets\asset_storage.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\assets\asset_owner_payloads.def" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\system\service_messages.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\system\service_owner_payloads.def" />

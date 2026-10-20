@@ -552,11 +552,11 @@ void CHostWorkerThread::operate() noexcept
                     FileLoadRequest request;
                     (void)inbound_msg.copy_payload_to(request);
                     auto outbound_msg = threading::make_owner_message<FileLoadResult>(inbound_msg.query_async_slot());
-                    if (LoadedFile* const result = outbound_msg.owner().payload<LoadedFile>())
+                    if (ByteStorage* const result = outbound_msg.owner().payload<ByteStorage>())
                     {
                         result->buffer = platform::filesystem::loadFile(request.file, 0u, request.alignment);
                     }
-                    const LoadedFile* const loaded = outbound_msg.owner().payload<LoadedFile>();
+                    const ByteStorage* const loaded = outbound_msg.owner().payload<ByteStorage>();
                     if ((loaded == nullptr) || !loaded->buffer.is_ready())
                     {
                         MV_LOG_RICH(error, "File load failed: %s", ((request.file != nullptr) ? request.file : "<null path>"));
@@ -597,7 +597,7 @@ void CHostWorkerThread::operate() noexcept
                     TgaEncodeRequest request;
                     (void)inbound_msg.copy_payload_to(request);
                     auto outbound_msg = threading::make_owner_message<TgaEncodeResult>(inbound_msg.query_async_slot());
-                    if (EncodedTga* const result = outbound_msg.owner().payload<EncodedTga>())
+                    if (ByteStorage* const result = outbound_msg.owner().payload<ByteStorage>())
                     {
                         result->buffer = image::codec::tga::encode(request.view, request.options);
                     }

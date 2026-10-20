@@ -355,7 +355,7 @@ void CAssetService::describe_views(TOwner& source, AssetResult& result) noexcept
     {
         result = borrowed->view;
     }
-    else if (LoadedFile* const raw = source.template payload<LoadedFile>())
+    else if (ByteStorage* const raw = source.template payload<ByteStorage>())
     {
         result.set_raw_view(memory::CMemoryConstView{ raw->buffer.data(), raw->buffer.size(), 1u, raw->buffer.align() });
     }
@@ -855,7 +855,7 @@ void CAssetService::request(threading::CErasedOwnerMsg& message, threading::CThr
     else
     {
         const bool recognised =
-            handle_transfer_if_type_matches<RawAssetTransfer, LoadedFile>(operation) ||
+            handle_transfer_if_type_matches<RawAssetTransfer, ByteStorage>(operation) ||
             handle_transfer_if_type_matches<ImageAssetTransfer, DecodedTga>(operation) ||
             handle_transfer_if_type_matches<BakedAssetTransfer, BakedDocumentAsset>(operation) ||
             handle_transfer_if_type_matches<LiveAssetTransfer, LiveDocumentAsset>(operation);
@@ -1079,7 +1079,7 @@ void CAssetService::complete(threading::CErasedOwnerMsg& message, threading::CTh
 void CAssetService::complete_file_load(const std::int32_t slot) noexcept
 {
     SOperation& operation = *m_operations.get_object(slot);
-    LoadedFile* const loaded = operation.worker_result_owner.payload<LoadedFile>();
+    ByteStorage* const loaded = operation.worker_result_owner.payload<ByteStorage>();
     if ((loaded == nullptr) || !loaded->buffer.is_ready())
     {
         finish_operation(slot, EAssetStatus::read_failed);
@@ -1137,7 +1137,7 @@ void CAssetService::complete_bundle(const std::int32_t slot) noexcept
     SOperation& operation = *m_operations.get_object(slot);
     if (operation.phase == EPhase::bundle_loading)
     {
-        LoadedFile* const loaded = operation.worker_result_owner.payload<LoadedFile>();
+        ByteStorage* const loaded = operation.worker_result_owner.payload<ByteStorage>();
         if ((loaded == nullptr) || !loaded->buffer.is_ready())
         {
             finish_operation(slot, EAssetStatus::read_failed);
@@ -1205,7 +1205,7 @@ void CAssetService::complete_image_decode(const std::int32_t slot) noexcept
 void CAssetService::complete_image_encode(const std::int32_t slot) noexcept
 {
     SOperation& operation = *m_operations.get_object(slot);
-    const EncodedTga* const encoded = operation.worker_result_owner.payload<EncodedTga>();
+    const ByteStorage* const encoded = operation.worker_result_owner.payload<ByteStorage>();
     if ((encoded == nullptr) || !encoded->buffer.is_ready())
     {
         finish_operation(slot, EAssetStatus::conditioning_failed);

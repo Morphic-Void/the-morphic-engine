@@ -197,9 +197,9 @@ void expect_host_private_identities(TTestContext& ctx)
 void test_host_protocol_categories(TTestContext& ctx)
 {
     expect_host_private_identities<FileLoadRequest, FileSaveRequest,
-        FileLoadResult, FileSaveResult, LoadedFile,
+        FileLoadResult, FileSaveResult, ByteStorage,
         TgaEncodeRequest, TgaDecodeRequest, TgaEncodeResult, TgaDecodeResult,
-        EncodedTga, DecodedTga, BakedDocumentAsset, LiveDocumentAsset,
+        DecodedTga, BakedDocumentAsset, LiveDocumentAsset,
         DocumentConditionRequest, DocumentConditionResult,
         ModuleWorkRequest, ModuleWorkResult, FilesystemScanRequest, FilesystemScanResult,
         BundleBuildWork, BundleBuildResult, BundlePrepareWork, BundlePrepareResult,

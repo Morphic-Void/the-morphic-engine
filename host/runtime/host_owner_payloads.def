@@ -2,7 +2,7 @@
 //  Defines MV_HOST_ERASED_OWNER_PAYLOADS(payload_macro, payload_with_storage_macro).
 
 #define MV_HOST_ERASED_OWNER_PAYLOADS(payload_macro, payload_with_storage_macro) \
-    payload_with_storage_macro(LoadedFile, buffer) \
+    payload_with_storage_macro(ByteStorage, buffer) \
     payload_with_storage_macro(BakedDocumentAsset, block) \
     payload_macro(BorrowedBundleAsset) \
     payload_with_storage_macro(BundleBuildResult, block) \

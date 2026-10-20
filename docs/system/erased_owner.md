@@ -97,9 +97,17 @@ preparation must check allocation before posting; services whose reply protocol
 permits an empty completion may send that state.
 
 `TMessagePayload<TMessage>::type` defaults to `TMessage`. The Host's
-`FileLoadResult` maps to `LoadedFile`, and the image contracts map
-`TgaEncodeResult`/`TgaDecodeResult` to `EncodedTga`/`DecodedTga`. These associations
-live beside their declarations and do not register identity or owner operations.
+`FileLoadResult` and `TgaEncodeResult` both map to `ByteStorage`; `TgaDecodeResult`
+maps to `DecodedTga`. These associations live beside their declarations and do
+not register identity or owner operations.
+
+`ByteStorage`, declared in `assets/asset_storage.hpp`, owns one `CByteBuffer`.
+It also stores retained raw assets. Its identity and owner operations remain
+LOCAL to the Host (and independently to its service-test binary). Sharing this
+representation does not merge the completion protocols: the message tag still
+distinguishes file loading from TGA encoding, and each keeps its failure policy.
+Payload identity alone no longer distinguishes which of those operations
+produced the bytes.
 
 `inspect_owner_message<TMessage>(message)` borrows the payload without moving
 ownership. It returns `present` with a matching pointer, `empty` for a matching

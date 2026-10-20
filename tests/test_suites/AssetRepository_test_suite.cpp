@@ -25,7 +25,7 @@ using TTestContext = tests::TTestContext;
 
 CErasedOwner make_test_asset()
 {
-    return CErasedOwner::create<LoadedFile>();
+    return CErasedOwner::create<ByteStorage>();
 }
 
 void test_asset_id_contract(TTestContext& ctx)
@@ -66,8 +66,8 @@ void test_repository_identity_and_reuse(TTestContext& ctx)
     TEST_EXPECT(ctx, repository.resolve(first_id) != nullptr);
     TEST_EXPECT(ctx, repository.resolve(second_id) != nullptr);
     TEST_EXPECT(ctx, repository.resolve(first_id)->query_type_id() ==
-        k_type_id_v<LoadedFile>);
-    TEST_EXPECT(ctx, repository.resolve(first_id)->payload<LoadedFile>() != nullptr);
+        k_type_id_v<ByteStorage>);
+    TEST_EXPECT(ctx, repository.resolve(first_id)->payload<ByteStorage>() != nullptr);
 
     CAssetRecord* const second_record = repository.resolve(second_id);
     TEST_EXPECT(ctx, repository.erase(first_id));

@@ -470,6 +470,7 @@
       <Filter>Core\include\system</Filter>
     </ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\assets\asset_messages.hpp"><Filter>Core\include\assets</Filter></ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\assets\asset_storage.hpp"><Filter>Core\include\assets</Filter></ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\assets\asset_owner_payloads.def"><Filter>Core\include\assets</Filter></ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\system\service_messages.hpp"><Filter>Core\include\system</Filter></ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\system\service_owner_payloads.def"><Filter>Core\include\system</Filter></ClInclude>

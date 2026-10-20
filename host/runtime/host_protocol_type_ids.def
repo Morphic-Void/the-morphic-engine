@@ -6,12 +6,11 @@
     type_macro(file_save_req, FileSaveRequest) \
     type_macro(file_load_done, FileLoadResult) \
     type_macro(file_save_done, FileSaveResult) \
-    type_macro(loaded_file, LoadedFile) \
+    type_macro(byte_storage, ByteStorage) \
     type_macro(tga_encode_req, TgaEncodeRequest) \
     type_macro(tga_decode_req, TgaDecodeRequest) \
     type_macro(tga_encode_done, TgaEncodeResult) \
     type_macro(tga_decode_done, TgaDecodeResult) \
-    type_macro(encoded_tga, EncodedTga) \
     type_macro(decoded_tga, DecodedTga) \
     type_macro(baked_document, BakedDocumentAsset) \
     type_macro(live_document, LiveDocumentAsset) \
