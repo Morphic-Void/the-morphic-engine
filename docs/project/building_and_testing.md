@@ -40,6 +40,13 @@ defaults to `development/logical-roots/test-output`. Pass
 directory's `logs` child. Test output filenames retain the process ID and
 optional tag.
 
+To clear both default test directories while preserving their root `.gitkeep`
+files, run `tools\clean_test_outputs.bat` (PowerShell 7 required). It works from
+any current directory and removes nested output directories too. Add `-WhatIf`
+to preview the targets. Run it after tests have finished; files still in use can
+cause cleanup to fail. Explicit output-directory overrides and isolated harness
+directories are not included.
+
 The shared TGA input fixture is
 `development/logical-roots/dev-source/test_input.tga`. The engine's logs use
 `development/logical-roots/logs`, and policy-validator reports use its
