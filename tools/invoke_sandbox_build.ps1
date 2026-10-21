@@ -57,7 +57,11 @@ if ([string]::IsNullOrWhiteSpace($MSBuildPath)) {
     $msbuildCandidates = @(
         Get-ChildItem -Path "$env:ProgramFiles\Microsoft Visual Studio\*\*\MSBuild\Current\Bin\MSBuild.exe" -File -ErrorAction SilentlyContinue
         Get-ChildItem -Path "${env:ProgramFiles(x86)}\Microsoft Visual Studio\*\*\MSBuild\Current\Bin\MSBuild.exe" -File -ErrorAction SilentlyContinue
-    ) | Sort-Object FullName -Descending
+    ) | Sort-Object -Property @{ Expression = {
+        $version = $_.VersionInfo
+        [version]::new($version.FileMajorPart, $version.FileMinorPart,
+            $version.FileBuildPart, $version.FilePrivatePart)
+    }; Descending = $true }, FullName
     $MSBuildPath = $msbuildCandidates |
         Select-Object -First 1 -ExpandProperty FullName
 }
@@ -73,12 +77,18 @@ $processPath = $env:PATH
 Remove-Item Env:Path -ErrorAction SilentlyContinue
 $env:PATH = $processPath
 
+# Use the native 64-bit compiler/linker on a 64-bit host. The x86-hosted PDB
+# tools can fail inside the sandbox even when their DLL versions match.
+# This selects the build tools, not the architecture of the generated binaries.
+$toolArchitecture = if ([Environment]::Is64BitOperatingSystem) { "x64" } else { "x86" }
+
 $msbuildArguments = @(
     $solutionPath
     "/t:$Target"
     "/m:1"
     "/p:Configuration=$Configuration"
     "/p:Platform=$Platform"
+    "/p:PreferredToolArchitecture=$toolArchitecture"
     "/p:_LatestWindowsTargetPlatformVersion=$WindowsSdkVersion"
     "/p:TargetPlatformSdkPath=$sdkRoot\"
     "/p:TargetPlatformDisplayName=Windows SDK $WindowsSdkVersion"
@@ -88,6 +98,7 @@ $msbuildArguments = @(
 )
 
 Write-Host "Sandbox build: $Configuration|$Platform, Windows SDK $WindowsSdkVersion"
+Write-Host "MSBuild: $MSBuildPath ($((Get-Item -LiteralPath $MSBuildPath).VersionInfo.FileVersion)), tool host: $toolArchitecture"
 & $MSBuildPath @msbuildArguments
 if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE

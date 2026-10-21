@@ -92,9 +92,19 @@ disable file tracking, and normalise the child-process environment:
 .\tools\invoke_sandbox_build.ps1 -RunTests -TestMode 1
 ```
 
-The helper defaults to `Debug|x64`, discovers the newest installed Windows SDK,
-and uses the same development test-log and test-output roots. Configuration,
-platform, SDK version, MSBuild path, test mode, and log tag can all be
+The helper defaults to `Debug|x64`, discovers the newest installed Windows SDK
+and MSBuild executable by numeric version, and uses the same development test-log
+and test-output roots. It reports the selected MSBuild path/version and tool host
+architecture. Installation directory names are not version ordering: `2022`
+would sort ahead of the newer Visual Studio `18` directory as text.
+
+On 64-bit Windows the helper selects the x64-hosted compiler and linker through
+`PreferredToolArchitecture=x64`, including when building x86 targets. This avoids
+the sandbox failure observed with x86-hosted PDB tools (`LNK1101: incorrect
+MSPDB140.DLL version`) despite matching installed DLL versions. It does not change
+the project toolset, target architecture or debug-information settings.
+
+Configuration, platform, SDK version, MSBuild path, test mode, and log tag can all be
 overridden through the script parameters. Because sandbox-safe file tracking is
 disabled, a build invocation recompiles sources rather than relying on
 MSBuild's tracked inputs.
