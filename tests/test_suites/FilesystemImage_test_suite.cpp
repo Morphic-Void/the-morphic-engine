@@ -19,6 +19,7 @@
 #include "tests/support/test_scopes.hpp"
 #include "tests/test_suites/FilesystemImage_test_suite.hpp"
 #include "tests/support/test_context.hpp"
+#include "tests/support/file_helpers.hpp"
 #include "tests/support/document_helpers.hpp"
 #include "tests/environment/test_paths.hpp"
 #include "filesystem/filesystem_image.hpp"
@@ -37,12 +38,6 @@ static bool prepare_bundle(filesystem_image::CImage& image, std::uint64_t bindin
 {
     filesystem_image::CBundleDirectory directory;
     return directory.prepare(view) && image.prepare_bundle(binding, asset, directory);
-}
-
-static bool write(const std::string& path, const char* const text)
-{
-    return platform::filesystem::saveFile(path.c_str(), CByteConstView{
-        reinterpret_cast<const std::uint8_t*>(text), std::strlen(text) });
 }
 
 static bool count(void* const context, const char* const, const platform::filesystem::EDirectoryEntry) noexcept
@@ -143,9 +138,9 @@ static void test_refresh(tests::TTestContext& ctx)
     TEST_EXPECT(ctx, fs::create_directory(base + "/content", error) && !error);
     TEST_EXPECT(ctx, fs::create_directory(base + "/content/empty", error) && !error);
     const std::string manifest = base + "/roots.json";
-    TEST_EXPECT(ctx, write(manifest, R"({"schemaVersion":2,"roots":{"work:":{"source":"content","writable":true},"output:":{"source":"absent","writable":true,"inventory":false}}})"));
-    TEST_EXPECT(ctx, write(base + "/content/a.json", "{\"value\":1}"));
-    TEST_EXPECT(ctx, write(base + "/content/empty/content", "metadata-like filename"));
+    TEST_EXPECT(ctx, tests::write_test_file(manifest, R"({"schemaVersion":2,"roots":{"work:":{"source":"content","writable":true},"output:":{"source":"absent","writable":true,"inventory":false}}})"));
+    TEST_EXPECT(ctx, tests::write_test_file(base + "/content/a.json", "{\"value\":1}"));
+    TEST_EXPECT(ctx, tests::write_test_file(base + "/content/empty/content", "metadata-like filename"));
     std::uint32_t entries = 0u;
     TEST_EXPECT(ctx, platform::filesystem::query_directory((base + "/content/empty").c_str(), count, &entries) == EDirectoryQuery::complete);
     TEST_EXPECT(ctx, entries == 1u);
@@ -257,10 +252,10 @@ static void test_refresh(tests::TTestContext& ctx)
     //  The redirect discovers every DLL, including test fixtures, but neither
     //  executables nor symbols. An overlapping logical filename is an error.
     TEST_EXPECT(ctx, fs::create_directory(base + "/dlls", error) && !error);
-    TEST_EXPECT(ctx, write(base + "/dlls/runtime.dll", "fixture"));
-    TEST_EXPECT(ctx, write(base + "/dlls/test-only.dll", "fixture"));
-    TEST_EXPECT(ctx, write(base + "/dlls/runtime.exe", "fixture"));
-    TEST_EXPECT(ctx, write(base + "/dlls/runtime.pdb", "fixture"));
+    TEST_EXPECT(ctx, tests::write_test_file(base + "/dlls/runtime.dll", "fixture"));
+    TEST_EXPECT(ctx, tests::write_test_file(base + "/dlls/test-only.dll", "fixture"));
+    TEST_EXPECT(ctx, tests::write_test_file(base + "/dlls/runtime.exe", "fixture"));
+    TEST_EXPECT(ctx, tests::write_test_file(base + "/dlls/runtime.pdb", "fixture"));
     TEST_EXPECT(ctx, image.prepare_scan("work:", scan));
     TEST_EXPECT(ctx, scan.redirect_directory.set((base + "/dlls").c_str()));
     TEST_EXPECT(ctx, filesystem_image::scan_root(scan, observation) == EScanStatus::success);
@@ -272,13 +267,13 @@ static void test_refresh(tests::TTestContext& ctx)
     TEST_EXPECT(ctx, !image.resolve("work:/bin/runtime.dll", true, physical));
     TEST_EXPECT(ctx, !image.resolve("work:/bin/new.dll", true, physical));
     TEST_EXPECT(ctx, fs::create_directory(base + "/content/bin", error) && !error);
-    TEST_EXPECT(ctx, write(base + "/content/bin/runtime.dll", "collision"));
+    TEST_EXPECT(ctx, tests::write_test_file(base + "/content/bin/runtime.dll", "collision"));
     const std::uint32_t before_collision = observation.value_count();
     TEST_EXPECT(ctx, filesystem_image::scan_root(scan, observation) == EScanStatus::name_collision);
     TEST_EXPECT(ctx, observation.value_count() == before_collision);
     TEST_EXPECT(ctx, image.resolve("work:/bin/test-only.dll", false, physical));
     TEST_EXPECT(ctx, fs::remove(base + "/content/bin/runtime.dll", error) && !error);
-    TEST_EXPECT(ctx, write(base + "/content/bin/local.json", "overlay"));
+    TEST_EXPECT(ctx, tests::write_test_file(base + "/content/bin/local.json", "overlay"));
     TEST_EXPECT(ctx, filesystem_image::scan_root(scan, observation) == EScanStatus::success);
     TEST_EXPECT(ctx, image.integrate(observation, image.write_serial()));
     TEST_EXPECT(ctx, image.resolve("work:/bin/local.json", false, physical));
@@ -293,7 +288,7 @@ static void test_refresh(tests::TTestContext& ctx)
     TEST_EXPECT(ctx, fs::remove(base + "/dlls/runtime.pdb", error) && !error);
     TEST_EXPECT(ctx, fs::remove(base + "/dlls", error) && !error);
 
-    TEST_EXPECT(ctx, write(manifest, R"({"schemaVersion":2,"roots":{"work:":{"source":"../content","writable":true}}})"));
+    TEST_EXPECT(ctx, tests::write_test_file(manifest, R"({"schemaVersion":2,"roots":{"work:":{"source":"../content","writable":true}}})"));
     TEST_EXPECT(ctx, filesystem_image::scan_manifest(manifest.c_str(), document) == EScanStatus::invalid_manifest);
     TEST_EXPECT(ctx, !document.is_ready());
 
@@ -312,10 +307,10 @@ static void test_case_identity(tests::TTestContext& ctx)
     TEST_EXPECT(ctx, fs::create_directories(base + "/Content/Textures", error) && !error);
     TEST_EXPECT(ctx, fs::create_directories(base + "/Content/Bin", error) && !error);
     TEST_EXPECT(ctx, fs::create_directory(base + "/Dlls", error) && !error);
-    TEST_EXPECT(ctx, write(base + "/Content/Textures/Brick.PNG", "image"));
-    TEST_EXPECT(ctx, write(base + "/Content/plain.txt", "plain"));
-    TEST_EXPECT(ctx, write(base + "/Content/Bin/Local.JSON", "local"));
-    TEST_EXPECT(ctx, write(base + "/Dlls/Runtime.DLL", "module"));
+    TEST_EXPECT(ctx, tests::write_test_file(base + "/Content/Textures/Brick.PNG", "image"));
+    TEST_EXPECT(ctx, tests::write_test_file(base + "/Content/plain.txt", "plain"));
+    TEST_EXPECT(ctx, tests::write_test_file(base + "/Content/Bin/Local.JSON", "local"));
+    TEST_EXPECT(ctx, tests::write_test_file(base + "/Dlls/Runtime.DLL", "module"));
     filesystem_image::SRootScan request;
     TEST_EXPECT(ctx, request.logical_root.set("work:"));
     TEST_EXPECT(ctx, request.physical_path.set((base + "/Content").c_str()));
@@ -358,7 +353,7 @@ static void test_case_identity(tests::TTestContext& ctx)
     TEST_EXPECT(ctx, image.cached_asset("work:/textures/new.json", 1u) == 0u);
 
     //  Separate physical directories can contribute aliases even on Windows.
-    TEST_EXPECT(ctx, write(base + "/Content/Bin/runtime.dll", "collision"));
+    TEST_EXPECT(ctx, tests::write_test_file(base + "/Content/Bin/runtime.dll", "collision"));
     const std::uint32_t retained = observation.value_count();
     TEST_EXPECT(ctx, filesystem_image::scan_root(request, observation) == EScanStatus::name_collision);
     TEST_EXPECT(ctx, observation.value_count() == retained);
@@ -430,7 +425,7 @@ static void test_reserved_native_mount(tests::TTestContext& ctx)
     TEST_EXPECT(ctx, image.root_state("native:") == ERootState::missing);
 
     const std::string manifest = test_environment::test_output_path("native-reserved-manifest.json");
-    TEST_EXPECT(ctx, write(manifest,
+    TEST_EXPECT(ctx, tests::write_test_file(manifest,
         R"({"schemaVersion":2,"roots":{"native:":{"source":"unused","inventory":false}}})"));
     TEST_EXPECT(ctx, scan_manifest(manifest.c_str(), document) == EScanStatus::invalid_manifest);
     std::error_code error;
@@ -722,8 +717,8 @@ static void test_bake_capture(tests::TTestContext& ctx)
     std::error_code error;
     TEST_EXPECT(ctx, fs::create_directories(base + "/Content/Nested/Empty", error) && !error);
     TEST_EXPECT(ctx, fs::create_directory(base + "/Dlls", error) && !error);
-    TEST_EXPECT(ctx, write(base + "/Content/Nested/File.TXT", "captured"));
-    TEST_EXPECT(ctx, write(base + "/Dlls/Runtime.DLL", "module"));
+    TEST_EXPECT(ctx, tests::write_test_file(base + "/Content/Nested/File.TXT", "captured"));
+    TEST_EXPECT(ctx, tests::write_test_file(base + "/Dlls/Runtime.DLL", "module"));
     SRootScan scan;
     TEST_EXPECT(ctx, scan.logical_root.set("work:") && scan.physical_path.set((base + "/Content").c_str()) &&
         scan.redirect_directory.set((base + "/Dlls").c_str()));

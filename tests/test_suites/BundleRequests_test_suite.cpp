@@ -28,6 +28,7 @@
 #include "schema/live_bulk_data.hpp"
 #include "tests/environment/test_paths.hpp"
 #include "tests/support/test_context.hpp"
+#include "tests/support/file_helpers.hpp"
 #include "tests/support/byte_helpers.hpp"
 #include "tests/support/thread_helpers.hpp"
 #include "tests/support/test_scopes.hpp"
@@ -38,11 +39,6 @@ namespace
 
 using tests::TTestContext;
 using filesystem_image::ERootState;
-
-bool write(const std::string& file, const void* const bytes, const std::size_t size)
-{
-    return platform::filesystem::saveFile(file.c_str(), CByteConstView{ static_cast<const std::uint8_t*>(bytes), size });
-}
 
 struct SFixture
 {
@@ -88,11 +84,11 @@ struct SFixture
         document_size = block.bytes().size();
         if (!block.resize_buffer(document_size + 11u)) return false;
         std::memset(block.buffer_bytes().data() + document_size, 0xa5, 11u);
-        if (!write(directory + "/Input/Raw", "abc", 3u) ||
-            !write(directory + "/Input/Data.json", json, sizeof(json) - 1u) ||
-            !write(directory + "/Input/Image.tga", tga, sizeof(tga)) ||
-            !write(directory + "/Input/Document.baked", block.buffer_bytes().data(), block.buffer_bytes().size()) ||
-            !write(directory + "/invalid.bdl", "bad", 3u)) return false;
+        if (!tests::write_test_file(directory + "/Input/Raw", "abc", 3u) ||
+            !tests::write_test_file(directory + "/Input/Data.json", json, sizeof(json) - 1u) ||
+            !tests::write_test_file(directory + "/Input/Image.tga", tga, sizeof(tga)) ||
+            !tests::write_test_file(directory + "/Input/Document.baked", block.buffer_bytes().data(), block.buffer_bytes().size()) ||
+            !tests::write_test_file(directory + "/invalid.bdl", "bad", 3u)) return false;
         //  The native loader rejects empty files; the builder silently drops them.
         auto* empty = platform::filesystem::openFile(platform::path::makeNativePath((directory + "/Input/Zero").c_str()),
             platform::filesystem::EOpenMode::BinaryWrite);
@@ -222,7 +218,7 @@ void test_native_loads(TTestContext& ctx, const bool dedicated, const bool attac
             std::filesystem::copy_options::overwrite_existing, error) && !error);
     }
     const std::string physical = external + "/Mixed Case \xc3\xa9.bin";
-    TEST_EXPECT(ctx, write(physical, "abc", 3u));
+    TEST_EXPECT(ctx, tests::write_test_file(physical, "abc", 3u));
     std::string native = "NaTiVe:" + physical;
 #if MV_PLATFORM_WINDOWS
     //  A file-picker spelling is accepted without applying logical-path rules.
@@ -244,7 +240,7 @@ void test_native_loads(TTestContext& ctx, const bool dedicated, const bool attac
     const auto first = fixture.result(ctx, 2);
     TEST_EXPECT(ctx, first.kind == EAssetKind::raw && first.byte_view().size() == 3u &&
         first.byte_view().align() >= 128u && std::memcmp(first.byte_view().data(), "abc", 3u) == 0);
-    TEST_EXPECT(ctx, write(physical, "xyz", 3u));
+    TEST_EXPECT(ctx, tests::write_test_file(physical, "xyz", 3u));
     fixture.load(ctx, 3, native.c_str(), EAssetFileFormat::raw);
     const auto second = fixture.result(ctx, 3);
     TEST_EXPECT(ctx, second.asset != first.asset && second.byte_view().size() == 3u &&
@@ -293,7 +289,7 @@ void test_native_loads(TTestContext& ctx, const bool dedicated, const bool attac
     //  JSON policy is still evaluated by the normal conditioning worker.
     const std::string policy_file = external + "/Policy.json";
     constexpr char policy_json[] = "{\"answer\":+42}";
-    TEST_EXPECT(ctx, write(policy_file, policy_json, sizeof(policy_json) - 1u));
+    TEST_EXPECT(ctx, tests::write_test_file(policy_file, policy_json, sizeof(policy_json) - 1u));
     const std::string policy_native = "native:" + policy_file;
     auto owner = CErasedOwner::create<AssetLoadRequest>();
     auto* request = owner.payload<AssetLoadRequest>();

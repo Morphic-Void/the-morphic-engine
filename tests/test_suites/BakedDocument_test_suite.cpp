@@ -30,6 +30,7 @@
 #include "platform/threading/processor_relax.hpp"
 #include "platform/threading/thread_lifetime.hpp"
 #include "tests/support/test_allocator.hpp"
+#include "tests/support/byte_helpers.hpp"
 #include "tests/support/test_context.hpp"
 #include "tests/support/test_scopes.hpp"
 
@@ -984,8 +985,7 @@ struct SConcurrentBake
         {
             CBakedDocumentBlock result;
             if (!document_translation::bake(state.source, result) ||
-                (result.bytes().size() != state.reference.bytes().size()) ||
-                (std::memcmp(result.bytes().data(), state.reference.bytes().data(), result.bytes().size()) != 0))
+                !tests::same_bytes(result.bytes(), state.reference.bytes()))
             {
                 state.failed.store(true, std::memory_order_relaxed);
             }
@@ -1789,7 +1789,7 @@ static void test_resizing_storage(TTestContext& ctx)
     TEST_EXPECT(ctx, (reinterpret_cast<std::uintptr_t>(block.bytes().data()) & 127u) == 0u);
     TEST_EXPECT(ctx, block.buffer_bytes().size() == full_size && block.buffer_bytes().align() == 128u);
     TEST_EXPECT(ctx, block.buffer_capacity() == memory::condition_bytes(128u, full_size));
-    TEST_EXPECT(ctx, block.bytes().size() == document_size && std::memcmp(block.bytes().data(), prefix.data(), document_size) == 0);
+    TEST_EXPECT(ctx, tests::same_bytes(block.bytes(), prefix));
     for (std::size_t index = document_size; index < full_size; ++index)
     {
         TEST_EXPECT(ctx, block.buffer_bytes().data()[index] == 0u);
@@ -1947,8 +1947,7 @@ static void test_copy_routes(TTestContext& ctx)
         }
         CBakedDocumentBlock result;
         TEST_EXPECT(ctx, destination.check_integrity() && document_translation::bake(destination, result));
-        TEST_EXPECT(ctx, (result.bytes().size() == expected.bytes().size()) &&
-            (std::memcmp(result.bytes().data(), expected.bytes().data(), expected.bytes().size()) == 0));
+        TEST_EXPECT(ctx, tests::same_bytes(result.bytes(), expected.bytes()));
     }
 
     //  The override name determines entry identity; an absent name and a present
@@ -2018,8 +2017,7 @@ static void test_constructed_copy(TTestContext& ctx)
             TEST_EXPECT(ctx, document_translation::promote(baked, target));
             copied = target.root();
             CBakedDocumentBlock round_trip;
-            TEST_EXPECT(ctx, document_translation::bake(target, round_trip) && round_trip.bytes().size() == block.bytes().size() &&
-                std::memcmp(round_trip.bytes().data(), block.bytes().data(), block.bytes().size()) == 0);
+            TEST_EXPECT(ctx, document_translation::bake(target, round_trip) && tests::same_bytes(round_trip.bytes(), block.bytes()));
         }
         TEST_EXPECT(ctx, copied && target.child_count(copied) == count && target.check_integrity());
         CNodeKey original = source.first_child(source.root());

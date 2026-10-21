@@ -28,6 +28,7 @@
 #include "tests/support/test_scopes.hpp"
 #include "tests/test_suites/CMemoryToken_test_suite.hpp"
 #include "tests/support/test_context.hpp"
+#include "tests/support/test_allocator.hpp"
 
 namespace
 {
@@ -40,23 +41,6 @@ constexpr std::size_t k_buffer_capacity_hint = 3u;
 constexpr std::size_t k_buffer_capacity = 4u;
 
 using TTestContext = tests::TTestContext;
-
-void* MV_STD_ABI_CALL test_allocate(
-    void*,
-    const std::size_t alignment,
-    const std::size_t bytes) noexcept
-{
-    return ::operator new(bytes, std::align_val_t{ alignment }, std::nothrow);
-}
-
-bool MV_STD_ABI_CALL test_deallocate(
-    void*,
-    const std::size_t alignment,
-    void* const ptr) noexcept
-{
-    ::operator delete(ptr, std::align_val_t{ alignment });
-    return true;
-}
 
 std::size_t round_up_to_pow2(std::size_t value) noexcept
 {
@@ -864,7 +848,7 @@ void test_real_operations(TTestContext& ctx, memory::CMemoryContext& context, SA
 void test_transfer(TTestContext& ctx, memory::CMemoryContext& source, memory::CMemoryAllocator& allocator)
 {
     memory::CMemoryContext target{allocator, system_ids::host};
-    memory::CMemoryAllocator other_allocator{nullptr, &test_allocate, &test_deallocate};
+    memory::CMemoryAllocator other_allocator{nullptr, &tests::allocate_scalar_test_memory, &tests::deallocate_scalar_test_memory};
     memory::CMemoryContext other{other_allocator};
     memory::CMemoryToken token{1u, 16u, &source};
     TEST_EXPECT(ctx, token.allocate(16u));
@@ -1055,8 +1039,8 @@ void run(TTestContext& ctx)
 int run_memory_token_tests()
 {
     TTestContext ctx;
-    memory::CMemoryAllocator allocator{ nullptr, &test_allocate, &test_deallocate };
-    memory::CMemoryAllocator incompatible_allocator{ nullptr, &test_allocate, &test_deallocate };
+    memory::CMemoryAllocator allocator{ nullptr, &tests::allocate_scalar_test_memory, &tests::deallocate_scalar_test_memory };
+    memory::CMemoryAllocator incompatible_allocator{ nullptr, &tests::allocate_scalar_test_memory, &tests::deallocate_scalar_test_memory };
     memory::CMemoryContext context{ allocator };
     memory::CMemoryContext alternate_context{ allocator };
     memory::CMemoryContext incompatible_context{ incompatible_allocator };

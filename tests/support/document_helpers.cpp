@@ -13,6 +13,7 @@
 
 #include "data_model/document_parser.hpp"
 #include "data_model/live_document.hpp"
+#include "tests/support/byte_helpers.hpp"
 #include "tests/support/test_context.hpp"
 
 namespace tests
@@ -54,8 +55,7 @@ bool parse_document(const char* const text, CLiveDocument& document)
 bool same_baked_document(const CLiveDocument& document, const CBakedDocumentBlock& expected)
 {
     CBakedDocumentBlock actual;
-    return document_translation::bake(document, actual) && (actual.bytes().size() == expected.bytes().size()) &&
-        (std::memcmp(actual.bytes().data(), expected.bytes().data(), actual.bytes().size()) == 0);
+    return document_translation::bake(document, actual) && same_bytes(actual.bytes(), expected.bytes());
 }
 
 bool equal_document_values(const CDocumentRead& a, const SOccurrence left, const CDocumentRead& b, const SOccurrence right)

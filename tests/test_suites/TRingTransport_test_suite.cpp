@@ -72,8 +72,8 @@ void test_ring_uninitialised_state(TTestContext& ctx)
     TEST_EXPECT_EQ(ctx, ring.readable_count(), 0u);
     TEST_EXPECT_EQ(ctx, ring.writable_count(), 0u);
 
-    TEST_EXPECT_TRUE(ctx, ring.post(nullptr, 0u) == false); // not ready
-    TEST_EXPECT_TRUE(ctx, ring.read(nullptr, 0u) == false); // not ready
+    TEST_EXPECT_FALSE(ctx, ring.post(nullptr, 0u)); // not ready
+    TEST_EXPECT_FALSE(ctx, ring.read(nullptr, 0u)); // not ready
 }
 
 void test_ring_memory_context_configuration(TTestContext& ctx)

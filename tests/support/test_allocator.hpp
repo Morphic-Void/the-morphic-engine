@@ -54,6 +54,13 @@ struct TAllocationAllowanceFixture
 [[nodiscard]] bool MV_STD_ABI_CALL deallocate_test_memory(
     void* state, std::size_t alignment, void* pointer) noexcept;
 
+//  Scalar aligned allocation, with no fixture state or alignment adjustment.
+//  Deallocation succeeds for null pointers as well as allocated storage.
+[[nodiscard]] void* MV_STD_ABI_CALL allocate_scalar_test_memory(
+    void* state, std::size_t alignment, std::size_t bytes) noexcept;
+[[nodiscard]] bool MV_STD_ABI_CALL deallocate_scalar_test_memory(
+    void* state, std::size_t alignment, void* pointer) noexcept;
+
 }   //  namespace tests
 
 #endif  //  MORPHIC_TEST_ALLOCATOR_HPP_INCLUDED

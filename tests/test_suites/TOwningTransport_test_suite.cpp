@@ -10,7 +10,6 @@
 //  Standalone test suite for threading::transports::TOwning<T>.
 
 #include <cstdint>
-#include <new>
 #include <string>
 #include <utility>
 #include <vector>
@@ -18,6 +17,7 @@
 #include "threading/transports/TOwningTransport.hpp"
 #include "tests/test_suites/TOwningTransport_test_suite.hpp"
 #include "tests/support/test_context.hpp"
+#include "tests/support/test_allocator.hpp"
 #include "tests/support/test_scopes.hpp"
 #include "memory/memory_context.hpp"
 #include "debug/macros.hpp"
@@ -114,17 +114,6 @@ std::uint32_t TTrackedValue::s_move_constructed = 0u;
 std::uint32_t TTrackedValue::s_move_assigned = 0u;
 std::uint32_t TTrackedValue::s_live_count = 0u;
 
-static void* MV_STD_ABI_CALL allocate_test_memory(void*, const std::size_t alignment, const std::size_t bytes) noexcept
-{
-    return ::operator new(bytes, std::align_val_t{ alignment }, std::nothrow);
-}
-
-static bool MV_STD_ABI_CALL deallocate_test_memory(void*, const std::size_t alignment, void* const ptr) noexcept
-{
-    ::operator delete(ptr, std::align_val_t{ alignment });
-    return true;
-}
-
 static void* MV_STD_ABI_CALL reject_allocation(void*, const std::size_t, const std::size_t) noexcept
 {
     return nullptr;
@@ -217,8 +206,8 @@ void test_owning_uninitialised_state(TTestContext& ctx)
 
 void test_owning_memory_context_configuration(TTestContext& ctx)
 {
-    memory::CMemoryAllocator allocator_a(nullptr, allocate_test_memory, deallocate_test_memory, system_ids::host);
-    memory::CMemoryAllocator allocator_b(nullptr, allocate_test_memory, deallocate_test_memory, system_ids::host);
+    memory::CMemoryAllocator allocator_a(nullptr, tests::allocate_scalar_test_memory, tests::deallocate_scalar_test_memory, system_ids::host);
+    memory::CMemoryAllocator allocator_b(nullptr, tests::allocate_scalar_test_memory, tests::deallocate_scalar_test_memory, system_ids::host);
     memory::CMemoryContext context_a(allocator_a, system_ids::host);
     memory::CMemoryContext context_b(allocator_b, system_ids::host);
     const tests::TMemoryContextScope thread_context_scope{ &context_a };
@@ -295,8 +284,8 @@ void test_owning_initial_allocation_failure(TTestContext& ctx)
 {
     TTrackedValue::reset_counters();
 
-    memory::CMemoryAllocator allocator(nullptr, allocate_test_memory, deallocate_test_memory, system_ids::host);
-    memory::CMemoryAllocator rejecting_allocator(nullptr, reject_allocation, deallocate_test_memory, system_ids::host);
+    memory::CMemoryAllocator allocator(nullptr, tests::allocate_scalar_test_memory, tests::deallocate_scalar_test_memory, system_ids::host);
+    memory::CMemoryAllocator rejecting_allocator(nullptr, reject_allocation, tests::deallocate_scalar_test_memory, system_ids::host);
     memory::CMemoryContext usable_context(allocator, system_ids::host);
     memory::CMemoryContext rejecting_context(rejecting_allocator, system_ids::host);
     memory::CMemoryContext* const previous_thread_context = memory::set_thread_memory_context(&usable_context);

@@ -12,11 +12,22 @@
 #include <cstdio>
 #include <cstring>
 
+#include "platform/filesystem/file.hpp"
 #include "platform/filesystem/internal/file_utils.hpp"
 #include "platform/path/native_path.hpp"
 
 namespace tests
 {
+
+bool write_test_file(const std::string& path, const void* const bytes, const std::size_t size)
+{
+    return platform::filesystem::saveFile(path.c_str(), CByteConstView{ static_cast<const std::uint8_t*>(bytes), size });
+}
+
+bool write_test_file(const std::string& path, const char* const text)
+{
+    return write_test_file(path, text, std::strlen(text));
+}
 
 bool file_contains(
     const char* const path, const char* const expected) noexcept

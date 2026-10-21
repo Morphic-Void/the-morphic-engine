@@ -10,32 +10,19 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
-#include <new>
 #include <type_traits>
 #include <utility>
 
 #include "containers/StringBuffers.hpp"
 #include "tests/test_suites/StringBuffers_test_suite.hpp"
 #include "tests/support/test_context.hpp"
+#include "tests/support/test_allocator.hpp"
 #include "tests/support/test_scopes.hpp"
 
 namespace
 {
 
 using TTestContext = tests::TTestContext;
-
-void* MV_STD_ABI_CALL attribution_test_allocate(
-    void*, const std::size_t alignment, const std::size_t bytes) noexcept
-{
-    return ::operator new(bytes, std::align_val_t{ alignment }, std::nothrow);
-}
-
-bool MV_STD_ABI_CALL attribution_test_deallocate(
-    void*, const std::size_t alignment, void* const ptr) noexcept
-{
-    ::operator delete(ptr, std::align_val_t{ alignment });
-    return true;
-}
 
 void test_string_view_null_empty_and_terminators(TTestContext& ctx)
 {
@@ -258,8 +245,8 @@ void test_stable_strings_reserve_shrink_and_invariants(TTestContext& ctx)
 
 void test_stable_strings_direct_storage_reattribution(TTestContext& ctx)
 {
-    memory::CMemoryAllocator allocator{ nullptr, &attribution_test_allocate, &attribution_test_deallocate };
-    memory::CMemoryAllocator incompatible_allocator{ nullptr, &attribution_test_allocate, &attribution_test_deallocate };
+    memory::CMemoryAllocator allocator{ nullptr, &tests::allocate_scalar_test_memory, &tests::deallocate_scalar_test_memory };
+    memory::CMemoryAllocator incompatible_allocator{ nullptr, &tests::allocate_scalar_test_memory, &tests::deallocate_scalar_test_memory };
     memory::CMemoryContext source_context{ allocator };
     memory::CMemoryContext target_context{ allocator };
     memory::CMemoryContext incompatible_context{ incompatible_allocator };
@@ -315,7 +302,7 @@ void test_stable_strings_direct_storage_reattribution(TTestContext& ctx)
 
 void test_stable_strings_mixed_sources(TTestContext& ctx)
 {
-    memory::CMemoryAllocator allocator{nullptr, &attribution_test_allocate, &attribution_test_deallocate};
+    memory::CMemoryAllocator allocator{nullptr, &tests::allocate_scalar_test_memory, &tests::deallocate_scalar_test_memory};
     memory::CMemoryContext source{allocator};
     memory::CMemoryContext target{allocator};
     const tests::TMemoryContextScope source_scope{ &source };

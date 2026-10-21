@@ -9,7 +9,6 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <new>
 #include <type_traits>
 #include <utility>
 
@@ -17,6 +16,7 @@
 #include "memory/memory_view.hpp"
 #include "tests/test_suites/CMemoryView_test_suite.hpp"
 #include "tests/support/test_context.hpp"
+#include "tests/support/test_allocator.hpp"
 
 namespace
 {
@@ -26,23 +26,6 @@ using memory::CMemoryToken;
 using memory::CMemoryView;
 
 using TTestContext = tests::TTestContext;
-
-void* MV_STD_ABI_CALL test_allocate(
-    void*,
-    const std::size_t alignment,
-    const std::size_t bytes) noexcept
-{
-    return ::operator new(bytes, std::align_val_t{ alignment }, std::nothrow);
-}
-
-bool MV_STD_ABI_CALL test_deallocate(
-    void*,
-    const std::size_t alignment,
-    void* const ptr) noexcept
-{
-    ::operator delete(ptr, std::align_val_t{ alignment });
-    return true;
-}
 
 void test_empty_and_invalid_shapes(TTestContext& ctx)
 {
@@ -147,7 +130,7 @@ void test_intent_alignment_is_conservative(TTestContext& ctx)
 
 void test_token_views(TTestContext& ctx)
 {
-    memory::CMemoryAllocator allocator{ nullptr, &test_allocate, &test_deallocate };
+    memory::CMemoryAllocator allocator{ nullptr, &tests::allocate_scalar_test_memory, &tests::deallocate_scalar_test_memory };
     memory::CMemoryContext context{ allocator };
 
     {

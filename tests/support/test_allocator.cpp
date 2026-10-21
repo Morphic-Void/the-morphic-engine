@@ -62,4 +62,17 @@ bool MV_STD_ABI_CALL deallocate_test_memory(
     return true;
 }
 
+void* MV_STD_ABI_CALL allocate_scalar_test_memory(
+    void*, const std::size_t alignment, const std::size_t bytes) noexcept
+{
+    return ::operator new(bytes, std::align_val_t{ alignment }, std::nothrow);
+}
+
+bool MV_STD_ABI_CALL deallocate_scalar_test_memory(
+    void*, const std::size_t alignment, void* const pointer) noexcept
+{
+    ::operator delete(pointer, std::align_val_t{ alignment });
+    return true;
+}
+
 }   //  namespace tests

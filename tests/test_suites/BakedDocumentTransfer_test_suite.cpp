@@ -26,6 +26,7 @@
 #include "tests/environment/test_paths.hpp"
 #include "threading/messages/CErasedMessageTransports.hpp"
 #include "tests/support/test_allocator.hpp"
+#include "tests/support/byte_helpers.hpp"
 #include "tests/support/test_context.hpp"
 #include "tests/support/test_scopes.hpp"
 
@@ -481,8 +482,7 @@ static void test_complete_buffer_request(TTestContext& ctx)
     auto* transferred = received.owner().payload<BakedAssetTransfer>();
     TEST_EXPECT(ctx, transferred == request && received.owner().memory_context() == &contexts.host);
     const auto complete = static_cast<const CBakedDocumentBlock&>(transferred->storage.value).buffer_bytes();
-    TEST_EXPECT(ctx, complete.data() == bytes.data() && complete.size() == snapshot.size() &&
-        std::memcmp(complete.data(), snapshot.data(), snapshot.size()) == 0);
+    TEST_EXPECT(ctx, complete.data() == bytes.data() && tests::same_bytes(complete, snapshot));
     AssetResult result;
     result.set_baked_view({ memory::CMemoryConstView{ complete.data(), complete.size(), 1u, complete.align() }, transferred->storage.value.document() });
     TEST_EXPECT(ctx, result.byte_view().data() == complete.data() && result.byte_view().size() == complete.size() &&
