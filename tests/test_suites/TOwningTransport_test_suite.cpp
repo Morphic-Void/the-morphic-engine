@@ -114,11 +114,6 @@ std::uint32_t TTrackedValue::s_move_constructed = 0u;
 std::uint32_t TTrackedValue::s_move_assigned = 0u;
 std::uint32_t TTrackedValue::s_live_count = 0u;
 
-inline TTrackedValue make_value(const int value) noexcept
-{
-    return TTrackedValue(value);
-}
-
 static void* MV_STD_ABI_CALL allocate_test_memory(void*, const std::size_t alignment, const std::size_t bytes) noexcept
 {
     return ::operator new(bytes, std::align_val_t{ alignment }, std::nothrow);

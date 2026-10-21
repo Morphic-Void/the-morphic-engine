@@ -30,6 +30,7 @@
 #include "data_model/document_writer.hpp"
 #include "data_model/live_document.hpp"
 #include "tests/support/test_context.hpp"
+#include "tests/support/document_helpers.hpp"
 #include "tests/support/test_allocator.hpp"
 #include "tests/support/test_scopes.hpp"
 #include "tests/environment/test_paths.hpp"
@@ -2705,16 +2706,10 @@ static void test_live_resolution_move_failure_and_depth(TTestContext& ctx)
     }
 }
 
-static bool parse_live(const std::string& text, CLiveDocument& document)
-{
-    return document_parser::parse(
-        CByteConstView{ reinterpret_cast<const std::uint8_t*>(text.data()), text.size(), 1u }, document).accepted();
-}
-
 static void test_document_value_copy(TTestContext& ctx)
 {
     CLiveDocument source;
-    TEST_EXPECT(ctx, parse_live(R"({"source":{"number":0xffffffffffffffff,"negative":-9223372036854775808,
+    TEST_EXPECT(ctx, tests::parse_document(R"({"source":{"number":0xffffffffffffffff,"negative":-9223372036854775808,
         "text":"line\nnext","array":[null,true,1.5,{"inside":"text"}]}})", source));
     const CNodeKey original = source.object_child(source.root(), CStringView{ "source" });
     const CNodeKey text = source.object_child(original, CStringView{ "text" });
@@ -2929,7 +2924,7 @@ static void test_schema_integer_output(TTestContext& ctx)
             "Mask64":{"storage":"i64","members":[{"bit":{"type":"u8","mask":9223372036854775808}}]}
         }},"instances":{},"data":{}})";
     CLiveDocument original;
-    TEST_EXPECT(ctx, parse_live(text, original));
+    TEST_EXPECT(ctx, tests::parse_document(text, original));
     const std::string original_text = notation_text(ctx, original);
     CBakedDocumentBlock source_block;
     TEST_EXPECT(ctx, document_translation::bake(original, source_block));
@@ -3048,7 +3043,7 @@ static void test_schema_integer_output(TTestContext& ctx)
     TEST_EXPECT(ctx, succeeded && (failures > 3u));
     CLiveDocument empty_definitions, empty_output;
     CResolvedSchema empty_schema;
-    TEST_EXPECT(ctx, parse_live(R"({"types":{}})", empty_definitions) && empty_schema.resolve(empty_definitions, error) &&
+    TEST_EXPECT(ctx, tests::parse_document(R"({"types":{}})", empty_definitions) && empty_schema.resolve(empty_definitions, error) &&
         empty_schema.prepare_output(empty_output, error) && empty_output.check_integrity());
 }
 
@@ -3173,7 +3168,7 @@ static void test_schema_wrapper_queries_and_transfer(TTestContext& ctx)
     CSchemaHandle retained_type;
     {
         CLiveDocument parsed;
-        TEST_EXPECT(ctx, parse_live(fixture, parsed));
+        TEST_EXPECT(ctx, tests::parse_document(fixture, parsed));
         CLiveSchema live;
         TEST_EXPECT(ctx, live.try_adopt(std::move(parsed)) && !parsed.is_ready());
         TEST_EXPECT(ctx, live.resolve(diagnostic));
@@ -3246,7 +3241,7 @@ static void test_schema_wrapper_editor(TTestContext& ctx)
 
     const std::string malformed = R"({"types":null,"instances":{"keep":1},"data":{"keep":2}})";
     CLiveDocument parsed;
-    TEST_EXPECT(ctx, parse_live(malformed, parsed));
+    TEST_EXPECT(ctx, tests::parse_document(malformed, parsed));
     CLiveSchema combined;
     TEST_EXPECT(ctx, combined.try_adopt(std::move(parsed)));
     CLiveSchema::CEditor combined_editor = combined.edit();
@@ -3352,7 +3347,7 @@ static void test_schema_wrapper_rejections(TTestContext& ctx)
 
     CLiveDocument parsed, candidate;
     const std::string input = one("\"u8\"", "1");
-    TEST_EXPECT(ctx, parse_live(input, parsed) && parse_live(input, candidate));
+    TEST_EXPECT(ctx, tests::parse_document(input, parsed) && tests::parse_document(input, candidate));
     CLiveSchema live, live_destination;
     TEST_EXPECT(ctx, live.try_adopt(std::move(parsed)) && live.resolve(diagnostic));
     CSchemaBinding live_client;
@@ -3367,7 +3362,7 @@ static void test_schema_wrapper_rejections(TTestContext& ctx)
     live_client.release();
     TEST_EXPECT(ctx, live_destination.try_adopt(std::move(candidate)) && !candidate.is_ready());
     CLiveDocument another;
-    TEST_EXPECT(ctx, parse_live(input, another));
+    TEST_EXPECT(ctx, tests::parse_document(input, another));
     TEST_EXPECT(ctx, !live_destination.try_adopt(std::move(another)) && another.is_ready() &&
         live_destination.document_ready());
     TEST_EXPECT(ctx, !live_destination.try_take_from(std::move(live)) && live.document_ready() &&
@@ -3389,7 +3384,7 @@ static void test_schema_wrapper_rejections(TTestContext& ctx)
     CSchemaBinding surviving_a, surviving_b;
     {
         CLiveDocument temporary_document;
-        TEST_EXPECT(ctx, parse_live(input, temporary_document));
+        TEST_EXPECT(ctx, tests::parse_document(input, temporary_document));
         CLiveSchema temporary;
         TEST_EXPECT(ctx, temporary.try_adopt(std::move(temporary_document)) && temporary.resolve(diagnostic));
         TEST_EXPECT(ctx, surviving_a.bind(temporary) && surviving_b.bind(temporary));
@@ -3413,7 +3408,7 @@ static void test_schema_wrapper_edit_allocations(TTestContext& ctx)
         {
             tests::TMemoryContextScope scope{ &context };
             CLiveDocument parsed;
-            TEST_EXPECT(ctx, parse_live(document, parsed));
+            TEST_EXPECT(ctx, tests::parse_document(document, parsed));
             CLiveSchema live;
             TEST_EXPECT(ctx, live.try_adopt(std::move(parsed)));
             const CSchemaDocumentQuery query = live.document_query();
@@ -3499,7 +3494,7 @@ static void test_schema_root_member_translation(TTestContext& ctx)
     for (const std::string& input : { middle, last })
     {
         CLiveDocument live;
-        TEST_EXPECT(ctx, parse_live(input, live));
+        TEST_EXPECT(ctx, tests::parse_document(input, live));
         const CNodeKey source_types = live.object_child(live.root(), CStringView{ "types" });
         const CNodeKey source_number = live.object_child(source_types, CStringView{ "number" });
         const CNodeKey source_text = live.object_child(source_types, CStringView{ "text" });
@@ -3543,7 +3538,7 @@ static void test_schema_root_member_translation(TTestContext& ctx)
     }
 
     CLiveDocument missing;
-    TEST_EXPECT(ctx, parse_live(R"({"instances":{"value":null}})", missing));
+    TEST_EXPECT(ctx, tests::parse_document(R"({"instances":{"value":null}})", missing));
     const CNodeKey unrelated = missing.create_empty(CStringView{ "unfinished" });
     TEST_EXPECT(ctx, missing.append_child(missing.root(), unrelated).succeeded());
     CBakedDocumentBlock root_only;
@@ -3595,7 +3590,7 @@ static void test_schema_conversion(TTestContext& ctx)
     CBakedSchema combined_baked_output;
     {
         CLiveDocument parsed;
-        TEST_EXPECT(ctx, parse_live(combined, parsed));
+        TEST_EXPECT(ctx, tests::parse_document(combined, parsed));
         CLiveSchema combined_live;
         TEST_EXPECT(ctx, combined_live.try_adopt(std::move(parsed)));
         TEST_EXPECT(ctx, combined_live.bake(combined_baked_output_block, combined_baked_output));
@@ -3692,7 +3687,7 @@ static void test_schema_conversion_allocations(TTestContext& ctx)
         {
             tests::TMemoryContextScope scope{ &context };
             CLiveDocument parsed;
-            TEST_EXPECT(ctx, parse_live(input, parsed));
+            TEST_EXPECT(ctx, tests::parse_document(input, parsed));
             CLiveSchema source;
             TEST_EXPECT(ctx, source.try_adopt(std::move(parsed)));
             CBakedDocumentBlock destination_block;
@@ -3750,7 +3745,7 @@ static void test_value_codec(TTestContext& ctx)
         "namedBits":[{"visible":false}],"namedExcess":[{"visible":false},0,0,0,0]})";
     CBakedDocumentBlock data_block;
     CLiveDocument live;
-    TEST_EXPECT(ctx, bake(values, data_block) && parse_live(values, live));
+    TEST_EXPECT(ctx, bake(values, data_block) && tests::parse_document(values, live));
     if (!data_block.is_ready() || !live.is_ready())
     {
         return;
@@ -4209,7 +4204,7 @@ static void test_baked_bulk_data(TTestContext& ctx)
     invalidated.clear();
 
     CLiveDocument parsed_schema;
-    TEST_EXPECT(ctx, parse_live(supplied_text, parsed_schema));
+    TEST_EXPECT(ctx, tests::parse_document(supplied_text, parsed_schema));
     CLiveSchema live_schema;
     TEST_EXPECT(ctx, live_schema.try_adopt(std::move(parsed_schema)) && live_schema.resolve(schema_error));
     CBakedBulkData live_bound;
@@ -4253,7 +4248,7 @@ static void test_singular_values(TTestContext& ctx)
         const std::string text = std::string{ "{\"short\":" } + item.short_value + ",\"named\":" + item.named_value + "}";
         CLiveDocument live;
         CBakedDocumentBlock block;
-        TEST_EXPECT(ctx, parse_live(text, live) && bake(text, block));
+        TEST_EXPECT(ctx, tests::parse_document(text, live) && bake(text, block));
         const detail::CDocumentRead documents[] = { detail::CDocumentRead{ live }, detail::CDocumentRead{ block.document() } };
         for (const detail::CDocumentRead& document : documents)
         {
@@ -4287,7 +4282,7 @@ static void test_singular_values(TTestContext& ctx)
     for (const SCase& item : rejected)
     {
         CLiveDocument document;
-        TEST_EXPECT(ctx, parse_live((std::string{ "{\"value\":" } + item.short_value + "}"), document));
+        TEST_EXPECT(ctx, tests::parse_document((std::string{ "{\"value\":" } + item.short_value + "}"), document));
         const detail::CDocumentRead read{ document };
         alignas(128) std::uint8_t bytes[128]{};
         detail::SValueDiagnostic error;
@@ -4303,7 +4298,7 @@ static void test_singular_values(TTestContext& ctx)
         for (const char* const form : forms)
         {
             CLiveDocument records;
-            TEST_EXPECT(ctx, parse_live(form, records));
+            TEST_EXPECT(ctx, tests::parse_document(form, records));
             const CBulkDataDocumentQuery query{ records };
             CLiveBulkData live;
             SBulkDataDiagnostic error;
@@ -4348,7 +4343,7 @@ static void test_singular_values(TTestContext& ctx)
         CLiveDocument records;
         CLiveBulkData live;
         SBulkDataDiagnostic error;
-        TEST_EXPECT(ctx, parse_live(item.short_value, records) && live.initialise(schema));
+        TEST_EXPECT(ctx, tests::parse_document(item.short_value, records) && live.initialise(schema));
         const CBulkDataDocumentQuery query{ records };
         TEST_EXPECT(ctx, !live.create_records(CStringView{ item.type }, CStringView{ "bad" }, query, query.root(), error) &&
             !live.find_entry(CStringView{ item.type }, CStringView{ "bad" }));
@@ -4357,7 +4352,7 @@ static void test_singular_values(TTestContext& ctx)
     //  A scalar declaration selects the sole member, including through nested
     //  members/arrays. Parent edits, capture and selection removal preserve this.
     CLiveDocument declarations;
-    TEST_EXPECT(ctx, parse_live(R"({"base":{"value":1,"rows":[2,3]},"child":{"value":4,"rows":[5]},"replacement":9})", declarations));
+    TEST_EXPECT(ctx, tests::parse_document(R"({"base":{"value":1,"rows":[2,3]},"child":{"value":4,"rows":[5]},"replacement":9})", declarations));
     const CInstanceDocumentQuery query{ declarations };
     CLiveInstances instances;
     SInstanceDiagnostic error;
@@ -4481,7 +4476,7 @@ static void test_instance_promotion_groups(TTestContext& ctx)
     CLiveDocument destination_document;
     CLiveSchema destination;
     CLiveInstances live_bound;
-    TEST_EXPECT(ctx, parse_live(R"({"types":{"structures":{"Item":{"members":[{"value":{"type":"u8"}}]}}}})", destination_document) &&
+    TEST_EXPECT(ctx, tests::parse_document(R"({"types":{"structures":{"Item":{"members":[{"value":{"type":"u8"}}]}}}})", destination_document) &&
         destination.try_adopt(std::move(destination_document)) && destination.resolve(schema_error) &&
         source.promote(live_bound, destination, error));
     TEST_EXPECT(ctx, live_bound.entry(live_bound.find_base(CStringView{ "u8" }, CStringView{ "base" }), view) && view.bytes[0] == 4u);
@@ -4534,7 +4529,7 @@ static void test_instance_default_preservation(TTestContext& ctx)
         TEST_EXPECT(ctx, bake(item.definitions, original_block) && original.set_document(original_block.document()) &&
             original.resolve(schema_error) && bake(changed_text, changed_block) &&
             changed.set_document(changed_block.document()) && changed.resolve(schema_error) &&
-            parse_live(changed_text, live_definitions) && live_changed.try_adopt(std::move(live_definitions)) &&
+            tests::parse_document(changed_text, live_definitions) && live_changed.try_adopt(std::move(live_definitions)) &&
             live_changed.resolve(schema_error));
         SType layout;
         TEST_EXPECT(ctx, original.resolved()->type(original.resolved()->find_type(CStringView{ "Item" }), layout));
@@ -5028,7 +5023,7 @@ static void test_instance_selection_repair(TTestContext& ctx)
     for (const SCase& item : cases)
     {
         CLiveDocument values;
-        TEST_EXPECT(ctx, parse_live((std::string{ "{\"replacement\":\"first\",\"declaration\":" } + item.declaration + "}"), values));
+        TEST_EXPECT(ctx, tests::parse_document((std::string{ "{\"replacement\":\"first\",\"declaration\":" } + item.declaration + "}"), values));
         const CInstanceDocumentQuery query{ values };
         const CInstanceHandle declaration = query.object_child(query.root(), CStringView{ "declaration" });
         const CInstanceHandle replacement = query.object_child(query.root(), CStringView{ "replacement" });
@@ -5149,7 +5144,7 @@ static void test_live_instances(TTestContext& ctx)
         live_query.object_child(child_declaration, CStringView{ "a" }), canonical_a) && canonical_a == 9u);
 
     CLiveDocument values;
-    TEST_EXPECT(ctx, parse_live(R"({"seven":7,"six":6,"just_b":{"b":4},"none":{},
+    TEST_EXPECT(ctx, tests::parse_document(R"({"seven":7,"six":6,"just_b":{"b":4},"none":{},
         "low":{"lo":3},"base":{"rows":[[1,2],[3,4]]},
         "override":{"rows":[[5,6],[7,8]]},"empty_rows":{"rows":[]}})", values));
     const CInstanceDocumentQuery values_query{ values };
@@ -5271,7 +5266,7 @@ static void test_live_instances(TTestContext& ctx)
     TEST_EXPECT(ctx, live.entry(bits_child, bits_view) && bits_view.bytes[0] == 0xb5u);
 
     CLiveDocument float_values;
-    TEST_EXPECT(ctx, parse_live(R"({"selected":{"f":"nan","flag":true}})", float_values));
+    TEST_EXPECT(ctx, tests::parse_document(R"({"selected":{"f":"nan","flag":true}})", float_values));
     const CInstanceDocumentQuery float_query{ float_values };
     alignas(128) std::uint8_t float_base[128] = { 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u };
     const CInstanceHandle fbase = live.capture_base(CStringView{ "FloatPair" }, CStringView{ "base" },
@@ -5333,7 +5328,7 @@ static void test_live_instance_output(TTestContext& ctx)
     TEST_EXPECT(ctx, bake(definitions, schema_block) && schema.set_document(schema_block.document()) &&
         schema.resolve(schema_error));
     CLiveDocument values;
-    TEST_EXPECT(ctx, parse_live(R"({"base":{"rows":[{"a":1,"b":2}]},
+    TEST_EXPECT(ctx, tests::parse_document(R"({"base":{"rows":[{"a":1,"b":2}]},
         "selection":{"rows":[{"b":9}]},"first":{"rows":[{"a":6}]},
         "equal":{"rows":[{"b":2}]},"empty":{"rows":[]},
         "other":{"a":4,"b":5}})", values));
@@ -5424,7 +5419,7 @@ static void test_live_instance_output(TTestContext& ctx)
     exercise(EDataOutputForm::external);
 
     CLiveDocument compound_values;
-    TEST_EXPECT(ctx, parse_live(R"({"base":{"rows":[{"a":1,"b":{"b":2,"c":3}}]},
+    TEST_EXPECT(ctx, tests::parse_document(R"({"base":{"rows":[{"a":1,"b":{"b":2,"c":3}}]},
         "nested":{"rows":[{"b":{"c":9}}]},"positional":{"rows":[{"b":[7]}]},
         "bits":{"rows":[{"lo":1,"hi":2}]},"bit_child":{"rows":[{"hi":3}]},
         "invalid":{"rows":[{"x":9}]},"unknown":{"rows":[{"q":9}]},
@@ -5444,7 +5439,7 @@ static void test_live_instance_output(TTestContext& ctx)
         live.entry(nested_child, view) && view.bytes[0] == 1u && view.bytes[1] == 2u && view.bytes[2] == 9u &&
         live.entry(positional_child, view) && view.bytes[0] == 1u && view.bytes[1] == 7u && view.bytes[2] == 3u);
     CLiveDocument scalar_value;
-    TEST_EXPECT(ctx, parse_live(R"({"value":11})", scalar_value));
+    TEST_EXPECT(ctx, tests::parse_document(R"({"value":11})", scalar_value));
     const CInstanceDocumentQuery scalar_query{ scalar_value };
     const SInstanceSelectionStep nested_path[] = {
         { EInstanceSelectionStepKind::member, CStringView{ "rows" }, 0u },
@@ -5508,7 +5503,7 @@ static void test_live_instance_output_boundaries(TTestContext& ctx)
     const CInstanceHandle second = order.capture_base(CStringView{ "Pair" }, CStringView{ "second" },
         CByteConstView{ second_bytes, 2u, 128u }, error);
     CLiveDocument values;
-    TEST_EXPECT(ctx, parse_live(R"({"selection":{"b":9}})", values));
+    TEST_EXPECT(ctx, tests::parse_document(R"({"selection":{"b":9}})", values));
     const CInstanceDocumentQuery query{ values };
     const CInstanceHandle child = order.create_specialisation(first, CStringView{ "same" }, query,
         query.object_child(query.root(), CStringView{ "selection" }), error);
@@ -5721,7 +5716,7 @@ static void test_live_instance_output_boundaries(TTestContext& ctx)
 
     CLiveDocument live_schema_document;
     CLiveSchema live_schema;
-    TEST_EXPECT(ctx, parse_live(definitions, live_schema_document) &&
+    TEST_EXPECT(ctx, tests::parse_document(definitions, live_schema_document) &&
         live_schema.try_adopt(std::move(live_schema_document)) && live_schema.resolve(schema_error));
     CLiveDocument live_schema_output;
     CByteBuffer live_schema_payload;
@@ -6232,7 +6227,7 @@ static void test_live_instance_boundaries(TTestContext& ctx)
     TEST_EXPECT(ctx, payload_grew && growing.entry(large_first, retained_large) && retained_large.bytes[0] == 17u);
 
     CLiveDocument values;
-    TEST_EXPECT(ctx, parse_live(R"({"selected":{"a":9}})", values));
+    TEST_EXPECT(ctx, tests::parse_document(R"({"selected":{"a":9}})", values));
     const CInstanceDocumentQuery query{ values };
     std::size_t edit_failures{}, edit_successes{};
     for (std::size_t failure_offset = 0u; failure_offset < 32u; ++failure_offset)
@@ -6318,7 +6313,7 @@ static void test_live_instance_boundaries(TTestContext& ctx)
     CLiveInstances detached;
     {
         CLiveDocument parsed;
-        TEST_EXPECT(ctx, parse_live(definitions, parsed));
+        TEST_EXPECT(ctx, tests::parse_document(definitions, parsed));
         CLiveSchema temporary;
         TEST_EXPECT(ctx, temporary.try_adopt(std::move(parsed)) && temporary.resolve(schema_error));
         TEST_EXPECT(ctx, detached.initialise(temporary));
@@ -6336,7 +6331,7 @@ static void test_live_instance_boundaries(TTestContext& ctx)
     {
         tests::TMemoryContextScope scope{ &retry_context };
         CLiveDocument parsed;
-        TEST_EXPECT(ctx, parse_live(definitions, parsed));
+        TEST_EXPECT(ctx, tests::parse_document(definitions, parsed));
         CLiveSchema live_schema;
         TEST_EXPECT(ctx, live_schema.try_adopt(std::move(parsed)) && live_schema.resolve(schema_error));
         CLiveInstances bound;
@@ -6453,7 +6448,7 @@ static void test_baked_instances(TTestContext& ctx)
     TEST_EXPECT(ctx, moved_owner.const_view().data() == owned_address);
 
     CLiveDocument parsed_schema;
-    TEST_EXPECT(ctx, parse_live(definitions, parsed_schema));
+    TEST_EXPECT(ctx, tests::parse_document(definitions, parsed_schema));
     CLiveSchema live_schema;
     TEST_EXPECT(ctx, live_schema.try_adopt(std::move(parsed_schema)) && live_schema.resolve(schema_error));
     CBakedInstances live_bound;
@@ -7046,7 +7041,7 @@ static void test_live_bulk_data(TTestContext& ctx)
         records, records.object_child(records.root(), CStringView{ "named" }), error) &&
         error.reason == EBulkDataLoadReason::invalid_input);
     CLiveDocument live_records;
-    TEST_EXPECT(ctx, parse_live(R"({"items":[[3,4]]})", live_records));
+    TEST_EXPECT(ctx, tests::parse_document(R"({"items":[[3,4]]})", live_records));
     const CBulkDataDocumentQuery live_record_query{ live_records };
     TEST_EXPECT(ctx, live.create_records(CStringView{ "Pair" }, CStringView{ "from_live" },
         live_record_query, live_record_query.object_child(live_record_query.root(), CStringView{ "items" }), error));
@@ -7087,7 +7082,7 @@ static void test_live_bulk_data(TTestContext& ctx)
     CLiveBulkData outliving;
     {
         CLiveDocument temporary_document;
-        TEST_EXPECT(ctx, parse_live(source_definitions, temporary_document));
+        TEST_EXPECT(ctx, tests::parse_document(source_definitions, temporary_document));
         CLiveSchema temporary;
         TEST_EXPECT(ctx, temporary.try_adopt(std::move(temporary_document)) && temporary.resolve(schema_error));
         CLiveBulkData promoted_to_live_schema;
@@ -7106,7 +7101,7 @@ static void test_live_bulk_data(TTestContext& ctx)
         {
             tests::TMemoryContextScope scope{ &context };
             CLiveDocument schema_document;
-            TEST_EXPECT(ctx, parse_live(source_definitions, schema_document));
+            TEST_EXPECT(ctx, tests::parse_document(source_definitions, schema_document));
             CLiveSchema live_schema;
             TEST_EXPECT(ctx, live_schema.try_adopt(std::move(schema_document)) && live_schema.resolve(schema_error));
             CLiveBulkData live_bound;
@@ -7224,7 +7219,7 @@ static void test_live_bulk_data_output(TTestContext& ctx)
             written.report.logical_text_byte_size };
         CLiveDocument reparsed;
         CBakedDocumentBlock reparsed_block;
-        TEST_EXPECT(ctx, parse_live(text, reparsed) && document_translation::bake(reparsed, reparsed_block));
+        TEST_EXPECT(ctx, tests::parse_document(text, reparsed) && document_translation::bake(reparsed, reparsed_block));
         CBakedBulkData reloaded;
         CByteBuffer materialised;
         TEST_EXPECT(ctx, reloaded.set_document(reparsed_block.document()) &&
@@ -7271,7 +7266,7 @@ static void test_live_bulk_data_output(TTestContext& ctx)
             written.report.logical_text_byte_size };
         CLiveDocument reparsed;
         CBakedDocumentBlock reparsed_block;
-        TEST_EXPECT(ctx, parse_live(text, reparsed) && document_translation::bake(reparsed, reparsed_block));
+        TEST_EXPECT(ctx, tests::parse_document(text, reparsed) && document_translation::bake(reparsed, reparsed_block));
         CBakedBulkData reloaded;
         TEST_EXPECT(ctx, reloaded.set_document(reparsed_block.document()) &&
             reloaded.attach_schema(destination_schema, baked_output_payload.const_view(), false, error));
@@ -7376,7 +7371,7 @@ static void test_live_bulk_data_output_boundaries(TTestContext& ctx)
             written.report.logical_text_byte_size };
         CLiveDocument reparsed;
         CBakedDocumentBlock reparsed_block;
-        TEST_EXPECT(ctx, parse_live(text, reparsed) && document_translation::bake(reparsed, reparsed_block));
+        TEST_EXPECT(ctx, tests::parse_document(text, reparsed) && document_translation::bake(reparsed, reparsed_block));
         CBakedBulkData reloaded;
         CByteBuffer materialised;
         TEST_EXPECT(ctx, reloaded.set_document(reparsed_block.document()) &&
@@ -7442,7 +7437,7 @@ static void test_live_bulk_data_output_boundaries(TTestContext& ctx)
     TEST_EXPECT(ctx, !rejected.is_ready() && !rejected_payload.is_ready());
 
     CLiveDocument occupied_document;
-    TEST_EXPECT(ctx, parse_live(R"({"sentinel":17})", occupied_document));
+    TEST_EXPECT(ctx, tests::parse_document(R"({"sentinel":17})", occupied_document));
     TEST_EXPECT(ctx, !source.prepare_output(occupied_document, rejected_payload, schema,
         EDataOutputForm::external, error) && (error.reason == EBulkDataLoadReason::invalid_input) &&
         occupied_document.object_child(occupied_document.root(), CStringView{ "sentinel" }));
@@ -7458,7 +7453,7 @@ static void test_live_bulk_data_output_boundaries(TTestContext& ctx)
 
     CLiveDocument live_schema_document;
     CLiveSchema live_schema;
-    TEST_EXPECT(ctx, parse_live(definitions, live_schema_document) && live_schema.try_adopt(std::move(live_schema_document)) &&
+    TEST_EXPECT(ctx, tests::parse_document(definitions, live_schema_document) && live_schema.try_adopt(std::move(live_schema_document)) &&
         live_schema.resolve(schema_error));
     TEST_EXPECT(ctx, source.prepare_output(rejected, rejected_payload, live_schema,
         EDataOutputForm::external, error));
@@ -8033,7 +8028,7 @@ static void test_unused_storage_documents(TTestContext& ctx)
             CByteConstView{ aligned, 16u, 128u }, instance_error) &&
         instances.capture_base(CStringView{ "Tiny" }, CStringView{ "marker" },
             CByteConstView{ tiny, 1u, 128u }, instance_error) &&
-        parse_live(R"({"selection":{"value":7}})", declarations);
+        tests::parse_document(R"({"selection":{"value":7}})", declarations);
     TEST_EXPECT(ctx, instances_ready);
     if (!instances_ready)
     {
@@ -8064,7 +8059,7 @@ static void test_unused_storage_documents(TTestContext& ctx)
         base_entry.bytes[0] == 0x61u && child_entry.bytes[4] == 7u);
 
     CLiveDocument overlapping;
-    TEST_EXPECT(ctx, parse_live(R"({"data":{"Padded":{
+    TEST_EXPECT(ctx, tests::parse_document(R"({"data":{"Padded":{
         "a":{"locator":{"offset":0,"valid":true,"count":1,"size":4}},
         "b":{"locator":{"offset":0,"valid":true,"count":1,"size":4}}}}})", overlapping));
     alignas(16) std::uint8_t untouched[4]{ 0x41u, 0x99u, 0x88u, 0x77u };
@@ -8073,12 +8068,12 @@ static void test_unused_storage_documents(TTestContext& ctx)
     TEST_EXPECT(ctx, !clear_unused_storage(*resolved, CBulkDataDocumentQuery{ overlapping },
         CByteView{ untouched, sizeof(untouched) }) && std::memcmp(saved, untouched, sizeof(saved)) == 0);
     CLiveDocument inconsistent;
-    TEST_EXPECT(ctx, parse_live(R"({"data":{"Padded":{"bad":{
+    TEST_EXPECT(ctx, tests::parse_document(R"({"data":{"Padded":{"bad":{
         "locator":{"offset":0,"valid":true,"count":2,"size":4}}}}})", inconsistent));
     TEST_EXPECT(ctx, !clear_unused_storage(*resolved, CBulkDataDocumentQuery{ inconsistent },
         CByteView{ untouched, sizeof(untouched) }) && std::memcmp(saved, untouched, sizeof(saved)) == 0);
     CLiveDocument late;
-    TEST_EXPECT(ctx, parse_live(R"({"data":{"Padded":{
+    TEST_EXPECT(ctx, tests::parse_document(R"({"data":{"Padded":{
         "early":{"locator":{"offset":0,"valid":true,"count":1,"size":4}},
         "late":{"locator":{"offset":4,"valid":true,"count":1,"size":4}}}}})", late));
     TEST_EXPECT(ctx, !clear_unused_storage(*resolved, CBulkDataDocumentQuery{ late },
@@ -8567,7 +8562,7 @@ static void test_data_remap_role_views(TTestContext& ctx)
         return;
     }
     CLiveDocument declarations;
-    TEST_EXPECT(ctx, parse_live(R"({"child":{"keep":9},"grand":{"keep":7}})", declarations));
+    TEST_EXPECT(ctx, tests::parse_document(R"({"child":{"keep":9},"grand":{"keep":7}})", declarations));
     const CInstanceDocumentQuery declaration_query{ declarations };
     const CInstanceHandle base = live_instances.find_base(CStringView{ "Destination" }, CStringView{ "base" });
     const CInstanceHandle child = live_instances.create_specialisation(base, CStringView{ "child" },
@@ -9058,7 +9053,7 @@ static void test_schema_switching(TTestContext& ctx)
     SDiagnostic error;
     TEST_EXPECT(ctx, bake(original_text, definitions) && original.set_document(definitions.document()) && original.resolve(error) &&
         bake(target_text, target_definitions) && target.set_document(target_definitions.document()) && target.resolve(error) &&
-        parse_live(target_text, live_definitions) && live_target.try_adopt(std::move(live_definitions)) && live_target.resolve(error) &&
+        tests::parse_document(target_text, live_definitions) && live_target.try_adopt(std::move(live_definitions)) && live_target.resolve(error) &&
         bake(R"({"types":{"structures":{"Item":{"members":[{"a":{"type":"u16"}},{"b":{"type":"u32"}}]}}}})", incompatible_definitions) &&
         incompatible.set_document(incompatible_definitions.document()) && incompatible.resolve(error));
     if (!original.resolved_ready() || !target.resolved_ready() || !live_target.resolved_ready() || !incompatible.resolved_ready())
@@ -9112,7 +9107,7 @@ static void test_schema_switching(TTestContext& ctx)
     TEST_EXPECT(ctx, bake(R"({"types":{"structures":{"Pair":{"members":[{"x":{"type":"u8","default":1}},
         {"y":{"type":"u8","default":2}}]},"Item":{"members":[{"rows":{"type":{"element":"Pair","count":2}}}]}}}})", array_definitions) &&
         array_schema.set_document(array_definitions.document()) && array_schema.resolve(error) &&
-        parse_live(R"({"rows":[{"x":9}]})", selection) && partial.initialise(array_schema));
+        tests::parse_document(R"({"rows":[{"x":9}]})", selection) && partial.initialise(array_schema));
     const CInstanceDocumentQuery selection_query{ selection };
     const auto base = partial.create_base(CStringView{ "Item" }, CStringView{ "base" }, {}, {}, instance_error);
     const auto child = partial.create_specialisation(base, CStringView{ "child" }, selection_query, selection_query.root(), instance_error);
@@ -9156,7 +9151,7 @@ static void test_schema_lookup_and_cursor_paths(TTestContext& ctx)
     //  scoped lookup must retain declaration order and use its own name table.
     CLiveDocument live;
     CBakedDocumentBlock block;
-    TEST_EXPECT(ctx, parse_live(fixture, live) && document_translation::bake(live, block));
+    TEST_EXPECT(ctx, tests::parse_document(fixture, live) && document_translation::bake(live, block));
     for (const auto query : { CSchemaDocumentQuery{ live }, CSchemaDocumentQuery{ block.document() } })
     {
         CResolvedSchema schema;
@@ -9249,7 +9244,7 @@ static void test_schema_lookup_and_cursor_paths(TTestContext& ctx)
         text += '}';
         CLiveDocument declaration;
         CBakedDocumentBlock declaration_block;
-        TEST_EXPECT(ctx, parse_live(text, declaration) && document_translation::bake(declaration, declaration_block));
+        TEST_EXPECT(ctx, tests::parse_document(text, declaration) && document_translation::bake(declaration, declaration_block));
         for (const auto read : { detail::CDocumentRead{ declaration }, detail::CDocumentRead{ declaration_block.document() } })
         {
             std::uint8_t bytes[count]{}, baseline[count], alternative[count];
@@ -9370,7 +9365,7 @@ static void test_schema_sorted_duplicate_diagnostics(TTestContext& ctx)
         text += "]}}}}";
         CLiveDocument live;
         CBakedDocumentBlock block;
-        TEST_EXPECT(ctx, parse_live(text, live) && document_translation::bake(live, block));
+        TEST_EXPECT(ctx, tests::parse_document(text, live) && document_translation::bake(live, block));
         for (const auto query : { CSchemaDocumentQuery{ live }, CSchemaDocumentQuery{ block.document() } })
         {
             const auto types = query.object_child(query.root(), CStringView{ "types" });

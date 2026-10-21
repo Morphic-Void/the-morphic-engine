@@ -13,13 +13,13 @@
 #include <limits>
 #include <new>
 #include <string>
-#include <string_view>
 #include <utility>
 #include <vector>
 
 #include "threading/transports/TRingTransport.hpp"
 #include "tests/test_suites/TRingTransport_test_suite.hpp"
 #include "tests/support/test_context.hpp"
+#include "tests/support/transport_helpers.hpp"
 #include "tests/support/test_scopes.hpp"
 #include "memory/memory_context.hpp"
 #include "debug/macros.hpp"
@@ -28,11 +28,6 @@ using threading::transports::TRing;
 
 namespace tests
 {
-
-inline std::string make_repeated_string(const char c, const std::uint32_t count)
-{
-    return std::string(static_cast<std::size_t>(count), c);
-}
 
 static void* MV_STD_ABI_CALL allocate_test_memory(void*, const std::size_t alignment, const std::size_t bytes) noexcept
 {
@@ -52,24 +47,6 @@ static void* MV_STD_ABI_CALL reject_allocation(void*, const std::size_t, const s
     return nullptr;
 }
 
-template<typename TTransport>
-bool post_string(TTransport& transport, const std::string_view text) noexcept
-{
-    return transport.post(text.data(), static_cast<std::uint32_t>(text.size()));
-}
-
-template<typename TTransport>
-bool read_exact_string(TTransport& transport, std::string& out, const std::uint32_t count)
-{
-    out.resize(static_cast<std::size_t>(count));
-    if (!transport.read(out.data(), count))
-    {
-        out.clear();
-        return false;
-    }
-    return true;
-}
-
 template<typename TRing>
 std::string drain_ring(TRing& ring)
 {
@@ -80,31 +57,6 @@ std::string drain_ring(TRing& ring)
     {
         return {};
     }
-    return result;
-}
-
-template<typename TQueue>
-std::string drain_queue(TQueue& queue)
-{
-    std::string result;
-
-    for (;;)
-    {
-        const std::uint32_t available = queue.refresh_readable_count();
-        if (available == 0u)
-        {
-            break;
-        }
-
-        const std::size_t old_size = result.size();
-        result.resize(old_size + static_cast<std::size_t>(available));
-
-        if (!queue.read(result.data() + old_size, available))
-        {
-            return {};
-        }
-    }
-
     return result;
 }
 

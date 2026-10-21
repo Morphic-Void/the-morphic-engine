@@ -13,9 +13,9 @@
 #include <type_traits>
 
 #include "host/runtime/asset_service.hpp"
-#include "platform/threading/processor_relax.hpp"
 #include "rendering/interface/texture_messages.hpp"
 #include "tests/support/test_context.hpp"
+#include "tests/support/thread_helpers.hpp"
 #include "tests/support/test_scopes.hpp"
 #include "tests/test_suites/TextureService_test_suite.hpp"
 #include "threading/messages/message_helpers.hpp"
@@ -25,30 +25,6 @@ namespace texture_service_tests
 
 //  Echo PODs so the test can inspect both dispatched work and client replies.
 //  The test supplies renderer results only after checking the pending state.
-static std::uint32_t MV_STD_ABI_CALL echo_messages(void* const data) noexcept
-{
-    auto& resources = *static_cast<threading::CThreadResources*>(data);
-    threading::CThreadContext context(resources);
-    context.startup();
-    context.mark_running();
-    while (!context.exit_requested())
-    {
-        const std::uint32_t epoch = resources.wait_predicate.get_word();
-        threading::CErasedPodMsg message;
-        while (context.read(message))
-        {
-            if (!context.post(message))
-            {
-                context.mark_failed(1u);
-                return 1u;
-            }
-        }
-        if (!context.exit_requested()) (void)context.wait_for_new_epoch(epoch);
-    }
-    context.mark_exited();
-    return 0u;
-}
-
 struct SFixture
 {
     platform::system::CPerfCountConversion conversion;
@@ -57,7 +33,7 @@ struct SFixture
 
     SFixture() noexcept : package{
         threading::ThreadConfig{ thread_ids::rendering, module_ids::executable,
-            platform::threading::EThreadPriority::Normal, (&echo_messages) }, conversion }
+            platform::threading::EThreadPriority::Normal, (&tests::echo_pod_messages) }, conversion }
     {
     }
 
@@ -88,19 +64,13 @@ struct SFixture
     template<typename T>
     bool receive(T& value, std::int32_t& slot) noexcept
     {
-        platform::system::CPerfCounter timer;
-        (void)timer.update();
-        while (timer.query_delta() < (conversion.query_ticks_per_second() * 5u))
+        threading::CErasedPodMsg message;
+        if (!tests::wait_until(conversion, [this, &message]() noexcept
         {
-            threading::CErasedPodMsg message;
-            if (package.read(message))
-            {
-                slot = message.query_async_slot();
-                return message.copy_payload_to(value);
-            }
-            platform::threading::processor_relax();
-        }
-        return false;
+            return package.read(message);
+        })) return false;
+        slot = message.query_async_slot();
+        return message.copy_payload_to(value);
     }
 
     template<typename T>

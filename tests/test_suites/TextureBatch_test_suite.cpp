@@ -25,6 +25,7 @@
 #include "tests/environment/test_environment.hpp"
 #include "tests/environment/test_paths.hpp"
 #include "tests/support/test_context.hpp"
+#include "tests/support/thread_helpers.hpp"
 #include "tests/test_suites/TextureBatch_test_suite.hpp"
 #include "threading/CThreadPackage.hpp"
 #include "types/fp16data_t.hpp"
@@ -36,19 +37,6 @@ static_assert(!std::is_copy_constructible_v<rendering::CTextureEncodeJob> &&
     !std::is_move_constructible_v<rendering::CTextureEncodeJob>);
 static_assert(!std::is_copy_constructible_v<rendering::CTextureDecodeJob> &&
     !std::is_move_constructible_v<rendering::CTextureDecodeJob>);
-
-template<typename TPredicate>
-static bool wait_until(const platform::system::CPerfCountConversion& conversion, TPredicate&& predicate) noexcept
-{
-    platform::system::CPerfCounter timer;
-    (void)timer.update();
-    while (timer.query_delta() < (conversion.query_ticks_per_second() * 5u))
-    {
-        if (predicate()) return true;
-        platform::threading::processor_relax();
-    }
-    return false;
-}
 
 struct SFixture
 {
@@ -128,7 +116,7 @@ struct SFixture
         {
             (void)complete(threading::EBatchCompletion::discarded_requester_exiting);
         }
-        (void)wait_until(conversion, [this]() noexcept
+        (void)tests::wait_until(conversion, [this]() noexcept
         {
             while (acquire()) (void)complete(threading::EBatchCompletion::discarded_requester_exiting);
             const threading::EThreadRunState state = package->query_state();
@@ -153,7 +141,7 @@ struct SFixture
         if (!posted) return {};
         if (queued)
         {
-            const bool acquired = wait_until(conversion, [this]() noexcept { return acquire(); });
+            const bool acquired = tests::wait_until(conversion, [this]() noexcept { return acquire(); });
             TEST_EXPECT(ctx, acquired);
             if (!acquired) return {};
             TEST_EXPECT(ctx, (held.memory_context == test_environment::rendering_memory_context()));
@@ -163,7 +151,7 @@ struct SFixture
             if (exit_before_completion)
             {
                 package->request_exit();
-                TEST_EXPECT(ctx, wait_until(conversion, [this]() noexcept
+                TEST_EXPECT(ctx, tests::wait_until(conversion, [this]() noexcept
                 {
                     return package->query_state() == threading::EThreadRunState::Exiting;
                 }));
@@ -180,7 +168,7 @@ struct SFixture
             TEST_EXPECT(ctx, complete(completion));
         }
         threading::CErasedOwnerMsg response;
-        const bool received = wait_until(conversion, [this, &response]() noexcept { return package->read(response); });
+        const bool received = tests::wait_until(conversion, [this, &response]() noexcept { return package->read(response); });
         TEST_EXPECT(ctx, received);
         if (!received) return {};
         TEST_EXPECT(ctx, (response.query_async_slot() == slot));
@@ -278,30 +266,6 @@ static void test_jobs(tests::TTestContext& ctx, SFixture& fixture)
 }
 
 //  A client echo keeps the real Host reply transport in the integration path.
-static std::uint32_t MV_STD_ABI_CALL echo_client(void* const data) noexcept
-{
-    auto& resources = *static_cast<threading::CThreadResources*>(data);
-    threading::CThreadContext context{ resources };
-    context.startup();
-    context.mark_running();
-    while (!context.exit_requested())
-    {
-        const std::uint32_t epoch = resources.wait_predicate.get_word();
-        threading::CErasedPodMsg message;
-        while (context.read(message))
-        {
-            if (!context.post(message))
-            {
-                context.mark_failed(1u);
-                return 1u;
-            }
-        }
-        if (!context.exit_requested()) (void)context.wait_for_new_epoch(epoch);
-    }
-    context.mark_exited();
-    return 0u;
-}
-
 struct SServiceFixture
 {
     SFixture& rendering;
@@ -321,7 +285,7 @@ struct SServiceFixture
         if (!rendering.start(true) || !service.initialise()) return false;
         service.set_rendering(rendering.package.operator->());
         const threading::ThreadConfig config{ thread_ids::executive, module_ids::executable,
-            platform::threading::EThreadPriority::Normal, (&echo_client) };
+            platform::threading::EThreadPriority::Normal, (&tests::echo_pod_messages) };
         return client.emplace(config, rendering.conversion) && client->startup();
     }
 
@@ -371,7 +335,7 @@ struct SServiceFixture
     bool receive(const std::int32_t expected_slot, AssetResult& result) noexcept
     {
         threading::CErasedPodMsg reply;
-        const bool received = wait_until(rendering.conversion, [this, &reply]() noexcept
+        const bool received = tests::wait_until(rendering.conversion, [this, &reply]() noexcept
         {
             threading::CErasedOwnerMsg completion;
             while (rendering.package->read(completion)) service.complete(completion, (*rendering.package));
@@ -425,7 +389,7 @@ struct SConcurrentJobs
     {
         for (SWorker& worker : workers)
         {
-            if (!wait_until(fixture.conversion, [this]() noexcept { return fixture.acquire(); })) return false;
+            if (!tests::wait_until(fixture.conversion, [this]() noexcept { return fixture.acquire(); })) return false;
             worker.work = fixture.held;
             fixture.held = {};
             worker.group = this;
@@ -441,7 +405,7 @@ struct SConcurrentJobs
                 thread_ids::batch_runner_00_index.raw_value() + index));
             if (!workers[index].thread.create((&run), (&workers[index]))) return false;
         }
-        return wait_until(fixture.conversion, [this, count]() noexcept
+        return tests::wait_until(fixture.conversion, [this, count]() noexcept
         {
             return entered.load(std::memory_order_acquire) == count;
         });
@@ -480,7 +444,7 @@ static void test_saturated_requests(tests::TTestContext& ctx, SFixture& fixture)
         threading::CErasedPodMsg message;
         message.set_async_slot(static_cast<std::int32_t>(1000u + index));
         message.assign_payload(TextureDecodeWork{ (&request), (&empty) });
-        const bool posted = wait_until(fixture.conversion, [&fixture, &message]() noexcept
+        const bool posted = tests::wait_until(fixture.conversion, [&fixture, &message]() noexcept
         {
             return fixture.package->post(message);
         });
@@ -489,7 +453,7 @@ static void test_saturated_requests(tests::TTestContext& ctx, SFixture& fixture)
     }
     //  The last request executes inline while the first 128 remain queued.
     threading::CErasedOwnerMsg response;
-    const bool received = wait_until(fixture.conversion, [&fixture, &response]() noexcept
+    const bool received = tests::wait_until(fixture.conversion, [&fixture, &response]() noexcept
     {
         return fixture.package->read(response);
     });
@@ -512,7 +476,7 @@ static void test_saturated_requests(tests::TTestContext& ctx, SFixture& fixture)
         if (!prepared) return;
         fixture.held.function(fixture.held.object);
         TEST_EXPECT(ctx, fixture.complete(threading::EBatchCompletion::executed));
-        const bool completed = wait_until(fixture.conversion, [&fixture, &response]() noexcept
+        const bool completed = tests::wait_until(fixture.conversion, [&fixture, &response]() noexcept
         {
             return fixture.package->read(response);
         });
@@ -590,7 +554,7 @@ static void test_multiple_requests(tests::TTestContext& ctx, SFixture& rendering
         fixture.service.request_disposal(AssetDisposeRequest{ sources[0].asset }, 204, (*fixture.client));
         fixture.service.complete_disposals();
         fixture.rendering.package->request_exit();
-        TEST_EXPECT(ctx, wait_until(fixture.rendering.conversion, [&fixture]() noexcept
+        TEST_EXPECT(ctx, tests::wait_until(fixture.rendering.conversion, [&fixture]() noexcept
         {
             return fixture.rendering.package->query_state() == threading::EThreadRunState::Exiting;
         }));
@@ -634,7 +598,7 @@ static void test_multiple_requests(tests::TTestContext& ctx, SFixture& rendering
             }
         }
         threading::CErasedPodMsg reply;
-        TEST_EXPECT(ctx, wait_until(fixture.rendering.conversion, [&fixture, &reply]() noexcept
+        TEST_EXPECT(ctx, tests::wait_until(fixture.rendering.conversion, [&fixture, &reply]() noexcept
         {
             return fixture.client->read(reply);
         }));
@@ -644,7 +608,7 @@ static void test_multiple_requests(tests::TTestContext& ctx, SFixture& rendering
     }
     TEST_EXPECT(ctx, fixture.service.is_idle());
     TEST_EXPECT(ctx, !fixture.service.failed());
-    TEST_EXPECT(ctx, wait_until(fixture.rendering.conversion, [&fixture]() noexcept
+    TEST_EXPECT(ctx, tests::wait_until(fixture.rendering.conversion, [&fixture]() noexcept
     {
         return fixture.rendering.package->query_state() == threading::EThreadRunState::Exited;
     }));

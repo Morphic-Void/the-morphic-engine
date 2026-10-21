@@ -22,13 +22,13 @@
 #include "host/runtime/host_worker_thread.hpp"
 #include "platform/filesystem/file.hpp"
 #include "platform/filesystem/internal/file_utils.hpp"
-#include "platform/threading/processor_relax.hpp"
 #include "schema/baked_instances_block.hpp"
 #include "schema/baked_bulk_data_block.hpp"
 #include "schema/live_instances.hpp"
 #include "schema/live_bulk_data.hpp"
 #include "tests/environment/test_paths.hpp"
 #include "tests/support/test_context.hpp"
+#include "tests/support/thread_helpers.hpp"
 #include "tests/support/test_scopes.hpp"
 #include "tests/test_suites/BundleRequests_test_suite.hpp"
 
@@ -37,26 +37,6 @@ namespace
 
 using tests::TTestContext;
 using filesystem_image::ERootState;
-
-std::uint32_t MV_STD_ABI_CALL echo(void* const data) noexcept
-{
-    auto& resources = *static_cast<threading::CThreadResources*>(data);
-    threading::CThreadContext context(resources);
-    context.startup();
-    context.mark_running();
-    while (!context.exit_requested())
-    {
-        const auto epoch = resources.wait_predicate.get_word();
-        threading::CErasedPodMsg message;
-        while (context.read(message))
-        {
-            if (!context.post(message)) { context.mark_failed(1u); return 1u; }
-        }
-        if (!context.exit_requested()) (void)context.wait_for_new_epoch(epoch);
-    }
-    context.mark_exited();
-    return 0u;
-}
 
 bool write(const std::string& file, const void* const bytes, const std::size_t size)
 {
@@ -67,7 +47,7 @@ struct SFixture
 {
     platform::system::CPerfCountConversion conversion;
     threading::CThreadPackage client{ { thread_ids::executive, module_ids::executable,
-        platform::threading::EThreadPriority::Normal, &echo }, conversion };
+        platform::threading::EThreadPriority::Normal, &tests::echo_pod_messages }, conversion };
     threading::CThreadPackage io{ { thread_ids::bg_file_io, module_ids::executable,
         platform::threading::EThreadPriority::Normal, host::host_worker_thread_entry_point() }, conversion };
     threading::CThreadPackage conditioning{ { thread_ids::bg_conditioning, module_ids::executable,
@@ -81,7 +61,7 @@ struct SFixture
 
     explicit SFixture(const bool echo_io = false) :
         io({ thread_ids::bg_file_io, module_ids::executable, platform::threading::EThreadPriority::Normal,
-            echo_io ? &echo : host::host_worker_thread_entry_point() }, conversion), controlled(echo_io) {}
+            echo_io ? &tests::echo_pod_messages : host::host_worker_thread_entry_point() }, conversion), controlled(echo_io) {}
 
     ~SFixture()
     {
@@ -135,14 +115,10 @@ struct SFixture
     }
     bool take_work(threading::CErasedPodMsg& message)
     {
-        platform::system::CPerfCounter timer;
-        (void)timer.update();
-        while (timer.query_delta() < conversion.query_ticks_per_second() * 10u)
+        return tests::wait_until(conversion, [this, &message]() noexcept
         {
-            if (io.read(message)) return true;
-            platform::threading::processor_relax();
-        }
-        return false;
+            return io.read(message);
+        }, 10u);
     }
     template<typename T> void complete(const threading::CErasedPodMsg& work, CErasedOwner&& owner)
     {
@@ -154,18 +130,15 @@ struct SFixture
     }
     template<typename T> bool receive(T& result, const std::int32_t slot)
     {
-        platform::system::CPerfCounter timer;
-        (void)timer.update();
-        while (timer.query_delta() < conversion.query_ticks_per_second() * 10u)
+        threading::CErasedPodMsg message;
+        const bool received = tests::wait_until(conversion, [this, &message]()
         {
             pump(io);
             if (dedicated) pump(conditioning);
             service.complete_disposals();
-            threading::CErasedPodMsg message;
-            if (client.read(message)) return (message.query_async_slot() == slot) && message.copy_payload_to(result);
-            platform::threading::processor_relax();
-        }
-        return false;
+            return client.read(message);
+        }, 10u);
+        return received && (message.query_async_slot() == slot) && message.copy_payload_to(result);
     }
     template<typename T> void request(const std::int32_t slot, CErasedOwner&& owner)
     {
@@ -851,7 +824,7 @@ void test_preparation_handoff(TTestContext& ctx)
         TEST_EXPECT(ctx, ready);
         if (!ready) return;
         threading::CThreadPackage unavailable{ { thread_ids::bg_conditioning, module_ids::executable,
-            platform::threading::EThreadPriority::Normal, &echo }, fixture.conversion };
+            platform::threading::EThreadPriority::Normal, &tests::echo_pod_messages }, fixture.conversion };
         if (scenario == 3u) TEST_EXPECT(ctx, fixture.service.configure_workers(fixture.io, &unavailable));
         fixture.bake(ctx, 1);
         threading::CErasedPodMsg work;
@@ -955,7 +928,7 @@ void test_controlled_failures(TTestContext& ctx)
     fixture.result(ctx, 4, EAssetStatus::delivery_failed);
     TEST_EXPECT(ctx, fixture.image.root_state("pack:") == ERootState::missing && fixture.service.is_idle());
     threading::CThreadPackage unavailable{ { thread_ids::bg_file_io, module_ids::executable,
-        platform::threading::EThreadPriority::Normal, &echo }, fixture.conversion };
+        platform::threading::EThreadPriority::Normal, &tests::echo_pod_messages }, fixture.conversion };
     TEST_EXPECT(ctx, fixture.service.configure_workers(unavailable, nullptr));
     fixture.bake(ctx, 5);
     fixture.result(ctx, 5, EAssetStatus::delivery_failed);

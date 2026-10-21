@@ -12,10 +12,10 @@
 #include "schema/schema_merge.hpp"
 #include "schema/schema_wrappers.hpp"
 #include "schema/live_instances.hpp"
-#include "data_model/document_parser.hpp"
 #include "data_model/document_translation.hpp"
 #include "data_model/live_document.hpp"
 #include "tests/support/test_context.hpp"
+#include "tests/support/document_helpers.hpp"
 #include "tests/support/test_allocator.hpp"
 #include "tests/support/test_scopes.hpp"
 #include "platform/system/performance_counter.hpp"
@@ -31,12 +31,6 @@ using namespace schema;
 using tests::TTestContext;
 
 static_assert(std::is_trivially_copyable_v<SSchemaMergeDiagnostic>);
-
-static bool parse(const std::string& text, CLiveDocument& document)
-{
-    return document_parser::parse(CByteConstView{
-        reinterpret_cast<const std::uint8_t*>(text.data()), text.size(), 1u }, document).accepted();
-}
 
 static std::string schema_text(const std::string& descriptor, const std::string& detail = {})
 {
@@ -58,19 +52,12 @@ static auto member_default(const TDocument& query)
     return query.object_child(query.first_child(members), CStringView{ "default" });
 }
 
-static bool same_document(const CLiveDocument& document, const CBakedDocumentBlock& expected)
-{
-    CBakedDocumentBlock actual;
-    return document_translation::bake(document, actual) && (actual.bytes().size() == expected.bytes().size()) &&
-        (std::memcmp(actual.bytes().data(), expected.bytes().data(), actual.bytes().size()) == 0);
-}
-
 static void expect_merge(TTestContext& ctx, const std::string& first, const std::string& second,
     const ESchemaMergeReason reason = ESchemaMergeReason::none)
 {
     CLiveDocument a, b, output;
-    TEST_EXPECT(ctx, parse(first, a) && parse(second, b));
-    TEST_EXPECT(ctx, parse(R"({"sentinel":17})", output));
+    TEST_EXPECT(ctx, tests::parse_document(first, a) && tests::parse_document(second, b));
+    TEST_EXPECT(ctx, tests::parse_document(R"({"sentinel":17})", output));
     CBakedDocumentBlock before;
     TEST_EXPECT(ctx, document_translation::bake(output, before));
     const CNodeKey sentinel = output.first_child(output.root());
@@ -95,7 +82,7 @@ static void expect_merge(TTestContext& ctx, const std::string& first, const std:
     }
     else
     {
-        TEST_EXPECT(ctx, output.contains(sentinel) && same_document(output, before));
+        TEST_EXPECT(ctx, output.contains(sentinel) && tests::same_baked_document(output, before));
         if ((reason == ESchemaMergeReason::conflicting_value) || (reason == ESchemaMergeReason::incompatible_type))
         {
             TEST_EXPECT(ctx, aq.contains(diagnostic.first) && bq.contains(diagnostic.second));
@@ -150,7 +137,7 @@ static void test_rules(TTestContext& ctx)
     expect_merge(ctx, R"({"types":{},"instances":{},"data":{},"stripped":true})", empty);
 
     CLiveDocument a, result;
-    TEST_EXPECT(ctx, parse(empty, a));
+    TEST_EXPECT(ctx, tests::parse_document(empty, a));
     SSchemaMergeDiagnostic diagnostic;
     TEST_EXPECT(ctx, !merge_type_schemas({}, CSchemaDocumentQuery{ a }, result, diagnostic));
     TEST_EXPECT(ctx, diagnostic.stage == ESchemaMergeStage::first_source_validation && !result.is_ready());
@@ -173,8 +160,8 @@ static void test_presentation(TTestContext& ctx)
         for (unsigned reverse = 0u; reverse < 2u; ++reverse)
         {
             CLiveDocument a, b, result;
-            TEST_EXPECT(ctx, parse(scalar_schema("u32", reverse ? item.second : item.first), a));
-            TEST_EXPECT(ctx, parse(scalar_schema("u32", reverse ? item.first : item.second), b));
+            TEST_EXPECT(ctx, tests::parse_document(scalar_schema("u32", reverse ? item.second : item.first), a));
+            TEST_EXPECT(ctx, tests::parse_document(scalar_schema("u32", reverse ? item.first : item.second), b));
             SSchemaMergeDiagnostic diagnostic;
             TEST_EXPECT(ctx, merge_type_schemas(CSchemaDocumentQuery{ a }, CSchemaDocumentQuery{ b }, result, diagnostic));
             CIntegerMetadata metadata;
@@ -203,7 +190,7 @@ static void test_presentation(TTestContext& ctx)
     for (const auto& item : metadata_cases)
     {
         CLiveDocument a, b, result;
-        TEST_EXPECT(ctx, parse(scalar_schema("u32", "128"), a) && parse(scalar_schema("u32", "128"), b));
+        TEST_EXPECT(ctx, tests::parse_document(scalar_schema("u32", "128"), a) && tests::parse_document(scalar_schema("u32", "128"), b));
         //  Give equal values different domains and measured widths. Presentation
         //  selection must neither change the value nor copy an incompatible width.
         const auto replace = [&](CLiveDocument& document, const bool first)
@@ -243,8 +230,8 @@ static void test_newline_presentation(TTestContext& ctx)
             CLiveDocument a, b, result;
             //  The schema grammar admits special floating-point strings. Their
             //  presentation flags are retained even without newline characters.
-            TEST_EXPECT(ctx, parse(scalar_schema("f64", "\"nan\""), a));
-            TEST_EXPECT(ctx, parse(scalar_schema("f64", "\"nan\""), b));
+            TEST_EXPECT(ctx, tests::parse_document(scalar_schema("f64", "\"nan\""), a));
+            TEST_EXPECT(ctx, tests::parse_document(scalar_schema("f64", "\"nan\""), b));
             TEST_EXPECT(ctx, a.set_newline_escaping_suppressed(member_default(a), first_suppresses));
             TEST_EXPECT(ctx, b.set_newline_escaping_suppressed(member_default(b), second_suppresses));
             CBakedDocumentBlock ab, bb;
@@ -278,8 +265,8 @@ static void test_one_sided_presentation(TTestContext& ctx)
                 for (const bool reverse : { false, true })
                 {
                     CLiveDocument source, other, result;
-                    TEST_EXPECT(ctx, parse(schema_text(R"({"type":{"element":"f64","count":3},"default":[128,"nan"]})"), source));
-                    TEST_EXPECT(ctx, parse(empty ? R"({"types":{}})" :
+                    TEST_EXPECT(ctx, tests::parse_document(schema_text(R"({"type":{"element":"f64","count":3},"default":[128,"nan"]})"), source));
+                    TEST_EXPECT(ctx, tests::parse_document(empty ? R"({"types":{}})" :
                         schema_text(R"({"type":{"element":"f64","count":3}})"), other));
                     const CNodeKey number = source.first_child(member_default(source));
                     const CNodeKey string = source.next_sibling(number);
@@ -321,8 +308,8 @@ static void test_forms_and_aliasing(TTestContext& ctx)
     for (unsigned form = 0u; form < 4u; ++form)
     {
         CLiveDocument a, b, result;
-        TEST_EXPECT(ctx, parse(scalar_schema("u32"), a));
-        TEST_EXPECT(ctx, parse(scalar_schema("u32", "10"), b));
+        TEST_EXPECT(ctx, tests::parse_document(scalar_schema("u32"), a));
+        TEST_EXPECT(ctx, tests::parse_document(scalar_schema("u32", "10"), b));
         CBakedDocumentBlock ab, bb;
         TEST_EXPECT(ctx, document_translation::bake(a, ab) && document_translation::bake(b, bb));
         const CSchemaDocumentQuery aq = (form & 1u) ? CSchemaDocumentQuery{ ab.document() } : CSchemaDocumentQuery{ a };
@@ -345,8 +332,8 @@ static void test_forms_and_aliasing(TTestContext& ctx)
     for (unsigned alias = 0u; alias < 4u; ++alias)
     {
         CLiveDocument a, b, separate;
-        TEST_EXPECT(ctx, parse(scalar_schema("u32", "10"), a));
-        TEST_EXPECT(ctx, parse(scalar_schema("u32"), b));
+        TEST_EXPECT(ctx, tests::parse_document(scalar_schema("u32", "10"), a));
+        TEST_EXPECT(ctx, tests::parse_document(scalar_schema("u32"), b));
         CLiveDocument& result = (alias == 0u) ? separate : ((alias == 2u) ? b : a);
         SSchemaMergeDiagnostic diagnostic;
         TEST_EXPECT(ctx, merge_type_schemas(CSchemaDocumentQuery{ a }, CSchemaDocumentQuery{ (alias == 3u) ? a : b }, result, diagnostic));
@@ -373,8 +360,8 @@ static void test_order_and_growth(TTestContext& ctx)
     for (const unsigned count : { 0u, 1u, 7u, 8u, 9u, 128u, 512u, 2048u })
     {
         CLiveDocument a, b, result;
-        TEST_EXPECT(ctx, parse(wide_schema(count, true), a));
-        TEST_EXPECT(ctx, parse(wide_schema((count + 1u), false), b));
+        TEST_EXPECT(ctx, tests::parse_document(wide_schema(count, true), a));
+        TEST_EXPECT(ctx, tests::parse_document(wide_schema((count + 1u), false), b));
         SSchemaMergeDiagnostic diagnostic;
         platform::system::CPerfCounter timer;
         (void)timer.update();
@@ -416,12 +403,12 @@ static void test_depth(TTestContext& ctx)
         {
             CLiveDocument a, b, output;
             const std::string deep = schema_text("{\"type\":" + type + "}");
-            TEST_EXPECT(ctx, parse(deep, a));
-            TEST_EXPECT(ctx, parse(shared ? deep : R"({"types":{}})", b));
+            TEST_EXPECT(ctx, tests::parse_document(deep, a));
+            TEST_EXPECT(ctx, tests::parse_document(shared ? deep : R"({"types":{}})", b));
             CResolvedSchema source;
             SDiagnostic validation;
             TEST_EXPECT(ctx, source.resolve(a, validation));
-            TEST_EXPECT(ctx, parse(R"({"sentinel":4})", output));
+            TEST_EXPECT(ctx, tests::parse_document(R"({"sentinel":4})", output));
             const CNodeKey sentinel = output.first_child(output.root());
             SSchemaMergeDiagnostic diagnostic;
             const bool merged = merge_type_schemas(CSchemaDocumentQuery{ a }, CSchemaDocumentQuery{ b }, output, diagnostic);
@@ -448,9 +435,9 @@ static void test_failures(TTestContext& ctx)
         for (std::size_t fail = 0u; (fail < 2048u) && !completed; ++fail)
         {
             CLiveDocument a, b, separate;
-            TEST_EXPECT(ctx, parse(wide_schema(9u, true), a));
-            TEST_EXPECT(ctx, parse(wide_schema(10u, false), b));
-            TEST_EXPECT(ctx, parse(R"({"sentinel":4})", separate));
+            TEST_EXPECT(ctx, tests::parse_document(wide_schema(9u, true), a));
+            TEST_EXPECT(ctx, tests::parse_document(wide_schema(10u, false), b));
+            TEST_EXPECT(ctx, tests::parse_document(R"({"sentinel":4})", separate));
             CLiveDocument& destination = (alias == 0u) ? separate : ((alias == 2u) ? b : a);
             CBakedDocumentBlock before_a, before_b, before_output;
             TEST_EXPECT(ctx, document_translation::bake(a, before_a) && document_translation::bake(b, before_b));
@@ -467,8 +454,8 @@ static void test_failures(TTestContext& ctx)
             if (!completed)
             {
                 TEST_EXPECT(ctx, diagnostic.reason != ESchemaMergeReason::none);
-                TEST_EXPECT(ctx, same_document(a, before_a) && same_document(b, before_b));
-                TEST_EXPECT(ctx, destination.contains(retained) && same_document(destination, before_output));
+                TEST_EXPECT(ctx, tests::same_baked_document(a, before_a) && tests::same_baked_document(b, before_b));
+                TEST_EXPECT(ctx, destination.contains(retained) && tests::same_baked_document(destination, before_output));
                 if (diagnostic.stage == ESchemaMergeStage::result_validation)
                 {
                     saw_result_failure = true;
@@ -489,7 +476,7 @@ static void test_failures(TTestContext& ctx)
 static void test_integration(TTestContext& ctx)
 {
     CLiveDocument a, b, merged;
-    TEST_EXPECT(ctx, parse(scalar_schema("u32"), a) && parse(scalar_schema("u32", "10"), b));
+    TEST_EXPECT(ctx, tests::parse_document(scalar_schema("u32"), a) && tests::parse_document(scalar_schema("u32", "10"), b));
     SSchemaMergeDiagnostic diagnostic;
     TEST_EXPECT(ctx, merge_type_schemas(CSchemaDocumentQuery{ a }, CSchemaDocumentQuery{ b }, merged, diagnostic));
     CLiveSchema schema;
@@ -503,7 +490,7 @@ static void test_integration(TTestContext& ctx)
     TEST_EXPECT(ctx, instances.initialise(schema));
     const CInstanceHandle implicit = instances.create_base(CStringView{ "Item" }, CStringView{ "implicit" }, {}, {}, instance_error);
     CLiveDocument declaration;
-    TEST_EXPECT(ctx, parse(R"({"v":0})", declaration));
+    TEST_EXPECT(ctx, tests::parse_document(R"({"v":0})", declaration));
     const CInstanceDocumentQuery query{ declaration };
     const CInstanceHandle explicit_value = instances.create_base(CStringView{ "Item" }, CStringView{ "explicit" }, query, query.root(), instance_error);
     SInstanceEntryView entry;
@@ -531,7 +518,7 @@ static void test_shared_dependencies_and_omissions(TTestContext& ctx)
     expect_merge(ctx, text, text);
 
     CLiveDocument a, b, result;
-    TEST_EXPECT(ctx, parse(scalar_schema("u32"), a) && parse(scalar_schema("u32"), b));
+    TEST_EXPECT(ctx, tests::parse_document(scalar_schema("u32"), a) && tests::parse_document(scalar_schema("u32"), b));
     SSchemaMergeDiagnostic diagnostic;
     TEST_EXPECT(ctx, merge_type_schemas(CSchemaDocumentQuery{ a }, CSchemaDocumentQuery{ b }, result, diagnostic));
     const CSchemaDocumentQuery query{ result };
@@ -543,7 +530,7 @@ static void test_shared_dependencies_and_omissions(TTestContext& ctx)
     //  Conflicts retain handles in the correct source representation as well.
     for (unsigned form = 0u; form < 4u; ++form)
     {
-        TEST_EXPECT(ctx, parse(scalar_schema("u32", "10"), a) && parse(scalar_schema("u32", "11"), b));
+        TEST_EXPECT(ctx, tests::parse_document(scalar_schema("u32", "10"), a) && tests::parse_document(scalar_schema("u32", "11"), b));
         CBakedDocumentBlock ab, bb, before;
         TEST_EXPECT(ctx, document_translation::bake(a, ab) && document_translation::bake(b, bb));
         TEST_EXPECT(ctx, document_translation::bake(result, before));
@@ -552,7 +539,7 @@ static void test_shared_dependencies_and_omissions(TTestContext& ctx)
         TEST_EXPECT(ctx, !merge_type_schemas(aq, bq, result, diagnostic));
         TEST_EXPECT(ctx, diagnostic.reason == ESchemaMergeReason::conflicting_value);
         TEST_EXPECT(ctx, diagnostic.first == member_default(aq) && diagnostic.second == member_default(bq));
-        TEST_EXPECT(ctx, same_document(result, before));
+        TEST_EXPECT(ctx, tests::same_baked_document(result, before));
     }
 }
 }

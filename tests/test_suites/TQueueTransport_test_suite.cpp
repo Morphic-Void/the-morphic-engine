@@ -16,11 +16,11 @@
 #include <iostream>
 #include <limits>
 #include <new>
-#include <string_view>
 
 #include "threading/transports/TQueueTransport.hpp"
 #include "tests/test_suites/TQueueTransport_test_suite.hpp"
 #include "tests/support/test_context.hpp"
+#include "tests/support/transport_helpers.hpp"
 #include "tests/support/test_scopes.hpp"
 #include "memory/memory_context.hpp"
 #include "debug/macros.hpp"
@@ -29,11 +29,6 @@ using threading::transports::TQueue;
 
 namespace tests
 {
-
-inline std::string make_repeated_string(const char c, const std::uint32_t count)
-{
-    return std::string(static_cast<std::size_t>(count), c);
-}
 
 struct TAllocationGate
 {
@@ -56,37 +51,6 @@ static bool MV_STD_ABI_CALL deallocate_test_memory(void*, const std::size_t alig
     const std::size_t effective_alignment = (alignment < alignof(void*)) ? alignof(void*) : alignment;
     ::operator delete(ptr, std::align_val_t{ effective_alignment });
     return true;
-}
-
-template<typename TTransport>
-bool post_string(TTransport& transport, const std::string_view text) noexcept
-{
-    return transport.post(text.data(), static_cast<std::uint32_t>(text.size()));
-}
-
-template<typename TTransport>
-bool read_exact_string(TTransport& transport, std::string& out, const std::uint32_t count)
-{
-    out.resize(static_cast<std::size_t>(count));
-    if (!transport.read(out.data(), count))
-    {
-        out.clear();
-        return false;
-    }
-    return true;
-}
-
-template<typename TRing>
-std::string drain_ring(TRing& ring)
-{
-    const std::uint32_t count = ring.readable_count();
-    std::string result;
-    result.resize(static_cast<std::size_t>(count));
-    if ((count != 0u) && !ring.read(result.data(), count))
-    {
-        return {};
-    }
-    return result;
 }
 
 template<typename TQueue>

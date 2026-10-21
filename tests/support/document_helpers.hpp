@@ -20,6 +20,7 @@ namespace tests
 {
 
 [[nodiscard]] bool parse_document(const std::string& text, CLiveDocument& document);
+[[nodiscard]] bool parse_document(const char* text, CLiveDocument& document);
 
 //  Compare exact baked bytes, including representation details.
 [[nodiscard]] bool same_baked_document(const CLiveDocument& document, const CBakedDocumentBlock& expected);

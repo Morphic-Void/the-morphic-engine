@@ -25,6 +25,12 @@ bool parse_document(const std::string& text, CLiveDocument& document)
         reinterpret_cast<const std::uint8_t*>(text.data()), text.size(), 1u }, document).accepted();
 }
 
+bool parse_document(const char* const text, CLiveDocument& document)
+{
+    return document_parser::parse(CByteConstView{
+        reinterpret_cast<const std::uint8_t*>(text), std::strlen(text) }, document).accepted();
+}
+
 bool same_baked_document(const CLiveDocument& document, const CBakedDocumentBlock& expected)
 {
     CBakedDocumentBlock actual;

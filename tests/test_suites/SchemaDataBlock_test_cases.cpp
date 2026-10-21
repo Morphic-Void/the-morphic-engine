@@ -20,6 +20,7 @@
 #include "data_model/document_parser.hpp"
 #include "data_model/document_translation.hpp"
 #include "tests/support/test_context.hpp"
+#include "tests/support/document_helpers.hpp"
 #include "tests/support/test_allocator.hpp"
 #include "tests/support/test_scopes.hpp"
 
@@ -1114,11 +1115,6 @@ static std::string materialisation_description(const unsigned content)
         "next":{"locator":{"offset":4294967295,"valid":false,"count":1,"size":2},"data":[[1,2]]}}}})";
 }
 
-static bool parse_description(const std::string& text, CLiveDocument& document)
-{
-    return document_parser::parse(CByteConstView{ reinterpret_cast<const std::uint8_t*>(text.data()), text.size(), 1u }, document).accepted();
-}
-
 template<bool Instances, bool Baked, class TSchema>
 static void test_materialised_blocks(TTestContext& ctx, TSchema& schema)
 {
@@ -1129,7 +1125,7 @@ static void test_materialised_blocks(TTestContext& ctx, TSchema& schema)
         {
             CLiveDocument live;
             CBakedDocumentBlock baked;
-            if (!parse_description(materialisation_description<Instances>(content), live) || !document_translation::bake(live, baked))
+            if (!tests::parse_document(materialisation_description<Instances>(content), live) || !document_translation::bake(live, baked))
             { TEST_EXPECT(ctx, false); continue; }
             const auto source_bytes = byte_snapshot(baked.bytes());
             const auto source_root = live.root();
@@ -1251,7 +1247,7 @@ static void test_materialisation_failures(TTestContext& ctx, TSchema& schema)
     {
         CLiveDocument live;
         CBakedDocumentBlock baked;
-        TEST_EXPECT(ctx, parse_description(item.text, live) && document_translation::bake(live, baked));
+        TEST_EXPECT(ctx, tests::parse_document(item.text, live) && document_translation::bake(live, baked));
         const auto snapshot = byte_snapshot(baked.bytes());
         const auto run = [&](const auto& source)
         {
@@ -1281,7 +1277,7 @@ static void test_materialisation_failures(TTestContext& ctx, TSchema& schema)
         R"({"data":{"Pair":{"bad":{"locator":{"offset":0,"valid":false},"data":[{"a":1}]}}}})";
     CLiveDocument live;
     CBakedDocumentBlock baked;
-    TEST_EXPECT(ctx, parse_description(invalid, live) && document_translation::bake(live, baked));
+    TEST_EXPECT(ctx, tests::parse_document(invalid, live) && document_translation::bake(live, baked));
     const auto run = [&](const auto& source)
     {
         TEST_EXPECT(ctx, !output.materialise(source, schema, EDataOutputForm::stripped, diagnostic));
@@ -1314,7 +1310,7 @@ static void test_materialisation_allocations(TTestContext& ctx)
     SSchemaFixture schemas;
     CLiveDocument live;
     CBakedDocumentBlock baked;
-    TEST_EXPECT(ctx, schemas.build(materialisation_types) && parse_description(materialisation_description<Instances>(3u), live) &&
+    TEST_EXPECT(ctx, schemas.build(materialisation_types) && tests::parse_document(materialisation_description<Instances>(3u), live) &&
         document_translation::bake(live, baked));
     const auto snapshot = byte_snapshot(baked.bytes());
     bool completed{}, materialisation{}, promotion{}, assembly{}, attachment{};

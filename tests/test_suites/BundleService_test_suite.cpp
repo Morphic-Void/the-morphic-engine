@@ -13,13 +13,13 @@
 #include <vector>
 
 #include "assets/internal/bundle_builder_io.hpp"
-#include "data_model/document_parser.hpp"
 #include "data_model/document_translation.hpp"
 #include "host/runtime/asset_service.hpp"
 #include "rendering/interface/texture_messages.hpp"
-#include "platform/threading/processor_relax.hpp"
 #include "tests/support/test_allocator.hpp"
 #include "tests/support/test_context.hpp"
+#include "tests/support/thread_helpers.hpp"
+#include "tests/support/document_helpers.hpp"
 #include "tests/support/test_scopes.hpp"
 #include "tests/test_suites/BundleService_test_suite.hpp"
 
@@ -30,16 +30,11 @@ using tests::TTestContext;
 using filesystem_image::ERootState;
 using host::CAssetService;
 
-bool parse(const char* text, CLiveDocument& document)
-{
-    return document_parser::parse(CByteConstView{ reinterpret_cast<const std::uint8_t*>(text), std::strlen(text) }, document).accepted();
-}
-
 bool make_bundle(CBakedDocumentBlock& block)
 {
     CLiveDocument inventory, document;
     CBakedDocumentBlock baked;
-    if (!parse(R"({"raw":{},"baked":{}})", inventory) || !parse(R"({"answer":42})", document) ||
+    if (!tests::parse_document(R"({"raw":{},"baked":{}})", inventory) || !tests::parse_document(R"({"answer":42})", document) ||
         !document_translation::bake(document, baked)) return false;
     const std::size_t prefix_size = baked.bytes().size();
     if (!baked.resize_buffer(prefix_size + 19u, 128u)) return false;
@@ -63,31 +58,11 @@ bool make_bundle(CBakedDocumentBlock& block)
     return bundle::detail::build(inventory, inventory.root(), sources.const_view(), block, view, io).succeeded();
 }
 
-std::uint32_t MV_STD_ABI_CALL echo_messages(void* data) noexcept
-{
-    auto& resources = *static_cast<threading::CThreadResources*>(data);
-    threading::CThreadContext context(resources);
-    context.startup();
-    context.mark_running();
-    while (!context.exit_requested())
-    {
-        const auto epoch = resources.wait_predicate.get_word();
-        threading::CErasedPodMsg message;
-        while (context.read(message))
-        {
-            if (!context.post(message)) { context.mark_failed(1u); return 1u; }
-        }
-        if (!context.exit_requested()) (void)context.wait_for_new_epoch(epoch);
-    }
-    context.mark_exited();
-    return 0u;
-}
-
 struct SFixture
 {
     platform::system::CPerfCountConversion conversion;
     threading::CThreadPackage package{ threading::ThreadConfig{ thread_ids::rendering, module_ids::executable,
-        platform::threading::EThreadPriority::Normal, &echo_messages }, conversion };
+        platform::threading::EThreadPriority::Normal, &tests::echo_pod_messages }, conversion };
     filesystem_image::CImage image;
     CAssetService service;
     std::uint64_t binding{ 0u };
@@ -103,7 +78,7 @@ struct SFixture
         CLiveDocument document;
         service.set_filesystem(image);
         service.set_rendering(&package);
-        return parse(R"({"roots":{"work:":{"source":"unused","writable":true,"content":{}}}})", document) &&
+        return tests::parse_document(R"({"roots":{"work:":{"source":"unused","writable":true,"content":{}}}})", document) &&
             image.adopt(std::move(document)) && conversion.init() && service.initialise() &&
             service.configure_workers(package, nullptr) && package.startup();
     }
@@ -128,16 +103,12 @@ struct SFixture
     }
     template<typename T> bool receive(T& result, std::int32_t expected_slot, threading::CThreadPackage* recipient = nullptr)
     {
-        platform::system::CPerfCounter timer;
-        (void)timer.update();
-        while (timer.query_delta() < conversion.query_ticks_per_second() * 5u)
+        threading::CErasedPodMsg message;
+        const bool received = tests::wait_until(conversion, [this, recipient, &message]() noexcept
         {
-            threading::CErasedPodMsg message;
-            if (((recipient != nullptr) ? *recipient : package).read(message))
-                return (message.query_async_slot() == expected_slot) && message.copy_payload_to(result);
-            platform::threading::processor_relax();
-        }
-        return false;
+            return ((recipient != nullptr) ? *recipient : package).read(message);
+        });
+        return received && (message.query_async_slot() == expected_slot) && message.copy_payload_to(result);
     }
     template<typename T> void request(TTestContext& ctx, std::int32_t slot, CErasedOwner&& owner)
     {
@@ -436,7 +407,7 @@ void test_package_reuse(TTestContext& ctx)
         SFixture fixture;
         TEST_EXPECT(ctx, fixture.initialise());
         const threading::ThreadConfig config{ thread_ids::rendering, module_ids::executable,
-            platform::threading::EThreadPriority::Normal, &echo_messages };
+            platform::threading::EThreadPriority::Normal, &tests::echo_pod_messages };
         auto package = TInstance<threading::CThreadPackage>::create(config, fixture.conversion);
         TEST_EXPECT(ctx, package && package->startup());
         const auto original = fixture.publish(ctx, &*package);
@@ -574,7 +545,7 @@ void test_publication_failure_and_shutdown(TTestContext& ctx)
             filesystem_image::CImage image;
             CAssetService service;
             CLiveDocument doc;
-            TEST_EXPECT(ctx, parse(R"({"roots":{}})", doc) && image.adopt(std::move(doc)) && service.initialise());
+            TEST_EXPECT(ctx, tests::parse_document(R"({"roots":{}})", doc) && image.adopt(std::move(doc)) && service.initialise());
             service.set_filesystem(image);
             BundlePreparation prepared;
             TEST_EXPECT(ctx, make_bundle(prepared.block));

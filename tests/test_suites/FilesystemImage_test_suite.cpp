@@ -18,6 +18,7 @@
 #include "tests/support/test_scopes.hpp"
 #include "tests/test_suites/FilesystemImage_test_suite.hpp"
 #include "tests/support/test_context.hpp"
+#include "tests/support/document_helpers.hpp"
 #include "tests/environment/test_paths.hpp"
 #include "filesystem/filesystem_image.hpp"
 #include "platform/filesystem/directory.hpp"
@@ -403,11 +404,6 @@ static void test_manual_case_mapping(tests::TTestContext& ctx)
     }
 }
 
-static bool parse_image(const char* input, CLiveDocument& document)
-{
-    return document_parser::parse(CByteConstView{ reinterpret_cast<const std::uint8_t*>(input), std::strlen(input) }, document).accepted();
-}
-
 static const char* const binding_image = R"({"roots":{"work:":{"source":"Some/Prefix","writable":true,"content":{"plain.txt":{}}}}})";
 
 static void test_reserved_native_mount(tests::TTestContext& ctx)
@@ -415,7 +411,7 @@ static void test_reserved_native_mount(tests::TTestContext& ctx)
     using namespace filesystem_image;
     CLiveDocument document;
     CImage image;
-    TEST_EXPECT(ctx, parse_image(binding_image, document) && image.adopt(std::move(document)));
+    TEST_EXPECT(ctx, tests::parse_document(binding_image, document) && image.adopt(std::move(document)));
     for (const char* name : { "native:", "NATIVE:", "NaTiVe:" })
     {
         std::uint64_t binding = 0u;
@@ -425,7 +421,7 @@ static void test_reserved_native_mount(tests::TTestContext& ctx)
         TEST_EXPECT(ctx, request.logical_root.set(name) && request.physical_path.set("unused"));
         TEST_EXPECT(ctx, scan_root(request, document) == EScanStatus::invalid_manifest);
     }
-    TEST_EXPECT(ctx, parse_image(R"({"roots":{"native:":{"source":"unused","inventory":false}}})", document));
+    TEST_EXPECT(ctx, tests::parse_document(R"({"roots":{"native:":{"source":"unused","inventory":false}}})", document));
     TEST_EXPECT(ctx, !image.adopt(std::move(document)));
     TEST_EXPECT(ctx, !image.integrate(document, 0u));
     CSimpleString physical;
@@ -443,7 +439,7 @@ static void test_reserved_native_mount(tests::TTestContext& ctx)
 static bool make_bundle(CBakedDocumentBlock& block, bundle::CBundleView& view)
 {
     CLiveDocument input;
-    if (!parse_image(R"({"plain.txt":{},"nested":{"physicalName":"Nested","content":{"file.bin":{"physicalName":"File.BIN"}}}})", input)) { return false; }
+    if (!tests::parse_document(R"({"plain.txt":{},"nested":{"physicalName":"Nested","content":{"file.bin":{"physicalName":"File.BIN"}}}})", input)) { return false; }
     TPodVector<bundle::SBuildSource> sources;
     const CNodeKey file = member(input, member(input, member(input, input.root(), "nested"), "content"), "file.bin");
     if (!sources.push_back({ member(input, input.root(), "plain.txt"), "plain" }) || !sources.push_back({ file, "nested" })) { return false; }
@@ -462,7 +458,7 @@ static void test_virtual_bindings(tests::TTestContext& ctx)
     if (!view.is_ready()) { return; }
     const std::vector<std::uint8_t> original(view.bytes().data(), view.bytes().data() + view.bytes().size());
     CLiveDocument doc;
-    TEST_EXPECT(ctx, parse_image(binding_image, doc));
+    TEST_EXPECT(ctx, tests::parse_document(binding_image, doc));
     CImage image;
     TEST_EXPECT(ctx, image.adopt(std::move(doc)));
     std::uint64_t token = 0u, other = 0u;
@@ -489,7 +485,7 @@ static void test_virtual_bindings(tests::TTestContext& ctx)
     TEST_EXPECT(ctx, !prepare_bundle(image, other, 100u, view));
     TEST_EXPECT(ctx, image.remove_bundle(other));
     TEST_EXPECT(ctx, !image.remove_bundle(other));
-    TEST_EXPECT(ctx, parse_image(binding_image, doc));
+    TEST_EXPECT(ctx, tests::parse_document(binding_image, doc));
     TEST_EXPECT(ctx, !image.adopt(std::move(doc)) && doc.is_ready());
     //  Publication must incorporate ordinary changes made after preparation.
     TEST_EXPECT(ctx, image.written("work:/new.txt", "Some/Prefix/new.txt", 51u, 1u));
@@ -531,7 +527,7 @@ static void test_virtual_bindings(tests::TTestContext& ctx)
     TEST_EXPECT(ctx, image.integrate(doc, image.write_serial()));
     TEST_EXPECT(ctx, image.cached_asset("pack:/plain.txt", 1u) == 61u);
     TEST_EXPECT(ctx, image.resolve("pack:/nested/file.bin", false, source) && source.bundle == 100u);
-    TEST_EXPECT(ctx, parse_image(R"({"roots":{"pack:":{"source":"bad","content":{}}}})", doc));
+    TEST_EXPECT(ctx, tests::parse_document(R"({"roots":{"pack:":{"source":"bad","content":{}}}})", doc));
     TEST_EXPECT(ctx, !image.integrate(doc, 0u));
     CBakeInput capture;
     TEST_EXPECT(ctx, !image.capture_bake("pack:", "", capture));
@@ -587,7 +583,7 @@ static void test_binding_allocation_failures(tests::TTestContext& ctx)
                 CLiveDocument doc;
                 CImage image;
                 CBakeInput captured;
-                TEST_EXPECT(ctx, parse_image(binding_image, doc) && image.adopt(std::move(doc)));
+                TEST_EXPECT(ctx, tests::parse_document(binding_image, doc) && image.adopt(std::move(doc)));
                 TEST_EXPECT(ctx, image.capture_bake("work:", "", captured));
                 const auto* retained_path = captured.sources()[0].physical_path;
                 std::uint64_t token = 0u;
@@ -597,7 +593,7 @@ static void test_binding_allocation_failures(tests::TTestContext& ctx)
                 {
                     TEST_EXPECT(ctx, image.publish_bundle(token));
                     TEST_EXPECT(ctx, image.loaded("pack:/plain.txt", 200u, 1u, 0u, 0u, token));
-                    TEST_EXPECT(ctx, parse_image(binding_image, doc));
+                    TEST_EXPECT(ctx, tests::parse_document(binding_image, doc));
                 }
                 CBakedDocumentBlock before;
                 TEST_EXPECT(ctx, document_translation::bake(image.document(), before));
@@ -666,7 +662,7 @@ static void test_deep_bundle_binding(tests::TTestContext& ctx)
     bundle::CBundleView view;
     TEST_EXPECT(ctx, bundle::detail::build(input, input.root(), { &source, 1u }, block, view, io).succeeded());
     CLiveDocument doc;
-    TEST_EXPECT(ctx, parse_image(binding_image, doc));
+    TEST_EXPECT(ctx, tests::parse_document(binding_image, doc));
     filesystem_image::CImage image;
     TEST_EXPECT(ctx, image.adopt(std::move(doc)));
     std::uint64_t binding = 0u;
@@ -675,7 +671,7 @@ static void test_deep_bundle_binding(tests::TTestContext& ctx)
     logical += "file";
     filesystem_image::SResolvedSource result;
     TEST_EXPECT(ctx, image.resolve(logical.c_str(), false, result) && result.size == 1u);
-    TEST_EXPECT(ctx, parse_image(binding_image, doc) && image.integrate(doc, 0u));
+    TEST_EXPECT(ctx, tests::parse_document(binding_image, doc) && image.integrate(doc, 0u));
     TEST_EXPECT(ctx, image.resolve(logical.c_str(), false, result) && result.bundle == 1u);
     TEST_EXPECT(ctx, image.close_bundle(binding) && image.remove_bundle(binding));
 }
@@ -692,8 +688,8 @@ static void test_binding_owner_moves(tests::TTestContext& ctx)
         const tests::TMemoryContextScope scope{ &context };
         CLiveDocument doc;
         CImage original, replaced;
-        TEST_EXPECT(ctx, parse_image(binding_image, doc) && original.adopt(std::move(doc)));
-        TEST_EXPECT(ctx, parse_image(binding_image, doc) && replaced.adopt(std::move(doc)));
+        TEST_EXPECT(ctx, tests::parse_document(binding_image, doc) && original.adopt(std::move(doc)));
+        TEST_EXPECT(ctx, tests::parse_document(binding_image, doc) && replaced.adopt(std::move(doc)));
         std::uint64_t binding = 0u, previous = 0u;
         TEST_EXPECT(ctx, original.reserve_bundle("pack:", binding) && prepare_bundle(original, binding, 1u, view) && original.publish_bundle(binding));
         TEST_EXPECT(ctx, replaced.reserve_bundle("old:", previous) && prepare_bundle(replaced, previous, 2u, view));
@@ -751,7 +747,7 @@ static void test_bake_capture(tests::TTestContext& ctx)
     TEST_EXPECT(ctx, !image.capture_bake("missing:", "", nested));
     TEST_EXPECT(ctx, !image.capture_bake("work:", nullptr, nested));
     //  Replacing the live image cannot affect the already captured directory.
-    TEST_EXPECT(ctx, parse_image(R"({"roots":{"work:":{"source":"replacement","content":{}}}})", doc));
+    TEST_EXPECT(ctx, tests::parse_document(R"({"roots":{"work:":{"source":"replacement","content":{}}}})", doc));
     TEST_EXPECT(ctx, image.integrate(doc, 0u));
     CBakeInput moved = std::move(nested);
     TEST_EXPECT(ctx, moved.sources()[0].physical_path == path);
