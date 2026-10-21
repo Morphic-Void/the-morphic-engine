@@ -19,6 +19,7 @@
 #include "tests/support/test_context.hpp"
 #include "tests/support/test_allocator.hpp"
 #include "tests/support/test_scopes.hpp"
+#include "tests/support/collection_growth_helpers.hpp"
 
 namespace
 {
@@ -299,77 +300,16 @@ void test_failed_growth(TTestContext& ctx)
         }
     };
 
-    bool reached_success = false;
-    std::size_t failures = 0u;
-    for (std::size_t allowance = 0u; allowance < 8u; ++allowance)
+    const auto pack = [](TContainer& container)
     {
-        tests::TAllocationAllowanceFixture fixture;
-        memory::CMemoryAllocator allocator{ &fixture, &tests::allocate_with_allowance, &tests::deallocate_test_memory };
-        memory::CMemoryContext context{ allocator };
-        memory::CMemoryContext destination{ allocator };
-        {
-            tests::TMemoryContextScope scope{ &context };
-            TContainer container;
-            TEST_EXPECT(ctx, container.initialise(32u));
-            for (std::int32_t value = 0; value < 32; ++value)
-            {
-                TEST_EXPECT(ctx, insert(container, value) == value);
-            }
-            const auto* const original = get_value(container, 0);
-            const std::int32_t last_before = container.last_live();
-            fixture.remaining = allowance;
-            const std::int32_t added = insert(container, 32);
-            fixture.remaining = std::numeric_limits<std::size_t>::max();
-            TEST_EXPECT(ctx, container.is_valid());
-            TEST_EXPECT(ctx, container.check_integrity());
-            for (std::int32_t value = 0; value < 32; ++value)
-            {
-                const auto* const stored = get_value(container, value);
-                TEST_EXPECT(ctx, (stored != nullptr) && (*stored == value));
-            }
-            if constexpr (!Pod)
-            {
-                TEST_EXPECT(ctx, get_value(container, 0) == original);
-            }
-            const auto retained_count = context.get_live_allocation_count();
-            const auto retained_bytes = context.get_live_allocated_bytes();
-            TEST_EXPECT(ctx, memory::reattribute(container, &destination));
-            TEST_EXPECT(ctx, context.is_attribution_empty());
-            TEST_EXPECT(ctx, destination.get_live_allocation_count() == retained_count);
-            TEST_EXPECT(ctx, destination.get_live_allocated_bytes() == retained_bytes);
-            tests::TMemoryContextScope destination_scope{&destination};
-            if (added < 0)
-            {
-                ++failures;
-                TEST_EXPECT(ctx, container.last_live() == last_before);
-                TEST_EXPECT(ctx, get_value(container, 32) == nullptr);
-                //  Packing must also tolerate backing retained by failed metadata growth.
-                container.pack();
-                TEST_EXPECT(ctx, container.check_integrity());
-                TEST_EXPECT(ctx, insert(container, 32) == 32);
-            }
-            else
-            {
-                reached_success = true;
-                TEST_EXPECT(ctx, added == 32);
-            }
-            TEST_EXPECT(ctx, container.check_integrity());
-            TEST_EXPECT(ctx, container.erase(0));
-            container.pack();
-            TEST_EXPECT(ctx, container.check_integrity());
-        }
-        TEST_EXPECT(ctx, context.is_attribution_empty());
-        TEST_EXPECT(ctx, destination.is_attribution_empty());
-        if constexpr (!Pod)
-        {
-            TEST_EXPECT(ctx, TTracked::live_count == 0);
-        }
-        if (reached_success)
-        {
-            break;
-        }
-    }
-    TEST_EXPECT(ctx, reached_success);
+        container.pack();
+    };
+    const auto check_lifetime = [](TTestContext& ctx)
+    {
+        TEST_EXPECT(ctx, TTracked::live_count == 0);
+    };
+    const std::size_t failures = tests::exercise_failed_growth<Pod, TContainer>(
+        ctx, insert, get_value, pack, check_lifetime);
     TEST_EXPECT(ctx, failures >= 2u);
 }
 

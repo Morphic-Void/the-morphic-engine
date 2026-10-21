@@ -166,6 +166,7 @@
     <ClInclude Include="..\tests\support\test_scopes.hpp" />
     <ClInclude Include="..\tests\support\thread_helpers.hpp" />
     <ClInclude Include="..\tests\support\slot_harness_helpers.hpp" />
+    <ClInclude Include="..\tests\support\collection_growth_helpers.hpp" />
     <ClInclude Include="..\tests\support\transport_helpers.hpp" />
     <ClInclude Include="..\tests\test_suites\AssetRepository_test_suite.hpp" />
     <ClInclude Include="..\tests\test_suites\FilesystemImage_test_suite.hpp" />
