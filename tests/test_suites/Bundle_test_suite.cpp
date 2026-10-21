@@ -27,6 +27,7 @@
 #include "assets/asset_messages.hpp"
 #include "tests/support/test_allocator.hpp"
 #include "tests/support/test_context.hpp"
+#include "tests/support/document_helpers.hpp"
 #include "tests/support/test_scopes.hpp"
 
 namespace
@@ -39,17 +40,6 @@ using bundle::ELookupStatus;
 
 static_assert(sizeof(CBundleView) <= sizeof(AssetViews));
 static_assert(alignof(CBundleView) <= alignof(AssetViews));
-
-CNodeKey add(TTestContext& ctx, CLiveDocument& doc, CNodeKey parent, CNodeKey value)
-{
-    TEST_EXPECT(ctx, value.is_valid() && doc.append_child(parent, value).succeeded());
-    return value;
-}
-
-CBakedValueIndex child(const CBakedDocument& doc, CBakedValueIndex parent, const char* name)
-{
-    return doc.object_child(parent, CStringView{ name });
-}
 
 struct SFixture
 {
@@ -66,19 +56,19 @@ struct SFixture
     void initialise(TTestContext& ctx)
     {
         TEST_EXPECT(ctx, live.initialise());
-        add(ctx, live, live.root(), live.create_string(CStringView{ "morphic-bundle" }, CStringView{ "fileType" }));
-        add(ctx, live, live.root(), live.create_unsigned_integer(1u, CStringView{ "version" }));
-        add(ctx, live, live.root(), live.create_unsigned_integer(0u, CStringView{ "size" }));
-        content = add(ctx, live, live.root(), live.create_object(CStringView{ "content" }));
-        directory = add(ctx, live, content, live.create_object(CStringView{ "shaders" }));
-        add(ctx, live, directory, live.create_string(CStringView{ "Shaders" }, CStringView{ "physicalName" }));
-        nested = add(ctx, live, directory, live.create_object(CStringView{ "content" }));
+        tests::add_document_child(ctx, live, live.root(), live.create_string(CStringView{ "morphic-bundle" }, CStringView{ "fileType" }));
+        tests::add_document_child(ctx, live, live.root(), live.create_unsigned_integer(1u, CStringView{ "version" }));
+        tests::add_document_child(ctx, live, live.root(), live.create_unsigned_integer(0u, CStringView{ "size" }));
+        content = tests::add_document_child(ctx, live, live.root(), live.create_object(CStringView{ "content" }));
+        directory = tests::add_document_child(ctx, live, content, live.create_object(CStringView{ "shaders" }));
+        tests::add_document_child(ctx, live, directory, live.create_string(CStringView{ "Shaders" }, CStringView{ "physicalName" }));
+        nested = tests::add_document_child(ctx, live, directory, live.create_object(CStringView{ "content" }));
         const std::size_t lengths[]{ 1u, 127u, 128u, 129u, 255u, 256u };
         for (std::size_t i = 0u; i < 6u; ++i)
         {
             const std::string name = "file" + std::to_string(i);
             const CNodeKey file = add_file(ctx, nested, name.c_str(), lengths[i]);
-            if (i == 0u) { add(ctx, live, file, live.create_string(CStringView{ "File0" }, CStringView{ "physicalName" })); }
+            if (i == 0u) { tests::add_document_child(ctx, live, file, live.create_string(CStringView{ "File0" }, CStringView{ "physicalName" })); }
         }
         add_file(ctx, content, "size", 3u); // A filename matching a metadata key.
         add_file(ctx, content, "\xc3\xa9", 2u);
@@ -86,9 +76,9 @@ struct SFixture
 
     CNodeKey add_file(TTestContext& ctx, CNodeKey parent, const char* name, std::size_t size)
     {
-        const CNodeKey file = add(ctx, live, parent, live.create_object(CStringView{ name }));
-        add(ctx, live, file, live.create_unsigned_integer(0u, CStringView{ "offset" }));
-        add(ctx, live, file, live.create_unsigned_integer(size, CStringView{ "size" }));
+        const CNodeKey file = tests::add_document_child(ctx, live, parent, live.create_object(CStringView{ name }));
+        tests::add_document_child(ctx, live, file, live.create_unsigned_integer(0u, CStringView{ "offset" }));
+        tests::add_document_child(ctx, live, file, live.create_unsigned_integer(size, CStringView{ "size" }));
         files.push_back(file);
         return file;
     }
@@ -96,7 +86,7 @@ struct SFixture
     void collect(const CBakedDocument& doc, CBakedValueIndex node)
     {
         std::uint64_t size = 0u;
-        if (child(doc, node, "offset").is_valid() && doc.unsigned_integer_value(child(doc, node, "size"), size))
+        if (tests::baked_document_child(doc, node, "offset").is_valid() && doc.unsigned_integer_value(tests::baked_document_child(doc, node, "size"), size))
         {
             entries.push_back(node);
             sizes.push_back(static_cast<std::size_t>(size));
@@ -119,7 +109,7 @@ struct SFixture
             for (std::size_t i = 0u; i < entries.size(); ++i)
             {
                 offsets.push_back(total);
-                const auto offset = child(editor.baked(), entries[i], "offset");
+                const auto offset = tests::baked_document_child(editor.baked(), entries[i], "offset");
                 std::uint64_t unused = 0u;
                 if (editor.baked().unsigned_integer_value(offset, unused))
                 {
@@ -127,7 +117,7 @@ struct SFixture
                 }
                 total += ((sizes[i] + 128u) / 128u) * 128u;
             }
-            const auto size = child(editor.baked(), editor.baked().root(), "size");
+            const auto size = tests::baked_document_child(editor.baked(), editor.baked().root(), "size");
             std::uint64_t unused = 0u;
             if (editor.baked().unsigned_integer_value(size, unused)) { TEST_EXPECT(ctx, editor.set_unsigned_integer_value(size, total)); }
         }
@@ -146,7 +136,7 @@ struct SFixture
     void set(TTestContext& ctx, CBakedValueIndex entry, const char* property, std::uint64_t value)
     {
         CMutableBakedDocument editor{ block };
-        TEST_EXPECT(ctx, editor.set_unsigned_integer_value(child(editor.baked(), entry, property), value));
+        TEST_EXPECT(ctx, editor.set_unsigned_integer_value(tests::baked_document_child(editor.baked(), entry, property), value));
     }
 };
 
@@ -164,7 +154,7 @@ void test_views_and_lookup(TTestContext& ctx)
         for (std::size_t i = 0u; i < fixture.entries.size(); ++i)
         {
             const auto name = view.document().name(fixture.entries[i]);
-            const bool at_root = view.document().parent(fixture.entries[i]) == child(view.document(), view.document().root(), "content");
+            const bool at_root = view.document().parent(fixture.entries[i]) == tests::baked_document_child(view.document(), view.document().root(), "content");
             const std::string path = at_root ? name.cstring() : std::string{ "SHADERS/" } + name.cstring();
             const auto found = view.lookup(CStringView{ path.c_str() });
             TEST_EXPECT(ctx, found.status == ELookupStatus::success);
@@ -174,7 +164,7 @@ void test_views_and_lookup(TTestContext& ctx)
         }
         const auto found = view.lookup(CStringView{ "ShAdErS/FILE0" });
         TEST_EXPECT(ctx, found.status == ELookupStatus::success && found.bytes.bytes() == 1u);
-        TEST_EXPECT(ctx, view.document().string_value(child(view.document(), found.entry, "physicalName")) == CStringView{ "File0" });
+        TEST_EXPECT(ctx, view.document().string_value(tests::baked_document_child(view.document(), found.entry, "physicalName")) == CStringView{ "File0" });
         TEST_EXPECT(ctx, view.lookup(CStringView{ "shaders" }).status == ELookupStatus::not_file);
         TEST_EXPECT(ctx, view.lookup(CStringView{ "missing" }).status == ELookupStatus::not_found);
         TEST_EXPECT(ctx, view.lookup(CStringView{ "size/child" }).status == ELookupStatus::not_found);
@@ -276,47 +266,47 @@ void test_schema_rejections(TTestContext& ctx)
         auto property = [&](CNodeKey entry, const char* name) { return f.live.object_child(entry, CStringView{ name }); };
         switch (scenario)
         {
-        case 0: add(ctx, f.live, f.live.root(), f.live.create_boolean(true, CStringView{ "unknown" })); break;
-        case 1: add(ctx, f.live, first, f.live.create_boolean(true, CStringView{ "unknown" })); break;
-        case 2: add(ctx, f.live, f.directory, f.live.create_unsigned_integer(1u, CStringView{ "size" })); break;
+        case 0: tests::add_document_child(ctx, f.live, f.live.root(), f.live.create_boolean(true, CStringView{ "unknown" })); break;
+        case 1: tests::add_document_child(ctx, f.live, first, f.live.create_boolean(true, CStringView{ "unknown" })); break;
+        case 2: tests::add_document_child(ctx, f.live, f.directory, f.live.create_unsigned_integer(1u, CStringView{ "size" })); break;
         case 3: TEST_EXPECT(ctx, f.live.erase(property(f.live.root(), "fileType"))); break;
         case 4:
             TEST_EXPECT(ctx, f.live.erase(property(f.live.root(), "version")));
-            add(ctx, f.live, f.live.root(), f.live.create_signed_integer(1, CStringView{ "version" })); break;
+            tests::add_document_child(ctx, f.live, f.live.root(), f.live.create_signed_integer(1, CStringView{ "version" })); break;
         case 5:
             TEST_EXPECT(ctx, f.live.erase(property(first, "size")));
-            add(ctx, f.live, first, f.live.create_signed_integer(1, CStringView{ "size" })); break;
+            tests::add_document_child(ctx, f.live, first, f.live.create_signed_integer(1, CStringView{ "size" })); break;
         case 6: TEST_EXPECT(ctx, f.live.erase_payload(f.content)); break;
         case 7: TEST_EXPECT(ctx, f.live.erase_payload(f.nested)); break;
-        case 8: add(ctx, f.live, first, f.live.create_object(CStringView{ "content" })); break;
+        case 8: tests::add_document_child(ctx, f.live, first, f.live.create_object(CStringView{ "content" })); break;
         case 9: TEST_EXPECT(ctx, f.live.set_name(first, CStringView{ "UPPER" })); break;
         case 10: TEST_EXPECT(ctx, f.live.set_name(first, CStringView{ "a/b" })); break;
         case 11: TEST_EXPECT(ctx, f.live.set_name(first, CStringView{ ".." })); break;
         case 12:
             TEST_EXPECT(ctx, f.live.erase(property(first, "physicalName")));
-            add(ctx, f.live, first, f.live.create_string(CStringView{ "file0" }, CStringView{ "physicalName" })); break;
+            tests::add_document_child(ctx, f.live, first, f.live.create_string(CStringView{ "file0" }, CStringView{ "physicalName" })); break;
         case 13:
             TEST_EXPECT(ctx, f.live.erase(property(first, "physicalName")));
-            add(ctx, f.live, first, f.live.create_string(CStringView{ "Other" }, CStringView{ "physicalName" })); break;
+            tests::add_document_child(ctx, f.live, first, f.live.create_string(CStringView{ "Other" }, CStringView{ "physicalName" })); break;
         case 14:
             TEST_EXPECT(ctx, f.live.erase(property(first, "physicalName")));
-            add(ctx, f.live, first, f.live.create_unsigned_integer(1u, CStringView{ "physicalName" })); break;
+            tests::add_document_child(ctx, f.live, first, f.live.create_unsigned_integer(1u, CStringView{ "physicalName" })); break;
         case 15: TEST_EXPECT(ctx, f.live.erase(property(first, "offset"))); break;
         case 16:
             TEST_EXPECT(ctx, f.live.erase(property(f.live.root(), "size")));
-            add(ctx, f.live, f.live.root(), f.live.create_floating_point(1.0, CStringView{ "size" })); break;
+            tests::add_document_child(ctx, f.live, f.live.root(), f.live.create_floating_point(1.0, CStringView{ "size" })); break;
         case 17:
             TEST_EXPECT(ctx, f.live.erase(property(f.live.root(), "fileType")));
-            add(ctx, f.live, f.live.root(), f.live.create_string(CStringView{ "filesystem" }, CStringView{ "fileType" })); break;
-        case 18: add(ctx, f.live, f.content, f.live.create_boolean(true, CStringView{ "scalar" })); break;
+            tests::add_document_child(ctx, f.live, f.live.root(), f.live.create_string(CStringView{ "filesystem" }, CStringView{ "fileType" })); break;
+        case 18: tests::add_document_child(ctx, f.live, f.content, f.live.create_boolean(true, CStringView{ "scalar" })); break;
         case 19: TEST_EXPECT(ctx, f.live.set_name(first, CStringView{ "a\0b", 3u })); break;
         case 20:
             TEST_EXPECT(ctx, f.live.erase(property(first, "offset")));
-            add(ctx, f.live, first, f.live.create_signed_integer(1, CStringView{ "offset" })); break;
+            tests::add_document_child(ctx, f.live, first, f.live.create_signed_integer(1, CStringView{ "offset" })); break;
         case 21:
             TEST_EXPECT(ctx, f.live.erase_payload(f.nested));
             TEST_EXPECT(ctx, f.live.erase(f.nested));
-            add(ctx, f.live, f.directory, f.live.create_array(CStringView{ "content" })); break;
+            tests::add_document_child(ctx, f.live, f.directory, f.live.create_array(CStringView{ "content" })); break;
         }
         f.pack(ctx);
         CBundleView view;
@@ -333,8 +323,8 @@ void test_nested_and_duplicate_names(TTestContext& ctx)
     std::string path;
     for (unsigned i = 0u; i < 256u; ++i)
     {
-        const auto directory = add(ctx, f.live, content, f.live.create_object(CStringView{ "nested" }));
-        content = add(ctx, f.live, directory, f.live.create_object(CStringView{ "content" }));
+        const auto directory = tests::add_document_child(ctx, f.live, content, f.live.create_object(CStringView{ "nested" }));
+        content = tests::add_document_child(ctx, f.live, directory, f.live.create_object(CStringView{ "content" }));
         path += "NESTED/";
     }
     f.add_file(ctx, content, "last", 128u);
@@ -351,9 +341,9 @@ void test_nested_and_duplicate_names(TTestContext& ctx)
 
     // Duplicate object keys must be rejected by the baked-prefix validator.
     const auto doc = f.block.document();
-    const auto root_content = child(doc, doc.root(), "content");
-    const auto a = child(doc, root_content, "aaa");
-    const auto z = child(doc, root_content, "zzz");
+    const auto root_content = tests::baked_document_child(doc, doc.root(), "content");
+    const auto a = tests::baked_document_child(doc, root_content, "aaa");
+    const auto z = tests::baked_document_child(doc, root_content, "zzz");
     const auto bytes = f.block.buffer_bytes();
     const auto* header = reinterpret_cast<const SBakedDocumentHeader*>(bytes.data());
     auto* records = reinterpret_cast<SBakedValueRecord*>(bytes.data() + header->values_offset);

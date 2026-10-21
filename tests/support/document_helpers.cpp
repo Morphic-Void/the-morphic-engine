@@ -11,6 +11,8 @@
 #include <cstring>
 
 #include "data_model/document_parser.hpp"
+#include "data_model/live_document.hpp"
+#include "tests/support/test_context.hpp"
 
 namespace tests
 {
@@ -18,6 +20,23 @@ namespace tests
 using schema::detail::CDocumentRead;
 using schema::detail::SOccurrence;
 using schema::EDocumentValueKind;
+
+void attach_document_child(TTestContext& ctx, CLiveDocument& document, const CNodeKey parent, const CNodeKey child)
+{
+    TEST_EXPECT(ctx, child.is_valid());
+    TEST_EXPECT(ctx, document.append_child(parent, child).succeeded());
+}
+
+CNodeKey add_document_child(TTestContext& ctx, CLiveDocument& document, const CNodeKey parent, const CNodeKey value)
+{
+    TEST_EXPECT(ctx, value.is_valid() && document.append_child(parent, value).succeeded());
+    return value;
+}
+
+CBakedValueIndex baked_document_child(const CBakedDocument& document, const CBakedValueIndex parent, const char* name)
+{
+    return document.object_child(parent, CStringView{ name });
+}
 
 bool parse_document(const std::string& text, CLiveDocument& document)
 {

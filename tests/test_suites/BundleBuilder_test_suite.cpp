@@ -26,6 +26,7 @@
 #include "tests/environment/test_paths.hpp"
 #include "tests/support/test_allocator.hpp"
 #include "tests/support/test_context.hpp"
+#include "tests/support/document_helpers.hpp"
 #include "tests/support/test_scopes.hpp"
 
 namespace
@@ -34,17 +35,6 @@ namespace
 using tests::TTestContext;
 using bundle::EBuildStatus;
 namespace fs = platform::filesystem;
-
-CNodeKey add(TTestContext& ctx, CLiveDocument& doc, CNodeKey parent, CNodeKey value)
-{
-    TEST_EXPECT(ctx, value.is_valid() && doc.append_child(parent, value).succeeded());
-    return value;
-}
-
-CBakedValueIndex child(const CBakedDocument& doc, CBakedValueIndex parent, const char* name)
-{
-    return doc.object_child(parent, CStringView{ name });
-}
 
 struct SInputs
 {
@@ -61,8 +51,8 @@ struct SInputs
 
     CNodeKey directory(TTestContext& ctx, CNodeKey parent, const char* name)
     {
-        const auto entry = add(ctx, inventory, parent, inventory.create_object(CStringView{ name }));
-        return add(ctx, inventory, entry, inventory.create_object(CStringView{ "content" }));
+        const auto entry = tests::add_document_child(ctx, inventory, parent, inventory.create_object(CStringView{ name }));
+        return tests::add_document_child(ctx, inventory, entry, inventory.create_object(CStringView{ "content" }));
     }
 
     void initialise(TTestContext& ctx, bool reversed, bool real_files = true)
@@ -70,24 +60,24 @@ struct SInputs
         TEST_EXPECT(ctx, inventory.initialise());
         // The selected subtree is below an unrelated root property.
         content = directory(ctx, inventory.root(), "selected");
-        add(ctx, inventory, inventory.root(), inventory.create_boolean(true, CStringView{ "ignored" }));
+        tests::add_document_child(ctx, inventory, inventory.root(), inventory.create_boolean(true, CStringView{ "ignored" }));
         const auto nested = directory(ctx, content, "nested");
         const auto parent = inventory.parent(nested);
-        add(ctx, inventory, parent, inventory.create_string(CStringView{ "Nested" }, CStringView{ "physicalName" }));
+        tests::add_document_child(ctx, inventory, parent, inventory.create_string(CStringView{ "Nested" }, CStringView{ "physicalName" }));
         directory(ctx, directory(ctx, content, "emptytree"), "emptychild");
         const auto only_empty = directory(ctx, content, "onlyempty");
-        const auto other = add(ctx, inventory, content, inventory.create_object(CStringView{ "unsupported" }));
-        add(ctx, inventory, other, inventory.create_string(CStringView{ "other" }, CStringView{ "kind" }));
+        const auto other = tests::add_document_child(ctx, inventory, content, inventory.create_object(CStringView{ "unsupported" }));
+        tests::add_document_child(ctx, inventory, other, inventory.create_string(CStringView{ "other" }, CStringView{ "kind" }));
         const char* names[]{ "z", "a", "file", "b", "\xc3\xa9", "size", "empty" };
         for (std::size_t ordinal = 0u; ordinal < sizes.size(); ++ordinal)
         {
             const std::size_t i = reversed ? sizes.size() - 1u - ordinal : ordinal;
-            const auto file = add(ctx, inventory, (i == 2u) ? nested : ((i == 6u) ? only_empty : content),
+            const auto file = tests::add_document_child(ctx, inventory, (i == 2u) ? nested : ((i == 6u) ? only_empty : content),
                 inventory.create_object(CStringView{ names[i] }));
-            if (i == 2u) { add(ctx, inventory, file, inventory.create_string(CStringView{ "File" }, CStringView{ "physicalName" })); }
+            if (i == 2u) { tests::add_document_child(ctx, inventory, file, inventory.create_string(CStringView{ "File" }, CStringView{ "physicalName" })); }
             // Runtime/source metadata is deliberately varied and must not leak.
-            add(ctx, inventory, file, inventory.create_unsigned_integer(reversed ? 999u : 123u, CStringView{ "asset" }));
-            add(ctx, inventory, file, inventory.create_string(CStringView{ "not serialized" }, CStringView{ "physical" }));
+            tests::add_document_child(ctx, inventory, file, inventory.create_unsigned_integer(reversed ? 999u : 123u, CStringView{ "asset" }));
+            tests::add_document_child(ctx, inventory, file, inventory.create_string(CStringView{ "not serialized" }, CStringView{ "physical" }));
             paths[i] = test_environment::test_output_path((std::string{ reversed ? "builder-reverse-" : "builder-forward-" } + std::to_string(i) + ".bin").c_str());
             sources.push_back({ file, paths[i].c_str() });
             if (!real_files) { continue; }
@@ -145,14 +135,14 @@ void test_native_round_trip(TTestContext& ctx)
     TEST_EXPECT(ctx, before.bytes().size() == after.bytes().size());
     if (before.bytes().size() == after.bytes().size()) { TEST_EXPECT(ctx, std::memcmp(before.bytes().data(), after.bytes().data(), before.bytes().size()) == 0); }
     const auto doc = av.document();
-    const auto content = child(doc, doc.root(), "content");
+    const auto content = tests::baked_document_child(doc, doc.root(), "content");
     check_order(ctx, doc, doc.root(), { "fileType", "version", "size", "content" });
     check_order(ctx, doc, content, { "a", "b", "nested", "size", "z", "\xc3\xa9" });
-    const auto nested = child(doc, content, "nested");
+    const auto nested = tests::baked_document_child(doc, content, "nested");
     check_order(ctx, doc, nested, { "physicalName", "content" });
     const auto file = av.lookup(CStringView{ "NESTED/FILE" });
     check_order(ctx, doc, file.entry, { "physicalName", "offset", "size" });
-    check_order(ctx, doc, child(doc, content, "a"), { "offset", "size" });
+    check_order(ctx, doc, tests::baked_document_child(doc, content, "a"), { "offset", "size" });
     TEST_EXPECT(ctx, av.lookup(CStringView{ "empty" }).status == bundle::ELookupStatus::not_found);
     TEST_EXPECT(ctx, av.lookup(CStringView{ "emptytree" }).status == bundle::ELookupStatus::not_found);
     TEST_EXPECT(ctx, av.lookup(CStringView{ "onlyempty" }).status == bundle::ELookupStatus::not_found);

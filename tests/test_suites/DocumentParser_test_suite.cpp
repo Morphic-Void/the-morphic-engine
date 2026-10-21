@@ -24,6 +24,7 @@
 #include "text/text_linter.hpp"
 #include "tests/support/test_allocator.hpp"
 #include "tests/support/test_context.hpp"
+#include "tests/support/document_helpers.hpp"
 #include "tests/support/test_scopes.hpp"
 
 namespace document_parser_tests
@@ -1189,12 +1190,6 @@ static void test_singleton_contexts(TTestContext& ctx)
     TEST_EXPECT(ctx, document.value_type(document.root()) == ELiveValueType::object && document.check_integrity());
 }
 
-static void attach(TTestContext& ctx, CLiveDocument& document, const CNodeKey parent, const CNodeKey child)
-{
-    TEST_EXPECT(ctx, child.is_valid());
-    TEST_EXPECT(ctx, document.append_child(parent, child).succeeded());
-}
-
 static void expect_same_semantics(TTestContext& ctx, const CLiveDocument& source, const CLiveDocument& parsed, const bool strict)
 {
     struct CPair
@@ -1313,70 +1308,70 @@ static void test_round_trips(TTestContext& ctx)
     CLiveDocument source;
     TEST_EXPECT(ctx, source.initialise());
     const CNodeKey array = source.create_array(CStringView{ "items" });
-    attach(ctx, source, source.root(), array);
-    attach(ctx, source, array, source.create_empty(CStringView{ "placeholder" }));
-    attach(ctx, source, array, source.create_null(CStringView{ "null" }));
-    attach(ctx, source, array, source.create_boolean(true, CStringView{ "bool" }));
-    attach(ctx, source, array, source.create_signed_integer(7, CStringView{ "signed" }));
-    attach(ctx, source, array, source.create_signed_integer(std::numeric_limits<std::int64_t>::min(), CStringView{ "minimum" }));
-    attach(ctx, source, array, source.create_unsigned_integer(std::numeric_limits<std::uint64_t>::max(), CStringView{ "maximum" }));
+    tests::attach_document_child(ctx, source, source.root(), array);
+    tests::attach_document_child(ctx, source, array, source.create_empty(CStringView{ "placeholder" }));
+    tests::attach_document_child(ctx, source, array, source.create_null(CStringView{ "null" }));
+    tests::attach_document_child(ctx, source, array, source.create_boolean(true, CStringView{ "bool" }));
+    tests::attach_document_child(ctx, source, array, source.create_signed_integer(7, CStringView{ "signed" }));
+    tests::attach_document_child(ctx, source, array, source.create_signed_integer(std::numeric_limits<std::int64_t>::min(), CStringView{ "minimum" }));
+    tests::attach_document_child(ctx, source, array, source.create_unsigned_integer(std::numeric_limits<std::uint64_t>::max(), CStringView{ "maximum" }));
     CIntegerMetadata hexadecimal;
     hexadecimal.domain = EIntegerDomain::signed_value;
     hexadecimal.notation = EIntegerNotation::hexadecimal;
     hexadecimal.prefix = EIntegerPrefix::alternate;
     hexadecimal.width = live_signed_integer_smallest_width(-128);
-    attach(ctx, source, array, source.create_signed_integer(-128, hexadecimal, CStringView{ "hex" }));
+    tests::attach_document_child(ctx, source, array, source.create_signed_integer(-128, hexadecimal, CStringView{ "hex" }));
     CIntegerMetadata binary;
     binary.domain = EIntegerDomain::unsigned_value;
     binary.notation = EIntegerNotation::binary_16;
     binary.width = live_unsigned_integer_smallest_width(256u);
-    attach(ctx, source, array, source.create_unsigned_integer(256u, binary, CStringView{ "binary" }));
-    attach(ctx, source, array, source.create_floating_point(-0.0, CStringView{ "float" }));
+    tests::attach_document_child(ctx, source, array, source.create_unsigned_integer(256u, binary, CStringView{ "binary" }));
+    tests::attach_document_child(ctx, source, array, source.create_floating_point(-0.0, CStringView{ "float" }));
     const std::uint8_t unicode[]{ 'x', 0u, 0xc3u, 0xa9u, 0xf0u, 0x9du, 0x84u, 0x9eu, '\n' };
-    attach(ctx, source, array, source.create_string(CStringView{ unicode, sizeof(unicode) }, CStringView{ unicode, sizeof(unicode) - 1u }));
-    attach(ctx, source, array, source.create_string(CStringView{ "" }, CStringView{ "empty" }));
-    attach(ctx, source, array, source.create_array(CStringView{ "array" }));
+    tests::attach_document_child(ctx, source, array, source.create_string(CStringView{ unicode, sizeof(unicode) }, CStringView{ unicode, sizeof(unicode) - 1u }));
+    tests::attach_document_child(ctx, source, array, source.create_string(CStringView{ "" }, CStringView{ "empty" }));
+    tests::attach_document_child(ctx, source, array, source.create_array(CStringView{ "array" }));
     const CNodeKey object = source.create_object(CStringView{ "object" });
-    attach(ctx, source, array, object);
-    attach(ctx, source, object, source.create_null(CStringView{ "$morphic" }));
+    tests::attach_document_child(ctx, source, array, object);
+    tests::attach_document_child(ctx, source, object, source.create_null(CStringView{ "$morphic" }));
     const CNodeKey redundant = source.create_object();
-    attach(ctx, source, array, redundant);
-    attach(ctx, source, redundant, source.create_boolean(false, CStringView{ "singleton" }));
-    attach(ctx, source, array, source.create_object());
+    tests::attach_document_child(ctx, source, array, redundant);
+    tests::attach_document_child(ctx, source, redundant, source.create_boolean(false, CStringView{ "singleton" }));
+    tests::attach_document_child(ctx, source, array, source.create_object());
     const CNodeKey multi = source.create_object();
-    attach(ctx, source, array, multi);
-    attach(ctx, source, multi, source.create_null(CStringView{ "a" }));
-    attach(ctx, source, multi, source.create_null(CStringView{ "b" }));
+    tests::attach_document_child(ctx, source, array, multi);
+    tests::attach_document_child(ctx, source, multi, source.create_null(CStringView{ "a" }));
+    tests::attach_document_child(ctx, source, multi, source.create_null(CStringView{ "b" }));
 
     for (unsigned count = 0u; count < 4u; ++count)
     {
         const std::string name = std::string(count + 1u, '$') + "morphic";
         const CNodeKey recovered = source.create_array(CStringView{ name.data(), name.size() });
-        attach(ctx, source, array, recovered);
+        tests::attach_document_child(ctx, source, array, recovered);
         for (unsigned i = 0u; i < count; ++i)
         {
             const CNodeKey competitor = source.create_object();
-            attach(ctx, source, recovered, competitor);
-            attach(ctx, source, competitor, source.create_unsigned_integer(i, CStringView{ "n" }));
+            tests::attach_document_child(ctx, source, recovered, competitor);
+            tests::attach_document_child(ctx, source, competitor, source.create_unsigned_integer(i, CStringView{ "n" }));
         }
     }
     const CNodeKey nested_arrays = source.create_array();
-    attach(ctx, source, array, nested_arrays);
-    attach(ctx, source, nested_arrays, source.create_array());
+    tests::attach_document_child(ctx, source, array, nested_arrays);
+    tests::attach_document_child(ctx, source, nested_arrays, source.create_array());
     const CNodeKey competitor_array = source.create_array();
-    attach(ctx, source, nested_arrays, competitor_array);
-    attach(ctx, source, competitor_array, source.create_array(CStringView{ "nested" }));
+    tests::attach_document_child(ctx, source, nested_arrays, competitor_array);
+    tests::attach_document_child(ctx, source, competitor_array, source.create_array(CStringView{ "nested" }));
     const CNodeKey lookalike = source.create_object(CStringView{ "$morphic" });
-    attach(ctx, source, source.root(), lookalike);
-    attach(ctx, source, lookalike, source.create_unsigned_integer(2u, CStringView{ "v" }));
-    attach(ctx, source, lookalike, source.create_string(CStringView{ "array" }, CStringView{ "type" }));
-    attach(ctx, source, lookalike, source.create_array(CStringView{ "values" }));
+    tests::attach_document_child(ctx, source, source.root(), lookalike);
+    tests::attach_document_child(ctx, source, lookalike, source.create_unsigned_integer(2u, CStringView{ "v" }));
+    tests::attach_document_child(ctx, source, lookalike, source.create_string(CStringView{ "array" }, CStringView{ "type" }));
+    tests::attach_document_child(ctx, source, lookalike, source.create_array(CStringView{ "values" }));
 
     const CNodeKey numbers = source.create_array(CStringView{ "numbers" });
-    attach(ctx, source, source.root(), numbers);
+    tests::attach_document_child(ctx, source, source.root(), numbers);
     for (const double value : { std::numeric_limits<double>::denorm_min(), std::numeric_limits<double>::min(), std::numeric_limits<double>::max() })
     {
-        attach(ctx, source, numbers, source.create_floating_point(value));
+        tests::attach_document_child(ctx, source, numbers, source.create_floating_point(value));
     }
     std::uint64_t bits = 0xa0761d6478bd642full;
     for (unsigned i = 0u; i < 256u; ++i)
@@ -1387,7 +1382,7 @@ static void test_round_trips(TTestContext& ctx)
         const double value = live_floating_point_from_bits(bits);
         if (live_floating_point_is_finite(value))
         {
-            attach(ctx, source, numbers, source.create_floating_point(value));
+            tests::attach_document_child(ctx, source, numbers, source.create_floating_point(value));
         }
     }
     TEST_EXPECT(ctx, source.check_integrity());

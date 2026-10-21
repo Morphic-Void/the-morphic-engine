@@ -24,9 +24,7 @@
 #include "tests/environment/local_type_ids.hpp"
 #include "tests/environment/test_paths.hpp"
 #include "memory/memory_context.hpp"
-#include "data_model/document_translation.hpp"
 #include "platform/path/native_path.hpp"
-#include "platform/threading/processor_relax.hpp"
 #include "system/erased_owner.hpp"
 #include "system/erased_owner_transport.hpp"
 #include "assets/asset_messages.hpp"
@@ -37,6 +35,7 @@
 #include "tests/support/test_allocator.hpp"
 #include "tests/support/memory_context_test_access.hpp"
 #include "tests/support/test_context.hpp"
+#include "tests/support/thread_helpers.hpp"
 #include "tests/support/file_helpers.hpp"
 #include "tests/support/test_scopes.hpp"
 #include "threading/messages/CErasedMessageTransports.hpp"
@@ -49,17 +48,10 @@ namespace executive_startup_tests
 static bool read_request(threading::CThreadPackage& package, threading::CErasedOwnerMsg& message,
     const platform::system::CPerfCountConversion& conversion) noexcept
 {
-    platform::system::CPerfCounter timer;
-    (void)timer.update();
-    while (timer.query_delta() < (conversion.query_ticks_per_second() * 5u))
+    return tests::wait_until(conversion, [&package, &message]() noexcept
     {
-        if (package.read(message))
-        {
-            return true;
-        }
-        platform::threading::processor_relax();
-    }
-    return false;
+        return package.read(message);
+    });
 }
 
 static void check_rendering_notices(tests::TTestContext& ctx, modules::CBoundModule& module,

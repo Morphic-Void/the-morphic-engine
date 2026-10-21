@@ -96,6 +96,7 @@
     <ClInclude Include="..\tests\support\test_context.hpp"><Filter>Tests\support</Filter></ClInclude>
     <ClInclude Include="..\tests\support\test_scopes.hpp"><Filter>Tests\support</Filter></ClInclude>
     <ClInclude Include="..\tests\support\thread_helpers.hpp"><Filter>Tests\support</Filter></ClInclude>
+    <ClInclude Include="..\tests\support\slot_harness_helpers.hpp"><Filter>Tests\support</Filter></ClInclude>
     <ClInclude Include="..\tests\support\transport_helpers.hpp"><Filter>Tests\support</Filter></ClInclude>
     <ClInclude Include="..\tests\test_suites\AssetRepository_test_suite.hpp"><Filter>Tests\test_suites</Filter></ClInclude>
     <ClInclude Include="..\tests\test_suites\FilesystemImage_test_suite.hpp"><Filter>Tests\test_suites</Filter></ClInclude>

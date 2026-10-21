@@ -20,6 +20,7 @@
 #include "data_model/live_document.hpp"
 #include "tests/support/test_allocator.hpp"
 #include "tests/support/test_context.hpp"
+#include "tests/support/document_helpers.hpp"
 #include "tests/support/test_scopes.hpp"
 
 namespace
@@ -34,12 +35,6 @@ CDocumentWriteOptions compact(const EDocumentWriteMode mode = EDocumentWriteMode
     options.pretty_print = false;
     options.trailing_line_ending = false;
     return options;
-}
-
-void attach(TTestContext& ctx, CLiveDocument& live, const CNodeKey parent, const CNodeKey child)
-{
-    TEST_EXPECT(ctx, child.is_valid());
-    TEST_EXPECT(ctx, live.append_child(parent, child).succeeded());
 }
 
 void expect_text(TTestContext& ctx, const CDocumentWriteResult& result, const std::string& expected)
@@ -71,24 +66,24 @@ void test_named_payloads(TTestContext& ctx)
     CLiveDocument live;
     TEST_EXPECT(ctx, live.initialise());
     const CNodeKey items = live.create_array(CStringView{ "items" });
-    attach(ctx, live, live.root(), items);
-    attach(ctx, live, items, live.create_signed_integer(1, CStringView{ "n" }));
-    attach(ctx, live, items, live.create_unsigned_integer(5u, CStringView{ "u" }));
-    attach(ctx, live, items, live.create_floating_point(1.5, CStringView{ "f" }));
-    attach(ctx, live, items, live.create_boolean(true, CStringView{ "b" }));
-    attach(ctx, live, items, live.create_null(CStringView{ "z" }));
-    attach(ctx, live, items, live.create_string(CStringView{ "text" }, CStringView{ "s" }));
+    tests::attach_document_child(ctx, live, live.root(), items);
+    tests::attach_document_child(ctx, live, items, live.create_signed_integer(1, CStringView{ "n" }));
+    tests::attach_document_child(ctx, live, items, live.create_unsigned_integer(5u, CStringView{ "u" }));
+    tests::attach_document_child(ctx, live, items, live.create_floating_point(1.5, CStringView{ "f" }));
+    tests::attach_document_child(ctx, live, items, live.create_boolean(true, CStringView{ "b" }));
+    tests::attach_document_child(ctx, live, items, live.create_null(CStringView{ "z" }));
+    tests::attach_document_child(ctx, live, items, live.create_string(CStringView{ "text" }, CStringView{ "s" }));
     const CNodeKey object = live.create_object(CStringView{ "o" });
-    attach(ctx, live, items, object);
-    attach(ctx, live, object, live.create_boolean(false, CStringView{ "k" }));
+    tests::attach_document_child(ctx, live, items, object);
+    tests::attach_document_child(ctx, live, object, live.create_boolean(false, CStringView{ "k" }));
     const CNodeKey array = live.create_array(CStringView{ "a" });
-    attach(ctx, live, items, array);
-    attach(ctx, live, array, live.create_unsigned_integer(2u));
+    tests::attach_document_child(ctx, live, items, array);
+    tests::attach_document_child(ctx, live, array, live.create_unsigned_integer(2u));
     const CNodeKey recovery = live.create_array(CStringView{ "r" });
-    attach(ctx, live, items, recovery);
-    attach(ctx, live, recovery, live.create_null());
-    attach(ctx, live, items, live.create_empty(CStringView{ "e" }));
-    attach(ctx, live, items, live.create_unsigned_integer(3u));
+    tests::attach_document_child(ctx, live, items, recovery);
+    tests::attach_document_child(ctx, live, recovery, live.create_null());
+    tests::attach_document_child(ctx, live, items, live.create_empty(CStringView{ "e" }));
+    tests::attach_document_child(ctx, live, items, live.create_unsigned_integer(3u));
     CBakedDocumentBlock block;
     TEST_EXPECT(ctx, document_translation::bake(live, block));
     for (const EDocumentWriteMode mode : { EDocumentWriteMode::morphic, EDocumentWriteMode::strict_json })
@@ -110,10 +105,10 @@ void test_layout_and_options(TTestContext& ctx)
     TEST_EXPECT(ctx, document_translation::bake(live, block));
     expect_text(ctx, document_writer::write(block.document()), "{}\n");
     const CNodeKey array = live.create_array(CStringView{ "a" });
-    attach(ctx, live, live.root(), array);
-    attach(ctx, live, array, live.create_boolean(true, CStringView{ "b" }));
-    attach(ctx, live, array, live.create_object());
-    attach(ctx, live, array, live.create_array());
+    tests::attach_document_child(ctx, live, live.root(), array);
+    tests::attach_document_child(ctx, live, array, live.create_boolean(true, CStringView{ "b" }));
+    tests::attach_document_child(ctx, live, array, live.create_object());
+    tests::attach_document_child(ctx, live, array, live.create_array());
     TEST_EXPECT(ctx, document_translation::bake(live, block));
     const std::string expected = "{\n  \"a\": [\n    {\n      \"b\": true\n    },\n    {},\n    []\n  ]\n}\n";
     expect_text(ctx, document_writer::write(block.document()), expected);
@@ -134,26 +129,26 @@ void test_arrays_and_dollar_names(TTestContext& ctx)
     CLiveDocument live;
     TEST_EXPECT(ctx, live.initialise());
     const CNodeKey recovered = live.create_array(CStringView{ "r" });
-    attach(ctx, live, live.root(), recovered);
-    attach(ctx, live, recovered, live.create_unsigned_integer(22u));
+    tests::attach_document_child(ctx, live, live.root(), recovered);
+    tests::attach_document_child(ctx, live, recovered, live.create_unsigned_integer(22u));
     const CNodeKey competitor = live.create_object();
-    attach(ctx, live, recovered, competitor);
-    attach(ctx, live, competitor, live.create_string(CStringView{ "first" }, CStringView{ "x" }));
-    attach(ctx, live, recovered, live.create_array());
+    tests::attach_document_child(ctx, live, recovered, competitor);
+    tests::attach_document_child(ctx, live, competitor, live.create_string(CStringView{ "first" }, CStringView{ "x" }));
+    tests::attach_document_child(ctx, live, recovered, live.create_array());
     const CNodeKey nested = live.create_array();
-    attach(ctx, live, recovered, nested);
-    attach(ctx, live, nested, live.create_boolean(false));
+    tests::attach_document_child(ctx, live, recovered, nested);
+    tests::attach_document_child(ctx, live, nested, live.create_boolean(false));
     const CNodeKey lookalike = live.create_object(CStringView{ "$morphic" });
-    attach(ctx, live, live.root(), lookalike);
-    attach(ctx, live, lookalike, live.create_unsigned_integer(1u, CStringView{ "v" }));
-    attach(ctx, live, lookalike, live.create_string(CStringView{ "recovered-array" }, CStringView{ "type" }));
-    attach(ctx, live, lookalike, live.create_array(CStringView{ "values" }));
+    tests::attach_document_child(ctx, live, live.root(), lookalike);
+    tests::attach_document_child(ctx, live, lookalike, live.create_unsigned_integer(1u, CStringView{ "v" }));
+    tests::attach_document_child(ctx, live, lookalike, live.create_string(CStringView{ "recovered-array" }, CStringView{ "type" }));
+    tests::attach_document_child(ctx, live, lookalike, live.create_array(CStringView{ "values" }));
     const CNodeKey array = live.create_array(CStringView{ "a" });
-    attach(ctx, live, live.root(), array);
-    attach(ctx, live, array, live.create_null(CStringView{ "$$morphic" }));
-    attach(ctx, live, array, live.create_string(CStringView{ "$morphic" }, CStringView{ "$morphic" }));
-    attach(ctx, live, array, live.create_null(CStringView{ "$morphicx" }));
-    attach(ctx, live, array, live.create_null(CStringView{ "$" }));
+    tests::attach_document_child(ctx, live, live.root(), array);
+    tests::attach_document_child(ctx, live, array, live.create_null(CStringView{ "$$morphic" }));
+    tests::attach_document_child(ctx, live, array, live.create_string(CStringView{ "$morphic" }, CStringView{ "$morphic" }));
+    tests::attach_document_child(ctx, live, array, live.create_null(CStringView{ "$morphicx" }));
+    tests::attach_document_child(ctx, live, array, live.create_null(CStringView{ "$" }));
     CBakedDocumentBlock block;
     TEST_EXPECT(ctx, document_translation::bake(live, block));
     const std::string expected = "{\"r\":[22,{\"x\":\"first\"},[],[false]],"
@@ -179,8 +174,8 @@ void test_strings(TTestContext& ctx)
         0xf0u, 0x90u, 0x80u, 0x80u, 0xf4u, 0x8fu, 0xbfu, 0xbfu };
     CLiveDocument live;
     TEST_EXPECT(ctx, live.initialise());
-    attach(ctx, live, live.root(), live.create_string(CStringView{ value, sizeof(value) }, CStringView{ name, sizeof(name) }));
-    attach(ctx, live, live.root(), live.create_string(CStringView{}, CStringView{ "empty" }));
+    tests::attach_document_child(ctx, live, live.root(), live.create_string(CStringView{ value, sizeof(value) }, CStringView{ name, sizeof(name) }));
+    tests::attach_document_child(ctx, live, live.root(), live.create_string(CStringView{}, CStringView{ "empty" }));
     CBakedDocumentBlock block;
     TEST_EXPECT(ctx, document_translation::bake(live, block));
     for (const EDocumentWriteMode mode : { EDocumentWriteMode::morphic, EDocumentWriteMode::strict_json })
@@ -255,7 +250,7 @@ void test_integers(TTestContext& ctx)
                 metadata.width = signed_value ? live_signed_integer_smallest_width(signed_values[i]) : live_unsigned_integer_smallest_width(unsigned_values[i]);
                 metadata.notation = format.notation;
                 metadata.prefix = format.alternate ? EIntegerPrefix::alternate : EIntegerPrefix::standard;
-                attach(ctx, live, live.root(), signed_value ? live.create_signed_integer(signed_values[i], metadata, CStringView{ "n" }) :
+                tests::attach_document_child(ctx, live, live.root(), signed_value ? live.create_signed_integer(signed_values[i], metadata, CStringView{ "n" }) :
                     live.create_unsigned_integer(unsigned_values[i], metadata, CStringView{ "n" }));
                 CBakedDocumentBlock block;
                 TEST_EXPECT(ctx, document_translation::bake(live, block));
@@ -300,7 +295,7 @@ void test_integer_presentation_mutation(TTestContext& ctx)
         TEST_EXPECT(ctx, live.initialise());
         const CIntegerMetadata metadata{ EIntegerDomain::signed_value, EIntegerWidth::bits_8,
             notation, EIntegerPrefix::standard };
-        attach(ctx, live, live.root(), live.create_signed_integer(1, metadata, CStringView{ "n" }));
+        tests::attach_document_child(ctx, live, live.root(), live.create_signed_integer(1, metadata, CStringView{ "n" }));
         CBakedDocumentBlock block;
         TEST_EXPECT(ctx, document_translation::bake(live, block));
         CMutableBakedDocument editable{ block };
@@ -324,7 +319,7 @@ void test_integer_presentation_mutation(TTestContext& ctx)
         const CIntegerMetadata metadata{ EIntegerDomain::unsigned_value, EIntegerWidth::bits_8,
             binary ? EIntegerNotation::binary_16 : EIntegerNotation::hexadecimal_8,
             binary ? EIntegerPrefix::standard : EIntegerPrefix::alternate };
-        attach(ctx, live, live.root(), live.create_unsigned_integer(1u, metadata, CStringView{ "n" }));
+        tests::attach_document_child(ctx, live, live.root(), live.create_unsigned_integer(1u, metadata, CStringView{ "n" }));
         CBakedDocumentBlock block;
         TEST_EXPECT(ctx, document_translation::bake(live, block));
         CMutableBakedDocument editable{ block };
@@ -344,7 +339,7 @@ void check_float(TTestContext& ctx, const double value, const char* const expect
 {
     CLiveDocument live;
     TEST_EXPECT(ctx, live.initialise());
-    attach(ctx, live, live.root(), live.create_floating_point(value, CStringView{ "f" }));
+    tests::attach_document_child(ctx, live, live.root(), live.create_floating_point(value, CStringView{ "f" }));
     CBakedDocumentBlock block;
     TEST_EXPECT(ctx, document_translation::bake(live, block));
     const auto result = document_writer::write(block.document(), compact());
@@ -393,10 +388,10 @@ void test_depth_and_allocation_failures(TTestContext& ctx)
     for (std::size_t i = 0u; i < depth; ++i)
     {
         const CNodeKey child = live.create_array(CStringView{ "n" });
-        attach(ctx, live, parent, child);
+        tests::attach_document_child(ctx, live, parent, child);
         parent = child;
     }
-    attach(ctx, live, parent, live.create_null());
+    tests::attach_document_child(ctx, live, parent, live.create_null());
     CBakedDocumentBlock block;
     TEST_EXPECT(ctx, document_translation::bake(live, block));
     std::string expected;
@@ -464,8 +459,8 @@ static void test_empty_names_and_newline_metadata(TTestContext& ctx)
         const CNodeKey suppressed = live.create_string(view, CStringView{ "" });
         TEST_EXPECT(ctx, live.string_value_id(plain) == live.string_value_id(suppressed));
         TEST_EXPECT(ctx, live.set_newline_escaping_suppressed(suppressed, true));
-        attach(ctx, live, live.root(), plain);
-        attach(ctx, live, live.root(), suppressed);
+        tests::attach_document_child(ctx, live, live.root(), plain);
+        tests::attach_document_child(ctx, live, live.root(), suppressed);
         CBakedDocumentBlock block;
         TEST_EXPECT(ctx, document_translation::bake(live, block));
         auto options = compact();
@@ -488,7 +483,7 @@ static void test_empty_names_and_newline_metadata(TTestContext& ctx)
     TEST_EXPECT(ctx, document_translation::bake(empty, block));
     expect_text(ctx, document_writer::write(block.document(), compact()), "[]");
     TEST_EXPECT(ctx, empty.set_root_type(ELiveValueType::object));
-    attach(ctx, empty, empty.root(), empty.create_string(CStringView{ "" }, CStringView{ "" }));
+    tests::attach_document_child(ctx, empty, empty.root(), empty.create_string(CStringView{ "" }, CStringView{ "" }));
     TEST_EXPECT(ctx, document_translation::bake(empty, block));
     expect_text(ctx, document_writer::write(block.document(), compact(EDocumentWriteMode::strict_json)), "{\"\":\"\"}");
 }

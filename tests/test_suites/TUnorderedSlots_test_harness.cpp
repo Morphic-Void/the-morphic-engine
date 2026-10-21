@@ -6,16 +6,11 @@
 //  Reviewed and accepted by: Ritchie Brannan
 //  Date:    21 Oct 26
 //
-//  Standalone configurable test harness for TUnorderedSlots<TSlotBacking, TIndex>.
-//  Build (Clang/GCC):
-//    clang++ -std=c++14 -O0 -g TUnorderedSlots_test_harness.cpp -o tun_test
-//    g++     -std=c++14 -O0 -g TUnorderedSlots_test_harness.cpp -o tun_test
-//  Build (MSVC):
-//    cl /std:c++14 /EHsc /O0 /Zi TUnorderedSlots_test_harness.cpp
-//  Run:
-//    ./tun_test --fast
-//    ./tun_test --soak
-//    ./tun_test --fuzz --seed=123 --steps=20000
+//  Configurable harness run by MorphicTests (C++17 and the repository libraries).
+//  MorphicTests -t1 runs the core checks; -t2 and -t3 also select ordered exhaustive work.
+//  The test runner passes TUnorderedConfig directly. The optional main below is
+//  disabled by TUNORDERED_TESTHARNESS_WITH_MAIN in the harness header; this file
+//  is not a self-contained single-file executable.
 
 #include <cstdint>
 #include <cstdlib>
@@ -25,85 +20,18 @@
 #include <random>
 #include <algorithm>
 #include <iostream>
-#include <sstream>
 #include <string>
 
 #include "containers/TPodUnorderedSlots.hpp"
 #include "containers/slots/TUnorderedSlots.hpp"
 #include "tests/test_suites/TUnorderedSlots_test_harness.hpp"
+#include "tests/support/slot_harness_helpers.hpp"
 
-#ifndef TUNORDERED_TESTHARNESS_WITH_MAIN
-#define TUNORDERED_TESTHARNESS_WITH_MAIN    1
-#endif
-
-// -----------------------------
-// Debug-break / fail policy
-// -----------------------------
-#if defined(_MSC_VER)
-#   define TUN_DEBUG_BREAK() __debugbreak()
-#elif defined(__clang__) || defined(__GNUC__)
-#   define TUN_DEBUG_BREAK() __builtin_trap()
-#else
-#   define TUN_DEBUG_BREAK() std::abort()
-#endif
-
-struct TestLogger
-{
-    bool stop_on_fail = true;
-    bool debug_break_on_fail =
-#if !defined(NDEBUG)
-        true;
-#else
-        false;
-#endif
-    uint32_t failures = 0;
-
-    void fail(const std::string& msg) noexcept
-    {
-        ++failures;
-        std::cerr << "FAIL: " << msg << "\n";
-        if (debug_break_on_fail) { TUN_DEBUG_BREAK(); }
-        if (stop_on_fail) { std::abort(); }
-    }
-};
-
-// Hard-fail helper for contract violations inside slot-backing operations or harness adapter invariants.
-// (Intentionally ignores stop_on_fail and always terminates.)
-[[noreturn]] static void hard_fail_contract(const char* msg) noexcept
-{
-    std::cerr << "FAIL (contract): " << msg << "\n";
-    TUN_DEBUG_BREAK();
-    std::abort();
-}
-
-static bool starts_with(const std::string& s, const char* prefix)
-{
-    const size_t n = std::strlen(prefix);
-    return s.size() >= n && std::memcmp(s.data(), prefix, n) == 0;
-}
-
-static bool parse_i64(const std::string& s, int64_t& out_v)
-{
-    if (s.empty()) return false;
-    char* end = nullptr;
-    const long long v = std::strtoll(s.c_str(), &end, 10);
-    if (!end || *end != '\0') return false;
-    out_v = static_cast<int64_t>(v);
-    return true;
-}
-
-static std::string vec_i32_to_string(const std::vector<int32_t>& v)
-{
-    std::ostringstream oss;
-    oss << "[";
-    for (size_t i = 0; i < v.size(); ++i)
-    {
-        if (i) oss << ", ";
-        oss << v[i];
-    }
-    oss << "]";
-    return oss.str();
-}
+using tests::slot_harness::TestLogger;
+using tests::slot_harness::hard_fail_contract;
+using tests::slot_harness::starts_with;
+using tests::slot_harness::parse_i64;
+using tests::slot_harness::vec_to_string;
 
 // -----------------------------
 // Harness: derived test adapter
@@ -580,8 +508,8 @@ static bool test_traversal_semantics(const TUnorderedConfig& cfg, TestLogger& lo
         std::sort(b.begin(), b.end());
         if (a != b)
         {
-            log.fail("loose traversal mismatch: by_count=" + vec_i32_to_string(loose_by_count) +
-                " by_scan=" + vec_i32_to_string(loose_by_scan));
+            log.fail("loose traversal mismatch: by_count=" + vec_to_string(loose_by_count) +
+                " by_scan=" + vec_to_string(loose_by_scan));
             return false;
         }
     }
@@ -884,11 +812,7 @@ static bool test_fuzz(const TUnorderedConfig& cfg, TestLogger& log)
 
     auto push_hist = [&](const OpRec& r)
         {
-            if (cfg.fuzz_history == 0) return;
-            if (hist.size() < cfg.fuzz_history) { hist.push_back(r); return; }
-            // ring buffer: drop oldest
-            for (size_t i = 1; i < hist.size(); ++i) hist[i - 1] = hist[i];
-            hist.back() = r;
+            tests::slot_harness::push_history(hist, cfg.fuzz_history, r);
         };
 
     auto dump_hist = [&]()
@@ -1241,9 +1165,9 @@ static bool run_suite_typed(const TUnorderedConfig& cfg, TestLogger& log)
 
     if (cfg.run_resize_reserve)
     {
-        std::cout << "UNORDERED RESISE RESERVE TEST STARTED\n";
+        std::cout << "UNORDERED RESIZE RESERVE TEST STARTED\n";
         if (!test_resize_reserve<TIndex>(cfg, log)) return false;
-        std::cout << "UNORDERED RESISE RESERVE TEST PASSED\n";
+        std::cout << "UNORDERED RESIZE RESERVE TEST PASSED\n";
     }
 
     if (cfg.run_fuzz)

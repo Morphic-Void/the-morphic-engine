@@ -19,6 +19,15 @@
 namespace tests
 {
 
+struct TTestContext;
+
+//  Keep separate checks for construction tests that attempt the append even after an invalid child.
+void attach_document_child(TTestContext& ctx, CLiveDocument& document, CNodeKey parent, CNodeKey child);
+
+//  Bundle fixtures use one short-circuiting check and retain the supplied node.
+CNodeKey add_document_child(TTestContext& ctx, CLiveDocument& document, CNodeKey parent, CNodeKey value);
+CBakedValueIndex baked_document_child(const CBakedDocument& document, CBakedValueIndex parent, const char* name);
+
 [[nodiscard]] bool parse_document(const std::string& text, CLiveDocument& document);
 [[nodiscard]] bool parse_document(const char* text, CLiveDocument& document);
 

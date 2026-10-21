@@ -21,87 +21,19 @@
 #include <random>
 #include <algorithm>
 #include <iostream>
-#include <sstream>
 #include <string>
 
 #include "containers/TPodOrderedSlots.hpp"
 #include "containers/slots/TOrderedSlots.hpp"
 #include "tests/environment/test_environment.hpp"
 #include "tests/test_suites/TOrderedSlots_test_harness.hpp"
+#include "tests/support/slot_harness_helpers.hpp"
 
-#ifndef TORDERED_TESTHARNESS_WITH_MAIN
-#   define TORDERED_TESTHARNESS_WITH_MAIN  1
-#endif
-
-// -----------------------------
-// Debug-break / fail policy
-// -----------------------------
-#if defined(_MSC_VER)
-#   define TLEX_DEBUG_BREAK() __debugbreak()
-#elif defined(__clang__) || defined(__GNUC__)
-#   define TLEX_DEBUG_BREAK() __builtin_trap()
-#else
-#   define TLEX_DEBUG_BREAK() std::abort()
-#endif
-
-struct TestLogger
-{
-    bool stop_on_fail = true;
-    bool debug_break_on_fail =
-#if !defined(NDEBUG)
-        true;
-#else
-        false;
-#endif
-
-    uint32_t failures = 0;
-
-    void fail(const std::string& msg) noexcept
-    {
-        ++failures;
-        std::cerr << "FAIL: " << msg << "\n";
-        if (debug_break_on_fail) { TLEX_DEBUG_BREAK(); }
-        if (stop_on_fail) { std::abort(); }
-    }
-};
-
-// Hard-fail helper for contract violations inside slot-backing operations.
-// (Intentionally ignores stop_on_fail and always terminates.)
-[[noreturn]] static void hard_fail_contract(const char* msg) noexcept
-{
-    std::cerr << "FAIL (contract): " << msg << "\n";
-    TLEX_DEBUG_BREAK();
-    std::abort();
-}
-
-static std::string vec_to_string(const std::vector<int>& v)
-{
-    std::ostringstream oss;
-    oss << "[";
-    for (size_t i = 0; i < v.size(); ++i)
-    {
-        if (i) oss << ", ";
-        oss << v[i];
-    }
-    oss << "]";
-    return oss.str();
-}
-
-static bool starts_with(const std::string& s, const char* prefix)
-{
-    const size_t n = std::strlen(prefix);
-    return s.size() >= n && std::memcmp(s.data(), prefix, n) == 0;
-}
-
-static bool parse_i64(const std::string& s, int64_t& out_v)
-{
-    if (s.empty()) return false;
-    char* end = nullptr;
-    const long long v = std::strtoll(s.c_str(), &end, 10);
-    if (!end || *end != '\0') return false;
-    out_v = static_cast<int64_t>(v);
-    return true;
-}
+using tests::slot_harness::TestLogger;
+using tests::slot_harness::hard_fail_contract;
+using tests::slot_harness::starts_with;
+using tests::slot_harness::parse_i64;
+using tests::slot_harness::vec_to_string;
 
 // -----------------------------
 // Harness: derived test adapter
@@ -1198,10 +1130,7 @@ static bool test_fuzz_lightweight(const TOrderedConfig& cfg, TestLogger& log)
 
     auto push_hist = [&](const OpRec& r)
         {
-            if (cfg.fuzz_history == 0) return;
-            if (hist.size() < cfg.fuzz_history) { hist.push_back(r); return; }
-            for (size_t i = 1; i < hist.size(); ++i) hist[i - 1] = hist[i];
-            hist.back() = r;
+            tests::slot_harness::push_history(hist, cfg.fuzz_history, r);
         };
 
     auto dump_hist = [&]()
