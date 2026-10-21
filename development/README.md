@@ -146,12 +146,12 @@ publish a virtual bundle root.
 ## Build-output redirect
 
 The checked-in manifest places the `bin` binding under `package:`'s `content`,
-with `source: "executable-directory"`, `extensions: ["dll"]` and
+with `source: "executable-directory"`, `extensions: ["${module_extension}"]` and
 `writable: false`. The image resolves that source once at the directory level;
 DLL entries do not repeat its path. No build-generated path or binary copy is
 needed. The worker queries the actual running process image location, so Debug/Release,
 x64/Win32 and isolated lifecycle-fixture directories select their own adjacent
-DLLs. All adjacent DLLs, including test-only DLLs, are discovered; EXEs, PDBs
+modules. All adjacent native modules, including test-only modules, are discovered; EXEs, PDBs
 and import libraries are not. This discovery does not load the DLLs.
 The executable-location query uses 1 KiB of typed stack storage, accepting a
 full executable filename of at most 511 UTF-16 code units on Windows or 1,023
@@ -161,14 +161,26 @@ Existing physical `package/bin` content can coexist if names do not collide;
 those exceptional branches retain explicit physical source overrides beneath
 the read-only `bin` binding.
 
-`ModuleRequest` and the bootstrap configuration's `executive=` setting use
-logical DLL names, for example
-`package:/bin/MorphicExecutive.dll`. The Host resolves these into stable native
+The exact `${module_extension}` token in the manifest extension entry is expanded
+using the platform extension supplier: `dll` on Windows, `so` on Linux/Android,
+and `dylib` on macOS. A literal native extension is also accepted. This development
+profile requires exactly one extension matching the current platform; other
+extensions are rejected, and foreign-platform binaries are not discovered.
+The generated inventory records the resolved extension and retains that filter
+on refresh. Other manifest fields do not expand tokens.
+
+`ModuleRequest` uses complete logical filenames, for example
+`package:/bin/MorphicExecutive.dll` on Windows or `package:/bin/MorphicExecutive.so`
+on Linux. C++ callers construct these with `platform::module::make_module_filename`.
+The shared bootstrap presets use `executive=package:/bin/MorphicExecutive.${module_extension}`;
+the bootstrap reader expands the token before constructing any module request.
+The Host resolves complete logical filenames into stable native
 filenames before worker binding. Unknown modules fail without a native load
 attempt. A replacement still unloads the old binding under the existing module
 lifecycle contract. Module binding ownership remains in the module service,
-separate from ordinary retained asset IDs. Linux builds retain the same `.dll`
-filenames for their ELF shared libraries; see [Linux builds](../docs/project/linux_ci.md).
+separate from ordinary retained asset IDs. Module basenames have no `lib` prefix.
+Neither the filesystem resolver nor module loader substitutes tokens or guesses
+extensions; see [Linux builds](../docs/project/linux_ci.md).
 
 ## Virtual bundle roots
 

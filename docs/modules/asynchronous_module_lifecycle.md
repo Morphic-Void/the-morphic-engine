@@ -26,16 +26,18 @@ thread. Per-thread context installation still runs on the newly created thread,
 because that operation installs thread-local state.
 
 The [bootstrap configuration file](../project/bootstrap_configuration.md) requires
-`executive=<logical DLL path>` to select the implementation advertising the
+`executive=<logical module filename>` to select the implementation advertising the
 Executive identity and exporting the Executive thread function. The checked-in
-flow-test presets select `package:/bin/MorphicExecutive.dll`.
+flow-test presets select `package:/bin/MorphicExecutive.${module_extension}`.
+The bootstrap reader expands the token to the native extension before requesting the module.
 The [development filesystem image](../../development/README.md#build-output-redirect)
 resolves discovered DLLs adjacent to the running executable without copying them.
 
 Rendering selection belongs to the Executive. The Host bootstraps only the
 Executive; a selector implementation can run without a renderer or choose another
-implementation later. The normal `MorphicExecutive.dll` first sends an owning
-load request for `package:/bin/MorphicRendering.dll` and `render_vulkan`. It validates
+implementation later. The normal Executive first sends an owning load request
+for `package:/bin/MorphicRendering` with the native extension appended by
+`platform::module::make_module_filename`, and `render_vulkan`. It validates
 the correlated acknowledgement before accepting completion, then starts its
 71 sequential and 32 concurrent asset acceptance operations only when rendering
 is available.
@@ -79,7 +81,8 @@ uses the same failure handling.
 ## Ordinary DLL operations
 
 `ModuleRequest` owns its logical filename (for example
-`package:/bin/MorphicRendering.dll`) and carries an action (`load`, `unload`, or
+`package:/bin/MorphicRendering.dll` on Windows or `package:/bin/MorphicRendering.so`
+on Linux) and carries an action (`load`, `unload`, or
 `replace`), a registered module identity and an optional required function identity.
 The mounting point encoded in the module identity selects the service being
 changed. A replacement may select another registered implementation at that point.
@@ -115,7 +118,8 @@ Executive policy.
 ## Rendering DLL and thread
 
 `MorphicRendering.vcxproj` is a separate solution project producing
-`MorphicRendering.dll`. It uses the `render_vulkan` module
+`MorphicRendering.dll`; the CMake build produces `MorphicRendering.so` on Linux.
+It uses the `render_vulkan` module
 identity at the `render` mount on both Windows and Linux, with the existing
 `rendering` thread identity.
 Vulkan is the primary API planned for first implementation.

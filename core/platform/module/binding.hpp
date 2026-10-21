@@ -23,6 +23,7 @@
 
 #include "platform/path/native_path.hpp"
 #include "platform/platform_defines.hpp"
+#include "containers/StringBuffers.hpp"
 
 namespace platform::module
 {
@@ -30,6 +31,15 @@ namespace platform::module
 using FModuleFunction = void(MV_STD_ABI_CALL*)() noexcept;
 
 const char* get_modules_std_ext() noexcept;
+
+//  Append '.' and the native extension to a basename or logical path stem.
+//  The destination is unchanged on failure; an existing suffix is not removed.
+[[nodiscard]] bool make_module_filename(const char* stem, CSimpleString& destination) noexcept;
+
+//  Configuration-only substitution of ${module_extension}; other text is literal.
+//  No allocation. Source and destination must not overlap. Failure leaves the
+//  destination unchanged; capacity includes the terminating NUL.
+[[nodiscard]] bool expand_module_extension(const char* source, char* destination, std::size_t capacity) noexcept;
 
 class CPlatformModule
 {

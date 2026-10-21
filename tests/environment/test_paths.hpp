@@ -13,9 +13,24 @@
 #define MORPHIC_TEST_PATHS_HPP_INCLUDED
 
 #include <string>
+#include "platform/module/binding.hpp"
 
 namespace test_environment
 {
+
+//  Independent expected filename construction for module and filesystem tests.
+[[nodiscard]] inline std::string module_filename(const char* stem, const bool uppercase_extension = false)
+{
+    std::string extension = platform::module::get_modules_std_ext();
+    if (uppercase_extension)
+    {
+        for (char& character : extension)
+        {
+            if ((character >= 'a') && (character <= 'z')) { character -= 'a' - 'A'; }
+        }
+    }
+    return std::string(stem) + "." + extension;
+}
 
 [[nodiscard]] bool initialise_paths(
     const char* executable_argument,

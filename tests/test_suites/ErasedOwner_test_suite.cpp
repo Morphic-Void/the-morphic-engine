@@ -83,7 +83,7 @@ static void check_rendering_notices(tests::TTestContext& ctx, modules::CBoundMod
         const ModuleRequest* const load = request.owner().payload<ModuleRequest>();
         TEST_EXPECT(ctx, (load != nullptr) && (load->action == EModuleAction::load) &&
             (load->module == module_ids::render_vulkan) && (load->file.length() != 0u) &&
-            (std::strcmp(load->file.cstring(), "package:/bin/MorphicRendering.dll") == 0));
+            (std::strcmp(load->file.cstring(), test_environment::module_filename("package:/bin/MorphicRendering").c_str()) == 0));
         const std::int32_t slot = request.query_async_slot();
         request.take_owner().destroy();
 
@@ -449,7 +449,7 @@ void test_executive_context_and_module_unload_gate(TTestContext& ctx)
         modules::k_binding_abi_major
     };
     const std::string module_filename =
-        test_environment::binary_path("MorphicExecutive.dll");
+        test_environment::binary_path(test_environment::module_filename("MorphicExecutive").c_str());
     const platform::path::NativePath module_path =
         platform::path::makeNativePath(module_filename.c_str());
     modules::CBoundModule module;

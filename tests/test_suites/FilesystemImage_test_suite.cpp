@@ -66,6 +66,80 @@ static CNodeKey entry(const CLiveDocument& doc, const char* const root_name, con
     return member(doc, member(doc, root(doc, root_name), "content"), name);
 }
 
+static void test_module_names(tests::TTestContext& ctx)
+{
+    using namespace platform::module;
+    const std::string expected = test_environment::module_filename("package:/bin/Example");
+    CSimpleString filename;
+    TEST_EXPECT(ctx, make_module_filename("package:/bin/Example", filename));
+    TEST_EXPECT(ctx, filename.view() == CStringView{ expected.c_str() });
+    TEST_EXPECT(ctx, !make_module_filename(nullptr, filename) && !make_module_filename("", filename));
+    TEST_EXPECT(ctx, filename.view() == CStringView{ expected.c_str() });
+    //  The source may be the current destination, and dotted stems are literal.
+    TEST_EXPECT(ctx, make_module_filename(filename.cstring(), filename));
+    TEST_EXPECT(ctx, filename.view() == CStringView{ test_environment::module_filename(expected.c_str()).c_str() });
+
+    char expanded[128]{};
+    TEST_EXPECT(ctx, expand_module_extension("package:/bin/Example.${module_extension}", expanded, expected.size() + 1u));
+    TEST_EXPECT(ctx, std::strcmp(expanded, expected.c_str()) == 0);
+    TEST_EXPECT(ctx, !expand_module_extension("package:/bin/Example.${module_extension}", expanded, expected.size()));
+    TEST_EXPECT(ctx, std::strcmp(expanded, expected.c_str()) == 0);
+    TEST_EXPECT(ctx, !expand_module_extension(nullptr, expanded, sizeof(expanded)));
+    TEST_EXPECT(ctx, !expand_module_extension("text", nullptr, sizeof(expanded)));
+    TEST_EXPECT(ctx, !expand_module_extension("text", expanded, 0u));
+    TEST_EXPECT(ctx, expand_module_extension("literal.dll/${unknown}/${module_extension", expanded, sizeof(expanded)));
+    TEST_EXPECT(ctx, std::strcmp(expanded, "literal.dll/${unknown}/${module_extension") == 0);
+    TEST_EXPECT(ctx, expand_module_extension("${module_extension}.${module_extension}", expanded, sizeof(expanded)));
+    TEST_EXPECT(ctx, std::strcmp(expanded, test_environment::module_filename(get_modules_std_ext()).c_str()) == 0);
+
+    tests::TAllocationFailureFixture state;
+    memory::CMemoryAllocator allocator{ &state, &tests::allocate_with_failure, &tests::deallocate_test_memory, system_ids::host };
+    memory::CMemoryContext context{ allocator, system_ids::host };
+    {
+        const tests::TMemoryContextScope scope{ &context };
+        CSimpleString retained;
+        TEST_EXPECT(ctx, retained.set("unchanged"));
+        //  Both temporary storage and final string allocation must fail cleanly.
+        for (std::size_t offset = 0u; offset != 2u; ++offset)
+        {
+            state.fail_on = state.attempts + offset;
+            TEST_EXPECT(ctx, !make_module_filename("Example", retained));
+            state.fail_on = SIZE_MAX;
+            TEST_EXPECT(ctx, retained.view() == CStringView{ "unchanged" });
+        }
+    }
+    TEST_EXPECT(ctx, context.is_attribution_empty());
+}
+
+static void test_manifest_extension(tests::TTestContext& ctx)
+{
+    namespace fs = std::filesystem;
+    using filesystem_image::EScanStatus;
+    const std::string base = test_environment::test_output_path("module-manifest");
+    const std::string manifest = base + "/manifest.json";
+    std::error_code error;
+    TEST_EXPECT(ctx, fs::create_directories(base + "/content", error) && !error);
+    const char* const native = platform::module::get_modules_std_ext();
+    for (const char* extension : { "${module_extension}", native, "foreign", "${unknown}" })
+    {
+        const std::string text = std::string(R"({"schemaVersion":2,"roots":{"package:":{"source":"content","writable":false,"content":{"bin":{"source":"executable-directory","extensions":[")") +
+            extension + R"("],"writable":false}}}}})";
+        TEST_EXPECT(ctx, tests::write_test_file(manifest, text.c_str()));
+        CLiveDocument document;
+        const bool accepted = (std::strcmp(extension, native) == 0) || (std::strcmp(extension, "${module_extension}") == 0);
+        TEST_EXPECT(ctx, filesystem_image::scan_manifest(manifest.c_str(), document) ==
+            (accepted ? EScanStatus::success : EScanStatus::invalid_manifest));
+        if (accepted && document.is_ready())
+        {
+            const auto extensions = member(document, entry(document, "package:", "bin"), "extensions");
+            TEST_EXPECT(ctx, document.string_value(document.first_child(extensions)) == CStringView{ native });
+        }
+    }
+    TEST_EXPECT(ctx, fs::remove(manifest, error) && !error);
+    TEST_EXPECT(ctx, fs::remove(base + "/content", error) && !error);
+    TEST_EXPECT(ctx, fs::remove(base, error) && !error);
+}
+
 static void test_development_image(tests::TTestContext& ctx)
 {
     CLiveDocument document;
@@ -77,14 +151,14 @@ static void test_development_image(tests::TTestContext& ctx)
     CSimpleString physical;
     TEST_EXPECT(ctx, image.resolve("dev-source:/test_input.tga", false, physical));
     TEST_EXPECT(ctx, std::strcmp(physical.cstring(), "development/logical-roots/dev-source/test_input.tga") == 0);
-    TEST_EXPECT(ctx, image.resolve("package:/bin/MorphicExecutive.dll", false, physical));
+    TEST_EXPECT(ctx, image.resolve(test_environment::module_filename("package:/bin/MorphicExecutive").c_str(), false, physical));
     CSimpleString executable;
     TEST_EXPECT(ctx, platform::filesystem::executable_directory(executable));
     const std::string executable_path = std::filesystem::path(executable.cstring()).generic_string();
     TEST_EXPECT(ctx, std::strncmp(physical.cstring(), executable_path.c_str(), executable_path.length()) == 0);
     TEST_EXPECT(ctx, std::strchr(physical.cstring(), '\\') == nullptr);
     TEST_EXPECT(ctx, !image.resolve("package:/bin/MorphicEngine.exe", false, physical));
-    TEST_EXPECT(ctx, !image.resolve("package:/bin/MorphicExecutive.dll", true, physical));
+    TEST_EXPECT(ctx, !image.resolve(test_environment::module_filename("package:/bin/MorphicExecutive").c_str(), true, physical));
     TEST_EXPECT(ctx, !image.resolve("dev-source:/.gitkeep", false, physical));
     TEST_EXPECT(ctx, !image.resolve("dev-source:/../root-manifest.json", false, physical));
     TEST_EXPECT(ctx, !image.resolve("dev-source:/./test_input.tga", false, physical));
@@ -249,43 +323,47 @@ static void test_refresh(tests::TTestContext& ctx)
     TEST_EXPECT(ctx, !image.resolve("work:/empty/content", false, physical));
     TEST_EXPECT(ctx, image.document().check_integrity());
 
-    //  The redirect discovers every DLL, including test fixtures, but neither
+    //  The redirect discovers native modules, including test fixtures, but neither
     //  executables nor symbols. An overlapping logical filename is an error.
     TEST_EXPECT(ctx, fs::create_directory(base + "/dlls", error) && !error);
-    TEST_EXPECT(ctx, tests::write_test_file(base + "/dlls/runtime.dll", "fixture"));
-    TEST_EXPECT(ctx, tests::write_test_file(base + "/dlls/test-only.dll", "fixture"));
+    TEST_EXPECT(ctx, tests::write_test_file(base + test_environment::module_filename("/dlls/runtime").c_str(), "fixture"));
+    TEST_EXPECT(ctx, tests::write_test_file(base + test_environment::module_filename("/dlls/test-only").c_str(), "fixture"));
     TEST_EXPECT(ctx, tests::write_test_file(base + "/dlls/runtime.exe", "fixture"));
     TEST_EXPECT(ctx, tests::write_test_file(base + "/dlls/runtime.pdb", "fixture"));
+    const std::string foreign = (std::strcmp(platform::module::get_modules_std_ext(), "dll") == 0) ? "runtime.so" : "runtime.dll";
+    TEST_EXPECT(ctx, tests::write_test_file(base + "/dlls/" + foreign, "foreign module"));
     TEST_EXPECT(ctx, image.prepare_scan("work:", scan));
     TEST_EXPECT(ctx, scan.redirect_directory.set((base + "/dlls").c_str()));
     TEST_EXPECT(ctx, filesystem_image::scan_root(scan, observation) == EScanStatus::success);
     TEST_EXPECT(ctx, image.integrate(observation, image.write_serial()));
-    TEST_EXPECT(ctx, image.resolve("work:/bin/runtime.dll", false, physical));
-    TEST_EXPECT(ctx, image.resolve("work:/bin/test-only.dll", false, physical));
+    TEST_EXPECT(ctx, image.resolve(test_environment::module_filename("work:/bin/runtime").c_str(), false, physical));
+    TEST_EXPECT(ctx, image.resolve(test_environment::module_filename("work:/bin/test-only").c_str(), false, physical));
     TEST_EXPECT(ctx, !image.resolve("work:/bin/runtime.exe", false, physical));
     TEST_EXPECT(ctx, !image.resolve("work:/bin/runtime.pdb", false, physical));
-    TEST_EXPECT(ctx, !image.resolve("work:/bin/runtime.dll", true, physical));
-    TEST_EXPECT(ctx, !image.resolve("work:/bin/new.dll", true, physical));
+    TEST_EXPECT(ctx, !image.resolve(("work:/bin/" + foreign).c_str(), false, physical));
+    TEST_EXPECT(ctx, !image.resolve(test_environment::module_filename("work:/bin/runtime").c_str(), true, physical));
+    TEST_EXPECT(ctx, !image.resolve(test_environment::module_filename("work:/bin/new").c_str(), true, physical));
     TEST_EXPECT(ctx, fs::create_directory(base + "/content/bin", error) && !error);
-    TEST_EXPECT(ctx, tests::write_test_file(base + "/content/bin/runtime.dll", "collision"));
+    TEST_EXPECT(ctx, tests::write_test_file(base + test_environment::module_filename("/content/bin/runtime").c_str(), "collision"));
     const std::uint32_t before_collision = observation.value_count();
     TEST_EXPECT(ctx, filesystem_image::scan_root(scan, observation) == EScanStatus::name_collision);
     TEST_EXPECT(ctx, observation.value_count() == before_collision);
-    TEST_EXPECT(ctx, image.resolve("work:/bin/test-only.dll", false, physical));
-    TEST_EXPECT(ctx, fs::remove(base + "/content/bin/runtime.dll", error) && !error);
+    TEST_EXPECT(ctx, image.resolve(test_environment::module_filename("work:/bin/test-only").c_str(), false, physical));
+    TEST_EXPECT(ctx, fs::remove(base + test_environment::module_filename("/content/bin/runtime").c_str(), error) && !error);
     TEST_EXPECT(ctx, tests::write_test_file(base + "/content/bin/local.json", "overlay"));
     TEST_EXPECT(ctx, filesystem_image::scan_root(scan, observation) == EScanStatus::success);
     TEST_EXPECT(ctx, image.integrate(observation, image.write_serial()));
     TEST_EXPECT(ctx, image.resolve("work:/bin/local.json", false, physical));
     TEST_EXPECT(ctx, std::strcmp(physical.cstring(), (base + "/content/bin/local.json").c_str()) == 0);
-    TEST_EXPECT(ctx, image.resolve("work:/bin/runtime.dll", false, physical));
-    TEST_EXPECT(ctx, std::strcmp(physical.cstring(), (base + "/dlls/runtime.dll").c_str()) == 0);
+    TEST_EXPECT(ctx, image.resolve(test_environment::module_filename("work:/bin/runtime").c_str(), false, physical));
+    TEST_EXPECT(ctx, std::strcmp(physical.cstring(), (base + test_environment::module_filename("/dlls/runtime").c_str()).c_str()) == 0);
     TEST_EXPECT(ctx, fs::remove(base + "/content/bin/local.json", error) && !error);
     TEST_EXPECT(ctx, fs::remove(base + "/content/bin", error) && !error);
-    TEST_EXPECT(ctx, fs::remove(base + "/dlls/runtime.dll", error) && !error);
-    TEST_EXPECT(ctx, fs::remove(base + "/dlls/test-only.dll", error) && !error);
+    TEST_EXPECT(ctx, fs::remove(base + test_environment::module_filename("/dlls/runtime").c_str(), error) && !error);
+    TEST_EXPECT(ctx, fs::remove(base + test_environment::module_filename("/dlls/test-only").c_str(), error) && !error);
     TEST_EXPECT(ctx, fs::remove(base + "/dlls/runtime.exe", error) && !error);
     TEST_EXPECT(ctx, fs::remove(base + "/dlls/runtime.pdb", error) && !error);
+    TEST_EXPECT(ctx, fs::remove(base + "/dlls/" + foreign, error) && !error);
     TEST_EXPECT(ctx, fs::remove(base + "/dlls", error) && !error);
 
     TEST_EXPECT(ctx, tests::write_test_file(manifest, R"({"schemaVersion":2,"roots":{"work:":{"source":"../content","writable":true}}})"));
@@ -310,7 +388,7 @@ static void test_case_identity(tests::TTestContext& ctx)
     TEST_EXPECT(ctx, tests::write_test_file(base + "/Content/Textures/Brick.PNG", "image"));
     TEST_EXPECT(ctx, tests::write_test_file(base + "/Content/plain.txt", "plain"));
     TEST_EXPECT(ctx, tests::write_test_file(base + "/Content/Bin/Local.JSON", "local"));
-    TEST_EXPECT(ctx, tests::write_test_file(base + "/Dlls/Runtime.DLL", "module"));
+    TEST_EXPECT(ctx, tests::write_test_file(base + test_environment::module_filename("/Dlls/Runtime", true).c_str(), "module"));
     filesystem_image::SRootScan request;
     TEST_EXPECT(ctx, request.logical_root.set("work:"));
     TEST_EXPECT(ctx, request.physical_path.set((base + "/Content").c_str()));
@@ -328,9 +406,9 @@ static void test_case_identity(tests::TTestContext& ctx)
     TEST_EXPECT(ctx, physical.view() == CStringView{ (base + "/Content/Textures/Brick.PNG").c_str() });
     TEST_EXPECT(ctx, image.resolve("work:/BIN/local.json", false, physical));
     TEST_EXPECT(ctx, physical.view() == CStringView{ (base + "/Content/Bin/Local.JSON").c_str() });
-    TEST_EXPECT(ctx, image.resolve("work:/bin/RUNTIME.dll", false, physical));
-    TEST_EXPECT(ctx, physical.view() == CStringView{ (base + "/Dlls/Runtime.DLL").c_str() });
-    TEST_EXPECT(ctx, !image.resolve("work:/BIN/runtime.dll", true, physical));
+    TEST_EXPECT(ctx, image.resolve(test_environment::module_filename("work:/bin/RUNTIME").c_str(), false, physical));
+    TEST_EXPECT(ctx, physical.view() == CStringView{ (base + test_environment::module_filename("/Dlls/Runtime", true).c_str()).c_str() });
+    TEST_EXPECT(ctx, !image.resolve(test_environment::module_filename("work:/BIN/runtime").c_str(), true, physical));
     TEST_EXPECT(ctx, image.loaded("WORK:/Textures/BRICK.png", 70u, 1u, 9u, 0u));
     TEST_EXPECT(ctx, image.cached_asset("work:/textures/brick.PNG", 1u) == 70u);
     TEST_EXPECT(ctx, image.cached_findings("work:/TEXTURES/brick.png") == 9u);
@@ -353,11 +431,11 @@ static void test_case_identity(tests::TTestContext& ctx)
     TEST_EXPECT(ctx, image.cached_asset("work:/textures/new.json", 1u) == 0u);
 
     //  Separate physical directories can contribute aliases even on Windows.
-    TEST_EXPECT(ctx, tests::write_test_file(base + "/Content/Bin/runtime.dll", "collision"));
+    TEST_EXPECT(ctx, tests::write_test_file(base + test_environment::module_filename("/Content/Bin/runtime").c_str(), "collision"));
     const std::uint32_t retained = observation.value_count();
     TEST_EXPECT(ctx, filesystem_image::scan_root(request, observation) == EScanStatus::name_collision);
     TEST_EXPECT(ctx, observation.value_count() == retained);
-    TEST_EXPECT(ctx, fs::remove(base + "/Content/Bin/runtime.dll", error) && !error);
+    TEST_EXPECT(ctx, fs::remove(base + test_environment::module_filename("/Content/Bin/runtime").c_str(), error) && !error);
     TEST_EXPECT(ctx, fs::remove(base + "/Content/Bin/Local.JSON", error) && !error);
     TEST_EXPECT(ctx, fs::remove(base + "/Content/Bin", error) && !error);
     TEST_EXPECT(ctx, fs::remove(base + "/Content/Textures/Brick.PNG", error) && !error);
@@ -368,7 +446,7 @@ static void test_case_identity(tests::TTestContext& ctx)
     TEST_EXPECT(ctx, physical.view() == CStringView{ (base + "/Content/Textures/New.JSON").c_str() });
     TEST_EXPECT(ctx, fs::remove(base + "/Content/plain.txt", error) && !error);
     TEST_EXPECT(ctx, fs::remove(base + "/Content", error) && !error);
-    TEST_EXPECT(ctx, fs::remove(base + "/Dlls/Runtime.DLL", error) && !error);
+    TEST_EXPECT(ctx, fs::remove(base + test_environment::module_filename("/Dlls/Runtime", true).c_str(), error) && !error);
     TEST_EXPECT(ctx, fs::remove(base + "/Dlls", error) && !error);
     TEST_EXPECT(ctx, fs::remove(base, error) && !error);
 }
@@ -718,7 +796,7 @@ static void test_bake_capture(tests::TTestContext& ctx)
     TEST_EXPECT(ctx, fs::create_directories(base + "/Content/Nested/Empty", error) && !error);
     TEST_EXPECT(ctx, fs::create_directory(base + "/Dlls", error) && !error);
     TEST_EXPECT(ctx, tests::write_test_file(base + "/Content/Nested/File.TXT", "captured"));
-    TEST_EXPECT(ctx, tests::write_test_file(base + "/Dlls/Runtime.DLL", "module"));
+    TEST_EXPECT(ctx, tests::write_test_file(base + test_environment::module_filename("/Dlls/Runtime", true).c_str(), "module"));
     SRootScan scan;
     TEST_EXPECT(ctx, scan.logical_root.set("work:") && scan.physical_path.set((base + "/Content").c_str()) &&
         scan.redirect_directory.set((base + "/Dlls").c_str()));
@@ -753,9 +831,9 @@ static void test_bake_capture(tests::TTestContext& ctx)
     const auto file = view.lookup(CStringView{ "FILE.txt" });
     TEST_EXPECT(ctx, file.status == bundle::ELookupStatus::success && file.bytes.bytes() == 8u && std::memcmp(file.bytes.data(), "captured", 8u) == 0);
     TEST_EXPECT(ctx, bundle::build(full.inventory(), full.content(), full.sources(), block, view).succeeded());
-    TEST_EXPECT(ctx, view.lookup(CStringView{ "bin/runtime.dll" }).status == bundle::ELookupStatus::success);
+    TEST_EXPECT(ctx, view.lookup(CStringView{ test_environment::module_filename("bin/runtime").c_str() }).status == bundle::ELookupStatus::success);
     TEST_EXPECT(ctx, view.lookup(CStringView{ "nested/file.txt" }).status == bundle::ELookupStatus::success);
-    for (const auto& suffix : { "/Content/Nested/File.TXT", "/Content/Nested/Empty", "/Content/Nested", "/Content", "/Dlls/Runtime.DLL", "/Dlls", "" })
+    for (const auto& suffix : std::vector<std::string>{ "/Content/Nested/File.TXT", "/Content/Nested/Empty", "/Content/Nested", "/Content", test_environment::module_filename("/Dlls/Runtime", true), "/Dlls", "" })
     {
         TEST_EXPECT(ctx, fs::remove(base + suffix, error) && !error);
     }
@@ -766,6 +844,8 @@ static void test_bake_capture(tests::TTestContext& ctx)
 int run_filesystem_image_tests()
 {
     tests::TTestContext ctx;
+    filesystem_image_tests::test_module_names(ctx);
+    filesystem_image_tests::test_manifest_extension(ctx);
     filesystem_image_tests::test_development_image(ctx);
     filesystem_image_tests::test_refresh(ctx);
     filesystem_image_tests::test_case_identity(ctx);

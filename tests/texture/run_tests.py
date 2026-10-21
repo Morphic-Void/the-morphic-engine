@@ -60,7 +60,7 @@ def main():
     shutil.copyfile(repository / "development/logical-roots/dev-source/test_input.tga",
                     development / "logical-roots/dev-source/test_input.tga")
     config = runtime / "bootstrap.cfg"
-    config.write_text("executive=package:/bin/MorphicExecutive.dll\n"
+    config.write_text("executive=package:/bin/MorphicExecutive.${module_extension}\n"
                       "log-tag=host-acceptance\n"
                       f"host-workers={args.host_workers}\n"
                       "log-directory=development/logical-roots/test-logs\n",

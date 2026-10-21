@@ -60,11 +60,13 @@ counterparts. Debug enables development checks and information level 3;
 Release disables development checks and uses information level 1. CMake's
 standard Release flags enable optimization and define `NDEBUG` for all targets.
 
-The module filenames retain `MorphicExecutive.dll` and `MorphicRendering.dll`
-because current runtime paths and the ordinary module-loading test use those
-names. Their contents are Linux ELF shared libraries loaded with `dlopen`,
-not Windows binaries. Adopting conventional `.so` runtime paths is separate
-portability work. CTest runs `tests/texture/run_tests.py` against the engine
+The module filenames are `MorphicExecutive.so` and `MorphicRendering.so`,
+without a `lib` prefix. They are Linux ELF shared libraries loaded with `dlopen`.
+Shared bootstrap and manifest files expand `${module_extension}` at configuration
+read time; C++ request producers use the platform module filename helper. Module
+requests and filesystem entries retain complete filenames. Old `.dll` build
+outputs are excluded from Linux module discovery; there is no legacy fallback.
+CTest runs `tests/texture/run_tests.py` against the engine
 with a fresh filesystem for each worker count, exercising LDR/HDR conditioning,
 bundle bake/reference/save/close/reload and clean rendering shutdown. Ordinary
 suites include bundle format, construction, lifetime and real-worker request

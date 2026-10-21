@@ -14,6 +14,9 @@
 
 #include "platform/module/binding.hpp"
 #include "platform/platform_defines.hpp"
+#include <cstring>
+#include <limits>
+#include <utility>
 
 #if MV_PLATFORM_WINDOWS
 #include "platform/windows_include.hpp"
@@ -35,6 +38,54 @@ const char* get_modules_std_ext() noexcept
 #endif
 
     return k_ext;
+}
+
+bool make_module_filename(const char* const stem, CSimpleString& destination) noexcept
+{
+    if ((stem == nullptr) || (*stem == '\0')) { return false; }
+    const char* const extension = get_modules_std_ext();
+    const std::size_t length = std::strlen(stem);
+    const std::size_t suffix = std::strlen(extension);
+    if (length > (std::numeric_limits<std::size_t>::max() - suffix - 2u)) { return false; }
+    TPodVector<char> filename;
+    if (!filename.resize(length + suffix + 2u)) { return false; }
+    std::memcpy(filename.data(), stem, length);
+    filename[length] = '.';
+    std::memcpy(filename.data() + length + 1u, extension, suffix + 1u);
+    CSimpleString result;
+    if (!result.set(filename.data())) { return false; }
+    destination = std::move(result);
+    return true;
+}
+
+bool expand_module_extension(const char* const source, char* const destination, const std::size_t capacity) noexcept
+{
+    if ((source == nullptr) || (destination == nullptr) || (capacity == 0u)) { return false; }
+    static constexpr char token[] = "${module_extension}";
+    const char* const extension = get_modules_std_ext();
+    const std::size_t suffix = std::strlen(extension);
+    std::size_t length = 0u;
+    for (const char* cursor = source; *cursor != '\0';)
+    {
+        const bool replace = std::strncmp(cursor, token, sizeof(token) - 1u) == 0;
+        const std::size_t count = replace ? suffix : 1u;
+        if (count >= (capacity - length)) { return false; }
+        length += count;
+        cursor += replace ? sizeof(token) - 1u : 1u;
+    }
+    char* output = destination;
+    for (const char* cursor = source; *cursor != '\0';)
+    {
+        if (std::strncmp(cursor, token, sizeof(token) - 1u) == 0)
+        {
+            std::memcpy(output, extension, suffix);
+            output += suffix;
+            cursor += sizeof(token) - 1u;
+        }
+        else { *output++ = *cursor++; }
+    }
+    *output = '\0';
+    return true;
 }
 
 CPlatformModule::~CPlatformModule() noexcept

@@ -63,9 +63,8 @@ foreach(target IN ITEMS MorphicHost MorphicExecutive MorphicRendering MorphicTes
     morphic_sources(target_sources "visual_studio/${target}.vcxproj")
     if(target STREQUAL "MorphicExecutive" OR target STREQUAL "MorphicRendering")
         add_library(${target} SHARED ${target_sources})
-        # Existing module paths use .dll, including the ErasedOwner test.
-        # These files contain native Linux ELF shared libraries, loaded by dlopen.
-        set_target_properties(${target} PROPERTIES PREFIX "" SUFFIX ".dll")
+        # Engine modules retain their basename and use the native library suffix.
+        set_target_properties(${target} PROPERTIES PREFIX "")
     else()
         add_executable(${target} ${target_sources})
     endif()

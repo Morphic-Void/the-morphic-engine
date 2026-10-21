@@ -17,6 +17,7 @@
 #include "data_model/document_copy.hpp"
 #include "platform/filesystem/directory.hpp"
 #include "platform/filesystem/file.hpp"
+#include "platform/module/binding.hpp"
 
 namespace filesystem_image
 {
@@ -343,7 +344,7 @@ struct SCrawl
     CLiveDocument& document;
     CNodeKey content;
     const char* physical;
-    bool dlls_only;
+    bool modules_only;
     std::uint32_t depth;
     EScanStatus status{ EScanStatus::success };
 };
@@ -352,11 +353,11 @@ static bool crawl(void* const opaque, const char* const name, const platform::fi
 {
     SCrawl& work = *static_cast<SCrawl*>(opaque);
     if (std::strcmp(name, ".gitkeep") == 0) { return true; }
-    if (work.dlls_only)
+    if (work.modules_only)
     {
         const char* extension = std::strrchr(name, '.');
         if ((kind != platform::filesystem::EDirectoryEntry::file) ||
-            (extension == nullptr) || !case_alias(CStringView{ extension }, ".dll")) { return true; }
+            (extension == nullptr) || !case_alias(CStringView{ extension + 1 }, platform::module::get_modules_std_ext())) { return true; }
     }
     if (!relative_file(name) || (std::strchr(name, '/') != nullptr)) { return false; }
     CLiveDocument& doc = work.document;
@@ -442,7 +443,7 @@ static EScanStatus populate(CLiveDocument& doc, const CNodeKey roots, const SRoo
     }
     const CNodeKey extensions = doc.create_array(CStringView{ "extensions" });
     if (!string(doc, bin, "source", redirected.cstring()) || !set_flag(doc, bin, "writable", false) ||
-        !add(doc, bin, extensions) || !add(doc, extensions, doc.create_string(CStringView{ "dll" })))
+        !add(doc, bin, extensions) || !add(doc, extensions, doc.create_string(CStringView{ platform::module::get_modules_std_ext() })))
     {
         return EScanStatus::allocation_failed;
     }
@@ -549,13 +550,18 @@ EScanStatus scan_manifest(const char* const manifest, CLiveDocument& result) noe
         {
             const CNodeKey bin = child(configuration, bindings, "bin");
             const CNodeKey extensions = child(configuration, bin, "extensions");
+            const CStringView configured_extension = configuration.string_value(configuration.first_child(extensions));
+            char extension[32]{};
             if (!equal_path(logical, "package:") || !request.inventory ||
                 (configuration.value_type(bindings) != ELiveValueType::object) ||
                 (configuration.child_count(bindings) != 1u) ||
                 !equal_path(text(configuration, bin, "source"), "executable-directory") ||
                 (configuration.value_type(extensions) != ELiveValueType::array) ||
                 (configuration.child_count(extensions) != 1u) ||
-                !equal_path(configuration.string_value(configuration.first_child(extensions)), "dll") ||
+                configured_extension.empty() ||
+                (std::strlen(configured_extension.cstring()) != configured_extension.length()) ||
+                !platform::module::expand_module_extension(configured_extension.cstring(), extension, sizeof(extension)) ||
+                !equal_path(CStringView{ extension }, platform::module::get_modules_std_ext()) ||
                 flag(configuration, bin, "writable"))
             {
                 return EScanStatus::invalid_manifest;

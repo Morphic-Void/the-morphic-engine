@@ -97,7 +97,7 @@ UGC is not currently planned for Android.
 
 Windows and Linux directory/file access, module discovery and Host acceptance
 are exercised by the [build and CI harnesses](../project/building_and_testing.md).
-Linux ELF modules currently retain `.dll` filenames. Final deployment and
+Linux ELF modules use `.so` filenames; Windows modules retain `.dll`. Final deployment and
 bootstrap placement remain separate work; Android has not been validated.
 
 The existing native-path restrictions remain intentional. The executable query's

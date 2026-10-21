@@ -65,7 +65,7 @@ struct SFixture
         if (!debug_service || !conversion.init() || !shared.wake.acquire_control()) return false;
         const std::string log = test_environment::test_log_path("texture_batch");
         const std::string direct_log = test_environment::test_log_path("texture_batch_direct");
-        const std::string filename = test_environment::binary_path("MorphicRendering.dll");
+        const std::string filename = test_environment::binary_path(test_environment::module_filename("MorphicRendering").c_str());
         const platform::path::NativePath path = platform::path::makeNativePath(filename.c_str());
         modules::FModuleFunction function = nullptr;
         if (!debug_service->configure_log_paths(log.c_str(), direct_log.c_str()) ||

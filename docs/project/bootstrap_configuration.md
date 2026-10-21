@@ -31,23 +31,32 @@ keys fail startup with a line-numbered diagnostic on stderr.
 
 | Key | Meaning | Default |
 | --- | --- | --- |
-| `executive` | Logical DLL path for the Executive; required | None |
+| `executive` | Logical module filename for the Executive; required | None |
 | `log-directory` | Existing log directory, relative to the working directory when not absolute | `development/logical-roots/logs` |
 | `log-tag` | Optional 1–48 character log-name tag using the existing log-tag rules | No tag |
 | `host-workers` | Positive decimal request for I/O and conditioning workers | `2` |
 | `batch-runners` | Nonnegative decimal request for batch runners | `8` |
 
-String values must fit in 511 bytes, except `log-tag`, which retains its
+Resolved string values must fit in 511 bytes, except `log-tag`, which retains its
 48-character limit. Decimal counts must fit in `uint32_t`. The Host still
 applies its hardware and platform limits after parsing. The loader does not
 attempt to resolve the Executive or open the log directory; the existing Host
 startup paths report those failures.
 
+Only the `executive` value expands the exact token `${module_extension}` to
+`dll` on Windows, `so` on Linux/Android, or `dylib` on macOS. The dot remains
+explicit in the filename. Expansion is allocation-free and occurs before
+runtime startup; the module service receives a complete filename. Literal
+filenames are unchanged. Other tokens and other settings remain literal;
+this is not general templating or environment expansion. The development
+manifest recognises the same token in its native-module extension filter.
+This naming convention does not enable builds on otherwise unsupported targets.
+
 For example:
 
 ```text
 # Flow-test Executive
-executive=package:/bin/MorphicExecutive.dll
+executive=package:/bin/MorphicExecutive.${module_extension}
 log-directory=development/logical-roots/logs
 host-workers=2
 batch-runners=8

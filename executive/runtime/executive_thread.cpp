@@ -26,6 +26,7 @@
 #include "data_model/document_translation.hpp"
 #include "data_model/document_writer.hpp"
 #include "platform/system/performance_counter.hpp"
+#include "platform/module/binding.hpp"
 #include "platform/threading/processor_relax.hpp"
 #include "system/system_id_registry.hpp"
 #include "assets/asset_messages.hpp"
@@ -399,8 +400,10 @@ bool CExecutiveThread::initialise() noexcept
     //  Renderer selection belongs to this Executive; selector Executives may
     //  omit it entirely. Loading an occupied mount is resolved by its reply.
     threading::CErasedOwnerMsg pending;
-    if (!request_preparation::prepare_module_request(pending, m_pending_slot,
-        module_ids::render_vulkan, EModuleAction::load, "package:/bin/MorphicRendering.dll"))
+    CSimpleString rendering_file;
+    if (!platform::module::make_module_filename("package:/bin/MorphicRendering", rendering_file) ||
+        !request_preparation::prepare_module_request(pending, m_pending_slot,
+        module_ids::render_vulkan, EModuleAction::load, rendering_file.cstring()))
     {
         fail(EFailure::submission, "rendering load preparation");
         return false;
@@ -1205,8 +1208,10 @@ bool CExecutiveThread::complete_filesystem_exercise(const threading::CErasedPodM
         }
         case 9:
         {
+            CSimpleString executive_file;
             return (result.status == EAssetStatus::read_failed) &&
-                request_preparation::prepare_save_request(pending, 1010, m_raw.asset, "package:/bin/MorphicExecutive.dll", asset_acceptance::save_settings(EAssetFileFormat::raw)) &&
+                platform::module::make_module_filename("package:/bin/MorphicExecutive", executive_file) &&
+                request_preparation::prepare_save_request(pending, 1010, m_raw.asset, executive_file.cstring(), asset_acceptance::save_settings(EAssetFileFormat::raw)) &&
                 m_context.post(std::move(pending));
         }
         case 10:

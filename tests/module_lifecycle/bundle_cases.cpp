@@ -9,6 +9,7 @@
 //
 //  Public bundle persistence, closure, batch borrowing and replacement cases.
 
+#include "tests/environment/test_paths.hpp"
 #include <atomic>
 #include <cstdlib>
 #include <cstdio>
@@ -303,7 +304,7 @@ static bool rendering_module(CBundleClient& client, EModuleAction action) noexce
     request->module = module_ids::render_vulkan;
     if (action == EModuleAction::load)
     {
-        if (!request->file.set("package:/bin/MorphicLifecycleRenderingDisposal.dll")) return false;
+        if (!request->file.set(test_environment::module_filename("package:/bin/MorphicLifecycleRenderingDisposal").c_str())) return false;
         request->required_function = system_type_ids::rendering_thread_function;
     }
     if (!client.post<ModuleRequest>(std::move(owner))) return false;

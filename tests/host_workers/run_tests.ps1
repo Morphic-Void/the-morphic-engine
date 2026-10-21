@@ -99,6 +99,8 @@ Write-Output "$Configuration/$Platform invalid batch settings passed"
 
 foreach ($lines in @(
     @('# no Executive selected'), @('executive='),
+    @('executive=' + ('x' * 512)),
+    @('executive=' + ('x' * 510) + '.${module_extension}'),
     @('executive=package:/bin/MorphicExecutive.dll', 'executive=package:/bin/MorphicExecutive.dll'),
     @('executive=package:/bin/MorphicExecutive.dll', 'unknown=1'),
     @('executive=package:/bin/MorphicExecutive.dll', 'log-tag=bad tag'),
@@ -110,7 +112,8 @@ Write-Output "$Configuration/$Platform invalid bootstrap structure passed"
 
 foreach ($requested in @(0, 1, 2, 3, 9, 128)) {
     $tag = "workers-$suffix-$requested"
-    $lines = @('executive=package:/bin/MorphicExecutive.dll', "log-tag=$tag", 'log-directory=development/logical-roots/test-logs')
+    $executive = if ($requested -eq 0) { 'executive=package:/bin/MorphicExecutive.dll' } else { 'executive=package:/bin/MorphicExecutive.${module_extension}' }
+    $lines = @($executive, "log-tag=$tag", 'log-directory=development/logical-roots/test-logs')
     if ($requested -ne 0) { $lines += "host-workers=$requested" }
     $batchRequested = if ($requested -eq 1) { 0 } elseif ($requested -eq 2) { 32 } else { 8 }
     if ($batchRequested -ne 8) { $lines += "batch-runners=$batchRequested" }

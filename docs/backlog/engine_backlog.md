@@ -58,8 +58,8 @@ The sections below are deferred scope, not an implementation schedule.
   install Host allocation routing before registries, module loads and thread
   creation, then make fallback use a reportable invariant and controlled shutdown.
 - CMake Linux builds and GCC/Clang CI now preserve Core as per-consumer shared
-  source. Extend platform coverage as consumers require; conventional `.so`
-  runtime naming and final deployment bindings remain separate work. See
+  source and use native `.so` module filenames. Extend platform coverage as
+  consumers require; final deployment bindings remain separate work. See
   [Linux CI](../project/linux_ci.md) for the implemented build boundary.
 - Extend the existing thread packages/context and identity/name registry for
   remaining provisioning and per-thread service requirements. Audit role/sub-role

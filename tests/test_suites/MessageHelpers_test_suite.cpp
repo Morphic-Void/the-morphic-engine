@@ -9,6 +9,7 @@
 //
 //  Functional message helpers and the actual Executive preparation boundary.
 
+#include "tests/environment/test_paths.hpp"
 #include "tests/test_suites/MessageHelpers_test_suite.hpp"
 
 #include <cstring>
@@ -188,7 +189,7 @@ static void test_request_fields(TTestContext& ctx)
     TEST_EXPECT(ctx, prepare_save_request(pending, 11, {}, "output:/saved.json", settings));
     TEST_EXPECT(ctx, pending.owner().payload<AssetSaveRequest>()->settings.format == EAssetFileFormat::json);
     pending = {};
-    TEST_EXPECT(ctx, prepare_module_request(pending, 12, module_ids::render_vulkan, EModuleAction::load, "package:/bin/MorphicRendering.dll"));
+    TEST_EXPECT(ctx, prepare_module_request(pending, 12, module_ids::render_vulkan, EModuleAction::load, test_environment::module_filename("package:/bin/MorphicRendering").c_str()));
     TEST_EXPECT(ctx, pending.owner().payload<ModuleRequest>()->module == module_ids::render_vulkan);
     pending = {};
     TEST_EXPECT(ctx, prepare_module_request(pending, k_uncorrelated_slot, module_ids::executive, EModuleAction::unload));

@@ -9,7 +9,7 @@
         "bin": {
           "source": "executable-directory",
           "extensions": [
-            "dll"
+            "${module_extension}"
           ],
           "writable": false
         }

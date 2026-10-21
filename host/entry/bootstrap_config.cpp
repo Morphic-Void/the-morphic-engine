@@ -13,6 +13,7 @@
 #include <limits>
 
 #include "host/entry/bootstrap_config.hpp"
+#include "platform/module/binding.hpp"
 #include "host/runtime/batch_pool.hpp"
 #include "host/runtime/worker_policy.hpp"
 
@@ -100,7 +101,10 @@ struct SSeen
     const char* const value = equals + 1;
     if (std::strcmp(line, "executive") == 0)
     {
-        if (seen.executive || !copy_value(config.executive, sizeof(config.executive), value))
+        char expanded[k_bootstrap_value_capacity]{};
+        if (seen.executive ||
+            !platform::module::expand_module_extension(value, expanded, sizeof(expanded)) ||
+            !copy_value(config.executive, sizeof(config.executive), expanded))
         {
             return fail(error, number, "invalid or duplicate executive");
         }
