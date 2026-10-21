@@ -9,7 +9,6 @@
 
 #include "tests/test_suites/DocumentStructure_test_suite.hpp"
 
-#include <iostream>
 #include <string>
 
 #include "data_model/baked_document.hpp"

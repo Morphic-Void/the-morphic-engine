@@ -10,7 +10,6 @@
 //  Standalone test suite for threading::transports::TMpmc transport family.
 
 #include <cstdint>
-#include <iostream>
 #include <string>
 
 #include "threading/transports/TMpmcTransport.hpp"

@@ -21,12 +21,12 @@
 #include "data_model/document_parser.hpp"
 #include "data_model/document_translation.hpp"
 #include "tests/support/test_context.hpp"
+#include "tests/support/byte_helpers.hpp"
 #include "tests/support/document_helpers.hpp"
 #include "tests/support/test_allocator.hpp"
 #include "tests/support/test_scopes.hpp"
 
 #include <cstring>
-#include <limits>
 #include <iostream>
 #include <string>
 #include <type_traits>
@@ -761,11 +761,6 @@ static std::string byte_snapshot(const CByteConstView bytes)
     return bytes.size() ? std::string{ reinterpret_cast<const char*>(bytes.data()), bytes.size() } : std::string{};
 }
 
-static bool same_bytes(const CByteConstView bytes, const std::string& snapshot)
-{
-    return bytes.size() == snapshot.size() && (snapshot.empty() || std::memcmp(bytes.data(), snapshot.data(), snapshot.size()) == 0);
-}
-
 template<bool Instances, class TSourceSchema, class TDestinationSchema>
 static void test_completed_bake(TTestContext& ctx, TSourceSchema& source_schema, TDestinationSchema& destination_schema)
 {
@@ -810,7 +805,7 @@ static void test_completed_bake(TTestContext& ctx, TSourceSchema& source_schema,
             TEST_EXPECT(ctx, validate_data_block(bytes.data(), bytes.size(), T::kind, view, format_diagnostic));
             TEST_EXPECT(ctx, view.stripped == (form == EDataOutputForm::stripped));
             //  Newly packed gaps are zero; complete records retain their source bytes.
-            TEST_EXPECT(ctx, same_bytes(view.payload, byte_snapshot(baseline_payload.const_view())));
+            TEST_EXPECT(ctx, tests::same_bytes(view.payload, byte_snapshot(baseline_payload.const_view())));
             const std::string completed_snapshot = byte_snapshot(view.payload);
             const auto compare_entry = [&](const auto actual_handle, const auto baseline_handle)
             {
@@ -867,11 +862,11 @@ static void test_completed_bake(TTestContext& ctx, TSourceSchema& source_schema,
                 }
             }
             TEST_EXPECT(ctx, source.loaded_ready() && source.document_query().root() == original_root &&
-                source.payload_view().data() == original_bytes.data() && same_bytes(source.payload_view(), snapshot));
+                source.payload_view().data() == original_bytes.data() && tests::same_bytes(source.payload_view(), snapshot));
             TEST_EXPECT(ctx, !source.bake(result, destination_schema, form, diagnostic) &&
                 diagnostic.block.reason == EDataBlockReason::destination_not_empty && result.file_bytes().data() == bytes.data());
             source.clear();
-            TEST_EXPECT(ctx, result.loaded_ready() && same_bytes(result.payload_view(), completed_snapshot));
+            TEST_EXPECT(ctx, result.loaded_ready() && tests::same_bytes(result.payload_view(), completed_snapshot));
             //  Reattach a separately allocated copy, then release the original.
             CByteBuffer copied;
             CBakedDocumentBlock owner;
@@ -882,7 +877,7 @@ static void test_completed_bake(TTestContext& ctx, TSourceSchema& source_schema,
             result_role.clear();
             TEST_EXPECT(ctx, result.release_local(original_owner) && original_owner.buffer_capacity() == bytes.size());
             original_owner.deallocate();
-            TEST_EXPECT(ctx, independent.loaded_ready() && same_bytes(independent.payload_view(), completed_snapshot));
+            TEST_EXPECT(ctx, independent.loaded_ready() && tests::same_bytes(independent.payload_view(), completed_snapshot));
             TEST_EXPECT(ctx, independent.release_local(owner) && owner.buffer_capacity() == bytes.size());
         }
     }
@@ -920,7 +915,7 @@ static void test_bake_failures(TTestContext& ctx)
     TEST_EXPECT(ctx, diagnostic.block.location.kind == EDataBlockLocationKind::source_live_node &&
         source.document_query().contains(diagnostic.role.occurrence));
     TEST_EXPECT(ctx, destination.backing() == EEntityBacking::none && incompatible.reference_count() == 0u &&
-        same_bytes(source.payload_view(), snapshot));
+        tests::same_bytes(source.payload_view(), snapshot));
 
     //  Raw noncanonical boolean bytes cannot be represented as embedded values.
     typename T::Live noncanonical;
@@ -997,7 +992,7 @@ static void test_bake_allocation_failures(TTestContext& ctx)
                 if (stage == EDataBlockStage::assembly)
                     TEST_EXPECT(ctx, diagnostic.block.reason == EDataBlockReason::allocation_failed || diagnostic.block.reason == EDataBlockReason::assembly_failed);
             }
-            TEST_EXPECT(ctx, source.loaded_ready() && schemas.live.reference_count() == 1u && same_bytes(source.payload_view(), snapshot));
+            TEST_EXPECT(ctx, source.loaded_ready() && schemas.live.reference_count() == 1u && tests::same_bytes(source.payload_view(), snapshot));
         }
         TEST_EXPECT(ctx, context.is_attribution_empty() && schemas.baked.reference_count() == 0u);
     }
@@ -1057,8 +1052,8 @@ static void test_new_payload_gaps(TTestContext& ctx)
             const auto bytes = output.payload_view();
             TEST_EXPECT(ctx, bytes.size() == 12u && bytes.data()[0] == 1u && std::memcmp(bytes.data() + 4u, padded, sizeof(padded)) == 0);
             for (std::size_t i = 1u; i != 4u; ++i) TEST_EXPECT(ctx, bytes.data()[i] == 0u);
-            TEST_EXPECT(ctx, source.bake(repeated, schemas.baked, form, diagnostic) && same_bytes(repeated.file_bytes(), byte_snapshot(output.file_bytes())));
-            TEST_EXPECT(ctx, same_bytes(source.payload_view(), original));
+            TEST_EXPECT(ctx, source.bake(repeated, schemas.baked, form, diagnostic) && tests::same_bytes(repeated.file_bytes(), byte_snapshot(output.file_bytes())));
+            TEST_EXPECT(ctx, tests::same_bytes(source.payload_view(), original));
             TEST_EXPECT(ctx, materialised.materialise(description, schemas.baked, form, diagnostic));
             const auto constructed = materialised.payload_view();
             TEST_EXPECT(ctx, constructed.size() == 16u && constructed.data()[2] == 1u &&
@@ -1204,22 +1199,22 @@ static void test_materialised_blocks(TTestContext& ctx, TSchema& schema)
                     }
                 }
                 CBakedDocumentBlock live_check;
-                TEST_EXPECT(ctx, live.root() == source_root && document_translation::bake(live, live_check) && same_bytes(live_check.bytes(), source_bytes));
-                TEST_EXPECT(ctx, same_bytes(baked.bytes(), source_bytes));
+                TEST_EXPECT(ctx, live.root() == source_root && document_translation::bake(live, live_check) && tests::same_bytes(live_check.bytes(), source_bytes));
+                TEST_EXPECT(ctx, tests::same_bytes(baked.bytes(), source_bytes));
                 const auto output_address = output.file_bytes().data();
                 TEST_EXPECT(ctx, !output.materialise(source, schema, form, diagnostic) &&
                     diagnostic.block.reason == EDataBlockReason::destination_not_empty && output.file_bytes().data() == output_address);
                 const auto payload_snapshot = byte_snapshot(output.payload_view());
                 live.deallocate();
                 baked.deallocate();
-                TEST_EXPECT(ctx, output.loaded_ready() && same_bytes(output.payload_view(), payload_snapshot));
+                TEST_EXPECT(ctx, output.loaded_ready() && tests::same_bytes(output.payload_view(), payload_snapshot));
                 CBakedDocumentBlock owner;
                 output_role.clear();
                 TEST_EXPECT(ctx, output.release_local(owner));
                 TEST_EXPECT(ctx, owner.buffer_capacity() == owner.buffer_bytes().size());
                 typename T::Block reattached;
                 TEST_EXPECT(ctx, reattached.adopt_local(std::move(owner), diagnostic) &&
-                    same_bytes(reattached.payload_view(), payload_snapshot));
+                    tests::same_bytes(reattached.payload_view(), payload_snapshot));
             };
             if constexpr (Baked) run(baked.document());
             else run(live);
@@ -1270,7 +1265,7 @@ static void test_materialisation_failures(TTestContext& ctx, TSchema& schema)
         if constexpr (Baked) run(baked.document());
         else run(live);
         CBakedDocumentBlock live_check;
-        TEST_EXPECT(ctx, document_translation::bake(live, live_check) && same_bytes(live_check.bytes(), snapshot) && same_bytes(baked.bytes(), snapshot));
+        TEST_EXPECT(ctx, document_translation::bake(live, live_check) && tests::same_bytes(live_check.bytes(), snapshot) && tests::same_bytes(baked.bytes(), snapshot));
     }
     //  Construction still rejects invalid values when the requested output drops them.
     const std::string invalid = Instances ? R"({"instances":{"Pair":{"bad":{
@@ -1344,11 +1339,11 @@ static void test_materialisation_allocations(TTestContext& ctx)
                 else TEST_EXPECT(ctx, !diagnostic.role.occurrence);
             }
         }
-        TEST_EXPECT(ctx, context.is_attribution_empty() && schemas.baked.reference_count() == 0u && same_bytes(baked.bytes(), snapshot));
+        TEST_EXPECT(ctx, context.is_attribution_empty() && schemas.baked.reference_count() == 0u && tests::same_bytes(baked.bytes(), snapshot));
     }
     TEST_EXPECT(ctx, completed && materialisation && promotion && assembly && attachment);
     CBakedDocumentBlock live_check;
-    TEST_EXPECT(ctx, document_translation::bake(live, live_check) && same_bytes(live_check.bytes(), snapshot));
+    TEST_EXPECT(ctx, document_translation::bake(live, live_check) && tests::same_bytes(live_check.bytes(), snapshot));
 }
 
 static void test_materialisation(TTestContext& ctx)
@@ -1459,7 +1454,7 @@ static void test_stripped_blocks(TTestContext& ctx, TSourceSchema& source_schema
             TEST_EXPECT(ctx, diagnostic.block.stage == EDataBlockStage::none && diagnostic.block.reason == EDataBlockReason::none &&
                 diagnostic.block.location.kind == EDataBlockLocationKind::none && diagnostic.role.reason == T::Reason::none);
             TEST_EXPECT(ctx, destination.backing() == EEntityBacking::local && !destination.asset_id() &&
-                destination.file_bytes().data() != source_address && same_bytes(destination.payload_view(), payload));
+                destination.file_bytes().data() != source_address && tests::same_bytes(destination.payload_view(), payload));
             SDataBlockView view;
             SDataBlockDiagnostic format;
             TEST_EXPECT(ctx, validate_data_block(destination.file_bytes().data(), destination.file_bytes().size(), T::kind, view, format) && view.stripped);
@@ -1512,22 +1507,22 @@ static void test_stripped_blocks(TTestContext& ctx, TSourceSchema& source_schema
                     TEST_EXPECT(ctx, role.entry(zero, entry) && entry.byte_count == 0u && entry.count == 3u && !query.object_child(zero, CStringView{ "data" }));
                 }
             }
-            TEST_EXPECT(ctx, source.file_bytes().data() == source_address && same_bytes(source.file_bytes(), original) && source.loaded_ready() &&
+            TEST_EXPECT(ctx, source.file_bytes().data() == source_address && tests::same_bytes(source.file_bytes(), original) && source.loaded_ready() &&
                 T::query(source).root() == source_root && source.asset_id() == id);
             TEST_EXPECT(ctx, !source.strip_to(source, source_schema, diagnostic) && diagnostic.block.reason == EDataBlockReason::destination_not_empty);
             TEST_EXPECT(ctx, !source.strip_to(destination, destination_schema, diagnostic) && diagnostic.block.reason == EDataBlockReason::destination_not_empty);
             if (borrowed) TEST_EXPECT(ctx, assets.resolve(id) != nullptr);
             source.clear();
             if (borrowed) TEST_EXPECT(ctx, assets.resolve(id) != nullptr && assets.erase(id));
-            TEST_EXPECT(ctx, destination.loaded_ready() && same_bytes(role.payload_view(), payload));
+            TEST_EXPECT(ctx, destination.loaded_ready() && tests::same_bytes(role.payload_view(), payload));
             //  Already stripped data produces a separate allocation with identical payload.
             typename T::Block again;
             TEST_EXPECT(ctx, destination.strip_to(again, destination_schema, diagnostic) && again.file_bytes().data() != destination.file_bytes().data());
             role.clear();
             destination.clear();
-            TEST_EXPECT(ctx, again.loaded_ready() && same_bytes(again.payload_view(), payload));
+            TEST_EXPECT(ctx, again.loaded_ready() && tests::same_bytes(again.payload_view(), payload));
             TEST_EXPECT(ctx, again.release_local(owner) && owner.buffer_capacity() == owner.buffer_bytes().size());
-            TEST_EXPECT(ctx, destination.adopt_local(std::move(owner), diagnostic) && same_bytes(destination.payload_view(), payload));
+            TEST_EXPECT(ctx, destination.adopt_local(std::move(owner), diagnostic) && tests::same_bytes(destination.payload_view(), payload));
         }
     }
 }
@@ -1555,7 +1550,7 @@ static void test_stripping_failures(TTestContext& ctx)
     TEST_EXPECT(ctx, !source.strip_to(destination, missing_types.baked, diagnostic) && diagnostic.block.stage == EDataBlockStage::specialised_loading &&
         diagnostic.block.reason == EDataBlockReason::specialised_failure && diagnostic.role.reason == T::Reason::unknown_type);
     TEST_EXPECT(ctx, diagnostic.block.location.kind == EDataBlockLocationKind::none && diagnostic.role.occurrence &&
-        destination.backing() == EEntityBacking::none && missing_types.baked.reference_count() == 0u && same_bytes(source.file_bytes(), snapshot));
+        destination.backing() == EEntityBacking::none && missing_types.baked.reference_count() == 0u && tests::same_bytes(source.file_bytes(), snapshot));
     {
         SSchemaFixture temporary;
         TEST_EXPECT(ctx, temporary.build(stripping_types) && source.strip_to(destination, temporary.baked, diagnostic));
@@ -1563,10 +1558,10 @@ static void test_stripping_failures(TTestContext& ctx)
     TEST_EXPECT(ctx, destination.loaded_ready());
     const auto occupied = byte_snapshot(destination.file_bytes());
     TEST_EXPECT(ctx, !source.strip_to(destination, schemas.baked, diagnostic) && diagnostic.block.reason == EDataBlockReason::destination_not_empty &&
-        same_bytes(destination.file_bytes(), occupied));
+        tests::same_bytes(destination.file_bytes(), occupied));
     typename T::Block empty;
     TEST_EXPECT(ctx, destination.strip_to(empty, schemas.baked, diagnostic) &&
-        empty.backing() == EEntityBacking::local && same_bytes(destination.file_bytes(), occupied));
+        empty.backing() == EEntityBacking::local && tests::same_bytes(destination.file_bytes(), occupied));
 }
 
 template<bool Instances>
@@ -1604,7 +1599,7 @@ static void test_stripping_allocations(TTestContext& ctx)
                 TEST_EXPECT(ctx, (!diagnostic.role.occurrence || T::query(source).contains(diagnostic.role.occurrence)) &&
                     diagnostic.block.location.kind == EDataBlockLocationKind::none);
             }
-            TEST_EXPECT(ctx, source.loaded_ready() && schemas.live.reference_count() == 0u && same_bytes(source.file_bytes(), snapshot));
+            TEST_EXPECT(ctx, source.loaded_ready() && schemas.live.reference_count() == 0u && tests::same_bytes(source.file_bytes(), snapshot));
         }
         TEST_EXPECT(ctx, context.is_attribution_empty() && schemas.baked.reference_count() == 0u);
     }

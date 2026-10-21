@@ -12,7 +12,6 @@
 #include "tests/test_suites/MessageHelpers_test_suite.hpp"
 
 #include <cstring>
-#include <iostream>
 #include <type_traits>
 
 #include "tests/environment/local_type_ids.hpp"

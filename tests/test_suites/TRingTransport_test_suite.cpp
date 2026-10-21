@@ -10,7 +10,6 @@
 //  Standalone test suite for threading::transports::TRing<T>.
 
 #include <cstdint>
-#include <iostream>
 #include <limits>
 #include <new>
 #include <string>

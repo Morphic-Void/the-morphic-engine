@@ -10,7 +10,6 @@
 //  Controlled worker completions and retained-record bundle lifetimes.
 
 #include <cstring>
-#include <iostream>
 #include <vector>
 
 #include "assets/internal/bundle_builder_io.hpp"

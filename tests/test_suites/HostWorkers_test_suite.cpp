@@ -9,7 +9,6 @@
 
 #include <atomic>
 #include <cstdint>
-#include <iostream>
 #include <limits>
 
 #include "host/runtime/batch_pool.hpp"

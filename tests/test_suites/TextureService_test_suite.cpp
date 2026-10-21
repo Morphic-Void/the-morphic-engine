@@ -10,7 +10,6 @@
 //  Hold renderer completions explicitly to test concurrent admission and source
 //  disposal independently of codec speed or thread scheduling.
 
-#include <iostream>
 #include <type_traits>
 
 #include "host/runtime/asset_service.hpp"

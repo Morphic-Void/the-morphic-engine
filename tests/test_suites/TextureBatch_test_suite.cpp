@@ -12,7 +12,6 @@
 
 #include <atomic>
 #include <cstring>
-#include <iostream>
 #include <type_traits>
 
 #include "debug/service.hpp"

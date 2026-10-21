@@ -14,7 +14,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
-#include <iostream>
 #include <string>
 
 #include "data_model/live_document.hpp"

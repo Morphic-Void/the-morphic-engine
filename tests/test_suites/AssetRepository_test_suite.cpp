@@ -10,7 +10,6 @@
 #include "tests/environment/local_type_ids.hpp"
 
 #include <cstdint>
-#include <iostream>
 #include <type_traits>
 #include <utility>
 

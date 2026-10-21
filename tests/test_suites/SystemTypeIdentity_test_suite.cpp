@@ -7,7 +7,6 @@
 //  Reviewed and accepted by: Ritchie Brannan
 //  Date:    12 Aug 26
 
-#include <iostream>
 #include <type_traits>
 
 #include "debug/event_arguments.hpp"

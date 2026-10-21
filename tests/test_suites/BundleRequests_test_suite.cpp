@@ -12,7 +12,6 @@
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
-#include <iostream>
 #include <string>
 #include <type_traits>
 #include <vector>
@@ -29,6 +28,7 @@
 #include "schema/live_bulk_data.hpp"
 #include "tests/environment/test_paths.hpp"
 #include "tests/support/test_context.hpp"
+#include "tests/support/byte_helpers.hpp"
 #include "tests/support/thread_helpers.hpp"
 #include "tests/support/test_scopes.hpp"
 #include "tests/test_suites/BundleRequests_test_suite.hpp"
@@ -541,11 +541,6 @@ void test_complete_baked_buffers(TTestContext& ctx, const bool dedicated)
     TEST_EXPECT(ctx, fixture.service.is_idle() && !fixture.service.failed());
 }
 
-bool same_bytes(const CByteConstView bytes, const std::vector<std::uint8_t>& expected)
-{
-    return bytes.size() == expected.size() && std::memcmp(bytes.data(), expected.data(), expected.size()) == 0;
-}
-
 template<bool Instances>
 void test_schema_persistence(TTestContext& ctx, SFixture& fixture, schema::CBakedSchema& schema)
 {
@@ -601,7 +596,7 @@ void test_schema_persistence(TTestContext& ctx, SFixture& fixture, schema::CBake
     const auto admitted = fixture.result(ctx, 1);
     Block attached;
     TEST_EXPECT(ctx, attached.attach_asset(admitted.asset, admitted.byte_view(), diagnostic));
-    TEST_EXPECT(ctx, same_bytes(attached.file_bytes(), snapshot) && attached.file_bytes().data() == bytes.data());
+    TEST_EXPECT(ctx, tests::same_bytes(attached.file_bytes(), snapshot) && attached.file_bytes().data() == bytes.data());
     check_role(attached);
     fixture.save(ctx, 2, admitted.asset, file, EAssetFileFormat::baked);
     TEST_EXPECT(ctx, fixture.result(ctx, 2).asset == admitted.asset);
@@ -609,7 +604,7 @@ void test_schema_persistence(TTestContext& ctx, SFixture& fixture, schema::CBake
     fixture.dispose(ctx, admitted.asset);
     fixture.load(ctx, 3, file, EAssetFileFormat::baked, 128u);
     const auto loaded = fixture.result(ctx, 3);
-    TEST_EXPECT(ctx, same_bytes(loaded.byte_view(), snapshot));
+    TEST_EXPECT(ctx, tests::same_bytes(loaded.byte_view(), snapshot));
 
     //  Successful I/O does not imply successful caller-side schema attachment.
     schema::CLiveSchema missing;
@@ -622,7 +617,7 @@ void test_schema_persistence(TTestContext& ctx, SFixture& fixture, schema::CBake
     Role rejected;
     TEST_EXPECT(ctx, rejected.set_document(attached.document()) &&
         !rejected.attach_schema(missing, attached.payload_view(), true, role_diagnostic));
-    TEST_EXPECT(ctx, attached.loaded_ready() && same_bytes(loaded.byte_view(), snapshot) && missing.reference_count() == 0u);
+    TEST_EXPECT(ctx, attached.loaded_ready() && tests::same_bytes(loaded.byte_view(), snapshot) && missing.reference_count() == 0u);
     check_role(attached);
 
     //  Parsing and materialisation are separate operations with independent owners.
@@ -645,7 +640,7 @@ void test_schema_persistence(TTestContext& ctx, SFixture& fixture, schema::CBake
     const auto discarded = fixture.result(ctx, 6);
     TEST_EXPECT(ctx, !discarded.asset && discarded.kind == EAssetKind::none);
     const auto saved = platform::filesystem::loadFile((fixture.directory + copy_name).c_str());
-    TEST_EXPECT(ctx, same_bytes(saved.const_view(), stripped));
+    TEST_EXPECT(ctx, tests::same_bytes(saved.const_view(), stripped));
     fixture.load(ctx, 7, copy_file, EAssetFileFormat::baked, 128u);
     const auto stripped_load = fixture.result(ctx, 7);
     TEST_EXPECT(ctx, materialised.attach_asset(stripped_load.asset, stripped_load.byte_view(), diagnostic));
@@ -660,13 +655,13 @@ void test_schema_persistence(TTestContext& ctx, SFixture& fixture, schema::CBake
     Block bundled;
     TEST_EXPECT(ctx, bundled.attach_asset(borrowed.asset, borrowed.byte_view(), diagnostic));
     const auto entry = bundle.bundle_view().lookup(CStringView{ entry_name });
-    TEST_EXPECT(ctx, same_bytes(bundled.file_bytes(), snapshot) && bundled.file_bytes().data() == entry.bytes.data() &&
+    TEST_EXPECT(ctx, tests::same_bytes(bundled.file_bytes(), snapshot) && bundled.file_bytes().data() == entry.bytes.data() &&
         bundled.file_bytes().size() == entry.bytes.count());
     check_role(bundled);
     CLiveDocument promoted;
     TEST_EXPECT(ctx, document_translation::promote(borrowed.document_view(), promoted) &&
         promoted.append_child(promoted.root(), promoted.create_unsigned_integer(1u, CStringView{ "independent" })).succeeded());
-    TEST_EXPECT(ctx, same_bytes(bundled.file_bytes(), snapshot));
+    TEST_EXPECT(ctx, tests::same_bytes(bundled.file_bytes(), snapshot));
     fixture.save(ctx, 10, borrowed.asset, entry_file, EAssetFileFormat::baked);
     AssetResult failed_save;
     TEST_EXPECT(ctx, fixture.receive(failed_save, 10) && failed_save.status == EAssetStatus::write_failed && failed_save.asset == borrowed.asset);
@@ -681,7 +676,7 @@ void test_schema_persistence(TTestContext& ctx, SFixture& fixture, schema::CBake
     fixture.closed(ctx, bundle.asset);
     fixture.load(ctx, 13, copy_file, EAssetFileFormat::baked, 128u);
     const auto restored = fixture.result(ctx, 13);
-    TEST_EXPECT(ctx, same_bytes(restored.byte_view(), snapshot) && bundled.attach_asset(restored.asset, restored.byte_view(), diagnostic));
+    TEST_EXPECT(ctx, tests::same_bytes(restored.byte_view(), snapshot) && bundled.attach_asset(restored.asset, restored.byte_view(), diagnostic));
     check_role(bundled);
     bundled.clear();
     fixture.dispose(ctx, restored.asset);
@@ -694,7 +689,7 @@ void test_schema_persistence(TTestContext& ctx, SFixture& fixture, schema::CBake
     AssetDisposeResult disposed;
     TEST_EXPECT(ctx, fixture.receive(disposed, 15) && disposed.status == EAssetStatus::success && disposed.asset == loaded.asset);
     const auto drained = platform::filesystem::loadFile((fixture.directory + copy_name).c_str());
-    TEST_EXPECT(ctx, same_bytes(drained.const_view(), snapshot));
+    TEST_EXPECT(ctx, tests::same_bytes(drained.const_view(), snapshot));
 
     //  Failed saving retains source ownership only when requested.
     for (const auto retention : { EAssetRetention::source, EAssetRetention::discard })
@@ -712,7 +707,7 @@ void test_schema_persistence(TTestContext& ctx, SFixture& fixture, schema::CBake
         TEST_EXPECT(ctx, fixture.receive(failure, 16) && failure.status == EAssetStatus::write_failed);
         if (retention == EAssetRetention::source)
         {
-            TEST_EXPECT(ctx, failure.asset && same_bytes(failure.byte_view(), snapshot));
+            TEST_EXPECT(ctx, failure.asset && tests::same_bytes(failure.byte_view(), snapshot));
             fixture.dispose(ctx, failure.asset);
         }
         else TEST_EXPECT(ctx, !failure.asset && failure.kind == EAssetKind::none);
@@ -768,7 +763,7 @@ void test_current_bundle_save(TTestContext& ctx, const bool dedicated)
     TEST_EXPECT(ctx, editor.set_unsigned_integer_value(editor.baked().object_child(editor.baked().root(), CStringView{ "answer" }), 43u));
     TEST_EXPECT(ctx, editor.baked().check_integrity() && fixture.image.write_serial() == serial);
     const auto unchanged = platform::filesystem::loadFile((fixture.directory + "/current.bdl").c_str());
-    TEST_EXPECT(ctx, same_bytes(unchanged.const_view(), before));
+    TEST_EXPECT(ctx, tests::same_bytes(unchanged.const_view(), before));
     const std::vector<std::uint8_t> current(writable.data(), writable.data() + writable.size());
     TEST_EXPECT(ctx, current != before);
     editor.clear();
@@ -778,7 +773,7 @@ void test_current_bundle_save(TTestContext& ctx, const bool dedicated)
     fixture.closed(ctx, published.asset);
     fixture.load_bundle(ctx, 6, "work:/current.bdl");
     const auto reloaded = fixture.result(ctx, 6);
-    TEST_EXPECT(ctx, same_bytes(reloaded.byte_view(), current));
+    TEST_EXPECT(ctx, tests::same_bytes(reloaded.byte_view(), current));
     fixture.load(ctx, 7, "pack:/document.baked", EAssetFileFormat::baked, 128u);
     const auto changed = fixture.result(ctx, 7);
     std::uint64_t answer{};
