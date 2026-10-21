@@ -23,6 +23,13 @@ newline.
 `tools/check_line_endings.ps1` enforces the CRLF working-tree form while
 allowing the missing final newline for these Visual Studio-managed files.
 
+## Source file opening
+
+Begin repository-owned `.cpp` and `.hpp` files, including test sources and
+headers, with a blank line before the top-of-file comment. This is an intentional
+manual-editing convention; preserve it when creating or updating these files.
+This leading-blank-line rule applies only to `.cpp` and `.hpp` files.
+
 ## Internal linkage and namespaces
 
 In production code and tools, use `static` declarations for file-local functions
