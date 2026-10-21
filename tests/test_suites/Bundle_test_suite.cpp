@@ -1,9 +1,9 @@
-
 //  Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited
 //  License: MIT (see LICENSE file in repository root)
 //
 //  File:    Bundle_test_suite.cpp
-//  Authors: Ritchie Brannan / OpenAI Codex
+//  Primary implementation: OpenAI Codex
+//  Reviewed and accepted by: Ritchie Brannan
 //  Date:    12 Oct 26
 //
 //  Bundle validation, lookup, adoption and concurrent-read tests.
@@ -483,6 +483,5 @@ int run_bundle_tests()
     test_nested_and_duplicate_names(ctx);
     test_adoption_and_failures(ctx);
     test_concurrent_lookup(ctx);
-    std::cout << "Bundle: " << ctx.passed << " passed, " << ctx.failed << " failed\n";
-    return ctx.exit_code();
+    return ctx.report("Bundle");
 }

@@ -1,4 +1,3 @@
-
 //  Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited
 //  License: MIT (see LICENSE file in repository root)
 //
@@ -1660,22 +1659,6 @@ static void test_local_type_references(TTestContext& ctx)
     TEST_EXPECT(ctx, declarations.find("struct OtherHider\n{\n    std::uint8_t Record;\n    ::schema_fixture::Record record;\n};") != std::string::npos);
 }
 
-struct SFailingAllocator
-{
-    std::size_t calls{}, fail_on{};
-};
-
-static void* MV_STD_ABI_CALL allocate_with_failure(
-    void* const state, const std::size_t alignment, const std::size_t bytes) noexcept
-{
-    SFailingAllocator& fixture = *static_cast<SFailingAllocator*>(state);
-    if (fixture.calls++ == fixture.fail_on)
-    {
-        return nullptr;
-    }
-    return tests::allocate_test_memory(nullptr, alignment, bytes);
-}
-
 struct SCountedEntryKey
 {
     std::uint64_t value{};
@@ -1810,8 +1793,8 @@ static void test_role_index_access(TTestContext& ctx)
             const std::string name = "e" + std::to_string(i);
             TEST_EXPECT(ctx, handles.push_back(collections.find_entry(CStringView{ "u8" }, CStringView{ name.c_str() })));
         }
-        SFailingAllocator failing{ 0u, 0u };
-        memory::CMemoryAllocator allocator{ &failing, &allocate_with_failure, &tests::deallocate_test_memory };
+        tests::TAllocationFailureFixture failing{ 0u, 0u };
+        memory::CMemoryAllocator allocator{ &failing, &tests::allocate_with_failure, &tests::deallocate_test_memory };
         memory::CMemoryContext context{ allocator };
         {
             tests::TMemoryContextScope scope{ &context };
@@ -1832,7 +1815,7 @@ static void test_role_index_access(TTestContext& ctx)
                 !configurations.entry(configurations.instances_root(), instance) &&
                 (collections.find_entry(CStringView{ "u8" }, CStringView{ "e0" }) == handles[0]) &&
                 configurations.find_specialisation(base, CStringView{ "e0" }).is_valid();
-            TEST_EXPECT(ctx, valid && failing.calls == 0u);
+            TEST_EXPECT(ctx, valid && failing.attempts == 0u);
         }
         TEST_EXPECT(ctx, context.is_attribution_empty());
     };
@@ -1890,8 +1873,8 @@ static void test_role_index_access(TTestContext& ctx)
 
 static void test_live_bulk_data_type_binding(TTestContext& ctx)
 {
-    SFailingAllocator failing{ 0u, SIZE_MAX };
-    memory::CMemoryAllocator allocator{ &failing, &allocate_with_failure, &tests::deallocate_test_memory };
+    tests::TAllocationFailureFixture failing{ 0u, SIZE_MAX };
+    memory::CMemoryAllocator allocator{ &failing, &tests::allocate_with_failure, &tests::deallocate_test_memory };
     memory::CMemoryContext context{ allocator };
     {
         tests::TMemoryContextScope scope{ &context };
@@ -1921,7 +1904,7 @@ static void test_live_bulk_data_type_binding(TTestContext& ctx)
                 bulk_data.entry(second, observed) && (observed.type == second_type));
             TEST_EXPECT(ctx, schema.resolve(schema_error) && bulk_data.entry(first, observed) &&
                 (observed.type == first_type) && (observed.bytes[0] == 47u));
-            failing.fail_on = failing.calls;
+            failing.fail_on = failing.attempts;
             TEST_EXPECT(ctx, !schema.resolve(schema_error) && !bulk_data.loaded_ready() &&
                 !bulk_data.entry(second, observed));
             failing.fail_on = SIZE_MAX;
@@ -1984,8 +1967,8 @@ static void test_remap_member_index(TTestContext& ctx)
     bool succeeded = false;
     for (std::size_t fail_on = 0u; (fail_on < 64u) && !succeeded; ++fail_on)
     {
-        SFailingAllocator failing{ 0u, fail_on };
-        memory::CMemoryAllocator allocator{ &failing, &allocate_with_failure, &tests::deallocate_test_memory };
+        tests::TAllocationFailureFixture failing{ 0u, fail_on };
+        memory::CMemoryAllocator allocator{ &failing, &tests::allocate_with_failure, &tests::deallocate_test_memory };
         memory::CMemoryContext context{ allocator };
         {
             tests::TMemoryContextScope scope{ &context };
@@ -2034,8 +2017,8 @@ static void test_compatibility_cache(TTestContext& ctx)
     TEST_EXPECT(ctx, representation.compare(lroot, rroot) == ETypeMatchResult::match &&
         representation.cached_pair_count() == 514u);
     const auto ltype = left.find_type(CStringView{ "T250" }), rtype = right.find_type(CStringView{ "T250" });
-    SFailingAllocator failing{ 0u, 0u };
-    memory::CMemoryAllocator allocator{ &failing, &allocate_with_failure, &tests::deallocate_test_memory };
+    tests::TAllocationFailureFixture failing{ 0u, 0u };
+    memory::CMemoryAllocator allocator{ &failing, &tests::allocate_with_failure, &tests::deallocate_test_memory };
     memory::CMemoryContext context{ allocator };
     {
         tests::TMemoryContextScope scope{ &context };
@@ -2044,7 +2027,7 @@ static void test_compatibility_cache(TTestContext& ctx)
             TEST_EXPECT(ctx, representation.compare(lroot, rroot) == ETypeMatchResult::match &&
                 representation.compare(ltype, rtype) == ETypeMatchResult::match);
         }
-        TEST_EXPECT(ctx, failing.calls == 0u && representation.cached_pair_count() == 514u);
+        TEST_EXPECT(ctx, failing.attempts == 0u && representation.cached_pair_count() == 514u);
     }
     CTypeCompatibility definition{ left, right, ETypeMatch::definition };
     TEST_EXPECT(ctx, definition.compare(lroot, rroot) == ETypeMatchResult::mismatch &&
@@ -2062,8 +2045,8 @@ static void test_compatibility_cache(TTestContext& ctx)
     bool succeeded = false;
     for (std::size_t offset = 0u; (offset < 64u) && !succeeded; ++offset)
     {
-        SFailingAllocator fault{ 0u, offset };
-        memory::CMemoryAllocator fault_allocator{ &fault, &allocate_with_failure, &tests::deallocate_test_memory };
+        tests::TAllocationFailureFixture fault{ 0u, offset };
+        memory::CMemoryAllocator fault_allocator{ &fault, &tests::allocate_with_failure, &tests::deallocate_test_memory };
         memory::CMemoryContext fault_context{ fault_allocator };
         {
             tests::TMemoryContextScope scope{ &fault_context };
@@ -2090,8 +2073,8 @@ static void test_allocations(TTestContext& ctx)
     bool success = false;
     for (std::size_t fail_on = 0u; fail_on < 128u && !success; ++fail_on)
     {
-        SFailingAllocator failing{ 0u, fail_on };
-        memory::CMemoryAllocator allocator{ &failing, &allocate_with_failure, &tests::deallocate_test_memory };
+        tests::TAllocationFailureFixture failing{ 0u, fail_on };
+        memory::CMemoryAllocator allocator{ &failing, &tests::allocate_with_failure, &tests::deallocate_test_memory };
         memory::CMemoryContext memory_context{ allocator };
         {
             tests::TMemoryContextScope scope{ &memory_context };
@@ -2112,8 +2095,8 @@ static void test_allocations(TTestContext& ctx)
     success = false;
     for (std::size_t fail_on = 0u; fail_on < 128u && !success; ++fail_on)
     {
-        SFailingAllocator failing{ 0u, fail_on };
-        memory::CMemoryAllocator allocator{ &failing, &allocate_with_failure, &tests::deallocate_test_memory };
+        tests::TAllocationFailureFixture failing{ 0u, fail_on };
+        memory::CMemoryAllocator allocator{ &failing, &tests::allocate_with_failure, &tests::deallocate_test_memory };
         memory::CMemoryContext memory_context{ allocator };
         {
             tests::TMemoryContextScope scope{ &memory_context };
@@ -2174,8 +2157,8 @@ static void test_physical_member_order(TTestContext& ctx)
         TEST_EXPECT(ctx, !moved.physical_member_at(type, 0u));
         alignas(2) std::uint8_t bytes[stride * 4u];
         std::memset(bytes, 0xa5, sizeof(bytes));
-        SFailingAllocator failing{ 0u, 0u };
-        memory::CMemoryAllocator allocator{ &failing, &allocate_with_failure, &tests::deallocate_test_memory };
+        tests::TAllocationFailureFixture failing{ 0u, 0u };
+        memory::CMemoryAllocator allocator{ &failing, &tests::allocate_with_failure, &tests::deallocate_test_memory };
         memory::CMemoryContext context{ allocator };
         {
             tests::TMemoryContextScope scope{ &context };
@@ -2198,7 +2181,7 @@ static void test_physical_member_order(TTestContext& ctx)
         {
             cleared &= bytes[byte] == (((byte % 4u) < 2u) ? 0xa5u : 0u);
         }
-        TEST_EXPECT(ctx, cleared && (failing.calls == 0u) && context.is_attribution_empty());
+        TEST_EXPECT(ctx, cleared && (failing.attempts == 0u) && context.is_attribution_empty());
         CByteBuffer output;
         TEST_EXPECT(ctx, generate_cpp(schema, CStringView{ "physical" }, output, error));
         const std::string generated{ reinterpret_cast<const char*>(output.data()), output.size() ? output.size() - 1u : 0u };
@@ -2220,8 +2203,8 @@ static void test_physical_member_order(TTestContext& ctx)
     bool succeeded = false;
     for (std::size_t fail_on = 0u; (fail_on < 128u) && !succeeded; ++fail_on)
     {
-        SFailingAllocator failing{ 0u, fail_on };
-        memory::CMemoryAllocator allocator{ &failing, &allocate_with_failure, &tests::deallocate_test_memory };
+        tests::TAllocationFailureFixture failing{ 0u, fail_on };
+        memory::CMemoryAllocator allocator{ &failing, &tests::allocate_with_failure, &tests::deallocate_test_memory };
         memory::CMemoryContext context{ allocator };
         {
             tests::TMemoryContextScope scope{ &context };
@@ -2627,14 +2610,14 @@ static void test_live_resolution_move_failure_and_depth(TTestContext& ctx)
     TEST_EXPECT(ctx, moved.map_occurrence(source) == member_index && moved.resolve(live_error));
     TEST_EXPECT(ctx, moved.member(member_index, live_member) && live_member.source == source);
     {
-        SFailingAllocator failing{ 0u, SIZE_MAX };
-        memory::CMemoryAllocator allocator{ &failing, &allocate_with_failure, &tests::deallocate_test_memory };
+        tests::TAllocationFailureFixture failing{ 0u, SIZE_MAX };
+        memory::CMemoryAllocator allocator{ &failing, &tests::allocate_with_failure, &tests::deallocate_test_memory };
         memory::CMemoryContext context{ allocator };
         {
             tests::TMemoryContextScope scope{ &context };
             CResolvedSchema failure_schema;
             TEST_EXPECT(ctx, failure_schema.resolve(live, live_error));
-            failing.fail_on = failing.calls;
+            failing.fail_on = failing.attempts;
             TEST_EXPECT(ctx, !failure_schema.resolve(live_error));
             TEST_EXPECT(ctx, live_error.reason == EReason::allocation_failed && !failure_schema.is_ready());
         }
@@ -2787,15 +2770,15 @@ static void test_document_value_copy(TTestContext& ctx)
     std::size_t failures{};
     for (std::size_t offset = 0u; (offset < 256u) && !succeeded; ++offset)
     {
-        SFailingAllocator failing{ 0u, SIZE_MAX };
-        memory::CMemoryAllocator allocator{ &failing, &allocate_with_failure, &tests::deallocate_test_memory };
+        tests::TAllocationFailureFixture failing{ 0u, SIZE_MAX };
+        memory::CMemoryAllocator allocator{ &failing, &tests::allocate_with_failure, &tests::deallocate_test_memory };
         memory::CMemoryContext context{ allocator };
         {
             tests::TMemoryContextScope scope{ &context };
             CLiveDocument target;
             TEST_EXPECT(ctx, target.initialise(2u));
             const auto before = target.value_count();
-            failing.fail_on = failing.calls + offset;
+            failing.fail_on = failing.attempts + offset;
             const CNodeKey copied = document_translation::copy_subtree(target, baked_read,
                 baked_read.object_child(baked_read.root(), CStringView{ "source" }), CStringView{ "copy" });
             failing.fail_on = SIZE_MAX;
@@ -3044,13 +3027,13 @@ static void test_schema_integer_output(TTestContext& ctx)
     std::size_t failures{};
     for (std::size_t offset = 0u; (offset < 256u) && !succeeded; ++offset)
     {
-        SFailingAllocator failing{ 0u, SIZE_MAX };
-        memory::CMemoryAllocator allocator{ &failing, &allocate_with_failure, &tests::deallocate_test_memory };
+        tests::TAllocationFailureFixture failing{ 0u, SIZE_MAX };
+        memory::CMemoryAllocator allocator{ &failing, &tests::allocate_with_failure, &tests::deallocate_test_memory };
         memory::CMemoryContext context{ allocator };
         {
             tests::TMemoryContextScope scope{ &context };
             CLiveDocument output;
-            failing.fail_on = failing.calls + offset;
+            failing.fail_on = failing.attempts + offset;
             succeeded = baked_schema.prepare_output(output, error);
             failing.fail_on = SIZE_MAX;
             if (!succeeded)
@@ -3283,8 +3266,8 @@ static void test_schema_wrapper_bindings(TTestContext& ctx)
 {
     CBakedDocumentBlock block;
     TEST_EXPECT(ctx, bake(one("\"u8\"", "1"), block));
-    SFailingAllocator failing{ 0u, SIZE_MAX };
-    memory::CMemoryAllocator allocator{ &failing, &allocate_with_failure, &tests::deallocate_test_memory };
+    tests::TAllocationFailureFixture failing{ 0u, SIZE_MAX };
+    memory::CMemoryAllocator allocator{ &failing, &tests::allocate_with_failure, &tests::deallocate_test_memory };
     memory::CMemoryContext context{ allocator };
     {
         tests::TMemoryContextScope scope{ &context };
@@ -3330,7 +3313,7 @@ static void test_schema_wrapper_bindings(TTestContext& ctx)
 
         CSchemaBinding persistent;
         TEST_EXPECT(ctx, persistent.bind(first));
-        failing.fail_on = failing.calls;
+        failing.fail_on = failing.attempts;
         TEST_EXPECT(ctx, !first.resolve(diagnostic) && diagnostic.reason == EReason::allocation_failed);
         TEST_EXPECT(ctx, persistent.is_attached() && !persistent.is_usable() && !persistent.resolved());
         TEST_EXPECT(ctx, persistent.document_query().is_ready() && first.reference_count() == 1u);
@@ -3392,8 +3375,8 @@ static void test_schema_wrapper_rejections(TTestContext& ctx)
 
     const CSchemaHandle old_root = live.document_query().root();
     {
-        SFailingAllocator failing{ 0u, 0u };
-        memory::CMemoryAllocator allocator{ &failing, &allocate_with_failure, &tests::deallocate_test_memory };
+        tests::TAllocationFailureFixture failing{ 0u, 0u };
+        memory::CMemoryAllocator allocator{ &failing, &tests::allocate_with_failure, &tests::deallocate_test_memory };
         memory::CMemoryContext context{ allocator };
         {
             tests::TMemoryContextScope scope{ &context };
@@ -3424,8 +3407,8 @@ static void test_schema_wrapper_edit_allocations(TTestContext& ctx)
     unsigned rejected = 0u, accepted = 0u;
     for (std::size_t failure_offset = 0u; failure_offset < 8u; ++failure_offset)
     {
-        SFailingAllocator failing{ 0u, SIZE_MAX };
-        memory::CMemoryAllocator allocator{ &failing, &allocate_with_failure, &tests::deallocate_test_memory };
+        tests::TAllocationFailureFixture failing{ 0u, SIZE_MAX };
+        memory::CMemoryAllocator allocator{ &failing, &tests::allocate_with_failure, &tests::deallocate_test_memory };
         memory::CMemoryContext context{ allocator };
         {
             tests::TMemoryContextScope scope{ &context };
@@ -3441,7 +3424,7 @@ static void test_schema_wrapper_edit_allocations(TTestContext& ctx)
             const CSchemaHandle original = query.object_child(member, CStringView{ "default" });
             TEST_EXPECT(ctx, original && query.value_kind(original) == EDocumentValueKind::integer);
             const CStringView replacement{ long_value.data(), long_value.size() };
-            failing.fail_on = failing.calls + failure_offset;
+            failing.fail_on = failing.attempts + failure_offset;
             const bool changed = live.edit().replace_string(original, replacement);
             if (changed)
             {
@@ -3467,8 +3450,8 @@ static void test_schema_wrapper_edit_allocations(TTestContext& ctx)
     //  bring the total to fourteen; seventeen fillers leave one of the initial
     //  32 slots free. The new candidate fills it; detaching the old payload
     //  must grow the node store.
-    SFailingAllocator failing{ 0u, SIZE_MAX };
-    memory::CMemoryAllocator allocator{ &failing, &allocate_with_failure, &tests::deallocate_test_memory };
+    tests::TAllocationFailureFixture failing{ 0u, SIZE_MAX };
+    memory::CMemoryAllocator allocator{ &failing, &tests::allocate_with_failure, &tests::deallocate_test_memory };
     memory::CMemoryContext context{ allocator };
     {
         tests::TMemoryContextScope scope{ &context };
@@ -3488,9 +3471,9 @@ static void test_schema_wrapper_edit_allocations(TTestContext& ctx)
             const std::string name = "padding" + std::to_string(n);
             TEST_EXPECT(ctx, editor.append_null(member, CStringView{ name.c_str() }));
         }
-        failing.fail_on = failing.calls;
+        failing.fail_on = failing.attempts;
         TEST_EXPECT(ctx, !editor.replace_string(original, CStringView{ "u8" }));
-        TEST_EXPECT(ctx, failing.calls == failing.fail_on + 1u);
+        TEST_EXPECT(ctx, failing.attempts == failing.fail_on + 1u);
         std::int64_t old_value{};
         TEST_EXPECT(ctx, live.document_query().signed_integer_value(original, old_value) && old_value == 1);
     }
@@ -3669,8 +3652,8 @@ static void test_schema_conversion_allocations(TTestContext& ctx)
     bool translation_failure = false, resolution_failure = false, promotion_success = false;
     for (std::size_t offset = 0u; offset < 128u && !promotion_success; ++offset)
     {
-        SFailingAllocator failing{ 0u, SIZE_MAX };
-        memory::CMemoryAllocator allocator{ &failing, &allocate_with_failure, &tests::deallocate_test_memory };
+        tests::TAllocationFailureFixture failing{ 0u, SIZE_MAX };
+        memory::CMemoryAllocator allocator{ &failing, &tests::allocate_with_failure, &tests::deallocate_test_memory };
         memory::CMemoryContext context{ allocator };
         {
             tests::TMemoryContextScope scope{ &context };
@@ -3679,7 +3662,7 @@ static void test_schema_conversion_allocations(TTestContext& ctx)
             CBakedSchema source;
             CLiveSchema destination;
             TEST_EXPECT(ctx, source.set_document(block.document()));
-            failing.fail_on = failing.calls + offset;
+            failing.fail_on = failing.attempts + offset;
             SDiagnostic diagnostic;
             promotion_success = source.promote(destination, diagnostic);
             if (promotion_success)
@@ -3703,8 +3686,8 @@ static void test_schema_conversion_allocations(TTestContext& ctx)
     bool baking_failure = false, baking_success = false;
     for (std::size_t offset = 0u; offset < 128u && !baking_success; ++offset)
     {
-        SFailingAllocator failing{ 0u, SIZE_MAX };
-        memory::CMemoryAllocator allocator{ &failing, &allocate_with_failure, &tests::deallocate_test_memory };
+        tests::TAllocationFailureFixture failing{ 0u, SIZE_MAX };
+        memory::CMemoryAllocator allocator{ &failing, &tests::allocate_with_failure, &tests::deallocate_test_memory };
         memory::CMemoryContext context{ allocator };
         {
             tests::TMemoryContextScope scope{ &context };
@@ -3714,7 +3697,7 @@ static void test_schema_conversion_allocations(TTestContext& ctx)
             TEST_EXPECT(ctx, source.try_adopt(std::move(parsed)));
             CBakedDocumentBlock destination_block;
             CBakedSchema destination_schema;
-            failing.fail_on = failing.calls + offset;
+            failing.fail_on = failing.attempts + offset;
             baking_success = source.bake(destination_block, destination_schema);
             if (baking_success)
             {
@@ -4077,15 +4060,15 @@ static void test_baked_bulk_data(TTestContext& ctx)
         material_view.bytes[0] == 11u && material_view.bytes[1] == 12u);
     for (std::size_t failure_offset = 0u; failure_offset < 2u; ++failure_offset)
     {
-        SFailingAllocator failing{ 0u, SIZE_MAX };
-        memory::CMemoryAllocator allocator{ &failing, &allocate_with_failure, &tests::deallocate_test_memory };
+        tests::TAllocationFailureFixture failing{ 0u, SIZE_MAX };
+        memory::CMemoryAllocator allocator{ &failing, &tests::allocate_with_failure, &tests::deallocate_test_memory };
         memory::CMemoryContext context{ allocator };
         {
             tests::TMemoryContextScope scope{ &context };
             CBakedBulkData attempt;
             TEST_EXPECT(ctx, attempt.set_document(readonly_block.document()));
             CByteBuffer output;
-            failing.fail_on = failing.calls + failure_offset;
+            failing.fail_on = failing.attempts + failure_offset;
             SBulkDataDiagnostic allocation_error;
             TEST_EXPECT(ctx, !attempt.attach_schema(baked_schema, output, allocation_error) &&
                 allocation_error.reason == EBulkDataLoadReason::allocation_failed &&
@@ -4661,8 +4644,8 @@ static void test_instance_default_preservation(TTestContext& ctx)
                 std::size_t failures = 0u;
                 for (std::size_t fail_on = 0u; (fail_on < 512u) && !succeeded; ++fail_on)
                 {
-                    SFailingAllocator failing{ 0u, fail_on };
-                    memory::CMemoryAllocator allocator{ &failing, &allocate_with_failure, &tests::deallocate_test_memory };
+                    tests::TAllocationFailureFixture failing{ 0u, fail_on };
+                    memory::CMemoryAllocator allocator{ &failing, &tests::allocate_with_failure, &tests::deallocate_test_memory };
                     memory::CMemoryContext context{ allocator };
                     {
                         tests::TMemoryContextScope scope{ &context };
@@ -4841,8 +4824,8 @@ static void test_binary_reconciliation(TTestContext& ctx)
         bool succeeded = false;
         for (std::size_t fail_on = 0u; (fail_on < 256u) && !succeeded; ++fail_on)
         {
-            SFailingAllocator failing{ 0u, SIZE_MAX };
-            memory::CMemoryAllocator allocator{ &failing, &allocate_with_failure, &tests::deallocate_test_memory };
+            tests::TAllocationFailureFixture failing{ 0u, SIZE_MAX };
+            memory::CMemoryAllocator allocator{ &failing, &tests::allocate_with_failure, &tests::deallocate_test_memory };
             memory::CMemoryContext context{ allocator };
             {
                 tests::TMemoryContextScope scope{ &context };
@@ -4856,7 +4839,7 @@ static void test_binary_reconciliation(TTestContext& ctx)
                     CByteConstView{ bytes, 48u, 128u }, 3u, bulk_data_error);
                 TEST_EXPECT(ctx, instance && entry);
                 const std::uint8_t* const original = route ? bulk_data.payload_view().data() : instances.payload_view().data();
-                failing.fail_on = failing.calls + fail_on;
+                failing.fail_on = failing.attempts + fail_on;
                 succeeded = route ? bulk_data.reconcile(bulk_data_error) : instances.reconcile(error);
                 if (!succeeded)
                 {
@@ -4959,8 +4942,8 @@ static void test_reconciliation_traversal(TTestContext& ctx)
     bool succeeded{};
     for (std::size_t fail_on = 0u; (fail_on < 256u) && !succeeded; ++fail_on)
     {
-        SFailingAllocator failing{ 0u, SIZE_MAX };
-        memory::CMemoryAllocator allocator{ &failing, &allocate_with_failure, &tests::deallocate_test_memory };
+        tests::TAllocationFailureFixture failing{ 0u, SIZE_MAX };
+        memory::CMemoryAllocator allocator{ &failing, &tests::allocate_with_failure, &tests::deallocate_test_memory };
         memory::CMemoryContext context{ allocator };
         {
             tests::TMemoryContextScope scope{ &context };
@@ -4971,7 +4954,7 @@ static void test_reconciliation_traversal(TTestContext& ctx)
             TEST_EXPECT(ctx, base && live.mutable_entry(base, bytes) && bytes.bytes.size() == 3u * (depth + 1u));
             bytes.bytes.data()[3u * (depth + 1u) - 1u] = 13u;
             const auto* const payload = live.payload_view().data();
-            failing.fail_on = failing.calls + fail_on;
+            failing.fail_on = failing.attempts + fail_on;
             succeeded = live.reconcile(error);
             failing.fail_on = SIZE_MAX;
             TEST_EXPECT(ctx, live.payload_view().data() == payload && payload[3u * (depth + 1u) - 1u] == 13u);
@@ -5789,14 +5772,14 @@ static void test_live_instance_output_boundaries(TTestContext& ctx)
     std::size_t output_failures{}, output_successes{};
     for (std::size_t failure_offset = 0u; (failure_offset < 160u) && (output_successes == 0u); ++failure_offset)
     {
-        SFailingAllocator failing{ 0u, SIZE_MAX };
-        memory::CMemoryAllocator allocator{ &failing, &allocate_with_failure, &tests::deallocate_test_memory };
+        tests::TAllocationFailureFixture failing{ 0u, SIZE_MAX };
+        memory::CMemoryAllocator allocator{ &failing, &tests::allocate_with_failure, &tests::deallocate_test_memory };
         memory::CMemoryContext context{ allocator };
         {
             tests::TMemoryContextScope scope{ &context };
             CLiveDocument attempt_document;
             CByteBuffer attempt_payload;
-            failing.fail_on = failing.calls + failure_offset;
+            failing.fail_on = failing.attempts + failure_offset;
             if (stale_live.prepare_output(attempt_document, attempt_payload, schema,
                 EDataOutputForm::embedded, error))
             {
@@ -5824,15 +5807,15 @@ static void test_live_instance_output_boundaries(TTestContext& ctx)
     std::size_t bake_failures{}, bake_successes{};
     for (std::size_t failure_offset = 0u; (failure_offset < 240u) && (bake_successes == 0u); ++failure_offset)
     {
-        SFailingAllocator failing{ 0u, SIZE_MAX };
-        memory::CMemoryAllocator allocator{ &failing, &allocate_with_failure, &tests::deallocate_test_memory };
+        tests::TAllocationFailureFixture failing{ 0u, SIZE_MAX };
+        memory::CMemoryAllocator allocator{ &failing, &tests::allocate_with_failure, &tests::deallocate_test_memory };
         memory::CMemoryContext context{ allocator };
         {
             tests::TMemoryContextScope scope{ &context };
             CBakedDocumentBlock attempt_block;
             CByteBuffer attempt_payload;
             CBakedInstances attempt_role;
-            failing.fail_on = failing.calls + failure_offset;
+            failing.fail_on = failing.attempts + failure_offset;
             if (stale_live.bake(attempt_block, attempt_payload, attempt_role, schema,
                 EDataOutputForm::embedded, error))
             {
@@ -6105,15 +6088,15 @@ static void test_stripped_baking_raw_values(TTestContext& ctx)
         const auto bindings = schema.reference_count();
         for (std::size_t offset = 0u; (offset < 128u) && !succeeded; ++offset)
         {
-            SFailingAllocator failing{ 0u, SIZE_MAX };
-            memory::CMemoryAllocator allocator{ &failing, &allocate_with_failure, &tests::deallocate_test_memory };
+            tests::TAllocationFailureFixture failing{ 0u, SIZE_MAX };
+            memory::CMemoryAllocator allocator{ &failing, &tests::allocate_with_failure, &tests::deallocate_test_memory };
             memory::CMemoryContext context{ allocator };
             {
                 tests::TMemoryContextScope scope{ &context };
                 CBakedDocumentBlock attempt;
                 CByteBuffer bytes;
                 auto output = make_role();
-                failing.fail_on = failing.calls + offset;
+                failing.fail_on = failing.attempts + offset;
                 succeeded = source.bake(attempt, bytes, output, schema, EDataOutputForm::stripped, diagnostic);
                 if (succeeded)
                 {
@@ -6159,13 +6142,13 @@ static void test_live_instance_boundaries(TTestContext& ctx)
     std::size_t promotion_failures{}, promotion_successes{};
     for (std::size_t failure_offset = 0u; (failure_offset < 128u) && !promotion_successes; ++failure_offset)
     {
-        SFailingAllocator failing{ 0u, SIZE_MAX };
-        memory::CMemoryAllocator allocator{ &failing, &allocate_with_failure, &tests::deallocate_test_memory };
+        tests::TAllocationFailureFixture failing{ 0u, SIZE_MAX };
+        memory::CMemoryAllocator allocator{ &failing, &tests::allocate_with_failure, &tests::deallocate_test_memory };
         memory::CMemoryContext context{ allocator };
         {
             tests::TMemoryContextScope scope{ &context };
             CLiveInstances destination;
-            failing.fail_on = failing.calls + failure_offset;
+            failing.fail_on = failing.attempts + failure_offset;
             const bool promoted = source.promote(destination, schema, error);
             if (promoted)
             {
@@ -6188,8 +6171,8 @@ static void test_live_instance_boundaries(TTestContext& ctx)
     std::size_t append_failures{}, append_successes{};
     for (std::size_t failure_offset = 0u; failure_offset < 28u; ++failure_offset)
     {
-        SFailingAllocator failing{ 0u, SIZE_MAX };
-        memory::CMemoryAllocator allocator{ &failing, &allocate_with_failure, &tests::deallocate_test_memory };
+        tests::TAllocationFailureFixture failing{ 0u, SIZE_MAX };
+        memory::CMemoryAllocator allocator{ &failing, &tests::allocate_with_failure, &tests::deallocate_test_memory };
         memory::CMemoryContext context{ allocator };
         {
             tests::TMemoryContextScope scope{ &context };
@@ -6198,7 +6181,7 @@ static void test_live_instance_boundaries(TTestContext& ctx)
             const CInstanceHandle prior = attempt.capture_base(CStringView{ "Pair" }, CStringView{ "prior" },
                 CByteConstView{ original, 2u, 128u }, error);
             TEST_EXPECT(ctx, prior);
-            failing.fail_on = failing.calls + failure_offset;
+            failing.fail_on = failing.attempts + failure_offset;
             const CInstanceHandle next = attempt.capture_base(CStringView{ "Pair" }, CStringView{ "next" },
                 CByteConstView{ updated, 2u, 128u }, error);
             SInstanceEntryView prior_view;
@@ -6254,8 +6237,8 @@ static void test_live_instance_boundaries(TTestContext& ctx)
     std::size_t edit_failures{}, edit_successes{};
     for (std::size_t failure_offset = 0u; failure_offset < 32u; ++failure_offset)
     {
-        SFailingAllocator failing{ 0u, SIZE_MAX };
-        memory::CMemoryAllocator allocator{ &failing, &allocate_with_failure, &tests::deallocate_test_memory };
+        tests::TAllocationFailureFixture failing{ 0u, SIZE_MAX };
+        memory::CMemoryAllocator allocator{ &failing, &tests::allocate_with_failure, &tests::deallocate_test_memory };
         memory::CMemoryContext context{ allocator };
         {
             tests::TMemoryContextScope scope{ &context };
@@ -6266,7 +6249,7 @@ static void test_live_instance_boundaries(TTestContext& ctx)
             const CInstanceHandle child = attempt.create_specialisation(base, CStringView{ "child" }, query,
                 query.object_child(query.root(), CStringView{ "selected" }), error);
             TEST_EXPECT(ctx, base && child);
-            failing.fail_on = failing.calls + failure_offset;
+            failing.fail_on = failing.attempts + failure_offset;
             const CInstanceHandle changed = attempt.capture_base(CStringView{ "Pair" }, CStringView{ "base" },
                 CByteConstView{ updated, 2u, 128u }, error);
             if (changed)
@@ -6346,8 +6329,8 @@ static void test_live_instance_boundaries(TTestContext& ctx)
     TEST_EXPECT(ctx, !detached.loaded_ready() && detached.document_query().is_ready() &&
         !detached.entry(detached.find_base(CStringView{ "Pair" }, CStringView{ "base" }), detached_view));
 
-    SFailingAllocator retry_failure{ 0u, SIZE_MAX };
-    memory::CMemoryAllocator retry_allocator{ &retry_failure, &allocate_with_failure,
+    tests::TAllocationFailureFixture retry_failure{ 0u, SIZE_MAX };
+    memory::CMemoryAllocator retry_allocator{ &retry_failure, &tests::allocate_with_failure,
         &tests::deallocate_test_memory };
     memory::CMemoryContext retry_context{ retry_allocator };
     {
@@ -6361,7 +6344,7 @@ static void test_live_instance_boundaries(TTestContext& ctx)
         const CInstanceHandle retained = bound.capture_base(CStringView{ "Pair" }, CStringView{ "base" },
             CByteConstView{ original, 2u, 128u }, error);
         TEST_EXPECT(ctx, retained);
-        retry_failure.fail_on = retry_failure.calls;
+        retry_failure.fail_on = retry_failure.attempts;
         TEST_EXPECT(ctx, !live_schema.resolve(schema_error) && !bound.loaded_ready() &&
             bound.document_query().is_ready() && !bound.entry(retained, detached_view));
         retry_failure.fail_on = SIZE_MAX;
@@ -6488,8 +6471,8 @@ static void test_baked_instances(TTestContext& ctx)
         invalidated.document_query().is_ready());
     invalidated.clear();
 
-    SFailingAllocator failing{ 0u, SIZE_MAX };
-    memory::CMemoryAllocator allocator{ &failing, &allocate_with_failure, &tests::deallocate_test_memory };
+    tests::TAllocationFailureFixture failing{ 0u, SIZE_MAX };
+    memory::CMemoryAllocator allocator{ &failing, &tests::allocate_with_failure, &tests::deallocate_test_memory };
     memory::CMemoryContext context{ allocator };
     {
         tests::TMemoryContextScope scope{ &context };
@@ -6498,7 +6481,7 @@ static void test_baked_instances(TTestContext& ctx)
         CBakedInstances retry_client;
         TEST_EXPECT(ctx, retry_client.set_document(block.document()));
         TEST_EXPECT(ctx, retry_client.attach_schema(retry_schema, moved_owner.const_view(), false, error));
-        failing.fail_on = failing.calls;
+        failing.fail_on = failing.attempts;
         TEST_EXPECT(ctx, !retry_schema.resolve(schema_error) && !retry_client.loaded_ready() &&
             retry_client.document_query().is_ready());
         failing.fail_on = SIZE_MAX;
@@ -6656,15 +6639,15 @@ static void test_baked_instance_boundaries(TTestContext& ctx)
         view.byte_count == 2u && view.bytes[0] == 1u && view.bytes[1] == 2u);
     for (std::size_t failure_offset = 0u; failure_offset < 2u; ++failure_offset)
     {
-        SFailingAllocator failing{ 0u, SIZE_MAX };
-        memory::CMemoryAllocator allocator{ &failing, &allocate_with_failure, &tests::deallocate_test_memory };
+        tests::TAllocationFailureFixture failing{ 0u, SIZE_MAX };
+        memory::CMemoryAllocator allocator{ &failing, &tests::allocate_with_failure, &tests::deallocate_test_memory };
         memory::CMemoryContext context{ allocator };
         {
             tests::TMemoryContextScope scope{ &context };
             CBakedInstances attempt;
             TEST_EXPECT(ctx, attempt.set_document(ready_block.document()));
             CByteBuffer output;
-            failing.fail_on = failing.calls + failure_offset;
+            failing.fail_on = failing.attempts + failure_offset;
             SInstanceDiagnostic allocation_error;
             TEST_EXPECT(ctx, !attempt.attach_schema(schema, output, allocation_error) &&
                 allocation_error.reason == EInstanceLoadReason::allocation_failed &&
@@ -6775,15 +6758,15 @@ static void test_baked_instance_staging(TTestContext& ctx)
     bool saw_frame_failure = false, materialised = false;
     for (std::size_t failure_offset = 0u; failure_offset < 8u && !materialised; ++failure_offset)
     {
-        SFailingAllocator failing{ 0u, SIZE_MAX };
-        memory::CMemoryAllocator allocator{ &failing, &allocate_with_failure, &tests::deallocate_test_memory };
+        tests::TAllocationFailureFixture failing{ 0u, SIZE_MAX };
+        memory::CMemoryAllocator allocator{ &failing, &tests::allocate_with_failure, &tests::deallocate_test_memory };
         memory::CMemoryContext context{ allocator };
         {
             tests::TMemoryContextScope scope{ &context };
             CBakedInstances attempt;
             TEST_EXPECT(ctx, attempt.set_document(good_mutable));
             CByteBuffer output;
-            failing.fail_on = failing.calls + failure_offset;
+            failing.fail_on = failing.attempts + failure_offset;
             SInstanceDiagnostic allocation_error;
             materialised = attempt.attach_schema(schema, output, allocation_error);
             if (materialised)
@@ -6809,14 +6792,14 @@ static void test_baked_instance_staging(TTestContext& ctx)
     bool saw_expected_failure = false, compared = false;
     for (std::size_t failure_offset = 0u; failure_offset < 8u && !compared; ++failure_offset)
     {
-        SFailingAllocator failing{ 0u, SIZE_MAX };
-        memory::CMemoryAllocator allocator{ &failing, &allocate_with_failure, &tests::deallocate_test_memory };
+        tests::TAllocationFailureFixture failing{ 0u, SIZE_MAX };
+        memory::CMemoryAllocator allocator{ &failing, &tests::allocate_with_failure, &tests::deallocate_test_memory };
         memory::CMemoryContext context{ allocator };
         {
             tests::TMemoryContextScope scope{ &context };
             CBakedInstances attempt;
             TEST_EXPECT(ctx, attempt.set_document(good_block.document()));
-            failing.fail_on = failing.calls + failure_offset;
+            failing.fail_on = failing.attempts + failure_offset;
             SInstanceDiagnostic allocation_error;
             compared = attempt.attach_schema(schema, CByteConstView{ expected_bytes, 4u, 128u }, true, allocation_error);
             if (compared)
@@ -7117,8 +7100,8 @@ static void test_live_bulk_data(TTestContext& ctx)
         !outliving.find_entry(CStringView{ "Pair" }, CStringView{ "orphan" }));
 
     {
-        SFailingAllocator failing{ 0u, SIZE_MAX };
-        memory::CMemoryAllocator allocator{ &failing, &allocate_with_failure, &tests::deallocate_test_memory };
+        tests::TAllocationFailureFixture failing{ 0u, SIZE_MAX };
+        memory::CMemoryAllocator allocator{ &failing, &tests::allocate_with_failure, &tests::deallocate_test_memory };
         memory::CMemoryContext context{ allocator };
         {
             tests::TMemoryContextScope scope{ &context };
@@ -7130,7 +7113,7 @@ static void test_live_bulk_data(TTestContext& ctx)
             TEST_EXPECT(ctx, live_bound.initialise(live_schema));
             const CBulkDataHandle retained = live_bound.create_unpopulated(CStringView{ "Pair" }, CStringView{ "retained" }, 0u, error);
             TEST_EXPECT(ctx, retained);
-            failing.fail_on = failing.calls;
+            failing.fail_on = failing.attempts;
             TEST_EXPECT(ctx, !live_schema.resolve(schema_error) && !live_bound.loaded_ready() &&
                 live_bound.document_query().is_ready() && !live_bound.entry(retained, observed));
             failing.fail_on = SIZE_MAX;
@@ -7516,12 +7499,12 @@ static void test_live_bulk_data_output_allocations(TTestContext& ctx)
     std::size_t prepare_failures{}, prepare_successes{};
     for (std::size_t failure_offset = 0u; failure_offset < 48u; ++failure_offset)
     {
-        SFailingAllocator failing{ 0u, SIZE_MAX };
-        memory::CMemoryAllocator allocator{ &failing, &allocate_with_failure, &tests::deallocate_test_memory };
+        tests::TAllocationFailureFixture failing{ 0u, SIZE_MAX };
+        memory::CMemoryAllocator allocator{ &failing, &tests::allocate_with_failure, &tests::deallocate_test_memory };
         memory::CMemoryContext context{ allocator };
         {
             tests::TMemoryContextScope scope{ &context };
-            failing.fail_on = failing.calls + failure_offset;
+            failing.fail_on = failing.attempts + failure_offset;
             CLiveDocument output;
             CByteBuffer payload;
             const bool prepared = source.prepare_output(output, payload, schema, EDataOutputForm::embedded, error);
@@ -7547,12 +7530,12 @@ static void test_live_bulk_data_output_allocations(TTestContext& ctx)
     std::size_t bake_failures{}, bake_successes{};
     for (std::size_t failure_offset = 0u; failure_offset < 80u; ++failure_offset)
     {
-        SFailingAllocator failing{ 0u, SIZE_MAX };
-        memory::CMemoryAllocator allocator{ &failing, &allocate_with_failure, &tests::deallocate_test_memory };
+        tests::TAllocationFailureFixture failing{ 0u, SIZE_MAX };
+        memory::CMemoryAllocator allocator{ &failing, &tests::allocate_with_failure, &tests::deallocate_test_memory };
         memory::CMemoryContext context{ allocator };
         {
             tests::TMemoryContextScope scope{ &context };
-            failing.fail_on = failing.calls + failure_offset;
+            failing.fail_on = failing.attempts + failure_offset;
             CBakedDocumentBlock block;
             CByteBuffer payload;
             CBakedBulkData role;
@@ -7603,8 +7586,8 @@ static void test_live_bulk_data_failures_and_matching(TTestContext& ctx)
     std::size_t rejected{}, accepted{};
     for (std::size_t failure_offset = 0u; failure_offset < 20u; ++failure_offset)
     {
-        SFailingAllocator failing{ 0u, SIZE_MAX };
-        memory::CMemoryAllocator allocator{ &failing, &allocate_with_failure, &tests::deallocate_test_memory };
+        tests::TAllocationFailureFixture failing{ 0u, SIZE_MAX };
+        memory::CMemoryAllocator allocator{ &failing, &tests::allocate_with_failure, &tests::deallocate_test_memory };
         memory::CMemoryContext context{ allocator };
         {
             tests::TMemoryContextScope scope{ &context };
@@ -7614,7 +7597,7 @@ static void test_live_bulk_data_failures_and_matching(TTestContext& ctx)
             const CBulkDataHandle prior = attempt.capture(CStringView{ "Pair" }, CStringView{ "prior" },
                 CByteConstView{ bytes, 2u, 128u }, 1u, error);
             TEST_EXPECT(ctx, prior);
-            failing.fail_on = failing.calls + failure_offset;
+            failing.fail_on = failing.attempts + failure_offset;
             const CBulkDataHandle next = attempt.capture(CStringView{ "Pair" }, CStringView{ "next" },
                 CByteConstView{ bytes, 6u, 128u }, 3u, error);
             SBulkDataEntryView before;
@@ -7638,8 +7621,8 @@ static void test_live_bulk_data_failures_and_matching(TTestContext& ctx)
     std::size_t replacement_failures{}, replacement_successes{};
     for (std::size_t failure_offset = 0u; failure_offset < 24u; ++failure_offset)
     {
-        SFailingAllocator failing{ 0u, SIZE_MAX };
-        memory::CMemoryAllocator allocator{ &failing, &allocate_with_failure, &tests::deallocate_test_memory };
+        tests::TAllocationFailureFixture failing{ 0u, SIZE_MAX };
+        memory::CMemoryAllocator allocator{ &failing, &tests::allocate_with_failure, &tests::deallocate_test_memory };
         memory::CMemoryContext context{ allocator };
         {
             tests::TMemoryContextScope scope{ &context };
@@ -7650,7 +7633,7 @@ static void test_live_bulk_data_failures_and_matching(TTestContext& ctx)
                 CByteConstView{ bytes, 2u, 128u }, 1u, error);
             TEST_EXPECT(ctx, captured && attempt.reconcile(error));
             const CBulkDataHandle retained = attempt.find_entry(CStringView{ "Pair" }, CStringView{ "retained" });
-            failing.fail_on = failing.calls + failure_offset;
+            failing.fail_on = failing.attempts + failure_offset;
             const CBulkDataHandle result = attempt.capture(CStringView{ "Pair" }, CStringView{ "retained" },
                 CByteConstView{ bytes, 6u, 128u }, 3u, error);
             failing.fail_on = SIZE_MAX;
@@ -7702,12 +7685,12 @@ static void test_live_bulk_data_failures_and_matching(TTestContext& ctx)
     std::size_t promotion_failures{}, promotion_successes{};
     for (std::size_t failure_offset = 0u; failure_offset < 40u; ++failure_offset)
     {
-        SFailingAllocator failing{ 0u, SIZE_MAX };
-        memory::CMemoryAllocator allocator{ &failing, &allocate_with_failure, &tests::deallocate_test_memory };
+        tests::TAllocationFailureFixture failing{ 0u, SIZE_MAX };
+        memory::CMemoryAllocator allocator{ &failing, &tests::allocate_with_failure, &tests::deallocate_test_memory };
         memory::CMemoryContext context{ allocator };
         {
             tests::TMemoryContextScope scope{ &context };
-            failing.fail_on = failing.calls + failure_offset;
+            failing.fail_on = failing.attempts + failure_offset;
             CLiveBulkData destination;
             const bool promoted = source.promote(destination, physical_schema, error);
             if (promoted)
@@ -8112,13 +8095,13 @@ static void test_unused_storage_documents(TTestContext& ctx)
     std::uint8_t allocation_saved[32];
     std::memcpy(allocation_saved, allocation_target, sizeof(allocation_saved));
     {
-        SFailingAllocator failing{ 0u, 0u };
-        memory::CMemoryAllocator allocator{ &failing, &allocate_with_failure, &tests::deallocate_test_memory };
+        tests::TAllocationFailureFixture failing{ 0u, 0u };
+        memory::CMemoryAllocator allocator{ &failing, &tests::allocate_with_failure, &tests::deallocate_test_memory };
         memory::CMemoryContext context{ allocator };
         {
             tests::TMemoryContextScope scope{ &context };
             TEST_EXPECT(ctx, !clear_unused_storage(*resolved, packed_query,
-                CByteView{ allocation_target, sizeof(allocation_target), 16u }) && failing.calls != 0u &&
+                CByteView{ allocation_target, sizeof(allocation_target), 16u }) && failing.attempts != 0u &&
                 std::memcmp(allocation_saved, allocation_target, sizeof(allocation_saved)) == 0);
         }
         TEST_EXPECT(ctx, context.is_attribution_empty());
@@ -8249,20 +8232,20 @@ static void test_data_remap(TTestContext& ctx)
     TEST_EXPECT(ctx, !plan.execute(inputs, 1u, CByteView{ target, sizeof(target), 4u }) &&
         std::memcmp(rejected, target, sizeof(target)) == 0);
     {
-        SFailingAllocator failing{ 0u, 0u };
-        memory::CMemoryAllocator allocator{ &failing, &allocate_with_failure, &tests::deallocate_test_memory };
+        tests::TAllocationFailureFixture failing{ 0u, 0u };
+        memory::CMemoryAllocator allocator{ &failing, &tests::allocate_with_failure, &tests::deallocate_test_memory };
         memory::CMemoryContext context{ allocator };
         {
             tests::TMemoryContextScope scope{ &context };
             TEST_EXPECT(ctx, plan.execute(inputs, 2u, CByteView{ target, sizeof(target), 4u }));
-            TEST_EXPECT(ctx, failing.calls == 0u);
+            TEST_EXPECT(ctx, failing.attempts == 0u);
         }
         TEST_EXPECT(ctx, context.is_attribution_empty());
     }
 
     {
-        SFailingAllocator failing{ 0u, 0u };
-        memory::CMemoryAllocator allocator{ &failing, &allocate_with_failure, &tests::deallocate_test_memory };
+        tests::TAllocationFailureFixture failing{ 0u, 0u };
+        memory::CMemoryAllocator allocator{ &failing, &tests::allocate_with_failure, &tests::deallocate_test_memory };
         memory::CMemoryContext context{ allocator };
         {
             tests::TMemoryContextScope scope{ &context };
@@ -8856,8 +8839,8 @@ static void test_data_remap_type_exclusions(TTestContext& ctx)
         return;
     }
     const SRemapSourceType changed{ &source_schema, source_schema.find_type(CStringView{ "Source" }) };
-    SFailingAllocator failing{ 0u, SIZE_MAX };
-    memory::CMemoryAllocator allocator{ &failing, &allocate_with_failure, &tests::deallocate_test_memory };
+    tests::TAllocationFailureFixture failing{ 0u, SIZE_MAX };
+    memory::CMemoryAllocator allocator{ &failing, &tests::allocate_with_failure, &tests::deallocate_test_memory };
     memory::CMemoryContext context{ allocator };
     {
         tests::TMemoryContextScope scope{ &context };
@@ -9020,8 +9003,8 @@ static void test_schema_switch_role(TTestContext& ctx, CBakedSchema& original, T
         const auto references = original.reference_count();
         for (std::size_t fail_on = 0u; fail_on < 128u && !completed; ++fail_on)
         {
-            SFailingAllocator failing{ 0u, fail_on };
-            memory::CMemoryAllocator allocator{ &failing, &allocate_with_failure, &tests::deallocate_test_memory };
+            tests::TAllocationFailureFixture failing{ 0u, fail_on };
+            memory::CMemoryAllocator allocator{ &failing, &tests::allocate_with_failure, &tests::deallocate_test_memory };
             memory::CMemoryContext context{ allocator };
             {
                 tests::TMemoryContextScope scope{ &context };
@@ -9275,8 +9258,8 @@ static void test_schema_lookup_and_cursor_paths(TTestContext& ctx)
                 bytes[i] = mode == 2u && i % 3u == 1u ? 0u : static_cast<std::uint8_t>((i * 37u) % count + 1u);
             detail::SValueDiagnostic error;
             bool matches{};
-            SFailingAllocator failing{ 0u, 0u };
-            memory::CMemoryAllocator allocator{ &failing, &allocate_with_failure, &tests::deallocate_test_memory };
+            tests::TAllocationFailureFixture failing{ 0u, 0u };
+            memory::CMemoryAllocator allocator{ &failing, &tests::allocate_with_failure, &tests::deallocate_test_memory };
             memory::CMemoryContext context{ allocator };
             {
                 tests::TMemoryContextScope scope{ &context };
@@ -9284,15 +9267,15 @@ static void test_schema_lookup_and_cursor_paths(TTestContext& ctx)
                     detail::EConstructionMode::instance, matches, error);
                 if (mode == 0u || mode == 2u)
                 {
-                    TEST_EXPECT(ctx, checked && matches && failing.calls == 0u);
+                    TEST_EXPECT(ctx, checked && matches && failing.attempts == 0u);
                     TEST_EXPECT(ctx, detail::construct_value(schema, read, type, read.root(), bytes, sizeof(bytes),
-                        detail::EConstructionMode::instance, error) && failing.calls == 0u);
+                        detail::EConstructionMode::instance, error) && failing.attempts == 0u);
                 }
                 else
                 {
                     TEST_EXPECT(ctx, !checked && !matches && error.reason ==
                         (mode == 4u ? EReason::unknown_property : EReason::allocation_failed));
-                    TEST_EXPECT(ctx, failing.calls == (mode == 4u ? 0u : 1u));
+                    TEST_EXPECT(ctx, failing.attempts == (mode == 4u ? 0u : 1u));
                 }
             }
             TEST_EXPECT(ctx, context.is_attribution_empty());
@@ -9332,8 +9315,8 @@ static void test_unused_storage_cached_preflight(TTestContext& ctx)
         for (std::size_t fail_on = 0u; fail_on < 128u && !completed; ++fail_on)
         {
             std::memset(bytes, 0xff, sizeof(bytes));
-            SFailingAllocator failing{ 0u, fail_on };
-            memory::CMemoryAllocator allocator{ &failing, &allocate_with_failure, &tests::deallocate_test_memory };
+            tests::TAllocationFailureFixture failing{ 0u, fail_on };
+            memory::CMemoryAllocator allocator{ &failing, &tests::allocate_with_failure, &tests::deallocate_test_memory };
             memory::CMemoryContext context{ allocator };
             {
                 tests::TMemoryContextScope scope{ &context };
@@ -9488,6 +9471,5 @@ int run_schema_tests()
     const schema::SRecordSizes sizes = schema::CResolvedSchema::record_sizes();
     std::cout << "Schema record bytes: type=" << sizes.type << " member=" << sizes.member << " label=" << sizes.label
               << " field=" << sizes.field << " default=" << sizes.default_value << " mapping=" << sizes.mapping << '\n';
-    std::cout << "Schema: " << ctx.passed << " passed, " << ctx.failed << " failed\n";
-    return ctx.failed == 0 ? 0 : 1;
+    return ctx.report("Schema");
 }

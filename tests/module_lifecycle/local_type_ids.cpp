@@ -1,9 +1,9 @@
-
 //  Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited
 //  License: MIT (see LICENSE file in repository root)
 //
 //  File:    local_type_ids.cpp
-//  Authors: Ritchie Brannan / OpenAI Codex
+//  Primary implementation: OpenAI Codex
+//  Reviewed and accepted by: Ritchie Brannan
 //  Date:    20 Oct 26
 //
 //  Lifecycle-fixture-local type identity instantiation.

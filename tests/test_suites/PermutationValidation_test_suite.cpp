@@ -1,11 +1,13 @@
 //  Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited
 //  License: MIT (see LICENSE file in repository root)
 //
-//  File:   PermutationValidation_test_suite.cpp
+//  File:    PermutationValidation_test_suite.cpp
 //  Primary implementation: OpenAI Codex
-//  Date:   11 Oct 26
-
+//  Reviewed and accepted by: Ritchie Brannan
+//  Date:    11 Oct 26
+//
 //  Include first to exercise the header's own dependencies.
+
 #include "algo/validate_permutations.hpp"
 #include "tests/test_suites/PermutationValidation_test_suite.hpp"
 #include "tests/support/test_context.hpp"
@@ -241,6 +243,5 @@ int run_permutation_validation_tests()
     test_exhaustive_small_inputs(ctx);
     test_scratch_contract(ctx);
     test_bitmap_threshold(ctx);
-    std::cout << "PermutationValidation: " << ctx.passed << " passed, " << ctx.failed << " failed\n";
-    return ctx.exit_code();
+    return ctx.report("PermutationValidation");
 }

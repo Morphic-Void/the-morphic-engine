@@ -2,7 +2,8 @@
 //  License: MIT (see LICENSE file in repository root)
 //
 //  File:    BakedDocument_test_suite.hpp
-//  Authors: Ritchie Brannan / OpenAI Codex
+//  Primary implementation: OpenAI Codex
+//  Reviewed and accepted by: Ritchie Brannan
 //  Date:    7 Sep 26
 
 #pragma once

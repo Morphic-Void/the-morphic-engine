@@ -1,6 +1,6 @@
 # Testing framework consolidation discussion
 
-Updated 20 October 2026. These discussion points concern reducing intrusive
+Updated 21 October 2026. These discussion points concern reducing intrusive
 testing, improving functional coverage and simplifying shared test code. They
 are not an approved implementation plan or authority to begin implementation.
 
@@ -66,6 +66,23 @@ whether repeated setup can be reduced without coupling otherwise independent
 tests. Avoid a general test abstraction whose configuration is harder to follow
 than the repetition it replaces. Shared helpers should retain useful failure
 context and should not merely reproduce the implementation under test.
+
+## Top-of-file comment consistency
+
+Include consistent top-of-file comments for testing source files and headers
+as part of the consolidation changes. Use the general source-file header layout
+for copyright, licence, filename and date, with the testing attribution already
+used in `LiveDocument_test_suite.cpp` and `SchemaMerge_test_cases.hpp`:
+
+```cpp
+//  Primary implementation: OpenAI Codex
+//  Reviewed and accepted by: Ritchie Brannan
+```
+
+Credit Ritchie Brannan as reviewer rather than author in these testing headers.
+Keep `.def` files consistent with their codebase-wide top-of-file comment form,
+rather than applying the source-file header to them. This records the intended
+cleanup scope; header edits will accompany the agreed testing changes.
 
 ## Discussion outcomes
 

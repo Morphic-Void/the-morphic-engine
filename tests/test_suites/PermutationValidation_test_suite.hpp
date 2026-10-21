@@ -1,9 +1,10 @@
 //  Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited
 //  License: MIT (see LICENSE file in repository root)
 //
-//  File:   PermutationValidation_test_suite.hpp
+//  File:    PermutationValidation_test_suite.hpp
 //  Primary implementation: OpenAI Codex
-//  Date:   11 Oct 26
+//  Reviewed and accepted by: Ritchie Brannan
+//  Date:    11 Oct 26
 
 #pragma once
 

@@ -1,9 +1,9 @@
-
 //  Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited
 //  License: MIT (see LICENSE file in repository root)
 //
 //  File:    MessageHelpers_test_suite.cpp
-//  Authors: Ritchie Brannan / OpenAI Codex
+//  Primary implementation: OpenAI Codex
+//  Reviewed and accepted by: Ritchie Brannan
 //  Date:    20 Oct 26
 //
 //  Functional message helpers and the actual Executive preparation boundary.
@@ -288,6 +288,5 @@ int run_message_helpers_tests()
     test_request_fields(ctx);
     test_prepared_post(ctx, allocator, context);
     TEST_EXPECT(ctx, context.is_attribution_empty() && state.allocations == state.releases);
-    std::cout << "MessageHelpers: " << ctx.passed << " passed, " << ctx.failed << " failed\n";
-    return ctx.failed;
+    return ctx.report("MessageHelpers");
 }

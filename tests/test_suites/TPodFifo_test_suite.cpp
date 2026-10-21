@@ -1,11 +1,10 @@
-
 //  Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited
 //  License: MIT (see LICENSE file in repository root)
 //
-//  File:   TPodFifo_test_suite.cpp
-//  Primary implementation: OpenAI tools
-//  Used, occasionally adjusted, and accepted by: Ritchie Brannan
-//  Date:   14 Jul 26
+//  File:    TPodFifo_test_suite.cpp
+//  Primary implementation: OpenAI Codex
+//  Reviewed and accepted by: Ritchie Brannan
+//  Date:    14 Jul 26
 
 #include <cstddef>
 #include <cstdint>
@@ -310,7 +309,6 @@ int run_pod_fifo_tests()
     test_view_based_operations(ctx);
     test_move_and_source_reuse(ctx);
 
-    std::cout << "TPodFifo: " << ctx.passed << " passed, " << ctx.failed << " failed\n";
-    return (ctx.failed == 0) ? 0 : 1;
+    return ctx.report("TPodFifo");
 }
 

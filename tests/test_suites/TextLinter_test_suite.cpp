@@ -1,9 +1,9 @@
-
 //  Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited
 //  License: MIT (see LICENSE file in repository root)
 //
 //  File:    TextLinter_test_suite.cpp
-//  Authors: Ritchie Brannan / OpenAI Codex
+//  Primary implementation: OpenAI Codex
+//  Reviewed and accepted by: Ritchie Brannan
 //  Date:    22 Aug 26
 //
 //  Requirements:
@@ -443,22 +443,6 @@ static void test_document_lines_and_failure_coordinates(TTestContext& ctx)
     TEST_EXPECT(ctx, failure.report.output_metrics.total_code_points == 4u);
 }
 
-struct CFailingAllocator
-{
-    std::size_t calls = 0u;
-    std::size_t fail_on = 0u;
-};
-
-static void* MV_STD_ABI_CALL allocate_until_failure(void* state, const std::size_t alignment, const std::size_t size) noexcept
-{
-    auto& fixture = *static_cast<CFailingAllocator*>(state);
-    if (fixture.calls++ == fixture.fail_on)
-    {
-        return nullptr;
-    }
-    return tests::allocate_test_memory(nullptr, alignment, size);
-}
-
 static void test_resource_failure_cursors(TTestContext& ctx)
 {
     const std::string source = std::string("a\r\n") + std::string(6000u, '\x93');
@@ -466,8 +450,8 @@ static void test_resource_failure_cursors(TTestContext& ctx)
     bool failed_after_prefix = false;
     for (std::size_t fail_on = 0u; (fail_on < 16u) && !completed; ++fail_on)
     {
-        CFailingAllocator fixture{ 0u, fail_on };
-        memory::CMemoryAllocator allocator{ &fixture, &allocate_until_failure, &tests::deallocate_test_memory };
+        tests::TAllocationFailureFixture fixture{ 0u, fail_on };
+        memory::CMemoryAllocator allocator{ &fixture, &tests::allocate_with_failure, &tests::deallocate_test_memory };
         memory::CMemoryContext context{ allocator };
         {
             tests::TMemoryContextScope scope{ &context };
@@ -503,8 +487,8 @@ static void test_resource_failure_cursors(TTestContext& ctx)
     const std::size_t wide_count = (payload_bytes - 2u) / 3u;
     const std::size_t ascii_count = (payload_bytes - 2u) % 3u;
     const std::string full = std::string("a\r\n") + std::string(wide_count, '\x93') + std::string(ascii_count, 'z');
-    CFailingAllocator fixture{ 0u, 2u };
-    memory::CMemoryAllocator allocator{ &fixture, &allocate_until_failure, &tests::deallocate_test_memory };
+    tests::TAllocationFailureFixture fixture{ 0u, 2u };
+    memory::CMemoryAllocator allocator{ &fixture, &tests::allocate_with_failure, &tests::deallocate_test_memory };
     memory::CMemoryContext context{ allocator };
     {
         tests::TMemoryContextScope scope{ &context };
@@ -540,6 +524,5 @@ int run_text_linter_tests()
     text_linter_tests::test_cesu_normalization_and_provenance(ctx);
     text_linter_tests::test_document_lines_and_failure_coordinates(ctx);
     text_linter_tests::test_resource_failure_cursors(ctx);
-    std::cout << "TextLinter: " << ctx.passed << " passed, " << ctx.failed << " failed\n";
-    return (ctx.failed == 0) ? 0 : 1;
+    return ctx.report("TextLinter");
 }

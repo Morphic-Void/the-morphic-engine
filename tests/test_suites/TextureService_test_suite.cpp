@@ -1,9 +1,9 @@
-
 //  Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited
 //  License: MIT (see LICENSE file in repository root)
 //
 //  File:    TextureService_test_suite.cpp
-//  Authors: Ritchie Brannan / OpenAI Codex
+//  Primary implementation: OpenAI Codex
+//  Reviewed and accepted by: Ritchie Brannan
 //  Date:    10 Oct 26
 //
 //  Hold renderer completions explicitly to test concurrent admission and source
@@ -359,6 +359,5 @@ int run_texture_service_tests()
     texture_service_tests::test_completion_results<TextureEncodeResult>(ctx);
     texture_service_tests::test_completion_results<TextureDecodeResult>(ctx);
     texture_service_tests::test_protocol_rejection(ctx);
-    std::cout << "TextureService: " << ctx.passed << " passed, " << ctx.failed << " failed\n";
-    return ctx.failed;
+    return ctx.report("TextureService");
 }

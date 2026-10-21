@@ -2,6 +2,9 @@
 //  License: MIT (see LICENSE file in repository root)
 //
 //  File:    HostWorkers_test_suite.hpp
+//  Primary implementation: OpenAI Codex
+//  Reviewed and accepted by: Ritchie Brannan
+//  Date:    7 Oct 26
 
 #pragma once
 

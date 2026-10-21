@@ -1,9 +1,12 @@
-
 //  Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited
 //  License: MIT (see LICENSE file in repository root)
 //
-//  TQueueTransport_test_suite.cpp
+//  File:    TQueueTransport_test_suite.hpp
+//  Primary implementation: OpenAI Codex
+//  Reviewed and accepted by: Ritchie Brannan
+//  Date:    21 Oct 26
 //
+//  TQueueTransport_test_suite.cpp
 //  Standalone test suite for threading::transports::TQueue<T>.
 
 #pragma once

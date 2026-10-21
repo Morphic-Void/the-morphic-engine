@@ -2,7 +2,8 @@
 //  License: MIT (see LICENSE file in repository root)
 //
 //  File:    DocumentWriter_test_suite.cpp
-//  Authors: Ritchie Brannan / OpenAI Codex
+//  Primary implementation: OpenAI Codex
+//  Reviewed and accepted by: Ritchie Brannan
 //  Date:    8 Sep 26
 
 #include "tests/test_suites/DocumentWriter_test_suite.hpp"
@@ -383,19 +384,6 @@ void test_floats(TTestContext& ctx)
     }
 }
 
-struct SFailingAllocator
-{
-    std::size_t attempts{ 0u };
-    std::size_t fail_on{ 0u };
-};
-
-void* MV_STD_ABI_CALL allocate_with_failure(void* const state, const std::size_t alignment, const std::size_t bytes) noexcept
-{
-    SFailingAllocator& fixture = *static_cast<SFailingAllocator*>(state);
-    if (fixture.attempts++ == fixture.fail_on) { return nullptr; }
-    return tests::allocate_test_memory(nullptr, alignment, bytes);
-}
-
 void test_depth_and_allocation_failures(TTestContext& ctx)
 {
     CLiveDocument live;
@@ -434,8 +422,8 @@ void test_depth_and_allocation_failures(TTestContext& ctx)
     bool completed = false;
     for (std::size_t fail_on = 0u; (fail_on < 32u) && !completed; ++fail_on)
     {
-        SFailingAllocator fixture{ 0u, fail_on };
-        memory::CMemoryAllocator allocator{ &fixture, &allocate_with_failure, &tests::deallocate_test_memory };
+        tests::TAllocationFailureFixture fixture{ 0u, fail_on };
+        memory::CMemoryAllocator allocator{ &fixture, &tests::allocate_with_failure, &tests::deallocate_test_memory };
         memory::CMemoryContext memory_context{ allocator };
         {
             tests::TMemoryContextScope scope{ &memory_context };
@@ -519,6 +507,5 @@ int run_document_writer_tests()
     test_integer_presentation_mutation(ctx);
     test_floats(ctx);
     test_depth_and_allocation_failures(ctx);
-    std::cout << "DocumentWriter: " << ctx.passed << " passed, " << ctx.failed << " failed\n";
-    return (ctx.failed == 0) ? 0 : 1;
+    return ctx.report("DocumentWriter");
 }

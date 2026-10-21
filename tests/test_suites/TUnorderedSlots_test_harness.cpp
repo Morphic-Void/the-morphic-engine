@@ -1,18 +1,17 @@
-
 //  Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited
 //  License: MIT (see LICENSE file in repository root)
 //
-//  TUnorderedSlots_test_harness.cpp
+//  File:    TUnorderedSlots_test_harness.cpp
+//  Primary implementation: OpenAI Codex
+//  Reviewed and accepted by: Ritchie Brannan
+//  Date:    21 Oct 26
 //
 //  Standalone configurable test harness for TUnorderedSlots<TSlotBacking, TIndex>.
-//
 //  Build (Clang/GCC):
 //    clang++ -std=c++14 -O0 -g TUnorderedSlots_test_harness.cpp -o tun_test
 //    g++     -std=c++14 -O0 -g TUnorderedSlots_test_harness.cpp -o tun_test
-//
 //  Build (MSVC):
 //    cl /std:c++14 /EHsc /O0 /Zi TUnorderedSlots_test_harness.cpp
-//
 //  Run:
 //    ./tun_test --fast
 //    ./tun_test --soak

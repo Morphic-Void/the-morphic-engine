@@ -1,10 +1,10 @@
-
 //  Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited
 //  License: MIT (see LICENSE file in repository root)
 //
-//  File:   TPodVector_test_suite.cpp
-//  Author: Ritchie Brannan
-//  Date:   13 Jul 26
+//  File:    TPodVector_test_suite.cpp
+//  Primary implementation: OpenAI Codex
+//  Reviewed and accepted by: Ritchie Brannan
+//  Date:    13 Jul 26
 
 #include <cstddef>
 #include <cstdint>
@@ -249,6 +249,5 @@ int run_pod_vector_tests()
     test_views_and_slicing(ctx);
     test_move_and_reuse(ctx);
 
-    std::cout << "TPodVector: " << ctx.passed << " passed, " << ctx.failed << " failed\n";
-    return (ctx.failed == 0) ? 0 : 1;
+    return ctx.report("TPodVector");
 }

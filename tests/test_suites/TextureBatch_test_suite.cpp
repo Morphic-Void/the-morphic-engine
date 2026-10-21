@@ -1,9 +1,9 @@
-
 //  Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited
 //  License: MIT (see LICENSE file in repository root)
 //
 //  File:    TextureBatch_test_suite.cpp
-//  Authors: Ritchie Brannan / OpenAI Codex
+//  Primary implementation: OpenAI Codex
+//  Reviewed and accepted by: Ritchie Brannan
 //  Date:    10 Oct 26
 //
 //  Drive the real rendering DLL with a controlled batch queue. Holding a
@@ -670,6 +670,5 @@ int run_texture_batch_tests()
         texture_batch_tests::test_multiple_requests(ctx, fixture);
         texture_batch_tests::test_saturated_requests(ctx, fixture);
     }
-    std::cout << "TextureBatch: " << ctx.passed << " passed, " << ctx.failed << " failed\n";
-    return ctx.failed;
+    return ctx.report("TextureBatch");
 }

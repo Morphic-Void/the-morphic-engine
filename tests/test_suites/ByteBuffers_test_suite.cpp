@@ -1,11 +1,10 @@
-
 //  Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited
 //  License: MIT (see LICENSE file in repository root)
 //
-//  File:   ByteBuffers_test_suite.cpp
-//  Primary implementation: OpenAI tools
-//  Used, occasionally adjusted, and accepted by: Ritchie Brannan
-//  Date:   14 Jul 26
+//  File:    ByteBuffers_test_suite.cpp
+//  Primary implementation: OpenAI Codex
+//  Reviewed and accepted by: Ritchie Brannan
+//  Date:    14 Jul 26
 
 #include <cstddef>
 #include <cstdint>
@@ -26,19 +25,6 @@ namespace
 {
 
 using TTestContext = tests::TTestContext;
-
-struct SBufferAllocator
-{
-    std::size_t attempts{};
-    bool reject{};
-};
-
-void* MV_STD_ABI_CALL allocate_buffer_memory(void* const state, const std::size_t alignment, const std::size_t bytes) noexcept
-{
-    auto& fixture = *static_cast<SBufferAllocator*>(state);
-    ++fixture.attempts;
-    return fixture.reject ? nullptr : tests::allocate_test_memory(nullptr, alignment, bytes);
-}
 
 void test_byte_buffer_constness_and_limits(TTestContext& ctx)
 {
@@ -95,8 +81,9 @@ void test_byte_buffer_allocation_and_resize(TTestContext& ctx)
 
 void test_byte_buffer_reservation_failures(TTestContext& ctx)
 {
-    SBufferAllocator fixture{ 0u, true };
-    memory::CMemoryAllocator allocator{ &fixture, &allocate_buffer_memory, &tests::deallocate_test_memory };
+    tests::TAllocationFailureFixture fixture;
+    fixture.reject_all = true;
+    memory::CMemoryAllocator allocator{ &fixture, &tests::allocate_with_failure, &tests::deallocate_test_memory };
     memory::CMemoryContext context{ allocator };
     {
         tests::TMemoryContextScope scope{ &context };
@@ -114,7 +101,7 @@ void test_byte_buffer_reservation_failures(TTestContext& ctx)
         TEST_EXPECT(ctx, !buffer.reserve(1u) && context.is_attribution_empty());
         TEST_EXPECT(ctx, buffer.is_valid() && !buffer.is_ready());
 
-        fixture.reject = false;
+        fixture.reject_all = false;
         TEST_EXPECT(ctx, buffer.append(&value, 0u));
         TEST_EXPECT(ctx, buffer.is_ready() && (buffer.size() == 0u) && (buffer.capacity() == 4096u));
         buffer.deallocate();
@@ -128,7 +115,7 @@ void test_byte_buffer_reservation_failures(TTestContext& ctx)
         std::memset(buffer.data(), value, buffer.size());
         auto* const original = buffer.data();
         const auto attempts = fixture.attempts;
-        fixture.reject = true;
+        fixture.reject_all = true;
         TEST_EXPECT(ctx, buffer.reserve(0u) && buffer.reserve(4096u));
         TEST_EXPECT(ctx, buffer.ensure_free(4080u));
         TEST_EXPECT(ctx, buffer.append(std::size_t{ 4080u }, true));
@@ -149,26 +136,26 @@ void test_byte_buffer_reservation_failures(TTestContext& ctx)
         }
         TEST_EXPECT(ctx, preserved && (context.get_live_allocation_count() == 1u));
 
-        fixture.reject = false;
+        fixture.reject_all = false;
         TEST_EXPECT(ctx, buffer.reserve(0u, 64u));
         TEST_EXPECT(ctx, (buffer.size() == 4096u) && (buffer.capacity() == 4096u) && (buffer.align() == 64u));
         TEST_EXPECT(ctx, (reinterpret_cast<std::uintptr_t>(buffer.data()) & 63u) == 0u);
         TEST_EXPECT(ctx, buffer.resize(16u));
         auto* const aligned = buffer.data();
-        fixture.reject = true;
+        fixture.reject_all = true;
         TEST_EXPECT(ctx, !buffer.shrink_to_fit() && (buffer.data() == aligned) && (buffer.capacity() == 4096u));
-        fixture.reject = false;
+        fixture.reject_all = false;
         TEST_EXPECT(ctx, buffer.shrink_to_fit() && (buffer.capacity() == 16u) && (buffer.align() == 64u));
         auto* const small = buffer.data();
         const auto small_attempts = fixture.attempts;
-        fixture.reject = true;
+        fixture.reject_all = true;
         TEST_EXPECT(ctx, buffer.append(nullptr, 0u) && buffer.append(std::size_t{ 0u }, false));
         TEST_EXPECT(ctx, fixture.attempts == small_attempts);
         TEST_EXPECT(ctx, !buffer.reserve(0u) && !buffer.reserve(16u));
         TEST_EXPECT(ctx, !buffer.append(&value, 0u));
         TEST_EXPECT(ctx, (fixture.attempts == (small_attempts + 3u)) && (buffer.data() == small));
         TEST_EXPECT(ctx, (buffer.size() == 16u) && (buffer.capacity() == 16u) && (buffer.align() == 64u));
-        fixture.reject = false;
+        fixture.reject_all = false;
         TEST_EXPECT(ctx, buffer.append(&value, 0u));
         TEST_EXPECT(ctx, (buffer.size() == 16u) && (buffer.capacity() == 4096u) && (buffer.align() == 64u));
         for (std::size_t i = 0u; i < buffer.size(); ++i)
@@ -191,8 +178,8 @@ void test_byte_buffer_growth_and_bulk_reservation(TTestContext& ctx)
     for (std::size_t i = 0u; i < total; ++i) source.data()[i] = static_cast<std::uint8_t>(i);
     for (const std::size_t chunk : { 1u, 4096u, 65536u, 1048576u })
     {
-        SBufferAllocator fixture;
-        memory::CMemoryAllocator allocator{ &fixture, &allocate_buffer_memory, &tests::deallocate_test_memory };
+        tests::TAllocationFailureFixture fixture;
+        memory::CMemoryAllocator allocator{ &fixture, &tests::allocate_with_failure, &tests::deallocate_test_memory };
         memory::CMemoryContext context{ allocator };
         {
             tests::TMemoryContextScope scope{ &context };
@@ -221,8 +208,8 @@ void test_byte_buffer_growth_and_bulk_reservation(TTestContext& ctx)
     }
     for (const bool exact : { false, true })
     {
-        SBufferAllocator fixture;
-        memory::CMemoryAllocator allocator{ &fixture, &allocate_buffer_memory, &tests::deallocate_test_memory };
+        tests::TAllocationFailureFixture fixture;
+        memory::CMemoryAllocator allocator{ &fixture, &tests::allocate_with_failure, &tests::deallocate_test_memory };
         memory::CMemoryContext context{ allocator };
         {
             tests::TMemoryContextScope scope{ &context };
@@ -230,7 +217,7 @@ void test_byte_buffer_growth_and_bulk_reservation(TTestContext& ctx)
             TEST_EXPECT(ctx, exact ? buffer.allocate(total) : buffer.reserve(total));
             const auto attempts = fixture.attempts;
             auto* const original = buffer.data();
-            fixture.reject = true;
+            fixture.reject_all = true;
             //  Fill in bulk, then reach the exact boundary with individual appends.
             TEST_EXPECT(ctx, buffer.append(source.data(), (total - 2u)));
             TEST_EXPECT(ctx, buffer.append((source.data() + total - 2u), 1u));
@@ -407,7 +394,6 @@ int run_byte_buffer_tests()
     test_byte_rect_layout_and_contiguity(ctx);
     test_byte_rect_copy_and_view_adoption(ctx);
 
-    std::cout << "ByteBuffers: " << ctx.passed << " passed, " << ctx.failed << " failed\n";
-    return (ctx.failed == 0) ? 0 : 1;
+    return ctx.report("ByteBuffers");
 }
 

@@ -1,9 +1,9 @@
-
 //  Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited
 //  License: MIT (see LICENSE file in repository root)
 //
 //  File:    BakedDocumentTransfer_test_suite.cpp
-//  Authors: Ritchie Brannan / OpenAI Codex
+//  Primary implementation: OpenAI Codex
+//  Reviewed and accepted by: Ritchie Brannan
 //  Date:    8 Sep 26
 
 #include "tests/test_suites/BakedDocumentTransfer_test_suite.hpp"
@@ -505,6 +505,5 @@ int run_baked_document_transfer_tests()
     baked_document_transfer_tests::test_aligned_file_round_trip(ctx);
     baked_document_transfer_tests::test_appended_file_round_trip(ctx);
     baked_document_transfer_tests::test_complete_buffer_request(ctx);
-    std::cout << "BakedDocumentTransfer: " << ctx.passed << " passed, " << ctx.failed << " failed\n";
-    return (ctx.failed == 0u) ? 0 : 1;
+    return ctx.report("BakedDocumentTransfer");
 }

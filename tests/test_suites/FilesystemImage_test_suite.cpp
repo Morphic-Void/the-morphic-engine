@@ -1,9 +1,9 @@
-
 //  Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited
 //  License: MIT (see LICENSE file in repository root)
 //
 //  File:    FilesystemImage_test_suite.cpp
-//  Author:  OpenAI Codex
+//  Primary implementation: OpenAI Codex
+//  Reviewed and accepted by: Ritchie Brannan
 //  Date:    22 Sep 26
 //
 //  Filesystem image discovery, bindings, refresh and cache-association tests.
@@ -567,15 +567,6 @@ static void test_virtual_bindings(tests::TTestContext& ctx)
     TEST_EXPECT(ctx, std::memcmp(original.data(), view.bytes().data(), original.size()) == 0);
 }
 
-struct SBindingAllocator { std::size_t calls{ 0u }; std::size_t fail_on{ SIZE_MAX }; };
-
-static void* MV_STD_ABI_CALL allocate_binding_test(void* data, std::size_t alignment, std::size_t size) noexcept
-{
-    auto& state = *static_cast<SBindingAllocator*>(data);
-    if (++state.calls == state.fail_on) { return nullptr; }
-    return tests::allocate_test_memory(nullptr, alignment, size);
-}
-
 static void test_binding_allocation_failures(tests::TTestContext& ctx)
 {
     using namespace filesystem_image;
@@ -588,8 +579,8 @@ static void test_binding_allocation_failures(tests::TTestContext& ctx)
         std::size_t failures = 0u;
         for (std::size_t fail_on = 1u; fail_on < 1000u && !completed; ++fail_on)
         {
-            SBindingAllocator state;
-            memory::CMemoryAllocator allocator{ &state, &allocate_binding_test, &tests::deallocate_test_memory, system_ids::host };
+            tests::TAllocationFailureFixture state;
+            memory::CMemoryAllocator allocator{ &state, &tests::allocate_with_failure, &tests::deallocate_test_memory, system_ids::host };
             memory::CMemoryContext context{ allocator, system_ids::host };
             {
                 const tests::TMemoryContextScope scope{ &context };
@@ -610,7 +601,7 @@ static void test_binding_allocation_failures(tests::TTestContext& ctx)
                 }
                 CBakedDocumentBlock before;
                 TEST_EXPECT(ctx, document_translation::bake(image.document(), before));
-                state.fail_on = state.calls + fail_on;
+                state.fail_on = state.attempts + fail_on - 1u;
                 switch (phase)
                 {
                     case 0u: completed = image.reserve_bundle("pack:", token); break;
@@ -636,7 +627,7 @@ static void test_binding_allocation_failures(tests::TTestContext& ctx)
                 TEST_EXPECT(ctx, image.document().check_integrity());
                 //  Closure/removal must not allocate, even under exhaustion.
                 const ERootState root_status = image.root_state("pack:");
-                state.fail_on = state.calls + 1u;
+                state.fail_on = state.attempts;
                 if (root_status == ERootState::open) { TEST_EXPECT(ctx, image.close_bundle(token)); }
                 if (root_status != ERootState::missing) { TEST_EXPECT(ctx, image.remove_bundle(token)); }
             }
@@ -793,6 +784,5 @@ int run_filesystem_image_tests()
     filesystem_image_tests::test_binding_allocation_failures(ctx);
     filesystem_image_tests::test_deep_bundle_binding(ctx);
     filesystem_image_tests::test_binding_owner_moves(ctx);
-    std::cout << "FilesystemImage: " << ctx.passed << " passed, " << ctx.failed << " failed\n";
-    return ctx.failed;
+    return ctx.report("FilesystemImage");
 }

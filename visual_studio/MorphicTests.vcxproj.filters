@@ -29,6 +29,7 @@
     <ClCompile Include="..\tests\environment\test_paths.cpp"><Filter>Tests\environment</Filter></ClCompile>
     <ClCompile Include="..\tests\environment\test_system_registry.cpp"><Filter>Tests\environment</Filter></ClCompile>
     <ClCompile Include="..\tests\manual\tga_round_trip.cpp"><Filter>Tests\manual</Filter></ClCompile>
+    <ClCompile Include="..\tests\support\document_helpers.cpp"><Filter>Tests\support</Filter></ClCompile>
     <ClCompile Include="..\tests\support\file_helpers.cpp"><Filter>Tests\support</Filter></ClCompile>
     <ClCompile Include="..\tests\support\test_allocator.cpp"><Filter>Tests\support</Filter></ClCompile>
     <ClCompile Include="..\executive\runtime\request_preparation.cpp" />
@@ -88,6 +89,7 @@
     <ClInclude Include="..\tests\environment\local_types.hpp"><Filter>Tests\environment</Filter></ClInclude>
     <ClInclude Include="..\tests\environment\test_environment.hpp"><Filter>Tests\environment</Filter></ClInclude>
     <ClInclude Include="..\tests\environment\test_paths.hpp"><Filter>Tests\environment</Filter></ClInclude>
+    <ClInclude Include="..\tests\support\document_helpers.hpp"><Filter>Tests\support</Filter></ClInclude>
     <ClInclude Include="..\tests\support\file_helpers.hpp"><Filter>Tests\support</Filter></ClInclude>
     <ClInclude Include="..\tests\support\test_allocator.hpp"><Filter>Tests\support</Filter></ClInclude>
     <ClInclude Include="..\tests\support\test_context.hpp"><Filter>Tests\support</Filter></ClInclude>

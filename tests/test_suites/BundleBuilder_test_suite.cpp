@@ -1,9 +1,9 @@
-
 //  Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited
 //  License: MIT (see LICENSE file in repository root)
 //
 //  File:    BundleBuilder_test_suite.cpp
-//  Authors: Ritchie Brannan / OpenAI Codex
+//  Primary implementation: OpenAI Codex
+//  Reviewed and accepted by: Ritchie Brannan
 //  Date:    12 Oct 26
 //
 //  Deterministic construction, direct I/O, filtering and failure preservation.
@@ -308,15 +308,6 @@ void test_input_contract(TTestContext& ctx)
     TEST_EXPECT(ctx, bundle::build(empty, {}, {}, owner, view).status == EBuildStatus::invalid_input);
 }
 
-struct SAllocator { std::size_t calls{ 0u }; std::size_t fail_on{ SIZE_MAX }; };
-
-void* MV_STD_ABI_CALL allocate(void* data, std::size_t alignment, std::size_t size) noexcept
-{
-    auto& state = *static_cast<SAllocator*>(data);
-    if (++state.calls == state.fail_on) { return nullptr; }
-    return tests::allocate_test_memory(nullptr, alignment, size);
-}
-
 void test_allocation_failures(TTestContext& ctx)
 {
     SInputs input;
@@ -329,8 +320,8 @@ void test_allocation_failures(TTestContext& ctx)
     std::size_t failures = 0u;
     for (std::size_t fail_on = 1u; fail_on < 1000u && !succeeded; ++fail_on)
     {
-        SAllocator state;
-        memory::CMemoryAllocator allocator{ &state, &allocate, &tests::deallocate_test_memory, system_ids::host };
+        tests::TAllocationFailureFixture state;
+        memory::CMemoryAllocator allocator{ &state, &tests::allocate_with_failure, &tests::deallocate_test_memory, system_ids::host };
         memory::CMemoryContext context{ allocator, system_ids::host };
         {
             const tests::TMemoryContextScope scope{ &context };
@@ -340,7 +331,7 @@ void test_allocation_failures(TTestContext& ctx)
             TEST_EXPECT(ctx, copy.construct_and_copy_from(original_view.bytes()));
             TEST_EXPECT(ctx, bundle::adopt(std::move(copy), block, view).succeeded());
             const auto* retained = block.buffer_bytes().data();
-            state.fail_on = state.calls + fail_on;
+            state.fail_on = state.attempts + fail_on - 1u;
             SIo io;
             const auto result = bundle::detail::build(input.inventory, input.content, input.files(), block, view, io.operations());
             succeeded = result.succeeded();
@@ -367,6 +358,5 @@ int run_bundle_builder_tests()
     test_failures_and_direct_reads(ctx);
     test_input_contract(ctx);
     test_allocation_failures(ctx);
-    std::cout << "BundleBuilder: " << ctx.passed << " passed, " << ctx.failed << " failed\n";
-    return ctx.exit_code();
+    return ctx.report("BundleBuilder");
 }

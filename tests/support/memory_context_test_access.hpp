@@ -1,5 +1,10 @@
 //  Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited
 //  License: MIT (see LICENSE file in repository root)
+//
+//  File:    memory_context_test_access.hpp
+//  Primary implementation: OpenAI Codex
+//  Reviewed and accepted by: Ritchie Brannan
+//  Date:    16 Sep 26
 
 #pragma once
 

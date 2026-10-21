@@ -1,9 +1,9 @@
-
 //  Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited
 //  License: MIT (see LICENSE file in repository root)
 //
 //  File:    AssetRepository_test_suite.cpp
-//  Authors: Ritchie Brannan / OpenAI Codex
+//  Primary implementation: OpenAI Codex
+//  Reviewed and accepted by: Ritchie Brannan
 //  Date:    12 Aug 26
 
 #include "tests/environment/local_type_ids.hpp"
@@ -187,6 +187,5 @@ int run_asset_repository_tests()
     test_repository_dependency_disposal(ctx);
     test_backing_record_accounting(ctx);
 
-    std::cout << "AssetRepository: " << ctx.passed << " passed, " << ctx.failed << " failed\n";
-    return ctx.failed;
+    return ctx.report("AssetRepository");
 }

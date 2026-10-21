@@ -1,6 +1,11 @@
 //  Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited
 //  License: MIT (see LICENSE file in repository root)
 //
+//  File:    local_types.hpp
+//  Primary implementation: OpenAI Codex
+//  Reviewed and accepted by: Ritchie Brannan
+//  Date:    18 Aug 26
+//
 //  MorphicTests-local runtime types and shared Host protocol declarations.
 //  This binary binds the protocols in its own catalogue, independently of Host.
 

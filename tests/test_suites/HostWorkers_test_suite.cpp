@@ -2,7 +2,8 @@
 //  License: MIT (see LICENSE file in repository root)
 //
 //  File:    HostWorkers_test_suite.cpp
-//  Authors: Ritchie Brannan / OpenAI Codex
+//  Primary implementation: OpenAI Codex
+//  Reviewed and accepted by: Ritchie Brannan
 //  Date:    7 Oct 26
 
 #include <atomic>
@@ -446,6 +447,5 @@ int run_host_workers_tests()
     test_batch_concurrent_producers(ctx);
     test_batch_concurrent_returns(ctx);
     test_batch_shutdown_waits_for_publisher(ctx);
-    std::cout << "HostWorkers: " << ctx.passed << " passed, " << ctx.failed << " failed\n";
-    return ctx.failed;
+    return ctx.report("HostWorkers");
 }

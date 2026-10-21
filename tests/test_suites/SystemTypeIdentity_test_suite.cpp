@@ -1,9 +1,9 @@
-
 //  Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited
 //  License: MIT (see LICENSE file in repository root)
 //
 //  File:    SystemTypeIdentity_test_suite.cpp
-//  Authors: Ritchie Brannan / OpenAI Codex
+//  Primary implementation: OpenAI Codex
+//  Reviewed and accepted by: Ritchie Brannan
 //  Date:    12 Aug 26
 
 #include <iostream>
@@ -400,7 +400,5 @@ int run_system_type_identity_tests()
     identity_tests::test_advertised_identity_negotiation(ctx);
     identity_tests::test_local_names_and_lookup(ctx);
     identity_tests::test_system_authority(ctx);
-    std::cout << "SystemTypeIdentity: " << ctx.passed << " passed, "
-        << ctx.failed << " failed\n";
-    return ctx.failed;
+    return ctx.report("SystemTypeIdentity");
 }

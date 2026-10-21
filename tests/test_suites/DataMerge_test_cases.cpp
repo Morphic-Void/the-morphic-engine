@@ -1,9 +1,9 @@
-
 //  Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited
 //  License: MIT (see LICENSE file in repository root)
 //
 //  File:    DataMerge_test_cases.cpp
 //  Primary implementation: OpenAI Codex
+//  Reviewed and accepted by: Ritchie Brannan
 //  Date:    18 Oct 26
 //
 //  Prepared data aggregation, admission parity and transactional publication.
@@ -14,9 +14,9 @@
 #include "schema/value_codec.hpp"
 #include "schema/live_instances.hpp"
 #include "schema/live_bulk_data.hpp"
-#include "data_model/document_parser.hpp"
 #include "data_model/document_translation.hpp"
 #include "tests/support/test_context.hpp"
+#include "tests/support/document_helpers.hpp"
 #include "tests/support/test_allocator.hpp"
 #include "tests/support/test_scopes.hpp"
 #include "platform/system/performance_counter.hpp"
@@ -36,12 +36,6 @@ using detail::SOccurrence;
 static_assert(std::is_trivially_copyable_v<SInstanceMergeDiagnostic>);
 static_assert(std::is_trivially_copyable_v<SBulkDataMergeDiagnostic>);
 
-static bool parse(const std::string& text, CLiveDocument& document)
-{
-    return document_parser::parse(CByteConstView{
-        reinterpret_cast<const std::uint8_t*>(text.data()), text.size(), 1u }, document).accepted();
-}
-
 static const char* const k_schema = R"({"types":{
     "enumerations":{"E":{"storage":"u8","values":{"red":0,"blue":1}}},
     "structures":{
@@ -54,64 +48,6 @@ static const char* const k_schema = R"({"types":{
     "bit_structures":{"Bits":{"storage":"u8","members":[{"v":{"type":"u8","mask":3}}]},
         "Normal":{"storage":"u8","members":[{"v":{"type":"u8","mask":15,"interpretation":"unorm"}}]}}
 }})";
-
-static bool same_document(const CLiveDocument& document, const CBakedDocumentBlock& expected)
-{
-    CBakedDocumentBlock actual;
-    return document_translation::bake(document, actual) && (actual.bytes().size() == expected.bytes().size()) &&
-        (std::memcmp(actual.bytes().data(), expected.bytes().data(), actual.bytes().size()) == 0);
-}
-
-//  Independent ordered comparison of document values, ignoring integer spelling.
-static bool equal_document(const CDocumentRead& a, const SOccurrence left, const CDocumentRead& b, const SOccurrence right)
-{
-    if ((a.value_kind(left) != b.value_kind(right)) || !(a.name(left) == b.name(right)) ||
-        (a.is_object_entry(left) != b.is_object_entry(right)) || (a.child_count(left) != b.child_count(right)))
-    {
-        return false;
-    }
-    switch (a.value_kind(left))
-    {
-        case EDocumentValueKind::integer:
-        {
-            std::uint64_t x{}, y{};
-            if (a.unsigned_integer_value(left, x) && b.unsigned_integer_value(right, y))
-            {
-                return x == y;
-            }
-            std::int64_t sx{}, sy{};
-            return a.signed_integer_value(left, sx) && b.signed_integer_value(right, sy) && (sx == sy);
-        }
-        case EDocumentValueKind::string:
-        {
-            return a.string_value(left) == b.string_value(right);
-        }
-        case EDocumentValueKind::floating_point:
-        {
-            double x{}, y{};
-            return a.floating_point_value(left, x) && b.floating_point_value(right, y) &&
-                (std::memcmp(&x, &y, sizeof(x)) == 0);
-        }
-        case EDocumentValueKind::boolean:
-        {
-            bool x{}, y{};
-            return a.boolean_value(left, x) && b.boolean_value(right, y) && (x == y);
-        }
-        default:
-        {
-            SOccurrence r = b.first_child(right);
-            for (SOccurrence l = a.first_child(left); l; l = a.next_sibling(l))
-            {
-                if (!equal_document(a, l, b, r))
-                {
-                    return false;
-                }
-                r = b.next_sibling(r);
-            }
-            return true;
-        }
-    }
-}
 
 template<bool Bulk>
 using TQuery = std::conditional_t<Bulk, CBulkDataDocumentQuery, CInstanceDocumentQuery>;
@@ -140,7 +76,7 @@ static void expect_merge(TTestContext& ctx, const CResolvedSchema& schema, const
     for (unsigned form = 0u; form < 4u; ++form)
     {
         CLiveDocument a, b, output, result;
-        TEST_EXPECT(ctx, parse(first, a) && parse(second, b) && parse(R"({"sentinel":17})", output));
+        TEST_EXPECT(ctx, tests::parse_document(first, a) && tests::parse_document(second, b) && tests::parse_document(R"({"sentinel":17})", output));
         CBakedDocumentBlock ab, bb, before;
         TEST_EXPECT(ctx, document_translation::bake(a, ab) && document_translation::bake(b, bb) && document_translation::bake(output, before));
         const TQuery<Bulk> aq = (form & 1u) ? TQuery<Bulk>{ ab.document() } : TQuery<Bulk>{ a };
@@ -154,18 +90,18 @@ static void expect_merge(TTestContext& ctx, const CResolvedSchema& schema, const
         }
         TEST_EXPECT(ctx, merged == !expected.empty());
         TEST_EXPECT(ctx, diagnostic.stage == stage && diagnostic.reason == reason);
-        TEST_EXPECT(ctx, same_document(a, ab) && same_document(b, bb));
+        TEST_EXPECT(ctx, tests::same_baked_document(a, ab) && tests::same_baked_document(b, bb));
         if (merged)
         {
-            TEST_EXPECT(ctx, parse(expected, result));
+            TEST_EXPECT(ctx, tests::parse_document(expected, result));
             const CDocumentRead actual{ output }, wanted{ result };
-            TEST_EXPECT(ctx, equal_document(actual, actual.root(), wanted, wanted.root()));
+            TEST_EXPECT(ctx, tests::equal_document_values(actual, actual.root(), wanted, wanted.root()));
             TEST_EXPECT(ctx, output.check_integrity() && output.is_complete());
             TEST_EXPECT(ctx, !diagnostic.first && !diagnostic.second && !diagnostic.validation.occurrence);
         }
         else
         {
-            TEST_EXPECT(ctx, same_document(output, before));
+            TEST_EXPECT(ctx, tests::same_baked_document(output, before));
             if (stage == EDataMergeStage::first_source_validation)
             {
                 TEST_EXPECT(ctx, aq.contains(diagnostic.first) && !diagnostic.second);
@@ -267,7 +203,7 @@ static void test_value_parity(TTestContext& ctx, const CResolvedSchema& schema)
     for (const auto& test : cases)
     {
         CLiveDocument document;
-        TEST_EXPECT(ctx, parse(std::string{ "{\"value\":" } + test.value + "}", document));
+        TEST_EXPECT(ctx, tests::parse_document(std::string{ "{\"value\":" } + test.value + "}", document));
         CBakedDocumentBlock baked;
         TEST_EXPECT(ctx, document_translation::bake(document, baked));
         for (const auto& read : { CDocumentRead{ document }, CDocumentRead{ baked.document() } })
@@ -301,14 +237,14 @@ static void test_aliases(TTestContext& ctx, CLiveDocument& schema_document, cons
     for (unsigned alias = 0u; alias < 4u; ++alias)
     {
         CLiveDocument a, b, separate;
-        TEST_EXPECT(ctx, parse(text, a) && parse(text, b));
+        TEST_EXPECT(ctx, tests::parse_document(text, a) && tests::parse_document(text, b));
         CLiveDocument& output = (alias == 0u) ? separate : ((alias == 2u) ? b : a);
         TDiagnostic<Bulk> diagnostic;
         TEST_EXPECT(ctx, merge<Bulk>(TQuery<Bulk>{ a }, TQuery<Bulk>{ (alias == 3u) ? a : b }, schema, output, diagnostic));
         TEST_EXPECT(ctx, output.check_integrity());
     }
     CLiveDocument input, output;
-    TEST_EXPECT(ctx, parse(text, input));
+    TEST_EXPECT(ctx, tests::parse_document(text, input));
     TDiagnostic<Bulk> diagnostic;
     TEST_EXPECT(ctx, !merge<Bulk>({}, TQuery<Bulk>{ input }, schema, output, diagnostic));
     TEST_EXPECT(ctx, diagnostic.stage == EDataMergeStage::first_source_validation && !diagnostic.first);
@@ -321,26 +257,9 @@ static void test_aliases(TTestContext& ctx, CLiveDocument& schema_document, cons
     TEST_EXPECT(ctx, document_translation::bake(schema_document, before));
     TEST_EXPECT(ctx, !merge<Bulk>(TQuery<Bulk>{ input }, TQuery<Bulk>{ input }, schema, schema_document, diagnostic));
     TEST_EXPECT(ctx, diagnostic.stage == EDataMergeStage::preconditions && diagnostic.reason == EDataMergeReason::invalid_schema);
-    TEST_EXPECT(ctx, same_document(schema_document, before) && schema.find_type(CStringView{ "Pair" }));
+    TEST_EXPECT(ctx, tests::same_baked_document(schema_document, before) && schema.find_type(CStringView{ "Pair" }));
     TEST_EXPECT(ctx, merge<Bulk>(TQuery<Bulk>{ input }, TQuery<Bulk>{ input }, schema, output, diagnostic));
     TEST_EXPECT(ctx, diagnostic.reason == EDataMergeReason::none && !diagnostic.first && !diagnostic.second);
-}
-
-struct SAllocator
-{
-    std::size_t attempts{}, fail_on{ static_cast<std::size_t>(-1) }, bytes{}, largest{};
-};
-
-static void* MV_STD_ABI_CALL allocate_merge(void* const state, const std::size_t alignment, const std::size_t bytes) noexcept
-{
-    auto& allocator = *static_cast<SAllocator*>(state);
-    allocator.bytes += bytes;
-    if (bytes > allocator.largest) allocator.largest = bytes;
-    if (allocator.attempts++ == allocator.fail_on)
-    {
-        return nullptr;
-    }
-    return tests::allocate_test_memory(nullptr, alignment, bytes);
 }
 
 template<bool Bulk>
@@ -355,13 +274,13 @@ static void test_failures(TTestContext& ctx, const CResolvedSchema& schema)
         for (std::size_t fail = 0u; (fail < 1024u) && !completed; ++fail)
         {
             CLiveDocument a, b, separate;
-            TEST_EXPECT(ctx, parse(text, a) && parse(text, b) && parse(R"({"sentinel":17})", separate));
+            TEST_EXPECT(ctx, tests::parse_document(text, a) && tests::parse_document(text, b) && tests::parse_document(R"({"sentinel":17})", separate));
             CLiveDocument& output = (alias == 0u) ? separate : ((alias == 2u) ? b : a);
             CBakedDocumentBlock ab, bb, before;
             TEST_EXPECT(ctx, document_translation::bake(a, ab) && document_translation::bake(b, bb) && document_translation::bake(output, before));
             const CNodeKey retained = output.first_child(output.root());
-            SAllocator fixture{ 0u, fail };
-            memory::CMemoryAllocator allocator{ &fixture, &allocate_merge, &tests::deallocate_test_memory };
+            tests::TAllocationFailureFixture fixture{ 0u, fail };
+            memory::CMemoryAllocator allocator{ &fixture, &tests::allocate_with_failure, &tests::deallocate_test_memory };
             memory::CMemoryContext context{ allocator };
             TDiagnostic<Bulk> diagnostic;
             {
@@ -371,7 +290,7 @@ static void test_failures(TTestContext& ctx, const CResolvedSchema& schema)
             if (!completed)
             {
                 TEST_EXPECT(ctx, diagnostic.reason != EDataMergeReason::none);
-                TEST_EXPECT(ctx, same_document(a, ab) && same_document(b, bb) && same_document(output, before));
+                TEST_EXPECT(ctx, tests::same_baked_document(a, ab) && tests::same_baked_document(b, bb) && tests::same_baked_document(output, before));
                 TEST_EXPECT(ctx, output.contains(retained));
                 if (diagnostic.stage == EDataMergeStage::result_validation)
                 {
@@ -419,7 +338,7 @@ static void test_presentation(TTestContext& ctx, const CResolvedSchema& schema)
                     CLiveDocument a, b, output;
                     const char* text = bulk ? R"({"data":{"E":{"x":{"data":["red"]}}}})" :
                         R"({"instances":{"E":{"x":{"declaration":"red"}}}})";
-                    TEST_EXPECT(ctx, parse((copy == 1u) ? "{}" : text, a) && parse((copy == 2u) ? "{}" : text, b));
+                    TEST_EXPECT(ctx, tests::parse_document((copy == 1u) ? "{}" : text, a) && tests::parse_document((copy == 2u) ? "{}" : text, b));
                     if (copy != 1u) TEST_EXPECT(ctx, a.set_newline_escaping_suppressed(first_value(a, bulk), (flags & 1u) != 0u));
                     if (copy != 2u) TEST_EXPECT(ctx, b.set_newline_escaping_suppressed(first_value(b, bulk), (flags & 2u) != 0u));
                     CBakedDocumentBlock ab, bb;
@@ -443,9 +362,9 @@ static void test_presentation(TTestContext& ctx, const CResolvedSchema& schema)
                 }
             }
             CLiveDocument a, b, output;
-            TEST_EXPECT(ctx, parse(bulk ? R"({"data":{"u32":{"x":{"data":[1]}}}})" :
+            TEST_EXPECT(ctx, tests::parse_document(bulk ? R"({"data":{"u32":{"x":{"data":[1]}}}})" :
                 R"({"instances":{"u32":{"x":{"declaration":1}}}})", a));
-            TEST_EXPECT(ctx, parse(bulk ? R"({"data":{"u32":{"x":{"data":[0x00000001,2]}}}})" :
+            TEST_EXPECT(ctx, tests::parse_document(bulk ? R"({"data":{"u32":{"x":{"data":[0x00000001,2]}}}})" :
                 R"({"instances":{"u32":{"x":{"declaration":0x00000001}}}})", b));
             CBakedDocumentBlock ab, bb;
             TEST_EXPECT(ctx, document_translation::bake(a, ab) && document_translation::bake(b, bb));
@@ -472,7 +391,7 @@ static void test_limits(TTestContext& ctx)
     CLiveDocument schema_document;
     CResolvedSchema schema;
     SDiagnostic error;
-    TEST_EXPECT(ctx, parse(R"({"types":{"structures":{"Big":{"detail":{"size":1073741825,"alignment":1},"members":[{"v":{"type":"u8","offset":0}}]}}}})", schema_document));
+    TEST_EXPECT(ctx, tests::parse_document(R"({"types":{"structures":{"Big":{"detail":{"size":1073741825,"alignment":1},"members":[{"v":{"type":"u8","offset":0}}]}}}})", schema_document));
     TEST_EXPECT(ctx, schema.resolve(schema_document, error));
     expect_merge<false>(ctx, schema, R"({"instances":{"Big":{"a":{}}}})", R"({"instances":{"Big":{"b":{}}}})", {},
         EDataMergeStage::result_validation, EDataMergeReason::storage_limit);
@@ -489,9 +408,9 @@ static void test_limits(TTestContext& ctx)
         text += ",\"T" + std::to_string(i) + "\":{\"members\":[{\"v\":{\"type\":\"T" + std::to_string(i - 1u) + "\"}}]}";
     }
     text += R"(,"Skipped":{"members":[{"v":{"type":{"element":"T260","count":4000000000}}}]}}}})";
-    TEST_EXPECT(ctx, parse(text, schema_document) && schema.resolve(schema_document, error));
+    TEST_EXPECT(ctx, tests::parse_document(text, schema_document) && schema.resolve(schema_document, error));
     CLiveDocument a, empty, merged;
-    TEST_EXPECT(ctx, parse(R"({"instances":{"T260":{"x":{}},"Skipped":{"x":{}}}})", a) && parse("{}", empty));
+    TEST_EXPECT(ctx, tests::parse_document(R"({"instances":{"T260":{"x":{}},"Skipped":{"x":{}}}})", a) && tests::parse_document("{}", empty));
     SInstanceMergeDiagnostic diagnostic;
     TEST_EXPECT(ctx, merge_instances(CInstanceDocumentQuery{ a }, CInstanceDocumentQuery{ empty }, schema, merged, diagnostic));
     CBakedDocumentBlock before;
@@ -499,7 +418,7 @@ static void test_limits(TTestContext& ctx)
     detail::SValueDiagnostic value_error;
     TEST_EXPECT(ctx, !detail::construct_value(schema, CDocumentRead{ merged }, schema.find_type(CStringView{ "T260" }), {},
         nullptr, 0u, detail::EConstructionMode::instance, value_error));
-    TEST_EXPECT(ctx, value_error.reason == EReason::storage_limit && same_document(merged, before));
+    TEST_EXPECT(ctx, value_error.reason == EReason::storage_limit && tests::same_baked_document(merged, before));
     TEST_EXPECT(ctx, detail::construct_value(schema, CDocumentRead{ merged }, schema.find_type(CStringView{ "Skipped" }), {},
         nullptr, 0u, detail::EConstructionMode::instance, value_error));
 
@@ -508,7 +427,7 @@ static void test_limits(TTestContext& ctx)
     for (const unsigned depth : { 251u, 252u, 253u, 256u })
     {
         CLiveDocument declarations;
-        TEST_EXPECT(ctx, parse(R"({"instances":{"T260":{"x":{"declaration":{}}}}})", declarations));
+        TEST_EXPECT(ctx, tests::parse_document(R"({"instances":{"T260":{"x":{"declaration":{}}}}})", declarations));
         const CNodeKey declaration = first_value(declarations, false);
         CNodeKey root = declaration;
         for (unsigned i = 0u; i < depth; ++i)
@@ -544,7 +463,7 @@ static void test_specialisation_depth(TTestContext& ctx, const CResolvedSchema& 
     for (const unsigned depth : { 0u, 1u, 126u, 127u, 256u })
     {
         CLiveDocument source, empty;
-        TEST_EXPECT(ctx, parse(R"({"instances":{"One":{"base":{}}}})", source) && parse("{}", empty));
+        TEST_EXPECT(ctx, tests::parse_document(R"({"instances":{"One":{"base":{}}}})", source) && tests::parse_document("{}", empty));
         CNodeKey entry = source.first_child(source.first_child(source.first_child(source.root())));
         for (unsigned i = 0u; i < depth; ++i)
         {
@@ -572,19 +491,19 @@ static void test_specialisation_depth(TTestContext& ctx, const CResolvedSchema& 
                     CInstanceDocumentQuery{ (copy == 2u) ? empty : source };
                 CLiveDocument output;
                 CBakedDocumentBlock before;
-                TEST_EXPECT(ctx, parse(R"({"sentinel":17})", output) && document_translation::bake(output, before));
+                TEST_EXPECT(ctx, tests::parse_document(R"({"sentinel":17})", output) && document_translation::bake(output, before));
                 SInstanceMergeDiagnostic diagnostic;
                 const bool accepted = merge_instances(first, second, schema, output, diagnostic);
                 TEST_EXPECT(ctx, accepted == (depth <= 126u));
                 if (accepted)
                 {
                     const CDocumentRead actual{ output }, expected{ source };
-                    TEST_EXPECT(ctx, equal_document(actual, actual.root(), expected, expected.root()));
+                    TEST_EXPECT(ctx, tests::equal_document_values(actual, actual.root(), expected, expected.root()));
                     TEST_EXPECT(ctx, output.maximum_depth() == source.maximum_depth());
                 }
                 else
                 {
-                    TEST_EXPECT(ctx, diagnostic.reason == EDataMergeReason::storage_limit && same_document(output, before));
+                    TEST_EXPECT(ctx, diagnostic.reason == EDataMergeReason::storage_limit && tests::same_baked_document(output, before));
                     const EDataMergeStage stage = (depth == 256u) ?
                         ((copy == 1u) ? EDataMergeStage::second_source_validation : EDataMergeStage::first_source_validation) :
                         EDataMergeStage::document_merge;
@@ -600,9 +519,9 @@ static void test_specialisation_depth(TTestContext& ctx, const CResolvedSchema& 
 static void test_integration(TTestContext& ctx)
 {
     CLiveDocument schema_document, first, second, merged;
-    TEST_EXPECT(ctx, parse(k_schema, schema_document));
+    TEST_EXPECT(ctx, tests::parse_document(k_schema, schema_document));
     CLiveDocument without_defaults, merged_schema;
-    TEST_EXPECT(ctx, parse(R"({"types":{"structures":{"Pair":{"members":[{"a":{"type":"u32"}},{"b":{"type":"u32"}}]}}}})", without_defaults));
+    TEST_EXPECT(ctx, tests::parse_document(R"({"types":{"structures":{"Pair":{"members":[{"a":{"type":"u32"}},{"b":{"type":"u32"}}]}}}})", without_defaults));
     SSchemaMergeDiagnostic schema_merge_error;
     TEST_EXPECT(ctx, merge_type_schemas(CSchemaDocumentQuery{ without_defaults }, CSchemaDocumentQuery{ schema_document }, merged_schema, schema_merge_error));
     CLiveSchema owner;
@@ -612,8 +531,8 @@ static void test_integration(TTestContext& ctx)
     CSchemaBinding binding;
     TEST_EXPECT(ctx, binding.bind(owner));
     const CResolvedSchema& schema = *binding.resolved();
-    TEST_EXPECT(ctx, parse(R"({"instances":{"Pair":{"base":{"specialisation":{"child":{}}},"explicit":{"declaration":{"a":7}}}}})", first));
-    TEST_EXPECT(ctx, parse(R"({"instances":{"Pair":{"base":{"declaration":{"a":3}}}}})", second));
+    TEST_EXPECT(ctx, tests::parse_document(R"({"instances":{"Pair":{"base":{"specialisation":{"child":{}}},"explicit":{"declaration":{"a":7}}}}})", first));
+    TEST_EXPECT(ctx, tests::parse_document(R"({"instances":{"Pair":{"base":{"declaration":{"a":3}}}}})", second));
     SInstanceMergeDiagnostic diagnostic;
     TEST_EXPECT(ctx, merge_instances(CInstanceDocumentQuery{ first }, CInstanceDocumentQuery{ second }, schema, merged, diagnostic));
     first.deallocate();
@@ -643,8 +562,8 @@ static void test_integration(TTestContext& ctx)
     TEST_EXPECT(ctx, !query.object_child(child_node, CStringView{ "declaration" }));
     TEST_EXPECT(ctx, query.object_child(explicit_node, CStringView{ "declaration" }));
 
-    TEST_EXPECT(ctx, parse(R"({"data":{"Pair":{"records":{"data":[[1,2]]}}}})", first));
-    TEST_EXPECT(ctx, parse(R"({"data":{"Pair":{"records":{"data":[[1,2],[3,4]]}}}})", second));
+    TEST_EXPECT(ctx, tests::parse_document(R"({"data":{"Pair":{"records":{"data":[[1,2]]}}}})", first));
+    TEST_EXPECT(ctx, tests::parse_document(R"({"data":{"Pair":{"records":{"data":[[1,2],[3,4]]}}}})", second));
     SBulkDataMergeDiagnostic bulk_error;
     TEST_EXPECT(ctx, merge_bulk_data(CBulkDataDocumentQuery{ first }, CBulkDataDocumentQuery{ second }, schema, merged, bulk_error));
     CBulkDataDocumentQuery bulk_query{ merged };
@@ -691,9 +610,9 @@ static void test_growth(TTestContext& ctx, const CResolvedSchema& schema)
                 return text + (bulk ? "]}}}}" : "}}}");
             };
             CLiveDocument a, b, output;
-            TEST_EXPECT(ctx, parse(source(false), a) && parse(source(true), b));
-            SAllocator fixture;
-            memory::CMemoryAllocator allocator{ &fixture, &allocate_merge, &tests::deallocate_test_memory };
+            TEST_EXPECT(ctx, tests::parse_document(source(false), a) && tests::parse_document(source(true), b));
+            tests::TAllocationFailureFixture fixture;
+            memory::CMemoryAllocator allocator{ &fixture, &tests::allocate_with_failure, &tests::deallocate_test_memory };
             memory::CMemoryContext context{ allocator };
             platform::system::CPerfCounter timer;
             (void)timer.update();
@@ -746,11 +665,11 @@ static void test_growth(TTestContext& ctx, const CResolvedSchema& schema)
         CLiveDocument schema_document, input, output;
         CResolvedSchema large;
         SDiagnostic error;
-        TEST_EXPECT(ctx, parse("{\"types\":{\"structures\":{\"Large\":{\"members\":[{\"v\":{\"type\":{\"element\":\"u8\",\"count\":" +
+        TEST_EXPECT(ctx, tests::parse_document("{\"types\":{\"structures\":{\"Large\":{\"members\":[{\"v\":{\"type\":{\"element\":\"u8\",\"count\":" +
             std::to_string(count) + "}}}]}}}}", schema_document) && large.resolve(schema_document, error));
-        TEST_EXPECT(ctx, parse(R"({"instances":{"Large":{"x":{"declaration":{"v":[]}}}}})", input));
-        SAllocator fixture;
-        memory::CMemoryAllocator allocator{ &fixture, &allocate_merge, &tests::deallocate_test_memory };
+        TEST_EXPECT(ctx, tests::parse_document(R"({"instances":{"Large":{"x":{"declaration":{"v":[]}}}}})", input));
+        tests::TAllocationFailureFixture fixture;
+        memory::CMemoryAllocator allocator{ &fixture, &tests::allocate_with_failure, &tests::deallocate_test_memory };
         memory::CMemoryContext context{ allocator };
         SInstanceMergeDiagnostic diagnostic;
         {
@@ -781,7 +700,7 @@ static void test_sparse_wide_structures(TTestContext& ctx)
     }
     text += "}}}";
     CLiveDocument input;
-    TEST_EXPECT(ctx, parse(text, input));
+    TEST_EXPECT(ctx, tests::parse_document(text, input));
     CBakedDocumentBlock baked;
     TEST_EXPECT(ctx, document_translation::bake(input, baked));
     std::size_t baseline_attempts{}, baseline_bytes{};
@@ -798,13 +717,13 @@ static void test_sparse_wide_structures(TTestContext& ctx)
         CLiveDocument schema_document;
         CResolvedSchema schema;
         SDiagnostic error;
-        TEST_EXPECT(ctx, parse(types, schema_document) && schema.resolve(schema_document, error));
+        TEST_EXPECT(ctx, tests::parse_document(types, schema_document) && schema.resolve(schema_document, error));
         for (const bool baked_input : { false, true })
         {
             const CInstanceDocumentQuery query = baked_input ? CInstanceDocumentQuery{ baked.document() } : CInstanceDocumentQuery{ input };
             CLiveDocument output;
-            SAllocator fixture;
-            memory::CMemoryAllocator allocator{ &fixture, &allocate_merge, &tests::deallocate_test_memory };
+            tests::TAllocationFailureFixture fixture;
+            memory::CMemoryAllocator allocator{ &fixture, &tests::allocate_with_failure, &tests::deallocate_test_memory };
             memory::CMemoryContext context{ allocator };
             SInstanceMergeDiagnostic diagnostic;
             platform::system::CPerfCounter timer;
@@ -815,7 +734,7 @@ static void test_sparse_wide_structures(TTestContext& ctx)
             }
             const std::uint64_t elapsed = timer.query_delta();
             const CDocumentRead actual{ output }, expected{ input };
-            TEST_EXPECT(ctx, equal_document(actual, actual.root(), expected, expected.root()));
+            TEST_EXPECT(ctx, tests::equal_document_values(actual, actual.root(), expected, expected.root()));
             if ((width == 1u) && !baked_input)
             {
                 baseline_attempts = fixture.attempts;
@@ -844,7 +763,7 @@ void run_data_merge_cases(tests::TTestContext& ctx)
     CLiveDocument schema_document;
     CResolvedSchema schema;
     SDiagnostic diagnostic;
-    TEST_EXPECT(ctx, parse(k_schema, schema_document) && schema.resolve(schema_document, diagnostic));
+    TEST_EXPECT(ctx, tests::parse_document(k_schema, schema_document) && schema.resolve(schema_document, diagnostic));
     test_rules(ctx, schema);
     test_limits(ctx);
     test_specialisation_depth(ctx, schema);

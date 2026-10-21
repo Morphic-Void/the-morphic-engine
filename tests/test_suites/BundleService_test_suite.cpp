@@ -1,9 +1,9 @@
-
 //  Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited
 //  License: MIT (see LICENSE file in repository root)
 //
 //  File:    BundleService_test_suite.cpp
-//  Authors: Ritchie Brannan / OpenAI Codex
+//  Primary implementation: OpenAI Codex
+//  Reviewed and accepted by: Ritchie Brannan
 //  Date:    12 Oct 26
 //
 //  Controlled worker completions and retained-record bundle lifetimes.
@@ -559,13 +559,6 @@ void test_live_notification_failure(TTestContext& ctx)
     (void)recipient.shutdown();
 }
 
-struct SAllocator { std::size_t calls{ 0u }; std::size_t fail_on{ SIZE_MAX }; };
-void* MV_STD_ABI_CALL allocate(void* data, std::size_t alignment, std::size_t size) noexcept
-{
-    auto& state = *static_cast<SAllocator*>(data);
-    if (++state.calls == state.fail_on) return nullptr;
-    return tests::allocate_test_memory(nullptr, alignment, size);
-}
 
 void test_publication_failure_and_shutdown(TTestContext& ctx)
 {
@@ -573,8 +566,8 @@ void test_publication_failure_and_shutdown(TTestContext& ctx)
     std::size_t failures = 0u;
     for (std::size_t attempt = 1u; attempt < 500u && !succeeded; ++attempt)
     {
-        SAllocator allocator_state;
-        memory::CMemoryAllocator allocator{ &allocator_state, &allocate, &tests::deallocate_test_memory, system_ids::host };
+        tests::TAllocationFailureFixture allocator_state;
+        memory::CMemoryAllocator allocator{ &allocator_state, &tests::allocate_with_failure, &tests::deallocate_test_memory, system_ids::host };
         memory::CMemoryContext context{ allocator, system_ids::host };
         {
             tests::TMemoryContextScope scope{ &context };
@@ -592,7 +585,7 @@ void test_publication_failure_and_shutdown(TTestContext& ctx)
             TEST_EXPECT(ctx, image.reserve_bundle("pack:", binding));
             platform::system::CPerfCountConversion conversion;
             threading::CThreadPackage client{ {}, conversion };
-            allocator_state.fail_on = allocator_state.calls + attempt;
+            allocator_state.fail_on = allocator_state.attempts + attempt - 1u;
             const auto result = service.publish_bundle(prepared, binding, client);
             allocator_state.fail_on = SIZE_MAX;
             succeeded = result.asset.is_valid();
@@ -636,6 +629,5 @@ int run_bundle_service_tests()
     test_conversion_lifetime(ctx);
     test_live_notification_failure(ctx);
     test_publication_failure_and_shutdown(ctx);
-    std::cout << "BundleService: " << ctx.passed << " passed, " << ctx.failed << " failed\n";
-    return ctx.exit_code();
+    return ctx.report("BundleService");
 }

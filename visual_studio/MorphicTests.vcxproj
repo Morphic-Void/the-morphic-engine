@@ -98,6 +98,7 @@
     <ClCompile Include="..\tests\environment\test_paths.cpp" />
     <ClCompile Include="..\tests\environment\test_system_registry.cpp" />
     <ClCompile Include="..\tests\manual\tga_round_trip.cpp" />
+    <ClCompile Include="..\tests\support\document_helpers.cpp" />
     <ClCompile Include="..\tests\support\file_helpers.cpp" />
     <ClCompile Include="..\tests\support\test_allocator.cpp" />
     <ClCompile Include="..\executive\runtime\request_preparation.cpp" />
@@ -157,6 +158,7 @@
     <ClInclude Include="..\tests\environment\local_types.hpp" />
     <ClInclude Include="..\tests\environment\test_environment.hpp" />
     <ClInclude Include="..\tests\environment\test_paths.hpp" />
+    <ClInclude Include="..\tests\support\document_helpers.hpp" />
     <ClInclude Include="..\tests\support\file_helpers.hpp" />
     <ClInclude Include="..\tests\support\test_allocator.hpp" />
     <ClInclude Include="..\tests\support\test_context.hpp" />

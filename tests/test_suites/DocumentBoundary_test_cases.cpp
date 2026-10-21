@@ -1,10 +1,9 @@
-
 //  Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited
 //  License: MIT (see LICENSE file in repository root)
 //
 //  File:    DocumentBoundary_test_cases.cpp
 //  Primary implementation: OpenAI Codex
-//  Reviewer: Ritchie Brannan
+//  Reviewed and accepted by: Ritchie Brannan
 //  Date:    19 Oct 26
 //
 //  Document preparation/composition admission, reconstruction and publication.
@@ -18,10 +17,10 @@
 #include "schema/value_codec.hpp"
 #include "schema/live_instances.hpp"
 #include "schema/live_bulk_data.hpp"
-#include "data_model/document_parser.hpp"
 #include "data_model/document_translation.hpp"
 #include "data_model/document_copy.hpp"
 #include "tests/support/test_context.hpp"
+#include "tests/support/document_helpers.hpp"
 #include "tests/support/test_allocator.hpp"
 #include "tests/support/test_scopes.hpp"
 #include "platform/system/performance_counter.hpp"
@@ -37,87 +36,6 @@ using namespace schema;
 using tests::TTestContext;
 using detail::CDocumentRead;
 using detail::SOccurrence;
-
-static bool parse(const std::string& text, CLiveDocument& document)
-{
-    return document_parser::parse(CByteConstView{
-        reinterpret_cast<const std::uint8_t*>(text.data()), text.size(), 1u }, document).accepted();
-}
-
-static bool same_document(const CLiveDocument& document, const CBakedDocumentBlock& expected)
-{
-    CBakedDocumentBlock actual;
-    return document_translation::bake(document, actual) && (actual.bytes().size() == expected.bytes().size()) &&
-        (std::memcmp(actual.bytes().data(), expected.bytes().data(), actual.bytes().size()) == 0);
-}
-
-//  Independent ordered comparison of document values, ignoring integer spelling.
-static bool equal_document(const CDocumentRead& a, const SOccurrence left, const CDocumentRead& b, const SOccurrence right)
-{
-    if ((a.value_kind(left) != b.value_kind(right)) || !(a.name(left) == b.name(right)) ||
-        (a.is_object_entry(left) != b.is_object_entry(right)) || (a.child_count(left) != b.child_count(right)))
-    {
-        return false;
-    }
-    switch (a.value_kind(left))
-    {
-        case EDocumentValueKind::integer:
-        {
-            std::uint64_t x{}, y{};
-            if (a.unsigned_integer_value(left, x) && b.unsigned_integer_value(right, y))
-            {
-                return x == y;
-            }
-            std::int64_t sx{}, sy{};
-            return a.signed_integer_value(left, sx) && b.signed_integer_value(right, sy) && (sx == sy);
-        }
-        case EDocumentValueKind::string:
-        {
-            return a.string_value(left) == b.string_value(right);
-        }
-        case EDocumentValueKind::floating_point:
-        {
-            double x{}, y{};
-            return a.floating_point_value(left, x) && b.floating_point_value(right, y) &&
-                (std::memcmp(&x, &y, sizeof(x)) == 0);
-        }
-        case EDocumentValueKind::boolean:
-        {
-            bool x{}, y{};
-            return a.boolean_value(left, x) && b.boolean_value(right, y) && (x == y);
-        }
-        default:
-        {
-            SOccurrence r = b.first_child(right);
-            for (SOccurrence l = a.first_child(left); l; l = a.next_sibling(l))
-            {
-                if (!equal_document(a, l, b, r))
-                {
-                    return false;
-                }
-                r = b.next_sibling(r);
-            }
-            return true;
-        }
-    }
-}
-
-struct SAllocator
-{
-    std::size_t attempts{}, fail_on{ static_cast<std::size_t>(-1) }, bytes{}, largest{};
-};
-
-static void* MV_STD_ABI_CALL allocate_boundary(void* const state, const std::size_t alignment, const std::size_t bytes) noexcept
-{
-    auto& allocator = *static_cast<SAllocator*>(state);
-    allocator.bytes += bytes;
-    if (bytes > allocator.largest) allocator.largest = bytes;
-    if (allocator.attempts++ == allocator.fail_on)
-    {
-        return nullptr;
-    }
-    return tests::allocate_test_memory(nullptr, alignment, bytes);
-}
 
 static const char* const k_types = R"({"types":{
     "enumerations":{"E":{"storage":"u8","values":{"red":0,"blue":1}}},
@@ -157,15 +75,15 @@ static void expect_preparation(TTestContext& ctx, const CResolvedSchema& schema,
     const TReason<Bulk> reason = TReason<Bulk>::none)
 {
     CLiveDocument source, wanted;
-    TEST_EXPECT(ctx, parse(text, source));
-    if (!expected.empty()) TEST_EXPECT(ctx, parse(expected, wanted));
+    TEST_EXPECT(ctx, tests::parse_document(text, source));
+    if (!expected.empty()) TEST_EXPECT(ctx, tests::parse_document(expected, wanted));
     CBakedDocumentBlock baked;
     TEST_EXPECT(ctx, document_translation::bake(source, baked));
     for (const bool fixed : { false, true })
     {
         const TQuery<Bulk> query = fixed ? TQuery<Bulk>{ baked.document() } : TQuery<Bulk>{ source };
         CLiveDocument output;
-        TEST_EXPECT(ctx, parse(R"({"sentinel":42})", output));
+        TEST_EXPECT(ctx, tests::parse_document(R"({"sentinel":42})", output));
         CBakedDocumentBlock before;
         TEST_EXPECT(ctx, document_translation::bake(output, before));
         const CNodeKey handle = output.first_child(output.root());
@@ -176,17 +94,17 @@ static void expect_preparation(TTestContext& ctx, const CResolvedSchema& schema,
         if (accepted)
         {
             const CDocumentRead actual{ output }, match{ wanted };
-            TEST_EXPECT(ctx, equal_document(actual, actual.root(), match, match.root()));
+            TEST_EXPECT(ctx, tests::equal_document_values(actual, actual.root(), match, match.root()));
             TEST_EXPECT(ctx, diagnostic.stage == EDataPreparationStage::none && diagnostic.reason == EDataPreparationReason::none);
             TEST_EXPECT(ctx, output.check_integrity() && output.is_complete());
         }
         else
         {
-            TEST_EXPECT(ctx, same_document(output, before) && output.contains(handle));
+            TEST_EXPECT(ctx, tests::same_baked_document(output, before) && output.contains(handle));
             TEST_EXPECT(ctx, diagnostic.detail.reason == reason);
             TEST_EXPECT(ctx, !diagnostic.detail.occurrence || query.contains(diagnostic.detail.occurrence));
         }
-        TEST_EXPECT(ctx, same_document(source, baked));
+        TEST_EXPECT(ctx, tests::same_baked_document(source, baked));
     }
 }
 
@@ -296,7 +214,7 @@ static void test_preparation(TTestContext& ctx, const CResolvedSchema& schema)
         R"({"instances":{"Empty":{},"Pair":{"x":{"specialisation":{}}}}})");
     CResolvedSchema unready;
     CLiveDocument source, output;
-    TEST_EXPECT(ctx, parse("{}", source));
+    TEST_EXPECT(ctx, tests::parse_document("{}", source));
     SInstancePreparationDiagnostic error;
     TEST_EXPECT(ctx, !prepare_instances_document(CInstanceDocumentQuery{ source }, unready, output, error));
     TEST_EXPECT(ctx, error.reason == EDataPreparationReason::invalid_schema && !output.is_ready());
@@ -305,9 +223,9 @@ static void test_preparation(TTestContext& ctx, const CResolvedSchema& schema)
 static void test_composition(TTestContext& ctx)
 {
     CLiveDocument types, instances, bulk, wanted;
-    TEST_EXPECT(ctx, parse(k_types, types));
-    TEST_EXPECT(ctx, parse(R"({"instances":{"Pair":{"x":{"declaration":{"a":7},"specialisation":{"child":{}}}}}})", instances));
-    TEST_EXPECT(ctx, parse(R"({"data":{"E":{"x":{"data":["blue","red"]}}}})", bulk));
+    TEST_EXPECT(ctx, tests::parse_document(k_types, types));
+    TEST_EXPECT(ctx, tests::parse_document(R"({"instances":{"Pair":{"x":{"declaration":{"a":7},"specialisation":{"child":{}}}}}})", instances));
+    TEST_EXPECT(ctx, tests::parse_document(R"({"data":{"E":{"x":{"data":["blue","red"]}}}})", bulk));
     CBakedDocumentBlock tb, ib, bb;
     TEST_EXPECT(ctx, document_translation::bake(types, tb) && document_translation::bake(instances, ib) && document_translation::bake(bulk, bb));
     for (unsigned domains = 1u; domains <= 3u; ++domains)
@@ -324,16 +242,16 @@ static void test_composition(TTestContext& ctx)
             TEST_EXPECT(ctx, success && diagnostic.stage == EDocumentCompositionStage::none);
             const CDocumentRead actual{ output }, rt{ types }, ri{ instances }, rb{ bulk };
             SOccurrence section = actual.first_child(actual.root());
-            TEST_EXPECT(ctx, equal_document(actual, section, rt, rt.first_child(rt.root())));
+            TEST_EXPECT(ctx, tests::equal_document_values(actual, section, rt, rt.first_child(rt.root())));
             section = actual.next_sibling(section);
             if (domains & 1u)
             {
-                TEST_EXPECT(ctx, equal_document(actual, section, ri, ri.first_child(ri.root())));
+                TEST_EXPECT(ctx, tests::equal_document_values(actual, section, ri, ri.first_child(ri.root())));
                 section = actual.next_sibling(section);
             }
             if (domains & 2u)
             {
-                TEST_EXPECT(ctx, equal_document(actual, section, rb, rb.first_child(rb.root())));
+                TEST_EXPECT(ctx, tests::equal_document_values(actual, section, rb, rb.first_child(rb.root())));
                 section = actual.next_sibling(section);
             }
             TEST_EXPECT(ctx, !section && output.check_integrity());
@@ -343,7 +261,7 @@ static void test_composition(TTestContext& ctx)
     for (const auto text : invalid_types)
     {
         CLiveDocument bad, output;
-        TEST_EXPECT(ctx, parse(text, bad));
+        TEST_EXPECT(ctx, tests::parse_document(text, bad));
         SDocumentCompositionDiagnostic diagnostic;
         TEST_EXPECT(ctx, !compose_document(CSchemaDocumentQuery{ bad }, CInstanceDocumentQuery{ instances }, output, diagnostic));
         TEST_EXPECT(ctx, diagnostic.stage == EDocumentCompositionStage::types_validation && diagnostic.reason == EDocumentCompositionReason::invalid_source);
@@ -351,7 +269,7 @@ static void test_composition(TTestContext& ctx)
     for (const bool data : { false, true })
     {
         CLiveDocument bad, output;
-        TEST_EXPECT(ctx, parse(data ? R"({"data":{"Pair":{"x":{"data":[{}]}}}})" : R"({"instances":{},"types":{}})", bad));
+        TEST_EXPECT(ctx, tests::parse_document(data ? R"({"data":{"Pair":{"x":{"data":[{}]}}}})" : R"({"instances":{},"types":{}})", bad));
         SDocumentCompositionDiagnostic diagnostic;
         const bool result = data ? compose_document(CSchemaDocumentQuery{ types }, CBulkDataDocumentQuery{ bad }, output, diagnostic) :
             compose_document(CSchemaDocumentQuery{ types }, CInstanceDocumentQuery{ bad }, output, diagnostic);
@@ -359,7 +277,7 @@ static void test_composition(TTestContext& ctx)
         TEST_EXPECT(ctx, diagnostic.stage == (data ? EDocumentCompositionStage::bulk_data_validation : EDocumentCompositionStage::instances_validation));
     }
     CLiveDocument empty, output;
-    TEST_EXPECT(ctx, parse("{}", empty));
+    TEST_EXPECT(ctx, tests::parse_document("{}", empty));
     SDocumentCompositionDiagnostic diagnostic;
     TEST_EXPECT(ctx, compose_document(CSchemaDocumentQuery{ types }, CInstanceDocumentQuery{ empty }, output, diagnostic));
     TEST_EXPECT(ctx, output.child_count(output.root()) == 2u && output.object_child(output.root(), CStringView{ "instances" }));
@@ -402,15 +320,15 @@ static void test_preparation_failures(TTestContext& ctx, const CResolvedSchema& 
                     (reconstruct ? R"({"stripped":true,"instances":{"Pair":{"x":{"locator":{"offset":0,"valid":true},"specialisation":{"child":{"locator":{"offset":8,"valid":true}}}}}}})" :
                         retained_instances.c_str());
                 CLiveDocument source, separate;
-                TEST_EXPECT(ctx, parse(text, source));
-                if (alias == 1u) TEST_EXPECT(ctx, parse(R"({"sentinel":17})", separate));
+                TEST_EXPECT(ctx, tests::parse_document(text, source));
+                if (alias == 1u) TEST_EXPECT(ctx, tests::parse_document(R"({"sentinel":17})", separate));
                 CLiveDocument& output = (alias == 2u) ? source : separate;
                 CBakedDocumentBlock original, before;
                 TEST_EXPECT(ctx, document_translation::bake(source, original));
                 if (output.is_ready()) TEST_EXPECT(ctx, document_translation::bake(output, before));
                 const CNodeKey handle = output.first_child(output.root());
-                SAllocator fixture{ 0u, fail };
-                memory::CMemoryAllocator allocator{ &fixture, &allocate_boundary, &tests::deallocate_test_memory };
+                tests::TAllocationFailureFixture fixture{ 0u, fail };
+                memory::CMemoryAllocator allocator{ &fixture, &tests::allocate_with_failure, &tests::deallocate_test_memory };
                 memory::CMemoryContext context{ allocator };
                 TDiagnostic<Bulk> diagnostic;
                 {
@@ -419,8 +337,8 @@ static void test_preparation_failures(TTestContext& ctx, const CResolvedSchema& 
                 }
                 if (!completed)
                 {
-                    TEST_EXPECT(ctx, diagnostic.reason != EDataPreparationReason::none && same_document(source, original));
-                    TEST_EXPECT(ctx, before.is_ready() ? same_document(output, before) : !output.is_ready());
+                    TEST_EXPECT(ctx, diagnostic.reason != EDataPreparationReason::none && tests::same_baked_document(source, original));
+                    TEST_EXPECT(ctx, before.is_ready() ? tests::same_baked_document(output, before) : !output.is_ready());
                     TEST_EXPECT(ctx, !handle || output.contains(handle));
                     if (diagnostic.stage == EDataPreparationStage::result_validation)
                     {
@@ -443,7 +361,7 @@ static void test_preparation_failures(TTestContext& ctx, const CResolvedSchema& 
                     if (!Bulk && !reconstruct)
                     {
                         const CDocumentRead expected{ original.document() }, actual{ output };
-                        TEST_EXPECT(ctx, equal_document(expected, expected.root(), actual, actual.root()));
+                        TEST_EXPECT(ctx, tests::equal_document_values(expected, expected.root(), actual, actual.root()));
                     }
                 }
                 TEST_EXPECT(ctx, std::memcmp(payload.data(), values, sizeof(values)) == 0);
@@ -457,13 +375,13 @@ static void test_preparation_failures(TTestContext& ctx, const CResolvedSchema& 
     CLiveDocument backing, source;
     CResolvedSchema protected_schema;
     SDiagnostic schema_error;
-    TEST_EXPECT(ctx, parse(k_types, backing) && protected_schema.resolve(backing, schema_error) && parse("{}", source));
+    TEST_EXPECT(ctx, tests::parse_document(k_types, backing) && protected_schema.resolve(backing, schema_error) && tests::parse_document("{}", source));
     CBakedDocumentBlock before;
     TEST_EXPECT(ctx, document_translation::bake(backing, before));
     TDiagnostic<Bulk> diagnostic;
     TEST_EXPECT(ctx, !prepare<Bulk>(TQuery<Bulk>{ source }, protected_schema, nullptr, false, backing, diagnostic));
     TEST_EXPECT(ctx, diagnostic.stage == EDataPreparationStage::preconditions && diagnostic.reason == EDataPreparationReason::invalid_schema);
-    TEST_EXPECT(ctx, protected_schema.is_ready() && same_document(backing, before));
+    TEST_EXPECT(ctx, protected_schema.is_ready() && tests::same_baked_document(backing, before));
 }
 
 static void test_composition_failures(TTestContext& ctx)
@@ -474,16 +392,16 @@ static void test_composition_failures(TTestContext& ctx)
         for (std::size_t fail = 0u; (fail < 1024u) && !completed; ++fail)
         {
             CLiveDocument types, instances, bulk, separate;
-            TEST_EXPECT(ctx, parse(k_types, types) && parse(R"({"instances":{"Pair":{"x":{"declaration":{"a":11}}}}})", instances) &&
-                parse(R"({"data":{"Pair":{"x":{"data":[[7,9]]}}}})", bulk));
-            if (alias == 1u) TEST_EXPECT(ctx, parse(R"({"sentinel":17})", separate));
+            TEST_EXPECT(ctx, tests::parse_document(k_types, types) && tests::parse_document(R"({"instances":{"Pair":{"x":{"declaration":{"a":11}}}}})", instances) &&
+                tests::parse_document(R"({"data":{"Pair":{"x":{"data":[[7,9]]}}}})", bulk));
+            if (alias == 1u) TEST_EXPECT(ctx, tests::parse_document(R"({"sentinel":17})", separate));
             CLiveDocument& output = (alias == 2u) ? types : ((alias == 3u) ? instances : ((alias == 4u) ? bulk : separate));
             CBakedDocumentBlock tb, ib, bb, before;
             TEST_EXPECT(ctx, document_translation::bake(types, tb) && document_translation::bake(instances, ib) && document_translation::bake(bulk, bb));
             if (output.is_ready()) TEST_EXPECT(ctx, document_translation::bake(output, before));
             const CNodeKey handle = output.first_child(output.root());
-            SAllocator fixture{ 0u, fail };
-            memory::CMemoryAllocator allocator{ &fixture, &allocate_boundary, &tests::deallocate_test_memory };
+            tests::TAllocationFailureFixture fixture{ 0u, fail };
+            memory::CMemoryAllocator allocator{ &fixture, &tests::allocate_with_failure, &tests::deallocate_test_memory };
             memory::CMemoryContext context{ allocator };
             SDocumentCompositionDiagnostic diagnostic;
             {
@@ -493,8 +411,8 @@ static void test_composition_failures(TTestContext& ctx)
             if (!completed)
             {
                 TEST_EXPECT(ctx, diagnostic.reason != EDocumentCompositionReason::none);
-                TEST_EXPECT(ctx, same_document(types, tb) && same_document(instances, ib) && same_document(bulk, bb));
-                TEST_EXPECT(ctx, before.is_ready() ? same_document(output, before) : !output.is_ready());
+                TEST_EXPECT(ctx, tests::same_baked_document(types, tb) && tests::same_baked_document(instances, ib) && tests::same_baked_document(bulk, bb));
+                TEST_EXPECT(ctx, before.is_ready() ? tests::same_baked_document(output, before) : !output.is_ready());
                 TEST_EXPECT(ctx, !handle || output.contains(handle));
                 TEST_EXPECT(ctx, !diagnostic.types.occurrence || CSchemaDocumentQuery{ types }.contains(diagnostic.types.occurrence));
                 TEST_EXPECT(ctx, !diagnostic.instances.occurrence || CInstanceDocumentQuery{ instances }.contains(diagnostic.instances.occurrence));
@@ -529,7 +447,7 @@ static void test_presentation(TTestContext& ctx)
     CLiveDocument types;
     CResolvedSchema schema;
     SDiagnostic error;
-    TEST_EXPECT(ctx, parse(R"({"types":{"structures":{"Value":{"members":[{"n":{"type":"f64"}},{"f":{"type":"f64"}}]}}}})", types) && schema.resolve(types, error));
+    TEST_EXPECT(ctx, tests::parse_document(R"({"types":{"structures":{"Value":{"members":[{"n":{"type":"f64"}},{"f":{"type":"f64"}}]}}}})", types) && schema.resolve(types, error));
     const CIntegerMetadata expected{ EIntegerDomain::signed_value, EIntegerWidth::bits_16,
         EIntegerNotation::hexadecimal_8, EIntegerPrefix::alternate };
     for (const bool bulk : { false, true })
@@ -539,7 +457,7 @@ static void test_presentation(TTestContext& ctx)
             for (const bool baked : { false, true })
             {
                 CLiveDocument source, prepared, composed;
-                TEST_EXPECT(ctx, parse(bulk ? R"({"data":{"Value":{"x":{"data":[{"n":128,"f":"nan"}]}}}})" :
+                TEST_EXPECT(ctx, tests::parse_document(bulk ? R"({"data":{"Value":{"x":{"data":[{"n":128,"f":"nan"}]}}}})" :
                     R"({"instances":{"Value":{"x":{"declaration":{"n":128,"f":"nan"}}}}})", source));
                 const CNodeKey number = source.first_child(first_value(source, bulk));
                 const CNodeKey string = source.next_sibling(number);
@@ -581,11 +499,11 @@ static void test_depth(TTestContext& ctx)
     CLiveDocument types;
     CResolvedSchema schema;
     SDiagnostic schema_error;
-    TEST_EXPECT(ctx, parse(text, types) && schema.resolve(types, schema_error));
+    TEST_EXPECT(ctx, tests::parse_document(text, types) && schema.resolve(types, schema_error));
     for (const unsigned depth : { 0u, 252u, 253u, 256u })
     {
         CLiveDocument source;
-        TEST_EXPECT(ctx, parse(R"({"instances":{"T260":{"x":{"declaration":{}}}}})", source));
+        TEST_EXPECT(ctx, tests::parse_document(R"({"instances":{"T260":{"x":{"declaration":{}}}}})", source));
         CNodeKey root = first_value(source, false);
         for (unsigned i = 0u; i < depth; ++i)
         {
@@ -614,7 +532,7 @@ static void test_depth(TTestContext& ctx)
     for (const unsigned depth : { 126u, 127u })
     {
         CLiveDocument source, output;
-        TEST_EXPECT(ctx, parse(R"({"instances":{"T0":{"base":{}}}})", source));
+        TEST_EXPECT(ctx, tests::parse_document(R"({"instances":{"T0":{"base":{}}}})", source));
         CNodeKey entry = source.first_child(source.first_child(source.first_child(source.root())));
         for (unsigned i = 0u; i < depth; ++i)
         {
@@ -647,9 +565,9 @@ static void test_preallocation(TTestContext& ctx)
     text += "}}";
     CLiveDocument source;
     CBakedDocumentBlock baked;
-    TEST_EXPECT(ctx, parse(text, source) && document_translation::bake(source, baked));
-    SAllocator fixture;
-    memory::CMemoryAllocator allocator{ &fixture, &allocate_boundary, &tests::deallocate_test_memory };
+    TEST_EXPECT(ctx, tests::parse_document(text, source) && document_translation::bake(source, baked));
+    tests::TAllocationFailureFixture fixture;
+    memory::CMemoryAllocator allocator{ &fixture, &tests::allocate_with_failure, &tests::deallocate_test_memory };
     memory::CMemoryContext context{ allocator };
     {
         tests::TMemoryContextScope scope{ &context };
@@ -691,7 +609,7 @@ static void test_preallocation(TTestContext& ctx)
         TEST_EXPECT(ctx, fixture.attempts == attempts);
         TEST_EXPECT(ctx, target.check_integrity());
         const CDocumentRead result{ target };
-        TEST_EXPECT(ctx, equal_document(read, read.root(), result, result.root()));
+        TEST_EXPECT(ctx, tests::equal_document_values(read, read.root(), result, result.root()));
     }
     TEST_EXPECT(ctx, context.is_attribution_empty());
 }
@@ -710,9 +628,9 @@ static void test_scaling(TTestContext& ctx, const CResolvedSchema& schema)
         }
         text += "}}";
         CLiveDocument source, output;
-        TEST_EXPECT(ctx, parse(text, source));
-        SAllocator fixture;
-        memory::CMemoryAllocator allocator{ &fixture, &allocate_boundary, &tests::deallocate_test_memory };
+        TEST_EXPECT(ctx, tests::parse_document(text, source));
+        tests::TAllocationFailureFixture fixture;
+        memory::CMemoryAllocator allocator{ &fixture, &tests::allocate_with_failure, &tests::deallocate_test_memory };
         memory::CMemoryContext context{ allocator };
         SInstancePreparationDiagnostic error;
         {
@@ -734,11 +652,11 @@ static void test_scaling(TTestContext& ctx, const CResolvedSchema& schema)
         CLiveDocument types, source, output;
         CResolvedSchema large;
         SDiagnostic schema_error;
-        TEST_EXPECT(ctx, parse("{\"types\":{\"structures\":{\"Large\":{\"members\":[{\"v\":{\"type\":{\"element\":\"u8\",\"count\":" +
+        TEST_EXPECT(ctx, tests::parse_document("{\"types\":{\"structures\":{\"Large\":{\"members\":[{\"v\":{\"type\":{\"element\":\"u8\",\"count\":" +
             std::to_string(count) + "}}}]}}}}", types) && large.resolve(types, schema_error));
-        TEST_EXPECT(ctx, parse(R"({"instances":{"Large":{"x":{"declaration":{"v":[]}}}}})", source));
-        SAllocator fixture;
-        memory::CMemoryAllocator allocator{ &fixture, &allocate_boundary, &tests::deallocate_test_memory };
+        TEST_EXPECT(ctx, tests::parse_document(R"({"instances":{"Large":{"x":{"declaration":{"v":[]}}}}})", source));
+        tests::TAllocationFailureFixture fixture;
+        memory::CMemoryAllocator allocator{ &fixture, &tests::allocate_with_failure, &tests::deallocate_test_memory };
         memory::CMemoryContext context{ allocator };
         SInstancePreparationDiagnostic error;
         {
@@ -755,7 +673,7 @@ static void test_scaling(TTestContext& ctx, const CResolvedSchema& schema)
         TEST_EXPECT(ctx, context.is_attribution_empty());
     }
     CLiveDocument types;
-    TEST_EXPECT(ctx, parse(k_types, types));
+    TEST_EXPECT(ctx, tests::parse_document(k_types, types));
     for (const unsigned count : { 32u, 128u, 512u, 2048u })
     {
         CByteBuffer payload;
@@ -770,10 +688,10 @@ static void test_scaling(TTestContext& ctx, const CResolvedSchema& schema)
         }
         text += "}}}";
         CLiveDocument source, output, composed;
-        TEST_EXPECT(ctx, parse(text, source));
+        TEST_EXPECT(ctx, tests::parse_document(text, source));
         std::size_t preparation_attempts{}, preparation_bytes{};
-        SAllocator fixture;
-        memory::CMemoryAllocator allocator{ &fixture, &allocate_boundary, &tests::deallocate_test_memory };
+        tests::TAllocationFailureFixture fixture;
+        memory::CMemoryAllocator allocator{ &fixture, &tests::allocate_with_failure, &tests::deallocate_test_memory };
         memory::CMemoryContext context{ allocator };
         platform::system::CPerfCounter timer;
         (void)timer.update();
@@ -809,11 +727,11 @@ static void test_workflow(TTestContext& ctx)
     CLiveDocument original_types, added_types, merged_types, retained, stripped, bulk, a, b, records, merged_instances, merged_bulk, complete;
     CResolvedSchema original, combined;
     SDiagnostic schema_error;
-    TEST_EXPECT(ctx, parse(R"({"types":{"structures":{"One":{"members":[{"v":{"type":"u32"}}]}}}})", original_types) && original.resolve(original_types, schema_error));
-    TEST_EXPECT(ctx, parse(R"({"types":{"structures":{"One":{"members":[{"v":{"type":"u32","default":7}}]}}}})", added_types));
-    TEST_EXPECT(ctx, parse(R"({"instances":{"One":{"adopt":{},"explicit":{"declaration":0}}}})", retained));
-    TEST_EXPECT(ctx, parse(R"({"stripped":true,"instances":{"One":{"base":{"locator":{"offset":0,"valid":true},"specialisation":{"child":{"locator":{"offset":4,"valid":true}}}}}}})", stripped));
-    TEST_EXPECT(ctx, parse(R"({"data":{"One":{"records":{"locator":{"offset":0,"valid":true,"count":2}}}}})", bulk));
+    TEST_EXPECT(ctx, tests::parse_document(R"({"types":{"structures":{"One":{"members":[{"v":{"type":"u32"}}]}}}})", original_types) && original.resolve(original_types, schema_error));
+    TEST_EXPECT(ctx, tests::parse_document(R"({"types":{"structures":{"One":{"members":[{"v":{"type":"u32","default":7}}]}}}})", added_types));
+    TEST_EXPECT(ctx, tests::parse_document(R"({"instances":{"One":{"adopt":{},"explicit":{"declaration":0}}}})", retained));
+    TEST_EXPECT(ctx, tests::parse_document(R"({"stripped":true,"instances":{"One":{"base":{"locator":{"offset":0,"valid":true},"specialisation":{"child":{"locator":{"offset":4,"valid":true}}}}}}})", stripped));
+    TEST_EXPECT(ctx, tests::parse_document(R"({"data":{"One":{"records":{"locator":{"offset":0,"valid":true,"count":2}}}}})", bulk));
     CByteBuffer payload;
     TEST_EXPECT(ctx, payload.allocate(8u, k_max_alignment) && payload.set_size(8u));
     const std::uint32_t snapshots[]{ 11u, 0u };
@@ -874,7 +792,7 @@ static void test_reconstructed_depth(TTestContext& ctx)
     CLiveDocument types;
     CResolvedSchema schema;
     SDiagnostic schema_error;
-    TEST_EXPECT(ctx, parse(text, types) && schema.resolve(types, schema_error));
+    TEST_EXPECT(ctx, tests::parse_document(text, types) && schema.resolve(types, schema_error));
     CByteBuffer payload;
     TEST_EXPECT(ctx, payload.allocate(1u, k_max_alignment) && payload.set_size(1u));
     payload.data()[0] = 1u;
@@ -883,7 +801,7 @@ static void test_reconstructed_depth(TTestContext& ctx)
         for (const bool bulk : { false, true })
         {
             CLiveDocument source, output;
-            TEST_EXPECT(ctx, parse(std::string{ bulk ? R"({"data":{)" : R"({"stripped":true,"instances":{)" } +
+            TEST_EXPECT(ctx, tests::parse_document(std::string{ bulk ? R"({"data":{)" : R"({"stripped":true,"instances":{)" } +
                 "\"T" + std::to_string(depth) + R"(":{"x":{"locator":{"offset":0,"valid":true,"count":1}}}}})", source));
             CBakedDocumentBlock block;
             TEST_EXPECT(ctx, document_translation::bake(source, block));
@@ -910,7 +828,7 @@ void run_document_boundary_cases(tests::TTestContext& ctx)
     CLiveDocument types;
     CResolvedSchema schema;
     SDiagnostic diagnostic;
-    TEST_EXPECT(ctx, parse(k_types, types) && schema.resolve(types, diagnostic));
+    TEST_EXPECT(ctx, tests::parse_document(k_types, types) && schema.resolve(types, diagnostic));
     test_preparation(ctx, schema);
     test_composition(ctx);
     test_preparation_failures<false>(ctx, schema);

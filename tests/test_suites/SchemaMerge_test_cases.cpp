@@ -1,4 +1,3 @@
-
 //  Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited
 //  License: MIT (see LICENSE file in repository root)
 //
@@ -440,21 +439,6 @@ static void test_depth(TTestContext& ctx)
     }
 }
 
-struct SAllocator
-{
-    std::size_t attempts{}, fail_on{ static_cast<std::size_t>(-1) };
-};
-
-static void* MV_STD_ABI_CALL allocate_merge(void* const state, const std::size_t alignment, const std::size_t bytes) noexcept
-{
-    auto& allocator = *static_cast<SAllocator*>(state);
-    if (allocator.attempts++ == allocator.fail_on)
-    {
-        return nullptr;
-    }
-    return tests::allocate_test_memory(nullptr, alignment, bytes);
-}
-
 static void test_failures(TTestContext& ctx)
 {
     bool saw_result_failure = false;
@@ -472,8 +456,8 @@ static void test_failures(TTestContext& ctx)
             TEST_EXPECT(ctx, document_translation::bake(a, before_a) && document_translation::bake(b, before_b));
             TEST_EXPECT(ctx, document_translation::bake(destination, before_output));
             const CNodeKey retained = destination.first_child(destination.root());
-            SAllocator fixture{ 0u, fail };
-            memory::CMemoryAllocator allocator{ &fixture, &allocate_merge, &tests::deallocate_test_memory };
+            tests::TAllocationFailureFixture fixture{ 0u, fail };
+            memory::CMemoryAllocator allocator{ &fixture, &tests::allocate_with_failure, &tests::deallocate_test_memory };
             memory::CMemoryContext context{ allocator };
             SSchemaMergeDiagnostic diagnostic;
             {

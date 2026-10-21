@@ -2,7 +2,8 @@
 //  License: MIT (see LICENSE file in repository root)
 //
 //  File:    SchemaDataBlock_test_cases.cpp
-//  Authors: Ritchie Brannan / OpenAI Codex
+//  Primary implementation: OpenAI Codex
+//  Reviewed and accepted by: Ritchie Brannan
 //  Date:    14 Oct 26
 //
 //  Persistence envelopes assembled without a schema block writer.
@@ -648,18 +649,6 @@ static void test_block_destruction_order(TTestContext& ctx)
     TEST_EXPECT(ctx, context.is_attribution_empty());
 }
 
-struct SAllocationFailures
-{
-    std::size_t calls{}, fail_on{};
-};
-
-static void* MV_STD_ABI_CALL allocate_block_test(void* const state, const std::size_t alignment, const std::size_t bytes) noexcept
-{
-    auto& failures = *static_cast<SAllocationFailures*>(state);
-    if (failures.calls++ == failures.fail_on) return nullptr;
-    return tests::allocate_test_memory(nullptr, alignment, bytes);
-}
-
 template<bool Instances>
 static void test_block_allocation_failures(TTestContext& ctx)
 {
@@ -675,8 +664,8 @@ static void test_block_allocation_failures(TTestContext& ctx)
     //  Fail each preparation allocation in turn, including opt-in comparison.
     for (std::size_t fail_on = 0u; fail_on != 128u && !completed; ++fail_on)
     {
-        SAllocationFailures failures{ 0u, fail_on };
-        memory::CMemoryAllocator allocator{ &failures, &allocate_block_test, &tests::deallocate_test_memory };
+        tests::TAllocationFailureFixture failures{ 0u, fail_on };
+        memory::CMemoryAllocator allocator{ &failures, &tests::allocate_with_failure, &tests::deallocate_test_memory };
         memory::CMemoryContext context{ allocator };
         {
             const tests::TMemoryContextScope scope{ &context };
@@ -974,8 +963,8 @@ static void test_bake_allocation_failures(TTestContext& ctx)
     bool completed{}, preparation{}, document_bake{}, assembly{}, attachment{};
     for (std::size_t fail_on = 0u; fail_on != 1024u && !completed; ++fail_on)
     {
-        SAllocationFailures failures{ 0u, fail_on };
-        memory::CMemoryAllocator allocator{ &failures, &allocate_block_test, &tests::deallocate_test_memory };
+        tests::TAllocationFailureFixture failures{ 0u, fail_on };
+        memory::CMemoryAllocator allocator{ &failures, &tests::allocate_with_failure, &tests::deallocate_test_memory };
         memory::CMemoryContext context{ allocator };
         {
             const tests::TMemoryContextScope scope{ &context };
@@ -1331,8 +1320,8 @@ static void test_materialisation_allocations(TTestContext& ctx)
     bool completed{}, materialisation{}, promotion{}, assembly{}, attachment{};
     for (std::size_t fail_on = 0u; fail_on != 2048u && !completed; ++fail_on)
     {
-        SAllocationFailures failures{ 0u, fail_on };
-        memory::CMemoryAllocator allocator{ &failures, &allocate_block_test, &tests::deallocate_test_memory };
+        tests::TAllocationFailureFixture failures{ 0u, fail_on };
+        memory::CMemoryAllocator allocator{ &failures, &tests::allocate_with_failure, &tests::deallocate_test_memory };
         memory::CMemoryContext context{ allocator };
         {
             const tests::TMemoryContextScope scope{ &context };
@@ -1598,8 +1587,8 @@ static void test_stripping_allocations(TTestContext& ctx)
     bool completed{}, validation{}, promotion{}, bake{}, assembly{}, attachment{};
     for (std::size_t fail_on = 0u; fail_on != 1024u && !completed; ++fail_on)
     {
-        SAllocationFailures failures{ 0u, fail_on };
-        memory::CMemoryAllocator allocator{ &failures, &allocate_block_test, &tests::deallocate_test_memory };
+        tests::TAllocationFailureFixture failures{ 0u, fail_on };
+        memory::CMemoryAllocator allocator{ &failures, &tests::allocate_with_failure, &tests::deallocate_test_memory };
         memory::CMemoryContext context{ allocator };
         {
             const tests::TMemoryContextScope scope{ &context };

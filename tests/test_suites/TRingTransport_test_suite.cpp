@@ -1,8 +1,10 @@
-
 //  Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited
 //  License: MIT (see LICENSE file in repository root)
 //
-//  TRingTransport_test_suite.cpp
+//  File:    TRingTransport_test_suite.cpp
+//  Primary implementation: OpenAI Codex
+//  Reviewed and accepted by: Ritchie Brannan
+//  Date:    21 Oct 26
 //
 //  Standalone test suite for threading::transports::TRing<T>.
 
@@ -18,6 +20,7 @@
 #include "threading/transports/TRingTransport.hpp"
 #include "tests/test_suites/TRingTransport_test_suite.hpp"
 #include "tests/support/test_context.hpp"
+#include "tests/support/test_scopes.hpp"
 #include "memory/memory_context.hpp"
 #include "debug/macros.hpp"
 
@@ -105,15 +108,6 @@ std::string drain_queue(TQueue& queue)
     return result;
 }
 
-inline void print_summary(const char* const suite_name, const TTestContext& ctx)
-{
-    std::cout
-        << suite_name
-        << ": passed=" << ctx.passed
-        << " failed=" << ctx.failed
-        << '\n';
-}
-
 void test_ring_uninitialised_state(TTestContext& ctx)
 {
     TRing<char> ring;
@@ -136,7 +130,7 @@ void test_ring_memory_context_configuration(TTestContext& ctx)
     memory::CMemoryAllocator allocator_b(nullptr, allocate_test_memory, deallocate_test_memory, system_ids::host);
     memory::CMemoryContext context_a(allocator_a, system_ids::host);
     memory::CMemoryContext context_b(allocator_b, system_ids::host);
-    memory::CMemoryContext* const previous_thread_context = memory::set_thread_memory_context(&context_a);
+    const tests::TMemoryContextScope thread_context_scope{ &context_a };
 
     {
         TRing<char> ambient_ring;
@@ -161,7 +155,6 @@ void test_ring_memory_context_configuration(TTestContext& ctx)
         TEST_EXPECT_EQ(ctx, explicit_init_ring.memory_context(), &context_b);
     }
 
-    (void)memory::set_thread_memory_context(previous_thread_context);
 }
 
 void test_ring_initialise_and_conditioning(TTestContext& ctx)
@@ -373,8 +366,7 @@ int test_ring_transport()
     test_ring_repeated_fill_drain_cycles(ctx);
     test_ring_deallocate_restores_empty(ctx);
 
-    print_summary("TRingTransport", ctx);
-    return ctx.exit_code();
+    return ctx.report("TRingTransport");
 }
 
 }   //  namespace tests

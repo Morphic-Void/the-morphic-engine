@@ -1,9 +1,9 @@
-
 //  Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited
 //  License: MIT (see LICENSE file in repository root)
 //
 //  File:    DocumentParser_test_suite.cpp
-//  Authors: Ritchie Brannan / OpenAI Codex
+//  Primary implementation: OpenAI Codex
+//  Reviewed and accepted by: Ritchie Brannan
 //  Date:    8 Sep 26
 
 #include "tests/test_suites/DocumentParser_test_suite.hpp"
@@ -1429,24 +1429,6 @@ static void test_round_trips(TTestContext& ctx)
     }
 }
 
-struct CAllocatorState
-{
-    std::size_t attempts{ 0u };
-    std::size_t fail_on{ 0u };
-    bool failed{ false };
-};
-
-static void* MV_STD_ABI_CALL allocate(void* const state, const std::size_t alignment, const std::size_t size) noexcept
-{
-    auto& fixture = *static_cast<CAllocatorState*>(state);
-    if (fixture.attempts++ == fixture.fail_on)
-    {
-        fixture.failed = true;
-        return nullptr;
-    }
-    return tests::allocate_test_memory(nullptr, alignment, size);
-}
-
 static void test_policy_allocation(TTestContext& ctx)
 {
     for (const std::uint32_t permissions : { document_policy::k_default, 1u << 31 })
@@ -1458,8 +1440,8 @@ static void test_policy_allocation(TTestContext& ctx)
         bool completed = false;
         for (std::size_t fail_on = 0u; (fail_on < 256u) && !completed; ++fail_on)
         {
-            CAllocatorState fixture{ 0u, fail_on, false };
-            memory::CMemoryAllocator allocator{ &fixture, &allocate, &tests::deallocate_test_memory };
+            tests::TAllocationFailureFixture fixture{ 0u, fail_on, false };
+            memory::CMemoryAllocator allocator{ &fixture, &tests::allocate_with_failure, &tests::deallocate_test_memory };
             memory::CMemoryContext context{ allocator };
             {
                 tests::TMemoryContextScope scope{ &context };
@@ -1505,8 +1487,8 @@ static void test_root_allocation(TTestContext& ctx)
         bool completed = false;
         for (std::size_t fail_on = 0u; (fail_on < 256u) && !completed; ++fail_on)
         {
-            CAllocatorState fixture{ 0u, fail_on, false };
-            memory::CMemoryAllocator allocator{ &fixture, &allocate, &tests::deallocate_test_memory };
+            tests::TAllocationFailureFixture fixture{ 0u, fail_on, false };
+            memory::CMemoryAllocator allocator{ &fixture, &tests::allocate_with_failure, &tests::deallocate_test_memory };
             memory::CMemoryContext context{ allocator };
             {
                 tests::TMemoryContextScope scope{ &context };
@@ -1549,8 +1531,8 @@ static void test_depth_and_allocation(TTestContext& ctx)
     bool failed_construction = false;
     for (std::size_t fail_on = 0u; (fail_on < 256u) && !completed; ++fail_on)
     {
-        CAllocatorState fixture{ 0u, fail_on, false };
-        memory::CMemoryAllocator allocator{ &fixture, &allocate, &tests::deallocate_test_memory };
+        tests::TAllocationFailureFixture fixture{ 0u, fail_on, false };
+        memory::CMemoryAllocator allocator{ &fixture, &tests::allocate_with_failure, &tests::deallocate_test_memory };
         memory::CMemoryContext context{ allocator };
         {
             tests::TMemoryContextScope scope{ &context };
@@ -1743,6 +1725,5 @@ int run_document_parser_tests()
     document_parser_tests::test_root_allocation(ctx);
     document_parser_tests::test_policy_allocation(ctx);
     document_parser_tests::test_composed_linter_diagnostics(ctx);
-    std::cout << "DocumentParser: " << ctx.passed << " passed, " << ctx.failed << " failed\n";
-    return (ctx.failed == 0) ? 0 : 1;
+    return ctx.report("DocumentParser");
 }

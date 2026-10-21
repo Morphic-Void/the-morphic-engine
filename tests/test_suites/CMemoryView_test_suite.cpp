@@ -1,10 +1,10 @@
-
 //  Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited
 //  License: MIT (see LICENSE file in repository root)
 //
-//  File:   CMemoryView_test_suite.cpp
-//  Author: Ritchie Brannan
-//  Date:   13 Jul 26
+//  File:    CMemoryView_test_suite.cpp
+//  Primary implementation: OpenAI Codex
+//  Reviewed and accepted by: Ritchie Brannan
+//  Date:    13 Jul 26
 
 #include <cstddef>
 #include <cstdint>
@@ -195,6 +195,5 @@ int run_memory_view_tests()
     test_intent_alignment_is_conservative(ctx);
     test_token_views(ctx);
 
-    std::cout << "CMemoryView: " << ctx.passed << " passed, " << ctx.failed << " failed\n";
-    return (ctx.failed == 0) ? 0 : 1;
+    return ctx.report("CMemoryView");
 }

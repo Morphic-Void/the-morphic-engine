@@ -1,4 +1,3 @@
-
 //  Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited
 //  License: MIT (see LICENSE file in repository root)
 //
@@ -162,13 +161,6 @@ namespace
 
 using TTestContext = tests::TTestContext;
 
-struct SFailingAllocator
-{
-    std::size_t attempt{ 0u };
-    std::size_t fail_on{ std::numeric_limits<std::size_t>::max() };
-    bool reject_all{ false };
-};
-
 struct SRetiringAllocator
 {
     struct SAllocation
@@ -195,24 +187,6 @@ struct SRetiringAllocator
         }
     }
 };
-
-void* MV_STD_ABI_CALL allocate_with_failure(
-    void* const state, const std::size_t alignment, const std::size_t bytes) noexcept
-{
-    SFailingAllocator& fixture = *static_cast<SFailingAllocator*>(state);
-    const std::size_t attempt = fixture.attempt++;
-    if (fixture.reject_all || (attempt == fixture.fail_on))
-    {
-        return nullptr;
-    }
-    return tests::allocate_test_memory(nullptr, alignment, bytes);
-}
-
-bool MV_STD_ABI_CALL deallocate_with_failure(
-    void* const, const std::size_t alignment, void* const pointer) noexcept
-{
-    return tests::deallocate_test_memory(nullptr, alignment, pointer);
-}
 
 void* MV_STD_ABI_CALL allocate_with_retirement(
     void* const state, const std::size_t alignment, const std::size_t bytes) noexcept
@@ -456,8 +430,8 @@ void test_utf8_normalisation_and_rejection(TTestContext& ctx)
 
 void test_canonical_string_admission_avoids_normalisation_allocation(TTestContext& ctx)
 {
-    SFailingAllocator fixture;
-    memory::CMemoryAllocator allocator{ &fixture, &allocate_with_failure, &deallocate_with_failure };
+    tests::TAllocationFailureFixture fixture;
+    memory::CMemoryAllocator allocator{ &fixture, &tests::allocate_with_failure, &tests::deallocate_test_memory };
     memory::CMemoryContext context{ allocator };
     {
         tests::TMemoryContextScope scope{ &context };
@@ -470,17 +444,17 @@ void test_canonical_string_admission_avoids_normalisation_allocation(TTestContex
         TEST_EXPECT(ctx, document.create_string(
             bytes_view(modified_nul, sizeof(modified_nul)), name).is_valid());
 
-        const std::size_t attempts_before = fixture.attempt;
+        const std::size_t attempts_before = fixture.attempts;
         fixture.reject_all = true;
         const CNodeKey canonical = document.create_string(
             bytes_view(modified_nul, sizeof(modified_nul)), name);
         TEST_EXPECT(ctx, canonical.is_valid());
-        TEST_EXPECT(ctx, fixture.attempt == attempts_before);
+        TEST_EXPECT(ctx, fixture.attempts == attempts_before);
 
         const CNodeKey needs_normalisation = document.create_string(
             bytes_view(literal_nul, sizeof(literal_nul)), name);
         TEST_EXPECT(ctx, !needs_normalisation.is_valid());
-        TEST_EXPECT(ctx, fixture.attempt == (attempts_before + 1u));
+        TEST_EXPECT(ctx, fixture.attempts == (attempts_before + 1u));
         fixture.reject_all = false;
         TEST_EXPECT(ctx, document.check_integrity());
         document.deallocate();
@@ -696,8 +670,8 @@ void test_numeric_boundaries_metadata_and_negative_zero(TTestContext& ctx)
 
 void test_container_pair_failure_atomicity_and_key_gaps(TTestContext& ctx)
 {
-    SFailingAllocator fixture;
-    memory::CMemoryAllocator allocator{ &fixture, &allocate_with_failure, &deallocate_with_failure };
+    tests::TAllocationFailureFixture fixture;
+    memory::CMemoryAllocator allocator{ &fixture, &tests::allocate_with_failure, &tests::deallocate_test_memory };
     memory::CMemoryContext context{ allocator };
     tests::TMemoryContextScope scope{ &context };
 
@@ -732,9 +706,9 @@ void test_initialisation_failure_sweep(TTestContext& ctx)
     bool reached_success = false;
     for (std::size_t fail_on = 0u; fail_on < 32u; ++fail_on)
     {
-        SFailingAllocator fixture;
+        tests::TAllocationFailureFixture fixture;
         fixture.fail_on = fail_on;
-        memory::CMemoryAllocator allocator{ &fixture, &allocate_with_failure, &deallocate_with_failure };
+        memory::CMemoryAllocator allocator{ &fixture, &tests::allocate_with_failure, &tests::deallocate_test_memory };
         memory::CMemoryContext context{ allocator };
         {
             tests::TMemoryContextScope scope{ &context };
@@ -765,15 +739,15 @@ void test_string_creation_failure_sweep(TTestContext& ctx)
     bool reached_success = false;
     for (std::size_t failure_offset = 0u; failure_offset < 32u; ++failure_offset)
     {
-        SFailingAllocator fixture;
-        memory::CMemoryAllocator allocator{ &fixture, &allocate_with_failure, &deallocate_with_failure };
+        tests::TAllocationFailureFixture fixture;
+        memory::CMemoryAllocator allocator{ &fixture, &tests::allocate_with_failure, &tests::deallocate_test_memory };
         memory::CMemoryContext context{ allocator };
         {
             tests::TMemoryContextScope scope{ &context };
             CLiveDocument document;
             TEST_EXPECT(ctx, document.initialise());
             const std::uint32_t values_before = document.value_count();
-            fixture.fail_on = fixture.attempt + failure_offset;
+            fixture.fail_on = fixture.attempts + failure_offset;
 
             const CStringView name{ reinterpret_cast<const std::uint8_t*>("name"), 4u };
             const CStringView value{ reinterpret_cast<const std::uint8_t*>("payload"), 7u };
@@ -953,8 +927,8 @@ void test_attachment_rejections_and_cycles(TTestContext& ctx)
 
 void test_topology_operations_do_not_allocate(TTestContext& ctx)
 {
-    SFailingAllocator fixture;
-    memory::CMemoryAllocator allocator{ &fixture, &allocate_with_failure, &deallocate_with_failure };
+    tests::TAllocationFailureFixture fixture;
+    memory::CMemoryAllocator allocator{ &fixture, &tests::allocate_with_failure, &tests::deallocate_test_memory };
     memory::CMemoryContext context{ allocator };
     {
         tests::TMemoryContextScope scope{ &context };
@@ -966,7 +940,7 @@ void test_topology_operations_do_not_allocate(TTestContext& ctx)
             CStringView{ reinterpret_cast<const std::uint8_t*>("payload"), 7u });
         TEST_EXPECT(ctx, document.append_child(candidate, child).succeeded());
 
-        const std::size_t allocation_attempts = fixture.attempt;
+        const std::size_t allocation_attempts = fixture.attempts;
         fixture.reject_all = true;
         CLiveAttachmentResult result = document.append_child(document.root(), candidate);
         TEST_EXPECT(ctx, result.succeeded());
@@ -974,7 +948,7 @@ void test_topology_operations_do_not_allocate(TTestContext& ctx)
         TEST_EXPECT(ctx, document.append_child(document.root(), candidate).succeeded());
         TEST_EXPECT(ctx, document.erase(document.root()));
         fixture.reject_all = false;
-        TEST_EXPECT(ctx, fixture.attempt == allocation_attempts);
+        TEST_EXPECT(ctx, fixture.attempts == allocation_attempts);
         TEST_EXPECT(ctx, !document.contains(candidate));
         TEST_EXPECT(ctx, !document.contains(child));
         TEST_EXPECT(ctx, document.value_count() == 1u);
@@ -1622,8 +1596,8 @@ void test_payload_transfer_rejections_cycles_and_arrays(TTestContext& ctx)
 
 void test_payload_transfer_allocation_limits_depth_move_and_attribution(TTestContext& ctx)
 {
-    SFailingAllocator fixture;
-    memory::CMemoryAllocator allocator{ &fixture, &allocate_with_failure, &deallocate_with_failure };
+    tests::TAllocationFailureFixture fixture;
+    memory::CMemoryAllocator allocator{ &fixture, &tests::allocate_with_failure, &tests::deallocate_test_memory };
     memory::CMemoryContext context{ allocator };
     {
         tests::TMemoryContextScope scope{ &context };
@@ -1651,15 +1625,15 @@ void test_payload_transfer_allocation_limits_depth_move_and_attribution(TTestCon
         TEST_EXPECT(ctx, !detached_payload.is_valid());
         TEST_EXPECT(ctx, document.name(source) == name);
         TEST_EXPECT(ctx, document.is_detached(source));
-        const std::size_t attempts_before_attach = fixture.attempt;
+        const std::size_t attempts_before_attach = fixture.attempts;
         TEST_EXPECT(ctx,
             document.attach_payload(no_allocate_target, no_allocate_payload) == no_allocate_target);
         TEST_EXPECT(ctx, !document.contains(no_allocate_payload));
-        TEST_EXPECT(ctx, fixture.attempt == attempts_before_attach);
-        const std::size_t attempts_before_erase = fixture.attempt;
+        TEST_EXPECT(ctx, fixture.attempts == attempts_before_attach);
+        const std::size_t attempts_before_erase = fixture.attempts;
         TEST_EXPECT(ctx, document.erase_payload(no_allocate_target));
         TEST_EXPECT(ctx, document.value_type(no_allocate_target) == ELiveValueType::empty);
-        TEST_EXPECT(ctx, fixture.attempt == attempts_before_erase);
+        TEST_EXPECT(ctx, fixture.attempts == attempts_before_erase);
         fixture.reject_all = false;
         TEST_EXPECT(ctx, document.check_integrity());
         document.deallocate();
@@ -1788,8 +1762,8 @@ void test_analysis_summary_and_string_references(TTestContext& ctx)
 
 void test_analysis_allocation_failure_and_attribution(TTestContext& ctx)
 {
-    SFailingAllocator fixture;
-    memory::CMemoryAllocator allocator{ &fixture, &allocate_with_failure, &deallocate_with_failure };
+    tests::TAllocationFailureFixture fixture;
+    memory::CMemoryAllocator allocator{ &fixture, &tests::allocate_with_failure, &tests::deallocate_test_memory };
     memory::CMemoryContext document_context{ allocator };
     memory::CMemoryContext analysis_context{ allocator };
     CLiveDocument document;
@@ -1812,14 +1786,14 @@ void test_analysis_allocation_failure_and_attribution(TTestContext& ctx)
     {
         tests::TMemoryContextScope scope{ &analysis_context };
         SLiveDocumentAnalysis summary;
-        const std::size_t attempts = fixture.attempt;
+        const std::size_t attempts = fixture.attempts;
         fixture.reject_all = true;
         TEST_EXPECT(ctx, document.analyse(summary));
         TEST_EXPECT(ctx, summary.value_count == 2u);
         TEST_EXPECT(ctx, document.value_count() == 2u);
         TEST_EXPECT(ctx, document.is_complete());
         TEST_EXPECT(ctx, document.check_integrity());
-        TEST_EXPECT(ctx, fixture.attempt == attempts);
+        TEST_EXPECT(ctx, fixture.attempts == attempts);
         fixture.reject_all = false;
 
         // Each array's first allocation can fail without changing the document.
@@ -1827,7 +1801,7 @@ void test_analysis_allocation_failure_and_attribution(TTestContext& ctx)
         {
             {
                 SLiveDocumentStringAnalysis strings;
-                fixture.fail_on = fixture.attempt + offset;
+                fixture.fail_on = fixture.attempts + offset;
                 TEST_EXPECT(ctx, !document.analyse(summary, &strings));
                 TEST_EXPECT(ctx, summary.value_count == 0u);
                 fixture.fail_on = std::numeric_limits<std::size_t>::max();
@@ -1849,14 +1823,14 @@ void test_analysis_allocation_failure_and_attribution(TTestContext& ctx)
         SLiveDocumentStringAnalysis strings;
         TEST_EXPECT(ctx, document.analyse(summary, &strings));
         TEST_EXPECT(ctx, analysis_context.get_live_allocation_count() == 2u);
-        const std::size_t before_reuse = fixture.attempt;
+        const std::size_t before_reuse = fixture.attempts;
         fixture.reject_all = true;
         TEST_EXPECT(ctx, document.erase(document.root()));
         TEST_EXPECT(ctx, document.analyse(summary, &strings));
         TEST_EXPECT(ctx, summary.value_count == 1u);
         TEST_EXPECT(ctx, strings.referenced_property_name_count == 0u);
         TEST_EXPECT(ctx, strings.referenced_string_value_count == 0u);
-        TEST_EXPECT(ctx, fixture.attempt == before_reuse);
+        TEST_EXPECT(ctx, fixture.attempts == before_reuse);
         fixture.reject_all = false;
         TEST_EXPECT(ctx, document.memory_attribution().allocation_count == allocations);
         TEST_EXPECT(ctx, document.memory_attribution().allocation_size == bytes);
@@ -1987,8 +1961,8 @@ void test_move_reset_and_retained_attribution(TTestContext& ctx)
     static_assert(std::is_nothrow_move_constructible_v<CLiveDocument>);
     static_assert(std::is_nothrow_move_assignable_v<CLiveDocument>);
 
-    SFailingAllocator fixture;
-    memory::CMemoryAllocator allocator{ &fixture, &allocate_with_failure, &deallocate_with_failure };
+    tests::TAllocationFailureFixture fixture;
+    memory::CMemoryAllocator allocator{ &fixture, &tests::allocate_with_failure, &tests::deallocate_test_memory };
     memory::CMemoryContext source_context{ allocator };
     memory::CMemoryContext other_context{ allocator };
 
@@ -2304,8 +2278,8 @@ static void test_collision_failure_atomicity(TTestContext& ctx, const unsigned h
     bool reached_success = false;
     for (std::size_t failure_offset = 0u; failure_offset < 16u; ++failure_offset)
     {
-        SFailingAllocator fixture;
-        memory::CMemoryAllocator allocator{ &fixture, &allocate_with_failure, &deallocate_with_failure };
+        tests::TAllocationFailureFixture fixture;
+        memory::CMemoryAllocator allocator{ &fixture, &tests::allocate_with_failure, &tests::deallocate_test_memory };
         memory::CMemoryContext context{ allocator };
         {
             tests::TMemoryContextScope scope{ &context };
@@ -2329,7 +2303,7 @@ static void test_collision_failure_atomicity(TTestContext& ctx, const unsigned h
                 TEST_EXPECT(ctx, document.erase(spares[index]));
             }
             const std::uint32_t before = SLiveDocumentTestAccess::occupied_node_count(document);
-            fixture.fail_on = fixture.attempt + failure_offset;
+            fixture.fail_on = fixture.attempts + failure_offset;
             const CNodeKey result = document.extend_object_child(document.root(), candidate);
             fixture.fail_on = std::numeric_limits<std::size_t>::max();
             if (result.is_valid())
@@ -2405,6 +2379,5 @@ int run_live_document_tests()
     test_complete_document_reattribution(ctx);
     test_schema_document_query_wide_live_key(ctx);
 
-    std::cout << "LiveDocument: " << ctx.passed << " passed, " << ctx.failed << " failed\n";
-    return (ctx.failed == 0) ? 0 : 1;
+    return ctx.report("LiveDocument");
 }

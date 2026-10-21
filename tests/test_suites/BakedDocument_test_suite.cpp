@@ -3,6 +3,7 @@
 //
 //  File:    BakedDocument_test_suite.cpp
 //  Primary implementation: OpenAI Codex
+//  Reviewed and accepted by: Ritchie Brannan
 //  Date:    7 Sep 26
 
 #include "tests/test_suites/BakedDocument_test_suite.hpp"
@@ -2262,6 +2263,5 @@ int run_baked_document_tests()
     document_copy_tests::test_promotion_failure_staging(ctx);
     document_copy_tests::test_sparse_copy_string_ids(ctx);
 
-    std::cout << "BakedDocument: " << ctx.passed << " passed, " << ctx.failed << " failed\n";
-    return (ctx.failed == 0) ? 0 : 1;
+    return ctx.report("BakedDocument");
 }

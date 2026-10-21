@@ -1,9 +1,9 @@
-
 //  Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited
 //  License: MIT (see LICENSE file in repository root)
 //
 //  File:    AsyncState_test_suite.cpp
-//  Authors: Ritchie Brannan / OpenAI Codex
+//  Primary implementation: OpenAI Codex
+//  Reviewed and accepted by: Ritchie Brannan
 //  Date:    12 Aug 26
 
 #include "tests/environment/local_type_ids.hpp"
@@ -143,6 +143,5 @@ int run_async_state_tests()
     test_reused_slot_is_reinitialised(ctx);
     test_local_async_state(ctx);
 
-    std::cout << "AsyncState: " << ctx.passed << " passed, " << ctx.failed << " failed\n";
-    return ctx.failed;
+    return ctx.report("AsyncState");
 }

@@ -1,8 +1,10 @@
-
 //  Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited
 //  License: MIT (see LICENSE file in repository root)
 //
-//  TMpmcTransport_test_suite.cpp
+//  File:    TMpmcTransport_test_suite.cpp
+//  Primary implementation: OpenAI Codex
+//  Reviewed and accepted by: Ritchie Brannan
+//  Date:    21 Oct 26
 //
 //  Standalone test suite for threading::transports::TMpmc transport family.
 
@@ -54,15 +56,6 @@ struct SMpmcTransportTestAccess
 
 namespace tests
 {
-
-static void print_summary(const char* const suite_name, const TTestContext& ctx)
-{
-    std::cout
-        << suite_name
-        << ": passed=" << ctx.passed
-        << " failed=" << ctx.failed
-        << '\n';
-}
 
 void test_raw_ring_capacity_conditioning(TTestContext& ctx)
 {
@@ -353,8 +346,7 @@ int test_mpmc_transport()
     test_arena_completion_waits_for_pop(ctx, true);
     test_arena_completion_waits_for_pop(ctx, false);
 
-    print_summary("TMpmcTransport", ctx);
-    return ctx.exit_code();
+    return ctx.report("TMpmcTransport");
 }
 
 }   // namespace tests

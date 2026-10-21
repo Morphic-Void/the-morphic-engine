@@ -2,7 +2,8 @@
 //  License: MIT (see LICENSE file in repository root)
 //
 //  File:    File_test_suite.cpp
-//  Author:  OpenAI Codex
+//  Primary implementation: OpenAI Codex
+//  Reviewed and accepted by: Ritchie Brannan
 //  Date:    12 Oct 26
 
 #include "tests/test_suites/File_test_suite.hpp"
@@ -171,6 +172,5 @@ int run_file_tests()
     file_tests::test_sizes_and_empty_files(ctx);
     file_tests::test_loading_into_storage(ctx);
     file_tests::test_short_reads(ctx);
-    std::cout << "File: " << ctx.passed << " passed, " << ctx.failed << " failed\n";
-    return ctx.exit_code();
+    return ctx.report("File");
 }

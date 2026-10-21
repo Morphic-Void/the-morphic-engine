@@ -1,9 +1,9 @@
-
 //  Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited
 //  License: MIT (see LICENSE file in repository root)
 //
 //  File:    ErasedPod_test_suite.cpp
-//  Authors: Ritchie Brannan / OpenAI Codex
+//  Primary implementation: OpenAI Codex
+//  Reviewed and accepted by: Ritchie Brannan
 //  Date:    12 Aug 26
 
 #include <cstdint>
@@ -589,6 +589,5 @@ int run_erased_pod_tests()
     test_concrete_erased_pod_transport_admission(ctx);
     test_concrete_erased_pod_transport_diagnostics(ctx);
 
-    std::cout << "ErasedPod: " << ctx.passed << " passed, " << ctx.failed << " failed\n";
-    return ctx.failed;
+    return ctx.report("ErasedPod");
 }

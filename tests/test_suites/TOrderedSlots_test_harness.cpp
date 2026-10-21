@@ -1,25 +1,16 @@
-
 //  Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited
 //  License: MIT (see LICENSE file in repository root)
-// 
+//
 //  File:    TOrderedSlots_test_harness.cpp
-//  Authors: Ritchie Brannan / OpenAI Codex
+//  Primary implementation: OpenAI Codex
+//  Reviewed and accepted by: Ritchie Brannan
 //  Date:    12 Aug 26
 //
-//  Update summary vs prior harness:
-//  - lexical_index -> rank_index
-//  - lex_index_of -> rank_index_of
-//  - find_by_lexical_index -> find_by_rank_index
-//  - sort_and_pack no longer takes preserve flag:
-//      previous preserve_loose_index_order=true  ==> call rebuild_loose_in_index_order() then sort_and_pack()
-//
-//  Notes:
-//  - This harness still uses STL freely (debug harness).
-//  - Updated for full-domain rank-index contract:
+//  Configurable test harness for the full-domain rank-index contract:
 //      lexed  : [0 .. lexed_count)
 //      loose  : [lexed_count .. occupied_count)
 //      empty  : [occupied_count .. capacity)
-//  - Loose and empty list traversal is bounded by the corresponding category count.
+//  Loose and empty list traversal is bounded by the corresponding category count.
 
 #include <cstdint>
 #include <cstdlib>

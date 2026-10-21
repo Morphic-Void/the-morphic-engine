@@ -1,10 +1,10 @@
-
 //  Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited
 //  License: MIT (see LICENSE file in repository root)
 //
-//  File:   ImageView_test_suite.cpp
+//  File:    ImageView_test_suite.cpp
 //  Primary implementation: OpenAI Codex
-//  Date:   19 Sep 26
+//  Reviewed and accepted by: Ritchie Brannan
+//  Date:    19 Sep 26
 //
 //  Image-view access, drawing, clipping, copy and TGA regression tests.
 
@@ -590,7 +590,7 @@ int run_image_view_tests()
     image_view_tests::test_copies(ctx);
     image_view_tests::test_aliasing_and_copy_failure(ctx);
     image_view_tests::test_tga_metadata_and_orientation(ctx);
-    std::cout << "ImageView: " << ctx.passed << " passed, " << ctx.failed << " failed; view size "
+    std::cout << "ImageView: view size "
         << sizeof(image::CImageView) << ", encode options size " << sizeof(image::codec::tga::EncodeOptions) << '\n';
-    return ctx.exit_code();
+    return ctx.report("ImageView");
 }

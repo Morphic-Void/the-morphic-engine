@@ -1,11 +1,10 @@
-
 //  Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited
 //  License: MIT (see LICENSE file in repository root)
 //
-//  File:   StringBuffers_test_suite.cpp
-//  Primary implementation: OpenAI tools
-//  Used, occasionally adjusted, and accepted by: Ritchie Brannan
-//  Date:   14 Jul 26
+//  File:    StringBuffers_test_suite.cpp
+//  Primary implementation: OpenAI Codex
+//  Reviewed and accepted by: Ritchie Brannan
+//  Date:    14 Jul 26
 
 #include <cstddef>
 #include <cstdint>
@@ -18,6 +17,7 @@
 #include "containers/StringBuffers.hpp"
 #include "tests/test_suites/StringBuffers_test_suite.hpp"
 #include "tests/support/test_context.hpp"
+#include "tests/support/test_scopes.hpp"
 
 namespace
 {
@@ -263,7 +263,7 @@ void test_stable_strings_direct_storage_reattribution(TTestContext& ctx)
     memory::CMemoryContext source_context{ allocator };
     memory::CMemoryContext target_context{ allocator };
     memory::CMemoryContext incompatible_context{ incompatible_allocator };
-    memory::CMemoryContext* const previous_context = memory::set_thread_memory_context(&source_context);
+    const tests::TMemoryContextScope source_scope{ &source_context };
 
     CStableStrings table;
     TEST_EXPECT(ctx, table.memory_attribution().source_state == memory::EMemorySourceState::empty);
@@ -311,7 +311,6 @@ void test_stable_strings_direct_storage_reattribution(TTestContext& ctx)
     table.deallocate();
     TEST_EXPECT(ctx, target_context.get_live_allocation_count() == 0u);
     TEST_EXPECT(ctx, target_context.get_live_allocated_bytes() == 0u);
-    (void)memory::set_thread_memory_context(previous_context);
 }
 
 void test_stable_strings_mixed_sources(TTestContext& ctx)
@@ -319,10 +318,11 @@ void test_stable_strings_mixed_sources(TTestContext& ctx)
     memory::CMemoryAllocator allocator{nullptr, &attribution_test_allocate, &attribution_test_deallocate};
     memory::CMemoryContext source{allocator};
     memory::CMemoryContext target{allocator};
-    memory::CMemoryContext* const previous = memory::set_thread_memory_context(&source);
+    const tests::TMemoryContextScope source_scope{ &source };
     {
         CStableStrings table;
         TEST_EXPECT(ctx, table.initialise(8u, 16u));
+        //  Keep target active through table destruction; source_scope restores the caller's context.
         (void)memory::set_thread_memory_context(&target);
         TEST_EXPECT(ctx, table.ensure_free(memory::k_buffer_growth_policy_min_capacity + 1u));
         const auto id = table.append(reinterpret_cast<const std::uint8_t*>("mixed-source"));
@@ -346,7 +346,6 @@ void test_stable_strings_mixed_sources(TTestContext& ctx)
         TEST_EXPECT(ctx, target.get_live_allocated_bytes() == target_bytes);
     }
     TEST_EXPECT(ctx, source.is_attribution_empty() && target.is_attribution_empty());
-    (void)memory::set_thread_memory_context(previous);
 }
 
 }   //  namespace
@@ -362,6 +361,5 @@ int run_string_buffer_tests()
     test_stable_strings_direct_storage_reattribution(ctx);
     test_stable_strings_mixed_sources(ctx);
 
-    std::cout << "StringBuffers: " << ctx.passed << " passed, " << ctx.failed << " failed\n";
-    return (ctx.failed == 0) ? 0 : 1;
+    return ctx.report("StringBuffers");
 }

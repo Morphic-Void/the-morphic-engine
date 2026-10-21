@@ -1,9 +1,9 @@
-
 //  Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited
 //  License: MIT (see LICENSE file in repository root)
 //
 //  File:    DocumentStructure_test_suite.cpp
-//  Authors: Ritchie Brannan / OpenAI Codex
+//  Primary implementation: OpenAI Codex
+//  Reviewed and accepted by: Ritchie Brannan
 //  Date:    8 Sep 26
 
 #include "tests/test_suites/DocumentStructure_test_suite.hpp"
@@ -516,22 +516,6 @@ static void test_ingestion_and_bounds(TTestContext& ctx)
     }
 }
 
-struct CAllocatorState
-{
-    std::size_t attempts{ 0u };
-    std::size_t fail_on{ 0u };
-};
-
-static void* MV_STD_ABI_CALL allocate(void* state, const std::size_t alignment, const std::size_t size) noexcept
-{
-    auto& fixture = *static_cast<CAllocatorState*>(state);
-    if (fixture.attempts++ == fixture.fail_on)
-    {
-        return nullptr;
-    }
-    return tests::allocate_test_memory(nullptr, alignment, size);
-}
-
 static void test_depth_and_resources(TTestContext& ctx)
 {
     constexpr std::size_t depth = 4096u;
@@ -539,8 +523,8 @@ static void test_depth_and_resources(TTestContext& ctx)
     bool completed = false;
     for (std::size_t fail_on = 0u; (fail_on < 40u) && !completed; ++fail_on)
     {
-        CAllocatorState fixture{ 0u, fail_on };
-        memory::CMemoryAllocator allocator{ &fixture, &allocate, &tests::deallocate_test_memory };
+        tests::TAllocationFailureFixture fixture{ 0u, fail_on };
+        memory::CMemoryAllocator allocator{ &fixture, &tests::allocate_with_failure, &tests::deallocate_test_memory };
         memory::CMemoryContext context{ allocator };
         {
             tests::TMemoryContextScope scope{ &context };
@@ -569,8 +553,8 @@ static void test_depth_and_resources(TTestContext& ctx)
     //  Token scanning allocates nothing, and flat input needs only the root
     //  frame regardless of the number of names or the length of its numbers.
     const std::string flat = "{a:" + std::string(8192u, '9') + ",a:1e999999,a:'x',a:null}";
-    CAllocatorState fixture{ 0u, 1u };
-    memory::CMemoryAllocator allocator{ &fixture, &allocate, &tests::deallocate_test_memory };
+    tests::TAllocationFailureFixture fixture{ 0u, 1u };
+    memory::CMemoryAllocator allocator{ &fixture, &tests::allocate_with_failure, &tests::deallocate_test_memory };
     memory::CMemoryContext context{ allocator };
     {
         tests::TMemoryContextScope scope{ &context };
@@ -638,6 +622,5 @@ int run_document_structure_tests()
     document_structure_tests::test_ingestion_and_bounds(ctx);
     document_structure_tests::test_depth_and_resources(ctx);
     document_structure_tests::test_writer_compatibility(ctx);
-    std::cout << "DocumentStructure: " << ctx.passed << " passed, " << ctx.failed << " failed\n";
-    return (ctx.failed == 0) ? 0 : 1;
+    return ctx.report("DocumentStructure");
 }

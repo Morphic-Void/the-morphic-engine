@@ -1,10 +1,10 @@
-
 //  Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited
 //  License: MIT (see LICENSE file in repository root)
 //
-//  File:   CMemoryToken_test_suite.cpp
-//  Author: Ritchie Brannan
-//  Date:   13 Jul 26
+//  File:    CMemoryToken_test_suite.cpp
+//  Primary implementation: OpenAI Codex
+//  Reviewed and accepted by: Ritchie Brannan
+//  Date:    13 Jul 26
 
 #include <array>
 #include <cstddef>
@@ -1078,6 +1078,5 @@ int run_memory_token_tests()
     TEST_EXPECT(ctx, alternate_context.get_live_allocated_bytes() == 0u);
     TEST_EXPECT(ctx, incompatible_context.get_live_allocation_count() == 0u);
     TEST_EXPECT(ctx, incompatible_context.get_live_allocated_bytes() == 0u);
-    std::cout << "CMemoryToken: " << ctx.passed << " passed, " << ctx.failed << " failed\n";
-    return (ctx.failed == 0) ? 0 : 1;
+    return ctx.report("CMemoryToken");
 }

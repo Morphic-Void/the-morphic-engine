@@ -1,11 +1,10 @@
-
 //  Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited
 //  License: MIT (see LICENSE file in repository root)
 //
-//  File:   TUnorderedCollection_test_suite.cpp
-//  Primary implementation: OpenAI tools
-//  Used, occasionally adjusted, and accepted by: Ritchie Brannan
-//  Date:   14 Jul 26
+//  File:    TUnorderedCollection_test_suite.cpp
+//  Primary implementation: OpenAI Codex
+//  Reviewed and accepted by: Ritchie Brannan
+//  Date:    14 Jul 26
 
 #include <cstddef>
 #include <cstdint>
@@ -271,23 +270,6 @@ void test_pack_and_repeated_initialise(TTestContext& ctx)
 }
 
 
-struct TFailingGrowthAllocator
-{
-    std::size_t remaining{ std::numeric_limits<std::size_t>::max() };
-};
-
-void* MV_STD_ABI_CALL allocate_growth_memory(
-    void* const state, const std::size_t alignment, const std::size_t bytes) noexcept
-{
-    auto& fixture = *static_cast<TFailingGrowthAllocator*>(state);
-    if (fixture.remaining == 0u)
-    {
-        return nullptr;
-    }
-    --fixture.remaining;
-    return tests::allocate_test_memory(nullptr, alignment, bytes);
-}
-
 template<bool Pod>
 void test_failed_growth(TTestContext& ctx)
 {
@@ -321,8 +303,8 @@ void test_failed_growth(TTestContext& ctx)
     std::size_t failures = 0u;
     for (std::size_t allowance = 0u; allowance < 8u; ++allowance)
     {
-        TFailingGrowthAllocator fixture;
-        memory::CMemoryAllocator allocator{ &fixture, &allocate_growth_memory, &tests::deallocate_test_memory };
+        tests::TAllocationAllowanceFixture fixture;
+        memory::CMemoryAllocator allocator{ &fixture, &tests::allocate_with_allowance, &tests::deallocate_test_memory };
         memory::CMemoryContext context{ allocator };
         memory::CMemoryContext destination{ allocator };
         {
@@ -403,6 +385,5 @@ int run_unordered_collection_tests()
     test_stable_addresses_across_growth(ctx);
     test_pack_and_repeated_initialise(ctx);
 
-    std::cout << "TUnorderedCollection: " << ctx.passed << " passed, " << ctx.failed << " failed\n";
-    return (ctx.failed == 0) ? 0 : 1;
+    return ctx.report("TUnorderedCollection");
 }

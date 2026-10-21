@@ -1,5 +1,10 @@
 //  Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited
 //  License: MIT (see LICENSE file in repository root)
+//
+//  File:    file_helpers.cpp
+//  Primary implementation: OpenAI Codex
+//  Reviewed and accepted by: Ritchie Brannan
+//  Date:    18 Aug 26
 
 #include "tests/support/file_helpers.hpp"
 

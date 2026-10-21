@@ -1,5 +1,10 @@
 //  Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited
 //  License: MIT (see LICENSE file in repository root)
+//
+//  File:    test_context.hpp
+//  Primary implementation: OpenAI Codex
+//  Reviewed and accepted by: Ritchie Brannan
+//  Date:    18 Aug 26
 
 #pragma once
 
@@ -62,6 +67,12 @@ struct TTestContext
     [[nodiscard]] int exit_code() const noexcept
     {
         return (failed == 0u) ? EXIT_SUCCESS : EXIT_FAILURE;
+    }
+
+    [[nodiscard]] int report(const char* const suite_name) const
+    {
+        std::cout << suite_name << ": " << passed << " passed, " << failed << " failed\n";
+        return exit_code();
     }
 
     std::uint32_t passed{ 0u };

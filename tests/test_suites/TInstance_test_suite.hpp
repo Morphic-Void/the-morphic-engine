@@ -1,11 +1,10 @@
-
 //  Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited
 //  License: MIT (see LICENSE file in repository root)
 //
-//  File:   TInstance_test_suite.hpp
-//  Primary implementation: OpenAI tools
-//  Used, occasionally adjusted, and accepted by: Ritchie Brannan
-//  Date:   14 Jul 26
+//  File:    TInstance_test_suite.hpp
+//  Primary implementation: OpenAI Codex
+//  Reviewed and accepted by: Ritchie Brannan
+//  Date:    14 Jul 26
 
 #pragma once
 

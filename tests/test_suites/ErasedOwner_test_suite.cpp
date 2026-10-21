@@ -1,9 +1,9 @@
-
 //  Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited
 //  License: MIT (see LICENSE file in repository root)
 //
 //  File:    ErasedOwner_test_suite.cpp
-//  Author:  OpenAI Codex
+//  Primary implementation: OpenAI Codex
+//  Reviewed and accepted by: Ritchie Brannan
 //  Date:    12 Aug 26
 
 #include <array>
@@ -1749,6 +1749,5 @@ int run_erased_owner_tests()
     test_transport_with_accounting_discrepancies<threading::transports::CErasedOwnerTransport, CErasedOwner>(ctx);
     test_transport_with_accounting_discrepancies<threading::transports::CErasedOwnerMsgTransport, threading::CErasedOwnerMsg>(ctx);
 
-    std::cout << "ErasedOwner: " << ctx.passed << " passed, " << ctx.failed << " failed\n";
-    return (ctx.failed == 0) ? 0 : 1;
+    return ctx.report("ErasedOwner");
 }

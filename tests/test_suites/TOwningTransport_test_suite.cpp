@@ -1,8 +1,10 @@
-
 //  Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited
 //  License: MIT (see LICENSE file in repository root)
 //
-//  TOwningTransport_test_suite.cpp
+//  File:    TOwningTransport_test_suite.cpp
+//  Primary implementation: OpenAI Codex
+//  Reviewed and accepted by: Ritchie Brannan
+//  Date:    21 Oct 26
 //
 //  Standalone test suite for threading::transports::TOwning<T>.
 
@@ -16,6 +18,7 @@
 #include "threading/transports/TOwningTransport.hpp"
 #include "tests/test_suites/TOwningTransport_test_suite.hpp"
 #include "tests/support/test_context.hpp"
+#include "tests/support/test_scopes.hpp"
 #include "memory/memory_context.hpp"
 #include "debug/macros.hpp"
 
@@ -199,15 +202,6 @@ inline std::vector<int> make_repeated_values(const int value, const std::uint32_
     return std::vector<int>(static_cast<std::size_t>(count), value);
 }
 
-inline void print_summary(const char* const suite_name, const TTestContext& ctx)
-{
-    std::cout
-        << suite_name
-        << ": passed=" << ctx.passed
-        << " failed=" << ctx.failed
-        << '\n';
-}
-
 void test_owning_uninitialised_state(TTestContext& ctx)
 {
     TOwning<TTrackedValue> ring;
@@ -232,7 +226,7 @@ void test_owning_memory_context_configuration(TTestContext& ctx)
     memory::CMemoryAllocator allocator_b(nullptr, allocate_test_memory, deallocate_test_memory, system_ids::host);
     memory::CMemoryContext context_a(allocator_a, system_ids::host);
     memory::CMemoryContext context_b(allocator_b, system_ids::host);
-    memory::CMemoryContext* const previous_thread_context = memory::set_thread_memory_context(&context_a);
+    const tests::TMemoryContextScope thread_context_scope{ &context_a };
 
     {
         TOwning<TTrackedValue> ambient_ring;
@@ -257,7 +251,6 @@ void test_owning_memory_context_configuration(TTestContext& ctx)
         TEST_EXPECT_EQ(ctx, explicit_init_ring.memory_context(), &context_b);
     }
 
-    (void)memory::set_thread_memory_context(previous_thread_context);
 }
 
 void test_owning_initialise_and_conditioning(TTestContext& ctx)
@@ -546,8 +539,7 @@ int test_owning_transport()
     test_owning_slot_lifetime_model(ctx);
     test_owning_deallocate_restores_empty(ctx);
 
-    print_summary("TOwningTransport", ctx);
-    return ctx.exit_code();
+    return ctx.report("TOwningTransport");
 }
 
 }   //  namespace tests
