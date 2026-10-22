@@ -1,6 +1,6 @@
 # Third-party licences
 
-Last reviewed: 2026-10-06.
+Last reviewed: 2026-10-22 (DXC integration).
 
 This is the current dependency and licence record for Morphic Engine. It is
 provisional while rendering and texture conditioning are being designed. Keep
@@ -21,6 +21,21 @@ texts and notices with a distribution.
 SuiteUTF's licence text is present in its submodule checkout. Include its
 copyright and licence notice with a binary distribution containing SuiteUTF.
 
+## Shader compiler runtime
+
+Rendering dynamically loads the official SPIR-V-capable DXC `v1.9.2609`
+distribution, commit `01b62ad47db7dee3dd33f90e7339cf9e860b3f93`. The
+[acquisition tool](tools/acquire_dxc.py) pins the Windows and Linux archive names
+and SHA-256 digests. It extracts the package unchanged into
+`build/dependencies/dxc`; builds deploy `dxcompiler.dll` or `libdxcompiler.so`
+and the package's `LICEN*.txt` files under `dxc-licences`. Retain those Microsoft,
+LLVM and MIT notices when redistributing the compiler. DXIL signing/validation
+libraries are not required or deployed for the SPIR-V path.
+
+This compiler package is independent of a system-installed Vulkan SDK. No
+upstream compiler source or binary has been modified. macOS deployment remains
+unselected.
+
 ## Pinned sources and tools awaiting build integration
 
 These are selected and pinned, but are not currently linked into Morphic Engine.
@@ -35,7 +50,6 @@ each component is integrated.
 | --- | --- | --- | --- |
 | [Basis Universal](https://github.com/BinomialLLC/basis_universal) | Host KTX2/UASTC LDR encoding and transcoding | Git submodule [tag `v2_50`](https://github.com/BinomialLLC/basis_universal/releases/tag/v2_50), commit `9bebe16726b3a61c8c213eeee3b7cffb462ef34e` | [Apache 2.0](external/basis_universal/LICENSE), [NOTICE](external/basis_universal/NOTICE), and licences for bundled files actually used; the upstream [inventory](external/basis_universal/.reuse/dep5) lists Zstd as BSD 3-Clause. |
 | [Vulkan SDK](https://vulkan.lunarg.com/) | Rendering build toolchain on Windows and Linux, including Vulkan headers and shader tools | Version `1.4.363.0`; Vulkan-Headers tag `vulkan-sdk-1.4.363.0`, commit `6802bb4733b63ed5efd3adb308a6c885ef180ea1` | The SDK has multiple component licences. [Vulkan-Headers](https://github.com/KhronosGroup/Vulkan-Headers/blob/vulkan-sdk-1.4.363.0/LICENSE.md) identifies Apache 2.0 and MIT. Record and supply notices for SDK components only if they are redistributed. |
-| [DirectX Shader Compiler](https://github.com/microsoft/DirectXShaderCompiler) | Shader compilation to SPIR-V during development; release compilation and packaging are undecided | SDK 1.4.363.0 commit `01b62ad47db7dee3dd33f90e7339cf9e860b3f93` | [University of Illinois/NCSA licence](https://github.com/microsoft/DirectXShaderCompiler/blob/01b62ad47db7dee3dd33f90e7339cf9e860b3f93/LICENSE.TXT) and [third-party notices](https://github.com/microsoft/DirectXShaderCompiler/blob/01b62ad47db7dee3dd33f90e7339cf9e860b3f93/ThirdPartyNotices.txt), if its binary or code is redistributed. |
 | [SPIRV-Reflect](https://github.com/KhronosGroup/SPIRV-Reflect) | SPIR-V reflection; runtime or conditioning placement is undecided | Git submodule SDK tag `vulkan-sdk-1.4.363.0`, commit `f3e261fda74ca81b44d1941931c6b7b5fe236d0e` | [Apache 2.0](external/SPIRV-Reflect/LICENSE), if its source or compiled code is redistributed. |
 | [miniaudio](https://github.com/mackron/miniaudio) | Host playback device abstraction; no capture, decoding, or mixing role selected | Git submodule [tag `0.11.25`](https://github.com/mackron/miniaudio/releases/tag/0.11.25), commit `9634bedb5b5a2ca38c1ee7108a9358a4e233f14d` | [Public domain or MIT No Attribution](external/miniaudio/LICENSE); use the MIT No Attribution option when distributed. |
 

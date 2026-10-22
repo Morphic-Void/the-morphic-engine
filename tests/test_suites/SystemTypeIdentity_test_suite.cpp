@@ -19,7 +19,7 @@
 #include "system/system_id_registry.hpp"
 #include "system/service_messages.hpp"
 #include "system/type_registration.hpp"
-#include "rendering/interface/texture_messages.hpp"
+#include "image/texture_messages.hpp"
 #include "tests/test_suites/SystemTypeIdentity_test_suite.hpp"
 #include "tests/support/test_context.hpp"
 #include "tests/support/test_scopes.hpp"

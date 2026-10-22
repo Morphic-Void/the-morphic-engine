@@ -51,6 +51,12 @@ entries for its own eligible types; common core sources never reference those
 component-local C++ definitions. Valid type registration, erased-owner
 eligibility, and available runtime operations remain three distinct checks.
 
+Public texture and shader payload contracts and their owner-operation fragments
+live in Core (`core/image/` and `core/shader/`). SYSTEM operation generation must
+not include rendering implementation headers. Rendering retains its codec and
+compiler objects, job state and service policy privately; cross-component
+requests and published results use the shared Core definitions.
+
 Eligible payloads must be nothrow default constructible, move constructible,
 move assignable, and destructible. They must also fit the memory-token stride
 field.

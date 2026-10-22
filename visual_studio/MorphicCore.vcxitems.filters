@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
+    <Filter Include="Core\include\shader">
+      <UniqueIdentifier>{e414a8a1-e940-43bf-a310-87f0b82a9509}</UniqueIdentifier>
+    </Filter>
     <Filter Include="Core">
       <UniqueIdentifier>{70ea1983-c983-deac-c1b6-1805aea3d436}</UniqueIdentifier>
     </Filter>
@@ -210,6 +213,24 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\image\texture_data.hpp">
+      <Filter>Core\include\image</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\image\texture_messages.hpp">
+      <Filter>Core\include\image</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\image\texture_owner_payloads.def">
+      <Filter>Core\include\image</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\shader\shader_data.hpp">
+      <Filter>Core\include\shader</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\shader\shader_messages.hpp">
+      <Filter>Core\include\shader</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\shader\shader_owner_payloads.def">
+      <Filter>Core\include\shader</Filter>
+    </ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\assets\internal\bundle_builder_io.hpp"><Filter>Core\include\assets\internal</Filter></ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\assets\bundle_builder.hpp"><Filter>Core\include\assets</Filter></ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\filesystem\logical_path.hpp"><Filter>Core\include\filesystem</Filter></ClInclude>

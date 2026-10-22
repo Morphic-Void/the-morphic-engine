@@ -64,6 +64,23 @@ class SourceManifestTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "conditional shared import"):
             collect_sources(project, self.root)
 
+    def test_reviewed_dxc_boundary_metadata(self):
+        source = self.root / "rendering/runtime/shader_compiler.cpp"
+        source.parent.mkdir(parents=True)
+        source.touch()
+        body = (
+            '<ItemGroup><ClCompile Include="..\\rendering\\runtime\\shader_compiler.cpp">'
+            '<ExceptionHandling>Sync</ExceptionHandling>'
+            '<AdditionalIncludeDirectories>$(ProjectDir)..\\build\\dependencies\\dxc\\inc;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>'
+            '</ClCompile></ItemGroup>'
+        )
+        project = self.project(body, "visual_studio/MorphicRendering.vcxproj")
+        self.assertEqual(collect_sources(project, self.root)[0], [source])
+        for changed in (body.replace('Sync', 'Async'), body.replace('</ClCompile>',
+                        '<ExcludedFromBuild>true</ExcludedFromBuild></ClCompile>')):
+            with self.assertRaisesRegex(ValueError, "per-file ClCompile"):
+                collect_sources(self.project(changed, "visual_studio/MorphicRendering.vcxproj"), self.root)
+
     def test_shared_import_cycle_fails(self):
         project = self.project('<Import Project="core.vcxitems" Label="Shared" />')
         self.project('<Import Project="project.vcxproj" Label="Shared" />', "core.vcxitems")

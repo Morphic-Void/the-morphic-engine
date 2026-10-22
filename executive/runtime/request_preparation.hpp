@@ -16,7 +16,7 @@
 #include "assets/asset_messages.hpp"
 #include "debug/macros.hpp"
 #include "system/service_messages.hpp"
-#include "rendering/interface/texture_messages.hpp"
+#include "image/texture_messages.hpp"
 #include "threading/messages/message_helpers.hpp"
 
 namespace executive::request_preparation
@@ -28,16 +28,22 @@ namespace executive::request_preparation
 [[nodiscard]] bool prepare_load_request(threading::CErasedOwnerMsg& pending, const std::int32_t slot,
     const EAssetFileFormat format, const char* file, const CDocumentParseOptions policy = {},
     const bool decode_top_down = true) noexcept;
+
 [[nodiscard]] bool prepare_save_request(threading::CErasedOwnerMsg& pending, const std::int32_t slot,
     const CAssetId asset, const char* file, const AssetSaveSettings& settings) noexcept;
+
 [[nodiscard]] bool prepare_module_request(threading::CErasedOwnerMsg& pending, const std::int32_t slot,
     const module_ids::id_type module, const EModuleAction action, const char* file = nullptr) noexcept;
+
 [[nodiscard]] bool prepare_filesystem_request(threading::CErasedOwnerMsg& pending, const std::int32_t slot,
     const char* root) noexcept;
+
 [[nodiscard]] bool prepare_bundle_load_request(threading::CErasedOwnerMsg& pending, const std::int32_t slot,
     const char* file, const char* root) noexcept;
+
 [[nodiscard]] bool prepare_bundle_bake_request(threading::CErasedOwnerMsg& pending, const std::int32_t slot,
     const char* source_root, const char* root) noexcept;
+
 [[nodiscard]] bool prepare_texture_decode_request(threading::CErasedOwnerMsg& pending, const std::int32_t slot,
     const CAssetId source, const image::texture::EStorageFormat target, const std::uint32_t level = 0u) noexcept;
 

@@ -6,19 +6,19 @@
 //  Authors: Ritchie Brannan / OpenAI Codex
 //  Date:    20 Oct 26
 //
-//  Shared Rendering texture requests, borrowed work and owning results.
+//  Shared texture conditioning requests, borrowed work and owning results.
 
 #pragma once
 
-#ifndef RENDERING_TEXTURE_MESSAGES_HPP_INCLUDED
-#define RENDERING_TEXTURE_MESSAGES_HPP_INCLUDED
+#ifndef CORE_IMAGE_TEXTURE_MESSAGES_HPP_INCLUDED
+#define CORE_IMAGE_TEXTURE_MESSAGES_HPP_INCLUDED
 
 #include <cstddef>
 #include <cstdint>
 
 #include "assets/asset_repository.hpp"
 #include "containers/ByteBuffers.hpp"
-#include "rendering/interface/texture_data.hpp"
+#include "image/texture_data.hpp"
 #include "system/erased_owner_registration.hpp"
 #include "system/system_type_registration.hpp"
 
@@ -98,8 +98,8 @@ MV_REGISTER_SYSTEM_TYPE(TextureDecodeResult, system_type_ids::texture_decode_res
 
 #define MV_ERASED_OWNER_PAYLOAD(type) MV_REGISTER_ERASED_OWNER_PAYLOAD(type);
 #define MV_ERASED_OWNER_PAYLOAD_WITH_STORAGE(type, member) MV_REGISTER_ERASED_OWNER_PAYLOAD(type);
-#include "rendering/interface/texture_owner_payloads.def"
+#include "image/texture_owner_payloads.def"
 #undef MV_ERASED_OWNER_PAYLOAD_WITH_STORAGE
 #undef MV_ERASED_OWNER_PAYLOAD
 
-#endif  //  RENDERING_TEXTURE_MESSAGES_HPP_INCLUDED
+#endif  //  CORE_IMAGE_TEXTURE_MESSAGES_HPP_INCLUDED

@@ -1,6 +1,6 @@
 # Current scope
 
-Updated 20 October 2026. The selected consolidation is complete, including
+Updated 21 October 2026. The selected consolidation is complete, including
 the rendering DLL stub and Executive-controlled startup in `f91ded3`.
 The subsequent development filesystem-image stage is complete and accepted,
 including the first-pass review corrections. See the
@@ -9,8 +9,8 @@ including the first-pass review corrections. See the
 
 This stage supplies hierarchical logical-root inventory, write permissions,
 executable-directory DLL discovery, queued per-root refresh and retained-asset
-cache associations. Both log roots are excluded from inventory; `test-output:`
-remains included. The old deferred filesystem design is superseded in full.
+cache associations. Both log roots and `test-output:` are excluded from inventory.
+The old deferred filesystem design is superseded in full.
 
 ## Bundle review and closeout
 
@@ -20,7 +20,9 @@ final format, public requests, requester ownership, retained lifetimes and worke
 roles. The [completed-work record](../project/completed_milestones.md#bundle-assets-and-virtual-bindings)
 contains prerequisites, implementation/review checkpoints and validation evidence.
 The implementation plan is retired and documentation closeout is reviewed.
-Shader-specific integration remains outside this work.
+Shader-specific integration remains outside this work; the agreed bundle use
+and shader compilation direction are in the
+[shader compilation design](../modules/shader_compilation_design.md).
 
 The debug-macro investigation found five production calls needing assertion-level
 reports in every build without breakpoint or shutdown effects. The agreed
@@ -68,7 +70,23 @@ selected by this documentation closeout.
 ## Other future work
 
 Vulkan is the primary rendering API planned for first implementation; DirectX
-is deferred. The current rendering DLL only waits for an exit request.
+is deferred. The rendering DLL already performs
+[Basis texture conditioning](../modules/texture_codec.md) through batch runners.
+[Shader compilation](../modules/shader_compilation_design.md) now provides:
+six stages, bundle-local includes and renderer-owned groups containing one report
+per compilation and a summary. Ordinary shader failures allow other jobs to
+continue. Compile-only operations publish the completed group to the Host;
+future conditioning operations may retain intermediate results within rendering
+and publish a finished package instead.
+Reflection is separate; CPU readback is deferred and stream output is not planned.
+Compilation runs in-process with exceptions contained at the boundary.
+Vector-relaxed buffer layout is the agreed default; CPU and shader representations
+may differ. A small bundled shader support include provides binding/location
+macros and controlled target defines; richer binding descriptions are deferred
+to reflection and pipeline conditioning. Request/result structure choices,
+development defaults, feature restrictions and configurable service limits are
+implemented. Remaining binding conventions and platform validation are recorded
+in the design; reflection and subsequent conditioning remain future work.
 Final deployment/platform bindings, UGC providers, general document navigation,
 save-game integration, automatic cache reclamation and trust/layers remain future
 work. [Module batch runners](../modules/batch_runners.md) now provide coarse

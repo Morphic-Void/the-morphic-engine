@@ -31,7 +31,7 @@
 #include "system/system_id_registry.hpp"
 #include "assets/asset_messages.hpp"
 #include "system/service_messages.hpp"
-#include "rendering/interface/texture_messages.hpp"
+#include "image/texture_messages.hpp"
 #include "threading/CThreadPackage.hpp"
 #include "tests/support/host_test_paths.hpp"
 

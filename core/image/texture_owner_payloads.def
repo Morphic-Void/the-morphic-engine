@@ -1,4 +1,4 @@
-//  Rendering texture SYSTEM erased-owner payload declarations.
+//  Shared texture SYSTEM erased-owner payload declarations.
 //  Include this file with:
 //  - MV_ERASED_OWNER_PAYLOAD(type)
 //  - MV_ERASED_OWNER_PAYLOAD_WITH_STORAGE(type, member)

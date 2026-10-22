@@ -15,7 +15,7 @@
 #include "assets/internal/bundle_builder_io.hpp"
 #include "data_model/document_translation.hpp"
 #include "host/runtime/asset_service.hpp"
-#include "rendering/interface/texture_messages.hpp"
+#include "image/texture_messages.hpp"
 #include "tests/support/test_allocator.hpp"
 #include "tests/support/test_context.hpp"
 #include "tests/support/thread_helpers.hpp"

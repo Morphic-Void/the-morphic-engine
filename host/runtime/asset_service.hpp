@@ -96,6 +96,7 @@ private:
         encoding,
         texture_encoding,
         texture_decoding,
+        shader_compiling,
         saving,
         disposing,
         bundle_loading,
@@ -134,6 +135,7 @@ private:
         CAssetId retained_asset{};  //  Only this identity permits client views.
         CAssetId texture_source{};  //  Borrowed input blocks disposal until rendering completes.
         CByteConstView texture_source_view; //  Stable POD work descriptor target.
+        bundle::CBundleView shader_sources; //  Protected by backing through the group response.
     };
 
     //  True means the type matched; working_views.status reports acceptance or rejection.

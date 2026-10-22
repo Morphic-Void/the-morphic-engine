@@ -4,4 +4,5 @@
 
 #include "assets/asset_owner_payloads.def"
 #include "system/service_owner_payloads.def"
-#include "rendering/interface/texture_owner_payloads.def"
+#include "image/texture_owner_payloads.def"
+#include "shader/shader_owner_payloads.def"

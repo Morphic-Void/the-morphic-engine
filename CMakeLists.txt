@@ -83,6 +83,23 @@ target_include_directories(MorphicHost PRIVATE "${CMAKE_SOURCE_DIR}/host/module/
 target_include_directories(MorphicTests PRIVATE "${CMAKE_SOURCE_DIR}/tests/environment")
 
 target_include_directories(MorphicRendering PRIVATE "${CMAKE_SOURCE_DIR}/external/basis_universal")
+set(dxc_root "${CMAKE_SOURCE_DIR}/build/dependencies/dxc")
+if(NOT EXISTS "${dxc_root}/include/dxc/dxcapi.h")
+    message(FATAL_ERROR "Run python3 tools/acquire_dxc.py before configuring shader support.")
+endif()
+target_include_directories(MorphicRendering PRIVATE "${dxc_root}/include/dxc")
+target_include_directories(MorphicTests PRIVATE "${dxc_root}/include/dxc")
+set_source_files_properties(rendering/runtime/shader_compiler.cpp PROPERTIES COMPILE_OPTIONS "-fexceptions")
+add_custom_command(TARGET MorphicRendering POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${dxc_root}/lib/libdxcompiler.so" "$<TARGET_FILE_DIR:MorphicRendering>"
+    VERBATIM)
+file(GLOB dxc_licences "${dxc_root}/LICEN*.txt")
+foreach(licence IN LISTS dxc_licences)
+    add_custom_command(TARGET MorphicRendering POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:MorphicRendering>/dxc-licences"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${licence}" "$<TARGET_FILE_DIR:MorphicRendering>/dxc-licences"
+        VERBATIM)
+endforeach()
 target_compile_definitions(MorphicRendering PRIVATE
     BASISU_SUPPORT_SSE=0 BASISU_SUPPORT_OPENCL=0 BASISD_SUPPORT_KTX2_ZSTD=1)
 set_target_properties(MorphicHost PROPERTIES OUTPUT_NAME MorphicEngine)

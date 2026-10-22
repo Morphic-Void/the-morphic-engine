@@ -45,6 +45,9 @@ jobs:
           vs-version: '[17.0,18.0)'
           msbuild-architecture: x64
 
+      - name: Acquire pinned DXC
+        run: python tools/acquire_dxc.py
+
       - name: Check repository line endings
         run: ./tools/check_line_endings.ps1
 

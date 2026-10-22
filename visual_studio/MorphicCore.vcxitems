@@ -14,6 +14,12 @@
     <ProjectCapability Include="SourceItemsFromImports" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\image\texture_data.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\image\texture_messages.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\image\texture_owner_payloads.def" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\shader\shader_data.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\shader\shader_messages.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\shader\shader_owner_payloads.def" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\assets\internal\bundle_builder_io.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\assets\bundle_builder.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\filesystem\logical_path.hpp" />

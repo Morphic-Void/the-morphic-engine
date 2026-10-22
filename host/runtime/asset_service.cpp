@@ -20,7 +20,8 @@
 #include "host/runtime/asset_service.hpp"
 #include "debug/macros.hpp"
 #include "image/image_messages.hpp"
-#include "rendering/interface/texture_messages.hpp"
+#include "image/texture_messages.hpp"
+#include "shader/shader_messages.hpp"
 #include "filesystem/logical_path.hpp"
 #include "platform/platform_defines.hpp"
 
@@ -393,6 +394,10 @@ void CAssetService::describe_views(TOwner& source, AssetResult& result) noexcept
     {
         result.set_encoded_texture_view(&encoded->texture);
     }
+    else if (ShaderCompileResult* const compiled = source.template payload<ShaderCompileResult>())
+    {
+        result.set_shader_group_view(&compiled->group);
+    }
     else if (TextureDecodeResult* const decoded = source.template payload<TextureDecodeResult>())
     {
         result.set_decoded_texture_view(&decoded->texture);
@@ -719,6 +724,36 @@ void CAssetService::request(threading::CErasedOwnerMsg& message, threading::CThr
         return;
     }
 
+    if (const ShaderCompileRequest* const compile = operation.request_owner.payload<ShaderCompileRequest>())
+    {
+        if (m_rendering == nullptr)
+        {
+            finish_operation(slot, EAssetStatus::busy);
+            return;
+        }
+        CAssetRecord* const source = disposal_pending(compile->bundle) ? nullptr : m_assets.resolve(compile->bundle);
+        if ((source == nullptr) || !protect_asset(*source, operation.backing, true))
+        {
+            finish_operation(slot, EAssetStatus::invalid_asset);
+            return;
+        }
+        AssetResult view;
+        describe_views((*source), view);
+        operation.shader_sources = view.bundle_view();
+        if (!operation.shader_sources.is_ready())
+        {
+            finish_operation(slot, EAssetStatus::invalid_request);
+            return;
+        }
+        operation.texture_source = compile->bundle;
+        operation.phase = EPhase::shader_compiling;
+        const auto outbound = threading::make_pod_message(slot, ShaderCompileWork{ (&compile->input), operation.shader_sources });
+        if (!m_rendering->post(outbound))
+        {
+            finish_operation(slot, EAssetStatus::delivery_failed);
+        }
+        return;
+    }
     if (TextureEncodeRequest* const encode = operation.request_owner.payload<TextureEncodeRequest>())
     {
         if (m_rendering == nullptr)
@@ -1091,6 +1126,31 @@ void CAssetService::complete(threading::CErasedOwnerMsg& message, threading::CTh
         {
             if (accept_worker_result<TextureEncodeResult>(operation, message, worker, m_rendering))
                 complete_texture_result<TextureEncodeResult>(slot);
+            return;
+        }
+        case EPhase::shader_compiling:
+        {
+            if (!accept_worker_result<ShaderCompileResult>(operation, message, worker, m_rendering))
+            {
+                return;
+            }
+            const auto* const result = operation.worker_result_owner.payload<ShaderCompileResult>();
+            if (result == nullptr)
+            {
+                finish_operation(slot, EAssetStatus::allocation_failed);
+                return;
+            }
+            if (result->status != shader::EStatus::success)
+            {
+                finish_operation(slot, ((result->status == shader::EStatus::allocation_failed) ?
+                    EAssetStatus::allocation_failed : EAssetStatus::invalid_request));
+                return;
+            }
+
+            //  Shader failures belong to retained reports, not publication status.
+            operation.candidate_owner = std::move(operation.worker_result_owner);
+            describe_views(operation.candidate_owner, operation.working_views);
+            finish_operation(slot, (retain_candidate(operation) ? EAssetStatus::success : EAssetStatus::allocation_failed));
             return;
         }
         case EPhase::texture_decoding:

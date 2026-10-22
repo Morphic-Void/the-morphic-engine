@@ -21,7 +21,7 @@
 #include "platform/threading/processor_relax.hpp"
 #include "rendering/runtime/texture_jobs.hpp"
 #include "assets/asset_messages.hpp"
-#include "rendering/interface/texture_messages.hpp"
+#include "image/texture_messages.hpp"
 #include "tests/environment/test_environment.hpp"
 #include "tests/environment/test_paths.hpp"
 #include "tests/support/test_context.hpp"
@@ -620,6 +620,8 @@ static void test_multiple_requests(tests::TTestContext& ctx, SFixture& rendering
 
 }   //  namespace texture_batch_tests
 
+#include "tests/test_suites/ShaderBatch_cases.hpp"
+
 int run_texture_batch_tests()
 {
     tests::TTestContext ctx;
@@ -633,6 +635,11 @@ int run_texture_batch_tests()
         texture_batch_tests::test_jobs(ctx, fixture);
         texture_batch_tests::test_multiple_requests(ctx, fixture);
         texture_batch_tests::test_saturated_requests(ctx, fixture);
+        shader_batch_tests::run(ctx, fixture);
+        shader_batch_tests::host_groups(ctx, fixture);
+        shader_batch_tests::options_and_admission(ctx, fixture);
+        shader_batch_tests::poc(ctx, fixture);
+        shader_batch_tests::limits(ctx);
     }
     return ctx.report("TextureBatch");
 }

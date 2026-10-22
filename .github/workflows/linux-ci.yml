@@ -47,6 +47,9 @@ jobs:
           submodules: true
           persist-credentials: false
 
+      - name: Acquire pinned DXC
+        run: python3 tools/acquire_dxc.py
+
       - name: Record toolchain versions
         run: |
           mkdir -p build/linux-ci/logs

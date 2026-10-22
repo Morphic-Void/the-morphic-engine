@@ -45,7 +45,22 @@ def collect_sources(project, repository):
             if element.tag == NS + "ClCompile" and any(
                 key in element.attrib for key in ("Include", "Remove", "Update")
             ):
-                if conditional or set(element.attrib) != {"Include"} or len(element):
+                # Only the DXC boundary has reviewed per-file compiler settings.
+                # CMake explicitly mirrors its exception flag and include path.
+                dxc_metadata = {
+                    NS + "ExceptionHandling": "Sync",
+                    NS + "AdditionalIncludeDirectories": "$(ProjectDir)..\\build\\dependencies\\dxc\\inc;%(AdditionalIncludeDirectories)",
+                }
+                reviewed_dxc = (
+                    path.relative_to(repository).as_posix() in {
+                        "visual_studio/MorphicRendering.vcxproj", "visual_studio/MorphicTests.vcxproj"}
+                    and element.get("Include") == "..\\rendering\\runtime\\shader_compiler.cpp"
+                    and len(element) == len(dxc_metadata)
+                    and all(not child.attrib and not len(child) and
+                            dxc_metadata.get(child.tag) == child.text for child in element)
+                    and len({child.tag for child in element}) == len(dxc_metadata)
+                )
+                if conditional or set(element.attrib) != {"Include"} or (len(element) and not reviewed_dxc):
                     raise ValueError(f"{path}: conditional or per-file ClCompile metadata is unsupported")
                 source = resolve_path(element.attrib["Include"], path)
                 if source not in sources:

@@ -121,15 +121,27 @@ remain potential consumers, to be selected as separate work.
   grayscale, 24/32-bit and RLE cases. The existing asynchronous TGA flow is a
   baseline; broader format coverage remains open. Prefer manual validation
   initially unless defects or tooling justify an automated suite.
+- Extend [DXC shader compilation](../modules/shader_compilation_design.md), now providing
+  bundle-local includes and renderer-owned reports for all six conventional stages.
+  Publish a completed compile-only group to the Host; keep intermediate results
+  within rendering when an enclosing operation performs further conditioning.
+  Request/result structure choices, development defaults, feature restrictions
+  and configurable service limits are implemented. Remaining binding conventions
+  and platform validation are recorded in the design. Reflection is a separate
+  operation. Use the small bundled shader support
+  include for binding/location macros; defer richer binding descriptions to
+  reflection/pipeline conditioning.
+  CPU readback is deferred. Stream output/transform feedback is not
+  planned; prefer compute for future GPU data-generation work.
 - Condition and validate graphics pipelines: shader reflection, PSO metadata,
-  JSON-backed descriptions, graphics state and API-specific/agnostic processing.
+  pipeline descriptions, graphics state and API-specific/agnostic processing.
   Runtime rendering must accept both offline and on-demand conditioned data.
 - Keep image conversion, compression/decompression and graphics asset
   conditioning separable from pipeline conditioning, for runtime and offline use.
 - Build a swappable renderer/RHI with Vulkan as the primary first implementation.
   DirectX and other APIs are deferred. A renderer may request an RHI thread;
-  the Host owns and provisions it. The existing passive rendering DLL is a
-  lifecycle foundation, not a graphics implementation.
+  the Host owns and provisions it. The rendering DLL currently provides lifecycle
+  handling and batch-driven texture conditioning; GPU rendering remains future work.
 
 ## Maths and geometry
 

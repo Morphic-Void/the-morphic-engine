@@ -14,6 +14,26 @@ External projects remain under `external/`. Build outputs remain under
 `build/`, and the Host's Visual Studio debugger working directory is the
 repository root.
 
+## Shader compiler dependency
+
+Before building, run `python tools/acquire_dxc.py` on Windows or
+`python3 tools/acquire_dxc.py` on Linux. This acquires the official DXC
+`v1.9.2609` package, checks its pinned SHA-256 and extracts matching headers,
+libraries and licence files under `build/dependencies/dxc`. No system-installed
+DXC or Vulkan SDK compiler is selected implicitly. CI performs the same step.
+
+Visual Studio selects the x86 or x64 compiler DLL for the target. CMake uses the
+Linux x86-64 shared library. Builds copy the compiler beside the executables and
+retain package licence texts in `dxc-licences`. Deployment of shader compilation
+requires those files; compilation does not require a GPU or graphics device.
+
+The rendering adapter alone enables exceptions (`/EHsc` or `-fexceptions`).
+Its compiler objects and temporary allocations remain local to that boundary.
+Ordinary suites include shader compilation and transport cases, so the compiler
+must be deployed when running them. See the
+[shader design](../modules/shader_compilation_design.md) for request/result use,
+defaults and deferred reflection work.
+
 ## Test executable
 
 `MorphicTests` is the standalone Core test executable. It is built by default

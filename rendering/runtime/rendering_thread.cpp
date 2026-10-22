@@ -13,11 +13,12 @@
 #include "rendering/runtime/rendering_thread.hpp"
 #include "rendering/runtime/basis_codec.hpp"
 #include "rendering/runtime/texture_jobs.hpp"
+#include "rendering/runtime/shader_requests.hpp"
 
 #include "containers/TUnorderedCollection.hpp"
 #include "debug/macros.hpp"
 #include "module/module_binding_context.hpp"
-#include "rendering/interface/texture_messages.hpp"
+#include "image/texture_messages.hpp"
 #include "threading/CThreadPackage.hpp"
 
 #include <utility>
@@ -185,13 +186,18 @@ static std::uint32_t MV_STD_ABI_CALL thread_entry(void* const user_data) noexcep
         return 1u;
     }
     CTextureRequests requests{ context, (*resources.batch_client) };
-    if (!requests.initialise())
+    CShaderRequests shaders{ context, (*resources.batch_client) };
+    if (!requests.initialise() || !shaders.initialise())
     {
         basis_codec::shutdown();
         context.mark_failed(1u);
         return 1u;
     }
     MV_LOG(info, "Rendering: Running");
+    if (!shader_compiler::initialise_compiler())
+    {
+        MV_LOG(info, "Rendering: DXC is unavailable; shader requests will retain failure reports");
+    }
     context.mark_running();
     bool failed = false;
     for (;;)
@@ -204,7 +210,9 @@ static std::uint32_t MV_STD_ABI_CALL thread_entry(void* const user_data) noexcep
         while (resources.batch_client->receive(response))
         {
             progressed = true;
-            failed = !requests.complete(response) || failed;
+            const bool completed = ((response.correlation & CShaderRequests::k_correlation_tag) != 0u) ?
+                shaders.complete(response) : requests.complete(response);
+            failed = !completed || failed;
         }
 
         //  Drain accepted messages even after exit was requested. Submission
@@ -213,9 +221,9 @@ static std::uint32_t MV_STD_ABI_CALL thread_entry(void* const user_data) noexcep
         while (!failed && context.read(message))
         {
             progressed = true;
-            failed = !requests.submit(message);
+            failed = !(message.is_payload_a<ShaderCompileWork>() ? shaders.submit(message) : requests.submit(message));
         }
-        if ((context.exit_requested() || failed) && !requests.pending())
+        if ((context.exit_requested() || failed) && !requests.pending() && !shaders.pending())
         {
             break;
         }

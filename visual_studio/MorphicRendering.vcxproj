@@ -66,7 +66,7 @@
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>Synchronization.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>Synchronization.lib;Ole32.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)'=='Debug'">
@@ -98,6 +98,11 @@
     <ClCompile Include="..\rendering\runtime\rendering_thread.cpp" />
     <ClCompile Include="..\rendering\runtime\basis_codec.cpp" />
     <ClCompile Include="..\rendering\runtime\texture_jobs.cpp" />
+    <ClCompile Include="..\rendering\runtime\shader_requests.cpp" />
+    <ClCompile Include="..\rendering\runtime\shader_compiler.cpp">
+      <ExceptionHandling>Sync</ExceptionHandling>
+      <AdditionalIncludeDirectories>$(ProjectDir)..\build\dependencies\dxc\inc;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
     <ClCompile Include="..\external\basis_universal\encoder\3rdparty\android_astc_decomp.cpp" />
     <ClCompile Include="..\external\basis_universal\encoder\basisu_astc_hdr_6x6_enc.cpp" />
     <ClCompile Include="..\external\basis_universal\encoder\basisu_astc_hdr_common.cpp" />
@@ -139,10 +144,10 @@
     <ClInclude Include="..\rendering\module\types\local_types.hpp" />
     <ClInclude Include="..\rendering\runtime\rendering_thread.hpp" />
     <ClInclude Include="..\rendering\runtime\basis_codec.hpp" />
+    <None Include="..\rendering\shaders\morphic_shader.hlsli" />
+    <ClInclude Include="..\rendering\runtime\shader_requests.hpp" />
+    <ClInclude Include="..\rendering\runtime\shader_compiler.hpp" />
     <ClInclude Include="..\rendering\runtime\texture_jobs.hpp" />
-    <ClInclude Include="..\rendering\interface\texture_data.hpp" />
-    <ClInclude Include="..\rendering\interface\texture_messages.hpp" />
-    <ClInclude Include="..\rendering\interface\texture_owner_payloads.def" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\external\SuiteUTF\SuiteUTF.vcxproj">
@@ -156,5 +161,14 @@
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <Import Project="MorphicPolicy.targets" />
+  <Target Name="CheckDxcDependency" BeforeTargets="ClCompile">
+    <Error Condition="!Exists('$(ProjectDir)..\build\dependencies\dxc\inc\dxcapi.h')" Text="Run python tools/acquire_dxc.py before building shader support." />
+  </Target>
+  <Target Name="DeployDxc" AfterTargets="Build">
+    <PropertyGroup><DxcArchitecture Condition="'$(Platform)'=='Win32'">x86</DxcArchitecture><DxcArchitecture Condition="'$(Platform)'=='x64'">x64</DxcArchitecture></PropertyGroup>
+    <Copy SourceFiles="$(ProjectDir)..\build\dependencies\dxc\bin\$(DxcArchitecture)\dxcompiler.dll" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
+    <ItemGroup><DxcLicence Include="$(ProjectDir)..\build\dependencies\dxc\LICEN*.txt" /></ItemGroup>
+    <Copy SourceFiles="@(DxcLicence)" DestinationFolder="$(OutDir)dxc-licences" SkipUnchangedFiles="true" />
+  </Target>
   <ImportGroup Label="ExtensionTargets" />
 </Project>

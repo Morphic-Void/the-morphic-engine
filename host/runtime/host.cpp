@@ -30,7 +30,8 @@
 #include "platform/threading/hw_thread_count.hpp"
 #include "assets/asset_messages.hpp"
 #include "system/service_messages.hpp"
-#include "rendering/interface/texture_messages.hpp"
+#include "image/texture_messages.hpp"
+#include "shader/shader_messages.hpp"
 #include "host/runtime/host_payloads.hpp"
 #include "threading/CThreadPackage.hpp"
 
@@ -660,7 +661,7 @@ void CHost::run() noexcept
                     receive_request(owned, package);
                 }
                 else if ((&package == rendering) && !owned.is_message_a<TextureEncodeResult>() &&
-                    !owned.is_message_a<TextureDecodeResult>())
+                    !owned.is_message_a<TextureDecodeResult>() && !owned.is_message_a<ShaderCompileResult>())
                 {
                     m_asset_service.request(owned, package);
                 }

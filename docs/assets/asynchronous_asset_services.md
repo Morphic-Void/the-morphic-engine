@@ -281,7 +281,7 @@ until process exit; see the module lifecycle notes for that fallback.
   aggregate memory-attribution hooks.
 - `core/image/image_messages.hpp`: Host-understood TGA work and storage, supporting
   debug and diagnostic image flows.
-- `rendering/interface/texture_messages.hpp`: shared texture requests and work.
+- `core/image/texture_messages.hpp`: shared texture requests and work.
 - `host/runtime/host_payloads.hpp`: private worker exchanges and retained wrappers.
   These and the TGA worker protocols use component-local identities. Adjacent
   owner fragments feed the Host and service-test LOCAL operation tables.

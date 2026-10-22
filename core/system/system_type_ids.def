@@ -32,4 +32,7 @@
     type_macro(bundle_disposed_notification) \
     type_macro(bundle_load_request) \
     type_macro(bundle_bake_request) \
-    type_macro(bundle_reference_request)
+    type_macro(bundle_reference_request) \
+    type_macro(shader_compile_request) \
+    type_macro(shader_compile_work) \
+    type_macro(shader_compile_result)

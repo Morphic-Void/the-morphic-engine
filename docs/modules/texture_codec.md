@@ -3,6 +3,16 @@ License: MIT (see LICENSE file in repository root)
 
 # Basis Universal texture conditioning
 
+Core owns the texture data, views and cross-component contracts in
+`core/image/texture_data.hpp` and `core/image/texture_messages.hpp`. Their
+ownership registrations also live in Core. Requests, borrowed work and owning
+results retain SYSTEM identities for exchange between components. Basis
+integration, codec execution and batch jobs remain private to rendering; the
+shared contracts do not depend on rendering headers or Basis types.
+Rendering translates the Core format/profile enums into Basis configuration and
+transcoder formats. Core must not include or compile Basis or DXC headers or
+source, including through another header.
+
 The rendering thread owns Basis Universal initialization and texture job
 dispatch. It initializes Basis before accepting work, submits encoding and
 transcoding through its batch client, and deinitializes Basis after accepted
@@ -66,7 +76,7 @@ rendering thread then moves the output into the owning Host reply. Batch runners
 install the rendering module and memory context before invoking a job.
 
 The codec, jobs and replies share `ETextureStatus`, declared in
-`rendering/interface/texture_data.hpp`; its five numeric values are unchanged.
+`core/image/texture_data.hpp`; its five numeric values are unchanged.
 Rendering updates the response payload in place and checks texture-view readiness
 before reporting success. Unusable output with a success status is diagnosed and
 returned as `codec_failed`. The Host checks generic backing bytes, retains the

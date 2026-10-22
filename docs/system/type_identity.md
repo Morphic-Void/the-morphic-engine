@@ -142,7 +142,9 @@ registration.
 Host file, TGA, document-conditioning, bundle-preparation, module-work and
 filesystem-scan protocols belong to its LOCAL table, together with their private
 retained owners. Public asset, bundle, module and filesystem requests, and the
-Rendering texture exchanges, retain SYSTEM identity. `TErasedPod` and
+texture and shader conditioning exchanges, retain SYSTEM identity. Their shared
+contracts live in Core; rendering implementation types remain private.
+`TErasedPod` and
 `CASyncState` carry `type_id`, retain their existing fixed layouts, and accept
 either registered binding category.
 

@@ -13,7 +13,7 @@
 #include <type_traits>
 
 #include "host/runtime/asset_service.hpp"
-#include "rendering/interface/texture_messages.hpp"
+#include "image/texture_messages.hpp"
 #include "tests/support/test_context.hpp"
 #include "tests/support/thread_helpers.hpp"
 #include "tests/support/test_scopes.hpp"

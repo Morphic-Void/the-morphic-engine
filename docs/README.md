@@ -46,6 +46,10 @@ or that work has been authorised.
 - [Deferred resource and lifecycle design](backlog/consolidation_deferred_design.md)
   and [filesystem limitations and future considerations](backlog/filesystem_asset_mapping.md).
 - [Schema source-ingestion survey](schema/header-survey.md).
+- [Shader compilation direction](modules/shader_compilation_design.md): DXC
+  integration findings, source bundles, renderer-owned reports, publication,
+  agreed defaults and configurable limits, remaining design choices, deferred
+  reflection and the decision not to plan stream output.
 - [Schema follow-on work](backlog/schema_follow_on.md): conversion, related
   representations, typed serialisation, selectable generation, ingestion and
   optional orchestration beyond the completed aggregation APIs.
