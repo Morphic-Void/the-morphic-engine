@@ -470,9 +470,9 @@ can subsequently be baked and resolved through the ordinary lifecycle.
 The output contains schema definitions and their document metadata, not a
 serialisation of resolved slots, indices, or other runtime internals.
 `CResolvedSchema::prepare_output()` provides this operation. It applies
-canonical integer presentation and fills omitted structure size/alignment from
-resolution. Supplied defaults retain their shape; omitted defaults and array
-elements are not materialised.
+canonical integer presentation and fills omitted structure size/alignment and
+array stride/alignment from resolution. Supplied defaults retain their shape;
+omitted defaults and array elements are not materialised.
 
 ### Runtime representation
 
@@ -1055,10 +1055,11 @@ outside current scope.
 Natural layout is the default. Explicit offsets and increased alignment obey
 the rules below. Packed structure layout is unsupported.
 
-Natural layout calculates member offsets and array strides. Explicit layout
-retains the same resolved observations; independent array-stride overrides remain
-deferred. If any member supplies an explicit offset, every member of that
-definition must supply one; explicit and inferred offsets are not mixed.
+Natural layout calculates member offsets and default array strides. Explicit
+layout retains the same resolved observations; arrays may specify independent
+stride and alignment as described below. If any member supplies an explicit
+offset, every member of that definition must supply one; explicit and inferred
+offsets are not mixed.
 
 Natural alignment follows the schema's size-based rules. Simple members
 align to multiples of their size; compounds use their members' effective
@@ -1155,8 +1156,8 @@ explicit layout: bytes 12-31 would belong to it and its array stride would be 32
 
 The resolved descriptor exposes `size` as a precomputed extent for operations
 such as copying or clearing the whole structure. It does not impose automatic
-zeroing during construction. Array element stride is derived from that size; `stride` is
-not a separate structure property. An explicit-layout size includes all owned
+zeroing during construction. Default array element stride is derived from that
+size; `stride` is not a separate structure property. An explicit-layout size includes all owned
 spacing, rather than introducing a separate stride override. A supplied alignment
 sets a layout requirement; a supplied explicit-layout size sets the total extent.
 Explicit structure alignment is capped at 128 bytes. Accepted explicit layouts
@@ -1203,10 +1204,10 @@ range. Unused allocation capacity is outside that range. The pass does not
 compact storage, move records or change locators.
 
 A standalone typed-buffer call requires its byte-view size to be an exact
-multiple of the nonzero type stride. A remainder makes the entire view invalid;
+multiple of the nonzero type size. A remainder makes the entire view invalid;
 reject it without processing any records or changing bytes. For a standalone
-fixed-array type, the view must additionally contain complete declared array
-values: divisibility by element stride alone is insufficient. Document-buffer
+fixed-array type this includes all slots and additional array tail padding;
+divisibility by element stride is neither required nor sufficient. Document-buffer
 calls use locator extents to distinguish occupied storage from unreferenced bytes
 within the supplied used range. Preflight, including any needed allocation,
 completes before writes so failed clearing leaves the payload unchanged.
@@ -1228,9 +1229,8 @@ field initialisation remains separate from unused-storage clearing.
 ## Fixed arrays
 
 An array is a normal type constructor, usable as a member type or nested inside
-another array.  A fixed array declares an element type and count.  Its default
-physical stride, size and alignment derive from its element type. Independent
-element-stride overrides are unsupported.
+another array. A fixed array declares an element type and count, with optional
+independent element `stride` and array `alignment`.
 
 Arrays can therefore contain primitive values, structures, or further fixed
 arrays.  A structure may contain fixed arrays in the same way as any other
@@ -1239,6 +1239,40 @@ member type.
 The array descriptor is `{ "element": "f32", "count": 2 }`. Both properties are
 required; `element` accepts a named type or another array descriptor. Count 1
 remains an array. No `kind` property is accepted.
+
+Omitted stride is the element's complete size. An explicit stride must cover
+that size and be a multiple of the element's alignment; it need not be a power
+of two. Omitted alignment is the element's alignment. Explicit alignment must
+be a power of two, at least the element's alignment, and at most 128 bytes.
+Alignment applies to the array's start, not to every element: four contiguous
+`f32` values can have stride 4 and array alignment 16.
+
+The complete size is `round_up(count * stride, alignment)`. Every element owns
+a full stride slot, including the last, followed by any additional array tail
+padding. Both kinds of padding belong to the array and contribute to its gap
+flag. There is no authored array `size` property. Arithmetic and rounding must
+fit the existing storage ceiling. Each nested array applies these rules
+independently, using the inner array's complete rounded size as its default
+element stride. Arrays of empty elements retain size/stride zero and alignment
+one; explicit metadata cannot introduce storage or stronger alignment.
+
+For example, `{ "element": "u32", "count": 2, "stride": 12, "alignment": 16 }`
+has values at offsets 0 and 12, two complete slots occupying 24 bytes, and eight
+additional tail-padding bytes, for a total size of 32. Repeated complete array
+values start 32 bytes apart. Complete size need not divide evenly by element
+stride. Canonical schema output records effective stride and alignment even
+when omitted on input; source-preserving copying/baking retains authored omission.
+
+C++ generation retains ordinary arrays where possible. Additional stride uses
+a slot wrapper containing one `value`, or an `array` payload when the element
+is itself an array, followed by explicit padding. Increased array alignment
+uses an `alignas` wrapper with an `array` member and explicit additional tail
+padding where needed. Thus an aligned array of padded scalar slots is accessed
+as `member.array[i].value`. Wrappers are data-only, standard-layout and trivially
+copyable. They introduce no schema members or extra document initializer levels.
+Helper names are deterministic and collision-safe, but not a permanent naming
+API. Generation remains complete-catalogue output, useful for visual inspection
+and manual validation; selective output and shader-type aliases remain future work.
 
 Zero-length arrays are rejected. There is no current exception for a trailing
 array. This restriction concerns the declared array count, not the length of
@@ -1810,7 +1844,7 @@ they do not define a combined file container, persistent schema identity or wire
 version for those components. Resolved runtime records are never serialised.
 
 Unions, pointers, variable-sized fields, opaque handles/blobs, packed structure
-layout, independent array strides and generated C output are unsupported.
+layout and generated C output are unsupported.
 Source ingestion, typed C++ serialisation helpers, shader representations and
 editor construction are future work. Their intended uses and open design
 questions are preserved in the [follow-on notes](../backlog/schema_follow_on.md).

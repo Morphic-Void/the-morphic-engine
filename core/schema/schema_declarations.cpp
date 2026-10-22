@@ -32,6 +32,13 @@ public:
     bool run(CByteBuffer& output) noexcept;
 
 private:
+    struct SArrayHelpers
+    {
+        CSchemaIndex type;
+        std::uint32_t slot{}, array{}; // Zero means no helper at this level.
+        bool emitted{};
+    };
+
     //  Checked output and declaration traversal.
     bool fail(const EReason reason) noexcept;
     bool text(const CStringView& value) noexcept;
@@ -45,6 +52,11 @@ private:
     bool type_name(const CSchemaIndex type_index) noexcept;
     bool extents(const CSchemaIndex type_index) noexcept;
     bool dependency(const CSchemaIndex type_index, const unsigned depth) noexcept;
+    bool collect_arrays() noexcept;
+    SArrayHelpers* array_helpers(const CSchemaIndex type_index) noexcept;
+    bool helper_name(const std::uint32_t number, const bool qualified = false) noexcept;
+    bool allocate_helper(std::uint32_t& number) noexcept;
+    bool emit_array(const CSchemaIndex type_index, const SType& layout) noexcept;
     bool native_structure_layout(const CSchemaIndex type_index, const SType& type_info,
         bool& matches, std::uint64_t& natural_alignment, bool& inherited_increase) noexcept;
     bool has_increased_alignment(const CSchemaIndex type_index, bool& result) noexcept;
@@ -60,6 +72,9 @@ private:
     CSchemaHandle m_current_type, m_current_member;
     TPodVector<char> m_bytes;
     TPodVector<std::uint8_t> m_emitted; //  0 pending, 1 emitted, 2 emitted with own or inherited increased alignment.
+    TPodVector<SArrayHelpers> m_arrays; // Sorted by opaque index value; populated before emission.
+    std::uint64_t m_next_helper_name{ 1u };
+    bool m_helper_scope{};
     bool m_global_std_shadow{};
     CSchemaIndex m_enclosing_structure;
     std::uint64_t m_next_padding_name{};
@@ -100,7 +115,7 @@ bool CGenerator::run(CByteBuffer& output) noexcept
         mixed_namespace |= type_info.size != 0u;
         m_global_std_shadow |= (type_info.size != 0u) && (m_schema.name(type_info.name) == CStringView{ "std" });
     }
-    if (!text("#pragma once\n#include <cstdint>\n#include \"types/fp16data_t.hpp\"\n\nnamespace ") ||
+    if (!collect_arrays() || !text("#pragma once\n#include <cstdint>\n#include \"types/fp16data_t.hpp\"\n\nnamespace ") ||
         !text(m_namespace) || !text("\n{\n"))
     {
         return false;
@@ -263,7 +278,7 @@ bool CGenerator::local_type_name(const CStringView& name) noexcept
 {
     //  Consider the complete class scope: a homonymous member can change the
     //  meaning of an earlier type use as well as hide the name in later uses.
-    if (m_enclosing_structure && m_schema.find_member(m_enclosing_structure, name))
+    if (m_helper_scope || (m_enclosing_structure && m_schema.find_member(m_enclosing_structure, name)))
     {
         return text("::") && text(m_namespace) && text("::") && text(name);
     }
@@ -281,7 +296,16 @@ bool CGenerator::type_name(const CSchemaIndex type_index) noexcept
     {
         return primitive(type_info.primitive);
     }
-    if ((type_info.category == ECategory::array) || (type_info.category == ECategory::bit_structure))
+    if (type_info.category == ECategory::array)
+    {
+        const SArrayHelpers* const helpers = array_helpers(type_index);
+        if (helpers)
+        {
+            return helper_name(helpers->array ? helpers->array : helpers->slot, true);
+        }
+        return type_name(type_info.element_or_storage);
+    }
+    if (type_info.category == ECategory::bit_structure)
     {
         return type_name(type_info.element_or_storage);
     }
@@ -299,7 +323,13 @@ bool CGenerator::extents(const CSchemaIndex type_index) noexcept
     {
         return true;
     }
-    return text("[") && number(type_info.count) && text("]") && extents(type_info.element_or_storage);
+    const SArrayHelpers* const helpers = array_helpers(type_index);
+    if (helpers && helpers->array)
+    {
+        return true;
+    }
+    return text("[") && number(type_info.count) && text("]") &&
+        ((helpers && helpers->slot) || extents(type_info.element_or_storage));
 }
 
 bool CGenerator::dependency(const CSchemaIndex type_index, const unsigned depth) noexcept
@@ -323,10 +353,156 @@ bool CGenerator::dependency(const CSchemaIndex type_index, const unsigned depth)
     }
     if (type_info.category == ECategory::array)
     {
-        return dependency(type_info.element_or_storage, (depth + 1u));
+        return dependency(type_info.element_or_storage, (depth + 1u)) && emit_array(type_index, type_info);
     }
     std::uint32_t ordinal{};
     return m_schema.definition_ordinal(type_index, ordinal) ? definition(ordinal, (depth + 1u)) : fail(EReason::invalid_input);
+}
+
+bool CGenerator::collect_arrays() noexcept
+{
+    for (std::uint32_t ordinal = 0u; ordinal < m_schema.definition_count(); ++ordinal)
+    {
+        const CSchemaIndex definition = m_schema.definition_at(ordinal);
+        SType layout;
+        if (!m_schema.type(definition, layout))
+        {
+            return fail(EReason::invalid_input);
+        }
+        if (layout.category != ECategory::structure)
+        {
+            continue;
+        }
+        for (std::uint32_t member_ordinal = 0u; member_ordinal < layout.count; ++member_ordinal)
+        {
+            SMember member;
+            if (!m_schema.member(m_schema.member_at(definition, member_ordinal), member))
+            {
+                return fail(EReason::invalid_input);
+            }
+            CSchemaIndex current = member.type;
+            SType array;
+            while (m_schema.type(current, array) && (array.category == ECategory::array) && (array.size != 0u))
+            {
+                SType element;
+                if (!m_schema.type(array.element_or_storage, element))
+                {
+                    return fail(EReason::invalid_input);
+                }
+                if (((array.stride > element.size) || (array.alignment > element.alignment)) &&
+                    !m_arrays.push_back({ current, 0u, 0u, false }))
+                {
+                    return fail(EReason::allocation_failed);
+                }
+                current = array.element_or_storage;
+            }
+        }
+    }
+    if (m_arrays.size() > 1u)
+    {
+        std::sort(m_arrays.data(), (m_arrays.data() + m_arrays.size()),
+            [](const SArrayHelpers& a, const SArrayHelpers& b) noexcept
+            {
+                return a.type.query_value() < b.type.query_value();
+            });
+    }
+    return true;
+}
+
+CGenerator::SArrayHelpers* CGenerator::array_helpers(const CSchemaIndex type_index) noexcept
+{
+    std::size_t first = 0u, last = m_arrays.size();
+    while (first < last)
+    {
+        const std::size_t middle = first + ((last - first) / 2u);
+        if (m_arrays[middle].type.query_value() < type_index.query_value())
+        {
+            first = middle + 1u;
+        }
+        else
+        {
+            last = middle;
+        }
+    }
+    return ((first < m_arrays.size()) && (m_arrays[first].type == type_index)) ? &m_arrays[first] : nullptr;
+}
+
+static CStringView helper_spelling(const std::uint32_t number, char (&buffer)[48]) noexcept
+{
+    constexpr char prefix[] = "morphic_array_";
+    std::memcpy(buffer, prefix, sizeof(prefix) - 1u);
+    const auto converted = std::to_chars((buffer + sizeof(prefix) - 1u), (buffer + sizeof(buffer)), number);
+    return CStringView{ buffer, static_cast<std::size_t>(converted.ptr - buffer) };
+}
+
+bool CGenerator::helper_name(const std::uint32_t number, const bool qualified) noexcept
+{
+    if (number == 0u)
+    {
+        return fail(EReason::invalid_input);
+    }
+    char buffer[48];
+    return (!qualified || (text("::") && text(m_namespace) && text("::"))) && text(helper_spelling(number, buffer));
+}
+
+bool CGenerator::allocate_helper(std::uint32_t& number) noexcept
+{
+    for (; m_next_helper_name <= UINT32_MAX; ++m_next_helper_name)
+    {
+        char buffer[48];
+        const CStringView candidate = helper_spelling(static_cast<std::uint32_t>(m_next_helper_name), buffer);
+        if (m_schema.find_type(candidate) || (candidate == m_namespace))
+        {
+            continue;
+        }
+        number = static_cast<std::uint32_t>(m_next_helper_name++);
+        return true;
+    }
+    return fail(EReason::storage_limit);
+}
+
+bool CGenerator::emit_array(const CSchemaIndex type_index, const SType& layout) noexcept
+{
+    SArrayHelpers* const helpers = array_helpers(type_index);
+    if (!helpers || helpers->emitted)
+    {
+        return true;
+    }
+    SType element;
+    if (!m_schema.type(layout.element_or_storage, element))
+    {
+        return fail(EReason::invalid_input);
+    }
+    m_helper_scope = true;
+    m_current_member = layout.source;
+    if (layout.stride > element.size)
+    {
+        m_next_padding_name = 0u;
+        if (!allocate_helper(helpers->slot) || !text("\nstruct ") || !helper_name(helpers->slot) ||
+            !text("\n{\n    ") || !type_name(layout.element_or_storage) ||
+            !text((element.category == ECategory::array) ? " array" : " value") ||
+            !extents(layout.element_or_storage) || !text(";\n") ||
+            !emit_padding(layout.stride - element.size) || !text("};\n"))
+        {
+            return false;
+        }
+    }
+    if (layout.alignment > element.alignment)
+    {
+        m_next_padding_name = 0u;
+        if (!allocate_helper(helpers->array) || !text("\nstruct alignas(") || !number(layout.alignment) ||
+            !text(") ") || !helper_name(helpers->array) || !text("\n{\n    ") ||
+            !(helpers->slot ? helper_name(helpers->slot, true) : type_name(layout.element_or_storage)) ||
+            !text(" array[") || !number(layout.count) || !text("]") ||
+            (!helpers->slot && !extents(layout.element_or_storage)) || !text(";\n") ||
+            !emit_padding(layout.size - (layout.count * layout.stride)) || !text("};\n"))
+        {
+            return false;
+        }
+    }
+    m_helper_scope = false;
+    helpers->emitted = true;
+    return true;
 }
 
 bool CGenerator::has_increased_alignment(const CSchemaIndex type_index, bool& result) noexcept
@@ -341,6 +517,16 @@ bool CGenerator::has_increased_alignment(const CSchemaIndex type_index, bool& re
         }
         if (type_info.category == ECategory::array)
         {
+            SType element;
+            if (!m_schema.type(type_info.element_or_storage, element))
+            {
+                return fail(EReason::invalid_input);
+            }
+            if (type_info.alignment > element.alignment)
+            {
+                result = true;
+                return true;
+            }
             current = type_info.element_or_storage;
         }
     } while (type_info.category == ECategory::array);

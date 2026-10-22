@@ -620,9 +620,7 @@ bool clear_unused_storage(const CResolvedSchema& schema, const CSchemaIndex type
     {
         return values.is_empty();
     }
-    if ((layout.stride == 0u) || (layout.stride > std::numeric_limits<std::size_t>::max()) ||
-        ((values.size() % static_cast<std::size_t>(layout.stride)) != 0u) ||
-        ((values.size() % static_cast<std::size_t>(layout.size)) != 0u))
+    if ((layout.size > std::numeric_limits<std::size_t>::max()) || ((values.size() % static_cast<std::size_t>(layout.size)) != 0u))
     {
         return false;
     }

@@ -1066,7 +1066,7 @@ bool CResolver::reference(const CSchemaHandle& source, CSchemaIndex& result, con
             }
             break;
         }
-        if (!shape(current, { "element", "count" }, { "element", "count" }))
+        if (!shape(current, { "element", "count", "stride", "alignment" }, { "element", "count" }))
         {
             return false;
         }
@@ -1099,14 +1099,50 @@ bool CResolver::reference(const CSchemaHandle& source, CSchemaIndex& result, con
         array_record.count = static_cast<std::uint32_t>(count);
         array_record.related = result;
         const TTypeRecord element = *m_schema.type_record(result);
-        if ((element.size != 0u) && ((count > UINT64_MAX / element.size) || (count * element.size > memory::k_byte_size_ceiling)))
+        const CSchemaHandle stride_source = property(descriptor, "stride");
+        const CSchemaHandle alignment_source = property(descriptor, "alignment");
+        std::uint64_t stride = element.size, alignment = element.alignment();
+        if ((stride_source && !extent(stride_source, stride)) || (alignment_source && !extent(alignment_source, alignment)))
+        {
+            return false;
+        }
+        if (stride > memory::k_byte_size_ceiling)
+        {
+            return fail(EReason::storage_limit, stride_source);
+        }
+        if ((stride < element.size) || ((stride % element.alignment()) != 0u) || ((element.size == 0u) && (stride != 0u)))
+        {
+            return fail(EReason::invalid_layout, stride_source);
+        }
+        if (alignment > memory::k_byte_size_ceiling)
+        {
+            return fail(EReason::storage_limit, alignment_source);
+        }
+        if (!alignment || (alignment & (alignment - 1u)) || (alignment < element.alignment()) || ((element.size == 0u) && (alignment != 1u)))
+        {
+            return fail(EReason::invalid_layout, alignment_source);
+        }
+        if (alignment > k_max_alignment)
+        {
+            return fail(EReason::unsupported_feature, alignment_source);
+        }
+        if ((stride != 0u) && (count > (memory::k_byte_size_ceiling / stride)))
         {
             return fail(EReason::storage_limit, descriptor);
         }
-        array_record.size = static_cast<std::uint32_t>(count * element.size);
+        std::uint64_t size{};
+        if (!align((count * stride), alignment, size, (alignment_source ? alignment_source : descriptor)))
+        {
+            return false;
+        }
+        array_record.size = static_cast<std::uint32_t>(size);
         array_record.alignment_log2 = element.alignment_log2;
-        array_record.stride = element.size;
-        array_record.set_flag(TTypeRecord::k_gaps, element.flag(TTypeRecord::k_gaps));
+        while (array_record.alignment() < alignment)
+        {
+            ++array_record.alignment_log2;
+        }
+        array_record.stride = static_cast<std::uint32_t>(stride);
+        array_record.set_flag(TTypeRecord::k_gaps, element.flag(TTypeRecord::k_gaps) || (stride > element.size) || (size > (count * stride)));
         array_record.set_state(2u);
         if (!grow(m_schema.m_types, 1u, descriptor))
         {

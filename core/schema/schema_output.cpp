@@ -125,6 +125,17 @@ bool CSchemaOutputQuery::integer_metadata(const CSchemaHandle value, CIntegerMet
 //  Schema document output
 //==============================================================================
 
+[[nodiscard]] static bool append_layout_integer(CLiveDocument& document, const CNodeKey owner,
+    const char* const name, const std::uint32_t value) noexcept
+{
+    if (document.object_child(owner, CStringView{ name }))
+    {
+        return true;
+    }
+    const CNodeKey child = create_structural_integer(document, value, CStringView{ name });
+    return child && document.append_child(owner, child).succeeded();
+}
+
 [[nodiscard]] static bool append_layout_detail(CLiveDocument& document, const CNodeKey structure, const SType& layout) noexcept
 {
     CNodeKey detail = document.object_child(structure, CStringView{ "detail" });
@@ -136,17 +147,8 @@ bool CSchemaOutputQuery::integer_metadata(const CSchemaHandle value, CIntegerMet
             return false;
         }
     }
-    const auto append = [&](const char* const name, const std::uint32_t value) noexcept
-    {
-        if (document.object_child(detail, CStringView{ name }))
-        {
-            return true;
-        }
-        const CNodeKey child = create_structural_integer(document, value, CStringView{ name });
-        return child && document.append_child(detail, child).succeeded();
-    };
-    return append("alignment", static_cast<std::uint32_t>(layout.alignment)) &&
-        append("size", static_cast<std::uint32_t>(layout.size));
+    return append_layout_integer(document, detail, "alignment", static_cast<std::uint32_t>(layout.alignment)) &&
+        append_layout_integer(document, detail, "size", static_cast<std::uint32_t>(layout.size));
 }
 
 bool CResolvedSchema::prepare_output(CLiveDocument& destination, SDiagnostic& diagnostic) const noexcept
@@ -191,7 +193,8 @@ bool CResolvedSchema::prepare_output(CLiveDocument& destination, SDiagnostic& di
         const STypeRecord& type = m_types[i];
         if (type.category == ECategory::array)
         {
-            if (!structural(type.source, "count"))
+            if (!structural(type.source, "count") || !structural(type.source, "stride") ||
+                !structural(type.source, "alignment"))
             {
                 return false;
             }
@@ -279,6 +282,35 @@ bool CResolvedSchema::prepare_output(CLiveDocument& destination, SDiagnostic& di
             diagnostic.reason = EReason::allocation_failed;
             diagnostic.occurrence = original;
             return false;
+        }
+        CNodeKey output_member = staged.first_child(staged.object_child(output, CStringView{ "members" }));
+        for (std::uint32_t ordinal = 0u; ordinal < layout.count; ++ordinal)
+        {
+            SMember member_info;
+            SType member_type;
+            if (!member(member_at(map_occurrence(original), ordinal), member_info) || !type(member_info.type, member_type))
+            {
+                diagnostic.reason = EReason::invalid_input;
+                return false;
+            }
+            CNodeKey descriptor = staged.object_child(output_member, CStringView{ "type" });
+            while (member_type.category == ECategory::array)
+            {
+                if (!append_layout_integer(staged, descriptor, "stride", static_cast<std::uint32_t>(member_type.stride)) ||
+                    !append_layout_integer(staged, descriptor, "alignment", static_cast<std::uint32_t>(member_type.alignment)))
+                {
+                    diagnostic.reason = EReason::allocation_failed;
+                    diagnostic.occurrence = member_type.source;
+                    return false;
+                }
+                descriptor = staged.object_child(descriptor, CStringView{ "element" });
+                if (!type(member_type.element_or_storage, member_type))
+                {
+                    diagnostic.reason = EReason::invalid_input;
+                    return false;
+                }
+            }
+            output_member = staged.next_sibling(output_member);
         }
     }
     destination = std::move(staged);

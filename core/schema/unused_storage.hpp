@@ -30,7 +30,7 @@ enum class EUnusedBits : std::uint8_t { preserve = 0u, clear };
 //  Standalone value clearing
 //==============================================================================
 
-//  Standalone values must occupy whole strides and complete aggregate values.
+//  Standalone values must occupy complete type extents, including array tail padding.
 //  No byte is changed on failure.
 [[nodiscard]] bool clear_unused_storage(const CResolvedSchema& schema, const CSchemaIndex type, const CByteView values, const EUnusedBits bits = EUnusedBits::preserve) noexcept;
 

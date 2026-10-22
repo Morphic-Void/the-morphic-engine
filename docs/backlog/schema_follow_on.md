@@ -239,10 +239,12 @@ these helpers only if a consumer needs typed scalar overrides.
 ## Other boundaries
 
 Unions, pointers, variable-sized fields, opaque handles/blobs, packed structure
-layout, independent array strides and generated C output remain unsupported.
+layout and generated C output remain unsupported.
 They are not automatically selected by ingestion or the shader-representation
 discussion. A convenience catalogue of graphics formats, CSV review export and
 a general instance-reference path language are also unselected ideas.
+Independent fixed-array stride/alignment and rounded array tail padding are
+covered by the [array extension scope](../schema/array-layout-extension.md).
 Resolved schema name lookup is indexed; callers can retain resolved indices for
 repeated access. Combining the distinct
 subtree-copy and whole-document-promotion traversals is not selected; their

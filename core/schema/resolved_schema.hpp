@@ -244,7 +244,7 @@ public:
     [[nodiscard]] bool is_ready() const noexcept { return m_ready; }
 
     //  Copy only the types section with canonical integer presentation and
-    //  resolved structure size/alignment where omitted. Requires
+    //  resolved structure size/alignment and array stride/alignment where omitted. Requires
     //  a resolved source and an uninitialised destination. No partial output or
     //  source mutation; suitable for text writing, adoption or document baking.
     [[nodiscard]] bool prepare_output(CLiveDocument& destination, SDiagnostic& diagnostic) const noexcept;

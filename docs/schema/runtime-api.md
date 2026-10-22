@@ -446,6 +446,10 @@ owner, leaving the output value unchanged. `SType.count` is the category's
 member, label, field or element count.
 `element_or_storage` is meaningful for arrays, enums and bit structures.
 `SType.stride` is element stride for an array, and the type's size otherwise.
+Array size is `round_up(count * stride, alignment)` and includes full element
+slots plus any additional array tail padding. Repeated complete arrays advance
+by size; size need not be divisible by element stride. The existing observations
+also expose explicit array alignment and recursive padding without new categories.
 Built-ins have no declaration occurrence or document name ID.
 
 `SType.primitive` directly describes the physical primitive for primitive, enum
@@ -499,7 +503,7 @@ bake/promotion operations continue to preserve input metadata.
 | Ordinary `i8`, `u8`, `i16`, `u16` | Decimal. |
 | Ordinary `i32`, `u32`, `i64`, `u64` | Automatic-width hexadecimal, including small values. |
 | Masks | Hexadecimal minimum of 2/4/8/16 digits for the containing 8/16/32/64-bit storage. |
-| Counts, offsets, sizes, alignments | Adaptive decimal/hexadecimal, decimal through 65535. |
+| Counts, offsets, sizes, strides, alignments | Adaptive decimal/hexadecimal, decimal through 65535. |
 
 The ordinary rules apply to enum definitions and integer defaults, including
 nested array defaults, and to integers reconstructed for instance/bulk data documents.
@@ -513,7 +517,8 @@ The implementation in `schema_output.cpp` derives a temporary rule list from
 resolved records, sorts it once and uses binary search while reusing the document
 subtree copier. No output index persists in resolved records. Output preserves
 declaration order, names, strings and supplied default structure, and adds
-omitted structure `detail.size` and `detail.alignment` from the resolved layout.
+omitted structure `detail.size` and `detail.alignment`, and array `stride` and
+`alignment`, from the resolved layout.
 It does not materialise missing defaults or array elements.
 
 Data-role promotion, reconciliation, selection decoding and output preparation
@@ -1502,7 +1507,8 @@ traversal or document edit.
 `clear_unused_storage(schema, type, writable_view)` clears byte gaps within
 standalone schema-typed values, recursively through structures and arrays.
 The view must contain complete values and be a multiple of the type's nonzero
-stride; fixed-array roots must also contain complete declared arrays. A
+size, including all array slots and additional array tail padding. Divisibility
+by array element stride is neither required nor sufficient. A
 partial trailing value fails without processing earlier values. A canonical
 empty view succeeds for a zero-byte type; a nonempty view against such a type
 is rejected because it has no typed bytes to classify.

@@ -25,6 +25,9 @@
 #include "schema/value_codec.hpp"
 #include "data_model/document_copy.hpp"
 #include "schema/type_compatibility.hpp"
+#include "schema/schema_merge.hpp"
+#include "schema/data_preparation.hpp"
+#include "schema/baked_bulk_data_block.hpp"
 #include "memory/memory_policies.hpp"
 #include "data_model/document_parser.hpp"
 #include "data_model/document_translation.hpp"
@@ -217,11 +220,45 @@ static std::string write_validation(TTestContext& ctx, const CResolvedSchema& s,
                 const std::string name = spelling(member.name);
                 checks << "static_assert(offsetof(" << type_name << ", " << name << ") == " << member.offset << ");\n";
                 checks << "static_assert(sizeof(" << type_name << "::" << name << ") == " << member.size << ");\n";
+                std::string array_type = "decltype(" + type_name + "::" + name + ")";
                 for (unsigned dimension = 0u; mt.category == ECategory::array; ++dimension)
                 {
-                    checks << "static_assert(std::extent_v<decltype(" << type_name << "::" << name << "), " << dimension
-                           << "> == " << mt.count << ");\n";
-                    TEST_EXPECT(ctx, s.type(mt.element_or_storage, mt));
+                    SType element;
+                    TEST_EXPECT(ctx, s.type(mt.element_or_storage, element));
+                    const std::string suffix = std::to_string(n) + "_" + std::to_string(m) + "_" + std::to_string(dimension);
+                    const std::string array_alias = "array_check_" + suffix;
+                    const std::string elements_alias = "elements_check_" + suffix;
+                    const std::string slot_alias = "slot_check_" + suffix;
+                    checks << "using " << array_alias << " = " << array_type << ";\n";
+                    checks << "static_assert(sizeof(" << array_alias << ") == " << mt.size
+                           << " && alignof(" << array_alias << ") == " << mt.alignment << ");\n";
+                    checks << "static_assert(std::is_standard_layout_v<" << array_alias
+                           << "> && std::is_trivially_copyable_v<" << array_alias << ">);\n";
+                    if (mt.alignment > element.alignment)
+                    {
+                        checks << "static_assert(offsetof(" << array_alias << ", array) == 0);\n";
+                        checks << "using " << elements_alias << " = decltype(" << array_alias << "::array);\n";
+                    }
+                    else
+                    {
+                        checks << "using " << elements_alias << " = " << array_alias << ";\n";
+                    }
+                    checks << "static_assert(std::extent_v<" << elements_alias << "> == " << mt.count << ");\n";
+                    checks << "using " << slot_alias << " = std::remove_extent_t<" << elements_alias << ">;\n";
+                    checks << "static_assert(sizeof(" << slot_alias << ") == " << mt.stride
+                           << " && alignof(" << slot_alias << ") == " << element.alignment << ");\n";
+                    if (mt.stride > element.size)
+                    {
+                        const char* const payload = element.category == ECategory::array ? "array" : "value";
+                        checks << "static_assert(offsetof(" << slot_alias << ", " << payload << ") == 0);\n";
+                        array_type = "decltype(" + slot_alias + "::" + payload + ")";
+                    }
+                    else
+                    {
+                        array_type = slot_alias;
+                    }
+                    checks << "static_assert(sizeof(" << array_type << ") == " << element.size << ");\n";
+                    mt = element;
                 }
             }
         }
@@ -276,6 +313,273 @@ static std::string write_validation(TTestContext& ctx, const CResolvedSchema& s,
     write_file(checks_path, check_text.data(), check_text.size());
     std::cout << "Schema layout validation source: " << checks_path << '\n';
     return declarations;
+}
+
+static void test_array_layout(TTestContext& ctx)
+{
+    const std::string input = R"({"types":{"structures":{
+        "Arrays":{"members":[
+            {"plain":{"type":{"element":"f32","count":4,"alignment":16}}},
+            {"slots":{"type":{"element":"f32","count":3,"stride":16}}},
+            {"both":{"type":{"element":"f32","count":3,"stride":16,"alignment":32}}},
+            {"rounded":{"type":{"element":"u32","count":2,"stride":12,"alignment":16}}},
+            {"single":{"type":{"element":"f32","count":1,"stride":8,"alignment":16}}},
+            {"nested":{"type":{"element":{"element":"f32","count":3,"alignment":16},"count":2,"stride":32,"alignment":64}}},
+            {"native_outer":{"type":{"element":{"element":"f16","count":2,"stride":6},"count":2}}},
+            {"records":{"type":{"element":"value","count":2,"stride":32}}},
+            {"array":{"type":{"element":"array","count":2,"stride":8}}},
+            {"morphic_array_2":{"type":"u8"}},
+            {"empty":{"type":{"element":"Empty","count":4294967295,"stride":0,"alignment":1}}}]},
+        "value":{"detail":{"alignment":16},"members":[{"v":{"type":"f32"}}]},
+        "array":{"members":[{"v":{"type":"u32"}}]},
+        "morphic_array_1":{"members":[{"v":{"type":"u32"}}]},
+        "Empty":{"members":[]}
+    }}})";
+    CBakedDocumentBlock block;
+    CResolvedSchema schema;
+    if (!resolve(ctx, input, block, schema)) return;
+    const CSchemaIndex arrays = schema.find_type(CStringView{ "Arrays" });
+    const std::uint64_t sizes[]{ 16u, 48u, 64u, 32u, 16u, 64u, 24u, 64u, 16u };
+    const std::uint64_t strides[]{ 4u, 16u, 16u, 12u, 8u, 32u, 12u, 32u, 8u };
+    const std::uint64_t alignments[]{ 16u, 4u, 32u, 16u, 16u, 64u, 2u, 16u, 4u };
+    for (std::uint32_t i = 0u; i < 9u; ++i)
+    {
+        SMember member;
+        SType layout;
+        TEST_EXPECT(ctx, schema.member(schema.member_at(arrays, i), member) && schema.type(member.type, layout) &&
+            layout.size == sizes[i] && layout.stride == strides[i] && layout.alignment == alignments[i] &&
+            layout.gaps == (i != 0u));
+    }
+    const std::string declarations = write_validation(ctx, schema, "schema_array_layout");
+    TEST_EXPECT(ctx, declarations.find(" array[") != std::string::npos &&
+        declarations.find("float value;") != std::string::npos &&
+        declarations.find("::schema_fixture::value value;") != std::string::npos);
+    CByteBuffer repeated;
+    SDiagnostic diagnostic;
+    TEST_EXPECT(ctx, generate_cpp(schema, CStringView{ "schema_fixture" }, repeated, diagnostic) &&
+        repeated.size() == declarations.size() + 1u && std::memcmp(repeated.data(), declarations.data(), declarations.size()) == 0);
+    // A generated namespace can collide with the first helper candidate too.
+    TEST_EXPECT(ctx, generate_cpp(schema, CStringView{ "morphic_array_2" }, repeated, diagnostic));
+
+    CLiveDocument canonical;
+    CResolvedSchema roundtrip;
+    TEST_EXPECT(ctx, schema.prepare_output(canonical, diagnostic) && roundtrip.resolve(canonical, diagnostic));
+    CTypeCompatibility compatibility{ schema, roundtrip, ETypeMatch::definition };
+    TEST_EXPECT(ctx, compatibility.compare(arrays, roundtrip.find_type(CStringView{ "Arrays" })) == ETypeMatchResult::match);
+    CBakedDocumentBlock canonical_block;
+    CResolvedSchema baked_roundtrip;
+    TEST_EXPECT(ctx, document_translation::bake(canonical, canonical_block) && baked_roundtrip.resolve(canonical_block.document(), diagnostic));
+    const CSchemaDocumentQuery query{ canonical };
+    const CSchemaHandle structures = query.object_child(query.object_child(query.root(), CStringView{ "types" }), CStringView{ "structures" });
+    const CSchemaHandle members = query.object_child(query.object_child(structures, CStringView{ "Arrays" }), CStringView{ "members" });
+    const CSchemaHandle descriptor = query.object_child(query.first_child(members), CStringView{ "type" });
+    std::uint64_t stride{}, alignment{};
+    TEST_EXPECT(ctx, query.unsigned_integer_value(query.object_child(descriptor, CStringView{ "stride" }), stride) && stride == 4u &&
+        query.unsigned_integer_value(query.object_child(descriptor, CStringView{ "alignment" }), alignment) && alignment == 16u);
+
+    for (const char* const descriptor_text : {
+        R"({"element":"u32","count":2,"stride":0})", R"({"element":"u32","count":2,"stride":2})",
+        R"({"element":"u32","count":2,"stride":6})", R"({"element":"u32","count":2,"alignment":0})",
+        R"({"element":"u32","count":2,"alignment":2})", R"({"element":"u32","count":2,"alignment":12})" })
+    {
+        expect_failure(ctx, one(descriptor_text, ""), EReason::invalid_layout);
+    }
+    expect_failure(ctx, one(R"({"element":"u32","count":2,"alignment":256})", ""), EReason::unsupported_feature);
+    expect_failure(ctx, one(R"({"element":"u32","count":2,"stride":2147483648})", ""), EReason::storage_limit);
+    expect_failure(ctx, one(R"({"element":"u32","count":1,"stride":2147483649})", ""), EReason::storage_limit);
+    expect_failure(ctx, one(R"({"element":"u32","count":1,"size":4})", ""), EReason::unknown_property);
+    expect_failure(ctx, one(R"({"element":"u32","count":0,"stride":4})", ""), EReason::invalid_range);
+    for (const char* const detail : { R"("stride":1)", R"("alignment":2)" })
+    {
+        expect_failure(ctx, std::string{ R"({"types":{"structures":{"Empty":{"members":[]},"Test":{"members":[{"a":{"type":{"element":"Empty","count":1,)" } +
+            detail + "}}}]}}}}", EReason::invalid_layout);
+    }
+    // Rounding at the inclusive ceiling remains valid without allocating values.
+    CBakedDocumentBlock limit_block;
+    CResolvedSchema limit;
+    if (resolve(ctx, one(R"({"element":"u8","count":1,"stride":2147483647,"alignment":128})", ""), limit_block, limit))
+    {
+        SType layout;
+        TEST_EXPECT(ctx, limit.type(limit.find_type(CStringView{ "Test" }), layout) && layout.size == 2147483648u);
+    }
+
+    SMember member;
+    TEST_EXPECT(ctx, schema.member(schema.find_member(arrays, CStringView{ "rounded" }), member));
+    alignas(128) std::uint8_t bytes[64];
+    std::memset(bytes, 0xa5, sizeof(bytes));
+    TEST_EXPECT(ctx, clear_unused_storage(schema, member.type, CByteView{ bytes, sizeof(bytes), 128u }));
+    for (std::size_t i = 0u; i < sizeof(bytes); ++i)
+    {
+        const std::size_t offset = i % 32u;
+        TEST_EXPECT(ctx, bytes[i] == ((offset < 4u || (offset >= 12u && offset < 16u)) ? 0xa5u : 0u));
+    }
+    std::memset(bytes, 0xa5, sizeof(bytes));
+    TEST_EXPECT(ctx, !clear_unused_storage(schema, member.type, CByteView{ bytes, 24u, 128u }));
+    for (const auto byte : bytes) TEST_EXPECT(ctx, byte == 0xa5u);
+
+    TEST_EXPECT(ctx, schema.member(schema.find_member(arrays, CStringView{ "nested" }), member));
+    CLiveDocument nested_values;
+    TEST_EXPECT(ctx, tests::parse_document(R"([[1,2,3],[4,5,6]])", nested_values));
+    detail::SValueDiagnostic value_error;
+    TEST_EXPECT(ctx, detail::construct_value(schema, detail::CDocumentRead{ nested_values }, member.type,
+        detail::SOccurrence{ nested_values.root() }, bytes, sizeof(bytes), detail::EConstructionMode::complete_bulk_data, value_error));
+    for (std::size_t row = 0u; row < 2u; ++row)
+    {
+        for (std::size_t column = 0u; column < 3u; ++column)
+        {
+            float value{};
+            std::memcpy(&value, bytes + row * 32u + column * 4u, sizeof(value));
+            TEST_EXPECT(ctx, value == static_cast<float>(row * 3u + column + 1u));
+        }
+        for (std::size_t padding = 12u; padding < 32u; ++padding) TEST_EXPECT(ctx, bytes[row * 32u + padding] == 0xa5u);
+    }
+    TEST_EXPECT(ctx, clear_unused_storage(schema, member.type, CByteView{ bytes, sizeof(bytes), 128u }));
+    bool matches{};
+    TEST_EXPECT(ctx, detail::check_value(schema, detail::CDocumentRead{ nested_values }, member.type,
+        detail::SOccurrence{ nested_values.root() }, bytes, sizeof(bytes), detail::EConstructionMode::complete_bulk_data, matches, value_error) && matches);
+    for (std::size_t i = 0u; i < sizeof(bytes); ++i)
+    {
+        if ((i % 32u) >= 12u) TEST_EXPECT(ctx, bytes[i] == 0u);
+    }
+
+    CLiveDocument merged;
+    SSchemaMergeDiagnostic merge_error;
+    TEST_EXPECT(ctx, merge_type_schemas(CSchemaDocumentQuery{ block.document() }, query, merged, merge_error));
+    for (bool output_document : { false, true })
+    {
+        bool completed{};
+        for (std::size_t fail_on = 0u; fail_on < 256u && !completed; ++fail_on)
+        {
+            tests::TAllocationFailureFixture failing{ 0u, fail_on };
+            memory::CMemoryAllocator allocator{ &failing, &tests::allocate_with_failure, &tests::deallocate_test_memory };
+            memory::CMemoryContext context{ allocator };
+            {
+                tests::TMemoryContextScope scope{ &context };
+                CLiveDocument document;
+                CByteBuffer generated;
+                completed = output_document ? schema.prepare_output(document, diagnostic) :
+                    generate_cpp(schema, CStringView{ "schema_fixture" }, generated, diagnostic);
+                if (!completed)
+                {
+                    TEST_EXPECT(ctx, !document.is_ready() && !generated.is_ready() && diagnostic.reason != EReason::none);
+                }
+            }
+            TEST_EXPECT(ctx, context.is_attribution_empty());
+        }
+        TEST_EXPECT(ctx, completed);
+    }
+}
+
+static void test_array_storage(TTestContext& ctx)
+{
+    const std::string definitions = R"({"types":{"structures":{"Record":{"members":[
+        {"values":{"type":{"element":"u32","count":2,"stride":12,"alignment":16},"default":[7,9]}}]}}}})";
+    CBakedDocumentBlock schema_block, changed_block;
+    TEST_EXPECT(ctx, bake(definitions, schema_block));
+    std::string changed = definitions;
+    changed.replace(changed.find("\"stride\":12"), 11u, "\"stride\":16");
+    TEST_EXPECT(ctx, bake(changed, changed_block));
+    CBakedSchema schema, different;
+    SDiagnostic diagnostic;
+    TEST_EXPECT(ctx, schema.set_document(schema_block.document()) && schema.resolve(diagnostic) &&
+        different.set_document(changed_block.document()) && different.resolve(diagnostic));
+    if (!schema.resolved_ready() || !different.resolved_ready()) return;
+    const auto record = schema.resolved()->find_type(CStringView{ "Record" });
+    // The stride change keeps total size/alignment identical, but changes representation.
+    CTypeCompatibility comparison{ *schema.resolved(), *different.resolved(), ETypeMatch::representation };
+    TEST_EXPECT(ctx, comparison.compare(record, different.resolved()->find_type(CStringView{ "Record" })) == ETypeMatchResult::mismatch);
+    CLiveDocument canonical;
+    CLiveSchema equivalent;
+    TEST_EXPECT(ctx, schema.resolved()->prepare_output(canonical, diagnostic) && equivalent.try_adopt(std::move(canonical)) &&
+        equivalent.resolve(diagnostic));
+
+    const std::string data_text = R"({"data":{"Record":{"items":{"locator":{"offset":0,"valid":false},
+        "data":[{"values":[1,2]},{"values":[3,4]}]}}}})";
+    CBakedDocumentBlock data_block;
+    TEST_EXPECT(ctx, bake(data_text, data_block));
+    CByteBuffer owner;
+    CBakedBulkData baked;
+    SBulkDataDiagnostic bulk_error;
+    TEST_EXPECT(ctx, baked.set_document(CMutableBakedDocument{ data_block }) && baked.attach_schema(schema, owner, bulk_error));
+    if (!baked.loaded_ready()) return;
+    TEST_EXPECT(ctx, owner.size() == 64u && read_scalar_bits(owner.data(), 4u) == 1u &&
+        read_scalar_bits(owner.data() + 12u, 4u) == 2u && read_scalar_bits(owner.data() + 32u, 4u) == 3u &&
+        read_scalar_bits(owner.data() + 44u, 4u) == 4u);
+    for (std::size_t i = 0u; i < owner.size(); ++i)
+    {
+        const std::size_t offset = i % 32u;
+        if (!(offset < 4u || (offset >= 12u && offset < 16u))) owner.data()[i] = 0xa5u;
+    }
+    TEST_EXPECT(ctx, baked.switch_schema(equivalent, ESchemaSwitchMode::checked, bulk_error) &&
+        !baked.switch_schema(different, ESchemaSwitchMode::checked, bulk_error));
+    CLiveBulkData live;
+    TEST_EXPECT(ctx, baked.promote(live, schema, bulk_error));
+    const auto entry = live.find_entry(CStringView{ "Record" }, CStringView{ "items" });
+    SBulkDataEntryView view;
+    TEST_EXPECT(ctx, live.entry(entry, view) && view.count == 2u && view.stride == 32u && view.byte_count == 64u &&
+        std::memcmp(view.bytes, owner.data(), 64u) == 0);
+    const auto captured = live.capture(CStringView{ "Record" }, CStringView{ "captured" }, owner.const_view(), 2u, bulk_error);
+    TEST_EXPECT(ctx, captured && live.reconcile(bulk_error) && live.switch_schema(equivalent, ESchemaSwitchMode::checked, bulk_error));
+    CLiveDocument prepared;
+    SBulkDataPreparationDiagnostic preparation_error;
+    TEST_EXPECT(ctx, prepare_bulk_data_document(live.document_query(), *equivalent.resolved(), live.payload_view(), true,
+        prepared, preparation_error));
+    CBakedBulkDataBlock persisted;
+    SBulkDataBlockDiagnostic block_error;
+    // Prepared documents omit locators; materialisation takes the ordinary
+    // storage description with invalid locators to populate privately.
+    CLiveDocument materialisation;
+    TEST_EXPECT(ctx, tests::parse_document(data_text, materialisation) &&
+        persisted.materialise(materialisation, equivalent, EDataOutputForm::embedded, block_error));
+    CBakedBulkData reloaded;
+    TEST_EXPECT(ctx, reloaded.set_document(persisted.document()) &&
+        reloaded.attach_schema(equivalent, persisted.payload_view(), true, bulk_error));
+    TEST_EXPECT(ctx, live.clear_unused_storage() && live.entry(live.find_entry(CStringView{ "Record" }, CStringView{ "items" }), view));
+    for (std::size_t i = 0u; i < 64u; ++i)
+    {
+        const std::size_t offset = i % 32u;
+        TEST_EXPECT(ctx, view.bytes[i] == ((offset < 4u || (offset >= 12u && offset < 16u)) ? owner.data()[i] : 0u));
+    }
+
+    CDataRemapPlan plan;
+    SRemapDiagnostic remap_error;
+    const SRemapSourceType source{ schema.resolved(), record };
+    TEST_EXPECT(ctx, plan.initialise(&source, 1u, *equivalent.resolved(),
+        equivalent.resolved()->find_type(CStringView{ "Record" }), remap_error) && plan.matched_member_count() == 1u);
+    alignas(128) std::uint8_t copied[64]{};
+    const CByteConstView source_bytes = owner.const_view();
+    TEST_EXPECT(ctx, plan.execute(&source_bytes, 1u, CByteView{ copied, sizeof(copied), 128u }) &&
+        std::memcmp(copied, owner.data(), sizeof(copied)) == 0);
+    TEST_EXPECT(ctx, plan.initialise(&source, 1u, *different.resolved(),
+        different.resolved()->find_type(CStringView{ "Record" }), remap_error) && plan.matched_member_count() == 0u);
+
+    CBakedDocumentBlock instance_block;
+    TEST_EXPECT(ctx, bake(R"({"instances":{"Record":{"base":{"locator":{"offset":0,"valid":false},
+        "declaration":{"values":[5]},"specialisation":{"child":{"locator":{"offset":0,"valid":false},
+        "declaration":{"values":[6]}}}}}}})", instance_block));
+    CBakedInstances instances;
+    CByteBuffer instance_owner;
+    SInstanceDiagnostic instance_error;
+    TEST_EXPECT(ctx, instances.set_document(CMutableBakedDocument{ instance_block }) &&
+        instances.attach_schema(schema, instance_owner, instance_error));
+    if (!instances.loaded_ready()) return;
+    SInstanceEntryView base, child;
+    const auto base_handle = instances.find_base(CStringView{ "Record" }, CStringView{ "base" });
+    TEST_EXPECT(ctx, instances.entry(base_handle, base) &&
+        instances.entry(instances.find_specialisation(base_handle, CStringView{ "child" }), child) &&
+        base.byte_count == 32u && read_scalar_bits(base.bytes, 4u) == 5u && read_scalar_bits(base.bytes + 12u, 4u) == 9u &&
+        read_scalar_bits(child.bytes, 4u) == 6u && read_scalar_bits(child.bytes + 12u, 4u) == 9u);
+    CLiveInstances live_instances;
+    TEST_EXPECT(ctx, instances.promote(live_instances, equivalent, instance_error));
+    const auto capture = live_instances.capture_base(CStringView{ "Record" }, CStringView{ "capture" },
+        CByteConstView{ copied, 32u, 128u }, instance_error);
+    TEST_EXPECT(ctx, capture && live_instances.reconcile(instance_error) &&
+        live_instances.switch_schema(schema, ESchemaSwitchMode::checked, instance_error));
+    CBakedDocumentBlock output_block;
+    CByteBuffer output_payload;
+    CBakedInstances output;
+    TEST_EXPECT(ctx, live_instances.bake(output_block, output_payload, output, schema, EDataOutputForm::embedded, instance_error) &&
+        output.switch_schema(equivalent, ESchemaSwitchMode::checked, instance_error));
 }
 
 static void test_empty_types(TTestContext& ctx)
@@ -9392,6 +9696,8 @@ int run_schema_tests()
     run_data_merge_cases(ctx);
     run_document_boundary_cases(ctx);
     schema_tests::test_success(ctx);
+    schema_tests::test_array_layout(ctx);
+    schema_tests::test_array_storage(ctx);
     schema_tests::test_empty_types(ctx);
     schema_tests::test_explicit_layout(ctx);
     schema_tests::test_failures(ctx);

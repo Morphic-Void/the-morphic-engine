@@ -255,6 +255,17 @@ including `fp16data_t`. Generated data declarations themselves contain no test
 assertions or operational code. Support for a compiler/ABI requires fidelity to
 the resolved layout; packing changes or approximate output must not hide a mismatch.
 
+The `schema_array_layout` fixture covers independent stride and alignment,
+count-one and empty arrays, nested wrappers, inherited increased alignment,
+slot and additional array tail padding, and helper/payload name collisions.
+Compiler assertions follow `array` and `value` payloads to check element stride,
+payload offset zero and each nested extent/alignment. Runtime checks cover
+canonical output, live/baked round trips, omitted/explicit metadata merging,
+invalid descriptors, ceiling arithmetic and allocation-failure cleanup. Storage
+checks exercise construction/defaults/inheritance, capture/reconciliation,
+preparation/persistence, checked switching, exact remapping and padding clearing,
+including a 32-byte array with stride 12 that is not divisible by its stride.
+
 Use the appropriate Debug/Release and 32/64-bit configurations when code changes
 affect representation, lifetime, arithmetic or allocation. Do not repeat a passing
 matrix without a new change or unresolved concern. Documentation-only changes
