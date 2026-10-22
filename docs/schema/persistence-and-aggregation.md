@@ -918,6 +918,19 @@ labels, descriptions and other semantic metadata stored as document fields are
 ordinary merge content: missing fields survive, and conflicting supplied values
 fail. Textual descriptions are content even when they do not affect binary layout.
 
+Type-schema `decorations` are string maps on named types, members/bit fields and
+array descriptors. Their keys merge by the same object rules: one-sided keys
+survive, equal strings collapse and differing strings conflict with locations in
+both sources. There is no inheritance or precedence. Strict definition comparison
+includes these maps, whereas representation compatibility and exact remapping
+ignore them. Remapping still checks defaults and internal markers as before.
+
+Schema copying, promotion, baking, canonical output and composition preserve
+decorations in retained type sections. Role-specific data preparation, promotion
+and persistence remain data-only and do not embed their attached schema.
+Decorations on instance/bulk entry descriptors and section roots are unsupported;
+ordinary application fields named `decorations` retain their existing meaning.
+
 ### Agreed presentation merging
 
 Presentation merging preserves likely intent when equal values have different

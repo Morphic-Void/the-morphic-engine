@@ -211,6 +211,12 @@ are added only where a real repeated workflow demonstrates a material
 development-speed or error-reduction benefit.
 
 Presentation and access policy remain separate from physical representation.
+Type-schema string decorations now provide generic metadata on named types,
+members/bit fields and array descriptors; see the
+[decoration contract](../schema/specification.md#declaration-decorations).
+Core preserves and exposes them without interpreting editor vocabularies.
+Section decorations, resource interfaces and per-instance annotations remain
+deferred. Richer structured metadata can still use separate schema-defined data.
 Schema-adjacent editor manifests may target resolved type and member paths to
 provide labels, help text, grouping, ordering, specialised controls, or
 visibility/read-only policy.  The private editor may expose technical fields,

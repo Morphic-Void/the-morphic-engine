@@ -27,6 +27,7 @@
 #include "schema/type_compatibility.hpp"
 #include "schema/schema_merge.hpp"
 #include "schema/data_preparation.hpp"
+#include "schema/document_composition.hpp"
 #include "schema/baked_bulk_data_block.hpp"
 #include "memory/memory_policies.hpp"
 #include "data_model/document_parser.hpp"
@@ -313,6 +314,363 @@ static std::string write_validation(TTestContext& ctx, const CResolvedSchema& s,
     write_file(checks_path, check_text.data(), check_text.size());
     std::cout << "Schema layout validation source: " << checks_path << '\n';
     return declarations;
+}
+
+static std::string decoration_schema(const std::string& decorations, const int selected = -1)
+{
+    const auto at = [&](const int location) -> std::string
+    {
+        return (!decorations.empty() && ((selected < 0) || (selected == location))) ?
+            (",\"decorations\":" + decorations) : "";
+    };
+    return std::string{ R"({"types":{"structures":{"Test":{"members":[{"rows":{"type":{"element":{
+        "element":"f32","count":2)" } + at(3) + R"(},"count":2,"stride":16,"alignment":32)" + at(2) +
+        "}" + at(1) + R"(}},{"flags":{"type":"Flags"}},{"mode":{"type":"Mode"}},
+        {"decorations":{"type":"u8"}}])" + at(0) + R"(},"decorations":{"members":[]}},
+        "enumerations":{"Mode":{"storage":"u8","values":{"decorations":1})" + at(4) + R"(}},
+        "bit_structures":{"Flags":{"storage":"u8","members":[{"flag":{"type":"b8","mask":1)" +
+        at(6) + "}}]" + at(5) + "}}}}";
+}
+
+static CSchemaIndex decoration_owner(const CResolvedSchema& schema, const int location)
+{
+    const CSchemaIndex structure = schema.find_type(CStringView{ "Test" });
+    if (location == 0) return structure;
+    const CSchemaIndex member = schema.find_member(structure, CStringView{ "rows" });
+    if (location == 1) return member;
+    SMember member_info;
+    if (!schema.member(member, member_info)) return {};
+    if (location == 2) return member_info.type;
+    SType array;
+    if (!schema.type(member_info.type, array)) return {};
+    if (location == 3) return array.element_or_storage;
+    if (location == 4) return schema.find_type(CStringView{ "Mode" });
+    const CSchemaIndex bits = schema.find_type(CStringView{ "Flags" });
+    return (location == 5) ? bits : schema.find_field(bits, CStringView{ "flag" });
+}
+
+static void expect_same_definitions(TTestContext& ctx, const CResolvedSchema& first, const CResolvedSchema& second)
+{
+    CTypeCompatibility comparison{ first, second, ETypeMatch::definition };
+    TEST_EXPECT(ctx, first.definition_count() == second.definition_count());
+    for (std::uint32_t i = 0u; i < first.definition_count(); ++i)
+    {
+        const CSchemaIndex index = first.definition_at(i);
+        SType type;
+        TEST_EXPECT(ctx, first.type(index, type) &&
+            comparison.compare(index, second.find_type(first.name(type.name))) == ETypeMatchResult::match);
+    }
+}
+
+static void test_decorations(TTestContext& ctx)
+{
+    const std::string metadata = R"({"editor.label":"Samples","empty":"","Case":"upper","case":"lower",
+        " spaced key ":" a ","unicode.\u03bc":"\u00e9","line":"one\ntwo","nul":"\u0000"})";
+    const std::string input = decoration_schema(metadata);
+    CBakedDocumentBlock block, plain_block;
+    CResolvedSchema schema, plain;
+    if (!resolve(ctx, input, block, schema) || !resolve(ctx, decoration_schema(""), plain_block, plain)) return;
+    SDiagnostic diagnostic;
+    const CSchemaDocumentQuery query{ block.document() };
+    for (int location = 0; location < 7; ++location)
+    {
+        const CSchemaIndex owner = decoration_owner(schema, location);
+        SDecoration item;
+        std::uint32_t count{};
+        for (bool found = schema.first_decoration(owner, item); found; found = schema.next_decoration(item.source, item))
+        {
+            ++count;
+            SDecoration lookup;
+            TEST_EXPECT(ctx, schema.find_decoration(owner, item.key, lookup) && lookup.source == item.source &&
+                lookup.value == item.value && query.string_value(item.source) == item.value);
+        }
+        TEST_EXPECT(ctx, count == 8u);
+        TEST_EXPECT(ctx, schema.find_decoration(owner, CStringView{ "empty" }, item) && item.value.length() == 0u);
+        const SDecoration retained = item;
+        TEST_EXPECT(ctx, !schema.find_decoration(owner, CStringView{ "absent" }, item) &&
+            item.source == retained.source && item.key == retained.key && item.value == retained.value);
+        TEST_EXPECT(ctx, !schema.find_decoration(owner, CStringView{ "EDITOR.LABEL" }, item));
+        TEST_EXPECT(ctx, schema.find_decoration(owner, CStringView{ " spaced key " }, item) && item.value == CStringView{ " a " });
+        TEST_EXPECT(ctx, schema.find_decoration(owner, CStringView{ "line" }, item) && item.value == CStringView{ "one\ntwo" });
+        TEST_EXPECT(ctx, schema.find_decoration(owner, CStringView{ "unicode.\xce\xbc" }, item) && item.value == CStringView{ "\xc3\xa9" });
+    }
+    SDecoration sentinel{ CStringView{ "key" }, CStringView{ "value" }, query.root() };
+    TEST_EXPECT(ctx, !schema.first_decoration({}, sentinel) && !schema.next_decoration(query.root(), sentinel) &&
+        !schema.find_decoration(schema.find_type(CStringView{ "u8" }), CStringView{ "empty" }, sentinel) &&
+        !schema.first_decoration(schema.label_at(schema.find_type(CStringView{ "Mode" }), 0u), sentinel) &&
+        sentinel.source == query.root() && sentinel.value == CStringView{ "value" });
+    CResolvedSchema unready;
+    TEST_EXPECT(ctx, !unready.first_decoration({}, sentinel) && !unready.find_decoration({}, CStringView{ "key" }, sentinel) &&
+        !unready.next_decoration(query.root(), sentinel) && sentinel.source == query.root());
+
+    // Read-only observations must work with an allocator that fails every request.
+    {
+        tests::TAllocationFailureFixture failing{ 0u, 0u };
+        failing.reject_all = true;
+        memory::CMemoryAllocator allocator{ &failing, &tests::allocate_with_failure, &tests::deallocate_test_memory };
+        memory::CMemoryContext context{ allocator };
+        {
+            tests::TMemoryContextScope scope{ &context };
+            SDecoration item;
+            TEST_EXPECT(ctx, schema.first_decoration(decoration_owner(schema, 0), item) &&
+                schema.next_decoration(item.source, item) && schema.find_decoration(decoration_owner(schema, 0), CStringView{ "empty" }, item));
+        }
+        TEST_EXPECT(ctx, context.is_attribution_empty() && failing.attempts == 0u);
+    }
+
+    // Decorations have no effect on the generated declaration bytes.
+    CByteBuffer decorated_cpp, plain_cpp;
+    TEST_EXPECT(ctx, generate_cpp(schema, CStringView{ "fixture" }, decorated_cpp, diagnostic) &&
+        generate_cpp(plain, CStringView{ "fixture" }, plain_cpp, diagnostic) && decorated_cpp.size() == plain_cpp.size() &&
+        std::memcmp(decorated_cpp.data(), plain_cpp.data(), plain_cpp.size()) == 0);
+    for (int location = 0; location < 7; ++location)
+    {
+        CBakedDocumentBlock selected_block, empty_block, changed_block;
+        CResolvedSchema selected, empty, changed;
+        if (!resolve(ctx, decoration_schema(R"({"key":"value"})", location), selected_block, selected) ||
+            !resolve(ctx, decoration_schema("{}", location), empty_block, empty) ||
+            !resolve(ctx, decoration_schema(R"({"key":"Value"})", location), changed_block, changed)) return;
+        expect_same_definitions(ctx, plain, empty);
+        CTypeCompatibility representation{ selected, plain, ETypeMatch::representation };
+        CTypeCompatibility definition{ selected, plain, ETypeMatch::definition };
+        CTypeCompatibility difference{ selected, changed, ETypeMatch::definition };
+        const auto type = selected.find_type(CStringView{ "Test" });
+        TEST_EXPECT(ctx, representation.compare(type, plain.find_type(CStringView{ "Test" })) == ETypeMatchResult::match &&
+            definition.compare(type, plain.find_type(CStringView{ "Test" })) == ETypeMatchResult::mismatch &&
+            difference.compare(type, changed.find_type(CStringView{ "Test" })) == ETypeMatchResult::mismatch);
+        // Only the selected occurrence has decorations; there is no propagation.
+        for (int other = 0; other < 7; ++other)
+        {
+            SDecoration item;
+            TEST_EXPECT(ctx, selected.first_decoration(decoration_owner(selected, other), item) == (other == location));
+        }
+        for (const char* const invalid : { "null", "[]", "1", "\"text\"", R"({"key":null})", R"({"key":false})",
+            R"({"key":42})", R"({"key":1.5})", R"({"key":[]})", R"({"key":{}})" })
+        {
+            expect_failure(ctx, decoration_schema(invalid, location), EReason::invalid_input);
+        }
+        expect_failure(ctx, decoration_schema(R"({"":"value"})", location), EReason::invalid_identifier);
+    }
+    CBakedDocumentBlock order_a_block, order_b_block;
+    CResolvedSchema order_a, order_b;
+    if (!resolve(ctx, decoration_schema(R"({"a":"","b":"B"})"), order_a_block, order_a) ||
+        !resolve(ctx, decoration_schema(R"({"b":"B","a":""})"), order_b_block, order_b)) return;
+    expect_same_definitions(ctx, order_a, order_b);
+    for (const char* const different : { R"({"a":""})", R"({"a":"","b":"b"})", R"({"a":"","b":" B"})",
+        R"({"a":"","B":"B"})", R"({"a":"","b":"B","extra":""})" })
+    {
+        CBakedDocumentBlock different_block;
+        CResolvedSchema changed;
+        if (!resolve(ctx, decoration_schema(different), different_block, changed)) return;
+        CTypeCompatibility forward{ order_a, changed, ETypeMatch::definition };
+        CTypeCompatibility reverse{ changed, order_a, ETypeMatch::definition };
+        TEST_EXPECT(ctx, forward.compare(order_a.find_type(CStringView{ "Test" }), changed.find_type(CStringView{ "Test" })) == ETypeMatchResult::mismatch &&
+            reverse.compare(changed.find_type(CStringView{ "Test" }), order_a.find_type(CStringView{ "Test" })) == ETypeMatchResult::mismatch);
+    }
+    CBakedDocumentBlock unicode_a_block, unicode_b_block;
+    CResolvedSchema unicode_a, unicode_b;
+    if (!resolve(ctx, decoration_schema(R"({"key":"\u00e9"})"), unicode_a_block, unicode_a) ||
+        !resolve(ctx, decoration_schema(R"({"key":"e\u0301"})"), unicode_b_block, unicode_b)) return;
+    CTypeCompatibility unicode_comparison{ unicode_a, unicode_b, ETypeMatch::definition };
+    TEST_EXPECT(ctx, unicode_comparison.compare(unicode_a.find_type(CStringView{ "Test" }), unicode_b.find_type(CStringView{ "Test" })) == ETypeMatchResult::mismatch);
+
+    // Duplicate keys are rejected at the document boundary, before resolution.
+    CLiveDocument duplicate;
+    const std::string duplicate_text = decoration_schema(R"({"key":"one","key":"two"})");
+    TEST_EXPECT(ctx, !document_parser::parse(CByteConstView{
+        reinterpret_cast<const std::uint8_t*>(duplicate_text.data()), duplicate_text.size(), 1u }, duplicate).accepted());
+    expect_failure(ctx, R"({"types":{"decorations":{}}})", EReason::unknown_property);
+    expect_failure(ctx, R"({"types":{"structures":{"T":{"detail":{"decorations":{}},"members":[]}}}})", EReason::unknown_property);
+    expect_failure(ctx, R"({"types":{"enumerations":{"E":{"storage":"u8","values":{"label":{"decorations":{}}}}}}})");
+    expect_failure(ctx, R"({"types":{"structures":{"T":{"members":[],"unrecognised":{}}}}})", EReason::unknown_property);
+
+    // Source-preserving promotion/baking and canonical output retain every map.
+    CBakedSchema baked;
+    CLiveSchema promoted;
+    TEST_EXPECT(ctx, baked.set_document(block.document()) && baked.resolve(diagnostic) && baked.promote(promoted, diagnostic));
+    if (!promoted.resolved_ready()) return;
+    expect_same_definitions(ctx, schema, *promoted.resolved());
+    CBakedDocumentBlock rebaked_block;
+    CBakedSchema rebaked;
+    TEST_EXPECT(ctx, promoted.bake(rebaked_block, rebaked) && rebaked.resolve(diagnostic));
+    if (rebaked.resolved_ready()) expect_same_definitions(ctx, schema, *rebaked.resolved());
+    CLiveDocument canonical;
+    CResolvedSchema canonical_schema;
+    TEST_EXPECT(ctx, schema.prepare_output(canonical, diagnostic) && canonical_schema.resolve(canonical, diagnostic));
+    expect_same_definitions(ctx, schema, canonical_schema);
+    CBakedDocumentBlock canonical_block;
+    CResolvedSchema canonical_baked;
+    TEST_EXPECT(ctx, document_translation::bake(canonical, canonical_block) && canonical_baked.resolve(canonical_block.document(), diagnostic));
+    expect_same_definitions(ctx, schema, canonical_baked);
+}
+
+static void test_decoration_merging(TTestContext& ctx)
+{
+    CBakedDocumentBlock first_block, second_block, expected_block;
+    CResolvedSchema first, second, expected;
+    if (!resolve(ctx, decoration_schema(R"({"shared":"same","first":"one"})"), first_block, first) ||
+        !resolve(ctx, decoration_schema(R"({"second":"two","shared":"same"})"), second_block, second) ||
+        !resolve(ctx, decoration_schema(R"({"shared":"same","first":"one","second":"two"})"), expected_block, expected)) return;
+    const CSchemaDocumentQuery a{ first_block.document() }, b{ second_block.document() };
+    SDiagnostic diagnostic;
+    SSchemaMergeDiagnostic merge_error;
+    for (bool reverse : { false, true })
+    {
+        CLiveDocument merged;
+        CResolvedSchema result;
+        TEST_EXPECT(ctx, merge_type_schemas(reverse ? b : a, reverse ? a : b, merged, merge_error) && result.resolve(merged, diagnostic));
+        expect_same_definitions(ctx, expected, result);
+    }
+    for (int location = 0; location < 7; ++location)
+    {
+        CBakedDocumentBlock conflict_block;
+        CResolvedSchema conflict;
+        if (!resolve(ctx, decoration_schema(R"({"shared":"different"})", location), conflict_block, conflict)) return;
+        const CSchemaDocumentQuery other{ conflict_block.document() };
+        CLiveDocument destination;
+        TEST_EXPECT(ctx, tests::parse_document(R"({"keep":"unchanged"})", destination));
+        const CNodeKey root = destination.root();
+        TEST_EXPECT(ctx, !merge_type_schemas(a, other, destination, merge_error) &&
+            merge_error.stage == ESchemaMergeStage::document_merge && merge_error.reason == ESchemaMergeReason::conflicting_value &&
+            a.name(merge_error.first) == CStringView{ "shared" } && other.name(merge_error.second) == CStringView{ "shared" } &&
+            a.string_value(merge_error.first) == CStringView{ "same" } && other.string_value(merge_error.second) == CStringView{ "different" } &&
+            destination.root() == root && destination.string_value(destination.object_child(root, CStringView{ "keep" })) == CStringView{ "unchanged" });
+        SDecoration source;
+        TEST_EXPECT(ctx, first.find_decoration(decoration_owner(first, location), CStringView{ "shared" }, source) &&
+            source.source == merge_error.first);
+    }
+    // Empty and absent maps merge equally; no attachment is inherited.
+    for (const char* const metadata : { "", "{}" })
+    {
+        CBakedDocumentBlock empty_block;
+        CResolvedSchema empty, result;
+        CLiveDocument merged;
+        if (!resolve(ctx, decoration_schema(metadata), empty_block, empty)) return;
+        TEST_EXPECT(ctx, merge_type_schemas(a, CSchemaDocumentQuery{ empty_block.document() }, merged, merge_error) && result.resolve(merged, diagnostic));
+        expect_same_definitions(ctx, first, result);
+    }
+    CLiveDocument aliased;
+    CResolvedSchema alias_result;
+    TEST_EXPECT(ctx, document_translation::promote(first_block.document(), aliased) &&
+        merge_type_schemas(CSchemaDocumentQuery{ aliased }, b, aliased, merge_error) && alias_result.resolve(aliased, diagnostic));
+    expect_same_definitions(ctx, expected, alias_result);
+
+    // New metadata participates in the existing allocation-failure guarantees.
+    for (unsigned operation = 0u; operation < 4u; ++operation)
+    {
+        bool completed{};
+        for (std::size_t fail_on = 0u; fail_on < 512u && !completed; ++fail_on)
+        {
+            CLiveDocument output;
+            if (operation == 2u) TEST_EXPECT(ctx, tests::parse_document(R"({"keep":"unchanged"})", output));
+            const CNodeKey root = output.root();
+            tests::TAllocationFailureFixture failing{ 0u, fail_on };
+            memory::CMemoryAllocator allocator{ &failing, &tests::allocate_with_failure, &tests::deallocate_test_memory };
+            memory::CMemoryContext context{ allocator };
+            {
+                tests::TMemoryContextScope scope{ &context };
+                CResolvedSchema resolved;
+                if (operation == 0u)
+                {
+                    completed = resolved.resolve(first_block.document(), diagnostic);
+                    if (!completed) TEST_EXPECT(ctx, !resolved.is_ready() && diagnostic.reason != EReason::none);
+                }
+                else if (operation == 1u)
+                {
+                    completed = first.prepare_output(output, diagnostic);
+                    if (!completed) TEST_EXPECT(ctx, !output.is_ready() && diagnostic.reason != EReason::none);
+                }
+                else if (operation == 2u)
+                {
+                    completed = merge_type_schemas(a, b, output, merge_error);
+                    if (!completed) TEST_EXPECT(ctx, output.root() == root &&
+                        output.string_value(output.object_child(root, CStringView{ "keep" })) == CStringView{ "unchanged" });
+                }
+                else
+                {
+                    CTypeCompatibility comparison{ first, expected, ETypeMatch::definition };
+                    const ETypeMatchResult match = comparison.compare(first.find_type(CStringView{ "Test" }), expected.find_type(CStringView{ "Test" }));
+                    completed = match == ETypeMatchResult::mismatch;
+                    if (!completed) TEST_EXPECT(ctx, match == ETypeMatchResult::allocation_failed);
+                }
+            }
+            output.deallocate();
+            TEST_EXPECT(ctx, context.is_attribution_empty());
+        }
+        TEST_EXPECT(ctx, completed);
+    }
+}
+
+static void test_decoration_storage(TTestContext& ctx)
+{
+    CBakedDocumentBlock types_block, other_block;
+    CResolvedSchema types, other;
+    if (!resolve(ctx, decoration_schema(R"({"unit":"metres"})"), types_block, types) ||
+        !resolve(ctx, decoration_schema(R"({"unit":"seconds"})"), other_block, other)) return;
+    SDiagnostic diagnostic;
+    CBakedSchema source, target;
+    TEST_EXPECT(ctx, source.set_document(types_block.document()) && source.resolve(diagnostic) &&
+        target.set_document(other_block.document()) && target.resolve(diagnostic));
+    CLiveDocument data, prepared, composed;
+    TEST_EXPECT(ctx, tests::parse_document(R"({"data":{"Test":{"records":{"locator":{"offset":0,"valid":false},
+        "data":[{"rows":[[1,2],[3,4]],"flags":{"flag":true},"mode":"decorations","decorations":8}]}}}})", data));
+    SBulkDataPreparationDiagnostic preparation_error;
+    TEST_EXPECT(ctx, prepare_bulk_data_document(CBulkDataDocumentQuery{ data }, types, prepared, preparation_error));
+    TEST_EXPECT(ctx, prepared.child_count(prepared.root()) == 1u && !prepared.object_child(prepared.root(), CStringView{ "types" }));
+    SDocumentCompositionDiagnostic composition_error;
+    TEST_EXPECT(ctx, compose_document(CSchemaDocumentQuery{ types_block.document() }, CBulkDataDocumentQuery{ prepared }, composed, composition_error));
+    CResolvedSchema composition;
+    TEST_EXPECT(ctx, composition.resolve(composed, diagnostic));
+    expect_same_definitions(ctx, types, composition);
+    CBakedDocumentBlock composed_block;
+    CResolvedSchema composed_baked;
+    TEST_EXPECT(ctx, document_translation::bake(composed, composed_block) && composed_baked.resolve(composed_block.document(), diagnostic));
+    expect_same_definitions(ctx, types, composed_baked);
+    // Data persistence selects only data. Materialisation takes the original
+    // input with its unset locator; composition consumes prepared declarations.
+    CBakedBulkDataBlock persisted;
+    SBulkDataBlockDiagnostic block_error;
+    TEST_EXPECT(ctx, persisted.materialise(data, source, EDataOutputForm::embedded, block_error));
+    if (!persisted.loaded_ready()) return;
+    const CSchemaDocumentQuery persisted_query{ persisted.document() };
+    TEST_EXPECT(ctx, !persisted_query.object_child(persisted_query.root(), CStringView{ "types" }));
+    expect_same_definitions(ctx, types, *source.resolved());
+    CBakedBulkData records;
+    SBulkDataDiagnostic data_error;
+    TEST_EXPECT(ctx, records.set_document(persisted.document()) && records.attach_schema(source, persisted.payload_view(), true, data_error));
+    if (!records.loaded_ready()) return;
+    TEST_EXPECT(ctx, records.switch_schema(target, ESchemaSwitchMode::checked, data_error));
+    CLiveBulkData live;
+    TEST_EXPECT(ctx, records.promote(live, target, data_error) && live.reconcile(data_error));
+    if (!live.loaded_ready()) return;
+    const CBulkDataDocumentQuery live_query = live.document_query();
+    TEST_EXPECT(ctx, !live_query.object_child(live_query.root(), CStringView{ "types" }));
+    expect_same_definitions(ctx, other, *target.resolved());
+
+    CDataRemapPlan remap;
+    SRemapDiagnostic remap_error;
+    const SRemapSourceType remap_source{ &types, types.find_type(CStringView{ "Test" }) };
+    TEST_EXPECT(ctx, remap.initialise(&remap_source, 1u, other, other.find_type(CStringView{ "Test" }), remap_error) &&
+        remap.matched_member_count() == 4u);
+    CByteBuffer copied;
+    const CByteConstView bytes = persisted.payload_view();
+    TEST_EXPECT(ctx, copied.resize(bytes.size(), k_max_alignment) && remap.execute(&bytes, 1u, copied.view()));
+    SBulkDataEntryView entry;
+    TEST_EXPECT(ctx, live.entry(live.find_entry(CStringView{ "Test" }, CStringView{ "records" }), entry));
+    if (!entry.bytes) return;
+    SMember rows;
+    TEST_EXPECT(ctx, other.member(other.find_member(other.find_type(CStringView{ "Test" }), CStringView{ "rows" }), rows) &&
+        std::memcmp(copied.data() + rows.offset, entry.bytes + rows.offset, static_cast<std::size_t>(rows.size)) == 0);
+
+    // Decorations remain forbidden on data entries; ordinary fields named
+    // decorations (as above) remain valid application values.
+    CLiveDocument invalid, rejected;
+    TEST_EXPECT(ctx, tests::parse_document(R"({"data":{"Test":{"records":{"decorations":{}}}}})", invalid) &&
+        !prepare_bulk_data_document(CBulkDataDocumentQuery{ invalid }, types, rejected, preparation_error));
+    CLiveDocument invalid_instances;
+    SInstancePreparationDiagnostic instance_error;
+    TEST_EXPECT(ctx, tests::parse_document(R"({"instances":{"Test":{"item":{"decorations":{}}}}})", invalid_instances) &&
+        !prepare_instances_document(CInstanceDocumentQuery{ invalid_instances }, types, rejected, instance_error));
 }
 
 static void test_array_layout(TTestContext& ctx)
@@ -9696,6 +10054,9 @@ int run_schema_tests()
     run_data_merge_cases(ctx);
     run_document_boundary_cases(ctx);
     schema_tests::test_success(ctx);
+    schema_tests::test_decorations(ctx);
+    schema_tests::test_decoration_merging(ctx);
+    schema_tests::test_decoration_storage(ctx);
     schema_tests::test_array_layout(ctx);
     schema_tests::test_array_storage(ctx);
     schema_tests::test_empty_types(ctx);

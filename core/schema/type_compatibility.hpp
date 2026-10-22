@@ -148,8 +148,11 @@ private:
 //  Comparison policy and result
 //==============================================================================
 
-enum class ETypeMatch : std::uint8_t { representation, definition };
-enum class ETypeMatchResult : std::uint8_t { match, mismatch, invalid_input, allocation_failed };
+//  Definition includes defaults, internal markers and local decorations.
+//  Remapping retains default/internal checks but ignores decorations.
+//  Representation ignores all three.
+enum class ETypeMatch : std::uint8_t { representation = 0, definition, remapping };
+enum class ETypeMatchResult : std::uint8_t { match = 0, mismatch, invalid_input, allocation_failed };
 
 //==============================================================================
 //  Type-graph comparison
@@ -176,6 +179,7 @@ private:
     [[nodiscard]] static std::uint32_t hash(const SPair& pair) noexcept;
     [[nodiscard]] ETypeMatchResult add(const SPair pair) noexcept;
     [[nodiscard]] bool same_header(const SType& source, const SType& destination) const noexcept;
+    [[nodiscard]] bool same_decorations(const CSchemaIndex source, const CSchemaIndex destination) const noexcept;
     [[nodiscard]] ETypeMatchResult inspect(const SPair pair) noexcept;
 
     const CResolvedSchema& m_source;

@@ -221,7 +221,7 @@ bool CDataRemapPlan::initialise(const SRemapSourceType* const sources, const std
                     return a.ordinal < b.ordinal;
                 });
         }
-        CTypeCompatibility compatibility{ *input.schema, destination_schema, ETypeMatch::definition };
+        CTypeCompatibility compatibility{ *input.schema, destination_schema, ETypeMatch::remapping };
         for (std::size_t matched = 0u; matched < matches.size(); ++matched)
         {
             const std::uint32_t i = matches[matched].ordinal;

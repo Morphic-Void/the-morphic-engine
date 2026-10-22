@@ -738,13 +738,13 @@ Allowed properties are listed below; `*` marks required properties:
 | --- | --- |
 | Schema package | `types`*, `instances`, `data`, `stripped` |
 | `types` | `enumerations`, `structures`, `bit_structures` |
-| Enum definition | `storage`*, `values`* |
-| Structure definition | `members`*, `detail` |
-| Structure member descriptor | `type`*, `default`, `offset` |
-| Array descriptor | `element`*, `count`* |
+| Enum definition | `storage`*, `values`*, `decorations` |
+| Structure definition | `members`*, `detail`, `decorations` |
+| Structure member descriptor | `type`*, `default`, `offset`, `decorations` |
+| Array descriptor | `element`*, `count`*, `stride`, `alignment`, `decorations` |
 | Structure detail | `alignment`, `size`, `internal` |
-| Bit-structure definition | `storage`*, `members`* |
-| Bit-field descriptor | `type`*, `mask`*, `interpretation`, `default` |
+| Bit-structure definition | `storage`*, `members`*, `decorations` |
+| Bit-field descriptor | `type`*, `mask`*, `interpretation`, `default`, `decorations` |
 
 Package sections and categories are objects; absent categories are empty.
 `stripped` is an optional Boolean marker for data roles. Resolution validates
@@ -795,6 +795,63 @@ in the [follow-on notes](../backlog/schema_follow_on.md). Instance and bulk data
 documents consume the resolved configuration without redefining its types.
 Automatic remap setup receives source and destination structure definitions;
 it does not require an authored member-pair document.
+
+## Declaration decorations
+
+Named structures, enumerations and bit structures, structure members,
+bit-structure fields and fixed-array descriptors may carry an optional
+`decorations` object. Each nested array descriptor owns its own object. For
+example, a member descriptor can contain:
+
+```json
+{
+    "type": {
+        "element": "f32",
+        "count": 4,
+        "decorations": { "numerical.shape": "vector" }
+    },
+    "decorations": { "editor.label": "Samples", "measurement.unit": "metres" }
+}
+```
+
+Every key must be nonempty and unique within its object, and every value must be
+a string. Keys follow document string rules, not C++ identifier rules. Empty
+strings are valid and distinct from absent keys. An empty object is valid.
+Comparison uses exact decoded string contents, including case and whitespace;
+there is no trimming, case folding or Unicode normalization. Escape spelling is
+not content. Prefixes are consumer conventions; Core registers no vocabulary and
+preserves unknown keys. Non-string values and malformed objects are errors.
+
+Decorations describe the declared contract and have no implicit inheritance,
+propagation or precedence. A member and its referenced type may independently
+carry the same key. Core does not interpret decorations or let them change
+layout, defaults, value validation or construction. Consumers apply semantic
+checks appropriate to their vocabularies. C++ generation ignores decorations.
+
+Sections, structure `detail`, enumeration labels, instance/bulk entry descriptors
+and value initializers gain no decoration facility. Built-ins have no authored
+declaration to decorate; decorate their member/array occurrences instead.
+Ordinary types, members and enum labels named `decorations` remain legal.
+Unknown grammar properties outside the supported attachment objects remain errors.
+Existing schemas remain valid. Older readers reject the new descriptor property
+through their existing strict grammar; the document encoding is unchanged.
+
+Copying, schema promotion, baking and canonical schema output preserve decoration
+maps and attachment locations. Canonical output does not add omitted decoration
+objects. Composition and whole-document baking retain the selected types section.
+Data-only preparation, promotion and persistence continue to select their data
+domain and do not embed a schema or manufacture metadata from bytes.
+
+Representation compatibility and exact remapping ignore decorations. Strict
+definition comparison includes maps at every supported attachment point, ignoring
+key order and treating omitted and empty objects as equivalent. Remapping retains
+its existing default/internal-marker checks while ignoring decorations.
+
+Schema merging checks representation compatibility, then retains keys present in
+only one source, keeps one copy of equal values, and rejects differing strings
+under the same key with locations in both sources. This is a transactional
+document-content conflict even when the layouts match. There is no implicit
+concatenation or precedence; output uses existing deterministic merge order.
 
 ## Declaration and reference identifiers
 
@@ -1753,8 +1810,9 @@ or find partial transfers. A compatible compound direct member is copied whole.
 When equality of otherwise possible matches requires comparing definitions,
 stop at the first difference; this is an equality check, not nested selection.
 Definition matching includes member/label order, names, referenced types,
-layout, defaults, masks, and interpretations as applicable; numeric formatting
-metadata does not change type identity. Enum aliases must agree in declaration
+layout, defaults, masks, and interpretations as applicable. Remapping ignores
+decorations, unlike strict definition comparison; numeric formatting metadata
+also does not change matching. Enum aliases must agree in declaration
 order. Different schemas may participate if this comparison succeeds.
 
 The enclosing source and destination record types need not have the same name:

@@ -217,6 +217,12 @@ struct SDefault
     std::uint32_t supplied_count{};
 };
 
+struct SDecoration
+{
+    CStringView key, value;
+    CSchemaHandle source;
+};
+
 struct SRecordSizes
 {
     std::size_t type, member, label, field, default_value, mapping;
@@ -272,6 +278,13 @@ public:
     [[nodiscard]] CSchemaIndex find_label(const CSchemaIndex type, const CStringView& name) const noexcept;
     [[nodiscard]] CSchemaIndex find_field(const CSchemaIndex type, const CStringView& name) const noexcept;
     [[nodiscard]] CSchemaIndex first_label_for_value(const CSchemaIndex type, const SScalar& value) const noexcept;
+
+    //  Local decorations on a named type, array, member or bit field. Queries
+    //  allocate nothing; strings/handles borrow the unchanged source document.
+    //  No inheritance. Missing/invalid/end returns false without changing result.
+    [[nodiscard]] bool find_decoration(const CSchemaIndex owner, const CStringView& key, SDecoration& result) const noexcept;
+    [[nodiscard]] bool first_decoration(const CSchemaIndex owner, SDecoration& result) const noexcept;
+    [[nodiscard]] bool next_decoration(const CSchemaHandle current, SDecoration& result) const noexcept;
 
     //  Defaults
     //  Zero description requests implicit defaults; compounds refer callers to
@@ -357,6 +370,8 @@ private:
     const STypeRecord* type_record(const CSchemaIndex index) const noexcept;
     CSchemaIndex lookup_type(const CStringView& name) const noexcept;
     CSchemaIndex child_at(const CSchemaIndex type, const std::uint32_t ordinal, const ECategory category, const std::uint32_t kind) const noexcept;
+    CSchemaHandle decoration_object(const CSchemaIndex owner) const noexcept;
+    bool read_decoration(const CSchemaHandle source, SDecoration& result) const noexcept;
     template<class T> SRecordRange<T> child_range(const CSchemaIndex type, const ECategory category, const TPodVector<T>& records) const noexcept;
     CSchemaDocumentQuery m_document;
     TPodVector<STypeRecord> m_types;

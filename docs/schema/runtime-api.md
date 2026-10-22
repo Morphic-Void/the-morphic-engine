@@ -487,6 +487,29 @@ declarations therefore need not list every queryable member. Empty structures
 accept canonical `detail.size: 0` and `detail.alignment: 1`; metadata requesting
 storage or stronger alignment is invalid.
 
+### Decoration observations
+
+`SDecoration` contains borrowed `key` and `value` string views and a `source`
+handle identifying the original string node. `CResolvedSchema` provides:
+
+- `find_decoration(owner, key, result)` for exact local lookup;
+- `first_decoration(owner, result)` to start in document order;
+- `next_decoration(current.source, result)` to continue within the same map.
+
+The owner is a resolved named-type, array, structure-member or bit-field index.
+Built-ins and unsupported record kinds have no decorations. Missing keys, empty
+maps, invalid inputs, end of enumeration and unready schemas return false without
+changing the output. A successful query can return an empty string value. There
+is no type-to-member fallback or other inheritance. Keys use document string
+rules and exact comparison, independently of declaration identifier restrictions.
+
+Queries allocate nothing and read existing document storage without enlarging
+resolved layout records. They use document name lookup and sibling traversal;
+they do not add a persistent decoration index. Returned strings and handles
+require the original unchanged document, under the existing schema lifetime and
+editing rules. Handles are scoped to their originating document. Existing
+`CSchemaDocumentQuery` operations also expose decoration nodes directly.
+
 ## Schema document output and integer presentation
 
 `CResolvedSchema::prepare_output(CLiveDocument&, SDiagnostic&) const` creates a
@@ -924,13 +947,16 @@ until a successful retry. Promotion resolves indices in the destination schema.
 Document and payload formats are unchanged.
 
 Promotion/output and remap setup share an operation-local resolved-type
-comparison context. Representation compatibility ignores defaults and the
-`internal` marker; remapping definition matching also compares those properties
-within the candidate member types. The enclosing member's own default is not
-an additional remap matching condition. Hashed comparison keys retain both type
-identities and, for definition matching, both default descriptions. Completed
-matches and proven root mismatches can be reused within the operation; unfinished
-comparisons are discarded on failure. No cache survives schema re-resolution.
+comparison context. Representation compatibility ignores defaults, the
+`internal` marker and decorations. Strict definition comparison includes all
+three, comparing decoration maps independently of order and equating absent and
+empty maps. The remapping policy retains default/internal checks but ignores
+decorations within the candidate member types. The enclosing member's own default
+is not an additional remap matching condition. Hashed comparison keys retain both
+type identities and, for definition/remapping matching, both default descriptions.
+Completed matches and proven root mismatches can be reused within the operation;
+unfinished comparisons are discarded on failure. No cache survives schema
+re-resolution.
 
 Scalar decoding is shared by bulk data output and instance capture, editing and
 reconciliation. The codec also shares little-endian scalar bit access with

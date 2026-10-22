@@ -411,6 +411,62 @@ bool CResolvedSchema::field(const CSchemaIndex i, SField& r) const noexcept
     return true;
 }
 
+CSchemaHandle CResolvedSchema::decoration_object(const CSchemaIndex owner) const noexcept
+{
+    if (!m_ready)
+    {
+        return {};
+    }
+    CSchemaHandle source;
+    if (const STypeRecord* const record = type_record(owner))
+    {
+        source = record->source;
+    }
+    else if (is_kind(owner, resolver_util::k_member, m_members.size()))
+    {
+        source = m_members[ordinal(owner)].source;
+    }
+    else if (is_kind(owner, resolver_util::k_field, m_fields.size()))
+    {
+        source = m_fields[ordinal(owner)].source;
+    }
+    return m_document.object_child(source, CStringView{ "decorations" });
+}
+
+bool CResolvedSchema::read_decoration(const CSchemaHandle source, SDecoration& result) const noexcept
+{
+    if (m_document.value_kind(source) != EDocumentValueKind::string)
+    {
+        return false;
+    }
+    result = { m_document.name(source), m_document.string_value(source), source };
+    return true;
+}
+
+bool CResolvedSchema::find_decoration(const CSchemaIndex owner, const CStringView& key, SDecoration& result) const noexcept
+{
+    return read_decoration(m_document.object_child(decoration_object(owner), key), result);
+}
+
+bool CResolvedSchema::first_decoration(const CSchemaIndex owner, SDecoration& result) const noexcept
+{
+    return read_decoration(m_document.first_child(decoration_object(owner)), result);
+}
+
+bool CResolvedSchema::next_decoration(const CSchemaHandle current, SDecoration& result) const noexcept
+{
+    if (!m_ready)
+    {
+        return false;
+    }
+    const CSchemaHandle object = m_document.parent(current);
+    if (!object || (decoration_object(map_occurrence(m_document.parent(object))) != object))
+    {
+        return false;
+    }
+    return read_decoration(m_document.next_sibling(current), result);
+}
+
 template<class T>
 CResolvedSchema::SRecordRange<T> CResolvedSchema::child_range(const CSchemaIndex type, const ECategory category, const TPodVector<T>& records) const noexcept
 {
@@ -631,6 +687,7 @@ private:
     bool shape(
         const CSchemaHandle& source, const std::initializer_list<const char*> allowed,
         const std::initializer_list<const char*> required = {}) noexcept;
+    bool decorations(const CSchemaHandle& owner) noexcept;
     bool declarations(const CSchemaHandle& container, const ECategory category) noexcept;
     bool names(const CSchemaHandle& container, const bool array, const CSchemaHandle& owner, const bool allow_empty = false) noexcept;
 
@@ -768,6 +825,34 @@ bool CResolver::shape(const CSchemaHandle& source, const std::initializer_list<c
         if (!property(source, key))
         {
             return fail(EReason::missing_property, source);
+        }
+    }
+    return true;
+}
+
+bool CResolver::decorations(const CSchemaHandle& owner) noexcept
+{
+    const CSchemaHandle object = property(owner, "decorations");
+    if (!object)
+    {
+        return true;
+    }
+    if (m_document.value_kind(object) != EDocumentValueKind::object)
+    {
+        return fail(EReason::invalid_input, object);
+    }
+
+    //  Document objects enforce unique keys. Unlike declaration names, these
+    //  keys follow document string rules and need not be C++ identifiers.
+    for (CSchemaHandle child = m_document.first_child(object); child; child = m_document.next_sibling(child))
+    {
+        if (m_document.name(child).length() == 0u)
+        {
+            return fail(EReason::invalid_identifier, child);
+        }
+        if (m_document.value_kind(child) != EDocumentValueKind::string)
+        {
+            return fail(EReason::invalid_input, child);
         }
     }
     return true;
@@ -993,7 +1078,8 @@ bool CResolver::storage(TTypeRecord& type_record) noexcept
 
 bool CResolver::enumeration(TTypeRecord& type_record) noexcept
 {
-    if (!shape(type_record.source, { "storage", "values" }, { "storage", "values" }) || !storage(type_record))
+    if (!shape(type_record.source, { "storage", "values", "decorations" }, { "storage", "values" }) ||
+        !decorations(type_record.source) || !storage(type_record))
     {
         return false;
     }
@@ -1066,7 +1152,8 @@ bool CResolver::reference(const CSchemaHandle& source, CSchemaIndex& result, con
             }
             break;
         }
-        if (!shape(current, { "element", "count", "stride", "alignment" }, { "element", "count" }))
+        if (!shape(current, { "element", "count", "stride", "alignment", "decorations" }, { "element", "count" }) ||
+            !decorations(current))
         {
             return false;
         }
@@ -1195,7 +1282,7 @@ bool CResolver::resolve_type(const CSchemaIndex type_index, const unsigned depth
 
 bool CResolver::structure(TTypeRecord& type_record, const unsigned depth) noexcept
 {
-    if (!shape(type_record.source, { "members", "detail" }, { "members" }))
+    if (!shape(type_record.source, { "members", "detail", "decorations" }, { "members" }) || !decorations(type_record.source))
     {
         return false;
     }
@@ -1223,7 +1310,7 @@ bool CResolver::structure(TTypeRecord& type_record, const unsigned depth) noexce
     {
         m_context_member = member_source;
         m_stage = EStage::declarations;
-        if (!shape(member_source, { "type", "default", "offset" }, { "type" }))
+        if (!shape(member_source, { "type", "default", "offset", "decorations" }, { "type" }) || !decorations(member_source))
         {
             return false;
         }
@@ -1614,7 +1701,8 @@ bool CResolver::default_record(const CSchemaIndex type, const CSchemaHandle& sou
 
 bool CResolver::bit_structure(TTypeRecord& type_record, const unsigned depth) noexcept
 {
-    if (!shape(type_record.source, { "storage", "members" }, { "storage", "members" }) || !storage(type_record))
+    if (!shape(type_record.source, { "storage", "members", "decorations" }, { "storage", "members" }) ||
+        !decorations(type_record.source) || !storage(type_record))
     {
         return false;
     }
@@ -1636,7 +1724,8 @@ bool CResolver::bit_structure(TTypeRecord& type_record, const unsigned depth) no
     {
         m_context_member = field_source;
         m_stage = EStage::declarations;
-        if (!shape(field_source, { "type", "mask", "interpretation", "default" }, { "type", "mask" }))
+        if (!shape(field_source, { "type", "mask", "interpretation", "default", "decorations" }, { "type", "mask" }) ||
+            !decorations(field_source))
         {
             return false;
         }

@@ -79,18 +79,41 @@ bool CTypeCompatibility::same_header(const SType& a, const SType& b) const noexc
         (a.element_or_storage.is_valid() == b.element_or_storage.is_valid());
 }
 
+bool CTypeCompatibility::same_decorations(const CSchemaIndex source, const CSchemaIndex destination) const noexcept
+{
+    if (m_rule != ETypeMatch::definition)
+    {
+        return true;
+    }
+    SDecoration a, b, found;
+    bool left = m_source.first_decoration(source, a);
+    bool right = m_destination.first_decoration(destination, b);
+    while (left && right)
+    {
+        if (!m_destination.find_decoration(destination, a.key, found) || !(a.value == found.value))
+        {
+            return false;
+        }
+        left = m_source.next_decoration(a.source, a);
+        right = m_destination.next_decoration(b.source, b);
+    }
+
+    //  Both walks must exhaust together, but their key order is immaterial.
+    return left == right;
+}
+
 ETypeMatchResult CTypeCompatibility::inspect(const SPair pair) noexcept
 {
     SType a, b;
     SDefault da, db;
     if (!m_source.type(pair.source, a) || !m_destination.type(pair.destination, b) ||
-        ((m_rule == ETypeMatch::definition) &&
+        ((m_rule != ETypeMatch::representation) &&
          (!m_source.default_value(pair.source, pair.source_default, da) ||
           !m_destination.default_value(pair.destination, pair.destination_default, db))))
     {
         return ETypeMatchResult::invalid_input;
     }
-    if (!same_header(a, b) || ((m_rule == ETypeMatch::definition) &&
+    if (!same_header(a, b) || !same_decorations(pair.source, pair.destination) || ((m_rule != ETypeMatch::representation) &&
         ((da.kind != db.kind) || ((da.kind == EDefault::scalar) && !same_scalar(da.scalar, db.scalar)))))
     {
         return ETypeMatchResult::mismatch;
@@ -103,7 +126,7 @@ ETypeMatchResult CTypeCompatibility::inspect(const SPair pair) noexcept
             return result;
         }
     }
-    if ((m_rule == ETypeMatch::definition) && (a.category == ECategory::array))
+    if ((m_rule != ETypeMatch::representation) && (a.category == ECategory::array))
     {
         const std::uint32_t supplied = (da.supplied_count > db.supplied_count) ? da.supplied_count : db.supplied_count;
         for (std::uint32_t i = 0u; i < supplied; ++i)
@@ -136,12 +159,13 @@ ETypeMatchResult CTypeCompatibility::inspect(const SPair pair) noexcept
                 return ETypeMatchResult::invalid_input;
             }
             if (!(m_source.name(am.name) == m_destination.name(bm.name)) ||
-                (am.offset != bm.offset) || (am.size != bm.size))
+                (am.offset != bm.offset) || (am.size != bm.size) ||
+                !same_decorations(m_source.member_at(pair.source, i), m_destination.member_at(pair.destination, i)))
             {
                 return ETypeMatchResult::mismatch;
             }
-            const auto result = add({ am.type, bm.type, ((m_rule == ETypeMatch::definition) ? am.default_description : CSchemaIndex{}),
-                ((m_rule == ETypeMatch::definition) ? bm.default_description : CSchemaIndex{}) });
+            const auto result = add({ am.type, bm.type, ((m_rule != ETypeMatch::representation) ? am.default_description : CSchemaIndex{}),
+                ((m_rule != ETypeMatch::representation) ? bm.default_description : CSchemaIndex{}) });
             if (result != ETypeMatchResult::match)
             {
                 return result;
@@ -171,12 +195,13 @@ ETypeMatchResult CTypeCompatibility::inspect(const SPair pair) noexcept
             if (!(m_source.name(af.name) == m_destination.name(bf.name)) || (af.mask != bf.mask) ||
                 (af.shift != bf.shift) || (af.width != bf.width) ||
                 (af.interpretation != bf.interpretation) ||
-                (af.signed_value != bf.signed_value) || (af.primitive != bf.primitive))
+                (af.signed_value != bf.signed_value) || (af.primitive != bf.primitive) ||
+                !same_decorations(m_source.field_at(pair.source, i), m_destination.field_at(pair.destination, i)))
             {
                 return ETypeMatchResult::mismatch;
             }
-            const auto result = add({ af.type, bf.type, ((m_rule == ETypeMatch::definition) ? af.default_description : CSchemaIndex{}),
-                ((m_rule == ETypeMatch::definition) ? bf.default_description : CSchemaIndex{}) });
+            const auto result = add({ af.type, bf.type, ((m_rule != ETypeMatch::representation) ? af.default_description : CSchemaIndex{}),
+                ((m_rule != ETypeMatch::representation) ? bf.default_description : CSchemaIndex{}) });
             if (result != ETypeMatchResult::match)
             {
                 return result;

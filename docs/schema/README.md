@@ -17,6 +17,7 @@ interpret its current contracts.
 | [Runtime API](runtime-api.md) | Public entry points, file map, lifetimes, diagnostics and implementation limits. |
 | [Validation](validation.md) | Regression coverage and generated C++ layout checks. |
 | [Array layout extension](array-layout-extension.md) | Agreed stride/alignment implementation scope and boundaries. |
+| [Decoration extension](decorations-extension.md) | Agreed declaration metadata scope, comparison and preservation rules. |
 | [Example](schema-example.json) and [notes](schema-example-notes.md) | Authoring example, expected layouts, numeric notation and materialisation rules. |
 | [Persistence and aggregation](persistence-and-aggregation.md) | Implemented persistence, type/data merging, preparation and composition contracts, diagnostics and publication policies. |
 | [Delivery status](../project/completed_milestones.md#schema-delivery-status) | Completed capabilities, reviewed commit checkpoints and validation evidence; completed implementation plans are retired. |

@@ -17,6 +17,25 @@ records validation checkpoints, including the subsequent buffer correction and
 its all-configuration regression runs. Earlier milestones retain their historical
 counts; local build logs are evidence paths, not checked-in test dependencies.
 
+## Type-schema decoration coverage
+
+`Schema_test_suite.cpp` covers decorations on structures, enums, bit structures,
+structure members, bit fields and both levels of nested arrays. Cases distinguish
+missing keys from empty strings, empty from omitted maps, and exact key/value
+contents from declaration identifier rules. Invalid objects, non-string values,
+empty/duplicate keys and unsupported attachment points are rejected. Ordinary
+types, fields and enum labels named `decorations` remain legal.
+
+Allocation-free lookup/enumeration, unchanged outputs on query failure, no
+inheritance, strict definition comparison, order-independent maps and unchanged
+generated C++ are checked. Lifecycle coverage includes schema promotion/baking,
+canonical output, composition and whole-document baking. Data-only persistence,
+reconciliation, checked schema switching and exact remapping retain their existing
+scope and ignore decoration differences. Merge tests cover union, empty/absent
+maps, source aliasing, conflicts at every attachment point and original locations.
+Allocation-failure sweeps exercise resolution, canonical output, occupied merge
+destinations and comparison, checking failure atomicity and attribution cleanup.
+
 ## Document preparation and composition coverage
 
 `DocumentBoundary_test_cases.cpp` runs within the Schema suite. Live/baked tests
