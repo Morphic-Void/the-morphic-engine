@@ -53,12 +53,12 @@ namespace schema
 [[nodiscard]] static bool compatible(const CSchemaDocumentQuery& first, const CSchemaHandle types,
     const CResolvedSchema& a, const CResolvedSchema& b, SSchemaMergeDiagnostic& diagnostic) noexcept
 {
-    CTypeCompatibility comparison{ a, b, ETypeMatch::representation };
+    CDeclarationCompatibility comparison{ a, b, EDeclarationMatch::compatibility };
     for (CSchemaHandle group = first.first_child(types); group; group = first.next_sibling(group))
     {
         for (CSchemaHandle item = first.first_child(group); item; item = first.next_sibling(item))
         {
-            const CSchemaIndex other = b.find_type(first.name(item));
+            const CSchemaIndex other = b.find_declaration(first.name(item));
             if (!other)
             {
                 continue;
@@ -66,8 +66,8 @@ namespace schema
             const ETypeMatchResult result = comparison.compare(a.map_occurrence(item), other);
             if (result != ETypeMatchResult::match)
             {
-                SType type;
-                (void)b.type(other, type);
+                SDeclaration type;
+                (void)b.declaration(other, type);
                 diagnostic.stage = ESchemaMergeStage::compatibility;
                 diagnostic.reason = (result == ETypeMatchResult::allocation_failed) ? ESchemaMergeReason::allocation_failed :
                     ((result == ETypeMatchResult::mismatch) ? ESchemaMergeReason::incompatible_type : ESchemaMergeReason::invalid_source);

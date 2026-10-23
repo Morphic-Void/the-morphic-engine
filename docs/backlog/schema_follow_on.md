@@ -215,7 +215,9 @@ Type-schema string decorations now provide generic metadata on named types,
 members/bit fields and array descriptors; see the
 [decoration contract](../schema/specification.md#declaration-decorations).
 Core preserves and exposes them without interpreting editor vocabularies.
-Section decorations, resource interfaces and per-instance annotations remain
+Generic non-storage associations and interfaces now provide checked declaration
+relationships, including interface-member multiplicity and decorations. Rendering
+resource semantics, section decorations and per-instance annotations remain
 deferred. Richer structured metadata can still use separate schema-defined data.
 Schema-adjacent editor manifests may target resolved type and member paths to
 provide labels, help text, grouping, ordering, specialised controls, or

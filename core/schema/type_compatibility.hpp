@@ -154,6 +154,8 @@ private:
 enum class ETypeMatch : std::uint8_t { representation = 0, definition, remapping };
 enum class ETypeMatchResult : std::uint8_t { match = 0, mismatch, invalid_input, allocation_failed };
 
+enum class EDeclarationMatch : std::uint8_t { compatibility = 0, definition };
+
 //==============================================================================
 //  Type-graph comparison
 //==============================================================================
@@ -170,6 +172,7 @@ public:
     [[nodiscard]] std::size_t cached_pair_count() const noexcept { return m_pairs.size(); }
 
 private:
+    friend class CDeclarationCompatibility;
     struct SPair
     {
         CSchemaIndex source, destination, source_default, destination_default;
@@ -181,12 +184,33 @@ private:
     [[nodiscard]] bool same_header(const SType& source, const SType& destination) const noexcept;
     [[nodiscard]] bool same_decorations(const CSchemaIndex source, const CSchemaIndex destination) const noexcept;
     [[nodiscard]] ETypeMatchResult inspect(const SPair pair) noexcept;
+    [[nodiscard]] ETypeMatchResult inspect_declaration(const SPair pair) noexcept;
+    [[nodiscard]] ETypeMatchResult compare_declaration(const CSchemaIndex source, const CSchemaIndex destination) noexcept;
+    [[nodiscard]] ETypeMatchResult compare_graph(const CSchemaIndex source, const CSchemaIndex destination) noexcept;
 
     const CResolvedSchema& m_source;
     const CResolvedSchema& m_destination;
     const ETypeMatch m_rule;
     TPodVector<SPair> m_pairs;
     COrdinalHashIndex m_index;
+};
+
+//  Checked declaration relationships, including non-storage declarations.
+//  Compatibility ignores decorations/defaults/internal markers; definition
+//  includes them. Both follow immediate identities and effective multiplicity.
+class CDeclarationCompatibility
+{
+public:
+    CDeclarationCompatibility(const CResolvedSchema& source, const CResolvedSchema& destination, const EDeclarationMatch rule) noexcept
+        : m_graph(source, destination, (rule == EDeclarationMatch::definition) ? ETypeMatch::definition : ETypeMatch::representation) {}
+
+    [[nodiscard]] ETypeMatchResult compare(const CSchemaIndex source, const CSchemaIndex destination) noexcept
+    {
+        return m_graph.compare_declaration(source, destination);
+    }
+
+private:
+    CTypeCompatibility m_graph;
 };
 
 namespace detail

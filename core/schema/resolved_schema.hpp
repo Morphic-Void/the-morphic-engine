@@ -93,6 +93,22 @@ enum class EPrimitive : std::uint8_t
     b8
 };
 
+//  Canonical schema spelling, borrowed from static storage; allocates nothing.
+//  None and invalid enum values return an empty view. No resolved owner is needed.
+[[nodiscard]] CStringView primitive_name(const EPrimitive primitive) noexcept;
+
+//  General declaration observations have no implied physical layout.
+enum class EDeclarationCategory : std::uint8_t
+{
+    primitive = 0,
+    enumeration,
+    structure,
+    array,
+    bit_structure,
+    association,
+    interface_type
+};
+
 enum class EInterpretation : std::uint8_t
 {
     ordinary = 0,
@@ -223,6 +239,31 @@ struct SDecoration
     CSchemaHandle source;
 };
 
+struct SDeclaration
+{
+    EDeclarationCategory category{};
+    CPropertyNameId name;
+    CSchemaHandle source;
+};
+
+struct SAssociation
+{
+    CSchemaIndex target; // Invalid means an explicitly null target.
+};
+
+struct SInterface
+{
+    std::uint32_t count{}; // Number of declared members, not expanded occurrences.
+};
+
+struct SInterfaceMember
+{
+    CPropertyNameId name;
+    CSchemaHandle source;
+    CSchemaIndex declaration;
+    std::uint32_t count{ 1u };
+};
+
 struct SRecordSizes
 {
     std::size_t type, member, label, field, default_value, mapping;
@@ -255,7 +296,22 @@ public:
     //  source mutation; suitable for text writing, adoption or document baking.
     [[nodiscard]] bool prepare_output(CLiveDocument& destination, SDiagnostic& diagnostic) const noexcept;
 
-    //  Type catalogue and checked record access
+    //  General catalogue: authored physical definitions followed by non-storage
+    //  declarations, preserving source order within each group. Built-ins are
+    //  available by name but excluded from declaration_count/at.
+    //  Wrong-kind/unready queries fail without modifying output observations.
+    [[nodiscard]] CSchemaIndex find_declaration(const CStringView& name) const noexcept;
+    [[nodiscard]] std::uint32_t declaration_count() const noexcept;
+    [[nodiscard]] CSchemaIndex declaration_at(const std::uint32_t ordinal) const noexcept;
+    [[nodiscard]] bool declaration(const CSchemaIndex index, SDeclaration& result) const noexcept;
+    [[nodiscard]] bool association(const CSchemaIndex index, SAssociation& result) const noexcept;
+    [[nodiscard]] bool interface_info(const CSchemaIndex index, SInterface& result) const noexcept;
+    [[nodiscard]] CSchemaIndex interface_member_at(const CSchemaIndex owner, const std::uint32_t ordinal) const noexcept;
+    [[nodiscard]] CSchemaIndex find_interface_member(const CSchemaIndex owner, const CStringView& name) const noexcept;
+    [[nodiscard]] bool interface_member(const CSchemaIndex index, SInterfaceMember& result) const noexcept;
+
+    //  Physical type catalogue and checked record access. Non-storage indices
+    //  and names are rejected; genuine empty physical types remain valid.
     [[nodiscard]] CSchemaIndex find_type(const CStringView& name) const noexcept;
     [[nodiscard]] CStringView name(const CPropertyNameId id) const noexcept;
     [[nodiscard]] std::uint32_t definition_count() const noexcept;
@@ -279,7 +335,7 @@ public:
     [[nodiscard]] CSchemaIndex find_field(const CSchemaIndex type, const CStringView& name) const noexcept;
     [[nodiscard]] CSchemaIndex first_label_for_value(const CSchemaIndex type, const SScalar& value) const noexcept;
 
-    //  Local decorations on a named type, array, member or bit field. Queries
+    //  Local decorations on a declaration, array, member or bit field. Queries
     //  allocate nothing; strings/handles borrow the unchanged source document.
     //  No inheritance. Missing/invalid/end returns false without changing result.
     [[nodiscard]] bool find_decoration(const CSchemaIndex owner, const CStringView& key, SDecoration& result) const noexcept;
@@ -300,6 +356,16 @@ public:
 private:
     friend class CLiveSchema;
     friend struct detail::SDocumentQueryAccess;
+
+    struct SNonStorageRecord
+    {
+        CPropertyNameId name;
+        CSchemaHandle source;
+        CSchemaIndex target;
+        std::uint32_t first{}, count{};
+        EDeclarationCategory category{};
+        std::uint8_t state{};
+    };
 
     struct STypeRecord
     {
@@ -369,6 +435,8 @@ private:
     void rebind_live_document(const CLiveDocument& document) noexcept;
     const STypeRecord* type_record(const CSchemaIndex index) const noexcept;
     CSchemaIndex lookup_type(const CStringView& name) const noexcept;
+    CSchemaIndex lookup_declaration(const CStringView& name) const noexcept;
+    const SNonStorageRecord* non_storage_record(const CSchemaIndex index) const noexcept;
     CSchemaIndex child_at(const CSchemaIndex type, const std::uint32_t ordinal, const ECategory category, const std::uint32_t kind) const noexcept;
     CSchemaHandle decoration_object(const CSchemaIndex owner) const noexcept;
     bool read_decoration(const CSchemaHandle source, SDecoration& result) const noexcept;
@@ -386,6 +454,10 @@ private:
     TPodVector<std::uint32_t> m_field_names;
     TPodVector<SDefaultRecord> m_defaults;
     TPodVector<SMapping> m_mapping;
+    TPodVector<SNonStorageRecord> m_non_storage;
+    TPodVector<std::uint32_t> m_non_storage_names;
+    TPodVector<SInterfaceMember> m_interface_members;
+    TPodVector<std::uint32_t> m_interface_member_names;
     std::uint32_t m_definitions{};
     bool m_ready{};
     friend class CResolver;

@@ -77,10 +77,11 @@ format requirement.
 The schema system describes logical data types and their physical
 representations. It supports ordinary structures, enums, fixed arrays and
 bit structures, with instance/bulk data materialisation and exact-type remapping.
-Packed structure layout is not supported.
+It also supports non-storage associations and interfaces with checked declaration
+relationships. Packed structure layout is not supported.
 
-Schema definitions and instance data are distinct.  A definition declares the
-meaning, layout, size, alignment, and members of a type.  An instance supplies
+Schema definitions and instance data are distinct. A physical definition declares
+the meaning, layout, size, alignment, and members of a type. An instance supplies
 values of a declared type. Bulk data may be represented as binary or
 document values, with JSON used for definitions, metadata, and ordinary small
 instances. CSV is not a core encoding.
@@ -647,10 +648,10 @@ identifiers remain document-local.
 
 ### Definition contents
 
-The definitions section contains structure, enum, and bit-structure definitions.
+The definitions section contains physical types and non-storage declarations.
 The section name is `types`, containing category objects
-`enumerations`, `structures`, and `bit_structures`, as in the accepted sample.
-These categories are organisational only: names referenced as types must be
+`enumerations`, `structures`, `bit_structures`, `associations` and `interfaces`.
+These categories share one namespace: names referenced as declarations must be
 unique across the definitions document, not merely within a category.
 Instance names may recur in different subtrees, provided each instance can be
 identified unambiguously by its path.  A branch root acts as a namespace for
@@ -737,7 +738,7 @@ Allowed properties are listed below; `*` marks required properties:
 | Object | Properties |
 | --- | --- |
 | Schema package | `types`*, `instances`, `data`, `stripped` |
-| `types` | `enumerations`, `structures`, `bit_structures` |
+| `types` | `enumerations`, `structures`, `bit_structures`, `associations`, `interfaces` |
 | Enum definition | `storage`*, `values`*, `decorations` |
 | Structure definition | `members`*, `detail`, `decorations` |
 | Structure member descriptor | `type`*, `default`, `offset`, `decorations` |
@@ -745,6 +746,9 @@ Allowed properties are listed below; `*` marks required properties:
 | Structure detail | `alignment`, `size`, `internal` |
 | Bit-structure definition | `storage`*, `members`*, `decorations` |
 | Bit-field descriptor | `type`*, `mask`*, `interpretation`, `default`, `decorations` |
+| Association definition | `target`*, `decorations` |
+| Interface definition | `members`*, `decorations` |
+| Interface member descriptor | `type`*, `count`, `decorations` |
 
 Package sections and categories are objects; absent categories are empty.
 `stripped` is an optional Boolean marker for data roles. Resolution validates
@@ -796,10 +800,78 @@ documents consume the resolved configuration without redefining its types.
 Automatic remap setup receives source and destination structure definitions;
 it does not require an authored member-pair document.
 
+## Associations and interfaces
+
+`types.associations` and `types.interfaces` contain named non-storage declarations.
+Their names share the namespace and identifier restrictions of physical types;
+built-in names cannot be redeclared. These declarations describe relationships,
+without embedding values or implying pointers, handles, ownership, runtime object
+references or asset identities. They have no size, alignment, stride or defaults.
+They are distinct from genuine empty physical structures.
+
+An association requires `target`, a declaration-name string or explicit `null`.
+Null means deliberately targetless; omission is invalid. The target may name a
+built-in primitive, a physical declaration, another association or an interface.
+Inline array descriptors are not targets. Immediate target identity is retained;
+chains are not flattened into aliases. Each declaration keeps its own decorations.
+
+An interface requires `members`, an ordered array of singleton named member
+descriptors, using the same named-array convention as structure members. Names
+must be unique within the interface; an empty list is valid. Every member requires
+a declaration-name `type`, accepting the same categories as association targets.
+Optional `count` is a positive integer through UINT32_MAX and defaults to one.
+This is one-dimensional occurrence multiplicity, without physical layout or
+automatic binding arithmetic; it does not expand resolved records. Offsets,
+stride, alignment and defaults are invalid on these descriptors.
+
+```json
+{
+  "types": {
+    "structures": { "CameraData": { "members": [{ "exposure": { "type": "f32" } }] } },
+    "associations": {
+      "CameraBuffer": { "target": "CameraData", "decorations": { "rendering.resource": "uniform_buffer" } },
+      "Sampler": { "target": null }
+    },
+    "interfaces": {
+      "SceneResources": { "members": [
+        { "camera": { "type": "CameraBuffer", "decorations": { "rendering.vulkan.binding": "0" } } },
+        { "samplers": { "type": "Sampler", "count": 4 } }
+      ] }
+    }
+  }
+}
+```
+
+All targets must exist within the resolved input document. Forward references and
+shared targets are valid. Association-target and interface-member edges together
+must be acyclic, including cycles through interfaces. Existing physical dependency
+rules still apply; physical members and array elements cannot reference non-storage
+declarations. A chain need not terminate at physical storage. Reference diagnostics
+identify the closing edge and its target declaration for cycles.
+
+General declaration compatibility requires matching category/identity, target
+presence and immediate identity, ordered interface member names/references and
+effective counts. Dependencies are compared recursively. Strict definition
+comparison additionally includes decorations and physical defaults/internal markers.
+Equal layouts cannot substitute differently named targets. Schema merging checks
+these relationships, then merges document content and decorations transactionally;
+it cannot extend a matching interface's member list or supply an association target
+where the other declaration explicitly has null. Each input must independently
+resolve. Cross-document references and fragment assembly remain deferred.
+
+Physical queries, default construction, instance/bulk data, remapping and unused
+storage clearing reject non-storage declarations. Schema copying, promotion, baking,
+canonical output and composition retain them; data-only operations remain data-only.
+C++ generation emits deterministic comments for their names, targets and interface
+members/counts, and continues generating all physical definitions under the existing
+empty-type rules. It emits no C++ storage types or aliases for associations/interfaces.
+Core interprets no rendering vocabulary. Matrix semantics, runtime bindings,
+multidimensional/runtime multiplicity and external imports remain outside scope.
+
 ## Declaration decorations
 
-Named structures, enumerations and bit structures, structure members,
-bit-structure fields and fixed-array descriptors may carry an optional
+Named structures, enumerations, bit structures, associations and interfaces,
+structure and interface members, bit-structure fields and fixed-array descriptors may carry an optional
 `decorations` object. Each nested array descriptor owns its own object. For
 example, a member descriptor can contain:
 

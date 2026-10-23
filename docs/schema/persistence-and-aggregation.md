@@ -788,11 +788,19 @@ array extents, enum definitions and bit-field interpretations cannot be silently
 extended or changed by ordinary missing-field merging.
 
 Each input must independently resolve as a valid type schema before merging.
-One input cannot supply missing dependencies or repair invalid declarations in
-the other. The complete merged result must also resolve successfully before
-publication.
+This includes association targets and interface-member references: a declaration
+in the other input cannot satisfy a missing reference. Cross-document references
+and fragment assembly are deferred. One input cannot repair invalid declarations
+in the other. The complete merged result must also resolve before publication.
 
-Compatibility is based on resolved layout and interpretation. Natural layout
+Associations and interfaces are retained in the ordinary types section during
+copying, promotion, baking, canonical output and composition. Merge compatibility
+compares immediate target identity/presence, ordered interface members, effective
+counts and the compatible definitions of dependencies. Differently named targets
+are not interchangeable even when their layouts match. An interface cannot gain
+members through merging. Decorations retain the existing content merge rules.
+
+Physical compatibility is based on resolved layout and interpretation. Natural layout
 and explicitly supplied layout metadata are compatible when they resolve to
 the same layout. Explicit alignment that changes the effective layout conflicts;
 the absent-default rule below does not make omitted layout a wildcard. Member

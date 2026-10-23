@@ -17,6 +17,23 @@ records validation checkpoints, including the subsequent buffer correction and
 its all-configuration regression runs. Earlier milestones retain their historical
 counts; local build logs are evidence paths, not checked-in test dependencies.
 
+## Association and interface coverage
+
+`Schema_test_suite.cpp` exercises general declaration observations independently
+of physical types, forward/shared references, targetless associations, nested
+interfaces, maximum fixed counts, decorations and source mappings. Invalid grammar,
+name collisions, missing targets and association/interface cycles are rejected.
+Physical queries, defaults, instance/bulk preparation, remapping and storage clearing
+reject non-storage declarations while empty physical types remain valid.
+
+Declaration comparisons cover identity, multiplicity, metadata, physical dependencies
+and failed-traversal cache reuse. Merge cases check incompatible relationships,
+metadata conflicts, original locations, omitted/explicit unit counts, union and
+source aliasing. Incomplete inputs remain invalid before merging. Lifecycle cases
+cover move/clear, promotion, baking, canonical output and composition. Allocation
+sweeps check resolver cleanup, output, comments, graph comparison/retry and occupied
+merge destinations. Generated fixtures include mixed and non-storage-only schemas.
+
 ## Type-schema decoration coverage
 
 `Schema_test_suite.cpp` covers decorations on structures, enums, bit structures,

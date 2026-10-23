@@ -64,6 +64,8 @@ private:
     bool emit_padding(const std::uint64_t count) noexcept;
     bool emit_structure_members(const CSchemaIndex type_index, const SType& type_info, const bool physical_order) noexcept;
     bool definition(const std::uint32_t definition_ordinal, const unsigned depth) noexcept;
+    bool declaration_name(const CSchemaIndex index) noexcept;
+    bool non_storage_comments() noexcept;
 
     //  Borrowed input and per-run output state.
     const CResolvedSchema& m_schema;
@@ -135,6 +137,10 @@ bool CGenerator::run(CByteBuffer& output) noexcept
             return false;
         }
     }
+    if (!non_storage_comments())
+    {
+        return false;
+    }
     if (mixed_namespace && !text("\n"))
     {
         return false;
@@ -148,6 +154,80 @@ bool CGenerator::run(CByteBuffer& output) noexcept
         return fail(EReason::allocation_failed);
     }
     std::memcpy(output.data(), m_bytes.data(), m_bytes.size());
+    return true;
+}
+
+bool CGenerator::declaration_name(const CSchemaIndex index) noexcept
+{
+    SDeclaration declaration;
+    if (!m_schema.declaration(index, declaration))
+    {
+        return fail(EReason::invalid_input);
+    }
+    if (declaration.category == EDeclarationCategory::primitive)
+    {
+        SType type;
+        if (!m_schema.type(index, type))
+        {
+            return fail(EReason::invalid_input);
+        }
+        return text(primitive_name(type.primitive));
+    }
+    return text(m_schema.name(declaration.name));
+}
+
+bool CGenerator::non_storage_comments() noexcept
+{
+    for (std::uint32_t i = m_schema.definition_count(); i < m_schema.declaration_count(); ++i)
+    {
+        const CSchemaIndex index = m_schema.declaration_at(i);
+        SDeclaration declaration;
+        if (!m_schema.declaration(index, declaration))
+        {
+            return fail(EReason::invalid_input);
+        }
+        m_current_type = declaration.source;
+        m_current_member = {};
+        if (declaration.category == EDeclarationCategory::association)
+        {
+            SAssociation association;
+            if (!m_schema.association(index, association))
+            {
+                return fail(EReason::invalid_input);
+            }
+            if (!text("\n// association ") || !declaration_name(index) || !text(" -> ") ||
+                !(association.target ? declaration_name(association.target) : text("null")) || !text("\n"))
+            {
+                return false;
+            }
+        }
+        else
+        {
+            SInterface info;
+            if (!m_schema.interface_info(index, info))
+            {
+                return fail(EReason::invalid_input);
+            }
+            if (!text("\n// interface ") || !declaration_name(index) || !text("\n"))
+            {
+                return false;
+            }
+            for (std::uint32_t n = 0u; n < info.count; ++n)
+            {
+                SInterfaceMember member;
+                if (!m_schema.interface_member(m_schema.interface_member_at(index, n), member))
+                {
+                    return fail(EReason::invalid_input);
+                }
+                m_current_member = member.source;
+                if (!text("//   ") || !text(m_schema.name(member.name)) || !text(": ") ||
+                    !declaration_name(member.declaration) || !text(" (count = ") || !number(member.count) || !text(")\n"))
+                {
+                    return false;
+                }
+            }
+        }
+    }
     return true;
 }
 

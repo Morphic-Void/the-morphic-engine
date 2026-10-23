@@ -106,10 +106,13 @@ ETypeMatchResult CTypeCompatibility::inspect(const SPair pair) noexcept
 {
     SType a, b;
     SDefault da, db;
-    if (!m_source.type(pair.source, a) || !m_destination.type(pair.destination, b) ||
-        ((m_rule != ETypeMatch::representation) &&
+    if (!m_source.type(pair.source, a) || !m_destination.type(pair.destination, b))
+    {
+        return inspect_declaration(pair);
+    }
+    if ((m_rule != ETypeMatch::representation) &&
          (!m_source.default_value(pair.source, pair.source_default, da) ||
-          !m_destination.default_value(pair.destination, pair.destination_default, db))))
+          !m_destination.default_value(pair.destination, pair.destination_default, db)))
     {
         return ETypeMatchResult::invalid_input;
     }
@@ -211,6 +214,80 @@ ETypeMatchResult CTypeCompatibility::inspect(const SPair pair) noexcept
     return ETypeMatchResult::match;
 }
 
+ETypeMatchResult CTypeCompatibility::inspect_declaration(const SPair pair) noexcept
+{
+    SDeclaration a, b;
+    if (!m_source.declaration(pair.source, a) || !m_destination.declaration(pair.destination, b))
+    {
+        return ETypeMatchResult::invalid_input;
+    }
+    if ((a.category != b.category) || !(m_source.name(a.name) == m_destination.name(b.name)) ||
+        !same_decorations(pair.source, pair.destination))
+    {
+        return ETypeMatchResult::mismatch;
+    }
+    if (a.category == EDeclarationCategory::association)
+    {
+        SAssociation left, right;
+        if (!m_source.association(pair.source, left) || !m_destination.association(pair.destination, right))
+        {
+            return ETypeMatchResult::invalid_input;
+        }
+        if (left.target.is_valid() != right.target.is_valid())
+        {
+            return ETypeMatchResult::mismatch;
+        }
+        return left.target ? add({ left.target, right.target, {}, {} }) : ETypeMatchResult::match;
+    }
+    SInterface left, right;
+    if (!m_source.interface_info(pair.source, left) || !m_destination.interface_info(pair.destination, right))
+    {
+        return ETypeMatchResult::invalid_input;
+    }
+    if (left.count != right.count)
+    {
+        return ETypeMatchResult::mismatch;
+    }
+    for (std::uint32_t i = 0u; i < left.count; ++i)
+    {
+        const CSchemaIndex ai = m_source.interface_member_at(pair.source, i);
+        const CSchemaIndex bi = m_destination.interface_member_at(pair.destination, i);
+        SInterfaceMember am, bm;
+        if (!m_source.interface_member(ai, am) || !m_destination.interface_member(bi, bm))
+        {
+            return ETypeMatchResult::invalid_input;
+        }
+        if (!(m_source.name(am.name) == m_destination.name(bm.name)) || (am.count != bm.count) || !same_decorations(ai, bi))
+        {
+            return ETypeMatchResult::mismatch;
+        }
+        const auto result = add({ am.declaration, bm.declaration, {}, {} });
+        if (result != ETypeMatchResult::match)
+        {
+            return result;
+        }
+    }
+    return ETypeMatchResult::match;
+}
+
+ETypeMatchResult CTypeCompatibility::compare_declaration(const CSchemaIndex source, const CSchemaIndex destination) noexcept
+{
+    SDeclaration a, b;
+    if (!m_source.declaration(source, a) || !m_destination.declaration(destination, b))
+    {
+        return ETypeMatchResult::invalid_input;
+    }
+    if ((a.category != b.category) || !(m_source.name(a.name) == m_destination.name(b.name)))
+    {
+        return ETypeMatchResult::mismatch;
+    }
+    if ((a.category != EDeclarationCategory::association) && (a.category != EDeclarationCategory::interface_type))
+    {
+        return compare(source, destination);
+    }
+    return compare_graph(source, destination);
+}
+
 ETypeMatchResult CTypeCompatibility::compare(const CSchemaIndex source, const CSchemaIndex destination) noexcept
 {
     SType a, b;
@@ -223,6 +300,11 @@ ETypeMatchResult CTypeCompatibility::compare(const CSchemaIndex source, const CS
     {
         return ETypeMatchResult::mismatch;
     }
+    return compare_graph(source, destination);
+}
+
+ETypeMatchResult CTypeCompatibility::compare_graph(const CSchemaIndex source, const CSchemaIndex destination) noexcept
+{
     const std::size_t first = m_pairs.size();
     ETypeMatchResult result = add({ source, destination, {}, {} });
     for (std::size_t next = first; (result == ETypeMatchResult::match) && (next < m_pairs.size()); ++next)

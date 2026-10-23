@@ -316,6 +316,457 @@ static std::string write_validation(TTestContext& ctx, const CResolvedSchema& s,
     return declarations;
 }
 
+static const char* const declaration_fixture = R"({"types":{
+    "interfaces":{
+        "Root":{"decorations":{"group":"root"},"members":[
+            {"first":{"type":"Chain","count":2,"decorations":{"binding":"0"}}},
+            {"second":{"type":"Chain"}},{"nested":{"type":"Group"}},{"sampler":{"type":"Opaque"}}]},
+        "Nested":{"members":[{"raw":{"type":"u32","count":4294967295}},{"data":{"type":"Data"}}]},
+        "EmptyInterface":{"members":[]}},
+    "associations":{
+        "Chain":{"target":"Resource"},
+        "Resource":{"target":"Data","decorations":{"resource":"buffer"}},
+        "Opaque":{"target":null},"Group":{"target":"Nested"},"Scalar":{"target":"u32"},
+        "EnumTarget":{"target":"Mode"},"BitsTarget":{"target":"Bits"}},
+    "structures":{"Data":{"members":[{"value":{"type":"u32","default":7}}]},
+        "Other":{"members":[{"value":{"type":"u32","default":7}}]},"Empty":{"members":[]}},
+    "enumerations":{"Mode":{"storage":"u8","values":{"first":0}}},
+    "bit_structures":{"Bits":{"storage":"u8","members":[{"flag":{"type":"b8","mask":1}}]}}
+}})";
+
+static std::string changed_declaration(const char* const from, const char* const to)
+{
+    std::string result{ declaration_fixture };
+    const auto at = result.find(from);
+    if (at != std::string::npos)
+    {
+        result.replace(at, std::strlen(from), to);
+    }
+    return result;
+}
+
+static void expect_same_declarations(TTestContext& ctx, const CResolvedSchema& a, const CResolvedSchema& b)
+{
+    CDeclarationCompatibility comparison{ a, b, EDeclarationMatch::definition };
+    TEST_EXPECT(ctx, a.is_ready() && b.is_ready() && a.declaration_count() == b.declaration_count());
+    for (std::uint32_t i = 0u; i < a.declaration_count(); ++i)
+    {
+        SDeclaration declaration;
+        const CSchemaIndex index = a.declaration_at(i);
+        TEST_EXPECT(ctx, a.declaration(index, declaration) && comparison.compare(index,
+            b.find_declaration(a.name(declaration.name))) == ETypeMatchResult::match);
+    }
+}
+
+static void test_non_storage_declarations(TTestContext& ctx)
+{
+    CBakedDocumentBlock block;
+    CResolvedSchema schema;
+    if (!resolve(ctx, declaration_fixture, block, schema))
+    {
+        return;
+    }
+    const auto root = schema.find_declaration(CStringView{ "Root" });
+    const auto resource = schema.find_declaration(CStringView{ "Resource" });
+    const auto data = schema.find_type(CStringView{ "Data" });
+    const CSchemaDocumentQuery query{ block.document() };
+    TEST_EXPECT(ctx, schema.definition_count() == 5u && schema.declaration_count() == 15u);
+    TEST_EXPECT(ctx, !schema.find_type(CStringView{ "Root" }) && !schema.find_type(CStringView{ "Resource" }) &&
+        schema.find_declaration(CStringView{ "Data" }) == data && !schema.declaration_at(schema.declaration_count()));
+    SDeclaration declaration;
+    SAssociation association;
+    SInterface info;
+    SInterfaceMember member;
+    TEST_EXPECT(ctx, schema.declaration(root, declaration) && declaration.category == EDeclarationCategory::interface_type &&
+        schema.map_occurrence(declaration.source) == root && schema.interface_info(root, info) && info.count == 4u);
+    TEST_EXPECT(ctx, schema.association(resource, association) && association.target == data &&
+        schema.association(schema.find_declaration(CStringView{ "Chain" }), association) && association.target == resource);
+    TEST_EXPECT(ctx, schema.association(schema.find_declaration(CStringView{ "Opaque" }), association) && !association.target);
+    TEST_EXPECT(ctx, schema.association(schema.find_declaration(CStringView{ "Group" }), association) &&
+        association.target == schema.find_declaration(CStringView{ "Nested" }));
+    const auto first = schema.find_interface_member(root, CStringView{ "first" });
+    TEST_EXPECT(ctx, first == schema.interface_member_at(root, 0u) && schema.interface_member(first, member) && member.count == 2u &&
+        member.declaration == schema.find_declaration(CStringView{ "Chain" }) && schema.map_occurrence(member.source) == first &&
+        schema.map_occurrence(query.object_child(member.source, CStringView{ "type" })) == member.declaration);
+    SDecoration decoration;
+    TEST_EXPECT(ctx, schema.first_decoration(first, decoration) && decoration.key == CStringView{ "binding" } &&
+        decoration.value == CStringView{ "0" } && !schema.next_decoration(decoration.source, decoration));
+    TEST_EXPECT(ctx, schema.first_decoration(root, decoration) && decoration.key == CStringView{ "group" } &&
+        schema.first_decoration(resource, decoration) && decoration.key == CStringView{ "resource" });
+    TEST_EXPECT(ctx, schema.interface_member(schema.interface_member_at(root, 1u), member) && member.count == 1u);
+    TEST_EXPECT(ctx, schema.interface_member(schema.interface_member_at(schema.find_declaration(CStringView{ "Nested" }), 0u), member) &&
+        member.count == UINT32_MAX && member.declaration == schema.find_type(CStringView{ "u32" }));
+    TEST_EXPECT(ctx, schema.interface_info(schema.find_declaration(CStringView{ "EmptyInterface" }), info) && info.count == 0u);
+
+    // Non-storage records cannot be mistaken for valid empty physical types.
+    SType physical;
+    SDefault value;
+    TEST_EXPECT(ctx, schema.type(schema.find_type(CStringView{ "Empty" }), physical) && physical.size == 0u);
+    const SType retained = physical;
+    TEST_EXPECT(ctx, !schema.type(root, physical) && !schema.type(resource, physical) && physical.source == retained.source &&
+        !schema.default_value(root, {}, value) && !schema.member_at(root, 0u) && !schema.interface_member_at(data, 0u) &&
+        !schema.association(root, association) && !schema.interface_info(resource, info) && !schema.declaration(first, declaration));
+    CResolvedSchema unready;
+    const auto member_source = member.source;
+    TEST_EXPECT(ctx, !unready.find_declaration(CStringView{ "Root" }) && unready.declaration_count() == 0u &&
+        !unready.interface_member(first, member) && member.source == member_source && !schema.find_interface_member(root, CStringView{ "absent" }));
+    {
+        tests::TAllocationFailureFixture failing{ 0u, 0u };
+        failing.reject_all = true;
+        memory::CMemoryAllocator allocator{ &failing, &tests::allocate_with_failure, &tests::deallocate_test_memory };
+        memory::CMemoryContext context{ allocator };
+        {
+            tests::TMemoryContextScope scope{ &context };
+            TEST_EXPECT(ctx, schema.find_declaration(CStringView{ "Root" }) == root && schema.declaration(root, declaration) &&
+                schema.interface_member(schema.find_interface_member(root, CStringView{ "first" }), member) &&
+                schema.association(resource, association) && schema.first_decoration(first, decoration));
+        }
+        TEST_EXPECT(ctx, failing.attempts == 0u && context.is_attribution_empty());
+    }
+    const std::string cpp = write_validation(ctx, schema, "schema_associations");
+    TEST_EXPECT(ctx, cpp.find("// association Resource -> Data") != std::string::npos &&
+        cpp.find("// association Opaque -> null") != std::string::npos &&
+        cpp.find("// association Scalar -> u32") != std::string::npos &&
+        cpp.find("// interface Root") != std::string::npos && cpp.find("//   first: Chain (count = 2)") != std::string::npos &&
+        cpp.find("struct Root") == std::string::npos && cpp.find("using Resource") == std::string::npos);
+    CResolvedSchema moved{ std::move(schema) };
+    TEST_EXPECT(ctx, !schema.is_ready() && schema.declaration_count() == 0u && moved.find_declaration(CStringView{ "Root" }) == root);
+    schema = std::move(moved);
+    TEST_EXPECT(ctx, !moved.is_ready() && schema.interface_info(root, info));
+
+    // Grammar and physical-reference boundaries, including both new categories.
+    for (const char* const body : {
+        R"("associations":[])" , R"("interfaces":[])" ,
+        R"("associations":{"A":{}})" , R"("associations":{"A":{"target":42}})" ,
+        R"("associations":{"A":{"target":{"element":"u32","count":2}}})" ,
+        R"("associations":{"A":{"target":"Missing"}})" , R"("associations":{"A":{"target":null,"count":2}})" ,
+        R"("associations":{"A":{"target":null,"decorations":{"x":1}}})" ,
+        R"("associations":{"u32":{"target":null}})" ,
+        R"("associations":{"A":{"target":null}},"interfaces":{"A":{"members":[]}})" ,
+        R"("associations":{"A":{"target":null}},"structures":{"A":{"members":[]}})" ,
+        R"("interfaces":{"I":{}})" , R"("interfaces":{"I":{"members":{}}})" ,
+        R"("interfaces":{"I":{"members":[{"a":{"type":null}}]}})" ,
+        R"("interfaces":{"I":{"members":[{"a":{"type":"Missing"}}]}})" ,
+        R"("interfaces":{"I":{"members":[{"a":{"type":{"element":"u32","count":2}}}]}})" ,
+        R"("interfaces":{"I":{"members":[{"a":{"type":"u32","count":0}}]}})" ,
+        R"("interfaces":{"I":{"members":[{"a":{"type":"u32","count":4294967296}}]}})" ,
+        R"("interfaces":{"I":{"members":[{"a":{"type":"u32","count":-1}}]}})" ,
+        R"("interfaces":{"I":{"members":[{"a":{"type":"u32","count":1.5}}]}})" ,
+        R"("interfaces":{"I":{"members":[{"a":{"type":"u32","count":null}}]}})" ,
+        R"("interfaces":{"I":{"members":[{"a":{"type":"u32","offset":0}}]}})" ,
+        R"("interfaces":{"I":{"members":[{"a":{"type":"u32","default":0}}]}})" ,
+        R"("interfaces":{"I":{"members":[{"a":{"type":"u32"}},{"a":{"type":"u8"}}]}})" ,
+        R"("interfaces":{"I":{"members":[],"decorations":{"":"x"}}})" ,
+        R"("interfaces":{"I":{"members":[{"a":{"type":"u32","decorations":[]}}]}})" ,
+        R"("associations":{"A":{"target":null}},"structures":{"S":{"members":[{"a":{"type":"A"}}]}})" ,
+        R"("interfaces":{"I":{"members":[]}},"structures":{"S":{"members":[{"a":{"type":{"element":"I","count":2}}}]}})"
+    })
+    {
+        expect_failure(ctx, std::string{ "{\"types\":{" } + body + "}}");
+    }
+    for (const char* const body : {
+        R"("associations":{"A":{"target":"A"}})" ,
+        R"("associations":{"A":{"target":"B"},"B":{"target":"A"}})" ,
+        R"("interfaces":{"I":{"members":[{"self":{"type":"I"}}]}})" ,
+        R"("associations":{"A":{"target":"I"}},"interfaces":{"I":{"members":[{"a":{"type":"A"}}]}})" ,
+        R"("interfaces":{"I":{"members":[{"j":{"type":"J"}}]},"J":{"members":[{"i":{"type":"I"}}]}})"
+    })
+    {
+        CBakedDocumentBlock cyclic;
+        CResolvedSchema rejected;
+        SDiagnostic error;
+        TEST_EXPECT(ctx, bake(std::string{ "{\"types\":{" } + body + "}}", cyclic));
+        TEST_EXPECT(ctx, !rejected.resolve(cyclic.document(), error) && error.reason == EReason::cycle &&
+            error.stage == EStage::references && error.occurrence && error.related && !rejected.declaration_count());
+        const CSchemaDocumentQuery locations{ cyclic.document() };
+        TEST_EXPECT(ctx, locations.value_kind(error.occurrence) == EDocumentValueKind::string &&
+            locations.string_value(error.occurrence) == locations.name(error.related));
+    }
+    for (const char* const name : { "Resource", "Root" })
+    {
+        const CSchemaIndex non_storage = schema.find_declaration(CStringView{ name });
+        CByteBuffer bytes;
+        TEST_EXPECT(ctx, bytes.resize(4u, k_max_alignment));
+        std::memset(bytes.data(), 0x5a, bytes.size());
+        TEST_EXPECT(ctx, !clear_unused_storage(schema, non_storage, bytes.view()) && bytes.data()[0] == 0x5a);
+        CDataRemapPlan remap;
+        SRemapDiagnostic remap_error;
+        const SRemapSourceType source{ &schema, data }, invalid{ &schema, non_storage };
+        TEST_EXPECT(ctx, !remap.initialise(&source, 1u, schema, non_storage, remap_error) &&
+            !remap.initialise(&invalid, 1u, schema, data, remap_error));
+        CTypeCompatibility physical_comparison{ schema, schema, ETypeMatch::representation };
+        TEST_EXPECT(ctx, physical_comparison.compare(non_storage, non_storage) == ETypeMatchResult::invalid_input);
+        CLiveDocument instances, bulk, rejected;
+        SInstancePreparationDiagnostic instance_error;
+        SBulkDataPreparationDiagnostic bulk_error;
+        TEST_EXPECT(ctx, tests::parse_document((std::string{ "{\"instances\":{\"" } + name + "\":{\"entry\":{\"data\":{}}}}}").c_str(), instances) &&
+            !prepare_instances_document(CInstanceDocumentQuery{ instances }, schema, rejected, instance_error));
+        TEST_EXPECT(ctx, tests::parse_document((std::string{ "{\"data\":{\"" } + name + "\":{\"entry\":{\"data\":[{}]}}}}").c_str(), bulk) &&
+            !prepare_bulk_data_document(CBulkDataDocumentQuery{ bulk }, schema, rejected, bulk_error));
+    }
+}
+
+static void test_declaration_comparison_and_merging(TTestContext& ctx)
+{
+    CBakedDocumentBlock block;
+    CResolvedSchema schema;
+    if (!resolve(ctx, declaration_fixture, block, schema))
+    {
+        return;
+    }
+    const auto root = schema.find_declaration(CStringView{ "Root" });
+    const CSchemaDocumentQuery query{ block.document() };
+    struct SChange { const char* from; const char* to; bool compatible; };
+    for (const SChange change : {
+        SChange{ R"("group":"root")", R"("group":"other")", true },
+        SChange{ R"("binding":"0")", R"("binding":"1")", true },
+        SChange{ R"("resource":"buffer")", R"("resource":"image")", true },
+        SChange{ R"("default":7)", R"("default":8)", true },
+        SChange{ R"("target":"Data")", R"("target":"Other")", false },
+        SChange{ R"("target":"Data")", R"("target":null)", false },
+        SChange{ R"("type":"Chain","count":2)", R"("type":"Resource","count":2)", false },
+        SChange{ R"("count":2)", R"("count":3)", false },
+        SChange{ R"("second":{"type":"Chain"})", R"("renamed":{"type":"Chain"})", false },
+        SChange{ R"({"second":{"type":"Chain"}},)", "", false },
+        SChange{ R"({"nested":{"type":"Group"}},{"sampler":{"type":"Opaque"}})",
+            R"({"sampler":{"type":"Opaque"}},{"nested":{"type":"Group"}})", false },
+        SChange{ R"("value":{"type":"u32")", R"("value":{"type":"u64")", false }
+    })
+    {
+        CBakedDocumentBlock other_block;
+        CResolvedSchema other;
+        const std::string changed = changed_declaration(change.from, change.to);
+        TEST_EXPECT(ctx, changed != declaration_fixture);
+        if (!resolve(ctx, changed, other_block, other))
+        {
+            return;
+        }
+        const auto other_root = other.find_declaration(CStringView{ "Root" });
+        CDeclarationCompatibility compatible{ schema, other, EDeclarationMatch::compatibility };
+        CDeclarationCompatibility strict{ schema, other, EDeclarationMatch::definition };
+        CDeclarationCompatibility reverse{ other, schema, EDeclarationMatch::definition };
+        TEST_EXPECT(ctx, compatible.compare(root, other_root) == (change.compatible ? ETypeMatchResult::match : ETypeMatchResult::mismatch));
+        TEST_EXPECT(ctx, strict.compare(root, other_root) == ETypeMatchResult::mismatch &&
+            strict.compare(root, other_root) == ETypeMatchResult::mismatch && reverse.compare(other_root, root) == ETypeMatchResult::mismatch);
+        // A failed traversal must not leave a false cached success for a dependency.
+        TEST_EXPECT(ctx, strict.compare(schema.find_declaration(CStringView{ "Opaque" }),
+            other.find_declaration(CStringView{ "Opaque" })) == ETypeMatchResult::match);
+        CLiveDocument destination;
+        TEST_EXPECT(ctx, tests::parse_document(R"({"keep":"unchanged"})", destination));
+        const auto retained = destination.root();
+        SSchemaMergeDiagnostic error;
+        const CSchemaDocumentQuery other_query{ other_block.document() };
+        TEST_EXPECT(ctx, !merge_type_schemas(query, other_query, destination, error) && destination.root() == retained &&
+            destination.string_value(destination.object_child(retained, CStringView{ "keep" })) == CStringView{ "unchanged" });
+        TEST_EXPECT(ctx, error.stage == (change.compatible ? ESchemaMergeStage::document_merge : ESchemaMergeStage::compatibility));
+        TEST_EXPECT(ctx, error.first && error.second);
+        if (change.compatible)
+        {
+            TEST_EXPECT(ctx, error.reason == ESchemaMergeReason::conflicting_value && query.name(error.first) == other_query.name(error.second));
+        }
+    }
+    CBakedDocumentBlock explicit_block;
+    CResolvedSchema explicit_count;
+    if (!resolve(ctx, changed_declaration(R"("second":{"type":"Chain"})", R"("second":{"type":"Chain","count":1})"), explicit_block, explicit_count))
+    {
+        return;
+    }
+    expect_same_declarations(ctx, schema, explicit_count);
+    SDiagnostic diagnostic;
+    SSchemaMergeDiagnostic merge_error;
+    CLiveDocument merged;
+    CResolvedSchema merged_schema;
+    TEST_EXPECT(ctx, merge_type_schemas(query, CSchemaDocumentQuery{ explicit_block.document() }, merged, merge_error) && merged_schema.resolve(merged, diagnostic));
+    expect_same_declarations(ctx, schema, merged_schema);
+
+    // Equal maps in a different order, and disjoint keys, use ordinary metadata merging.
+    CBakedDocumentBlock extra_block;
+    CResolvedSchema extra;
+    if (!resolve(ctx, changed_declaration(R"("binding":"0")", R"("extra":"value","binding":"0")"), extra_block, extra))
+    {
+        return;
+    }
+    for (bool reverse : { false, true })
+    {
+        CLiveDocument output;
+        CResolvedSchema resolved;
+        const CSchemaDocumentQuery second{ extra_block.document() };
+        TEST_EXPECT(ctx, merge_type_schemas(reverse ? second : query, reverse ? query : second, output, merge_error) && resolved.resolve(output, diagnostic));
+        expect_same_declarations(ctx, extra, resolved);
+    }
+    CLiveDocument aliased;
+    CResolvedSchema aliased_schema;
+    TEST_EXPECT(ctx, document_translation::promote(block.document(), aliased) &&
+        merge_type_schemas(CSchemaDocumentQuery{ aliased }, CSchemaDocumentQuery{ extra_block.document() }, aliased, merge_error) &&
+        aliased_schema.resolve(aliased, diagnostic));
+    expect_same_declarations(ctx, extra, aliased_schema);
+
+    // An independently incomplete input remains invalid even if the other defines its target.
+    CBakedDocumentBlock incomplete;
+    TEST_EXPECT(ctx, bake(R"({"types":{"associations":{"Late":{"target":"Data"}}}})", incomplete));
+    CLiveDocument rejected;
+    TEST_EXPECT(ctx, !merge_type_schemas(query, CSchemaDocumentQuery{ incomplete.document() }, rejected, merge_error) &&
+        merge_error.stage == ESchemaMergeStage::second_source_validation && merge_error.validation.reason == EReason::unknown_type);
+    CDeclarationCompatibility invalid{ schema, schema, EDeclarationMatch::definition };
+    TEST_EXPECT(ctx, invalid.compare({}, root) == ETypeMatchResult::invalid_input &&
+        invalid.compare(schema.interface_member_at(root, 0u), root) == ETypeMatchResult::invalid_input);
+
+    CBakedDocumentBlock scalar_block, category_block;
+    CResolvedSchema scalar, category;
+    if (!resolve(ctx, changed_declaration(R"("Scalar":{"target":"u32"})", R"("Scalar":{"target":"f32"})"), scalar_block, scalar) ||
+        !resolve(ctx, R"({"types":{"interfaces":{"Opaque":{"members":[]}}}})", category_block, category))
+    {
+        return;
+    }
+    CDeclarationCompatibility scalar_comparison{ schema, scalar, EDeclarationMatch::compatibility };
+    CDeclarationCompatibility category_comparison{ schema, category, EDeclarationMatch::compatibility };
+    TEST_EXPECT(ctx, scalar_comparison.compare(schema.find_declaration(CStringView{ "Scalar" }), scalar.find_declaration(CStringView{ "Scalar" })) == ETypeMatchResult::mismatch &&
+        category_comparison.compare(schema.find_declaration(CStringView{ "Opaque" }), category.find_declaration(CStringView{ "Opaque" })) == ETypeMatchResult::mismatch);
+}
+
+static void test_declaration_lifecycles(TTestContext& ctx)
+{
+    CBakedDocumentBlock block;
+    CResolvedSchema schema;
+    if (!resolve(ctx, declaration_fixture, block, schema))
+    {
+        return;
+    }
+    SDiagnostic diagnostic;
+    CBakedSchema baked, rebaked;
+    CLiveSchema live;
+    CBakedDocumentBlock rebaked_block;
+    TEST_EXPECT(ctx, baked.set_document(block.document()) && baked.resolve(diagnostic) && baked.promote(live, diagnostic));
+    if (!live.resolved_ready())
+    {
+        return;
+    }
+    expect_same_declarations(ctx, schema, *live.resolved());
+    TEST_EXPECT(ctx, live.bake(rebaked_block, rebaked) && rebaked.resolve(diagnostic));
+    if (rebaked.resolved_ready())
+    {
+        expect_same_declarations(ctx, schema, *rebaked.resolved());
+    }
+    CLiveDocument canonical;
+    CResolvedSchema canonical_schema;
+    TEST_EXPECT(ctx, schema.prepare_output(canonical, diagnostic) && canonical_schema.resolve(canonical, diagnostic));
+    expect_same_declarations(ctx, schema, canonical_schema);
+    CBakedDocumentBlock canonical_block;
+    CResolvedSchema canonical_baked;
+    TEST_EXPECT(ctx, document_translation::bake(canonical, canonical_block) && canonical_baked.resolve(canonical_block.document(), diagnostic));
+    expect_same_declarations(ctx, schema, canonical_baked);
+    CLiveDocument data, composed;
+    TEST_EXPECT(ctx, tests::parse_document(R"({"data":{"Data":{"entry":{"data":[{"value":9}]}}}})", data));
+    SDocumentCompositionDiagnostic composition_error;
+    CResolvedSchema composition;
+    TEST_EXPECT(ctx, compose_document(CSchemaDocumentQuery{ block.document() }, CBulkDataDocumentQuery{ data }, composed, composition_error) &&
+        composition.resolve(composed, diagnostic));
+    expect_same_declarations(ctx, schema, composition);
+    CLiveDocument input;
+    CBakedBulkDataBlock persisted;
+    SBulkDataBlockDiagnostic persistence_error;
+    TEST_EXPECT(ctx, tests::parse_document(R"({"data":{"Data":{"entry":{"locator":{"offset":0,"valid":false},"data":[{"value":9}]}}}})", input) &&
+        persisted.materialise(input, baked, EDataOutputForm::embedded, persistence_error));
+    if (persisted.loaded_ready())
+    {
+        const CSchemaDocumentQuery output{ persisted.document() };
+        TEST_EXPECT(ctx, !output.object_child(output.root(), CStringView{ "types" }));
+        CBakedBulkData records;
+        CLiveBulkData promoted;
+        SBulkDataDiagnostic data_error;
+        TEST_EXPECT(ctx, records.set_document(persisted.document()) && records.attach_schema(baked, persisted.payload_view(), true, data_error) &&
+            records.switch_schema(rebaked, ESchemaSwitchMode::checked, data_error) && records.promote(promoted, rebaked, data_error) &&
+            promoted.reconcile(data_error));
+        if (promoted.loaded_ready())
+        {
+            SBulkDataEntryView entry;
+            TEST_EXPECT(ctx, promoted.entry(promoted.find_entry(CStringView{ "Data" }, CStringView{ "entry" }), entry) &&
+                entry.bytes && entry.bytes[0] == 9u);
+        }
+    }
+    CBakedDocumentBlock only_block;
+    CResolvedSchema only;
+    if (!resolve(ctx, R"({"types":{"associations":{"Opaque":{"target":null}},"interfaces":{"Empty":{"members":[]}}}})", only_block, only))
+    {
+        return;
+    }
+    TEST_EXPECT(ctx, only.definition_count() == 0u && only.declaration_count() == 2u);
+    const std::string comments = write_validation(ctx, only, "schema_non_storage_only");
+    TEST_EXPECT(ctx, comments.find("// association Opaque -> null") != std::string::npos && comments.find("// interface Empty") != std::string::npos);
+
+    // Exercise allocations introduced by the separate records and graph traversal.
+    for (unsigned operation = 0u; operation < 5u; ++operation)
+    {
+        bool completed = false;
+        for (std::size_t fail_on = 0u; fail_on < 1024u && !completed; ++fail_on)
+        {
+            CLiveDocument output;
+            if (operation == 4u)
+            {
+                TEST_EXPECT(ctx, tests::parse_document(R"({"keep":"unchanged"})", output));
+            }
+            const auto original = output.root();
+            tests::TAllocationFailureFixture failure{ 0u, fail_on };
+            memory::CMemoryAllocator allocator{ &failure, &tests::allocate_with_failure, &tests::deallocate_test_memory };
+            memory::CMemoryContext context{ allocator };
+            {
+                tests::TMemoryContextScope scope{ &context };
+                CResolvedSchema resolved;
+                CByteBuffer cpp;
+                if (operation == 0u)
+                {
+                    completed = resolved.resolve(block.document(), diagnostic);
+                    if (!completed)
+                    {
+                        TEST_EXPECT(ctx, !resolved.is_ready() && resolved.declaration_count() == 0u && diagnostic.reason != EReason::none);
+                    }
+                }
+                else if (operation == 1u)
+                {
+                    completed = schema.prepare_output(output, diagnostic);
+                    if (!completed)
+                    {
+                        TEST_EXPECT(ctx, !output.is_ready() && diagnostic.reason != EReason::none);
+                    }
+                }
+                else if (operation == 2u)
+                {
+                    completed = generate_cpp(schema, CStringView{ "fixture" }, cpp, diagnostic);
+                    if (!completed)
+                    {
+                        TEST_EXPECT(ctx, !cpp.is_ready() && diagnostic.reason != EReason::none);
+                    }
+                }
+                else if (operation == 3u)
+                {
+                    CDeclarationCompatibility comparison{ schema, canonical_baked, EDeclarationMatch::definition };
+                    const auto match = comparison.compare(schema.find_declaration(CStringView{ "Root" }), canonical_baked.find_declaration(CStringView{ "Root" }));
+                    completed = match == ETypeMatchResult::match;
+                    if (!completed)
+                    {
+                        TEST_EXPECT(ctx, match == ETypeMatchResult::allocation_failed);
+                        failure.fail_on = SIZE_MAX;
+                        TEST_EXPECT(ctx, comparison.compare(schema.find_declaration(CStringView{ "Root" }), canonical_baked.find_declaration(CStringView{ "Root" })) == ETypeMatchResult::match);
+                    }
+                }
+                else
+                {
+                    SSchemaMergeDiagnostic error;
+                    completed = merge_type_schemas(CSchemaDocumentQuery{ block.document() }, CSchemaDocumentQuery{ canonical_block.document() }, output, error);
+                    if (!completed)
+                    {
+                        TEST_EXPECT(ctx, output.root() == original && error.reason != ESchemaMergeReason::none &&
+                            output.string_value(output.object_child(original, CStringView{ "keep" })) == CStringView{ "unchanged" });
+                    }
+                }
+            }
+            output.deallocate();
+            TEST_EXPECT(ctx, context.is_attribution_empty());
+        }
+        TEST_EXPECT(ctx, completed);
+    }
+}
+
 static std::string decoration_schema(const std::string& decorations, const int selected = -1)
 {
     const auto at = [&](const int location) -> std::string
@@ -2034,10 +2485,14 @@ static void test_record_layout(TTestContext& ctx)
     const std::uint64_t primitive_sizes[] = { 1u, 2u, 4u, 8u, 1u, 2u, 4u, 8u, 2u, 4u, 8u, 1u };
     constexpr std::size_t primitive_count = sizeof(primitive_names) / sizeof(primitive_names[0]);
     static_assert((sizeof(primitive_sizes) / sizeof(primitive_sizes[0])) == primitive_count);
+    TEST_EXPECT(ctx, primitive_name(EPrimitive::none).length() == 0u &&
+        primitive_name(static_cast<EPrimitive>(primitive_count + 1u)).length() == 0u &&
+        primitive_name(static_cast<EPrimitive>(UINT8_MAX)).length() == 0u);
     for (std::uint32_t primitive_ordinal = 0u; primitive_ordinal < primitive_count; ++primitive_ordinal)
     {
         SType primitive;
         TEST_EXPECT(ctx, schema.type(schema.find_type(CStringView{ primitive_names[primitive_ordinal] }), primitive));
+        TEST_EXPECT(ctx, primitive_name(primitive.primitive) == CStringView{ primitive_names[primitive_ordinal] });
         TEST_EXPECT(ctx, (primitive.category == ECategory::primitive) &&
             (primitive.primitive == static_cast<EPrimitive>(primitive_ordinal + 1u)) &&
             (primitive.size == primitive_sizes[primitive_ordinal]) && (primitive.alignment == primitive.size));
@@ -10054,6 +10509,9 @@ int run_schema_tests()
     run_data_merge_cases(ctx);
     run_document_boundary_cases(ctx);
     schema_tests::test_success(ctx);
+    schema_tests::test_non_storage_declarations(ctx);
+    schema_tests::test_declaration_comparison_and_merging(ctx);
+    schema_tests::test_declaration_lifecycles(ctx);
     schema_tests::test_decorations(ctx);
     schema_tests::test_decoration_merging(ctx);
     schema_tests::test_decoration_storage(ctx);

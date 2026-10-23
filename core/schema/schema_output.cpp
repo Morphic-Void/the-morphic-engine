@@ -236,6 +236,13 @@ bool CResolvedSchema::prepare_output(CLiveDocument& destination, SDiagnostic& di
             }
         }
     }
+    for (std::size_t i = 0u; i < m_interface_members.size(); ++i)
+    {
+        if (!structural(m_interface_members[i].source, "count"))
+        {
+            return false;
+        }
+    }
     for (std::size_t i = 0u; i < m_defaults.size(); ++i)
     {
         const SDefaultRecord& value = m_defaults[i];

@@ -451,6 +451,10 @@ slots plus any additional array tail padding. Repeated complete arrays advance
 by size; size need not be divisible by element stride. The existing observations
 also expose explicit array alignment and recursive padding without new categories.
 Built-ins have no declaration occurrence or document name ID.
+`primitive_name(EPrimitive)` returns their canonical schema spelling from static
+storage, without allocation or a resolved owner. `none` and invalid enum values
+return an empty string view. Resolver lookup and generated declaration comments
+use the same authoritative name table.
 
 `SType.primitive` directly describes the physical primitive for primitive, enum
 and bit-structure types. The semantic category and `element_or_storage` reference
@@ -460,7 +464,7 @@ underlying storage), independently of the containing bit-storage word.
 `SMember.size` is the complete resolved member-type extent, including owned
 padding. Public size/offset/alignment/stride observations remain 64-bit.
 
-Definitions are enumerated in document order, including category-group order.
+Physical definitions are enumerated in document order, including physical category-group order.
 Members, labels and bit fields retain their declared order. Name-based and
 ordinal access select the same records. `first_label_for_value` accepts exact
 signed/unsigned integer values and returns the first alias in declaration order.
@@ -487,6 +491,42 @@ declarations therefore need not list every queryable member. Empty structures
 accept canonical `detail.size: 0` and `detail.alignment: 1`; metadata requesting
 storage or stronger alignment is invalid.
 
+### Non-storage declaration observations
+
+`find_declaration(name)` looks up built-ins, physical types, associations and
+interfaces in one namespace. `declaration_count/at` enumerate authored physical
+definitions first, then non-storage declarations, retaining document order within
+each partition. Built-ins are available by name but excluded from enumeration.
+Existing `find_type`, `definition_count/at/ordinal` and `type` remain physical-only.
+
+`declaration(index, SDeclaration&)` observes category, name and source without
+claiming physical layout. `EDeclarationCategory::interface_type` denotes interfaces;
+physical category values correspond to `ECategory`. Built-ins retain their existing
+empty name IDs/source handles and can be distinguished through `SType.primitive`.
+`association(index, SAssociation&)` returns the immediate checked target index;
+an invalid target denotes authored null, not a lookup failure. `interface_info`
+returns `SInterface.count`, the number of declared members.
+
+`interface_member_at`, `find_interface_member` and `interface_member` expose
+`SInterfaceMember` with name, source, referenced `declaration` index and effective
+positive `count`. Multiplicity never expands records. General observations and
+decoration queries allocate nothing, borrow the unchanged source and follow
+existing index lifetime/error conventions. Declaration and reference occurrences
+map to their checked indices; interface member occurrences map to member indices.
+
+Non-storage records use separate tables; existing physical record sizes are
+unchanged. `type`, physical member/default queries and data operations reject their
+indices. Empty physical types remain valid. Resolution checks all declarations,
+including unused ones, and rejects mixed association/interface cycles. Moving,
+clearing and re-resolution include the new tables.
+
+`CDeclarationCompatibility` accepts `EDeclarationMatch::compatibility` or
+`definition`. Both traverse checked relationships and preserve immediate identities,
+ordered interface members and effective counts. Compatibility uses existing physical
+representation checks and ignores decorations/defaults/internal markers; definition
+includes them. `CTypeCompatibility` remains physical-only. Both use operation-local
+graph caching with allocation-failure results and no cache across re-resolution.
+
 ### Decoration observations
 
 `SDecoration` contains borrowed `key` and `value` string views and a `source`
@@ -496,7 +536,7 @@ handle identifying the original string node. `CResolvedSchema` provides:
 - `first_decoration(owner, result)` to start in document order;
 - `next_decoration(current.source, result)` to continue within the same map.
 
-The owner is a resolved named-type, array, structure-member or bit-field index.
+The owner is a resolved named declaration, array, structure/interface member or bit-field index.
 Built-ins and unsupported record kinds have no decorations. Missing keys, empty
 maps, invalid inputs, end of enumeration and unready schemas return false without
 changing the output. A successful query can return an empty string value. There
@@ -577,6 +617,10 @@ are not copied. Both inputs must resolve independently, so one cannot supply a
 missing dependency in the other. Matching type names require the same resolved
 layout and interpretation, including referenced names, member order, enum label
 order and bit-field semantics. Equivalent natural and explicit layouts can merge.
+Matching associations require equal immediate target identity/presence. Matching
+interfaces require equal ordered member names, referenced identities and effective
+counts; their dependency declarations must also be compatible. This check uses
+`CDeclarationCompatibility` and does not interpret consumer decorations.
 
 The merge operates on original declarations, without normalising them through
 `prepare_output`. A missing explicit default yields to a supplied default; two
@@ -1587,6 +1631,10 @@ identity, independent of interned spelling. Its lifetime follows the owner.
 | Document occurrence | Resolved result |
 | --- | --- |
 | Named enum, structure or bit-structure definition | Type |
+| Named association or interface definition | Non-storage declaration |
+| Named interface member | Interface member |
+| String association `target` or interface-member `type` | Referenced declaration, including built-ins |
+| Explicit null association `target` | Zero |
 | Named structure member, including a named component | Member |
 | Enum label | Label, including each alias |
 | Named bit field | Field |
@@ -1595,6 +1643,7 @@ identity, independent of interned spelling. Its lifetime follows the owner.
 | Package/category objects, `members`, `values`, `detail` | Zero |
 | Counts, masks, alignment, size, internal marker, interpretation | Zero |
 | Defaults, their scalar/array children, enum default labels | Zero |
+| Decoration objects and their string values | Zero; decoration queries expose original handles |
 | `instances`, `data`, and all their descendants | Zero |
 
 There are no resolved slots or mapping entries for ordinary array positions.
@@ -1733,8 +1782,11 @@ by the suite. They are measurements, not a serialization format or promised ABI.
 | Explicit default node | 48 |
 | Occurrence mapping pair | 24 |
 
-The owner stores twelve primitive records plus one record per named definition
-and inline array descriptor. Only explicit supplied defaults allocate default
+The owner stores twelve primitive records plus one physical record per named
+physical definition and inline array descriptor. Associations/interfaces and their
+members have separate non-storage tables and four-byte name-order entries. These
+tables carry checked relationships and member counts without physical layout.
+Only explicit supplied defaults allocate default
 nodes. Named lookup resolves the string through the document's existing intern
 table, then searches an ordinal permutation using document-local name IDs.
 Types, members and fields need four index bytes each; enum labels need eight
