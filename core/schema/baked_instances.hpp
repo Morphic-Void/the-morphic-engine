@@ -73,6 +73,7 @@ struct SInstanceEntryView
 class CBakedInstances
 {
 public:
+
     //==============================================================================
     //  Lifetime and binding
     //==============================================================================
@@ -134,6 +135,7 @@ public:
     [[nodiscard]] CByteConstView payload_view() const noexcept { return loaded_ready() ? m_payload : CByteConstView{}; }
 
 private:
+
     //==============================================================================
     //  Private planning and records
     //==============================================================================
@@ -159,6 +161,9 @@ private:
     [[nodiscard]] bool fail(SInstanceDiagnostic& diagnostic, const EInstanceLoadReason reason, const CBakedValueIndex occurrence) const noexcept;
     void clear_loaded() noexcept;
     void take_from(CBakedInstances& source) noexcept;
+    template<class TSchema>
+    [[nodiscard]] bool attach_block_to(const CBakedDataBlock& block, TSchema& schema,
+        CByteBuffer& returned_owner, const bool compare_embedded, SInstanceDiagnostic& diagnostic) noexcept;
     template<class TSchema>
     [[nodiscard]] bool attach_to(TSchema& schema, CByteBuffer* const returned_owner, const CByteConstView& payload,
         const bool compare_embedded, SInstanceDiagnostic& diagnostic) noexcept;

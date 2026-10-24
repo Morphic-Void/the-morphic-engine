@@ -71,6 +71,7 @@ struct SBulkDataEntryView
 class CBakedBulkData
 {
 public:
+
     //==============================================================================
     //  Lifetime and binding
     //==============================================================================
@@ -133,7 +134,9 @@ public:
     [[nodiscard]] CBulkDataHandle find_entry(const CStringView& type, const CStringView& name) const noexcept;
     [[nodiscard]] bool entry(const CBulkDataHandle handle, SBulkDataEntryView& result) const noexcept;
     [[nodiscard]] CByteConstView payload_view() const noexcept { return loaded_ready() ? m_payload : CByteConstView{}; }
+
 private:
+
     //==============================================================================
     //  Private planning and records
     //==============================================================================
@@ -152,6 +155,9 @@ private:
     [[nodiscard]] bool fail(SBulkDataDiagnostic& diagnostic, const EBulkDataLoadReason reason, const CBakedValueIndex occurrence) const noexcept;
     void clear_loaded() noexcept;
     void take_from(CBakedBulkData& source) noexcept;
+    template<class TSchema>
+    [[nodiscard]] bool attach_block_to(const CBakedDataBlock& block, TSchema& schema,
+        CByteBuffer& returned_owner, const bool compare_embedded, SBulkDataDiagnostic& diagnostic) noexcept;
     template<class TSchema>
     [[nodiscard]] bool attach_to(TSchema& schema, CByteBuffer* const returned_owner, const CByteConstView& payload,
         const bool compare_embedded, SBulkDataDiagnostic& diagnostic) noexcept;

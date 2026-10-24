@@ -112,12 +112,12 @@ bool prepare_missing_data_document(const CBakedDocument& source, const bool bulk
     return prepare_data_block_locators(staging, bulk, diagnostic) && prepare_materialisation(staging, output, diagnostic);
 }
 
-bool prepare_data_block_output(const CBakedDocument& source, const EDataBlockKind kind,
+bool prepare_data_block_output(const CBakedDocument& source, const EDataDomain domain,
     const EDataOutputForm form, const CBakedBulkData* const bulk_data, CLiveDocument& output, SDataBlockDiagnostic& diagnostic) noexcept
 {
     //  The source has passed role loading. Copy only its selected section;
     //  persistence metadata belongs to the newly assembled file.
-    const CStringView section_name{ (kind == EDataBlockKind::instances) ? "instances" : "data" };
+    const CStringView section_name{ (domain == EDataDomain::instances) ? "instances" : "data" };
     if (!document_translation::promote_root_member(source, section_name, output))
     {
         return construction_failure(diagnostic, EDataBlockStage::document_promotion, EDataBlockReason::document_promotion_failed);
@@ -130,7 +130,7 @@ bool prepare_data_block_output(const CBakedDocument& source, const EDataBlockKin
     }
     for (CNodeKey group = output.first_child(section); group; group = output.next_sibling(group))
     {
-        if (kind == EDataBlockKind::instances)
+        if (domain == EDataDomain::instances)
         {
             if ((form == EDataOutputForm::stripped) && !strip_instance_declarations(output, group))
             {
@@ -169,14 +169,10 @@ bool prepare_data_block_output(const CBakedDocument& source, const EDataBlockKin
             }
         }
     }
-    if ((form == EDataOutputForm::stripped) && !append_metadata(output, output.create_boolean(true, CStringView{ "stripped" }), diagnostic))
-    {
-        return false;
-    }
     return true;
 }
 
-bool prepare_common_data_block_storage(CLiveDocument& description, const std::size_t* instance_size,
+static bool prepare_common_data_block_storage(CLiveDocument& description, const std::size_t* instance_size,
     const std::size_t* bulk_size, CByteBuffer& storage, SDataBlockLayout& layout, SDataBlockDiagnostic& diagnostic) noexcept
 {
     diagnostic = {};
@@ -237,17 +233,17 @@ bool prepare_common_data_block_storage(CLiveDocument& description, const std::si
 }
 
 bool prepare_data_block_storage(CLiveDocument& description, const std::size_t payload_size,
-    const EDataBlockKind kind, CByteBuffer& storage, std::uint8_t*& payload, SDataBlockDiagnostic& diagnostic) noexcept
+    const EDataDomain domain, CByteBuffer& storage, std::uint8_t*& payload, SDataBlockDiagnostic& diagnostic) noexcept
 {
     payload = nullptr;
-    if ((kind != EDataBlockKind::instances) && (kind != EDataBlockKind::bulk_data))
+    if ((domain != EDataDomain::instances) && (domain != EDataDomain::bulk_data))
     {
         return construction_failure(diagnostic, EDataBlockStage::preconditions, EDataBlockReason::invalid_option);
     }
     SDataBlockLayout layout;
-    if (!prepare_common_data_block_storage(description, ((kind == EDataBlockKind::instances) ? &payload_size : nullptr),
-        ((kind == EDataBlockKind::bulk_data) ? &payload_size : nullptr), storage, layout, diagnostic)) return false;
-    if (payload_size) payload = storage.data() + ((kind == EDataBlockKind::instances) ? layout.instance_offset : layout.bulk_offset);
+    if (!prepare_common_data_block_storage(description, ((domain == EDataDomain::instances) ? &payload_size : nullptr),
+        ((domain == EDataDomain::bulk_data) ? &payload_size : nullptr), storage, layout, diagnostic)) return false;
+    if (payload_size) payload = storage.data() + ((domain == EDataDomain::instances) ? layout.instance_offset : layout.bulk_offset);
     return true;
 }
 

@@ -21,14 +21,14 @@ namespace schema::detail
 constexpr std::size_t k_data_block_alignment = 128u;
 constexpr std::uint64_t k_data_block_version = 1u;
 
-enum class EDataBlockKind : std::uint8_t { instances, bulk_data };
+enum class EDataDomain : std::uint8_t { instances = 0u, bulk_data };
 
 struct SDataBlockRoot
 {
     SOccurrence types, instances, bulk_data;
     SOccurrence instance_size, bulk_size;
     std::uint64_t instance_bytes{}, bulk_bytes{};
-    bool envelope{}, stripped{};
+    bool stripped{};
 };
 
 struct SDataBlockLayout

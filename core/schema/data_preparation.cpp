@@ -143,10 +143,6 @@ template<bool Bulk>
 bool CDataPreparation<Bulk>::admit_root() noexcept
 {
     const SOccurrence root = m_source.root();
-    if (!m_source.is_ready() || (m_source.value_kind(root) != EDocumentValueKind::object))
-    {
-        return fail(TReason::invalid_input, root);
-    }
     detail::SDataBlockRoot metadata;
     SDataBlockDiagnostic error;
     if (!detail::read_data_block_root(m_source, metadata, error))

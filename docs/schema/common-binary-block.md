@@ -110,3 +110,17 @@ source locations and failure transactionality. The Debug x64 build and core run
 passed with 95,253 schema checks and 1,396 bundle-request checks; all suites passed.
 Policy, diff-whitespace and line-ending checks also passed. The earlier full
 configuration matrix was not repeated for these diagnostic-only code changes.
+
+The subsequent internal cleanup shares each typed role's common-block attachment
+implementation across live and baked schemas, reuses validated root fields, and
+removes obsolete private helpers and an unnecessary destination template parameter.
+Materialisation now names its data domains and separates output-description
+preparation from diagnostic remapping. Temporary per-domain stripped markers are
+no longer allocated; the completed document still receives one global marker.
+Public APIs, persisted bytes, diagnostic precedence and publication rules are
+unchanged. Focused regressions cover the shared attachment paths, ownership,
+source-relative failure diagnostics and root-error precedence.
+The cleanup passed the Debug x64 build and core run: 95,446 schema checks and
+1,396 bundle-request checks, with all suites passing. Policy, diff-whitespace and
+line-ending checks also passed. The earlier full configuration matrix was not
+repeated for this internal refactor. Changes remain uncommitted for review.

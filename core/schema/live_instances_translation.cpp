@@ -463,8 +463,7 @@ bool CLiveInstances::prepare_output_to(CLiveDocument& document, CByteBuffer& pay
                     diagnostic.reason = EInstanceLoadReason::allocation_failed;
                     return false;
                 }
-                frame = { m_document.first_child(source_children), output_children,
-                    static_cast<std::uint32_t>(output_records.size() - 1u) };
+                frame = { m_document.first_child(source_children), output_children, static_cast<std::uint32_t>(output_records.size() - 1u) };
             }
         }
     }
@@ -472,8 +471,7 @@ bool CLiveInstances::prepare_output_to(CLiveDocument& document, CByteBuffer& pay
     std::uint8_t* payload_bytes{};
     if (block_diagnostic)
     {
-        if (!detail::prepare_data_block_storage(staged_document, cursor, detail::EDataBlockKind::instances,
-            staged_payload, payload_bytes, *block_diagnostic))
+        if (!detail::prepare_data_block_storage(staged_document, cursor, detail::EDataDomain::instances, staged_payload, payload_bytes, *block_diagnostic))
         {
             return false;
         }

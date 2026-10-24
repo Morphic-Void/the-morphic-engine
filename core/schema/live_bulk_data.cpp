@@ -933,8 +933,7 @@ bool CLiveBulkData::prepare_output_to(CLiveDocument& document, CByteBuffer& payl
     std::uint8_t* payload_bytes{};
     if (block_diagnostic)
     {
-        if (!detail::prepare_data_block_storage(staged_document, cursor, detail::EDataBlockKind::bulk_data,
-            staged_payload, payload_bytes, *block_diagnostic))
+        if (!detail::prepare_data_block_storage(staged_document, cursor, detail::EDataDomain::bulk_data, staged_payload, payload_bytes, *block_diagnostic))
         {
             return false;
         }

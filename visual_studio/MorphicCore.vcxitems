@@ -75,7 +75,6 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\baked_bulk_data.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\data_output.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\data_block.hpp" />
-    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\data_block_attachment.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\baked_data_block.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\data_block_construction.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\data_block_format.hpp" />

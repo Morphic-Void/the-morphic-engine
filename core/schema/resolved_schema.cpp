@@ -1278,14 +1278,18 @@ bool CResolver::run() noexcept
 {
     detail::SDataBlockRoot root;
     SDataBlockDiagnostic diagnostic;
-    if (!detail::read_data_block_root(detail::SDocumentQueryAccess::read(m_document), root, diagnostic) || !root.types)
+    if (!detail::read_data_block_root(detail::SDocumentQueryAccess::read(m_document), root, diagnostic))
     {
         const detail::SOccurrence value = diagnostic.location.live_node ? detail::SOccurrence{ diagnostic.location.live_node } : detail::SOccurrence{ diagnostic.location.baked_value };
         return fail((diagnostic.reason == EDataBlockReason::unknown_property) ? EReason::unknown_property :
-            (((diagnostic.reason == EDataBlockReason::none) || (diagnostic.reason == EDataBlockReason::missing_property)) ? EReason::missing_property : EReason::invalid_input),
+            ((diagnostic.reason == EDataBlockReason::missing_property) ? EReason::missing_property : EReason::invalid_input),
             (value ? detail::SSchemaHandleAccess::make(value) : m_document.root()));
     }
-    const CSchemaHandle types = property(m_document.root(), "types");
+    if (!root.types)
+    {
+        return fail(EReason::missing_property, m_document.root());
+    }
+    const CSchemaHandle types = detail::SSchemaHandleAccess::make(root.types);
     if (!shape(types, { "enumerations", "structures", "bit_structures", "associations", "interfaces" }))
     {
         return false;

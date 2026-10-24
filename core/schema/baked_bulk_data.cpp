@@ -25,17 +25,6 @@ namespace schema
 {
 
 //==============================================================================
-//  Planning helpers
-//==============================================================================
-
-[[nodiscard]] static bool bulk_data_name_is(const CStringView name, const char* const literal) noexcept
-{
-    const CStringView expected{ literal };
-    return (name.length() == expected.length()) &&
-        ((name.length() == 0u) || (std::memcmp(name.string(), expected.string(), name.length()) == 0));
-}
-
-//==============================================================================
 //  Lifetime, binding and diagnostics
 //==============================================================================
 
@@ -102,7 +91,8 @@ bool CBakedBulkData::set_document(const CMutableBakedDocument& document) noexcep
     return true;
 }
 
-bool CBakedBulkData::attach_block(const CBakedDataBlock& block, CBakedSchema& schema,
+template<class TSchema>
+bool CBakedBulkData::attach_block_to(const CBakedDataBlock& block, TSchema& schema,
     CByteBuffer& returned_owner, const bool compare_embedded, SBulkDataDiagnostic& diagnostic) noexcept
 {
     diagnostic = {};
@@ -134,36 +124,16 @@ bool CBakedBulkData::attach_block(const CBakedDataBlock& block, CBakedSchema& sc
     return true;
 }
 
+bool CBakedBulkData::attach_block(const CBakedDataBlock& block, CBakedSchema& schema,
+    CByteBuffer& returned_owner, const bool compare_embedded, SBulkDataDiagnostic& diagnostic) noexcept
+{
+    return attach_block_to(block, schema, returned_owner, compare_embedded, diagnostic);
+}
+
 bool CBakedBulkData::attach_block(const CBakedDataBlock& block, CLiveSchema& schema,
     CByteBuffer& returned_owner, const bool compare_embedded, SBulkDataDiagnostic& diagnostic) noexcept
 {
-    diagnostic = {};
-    if (document_ready() || !block.loaded_ready() || returned_owner.is_ready())
-    {
-        diagnostic.reason = EBulkDataLoadReason::invalid_input;
-        return false;
-    }
-    CBakedBulkData staged;
-    CBakedDocumentBlock working;
-    if (block.bulk_binary_available())
-    {
-        if (!staged.set_document(block.document()) || !staged.attach_schema(schema, block.bulk_payload_view(), compare_embedded, diagnostic)) return false;
-    }
-    else
-    {
-        SDataBlockDiagnostic preparation;
-        if (!detail::prepare_missing_data_document(block.document(), true, working, preparation) ||
-            !staged.set_document(CMutableBakedDocument{ working }) || !staged.attach_schema(schema, returned_owner, diagnostic))
-        {
-            if (diagnostic.reason == EBulkDataLoadReason::none) diagnostic.reason = EBulkDataLoadReason::invalid_input;
-            diagnostic.occurrence = detail::SBulkDataHandleAccess::make(detail::SOccurrence{
-                detail::materialisation_source_value(block.document(), working.document(), detail::SBulkDataHandleAccess::occurrence(diagnostic.occurrence).baked) });
-            return false;
-        }
-        staged.m_working_document = std::move(working);
-    }
-    take_from(staged);
-    return true;
+    return attach_block_to(block, schema, returned_owner, compare_embedded, diagnostic);
 }
 
 template<class TSchema>
@@ -370,29 +340,16 @@ bool CBakedBulkData::plan(const bool supplied, const std::size_t payload_size,
     }
     if (metadata.bulk_size && !supplied) return fail(diagnostic, EBulkDataLoadReason::binary_required, metadata.bulk_size.baked);
     if (metadata.bulk_size && (metadata.bulk_bytes != payload_size)) return fail(diagnostic, EBulkDataLoadReason::invalid_range, metadata.bulk_size.baked);
-    const CBakedValueIndex root = m_document.root();
-    if (m_document.value_type(root) != EBakedValueType::object)
-    {
-        return fail(diagnostic, EBulkDataLoadReason::invalid_input, root);
-    }
-    const CBakedValueIndex marker = m_document.object_child(root, CStringView{ "stripped" });
-    bool stripped{};
-    if (marker && !m_document.boolean_value(marker, stripped))
-    {
-        return fail(diagnostic, EBulkDataLoadReason::invalid_input, marker);
-    }
+    const bool stripped = metadata.stripped;
     if (stripped && !supplied)
     {
+        const CBakedValueIndex marker = m_document.object_child(m_document.root(), CStringView{ "stripped" });
         return fail(diagnostic, EBulkDataLoadReason::binary_required, marker);
     }
-    const CBakedValueIndex data_root = m_document.object_child(root, CStringView{ "data" });
+    const CBakedValueIndex data_root = metadata.bulk_data.baked;
     if (!data_root.is_valid())
     {
         return true;
-    }
-    if (m_document.value_type(data_root) != EBakedValueType::object)
-    {
-        return fail(diagnostic, EBulkDataLoadReason::invalid_input, data_root);
     }
     std::uint64_t cursor{};
     for (CBakedValueIndex group = m_document.first_child(data_root); group.is_valid(); group = m_document.next_sibling(group))

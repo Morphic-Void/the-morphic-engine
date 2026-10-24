@@ -89,8 +89,8 @@ bool read_data_block_root(const CDocumentRead& document, SDataBlockRoot& output,
         else if (text_is(name, "stripped")) stripped = child;
         else return root_failure(diagnostic, EDataBlockReason::unknown_property, child);
     }
-    staged.envelope = file_type || version || staged.instance_size || staged.bulk_size;
-    if (staged.envelope || require_envelope)
+    const bool envelope = file_type || version || staged.instance_size || staged.bulk_size;
+    if (envelope || require_envelope)
     {
         if (!file_type || !version) return root_failure(diagnostic, EDataBlockReason::missing_property, root);
         if (document.value_kind(file_type) != EDocumentValueKind::string)

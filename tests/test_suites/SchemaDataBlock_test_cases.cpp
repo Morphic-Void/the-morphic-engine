@@ -92,15 +92,15 @@ struct SSelectedBlockView
     bool stripped{};
 };
 
-static bool validate_domain(const void* bytes, const std::size_t size, const EDataBlockKind kind,
+static bool validate_domain(const void* bytes, const std::size_t size, const EDataDomain kind,
     SSelectedBlockView& output, SDataBlockDiagnostic& diagnostic)
 {
     output = {};
     SDataBlockView view;
     if (!validate_data_block(bytes, size, view, diagnostic)) return false;
     output.document = view.document;
-    output.section = view.document.object_child(view.document.root(), CStringView{ kind == EDataBlockKind::instances ? "instances" : "data" });
-    output.payload = (kind == EDataBlockKind::instances) ? view.instances : view.bulk_data;
+    output.section = view.document.object_child(view.document.root(), CStringView{ kind == EDataDomain::instances ? "instances" : "data" });
+    output.payload = (kind == EDataDomain::instances) ? view.instances : view.bulk_data;
     output.stripped = view.stripped;
     return true;
 }
@@ -135,10 +135,10 @@ struct SFixture
     }
 };
 
-static std::string envelope(const EDataBlockKind kind, const std::string& size = "0",
+static std::string envelope(const EDataDomain kind, const std::string& size = "0",
     const std::string& section = "{}", const std::string& extra = {})
 {
-    const bool instances = kind == EDataBlockKind::instances;
+    const bool instances = kind == EDataDomain::instances;
     return std::string{ "{\"fileType\":\"morphic-schema-data\",\"version\":1,\"" } +
         (instances ? "instancePayloadSize" : "bulkPayloadSize") + "\":" + size + ",\"" +
         (instances ? "instances" : "data") + "\":" + section + extra + "}";
@@ -158,7 +158,7 @@ static void expect_empty(TTestContext& ctx, const SSelectedBlockView& view)
 }
 
 static void expect_failure(TTestContext& ctx, const void* const bytes, const std::size_t size,
-    const EDataBlockKind kind, const EDataBlockReason reason, const EDataBlockLocationKind location,
+    const EDataDomain kind, const EDataBlockReason reason, const EDataBlockLocationKind location,
     const CBakedValueIndex value = {}, const std::uint64_t offset = 0u,
     const EDataBlockStage stage = EDataBlockStage::format_validation)
 {
@@ -178,7 +178,7 @@ static void test_valid(TTestContext& ctx)
 {
     TEST_EXPECT(ctx, SInstancesBlockDiagnostic{}.role.reason == EInstanceLoadReason::none &&
         SBulkDataBlockDiagnostic{}.role.reason == EBulkDataLoadReason::none);
-    for (const auto kind : { EDataBlockKind::instances, EDataBlockKind::bulk_data })
+    for (const auto kind : { EDataDomain::instances, EDataDomain::bulk_data })
     {
         for (const std::string& marker : { std::string{}, std::string{ ",\"stripped\":false" }, std::string{ ",\"stripped\":true" } })
         {
@@ -199,7 +199,7 @@ static void test_valid(TTestContext& ctx)
         }
 
         //  Root order is not canonical; nested structure is the role's concern.
-        const bool instances = kind == EDataBlockKind::instances;
+        const bool instances = kind == EDataDomain::instances;
         const std::string reordered = std::string{ "{\"" } + (instances ? "instances" : "data") +
             "\":{\"opaque\":{}},\"" + std::string{ instances ? "instancePayloadSize" : "bulkPayloadSize" } + "\":7,\"stripped\":false,\"version\":1,\"fileType\":\"" +
             (instances ? "morphic-schema-data" : "morphic-schema-data") + "\"}";
@@ -250,12 +250,12 @@ static void test_metadata(TTestContext& ctx)
     };
     for (const auto& item : cases)
     {
-        for (const auto kind : { EDataBlockKind::instances, EDataBlockKind::bulk_data })
+        for (const auto kind : { EDataDomain::instances, EDataDomain::bulk_data })
         {
             std::string json = item.json;
             std::string property = item.property;
             //  Swap both vocabulary and identifiers to exercise symmetric rejection.
-            if (kind == EDataBlockKind::bulk_data)
+            if (kind == EDataDomain::bulk_data)
             {
                 const auto swap_text = [&json](const std::string& a, const std::string& b)
                 {
@@ -283,8 +283,8 @@ static void test_metadata(TTestContext& ctx)
 static void test_bounds(TTestContext& ctx)
 {
     SFixture fixture;
-    if (!fixture.build(envelope(EDataBlockKind::instances, "3", R"({"opaque":{}})"), 3u)) { TEST_EXPECT(ctx, false); return; }
-    const auto kind = EDataBlockKind::instances;
+    if (!fixture.build(envelope(EDataDomain::instances, "3", R"({"opaque":{}})"), 3u)) { TEST_EXPECT(ctx, false); return; }
+    const auto kind = EDataDomain::instances;
     const auto payload_value = fixture.prefix.document().root();
     expect_failure(ctx, nullptr, 0u, kind, EDataBlockReason::invalid_input, EDataBlockLocationKind::none, {}, 0u, EDataBlockStage::preconditions);
     expect_failure(ctx, fixture.file.data() + 1u, fixture.file.size() - 1u, kind, EDataBlockReason::invalid_alignment, EDataBlockLocationKind::none);
@@ -403,7 +403,7 @@ struct SBlockTraits
     using Block = std::conditional_t<Instances, TDomainBlock<true>, TDomainBlock<false>>;
     using Diagnostic = std::conditional_t<Instances, SInstancesBlockDiagnostic, SBulkDataBlockDiagnostic>;
     using Reason = std::conditional_t<Instances, EInstanceLoadReason, EBulkDataLoadReason>;
-    static constexpr EDataBlockKind kind = Instances ? EDataBlockKind::instances : EDataBlockKind::bulk_data;
+    static constexpr EDataDomain kind = Instances ? EDataDomain::instances : EDataDomain::bulk_data;
 
     static auto query(const Block& block)
     {
@@ -1690,6 +1690,119 @@ static void test_stripping(TTestContext& ctx)
     test_stripping_allocations<false>(ctx);
 }
 
+template<bool Instances, class TSchema>
+static void test_common_block_attachment(TTestContext& ctx, TSchema& schema)
+{
+    using T = SBlockTraits<Instances>;
+    const char* const text = Instances ? R"({"instances":{"u8":{"one":{"declaration":7}}}})" :
+        R"({"data":{"u8":{"one":{"data":[7]}}}})";
+    CLiveDocument source;
+    TEST_EXPECT(ctx, tests::parse_document(text, source));
+    for (const bool supplied : { false, true })
+    {
+        CBakedDataBlock block;
+        SDataBlockDiagnostic storage_error;
+        SDataBlockBuildDiagnostic build_error;
+        TEST_EXPECT(ctx, supplied ? block.materialise(source, schema, EDataOutputForm::embedded, build_error) :
+            block.assemble(source, {}, storage_error));
+        const auto snapshot = byte_snapshot(block.file_bytes());
+        const CByteConstView payload = Instances ? block.instance_payload_view() : block.bulk_payload_view();
+        CByteBuffer owner;
+        typename T::Role role;
+        typename T::RoleDiagnostic diagnostic;
+        TEST_EXPECT(ctx, role.attach_block(block, schema, owner, true, diagnostic));
+        TEST_EXPECT(ctx, role.loaded_ready() && diagnostic.reason == T::Reason::none && schema.reference_count() == 1u);
+        TEST_EXPECT(ctx, supplied ? !owner.is_ready() : (owner.size() == 1u));
+        const auto query = role.document_query();
+        const auto group = query.object_child(query.object_child(query.root(), CStringView{ Instances ? "instances" : "data" }), CStringView{ "u8" });
+        const auto one = query.object_child(group, CStringView{ "one" });
+        std::conditional_t<Instances, SInstanceEntryView, SBulkDataEntryView> entry;
+        TEST_EXPECT(ctx, one && role.entry(one, entry));
+        TEST_EXPECT(ctx, entry.byte_count == 1u && entry.bytes && entry.bytes[0] == 7u);
+        TEST_EXPECT(ctx, entry.bytes == (supplied ? payload.data() : owner.data()));
+        TEST_EXPECT(ctx, tests::same_bytes(block.file_bytes(), snapshot));
+        role.clear();
+        TEST_EXPECT(ctx, schema.reference_count() == 0u);
+
+        //  A populated output owner is rejected before any binding or mutation.
+        if (!owner.is_ready()) TEST_EXPECT(ctx, owner.allocate(1u, 128u) && owner.set_size(1u));
+        owner.data()[0] = 83u;
+        const auto* const original_owner = owner.data();
+        TEST_EXPECT(ctx, !role.attach_block(block, schema, owner, true, diagnostic) && diagnostic.reason == T::Reason::invalid_input);
+        TEST_EXPECT(ctx, !role.document_ready() && !role.loaded_ready() && schema.reference_count() == 0u);
+        TEST_EXPECT(ctx, owner.data() == original_owner && owner.size() == 1u && owner.data()[0] == 83u);
+        TEST_EXPECT(ctx, tests::same_bytes(block.file_bytes(), snapshot));
+    }
+
+    //  Construction diagnostics refer back to the block, not the discarded copy.
+    CLiveDocument invalid;
+    TEST_EXPECT(ctx, tests::parse_document(Instances ? R"({"instances":{"Missing":{"one":{"declaration":7}}}})" :
+        R"({"data":{"Missing":{"one":{"data":[7]}}}})", invalid));
+    CBakedDataBlock block;
+    SDataBlockDiagnostic storage_error;
+    TEST_EXPECT(ctx, block.assemble(invalid, {}, storage_error));
+    const auto snapshot = byte_snapshot(block.file_bytes());
+    CByteBuffer owner;
+    typename T::Role role;
+    typename T::RoleDiagnostic diagnostic;
+    TEST_EXPECT(ctx, !role.attach_block(block, schema, owner, true, diagnostic) && diagnostic.reason == T::Reason::unknown_type);
+    TEST_EXPECT(ctx, !role.document_ready() && !role.loaded_ready() && !owner.is_ready() && schema.reference_count() == 0u);
+    const std::conditional_t<Instances, CInstanceDocumentQuery, CBulkDataDocumentQuery> query{ block.document() };
+    TEST_EXPECT(ctx, query.contains(diagnostic.occurrence) && query.name(diagnostic.occurrence) == CStringView{ "Missing" });
+    TEST_EXPECT(ctx, tests::same_bytes(block.file_bytes(), snapshot));
+
+    //  An absent selected section remains a successfully attached empty role.
+    CLiveDocument empty;
+    CBakedDataBlock absent;
+    TEST_EXPECT(ctx, tests::parse_document("{}", empty) && absent.assemble(empty, {}, storage_error));
+    TEST_EXPECT(ctx, role.attach_block(absent, schema, owner, true, diagnostic));
+    TEST_EXPECT(ctx, role.loaded_ready() && role.payload_view().size() == 0u && owner.size() == 0u && schema.reference_count() == 1u);
+    role.clear();
+    TEST_EXPECT(ctx, schema.reference_count() == 0u);
+}
+
+template<bool Instances>
+static void test_common_root_diagnostic_order(TTestContext& ctx, CBakedSchema& schema)
+{
+    using T = SBlockTraits<Instances>;
+    const char* const size_field = Instances ? "instancePayloadSize" : "bulkPayloadSize";
+    const char* const sibling = Instances ? "data" : "instances";
+    struct SCase { std::string text; typename T::Reason reason; const char* field; };
+    const SCase cases[]{
+        { envelope(T::kind, "0", "{}", ",\"stripped\":true"), T::Reason::binary_required, size_field },
+        { envelope(T::kind, "0", "{}", ",\"stripped\":\"true\""), T::Reason::invalid_input, "stripped" },
+        { std::string{ "{\"" } + sibling + "\":null}", T::Reason::invalid_input, sibling },
+        { R"({"stripped":true})", T::Reason::binary_required, "stripped" }
+    };
+    for (const auto& item : cases)
+    {
+        CLiveDocument source;
+        CBakedDocumentBlock baked;
+        TEST_EXPECT(ctx, tests::parse_document(item.text, source) && document_translation::bake(source, baked));
+        const auto snapshot = byte_snapshot(baked.bytes());
+        typename T::Role role;
+        typename T::RoleDiagnostic diagnostic;
+        CByteBuffer owner;
+        TEST_EXPECT(ctx, role.set_document(CMutableBakedDocument{ baked }) && !role.attach_schema(schema, owner, diagnostic));
+        TEST_EXPECT(ctx, diagnostic.reason == item.reason && !role.loaded_ready() && !owner.is_ready() && schema.reference_count() == 0u);
+        const auto query = role.document_query();
+        TEST_EXPECT(ctx, diagnostic.occurrence == query.object_child(query.root(), CStringView{ item.field }));
+        TEST_EXPECT(ctx, tests::same_bytes(baked.bytes(), snapshot));
+    }
+}
+
+static void test_common_block_roles(TTestContext& ctx)
+{
+    SSchemaFixture schemas;
+    TEST_EXPECT(ctx, schemas.build());
+    test_common_block_attachment<true>(ctx, schemas.live);
+    test_common_block_attachment<false>(ctx, schemas.live);
+    test_common_block_attachment<true>(ctx, schemas.baked);
+    test_common_block_attachment<false>(ctx, schemas.baked);
+    test_common_root_diagnostic_order<true>(ctx, schemas.baked);
+    test_common_root_diagnostic_order<false>(ctx, schemas.baked);
+}
+
 static void test_common_blocks(TTestContext& ctx)
 {
     //  Every section combination, with independent absence/supplied-zero bytes.
@@ -1886,6 +1999,7 @@ static void test_common_blocks(TTestContext& ctx)
 void run_schema_data_block_cases(tests::TTestContext& context)
 {
     test_common_blocks(context);
+    test_common_block_roles(context);
     test_valid(context);
     test_metadata(context);
     test_bounds(context);

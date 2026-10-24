@@ -14,7 +14,7 @@
 #define SCHEMA_DATA_BLOCK_CONSTRUCTION_HPP_INCLUDED
 
 #include "schema/data_block_format.hpp"
-#include "schema/data_output.hpp"
+#include "schema/baked_data_block.hpp"
 
 #include <type_traits>
 #include <utility>
@@ -25,16 +25,12 @@ namespace schema::detail
 //  Allocate the final file after preparing its description. The caller fills
 //  the returned payload directly, then adopts the complete storage.
 [[nodiscard]] bool prepare_data_block_storage(CLiveDocument& description, const std::size_t payload_size,
-    const EDataBlockKind kind, CByteBuffer& storage, std::uint8_t*& payload, SDataBlockDiagnostic& diagnostic) noexcept;
-
-[[nodiscard]] bool prepare_common_data_block_storage(CLiveDocument& description, const std::size_t* instance_size,
-    const std::size_t* bulk_size, CByteBuffer& storage, SDataBlockLayout& layout, SDataBlockDiagnostic& diagnostic) noexcept;
-
-[[nodiscard]] bool assemble_data_block(CLiveDocument& description, const CByteConstView* instances,
-    const CByteConstView* bulk_data, CBakedDocumentBlock& output, SDataBlockDiagnostic& diagnostic) noexcept;
+    const EDataDomain domain, CByteBuffer& storage, std::uint8_t*& payload, SDataBlockDiagnostic& diagnostic) noexcept;
 
 //  Consumes no payload ownership. Mutates only the private prepared description.
 //  Output must be empty and is published only after complete assembly.
+[[nodiscard]] bool assemble_data_block(CLiveDocument& description, const CByteConstView* instances,
+    const CByteConstView* bulk_data, CBakedDocumentBlock& output, SDataBlockDiagnostic& diagnostic) noexcept;
 
 [[nodiscard]] bool prepare_materialisation(const CLiveDocument& source, CBakedDocumentBlock& output, SDataBlockDiagnostic& diagnostic) noexcept;
 [[nodiscard]] bool prepare_materialisation(const CBakedDocument& source, CBakedDocumentBlock& output, SDataBlockDiagnostic& diagnostic) noexcept;
@@ -46,7 +42,7 @@ namespace schema::detail
 
 //  A loaded bulk data role supplies counts when stripping complete payloads.
 //  Materialised descriptions instead carry the complete embedded arrays.
-[[nodiscard]] bool prepare_data_block_output(const CBakedDocument& source, const EDataBlockKind kind,
+[[nodiscard]] bool prepare_data_block_output(const CBakedDocument& source, const EDataDomain domain,
     const EDataOutputForm form, const CBakedBulkData* const bulk_data, CLiveDocument& output, SDataBlockDiagnostic& diagnostic) noexcept;
 
 //  Preparation preserves tree shape. Map a temporary baked occurrence by its
@@ -69,8 +65,8 @@ template<class TDocument>
     return (copied == value) ? original : decltype(source.root()){};
 }
 
-template<class TSource, class TBlock, class TSchema, class TDiagnostic, class TPrepare>
-[[nodiscard]] static bool bake_data_block(const TSource& source, TBlock& destination, TSchema& schema,
+template<class TSource, class TSchema, class TDiagnostic, class TPrepare>
+[[nodiscard]] static bool bake_data_block(const TSource& source, CBakedDataBlock& destination, TSchema& schema,
     const EDataOutputForm form, TDiagnostic& diagnostic, const TPrepare prepare) noexcept
 {
     diagnostic = {};
@@ -97,8 +93,8 @@ template<class TSource, class TBlock, class TSchema, class TDiagnostic, class TP
         return false;
     }
     CLiveDocument description;
-    CByteBuffer payload;
-    if (!prepare(description, payload))
+    CByteBuffer storage;
+    if (!prepare(description, storage))
     {
         if (diagnostic.block.reason != EDataBlockReason::none)
         {
@@ -130,7 +126,7 @@ template<class TSource, class TBlock, class TSchema, class TDiagnostic, class TP
         return false;
     }
     CBakedDocumentBlock complete;
-    if (!complete.adopt_buffer(std::move(payload)))
+    if (!complete.adopt_buffer(std::move(storage)))
     {
         diagnostic.block.stage = EDataBlockStage::assembly;
         diagnostic.block.reason = EDataBlockReason::assembly_failed;

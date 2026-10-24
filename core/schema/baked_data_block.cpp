@@ -9,7 +9,6 @@
 //  Common storage attachment and transactional aggregate construction.
 
 #include "schema/baked_data_block.hpp"
-#include "schema/data_block_attachment.hpp"
 #include "schema/data_block_construction.hpp"
 #include "schema/data_preparation.hpp"
 #include "data_model/document_translation.hpp"
@@ -20,10 +19,18 @@
 namespace schema
 {
 
+static bool build_failure(SDataBlockDiagnostic& diagnostic, const EDataBlockStage stage, const EDataBlockReason reason) noexcept
+{
+    diagnostic = {};
+    diagnostic.stage = stage;
+    diagnostic.reason = reason;
+    return false;
+}
+
 bool CBakedDataBlock::adopt_local(CBakedDocumentBlock&& block, SDataBlockDiagnostic& diagnostic) noexcept
 {
     diagnostic = {};
-    if (loaded_ready()) return detail::data_block_precondition(diagnostic, EDataBlockReason::destination_not_empty);
+    if (loaded_ready()) return build_failure(diagnostic, EDataBlockStage::preconditions, EDataBlockReason::destination_not_empty);
     const CByteConstView bytes = static_cast<const CBakedDocumentBlock&>(block).buffer_bytes();
     detail::SDataBlockView view;
     if (!detail::validate_data_block(bytes.data(), bytes.size(), view, diagnostic)) return false;
@@ -41,8 +48,8 @@ bool CBakedDataBlock::adopt_local(CBakedDocumentBlock&& block, SDataBlockDiagnos
 bool CBakedDataBlock::attach_asset(const CAssetId asset, const CByteConstView bytes, SDataBlockDiagnostic& diagnostic) noexcept
 {
     diagnostic = {};
-    if (loaded_ready()) return detail::data_block_precondition(diagnostic, EDataBlockReason::destination_not_empty);
-    if (!asset.is_valid()) return detail::data_block_precondition(diagnostic, EDataBlockReason::invalid_input);
+    if (loaded_ready()) return build_failure(diagnostic, EDataBlockStage::preconditions, EDataBlockReason::destination_not_empty);
+    if (!asset.is_valid()) return build_failure(diagnostic, EDataBlockStage::preconditions, EDataBlockReason::invalid_input);
     detail::SDataBlockView view;
     if (!detail::validate_data_block(bytes.data(), bytes.size(), view, diagnostic)) return false;
     m_document = view.document;
@@ -91,20 +98,12 @@ bool CBakedDataBlock::has_bulk_data() const noexcept
     return static_cast<bool>(m_document.object_child(m_document.root(), CStringView{ "data" }));
 }
 
-static bool build_failure(SDataBlockDiagnostic& diagnostic, const EDataBlockStage stage, const EDataBlockReason reason) noexcept
-{
-    diagnostic = {};
-    diagnostic.stage = stage;
-    diagnostic.reason = reason;
-    return false;
-}
-
 template<class TDocument>
 [[nodiscard]] static bool assemble_common(const TDocument& source, CBakedDataBlock& destination,
     const SDataBlockPayloads& payloads, SDataBlockDiagnostic& diagnostic) noexcept
 {
     diagnostic = {};
-    if (destination.loaded_ready()) return detail::data_block_precondition(diagnostic, EDataBlockReason::destination_not_empty);
+    if (destination.loaded_ready()) return build_failure(diagnostic, EDataBlockStage::preconditions, EDataBlockReason::destination_not_empty);
     detail::SDataBlockRoot root;
     if (!detail::read_data_block_root(detail::CDocumentRead{ source }, root, diagnostic)) return false;
     CBakedDocumentBlock copied;
@@ -185,6 +184,69 @@ static bool restore_section_values(CLiveDocument& target, const CLiveDocument& s
     return true;
 }
 
+static bool prepare_materialised_description(const CBakedDocument& source, const CBakedDocument& prepared,
+    const detail::SDataBlockRoot& root, const CResolvedSchema* const schema, const CBakedInstances& instances, const CBakedBulkData& bulk,
+    const EDataOutputForm form, CLiveDocument& description, SDataBlockBuildDiagnostic& diagnostic) noexcept
+{
+    if (!description.initialise() || !description.set_root_type(ELiveValueType::object) ||
+        !append_section(description, source, "types"))
+    {
+        return build_failure(diagnostic.block, EDataBlockStage::description_preparation, EDataBlockReason::description_preparation_failed);
+    }
+    for (const auto domain : { detail::EDataDomain::instances, detail::EDataDomain::bulk_data })
+    {
+        const bool is_bulk = domain == detail::EDataDomain::bulk_data;
+        if (!(is_bulk ? root.bulk_data : root.instances)) continue;
+        CLiveDocument section_document;
+        if (!detail::prepare_data_block_output(prepared, domain, form, (is_bulk ? &bulk : nullptr), section_document, diagnostic.block))
+        {
+            if (diagnostic.block.reason == EDataBlockReason::none)
+            {
+                (void)build_failure(diagnostic.block, EDataBlockStage::description_preparation, EDataBlockReason::description_preparation_failed);
+            }
+            diagnostic.block.location = {};
+            return false;
+        }
+        if (schema && (form != EDataOutputForm::stripped) &&
+            (((domain == detail::EDataDomain::instances) && root.stripped) || (is_bulk && (form == EDataOutputForm::embedded))))
+        {
+            CLiveDocument values;
+            bool restored{};
+            if (domain == detail::EDataDomain::instances)
+            {
+                SInstancePreparationDiagnostic error;
+                restored = prepare_instances_document(instances.document_query(), *schema, instances.payload_view(), false, values, error);
+                if (!restored) diagnostic.instances = error.detail;
+            }
+            else
+            {
+                SBulkDataPreparationDiagnostic error;
+                restored = prepare_bulk_data_document(bulk.document_query(), *schema, bulk.payload_view(), false, values, error);
+                if (!restored) diagnostic.bulk_data = error.detail;
+            }
+            if (!restored || !restore_section_values(section_document, values, is_bulk))
+            {   //  Reconstruction diagnostics borrow the temporary working document.
+                diagnostic.instances.occurrence = {};
+                diagnostic.bulk_data.occurrence = {};
+                return build_failure(diagnostic.block, EDataBlockStage::description_preparation, EDataBlockReason::description_preparation_failed);
+            }
+        }
+        if (!append_section(description, section_document, (is_bulk ? "data" : "instances")))
+        {
+            return build_failure(diagnostic.block, EDataBlockStage::description_preparation, EDataBlockReason::description_preparation_failed);
+        }
+    }
+    if (form == EDataOutputForm::stripped)
+    {
+        const CNodeKey marker = description.create_boolean(true, CStringView{ "stripped" });
+        if (!marker || !description.append_child(description.root(), marker).succeeded())
+        {
+            return build_failure(diagnostic.block, EDataBlockStage::description_preparation, EDataBlockReason::description_preparation_failed);
+        }
+    }
+    return true;
+}
+
 template<class TSchema>
 [[nodiscard]] static bool materialise_resolved(const CBakedDocument& source, TSchema* schema,
     const SDataBlockPayloads& supplied, const EDataOutputForm form,
@@ -194,7 +256,7 @@ template<class TSchema>
     if (!detail::read_data_block_root(detail::CDocumentRead{ source }, root, diagnostic.block)) return false;
     if ((supplied.instances && !root.instances) || (supplied.bulk_data && !root.bulk_data))
     {
-        return detail::data_block_precondition(diagnostic.block, EDataBlockReason::invalid_input);
+        return build_failure(diagnostic.block, EDataBlockStage::preconditions, EDataBlockReason::invalid_input);
     }
     if (root.stripped && ((root.instances && !supplied.instances) || (root.bulk_data && !supplied.bulk_data)))
     {
@@ -215,19 +277,19 @@ template<class TSchema>
     {
         return build_failure(diagnostic.block, EDataBlockStage::schema_binding, EDataBlockReason::schema_unavailable);
     }
+
     //  A declared supplied range cannot be silently reconstructed if its bytes
     //  were omitted by the caller, including a declared zero-byte range.
     if ((root.instance_size && (!supplied.instances || (root.instance_bytes != supplied.instances->size()))) ||
         (root.bulk_size && (!supplied.bulk_data || (root.bulk_bytes != supplied.bulk_data->size()))))
     {
-        return detail::data_block_precondition(diagnostic.block, EDataBlockReason::invalid_input);
+        return build_failure(diagnostic.block, EDataBlockStage::preconditions, EDataBlockReason::invalid_input);
     }
     CLiveDocument staging;
     if (!document_translation::promote(source, staging))
     {
         return build_failure(diagnostic.block, EDataBlockStage::document_promotion, EDataBlockReason::document_promotion_failed);
     }
-    const char* const sections[]{ "instances", "data" };
     if ((!supplied.instances && !detail::prepare_data_block_locators(staging, false, diagnostic.block)) ||
         (!supplied.bulk_data && !detail::prepare_data_block_locators(staging, true, diagnostic.block))) return false;
     CBakedDocumentBlock prepared;
@@ -252,63 +314,8 @@ template<class TSchema>
         return build_failure(diagnostic.block, (supplied.bulk_data ? EDataBlockStage::specialised_loading : EDataBlockStage::materialisation), EDataBlockReason::specialised_failure);
     }
     CLiveDocument description;
-    if (!description.initialise() || !description.set_root_type(ELiveValueType::object) ||
-        !append_section(description, source, "types"))
-    {
-        return build_failure(diagnostic.block, EDataBlockStage::description_preparation, EDataBlockReason::description_preparation_failed);
-    }
-    for (unsigned index = 0u; index < 2u; ++index)
-    {
-        if (!(index ? root.bulk_data : root.instances)) continue;
-        CLiveDocument domain;
-        if (!detail::prepare_data_block_output(prepared.document(), (index ? detail::EDataBlockKind::bulk_data : detail::EDataBlockKind::instances),
-            form, (index ? &bulk : nullptr), domain, diagnostic.block))
-        {
-            if (diagnostic.block.reason == EDataBlockReason::none)
-            {
-                (void)build_failure(diagnostic.block, EDataBlockStage::description_preparation, EDataBlockReason::description_preparation_failed);
-            }
-            diagnostic.block.location = {};
-            return false;
-        }
-        if (schema && (form != EDataOutputForm::stripped) &&
-            (((index == 0u) && root.stripped) || ((index == 1u) && (form == EDataOutputForm::embedded))))
-        {
-            CLiveDocument values;
-            bool restored{};
-            if (index == 0u)
-            {
-                SInstancePreparationDiagnostic error;
-                restored = prepare_instances_document(instances.document_query(), *schema->resolved(), instances.payload_view(), false, values, error);
-                if (!restored) diagnostic.instances = error.detail;
-            }
-            else
-            {
-                SBulkDataPreparationDiagnostic error;
-                restored = prepare_bulk_data_document(bulk.document_query(), *schema->resolved(), bulk.payload_view(), false, values, error);
-                if (!restored) diagnostic.bulk_data = error.detail;
-            }
-            if (!restored || !restore_section_values(domain, values, (index == 1u)))
-            {
-                //  Reconstruction diagnostics borrow the temporary working document.
-                diagnostic.instances.occurrence = {};
-                diagnostic.bulk_data.occurrence = {};
-                return build_failure(diagnostic.block, EDataBlockStage::description_preparation, EDataBlockReason::description_preparation_failed);
-            }
-        }
-        if (!append_section(description, domain, sections[index]))
-        {
-            return build_failure(diagnostic.block, EDataBlockStage::description_preparation, EDataBlockReason::description_preparation_failed);
-        }
-    }
-    if (form == EDataOutputForm::stripped)
-    {
-        const CNodeKey marker = description.create_boolean(true, CStringView{ "stripped" });
-        if (!marker || !description.append_child(description.root(), marker).succeeded())
-        {
-            return build_failure(diagnostic.block, EDataBlockStage::description_preparation, EDataBlockReason::description_preparation_failed);
-        }
-    }
+    if (!prepare_materialised_description(source, prepared.document(), root, (schema ? schema->resolved() : nullptr),
+        instances, bulk, form, description, diagnostic)) return false;
     const CByteConstView instance_bytes = supplied.instances ? *supplied.instances : instance_owner.const_view();
     const CByteConstView bulk_bytes = supplied.bulk_data ? *supplied.bulk_data : bulk_owner.const_view();
     CBakedDocumentBlock complete;
@@ -322,17 +329,45 @@ template<class TSchema>
     return true;
 }
 
+template<class TDocument>
+static void remap_materialisation_diagnostic(const TDocument& source, const CBakedDocument& prepared,
+    SDataBlockBuildDiagnostic& diagnostic) noexcept
+{
+    diagnostic.schema.occurrence = detail::SSchemaHandleAccess::make(detail::SOccurrence{
+        detail::materialisation_source_value(source, prepared, detail::SSchemaHandleAccess::occurrence(diagnostic.schema.occurrence).baked) });
+    diagnostic.schema.related = {};
+    diagnostic.schema.enclosing_type = {};
+    diagnostic.schema.enclosing_member = {};
+    diagnostic.instances.occurrence = detail::SInstanceHandleAccess::make(detail::SOccurrence{
+        detail::materialisation_source_value(source, prepared, detail::SInstanceHandleAccess::occurrence(diagnostic.instances.occurrence).baked) });
+    diagnostic.bulk_data.occurrence = detail::SBulkDataHandleAccess::make(detail::SOccurrence{
+        detail::materialisation_source_value(source, prepared, detail::SBulkDataHandleAccess::occurrence(diagnostic.bulk_data.occurrence).baked) });
+    diagnostic.block.location = {};
+    const detail::SOccurrence where = diagnostic.instances.occurrence ? detail::SInstanceHandleAccess::occurrence(diagnostic.instances.occurrence) :
+        detail::SBulkDataHandleAccess::occurrence(diagnostic.bulk_data.occurrence);
+    if (where.live)
+    {
+        diagnostic.block.location.kind = EDataBlockLocationKind::source_live_node;
+        diagnostic.block.location.live_node = where.live;
+    }
+    else if (where.baked)
+    {
+        diagnostic.block.location.kind = EDataBlockLocationKind::source_baked_value;
+        diagnostic.block.location.baked_value = where.baked;
+    }
+}
+
 template<class TDocument, class TSchema>
 [[nodiscard]] static bool materialise_common(const TDocument& source, TSchema* external_schema,
     CBakedDataBlock& destination, const EDataOutputForm form, SDataBlockBuildDiagnostic& diagnostic,
     const SDataBlockPayloads& payloads, const bool compare_embedded = true) noexcept
 {
     diagnostic = {};
-    if (destination.loaded_ready()) return detail::data_block_precondition(diagnostic.block, EDataBlockReason::destination_not_empty);
-    if (!source.is_ready()) return detail::data_block_precondition(diagnostic.block, EDataBlockReason::invalid_input);
+    if (destination.loaded_ready()) return build_failure(diagnostic.block, EDataBlockStage::preconditions, EDataBlockReason::destination_not_empty);
+    if (!source.is_ready()) return build_failure(diagnostic.block, EDataBlockStage::preconditions, EDataBlockReason::invalid_input);
     if ((form != EDataOutputForm::embedded) && (form != EDataOutputForm::external) && (form != EDataOutputForm::stripped))
     {
-        return detail::data_block_precondition(diagnostic.block, EDataBlockReason::invalid_option);
+        return build_failure(diagnostic.block, EDataBlockStage::preconditions, EDataBlockReason::invalid_option);
     }
     detail::SDataBlockRoot root;
     if (!detail::read_data_block_root(detail::CDocumentRead{ source }, root, diagnostic.block)) return false;
@@ -349,31 +384,7 @@ template<class TDocument, class TSchema>
         else success = materialise_resolved(copied.document(), &embedded, payloads, form, destination, diagnostic, compare_embedded);
     }
     else success = materialise_resolved(copied.document(), external_schema, payloads, form, destination, diagnostic, compare_embedded);
-    if (!success)
-    {
-        diagnostic.schema.occurrence = detail::SSchemaHandleAccess::make(detail::SOccurrence{
-            detail::materialisation_source_value(source, copied.document(), detail::SSchemaHandleAccess::occurrence(diagnostic.schema.occurrence).baked) });
-        diagnostic.schema.related = {};
-        diagnostic.schema.enclosing_type = {};
-        diagnostic.schema.enclosing_member = {};
-        diagnostic.instances.occurrence = detail::SInstanceHandleAccess::make(detail::SOccurrence{
-            detail::materialisation_source_value(source, copied.document(), detail::SInstanceHandleAccess::occurrence(diagnostic.instances.occurrence).baked) });
-        diagnostic.bulk_data.occurrence = detail::SBulkDataHandleAccess::make(detail::SOccurrence{
-            detail::materialisation_source_value(source, copied.document(), detail::SBulkDataHandleAccess::occurrence(diagnostic.bulk_data.occurrence).baked) });
-        diagnostic.block.location = {};
-        const detail::SOccurrence where = diagnostic.instances.occurrence ? detail::SInstanceHandleAccess::occurrence(diagnostic.instances.occurrence) :
-            detail::SBulkDataHandleAccess::occurrence(diagnostic.bulk_data.occurrence);
-        if (where.live)
-        {
-            diagnostic.block.location.kind = EDataBlockLocationKind::source_live_node;
-            diagnostic.block.location.live_node = where.live;
-        }
-        else if (where.baked)
-        {
-            diagnostic.block.location.kind = EDataBlockLocationKind::source_baked_value;
-            diagnostic.block.location.baked_value = where.baked;
-        }
-    }
+    if (!success) remap_materialisation_diagnostic(source, copied.document(), diagnostic);
     return success;
 }
 
