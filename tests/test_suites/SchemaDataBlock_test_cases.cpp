@@ -13,9 +13,9 @@
 
 #include "tests/test_suites/SchemaDataBlock_test_cases.hpp"
 #include "schema/data_block_format.hpp"
-#include "schema/baked_instances_block.hpp"
-#include "schema/baked_bulk_data_block.hpp"
+#include "schema/baked_data_block.hpp"
 #include "schema/live_instances.hpp"
+#include "schema/document_composition.hpp"
 #include "schema/live_bulk_data.hpp"
 #include "host/runtime/host_payloads.hpp"
 #include "data_model/document_parser.hpp"
@@ -38,13 +38,80 @@ using namespace schema;
 using namespace schema::detail;
 using tests::TTestContext;
 
+
+//  Parameterise the existing single-domain regression matrix over the common
+//  owner. This adapter only selects views and diagnostic fields.
+template<bool Instances>
+class TDomainBlock : public CBakedDataBlock
+{
+public:
+    using Diagnostic = std::conditional_t<Instances, SInstancesBlockDiagnostic, SBulkDataBlockDiagnostic>;
+    CByteConstView payload_view() const noexcept
+    {
+        return Instances ? instance_payload_view() : bulk_payload_view();
+    }
+    bool adopt_local(CBakedDocumentBlock&& block, Diagnostic& diagnostic) noexcept
+    {
+        diagnostic = {};
+        return CBakedDataBlock::adopt_local(std::move(block), diagnostic.block);
+    }
+    bool attach_asset(const CAssetId id, const CByteConstView bytes, Diagnostic& diagnostic) noexcept
+    {
+        diagnostic = {};
+        return CBakedDataBlock::attach_asset(id, bytes, diagnostic.block);
+    }
+    template<class TDocument, class TSchema>
+    bool materialise(const TDocument& document, TSchema& schema, const EDataOutputForm form, Diagnostic& diagnostic) noexcept
+    {
+        SDataBlockBuildDiagnostic error;
+        const bool result = CBakedDataBlock::materialise(document, schema, form, error);
+        diagnostic = {};
+        diagnostic.block = error.block;
+        if constexpr (Instances) diagnostic.role = error.instances;
+        else diagnostic.role = error.bulk_data;
+        return result;
+    }
+    template<class TSchema>
+    bool strip_to(TDomainBlock& destination, TSchema& schema, Diagnostic& diagnostic) const noexcept
+    {
+        SDataBlockBuildDiagnostic error;
+        const bool result = CBakedDataBlock::strip_to(destination, schema, error);
+        diagnostic = {};
+        diagnostic.block = error.block;
+        if constexpr (Instances) diagnostic.role = error.instances;
+        else diagnostic.role = error.bulk_data;
+        return result;
+    }
+};
+
+struct SSelectedBlockView
+{
+    CBakedDocument document;
+    CBakedValueIndex section;
+    CByteConstView payload;
+    bool stripped{};
+};
+
+static bool validate_domain(const void* bytes, const std::size_t size, const EDataBlockKind kind,
+    SSelectedBlockView& output, SDataBlockDiagnostic& diagnostic)
+{
+    output = {};
+    SDataBlockView view;
+    if (!validate_data_block(bytes, size, view, diagnostic)) return false;
+    output.document = view.document;
+    output.section = view.document.object_child(view.document.root(), CStringView{ kind == EDataBlockKind::instances ? "instances" : "data" });
+    output.payload = (kind == EDataBlockKind::instances) ? view.instances : view.bulk_data;
+    output.stripped = view.stripped;
+    return true;
+}
+
 static_assert(std::is_trivially_copyable_v<SDataBlockDiagnostic>);
 static_assert(std::is_trivially_copyable_v<SInstancesBlockDiagnostic>);
 static_assert(std::is_trivially_copyable_v<SBulkDataBlockDiagnostic>);
-static_assert(!std::is_copy_constructible_v<CBakedInstancesBlock> && !std::is_move_constructible_v<CBakedInstancesBlock>);
-static_assert(!std::is_copy_constructible_v<CBakedBulkDataBlock> && !std::is_move_constructible_v<CBakedBulkDataBlock>);
-static_assert(std::is_same_v<decltype(std::declval<CBakedInstancesBlock&>().document()), const CBakedDocument&>);
-static_assert(std::is_same_v<decltype(std::declval<CBakedBulkDataBlock&>().document()), const CBakedDocument&>);
+static_assert(!std::is_copy_constructible_v<TDomainBlock<true>> && !std::is_move_constructible_v<TDomainBlock<true>>);
+static_assert(!std::is_copy_constructible_v<TDomainBlock<false>> && !std::is_move_constructible_v<TDomainBlock<false>>);
+static_assert(std::is_same_v<decltype(std::declval<TDomainBlock<true>&>().document()), const CBakedDocument&>);
+static_assert(std::is_same_v<decltype(std::declval<TDomainBlock<false>&>().document()), const CBakedDocument&>);
 
 struct SFixture
 {
@@ -72,8 +139,9 @@ static std::string envelope(const EDataBlockKind kind, const std::string& size =
     const std::string& section = "{}", const std::string& extra = {})
 {
     const bool instances = kind == EDataBlockKind::instances;
-    return std::string{ "{\"fileType\":\"" } + (instances ? "morphic-instance-data" : "morphic-bulk-data") +
-        "\",\"version\":1,\"payloadSize\":" + size + ",\"" + (instances ? "instances" : "data") + "\":" + section + extra + "}";
+    return std::string{ "{\"fileType\":\"morphic-schema-data\",\"version\":1,\"" } +
+        (instances ? "instancePayloadSize" : "bulkPayloadSize") + "\":" + size + ",\"" +
+        (instances ? "instances" : "data") + "\":" + section + extra + "}";
 }
 
 static void seed(SDataBlockDiagnostic& diagnostic)
@@ -84,7 +152,7 @@ static void seed(SDataBlockDiagnostic& diagnostic)
     diagnostic.location.byte_offset = 37u;
 }
 
-static void expect_empty(TTestContext& ctx, const SDataBlockView& view)
+static void expect_empty(TTestContext& ctx, const SSelectedBlockView& view)
 {
     TEST_EXPECT(ctx, !view.document.is_ready() && !view.section && !view.payload.is_ready() && !view.stripped);
 }
@@ -94,11 +162,11 @@ static void expect_failure(TTestContext& ctx, const void* const bytes, const std
     const CBakedValueIndex value = {}, const std::uint64_t offset = 0u,
     const EDataBlockStage stage = EDataBlockStage::format_validation)
 {
-    SDataBlockView output;
+    SSelectedBlockView output;
     output.stripped = true;
     SDataBlockDiagnostic diagnostic;
     seed(diagnostic);
-    TEST_EXPECT(ctx, !validate_data_block(bytes, size, kind, output, diagnostic));
+    TEST_EXPECT(ctx, !validate_domain(bytes, size, kind, output, diagnostic));
     TEST_EXPECT(ctx, diagnostic.reason == reason && diagnostic.stage == stage);
     TEST_EXPECT(ctx, diagnostic.location.kind == location &&
         diagnostic.location.baked_value == value && diagnostic.location.byte_offset == offset &&
@@ -116,30 +184,30 @@ static void test_valid(TTestContext& ctx)
         {
             SFixture fixture;
             if (!fixture.build(envelope(kind, "0", "{}", marker))) { TEST_EXPECT(ctx, false); continue; }
-            SDataBlockView output;
+            SSelectedBlockView output;
             SDataBlockDiagnostic diagnostic;
             seed(diagnostic);
-            TEST_EXPECT(ctx, validate_data_block(fixture.file.data(), fixture.file.size(), kind, output, diagnostic));
+            TEST_EXPECT(ctx, validate_domain(fixture.file.data(), fixture.file.size(), kind, output, diagnostic));
             TEST_EXPECT(ctx, diagnostic.stage == EDataBlockStage::none && diagnostic.reason == EDataBlockReason::none &&
                 diagnostic.location.kind == EDataBlockLocationKind::none && diagnostic.location.byte_offset == 0u &&
                 !diagnostic.location.baked_value && !diagnostic.location.live_node.is_valid());
             TEST_EXPECT(ctx, output.document.byte_count() == fixture.file.size() && output.section &&
                 !output.payload.is_ready() && output.payload.data() == nullptr && output.payload.size() == 0u);
             TEST_EXPECT(ctx, output.stripped == (marker == ",\"stripped\":true"));
-            TEST_EXPECT(ctx, !validate_data_block(nullptr, 0u, kind, output, diagnostic));
+            TEST_EXPECT(ctx, !validate_domain(nullptr, 0u, kind, output, diagnostic));
             expect_empty(ctx, output);
         }
 
         //  Root order is not canonical; nested structure is the role's concern.
         const bool instances = kind == EDataBlockKind::instances;
         const std::string reordered = std::string{ "{\"" } + (instances ? "instances" : "data") +
-            "\":{\"opaque\":{}},\"payloadSize\":7,\"stripped\":false,\"version\":1,\"fileType\":\"" +
-            (instances ? "morphic-instance-data" : "morphic-bulk-data") + "\"}";
+            "\":{\"opaque\":{}},\"" + std::string{ instances ? "instancePayloadSize" : "bulkPayloadSize" } + "\":7,\"stripped\":false,\"version\":1,\"fileType\":\"" +
+            (instances ? "morphic-schema-data" : "morphic-schema-data") + "\"}";
         SFixture fixture;
         if (!fixture.build(reordered, 7u)) { TEST_EXPECT(ctx, false); continue; }
-        SDataBlockView output;
+        SSelectedBlockView output;
         SDataBlockDiagnostic diagnostic;
-        TEST_EXPECT(ctx, validate_data_block(fixture.file.data(), fixture.file.size(), kind, output, diagnostic));
+        TEST_EXPECT(ctx, validate_domain(fixture.file.data(), fixture.file.size(), kind, output, diagnostic));
         TEST_EXPECT(ctx, output.document.byte_count() == fixture.prefix.bytes().size() &&
             output.payload.data() == fixture.file.data() + fixture.payload_offset && output.payload.size() == 7u &&
             output.payload.align() == 128u && output.payload.data()[0] == 0xa5u && output.payload.data()[6] == 0xa5u);
@@ -147,7 +215,7 @@ static void test_valid(TTestContext& ctx)
 
         SFixture zero_type;
         TEST_EXPECT(ctx, zero_type.build(envelope(kind, "0", R"({"Zero":{"one":{"locator":{"offset":0,"count":1,"size":0,"valid":true}}}})")));
-        TEST_EXPECT(ctx, validate_data_block(zero_type.file.data(), zero_type.file.size(), kind, output, diagnostic) && !output.payload.is_ready());
+        TEST_EXPECT(ctx, validate_domain(zero_type.file.data(), zero_type.file.size(), kind, output, diagnostic) && !output.payload.is_ready());
     }
 }
 
@@ -155,31 +223,30 @@ static void test_metadata(TTestContext& ctx)
 {
     struct SCase { const char* json; EDataBlockReason reason; const char* property; };
     const SCase cases[] = {
-        { "[]", EDataBlockReason::invalid_property_type, "" },
-        { "{}", EDataBlockReason::missing_property, "" },
-        { R"({"version":1,"payloadSize":0,"instances":{}})", EDataBlockReason::missing_property, "" },
-        { R"({"fileType":"morphic-instance-data","payloadSize":0,"instances":{}})", EDataBlockReason::missing_property, "" },
-        { R"({"fileType":"morphic-instance-data","version":1,"instances":{}})", EDataBlockReason::missing_property, "" },
-        { R"({"fileType":"morphic-instance-data","version":1,"payloadSize":0})", EDataBlockReason::missing_property, "" },
-        { R"({"fileType":7,"version":1,"payloadSize":0,"instances":{}})", EDataBlockReason::invalid_property_type, "fileType" },
-        { R"({"fileType":"morphic-bulk-data","version":1,"payloadSize":0,"instances":{}})", EDataBlockReason::wrong_content_type, "fileType" },
-        { R"({"fileType":"","version":1,"payloadSize":0,"instances":{}})", EDataBlockReason::wrong_content_type, "fileType" },
-        { R"({"fileType":"morphic-instance-data","version":+1,"payloadSize":0,"instances":{}})", EDataBlockReason::invalid_property_type, "version" },
-        { R"({"fileType":"morphic-instance-data","version":1.0,"payloadSize":0,"instances":{}})", EDataBlockReason::invalid_property_type, "version" },
-        { R"({"fileType":"morphic-instance-data","version":true,"payloadSize":0,"instances":{}})", EDataBlockReason::invalid_property_type, "version" },
-        { R"({"fileType":"morphic-instance-data","version":0,"payloadSize":0,"instances":{}})", EDataBlockReason::unsupported_format_version, "version" },
-        { R"({"fileType":"morphic-instance-data","version":2,"payloadSize":0,"instances":{}})", EDataBlockReason::unsupported_format_version, "version" },
-        { R"({"fileType":"morphic-instance-data","version":1,"payloadSize":+0,"instances":{}})", EDataBlockReason::invalid_property_type, "payloadSize" },
-        { R"({"fileType":"morphic-instance-data","version":1,"payloadSize":0.0,"instances":{}})", EDataBlockReason::invalid_property_type, "payloadSize" },
-        { R"({"fileType":"morphic-instance-data","version":1,"payloadSize":"0","instances":{}})", EDataBlockReason::invalid_property_type, "payloadSize" },
-        { R"({"fileType":"morphic-instance-data","version":1,"payloadSize":0,"instances":[]})", EDataBlockReason::invalid_property_type, "instances" },
-        { R"({"fileType":"morphic-instance-data","version":1,"payloadSize":0,"instances":{},"stripped":0})", EDataBlockReason::invalid_property_type, "stripped" },
-        { R"({"fileType":"morphic-instance-data","version":1,"payloadSize":0,"instances":{},"types":{}})", EDataBlockReason::unknown_property, "types" },
-        { R"({"fileType":"morphic-instance-data","version":1,"payloadSize":0,"instances":{},"data":{}})", EDataBlockReason::unknown_property, "data" },
-        { R"({"fileType":"morphic-instance-data","version":1,"payloadSize":0,"instances":{},"extension":null})", EDataBlockReason::unknown_property, "extension" },
-        { R"({"fileType":"morphic-instance-data","version":1,"payloadSize":1,"instances":{}})", EDataBlockReason::invalid_input, "payloadSize" },
-        { R"({"fileType":"morphic-instance-data","version":1,"payloadSize":18446744073709551615,"instances":{"x":{}}})", EDataBlockReason::size_overflow, "payloadSize" },
-        { R"({"fileType":"morphic-instance-data","version":1,"payloadSize":2147483648,"instances":{"x":{}}})", EDataBlockReason::storage_limit, "payloadSize" }
+        { R"([])", EDataBlockReason::invalid_input, "" },
+        { R"({})", EDataBlockReason::missing_property, "" },
+        { R"({"version":1,"instancePayloadSize":0,"instances":{}})", EDataBlockReason::missing_property, "" },
+        { R"({"fileType":"morphic-schema-data","instances":{}})", EDataBlockReason::missing_property, "" },
+        { R"({"fileType":"morphic-schema-data","version":1,"instancePayloadSize":0})", EDataBlockReason::missing_property, "instancePayloadSize" },
+        { R"({"fileType":7,"version":1})", EDataBlockReason::invalid_property_type, "fileType" },
+        { R"({"fileType":"morphic-instance-data","version":1})", EDataBlockReason::wrong_content_type, "fileType" },
+        { R"({"fileType":"morphic-bulk-data","version":1})", EDataBlockReason::wrong_content_type, "fileType" },
+        { R"({"fileType":"","version":1})", EDataBlockReason::wrong_content_type, "fileType" },
+        { R"({"fileType":"morphic-schema-data","version":+1})", EDataBlockReason::invalid_property_type, "version" },
+        { R"({"fileType":"morphic-schema-data","version":1.0})", EDataBlockReason::invalid_property_type, "version" },
+        { R"({"fileType":"morphic-schema-data","version":true})", EDataBlockReason::invalid_property_type, "version" },
+        { R"({"fileType":"morphic-schema-data","version":0})", EDataBlockReason::unsupported_format_version, "version" },
+        { R"({"fileType":"morphic-schema-data","version":2})", EDataBlockReason::unsupported_format_version, "version" },
+        { R"({"fileType":"morphic-schema-data","version":1,"instancePayloadSize":+0,"instances":{}})", EDataBlockReason::invalid_property_type, "instancePayloadSize" },
+        { R"({"fileType":"morphic-schema-data","version":1,"instancePayloadSize":0.0,"instances":{}})", EDataBlockReason::invalid_property_type, "instancePayloadSize" },
+        { R"({"fileType":"morphic-schema-data","version":1,"instancePayloadSize":"0","instances":{}})", EDataBlockReason::invalid_property_type, "instancePayloadSize" },
+        { R"({"fileType":"morphic-schema-data","version":1,"instances":[]})", EDataBlockReason::invalid_property_type, "instances" },
+        { R"({"fileType":"morphic-schema-data","version":1,"stripped":0})", EDataBlockReason::invalid_property_type, "stripped" },
+        { R"({"fileType":"morphic-schema-data","version":1,"payloadSize":0})", EDataBlockReason::unknown_property, "payloadSize" },
+        { R"({"fileType":"morphic-schema-data","version":1,"extension":null})", EDataBlockReason::unknown_property, "extension" },
+        { R"({"fileType":"morphic-schema-data","version":1,"instancePayloadSize":1,"instances":{}})", EDataBlockReason::invalid_input, "instancePayloadSize" },
+        { R"({"fileType":"morphic-schema-data","version":1,"instancePayloadSize":18446744073709551615,"instances":{"x":{}}})", EDataBlockReason::storage_limit, "instancePayloadSize" },
+        { R"({"fileType":"morphic-schema-data","version":1,"instancePayloadSize":2147483648,"instances":{"x":{}}})", EDataBlockReason::storage_limit, "" }
     };
     for (const auto& item : cases)
     {
@@ -195,9 +262,8 @@ static void test_metadata(TTestContext& ctx)
                     std::size_t pos{};
                     while ((pos = json.find(a, pos)) != std::string::npos) { json.replace(pos, a.size(), b); pos += b.size(); }
                 };
-                swap_text("morphic-instance-data", "identifier-placeholder");
-                swap_text("morphic-bulk-data", "morphic-instance-data");
-                swap_text("identifier-placeholder", "morphic-bulk-data");
+                swap_text("instancePayloadSize", "bulkPayloadSize");
+                if (property == "instancePayloadSize") property = "bulkPayloadSize";
                 swap_text("\"instances\"", "\"section-placeholder\"");
                 swap_text("\"data\"", "\"instances\"");
                 swap_text("\"section-placeholder\"", "\"data\"");
@@ -219,10 +285,8 @@ static void test_bounds(TTestContext& ctx)
     SFixture fixture;
     if (!fixture.build(envelope(EDataBlockKind::instances, "3", R"({"opaque":{}})"), 3u)) { TEST_EXPECT(ctx, false); return; }
     const auto kind = EDataBlockKind::instances;
-    const auto payload_value = fixture.prefix.document().object_child(fixture.prefix.document().root(), CStringView{ "payloadSize" });
+    const auto payload_value = fixture.prefix.document().root();
     expect_failure(ctx, nullptr, 0u, kind, EDataBlockReason::invalid_input, EDataBlockLocationKind::none, {}, 0u, EDataBlockStage::preconditions);
-    expect_failure(ctx, fixture.file.data(), fixture.file.size(), static_cast<EDataBlockKind>(255u),
-        EDataBlockReason::invalid_option, EDataBlockLocationKind::none, {}, 0u, EDataBlockStage::preconditions);
     expect_failure(ctx, fixture.file.data() + 1u, fixture.file.size() - 1u, kind, EDataBlockReason::invalid_alignment, EDataBlockLocationKind::none);
     for (std::size_t length = 0u; length < sizeof(SBakedDocumentHeader); ++length)
         expect_failure(ctx, fixture.file.data(), length, kind, EDataBlockReason::invalid_document, EDataBlockLocationKind::none);
@@ -261,9 +325,9 @@ static void test_bounds(TTestContext& ctx)
         if (!padded.build(envelope(kind, "1", "{\"x" + std::string(length, 'x') + "\":{}}"), 1u)) { TEST_EXPECT(ctx, false); continue; }
         const std::size_t padding = padded.payload_offset - padded.prefix.bytes().size();
         seen[padding] = true;
-        SDataBlockView output;
+        SSelectedBlockView output;
         SDataBlockDiagnostic diagnostic;
-        TEST_EXPECT(ctx, validate_data_block(padded.file.data(), padded.file.size(), kind, output, diagnostic));
+        TEST_EXPECT(ctx, validate_domain(padded.file.data(), padded.file.size(), kind, output, diagnostic));
         for (std::size_t index = padded.prefix.bytes().size(); index < padded.payload_offset; ++index)
         {
             padded.file.data()[index] = 1u;
@@ -278,7 +342,7 @@ static void test_bounds(TTestContext& ctx)
     TEST_EXPECT(ctx, empty.build(envelope(kind)));
     TEST_EXPECT(ctx, empty.file.resize(empty.file.size() + 1u, 128u));
     expect_failure(ctx, empty.file.data(), empty.file.size(), kind, EDataBlockReason::file_length_mismatch,
-        EDataBlockLocationKind::source_baked_value, empty.prefix.document().object_child(empty.prefix.document().root(), CStringView{ "payloadSize" }));
+        EDataBlockLocationKind::source_baked_value, empty.prefix.document().root());
 
     tests::TAllocatorFixture failing{ true };
     memory::CMemoryAllocator allocator{ &failing, &tests::allocate_test_memory, &tests::deallocate_test_memory };
@@ -310,8 +374,8 @@ static void test_layout(TTestContext& ctx)
     {
         SDataBlockLayout layout{ 7u, 9u };
         EDataBlockReason reason{ EDataBlockReason::invalid_input };
-        TEST_EXPECT(ctx, data_block_layout(item.document, item.payload, layout, reason) == (item.reason == EDataBlockReason::none));
-        TEST_EXPECT(ctx, reason == item.reason && layout.payload_offset == item.offset && layout.file_size == item.size);
+        TEST_EXPECT(ctx, data_block_layout(item.document, item.payload, 0u, layout, reason) == (item.reason == EDataBlockReason::none));
+        TEST_EXPECT(ctx, reason == item.reason && layout.instance_offset == item.offset && layout.file_size == item.size);
     }
 }
 
@@ -336,7 +400,7 @@ struct SBlockTraits
     using Live = std::conditional_t<Instances, CLiveInstances, CLiveBulkData>;
     using Role = std::conditional_t<Instances, CBakedInstances, CBakedBulkData>;
     using RoleDiagnostic = std::conditional_t<Instances, SInstanceDiagnostic, SBulkDataDiagnostic>;
-    using Block = std::conditional_t<Instances, CBakedInstancesBlock, CBakedBulkDataBlock>;
+    using Block = std::conditional_t<Instances, TDomainBlock<true>, TDomainBlock<false>>;
     using Diagnostic = std::conditional_t<Instances, SInstancesBlockDiagnostic, SBulkDataBlockDiagnostic>;
     using Reason = std::conditional_t<Instances, EInstanceLoadReason, EBulkDataLoadReason>;
     static constexpr EDataBlockKind kind = Instances ? EDataBlockKind::instances : EDataBlockKind::bulk_data;
@@ -800,9 +864,9 @@ static void test_completed_bake(TTestContext& ctx, TSourceSchema& source_schema,
             TEST_EXPECT(ctx, T::attach(result_role, result, destination_schema, result_error));
             const auto bytes = result.file_bytes();
             TEST_EXPECT(ctx, (reinterpret_cast<std::uintptr_t>(bytes.data()) & 127u) == 0u);
-            SDataBlockView view;
+            SSelectedBlockView view;
             SDataBlockDiagnostic format_diagnostic;
-            TEST_EXPECT(ctx, validate_data_block(bytes.data(), bytes.size(), T::kind, view, format_diagnostic));
+            TEST_EXPECT(ctx, validate_domain(bytes.data(), bytes.size(), T::kind, view, format_diagnostic));
             TEST_EXPECT(ctx, view.stripped == (form == EDataOutputForm::stripped));
             //  Newly packed gaps are zero; complete records retain their source bytes.
             TEST_EXPECT(ctx, tests::same_bytes(view.payload, byte_snapshot(baseline_payload.const_view())));
@@ -1098,15 +1162,13 @@ static std::string materialisation_description(const unsigned content)
         return Instances ? R"({"instances":{"Zero":{"zero":{"locator":{"offset":0,"valid":false}}}}})" :
             R"({"data":{"Zero":{"zero":{"locator":{"offset":0,"valid":false},"data":[{},{}]}}}})";
     }
-    //  Construction selects only its role and replaces stale persistence metadata.
-    return Instances ? R"({"fileType":"old","version":0,"payloadSize":999,"types":{},
-        "data":{"unrelated":true},"instances":{"Pair":{
+    //  Each fixture is a valid single-domain input. The common writer retains all supplied sections.
+    return Instances ? R"({"instances":{"Pair":{
         "base":{"locator":{"offset":8,"valid":true},"declaration":{"a":3},
             "specialisation":{"child":{"locator":{"offset":4294967295,"valid":false},"declaration":{"b":7},
                 "specialisation":{"deep":{"locator":{"offset":0,"valid":false}}}}}},
         "defaults":{"locator":{"offset":0,"valid":false}}}}})" :
-        R"({"fileType":"old","version":0,"payloadSize":999,"types":{},
-        "instances":{"unrelated":true},"data":{"Pair":{
+        R"({"data":{"Pair":{
         "base":{"locator":{"offset":8,"valid":true},"data":[{"a":3,"b":9},{"a":5,"b":7}]},
         "next":{"locator":{"offset":4294967295,"valid":false,"count":1,"size":2},"data":[[1,2]]}}}})";
 }
@@ -1146,9 +1208,9 @@ static void test_materialised_blocks(TTestContext& ctx, TSchema& schema)
                 typename T::Role output_role;
                 typename T::RoleDiagnostic output_error;
                 TEST_EXPECT(ctx, T::attach(output_role, output, schema, output_error));
-                SDataBlockView view;
+                SSelectedBlockView view;
                 SDataBlockDiagnostic format;
-                TEST_EXPECT(ctx, validate_data_block(output.file_bytes().data(), output.file_bytes().size(), T::kind, view, format));
+                TEST_EXPECT(ctx, validate_domain(output.file_bytes().data(), output.file_bytes().size(), T::kind, view, format));
                 TEST_EXPECT(ctx, view.stripped == (form == EDataOutputForm::stripped) &&
                     !view.document.object_child(view.document.root(), CStringView{ "types" }) &&
                     !view.document.object_child(view.document.root(), CStringView{ Instances ? "data" : "instances" }));
@@ -1235,7 +1297,7 @@ static void test_materialisation_failures(TTestContext& ctx, TSchema& schema)
         { "{\"" + section + "\":[]}", T::Reason::invalid_input },
         { "{\"stripped\":true,\"" + section + "\":{}}", T::Reason::binary_required },
         { "{\"" + section + "\":{\"Unknown\":{}}}", T::Reason::unknown_type },
-        { "{\"" + section + "\":{\"Pair\":{\"bad\":{}}}}", T::Reason::missing_property },
+        { "{\"" + section + "\":{\"Pair\":{\"bad\":{\"locator\":null}}}}", T::Reason::missing_property },
         { "{\"" + section + "\":{\"Pair\":{\"bad\":{\"locator\":{\"offset\":0,\"valid\":false,\"count\":0}" +
             (Instances ? "" : ",\"data\":[[1,2]]") + "}}}}", T::Reason::invalid_count }
     };
@@ -1248,8 +1310,9 @@ static void test_materialisation_failures(TTestContext& ctx, TSchema& schema)
         const auto run = [&](const auto& source)
         {
             TEST_EXPECT(ctx, !output.materialise(source, schema, EDataOutputForm::stripped, diagnostic));
-            TEST_EXPECT(ctx, diagnostic.block.stage == EDataBlockStage::materialisation &&
-                diagnostic.block.reason == EDataBlockReason::specialised_failure && diagnostic.role.reason == item.reason);
+            const bool root_error = (item.text == "[]") || (item.text == "{\"" + section + "\":[]}");
+            TEST_EXPECT(ctx, root_error ? (diagnostic.block.stage == EDataBlockStage::format_validation) :
+                (diagnostic.block.stage == EDataBlockStage::materialisation && diagnostic.block.reason == EDataBlockReason::specialised_failure && diagnostic.role.reason == item.reason));
             TEST_EXPECT(ctx, output.backing() == EEntityBacking::none && !output.document().is_ready());
             if constexpr (Baked)
                 TEST_EXPECT(ctx, diagnostic.block.location.kind == EDataBlockLocationKind::source_baked_value &&
@@ -1259,8 +1322,11 @@ static void test_materialisation_failures(TTestContext& ctx, TSchema& schema)
                     source.contains(diagnostic.block.location.live_node));
             using Access = std::conditional_t<Instances, SInstanceHandleAccess, SBulkDataHandleAccess>;
             const auto occurrence = Access::occurrence(diagnostic.role.occurrence);
-            if constexpr (Baked) TEST_EXPECT(ctx, occurrence.baked == diagnostic.block.location.baked_value);
-            else TEST_EXPECT(ctx, occurrence.live == diagnostic.block.location.live_node);
+            if (!root_error)
+            {
+                if constexpr (Baked) TEST_EXPECT(ctx, occurrence.baked == diagnostic.block.location.baked_value);
+                else TEST_EXPECT(ctx, occurrence.live == diagnostic.block.location.live_node);
+            }
         };
         if constexpr (Baked) run(baked.document());
         else run(live);
@@ -1455,9 +1521,9 @@ static void test_stripped_blocks(TTestContext& ctx, TSourceSchema& source_schema
                 diagnostic.block.location.kind == EDataBlockLocationKind::none && diagnostic.role.reason == T::Reason::none);
             TEST_EXPECT(ctx, destination.backing() == EEntityBacking::local && !destination.asset_id() &&
                 destination.file_bytes().data() != source_address && tests::same_bytes(destination.payload_view(), payload));
-            SDataBlockView view;
+            SSelectedBlockView view;
             SDataBlockDiagnostic format;
-            TEST_EXPECT(ctx, validate_data_block(destination.file_bytes().data(), destination.file_bytes().size(), T::kind, view, format) && view.stripped);
+            TEST_EXPECT(ctx, validate_domain(destination.file_bytes().data(), destination.file_bytes().size(), T::kind, view, format) && view.stripped);
             if (content == 2u) TEST_EXPECT(ctx, view.document.byte_count() != fixture.prefix.document().byte_count());
             if (content < 2u) TEST_EXPECT(ctx, destination.file_bytes().size() == view.document.byte_count() && view.payload.size() == 0u);
             typename T::Role role;
@@ -1549,7 +1615,7 @@ static void test_stripping_failures(TTestContext& ctx)
     TEST_EXPECT(ctx, missing_types.build(R"({"types":{}})"));
     TEST_EXPECT(ctx, !source.strip_to(destination, missing_types.baked, diagnostic) && diagnostic.block.stage == EDataBlockStage::specialised_loading &&
         diagnostic.block.reason == EDataBlockReason::specialised_failure && diagnostic.role.reason == T::Reason::unknown_type);
-    TEST_EXPECT(ctx, diagnostic.block.location.kind == EDataBlockLocationKind::none && diagnostic.role.occurrence &&
+    TEST_EXPECT(ctx, diagnostic.block.location.kind == EDataBlockLocationKind::source_baked_value && diagnostic.role.occurrence &&
         destination.backing() == EEntityBacking::none && missing_types.baked.reference_count() == 0u && tests::same_bytes(source.file_bytes(), snapshot));
     {
         SSchemaFixture temporary;
@@ -1597,7 +1663,7 @@ static void test_stripping_allocations(TTestContext& ctx)
                 assembly |= stage == EDataBlockStage::assembly;
                 attachment |= stage == EDataBlockStage::specialised_loading;
                 TEST_EXPECT(ctx, (!diagnostic.role.occurrence || T::query(source).contains(diagnostic.role.occurrence)) &&
-                    diagnostic.block.location.kind == EDataBlockLocationKind::none);
+                    (diagnostic.block.location.kind == EDataBlockLocationKind::none || source.document().contains(diagnostic.block.location.baked_value)));
             }
             TEST_EXPECT(ctx, source.loaded_ready() && schemas.live.reference_count() == 0u && tests::same_bytes(source.file_bytes(), snapshot));
         }
@@ -1623,10 +1689,203 @@ static void test_stripping(TTestContext& ctx)
     test_stripping_allocations<true>(ctx);
     test_stripping_allocations<false>(ctx);
 }
+
+static void test_common_blocks(TTestContext& ctx)
+{
+    //  Every section combination, with independent absence/supplied-zero bytes.
+    for (unsigned mask = 0u; mask < 8u; ++mask)
+    {
+        std::string text = "{";
+        if (mask & 1u) text += "\"types\":{},";
+        if (mask & 2u) text += "\"instances\":{},";
+        if (mask & 4u) text += "\"data\":{},";
+        if (text.back() == ',') text.pop_back();
+        text += "}";
+        CLiveDocument source;
+        TEST_EXPECT(ctx, tests::parse_document(text, source));
+        const CByteConstView empty;
+        for (unsigned supplied = 0u; supplied < 4u; ++supplied)
+        {
+            CBakedDataBlock output;
+            SDataBlockDiagnostic error;
+            const bool valid = (!(supplied & 1u) || (mask & 2u)) && (!(supplied & 2u) || (mask & 4u));
+            const bool accepted = output.assemble(source, { (supplied & 1u) ? &empty : nullptr, (supplied & 2u) ? &empty : nullptr }, error);
+            TEST_EXPECT(ctx, accepted == valid);
+            if (!accepted)
+            {
+                TEST_EXPECT(ctx, !output.loaded_ready() && error.reason != EDataBlockReason::none);
+                continue;
+            }
+            TEST_EXPECT(ctx, output.has_types() == ((mask & 1u) != 0u) &&
+                output.has_instances() == ((mask & 2u) != 0u) && output.has_bulk_data() == ((mask & 4u) != 0u));
+            TEST_EXPECT(ctx, output.instance_binary_available() == ((supplied & 1u) != 0u) &&
+                output.bulk_binary_available() == ((supplied & 2u) != 0u));
+            TEST_EXPECT(ctx, output.file_bytes().size() == output.document().byte_count());
+        }
+        CBakedDataBlock materialised;
+        SDataBlockBuildDiagnostic error;
+        TEST_EXPECT(ctx, materialised.materialise(source, EDataOutputForm::embedded, error));
+        TEST_EXPECT(ctx, materialised.instance_binary_available() == ((mask & 2u) != 0u) &&
+            materialised.bulk_binary_available() == ((mask & 4u) != 0u));
+    }
+
+    for (const char* const text : { R"({"stripped":true,"instances":{}})", R"({"stripped":true,"data":{}})" })
+    {
+        CLiveDocument source;
+        CBakedDataBlock block;
+        SDataBlockBuildDiagnostic error;
+        TEST_EXPECT(ctx, tests::parse_document(text, source) && !block.materialise(source, EDataOutputForm::stripped, error));
+        TEST_EXPECT(ctx, !block.loaded_ready() && (error.instances.reason == EInstanceLoadReason::binary_required || error.bulk_data.reason == EBulkDataLoadReason::binary_required));
+    }
+
+    CLiveDocument types, instances, bulk, aggregate;
+    TEST_EXPECT(ctx, tests::parse_document(R"({"types":{"structures":{"Value":{"members":[{"n":{"type":"u8","default":2}}]}}}})", types));
+    TEST_EXPECT(ctx, tests::parse_document(R"({"instances":{"Value":{"answer":{"declaration":{"n":7}}}}})", instances));
+    TEST_EXPECT(ctx, tests::parse_document(R"({"data":{"u32":{"code":{"data":[1,2,3]}}}})", bulk));
+    SDocumentCompositionDiagnostic composition;
+    TEST_EXPECT(ctx, compose_document(CSchemaDocumentQuery{ types }, CInstanceDocumentQuery{ instances },
+        CBulkDataDocumentQuery{ bulk }, aggregate, composition));
+    CBakedDocumentBlock original;
+    TEST_EXPECT(ctx, document_translation::bake(aggregate, original));
+    const auto snapshot = byte_snapshot(original.bytes());
+    CBakedDataBlock description_only, full;
+    SDataBlockDiagnostic storage_error;
+    SDataBlockBuildDiagnostic build_error;
+    TEST_EXPECT(ctx, description_only.assemble(aggregate, {}, storage_error));
+    const auto description_snapshot = byte_snapshot(description_only.file_bytes());
+    CBakedSchema schema;
+    TEST_EXPECT(ctx, schema.set_block(description_only) && schema.resolve(build_error.schema));
+    CByteBuffer instance_work, bulk_work;
+    CBakedInstances instance_role;
+    CBakedBulkData bulk_role;
+    SInstanceDiagnostic instance_error;
+    SBulkDataDiagnostic bulk_error;
+    TEST_EXPECT(ctx, instance_role.attach_block(description_only, schema, instance_work, true, instance_error));
+    TEST_EXPECT(ctx, bulk_role.attach_block(description_only, schema, bulk_work, true, bulk_error));
+    TEST_EXPECT(ctx, instance_work.size() == 1u && instance_work.data()[0] == 7u && bulk_work.size() == 12u);
+    TEST_EXPECT(ctx, !description_only.instance_binary_available() && !description_only.bulk_binary_available() &&
+        tests::same_bytes(description_only.file_bytes(), description_snapshot));
+    instance_role.clear();
+    bulk_role.clear();
+
+    //  Embedded types take precedence over an explicitly supplied empty schema.
+    SSchemaFixture external;
+    TEST_EXPECT(ctx, external.build(R"({"types":{}})"));
+    TEST_EXPECT(ctx, full.materialise(aggregate, external.baked, EDataOutputForm::embedded, build_error));
+    TEST_EXPECT(ctx, full.has_types() && full.instance_binary_available() && full.bulk_binary_available());
+    TEST_EXPECT(ctx, full.instance_payload_view().size() == 1u && full.instance_payload_view().data()[0] == 7u);
+    const auto instance_snapshot = byte_snapshot(full.instance_payload_view());
+    const auto bulk_snapshot = byte_snapshot(full.bulk_payload_view());
+    TEST_EXPECT(ctx, full.bulk_payload_view().size() == 12u);
+    CBakedDocumentBlock unchanged;
+    TEST_EXPECT(ctx, document_translation::bake(aggregate, unchanged) && tests::same_bytes(unchanged.bytes(), snapshot));
+
+    CBakedSchema full_schema;
+    TEST_EXPECT(ctx, full_schema.set_block(full) && full_schema.resolve(build_error.schema));
+    CByteBuffer unused_instances, unused_bulk;
+    TEST_EXPECT(ctx, instance_role.attach_block(full, full_schema, unused_instances, true, instance_error) &&
+        bulk_role.attach_block(full, full_schema, unused_bulk, true, bulk_error));
+    TEST_EXPECT(ctx, !unused_instances.is_ready() && !unused_bulk.is_ready());
+    instance_role.clear();
+    bulk_role.clear();
+
+    //  One supplied binary and one constructed binary, with no source mutation.
+    CBakedDataBlock partial, restored;
+    const CByteConstView retained_instances = full.instance_payload_view();
+    TEST_EXPECT(ctx, partial.assemble(full.document(), { &retained_instances, nullptr }, storage_error));
+    TEST_EXPECT(ctx, partial.instance_binary_available() && !partial.bulk_binary_available());
+    TEST_EXPECT(ctx, restored.materialise(partial.document(), EDataOutputForm::external, build_error, { &retained_instances, nullptr }));
+    TEST_EXPECT(ctx, tests::same_bytes(restored.instance_payload_view(), instance_snapshot) &&
+        tests::same_bytes(restored.bulk_payload_view(), bulk_snapshot));
+
+    CBakedDataBlock stripped;
+    TEST_EXPECT(ctx, full.strip_to(stripped, build_error));
+    TEST_EXPECT(ctx, tests::same_bytes(stripped.instance_payload_view(), instance_snapshot) &&
+        tests::same_bytes(stripped.bulk_payload_view(), bulk_snapshot));
+    for (const auto form : { EDataOutputForm::embedded, EDataOutputForm::external })
+    {
+        CBakedDataBlock retained;
+        const CByteConstView first = stripped.instance_payload_view(), second = stripped.bulk_payload_view();
+        TEST_EXPECT(ctx, retained.materialise(stripped.document(), form, build_error, { &first, &second }));
+        CBakedSchema retained_schema;
+        TEST_EXPECT(ctx, retained_schema.set_block(retained) && retained_schema.resolve(build_error.schema));
+        TEST_EXPECT(ctx, instance_role.attach_block(retained, retained_schema, unused_instances, true, instance_error) &&
+            bulk_role.attach_block(retained, retained_schema, unused_bulk, true, bulk_error));
+        TEST_EXPECT(ctx, tests::same_bytes(retained.instance_payload_view(), instance_snapshot) &&
+            tests::same_bytes(retained.bulk_payload_view(), bulk_snapshot));
+        instance_role.clear();
+        bulk_role.clear();
+    }
+
+    //  Declared binary availability and length also govern low-level role APIs.
+    TEST_EXPECT(ctx, instance_role.set_document(full.document()) && !instance_role.attach_schema(full_schema, unused_instances, instance_error) &&
+        instance_error.reason == EInstanceLoadReason::binary_required);
+    instance_role.clear();
+    const CByteConstView empty;
+    TEST_EXPECT(ctx, instance_role.set_document(full.document()) && !instance_role.attach_schema(full_schema, empty, false, instance_error) &&
+        instance_error.reason == EInstanceLoadReason::invalid_range);
+    instance_role.clear();
+
+    //  Both alignment gaps are checked; file extent excludes allocation capacity.
+    CBakedDocumentBlock owned;
+    TEST_EXPECT(ctx, restored.release_local(owned));
+    auto bytes = owned.buffer_bytes();
+    SDataBlockLayout layout;
+    EDataBlockReason reason;
+    TEST_EXPECT(ctx, data_block_layout(owned.document().byte_count(), 1u, 12u, layout, reason));
+    for (const std::size_t position : { owned.document().byte_count(), layout.instance_offset + 1u })
+    {
+        const std::size_t limit = (position == owned.document().byte_count()) ? layout.instance_offset : layout.bulk_offset;
+        if (position == limit) continue;
+        bytes.data()[position] = 1u;
+        CBakedDataBlock rejected;
+        TEST_EXPECT(ctx, !rejected.adopt_local(std::move(owned), storage_error) &&
+            storage_error.reason == EDataBlockReason::nonzero_padding && storage_error.location.byte_offset == position);
+        TEST_EXPECT(ctx, owned.is_ready() && !rejected.loaded_ready());
+        bytes.data()[position] = 0u;
+    }
+    TEST_EXPECT(ctx, restored.adopt_local(std::move(owned), storage_error));
+    TEST_EXPECT(ctx, !data_block_layout(128u, memory::k_byte_size_ceiling - 128u, 1u, layout, reason) &&
+        reason == EDataBlockReason::storage_limit);
+    TEST_EXPECT(ctx, !data_block_layout(128u, 1u, UINT64_MAX, layout, reason) &&
+        reason == EDataBlockReason::size_overflow);
+
+
+    bool completed{};
+    for (std::size_t fail_on = 0u; fail_on < 2048u && !completed; ++fail_on)
+    {
+        tests::TAllocationFailureFixture failures{ 0u, fail_on };
+        memory::CMemoryAllocator allocator{ &failures, &tests::allocate_with_failure, &tests::deallocate_test_memory };
+        memory::CMemoryContext context{ allocator };
+        {
+            const tests::TMemoryContextScope scope{ &context };
+            CBakedDataBlock candidate;
+            SDataBlockBuildDiagnostic error;
+            completed = candidate.materialise(aggregate, EDataOutputForm::external, error);
+            if (!completed)
+            {
+                TEST_EXPECT(ctx, !candidate.loaded_ready() && error.block.reason != EDataBlockReason::none);
+                TEST_EXPECT(ctx, !error.schema.occurrence || CSchemaDocumentQuery{ aggregate }.contains(error.schema.occurrence));
+                TEST_EXPECT(ctx, !error.instances.occurrence || CInstanceDocumentQuery{ aggregate }.contains(error.instances.occurrence));
+                TEST_EXPECT(ctx, !error.bulk_data.occurrence || CBulkDataDocumentQuery{ aggregate }.contains(error.bulk_data.occurrence));
+            }
+        }
+        TEST_EXPECT(ctx, context.is_attribution_empty());
+    }
+    TEST_EXPECT(ctx, completed);
+    //  Failure in the second domain cannot publish the first domain's work.
+    CLiveDocument invalid;
+    TEST_EXPECT(ctx, tests::parse_document(R"({"types":{},"instances":{"u8":{"ok":{"declaration":7}}},"data":{"u8":{"bad":{"data":[256]}}}})", invalid));
+    CBakedDataBlock rejected;
+    TEST_EXPECT(ctx, !rejected.materialise(invalid, EDataOutputForm::external, build_error) &&
+        !rejected.loaded_ready() && build_error.bulk_data.reason != EBulkDataLoadReason::none);
+}
+
 }   // namespace
 
 void run_schema_data_block_cases(tests::TTestContext& context)
 {
+    test_common_blocks(context);
     test_valid(context);
     test_metadata(context);
     test_bounds(context);

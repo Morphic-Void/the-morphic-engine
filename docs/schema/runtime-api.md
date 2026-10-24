@@ -39,7 +39,7 @@ Include the header for the role or operation being used:
 | `baked_instances.hpp`, `live_instances.hpp` | Instance loading, observation and live editing/output. |
 | `baked_bulk_data.hpp`, `live_bulk_data.hpp` | Bulk data loading, observation and live capture/output. |
 | `data_block.hpp` | Backing states and block diagnostic vocabulary. |
-| `baked_instances_block.hpp`, `baked_bulk_data_block.hpp` | Completed file ownership, attachment, materialisation, stripping and local storage release. |
+| `baked_data_block.hpp` | Completed file ownership, attachment, materialisation, stripping and local storage release. |
 | `data_remap.hpp` | Remap planning and execution between binary views. |
 | `unused_storage.hpp` | Explicit clearing of unused binary storage. |
 
@@ -48,172 +48,72 @@ Include the header for the role or operation being used:
 support; live data headers also include the corresponding baked header for shared
 diagnostics and views.
 
+
 ### Persistence envelope
 
-Block diagnostics carry a stage, reason and optional source location; `SInstancesBlockDiagnostic`
-and `SBulkDataBlockDiagnostic` also retain the corresponding role diagnostic.
-Locations identify a source live node, baked value or byte offset from the whole
-file. They own no storage and must not retain handles into discarded temporary
-documents. The [persistence contract](persistence-and-aggregation.md#diagnostics-and-failure-reporting)
-defines the reporting contract for block operations.
-
-`data_block_format.hpp/.cpp` is internal schema implementation support. It
-validates the version 1 `.bid`/`.bbd` envelope and returns borrowed document,
-section and payload views only on success. Output and diagnostic are reset on
-entry. It checks base alignment, the bounded baked prefix, allowed root fields,
-required metadata, checked total extent and zero container padding. Empty
-sections require zero payload bytes; a nonempty section may describe zero-byte
-types. Typed entries and payload interpretation remain the existing roles'
-responsibility. This helper is not a public owning-block or Host loading API.
-
-Metadata traversal rejects unknown root properties in document order, then
-checks required members and their types/values in fixed format order. Declared
-sizes are checked before padding is read. Header errors have byte locations when
-known; validated metadata errors have source baked-value locations. A missing
-member points to the root. Generic baked validation returns only `bool`, so
-`invalid_document` reports unsuccessful validation without distinguishing corrupt
-input from its internal scratch allocation failure.
+The [.bsd contract](common-binary-block.md) defines root metadata, independently
+optional binaries, alignment and exact extent. Internal data_block_format helpers
+share strict root admission with resolution and preparation. Full-file validation
+checks framing; typed validation remains separate.
 
 ### Completed data blocks
 
-`CBakedInstancesBlock` and `CBakedBulkDataBlock` persist a baked document and
-its complete binary package. They retain no schema or typed role. Both are
-non-copyable and non-movable and expose `document()`, `payload_view()`,
-`backing()` (`EEntityBacking::none/local/asset`), `loaded_ready()`, `asset_id()`
-and `file_bytes()`. Block readiness means valid storage; schema lifetime does
-not affect it. `file_bytes()` includes the complete logical file, excluding
-spare capacity and enclosing bundle padding.
+Include schema/baked_data_block.hpp. CBakedDataBlock replaces the specialised
+instance/bulk owners. It owns local storage or borrows an asset range without
+acquiring a reference. It is noncopyable/nonmovable.
 
-```cpp
-bool adopt_local(CBakedDocumentBlock&& source, Diagnostic& diagnostic) noexcept;
-bool attach_asset(CAssetId asset, CByteConstView bytes, Diagnostic& diagnostic) noexcept;
-bool release_local(CBakedDocumentBlock& output) noexcept;
-void clear() noexcept;
-```
+Observe document(), section presence, instance_binary_available(),
+bulk_binary_available(), instance_payload_view(), bulk_payload_view(), backing(),
+loaded_ready(), asset_id() and file_bytes(). An empty view alone does not
+distinguish absent from supplied-zero binary.
 
-`Diagnostic` denotes `SInstancesBlockDiagnostic` or `SBulkDataBlockDiagnostic`.
-All fallible operations are `[[nodiscard]]`. Adoption and attachment require
-an empty destination and validate the persistence envelope before publishing
-state. Failed adoption preserves the source owner. Typed validation is a
-separate role attachment:
+adopt_local and attach_asset take SDataBlockDiagnostic and validate before
+publication into an empty destination. release_local transfers the allocation
+to an empty generic document owner. Borrowers must finish before release/clear.
 
-```cpp
-CBakedInstances instances;
-SInstanceDiagnostic diagnostic;
-if (!instances.set_document(block.document()) ||
-    !instances.attach_schema(schema, block.payload_view(), true, diagnostic)) return false;
-```
-
-The role borrows both ranges; the caller keeps the block and schema usable.
-Several roles may interpret the same storage under separate schemas.
-`attach_asset()` borrows a caller-protected range and records its valid ID;
-it neither verifies pointer ownership, acquires a reference nor sends Host
-messages. Empty and local blocks return an invalid asset ID.
-
-`clear()` releases local storage or forgets borrowed storage. `release_local()`
-requires local backing and an unallocated output and transfers the complete
-allocation without copying. Failure preserves both objects. Before clear,
-destruction or release, callers must quiesce borrowing roles and views.
-Asset disposal remains a separate caller responsibility.
+CBakedSchema::set_block borrows embedded definitions. Data-role
+attach_block(block, schema, returned_owner, compare_embedded, diagnostic)
+borrows supplied bytes or constructs missing bytes into an unallocated working
+owner. The role retains its private locator-bearing document when constructing;
+the source block is unchanged. Keep the schema and relevant byte owners alive.
+Both data interfaces support live/baked schemas and retain lower-level APIs.
 
 ### Live baking into completed blocks
 
-`CLiveInstances::bake(destination, schema, form, diagnostic)` and
-`CLiveBulkData::bake(destination, schema, form, diagnostic)` accept their
-corresponding completed block and block diagnostic, with explicit overloads for
-`CBakedSchema&` and `CLiveSchema&`. Include the live-role and corresponding
-block headers. These const operations require a loaded source, an empty
-destination, a resolved destination schema and a valid `EDataOutputForm`.
-
-Live baking shares description preparation and record planning with the
-separate-output API. Instances reconstruct declarations for embedded and
-external forms and omit them for stripped output. Bulk data reconstructs
-values only for embedded output. All forms retain the complete authoritative
-binary payload, including zero-byte packages.
-
-After preparing the description, the shared construction helper adds version 1
-metadata, bakes the prefix and allocates the final aligned file. Records copy
-directly into its payload region; newly introduced gaps and container padding
-are zeroed. There is no intermediate packed payload allocation or typed-role
-reload for this route. Final envelope validation precedes adoption.
-
-Success produces independent storage. Failure preserves the source and any
-occupied destination. Preparation reports source live occurrences; failures
-against discarded output clear their locations. Existing separate-owner bake
-overloads remain available.
+The live instance/bulk bake overloads now target CBakedDataBlock, retaining their
+specialised diagnostics and direct packing into final storage.
+CLiveSchema::bake(block, baked_schema) has a common types-only output overload.
+Generic document/payload owner overloads remain lower-level working operations.
 
 ### Materialisation from descriptions
 
-Both blocks provide `materialise(description, schema, form, diagnostic)` with
-four explicit overloads: `const CLiveDocument&` or `const CBakedDocument&`, each
-with `CLiveSchema&` or `CBakedSchema&`. The operation requires an empty block,
-a ready description, an already resolved caller schema and a valid output form.
-It constructs the whole payload; there is no supplied-payload or partial-repair
-argument. The source remains unchanged on success and failure.
+assemble(description, payloads, diagnostic) performs schema-independent copying
+and framing. SDataBlockPayloads holds optional pointers to two byte views:
+null means unavailable; a pointer to an empty view means supplied zero bytes.
 
-The source follows the existing role description grammar, including reserved
-unsigned `locator.offset` and Boolean `locator.valid` fields. Materialisation
-honours valid offsets and computes unset offsets in document traversal order.
-It uses a private mutable baked copy, so publishing reserved locators never
-patches the caller's live document, baked asset or bundle storage. Instances use
-schema defaults and parent inheritance; every bulk data record must be complete.
-A `stripped: true` source reports `binary_required`, including empty sections,
-as in the lower-level materialisers. A missing role section produces an empty
-completed block. Other root sections are not included in the output, and source
-persistence metadata is replaced with the new file's metadata.
+materialise(description, form, diagnostic, payloads) resolves embedded types and
+constructs missing binaries. An overload accepts an external live/baked schema,
+used only when embedded types are absent. Live/baked descriptions are accepted.
+The aggregate output of compose_document is a direct input. Missing locators are
+prepared privately; omitted domains remain absent, and explicit empty domains
+produce supplied-zero binaries.
 
-After construction, generic document promotion copies the selected section.
-Embedded output retains source values; external output retains instance
-declarations but removes bulk data arrays; stripped output removes both kinds
-of values and marks the document. Bulk data counts inferred from arrays are
-made explicit before values can be removed, including for zero-byte records.
-The result uses the same contiguous assembly and final attachment as live baking.
-It retains valid source offsets, including gaps; it does not promise packing.
-Newly allocated bytes before and between nonempty entry extents are zeroed.
-This does not clear padding within individual values or change supplied payloads.
+Construction requires an empty destination and preserves inputs/destination on
+failure. SDataBlockBuildDiagnostic provides block, schema, instances and bulk_data
+detail; occurrences refer to caller storage or are cleared.
 
-Preparation uses temporary live/baked documents, a payload owner and role
-scratch before final assembly. Direct construction into final storage remains
-a later optimisation. Generic promotion and baking failures identify their
-stage without inferring a resource cause from Boolean translation results.
-Materialisation failures retain the precise role reason and map occurrences
-back to the original live or baked tree by child ordinals. Unmappable locations
-are cleared. Final-attachment locations into temporary output are also cleared.
-An occupied destination is preserved, and an empty destination stays empty on
-failure. Successful output no longer depends on the source description's lifetime.
-
-JSON parsing remains an explicit caller step, for example:
-
-```cpp
-CLiveDocument description;
-const auto parsed = document_parser::parse(json_bytes, description);
-if (!parsed.accepted()) return false; // Report the parser's diagnostics.
-schema::CBakedBulkDataBlock block;
-schema::SBulkDataBlockDiagnostic diagnostic;
-if (!block.materialise(description, caller_schema,
-    schema::EDataOutputForm::external, diagnostic)) return false;
-description.deallocate(); // The completed block is independent.
-// Attach a CBakedBulkData role to block.document()/payload_view() for typed use.
-// Or release_local() for later owning transfer.
-```
-
-Include `data_model/document_parser.hpp` and the relevant block header. The
-same sequence accepts a baked description produced by parsing/loading. Optional
-Host admission and save follow construction under the caller's existing asset
-ownership model. Host baked loads, owning admission and binary saves preserve the
-complete logical buffer. `AssetResult::byte_view()` includes appended data;
-`document_view()` remains limited to the validated document prefix. Bundle-backed
-views cover the exact entry range, excluding bundle padding, and use the existing
-retained lease. JSON saving serialises only the document. See the
-[asset service contracts](../assets/asynchronous_asset_services.md) for cache,
-alignment and disposal rules. Schema binding and attachment remain caller-side.
+Output form controls retained values independently of binary availability.
+Supplied stripped input can be reconstructed into retained forms.
+strip_to(destination, diagnostic) uses embedded types; an overload accepts an
+external-schema fallback. Supplied bytes are preserved. Missing binaries must be
+constructed before their descriptions can be removed.
 
 ### Host persistence orchestration
 
-Use `EAssetFileFormat::baked` and request 128-byte alignment for completed `.bid`
-and `.bbd` loads. Extensions help identify files visually; they do not select a
-Host format or replace the block's content validation. Keep type definitions
-separately owned and resolved before attaching either role.
+Use `EAssetFileFormat::baked` and request 128-byte alignment for completed `.bsd` loads. Extensions help identify files visually; they do not select a
+Host format or replace the block's content validation. Resolve the schema role
+before attaching either data role, and keep its backing storage alive. Embedded
+type definitions share the common block's storage.
 
 | Route | Caller sequence |
 | --- | --- |
@@ -240,33 +140,41 @@ document storage and does not modify the source bundle.
 
 ### Stripping completed blocks
 
-Both blocks expose const `strip_to(destination, schema, diagnostic)` overloads
-for `CLiveSchema&` and `CBakedSchema&`. The destination is the same block kind
-as the source. It must be empty, the source must be loaded and ready, and the
-caller-supplied destination schema must already be resolved. Self-stripping and
-occupied destinations are rejected unchanged. Blocks carry no binding;
-stripping temporarily attaches a role using the supplied schema.
+`CBakedDataBlock` exposes const `strip_to(destination, diagnostic)` and
+`strip_to(destination, schema, diagnostic)` overloads, with `CLiveSchema&` and
+`CBakedSchema&` external-schema alternatives. Embedded types are authoritative
+when present. When embedded types are absent, an explicitly supplied schema must
+already be resolved. Empty ordinary sections also support the overload without
+a schema. The source must be loaded and ready and the common-block destination
+must be empty. Self-stripping
+and occupied destinations are rejected unchanged. Blocks retain no schema binding;
+stripping resolves or borrows a schema and attaches temporary roles.
 
-Stripping validates the complete source envelope, generically promotes its
-selected document section, removes instance declarations recursively or bulk
-data arrays, and sets `stripped: true`. Missing bulk data counts are taken from
-the temporary role's loaded entries before arrays are removed. This preserves counts
-inferred from either arrays or byte sizes, including zero-byte record counts.
-Existing locator offsets, counts and sizes are retained. Persistence metadata
-is rebuilt for the output document and unchanged payload length.
+Stripping preserves the types section and processes both present data domains.
+Supplied binaries undergo structural validation without comparing retained values.
+Missing binaries are constructed from sufficient descriptions before any values
+are removed; stripped descriptions without their binary fail, even for empty
+sections. Omitted domains remain absent.
 
-The entire declared payload is copied byte for byte into a new contiguous
-allocation: offsets, gaps, unused bits and trailing storage are preserved.
-There is no specialised live-role promotion, literal reconstruction, embedded
-comparison or repacking. Binary values without faithful document literals can
-therefore be stripped. The result holds independent document and payload
+Instance declarations are removed recursively, bulk data arrays are removed and
+the document receives `stripped: true`. Missing bulk counts are taken from the
+temporary role's loaded entries before arrays are removed, preserving counts
+inferred from arrays or byte sizes, including zero-byte record counts. Supplied
+binaries retain their locator offsets, counts and sizes. Constructed binaries use
+their prepared locators. The output receives fresh metadata for both available
+binaries, including explicit zero lengths.
+
+Each supplied binary is copied byte for byte into a new common allocation:
+offsets, gaps, unused bits and trailing storage are preserved. Supplied bytes need
+no literal reconstruction or repacking, so values without faithful document
+literals can still be stripped. The result holds independent document and binary
 storage, whose addresses and document indices may differ.
-The caller remains responsible for supplying the correct schema.
 
-Already stripped input produces an independent equivalent block. Local and
-asset-backed sources use the same path and remain unchanged. No asset is
-retained or disposed implicitly; the caller may release the source after a
-successful strip. Failure leaves an empty destination empty, cleans up private
+Already stripped input with all required binaries produces an independent
+equivalent block. Local and asset-backed sources use the same path and remain
+unchanged. No asset is retained or disposed implicitly; the caller may release
+the source after a successful strip. Failure leaves an empty destination empty,
+cleans up private
 allocations and bindings, and preserves the source. Source format failures may
 retain source locations; final-attachment failures retain their stage and role
 reason but clear locations into the discarded output document.
@@ -786,9 +694,10 @@ are rejected. Comparison of retained descriptions with supplied bytes is optiona
 and explicit; reconstruction always checks representability. This operation neither
 copies payload storage nor changes source descriptions, schemas or bindings.
 
-Supported unbound locator placeholders can stand alone. Valid locators and complete
-`fileType`/`version`/`payloadSize` envelopes require an explicit payload view, even
-for zero bytes; partial envelopes fail. Supplied entries require valid locators,
+Supported unbound locator placeholders can stand alone. Valid locators and a
+selected instancePayloadSize/bulkPayloadSize declaration require an explicit
+payload view, even for zero bytes. The common identifier/version pair is required
+when any envelope metadata appears; each binary length is independently optional. Supplied entries require valid locators,
 checked counts, offsets, alignment and spans. Gaps and trailing slack are accepted.
 See the full [storage admission table](persistence-and-aggregation.md#agreed-preparation-storage-metadata-admission).
 Physical file/padding validation remains the block loader's responsibility.

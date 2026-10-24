@@ -28,7 +28,7 @@
 #include "schema/schema_merge.hpp"
 #include "schema/data_preparation.hpp"
 #include "schema/document_composition.hpp"
-#include "schema/baked_bulk_data_block.hpp"
+#include "schema/baked_data_block.hpp"
 #include "memory/memory_policies.hpp"
 #include "data_model/document_parser.hpp"
 #include "data_model/document_translation.hpp"
@@ -663,8 +663,8 @@ static void test_declaration_lifecycles(TTestContext& ctx)
         composition.resolve(composed, diagnostic));
     expect_same_declarations(ctx, schema, composition);
     CLiveDocument input;
-    CBakedBulkDataBlock persisted;
-    SBulkDataBlockDiagnostic persistence_error;
+    CBakedDataBlock persisted;
+    SDataBlockBuildDiagnostic persistence_error;
     TEST_EXPECT(ctx, tests::parse_document(R"({"data":{"Data":{"entry":{"locator":{"offset":0,"valid":false},"data":[{"value":9}]}}}})", input) &&
         persisted.materialise(input, baked, EDataOutputForm::embedded, persistence_error));
     if (persisted.loaded_ready())
@@ -674,7 +674,7 @@ static void test_declaration_lifecycles(TTestContext& ctx)
         CBakedBulkData records;
         CLiveBulkData promoted;
         SBulkDataDiagnostic data_error;
-        TEST_EXPECT(ctx, records.set_document(persisted.document()) && records.attach_schema(baked, persisted.payload_view(), true, data_error) &&
+        TEST_EXPECT(ctx, records.set_document(persisted.document()) && records.attach_schema(baked, persisted.bulk_payload_view(), true, data_error) &&
             records.switch_schema(rebaked, ESchemaSwitchMode::checked, data_error) && records.promote(promoted, rebaked, data_error) &&
             promoted.reconcile(data_error));
         if (promoted.loaded_ready())
@@ -1079,8 +1079,8 @@ static void test_decoration_storage(TTestContext& ctx)
     expect_same_definitions(ctx, types, composed_baked);
     // Data persistence selects only data. Materialisation takes the original
     // input with its unset locator; composition consumes prepared declarations.
-    CBakedBulkDataBlock persisted;
-    SBulkDataBlockDiagnostic block_error;
+    CBakedDataBlock persisted;
+    SDataBlockBuildDiagnostic block_error;
     TEST_EXPECT(ctx, persisted.materialise(data, source, EDataOutputForm::embedded, block_error));
     if (!persisted.loaded_ready()) return;
     const CSchemaDocumentQuery persisted_query{ persisted.document() };
@@ -1088,7 +1088,7 @@ static void test_decoration_storage(TTestContext& ctx)
     expect_same_definitions(ctx, types, *source.resolved());
     CBakedBulkData records;
     SBulkDataDiagnostic data_error;
-    TEST_EXPECT(ctx, records.set_document(persisted.document()) && records.attach_schema(source, persisted.payload_view(), true, data_error));
+    TEST_EXPECT(ctx, records.set_document(persisted.document()) && records.attach_schema(source, persisted.bulk_payload_view(), true, data_error));
     if (!records.loaded_ready()) return;
     TEST_EXPECT(ctx, records.switch_schema(target, ESchemaSwitchMode::checked, data_error));
     CLiveBulkData live;
@@ -1104,7 +1104,7 @@ static void test_decoration_storage(TTestContext& ctx)
     TEST_EXPECT(ctx, remap.initialise(&remap_source, 1u, other, other.find_type(CStringView{ "Test" }), remap_error) &&
         remap.matched_member_count() == 4u);
     CByteBuffer copied;
-    const CByteConstView bytes = persisted.payload_view();
+    const CByteConstView bytes = persisted.bulk_payload_view();
     TEST_EXPECT(ctx, copied.resize(bytes.size(), k_max_alignment) && remap.execute(&bytes, 1u, copied.view()));
     SBulkDataEntryView entry;
     TEST_EXPECT(ctx, live.entry(live.find_entry(CStringView{ "Test" }, CStringView{ "records" }), entry));
@@ -1333,8 +1333,8 @@ static void test_array_storage(TTestContext& ctx)
     SBulkDataPreparationDiagnostic preparation_error;
     TEST_EXPECT(ctx, prepare_bulk_data_document(live.document_query(), *equivalent.resolved(), live.payload_view(), true,
         prepared, preparation_error));
-    CBakedBulkDataBlock persisted;
-    SBulkDataBlockDiagnostic block_error;
+    CBakedDataBlock persisted;
+    SDataBlockBuildDiagnostic block_error;
     // Prepared documents omit locators; materialisation takes the ordinary
     // storage description with invalid locators to populate privately.
     CLiveDocument materialisation;
@@ -1342,7 +1342,7 @@ static void test_array_storage(TTestContext& ctx)
         persisted.materialise(materialisation, equivalent, EDataOutputForm::embedded, block_error));
     CBakedBulkData reloaded;
     TEST_EXPECT(ctx, reloaded.set_document(persisted.document()) &&
-        reloaded.attach_schema(equivalent, persisted.payload_view(), true, bulk_error));
+        reloaded.attach_schema(equivalent, persisted.bulk_payload_view(), true, bulk_error));
     TEST_EXPECT(ctx, live.clear_unused_storage() && live.entry(live.find_entry(CStringView{ "Record" }, CStringView{ "items" }), view));
     for (std::size_t i = 0u; i < 64u; ++i)
     {

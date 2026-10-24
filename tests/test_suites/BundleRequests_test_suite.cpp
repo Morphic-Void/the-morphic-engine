@@ -22,8 +22,7 @@
 #include "host/runtime/host_worker_thread.hpp"
 #include "platform/filesystem/file.hpp"
 #include "platform/filesystem/internal/file_utils.hpp"
-#include "schema/baked_instances_block.hpp"
-#include "schema/baked_bulk_data_block.hpp"
+#include "schema/baked_data_block.hpp"
 #include "schema/live_instances.hpp"
 #include "schema/live_bulk_data.hpp"
 #include "tests/environment/test_paths.hpp"
@@ -540,23 +539,23 @@ void test_complete_baked_buffers(TTestContext& ctx, const bool dedicated)
 template<bool Instances>
 void test_schema_persistence(TTestContext& ctx, SFixture& fixture, schema::CBakedSchema& schema)
 {
-    using Block = std::conditional_t<Instances, schema::CBakedInstancesBlock, schema::CBakedBulkDataBlock>;
+    using Block = schema::CBakedDataBlock;
     using Live = std::conditional_t<Instances, schema::CLiveInstances, schema::CLiveBulkData>;
     using Diagnostic = std::conditional_t<Instances, schema::SInstancesBlockDiagnostic, schema::SBulkDataBlockDiagnostic>;
     using RoleDiagnostic = std::conditional_t<Instances, schema::SInstanceDiagnostic, schema::SBulkDataDiagnostic>;
     using Role = std::conditional_t<Instances, schema::CBakedInstances, schema::CBakedBulkData>;
-    const char* file = Instances ? "work:/Input/instances.bid" : "work:/Input/bulk-data.bbd";
-    const char* entry_file = Instances ? "pack:/instances.bid" : "pack:/bulk-data.bbd";
-    const char* entry_name = Instances ? "instances.bid" : "bulk-data.bbd";
-    const char* copy_file = Instances ? "work:/copy.bid" : "work:/copy.bbd";
-    const char* copy_name = Instances ? "/copy.bid" : "/copy.bbd";
+    const char* file = Instances ? "work:/Input/instances.bsd" : "work:/Input/bulk-data.bsd";
+    const char* entry_file = Instances ? "pack:/instances.bsd" : "pack:/bulk-data.bsd";
+    const char* entry_name = Instances ? "instances.bsd" : "bulk-data.bsd";
+    const char* copy_file = "work:/copy.bsd";
+    const char* copy_name = "/copy.bsd";
     const std::uint8_t values[]{ 7u, 9u, 11u, 13u };
     const auto check_role = [&](const Block& block)
     {
         TEST_EXPECT(ctx, block.loaded_ready());
         Role role;
         RoleDiagnostic error;
-        TEST_EXPECT(ctx, role.set_document(block.document()) && role.attach_schema(schema, block.payload_view(), true, error));
+        TEST_EXPECT(ctx, role.set_document(block.document()) && role.attach_schema(schema, (Instances ? block.instance_payload_view() : block.bulk_payload_view()), true, error));
         if constexpr (Instances)
         {
             schema::SInstanceEntryView entry;
@@ -591,7 +590,7 @@ void test_schema_persistence(TTestContext& ctx, SFixture& fixture, schema::CBake
     fixture.request<BakedAssetTransfer>(1, std::move(owner));
     const auto admitted = fixture.result(ctx, 1);
     Block attached;
-    TEST_EXPECT(ctx, attached.attach_asset(admitted.asset, admitted.byte_view(), diagnostic));
+    TEST_EXPECT(ctx, attached.attach_asset(admitted.asset, admitted.byte_view(), diagnostic.block));
     TEST_EXPECT(ctx, tests::same_bytes(attached.file_bytes(), snapshot) && attached.file_bytes().data() == bytes.data());
     check_role(attached);
     fixture.save(ctx, 2, admitted.asset, file, EAssetFileFormat::baked);
@@ -609,10 +608,10 @@ void test_schema_persistence(TTestContext& ctx, SFixture& fixture, schema::CBake
     constexpr char empty_types[] = R"({"types":{}})";
     TEST_EXPECT(ctx, document_parser::parse(CByteConstView{ reinterpret_cast<const std::uint8_t*>(empty_types), sizeof(empty_types) - 1u }, empty).accepted() &&
         missing.try_adopt(std::move(empty)) && missing.resolve(schema_diagnostic));
-    TEST_EXPECT(ctx, attached.attach_asset(loaded.asset, loaded.byte_view(), diagnostic));
+    TEST_EXPECT(ctx, attached.attach_asset(loaded.asset, loaded.byte_view(), diagnostic.block));
     Role rejected;
     TEST_EXPECT(ctx, rejected.set_document(attached.document()) &&
-        !rejected.attach_schema(missing, attached.payload_view(), true, role_diagnostic));
+        !rejected.attach_schema(missing, (Instances ? attached.instance_payload_view() : attached.bulk_payload_view()), true, role_diagnostic));
     TEST_EXPECT(ctx, attached.loaded_ready() && tests::same_bytes(loaded.byte_view(), snapshot) && missing.reference_count() == 0u);
     check_role(attached);
 
@@ -622,7 +621,11 @@ void test_schema_persistence(TTestContext& ctx, SFixture& fixture, schema::CBake
     fixture.load(ctx, 5, "work:/description.json", EAssetFileFormat::json);
     const auto parsed = fixture.result(ctx, 5);
     Block materialised;
-    TEST_EXPECT(ctx, materialised.materialise(parsed.document_view(), schema, schema::EDataOutputForm::stripped, diagnostic));
+    // JSON retains the envelope and supplied-range metadata; provide its source bytes.
+    schema::SDataBlockBuildDiagnostic build_error;
+    const CByteConstView retained_payload = Instances ? attached.instance_payload_view() : attached.bulk_payload_view();
+    const schema::SDataBlockPayloads payloads{ Instances ? &retained_payload : nullptr, Instances ? nullptr : &retained_payload };
+    TEST_EXPECT(ctx, materialised.materialise(parsed.document_view(), schema, schema::EDataOutputForm::stripped, build_error, payloads));
     fixture.dispose(ctx, parsed.asset);
     check_role(materialised);
     const auto materialised_bytes = materialised.file_bytes();
@@ -639,7 +642,7 @@ void test_schema_persistence(TTestContext& ctx, SFixture& fixture, schema::CBake
     TEST_EXPECT(ctx, tests::same_bytes(saved.const_view(), stripped));
     fixture.load(ctx, 7, copy_file, EAssetFileFormat::baked, 128u);
     const auto stripped_load = fixture.result(ctx, 7);
-    TEST_EXPECT(ctx, materialised.attach_asset(stripped_load.asset, stripped_load.byte_view(), diagnostic));
+    TEST_EXPECT(ctx, materialised.attach_asset(stripped_load.asset, stripped_load.byte_view(), diagnostic.block));
     check_role(materialised);
     materialised.clear();
     fixture.dispose(ctx, stripped_load.asset);
@@ -649,7 +652,7 @@ void test_schema_persistence(TTestContext& ctx, SFixture& fixture, schema::CBake
     fixture.load(ctx, 9, entry_file, EAssetFileFormat::baked, 128u);
     const auto borrowed = fixture.result(ctx, 9);
     Block bundled;
-    TEST_EXPECT(ctx, bundled.attach_asset(borrowed.asset, borrowed.byte_view(), diagnostic));
+    TEST_EXPECT(ctx, bundled.attach_asset(borrowed.asset, borrowed.byte_view(), diagnostic.block));
     const auto entry = bundle.bundle_view().lookup(CStringView{ entry_name });
     TEST_EXPECT(ctx, tests::same_bytes(bundled.file_bytes(), snapshot) && bundled.file_bytes().data() == entry.bytes.data() &&
         bundled.file_bytes().size() == entry.bytes.count());
@@ -672,7 +675,7 @@ void test_schema_persistence(TTestContext& ctx, SFixture& fixture, schema::CBake
     fixture.closed(ctx, bundle.asset);
     fixture.load(ctx, 13, copy_file, EAssetFileFormat::baked, 128u);
     const auto restored = fixture.result(ctx, 13);
-    TEST_EXPECT(ctx, tests::same_bytes(restored.byte_view(), snapshot) && bundled.attach_asset(restored.asset, restored.byte_view(), diagnostic));
+    TEST_EXPECT(ctx, tests::same_bytes(restored.byte_view(), snapshot) && bundled.attach_asset(restored.asset, restored.byte_view(), diagnostic.block));
     check_role(bundled);
     bundled.clear();
     fixture.dispose(ctx, restored.asset);
@@ -711,6 +714,59 @@ void test_schema_persistence(TTestContext& ctx, SFixture& fixture, schema::CBake
     TEST_EXPECT(ctx, schema.reference_count() == 0u && fixture.service.is_idle() && !fixture.service.failed());
 }
 
+
+void test_combined_schema_persistence(TTestContext& ctx, SFixture& fixture)
+{
+    constexpr char json[] = R"({"types":{},"instances":{"u8":{"answer":{"declaration":7}}},
+        "data":{"u32":{"code":{"data":[1,2,3]}}}})";
+    CLiveDocument document;
+    schema::CBakedDataBlock source;
+    schema::SDataBlockBuildDiagnostic build;
+    TEST_EXPECT(ctx, document_parser::parse(CByteConstView{ reinterpret_cast<const std::uint8_t*>(json), sizeof(json) - 1u }, document).accepted() &&
+        source.materialise(document, schema::EDataOutputForm::external, build));
+    if (!source.loaded_ready()) return;
+    const auto bytes = source.file_bytes();
+    const std::vector<std::uint8_t> snapshot(bytes.data(), bytes.data() + bytes.size());
+    CErasedOwner owner = CErasedOwner::create<BakedAssetTransfer>();
+    auto* const transfer = owner.payload<BakedAssetTransfer>();
+    TEST_EXPECT(ctx, transfer && source.release_local(transfer->storage.value));
+    fixture.request<BakedAssetTransfer>(20, std::move(owner));
+    const auto admitted = fixture.result(ctx, 20);
+    fixture.save(ctx, 21, admitted.asset, "work:/Input/combined.bsd", EAssetFileFormat::baked);
+    TEST_EXPECT(ctx, fixture.result(ctx, 21).asset == admitted.asset);
+    fixture.dispose(ctx, admitted.asset);
+    fixture.load(ctx, 22, "work:/Input/combined.bsd", EAssetFileFormat::baked, 128u);
+    const auto loaded = fixture.result(ctx, 22);
+    const auto inspect = [&](const AssetResult& result)
+    {
+        schema::CBakedDataBlock block;
+        schema::SDataBlockDiagnostic error;
+        TEST_EXPECT(ctx, block.attach_asset(result.asset, result.byte_view(), error) && tests::same_bytes(block.file_bytes(), snapshot));
+        schema::CBakedSchema types;
+        schema::SDiagnostic schema_error;
+        TEST_EXPECT(ctx, types.set_block(block) && types.resolve(schema_error));
+        schema::CBakedInstances instances;
+        schema::CBakedBulkData bulk;
+        CByteBuffer first, second;
+        schema::SInstanceDiagnostic instance_error;
+        schema::SBulkDataDiagnostic bulk_error;
+        TEST_EXPECT(ctx, instances.attach_block(block, types, first, true, instance_error) &&
+            bulk.attach_block(block, types, second, true, bulk_error));
+        TEST_EXPECT(ctx, instances.payload_view().size() == 1u && instances.payload_view().data()[0] == 7u &&
+            bulk.payload_view().size() == 12u && !first.is_ready() && !second.is_ready());
+    };
+    inspect(loaded);
+    fixture.dispose(ctx, loaded.asset);
+    fixture.bake(ctx, 23);
+    const auto bundle = fixture.result(ctx, 23);
+    fixture.load(ctx, 24, "pack:/combined.bsd", EAssetFileFormat::baked, 128u);
+    const auto borrowed = fixture.result(ctx, 24);
+    inspect(borrowed);
+    fixture.dispose(ctx, borrowed.asset);
+    fixture.service.request_disposal({ bundle.asset }, 25, fixture.client);
+    fixture.closed(ctx, bundle.asset);
+}
+
 void test_schema_workflows(TTestContext& ctx, const bool dedicated)
 {
     SFixture fixture;
@@ -727,6 +783,7 @@ void test_schema_workflows(TTestContext& ctx, const bool dedicated)
     if (!ready) return;
     test_schema_persistence<true>(ctx, fixture, schema);
     test_schema_persistence<false>(ctx, fixture, schema);
+    test_combined_schema_persistence(ctx, fixture);
 }
 
 void test_current_bundle_save(TTestContext& ctx, const bool dedicated)

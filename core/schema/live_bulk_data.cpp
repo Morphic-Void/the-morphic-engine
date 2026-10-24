@@ -10,7 +10,7 @@
 
 #include "schema/live_bulk_data.hpp"
 #include "data_model/document_copy.hpp"
-#include "schema/baked_bulk_data_block.hpp"
+#include "schema/baked_data_block.hpp"
 #include "schema/data_block_construction.hpp"
 #include "schema/type_compatibility.hpp"
 #include "schema/value_codec.hpp"
@@ -1028,7 +1028,7 @@ bool CLiveBulkData::bake_to(CBakedDocumentBlock& block, CByteBuffer& payload, CB
 }
 
 template<class TSchema>
-bool CLiveBulkData::bake_to(CBakedBulkDataBlock& destination, TSchema& schema,
+bool CLiveBulkData::bake_to(CBakedDataBlock& destination, TSchema& schema,
     const EDataOutputForm form, SBulkDataBlockDiagnostic& diagnostic) const noexcept
 {
     return detail::bake_data_block(*this, destination, schema, form, diagnostic,
@@ -1038,13 +1038,13 @@ bool CLiveBulkData::bake_to(CBakedBulkDataBlock& destination, TSchema& schema,
         });
 }
 
-bool CLiveBulkData::bake(CBakedBulkDataBlock& destination, CBakedSchema& schema,
+bool CLiveBulkData::bake(CBakedDataBlock& destination, CBakedSchema& schema,
     const EDataOutputForm form, SBulkDataBlockDiagnostic& diagnostic) const noexcept
 {
     return bake_to(destination, schema, form, diagnostic);
 }
 
-bool CLiveBulkData::bake(CBakedBulkDataBlock& destination, CLiveSchema& schema,
+bool CLiveBulkData::bake(CBakedDataBlock& destination, CLiveSchema& schema,
     const EDataOutputForm form, SBulkDataBlockDiagnostic& diagnostic) const noexcept
 {
     return bake_to(destination, schema, form, diagnostic);

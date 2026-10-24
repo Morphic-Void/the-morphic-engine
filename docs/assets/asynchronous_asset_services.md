@@ -117,7 +117,7 @@ Loose baked loads use `adopt_buffer()`; owning baked transfers and binary saves
 preserve that complete extent, excluding spare allocation capacity. JSON saves
 serialise only the document. Appended bytes are opaque to the generic Host;
 consumers validate any enclosing format and attach specialised interfaces.
-Completed schema `.bid` and `.bbd` consumers request 128-byte alignment and bind
+Completed schema `.bsd` consumers request 128-byte alignment and bind
 their separately owned schema after loading. Host I/O status and caller-side
 format/schema diagnostics remain separate; attachment failure does not dispose
 the successfully loaded asset. The

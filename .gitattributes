@@ -30,3 +30,4 @@
 
 # Known binary formats must never undergo text normalization.
 *.tga -text
+*.bsd -text

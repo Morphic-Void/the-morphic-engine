@@ -802,7 +802,7 @@ identities/views rather than lists of entries or arbitrary payload content.
 in `MorphicTests -t1` cover the format, deterministic construction, bindings,
 retained lifetimes and real/controlled worker routing. Failure coverage includes
 allocation rollback, failed dispatch and shutdown with preparation pending.
-`BundleRequests` also exercises `.bid`/`.bbd` typed attachment and exact byte
+`BundleRequests` also exercises `.bsd` typed attachment and exact byte
 preservation through bundle closure and loose saving, plus explicit whole-bundle
 saving after a bounded document edit. See the
 [schema validation coverage](../schema/validation.md).

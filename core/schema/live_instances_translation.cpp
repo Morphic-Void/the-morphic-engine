@@ -9,7 +9,7 @@
 //  Instance promotion, binary reconciliation and baked output.
 
 #include "schema/live_instances.hpp"
-#include "schema/baked_instances_block.hpp"
+#include "schema/baked_data_block.hpp"
 #include "schema/data_block_construction.hpp"
 #include "schema/type_compatibility.hpp"
 #include "schema/value_codec.hpp"
@@ -568,7 +568,7 @@ bool CLiveInstances::bake_to(CBakedDocumentBlock& block, CByteBuffer& payload, C
 }
 
 template<class TSchema>
-bool CLiveInstances::bake_to(CBakedInstancesBlock& destination, TSchema& schema,
+bool CLiveInstances::bake_to(CBakedDataBlock& destination, TSchema& schema,
     const EDataOutputForm form, SInstancesBlockDiagnostic& diagnostic) const noexcept
 {
     return detail::bake_data_block(*this, destination, schema, form, diagnostic,
@@ -578,13 +578,13 @@ bool CLiveInstances::bake_to(CBakedInstancesBlock& destination, TSchema& schema,
         });
 }
 
-bool CLiveInstances::bake(CBakedInstancesBlock& destination, CBakedSchema& schema,
+bool CLiveInstances::bake(CBakedDataBlock& destination, CBakedSchema& schema,
     const EDataOutputForm form, SInstancesBlockDiagnostic& diagnostic) const noexcept
 {
     return bake_to(destination, schema, form, diagnostic);
 }
 
-bool CLiveInstances::bake(CBakedInstancesBlock& destination, CLiveSchema& schema,
+bool CLiveInstances::bake(CBakedDataBlock& destination, CLiveSchema& schema,
     const EDataOutputForm form, SInstancesBlockDiagnostic& diagnostic) const noexcept
 {
     return bake_to(destination, schema, form, diagnostic);

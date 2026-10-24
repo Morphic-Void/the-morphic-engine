@@ -20,6 +20,7 @@ interpret its current contracts.
 | [Decoration extension](decorations-extension.md) | Agreed declaration metadata scope, comparison and preservation rules. |
 | [Associations and interfaces](associations-and-interfaces.md) | Agreed non-storage declaration scope, checked relationships and physical boundaries. |
 | [Example](schema-example.json) and [notes](schema-example-notes.md) | Authoring example, expected layouts, numeric notation and materialisation rules. |
+| [Common binary block](common-binary-block.md) | Unified .bsd storage, independent binary availability and aggregate materialisation. |
 | [Persistence and aggregation](persistence-and-aggregation.md) | Implemented persistence, type/data merging, preparation and composition contracts, diagnostics and publication policies. |
 | [Delivery status](../project/completed_milestones.md#schema-delivery-status) | Completed capabilities, reviewed commit checkpoints and validation evidence; completed implementation plans are retired. |
 | [Persistence milestone](../project/completed_milestones.md#schema-instance-and-bulk-data-persistence) | Completed eight-stage delivery, commit checkpoints and validation evidence, including gap zeroing; the implementation plan is retired. |
@@ -38,7 +39,7 @@ preparation and complete document composition are also implemented and committed
 Resolved type, member, field and enum lookup uses indexes; callers can retain
 resolved indices for repeated access.
 
-Instance and bulk data blocks hold document/payload storage independently of
+Common .bsd blocks hold documents and independently available binaries separately from
 schemas. The live/baked data roles carry schema associations. Initial attachment
 validates an existing package or constructs its missing binary data; checked and
 trusted schema switching preserve storage and document handles. Reconciliation
@@ -48,7 +49,7 @@ See the [attachment contract](runtime-api.md#initial-attachment-and-schema-switc
 For aggregation, merge independently valid type documents and prepare data
 documents against their original schemas. Merge the prepared declarations under
 the merged schema, then optionally compose a combined document and construct
-binary through the existing role/materialisation APIs. Already prepared documents
+binary directly through common-block materialisation. Already prepared documents
 can bypass preparation. Composition requires types and one or both data domains;
 it assembles sections without resolving collisions. These document operations are
 distinct from binary-preserving schema switching. See the

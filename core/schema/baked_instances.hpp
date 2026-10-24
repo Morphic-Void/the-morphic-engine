@@ -85,6 +85,13 @@ public:
     ~CBakedInstances() noexcept = default;
 
     void clear() noexcept;
+
+    //  Borrow supplied block bytes, or construct independent working bytes.
+    [[nodiscard]] bool attach_block(const class CBakedDataBlock& block, CBakedSchema& schema,
+        CByteBuffer& returned_owner, const bool compare_embedded, SInstanceDiagnostic& diagnostic) noexcept;
+    [[nodiscard]] bool attach_block(const class CBakedDataBlock& block, CLiveSchema& schema,
+        CByteBuffer& returned_owner, const bool compare_embedded, SInstanceDiagnostic& diagnostic) noexcept;
+
     [[nodiscard]] bool set_document(const CBakedDocument& document) noexcept;
     [[nodiscard]] bool set_document(const CMutableBakedDocument& document) noexcept;
 
@@ -170,6 +177,7 @@ private:
     //  Borrowed state and record index
     //==============================================================================
 
+    CBakedDocumentBlock m_working_document;
     CBakedDocument m_document;
     CMutableBakedDocument m_mutable;
     CSchemaBinding m_binding;

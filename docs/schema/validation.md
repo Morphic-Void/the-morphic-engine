@@ -249,7 +249,7 @@ reject writes into bundles and save retained entries after bundle closure.
 File workflows exercise shared and dedicated conditioning workers. The real
 `tests/host_workers/run_tests.ps1` harness also checks bootstrap and worker routing.
 Schema-specific cross-layer workflows in the same request suite exercise both
-`.bid` and `.bbd` with a shared caller-owned schema: live bake, release/admission,
+`.bsd` with a shared caller-owned schema: live bake, release/admission,
 attachment, complete binary save and physical reload; JSON load, explicit
 materialisation and independent parsed-source disposal; bundle construction from
 saved files, attachment, closure and loose saving/reloading. Typed entry values
@@ -301,6 +301,15 @@ invalid descriptors, ceiling arithmetic and allocation-failure cleanup. Storage
 checks exercise construction/defaults/inheritance, capture/reconciliation,
 preparation/persistence, checked switching, exact remapping and padding clearing,
 including a 32-byte array with stride 12 that is not divisible by its stride.
+
+Common `.bsd` storage checks cover every section and payload-availability
+combination, absent versus supplied-empty binaries, aggregate materialisation,
+embedded schema authority and external schema fallback. They also cover separate
+working binaries, exact supplied-byte preservation, stripped/retained conversion,
+both alignment gaps, checked combined extents and transactional allocation failure.
+Asset/bundle tests save, reload and admit a combined types/instances/bulk block
+through both single-threaded and dedicated-worker paths. See the
+[common block contract](common-binary-block.md) for the implemented scope.
 
 Use the appropriate Debug/Release and 32/64-bit configurations when code changes
 affect representation, lifetime, arithmetic or allocation. Do not repeat a passing

@@ -23,7 +23,7 @@
 namespace schema
 {
 
-class CBakedInstancesBlock;
+class CBakedDataBlock;
 struct SInstancesBlockDiagnostic;
 struct SDataBlockDiagnostic;
 
@@ -133,9 +133,9 @@ public:
         CLiveSchema& destination_schema, const EDataOutputForm form, SInstanceDiagnostic& diagnostic) const noexcept;
 
     //  Complete contiguous persistence output; destination must be empty.
-    [[nodiscard]] bool bake(CBakedInstancesBlock& destination, CBakedSchema& schema,
+    [[nodiscard]] bool bake(CBakedDataBlock& destination, CBakedSchema& schema,
         const EDataOutputForm form, SInstancesBlockDiagnostic& diagnostic) const noexcept;
-    [[nodiscard]] bool bake(CBakedInstancesBlock& destination, CLiveSchema& schema,
+    [[nodiscard]] bool bake(CBakedDataBlock& destination, CLiveSchema& schema,
         const EDataOutputForm form, SInstancesBlockDiagnostic& diagnostic) const noexcept;
 
 private:
@@ -179,8 +179,9 @@ private:
     [[nodiscard]] bool bake_to(CBakedDocumentBlock& block, CByteBuffer& payload, CBakedInstances& role,
         TSchema& destination_schema, const EDataOutputForm form, SInstanceDiagnostic& diagnostic) const noexcept;
     template<class TSchema>
-    [[nodiscard]] bool bake_to(CBakedInstancesBlock& destination, TSchema& schema,
+    [[nodiscard]] bool bake_to(CBakedDataBlock& destination, TSchema& schema,
         const EDataOutputForm form, SInstancesBlockDiagnostic& diagnostic) const noexcept;
+
     //==============================================================================
     //  Owned state
     //==============================================================================

@@ -9,6 +9,7 @@
 //  Resolve live/baked definitions, references, defaults and physical layouts.
 
 #include "schema/resolved_schema.hpp"
+#include "schema/data_block_format.hpp"
 #include "schema/type_compatibility.hpp"
 #include "schema/value_conversion.hpp"
 #include "memory/memory_policies.hpp"
@@ -1275,23 +1276,14 @@ bool CResolver::resolve_non_storage(const CSchemaIndex declaration, const unsign
 
 bool CResolver::run() noexcept
 {
-    if (!m_document.is_ready() || !shape(m_document.root(), { "types", "instances", "data", "stripped" }, { "types" }))
+    detail::SDataBlockRoot root;
+    SDataBlockDiagnostic diagnostic;
+    if (!detail::read_data_block_root(detail::SDocumentQueryAccess::read(m_document), root, diagnostic) || !root.types)
     {
-        return fail(EReason::invalid_input, m_document.root());
-    }
-    const CSchemaHandle marker = property(m_document.root(), "stripped");
-    bool stripped{};
-    if (marker && !m_document.boolean_value(marker, stripped))
-    {
-        return fail(EReason::invalid_input, marker);
-    }
-    for (const char* const name : { "instances", "data" })
-    {
-        const CSchemaHandle section = property(m_document.root(), name);
-        if (section && (m_document.value_kind(section) != EDocumentValueKind::object))
-        {
-            return fail(EReason::invalid_input, section);
-        }
+        const detail::SOccurrence value = diagnostic.location.live_node ? detail::SOccurrence{ diagnostic.location.live_node } : detail::SOccurrence{ diagnostic.location.baked_value };
+        return fail((diagnostic.reason == EDataBlockReason::unknown_property) ? EReason::unknown_property :
+            (((diagnostic.reason == EDataBlockReason::none) || (diagnostic.reason == EDataBlockReason::missing_property)) ? EReason::missing_property : EReason::invalid_input),
+            (value ? detail::SSchemaHandleAccess::make(value) : m_document.root()));
     }
     const CSchemaHandle types = property(m_document.root(), "types");
     if (!shape(types, { "enumerations", "structures", "bit_structures", "associations", "interfaces" }))

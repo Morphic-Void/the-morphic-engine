@@ -73,7 +73,7 @@ static bool prepare(const TQuery<Bulk>& query, const CResolvedSchema& schema, co
 template<bool Bulk>
 static void expect_preparation(TTestContext& ctx, const CResolvedSchema& schema, const std::string& text,
     const CByteConstView* const payload, const bool compare, const std::string& expected,
-    const TReason<Bulk> reason = TReason<Bulk>::none)
+    const TReason<Bulk> reason = TReason<Bulk>::none, const char* const expected_field = nullptr)
 {
     CLiveDocument source, wanted;
     TEST_EXPECT(ctx, tests::parse_document(text, source));
@@ -104,6 +104,55 @@ static void expect_preparation(TTestContext& ctx, const CResolvedSchema& schema,
             TEST_EXPECT(ctx, tests::same_baked_document(output, before) && output.contains(handle));
             TEST_EXPECT(ctx, diagnostic.detail.reason == reason);
             TEST_EXPECT(ctx, !diagnostic.detail.occurrence || query.contains(diagnostic.detail.occurrence));
+            if (expected_field)
+            {
+                TEST_EXPECT(ctx, diagnostic.stage == EDataPreparationStage::source_validation &&
+                    query.name(diagnostic.detail.occurrence) == CStringView{ expected_field });
+            }
+        }
+        TEST_EXPECT(ctx, tests::same_baked_document(source, baked));
+    }
+}
+
+static void test_metadata_diagnostics(TTestContext& ctx, const CResolvedSchema& schema)
+{
+    const CByteConstView empty;
+    for (const char* const field : { "instancePayloadSize", "bulkPayloadSize" })
+    {
+        for (const char* const value : { "+0", "\"0\"", "-1", "1", "2147483649" })
+        {
+            const std::string source = std::string{ R"({"fileType":"morphic-schema-data","version":1,"instances":{},"data":{},")" } +
+                field + "\":" + value + "}";
+            for (const bool supplied : { false, true })
+            {
+                expect_preparation<false>(ctx, schema, source, supplied ? &empty : nullptr, false, {}, EInstanceLoadReason::invalid_range, field);
+                expect_preparation<true>(ctx, schema, source, supplied ? &empty : nullptr, false, {}, EBulkDataLoadReason::invalid_range, field);
+            }
+        }
+    }
+
+    struct SCase { const char* text; EReason reason; const char* field; };
+    const SCase cases[]{
+        { R"({"types":{},"version":1})", EReason::missing_property, nullptr },
+        { R"({"types":{},"fileType":"morphic-schema-data"})", EReason::missing_property, nullptr },
+        { R"({"types":{},"fileType":"morphic-schema-data","version":1,"instancePayloadSize":0})", EReason::missing_property, "instancePayloadSize" },
+        { R"({"types":{},"fileType":"morphic-schema-data","version":1,"bulkPayloadSize":0})", EReason::missing_property, "bulkPayloadSize" },
+        { R"({"fileType":"morphic-schema-data","version":1})", EReason::missing_property, nullptr },
+        { R"({"types":{},"fileType":"morphic-schema-data","version":2})", EReason::invalid_input, "version" },
+        { R"({"types":{},"unknown":0})", EReason::unknown_property, "unknown" }
+    };
+    for (const auto& entry : cases)
+    {
+        CLiveDocument source;
+        CBakedDocumentBlock baked;
+        TEST_EXPECT(ctx, tests::parse_document(entry.text, source) && document_translation::bake(source, baked));
+        for (const bool fixed : { false, true })
+        {
+            const CSchemaDocumentQuery query = fixed ? CSchemaDocumentQuery{ baked.document() } : CSchemaDocumentQuery{ source };
+            CResolvedSchema rejected;
+            SDiagnostic error;
+            TEST_EXPECT(ctx, !rejected.resolve(query, error) && !rejected.is_ready() && error.reason == entry.reason);
+            TEST_EXPECT(ctx, error.occurrence == (entry.field ? query.object_child(query.root(), CStringView{ entry.field }) : query.root()));
         }
         TEST_EXPECT(ctx, tests::same_baked_document(source, baked));
     }
@@ -159,29 +208,34 @@ static void test_preparation(TTestContext& ctx, const CResolvedSchema& schema)
 
     for (unsigned mask = 1u; mask < 8u; ++mask)
     {
-        std::string source = "{";
-        if (mask & 1u) source += R"("fileType":"morphic-instance-data",)";
-        if (mask & 2u) source += R"("version":1,)";
-        if (mask & 4u) source += R"("payloadSize":0,)";
-        source += R"("types":{"ignored":null},"instances":{}})";
-        expect_preparation<false>(ctx, schema, source, &empty, false, (mask == 7u) ? R"({"instances":{}})" : "",
-            (mask == 7u) ? EInstanceLoadReason::none : EInstanceLoadReason::missing_property);
-        expect_preparation<false>(ctx, schema, source, nullptr, false, {},
-            ((mask == 7u) ? EInstanceLoadReason::binary_required : EInstanceLoadReason::missing_property));
-        source = "{";
-        if (mask & 1u) source += R"("fileType":"morphic-bulk-data",)";
-        if (mask & 2u) source += R"("version":1,)";
-        if (mask & 4u) source += R"("payloadSize":0,)";
-        source += R"("instances":{"ignored":null},"data":{}})";
-        expect_preparation<true>(ctx, schema, source, &empty, false, ((mask == 7u) ? R"({"data":{}})" : ""),
-            ((mask == 7u) ? EBulkDataLoadReason::none : EBulkDataLoadReason::missing_property));
-        expect_preparation<true>(ctx, schema, source, nullptr, false, {},
-            ((mask == 7u) ? EBulkDataLoadReason::binary_required : EBulkDataLoadReason::missing_property));
+        for (const bool bulk : { false, true })
+        {
+            std::string source = "{";
+            if (mask & 1u) source += R"("fileType":"morphic-schema-data",)";
+            if (mask & 2u) source += R"("version":1,)";
+            if (mask & 4u) source += bulk ? R"("bulkPayloadSize":0,)" : R"("instancePayloadSize":0,)";
+            source += bulk ? R"("data":{}})" : R"("instances":{}})";
+            const bool admitted = (mask == 3u) || (mask == 7u);
+            if (bulk)
+            {
+                expect_preparation<true>(ctx, schema, source, &empty, false, admitted ? R"({"data":{}})" : "",
+                    admitted ? EBulkDataLoadReason::none : EBulkDataLoadReason::missing_property);
+                expect_preparation<true>(ctx, schema, source, nullptr, false, mask == 3u ? R"({"data":{}})" : "",
+                    mask == 3u ? EBulkDataLoadReason::none : (mask == 7u ? EBulkDataLoadReason::binary_required : EBulkDataLoadReason::missing_property));
+            }
+            else
+            {
+                expect_preparation<false>(ctx, schema, source, &empty, false, admitted ? R"({"instances":{}})" : "",
+                    admitted ? EInstanceLoadReason::none : EInstanceLoadReason::missing_property);
+                expect_preparation<false>(ctx, schema, source, nullptr, false, mask == 3u ? R"({"instances":{}})" : "",
+                    mask == 3u ? EInstanceLoadReason::none : (mask == 7u ? EInstanceLoadReason::binary_required : EInstanceLoadReason::missing_property));
+            }
+        }
     }
-    expect_preparation<false>(ctx, schema, R"({"fileType":"morphic-bulk-data","version":1,"payloadSize":0,"instances":{}})", &empty, false, {}, EInstanceLoadReason::invalid_input);
-    expect_preparation<false>(ctx, schema, R"({"fileType":"morphic-instance-data","version":2,"payloadSize":0,"instances":{}})", &empty, false, {}, EInstanceLoadReason::invalid_input);
-    expect_preparation<false>(ctx, schema, R"({"fileType":"morphic-instance-data","version":1,"payloadSize":24,"instances":{"Pair":{"x":{"locator":{"offset":0,"valid":true}}}}})", &view, false, {}, EInstanceLoadReason::invalid_range);
-    expect_preparation<false>(ctx, schema, R"({"fileType":"morphic-instance-data","version":1,"payloadSize":32,"instances":{"Pair":{"x":{"locator":{"offset":16,"valid":true}}}}})", &view, true,
+    expect_preparation<false>(ctx, schema, R"({"fileType":"morphic-schema-data","version":1,"bulkPayloadSize":0,"instances":{}})", &empty, false, {}, EInstanceLoadReason::missing_property);
+    expect_preparation<false>(ctx, schema, R"({"fileType":"morphic-schema-data","version":2,"instancePayloadSize":0,"instances":{}})", &empty, false, {}, EInstanceLoadReason::invalid_input);
+    expect_preparation<false>(ctx, schema, R"({"fileType":"morphic-schema-data","version":1,"instancePayloadSize":24,"instances":{"Pair":{"x":{"locator":{"offset":0,"valid":true}}}}})", &view, false, {}, EInstanceLoadReason::invalid_range);
+    expect_preparation<false>(ctx, schema, R"({"fileType":"morphic-schema-data","version":1,"instancePayloadSize":32,"instances":{"Pair":{"x":{"locator":{"offset":16,"valid":true}}}}})", &view, true,
         R"({"instances":{"Pair":{"x":{}}}})");
 
     for (const std::string& location : { R"({"offset":0,"valid":false})", R"({"offset":1,"valid":true})",
@@ -831,6 +885,7 @@ void run_document_boundary_cases(tests::TTestContext& ctx)
     SDiagnostic diagnostic;
     TEST_EXPECT(ctx, tests::parse_document(k_types, types) && schema.resolve(types, diagnostic));
     test_preparation(ctx, schema);
+    test_metadata_diagnostics(ctx, schema);
     test_composition(ctx);
     test_preparation_failures<false>(ctx, schema);
     test_preparation_failures<true>(ctx, schema);

@@ -9,6 +9,7 @@
 //  Schema-role document ownership, guarded editing and client bindings.
 
 #include "schema/schema_wrappers.hpp"
+#include "schema/baked_data_block.hpp"
 
 #include <cstring>
 #include <limits>
@@ -184,6 +185,11 @@ bool CBakedSchema::can_replace() const noexcept
         return false;
     }
     return true;
+}
+
+bool CBakedSchema::set_block(const CBakedDataBlock& block) noexcept
+{
+    return block.loaded_ready() && block.has_types() && set_document(block.document());
 }
 
 bool CBakedSchema::set_document(const CBakedDocument& document) noexcept
@@ -437,6 +443,21 @@ bool CLiveSchema::bake(CBakedDocumentBlock& destination_block, CBakedSchema& des
         return false;
     }
     destination_block = std::move(staged_block);
+    return true;
+}
+
+bool CLiveSchema::bake(CBakedDataBlock& destination_block, CBakedSchema& destination_schema) const noexcept
+{
+    if (destination_block.loaded_ready() || destination_schema.document_ready() || destination_schema.reference_count()) return false;
+    CBakedDocumentBlock types;
+    if (!document_translation::bake_root_member(m_document, CStringView{ "types" }, types)) return false;
+    SDataBlockDiagnostic diagnostic;
+    if (!destination_block.assemble(types.document(), {}, diagnostic)) return false;
+    if (!destination_schema.set_block(destination_block))
+    {
+        destination_block.clear();
+        return false;
+    }
     return true;
 }
 

@@ -9,6 +9,8 @@
 //  Validate baked bulk data locators and bind or materialise external payloads.
 
 #include "schema/baked_bulk_data.hpp"
+#include "schema/baked_data_block.hpp"
+#include "schema/data_block_construction.hpp"
 #include "schema/type_compatibility.hpp"
 #include "schema/value_codec.hpp"
 #include "schema/data_document_validation.hpp"
@@ -60,10 +62,12 @@ void CBakedBulkData::clear() noexcept
     m_binding.release();
     m_mutable.clear();
     m_document.clear();
+    m_working_document.deallocate();
 }
 
 void CBakedBulkData::take_from(CBakedBulkData& source) noexcept
 {
+    m_working_document = std::move(source.m_working_document);
     m_document = source.m_document;
     m_mutable = source.m_mutable;
     m_binding = std::move(source.m_binding);
@@ -95,6 +99,70 @@ bool CBakedBulkData::set_document(const CMutableBakedDocument& document) noexcep
     }
     m_mutable = document;
     m_document = document.baked();
+    return true;
+}
+
+bool CBakedBulkData::attach_block(const CBakedDataBlock& block, CBakedSchema& schema,
+    CByteBuffer& returned_owner, const bool compare_embedded, SBulkDataDiagnostic& diagnostic) noexcept
+{
+    diagnostic = {};
+    if (document_ready() || !block.loaded_ready() || returned_owner.is_ready())
+    {
+        diagnostic.reason = EBulkDataLoadReason::invalid_input;
+        return false;
+    }
+    CBakedBulkData staged;
+    CBakedDocumentBlock working;
+    if (block.bulk_binary_available())
+    {
+        if (!staged.set_document(block.document()) || !staged.attach_schema(schema, block.bulk_payload_view(), compare_embedded, diagnostic)) return false;
+    }
+    else
+    {
+        SDataBlockDiagnostic preparation;
+        if (!detail::prepare_missing_data_document(block.document(), true, working, preparation) ||
+            !staged.set_document(CMutableBakedDocument{ working }) || !staged.attach_schema(schema, returned_owner, diagnostic))
+        {
+            if (diagnostic.reason == EBulkDataLoadReason::none) diagnostic.reason = EBulkDataLoadReason::invalid_input;
+            diagnostic.occurrence = detail::SBulkDataHandleAccess::make(detail::SOccurrence{
+                detail::materialisation_source_value(block.document(), working.document(), detail::SBulkDataHandleAccess::occurrence(diagnostic.occurrence).baked) });
+            return false;
+        }
+        staged.m_working_document = std::move(working);
+    }
+    take_from(staged);
+    return true;
+}
+
+bool CBakedBulkData::attach_block(const CBakedDataBlock& block, CLiveSchema& schema,
+    CByteBuffer& returned_owner, const bool compare_embedded, SBulkDataDiagnostic& diagnostic) noexcept
+{
+    diagnostic = {};
+    if (document_ready() || !block.loaded_ready() || returned_owner.is_ready())
+    {
+        diagnostic.reason = EBulkDataLoadReason::invalid_input;
+        return false;
+    }
+    CBakedBulkData staged;
+    CBakedDocumentBlock working;
+    if (block.bulk_binary_available())
+    {
+        if (!staged.set_document(block.document()) || !staged.attach_schema(schema, block.bulk_payload_view(), compare_embedded, diagnostic)) return false;
+    }
+    else
+    {
+        SDataBlockDiagnostic preparation;
+        if (!detail::prepare_missing_data_document(block.document(), true, working, preparation) ||
+            !staged.set_document(CMutableBakedDocument{ working }) || !staged.attach_schema(schema, returned_owner, diagnostic))
+        {
+            if (diagnostic.reason == EBulkDataLoadReason::none) diagnostic.reason = EBulkDataLoadReason::invalid_input;
+            diagnostic.occurrence = detail::SBulkDataHandleAccess::make(detail::SOccurrence{
+                detail::materialisation_source_value(block.document(), working.document(), detail::SBulkDataHandleAccess::occurrence(diagnostic.occurrence).baked) });
+            return false;
+        }
+        staged.m_working_document = std::move(working);
+    }
+    take_from(staged);
     return true;
 }
 
@@ -269,7 +337,8 @@ bool CBakedBulkData::entry(const CBulkDataHandle handle, SBulkDataEntryView& res
     value.byte_count = record.extent;
     if (record.extent != 0u)
     {
-        if (!m_payload.is_ready() || (record.offset > m_payload.size()) ||
+        if (!m_payload.is_ready() ||
+            (record.offset > m_payload.size()) ||
             (record.extent > (m_payload.size() - record.offset)))
         {
             return false;
@@ -293,6 +362,14 @@ bool CBakedBulkData::plan(const bool supplied, const std::size_t payload_size,
     {
         return fail(diagnostic, EBulkDataLoadReason::invalid_input, {});
     }
+    detail::SDataBlockRoot metadata;
+    SDataBlockDiagnostic root_error;
+    if (!detail::read_data_block_root(detail::CDocumentRead{ m_document }, metadata, root_error))
+    {
+        return fail(diagnostic, EBulkDataLoadReason::invalid_input, root_error.location.baked_value);
+    }
+    if (metadata.bulk_size && !supplied) return fail(diagnostic, EBulkDataLoadReason::binary_required, metadata.bulk_size.baked);
+    if (metadata.bulk_size && (metadata.bulk_bytes != payload_size)) return fail(diagnostic, EBulkDataLoadReason::invalid_range, metadata.bulk_size.baked);
     const CBakedValueIndex root = m_document.root();
     if (m_document.value_type(root) != EBakedValueType::object)
     {

@@ -147,62 +147,33 @@ bool CDataPreparation<Bulk>::admit_root() noexcept
     {
         return fail(TReason::invalid_input, root);
     }
-    SOccurrence file_type, version, payload_size, marker;
-    for (SOccurrence field = m_source.first_child(root); field; field = m_source.next_sibling(field))
+    detail::SDataBlockRoot metadata;
+    SDataBlockDiagnostic error;
+    if (!detail::read_data_block_root(m_source, metadata, error))
     {
-        const CStringView name = m_source.name(field);
-        if ((name == CStringView{ "types" }) || (name == CStringView{ "instances" }) || (name == CStringView{ "data" }))
+        const SOccurrence where = error.location.live_node ? SOccurrence{ error.location.live_node } : SOccurrence{ error.location.baked_value };
+        TReason reason = TReason::invalid_input;
+        if (error.reason == EDataBlockReason::unknown_property)
         {
-            if (m_source.value_kind(field) != EDocumentValueKind::object)
-            {
-                return fail(TReason::invalid_input, field);
-            }
-            if (name == m_section_name) m_section = field;
+            reason = TReason::unknown_property;
         }
-        else if (name == CStringView{ "fileType" }) file_type = field;
-        else if (name == CStringView{ "version" }) version = field;
-        else if (name == CStringView{ "payloadSize" }) payload_size = field;
-        else if (name == CStringView{ "stripped" }) marker = field;
-        else
+        else if (error.reason == EDataBlockReason::missing_property)
         {
-            return fail(TReason::unknown_property, field);
+            reason = TReason::missing_property;
         }
+        else if ((m_source.name(where) == CStringView{ "instancePayloadSize" }) || (m_source.name(where) == CStringView{ "bulkPayloadSize" }))
+        {
+            //  Preserve the preparation diagnostic for malformed payload lengths.
+            reason = TReason::invalid_range;
+        }
+        return fail(reason, where);
     }
-    if (marker && !m_source.boolean_value(marker, m_stripped))
-    {
-        return fail(TReason::invalid_input, marker);
-    }
-    const bool envelope = file_type || version || payload_size;
-    if (envelope)
-    {
-        if (!file_type || !version || !payload_size || !m_section)
-        {
-            return fail(TReason::missing_property, root);
-        }
-        if ((m_source.value_kind(file_type) != EDocumentValueKind::string) ||
-            !(m_source.string_value(file_type) == CStringView{ Bulk ? "morphic-bulk-data" : "morphic-instance-data" }))
-        {
-            return fail(TReason::invalid_input, file_type);
-        }
-        std::uint64_t number{}, size{};
-        if (!m_source.unsigned_integer_value(version, number) || (number != detail::k_data_block_version))
-        {
-            return fail(TReason::invalid_input, version);
-        }
-        if (!m_source.unsigned_integer_value(payload_size, size) || (size > memory::k_byte_size_ceiling) ||
-            ((m_source.child_count(m_section) == 0u) && (size != 0u)))
-        {
-            return fail(TReason::invalid_range, payload_size);
-        }
-        if (m_payload && (size != m_payload->size()))
-        {
-            return fail(TReason::invalid_range, payload_size);
-        }
-    }
-    if (!m_payload && (envelope || m_stripped))
-    {
-        return fail(TReason::binary_required, (envelope ? payload_size : marker));
-    }
+    m_section = Bulk ? metadata.bulk_data : metadata.instances;
+    m_stripped = metadata.stripped;
+    const SOccurrence payload_size = Bulk ? metadata.bulk_size : metadata.instance_size;
+    const std::uint64_t bytes = Bulk ? metadata.bulk_bytes : metadata.instance_bytes;
+    if (!m_payload && (payload_size || m_stripped)) return fail(TReason::binary_required, payload_size ? payload_size : root);
+    if (m_payload && payload_size && (bytes != m_payload->size())) return fail(TReason::invalid_range, payload_size);
     if (m_payload && ((m_payload->size() > memory::k_byte_size_ceiling) ||
         (m_payload->size() && (!m_payload->is_ready() ||
             ((reinterpret_cast<std::uintptr_t>(m_payload->data()) & (detail::k_data_block_alignment - 1u)) != 0u))) ||

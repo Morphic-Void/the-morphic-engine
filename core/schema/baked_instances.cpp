@@ -9,6 +9,8 @@
 //  Validate baked instance locators and construct independent snapshots.
 
 #include "schema/baked_instances.hpp"
+#include "schema/baked_data_block.hpp"
+#include "schema/data_block_construction.hpp"
 #include "schema/type_compatibility.hpp"
 #include "schema/value_codec.hpp"
 #include "schema/data_document_validation.hpp"
@@ -59,10 +61,12 @@ void CBakedInstances::clear() noexcept
     m_binding.release();
     m_mutable.clear();
     m_document.clear();
+    m_working_document.deallocate();
 }
 
 void CBakedInstances::take_from(CBakedInstances& source) noexcept
 {
+    m_working_document = std::move(source.m_working_document);
     m_document = source.m_document;
     m_mutable = source.m_mutable;
     m_binding = std::move(source.m_binding);
@@ -94,6 +98,70 @@ bool CBakedInstances::set_document(const CMutableBakedDocument& document) noexce
     }
     m_mutable = document;
     m_document = document.baked();
+    return true;
+}
+
+bool CBakedInstances::attach_block(const CBakedDataBlock& block, CBakedSchema& schema,
+    CByteBuffer& returned_owner, const bool compare_embedded, SInstanceDiagnostic& diagnostic) noexcept
+{
+    diagnostic = {};
+    if (document_ready() || !block.loaded_ready() || returned_owner.is_ready())
+    {
+        diagnostic.reason = EInstanceLoadReason::invalid_input;
+        return false;
+    }
+    CBakedInstances staged;
+    CBakedDocumentBlock working;
+    if (block.instance_binary_available())
+    {
+        if (!staged.set_document(block.document()) || !staged.attach_schema(schema, block.instance_payload_view(), compare_embedded, diagnostic)) return false;
+    }
+    else
+    {
+        SDataBlockDiagnostic preparation;
+        if (!detail::prepare_missing_data_document(block.document(), false, working, preparation) ||
+            !staged.set_document(CMutableBakedDocument{ working }) || !staged.attach_schema(schema, returned_owner, diagnostic))
+        {
+            if (diagnostic.reason == EInstanceLoadReason::none) diagnostic.reason = EInstanceLoadReason::invalid_input;
+            diagnostic.occurrence = detail::SInstanceHandleAccess::make(detail::SOccurrence{
+                detail::materialisation_source_value(block.document(), working.document(), detail::SInstanceHandleAccess::occurrence(diagnostic.occurrence).baked) });
+            return false;
+        }
+        staged.m_working_document = std::move(working);
+    }
+    take_from(staged);
+    return true;
+}
+
+bool CBakedInstances::attach_block(const CBakedDataBlock& block, CLiveSchema& schema,
+    CByteBuffer& returned_owner, const bool compare_embedded, SInstanceDiagnostic& diagnostic) noexcept
+{
+    diagnostic = {};
+    if (document_ready() || !block.loaded_ready() || returned_owner.is_ready())
+    {
+        diagnostic.reason = EInstanceLoadReason::invalid_input;
+        return false;
+    }
+    CBakedInstances staged;
+    CBakedDocumentBlock working;
+    if (block.instance_binary_available())
+    {
+        if (!staged.set_document(block.document()) || !staged.attach_schema(schema, block.instance_payload_view(), compare_embedded, diagnostic)) return false;
+    }
+    else
+    {
+        SDataBlockDiagnostic preparation;
+        if (!detail::prepare_missing_data_document(block.document(), false, working, preparation) ||
+            !staged.set_document(CMutableBakedDocument{ working }) || !staged.attach_schema(schema, returned_owner, diagnostic))
+        {
+            if (diagnostic.reason == EInstanceLoadReason::none) diagnostic.reason = EInstanceLoadReason::invalid_input;
+            diagnostic.occurrence = detail::SInstanceHandleAccess::make(detail::SOccurrence{
+                detail::materialisation_source_value(block.document(), working.document(), detail::SInstanceHandleAccess::occurrence(diagnostic.occurrence).baked) });
+            return false;
+        }
+        staged.m_working_document = std::move(working);
+    }
+    take_from(staged);
     return true;
 }
 
@@ -347,6 +415,14 @@ bool CBakedInstances::plan(const bool supplied, const std::size_t supplied_size,
     {
         return fail(diagnostic, EInstanceLoadReason::invalid_input, {});
     }
+    detail::SDataBlockRoot metadata;
+    SDataBlockDiagnostic root_error;
+    if (!detail::read_data_block_root(detail::CDocumentRead{ m_document }, metadata, root_error))
+    {
+        return fail(diagnostic, EInstanceLoadReason::invalid_input, root_error.location.baked_value);
+    }
+    if (metadata.instance_size && !supplied) return fail(diagnostic, EInstanceLoadReason::binary_required, metadata.instance_size.baked);
+    if (metadata.instance_size && (metadata.instance_bytes != supplied_size)) return fail(diagnostic, EInstanceLoadReason::invalid_range, metadata.instance_size.baked);
     const CBakedValueIndex root = m_document.root();
     if (m_document.value_type(root) != EBakedValueType::object)
     {

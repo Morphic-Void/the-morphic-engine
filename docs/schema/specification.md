@@ -19,9 +19,9 @@ Completed delivery history is summarised in the
 [project milestones](../project/completed_milestones.md#schema-delivery-status).
 
 Persistence supplies shared diagnostics and validation of the version 1
-instance/bulk data file envelope described in the
+common schema data envelope described in the
 [persistence contract](persistence-and-aggregation.md#agreed-version-1-persistence-format).
-`CBakedInstancesBlock` and `CBakedBulkDataBlock` own or borrow complete
+`CBakedDataBlock` owns or borrows complete
 document-plus-binary storage without retaining a schema or typed role. Envelope
 validation precedes storage publication. Typed instance/bulk data roles borrow
 that storage and carry their own schema associations. Schema destruction
@@ -44,24 +44,20 @@ removes retained values while preserving every payload byte. Generic Host loadin
 admission and binary saving preserve complete buffers; role attachment remains
 caller-side. Existing bake overloads returning separate owners remain available.
 
-Completed instance files use `.bid`; completed bulk data files use `.bbd`.
-Their `fileType` identifiers are `morphic-instance-data` and `morphic-bulk-data`.
-Both carry unsigned `version: 1` and `payloadSize` metadata and exactly one role
-section, `instances` or `data`, with an optional Boolean `stripped` marker.
-The base is 128-byte aligned. A nonempty payload starts at the first 128-byte
-boundary after the baked document, with zero container padding; an empty payload
-ends at the document's exact length. The file ends at the payload's exact end,
-excluding spare capacity and external bundle separators/padding. The complete
-file is bounded by the existing 2 GiB ceiling. See the version 1 envelope for the
-full validation order and empty-content rules.
+All persisted schema data uses the common [.bsd block](common-binary-block.md).
+Its document permits any combination of types, instances and data, with
+independently optional instance and bulk binaries. A declared zero length means
+supplied empty storage, while an omitted length means unavailable. The existing
+MBD2 encoding and reserved-zero header remain unchanged. The complete file is
+bounded by 2 GiB; its base and nonempty binaries are 128-byte aligned. Container
+gaps are zero and no final alignment tail is stored.
 
-The caller supplies and owns the resolved schema; no compatibility signature or
-schema identity is persisted. Binary data is authoritative, with embedded-value
-comparison selected on the data role's `attach_schema()` call. Loading
-never repairs missing binary data. Materialisation constructs all required data
-from a sufficient description as a separate operation. `.btd` remains an ordinary
-types-only baked document without persisted resolved lookups. Bundles provide
-combined loading while these specialised files retain their separate identities.
+Aggregate materialisation uses embedded types when present, otherwise an explicit
+external schema when required. It validates supplied bytes and constructs missing
+binaries from sufficient descriptions. Assembly only copies explicitly supplied
+ranges. Both publish independent storage transactionally; neither mutates the
+source block or implicitly rebinds its interfaces. Earlier separate binary schema
+formats are replaced outright.
 
 Fresh payload construction zeroes unused bytes before and between nonempty entry
 extents. Live output packing likewise zeroes the alignment gaps it creates while

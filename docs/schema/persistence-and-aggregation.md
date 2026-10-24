@@ -8,703 +8,143 @@ Date:   20 Oct 2026
 
 # Schema persistence and aggregation
 
+
 ## Status and scope
 
-This is the implemented contract for schema persistence, type/data merging,
-document preparation and composition, current through the reviewed commits
-`2b99f48`, `ca087e2`, `36ef3d9` and `aa90b9a`. It complements the
-[schema specification](specification.md) and [runtime API](runtime-api.md).
-The [delivery record](../project/completed_milestones.md#schema-delivery-status)
-holds commit checkpoints and verification; completed implementation plans are
-retired. Future proposals belong in the [follow-on notes](../backlog/schema_follow_on.md).
-
-Blocks retain document and binary storage independently of schema associations.
-Data roles attach separately and support checked/trusted switching over unchanged
-binary packages. Merging instead uses document-only working input and output:
-absent defaults yield to explicit defaults, and conflicting supplied defaults fail.
-Stripped instances are prepared against their original schema, recovering minimal
-differences along the defaults, instance and specialisation chain. Later binary
-construction uses the merged schema and declarations, so adopted defaults may
-intentionally change values.
-
-| Operation | Contract |
-| --- | --- |
-| Persistence | [Version 1 format](#agreed-version-1-persistence-format), independent blocks and explicit role attachment. |
-| Type-schema merge | [Independent validation, defaults and compatibility](#type-schema-merging-and-defaults). |
-| Instance/bulk data merge | [Prepared documents, typed diagnostics and transactional publication](#agreed-data-aggregation-functions-and-diagnostics). |
-| Document preparation | [Original-schema reconstruction and selected-section extraction](#agreed-document-preparation-interfaces). |
-| Complete document composition | [Types plus one or both prepared data domains](#complete-document-composition). |
-
-Combined types/instances/data storage is optional. Composition does not merge
-collisions or construct a binary package, and bundles do not establish schema
-associations. No combined convenience transaction is selected.
+Persistence uses the common [.bsd contract](common-binary-block.md), agreed on
+24 October 2026. It replaces the former separate binary schema formats outright.
+Type/data merging, preparation and document composition retain the contracts
+below. See also the [runtime API](runtime-api.md).
 
 ## Expected use and reasoning
 
-Shared type definitions are the normal foundation of the engine. Many independently
-created instance and bulk data documents are expected to use those definitions. In a
-release, most definitions will be fixed and most data will already be baked with
-its binary payload. Some live instance and bulk data documents will still support
-dynamic creation, updates and consumption.
-
-Independent type creation is principally expected during data preparation,
-compilation and reflection. Shader reflection may produce its own types and some
-instance data, followed by reconciliation with existing definitions. Possible
-release-time exceptions are not ruled out, but no specific exception has yet been
-identified that should drive the normal design.
-
-These uses favour separate document and schema lifetimes. Shared definitions
-should not need to be duplicated into every independently produced data entity,
-and changing one data entity should not inherently require rebuilding the shared
-type document.
-
-A release may benefit from loading related content together. The existing
-[bundle format](../assets/bundle_specification.md) provides that packaging and
-combined-load facility. A single load does not require a single schema document:
-a bundle can hold separately meaningful files while preserving their boundaries.
-Bundle packaging does not itself establish schema associations or reconcile types.
-
-A data description and its binary payload form a persistence unit. Completed
-blocks keep them together as one referenceable entity without tying storage to
-every other user of their schema. Lower-level APIs with separate owners remain
-available; callers using those APIs maintain the association explicitly.
+Definitions can be shared externally or embedded with instances and bulk data.
+The same common storage representation permits any combination of these sections.
+A bundle packages related files without establishing their schema associations.
 
 ## Normal persistence units
 
-The implementation retains these distinct roles:
-
-| Unit | Responsibility |
-| --- | --- |
-| Type definitions | Describe and resolve the types shared by data consumers. |
-| Baked instance entity | Keep an instance document and its associated binary payload together. |
-| Baked bulk data entity | Keep a bulk data document and its associated binary payload together. |
-| Bundle | Package related files for combined loading and access. |
-
-An instance or bulk data entity is saved, loaded, owned and referenced as a single
-entity. Its document and binary ranges share backing storage. The storage block
-exposes those views without a schema association; the caller attaches a separate
-specialised data role to them and supplies that role's schema. The corresponding
-storage classes are
-`schema::CBakedInstancesBlock` and `schema::CBakedBulkDataBlock`, following the
-existing `CBakedDocumentBlock` naming convention. Their contracts are defined below.
-
-Instance and bulk data content requires the applicable type definitions. Those
-definitions may be shared and separately associated; they are not required to be
-embedded in each data entity. The caller supplies the correct schema as specified
-below. Physical co-location in a bundle alone is not evidence of compatibility.
-
-There is no requirement for an instance entity to contain a bulk data section, or for
-a bulk data entity to contain an instance section. The earlier proposal to expose all
-three interfaces from every persisted file, using empty sections for absent
-content, is superseded. The format below defines empty sections and zero-byte
-payloads within each specialised entity.
+CBakedDataBlock owns or borrows the complete document and its independently
+available instance/bulk binaries. CBakedSchema, CBakedInstances and CBakedBulkData
+remain separate specialised interfaces. CBakedDocumentBlock remains a lower-level
+allocation owner, not a separate schema persistence format.
 
 ## Agreed version 1 persistence format
 
-The filename extensions are `.bid` for binary instance data, `.bbd` for binary
-bulk data, and `.btd` for binary type data. The selected `.btd` spelling corresponds
-directly to the existing `types` section. Extensions aid visual recognition;
-readers identify and validate content independently of the filename.
+The extension is .bsd. Required root identification is the string
+fileType: "morphic-schema-data" and unsigned version: 1. The MBD2 encoding and
+reserved-zero header fields are unchanged.
 
-The existing baked header's `MBD2` magic and encoding version identify a baked
-document, not its application-specific content. The reserved header words must
-remain zero. Following the bundle precedent, the `.bid` and `.bbd`
-formats use metadata in their document root without changing that header:
+Optional object sections are types, instances and data. Optional unsigned
+instancePayloadSize and bulkPayloadSize declare exact supplied lengths.
+Omission means unavailable; explicit zero means supplied zero bytes. Each length
+requires its corresponding section; empty sections cannot claim nonzero bytes.
+An optional Boolean stripped marker retains its meaning for both data domains.
+Unknown properties, incorrect types and unsupported versions are rejected.
 
-| Root property | Meaning |
-| --- | --- |
-| `fileType` | Required string: `morphic-instance-data` for `.bid`, or `morphic-bulk-data` for `.bbd`. |
-| `version` | Required unsigned persistence-format version, `1`, independent of the baked-document encoding version. |
-| `payloadSize` | Required unsigned exact byte length of the associated binary payload. |
-| `instances` or `data` | Required object containing the corresponding existing specialised description, even when empty. |
-| `stripped` | Optional Boolean: absent or `false` retains ordinary document semantics; `true` forbids instance declarations or embedded bulk data values. |
-
-The document root is an object. Version 1 permits only the properties above:
-`.bid` requires `instances` and rejects `data`; `.bbd` requires `data` and rejects
-`instances`. Both reject embedded `types` and unknown root properties. Required
-metadata must have its specified document type; signed or floating-point values
-are not substitutes for unsigned integers. Unsupported persistence or document
-encoding versions are rejected. Strict root validation distinguishes missing
-content from an intentionally empty section and makes future extensions explicit.
-
-Readers accept root properties in any order. Writers emit a consistent metadata
-order while preserving meaningful ordering within the specialised description.
-
-The physical layout is one baked document followed, for a nonempty payload, by
-zero padding to a 128-byte boundary and then the payload. Let `D` be the exact
-document length from its baked header and `P` the declared payload length:
-
-```text
-P > 0: payload start = round_up(D, 128)
-       file length   = payload start + P
-P = 0: file length   = D
-```
-
-The loaded allocation or borrowed file range has a 128-byte-aligned base.
-Locators remain relative to the payload start, as in the existing roles. The
-file ends at the exact payload end; allocation capacity is not saved. A
-zero-byte payload needs no dummy allocation or trailing alignment padding.
-Zero length denotes an actually empty payload, including zero-byte data types;
-it is not a marker for missing nonzero binary data.
-
-All document-to-payload padding must be zero, and readers validate it. This
-container padding occupies at most 127 bytes. Padding and unused bits inside the
-payload remain preserved binary data under the existing contracts; they are not
-subject to this container-padding rule.
-
-When the file is a bundle entry, its own file extent excludes the bundle's
-mandatory trailing zero and external padding. Those bundle storage rules do not
-become part of the `.bid` or `.bbd` payload.
-
-Loading validates the bounded document prefix, content identifier, supported
-versions, exact total file length, zero container padding, and payload boundaries
-with checked arithmetic and the existing 2 GiB allocation ceiling for the complete
-entity. No bytes beyond the calculated file extent are accepted. Typed attachment
-then uses the supplied schema and existing role checks for locators, alignment,
-counts and extents.
-
-### Empty content and payload coverage
-
-An empty `instances` or `data` object is valid and requires `payloadSize: 0`.
-Entries describing zero-byte types may also exist without payload bytes. Bulk data
-entries retain the existing requirement for a positive record count: an empty
-bulk data section is valid, but a zero-count bulk data entry is not.
-
-Completed files require valid locators. Existing typed rules continue to require
-type-aligned extents in document order, no positive overlap, and bounds within
-the payload. Unreferenced gaps and trailing bytes within the declared payload
-are permitted, as in the existing supplied-payload loaders. Those bytes form
-part of the entity and are preserved when saving it. Ordinary saving must not
-silently repack or truncate the payload; construction/output preparation may
-produce packed storage.
-
-New payload construction zeroes bytes before and between nonempty entry extents.
-Output packing zeroes the inter-entry alignment gaps it creates while copying
-complete records unchanged, including internal padding and unused bits. This
-does not impose zero padding on existing payloads: loading, saving and stripping
-preserve their gaps and trailing bytes exactly. Zero-byte entries do not reset
-the preceding nonempty extent when clearing new gaps.
-
-### Binary authority and comparison
-
-Binary data is authoritative. Loading does not compare retained document values
-against it by default. Comparison remains an explicit opt-in validation operation
-using the existing role semantics. Document structure, locators and typed ranges
-are always checked; opting out of value comparison does not disable those checks.
-For stripped content there are no embedded values to compare.
-
-Retained values are expected to agree with the binary in correctly produced
-files. Bugs or corruption may cause disagreement, but routine loading does not
-reconstruct values to establish agreement. Callers can request comparison during
-validation or diagnosis; enabling it does not make the document values the
-authoritative replacement for the payload.
-
-A completed `.bid` or `.bbd` must contain its entire declared payload. Missing or
-truncated binary data is an error even when retained values could reconstruct it.
-Materialisation is a separate construction route for JSON or incomplete baked
-descriptions, not a recovery action performed while loading a completed file.
-
-### Type definition files
-
-`.btd` is an ordinary types-only baked document with a `types` section, resolved
-after loading. Persisting resolved lookup data is outside this increment;
-it would require a separate portable representation and compatibility contract.
-The `.bid`/`.bbd` metadata above is not automatically added to type documents.
+The file contains its document, instance binary and bulk binary in that order.
+The base is 128-byte aligned; align the cursor only before each nonempty binary.
+Container padding must be zero. Empty/unavailable ranges add no padding, and
+there is no final alignment tail. Locators remain relative to their own binary.
+Validate checked arithmetic, exact extent and the 2 GiB complete-file ceiling.
+Internal payload padding/unused bits retain existing semantics.
 
 ## Caller-supplied schema
 
-The caller remains responsible for supplying the correct resolved schema when
-initialising typed access, whether the definitions are live or baked. There is
-no automatic schema discovery or loading, and no persisted compatibility
-signature in this work. The data entity does not take ownership of the schema.
-
-Existing validation still applies: referenced types must resolve and locators,
-sizes, counts and alignment must be valid against that schema. These checks do
-not prove that it is the schema originally used to create the bytes. Definitions
-with the same names and sizes can interpret data differently. The absence of a
-signature is a deliberate continuation of caller responsibility, not a claim
-that ordinary range validation establishes historical schema identity.
-
-Schema binding follows the existing lifetime rules. The caller keeps the schema
-usable while consuming the entity; schema invalidation makes typed access
-unavailable through the existing binding machinery. A binding does not extend
-schema ownership. A caller's binding and role lookup state must not be installed
-as a globally cached mutable interface that another caller can rebind.
+Storage validation checks framing only. Typed attachment validates definitions,
+locators and data. Aggregate materialisation uses embedded types when present;
+otherwise it uses an external schema when data requires type resolution.
+There is no implicit merge of embedded and external definitions. Empty ordinary
+sections can materialise without a schema.
 
 ## Ownership and asset backing
 
-Loose-file versus bundle-backed storage is transparent to consumption of the
-specialised interface. Ownership uses the existing local-owner and Host asset
-models, without adding another reference count or retention mechanism:
+The common owner is noncopyable/nonmovable. Local backing owns its allocation;
+asset backing borrows a caller-protected range and acquires no reference.
+Borrowers must finish before clear, destruction, release or replacement.
+Schema-binding guards continue protecting typed access.
 
-| Situation | Backing storage | Release responsibility |
-| --- | --- | --- |
-| Locally constructed entity | One locally owned document-plus-payload block. | Ordinary local destruction or explicit ownership transfer. |
-| Retained loose-file entity | Host asset record owns the complete allocation. | Existing asset disposal request and completion. |
-| Retained bundle-backed entity | Host sub-file record protects a range through its existing bundle backing lease. | Dispose the sub-file record; the Host releases its bundle protection. |
-
-The caller's block holds storage and, for Host-backed data, records the retained
-asset ID. Typed roles are attached separately to its document and payload. Storing that ID or copying
-a borrowed view does not acquire an additional reference. Host backing leases
-remain Host-managed; the caller does not retain the containing bundle separately.
-
-Block attachment validates the complete file range and publishes document and
-payload views. Separate role attachment binds a schema and builds typed state. Construction finishes resizing and materialisation before publication.
-Failure must not publish a partially usable entity. Adoption and attachment
-require an empty destination; replacement in place is outside this interface.
-
-For retained backing, the caller first quiesces all uses and borrowed entry views,
-then clears borrowing roles and the block. When responsible for
-the backing asset's disposal, the caller uses `AssetDisposeRequest` and its normal
-completion. Clearing or destroying the local interface must not silently send an
-asynchronous disposal request. Cache hits can share an asset ID; consumers still
-coordinate disposal under the existing asset model. Attachment failure likewise
-does not grant authority to dispose a shared backing record.
-
-For local backing, the interface is cleared before its block is released.
-Admission to the Host uses the existing owning-message transfer pattern. Once
-the transfer is accepted, local storage ownership has been relinquished; a
-successful retained result supplies the asset ID and backing views for caller
-attachment. Local consumption does not require Host admission. Save and retention
-outcomes continue to follow the existing asset-service contract.
-
-An already retained bundle sub-file remains usable after closure of its bundle,
-including for saving the entity to a writable destination. Its record protects
-the bundle allocation until disposal. Closure blocks new admissions through the
-bundle root. Saving either kind of completed entity writes its full file extent,
-not merely the document prefix, and does not modify its backing storage.
-
-The block interfaces below specify attachment, clearing and release of local
-storage. Host loading, transfer and saving use the contracts below. No automatic
-role movement or independently disposable duplicate asset IDs are implied. See the existing
-[asset ownership contract](../assets/asynchronous_asset_services.md) and
-[bundle lifetime contract](../assets/bundle_specification.md).
+Constructing missing binary returns separate working storage and never modifies
+the source block. Explicit assembly publishes an independent replacement;
+interfaces are not silently rebound.
 
 ## Host loading, admission and saving
 
-The baked asset path preserves the complete logical buffer while
-retaining a document view limited to its validated prefix. It does not introduce
-Host asset kinds specific to instances
-or bulk data, a separate full-buffer load mode, or schema bindings in Host
-records. The specialised blocks perform their validation and binding in the
-caller context.
-
-### Loading and returned views
-
-For `.bid` and `.bbd`, the caller uses `AssetLoadRequest` with
-`EAssetFileFormat::baked` and 128-byte alignment. The source determines ownership,
-but not the resulting complete-file view:
-
-| Source | Host preparation and retention |
-| --- | --- |
-| Loose file | Read the complete file, validate the bounded baked document prefix, and retain the entire allocation using `CBakedDocumentBlock::adopt_buffer()`. |
-| Bundle entry | Validate the bounded baked prefix within the entry, then retain its complete file range through the existing bundle backing lease, without copying the payload. |
-
-The existing baked `AssetResult` carries the retained asset ID and two views:
-`document_view()` exposes only the validated document prefix; `byte_view()`
-exposes the complete logical file extent. The latter excludes spare allocation
-capacity and, for bundle entries, the bundle's external terminator and padding.
-Host view construction uses `buffer_bytes()` for owned baked storage and the
-exact entry range for borrowed storage. Cached results must preserve this same
-contract and satisfy the requested alignment before reuse.
-
-A successful Host load establishes a retained asset with a valid baked document
-prefix. It does not validate application-specific appended data. The caller
-passes the returned ID and complete byte view to `attach_asset()` on its
-`CBakedInstancesBlock` or `CBakedBulkDataBlock`. Attachment validates the
-persistence identifier, metadata, exact extent and padding, then the specialised
-description and payload against the supplied schema. Only successful attachment
-establishes a usable specialised block. Failure leaves that block empty without
-modifying or disposing the retained asset; its disposal responsibility remains
-with the caller under the existing sharing rules.
-
-Ordinary baked documents without appended data retain the same byte extent.
-Files with appended bytes now preserve those bytes through baked loading and
-saving. Implementation must audit existing callers and tests that assume the
-byte view and document view have equal lengths. The generic Host does not infer
-schema compatibility or treat unvalidated appended bytes as validated payload.
-
-### Admission and owning transfer
-
-Locally constructed blocks use `release_local()` to move their complete storage
-into a `CBakedDocumentBlock`, then transfer it with the existing
-`BakedAssetTransfer`. The Host retains that complete allocation without trimming,
-rebaking or copying its payload. Returned views follow the same full-buffer and
-document-prefix distinction as loading. The caller can then attach its
-specialised interface using the returned asset ID and bytes.
-
-The bound specialised role, runtime lookup state and caller schema are not
-transported. Retention `source` keeps the transferred representation;
-`discard` is available for a combined save without subsequent retention.
-Retention `baked` remains the existing live-input conditioning option, not an
-additional step for these completed blocks.
-
-An unsuccessful post preserves the sender's owning message. Once accepted,
-ownership has passed to the Host under the existing transfer contract. Admission
-without saving completes when the retained representation is ready; combined
-saving completes after writing or failure. A save failure still returns any
-successfully retained asset. Discard completion returns no retained views, and
-temporary storage is released on either success or failure.
-
-### Saving complete blocks
-
-`AssetSaveRequest` with `EAssetFileFormat::baked` writes the retained asset's
-complete current logical byte range unchanged. Combined transfer-and-save uses
-the same extent. Document bytes, container padding and the entire declared
-payload are preserved, including payload gaps and trailing unreferenced bytes.
-Saving does not re-materialise, compare values, repack or require a usable schema
-binding. JSON output remains an explicit export of the document view; it does
-not persist the complete binary block or reconstruct stripped values.
-
-All writes use the existing file I/O worker and an explicitly selected writable
-filesystem destination. A bundle entry may supply the source bytes, but a bundle
-binding is never a writable destination. Saving cannot insert or replace a file
-inside a bundle. Existing destination resolution continues to reject such writes.
-
-Retained sub-file IDs remain individually savable after bundle closure until
-their own disposal. Saving them neither reopens the bundle nor changes its
-content. Existing save/disposal ordering and operation protection apply; callers
-must keep storage unchanged while accepted saves read it. Saving alone does not
-dispose the source asset.
-
-### Explicit bundle saves and automatic persistence
-
-Bundles remain predominantly read-only access to files assembled from files and
-folders in the filesystem image, usually backed by the physical filesystem.
-Bundle creation remains a separate explicit operation. This work adds no
-write-to-entry, insertion, replacement or automatic rebuilding facility.
-
-An explicit whole-bundle save uses the existing raw save path and writes the
-bundle's complete current logical buffer. If explicitly supported mutable
-access has changed that backing storage, those changes are included. Saving
-does not restore a snapshot from creation or loading. The existing whole-bundle
-lifetime rules still apply: closure rejects new complete-bundle saves while
-already accepted saves finish under their operation protection.
-
-Mutation through explicit supported access is distinct from automatic
-persistence. Dirty tracking, automatic invalidation, rebuilding and writing the
-bundle back to disk are outside this design. Changes to independent documents
-produced by parsing, promotion or copying do not update the source bundle.
-There is no implicit write-back association between such a document and the
-bundle entry from which it originated. Changes to the bundle's own backing
-storage are reflected by a later explicit save of that current storage.
+Use the generic baked asset format and request 128-byte alignment. Host loading,
+owning admission and binary saving preserve the complete logical file, excluding
+allocation capacity and enclosing bundle padding. JSON saving serialises only
+the document; declared supplied binaries must still be provided separately.
+Asset and bundle leases remain caller responsibilities. Host I/O does not
+interpret schemas or rendering catalogues.
 
 ## Block interfaces and lifecycle contracts
 
-`CBakedInstancesBlock` and `CBakedBulkDataBlock` are schema-independent storage
-owners/borrowers. They expose `document()`, `payload_view()`, `file_bytes()`,
-`backing()`, `asset_id()` and storage-only `loaded_ready()`. Typed operations
-use a separate `CBakedInstances` or `CBakedBulkData` borrowing their views.
+Include schema/baked_data_block.hpp. Observations are document(), has_types(),
+has_instances(), has_bulk_data(), instance_binary_available(),
+bulk_binary_available(), instance_payload_view(), bulk_payload_view(), backing(),
+loaded_ready(), asset_id() and file_bytes(). An empty view alone cannot distinguish
+unavailable from supplied-zero binary.
 
-| Operation | Contract |
-| --- | --- |
-| `adopt_local(block, diagnostic)` | Validate the envelope and consume local ownership only on success. |
-| `attach_asset(asset, bytes, diagnostic)` | Validate and borrow caller-protected bytes without acquiring a reference. |
-| `clear()` | Release local storage or forget the borrowed asset; caller first quiesces borrowing roles. |
-| `release_local(output)` | Transfer local storage without copying into an unallocated document block. |
+adopt_local and attach_asset take SDataBlockDiagnostic, validate before publication
+and require an empty destination. release_local transfers the complete allocation
+into an empty generic owner; clear releases/forgets backing.
 
-Adoption/attachment require an empty destination. Failure preserves both inputs
-and destination. No schema argument or load options are involved. Schema lifetime
-cannot change block readiness. Clear/destruction sends no Host message; asset
-disposal remains caller-managed. Both block types remain non-copyable/non-movable.
-The [runtime API](runtime-api.md#completed-data-blocks) provides signatures and
-the separate typed-attachment example.
+CBakedSchema::set_block borrows embedded types. The two data roles expose
+attach_block(block, schema, returned_owner, compare_embedded, diagnostic), with
+live/baked schema overloads. Supplied bytes are borrowed. Missing bytes are
+constructed into the unallocated working owner; the role retains a private
+locator-bearing document while the original block remains unchanged. Existing
+lower-level document/payload interfaces remain available.
 
 ## Construction interfaces and completed storage
 
-The routes below converge on the same complete document-plus-payload representation:
-
-| Source | Preparation route |
-| --- | --- |
-| Live instance or bulk data role | Prepare the description and authoritative payload, then assemble a complete block. |
-| JSON file | Parse through the existing document facilities, materialise from sufficient values using the supplied schema, then assemble the block. |
-| Baked description without binary | Prepare private construction storage, materialise from its values, then assemble the block. |
-| Complete document-plus-binary file | Validate and attach directly to its existing ranges, whether loaded loose or borrowed from a bundle. |
-| Complete block to be stripped | Promote/copy its document into a private live document, remove retained values, re-bake and assemble with the unchanged payload. |
-
-The construction operations are:
+SDataBlockPayloads contains optional pointers to instance and bulk byte views.
+Null means unavailable; a pointer to an empty view means supplied zero bytes.
 
 | Operation | Contract |
 | --- | --- |
-| `CLiveInstances::bake(destination, schema, form, diagnostic)` | Produce a locally owned `CBakedInstancesBlock` from the live instance role. |
-| `CLiveBulkData::bake(destination, schema, form, diagnostic)` | Produce a locally owned `CBakedBulkDataBlock` from the live bulk data role. |
-| `block.materialise(description, schema, form, diagnostic)` | Construct the receiving block from a live or baked description with sufficient values. |
-| `block.strip_to(destination, schema, diagnostic)` | Produce an independent stripped block of the same kind, preserving the source payload exactly. |
+| assemble(document, payloads, diagnostic) | Schema-independent copying/framing with explicit availability. |
+| materialise(document, form, diagnostic, payloads) | Resolve embedded types, validate supplied binaries and construct missing ones. |
+| materialise(document, schema, form, diagnostic, payloads) | External-schema fallback only when embedded types are absent. |
+| strip_to(destination, diagnostic) | Remove retained values using embedded types, constructing missing binaries first or failing. |
+| strip_to(destination, schema, diagnostic) | External-schema fallback for stripping. |
+| Live instance/bulk bake | Pack directly into the corresponding common-block binary range. |
+| Live schema bake | Produce a types-only common block and borrowed schema interface. |
 
-These operations report success or failure. Live baking adds overloads accepting
-the corresponding block destination. Materialisation accepts either a
-`const CLiveDocument&` or `const CBakedDocument&`. Baking and stripping leave their
-source unchanged and are const operations. Schema overloads accept a resolved
-`CBakedSchema&` or `CLiveSchema&` during construction; schema selection
-and lifetime remain the caller's responsibility. `form` is the existing
-`EDataOutputForm`, retaining its embedded, external and stripped meanings.
-Diagnostic semantics are specified below; implemented overload declarations are
-documented in the [runtime API](runtime-api.md#completed-data-blocks).
+Assembly/materialisation accept live or baked descriptions. All construction
+stages privately, requires an empty destination and preserves inputs on failure.
+compose_document output can be materialised directly; missing locators are
+added only in private staging. Omitted domains remain absent; explicit empty
+domains produce supplied-zero binaries. Existing valid offsets are honoured.
 
-### Live baking and description materialisation
-
-Live baking reuses the current output preparation to produce the description and
-packed authoritative payload. It adds the persistence metadata, bakes the
-document and allocates the final aligned file. Records copy directly into its
-payload region before envelope validation and storage adoption.
-
-Materialisation prepares a private description and uses the existing type,
-default, inheritance and bulk data record rules to construct the payload. Values
-needed for construction are consumed before applying the requested output form.
-Preparation establishes the persistence metadata and valid locators before
-assembling the completed block. Neither operation changes the source document.
-
-Binary materialisation is all or nothing: either supply the complete payload or
-construct the whole payload from sufficient description values. There is no
-partial materialisation mode combining supplied regions with reconstructed
-missing regions. This is the selected contract, not a deferred feature. Existing
-live-role snapshot/output preparation and byte-preserving stripping remain as
-specified; completed-file loading never repairs an incomplete payload.
-
-JSON parsing remains outside the block construction interface. Existing parsing
-facilities supply a live or baked document; Host parsing can supply a baked
-description. No additional JSON parser or file-loading entry point is introduced
-inside the schema block API. The caller explicitly materialises the parsed
-description, then optionally admits and saves the completed local block through
-the existing Host operations:
-
-```text
-JSON load/parse -> description -> caller-side materialise -> local completed block
-    -> optional Host admission and save
-```
-
-The caller keeps the source description available through materialisation and
-manages its disposal separately. This increment adds no combined asynchronous
-load/parse/bind/materialise/retain request or convenience orchestration service.
-
-Source JSON and incomplete baked descriptions are construction inputs, not
-necessarily already valid files of the persistence format. Preparation
-must establish the format metadata as well as valid payload locators. A stripped
-description lacking its required binary data cannot be materialised. Insufficient
-values fail under the existing materialisation rules; zero-byte types retain
-their established semantics.
-
-### Construction ownership and failure
-
-All construction operations require an empty destination. An occupied
-destination is rejected unchanged. A failed construction leaves an initially empty destination empty and
-cleans up temporary allocations and bindings. It preserves the source document,
-source payload and any source asset association. No partially usable role or
-intermediate buffer is published.
-
-On success the destination owns one contiguous complete file allocation and
-exposes its document and payload views. Typed roles attach separately after
-all resizing and copying have finished. `file_bytes()` therefore always
-describes one complete range, and `release_local()` transfers one allocation,
-irrespective of the construction route.
-
-Loading a completed `.bid` or `.bbd` is read-only. Constructing from JSON or an
-incomplete document produces private storage; it must not modify a published
-source asset or extend a bundle entry. Once construction has finished, the
-independent result no longer depends on the source bytes. Any retained source
-asset remains subject to its own disposal responsibility, including coordination
-with other consumers. A failure cleans up temporary construction state without
-modifying or implicitly disposing shared sources.
-
-The result can be consumed locally or admitted to the Host for retention and
-optional saving. The agreed threading boundary keeps schema-dependent
-construction and interface binding in the caller's context. Existing Host workers
-can provide file I/O and parsing. This avoids sending an unmanaged caller-schema
-pointer into asynchronous Host work; such pointers would conflict with the
-existing owning-input transport contract. Construction and stripping do not send
-Host messages or dispose source assets. Loading, owning transfer and saving
-follow the Host contracts above, with explicit caller-side orchestration as
-specified here.
-
-### Allocation strategy and later optimisation
-
-Live-role contiguous baking shares description/record planning with separate
-output but copies records directly into the final allocation, eliminating the
-intermediate packed payload and final typed reload. Description materialisation
-still constructs a temporary payload before assembly. Stripping copies unchanged
-source bytes into independent output. Further optimisation of materialisation
-does not change file, ownership or failure contracts.
+Declared supplied lengths require their explicit bytes, including zero.
+Stripped descriptions without binary fail even for empty sections. Other missing
+binaries can be constructed from sufficient descriptions, defaults and inheritance.
 
 ## Live use, binary construction and retained document content
 
-The existing specialised live documents remain the mechanisms for dynamic
-creation, editing and consumption. They do not become construction-only helpers,
-and this contract does not require a mandatory combined live editor.
+Output forms govern descriptions independently of binary availability. External
+output retains instance declarations and omits bulk arrays. Stripped output
+omits both and sets the common marker. Supplied stripped content can be converted
+to retained forms by reconstructing descriptions through existing preparation.
 
-Baked instance and bulk data facilities continue to support both supplied binary data
-and construction of missing binary data from sufficient document values, under
-the existing type, default, specialisation and bulk data record rules. Integrating
-those facilities with the new persistence units should reuse their established
-semantics. Live baking now writes records directly into final storage;
-description materialisation retains a temporary payload owner.
-
-Document values may be retained or omitted. Stripped output retains the names,
-type references, hierarchy and locators needed for navigation and binary access
-while omitting instance declarations or embedded bulk data record values. Applicable
-type definitions remain required, and the binary payload must be available when
-document values are omitted. Stripped metadata alone cannot reconstruct missing
-values.
-
-Existing binary data remains authoritative where supplied. Persistence need not
-round-trip through document literals merely to retain those bytes. The current
-stripped persistence path can preserve raw encodings that reconstruction rejects,
-including noncanonical booleans, undeclared enum values and fp16 nonfinite values.
-The merge contract below excludes those encodings from permitted input data.
-Conversion of permitted values between merge forms is a supported operation,
-not a general document-representability exception. NaN payload distinctions are
-not required to survive conversion for types that permit NaNs.
-
-### Stripping previously baked input
-
-Stripping must also be available for instance or bulk data input that did not originate
-from a live-role bake, including parsed JSON and existing baked descriptions or
-complete entities. It is an output transformation, not an in-place edit of a
-published document or bundle entry. Required binary data must be supplied or
-materialised before its document values are omitted.
-
-For an existing complete block, `strip_to()` uses generic document promotion or
-copying into a private `CLiveDocument`. It removes instance declarations or
-embedded bulk data arrays, sets `stripped: true`, re-bakes the document and assembles
-it with a byte-for-byte copy of the source payload in a new contiguous block.
-Before removing values it preserves or derives all required navigation and
-locator metadata, including bulk data counts previously inferred from embedded arrays.
-
-This route does not promote through `CLiveInstances` or `CLiveBulkData`. Those
-role promotions reconstruct literals and can reject raw encodings accepted by
-the structural persistence checks. Generic document promotion copies the
-description without decoding the authoritative payload. The stricter permitted
-binary values agreed for merging do not retrospectively change this implemented,
-byte-preserving stripping contract.
-
-Payload-relative offsets, gaps and trailing bytes within the declared payload
-are preserved; stripping does not repack or reconstruct binary data. The changed
-document can have a different baked length and node indices; any destination
-role must attach to those new storage views.
-Already stripped input produces an independent equivalent block under the same
-contract. Local and Host-backed sources follow the same transformation, with no
-source mutation or implicit asset disposal.
-
-For JSON or baked descriptions without binary data, materialisation with
-`EDataOutputForm::stripped` first constructs the required payload from sufficient
-values and then omits those values in the output. It cannot strip away values
-before they have served that construction step.
+Stripping supplied binaries preserves every byte and retains the existing policy
+of structural validation without comparing stale retained declarations. New
+construction validates values before dropping descriptions. Live packing preserves
+complete records and zeroes introduced gaps. Assembly preserves whole binaries.
 
 ## Diagnostics and failure reporting
 
-Host operation status and block diagnostics remain separate. Host I/O, parsing,
-retention and saving use `AssetResult`, existing `EAssetStatus` values and parser
-findings. Schema block operations use structured caller-side diagnostics without
-enlarging the Host completion message or transporting schema bindings.
+Envelope/assembly operations use SDataBlockDiagnostic: stage, reason and optional
+original live node, baked value or complete-file byte location.
+SDataBlockBuildDiagnostic adds schema, instances and bulk_data detail.
+Single-domain live bake retains its existing specialised diagnostic type.
 
-### Shared diagnostic structure
-
-Block attachment has no schema or comparison options. Value comparison belongs
-to the separate role attachment.
-
-`SInstancesBlockDiagnostic` and `SBulkDataBlockDiagnostic` each contain a shared
-stage, a shared block-level reason, optional location information, and the
-corresponding existing `SInstanceDiagnostic` or `SBulkDataDiagnostic` when a
-specialised operation supplied the failure. The existing role reason is
-preserved rather than flattened into a generic format or construction failure.
-The [runtime API](runtime-api.md#completed-data-blocks) and
-[`data_block.hpp`](../../core/schema/data_block.hpp) specify the implemented
-stage/reason enums, field layout and location discriminators.
-
-Operations retain the `bool` result plus diagnostic output convention. They reset
-the diagnostic on entry. Success leaves it empty; failure always supplies a
-reason. Processing stops at the first failure in the defined validation or
-construction order, without accumulating a multi-error report. Unused detail
-and location fields remain empty. Core block operations return diagnostics;
-callers supply logging, filenames, operation context and user-facing messages.
-
-### Stages and reason ownership
-
-| Stage | Responsibility |
-| --- | --- |
-| Preconditions | Reject occupied destinations, invalid sources, views or asset IDs, and unsupported options. |
-| Format validation | Validate the bounded baked encoding, persistence root metadata, base alignment, complete extent and container padding. |
-| Schema binding | Establish the supplied resolved schema binding. |
-| Specialised loading | Validate instance or bulk data structure, type references, locators and ranges, plus embedded values when comparison is requested. |
-| Construction steps | Distinguish description preparation, payload materialisation, document promotion, document baking and final assembly. |
-
-Block attachment checks preconditions and the format envelope. Schema-dependent
-construction/stripping uses transient typed roles; ordinary block adoption does
-not bind a schema or validate typed entries. Construction checks its preconditions and required schema
-availability before preparing output; its diagnostic identifies the actual step
-that failed, including final envelope validation. Input descriptions are not
-required to be valid completed persistence files before construction.
-
-Format reasons distinguish invalid baked documents, unsupported document
-encoding, missing/unknown/incorrectly typed root properties, wrong content
-identifiers, unsupported persistence versions, invalid alignment, arithmetic
-overflow or storage limits, complete-file length mismatch and nonzero container
-padding. Report the specific cause only when the validator can establish it.
-An invalid header must not be traversed merely to obtain a more detailed location.
-
-Errors within the specialised sections retain existing role meanings:
-
-| Example | Diagnostic |
-| --- | --- |
-| Declared payload extends beyond the complete file | Format validation / file-length mismatch. |
-| Instance locator extends beyond the declared payload | Specialised loading / instance `invalid_range`. |
-| Referenced type is absent from the supplied schema | Specialised loading / `unknown_type`. |
-| Requested comparison finds different retained values | Specialised loading / `embedded_mismatch`. |
-| Materialisation lacks required binary data or sufficient values | Materialisation / the applicable existing role reason. |
-
-A truncated completed file is a format error, not a materialisation request.
-Comparison remains opt-in, and a comparison failure never replaces authoritative
-binary data with document values.
-
-An unresolved schema supplied for construction or stripping reports
-`schema_unavailable`. Unknown types and incompatible layouts discovered
-during specialised validation retain their role diagnostics. These errors do not
-prove historical schema identity or introduce compatibility signatures.
-
-Later schema invalidation makes a typed role's `loaded_ready()` false through
-the existing binding machinery. It does not affect block readiness, discard
-storage or retroactively change a successful operation's diagnostic.
-
-Construction preserves lower-level reasons where available. Allocation failure
-is reported when established, and storage-limit/overflow failures are distinct
-where known. If a helper returns only `false`, use an honest step-level failure
-such as `document_bake_failed`; do not infer allocation failure from that alone.
-The stage still identifies whether the failure arose during preparation,
-materialisation, promotion, baking, assembly or final attachment.
-
-### Location lifetime and failure atomicity
-
-Location information identifies its source explicitly and is optional:
-
-- Attachment diagnostics may refer to the supplied document, whose existing
-  owner retains the storage after failure. Handles are usable only while that
-  document remains alive and its handle identities remain valid.
-- Construction diagnostics refer back to the caller's source document when a
-  reliable mapping exists. A handle into a private temporary document must be
-  cleared before that storage is discarded. Stage and reason remain available
-  even when no source location can be preserved.
-- Known format byte offsets are measured from the start of the complete file,
-  not from its payload. Presence is explicit; offset zero is a valid location.
-- Diagnostics do not retain documents, extend asset lifetimes or allocate strings
-  to preserve temporary locations. Diagnostic creation must not require another
-  successful allocation in order to report failure.
-
-The outer diagnostic and any nested role occurrence follow the same location
-lifetime rules. A temporary occurrence must not survive solely because it was
-copied into the nested diagnostic. Absence of a location is preferable to a handle
-that appears to identify the caller's input but belongs to discarded output.
-
-Reporting does not change ownership or failure atomicity: an empty destination
-remains empty on failure, an occupied destination is preserved, construction
-leaves sources unchanged, failed adoption does not consume its local owner, and
-failed attachment does not dispose the Host asset. Temporary allocations and
-bindings are cleaned up without publishing a partial destination.
-
-A successful Host load followed by failed block attachment therefore has two
-valid outcomes to report: bytes were retained, but the specialised interface
-could not be established. Applications can combine Host status and block detail
-with their filename and operation context without replacing either result.
-Save failures continue to preserve successfully retained assets under the Host
-contract; a diagnostic never implies automatic disposal or retry.
+Handles borrow caller sources; temporary handles are mapped back or cleared.
+Generic Boolean translation/validation failures do not claim more precise
+resource diagnoses than the underlying operation supplies. Success clears
+diagnostics. Failure preserves source and destination, including failures in the
+second domain after constructing the first.
 
 ## Agreed bulk data terminology and standardisation pass
 
@@ -715,7 +155,7 @@ alongside the existing `CBakedBulkData`, `CLiveBulkData`, `baked_bulk_data.hpp` 
 
 The agreed convention is "bulk data" in domain prose and
 `BulkData`/`bulk_data` in domain-specific public identifiers, matching the main
-roles and `CBakedBulkDataBlock` and `SBulkDataBlockDiagnostic`. The standardisation
+roles and `CBakedDataBlock` and `SBulkDataBlockDiagnostic`. The standardisation
 pass covered supporting types, domain-specific helpers, call sites, tests and
 maintained documentation. Persistence interfaces use the agreed naming.
 
@@ -738,8 +178,7 @@ stage preserved data semantics and introduced no compatibility aliases.
 
 The diagnostic contract above reuses `SBulkDataDiagnostic`. Generic uses of
 "bulk" for batched or contiguous operations
-need not become "bulk data". The persisted `data` section, `.bbd` extension and
-`morphic-bulk-data` identifier are unchanged by standardisation.
+need not become "bulk data". The persisted `data` section is unchanged; common .bsd storage now replaces the specialised envelope.
 
 ## Separate merge and aggregation operations
 
@@ -1634,32 +1073,21 @@ These are preparation rules, not changes to ordinary persistence loading or
 materialisation. The payload argument, when supplied, belongs to the selected
 domain only. Other sections never contribute offsets, counts, types or bytes.
 
-**Root metadata.** Recognise `types`, `instances`, `data`, `stripped`, `fileType`,
-`version` and `payloadSize`; reject other root properties. Check recognised
-section container shapes without inspecting sibling contents.
 
-| Root form | Document-only overload | Supplied-binary overload |
-| --- | --- | --- |
-| No envelope fields; `stripped` absent or false | Accept retained descriptions, subject to the locator rules below. | Accept a role-style description with validated supplied locators; no envelope is required. |
-| No envelope fields; `stripped: true` | Reject with `binary_required`, including zero-byte data. | Accept stripped input, with valid locators and the existing prohibition on retained values. |
-| All of `fileType`, `version`, `payloadSize` | Reject with `binary_required` after checking the claims' shape and internal consistency, even if `payloadSize` is zero. | Validate the complete metadata group and require an explicitly supplied package. |
-| Some but not all envelope fields | Reject as missing required metadata. | Reject as missing required metadata. |
+**Root metadata.** Recognise authored sections and the exact common
+[.bsd envelope](common-binary-block.md). Sibling sections are checked for
+container shape without interpreting their entries.
 
-`stripped`, when present, must be Boolean and is independent of the envelope
-group. `fileType` must be the string `morphic-instance-data` or
-`morphic-bulk-data` matching the selected operation. `version` must be unsigned
-integer 1. `payloadSize` must be an unsigned integer within existing size limits
-and must equal the supplied payload view's logical byte length, not allocation
-capacity or the last occupied extent. A complete metadata group requires the
-selected section object, even when empty. A missing selected section is otherwise
-empty; missing or empty selected sections require an empty supplied payload.
+Any envelope metadata requires the common fileType and unsigned version: 1.
+The two payload lengths are independently optional. A selected declared length
+requires an explicit payload, including zero, and must equal its logical byte
+length. A missing selected length permits document-only preparation when retained
+descriptions suffice. The stripped marker still requires supplied binary.
+Reject incomplete/unknown metadata and legacy identifiers.
 
-Recognised sibling sections remain allowed alongside a complete metadata group
-for extraction. Their contents remain outside semantic validation. This is a
-projection of metadata claims for the selected domain, not admission of that
-combined document as a valid `.bid`/`.bbd` file. The existing file loader's stricter
-root whitelist remains unchanged. A mismatched `fileType` is rejected, not treated
-as metadata belonging to a sibling section and silently discarded.
+Preparation validates these claims, not complete file framing. Only the common
+block loader validates actual file extent, positions and container padding.
+The other domain's range never supplies the selected domain's binary.
 
 **Entry locators.** A present locator must be an object containing only `offset`,
 `valid`, optional `count` and optional `size`. Require `offset` and `valid`;
@@ -1692,7 +1120,7 @@ including zero-byte entries. Validate the payload view and its existing 128-byte
 nonempty base-alignment requirement before access. Apply the established zero-size
 offset/overlap rules without inventing a new positive-extent requirement. Gaps
 and trailing slack remain permitted; do not require the last extent to equal
-`payloadSize` or require internal payload gaps/padding to be zero. `compare_embedded`
+`selected payload length` or require internal payload gaps/padding to be zero. `compare_embedded`
 does not relax any metadata check. An explicit empty payload is still a supplied
 package; it is never inferred from the absence of the argument.
 
@@ -1891,7 +1319,7 @@ The supplied types document is the sole schema authority. There is no separate
 resolved-schema argument or schema-owner association. Later binary construction
 uses the composed definitions, defaults and inheritance through existing
 domain-specific construction paths. A composed document is not a mandatory
-runtime owner and does not introduce a combined binary persistence format.
+runtime owner. It can be passed directly to common-block materialisation.
 
 ### Agreed composition diagnostics
 
@@ -1979,7 +1407,8 @@ own diagnostics and transactions; later binary construction is separately fallib
 
 Compatibility signatures, persisted resolved lookups, automatic bundle persistence
 and writes to bundle entries are outside the delivered contracts. Direct final
-storage for description materialisation, selected type subsets and combined
-convenience orchestration remain optional work, not missing completion stages.
+storage for description materialisation, selected type subsets and orchestration
+of multiple independently produced binary sources remain optional work. Common
+aggregate materialisation and explicit assembly are now implemented.
 The [follow-on notes](../backlog/schema_follow_on.md) retain these considerations
 alongside source ingestion, conversion, shader representations and editor consumers.
