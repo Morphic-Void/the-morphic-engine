@@ -90,6 +90,17 @@ Generic document/payload owner overloads remain lower-level working operations.
 assemble(description, payloads, diagnostic) performs schema-independent copying
 and framing. SDataBlockPayloads holds optional pointers to two byte views:
 null means unavailable; a pointer to an empty view means supplied zero bytes.
+Assembly validates the original root before preparing private live staging: live
+input is copied iteratively, and baked input is promoted once. It replaces only
+the four envelope metadata fields, then bakes the completed description and copies
+it with the supplied payloads into the final allocation. This preserves reachable
+content and presentation, including empty placeholders becoming null, without a
+subtree-copy depth limit. Detached nodes and unused strings are excluded.
+Live-copy failures use `description_preparation/description_preparation_failed`;
+baked promotion failures retain their promotion stage and reason. Source-root
+locations belong to the caller; private staging locations are cleared. Normal
+live-storage and final document/file limits apply; the original description need
+not fit an intermediate baked allocation before its metadata is replaced.
 
 materialise(description, form, diagnostic, payloads) resolves embedded types and
 constructs missing binaries. An overload accepts an external live/baked schema,
@@ -187,7 +198,10 @@ Allocation, supplied-payload checks and staging offsets use the same constant.
 `value_conversion.hpp` and `integer_notation.hpp` are implementation support.
 Baked role headers include `record_index.hpp` for their private index storage. The compatibility hash index
 belongs to `type_compatibility.hpp`; it is separate from record lookup.
-Consumers normally reach these details through the relevant public header.
+`data_block_format.hpp`, `data_block_construction.hpp` and `document_merge.hpp`
+are also internal support; the public common-block and merge interfaces remain
+in their operation headers. Consumers normally reach these details through the
+relevant public header.
 
 The implementation files follow those responsibilities:
 
@@ -198,6 +212,9 @@ The implementation files follow those responsibilities:
 | `schema_wrappers.cpp` | Schema ownership, editing, client bindings and translation. |
 | `document_query.cpp` | Shared live/baked read adapter; role forwarding is inline in the header. |
 | `baked_instances.cpp`, `baked_bulk_data.cpp` | Loading, materialisation, binary views and baked record lookup. |
+| `baked_data_block.cpp` | Common storage attachment, aggregate materialisation, stripping and source diagnostic mapping. |
+| `data_block_format.cpp`, `data_block_construction.cpp` | Shared root/framing validation, private description preparation and final block assembly. |
+| `schema_merge.cpp`, `data_merge.cpp`, `document_merge.cpp` | Type/data admission and transactional merging through shared document construction and reason mapping. |
 | `live_instances.cpp` | Instance lifetime, bindings, queries and creation. |
 | `live_instances_edit.cpp` | Capture, selection editing and descendant propagation. |
 | `live_instances_translation.cpp` | Instance declaration reconstruction, promotion, reconciliation and baking. |

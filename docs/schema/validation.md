@@ -179,6 +179,14 @@ and source locations. Pure layout tests cover the exact 2 GiB limit and integer
 overflow without large allocations. A rejected scratch allocation verifies
 failure cleanup and conservative reporting by the generic document validator.
 
+Assembly staging regressions compare completed live/baked output bytes with the
+previous conversion pipeline. They cover section and availability combinations,
+metadata replacement and precedence, scalar/string presentation, empty placeholders,
+detached storage, live string-ID remapping and opaque trees deeper than the bounded
+subtree copier permits. Separate assembly allocation sweeps check diagnostics,
+unchanged sources and payloads, empty destinations and released attribution.
+Completed outputs remain valid after source documents and payload storage change.
+
 Completed-block tests exercise both instance/bulk data and live/baked schema
 combinations. They check pointer-preserving adoption/release, occupied
 destinations and outputs, repository-backed borrowed attachment without hidden
@@ -307,6 +315,11 @@ combination, absent versus supplied-empty binaries, aggregate materialisation,
 embedded schema authority and external schema fallback. They also cover separate
 working binaries, exact supplied-byte preservation, stripped/retained conversion,
 both alignment gaps, checked combined extents and transactional allocation failure.
+Direct common-block attachment tests exercise both data roles with live/baked
+schemas, supplied and constructed binaries, nonempty-owner rejection, empty
+roles, schema-reference cleanup and diagnostics mapped to the original block.
+Root-error cases preserve payload-length/stripped-marker precedence and reject
+malformed sibling sections even when the selected section is absent.
 Asset/bundle tests save, reload and admit a combined types/instances/bulk block
 through both single-threaded and dedicated-worker paths. See the
 [common block contract](common-binary-block.md) for the implemented scope.

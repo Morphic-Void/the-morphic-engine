@@ -65,29 +65,7 @@ template<class TAccess, class TDiagnostic>
             diagnostic.stage = EDataMergeStage::document_merge;
             diagnostic.first = TAccess::make(error.first);
             diagnostic.second = TAccess::make(error.second);
-            switch (error.reason)
-            {
-                case detail::EDocumentMergeReason::conflicting_value:
-                {
-                    diagnostic.reason = EDataMergeReason::conflicting_value;
-                    break;
-                }
-                case detail::EDocumentMergeReason::allocation_failed:
-                {
-                    diagnostic.reason = EDataMergeReason::allocation_failed;
-                    break;
-                }
-                case detail::EDocumentMergeReason::storage_limit:
-                {
-                    diagnostic.reason = EDataMergeReason::storage_limit;
-                    break;
-                }
-                default:
-                {
-                    diagnostic.reason = EDataMergeReason::construction_failed;
-                    break;
-                }
-            }
+            diagnostic.reason = detail::document_merge_reason<EDataMergeReason>(error.reason);
             return false;
         }
         if (!validate_source<TAccess>(detail::CDocumentRead{ staged }, schema, bulk, EDataMergeStage::result_validation, diagnostic))

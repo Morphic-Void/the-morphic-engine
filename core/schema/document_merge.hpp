@@ -33,6 +33,31 @@ struct SDocumentMergeDiagnostic
     SOccurrence first, second;
 };
 
+//  Type and data merges preserve the same document-construction failure reasons.
+template<class TReason>
+[[nodiscard]] static TReason document_merge_reason(const EDocumentMergeReason reason) noexcept
+{
+    switch (reason)
+    {
+        case EDocumentMergeReason::conflicting_value:
+        {
+            return TReason::conflicting_value;
+        }
+        case EDocumentMergeReason::allocation_failed:
+        {
+            return TReason::allocation_failed;
+        }
+        case EDocumentMergeReason::storage_limit:
+        {
+            return TReason::storage_limit;
+        }
+        default:
+        {
+            return TReason::construction_failed;
+        }
+    }
+}
+
 //  Inputs have already passed their domain admission. Target is private, empty
 //  staging. Bulk prefix applies only at depth three in the prepared data grammar.
 [[nodiscard]] bool merge_document_section(const CDocumentRead& first, const CDocumentRead& second,

@@ -44,6 +44,13 @@ removes retained values while preserving every payload byte. Generic Host loadin
 admission and binary saving preserve complete buffers; role attachment remains
 caller-side. Existing bake overloads returning separate owners remain available.
 
+Schema-independent assembly copies live descriptions directly into private live
+staging, or promotes baked descriptions once, before refreshing envelope metadata
+and baking the final description. It preserves source content and supplied bytes
+without imposing the bounded subtree copier's depth limit. Normal live-storage
+and final document/file limits apply; no intermediate bake of the original
+description is required. See the [assembly staging contract](common-binary-block.md#agreed-assembly-staging-scope).
+
 All persisted schema data uses the common [.bsd block](common-binary-block.md).
 Its document permits any combination of types, instances and data, with
 independently optional instance and bulk binaries. A declared zero length means
@@ -65,8 +72,8 @@ copying each complete record unchanged, including its internal padding and unuse
 bits. Zero-byte entries occupy no storage and do not reset the preceding extent.
 This is a writer/construction rule: loading, saving and stripping retain existing
 payload bytes, including nonzero gaps and trailing bytes. Readers do not require
-payload gaps to be zero; only the document-to-payload container padding has that
-format requirement.
+payload gaps to be zero. Container padding before each nonempty binary range
+requires zero bytes, including the gap between instance and bulk binaries.
 
 ## Purpose and scope
 
@@ -158,10 +165,14 @@ The same ownership separation applies to baked instance and bulk data payloads.
 `CBakedInstances` and `CBakedBulkData` hold non-owning binary views, not owning
 byte buffers. The associated payload allocation is external to the wrapper and
 may be owned locally or by the host, independently of the baked document block.
-Destroying the wrapper releases neither allocation. Both owners must keep their
-storage alive and at stable addresses while views use it. Transferring an owner
-to the host can preserve the view when the allocation does not move; relocating
-the bytes requires rebinding views before further access.
+Supplied document and payload allocations remain caller-owned; clearing or
+destroying the wrapper releases neither. Their owners must keep borrowed storage
+alive and at stable addresses while views use it. When common-block attachment
+constructs a missing binary, the role owns a private locator-bearing working
+document and releases that document on clear/destruction. The constructed binary
+still belongs to the caller through its returned owner, and the source block is
+unchanged. Transferring an owner to the host can preserve a view when the allocation
+does not move; relocating the bytes requires rebinding views before further access.
 
 `CLiveInstances` and `CLiveBulkData` always own their associated byte buffers.
 Borrowed access to those buffers does not transfer ownership. Promotion copies
@@ -663,7 +674,7 @@ documents preserve declarations and add binary offsets; working bulk data docume
 can remove embedded records once backed by binary. Output projects the information
 needed for its selected form. Locator syntax is specified under loading and buffers.
 
-- `types`: structure, enum, and bit-structure definitions.
+- `types`: structure, enum and bit-structure definitions, associations and interfaces.
 - `instances`: entries grouped by type, with named base instances beneath each
   type and specialisations nested as children of their base. Further nesting
   can express a chain of specialisations.
@@ -716,8 +727,11 @@ schema. Retained descriptions preserve omissions and presentation. Stripped
 instances reconstruct differences against original defaults/immediate parents;
 only wholly absent bulk arrays reconstruct from bytes. Applicable storage metadata
 validates before removal; embedded types and other section contents do not affect
-selected values. An explicit payload view is required for valid locators, complete
-persistence envelopes and stripped descriptions, including zero-byte packages.
+selected values. An explicit payload view is required for valid locators, a
+selected `instancePayloadSize`/`bulkPayloadSize` declaration, or stripped
+descriptions, including zero-byte packages. The common envelope identifier and
+version alone do not require a selected binary; its length remains independently
+optional.
 
 `compose_document` requires a types-only document and one or both prepared data
 domains. It resolves types once, validates each supplied domain and copies the
@@ -1871,7 +1885,8 @@ Primitives must have the same primitive type and size. Matched named structures,
 enums, and bit structures require the same
 type name and matching resolved definition; representation equality alone is
 insufficient. Compare names by text across documents, not document-local IDs.
-Array matches require matching counts, strides, and compatible element types.
+Array matches require matching counts, element strides, independent alignments,
+complete sizes and compatible element types.
 A compound already excluded by a difference in type category, name, size or
 layout is skipped whole, without examining its contents to classify the mismatch
 or find partial transfers. A compatible compound direct member is copied whole.
@@ -1965,9 +1980,10 @@ bits, padding, or floating-point payloads matter.
 
 The current remapper performs exact-type binary copies. It does not rename or
 recursively select members, convert numeric values, translate enums or transform
-individual bitfields. Schema roles expose separate document and payload owners;
-they do not define a combined file container, persistent schema identity or wire
-version for those components. Resolved runtime records are never serialised.
+individual bitfields. Schema roles retain separate working document and payload
+owners. The versioned [common `.bsd` container](common-binary-block.md) combines
+the document with independently available instance and bulk binaries. It does not
+establish persistent schema identity. Resolved runtime records are never serialised.
 
 Unions, pointers, variable-sized fields, opaque handles/blobs, packed structure
 layout and generated C output are unsupported.

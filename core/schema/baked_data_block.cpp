@@ -13,7 +13,9 @@
 #include "schema/data_preparation.hpp"
 #include "data_model/document_translation.hpp"
 #include "data_model/document_copy.hpp"
+#include "containers/TPodVector.hpp"
 
+#include <limits>
 #include <utility>
 
 namespace schema
@@ -98,6 +100,94 @@ bool CBakedDataBlock::has_bulk_data() const noexcept
     return static_cast<bool>(m_document.object_child(m_document.root(), CStringView{ "data" }));
 }
 
+//  Admit referenced text in lexical order to avoid repeated sorted-index shifts.
+//  Live IDs need not equal their ranks; the native copier maps them separately.
+static bool preload_assembly_strings(const CLiveDocument& source, const SLiveDocumentStringAnalysis& strings,
+    CLiveDocument& description) noexcept
+{
+    using document_translation::detail::CDocumentConstruction;
+    for (std::uint32_t rank = 1u; rank < strings.property_name_references.size(); ++rank)
+    {
+        const CPropertyNameId id = source.property_name_id_at_rank(rank);
+        if (!id || (id.query_value() >= strings.property_name_references.size())) return false;
+        if (strings.property_name_references[id.query_value()])
+        {
+            const CStringView text = source.property_name(id);
+            if (text.empty() || (text.length() == 0u) || !CDocumentConstruction::import_name(description, text)) return false;
+        }
+    }
+    for (std::uint32_t rank = 1u; rank < strings.string_value_references.size(); ++rank)
+    {
+        const CStringValueId id = source.string_value_id_at_rank(rank);
+        if (!id || (id.query_value() >= strings.string_value_references.size())) return false;
+        if (strings.string_value_references[id.query_value()])
+        {
+            const CStringView text = source.string_value(id);
+            if (text.empty() || (text.length() == 0u) || !CDocumentConstruction::import_string(description, text)) return false;
+        }
+    }
+    return true;
+}
+
+//  Copy only the root-reachable tree. Planning iteratively preserves whole-document
+//  translation's depth behaviour and reserves both value and aggregate nodes.
+static bool copy_assembly_description(const CLiveDocument& source, CLiveDocument& description) noexcept
+{
+    struct SValue
+    {
+        CNodeKey source;
+        CNodeKey destination;
+        std::uint32_t parent_index;
+    };
+    SLiveDocumentAnalysis analysis;
+    SLiveDocumentStringAnalysis strings;
+    TPodVector<SValue> values;
+    if (!source.analyse(analysis, &strings) || !values.resize(analysis.value_count)) return false;
+    values[0u] = { source.root(), {}, 0u };
+    std::uint32_t next_value = 1u;
+    std::uint64_t node_count = analysis.value_count;
+    for (std::uint32_t index = 0u; index < next_value; ++index)
+    {
+        const ELiveValueType type = source.value_type(values[index].source);
+        if ((type == ELiveValueType::array) || (type == ELiveValueType::object)) ++node_count;
+        const std::uint32_t first_child_index = next_value;
+        for (CNodeKey child = source.first_child(values[index].source); child; child = source.next_sibling(child))
+        {
+            if (next_value >= values.size()) return false;
+            values[next_value++] = { child, {}, index };
+        }
+        if ((next_value - first_child_index) != source.child_count(values[index].source)) return false;
+    }
+    if ((next_value != values.size()) || (node_count > std::numeric_limits<std::uint32_t>::max()) ||
+        !description.initialise(static_cast<std::uint32_t>(node_count)) ||
+        !preload_assembly_strings(source, strings, description)) return false;
+
+    values[0u].destination = description.root();
+    document_translation::detail::CNativeValueCopier<CLiveDocument> copier{ description, source };
+    for (std::uint32_t index = 1u; index < values.size(); ++index)
+    {
+        SValue& value = values[index];
+        value.destination = copier.copy(value.source, {}, false);
+        if (!value.destination || !document_translation::detail::CDocumentConstruction::append(
+            description, values[value.parent_index].destination, value.destination)) return false;
+    }
+    return true;
+}
+
+static bool prepare_assembly_description(const CLiveDocument& source, CLiveDocument& description,
+    SDataBlockDiagnostic& diagnostic) noexcept
+{
+    return copy_assembly_description(source, description) ||
+        build_failure(diagnostic, EDataBlockStage::description_preparation, EDataBlockReason::description_preparation_failed);
+}
+
+static bool prepare_assembly_description(const CBakedDocument& source, CLiveDocument& description,
+    SDataBlockDiagnostic& diagnostic) noexcept
+{
+    return document_translation::promote(source, description) ||
+        build_failure(diagnostic, EDataBlockStage::document_promotion, EDataBlockReason::document_promotion_failed);
+}
+
 template<class TDocument>
 [[nodiscard]] static bool assemble_common(const TDocument& source, CBakedDataBlock& destination,
     const SDataBlockPayloads& payloads, SDataBlockDiagnostic& diagnostic) noexcept
@@ -106,14 +196,8 @@ template<class TDocument>
     if (destination.loaded_ready()) return build_failure(diagnostic, EDataBlockStage::preconditions, EDataBlockReason::destination_not_empty);
     detail::SDataBlockRoot root;
     if (!detail::read_data_block_root(detail::CDocumentRead{ source }, root, diagnostic)) return false;
-    CBakedDocumentBlock copied;
-    if (!detail::prepare_materialisation(source, copied, diagnostic)) return false;
     CLiveDocument description;
-    if (!document_translation::promote(copied.document(), description))
-    {
-        return build_failure(diagnostic, EDataBlockStage::document_promotion, EDataBlockReason::document_promotion_failed);
-    }
-    copied.deallocate();
+    if (!prepare_assembly_description(source, description, diagnostic)) return false;
     CBakedDocumentBlock complete;
     if (!detail::assemble_data_block(description, payloads.instances, payloads.bulk_data, complete, diagnostic) ||
         !destination.adopt_local(std::move(complete), diagnostic))

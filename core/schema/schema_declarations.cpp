@@ -32,6 +32,13 @@ public:
     bool run(CByteBuffer& output) noexcept;
 
 private:
+    enum class EEmissionState : std::uint8_t
+    {
+        pending = 0u,
+        emitted,
+        emitted_with_increased_alignment
+    };
+
     struct SArrayHelpers
     {
         CSchemaIndex type;
@@ -73,7 +80,7 @@ private:
     SDiagnostic& m_diagnostic;
     CSchemaHandle m_current_type, m_current_member;
     TPodVector<char> m_bytes;
-    TPodVector<std::uint8_t> m_emitted; //  0 pending, 1 emitted, 2 emitted with own or inherited increased alignment.
+    TPodVector<EEmissionState> m_emitted; // Increased alignment includes inherited alignment.
     TPodVector<SArrayHelpers> m_arrays; // Sorted by opaque index value; populated before emission.
     std::uint64_t m_next_helper_name{ 1u };
     bool m_helper_scope{};
@@ -100,7 +107,7 @@ bool CGenerator::run(CByteBuffer& output) noexcept
     }
     for (std::uint32_t definition_ordinal = 0u; definition_ordinal < m_schema.definition_count(); ++definition_ordinal)
     {
-        if (!m_emitted.push_back(std::uint8_t{}))
+        if (!m_emitted.push_back(EEmissionState::pending))
         {
             return fail(EReason::allocation_failed);
         }
@@ -616,11 +623,11 @@ bool CGenerator::has_increased_alignment(const CSchemaIndex type_index, bool& re
         return true;
     }
     std::uint32_t ordinal{};
-    if (!m_schema.definition_ordinal(current, ordinal) || !m_emitted[ordinal])
+    if (!m_schema.definition_ordinal(current, ordinal) || (m_emitted[ordinal] == EEmissionState::pending))
     {
         return fail(EReason::invalid_input);
     }
-    result = m_emitted[ordinal] == 2u;
+    result = m_emitted[ordinal] == EEmissionState::emitted_with_increased_alignment;
     return true;
 }
 
@@ -756,7 +763,7 @@ bool CGenerator::emit_structure_members(const CSchemaIndex type_index, const STy
 
 bool CGenerator::definition(const std::uint32_t definition_ordinal, const unsigned depth) noexcept
 {
-    if (m_emitted[definition_ordinal])
+    if (m_emitted[definition_ordinal] != EEmissionState::pending)
     {
         return true;
     }
@@ -772,7 +779,7 @@ bool CGenerator::definition(const std::uint32_t definition_ordinal, const unsign
     }
     if (type_info.size == 0u)
     {
-        m_emitted[definition_ordinal] = 1u;
+        m_emitted[definition_ordinal] = EEmissionState::emitted;
         return true;
     }
     m_current_type = type_info.source;
@@ -899,7 +906,7 @@ bool CGenerator::definition(const std::uint32_t definition_ordinal, const unsign
             return false;
         }
     }
-    m_emitted[definition_ordinal] = contains_increased_alignment ? 2u : 1u;
+    m_emitted[definition_ordinal] = contains_increased_alignment ? EEmissionState::emitted_with_increased_alignment : EEmissionState::emitted;
     return true;
 }
 

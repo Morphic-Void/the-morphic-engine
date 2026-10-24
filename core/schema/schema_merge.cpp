@@ -101,29 +101,7 @@ bool merge_type_schemas(const CSchemaDocumentQuery& first, const CSchemaDocument
         if (!detail::merge_document_section(detail::SDocumentQueryAccess::read(first),
             detail::SDocumentQueryAccess::read(second), CStringView{ "types" }, false, staged, error))
         {
-            switch (error.reason)
-            {
-                case detail::EDocumentMergeReason::conflicting_value:
-                {
-                    diagnostic.reason = ESchemaMergeReason::conflicting_value;
-                    break;
-                }
-                case detail::EDocumentMergeReason::allocation_failed:
-                {
-                    diagnostic.reason = ESchemaMergeReason::allocation_failed;
-                    break;
-                }
-                case detail::EDocumentMergeReason::storage_limit:
-                {
-                    diagnostic.reason = ESchemaMergeReason::storage_limit;
-                    break;
-                }
-                default:
-                {
-                    diagnostic.reason = ESchemaMergeReason::construction_failed;
-                    break;
-                }
-            }
+            diagnostic.reason = detail::document_merge_reason<ESchemaMergeReason>(error.reason);
             diagnostic.first = detail::SSchemaHandleAccess::make(error.first);
             diagnostic.second = detail::SSchemaHandleAccess::make(error.second);
             return false;

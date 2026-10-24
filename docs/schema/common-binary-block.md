@@ -85,6 +85,47 @@ merging, compression, checksums, external references, selective type extraction 
 zero-copy construction guarantees are outside this refactor. Work is authorised;
 committing is not.
 
+## Agreed assembly staging scope
+
+Agreed before implementation on 24 October 2026. Reduce intermediate document
+conversions in `CBakedDataBlock::assemble` only. Live input is copied directly
+into private live staging; baked input is promoted once into that staging.
+Retain metadata replacement, the final document bake, copying into the complete
+block allocation, payload copying and final validation. Keep the live-copy helper
+internal; this does not add a public cloning API.
+
+Preserve destination-first and original-root validation precedence. Existing
+metadata must be valid before replacement. Replace only `fileType`, `version`,
+`instancePayloadSize` and `bulkPayloadSize`, with the existing append order and
+explicit payload availability rules. Retain sections, child order, locators and
+`stripped`. Assembly remains schema-independent and does not validate typed values.
+
+Copy root-reachable content only, preserving scalar values, integer metadata and
+string presentation flags. Use iterative traversal without introducing the
+recursive subtree copier's depth limit. Detached nodes and unused interned strings
+remain irrelevant. Live empty placeholders continue to bake as null. Source data
+is unchanged; successful output owns independent storage, and failure leaves the
+destination empty. For inputs accepted by both paths, completed file bytes must
+match the previous pipeline, including payload bytes and container padding.
+
+Live-copy failure reports `description_preparation/description_preparation_failed`;
+baked promotion retains `document_promotion/document_promotion_failed`. Final bake
+and assembly retain their stages. Source-root diagnostics retain caller-owned
+locations; private staging locations never escape. Allocation-failure positions
+may change as intermediate allocations disappear.
+
+Apply normal live-storage checks and final baked-document and complete-file size
+limits. Do not retain the incidental requirement that the original description
+before metadata replacement must fit an intermediate baked allocation. A source
+whose refreshed output fits may therefore succeed where the old path failed.
+
+Materialisation, stripping, missing-binary construction, upstream caller-side
+conversions and direct writing into the final allocation are outside this scope.
+Validate live/baked output equivalence, metadata replacement and diagnostic
+precedence, deep trees, empty placeholders, detached storage, string-ID remapping,
+independent ownership and allocation-failure transactionality. Work is authorised;
+committing is not.
+
 ## Implementation and validation
 
 Implemented on 24 October 2026. `CBakedDataBlock` replaces the separate instance
@@ -123,4 +164,21 @@ source-relative failure diagnostics and root-error precedence.
 The cleanup passed the Debug x64 build and core run: 95,446 schema checks and
 1,396 bundle-request checks, with all suites passing. Policy, diff-whitespace and
 line-ending checks also passed. The earlier full configuration matrix was not
-repeated for this internal refactor. Changes remain uncommitted for review.
+repeated for this internal refactor. After manual formatting and a fresh successful
+Debug x64 review run with the same counts, the cleanup was committed as `cf9dca6`.
+
+The assembly staging reduction was implemented after the scope above was agreed.
+Live assembly now uses an internal iterative copy with referenced strings imported
+in lexical order and source IDs remapped independently. Baked assembly promotes
+once. Both retain the existing final metadata writer, bake, block framing and
+publication checks. Materialisation and its staging helpers remain unchanged.
+Independent code and test review found no outstanding issues; a per-container
+child-count check retains a consistency barrier from the removed intermediate bake.
+
+The Debug x64 build and core run passed with 96,446 schema checks and 1,396
+bundle-request checks; all suites passed. New regressions compare complete bytes
+against the previous assembly pipeline and cover availability combinations,
+presentation, deep trees, source ownership, diagnostics and allocation failures.
+Repository policy, diff-whitespace and line-ending checks passed. No additional
+configuration matrix was run for this internal assembly change. Changes remain
+uncommitted for review.

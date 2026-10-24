@@ -13,6 +13,7 @@
 
 #include "tests/test_suites/SchemaDataBlock_test_cases.hpp"
 #include "schema/data_block_format.hpp"
+#include "schema/data_block_construction.hpp"
 #include "schema/baked_data_block.hpp"
 #include "schema/live_instances.hpp"
 #include "schema/document_composition.hpp"
@@ -1803,6 +1804,233 @@ static void test_common_block_roles(TTestContext& ctx)
     test_common_root_diagnostic_order<false>(ctx, schemas.baked);
 }
 
+//  Retain the previous staging route as a byte-equivalence reference. Only the
+//  unchanged final metadata/framing writer is shared with the new assembly path.
+template<class TDocument>
+static bool assemble_with_previous_staging(const TDocument& source, const SDataBlockPayloads& payloads,
+    CBakedDataBlock& output, SDataBlockDiagnostic& error)
+{
+    CBakedDocumentBlock copied;
+    if constexpr (std::is_same_v<TDocument, CLiveDocument>)
+    {
+        if (!document_translation::bake(source, copied)) return false;
+    }
+    else
+    {
+        CLiveDocument promoted;
+        if (!document_translation::promote(source, promoted) || !document_translation::bake(promoted, copied)) return false;
+    }
+    CLiveDocument description;
+    if (!document_translation::promote(copied.document(), description)) return false;
+    copied.deallocate();
+    CBakedDocumentBlock complete;
+    return assemble_data_block(description, payloads.instances, payloads.bulk_data, complete, error) &&
+        output.adopt_local(std::move(complete), error);
+}
+
+template<class TDocument>
+static void expect_assembly_equivalent(TTestContext& ctx, const TDocument& source, const SDataBlockPayloads& payloads)
+{
+    CBakedDataBlock previous, output;
+    SDataBlockDiagnostic error;
+    TEST_EXPECT(ctx, assemble_with_previous_staging(source, payloads, previous, error));
+    TEST_EXPECT(ctx, output.assemble(source, payloads, error));
+    TEST_EXPECT(ctx, error.stage == EDataBlockStage::none && error.reason == EDataBlockReason::none &&
+        error.location.kind == EDataBlockLocationKind::none);
+    TEST_EXPECT(ctx, tests::same_bytes(output.file_bytes(), previous.file_bytes()));
+}
+
+template<class TDocument>
+static void test_assembly_allocation_failures(TTestContext& ctx, const TDocument& source,
+    const SDataBlockPayloads& payloads, const CBakedDocumentBlock& source_snapshot, const CByteConstView source_bytes = {})
+{
+    CBakedDataBlock expected;
+    SDataBlockDiagnostic expected_error;
+    TEST_EXPECT(ctx, assemble_with_previous_staging(source, payloads, expected, expected_error));
+    const auto instance_snapshot = byte_snapshot(*payloads.instances);
+    const auto bulk_snapshot = byte_snapshot(*payloads.bulk_data);
+    bool completed{}, preparation_failed{};
+    for (std::size_t fail_on = 0u; fail_on < 1024u && !completed; ++fail_on)
+    {
+        tests::TAllocationFailureFixture failures{ 0u, fail_on };
+        memory::CMemoryAllocator allocator{ &failures, &tests::allocate_with_failure, &tests::deallocate_test_memory };
+        memory::CMemoryContext context{ allocator };
+        {
+            const tests::TMemoryContextScope scope{ &context };
+            CBakedDataBlock candidate;
+            SDataBlockDiagnostic error;
+            completed = candidate.assemble(source, payloads, error);
+            if (completed)
+            {
+                TEST_EXPECT(ctx, tests::same_bytes(candidate.file_bytes(), expected.file_bytes()));
+            }
+            else
+            {
+                TEST_EXPECT(ctx, !candidate.loaded_ready() && error.reason != EDataBlockReason::none &&
+                    error.location.kind == EDataBlockLocationKind::none);
+                if constexpr (std::is_same_v<TDocument, CLiveDocument>)
+                {
+                    if (error.stage == EDataBlockStage::description_preparation)
+                    {
+                        TEST_EXPECT(ctx, error.reason == EDataBlockReason::description_preparation_failed);
+                        preparation_failed = true;
+                    }
+                }
+                else if (error.stage == EDataBlockStage::document_promotion)
+                {
+                    TEST_EXPECT(ctx, error.reason == EDataBlockReason::document_promotion_failed);
+                    preparation_failed = true;
+                }
+            }
+        }
+        TEST_EXPECT(ctx, context.is_attribution_empty());
+        TEST_EXPECT(ctx, tests::same_bytes(*payloads.instances, instance_snapshot) && tests::same_bytes(*payloads.bulk_data, bulk_snapshot));
+        if constexpr (std::is_same_v<TDocument, CLiveDocument>)
+        {
+            TEST_EXPECT(ctx, tests::same_baked_document(source, source_snapshot));
+        }
+        else
+        {
+            TEST_EXPECT(ctx, tests::same_bytes(source_bytes, source_snapshot.bytes()));
+        }
+    }
+    TEST_EXPECT(ctx, completed && preparation_failed);
+}
+
+static void test_assembly_staging(TTestContext& ctx)
+{
+    CLiveDocument source;
+    TEST_EXPECT(ctx, tests::parse_document(R"({"bulkPayloadSize":1,"data":{"opaque":[3,2,1]},"version":1,
+        "stripped":true,"types":{},"instancePayloadSize":1,"instances":{"z":"zeta","a":"alpha"},
+        "fileType":"morphic-schema-data"})", source));
+    const CNodeKey root = source.root();
+    const CNodeKey section = source.object_child(root, CStringView{ "types" });
+    const CNodeKey detached = source.create_string(CStringView{ "unreferenced text" }, CStringView{ "unused name" });
+    TEST_EXPECT(ctx, detached && source.is_detached(detached));
+    const CNodeKey placeholder = tests::add_document_child(ctx, source, section, source.create_empty(CStringView{ "pending" }));
+    const CNodeKey text = tests::add_document_child(ctx, source, section,
+        source.create_string(CStringView{ "line one\nline two" }, CStringView{ "lines" }));
+    TEST_EXPECT(ctx, source.set_newline_escaping_suppressed(text, true));
+    const CIntegerMetadata metadata{ EIntegerDomain::signed_value, EIntegerWidth::bits_8,
+        EIntegerNotation::hexadecimal_8, EIntegerPrefix::alternate };
+    tests::add_document_child(ctx, source, section, source.create_signed_integer(-7, metadata, CStringView{ "number" }));
+    tests::add_document_child(ctx, source, section, source.create_floating_point(-0.0, CStringView{ "negativeZero" }));
+    const CNodeKey array = tests::add_document_child(ctx, source, section, source.create_array(CStringView{ "mixed" }));
+    tests::add_document_child(ctx, source, array, source.create_string(CStringView{ "alpha" }, CStringView{ "named" }));
+    tests::add_document_child(ctx, source, array, source.create_boolean(true));
+    tests::add_document_child(ctx, source, array, source.create_object());
+    tests::add_document_child(ctx, source, section, source.create_null(CStringView{ "" }));
+    CBakedDocumentBlock baked, snapshot;
+    TEST_EXPECT(ctx, document_translation::bake(source, baked) && document_translation::bake(source, snapshot));
+    std::uint8_t first_bytes[]{ 0x80u, 0x00u, 0xffu }, second_bytes[]{ 0x11u, 0x22u, 0x00u, 0x00u, 0xfeu };
+    const CByteConstView first{ first_bytes, sizeof(first_bytes), 1u }, second{ second_bytes, sizeof(second_bytes), 1u }, empty;
+    for (const CByteConstView* instances : { static_cast<const CByteConstView*>(nullptr), &empty, &first })
+    {
+        for (const CByteConstView* bulk : { static_cast<const CByteConstView*>(nullptr), &empty, &second })
+        {
+            expect_assembly_equivalent(ctx, source, { instances, bulk });
+            expect_assembly_equivalent(ctx, baked.document(), { instances, bulk });
+        }
+    }
+    test_assembly_allocation_failures(ctx, source, { &first, &second }, snapshot);
+    test_assembly_allocation_failures(ctx, baked.document(), { &first, &second }, snapshot, baked.bytes());
+    TEST_EXPECT(ctx, source.root() == root && source.object_child(root, CStringView{ "types" }) == section &&
+        source.value_type(placeholder) == ELiveValueType::empty && source.is_detached(detached));
+
+    //  Output owns the document and both binaries after all inputs disappear.
+    CBakedDataBlock from_live, from_baked;
+    SDataBlockDiagnostic error;
+    TEST_EXPECT(ctx, from_live.assemble(source, { &first, &second }, error) &&
+        from_baked.assemble(baked.document(), { &first, &second }, error));
+    const auto expected = byte_snapshot(from_live.file_bytes());
+    source.deallocate();
+    baked.deallocate();
+    std::memset(first_bytes, 0, sizeof(first_bytes));
+    std::memset(second_bytes, 0, sizeof(second_bytes));
+    TEST_EXPECT(ctx, tests::same_bytes(from_live.file_bytes(), expected) && tests::same_bytes(from_baked.file_bytes(), expected));
+    SDataBlockView view;
+    TEST_EXPECT(ctx, validate_data_block(from_live.file_bytes().data(), from_live.file_bytes().size(), view, error));
+
+    //  Whole-document translation supports opaque trees beyond subtree-copy depth.
+    CLiveDocument deep;
+    TEST_EXPECT(ctx, deep.initialise());
+    CNodeKey parent = tests::add_document_child(ctx, deep, deep.root(), deep.create_object(CStringView{ "types" }));
+    for (unsigned depth = 0u; depth < 512u; ++depth)
+    {
+        parent = tests::add_document_child(ctx, deep, parent, deep.create_object(CStringView{ "nested" }));
+    }
+    tests::add_document_child(ctx, deep, parent, deep.create_empty(CStringView{ "leaf" }));
+    CBakedDocumentBlock deep_baked;
+    TEST_EXPECT(ctx, document_translation::bake(deep, deep_baked));
+    expect_assembly_equivalent(ctx, deep, {});
+    expect_assembly_equivalent(ctx, deep_baked.document(), {});
+}
+
+template<class TDocument>
+static void test_assembly_diagnostic_order(TTestContext& ctx, const TDocument& source)
+{
+    SDataBlockDiagnostic error;
+    CBakedDataBlock output;
+    const CByteConstView empty;
+    //  Original malformed metadata wins over the missing supplied-payload section.
+    TEST_EXPECT(ctx, !output.assemble(source, { &empty, nullptr }, error) && !output.loaded_ready());
+    TEST_EXPECT(ctx, error.stage == EDataBlockStage::format_validation && error.reason == EDataBlockReason::wrong_content_type);
+    const auto file_type = source.object_child(source.root(), CStringView{ "fileType" });
+    if constexpr (std::is_same_v<TDocument, CLiveDocument>)
+    {
+        TEST_EXPECT(ctx, error.location.kind == EDataBlockLocationKind::source_live_node && error.location.live_node == file_type);
+    }
+    else
+    {
+        TEST_EXPECT(ctx, error.location.kind == EDataBlockLocationKind::source_baked_value && error.location.baked_value == file_type);
+    }
+    CLiveDocument valid;
+    TEST_EXPECT(ctx, valid.initialise() && output.assemble(valid, {}, error));
+    const auto snapshot = byte_snapshot(output.file_bytes());
+    TEST_EXPECT(ctx, !output.assemble(source, {}, error) && error.stage == EDataBlockStage::preconditions &&
+        error.reason == EDataBlockReason::destination_not_empty && error.location.kind == EDataBlockLocationKind::none);
+    TEST_EXPECT(ctx, tests::same_bytes(output.file_bytes(), snapshot));
+}
+
+static void test_assembly_diagnostics(TTestContext& ctx)
+{
+    CLiveDocument invalid;
+    CBakedDocumentBlock baked;
+    TEST_EXPECT(ctx, tests::parse_document(R"({"fileType":"wrong","version":1})", invalid) && document_translation::bake(invalid, baked));
+    test_assembly_diagnostic_order(ctx, invalid);
+    test_assembly_diagnostic_order(ctx, baked.document());
+    for (const char* const text : { "{}", R"({"instances":{},"data":{}})" })
+    {
+        CLiveDocument source;
+        CBakedDocumentBlock source_baked;
+        TEST_EXPECT(ctx, tests::parse_document(text, source) && document_translation::bake(source, source_baked));
+        const std::uint8_t byte = 1u;
+        const CByteConstView bytes{ &byte, 1u, 1u }, empty;
+        const auto check = [&](const auto& description)
+        {
+            for (bool bulk : { false, true })
+            {
+                for (const auto* payload : { &empty, &bytes })
+                {
+                    CBakedDataBlock output;
+                    SDataBlockDiagnostic error;
+                    const bool has_section = source.child_count(source.root()) != 0u;
+                    const bool success = output.assemble(description, { bulk ? nullptr : payload, bulk ? payload : nullptr }, error);
+                    TEST_EXPECT(ctx, success == (has_section && payload->size() == 0u));
+                    if (!success)
+                    {
+                        TEST_EXPECT(ctx, !output.loaded_ready() && error.location.kind == EDataBlockLocationKind::none);
+                        TEST_EXPECT(ctx, error.stage == (has_section ? EDataBlockStage::format_validation : EDataBlockStage::preconditions) &&
+                            error.reason == (has_section ? EDataBlockReason::invalid_input : EDataBlockReason::missing_property));
+                    }
+                }
+            }
+        };
+        check(source);
+        check(source_baked.document());
+    }
+}
+
 static void test_common_blocks(TTestContext& ctx)
 {
     //  Every section combination, with independent absence/supplied-zero bytes.
@@ -1816,19 +2044,29 @@ static void test_common_blocks(TTestContext& ctx)
         text += "}";
         CLiveDocument source;
         TEST_EXPECT(ctx, tests::parse_document(text, source));
+        CBakedDocumentBlock source_baked;
+        TEST_EXPECT(ctx, document_translation::bake(source, source_baked));
         const CByteConstView empty;
         for (unsigned supplied = 0u; supplied < 4u; ++supplied)
         {
             CBakedDataBlock output;
             SDataBlockDiagnostic error;
             const bool valid = (!(supplied & 1u) || (mask & 2u)) && (!(supplied & 2u) || (mask & 4u));
-            const bool accepted = output.assemble(source, { (supplied & 1u) ? &empty : nullptr, (supplied & 2u) ? &empty : nullptr }, error);
+            const SDataBlockPayloads payloads{ (supplied & 1u) ? &empty : nullptr, (supplied & 2u) ? &empty : nullptr };
+            const bool accepted = output.assemble(source, payloads, error);
+            CBakedDataBlock baked_output;
+            SDataBlockDiagnostic baked_error;
+            TEST_EXPECT(ctx, baked_output.assemble(source_baked.document(), payloads, baked_error) == valid);
             TEST_EXPECT(ctx, accepted == valid);
             if (!accepted)
             {
                 TEST_EXPECT(ctx, !output.loaded_ready() && error.reason != EDataBlockReason::none);
                 continue;
             }
+            CBakedDataBlock previous;
+            TEST_EXPECT(ctx, assemble_with_previous_staging(source, payloads, previous, error));
+            TEST_EXPECT(ctx, tests::same_bytes(output.file_bytes(), previous.file_bytes()) &&
+                tests::same_bytes(output.file_bytes(), baked_output.file_bytes()));
             TEST_EXPECT(ctx, output.has_types() == ((mask & 1u) != 0u) &&
                 output.has_instances() == ((mask & 2u) != 0u) && output.has_bulk_data() == ((mask & 4u) != 0u));
             TEST_EXPECT(ctx, output.instance_binary_available() == ((supplied & 1u) != 0u) &&
@@ -1998,6 +2236,8 @@ static void test_common_blocks(TTestContext& ctx)
 
 void run_schema_data_block_cases(tests::TTestContext& context)
 {
+    test_assembly_staging(context);
+    test_assembly_diagnostics(context);
     test_common_blocks(context);
     test_common_block_roles(context);
     test_valid(context);

@@ -49,7 +49,7 @@ strict-JSON tools should consume the writer's strict mode instead.
 | Structure | A named object with an ordered `members` array of singleton named descriptor objects. |
 | Structure detail | Generated documents include `detail.alignment` and `detail.size`. Both are optional checked metadata for natural layout; explicit-offset layouts require an authoritative size. `detail.internal` identifies an internal layout for export purposes. |
 | Member | `type` is a named type or an inline array descriptor. Optional `default` supplies a validated default for that member. If any member specifies `offset`, every member of that structure must specify it. |
-| Fixed array | `{ "element": "f32", "count": 2 }`. Count identifies an array; the element descriptor can itself be an array descriptor. Count is positive and stride is computed. |
+| Fixed array | `{ "element": "f32", "count": 2 }`. Count identifies an array; the element descriptor can itself be an array descriptor. Count is positive; optional `stride` and `alignment` override the natural element stride and array alignment. The sample uses their defaults. |
 | Bit structure | Integer `storage` describes the containing word; ordered named `members` select fields with non-zero contiguous `mask` values. |
 | Bit member | `type` gives the field's base/logical type: an integer, `b8`, or a named enum. Optional `interpretation` retains specialised meaning such as `unorm`; optional scalar `default` belongs to this field definition. |
 | Instance | `instances` groups named instances by type. Each base or specialisation reserves a `locator`; `declaration` holds supplied values when present, and `specialisation` holds named children inheriting from that instance. An absent declaration selects no values: a base uses defaults and a child inherits unchanged. |
@@ -63,6 +63,12 @@ not moved onto the member descriptor. This keeps nesting recursive:
 `ArrayExamples.uv_rows` is an array of three arrays of two `f32` values.
 `ArrayExamples.single` remains a one-element array, not a scalar. A `kind`
 property is rejected as unknown.
+
+The sample uses physical definitions and natural array descriptors. The current
+grammar also supports [independent array layout](specification.md#fixed-arrays),
+[declaration decorations](specification.md#declaration-decorations), and
+[associations and interfaces](specification.md#associations-and-interfaces); these
+extensions do not change the sample's layouts or values.
 
 The singleton objects around members are text wrappers. The existing parser
 normalises them into named array children with descriptor payloads; the resolver
