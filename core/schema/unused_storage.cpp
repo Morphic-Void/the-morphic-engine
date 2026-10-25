@@ -26,7 +26,7 @@ namespace schema
 struct SClearExtent
 {
     std::uint64_t offset{}, size{};
-    CSchemaIndex type;
+    CTypesIndex type;
     std::uint32_t count{};
     bool has_work{};
 };
@@ -41,13 +41,13 @@ struct SClearExtent
 class CClearTypes
 {
 public:
-    CClearTypes(const CResolvedSchema& schema, const EUnusedBits bits) noexcept : m_schema(schema), m_bits(bits) {}
-    [[nodiscard]] bool validate(const CSchemaIndex type, bool& has_work) noexcept
+    CClearTypes(const CResolvedTypes& schema, const EUnusedBits bits) noexcept : m_schema(schema), m_bits(bits) {}
+    [[nodiscard]] bool validate(const CTypesIndex type, bool& has_work) noexcept
     {
         unsigned height{};
         return validate(type, 0u, has_work, height);
     }
-    [[nodiscard]] bool has_work(const CSchemaIndex type) const noexcept
+    [[nodiscard]] bool has_work(const CTypesIndex type) const noexcept
     {
         const auto* const found = find(type);
         return found && found->has_work;
@@ -56,17 +56,19 @@ public:
 private:
     struct STypeWork
     {
-        CSchemaIndex type;
+        CTypesIndex type;
         unsigned height{};
         bool has_work{};
     };
-    [[nodiscard]] const STypeWork* find(const CSchemaIndex type) const noexcept
+    [[nodiscard]] const STypeWork* find(const CTypesIndex type) const noexcept
     {
         for (std::size_t i = 0u; i < m_inline_count; ++i)
+        {
             if (m_inline[i].type == type)
             {
                 return &m_inline[i];
             }
+        }
         const auto found = m_index.find(COrdinalHashIndex::hash_key(type.query_value()),
             [this, type](const std::uint32_t i)
             {
@@ -74,9 +76,9 @@ private:
             });
         return found == COrdinalHashIndex::k_missing_record ? nullptr : &m_types[found];
     }
-    [[nodiscard]] bool validate(const CSchemaIndex type, const unsigned depth, bool& has_work, unsigned& height) noexcept;
-    [[nodiscard]] bool inspect(const CSchemaIndex type, const unsigned depth, bool& has_work, unsigned& height) noexcept;
-    const CResolvedSchema& m_schema;
+    [[nodiscard]] bool validate(const CTypesIndex type, const unsigned depth, bool& has_work, unsigned& height) noexcept;
+    [[nodiscard]] bool inspect(const CTypesIndex type, const unsigned depth, bool& has_work, unsigned& height) noexcept;
+    const CResolvedTypes& m_schema;
     const EUnusedBits m_bits;
     STypeWork m_inline[8];
     std::size_t m_inline_count{};
@@ -84,7 +86,7 @@ private:
     COrdinalHashIndex m_index;
 };
 
-bool CClearTypes::validate(const CSchemaIndex type, const unsigned depth, bool& has_work, unsigned& height) noexcept
+bool CClearTypes::validate(const CTypesIndex type, const unsigned depth, bool& has_work, unsigned& height) noexcept
 {
     if (depth >= document_limits::k_max_recursion_depth)
     {
@@ -123,9 +125,9 @@ bool CClearTypes::validate(const CSchemaIndex type, const unsigned depth, bool& 
     return true;
 }
 
-bool CClearTypes::inspect(const CSchemaIndex type, const unsigned depth, bool& has_work, unsigned& height) noexcept
+bool CClearTypes::inspect(const CTypesIndex type, const unsigned depth, bool& has_work, unsigned& height) noexcept
 {
-    const CResolvedSchema& schema = m_schema;
+    const CResolvedTypes& schema = m_schema;
     const EUnusedBits bits = m_bits;
     SType layout;
     if ((depth >= document_limits::k_max_recursion_depth) || !schema.type(type, layout) ||
@@ -240,7 +242,7 @@ bool CClearTypes::inspect(const CSchemaIndex type, const unsigned depth, bool& h
 //  Type storage clearing
 //==============================================================================
 
-static void clear_type(const CResolvedSchema& schema, const CSchemaIndex type, std::uint8_t* const bytes,
+static void clear_type(const CResolvedTypes& schema, const CTypesIndex type, std::uint8_t* const bytes,
     const EUnusedBits bits, const CClearTypes& types) noexcept
 {
     SType layout;
@@ -356,7 +358,7 @@ template<class TQuery, class THandle>
     return true;
 }
 
-[[nodiscard]] static bool collect_instances(const CResolvedSchema& schema, const CInstanceDocumentQuery& query,
+[[nodiscard]] static bool collect_instances(const CResolvedTypes& schema, const CInstanceDocumentQuery& query,
     CClearTypes& types, TPodVector<SClearExtent>& extents) noexcept
 {
     const CInstanceHandle root = query.root();
@@ -375,7 +377,7 @@ template<class TQuery, class THandle>
     }
     for (CInstanceHandle group = query.first_child(instances); group; group = query.next_sibling(group))
     {
-        const CSchemaIndex type = schema.find_type(query.name(group));
+        const CTypesIndex type = schema.find_type(query.name(group));
         SType layout;
         bool has_work{};
         if (!query.is_object_entry(group) || (query.value_kind(group) != EDocumentValueKind::object) ||
@@ -436,7 +438,7 @@ template<class TQuery, class THandle>
     return true;
 }
 
-[[nodiscard]] static bool collect_bulk_data(const CResolvedSchema& schema, const CBulkDataDocumentQuery& query,
+[[nodiscard]] static bool collect_bulk_data(const CResolvedTypes& schema, const CBulkDataDocumentQuery& query,
     CClearTypes& types, TPodVector<SClearExtent>& extents) noexcept
 {
     const CBulkDataHandle root = query.root();
@@ -455,7 +457,7 @@ template<class TQuery, class THandle>
     }
     for (CBulkDataHandle group = query.first_child(data); group; group = query.next_sibling(group))
     {
-        const CSchemaIndex type = schema.find_type(query.name(group));
+        const CTypesIndex type = schema.find_type(query.name(group));
         SType layout;
         bool has_work{};
         if (!query.is_object_entry(group) || (query.value_kind(group) != EDocumentValueKind::object) ||
@@ -502,7 +504,7 @@ template<class TQuery, class THandle>
                 {
                     if (query.is_object_entry(value) &&
                         !((layout.category == ECategory::structure) ? schema.find_member(type, query.name(value)) :
-                            ((layout.category == ECategory::bit_structure) ? schema.find_field(type, query.name(value)) : CSchemaIndex{})))
+                            ((layout.category == ECategory::bit_structure) ? schema.find_field(type, query.name(value)) : CTypesIndex{})))
                     {
                         return false;
                     }
@@ -536,7 +538,7 @@ template<class TQuery, class THandle>
 //  Extent preflight and publication
 //==============================================================================
 
-[[nodiscard]] static bool preflight_extents(const CResolvedSchema& schema, const CByteView payload, TPodVector<SClearExtent>& extents) noexcept
+[[nodiscard]] static bool preflight_extents(const CResolvedTypes& schema, const CByteView payload, TPodVector<SClearExtent>& extents) noexcept
 {
     if ((payload.size() != 0u) && (!payload.is_ready() || (payload.data() == nullptr)))
     {
@@ -574,7 +576,7 @@ template<class TQuery, class THandle>
     return true;
 }
 
-static void clear_extents(const CResolvedSchema& schema, const CByteView payload, const TPodVector<SClearExtent>& extents,
+static void clear_extents(const CResolvedTypes& schema, const CByteView payload, const TPodVector<SClearExtent>& extents,
     const EUnusedBits bits, const CClearTypes& types) noexcept
 {
     std::size_t cursor{};
@@ -607,7 +609,7 @@ static void clear_extents(const CResolvedSchema& schema, const CByteView payload
     }
 }
 
-bool clear_unused_storage(const CResolvedSchema& schema, const CSchemaIndex type, const CByteView values, const EUnusedBits bits) noexcept
+bool clear_unused_storage(const CResolvedTypes& schema, const CTypesIndex type, const CByteView values, const EUnusedBits bits) noexcept
 {
     SType layout;
     bool has_work{};
@@ -644,7 +646,7 @@ bool clear_unused_storage(const CResolvedSchema& schema, const CSchemaIndex type
     return true;
 }
 
-bool clear_unused_storage(const CResolvedSchema& schema, const CInstanceDocumentQuery& document, const CByteView payload, const EUnusedBits bits) noexcept
+bool clear_unused_storage(const CResolvedTypes& schema, const CInstanceDocumentQuery& document, const CByteView payload, const EUnusedBits bits) noexcept
 {
     TPodVector<SClearExtent> extents;
     CClearTypes types{ schema, bits };
@@ -656,7 +658,7 @@ bool clear_unused_storage(const CResolvedSchema& schema, const CInstanceDocument
     return true;
 }
 
-bool clear_unused_storage(const CResolvedSchema& schema, const CBulkDataDocumentQuery& document, const CByteView payload, const EUnusedBits bits) noexcept
+bool clear_unused_storage(const CResolvedTypes& schema, const CBulkDataDocumentQuery& document, const CByteView payload, const EUnusedBits bits) noexcept
 {
     TPodVector<SClearExtent> extents;
     CClearTypes types{ schema, bits };

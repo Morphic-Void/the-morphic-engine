@@ -28,6 +28,7 @@
 #include "tests/test_suites/DebugService_test_suite.hpp"
 #include "tests/test_suites/DocumentWriter_test_suite.hpp"
 #include "tests/test_suites/Schema_test_suite.hpp"
+#include "tests/test_suites/SchemaModel_test_cases.hpp"
 #include "tests/test_suites/DocumentStructure_test_suite.hpp"
 #include "tests/test_suites/DocumentParser_test_suite.hpp"
 #include "tests/test_suites/ErasedPod_test_suite.hpp"
@@ -259,6 +260,7 @@ int run_tests(ETestRunMode mode)
     cumulative_result += run_isolated_suite("Bundle", &run_bundle_tests);
     cumulative_result += run_isolated_suite("BundleBuilder", &run_bundle_builder_tests);
     cumulative_result += run_isolated_suite("DocumentWriter", &run_document_writer_tests);
+    cumulative_result += run_isolated_suite("SchemaModel", &run_schema_model_tests);
     cumulative_result += run_isolated_suite("Schema", &run_schema_tests);
     cumulative_result += run_isolated_suite("DocumentStructure", &run_document_structure_tests);
     cumulative_result += run_isolated_suite("DocumentParser", &run_document_parser_tests);

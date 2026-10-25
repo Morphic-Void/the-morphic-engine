@@ -15,7 +15,7 @@
 #ifndef SCHEMA_INTEGER_NOTATION_HPP_INCLUDED
 #define SCHEMA_INTEGER_NOTATION_HPP_INCLUDED
 
-#include "schema/resolved_schema.hpp"
+#include "schema/resolved_types.hpp"
 #include "data_model/live_document.hpp"
 
 namespace schema

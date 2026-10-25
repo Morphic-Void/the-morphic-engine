@@ -20,6 +20,25 @@ namespace schema::detail
 using document_translation::detail::CDocumentConstruction;
 using document_translation::detail::SCopiedValue;
 
+enum class EMergeContext : std::uint8_t { ordinary = 0u, instance_section, instance_group, instance_entry, selection, position };
+
+[[nodiscard]] static bool selection_context(const EMergeContext context) noexcept
+{
+    return (context == EMergeContext::selection) || (context == EMergeContext::position);
+}
+
+[[nodiscard]] static EMergeContext child_context(const EMergeContext parent, const CStringView& name) noexcept
+{
+    if (selection_context(parent)) return EMergeContext::selection;
+    if (parent == EMergeContext::instance_section) return EMergeContext::instance_group;
+    if (parent == EMergeContext::instance_group) return EMergeContext::instance_entry;
+    if (parent == EMergeContext::instance_entry)
+    {
+        return (name == CStringView{ "declaration" }) ? EMergeContext::selection : EMergeContext::instance_group;
+    }
+    return EMergeContext::ordinary;
+}
+
 //  A source's valid storage representation remains unchanged. Only the winning
 //  notation/prefix is selected; neither contributes to mathematical equality.
 [[nodiscard]] static bool second_presentation_wins(const CIntegerMetadata a, const CIntegerMetadata b) noexcept
@@ -55,8 +74,8 @@ public:
         CLiveDocument& target, SDocumentMergeDiagnostic& diagnostic, const bool bulk_prefix) noexcept :
         m_first(first), m_second(second), m_target(target), m_diagnostic(diagnostic), m_bulk_prefix(bulk_prefix) {}
 
-    [[nodiscard]] bool prepare(const SOccurrence first, const SOccurrence second, const CStringView& section) noexcept;
-    [[nodiscard]] CNodeKey merge(const SOccurrence first, const SOccurrence second, const unsigned depth) noexcept;
+    [[nodiscard]] CNodeKey merge(const SOccurrence first, const SOccurrence second, const unsigned depth,
+        const EMergeContext context = EMergeContext::ordinary) noexcept;
 
 private:
     struct SChild
@@ -70,14 +89,15 @@ private:
         SOccurrence first, second;
         CNodeKey parent;
         unsigned depth{};
+        EMergeContext context{};
     };
 
-    [[nodiscard]] CNodeKey value(const SOccurrence first, const SOccurrence second, const unsigned depth) noexcept;
+    [[nodiscard]] CNodeKey value(SOccurrence first, SOccurrence second, const unsigned depth, const EMergeContext context) noexcept;
     [[nodiscard]] bool fail(const EDocumentMergeReason reason, const SOccurrence first = {}, const SOccurrence second = {}) noexcept;
     [[nodiscard]] CNodeKey create(const CDocumentRead& source, const SOccurrence value, const SCopiedValue& data, const bool suppress_newlines) noexcept;
     [[nodiscard]] CNodeKey copy(const CDocumentRead& source, const SOccurrence value, const unsigned depth) noexcept;
-    [[nodiscard]] bool objects(const CNodeKey target, const SOccurrence first, const SOccurrence second, const unsigned depth) noexcept;
-    [[nodiscard]] bool schedule(const SOccurrence first, const SOccurrence second, const CNodeKey parent, const unsigned depth) noexcept;
+    [[nodiscard]] bool objects(const CNodeKey target, const SOccurrence first, const SOccurrence second, const unsigned depth, const EMergeContext context) noexcept;
+    [[nodiscard]] bool schedule(const SOccurrence first, const SOccurrence second, const CNodeKey parent, const unsigned depth, const EMergeContext context) noexcept;
 
     const CDocumentRead& m_first;
     const CDocumentRead& m_second;
@@ -87,30 +107,11 @@ private:
     TPodVector<SWork> m_work;
 };
 
-bool CDocumentMerger::prepare(const SOccurrence first, const SOccurrence second, const CStringView& section) noexcept
-{
-    CDocumentStrings strings;
-    const auto failure = [&](const bool first_source) noexcept
-    {
-        const auto& error = strings.diagnostic();
-        const auto reason = (error.reason == EDocumentBuildReason::allocation_failed) ? EDocumentMergeReason::allocation_failed :
-            ((error.reason == EDocumentBuildReason::storage_limit) ? EDocumentMergeReason::storage_limit : EDocumentMergeReason::construction_failed);
-        return fail(reason, (first_source ? error.occurrence : SOccurrence{}), (first_source ? SOccurrence{} : error.occurrence));
-    };
-    if (!strings.name(section) || !strings.collect(m_first, first, 0u))
-    {
-        return failure(true);
-    }
-    if (!strings.collect(m_second, second, 0u) || !strings.preload(m_target))
-    {
-        return failure(false);
-    }
-    return true;
-}
 
-CNodeKey CDocumentMerger::merge(const SOccurrence first, const SOccurrence second, const unsigned depth) noexcept
+
+CNodeKey CDocumentMerger::merge(const SOccurrence first, const SOccurrence second, const unsigned depth, const EMergeContext context) noexcept
 {
-    const CNodeKey root = value(first, second, depth);
+    const CNodeKey root = value(first, second, depth, context);
     if (!root)
     {
         return {};
@@ -122,7 +123,7 @@ CNodeKey CDocumentMerger::merge(const SOccurrence first, const SOccurrence secon
     {
         const SWork work = m_work.last();
         (void)m_work.discard_back();
-        const CNodeKey child = value(work.first, work.second, work.depth);
+        const CNodeKey child = value(work.first, work.second, work.depth, work.context);
         if (!child || !CDocumentConstruction::append(m_target, work.parent, child))
         {
             (void)fail(EDocumentMergeReason::construction_failed);
@@ -132,12 +133,18 @@ CNodeKey CDocumentMerger::merge(const SOccurrence first, const SOccurrence secon
     return root;
 }
 
-CNodeKey CDocumentMerger::value(const SOccurrence first, const SOccurrence second, const unsigned depth) noexcept
+CNodeKey CDocumentMerger::value(SOccurrence first, SOccurrence second, const unsigned depth, const EMergeContext context) noexcept
 {
     if (depth >= document_limits::k_max_recursion_depth)
     {
         (void)fail(EDocumentMergeReason::storage_limit, first, second);
         return {};
+    }
+    if (context == EMergeContext::position)
+    {
+        if ((m_first.value_kind(first) == EDocumentValueKind::null_value) && !m_first.is_object_entry(first)) first = {};
+        if ((m_second.value_kind(second) == EDocumentValueKind::null_value) && !m_second.is_object_entry(second)) second = {};
+        if (!first && !second) return m_target.create_null();
     }
     if (!first || !second)
     {
@@ -173,7 +180,7 @@ CNodeKey CDocumentMerger::value(const SOccurrence first, const SOccurrence secon
             }
             case ELiveValueType::array:
             {
-                equal = (m_bulk_prefix && (depth == 3u)) ||
+                equal = selection_context(context) || (m_bulk_prefix && (depth == 3u)) ||
                     (m_first.child_count(first) == m_second.child_count(second));
                 break;
             }
@@ -211,7 +218,7 @@ CNodeKey CDocumentMerger::value(const SOccurrence first, const SOccurrence secon
     }
     if (a.kind == ELiveValueType::object)
     {
-        return objects(result, first, second, depth) ? result : CNodeKey{};
+        return objects(result, first, second, depth, context) ? result : CNodeKey{};
     }
     if (a.kind == ELiveValueType::array)
     {
@@ -220,7 +227,7 @@ CNodeKey CDocumentMerger::value(const SOccurrence first, const SOccurrence secon
         SOccurrence left = m_first.first_child(first);
         while (left || right)
         {
-            if (!schedule(left, right, result, (depth + 1u)))
+            if (!schedule(left, right, result, (depth + 1u), selection_context(context) ? EMergeContext::position : EMergeContext::ordinary))
             {
                 return {};
             }
@@ -281,7 +288,7 @@ CNodeKey CDocumentMerger::copy(const CDocumentRead& source, const SOccurrence va
     return result;
 }
 
-bool CDocumentMerger::objects(const CNodeKey target, const SOccurrence first, const SOccurrence second, const unsigned depth) noexcept
+bool CDocumentMerger::objects(const CNodeKey target, const SOccurrence first, const SOccurrence second, const unsigned depth, const EMergeContext context) noexcept
 {
     const std::size_t begin = m_work.size();
     constexpr std::uint32_t small_count = 8u;
@@ -342,7 +349,7 @@ bool CDocumentMerger::objects(const CNodeKey target, const SOccurrence first, co
     {
         SChild* const other = find(m_second.find_property_name_id(m_first.name(child)));
         if (other) other->consumed = true;
-        if (!schedule(child, (other ? other->value : SOccurrence{}), target, (depth + 1u)))
+        if (!schedule(child, (other ? other->value : SOccurrence{}), target, (depth + 1u), child_context(context, m_first.name(child))))
         {
             return false;
         }
@@ -356,7 +363,7 @@ bool CDocumentMerger::objects(const CNodeKey target, const SOccurrence first, co
         {
             continue;
         }
-        if (!schedule({}, child, target, (depth + 1u)))
+        if (!schedule({}, child, target, (depth + 1u), child_context(context, m_second.name(child))))
         {
             return false;
         }
@@ -365,39 +372,43 @@ bool CDocumentMerger::objects(const CNodeKey target, const SOccurrence first, co
     return true;
 }
 
-bool CDocumentMerger::schedule(const SOccurrence first, const SOccurrence second, const CNodeKey parent, const unsigned depth) noexcept
+bool CDocumentMerger::schedule(const SOccurrence first, const SOccurrence second, const CNodeKey parent, const unsigned depth, const EMergeContext context) noexcept
 {
     if (m_work.size() == memory::t_max_elements<SWork>())
     {
         return fail(EDocumentMergeReason::storage_limit);
     }
-    return m_work.push_back({ first, second, parent, depth }) || fail(EDocumentMergeReason::allocation_failed);
+    return m_work.push_back({ first, second, parent, depth, context }) || fail(EDocumentMergeReason::allocation_failed);
 }
 
-bool merge_document_section(const CDocumentRead& first, const CDocumentRead& second,
-    const CStringView& section, const bool bulk_prefix, CLiveDocument& target,
-    SDocumentMergeDiagnostic& diagnostic) noexcept
+
+
+bool merge_document_sections(const CDocumentRead& first, const CDocumentRead& second,
+    CLiveDocument& target, SDocumentMergeDiagnostic& diagnostic) noexcept
 {
     diagnostic = {};
-    if (!target.initialise())
+    CDocumentStrings strings;
+    if (!strings.collect(first, first.root(), 0u) || !strings.collect(second, second.root(), 0u) ||
+        !strings.initialise(target, 2u) || !strings.preload(target))
     {
-        diagnostic.reason = EDocumentMergeReason::construction_failed;
+        const auto& error = strings.diagnostic();
+        diagnostic.reason = (error.reason == EDocumentBuildReason::storage_limit) ? EDocumentMergeReason::storage_limit :
+            ((error.reason == EDocumentBuildReason::allocation_failed) ? EDocumentMergeReason::allocation_failed : EDocumentMergeReason::construction_failed);
         return false;
     }
-    const SOccurrence left = first.object_child(first.root(), section);
-    const SOccurrence right = second.object_child(second.root(), section);
-    CDocumentMerger merger{ first, second, target, diagnostic, bulk_prefix };
-    if (!merger.prepare(left, right, section))
+    for (const char* text : { "types", "instances", "data" })
     {
-        return false;
-    }
-    const CNodeKey result = (left || right) ? merger.merge(left, right, 0u) :
-        CDocumentConstruction::create(target, ELiveValueType::object, 0u, {},
-            CDocumentConstruction::import_name(target, section), true);
-    if (!result || !CDocumentConstruction::append(target, target.root(), result))
-    {
-        if (diagnostic.reason == EDocumentMergeReason::none) diagnostic.reason = EDocumentMergeReason::construction_failed;
-        return false;
+        const CStringView section{ text };
+        const SOccurrence left = first.object_child(first.root(), section), right = second.object_child(second.root(), section);
+        if (!left && !right) continue;
+        CDocumentMerger merger{ first, second, target, diagnostic, section == CStringView{ "data" } };
+        const CNodeKey result = merger.merge(left, right, 0u,
+            (section == CStringView{ "instances" }) ? EMergeContext::instance_section : EMergeContext::ordinary);
+        if (!result || !CDocumentConstruction::append(target, target.root(), result))
+        {
+            if (diagnostic.reason == EDocumentMergeReason::none) diagnostic.reason = EDocumentMergeReason::construction_failed;
+            return false;
+        }
     }
     return true;
 }

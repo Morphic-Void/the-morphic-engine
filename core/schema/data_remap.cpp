@@ -116,7 +116,7 @@ void CDataRemapPlan::clear() noexcept
 }
 
 bool CDataRemapPlan::initialise(const SRemapSourceType* const sources, const std::size_t source_count,
-    const CResolvedSchema& destination_schema, const CSchemaIndex destination_type, SRemapDiagnostic& diagnostic) noexcept
+    const CResolvedTypes& destination_schema, const CTypesIndex destination_type, SRemapDiagnostic& diagnostic) noexcept
 {
     clear();
     diagnostic = {};
@@ -149,7 +149,7 @@ bool CDataRemapPlan::initialise(const SRemapSourceType* const sources, const std
     {
         std::fill_n(claimed.data(), claimed.size(), std::uint8_t{});
     }
-    struct SMatchedMember { CSchemaIndex source, destination; std::uint32_t ordinal{}; };
+    struct SMatchedMember { CTypesIndex source, destination; std::uint32_t ordinal{}; };
     TPodVector<SMatchedMember> matches;
     for (std::size_t slot = 0u; slot < source_count; ++slot)
     {
@@ -184,7 +184,7 @@ bool CDataRemapPlan::initialise(const SRemapSourceType* const sources, const std
         }
         for (std::uint32_t i = 0u; i < source.count; ++i)
         {
-            const CSchemaIndex index = input.schema->member_at(input.type, i);
+            const CTypesIndex index = input.schema->member_at(input.type, i);
             SMember member;
             if (!input.schema->member(index, member))
             {
@@ -192,7 +192,7 @@ bool CDataRemapPlan::initialise(const SRemapSourceType* const sources, const std
                 clear();
                 return false;
             }
-            const CSchemaIndex destination_index = destination_schema.find_member(destination_type, input.schema->name(member.name));
+            const CTypesIndex destination_index = destination_schema.find_member(destination_type, input.schema->name(member.name));
             if (!destination_index)
             {
                 continue;
@@ -225,7 +225,7 @@ bool CDataRemapPlan::initialise(const SRemapSourceType* const sources, const std
         for (std::size_t matched = 0u; matched < matches.size(); ++matched)
         {
             const std::uint32_t i = matches[matched].ordinal;
-            const CSchemaIndex destination_index = matches[matched].destination;
+            const CTypesIndex destination_index = matches[matched].destination;
             SMember dm;
             if (!destination_schema.member(destination_index, dm))
             {
@@ -233,7 +233,7 @@ bool CDataRemapPlan::initialise(const SRemapSourceType* const sources, const std
                 clear();
                 return false;
             }
-            const CSchemaIndex source_index = matches[matched].source;
+            const CTypesIndex source_index = matches[matched].source;
             SMember sm;
             if (!input.schema->member(source_index, sm))
             {

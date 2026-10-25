@@ -2,13 +2,13 @@
 //  Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited
 //  License: MIT (see LICENSE file in repository root)
 //
-//  File:    schema_wrappers.cpp
+//  File:    types_wrappers.cpp
 //  Authors: Ritchie Brannan / OpenAI Codex
 //  Date:    29 Sep 26
 //
 //  Schema-role document ownership, guarded editing and client bindings.
 
-#include "schema/schema_wrappers.hpp"
+#include "schema/types_wrappers.hpp"
 #include "schema/baked_data_block.hpp"
 
 #include <cstring>
@@ -24,12 +24,12 @@ namespace schema
 namespace detail
 {
 
-void SSchemaBindingState::invalidate() noexcept
+void STypesBindingState::invalidate() noexcept
 {
-    CSchemaBinding* binding = head;
+    CTypesBinding* binding = head;
     while (binding != nullptr)
     {
-        CSchemaBinding* const next = binding->m_next;
+        CTypesBinding* const next = binding->m_next;
         binding->m_owner = nullptr;
         binding->m_previous = nullptr;
         binding->m_next = nullptr;
@@ -47,12 +47,12 @@ void SSchemaBindingState::invalidate() noexcept
 //  Client-held schema binding
 //==============================================================================
 
-CSchemaBinding::CSchemaBinding(CSchemaBinding&& source) noexcept
+CTypesBinding::CTypesBinding(CTypesBinding&& source) noexcept
 {
     take_link(source);
 }
 
-CSchemaBinding& CSchemaBinding::operator=(CSchemaBinding&& source) noexcept
+CTypesBinding& CTypesBinding::operator=(CTypesBinding&& source) noexcept
 {
     if (this != &source)
     {
@@ -62,22 +62,27 @@ CSchemaBinding& CSchemaBinding::operator=(CSchemaBinding&& source) noexcept
     return *this;
 }
 
-CSchemaBinding::~CSchemaBinding() noexcept
+CTypesBinding::~CTypesBinding() noexcept
 {
     release();
 }
 
-bool CSchemaBinding::bind(CBakedSchema& schema) noexcept
+bool CTypesBinding::bind(CBakedTypes& schema) noexcept
 {
     return bind_to(schema.m_bindings);
 }
 
-bool CSchemaBinding::bind(CLiveSchema& schema) noexcept
+bool CTypesBinding::bind(CLiveTypes& schema) noexcept
 {
     return bind_to(schema.m_bindings);
 }
 
-bool CSchemaBinding::bind_to(detail::SSchemaBindingState& target) noexcept
+bool CTypesBinding::bind(const CTypesBinding& source) noexcept
+{
+    return source.m_owner && bind_to(*source.m_owner);
+}
+
+bool CTypesBinding::bind_to(detail::STypesBindingState& target) noexcept
 {
     if ((target.resolution == nullptr) || !target.resolution->is_ready())
     {
@@ -103,7 +108,7 @@ bool CSchemaBinding::bind_to(detail::SSchemaBindingState& target) noexcept
     return true;
 }
 
-void CSchemaBinding::release() noexcept
+void CTypesBinding::release() noexcept
 {
     if (m_owner == nullptr)
     {
@@ -127,7 +132,7 @@ void CSchemaBinding::release() noexcept
     m_next = nullptr;
 }
 
-void CSchemaBinding::take_link(CSchemaBinding& source) noexcept
+void CTypesBinding::take_link(CTypesBinding& source) noexcept
 {
     m_owner = source.m_owner;
     m_previous = source.m_previous;
@@ -152,32 +157,32 @@ void CSchemaBinding::take_link(CSchemaBinding& source) noexcept
     source.m_next = nullptr;
 }
 
-const CResolvedSchema* CSchemaBinding::resolved() const noexcept
+const CResolvedTypes* CTypesBinding::resolved() const noexcept
 {
     return ((m_owner != nullptr) && (m_owner->resolution != nullptr) && m_owner->resolution->is_ready()) ?
         m_owner->resolution : nullptr;
 }
 
-CSchemaDocumentQuery CSchemaBinding::document_query() const noexcept
+CTypesDocumentQuery CTypesBinding::document_query() const noexcept
 {
-    return (m_owner != nullptr) ? m_owner->query : CSchemaDocumentQuery{};
+    return (m_owner != nullptr) ? m_owner->query : CTypesDocumentQuery{};
 }
 
 //==============================================================================
 //  Baked schema view
 //==============================================================================
 
-CBakedSchema::CBakedSchema() noexcept
+CBakedTypes::CBakedTypes() noexcept
 {
     m_bindings.resolution = &m_resolution;
 }
 
-CBakedSchema::~CBakedSchema() noexcept
+CBakedTypes::~CBakedTypes() noexcept
 {
     m_bindings.invalidate();
 }
 
-bool CBakedSchema::can_replace() const noexcept
+bool CBakedTypes::can_replace() const noexcept
 {
     if (m_bindings.count != 0u)
     {
@@ -187,23 +192,23 @@ bool CBakedSchema::can_replace() const noexcept
     return true;
 }
 
-bool CBakedSchema::set_block(const CBakedDataBlock& block) noexcept
+bool CBakedTypes::set_block(const CBakedDataBlock& block) noexcept
 {
     return block.loaded_ready() && block.has_types() && set_document(block.document());
 }
 
-bool CBakedSchema::set_document(const CBakedDocument& document) noexcept
+bool CBakedTypes::set_document(const CBakedDocument& document) noexcept
 {
     if (!can_replace() || document_ready() || !document.is_ready())
     {
         return false;
     }
     m_document = document;
-    m_bindings.query = CSchemaDocumentQuery{ m_document };
+    m_bindings.query = CTypesDocumentQuery{ m_document };
     return true;
 }
 
-bool CBakedSchema::try_take_from(CBakedSchema&& source) noexcept
+bool CBakedTypes::try_take_from(CBakedTypes&& source) noexcept
 {
     if ((this == &source) || !can_replace() || !source.can_replace() || document_ready() || !source.document_ready())
     {
@@ -211,18 +216,18 @@ bool CBakedSchema::try_take_from(CBakedSchema&& source) noexcept
     }
     m_document = source.m_document;
     m_resolution = std::move(source.m_resolution);
-    m_bindings.query = CSchemaDocumentQuery{ m_document };
+    m_bindings.query = CTypesDocumentQuery{ m_document };
     source.m_document = {};
     source.m_bindings.query = {};
     return true;
 }
 
-bool CBakedSchema::resolve(SDiagnostic& diagnostic) noexcept
+bool CBakedTypes::resolve(SDiagnostic& diagnostic) noexcept
 {
     return m_resolution.resolve(m_document, diagnostic);
 }
 
-bool CBakedSchema::clear_resolution() noexcept
+bool CBakedTypes::clear_resolution() noexcept
 {
     if (!can_replace())
     {
@@ -232,7 +237,7 @@ bool CBakedSchema::clear_resolution() noexcept
     return true;
 }
 
-bool CBakedSchema::clear() noexcept
+bool CBakedTypes::clear() noexcept
 {
     if (!can_replace())
     {
@@ -244,7 +249,7 @@ bool CBakedSchema::clear() noexcept
     return true;
 }
 
-bool CBakedSchema::promote(CLiveSchema& destination, SDiagnostic& diagnostic) const noexcept
+bool CBakedTypes::promote(CLiveTypes& destination, SDiagnostic& diagnostic) const noexcept
 {
     diagnostic = {};
     if (!document_ready() || !destination.document_empty() || (destination.reference_count() != 0u))
@@ -260,7 +265,7 @@ bool CBakedSchema::promote(CLiveSchema& destination, SDiagnostic& diagnostic) co
         return false;
     }
 
-    CLiveSchema staged;
+    CLiveTypes staged;
     if (!staged.try_adopt(std::move(document)))
     {
         diagnostic.reason = EReason::translation_failed;
@@ -287,18 +292,18 @@ bool CBakedSchema::promote(CLiveSchema& destination, SDiagnostic& diagnostic) co
     return true;
 }
 
-CSchemaDocumentQuery CBakedSchema::document_query() const noexcept
+CTypesDocumentQuery CBakedTypes::document_query() const noexcept
 {
-    return CSchemaDocumentQuery{ m_document };
+    return CTypesDocumentQuery{ m_document };
 }
 
-CSchemaHandle CBakedSchema::types_root() const noexcept
+CTypesHandle CBakedTypes::types_root() const noexcept
 {
-    const CSchemaDocumentQuery query = document_query();
+    const CTypesDocumentQuery query = document_query();
     return query.object_child(query.root(), CStringView{ "types" });
 }
 
-const CResolvedSchema* CBakedSchema::resolved() const noexcept
+const CResolvedTypes* CBakedTypes::resolved() const noexcept
 {
     return resolved_ready() ? &m_resolution : nullptr;
 }
@@ -307,17 +312,17 @@ const CResolvedSchema* CBakedSchema::resolved() const noexcept
 //  Live schema owner
 //==============================================================================
 
-CLiveSchema::CLiveSchema() noexcept
+CLiveTypes::CLiveTypes() noexcept
 {
     m_bindings.resolution = &m_resolution;
 }
 
-CLiveSchema::~CLiveSchema() noexcept
+CLiveTypes::~CLiveTypes() noexcept
 {
     m_bindings.invalidate();
 }
 
-bool CLiveSchema::can_replace() const noexcept
+bool CLiveTypes::can_replace() const noexcept
 {
     if (m_bindings.count != 0u)
     {
@@ -327,7 +332,7 @@ bool CLiveSchema::can_replace() const noexcept
     return true;
 }
 
-bool CLiveSchema::can_edit() const noexcept
+bool CLiveTypes::can_edit() const noexcept
 {
     if (!can_replace())
     {
@@ -336,23 +341,23 @@ bool CLiveSchema::can_edit() const noexcept
     return document_ready();
 }
 
-bool CLiveSchema::document_empty() const noexcept
+bool CLiveTypes::document_empty() const noexcept
 {
     return !m_document.root().is_valid() &&
         (m_document.memory_attribution().source_state == memory::EMemorySourceState::empty);
 }
 
-bool CLiveSchema::initialise(const std::size_t initial_node_capacity) noexcept
+bool CLiveTypes::initialise(const std::size_t initial_node_capacity) noexcept
 {
     if (!can_replace() || !document_empty() || !m_document.initialise(initial_node_capacity))
     {
         return false;
     }
-    m_bindings.query = CSchemaDocumentQuery{ m_document };
+    m_bindings.query = CTypesDocumentQuery{ m_document };
     return true;
 }
 
-bool CLiveSchema::reset(const std::size_t initial_node_capacity) noexcept
+bool CLiveTypes::reset(const std::size_t initial_node_capacity) noexcept
 {
     if (!can_replace())
     {
@@ -365,22 +370,22 @@ bool CLiveSchema::reset(const std::size_t initial_node_capacity) noexcept
     }
     m_resolution.clear();
     m_document = std::move(fresh);
-    m_bindings.query = CSchemaDocumentQuery{ m_document };
+    m_bindings.query = CTypesDocumentQuery{ m_document };
     return true;
 }
 
-bool CLiveSchema::try_adopt(CLiveDocument&& document) noexcept
+bool CLiveTypes::try_adopt(CLiveDocument&& document) noexcept
 {
     if (!can_replace() || !document_empty() || !document.is_ready())
     {
         return false;
     }
     m_document = std::move(document);
-    m_bindings.query = CSchemaDocumentQuery{ m_document };
+    m_bindings.query = CTypesDocumentQuery{ m_document };
     return true;
 }
 
-bool CLiveSchema::try_take_from(CLiveSchema&& source) noexcept
+bool CLiveTypes::try_take_from(CLiveTypes&& source) noexcept
 {
     if ((this == &source) || !can_replace() || !source.can_replace() || !document_empty() || !source.document_ready())
     {
@@ -389,17 +394,17 @@ bool CLiveSchema::try_take_from(CLiveSchema&& source) noexcept
     m_document = std::move(source.m_document);
     m_resolution = std::move(source.m_resolution);
     m_resolution.rebind_live_document(m_document);
-    m_bindings.query = CSchemaDocumentQuery{ m_document };
+    m_bindings.query = CTypesDocumentQuery{ m_document };
     source.m_bindings.query = {};
     return true;
 }
 
-bool CLiveSchema::resolve(SDiagnostic& diagnostic) noexcept
+bool CLiveTypes::resolve(SDiagnostic& diagnostic) noexcept
 {
     return m_resolution.resolve(m_document, diagnostic);
 }
 
-bool CLiveSchema::clear_resolution() noexcept
+bool CLiveTypes::clear_resolution() noexcept
 {
     if (!can_replace())
     {
@@ -409,7 +414,7 @@ bool CLiveSchema::clear_resolution() noexcept
     return true;
 }
 
-bool CLiveSchema::clear() noexcept
+bool CLiveTypes::clear() noexcept
 {
     if (!can_replace())
     {
@@ -421,7 +426,7 @@ bool CLiveSchema::clear() noexcept
     return true;
 }
 
-bool CLiveSchema::bake(CBakedDocumentBlock& destination_block, CBakedSchema& destination_schema) const noexcept
+bool CLiveTypes::bake(CBakedDocumentBlock& destination_block, CBakedTypes& destination_schema) const noexcept
 {
     if (!document_ready() ||
         (destination_block.memory_attribution().source_state != memory::EMemorySourceState::empty) ||
@@ -436,7 +441,7 @@ bool CLiveSchema::bake(CBakedDocumentBlock& destination_block, CBakedSchema& des
     {
         return false;
     }
-    CBakedSchema staged_schema;
+    CBakedTypes staged_schema;
     if (!staged_schema.set_document(staged_block.document()) ||
         !destination_schema.try_take_from(std::move(staged_schema)))
     {
@@ -446,7 +451,7 @@ bool CLiveSchema::bake(CBakedDocumentBlock& destination_block, CBakedSchema& des
     return true;
 }
 
-bool CLiveSchema::bake(CBakedDataBlock& destination_block, CBakedSchema& destination_schema) const noexcept
+bool CLiveTypes::bake(CBakedDataBlock& destination_block, CBakedTypes& destination_schema) const noexcept
 {
     if (destination_block.loaded_ready() || destination_schema.document_ready() || destination_schema.reference_count()) return false;
     CBakedDocumentBlock types;
@@ -461,31 +466,31 @@ bool CLiveSchema::bake(CBakedDataBlock& destination_block, CBakedSchema& destina
     return true;
 }
 
-CSchemaDocumentQuery CLiveSchema::document_query() const noexcept
+CTypesDocumentQuery CLiveTypes::document_query() const noexcept
 {
-    return CSchemaDocumentQuery{ m_document };
+    return CTypesDocumentQuery{ m_document };
 }
 
-CSchemaHandle CLiveSchema::types_root() const noexcept
+CTypesHandle CLiveTypes::types_root() const noexcept
 {
-    const CSchemaDocumentQuery query = document_query();
+    const CTypesDocumentQuery query = document_query();
     return query.object_child(query.root(), CStringView{ "types" });
 }
 
-const CResolvedSchema* CLiveSchema::resolved() const noexcept
+const CResolvedTypes* CLiveTypes::resolved() const noexcept
 {
     return resolved_ready() ? &m_resolution : nullptr;
 }
 
-bool CLiveSchema::in_types(const CSchemaHandle target, const bool include_root) const noexcept
+bool CLiveTypes::in_types(const CTypesHandle target, const bool include_root) const noexcept
 {
-    const CSchemaDocumentQuery query = document_query();
-    const CSchemaHandle types = types_root();
+    const CTypesDocumentQuery query = document_query();
+    const CTypesHandle types = types_root();
     if (!types || !query.contains(target))
     {
         return false;
     }
-    for (CSchemaHandle current = target; current; current = query.parent(current))
+    for (CTypesHandle current = target; current; current = query.parent(current))
     {
         if (current == types)
         {
@@ -495,18 +500,18 @@ bool CLiveSchema::in_types(const CSchemaHandle target, const bool include_root) 
     return false;
 }
 
-bool CLiveSchema::append_parent(const CSchemaHandle parent, const SEditValue& value) const noexcept
+bool CLiveTypes::append_parent(const CTypesHandle parent, const SEditValue& value) const noexcept
 {
     if (in_types(parent, true))
     {
         return true;
     }
-    const CSchemaDocumentQuery query = document_query();
+    const CTypesDocumentQuery query = document_query();
     return (parent == query.root()) && !types_root() && (value.type == ELiveValueType::object) &&
         (value.name.length() == 5u) && (std::memcmp(value.name.string(), "types", 5u) == 0);
 }
 
-CNodeKey CLiveSchema::create_value(const SEditValue& value) noexcept
+CNodeKey CLiveTypes::create_value(const SEditValue& value) noexcept
 {
     switch (value.type)
     {
@@ -524,7 +529,7 @@ CNodeKey CLiveSchema::create_value(const SEditValue& value) noexcept
     }
 }
 
-CSchemaHandle CLiveSchema::append(const CSchemaHandle parent, const SEditValue& value) noexcept
+CTypesHandle CLiveTypes::append(const CTypesHandle parent, const SEditValue& value) noexcept
 {
     if (!can_edit() || !append_parent(parent, value))
     {
@@ -536,16 +541,16 @@ CSchemaHandle CLiveSchema::append(const CSchemaHandle parent, const SEditValue& 
     {
         return {};
     }
-    const CNodeKey destination = detail::SSchemaHandleAccess::occurrence(parent).live;
+    const CNodeKey destination = detail::STypesHandleAccess::occurrence(parent).live;
     if (!m_document.append_child(destination, candidate).succeeded())
     {
         (void)m_document.erase(candidate);
         return {};
     }
-    return detail::SSchemaHandleAccess::make(detail::SOccurrence{ candidate });
+    return detail::STypesHandleAccess::make(detail::SOccurrence{ candidate });
 }
 
-bool CLiveSchema::replace(const CSchemaHandle target, const SEditValue& value) noexcept
+bool CLiveTypes::replace(const CTypesHandle target, const SEditValue& value) noexcept
 {
     if (!can_edit() || (!in_types(target, false) &&
         !(target && (target == types_root()) && (value.type == ELiveValueType::object))))
@@ -553,7 +558,7 @@ bool CLiveSchema::replace(const CSchemaHandle target, const SEditValue& value) n
         return false;
     }
     m_resolution.clear();
-    const CNodeKey key = detail::SSchemaHandleAccess::occurrence(target).live;
+    const CNodeKey key = detail::STypesHandleAccess::occurrence(target).live;
     const CNodeKey candidate = create_value(value);
     if (!candidate)
     {
@@ -583,48 +588,48 @@ bool CLiveSchema::replace(const CSchemaHandle target, const SEditValue& value) n
     return true;
 }
 
-bool CLiveSchema::set_name(const CSchemaHandle target, const CStringView& name) noexcept
+bool CLiveTypes::set_name(const CTypesHandle target, const CStringView& name) noexcept
 {
     if (!can_edit() || !in_types(target, false))
     {
         return false;
     }
     m_resolution.clear();
-    return m_document.set_name(detail::SSchemaHandleAccess::occurrence(target).live, name);
+    return m_document.set_name(detail::STypesHandleAccess::occurrence(target).live, name);
 }
 
-bool CLiveSchema::set_newline_escaping_suppressed(const CSchemaHandle target, const bool suppressed) noexcept
+bool CLiveTypes::set_newline_escaping_suppressed(const CTypesHandle target, const bool suppressed) noexcept
 {
     if (!can_edit() || !in_types(target, false))
     {
         return false;
     }
     m_resolution.clear();
-    return m_document.set_newline_escaping_suppressed(detail::SSchemaHandleAccess::occurrence(target).live, suppressed);
+    return m_document.set_newline_escaping_suppressed(detail::STypesHandleAccess::occurrence(target).live, suppressed);
 }
 
-bool CLiveSchema::erase(const CSchemaHandle target) noexcept
+bool CLiveTypes::erase(const CTypesHandle target) noexcept
 {
     if (!can_edit() || !in_types(target, false))
     {
         return false;
     }
     m_resolution.clear();
-    return m_document.erase(detail::SSchemaHandleAccess::occurrence(target).live);
+    return m_document.erase(detail::STypesHandleAccess::occurrence(target).live);
 }
 
 //==============================================================================
 //  Borrowed live editor forwarding
 //==============================================================================
 
-CSchemaHandle CLiveSchema::CEditor::append_empty(const CSchemaHandle parent, const CStringView& name) noexcept
+CTypesHandle CLiveTypes::CEditor::append_empty(const CTypesHandle parent, const CStringView& name) noexcept
 {
     SEditValue value;
     value.name = name;
     return m_owner->append(parent, value);
 }
 
-CSchemaHandle CLiveSchema::CEditor::append_null(const CSchemaHandle parent, const CStringView& name) noexcept
+CTypesHandle CLiveTypes::CEditor::append_null(const CTypesHandle parent, const CStringView& name) noexcept
 {
     SEditValue value;
     value.type = ELiveValueType::null_value;
@@ -632,7 +637,7 @@ CSchemaHandle CLiveSchema::CEditor::append_null(const CSchemaHandle parent, cons
     return m_owner->append(parent, value);
 }
 
-CSchemaHandle CLiveSchema::CEditor::append_boolean(const CSchemaHandle parent, const bool boolean, const CStringView& name) noexcept
+CTypesHandle CLiveTypes::CEditor::append_boolean(const CTypesHandle parent, const bool boolean, const CStringView& name) noexcept
 {
     SEditValue value;
     value.type = ELiveValueType::boolean;
@@ -641,7 +646,7 @@ CSchemaHandle CLiveSchema::CEditor::append_boolean(const CSchemaHandle parent, c
     return m_owner->append(parent, value);
 }
 
-CSchemaHandle CLiveSchema::CEditor::append_signed(const CSchemaHandle parent, const std::int64_t integer, const CStringView& name) noexcept
+CTypesHandle CLiveTypes::CEditor::append_signed(const CTypesHandle parent, const std::int64_t integer, const CStringView& name) noexcept
 {
     SEditValue value;
     value.type = ELiveValueType::integer;
@@ -650,7 +655,7 @@ CSchemaHandle CLiveSchema::CEditor::append_signed(const CSchemaHandle parent, co
     return m_owner->append(parent, value);
 }
 
-CSchemaHandle CLiveSchema::CEditor::append_unsigned(const CSchemaHandle parent, const std::uint64_t integer, const CStringView& name) noexcept
+CTypesHandle CLiveTypes::CEditor::append_unsigned(const CTypesHandle parent, const std::uint64_t integer, const CStringView& name) noexcept
 {
     SEditValue value;
     value.type = ELiveValueType::integer;
@@ -660,7 +665,7 @@ CSchemaHandle CLiveSchema::CEditor::append_unsigned(const CSchemaHandle parent, 
     return m_owner->append(parent, value);
 }
 
-CSchemaHandle CLiveSchema::CEditor::append_floating(const CSchemaHandle parent, const double floating, const CStringView& name) noexcept
+CTypesHandle CLiveTypes::CEditor::append_floating(const CTypesHandle parent, const double floating, const CStringView& name) noexcept
 {
     SEditValue value;
     value.type = ELiveValueType::floating_point;
@@ -669,7 +674,7 @@ CSchemaHandle CLiveSchema::CEditor::append_floating(const CSchemaHandle parent, 
     return m_owner->append(parent, value);
 }
 
-CSchemaHandle CLiveSchema::CEditor::append_string(const CSchemaHandle parent, const CStringView& text, const CStringView& name) noexcept
+CTypesHandle CLiveTypes::CEditor::append_string(const CTypesHandle parent, const CStringView& text, const CStringView& name) noexcept
 {
     SEditValue value;
     value.type = ELiveValueType::string;
@@ -678,7 +683,7 @@ CSchemaHandle CLiveSchema::CEditor::append_string(const CSchemaHandle parent, co
     return m_owner->append(parent, value);
 }
 
-CSchemaHandle CLiveSchema::CEditor::append_array(const CSchemaHandle parent, const CStringView& name) noexcept
+CTypesHandle CLiveTypes::CEditor::append_array(const CTypesHandle parent, const CStringView& name) noexcept
 {
     SEditValue value;
     value.type = ELiveValueType::array;
@@ -686,7 +691,7 @@ CSchemaHandle CLiveSchema::CEditor::append_array(const CSchemaHandle parent, con
     return m_owner->append(parent, value);
 }
 
-CSchemaHandle CLiveSchema::CEditor::append_object(const CSchemaHandle parent, const CStringView& name) noexcept
+CTypesHandle CLiveTypes::CEditor::append_object(const CTypesHandle parent, const CStringView& name) noexcept
 {
     SEditValue value;
     value.type = ELiveValueType::object;
@@ -694,29 +699,29 @@ CSchemaHandle CLiveSchema::CEditor::append_object(const CSchemaHandle parent, co
     return m_owner->append(parent, value);
 }
 
-bool CLiveSchema::CEditor::set_name(const CSchemaHandle target, const CStringView& name) noexcept
+bool CLiveTypes::CEditor::set_name(const CTypesHandle target, const CStringView& name) noexcept
 {
     return m_owner->set_name(target, name);
 }
 
-bool CLiveSchema::CEditor::set_newline_escaping_suppressed(const CSchemaHandle target, const bool suppressed) noexcept
+bool CLiveTypes::CEditor::set_newline_escaping_suppressed(const CTypesHandle target, const bool suppressed) noexcept
 {
     return m_owner->set_newline_escaping_suppressed(target, suppressed);
 }
 
-bool CLiveSchema::CEditor::erase(const CSchemaHandle target) noexcept
+bool CLiveTypes::CEditor::erase(const CTypesHandle target) noexcept
 {
     return m_owner->erase(target);
 }
 
-bool CLiveSchema::CEditor::replace_null(const CSchemaHandle target) noexcept
+bool CLiveTypes::CEditor::replace_null(const CTypesHandle target) noexcept
 {
     SEditValue value;
     value.type = ELiveValueType::null_value;
     return m_owner->replace(target, value);
 }
 
-bool CLiveSchema::CEditor::replace_boolean(const CSchemaHandle target, const bool boolean) noexcept
+bool CLiveTypes::CEditor::replace_boolean(const CTypesHandle target, const bool boolean) noexcept
 {
     SEditValue value;
     value.type = ELiveValueType::boolean;
@@ -724,7 +729,7 @@ bool CLiveSchema::CEditor::replace_boolean(const CSchemaHandle target, const boo
     return m_owner->replace(target, value);
 }
 
-bool CLiveSchema::CEditor::replace_signed(const CSchemaHandle target, const std::int64_t integer) noexcept
+bool CLiveTypes::CEditor::replace_signed(const CTypesHandle target, const std::int64_t integer) noexcept
 {
     SEditValue value;
     value.type = ELiveValueType::integer;
@@ -732,7 +737,7 @@ bool CLiveSchema::CEditor::replace_signed(const CSchemaHandle target, const std:
     return m_owner->replace(target, value);
 }
 
-bool CLiveSchema::CEditor::replace_unsigned(const CSchemaHandle target, const std::uint64_t integer) noexcept
+bool CLiveTypes::CEditor::replace_unsigned(const CTypesHandle target, const std::uint64_t integer) noexcept
 {
     SEditValue value;
     value.type = ELiveValueType::integer;
@@ -741,7 +746,7 @@ bool CLiveSchema::CEditor::replace_unsigned(const CSchemaHandle target, const st
     return m_owner->replace(target, value);
 }
 
-bool CLiveSchema::CEditor::replace_floating(const CSchemaHandle target, const double floating) noexcept
+bool CLiveTypes::CEditor::replace_floating(const CTypesHandle target, const double floating) noexcept
 {
     SEditValue value;
     value.type = ELiveValueType::floating_point;
@@ -749,7 +754,7 @@ bool CLiveSchema::CEditor::replace_floating(const CSchemaHandle target, const do
     return m_owner->replace(target, value);
 }
 
-bool CLiveSchema::CEditor::replace_string(const CSchemaHandle target, const CStringView& text) noexcept
+bool CLiveTypes::CEditor::replace_string(const CTypesHandle target, const CStringView& text) noexcept
 {
     SEditValue value;
     value.type = ELiveValueType::string;
@@ -757,14 +762,14 @@ bool CLiveSchema::CEditor::replace_string(const CSchemaHandle target, const CStr
     return m_owner->replace(target, value);
 }
 
-bool CLiveSchema::CEditor::replace_array(const CSchemaHandle target) noexcept
+bool CLiveTypes::CEditor::replace_array(const CTypesHandle target) noexcept
 {
     SEditValue value;
     value.type = ELiveValueType::array;
     return m_owner->replace(target, value);
 }
 
-bool CLiveSchema::CEditor::replace_object(const CSchemaHandle target) noexcept
+bool CLiveTypes::CEditor::replace_object(const CTypesHandle target) noexcept
 {
     SEditValue value;
     value.type = ELiveValueType::object;

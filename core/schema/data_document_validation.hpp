@@ -13,7 +13,7 @@
 #ifndef SCHEMA_DATA_DOCUMENT_VALIDATION_HPP_INCLUDED
 #define SCHEMA_DATA_DOCUMENT_VALIDATION_HPP_INCLUDED
 
-#include "schema/resolved_schema.hpp"
+#include "schema/resolved_types.hpp"
 
 #include <type_traits>
 
@@ -42,6 +42,29 @@ struct SDataValidationDiagnostic
 {
     EDataValidationReason reason{ EDataValidationReason::none };
     SOccurrence occurrence;
+};
+
+struct SDataConstructionEntry
+{
+    SOccurrence source, declaration, children;
+    std::uint32_t parent{ UINT32_MAX };
+    std::uint32_t count{}, offset{}, extent{};
+    //  Filled only while building a private stripped description.
+    CNodeKey target, selection, specialisations;
+};
+
+struct SDataConstructionGroup
+{
+    SOccurrence source;
+    CTypesIndex type;
+    std::uint32_t first{}, count{};
+};
+
+struct SDataConstructionPlan
+{
+    TPodVector<SDataConstructionGroup> groups;
+    TPodVector<SDataConstructionEntry> entries;
+    std::size_t payload_size{};
 };
 
 //  Domain diagnostics share entry admission reasons, with a distinct name for
@@ -97,9 +120,15 @@ template<class TReason>
 [[nodiscard]] bool align_data_offset(const std::uint64_t position, const std::uint64_t alignment, std::uint64_t& result) noexcept;
 [[nodiscard]] bool data_extent(const SType& layout, const std::uint64_t count, std::uint64_t& extent) noexcept;
 
-//  Strict document-only root. Instances visit supplied selections and hierarchy;
-//  bulk data visits complete records. Packed extent is checked without allocating.
-[[nodiscard]] bool validate_data_document(const CDocumentRead& document, const CResolvedSchema& schema,
+//  Aggregate validation supplies its already resolved contained types and reads
+//  the original section directly, preserving source diagnostic occurrences.
+[[nodiscard]] bool validate_data_section(const CDocumentRead& document, const SOccurrence section,
+    const CResolvedTypes& types, const bool bulk, SDataValidationDiagnostic& diagnostic,
+    SDataConstructionPlan* plan = nullptr) noexcept;
+
+//  Admit containers and known entry properties without resolving types or
+//  requiring complete record values. Missing sections remain absent.
+[[nodiscard]] bool admit_data_section(const CDocumentRead& document, const SOccurrence section,
     const bool bulk, SDataValidationDiagnostic& diagnostic) noexcept;
 
 }   // namespace schema::detail

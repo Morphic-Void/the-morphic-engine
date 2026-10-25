@@ -75,12 +75,15 @@ remains unselected implementation work.
 
 ## Schema delivery status
 
-As of 20 October 2026, persistence, role attachment/switching, type-schema merging,
-instance/bulk data merging, document preparation and complete document composition
-are implemented, user-reviewed and committed. The completed implementation plans
-are retired; their reviewed history remains in Git. Current contracts are in the
+As of 25 October 2026, fixed-array layout, declaration metadata and relationships,
+common-block persistence, aggregate composition/merging and binary-backed runtime
+editing are implemented and user-reviewed. The completed implementation plans
+are retired. Current contracts and examples are in the
 [schema guide](../schema/README.md), with unresolved work confined to the
 [follow-on notes](../backlog/schema_follow_on.md).
+Earlier checkpoints below retain their historical terminology; the document-model
+delivery supersedes retained-value runtime forms, global reconciliation and the
+separate preparation/merge APIs.
 
 | Completed capability | Commit checkpoint | Delivery record |
 | --- | --- | --- |
@@ -92,10 +95,123 @@ are retired; their reviewed history remains in Git. Current contracts are in the
 | Instance/bulk data aggregation and shared recursion budget | `36ef3d9` | [Data aggregation](#instance-and-bulk-data-aggregation) |
 | Document preparation, composition and pre-allocation | `aa90b9a` | [Preparation and composition](#document-preparation-and-composition) |
 | Restored buffer growth cap and reserve correction | `78fcfaf` | [Buffer growth](#buffer-growth-and-reservation) |
+| Independent fixed-array stride/alignment | `b17dc88` | [Declaration extensions](#schema-layout-and-declaration-extensions) |
+| Declaration decorations | `c3aba30` | [Declaration extensions](#schema-layout-and-declaration-extensions) |
+| Non-storage associations/interfaces and shared primitive names | `5d6e0f2` | [Declaration extensions](#schema-layout-and-declaration-extensions) |
+| Common .bsd block and reviewed diagnostics | `452359e` | [Common block and assembly](#common-schema-block-and-assembly) |
+| Common-block internal cleanup | `cf9dca6` | [Common block and assembly](#common-schema-block-and-assembly) |
+| Reduced assembly conversions and shared helpers | `ec4c54f` | [Common block and assembly](#common-schema-block-and-assembly) |
+| Aggregate/runtime document model and shared construction | 25 October 2026 delivery | [Document model](#schema-document-model-and-runtime-construction) |
 
 Validation counts below belong to their recorded checkpoints, not a promise that
 the current suite count stays fixed. Build logs under `build/` and `development/`
 are local evidence paths and are not distributed documentation dependencies.
+
+## Schema document model and runtime construction
+
+Completed and user-reviewed on 25 October 2026. `CSchema` is a binary-free authoring
+aggregate containing any combination of types, instances and bulk data. Composition,
+merging and generic saving permit incomplete documents. Duplicate named definitions
+remain indivisible; full validation, live materialisation and runtime baking require
+the contained types as their sole authority. `import_from` replaces the aggregate
+with one live/baked role's section, reconstructing selected or complete values and
+never implicitly including linked types.
+
+Live and baked runtime data descriptions are always stripped, retaining instance
+hierarchy, explicit selections, equal-value pins, empty containers and positional
+inheritance holes. Complete binaries hold the values. Whole-instance overwrite,
+component specialisation and selection removal explicitly preserve or propagate
+into descendants. Direct writable instance access requires explicit completion;
+bulk remains directly writable. Checked rebinding propagates replacement defaults
+while preserving selected values, with a separate asserted-recovery path when the
+prior types context is unavailable. Types remain immutable while bound.
+
+Version-2 .bsd storage requires a complete binary for every present data section,
+including explicit zero-length storage. Typed attachment validates existing storage;
+raw assembly copies supplied bytes. Superseded APIs and formats have no compatibility
+layer. The maintained [specification](../schema/specification.md),
+[runtime API](../schema/runtime-api.md),
+[persistence guide](../schema/persistence-and-aggregation.md) and
+[common-block guide](../schema/common-binary-block.md) own these contracts.
+
+The cleanup removes obsolete reconstruction/preparation paths and shares admission,
+section copying, comparison and diagnostic handling. Validation, materialisation
+and baking now share an operation-local construction context. Validation allocates
+no runtime payloads. Materialisation resolves its independent types copy once;
+baking writes directly into final payload spans without temporary live data owners.
+Authored type content, original-source diagnostics and transactional publication
+are preserved. The public conversion name is `import_from`, following the receiving
+aggregate's perspective.
+
+Final Debug/Release x64/Win32 solution builds and ordinary runs passed with 81,175
+Schema checks, 527 SchemaModel checks and 1,396 BundleRequests checks per configuration,
+with zero failures; all other ordinary suites passed. Allocation-failure sweeps cover
+source-relative diagnostics, cleanup and empty outputs. Eleven generated C++17 layout
+translation units passed warnings-as-errors compilation for x86 and x64 during the
+document-model validation. The final naming and user-formatting review passed a fresh
+Debug x64 build and ordinary run with the same counts. The x86 matrix builds had five
+C4244 warnings each in unchanged Basis Universal code; no schema warnings were reported.
+
+The construction comparison fixture produced identical document and payload bytes.
+Direct baking used 88 allocation requests versus 173 through live owners. Requested
+bytes were 465,632 versus 968,480 on x64 and 459,424 versus 932,896 on x86. These are
+fixture observations, not peak-memory measurements or fixed performance requirements.
+Final matrix evidence is under `build/schema-construction-final-*`; the naming review
+is `build/schema-import-rename-debug64.log`. Source formatting, documentation links,
+diff whitespace and repository line endings passed. Current coverage is described in
+the [validation guide](../schema/validation.md).
+
+The completed document-model plan is retired. Its durable rules, examples and
+boundaries are maintained in the guides and [follow-on notes](../backlog/schema_follow_on.md),
+without retaining temporary delivery steps or superseded approval instructions.
+
+## Schema layout and declaration extensions
+
+Completed, user-reviewed and committed on 22–23 October 2026. The former feature
+scope documents are retired; current contracts are in the specification's
+[fixed arrays](../schema/specification.md#fixed-arrays),
+[decorations](../schema/specification.md#declaration-decorations) and
+[associations/interfaces](../schema/specification.md#associations-and-interfaces) sections.
+
+Fixed arrays gained independent stride and alignment, complete final stride slots
+and rounded array tail padding. C++ wrappers use `array` for array payloads and
+`value` for final element payloads. Decoration string maps are preserved without
+affecting layout; strict definition comparison includes them and representation
+comparison ignores them. Associations and interfaces add checked non-storage
+relationships, general declaration observations and deterministic C++ comments.
+The resolver's primitive-name table also supplies the generator through one accessor.
+Later aggregate merging supersedes the original independently resolved input rule.
+
+All four Debug/Release x64/Win32 ordinary runs passed at each feature checkpoint:
+90,647 Schema checks for arrays, 91,774 for decorations and 92,756 for relationships.
+The primitive-name review passed 92,769 checks in Release x64. Nine original C++17
+layout fixtures and the two added relationship fixtures were compiler-validated
+on x86/x64; metadata-only changes retained the existing generated headers byte-for-byte.
+Policy, line-ending and diff checks passed. Historical tags are `array-checked-*`,
+`decorations-final-*`, `associations-final-*` and `associations-review-rel64`.
+
+## Common schema block and assembly
+
+Completed, user-reviewed and committed on 24 October 2026. `CBakedDataBlock` replaced
+separate storage forms with one .bsd block containing a description and independently
+addressed instance/bulk domains. The typed role interfaces, local/asset ownership,
+checked physical framing and explicit replacement assembly remain in the current
+[version-2 contract](../schema/common-binary-block.md). The 25 October document model
+supersedes the initial optional-binary and retained-value construction policies.
+
+Internal cleanup shared attachment/metadata handling and retained precise nested
+diagnostics. Assembly now copies live descriptions directly or promotes baked input
+once, then performs the final bake and payload copies. The internal iterative copier
+preserves reachable content, presentation, source locations and transactional failure
+without an incidental intermediate-bake size restriction or public copy API.
+
+The initial four-configuration matrix passed 94,491 Schema and 1,396 BundleRequests
+checks per run. Diagnostic, cleanup and assembly review runs passed respectively
+95,253, 95,446 and 96,446 Schema checks in Debug x64, with 1,396 BundleRequests checks
+and all other ordinary suites passing. Assembly regressions compared complete bytes
+against the preceding pipeline, including gaps, tails, metadata, deep trees and
+allocation failures. Policy, diff and line-ending checks passed. Those counts and
+historical contracts are checkpoint evidence, not requirements for current APIs.
 
 ## Buffer growth and reservation
 
@@ -128,8 +244,8 @@ broader growth-policy changes remain [unselected](../backlog/schema_follow_on.md
 
 Completed, user-reviewed and committed on 19 October 2026 in `aa90b9a`, including
 pre-allocation and the final allocation-failure coverage. The implementation plan
-is retired. See the [runtime API](../schema/runtime-api.md#document-preparation-and-composition)
-and [contract](../schema/persistence-and-aggregation.md#agreed-document-preparation-interfaces).
+is retired. See the [runtime API](../schema/runtime-api.md#aggregate-authoring)
+and [contract](../schema/persistence-and-aggregation.md#section-only-import-and-composition).
 
 Four preparation overloads extract selected live/baked sections under the original
 resolved schema, preserve retained descriptions and reconstruct only stripped
@@ -200,7 +316,7 @@ supporting observations; allocation/work bounds are the regression assertions.
 Implemented on 18 October 2026, then user-reviewed and committed on 19 October
 in `36ef3d9`, including the shared recursion-depth constant. The optional
 data-model depth probes were committed separately in `4108f55`. The implementation
-plan is retired. See the [runtime API](../schema/runtime-api.md#instance-and-bulk-data-aggregation).
+plan is retired. See the [runtime API](../schema/runtime-api.md#composition-and-merging).
 
 `merge_instances` and `merge_bulk_data` accept prepared live/baked document views,
 one resolved merged schema and an independent live destination. Each input and
@@ -290,8 +406,8 @@ They remain separate API operations from these prepared merge cores.
 Completed, user-reviewed and committed on 18 October 2026 in `ca087e2`, including
 the newline-escaping and one-sided presentation tests added after review.
 The implementation plan is retired. The
-[runtime API](../schema/runtime-api.md#type-schema-merging) and
-[merge contract](../schema/persistence-and-aggregation.md#type-schema-merging-and-defaults)
+[runtime API](../schema/runtime-api.md#composition-and-merging) and
+[merge contract](../schema/persistence-and-aggregation.md#non-destructive-merge-rules)
 document the delivered behaviour.
 
 `merge_type_schemas` accepts independently valid live/baked document views and
@@ -372,7 +488,7 @@ includes sparse string IDs, reversed name order, checked arbitrary readers,
 unready destinations, equal array gaps, deep nested changes, zero-size layouts
 and allocation-failure rollback. Policy, diff and line-ending checks passed.
 
-The [runtime API](../schema/runtime-api.md#initial-attachment-and-schema-switching),
+The [runtime API](../schema/runtime-api.md#initial-attachment-and-types-rebinding),
 [data-model construction contract](../data_model/revised_data_model.md) and
 [validation guide](../schema/validation.md) describe the current implementation.
 Arbitrary-order distinct-string insertion can still shift a quadratic total of
@@ -390,7 +506,7 @@ contiguous persistence entity. `CBakedInstancesBlock` and `CBakedBulkDataBlock`
 originally exposed contained specialised interfaces. The 17 October rework
 separates schema-independent block storage from caller-owned typed roles and
 adds atomic attachment and checked/trusted switching. See the current
-[runtime contract](../schema/runtime-api.md#initial-attachment-and-schema-switching).
+[runtime contract](../schema/runtime-api.md#initial-attachment-and-types-rebinding).
 The existing local/Host asset lifetime model remains in use.
 
 | Stage | Checkpoint | Delivered outcome |
@@ -445,7 +561,7 @@ Validation checkpoints:
 
 The completed persistence implementation plan is retired. Permanent contracts
 and test coverage are maintained in the [schema specification](../schema/specification.md),
-[runtime API](../schema/runtime-api.md#completed-data-blocks),
+[runtime API](../schema/runtime-api.md#persistence-envelope),
 [validation guide](../schema/validation.md) and
 [asset services](../assets/asynchronous_asset_services.md). Intermediate delivery
 and validation detail remains in Git history.

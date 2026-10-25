@@ -17,6 +17,79 @@ records validation checkpoints, including the subsequent buffer correction and
 its all-configuration regression runs. Earlier milestones retain their historical
 counts; local build logs are evidence paths, not checked-in test dependencies.
 
+## Document model coverage
+
+SchemaModel exercises binary-free authoring, independent handles, all section
+combinations, deferred validation and required contained types. Overlapping named
+definitions are indivisible, with layout proofs limited to relevant dependencies;
+unrelated incompleteness and absent intrinsic fields have distinct merge behavior.
+Types/instance/bulk imports contain only their own sections. Failed validation,
+composition and construction preserve destination content and source locations.
+
+The main Schema suite and SchemaModel cover retained equal-value pins, empty
+containers, scalar shorthand, positional null holes, sparse interior edits and
+nested array/bitfield paths. Complete overwrite and component edits exercise both
+preserve and propagate policies, immediate-parent inheritance, repeated ancestor
+changes, scope-limited removal, meaningful versus padding-only differences and
+raw encodings without literal representations. Import/bake/materialise/promote
+round trips preserve sparse explicit empty selections after adjacent removal.
+
+Scoped-edit tests check blocked typed access/output/rebinding while pending,
+explicit completion, invalid/stale tokens (including owner address reuse), failure
+followed by retry, unchanged masks/descendants on failed completion and preserved
+target edits. Source buffers/names borrowed from the same live role are exercised
+through buffer growth and descendant-sourced copies.
+
+Rebinding covers live/baked roles and live/baked type owners, changed defaults,
+explicit pins, nested arrays, bitfields, signed zero, reordered indices, empty used
+groups, deep hierarchy, lifetime loss and asserted recovery. Baked replacement
+ownership is independent of the original block; read-only changes needing new bytes
+reject. Recovery cannot bypass checking with an available old owner.
+
+DocumentBoundary checks all live/baked source combinations, destination aliasing,
+section-only imports, types-free save versus failed runtime construction, independent
+live materialisation, malformed runtime input, import-depth bounds, precise source
+diagnostics and per-allocation failures. Types import includes failures during copying
+and final structural admission, for both live and baked source owners.
+
+SchemaMerge and DataMerge preserve existing scalar/presentation, named-order,
+conflict-location, aliasing and scaling coverage under CSchema. Additional cases
+cover sparse selection-array merge, deferred semantic validation, local layout proof,
+missing intrinsic fields and strict whole-definition comparison. Admission includes
+incomplete/opaque values in the authoring depth bound. Iterative definition comparison
+avoids exponential revisiting and stack-heavy recursive projections.
+
+## Runtime storage and publication coverage
+
+SchemaDataBlock constructs independent raw fixtures for version-2 envelope checking.
+It covers all eight section combinations against every supplied-payload combination,
+required zero-byte binaries, invalid version/stripped markers, exact lengths, zero
+container padding, both alignment gaps, offset/range arithmetic and the inclusive
+2 GiB ceiling without large allocations. Present sections cannot omit their binaries.
+
+Raw assembly compares live/baked results byte-for-byte, including deep opaque trees,
+detached storage, string remapping, metadata/presentation, complete payload gaps and
+tails. Missing-domain binary errors precede allocation and retain source locations.
+Local release/adoption, asset borrowing, independent owners and storage readiness
+without types bindings remain covered. Types and data roles enforce envelopes when
+one is declared, including direct description attachment.
+
+Live role bake/prepare-output tests cover active-entry packing, zeroed new gaps,
+record padding, raw booleans/enums, zero-size records, count-zero rejection, source
+independence and occupied outputs. Bulk authoring retains capture/replacement,
+self-aliasing through growth, rename/erase, unpopulated arrays, complete literals,
+UINT32_MAX zero-size counts and failed replacement preserving identity/content.
+Remapping uses bulk mutable views or explicit instance edits, preserving unmatched
+bytes and completing with a chosen descendant policy. Unused-storage tests retain
+padding, unused-bit, gap, abandoned-storage and capacity-tail boundaries.
+
+Allocation sweeps reject successive allocations through composition, merging,
+materialisation, promotion, editing, rebind, output, assembly and import. Tests check
+transactional publication, cleanup, binding counts and source lifetime. Generic
+document failures retain their available operation-level reasons; more specific
+typed reasons are asserted where supplied. No general timing promise is inferred
+from bounded traversal/scaling tests.
+
 ## Association and interface coverage
 
 `Schema_test_suite.cpp` exercises general declaration observations independently
@@ -29,7 +102,9 @@ reject non-storage declarations while empty physical types remain valid.
 Declaration comparisons cover identity, multiplicity, metadata, physical dependencies
 and failed-traversal cache reuse. Merge cases check incompatible relationships,
 metadata conflicts, original locations, omitted/explicit unit counts, union and
-source aliasing. Incomplete inputs remain invalid before merging. Lifecycle cases
+source aliasing. Structurally admitted incomplete inputs may merge; explicit
+validation checks the completed catalogue. Conflicting or unestablished duplicate
+definitions still fail during merging. Lifecycle cases
 cover move/clear, promotion, baking, canonical output and composition. Allocation
 sweeps check resolver cleanup, output, comments, graph comparison/retry and occupied
 merge destinations. Generated fixtures include mixed and non-storage-only schemas.
@@ -47,235 +122,28 @@ Allocation-free lookup/enumeration, unchanged outputs on query failure, no
 inheritance, strict definition comparison, order-independent maps and unchanged
 generated C++ are checked. Lifecycle coverage includes schema promotion/baking,
 canonical output, composition and whole-document baking. Data-only persistence,
-reconciliation, checked schema switching and exact remapping retain their existing
+explicit value import, checked types rebinding and exact remapping retain their existing
 scope and ignore decoration differences. Merge tests cover union, empty/absent
 maps, source aliasing, conflicts at every attachment point and original locations.
 Allocation-failure sweeps exercise resolution, canonical output, occupied merge
 destinations and comparison, checking failure atomicity and attribution cleanup.
 
-## Document preparation and composition coverage
-
-`DocumentBoundary_test_cases.cpp` runs within the Schema suite. Live/baked tests
-cover all preparation and composition overloads, selected-section independence,
-strict composition roots, every envelope presence combination, domain identifiers,
-empty packages, locator shape/count/size/alignment/ranges, zero-size records, gaps
-and trailing slack. Retained values preserve omissions and presentation; comparison
-can reject a mismatch without reconciling it. Stripped instances reconstruct changes
-against original defaults/parents, including restored defaults and array prefixes.
-Bulk reconstruction applies only to missing whole arrays; partial/empty arrays fail.
-Noncanonical booleans, unknown enums and disallowed fp16 values reject reconstruction.
-
-Failure injection covers each allocation attempt until success for retained and
-reconstructed preparation in both domains and composition, with empty, occupied and
-source-aliased destinations. Source documents, payload bytes and destination handles
-survive failure; temporary result occurrences are cleared and attribution empties.
-Schema-backing destinations are rejected by preparation. Composition safely replaces
-its types source and output survives source release. Deep tests cover cumulative
-selected-section budgets for copying and reconstruction, explicit specialisations
-and deferred implicit construction failure; composition does not expand defaults.
-
-Integration prepares against original schemas, merges types/data, composes, extracts
-again and constructs values through the existing codec, verifying default adoption,
-retained explicit defaults, stripped specialisations and complete bulk records.
-Unrelated sibling growth and omitted array extent do not change allocation counts
-or bytes. Geometric repeated-type fixtures exercise internal arrays, reverse names
-and sorted preload. Reserved string imports and copied live/baked subtrees have
-no-further-allocation checks. A parent with 64 specialisations and a following base
-sibling exercises failure of a later batch reservation for empty, occupied and
-source-aliased destinations, then eventual complete output.
-
-The buffer growth cap and reserve correction are complete, with original
-pointer-based append lazy initialisation preserved. Existing capped container
-growth and reconstruction beyond known capacity still prevent a claimed linear
-end-to-end allocation bound. See the
-[preparation evidence](../project/completed_milestones.md#document-preparation-and-composition)
-and [buffer checkpoint](../project/completed_milestones.md#buffer-growth-and-reservation).
-
-## Instance and bulk data aggregation coverage
-
-`DataMerge_test_cases.cpp` runs within the Schema suite. It checks prepared-root
-admission, independently invalid sources, recursive specialisations, omission,
-complete records, outer bulk prefixes, ordinary nested arrays, document scalar
-conflicts, presentation and all live/baked source pairings. Value-admission cases
-compare the complementary validator with existing writing and checking across
-named, positional, singleton, shorthand, enum, numeric, bit-field and zero-byte
-values. Writer/comparison diagnostics remain unchanged.
-
-Separate, occupied and first/second/both-source destinations exercise staged
-publication. Allocation-failure sweeps preserve original bytes/handles and memory
-attribution; final-result diagnostics discard temporary handles. Combined extents
-provide a natural final-validation failure, including for bulk data whose
-prepared validator allocates no scratch. Schema-backing output is rejected before
-mutation. Integration creates instances/specialisations and bulk records through
-existing roles under a merged schema, including inherited values and retained
-explicit default-equal declarations.
-
-Dependency-first type chains exercise successful merging followed by implicit
-depth failure during binary construction. Explicit declaration and shared/copied
-document-depth boundaries remain checked; omitted zero-byte array paths remain
-legal. Holding declarations constant while changing omitted array extents from
-1 to 100 million elements must leave merge allocation counts and requested bytes
-identical. Wide reversed instance groups and long bulk prefixes exercise growth
-and small-object matching thresholds. Timings are observations, not thresholds.
-
-Specialisation chains exercise pending sibling traversal through both source
-forms and shared/one-sided merging, including acceptance at section-relative
-depth 255 and transactional rejection beyond it. Sparse fixtures keep 256
-single-member declarations fixed while growing the schema from 1 to 128 and
-2,048 members; allocation counts and requested bytes must remain identical.
-Document tests check the optional live/baked `maximum_depth()` probes on empty,
-branched, detached and mutated trees and at depths beyond 256, without allocation.
-
-## Type schema merge coverage
-
-`SchemaMerge_test_cases.cpp` runs within the Schema suite. It covers independent
-source validation, equivalent natural/explicit layouts, structural/reference
-conflicts, absent/explicit defaults, exact document scalar equality and integer
-presentation. All newline-escaping preference combinations are checked across
-live/baked inputs. One-sided copies in either source position preserve integer
-domain/width, notation/prefix and string presentation, both for whole subtrees and
-defaults within shared types; partial default arrays retain their supplied length.
-Mixed live/baked inputs exercise both successful output and source
-diagnostics. The result is checked after releasing its inputs, and adopted/baked
-through existing schema APIs. Instance construction confirms adoption of a merged
-default while preserving an explicit declaration; bound-owner replacement remains
-rejected.
-
-Occupied destinations and first/second/both-source aliasing exercise publication.
-Each allocation attempt is rejected in turn for representative merges, checking
-unchanged source/destination documents, retained handles, clean attribution and
-sanitised result-validation diagnostics. Shared and one-sided nesting at document
-depths 255/256 checks the common limit; shared nesting uses an explicit work stack
-to avoid overflowing the Debug C++ stack. Shared dependency graphs and objects on
-both sides of the small-object matching threshold exercise indexed paths.
-
-Growth fixtures merge 128, 512 and 2,048 overlapping types in reverse encounter
-order, with repeated strings and one additional type. Timings are observations,
-not pass/fail thresholds, and include input/result resolution. The construction
-path sorts and preloads strings once, releases preparation vectors before node
-construction, uses existing string indexes thereafter and builds temporary name-ID
-indexes only for larger shared objects. Timing evidence and its limits are in
-the milestone; no worst-case claim is made for existing resolver/cache internals.
-
 ## Running the checks
 
-Build and run `MorphicTests` using the repository's
-[build instructions](../project/building_and_testing.md). The ordinary `-t1` run
-includes [Schema_test_suite.cpp](../../tests/test_suites/Schema_test_suite.cpp)
-and the related document-model suites. For example, after building Debug x64:
+Build and run MorphicTests using the repository's
+[build instructions](../project/building_and_testing.md). The ordinary -t1 run
+includes SchemaModel, Schema, their merge/block/boundary cases and the related
+data-model and Host asset suites. For example:
 
-```powershell
+~~~powershell
 .\build\bin\x64\Debug\MorphicTests.exe -t1 --log-tag=schema-check
-```
+~~~
 
-The Schema suite also runs
-[SchemaDataBlock_test_cases.cpp](../../tests/test_suites/SchemaDataBlock_test_cases.cpp).
-These cases assemble persistence files from generic baked documents and separate
-payload bytes without a schema block writer. They cover both content kinds,
-metadata type/version errors, unknown/missing properties, empty sections and
-zero-byte descriptions, bounded header failures, alignment, truncation and extra
-bytes, every container-padding length and offending byte, and diagnostic reset
-and source locations. Pure layout tests cover the exact 2 GiB limit and integer
-overflow without large allocations. A rejected scratch allocation verifies
-failure cleanup and conservative reporting by the generic document validator.
-
-Assembly staging regressions compare completed live/baked output bytes with the
-previous conversion pipeline. They cover section and availability combinations,
-metadata replacement and precedence, scalar/string presentation, empty placeholders,
-detached storage, live string-ID remapping and opaque trees deeper than the bounded
-subtree copier permits. Separate assembly allocation sweeps check diagnostics,
-unchanged sources and payloads, empty destinations and released attribution.
-Completed outputs remain valid after source documents and payload storage change.
-
-Completed-block tests exercise both instance/bulk data and live/baked schema
-combinations. They check pointer-preserving adoption/release, occupied
-destinations and outputs, repository-backed borrowed attachment without hidden
-disposal, absence of block-held schema references, schema-independent storage
-readiness, explicit role attachment, empty/zero-byte content, stripped content,
-opt-in role comparison, opaque payload gaps/trailing bytes and
-source-preserving failure diagnostics. Each preparation allocation is rejected
-in turn to verify cleanup, diagnostic propagation and retained local ownership.
-
-Completed live-bake tests cover all source/destination schema combinations and
-output forms, comparing payloads against existing lower-level baking. They
-exercise edited instance snapshots and specialisations, bulk data counts, empty
-and zero-byte content, metadata, alignment, padding, source independence and
-copied-file reattachment with comparison enabled. Failures check invalid
-preconditions, schema availability/compatibility, unrepresentable retained values
-and each construction allocation, including final attachment. Source locations
-survive preparation failures; temporary output locations do not escape cleanup.
-Completed blocks and copied-file adoption also exercise exact file-size capacity,
-with generic baked-document tests checking minimum and non-alignment-multiple
-capacities, preserved attribution and clean deallocation.
-
-Description materialisation tests cover all four source/schema overloads for
-both roles and all output forms. They check defaults and nested instance
-inheritance, complete bulk records, valid and unset offsets, inferred counts,
-missing/empty sections, zero-byte records, replacement of persistence metadata
-and omission of unrelated root sections. Sources remain byte-equivalent and
-can be destroyed before the result is consumed or reattached with comparison.
-Failures cover invalid preconditions, unknown types, locators, counts,
-insufficient values and stripped descriptions. Diagnostics map back to original
-live/baked values. Each construction allocation is rejected in turn, checking
-empty destinations, released schema references, temporary cleanup and location
-lifetimes. JSON parsing is exercised separately from the block API.
-
-Completed-block stripping tests cover both roles, all source/destination schema
-combinations, local and repository-backed borrowed sources, empty and zero-byte
-content, retained/external/already-stripped descriptions and inferred bulk data
-counts from arrays and byte sizes. Byte comparisons include payload gaps,
-trailing storage, noncanonical booleans and unused flag bits. Tests check new
-document lengths, recursive instance declaration removal, reattachment, source
-independence and no implicit asset disposal. Failures cover self/occupied
-destinations, unavailable supplied schemas, missing destination types and each allocation
-through source validation, promotion, baking, assembly and final attachment.
-Temporary-output diagnostics are cleared and all private allocations and schema
-bindings are released on failure.
-
-Schema-switch tests exercise all four data roles against live and baked targets.
-They cover changed and overridden defaults, nested arrays, bit fields, signed
-zero, partially declared child inheritance, reordered type indices, empty groups,
-zero-byte packages and deep specialisation chains. Success and failure preserve
-handles, payload addresses and bytes. Allocation sweeps check atomic binding
-replacement and temporary-only allocation. Stale declarations fail checked
-switches while trusted switches and explicit reconciliation remain available;
-trusted switching also restores typed access after the previous schema dies.
-
-New-payload gap tests use an allocator that fills every allocation with nonzero
-bytes. Both roles and all output forms check zeroed alignment gaps, repeated
-byte-identical output, preserved source and internal record padding, and zero-byte
-entries between nonempty extents. Description materialisation additionally checks
-leading and explicit-offset gaps. Existing supplied-payload, stripping and Host
-persistence tests continue checking exact preservation of existing nonzero bytes.
-
-Host complete-buffer coverage lives in `BakedDocumentTransfer`, `BundleService`
-and `BundleRequests`. It checks appended bytes through owning transfer, loose
-loading, borrowed bundle views, cache reuse and binary saving, with separate
-prefix-only navigation. Cases exclude spare capacity and bundle padding, upgrade
-requested alignment, reject mismatched cache representations, reparse JSON output,
-reject writes into bundles and save retained entries after bundle closure.
-File workflows exercise shared and dedicated conditioning workers. The real
-`tests/host_workers/run_tests.ps1` harness also checks bootstrap and worker routing.
-Schema-specific cross-layer workflows in the same request suite exercise both
-`.bsd` with a shared caller-owned schema: live bake, release/admission,
-attachment, complete binary save and physical reload; JSON load, explicit
-materialisation and independent parsed-source disposal; bundle construction from
-saved files, attachment, closure and loose saving/reloading. Typed entry values
-and complete file bytes are checked at each boundary. Further cases cover failed
-attachment after successful Host loading, source/discard retention, retained
-assets after save failure, and disposal waiting for admitted saves. Both shared
-and dedicated worker routes run these cases.
-
-A bounded mutable document edit in test-owned bundle storage verifies that an
-explicit whole-bundle save writes current bytes. The prior disk file remains
-unchanged before saving; a promoted independent document leaves its source
-unchanged. The test retains mutable access before Host publication and mutates
-only while borrowers are quiescent; it adds no production mutation API.
-
-The [persistence milestone](../project/completed_milestones.md#schema-instance-and-bulk-data-persistence) records the final
-Debug/Release x64/Win32 Core matrix, Host worker acceptance and Debug x64 module
-lifecycle harness with one and two workers. The lifecycle harness covers actual
-DLL retirement, in-flight saving, bundle closure and shutdown.
+BundleRequests retains .bsd live-bake/admit/save/reload and authored aggregate
+construction workflows through shared and dedicated workers, including combined
+types/instances/bulk blocks. Host saving retains complete bytes, while typed
+attachment remains explicit. Generic document, bundle and asset tests cover
+borrowed lifetime and buffer transfer independently of schema roles.
 
 Logs and generated files include the tag and process ID. The runner prints their
 paths; default output is beneath `development/logical-roots/test-output` and
@@ -306,76 +174,40 @@ Compiler assertions follow `array` and `value` payloads to check element stride,
 payload offset zero and each nested extent/alignment. Runtime checks cover
 canonical output, live/baked round trips, omitted/explicit metadata merging,
 invalid descriptors, ceiling arithmetic and allocation-failure cleanup. Storage
-checks exercise construction/defaults/inheritance, capture/reconciliation,
-preparation/persistence, checked switching, exact remapping and padding clearing,
+checks exercise construction/defaults/inheritance, capture/scoped completion,
+import/persistence, checked rebinding, exact remapping and padding clearing,
 including a 32-byte array with stride 12 that is not divisible by its stride.
 
-Common `.bsd` storage checks cover every section and payload-availability
-combination, absent versus supplied-empty binaries, aggregate materialisation,
-embedded schema authority and external schema fallback. They also cover separate
-working binaries, exact supplied-byte preservation, stripped/retained conversion,
-both alignment gaps, checked combined extents and transactional allocation failure.
-Direct common-block attachment tests exercise both data roles with live/baked
-schemas, supplied and constructed binaries, nonempty-owner rejection, empty
-roles, schema-reference cleanup and diagnostics mapped to the original block.
-Root-error cases preserve payload-length/stripped-marker precedence and reject
-malformed sibling sections even when the selected section is absent.
-Asset/bundle tests save, reload and admit a combined types/instances/bulk block
-through both single-threaded and dedicated-worker paths. See the
-[common block contract](common-binary-block.md) for the implemented scope.
+Use Debug/Release and 32/64-bit configurations when changes affect representation,
+lifetime, arithmetic or allocation. Do not repeat passing matrices without new
+changes or an unresolved concern. Source/project changes use the repository policy
+validator. Documentation updates require link, diff and line-ending checks; sample
+changes also require their runtime coverage.
 
-Use the appropriate Debug/Release and 32/64-bit configurations when code changes
-affect representation, lifetime, arithmetic or allocation. Do not repeat a passing
-matrix without a new change or unresolved concern. Documentation-only changes
-need link, diff and line-ending checks; edits to the sample also warrant its
-existing runtime coverage. Source/project changes use the repository's
-[policy validator](../project/policy_validator.md).
+## Aggregate construction
 
-## Coverage to preserve
-
-| Area | Observable contracts |
-| --- | --- |
-| Resolution and queries | Live/baked parity, forward references, cycle/duplicate rejection, exact property sets, named/ordinal agreement, occurrence mapping, clear/move/re-resolution lifetimes. |
-| Types and layout | Empty type identities and zero-byte members; nested and count-one arrays; natural and explicit layout; increased alignment; overlap/bounds diagnostic order; recursive gaps; the inclusive 2 GiB extent ceiling. |
-| Values and defaults | Integer boundaries and signedness; floating rounding, overflow, signed zero and special strings; existing fp16 conversion; enum aliases and implicit first-label defaults; UNORM/SNORM raw codes and floating inputs. |
-| Input structure | Complete bulk data records; instance defaults and inherited positional tails; named singleton normalisation and scalar shorthand; invalid nulls, excess values and unsupported aggregate defaults. |
-| Ownership and failure | Non-owning baked views, owned live payloads, schema binding invalidation, non-destructive translation, allocation-failure cleanup and the publication rules of each operation. |
-| Capture and editing | Independent snapshots, selected-value preservation, parent-before-child propagation, repair of discarded unrepresentable selections, and bulk data replacement after reconciliation/promotion. |
-| Reconciliation and output | Binary authority, changed defaults, immediate-parent comparison, shortest necessary array prefixes, embedded/external reload, encoded fidelity and source preservation. |
-| Stripped output | Required payloads, navigation/binary access, schema/default retention, empty types, malformed markers, contradictory declarations, promotion reconstruction and exact raw encodings. |
-| Integer presentation | Declared-type policies, full-width masks, nested defaults, structural thresholds, live/baked sources, strict JSON, repeated preparation and inferred structure details. |
-| Remapping | Exact-type direct-member matching, default-sensitive compound compatibility, partial/no-match plans, destination claims, range coalescing, all copy paths, exact-stride preflight and untouched unmatched bytes. |
-| Unused storage | Nested padding and optional unused-bit clearing, preservation of every addressable field, complete fixed-array views, document gaps, idempotence and failure before writes. |
-| Access cost | Baked sorted indexes, ordered live records, neighbour cursors with bounded fallback, scoped name and enum-value indices, parent-index schema switching, source-driven remapping, cached storage preflight and allocation-free clearing after preflight. |
-
-The data-model suites separately cover integer metadata, string flags, subtree
-copying, promotion/baking and their allocation failures. Schema-specific rules
-reuse those facilities rather than introducing a second document implementation.
-Allocation and complexity tests establish their measured properties; they do not
-promise general timing improvements or that all name lookup is indexed.
-Focused regressions cover reverse/shuffled/sparse named input, allocation-free
-ordered value checks, shuffled-input allocation failures, exact duplicate
-diagnostics, enum alias and signedness boundaries, and nested storage preflight
-failure before writes.
-Construction regressions also cover wide reverse-ordered objects, sparse source
-string IDs under an allocation ceiling, same-document ID reuse, checked arbitrary
-readers and deep promotion. Reconciliation covers delayed scalar/compound array
-prefixes, deep last-descendant changes, enormous zero-byte arrays and allocation
-failures during lazy container construction. Traversal bounds follow from the
-single-pass implementation; these tests do not impose wall-clock thresholds.
+Aggregate construction regressions compare direct baking with materialisation
+followed by assembly, including payload bytes and authored type presentation.
+They also check all type diagnostic locations against the original aggregate,
+instance-before-bulk semantic error ordering, source replacement after ownership
+extraction, empty groups/specialisations and domain-specific zero-size offsets.
+Allocation sweeps require failure to publish no owners and expose no locations
+from private staging. The ordinary run reports allocation counts/requested bytes
+for direct baking and the equivalent workflow through live owners; these are
+observations rather than fixed allocator or timing thresholds.
 
 ## Authoring sample
 
-`test_schema_sample` reads [schema-example.json](schema-example.json) through the
-engine parser, bakes and resolves its schema, checks expected layouts, generates
-compiler fixtures, materialises instances and bulk data records, promotes both roles,
-and checks embedded/external baking and reload. Its eleven type definitions,
-eleven instance declarations and three bulk data records exercise more than resolution.
-See the [sample notes](schema-example-notes.md) for expected values and layouts.
+test_schema_sample parses schema-example.json as a binary-free aggregate, validates
+its contained types, generates compiler layout fixtures and constructs both data
+domains. It exercises promotion, complete runtime baking and typed reload. The
+[sample notes](schema-example-notes.md) record expected layouts and values. All
+runtime locators are generated; none are reserved in the source authoring file.
 
 ## Validation history
 
-The [schema milestone](../project/completed_milestones.md#schema-system-and-refinement)
-retains representative completion checkpoints. Detailed historical logs and
-per-change matrices belong to their commits and local test output, not the
-current behavioural specification.
+The [document model milestone](../project/completed_milestones.md#schema-document-model-and-runtime-construction)
+records current delivery results; the [earlier schema milestones](../project/completed_milestones.md#schema-delivery-status)
+retain historical checkpoints. Their counts and superseded APIs are historical
+evidence, not the current contract. Local tagged build/test output supplies the
+detailed validation logs.

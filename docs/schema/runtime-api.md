@@ -3,260 +3,151 @@ License: MIT (see LICENSE file in repository root)
 
 File:   runtime-api.md
 Authors: Ritchie Brannan / OpenAI Codex
-Date:   27 Sep 2026
+Date:   25 Oct 2026
 
 # Schema runtime API
 
-This page describes the implemented schema interfaces, lifetimes and limits.
-The [specification](specification.md) defines grammar and semantics;
-[validation](validation.md) describes regression and compiler checks.
-Schema wrappers, promotion/baking, live/baked instance and bulk data roles, and
-bounded direct-member remapping share the contracts below. Future extensions
-are discussed separately in the [follow-on notes](../backlog/schema_follow_on.md).
-
-`schema::CSchemaDocumentQuery` exposes read-only tree, name and scalar queries
-through `CSchemaHandle` occurrences. Its internal adapter reads either a live or
-baked document. A baked query copies the non-owning view, while a live query
-borrows its document. `CInstanceDocumentQuery` and `CBulkDataDocumentQuery` offer the
-same original-root read surface with their distinct role handles. Schema,
-instance and bulk data role-handle types are distinct.
-The small role-query forwarding methods are inline in `document_query.hpp`,
-grouped by class at the end of the header after the interface declarations.
-Live/baked dispatch remains in the shared adapter in `document_query.cpp`.
+This guide describes the implemented document model. See the
+[specification](specification.md) for value/layout rules and the
+[persistence guide](persistence-and-aggregation.md) for composition and conversion contracts.
+No compatibility aliases, old output forms or version-1 runtime reader are provided.
 
 ## Header organisation
 
-Include the header for the role or operation being used:
-
-| Header in `core/schema/` | Responsibility |
+| Header | Responsibility |
 | --- | --- |
-| `schema_wrappers.hpp` | Live/baked schema ownership, editing and client bindings. |
-| `resolved_schema.hpp` | Resolved layouts, defaults, diagnostics, schema document output and C++ generation. |
-| `schema_merge.hpp` | Transactional type-schema document merging, preserving declarations and combining presentation. |
-| `data_merge.hpp` | Transactional aggregation of prepared instance declarations or complete bulk records under one resolved schema. |
-| `data_preparation.hpp` | Selected-section extraction and original-schema reconstruction into prepared documents. |
-| `document_composition.hpp` | Types-required composition of prepared sections into an independent document. |
-| `baked_instances.hpp`, `live_instances.hpp` | Instance loading, observation and live editing/output. |
-| `baked_bulk_data.hpp`, `live_bulk_data.hpp` | Bulk data loading, observation and live capture/output. |
-| `data_block.hpp` | Backing states and block diagnostic vocabulary. |
-| `baked_data_block.hpp` | Completed file ownership, attachment, materialisation, stripping and local storage release. |
-| `data_remap.hpp` | Remap planning and execution between binary views. |
-| `unused_storage.hpp` | Explicit clearing of unused binary storage. |
+| `schema/schema.hpp` | Binary-free `CSchema`, aggregate query/handles, composition, merging, validation and conversions. |
+| `schema/types_wrappers.hpp` | Guarded live/baked types owners, editor and client bindings. |
+| `schema/resolved_types.hpp` | Shared resolution, type observations, canonical types output and C++ generation. |
+| `schema/document_query.hpp` | Separate types, instance and bulk query/handle families. |
+| `schema/live_instances.hpp`, `baked_instances.hpp` | Binary-backed instances and retained selection hierarchy. |
+| `schema/live_bulk_data.hpp`, `baked_bulk_data.hpp` | Complete bulk records, live creation and replacement. |
+| `schema/baked_data_block.hpp`, `data_block.hpp` | Common .bsd storage, assembly and diagnostics. |
+| `schema/data_remap.hpp`, `unused_storage.hpp` | Exact-type remapping and explicit padding clearing. |
 
-`document_query.hpp` supplies the shared public query/handle interfaces, and
-`data_output.hpp` supplies output policy. Role headers include their required
-support; live data headers also include the corresponding baked header for shared
-diagnostics and views.
+`instance_selection`, `types_admission`, `document_construction`,
+`document_merge`, `data_reconstruction` and `data_block_construction` are
+internal support. General parsing, text writing, copying and generic document
+baking remain in the data-model module. The old preparation, composition,
+role-specific merge and output-form headers have been removed.
 
+## Aggregate authoring
 
-### Persistence envelope
+`CSchema` owns an editable `CLiveDocument` containing any combination of
+`types`, `instances` and `data`, including none. It owns no runtime payload.
+`CSchemaDocumentQuery` and `CSchemaHandle` refer to the aggregate; they are
+distinct from `CTypesDocumentQuery` and `CTypesHandle`. Section queries use
+the existing role families and retain the original physical root.
 
-The [.bsd contract](common-binary-block.md) defines root metadata, independently
-optional binaries, alignment and exact extent. Internal data_block_format helpers
-share strict root admission with resolution and preparation. Full-file validation
-checks framing; typed validation remains separate.
+`initialise` creates empty authoring storage. `edit` exposes its live tree.
+`try_adopt`, `copy_from`, `compose_from`, `merge_from` and `save`
+check structural authoring admission, including allowed properties, identifiers,
+section/category shapes and bounded depth. They permit unresolved references,
+missing semantic fields and incomplete values. Runtime locators, payload lengths,
+envelopes and stripped markers are not authoring content. Direct edits may leave
+an invalid intermediate tree; the next operation rechecks it.
 
-### Completed data blocks
+`compose_from(types, instances, bulk_data, diagnostic)` selects each named
+section from its corresponding aggregate query. A default/unready query omits
+that input; an explicit empty section remains present. A ready input must contain
+its requested section and pass whole-root structural admission. No attached
+types are copied implicitly. `merge_from(first, second, diagnostic)` joins
+compatible content, preserving indivisible named definitions. These operations
+stage privately, may replace an occupied destination, and allow destination/source
+aliasing. Failure preserves all source/destination content and retained handles.
 
-Include schema/baked_data_block.hpp. CBakedDataBlock replaces the specialised
-instance/bulk owners. It owns local storage or borrows an asset range without
-acquiring a reference. It is noncopyable/nonmovable.
+`validate` requires a contained `types` section, even when no data exists.
+It resolves that catalogue and validates every contained data section against it.
+There is no external types fallback. `save(CBakedDocumentBlock&, ...)` instead
+saves the authoring tree in generic baked-document form without semantic
+validation; output must be empty. Text output uses the ordinary document writer.
 
-Observe document(), section presence, instance_binary_available(),
-bulk_binary_available(), instance_payload_view(), bulk_payload_view(), backing(),
-loaded_ready(), asset_id() and file_bytes(). An empty view alone does not
-distinguish absent from supplied-zero binary.
+`materialise(types, instances, bulk_data, diagnostic)` validates and constructs
+independent live owners. All outputs must be empty; absent data sections leave
+their role outputs empty. The extracted live types owner must outlive the bound
+roles. It never borrows types from the editable aggregate. Failure publishes none
+of the owners. `bake(CBakedDataBlock&, diagnostic)` performs the same contained-
+types validation and produces one complete runtime block in an empty destination.
 
-adopt_local and attach_asset take SDataBlockDiagnostic and validate before
-publication into an empty destination. release_local transfers the allocation
-to an empty generic document owner. Borrowers must finish before release/clear.
+These operations share an internal validation and construction plan. `validate`
+allocates no runtime payloads. Materialisation resolves its independent types copy
+once and constructs each domain in one payload allocation. Baking writes into the
+final block's payload spans without creating temporary live roles. Authored type
+content and source diagnostic locations are preserved; no validation state is
+cached across edits to the aggregate.
 
-CBakedSchema::set_block borrows embedded definitions. Data-role
-attach_block(block, schema, returned_owner, compare_embedded, diagnostic)
-borrows supplied bytes or constructs missing bytes into an unallocated working
-owner. The role retains its private locator-bearing document when constructing;
-the source block is unchanged. Keep the schema and relevant byte owners alive.
-Both data interfaces support live/baked schemas and retain lower-level APIs.
+`import_from` accepts each live/baked types, instance or bulk role and replaces
+the aggregate with only that role's section; it does not merge with existing
+content and leaves the source unchanged. Types import does not require a
+resolved owner. Data import requires a loaded role, retains instance hierarchy
+and selections, reconstructs literals from binary, and removes runtime metadata.
+It excludes linked types. Unknown enum codes, noncanonical booleans or other
+values that cannot round-trip under encoded-field comparison fail transactionally.
+Explicit empty containers and equal-value pins survive. Literal spelling/enum
+aliases and padding do not have a lossless text guarantee.
 
-### Live baking into completed blocks
+```cpp
+schema::CSchema types_part, instances_part, combined;
+schema::SSchemaDiagnostic error;
+if (!types_part.import_from(types_owner, error) ||
+    !instances_part.import_from(live_instances, error) ||
+    !combined.compose_from(types_part.document_query(),
+        instances_part.document_query(), {}, error) ||
+    !combined.validate(error)) return;
+schema::CBakedDataBlock block;
+if (!combined.bake(block, error)) return;
+```
 
-The live instance/bulk bake overloads now target CBakedDataBlock, retaining their
-specialised diagnostics and direct packing into final storage.
-CLiveSchema::bake(block, baked_schema) has a common types-only output overload.
-Generic document/payload owner overloads remain lower-level working operations.
+`SSchemaDiagnostic` carries an operation stage/reason and source locations.
+Merge conflicts retain first/second source handles. Composition admission also
+sets `source` to types/instances/bulk_data to disambiguate its first location.
+Nested types, role and block diagnostics preserve more specific failures. No
+diagnostic exposes a discarded staging handle; borrowed source locations require
+their original document to remain alive.
 
-### Materialisation from descriptions
+## Persistence envelope
 
-assemble(description, payloads, diagnostic) performs schema-independent copying
-and framing. SDataBlockPayloads holds optional pointers to two byte views:
-null means unavailable; a pointer to an empty view means supplied zero bytes.
-Assembly validates the original root before preparing private live staging: live
-input is copied iteratively, and baked input is promoted once. It replaces only
-the four envelope metadata fields, then bakes the completed description and copies
-it with the supplied payloads into the final allocation. This preserves reachable
-content and presentation, including empty placeholders becoming null, without a
-subtree-copy depth limit. Detached nodes and unused strings are excluded.
-Live-copy failures use `description_preparation/description_preparation_failed`;
-baked promotion failures retain their promotion stage and reason. Source-root
-locations belong to the caller; private staging locations are cleared. Normal
-live-storage and final document/file limits apply; the original description need
-not fit an intermediate baked allocation before its metadata is replaced.
+The [common block contract](common-binary-block.md) specifies version 2 .bsd:
+`fileType: "morphic-schema-data"`, `version: 2`, `stripped: true`, optional
+sections and an exact payload length for every present data section. A present
+empty domain requires a supplied zero-length binary. A missing runtime binary is
+an error, not a request to reconstruct values. The generic baked-document header
+and encoding remain unchanged.
 
-materialise(description, form, diagnostic, payloads) resolves embedded types and
-constructs missing binaries. An overload accepts an external live/baked schema,
-used only when embedded types are absent. Live/baked descriptions are accepted.
-The aggregate output of compose_document is a direct input. Missing locators are
-prepared privately; omitted domains remain absent, and explicit empty domains
-produce supplied-zero binaries.
+`CBakedDataBlock` owns local storage or borrows an asset range. It retains no
+types binding. `adopt_local`, `attach_asset`, `release_local`, `clear`,
+`loaded_ready`, `backing`, section/availability queries, `document`, the
+two payload views and `file_bytes` expose storage independently of typed use.
+It is immovable; release/adopt transfers local ownership without relocating bytes.
+Asset attachment acquires no asset reference. Callers manage asset/backing lifetime.
 
-Construction requires an empty destination and preserves inputs/destination on
-failure. SDataBlockBuildDiagnostic provides block, schema, instances and bulk_data
-detail; occurrences refer to caller storage or are cleared.
+`assemble(description, SDataBlockPayloads, diagnostic)` copies supplied binary
+ranges and refreshes metadata into a new block. It accepts live or baked input,
+requires an empty destination, and performs no type resolution or value decoding.
+Each present data section requires its matching payload pointer; a pointer to an
+empty view explicitly supplies zero bytes. A pointer without its section is also
+invalid. Preflight checks these relationships before staging allocation. Raw
+assembly preserves payload gaps and trailing bytes, unlike live repacking.
 
-Output form controls retained values independently of binary availability.
-Supplied stripped input can be reconstructed into retained forms.
-strip_to(destination, diagnostic) uses embedded types; an overload accepts an
-external-schema fallback. Supplied bytes are preserved. Missing binaries must be
-constructed before their descriptions can be removed.
+Live descriptions copy directly to private live staging; baked descriptions
+promote once. The internal iterative copy has no additional recursive-depth
+limit. The final document is baked once. Common and typed diagnostics retain
+their distinct boundaries; a generic document bake failure remains
+`document_bake_failed` where the generic API provides no finer reason.
 
-### Host persistence orchestration
+Host loading, asset admission and binary saving operate on complete buffers.
+Attach typed roles explicitly after storage loading; import a role into `CSchema`
+explicitly to return to authoring. No implicit source conversion, stripping pass,
+missing-binary construction or rebinding occurs during storage operations.
 
-Use `EAssetFileFormat::baked` and request 128-byte alignment for completed `.bsd` loads. Extensions help identify files visually; they do not select a
-Host format or replace the block's content validation. Resolve the schema role
-before attaching either data role, and keep its backing storage alive. Embedded
-type definitions share the common block's storage.
+## Types wrappers and client bindings
 
-| Route | Caller sequence |
-| --- | --- |
-| Live bake | Bake into a completed block; consume locally or release its local storage for admission. |
-| JSON/baked description | Parse/load the description; call `materialise()`; release the independent source when finished. |
-| Local admission | `release_local()` into `BakedAssetTransfer::storage.value`; submit through owning transport; attach a new block using the returned ID and full `byte_view()`. |
-| Complete file | Load as baked at alignment 128; call `attach_asset()` with the returned ID, full bytes and diagnostic; attach a separate data role when needed. |
-| Binary save | Submit `AssetSaveRequest` with the retained ID and baked format to a writable filesystem destination. |
-| Release | Quiesce role users, clear the block, then dispose the asset separately after any admitted work has drained. |
-
-Successful Host loading establishes retained bytes, not schema compatibility.
-Failed attachment leaves the caller responsible for the still-retained asset;
-it may retry or dispose it. A typed-role attachment failure leaves the block ready. Source retention keeps a
-successfully admitted asset available even if saving fails. Discard retention
-returns no retained interface and releases temporary backing after work completes.
-A save result in transit does not itself extend a borrowed view's lifetime.
-
-Bundle entries follow the same attachment sequence and existing retained backing
-lease. Closing a bundle prevents new loads but retained entries remain usable and
-can be saved to writable filesystem destinations. Writes to bundle entries are
-rejected. An explicit whole-bundle save writes its current bytes; edits do not
-trigger automatic dirty tracking or persistence. Promotion creates independent
-document storage and does not modify the source bundle.
-
-### Stripping completed blocks
-
-`CBakedDataBlock` exposes const `strip_to(destination, diagnostic)` and
-`strip_to(destination, schema, diagnostic)` overloads, with `CLiveSchema&` and
-`CBakedSchema&` external-schema alternatives. Embedded types are authoritative
-when present. When embedded types are absent, an explicitly supplied schema must
-already be resolved. Empty ordinary sections also support the overload without
-a schema. The source must be loaded and ready and the common-block destination
-must be empty. Self-stripping
-and occupied destinations are rejected unchanged. Blocks retain no schema binding;
-stripping resolves or borrows a schema and attaches temporary roles.
-
-Stripping preserves the types section and processes both present data domains.
-Supplied binaries undergo structural validation without comparing retained values.
-Missing binaries are constructed from sufficient descriptions before any values
-are removed; stripped descriptions without their binary fail, even for empty
-sections. Omitted domains remain absent.
-
-Instance declarations are removed recursively, bulk data arrays are removed and
-the document receives `stripped: true`. Missing bulk counts are taken from the
-temporary role's loaded entries before arrays are removed, preserving counts
-inferred from arrays or byte sizes, including zero-byte record counts. Supplied
-binaries retain their locator offsets, counts and sizes. Constructed binaries use
-their prepared locators. The output receives fresh metadata for both available
-binaries, including explicit zero lengths.
-
-Each supplied binary is copied byte for byte into a new common allocation:
-offsets, gaps, unused bits and trailing storage are preserved. Supplied bytes need
-no literal reconstruction or repacking, so values without faithful document
-literals can still be stripped. The result holds independent document and binary
-storage, whose addresses and document indices may differ.
-
-Already stripped input with all required binaries produces an independent
-equivalent block. Local and asset-backed sources use the same path and remain
-unchanged. No asset is retained or disposed implicitly; the caller may release
-the source after a successful strip. Failure leaves an empty destination empty,
-cleans up private
-allocations and bindings, and preserves the source. Source format failures may
-retain source locations; final-attachment failures retain their stage and role
-reason but clear locations into the discarded output document.
-
-`schema::k_max_alignment` in `resolved_schema.hpp` defines the maximum supported
-type alignment and the common base alignment of instance/bulk data buffers (128 bytes).
-Allocation, supplied-payload checks and staging offsets use the same constant.
-
-`record_index.hpp`, `type_compatibility.hpp`, `value_codec.hpp`,
-`value_conversion.hpp` and `integer_notation.hpp` are implementation support.
-Baked role headers include `record_index.hpp` for their private index storage. The compatibility hash index
-belongs to `type_compatibility.hpp`; it is separate from record lookup.
-`data_block_format.hpp`, `data_block_construction.hpp` and `document_merge.hpp`
-are also internal support; the public common-block and merge interfaces remain
-in their operation headers. Consumers normally reach these details through the
-relevant public header.
-
-The implementation files follow those responsibilities:
-
-| File in `core/schema/` | Responsibility |
-| --- | --- |
-| `resolved_schema.cpp` | Shared live/baked validation, type resolution, defaults and layout. |
-| `schema_declarations.cpp`, `schema_output.cpp` | C++ declarations and canonical schema document output, respectively. |
-| `schema_wrappers.cpp` | Schema ownership, editing, client bindings and translation. |
-| `document_query.cpp` | Shared live/baked read adapter; role forwarding is inline in the header. |
-| `baked_instances.cpp`, `baked_bulk_data.cpp` | Loading, materialisation, binary views and baked record lookup. |
-| `baked_data_block.cpp` | Common storage attachment, aggregate materialisation, stripping and source diagnostic mapping. |
-| `data_block_format.cpp`, `data_block_construction.cpp` | Shared root/framing validation, private description preparation and final block assembly. |
-| `schema_merge.cpp`, `data_merge.cpp`, `document_merge.cpp` | Type/data admission and transactional merging through shared document construction and reason mapping. |
-| `live_instances.cpp` | Instance lifetime, bindings, queries and creation. |
-| `live_instances_edit.cpp` | Capture, selection editing and descendant propagation. |
-| `live_instances_translation.cpp` | Instance declaration reconstruction, promotion, reconciliation and baking. |
-| `live_bulk_data.cpp` | Live bulk data ownership, capture, queries, reconciliation and translation. |
-| `value_codec.cpp` | Shared value construction, decoding and comparison. |
-| `type_compatibility.cpp` | Cached structural compatibility checks. |
-| `data_remap.cpp`, `unused_storage.cpp` | Remap planning/execution and explicit unused-storage clearing. |
-
-General document copying lives in `core/data_model/document_copy.hpp`; include it
-for detached subtree copies. `document_translation.hpp` exposes whole-document
-and root-member promotion/baking. Subtree copying and promotion retain distinct
-traversal policies while sharing shallow value construction.
-
-Implementation sections group lifecycle, queries, editing, reconciliation and
-output. Instance selection decoding and reconciliation use stack-local operation
-objects to hold fixed traversal inputs; they add no persistent storage or heap
-allocation.
-
-The live instance implementation has three parts: `live_instances.cpp` owns
-lifetime, bindings, queries and creation; `live_instances_edit.cpp` owns capture,
-selection editing and descendant propagation; `live_instances_translation.cpp`
-owns binary-authoritative declaration reconstruction, promotion, reconciliation
-and baking. Creation and translation share private append/locator helpers on
-`CLiveInstances`. Editing and translation use the shared scalar decoder with
-their respective diagnostic policies. This split adds no public header.
-
-Selection overlays and bulk data document reconstruction also use stack-local
-operation objects for their fixed inputs. Overlay traversal depth remains
-separate from the excluded selection's path depth. The value writer retains its
-construction mode for the operation and shares compound-input preparation
-between structures and bit structures. Their positional-entry rules and first
-diagnostic ordering remain distinct; this consolidation does not change bulk data
-completeness, instance defaults or alternative inheritance.
-
-## Schema wrappers and client bindings
-
-`schema::CBakedSchema` copies a non-owning `CBakedDocument` view. The caller keeps
+`schema::CBakedTypes` copies a non-owning `CBakedDocument` view. The caller keeps
 the immutable block bytes at stable addresses while the wrapper or its clients
-use them, including when a host also has a mutable alias. `schema::CLiveSchema`
+use them, including when a host also has a mutable alias. `schema::CLiveTypes`
 owns a `CLiveDocument` privately. Both wrappers expose `document_query()` over
 the original physical root, `types_root()` for the schema section, and a nullable
-`const CResolvedSchema*` through `resolved()`. `document_ready()` distinguishes
+`const CResolvedTypes*` through `resolved()`. `document_ready()` distinguishes
 available document storage from `resolved_ready()`; client operations need the
 latter. Queries are borrowed views and do not extend backing lifetime.
 
@@ -271,7 +162,7 @@ unreferenced wrapper into an empty destination and preserves a successful
 resolution; live transfer repairs the resolver's pointer to the moved document.
 Ordinary wrapper moves are disabled so referenced moves can fail explicitly.
 
-`CBakedSchema::promote()` creates a separate live schema from the source's
+`CBakedTypes::promote()` creates a separate live schema from the source's
 `types` section, resolving the new copy before publication. The baked source may
 be unresolved; its document and client bindings are preserved. Promotion requires
 an empty destination; failure leaves it unchanged. A resolver failure reports
@@ -280,16 +171,18 @@ but clears occurrence handles and ranges because its temporary live document is
 discarded. Translation failure reports `translation_failed`; invalid source or
 occupied destination reports `invalid_input`.
 
-`CLiveSchema::bake()` creates a separately owned `CBakedDocumentBlock` and an
-unresolved `CBakedSchema` view over it. The source need only have a ready document,
+`CLiveTypes::bake()` creates a separately owned `CBakedDocumentBlock` and an
+unresolved `CBakedTypes` view over it. The source need only have a ready document,
 so an incomplete editable schema can be saved without resolving it. Both outputs
 must be empty. Keep the block's backing allocation alive at a stable address
 while the baked wrapper or its clients use it; the owner object can move or be
-transferred. Both conversions retain only the `types` root member;
+transferred. The additional common-block bake overload accepts a `CBakedDataBlock` and emits
+a types-only version-2 envelope. Neither overload performs full aggregate validation.
+Both conversions retain only the `types` root member;
 `instances` and `data` in a combined source are untouched and are absent from
 the new document. Neither conversion carries client bindings into the result.
 
-`CLiveSchema::edit()` returns a borrowed editor for the current owner. It can
+`CLiveTypes::edit()` returns a borrowed editor for the current owner. It can
 append typed values, rename or erase descendants, change newline escaping, and
 replace payloads. It does not expose a mutable `CLiveDocument`, detached values,
 or reorder operations. It may create the missing `types` object at the root and
@@ -301,7 +194,7 @@ call `resolve()` again before using resolved observations. The editor is a raw
 borrow and expires when its owner moves, resets, adopts new storage, clears its
 document, or dies.
 
-`CSchemaBinding` is a move-only link held inside a client. Binding requires a
+`CTypesBinding` is a move-only link held inside a client. Binding requires a
 resolved wrapper. Each schema counts its clients and holds an intrusive list of
 their embedded links, without owning those clients. Every editor mutation and
 document replacement checks that count at the time of the call. Referenced edits,
@@ -314,7 +207,7 @@ destruction detaches and invalidates all links before releasing document state;
 subsequent client operations reject safely, and `release()` remains safe. Binding
 reassignment preflights the target, preserving the old link on rejection.
 
-`core/schema/resolved_schema.hpp` provides `schema::CResolvedSchema` and
+`core/schema/resolved_types.hpp` provides `schema::CResolvedTypes` and
 `schema::generate_cpp`. Resolution consumes a validated `CLiveDocument` or
 `CBakedDocument`;
 it does not parse text, construct instances, or modify the backing document.
@@ -323,11 +216,11 @@ that excludes `EDocumentFinding::name_collision_extension`. The ordinary parser
 policy already excludes collision extension. Baking is optional for resolution.
 
 ```cpp
-schema::CResolvedSchema resolved;
+schema::CResolvedTypes resolved;
 schema::SDiagnostic diagnostic;
 if (!resolved.resolve(block.document(), diagnostic))
 {
-    // Query the occurrence using CSchemaDocumentQuery{ block.document() }.
+    // Query the occurrence using CTypesDocumentQuery{ block.document() }.
     // The resolved owner is empty.
     return;
 }
@@ -351,18 +244,18 @@ must remain alive, unmoved and unedited while its resolution is used. The raw
 query and resolver carry no client binding checks; use the wrappers for guarded
 editing and client invalidation.
 
-`resolve(query, diagnostic)` accepts an existing `CSchemaDocumentQuery`.
+`resolve(query, diagnostic)` accepts an existing `CTypesDocumentQuery`.
 `resolve(diagnostic)` uses the retained input for an unchanged re-resolution.
 Every resolution attempt clears the previous tables immediately. A successful
-unchanged re-resolution preserves existing `CSchemaIndex` meanings. Changed
+unchanged re-resolution preserves existing `CTypesIndex` meanings. Changed
 definitions can change those meanings, and failure or `clear()` invalidates
 them. Failure releases every owned table and clears the input binding, so an
 unready owner cannot re-resolve without a new input. Moving transfers the
 binding, indices and tables and leaves the source empty. Indices have no
 generation or owner identity.
 
-Resolved schema record indices are 32-bit `CSchemaIndex` values; zero is invalid.
-Document occurrences use `CSchemaHandle`, which preserves the full live node key
+Resolved schema record indices are 32-bit `CTypesIndex` values; zero is invalid.
+Document occurrences use `CTypesHandle`, which preserves the full live node key
 or baked value index and cannot be constructed from a raw key by callers. Both
 handle types are distinct. Callers must not decode their numeric values. Named
 lookup misses and unmapped occurrences return zero. Inspection methods return
@@ -455,7 +348,7 @@ graph caching with allocation-failure results and no cache across re-resolution.
 ### Decoration observations
 
 `SDecoration` contains borrowed `key` and `value` string views and a `source`
-handle identifying the original string node. `CResolvedSchema` provides:
+handle identifying the original string node. `CResolvedTypes` provides:
 
 - `find_decoration(owner, key, result)` for exact local lookup;
 - `first_decoration(owner, result)` to start in document order;
@@ -473,11 +366,11 @@ resolved layout records. They use document name lookup and sibling traversal;
 they do not add a persistent decoration index. Returned strings and handles
 require the original unchanged document, under the existing schema lifetime and
 editing rules. Handles are scoped to their originating document. Existing
-`CSchemaDocumentQuery` operations also expose decoration nodes directly.
+`CTypesDocumentQuery` operations also expose decoration nodes directly.
 
 ## Schema document output and integer presentation
 
-`CResolvedSchema::prepare_output(CLiveDocument&, SDiagnostic&) const` creates a
+`CResolvedTypes::prepare_output(CLiveDocument&, SDiagnostic&) const` creates a
 document containing only the resolved source's `types` section, with canonical
 integer metadata. The source can be live or baked. Both schema wrappers expose
 this through `resolved()->prepare_output(...)`; resolution must be ready, and
@@ -501,18 +394,18 @@ prints as `0x00000001`. Metadata storage width remains the measured minimum in
 the selected domain, independently of declared width and padding. Floating-point
 defaults spelled as integers retain their existing metadata.
 
-The implementation in `schema_output.cpp` derives a temporary rule list from
+The implementation in `types_output.cpp` derives a temporary rule list from
 resolved records, sorts it once and uses binary search while reusing the document
 subtree copier. No output index persists in resolved records. Output preserves
 declaration order, names, strings and supplied default structure, and adds
 omitted structure `detail.size` and `detail.alignment`, and array `stride` and
 `alignment`, from the resolved layout.
-It does not materialise missing defaults or array elements.
+Authored interface-member counts receive structural-integer formatting; omitted
+counts remain omitted. Output does not materialise missing defaults or array elements.
 
-Data-role promotion, reconciliation, selection decoding and output preparation
-share the scalar policy. Bit-field values follow their logical declared type;
+Explicit instance/bulk value import shares the scalar policy. Bit-field values follow their logical declared type;
 enum values remain label strings. Rebuilt locator integers use the structural
-policy in every output form, including stripped output. Raw bulk data capture still
+policy in runtime output. Raw bulk data capture still
 constructs locators without decoding records. Input declarations copied without
 reconstruction retain their metadata until a reconstruction operation is requested.
 
@@ -522,284 +415,26 @@ again restores that policy. Strict JSON writing emits decimal values using the
 existing writer option. See the
 [data-model numeric contract](../data_model/revised_data_model.md#numeric-values).
 
-## Type schema merging
+## Composition and merging
 
-`schema::merge_type_schemas` combines two independently valid type-schema
-documents into an independently owned `CLiveDocument`:
+Aggregate admission and semantic validation are separate operations. An overlapping
+named type is an indivisible definition: members, order, category and intrinsic
+shape must agree. Defaults, decorations and eligible presentation metadata merge
+without precedence; conflicting supplied values fail. Missing intrinsic fields
+cannot be filled from a different partial definition. Omitted versus explicit
+layout metadata is accepted only when equivalence can be established from the
+definition's available dependency closure. Unrelated unresolved declarations do
+not block that proof; unresolved relevant dependencies report unestablished
+compatibility. The final merged document is not automatically resolved.
 
-```cpp
-schema::SSchemaMergeDiagnostic diagnostic;
-CLiveDocument merged;
-const bool accepted = schema::merge_type_schemas(
-    schema::CSchemaDocumentQuery{ first },
-    schema::CSchemaDocumentQuery{ second },
-    merged, diagnostic);
-```
-
-Each query can refer to live or baked storage, including mixed inputs. Only the
-`types` section contributes; instance/data sections and the `stripped` root marker
-are not copied. Both inputs must resolve independently, so one cannot supply a
-missing dependency in the other. Matching type names require the same resolved
-layout and interpretation, including referenced names, member order, enum label
-order and bit-field semantics. Equivalent natural and explicit layouts can merge.
-Matching associations require equal immediate target identity/presence. Matching
-interfaces require equal ordered member names, referenced identities and effective
-counts; their dependency declarations must also be compatible. This check uses
-`CDeclarationCompatibility` and does not interpret consumer decorations.
-
-The merge operates on original declarations, without normalising them through
-`prepare_output`. A missing explicit default yields to a supplied default; two
-supplied defaults must agree under the document scalar/array rules. Omitted
-defaults and array tails are not materialised. Defaults remain restricted to
-the existing schema grammar. Presentation is combined under the
-[agreed rules](persistence-and-aggregation.md#agreed-presentation-merging).
-Objects retain first-source field order followed by second-only fields in their
-encounter order. Arrays supplied by both sources require equal lengths and merge
-positionally. The independently resolved result receives its own runtime indices.
-
-The destination may be empty, occupied or explicitly supplied as either/both
-sources. An occupied destination is not an implicit input. Construction and final
-resolution use private staging; publication uses non-failing move assignment.
-Failure preserves all sources, the destination and their handles/views. Success
-invalidates previous destination identities, including a source that aliases it.
-Other sources remain unchanged, and the result borrows no input storage. Callers
-keep sources unchanged during the call and exclude concurrent destination access.
-Adoption into a schema owner and baking are separate operations, retaining their
-existing bound-owner and empty-destination restrictions.
-
-`SSchemaMergeDiagnostic` reports the first failure with stage/reason, two optional
-source handles and nested resolver detail. First/second source-validation stages
-identify the owner of resolver locations. Structural conflicts identify both
-original type declarations; supplied-value conflicts identify both original
-values. Result-validation failure retains resolver reason/stage but clears all
-temporary handles and ranges. Diagnostics own no storage and are cleared on
-success. Allocation/storage-limit causes are reported when known; construction
-helpers returning only failure use `construction_failed`.
-
-Preparation, merge and copy share a document-depth limit: `types` is depth zero,
-and depth 256 is rejected as `document_merge` / `storage_limit`. Resolver graph
-limits remain separate. A shared-document traversal uses an explicit work stack;
-one-sided branches reuse the bounded document copy walker. Empty/small objects
-avoid matching-index allocations; wide objects use temporary sorted name-ID
-indexes. Names and strings are preloaded in lexical order, then preparation
-vectors are released and construction uses existing logarithmic string lookup.
-There is no retained secondary string index or resolved cache in the result.
-
-This operation constructs a merged schema; it does not switch existing data roles
-or merge their documents. Later instance construction may adopt newly supplied
-defaults, whereas checked schema switching preserves an existing binary package.
-
-## Instance and bulk data aggregation
-
-`schema::merge_instances` and `schema::merge_bulk_data`, declared in
-`data_merge.hpp`, combine two prepared document views under one ready resolved
-schema. The corresponding queries can refer to live or baked storage in any
-combination. For example:
-
-```cpp
-schema::SInstanceMergeDiagnostic diagnostic;
-CLiveDocument merged;
-const bool accepted = schema::merge_instances(
-    schema::CInstanceDocumentQuery{ first },
-    schema::CInstanceDocumentQuery{ second },
-    resolved_schema, merged, diagnostic);
-```
-
-The bulk function has the same shape with `CBulkDataDocumentQuery` and
-`SBulkDataMergeDiagnostic`. Neither operation resolves/merges schemas, converts
-stored packages, attaches a role or allocates binary payloads. Prepare those
-inputs separately, keeping the supplied schema's backing document alive.
-
-Prepared roots contain only the selected `instances` or `data` object section.
-An absent section is empty, and output always contains that section, even for two
-empty inputs. Empty type groups are valid; present bulk entries require a nonempty
-`data` array. Locators, stripped markers, persistence fields and unrelated root
-sections are rejected. Each source validates independently; union cannot repair
-an incomplete record or an invalid declaration in either input.
-
-Instances preserve explicit selections and recursively merge specialisations.
-Omissions remain absent and inherit merged defaults or parent declarations during
-later construction. Bulk records must be complete. Their outer record arrays merge
-a matching common prefix and retain the longer tail, including presentation from
-both prefix contributors. Nested arrays and instance arrays require equal lengths;
-objects retain first-source order followed by second-only fields. Exact document
-value equality and presentation follow the type merger's rules; distinct named,
-positional or shorthand representations can conflict even when their encodings
-would agree. Nothing reconciles retained descriptions implicitly.
-
-Admission shares scalar, shape, selection and checked extent rules with existing
-construction/loading. It visits supplied declarations, uses indexed schema lookup,
-and checks prospective packed extents without allocating payload-sized scratch.
-The shared merger collects strings once, preloads sorted distinct values and uses
-existing string indexes thereafter. Shared subtrees use an explicit work stack;
-one-sided branches use the existing copier. New traversal/construction targets
-O(N log N) comparisons and O(N) scratch, with string-byte comparison costs separate.
-Validation scales with supplied declarations and required shape checks, not omitted
-array counts or effective parent snapshots.
-
-### Construction-depth policy
-
-Cheap explicit value-depth and hierarchy checks remain. Collection, merging and
-copying count the selected section as depth zero and reject depth 256. Implicit
-construction paths are not preflighted: a successful merge can later fail binary
-construction on its existing depth/resource limits without changing the merged
-document. There is no additional schema-depth cache or graph pass.
-
-The common budget is `document_limits::k_max_recursion_depth` (256), declared in
-`data_model_types.hpp` and shared by bounded document copying and schema traversal,
-validation, construction, reconstruction and output paths. Each operation retains
-its existing depth counter and starting point; sharing the budget does not make
-document depth, hierarchy depth and implicit construction depth interchangeable.
-
-Callers can optionally inspect `CLiveDocument::maximum_depth()` or
-`CBakedDocument::maximum_depth()`. These allocation-free, iterative probes count
-the document root as zero (the selected merge section is therefore depth one).
-They measure actual document topology, including scalar leaves, and do not
-predict implicit construction depth or run automatically during aggregation.
-
-### Publication and diagnostics
-
-Publication validates private staging, releases temporary readers/scratch and uses
-non-failing move assignment. Sources can alias an occupied destination, including
-both sources being that destination. Failure preserves all original storage and
-identities; success replaces destination identities. The result owns its storage
-and remains usable after releasing inputs and schema. The destination must not
-back the supplied resolved schema; that case is `preconditions` / `invalid_schema`.
-An occupied destination is not an implicit contributor.
-
-`EDataMergeStage` and `EDataMergeReason` are shared; diagnostics retain typed
-instance/bulk source handles and the existing domain diagnostic. Source-validation
-errors identify the corresponding input. Conflicts identify both inputs. Final
-validation clears all temporary locations. Known allocation/storage failures retain
-their resource reason; opaque construction failures use `construction_failed`.
-Success clears the diagnostic. See the full
-[diagnostic contract](persistence-and-aggregation.md#agreed-data-aggregation-functions-and-diagnostics).
-
-## Document preparation and composition
-
-`data_preparation.hpp` supplies four overloads:
-
-```cpp
-bool prepare_instances_document(const CInstanceDocumentQuery& source,
-    const CResolvedSchema& source_schema, CLiveDocument& destination,
-    SInstancePreparationDiagnostic& diagnostic) noexcept;
-bool prepare_instances_document(const CInstanceDocumentQuery& source,
-    const CResolvedSchema& source_schema, const CByteConstView& payload,
-    const bool compare_embedded, CLiveDocument& destination,
-    SInstancePreparationDiagnostic& diagnostic) noexcept;
-bool prepare_bulk_data_document(const CBulkDataDocumentQuery& source,
-    const CResolvedSchema& source_schema, CLiveDocument& destination,
-    SBulkDataPreparationDiagnostic& diagnostic) noexcept;
-bool prepare_bulk_data_document(const CBulkDataDocumentQuery& source,
-    const CResolvedSchema& source_schema, const CByteConstView& payload,
-    const bool compare_embedded, CLiveDocument& destination,
-    SBulkDataPreparationDiagnostic& diagnostic) noexcept;
-```
-
-Queries accept live or baked documents. The ready original schema is the sole
-semantic authority: embedded types and sibling section contents are ignored;
-recognised root containers and applicable storage metadata are checked. Output
-always contains exactly the selected `instances` or `data` object, including when
-empty. Storage fields are omitted. Retained declarations, record arrays, ordering,
-empty containers and presentation survive unchanged. Already prepared documents
-can go directly to merging without this additional copy.
-
-Stripped instances require the supplied-payload overload and reconstruct minimal
-changes against original defaults or their immediate parent snapshot. Missing
-whole bulk arrays reconstruct complete records; present incomplete or empty arrays
-are rejected. Comparison of retained descriptions with supplied bytes is optional
-and explicit; reconstruction always checks representability. This operation neither
-copies payload storage nor changes source descriptions, schemas or bindings.
-
-Supported unbound locator placeholders can stand alone. Valid locators and a
-selected instancePayloadSize/bulkPayloadSize declaration require an explicit
-payload view, even for zero bytes. The common identifier/version pair is required
-when any envelope metadata appears; each binary length is independently optional. Supplied entries require valid locators,
-checked counts, offsets, alignment and spans. Gaps and trailing slack are accepted.
-See the full [storage admission table](persistence-and-aggregation.md#agreed-preparation-storage-metadata-admission).
-Physical file/padding validation remains the block loader's responsibility.
-
-Preparation stages are `preconditions`, `source_validation`,
-`document_preparation` and `result_validation`. The shared reason enum distinguishes
-invalid schema/source/result, known allocation/storage limits and opaque construction
-failure. Diagnostics retain the domain's reason and original source occurrence;
-result validation clears temporary occurrences. Destination backing the supplied
-resolved schema is rejected before work. Success clears the diagnostic.
-
-`document_composition.hpp` supplies three overloads:
-
-```cpp
-bool compose_document(const CSchemaDocumentQuery& types,
-    const CInstanceDocumentQuery& instances, CLiveDocument& destination,
-    SDocumentCompositionDiagnostic& diagnostic) noexcept;
-bool compose_document(const CSchemaDocumentQuery& types,
-    const CBulkDataDocumentQuery& bulk_data, CLiveDocument& destination,
-    SDocumentCompositionDiagnostic& diagnostic) noexcept;
-bool compose_document(const CSchemaDocumentQuery& types,
-    const CInstanceDocumentQuery& instances, const CBulkDataDocumentQuery& bulk_data,
-    CLiveDocument& destination, SDocumentCompositionDiagnostic& diagnostic) noexcept;
-```
-
-Types input must contain only a required `types` object. Data inputs obey the strict
-prepared-root rules. Types resolve once; instances then bulk data validate against
-that resolution. Sections copy in `types`, `instances`, `data` order, preserving
-contents and presentation. Missing supplied data sections become empty objects;
-unsupplied domains are omitted. There is no second result resolution, default
-expansion, binary construction, merging or schema association.
-
-Composition stages identify types validation, instances validation, bulk data
-validation or document composition. Reasons distinguish invalid input, known
-allocation/storage limits and construction failure. Only the relevant typed detail
-field is populated, with a source occurrence where available. Success clears all
-fields. See the [diagnostic contract](persistence-and-aggregation.md#agreed-composition-diagnostics).
-
-Both operations build private, independently owned live storage and publish through
-non-failing move assignment. Empty, occupied and source-aliased destinations are
-supported; failures preserve destination bytes and handles. Borrowed inputs must
-remain valid and unchanged during the call. Composition releases its local resolver
-before replacing an aliased types document. Ordinary external-borrower replacement
-rules still apply. Section-relative depth checks accompany traversal/construction;
-no maximum-depth preflight or implicit default-depth prediction is added.
-
-Strings from retained sections and reconstruction metadata are combined into one
-sorted preload. Only distinct reachable reconstruction types are visited, including
-internal array types, without expanding their element counts. The document's own
-string indexes serve later lookup. Candidate vectors are released before emission;
-no second text-to-ID map or per-record metadata collector persists.
-
-### Shared document construction
-
-`document_construction.hpp/.cpp` supplies schema-internal string preparation and
-subtree copying for merging, preparation and composition. Borrowed name/string
-candidates are sorted and deduplicated in their respective domains. Unique counts
-and stored byte lengths initialise fresh string tables before ordered imports;
-the tables' own logarithmic lookup is reused during emission. Empty strings use
-their canonical entry. Candidate storage is released before node emission.
-
-The existing collection walk counts copied nodes, and callers add cheaply known
-structural nodes when initialising staging capacity. Preparation reserves group
-records and newly discovered sibling batches, including pending siblings while
-descending specialisations. Reconstruction can grow beyond that known minimum;
-there is no schema expansion or maximum-depth pass solely to predict capacity.
-Generated strings are collected once per distinct reachable reconstruction type,
-including internal arrays, without expanding element counts.
-Retained-only preparation skips reconstruction-metadata collection entirely.
-
-Instance reconstruction creates base-default scratch lazily when a stripped base
-needs it, then reuses that scratch within its type group. Specialisations borrow
-their immediate parent's binary bytes as the baseline. Retained-only preparation
-allocates no default scratch. Reconstruction still runs the subsequent
-`check_value`/`check_alternative` reproduction check when it emits no declaration;
-omission must not conceal an encoding that cannot be reproduced. The final
-prepared-document validation does not replace these binary reproduction checks.
-
-Private construction reuses `CDocumentConstruction` and the native subtree copier
-after admission establishes ownership/name invariants. Arbitrary editing remains
-checked. Count/byte overflow is rejected before allocation; failed reservations
-discard private state and preserve caller-owned sources/destinations. No new
-public unchecked builder, duplicate string index or transaction owner is involved.
-Pre-allocation removes repeated growth in reserved phases; it does not establish
-an end-to-end linear allocation bound for all containers and reconstruction.
+Instance objects merge by name and hierarchy. Positional instance declarations
+allow inherited null holes, short tails and recursive compound selections. A
+hole contributes no override; two selected unequal values conflict. Complete
+bulk arrays merge an equal common prefix and retain a longer tail; nested complete
+value arrays retain their ordinary equal-length rules. See
+[persistence and aggregation](persistence-and-aggregation.md) for scalar equality,
+presentation and diagnostic rules. Authoring operations impose a 256-level tree
+bound, including opaque/incomplete values; runtime hierarchy traversal may be deeper.
 
 ## Defaults
 
@@ -843,7 +478,7 @@ schema API.
 ## Internal value construction
 
 `core/schema/value_codec.hpp` exposes synchronous internal operations over a
-ready `CResolvedSchema` and a representation-neutral `detail::CDocumentRead`:
+ready `CResolvedTypes` and a representation-neutral `detail::CDocumentRead`:
 
 ```cpp
 detail::construct_value(schema, document, type, declaration, destination,
@@ -856,8 +491,8 @@ detail::construct_alternative(schema, document, type, declaration, base,
 and array position. Instance mode fills omitted values from schema defaults;
 short positional input uses defaults, including an explicit array-default
 prefix. An alternative copies its immediate parent's complete bytes into a
-separate destination, then changes selected values. Positional input selects
-its supplied prefix at every nesting level; omitted positions inherit. Named
+separate destination, then changes selected values. Positional instance input selects supplied non-null positions at every nesting
+level; null holes and omitted positions inherit. Named
 input selects members or fields. Explicitly supplied values remain selections
 even when equal to the parent. Neither operation changes the parent.
 
@@ -867,8 +502,8 @@ structure with one scalar field. For `Value { a: u8 }`, `1`, `[1]` and `{"a":1}`
 are equivalent initialisers. This applies to roots, nested members, array
 elements, instance selections and bulk data records. It does not recursively unwrap
 an array or compound member, and multi-member or empty compounds still require
-aggregate input. Null remains invalid; scalar range, enum-label and bitfield
-interpretation rules are unchanged. Capture and embedded output may emit the
+aggregate input. Null is valid only as a positional instance-inheritance hole; scalar range, enum-label and bitfield
+interpretation rules are unchanged. Explicit value import may emit the
 equivalent explicit aggregate form while retaining the same selected member.
 
 The internal `construct_value` singleton-element flag identifies a named
@@ -883,8 +518,8 @@ Stored scalars and bit words are little-endian. Construction writes logical
 values without clearing structure/array gaps. A newly constructed bit word is
 initialised as a unit; an alternative retains all inherited bytes and bits
 outside selected masks. On conversion failure the destination may be partially
-changed and must be discarded; the source stays unchanged. The codec neither
-allocates nor binds a schema. Role wrappers check their schema
+changed and must be discarded; the source stays unchanged. The codec does not bind a types owner; shuffled named selections can allocate
+a temporary lookup index. Role wrappers check their schema
 binding before each call. Callers and owners must keep borrowed baked document
 and payload backing alive at stable addresses under each role's ownership rules.
 
@@ -898,8 +533,7 @@ carry the index with its records; clearing releases it.
 Live roles binary-search their record vectors directly, without auxiliary index
 storage or maintenance. Entry keys are strictly increasing in record order:
 creation appends a fresh monotonic key, replacement and renaming preserve it,
-and bulk data erasure preserves the order of the remaining records. Promotion and
-reconciliation create fresh entry keys in record order, even when document
+and bulk data erasure preserves the order of the remaining records. Promotion creates fresh entry keys in record order, even when document
 groups or specialisation branches are interleaved. Whole-owner transfers
 preserve that order. Future mutation paths must preserve this invariant.
 
@@ -913,10 +547,10 @@ Live bulk data records retain their resolved type index, so access by handle doe
 not repeat a schema type-name search. Binding availability is checked on each
 operation. Bound schemas cannot be edited or replaced; successful unchanged
 re-resolution preserves indices, while failed resolution makes access unavailable
-until a successful retry. Promotion resolves indices in the destination schema.
-Document and payload formats are unchanged.
+until a successful retry. Promotion retains the current types association; explicit rebinding resolves
+indices in the target owner.
 
-Promotion/output and remap setup share an operation-local resolved-type
+Rebinding and remap setup share an operation-local resolved-type
 comparison context. Representation compatibility ignores defaults, the
 `internal` marker and decorations. Strict definition comparison includes all
 three, comparing decoration maps independently of order and equating absent and
@@ -928,14 +562,13 @@ Completed matches and proven root mismatches can be reused within the operation;
 unfinished comparisons are discarded on failure. No cache survives schema
 re-resolution.
 
-Scalar decoding is shared by bulk data output and instance capture, editing and
-reconciliation. The codec also shares little-endian scalar bit access with
+Scalar decoding is shared by instance and bulk value import. The codec also shares little-endian scalar bit access with
 construction and comparison. Role-specific traversal and diagnostic mapping stay
 with their callers, including the checks that generated literals reproduce
 meaningful encoded values. This adds no decoding to stripped baking or baked
 entry access.
 
-Instance creation and editing use the data-model `document_translation::copy_subtree`
+Instance construction and explicit value operations use the data-model `document_translation::copy_subtree`
 helper for live or baked sources, including copying within one live document.
 It retains integer metadata, string newline-escaping flags, names and child order,
 and removes partial copies on failure. The same helper group stabilises names
@@ -945,441 +578,167 @@ source access. The subtree walk retains its 256-level depth bound and incrementa
 growth; promotion retains its iterative walk, node reservation and staged
 publication. Baked access gains no additional storage or work.
 
-## Baked bulk data role
+## Initial attachment and types rebinding
 
-`CBakedBulkData` attaches to an immutable `CBakedDocument` view or a
-`CMutableBakedDocument` view through `set_document()`. Both borrow their block
-bytes. `attach_schema()` takes a resolved `CBakedSchema` or `CLiveSchema` and
-atomically establishes typed readiness with a complete payload. The schema
-owner invalidates the binding on destruction; `loaded_ready()` then becomes
-false. `clear()` releases the binding, records and payload view. The wrapper
-never owns the external payload. `document_query()` reads the original root;
-`data_root()` selects its bulk data section. `find_entry()` and `entry()` expose
-validated type, count, offset, stride, byte extent and borrowed byte pointer.
+`CBakedInstances` and `CBakedBulkData` borrow read-only descriptions and
+complete binaries. Use `attach_block(block, types, diagnostic)`, or
+`set_document(document)` followed by `attach_types(types, payload, diagnostic)`.
+The supplied payload is explicit, including an empty view for zero bytes. An
+absent selected section yields an empty role. A raw runtime description must have
+`stripped: true`; if it declares a common envelope, the complete version-2
+metadata contract applies. Baked attachment never creates binary or mutates locators.
 
-Each `data.<type>.<name>` entry is an object with a required `locator` and
-optional embedded `data` array. The locator reserves unsigned 32-bit `offset`
-and boolean `valid`; optional `count` and `size` must agree with the embedded
-length and resolved type size. A positive count is required. Without embedded
-data, count may be inferred from nonzero type size and supplied size; a zero-byte
-type without embedded data needs an explicit count. Record stride is the resolved type size.
-Outer array positions are unnamed, and embedded materialisation requires
-complete values at every nested level.
+Attachment validates type/layout, selection grammar, inherited instance values,
+counts, alignment, extents, ordering and overlap. There is no compare-disable
+option. Selected binary values may contain raw encodings that cannot be imported
+as literals. Embedded types, when present during initial common-block attachment,
+establish source interpretation before checked binding to the requested owner.
+Otherwise the supplied owner establishes that interpretation.
 
-`attach_schema(schema, payload, compare_embedded, diagnostic)` validates the locators,
-then borrows an existing payload. Nonempty payloads need a physically
-128-byte-aligned base. Valid extents must be in document order, nonoverlapping,
-within the supplied view and aligned for their type. With comparison enabled,
-each embedded record is checked against construction rules over addressable fields, without allocating reconstructed bytes. Padding
-and unused bit fields are ignored; distinct raw codes and signed zero remain
-distinct, while all NaN encodings compare equal. With comparison disabled, the
-entry and locator structure is still checked without encoding values.
+Checked replacement first validates the source against its active type context,
+then proves compatibility and applies replacement defaults. It cannot repair an
+invalid persisted source by silently rebuilding it: an unselected stored value
+of 9 under an active default of 1 must fail even if the requested new default is 2.
+Without embedded or prior types, initial external attachment validates the supplied
+interpretation; it cannot prove which original layout produced the bytes.
 
-`attach_schema(schema, returned_owner, diagnostic)` requires embedded data for every
-entry and an unallocated output `CByteBuffer`. It plans extents, allocates an
-aligned payload and constructs complete records before updating any reserved
-locator. Unset offsets are computed in document order and published through a
-mutable document view with `valid: true`; a read-only view cannot publish them.
-The caller receives the owner, while the wrapper keeps a non-owning view. A
-zero-byte-only payload can use the canonical empty view. Moving the owner keeps
-the payload address stable; destroying or reallocating it invalidates the view.
-`SBulkDataDiagnostic` reports the first failure reason and a bulk data occurrence when
-available. Failure leaves the role unready.
+`rebind_types(target, ETypeBindMode::checked, diagnostic)` compares used type
+representations, including empty used groups, with the still-available old owner.
+Defaults and decorations do not change physical compatibility. Live instances
+rebuild unselected values from the target defaults and immediate-parent chain,
+retaining local selections and selected bytes. Handles and the live allocation
+remain stable; inherited bytes may change. Bulk rebinding does not alter records.
+Failure preserves the old association and bytes.
+Resolved type indices and type-dependent plans belong to their original context;
+reacquire or rebuild them after successful rebinding. Default application follows
+propagation and does not add compensation selections. Bulk records remain complete
+authoritative values and receive no replacement defaults.
 
-## Initial attachment and schema switching
+A baked instance rebind without replacement accepts only changes needing no
+meaningful byte updates. The overload accepting an empty `CByteBuffer&`
+always publishes independently rebuilt storage on success, even when the values
+already match. The role then borrows that buffer; keep it alive until the role
+releases or replaces the association. The original common block/header remains unchanged. Subsequent promotion,
+output and import use the current binding, not stale embedded defaults.
 
-Baked roles have an unassociated document state followed by a complete attached
-state. There is no public bind-then-load state. The supplied-payload overload of
-`attach_schema()` validates locators/ranges and optionally retained values; the
-returned-owner overload validates and constructs the whole package. Both require
-an unattached role. Failure preserves its document, leaves it unattached and
-publishes no payload or locator changes. A zero-byte package still counts as
-attached. For initial attachment there is no previous schema to compare against.
+`asserted_recovery` is available only after the old owner/resolution becomes
+unavailable. The caller asserts compatibility with the lost context; the operation
+cannot prove that compatibility or check inheritance against lost defaults. It is
+not a bypass while a usable old binding exists, nor an automatic fallback after
+checked replacement fails. A stale embedded catalogue beside working bytes does
+not replace their lost active context. Invalid modes and pending edits reject rebinding.
 
-All four live/baked instance and bulk data roles provide overloads accepting
-either schema owner:
+Read-only baked recovery checks existing inheritance against the supplied types
+without changing bytes. Live recovery and baked recovery with a replacement buffer
+retain selected encodings and rebuild unselected values from the supplied defaults
+and immediate parents. Paths, ranges and layout are checked in either case; bulk
+recovery preserves complete records. Failure leaves the role unusable with its
+document and bytes unchanged. Selected values need not be representable as literals.
 
-```cpp
-bool switch_schema(Schema& schema, ESchemaSwitchMode mode, Diagnostic& diagnostic) noexcept;
-```
+## Live instances and scoped editing
 
-`checked` requires an existing usable association and a resolved target. It
-checks every referenced type group, including empty groups, with the existing
-representation compatibility rules (layout, member/field and enum semantics).
-Unrelated definitions may differ. It then checks retained values against the
-unchanged package using the same traversal as binary creation. Changed defaults
-are acceptable when construction under the proposed schema still matches;
-there is no separate default-provenance system. Stripped instances have no
-values to check; bulk entries without retained arrays also skip value checking.
+`initialise(types)` establishes a live role. `create_base` and
+`create_specialisation` consume literal declarations, apply defaults or the
+immediate parent, and retain stripped selections. `capture_base` creates a new
+base from complete binary and selects meaningful differences from defaults.
+Use `overwrite` for existing instances; capture does not replace them.
 
-Raw binary edits can make retained values stale. A checked switch may reject
-that mismatch, including a switch to the current schema. Reconciliation remains
-an explicit caller operation. `trusted` skips representation and value proof:
-the caller asserts compatibility, for example when returning to a previously
-attached schema. It still requires a resolved target and resolves every used
-type name, including remapping cached owner-local indices. It can recover data
-after destruction of the previous schema.
+Runtime selections use named compound members, positional fixed arrays with
+`null` inheritance holes, and `true` selected scalar leaves. Explicit empty
+objects/arrays and selected leaves equal to their inherited values survive
+promotion, baking and import. Actual instance values exist only in binary.
 
-Both modes stage only new type indices and the binding; records and lookup
-indexes remain in place. Success and failure preserve document handles, binary
-addresses, every payload byte (including padding), backing ownership and output
-form. Failure also preserves the prior association and loaded state. Queries
-after success report target-owned type indices; callers must discard cached
-schema indices from the previous owner. Callers quiesce typed operations during
-switching and protect backing and schema lifetimes. No schema identity is stored
-in the file, and no automatic reconciliation, conversion or payload rebuilding
-occurs during switching.
+Every update takes `EInstanceDescendantPolicy::preserve` or `propagate`:
 
-## Live bulk data role
+| Operation | Target selection effect |
+| --- | --- |
+| `overwrite(instance, complete, policy, diagnostic)` | Retain existing selections and add meaningful differences from the immediate baseline. Replace complete bytes, including supplied padding. |
+| `specialise(instance, steps, count, literal_query, value, policy, diagnostic)` | Select/write the supplied component paths, retaining existing selections elsewhere. Equal values still pin. |
+| `specialise(instance, steps, count, complete_component, policy, diagnostic)` | Select/write meaningful fields in the component while preserving destination padding and unused bits. |
+| `remove_selection(instance, steps, count, policy, diagnostic)` | Remove the selected scope and rebuild it from the immediate parent/defaults. Interior array removal creates holes. |
 
-`CLiveBulkData` owns its live document and one 128-byte-aligned working payload.
-`initialise()` takes a resolved baked or live schema explicitly and creates an
-empty `data` section. `CBakedBulkData::promote(destination, schema, diagnostic)`
-requires a loaded, usable source and an empty destination. It copies only the
-bulk data section into an independent live document and copies the complete associated
-payload into independent storage. Existing embedded record arrays are regenerated
-from binary; ordinary reference-only entries remain references. Stripped input
-instead regenerates complete arrays, as described under [stripped data output](#stripped-data-output).
-Each entry retains explicit
-`count`, `size`, valid offset, type group and name. The binary
-bytes, including padding, are authoritative and are never reconstructed from
-embedded records during promotion. The source document, payload and connections
-are unchanged. Promotion checks referenced types against the explicitly supplied
-schema by recursive structure and value interpretation: names, member and label
-order, physical layout, primitive and array types, enum values, and bit fields
-must agree. Defaults and unused definitions may differ. An incompatible schema
-reports `incompatible_schema` without publishing a destination.
+A `member` path step names a structure member or bit field; an `element` step
+selects a zero-based fixed-array index. Zero steps address the whole instance.
+Binary component input uses the addressed type's representation and alignment.
+A bit-field input is its unshifted logical scalar representation, with valid sign
+extension and mask-width range. Supply that scalar value rather than its containing
+packed word. Component writes preserve destination padding and unrelated bits.
 
-`reconcile(diagnostic)` explicitly regenerates complete embedded records for all
-live entries, including references, after raw writes or remapping. It stages a
-replacement document and publishes only on success. Payload allocation, offsets,
-bytes and schema binding remain unchanged; all document handles must be reacquired
-after success. Failure preserves the existing document and handles. Values that
-cannot be expressed faithfully report `unrepresentable_value`; record expansions
-that cannot fit the document's node/storage limits report `invalid_range`.
-Callers must initialise unpopulated storage before reconciling it.
+Preserve leaves descendant binaries unchanged and adds only necessary direct-child
+compensation selections within the update's scope. Those selections persist like
+any other override. Propagate walks parent before child and copies only unselected
+values in scope; descendant selections remain unchanged. Component operations
+affect only their scope. Bit-field updates preserve unrelated fields and unused bits.
+Inheritance always follows the immediate parent, including an explicit child value
+equal to an older ancestor/default.
 
-`document_query()` reads the live document's original root through `CBulkDataHandle`
-occurrences. `data_root()`, `find_entry()` and `entry()` mirror the baked role;
-`mutable_entry()` returns matching metadata and a bounded `CByteView`. Zero-byte
-entries have a canonical empty view and may have positive or zero record counts.
-Both schemas' binding lifetimes follow the existing intrusive-link rules: schema
-destruction or failed unchanged re-resolution disables entry access. A
-successful unchanged retry restores access after failed re-resolution; schema
-destruction detaches the binding and requires an explicit new association.
-Document queries remain safe during
-schema unavailability. Views borrow the wrapper; document views may expire after
-document mutation and binary views may expire after buffer growth. A retained
-entry handle remains meaningful while its entry node survives.
+For example, start with `A.x = 10`, B inheriting A and C inheriting B. Writing
+`A.x = 20` with preserve leaves B/C at 10 and adds B's selection of x. A later
+propagating write of `A.x = 30` still leaves B/C at 10: that compensation is a
+persistent override. Removing B's x selection with propagate makes B/C inherit 30.
 
-`create_records(type, name, source_query, records_array, diagnostic)` accepts a
-record array in a baked or live `CBulkDataDocumentQuery` and constructs every record
-in `complete_bulk_data` mode. Named singleton outer elements are interpreted as
-compound members, consistently with nested arrays. Every declared
-member and array element must be supplied, including zero-byte types; schema
-defaults do not fill omissions. It rejects a
-duplicate name in the type group. `capture(type, name, source, count, diagnostic)`
-copies bounded raw bytes with the resolved type's physical alignment; it creates
-or replaces a named array without interpreting values or applying defaults.
-Successful replacement removes any existing embedded `data` array, including
-one produced by promotion or reconciliation; the entry handle remains valid.
-Reconciliation or embedded output can regenerate records from the new bytes.
-The caller guarantees compatible little-endian physical representation. It is
-safe to capture from the wrapper's own payload, including when growth moves the
-buffer. `create_unpopulated(type, name, count, diagnostic)` rejects duplicates,
-allocates an aligned extent without applying defaults or promising zero fill,
-and permits count zero. The caller must populate required fields before reading
-or exporting such an entry. Neither promotion nor later raw capture substitutes
-destination-schema defaults for authoritative bytes.
+Propagation, selection removal and default rebinding update meaningful fields while
+preserving each existing destination's padding and unused bits. Complete overwrite
+accepts every supplied target byte; its propagating descendant updates still follow
+the field-only rule. Padding is never a selectable component.
 
-For `Value { a: u8 }`, `[1,2]`, `[[1],[2]]` and `[{"a":1},{"a":2}]` each
-supply two complete records. The outer array is the bulk data collection; each
-element initialises one record. A stated locator count must match that array's
-length. A scalar cannot initialise a multi-member record, and a named singleton
-record cannot omit other required members.
+Ordinary buffered instance operations accept input borrowed from their own payload,
+including the target or a descendant. Aliased input is staged before mutation or
+relocation can invalidate it. Failures preserve the ordinary transactional contract;
+the already-written target bytes of a pending direct edit are the explicit exception.
 
-Larger replacements append an aligned extent and leave old bytes unreferenced;
-same-size or smaller replacements may reuse the old extent. A zero-extent
-replacement uses offset zero. `rename_entry()` checks sibling collisions and
-preserves the entry handle; `erase_entry()` invalidates its handle without
-compacting the payload. Failed construction or append publishes no failed locator
-and leaves earlier entries usable. A post-mutation failure that cannot preserve
-that state disables the live role and reports a critical event. `clear()`
-releases its document, payload and schema link. Entry views also provide the
-bounded storage used by the implemented remapping operations below.
+`begin_edit(instance, token, view, diagnostic)` provides a bounded mutable view
+of the complete existing snapshot. Only one edit per role may be pending. Typed
+access, further mutations, binding, promotion, import and output are unavailable
+until `complete_edit(token, policy, diagnostic)` succeeds. Completion has the
+same selection/cascade semantics as complete overwrite. It is explicit: token
+destruction does not complete or cancel an edit. Tokens bind owner and generation;
+stale tokens, including after clear/reinitialisation or address reuse, are rejected.
 
-## Bulk data output and baking
+Successful completion ends writable access. Do not write through a retained view
+again without beginning another edit, even when its address is unchanged. Entry
+handles and the allocation survive same-layout edits, but handles into replaced
+selection subtrees must be reacquired.
 
-`CLiveBulkData::prepare_output(document, payload, destination_schema, form,
-diagnostic)` creates a separate live document and 128-byte-aligned packed payload.
-The destination schema is an explicitly resolved baked or live schema. Referenced
-types must match the source in structure and value interpretation; defaults may
-differ. Both destinations must be empty. `EDataOutputForm::embedded` adds complete
-record arrays decoded from binary; `external` omits them. Both forms retain valid
-reserved locators with positive counts. Text versus baked document encoding is a
-separate caller choice. An entirely empty bulk data collection is valid, while a named
-zero-count entry is not output-ready.
+On completion failure the edited target bytes and pending state remain available
+for correction/retry; prior selections and descendant bytes remain unchanged.
+No persistent backup or implicit cancellation is provided. The caller may clear
+the whole role to abandon it; this invalidates the view. Borrowed views expire under the normal mutation and
+lifetime rules; there is no concurrent editing or held-pointer tracking.
 
-Packing traverses the live document rather than record creation history, aligns
-each nonempty extent to its resolved type and rewrites the output offsets. It
-copies complete record bytes, including internal padding, and drops unreferenced
-working extents. Newly created inter-entry alignment gaps are zeroed. Zero-byte
-entries retain their positive count and use offset zero, including between nonempty entries.
-The output payload is independent of the source even in embedded form; a caller
-writing embedded-only text need not save it as a sidecar.
+## Live bulk data
 
-Embedded records are constructed in the existing complete-value grammar and
-checked by re-encoding them against the source under `compare_encoded` rules:
-NaN encodings compare equal, while signed zero and distinct normalised integer
-codes remain distinct; padding and unused bits are ignored. An unlabelled enum
-code or noncanonical Boolean byte reports `unrepresentable_value` without
-publishing output. One-member structures and bit structures in arrays continue
-to use their explicit positional form; readers also accept the named and
-eligible scalar forms described above.
-External form retains the authoritative binary bytes without decoding them.
+`capture(type, name, bytes, count, diagnostic)` creates or replaces a complete
+record array. Replacement preserves the entry handle and may relocate its bytes.
+`create_records` encodes complete literal records. `create_unpopulated` reserves
+binary for callers to fill; it applies no defaults. `mutable_entry` exposes the
+bounded writable extent without reconciliation because no bulk literals are retained.
+Rename and erase affect the live entry. Self-buffer capture and borrowed names are
+stabilised before mutation. Retrieve fresh entry views after growth/replacement.
 
-`bake(block, payload, role, destination_schema, form, diagnostic)` prepares
-the output, bakes its document and returns a loaded `CBakedBulkData` role together
-with separate document-block and payload owners. The role borrows both owners;
-moving either owner preserves its allocation address and views, while destroying
-or reallocating one invalidates the corresponding view. The source and all
-destinations remain unchanged on failure. On success, the new role contributes
-one binding to the explicit destination schema. Reload external output with
-the supplied-payload `attach_schema()` overload; attach embedded-only output
-with the returned-owner overload after parsing and baking the document. The caller still ensures
-unpopulated live arrays have all required addressable fields filled before output.
+Zero-count placeholders are useful during authoring but cannot be imported or
+baked as complete bulk entries. A positive count of zero-size records remains
+valid. The record count is one-dimensional and bounded by `UINT32_MAX`.
 
-## Baked instance role
+## Promotion and runtime output
 
-`CBakedInstances` attaches a borrowed immutable or mutable baked document view
-using `set_document()`, then atomically attaches a resolved `CBakedSchema` or
-`CLiveSchema` with either an existing payload or a returned materialised owner. One wrapper
-loads the complete `instances` section into one associated payload; nested base
-branches are naming scopes within that role. `CInstanceDocumentQuery` exposes
-the original physical root, while `instances_root()` selects the role section.
-`find_base(type, name)` selects a named base. `find_specialisation(parent, name)`,
-`first_specialisation()`, `next_specialisation()` and `parent_instance()` navigate
-the validated hierarchy. `entry()` exposes the type, immediate parent, retained
-declaration handle, offset, byte extent and borrowed complete snapshot.
+`baked.promote(live, diagnostic)` produces independent live storage under the
+current types owner; destination must be empty. It preserves selections and raw
+bytes rather than deriving new literals. Rebind explicitly if a different types
+owner is desired. It remains possible to promote raw values that cannot be represented as literals.
 
-Each base and specialisation object reserves a `locator` with unsigned 32-bit
-`offset` and Boolean `valid`. Optional `count` must be one; optional `size`
-must equal the resolved type size, including zero. Optional `declaration` holds
-the supplied values or selected modifications. Its absence means no selected
-values: a base uses schema defaults and a specialisation inherits its complete
-immediate parent unchanged. Explicit null is invalid. `specialisation` holds
-named child objects, and every child inherits its enclosing instance's type.
+`live.prepare_output(document, payload, diagnostic)` requires two empty outputs
+and produces a stripped role-only description plus a packed binary. It retains
+all complete record bytes, including padding/unused bits, while zeroing newly
+created inter-entry alignment gaps and dropping abandoned storage/trailing bytes.
+It does not change source handles, selections, bytes or binding.
 
-`attach_schema(schema, payload, compare_embedded, diagnostic)` borrows a physically
-128-byte-aligned nonempty payload. Valid baked locators must describe extents
-in parent-before-child depth-first hierarchy order, independent of the order
-of `locator`, `declaration` and `specialisation` properties. Extents require
-type alignment, no overlap and checked bounds. With
-comparison disabled, the supplied complete snapshots are authoritative and
-declarations are not converted. With comparison enabled, the shared value
-traversal checks the values construction would produce against existing bytes.
-Parents pass before children, allowing child inheritance to use validated parent
-bytes. No reconstructed payload is allocated. Comparison follows the encoded
-rules described for the bulk data role.
-
-`attach_schema(schema, returned_owner, diagnostic)` takes an unallocated output buffer,
-constructs each base with defaults and each child as an independent alternative
-from its completed immediate parent, then publishes unset reserved locators
-through a mutable view. It returns the payload owner separately and borrows its
-stable allocation. A zero-byte-only role may use an empty payload and null
-entry byte pointers. `clear()` releases the binding and views. Schema loss or
-failed re-resolution makes loaded entry access unusable while document queries
-remain available. Load failure leaves this role unready and does not invalidate
-the schema or another role sharing the physical block.
-
-## Live instance role
-
-`CLiveInstances` owns a live `instances` document, a schema binding and one
-128-byte-aligned payload of independent complete snapshots. `initialise(schema)`
-creates an empty role against an explicitly resolved baked or live schema.
-`CBakedInstances::promote(destination, schema, diagnostic)` requires a loaded
-source and empty destination. It copies the instance section and the entire
-associated payload into independent storage without rebuilding binary values
-from declarations. The promoted document retains names and hierarchy, regenerates
-declarations from those snapshots, and drops
-legacy `locator.count`. Promotion compares the structure and value interpretation
-of all declared type groups, including empty groups and built-in primitive groups,
-with the destination schema; unrelated definitions may differ. Incompatible
-promotion leaves both roles unchanged and reports `incompatible_schema`.
-
-Different defaults are allowed. Reconciliation compares each base snapshot with
-destination-schema defaults, and each specialisation with its immediate parent's
-snapshot. Named values equal to that baseline are omitted; differences are
-explicit. Arrays retain the shortest prefix through their last differing element,
-including necessary equal scalar elements before it. Nested compounds follow
-the same rules. Equal overrides and empty selections are removed regardless of
-their old spelling. No snapshot is changed or propagated to descendants.
-This applies to promotion and to the live instance role's `prepare_output()` and
-`bake()` when retaining values, with either live or baked schemas.
-Old declaration values are not decoded or checked for agreement. Generated
-declarations must reproduce meaningful encoded values or the operation fails
-atomically with `unrepresentable_value`.
-
-The document-boundary function `prepare_instances_document()` has a different
-contract: it copies retained declarations unchanged and reconstructs only stripped
-instances against their original schema. Optional comparison checks retained
-declarations against binary; it does not reconcile or minimise them.
-
-`reconcile(diagnostic)` applies these rules explicitly to the live role after
-raw writes or remapping, using its bound schema. It stages the whole document;
-success invalidates all document handles, which must be reacquired by name.
-Payload views, offsets, bytes and schema binding remain unchanged. Failure leaves
-the document, handles and payload unchanged. Repeated reconciliation without
-binary changes produces the same declarations.
-
-Comparison and declaration emission share one traversal. Stack-local frames
-create containers only when needed and emit required equal array positions before
-a changed descendant. Equal scalar positions retain literals, equal compounds
-use empty containers, and equal trailing positions are omitted. Zero-size layouts
-short-circuit before element iteration. The final generated-declaration check
-continues to verify binary fidelity independently.
-
-The live role has the baked role's `document_query()`, `instances_root()`,
-`find_base()`, `find_specialisation()`, `first_specialisation()`,
-`next_specialisation()`, `parent_instance()` and `entry()` observations.
-`payload_view()` borrows the owner. Entry handles remain valid while their
-nodes survive; payload pointers can change when the buffer grows. The live
-document query stays available if the schema binding becomes unusable. Failed
-unchanged re-resolution gates entry access until a successful retry. Destroying
-the schema invalidates and detaches its binding while preserving the role's
-document and payload. A trusted switch to a known-compatible resolved schema
-restores typed access; a checked switch requires a usable previous association.
-
-`create_base(type, name, source_query, declaration, diagnostic)` constructs a
-complete base from a declaration in a baked or live instance query; omitted
-values use schema defaults. `create_specialisation(parent, name, source_query,
-declaration, diagnostic)` starts with the immediate parent's complete snapshot
-and applies only explicit selections. A missing declaration means no
-selections. Both operations retain the declaration, reject duplicate sibling
-names and append one independently addressed extent.
-
-`capture_base(type, name, complete, diagnostic)` creates or replaces a base
-from aligned physical bytes and emits a complete canonical declaration.
-`capture_specialisation(instance, complete, diagnostic)` copies only the
-parts selected by that specialisation's retained declaration; unselected
-bytes, padding and bits stay as they were in the target snapshot. Binary bytes
-remain authoritative, including floating NaN payloads and unused bitfield
-bits. Unknown captured enum codes fail because declarations use
-labels; aliases use the first declared label. Captured NaN declarations use
-the canonical `nan` spelling. Both capture operations update descendants
-parent before child: each descendant inherits its updated immediate parent's
-complete bytes, including padding and unused bits,
-then its previously selected binary values are overlaid and its declaration
-is synchronised to those values. These authored edit operations retain explicit
-equal selections and empty aggregate selections until reconciliation or conversion
-derives the declarations afresh from snapshots.
-
-`set_selection(instance, steps, count, source_query, value, diagnostic)` and
-`remove_selection(instance, steps, count, diagnostic)` edit a specialisation.
-Each step names a structure member or bitfield, or gives a fixed-array index.
-An empty set path replaces the whole declaration. A nested edit retains other
-selected binary values even when their old declaration text disagrees with
-the snapshot. Positional structure declarations may become named objects for
-an interior member edit. Fixed arrays permit adding only the next selected
-prefix element and removing only the selected tail element. Edits then rebuild
-the target and its descendants. Values being replaced or removed need not have
-representable declarations: an unlabelled enum code can be discarded by that
-edit. Retained selected values still require valid declarations, including in
-descendants. Selection-path allocation failures report `allocation_failed`;
-invalid paths report `invalid_declaration`. Failed validation or staging preserves
-existing entries; an unrecoverable failure after publication disables the
-role and reports a critical event. `clear()` releases the owned document,
-payload and binding.
-
-Descendant staging scans the remaining parent-before-child record sequence once,
-using a temporary record-to-staged-edit ordinal table. Descendant membership and
-staged-parent access are constant-time per candidate; unrelated later branches
-are skipped without walking their ancestor chains. This does not change which
-selections are retained or how inherited values are propagated.
-
-## Live instance output
-
-`CLiveInstances::prepare_output(document, payload, destination_schema, form,
-diagnostic)` accepts an empty live document and unallocated payload, with an
-explicitly resolved baked or live destination schema. It checks every used
-type for structural and value-interpretation compatibility, reconciles declarations
-for retained-value forms, then packs complete
-snapshots in document hierarchy order. Nonempty extents have type alignment;
-newly created gaps between them are zeroed without changing any snapshot bytes,
-including internal padding. Zero-byte extents use offset zero and do not reset
-the end of the preceding nonempty extent. A failed preparation leaves both outputs
-unpublished. Diagnostics identify a failing source occurrence where applicable.
-
-Both `EDataOutputForm::external` and `embedded` regenerate declarations from
-authoritative snapshots, with the same defaults, inheritance and array-prefix
-rules. They copy complete snapshots exactly. Every generated declaration is
-checked by reconstructing its meaningful values against defaults or the parent's
-snapshot. If an encoded scalar cannot be represented by declaration values,
-either form fails with `unrepresentable_value`. Comparison uses
-the same encoded-field comparison rules as the baked loader, including NaN equality
-and ignored padding and unused bits.
-
-`bake(block, payload, role, destination_schema, form, diagnostic)` prepares,
-bakes, binds and loads the output in temporary storage before publishing an
-independent baked block and payload owner. The returned role borrows those
-allocations and remains usable after the source live role is cleared. All
-baking outputs must be empty; failure leaves all supplied destinations unchanged
-and preserves the source. Success does not consume the source. Embedded output
-can also be written as Morphic text or strict JSON, parsed, baked and
-materialised without a supplied payload. A parser-normalised named singleton
-inside an array or positional compound is interpreted as a selection of that
-compound's named member. This is contextual to a compound element; named
-scalar-array elements and unknown members remain invalid.
-
-## Stripped data output
-
-`EDataOutputForm::stripped` is available on both data roles' `prepare_output()`
-and `bake()` overloads. The former `demote()` APIs are now named `bake()`,
-including `CLiveSchema::bake()`; no compatibility aliases are provided.
-
-Stripped output removes every instance/specialisation `declaration` and every
-embedded bulk data `data` array. It retains type groups, names, the specialisation
-hierarchy and valid locators with offsets, sizes and bulk data counts. Complete binary
-snapshots are packed and copied exactly, including padding, without scalar
-decoding. Schema baking still copies the complete `types` section, including all
-definitions and defaults; the data output choice never reduces the schema.
-
-The output root carries `"stripped": true`. This optional Boolean applies to
-both data sections if they share a document; absent or false retains ordinary
-document semantics. The schema resolver accepts it in combined documents.
-Data loaders reject a non-Boolean marker and reject declarations/record arrays
-in a section marked stripped. `values_stripped()` exposes the marker on either
-baked data role without allocating.
-
-Reload using `attach_schema(schema, payload, compare_embedded, diagnostic)`. Navigation,
-entry views, remapping and unused-storage clearing continue to use the retained
-metadata. With stripped input, `compare_embedded=true` has no values to compare;
-it still validates navigation, type and locator structure, ranges and overlap.
-The returned-owner attachment overload reports `binary_required` before reconstruction,
-including for empty collections and zero-byte types. Those cases may use the
-explicit supplied route with a canonical empty payload.
-
-Promotion reconstructs instance declarations against destination defaults and
-parent snapshots, and reconstructs complete bulk data arrays. The resulting live
-documents have no stripping marker and support normal editing. A raw scalar
-that cannot be expressed by the document grammar can be baked stripped and read
-from binary, but promotion reports `unrepresentable_value` without publishing
-a partial result. The existing embedded and external forms retain their previous
-behaviour: both regenerate instance declarations, while external bulk data output
-omits arrays and its promotion keeps reference-only entries.
-
-For example, a stripped instance document can contain:
-
-```json
-{"stripped":true,"instances":{"Pair":{"base":{
-  "locator":{"offset":0,"valid":true,"size":2},
-  "specialisation":{"child":{"locator":{"offset":2,"valid":true,"size":2}}}
-}}}}
-```
-
-The associated schema describes `Pair`, and the accompanying payload holds each
-instance's complete two-byte snapshot. Missing declarations here do not imply
-default or inherited values.
+`live.bake(CBakedDataBlock&, role_block_diagnostic)` produces complete version-2
+role-only storage with no linked types. It writes records directly into final
+storage after preparing the description. Output is published only on success.
+Runtime output never decodes values or minimises selections. Use section import
+into `CSchema` for document-valued output; there are no embedded/external/stripped
+form flags and no global reconcile operation.
 
 ## Bounded direct-member remap
 
@@ -1439,64 +798,24 @@ Setup selects contiguous bulk, contiguous-source, contiguous-destination or
 strided copy paths after coalescing. Non-bulk paths use fixed 1, 2, 4, 8 and
 16-byte copies where possible, with a runtime-size fallback. These are
 prewritten scalar copy paths; no benchmark or platform-specific vectorisation
-claim is made. Declaration reconciliation is a separate live-role operation;
-call `reconcile(diagnostic)` after transfers when an updated document is needed.
+claim is made. For live instance destinations, explicit scoped completion publishes
+selection changes and applies the requested descendant policy after the transfer.
 
 ## Role entry views for remapping
 
-`CBakedInstances::entry()`, `CLiveInstances::entry()`, `CBakedBulkData::entry()`
-and `CLiveBulkData::entry()` provide type, bytes and byte extent for read-only
-sources. Construct `CByteConstView` from the returned bytes and extent.
-`CLiveBulkData::mutable_entry()` provides a bounded destination view, including
-for entries created with `create_unpopulated()`. `CLiveInstances::mutable_entry()`
-provides the same access for a base or specialisation snapshot, with type,
-parent, declaration and offset metadata. A zero-byte snapshot has a canonical
-empty mutable view. Failed mutable lookup leaves its output argument unchanged.
-The primary destination remains an application-owned buffer; these role methods
-only expose storage to the existing executor.
+All four data roles provide `entry` with resolved type, bytes and extent.
+Construct bounded `CByteConstView` inputs for `CDataRemapPlan::execute`.
+Use application-owned storage, a bulk `mutable_entry` view, or an instance
+`begin_edit` view as destination. Complete the instance edit explicitly with a
+descendant policy after execution; ordinary access is unavailable while pending.
+Execution itself performs no allocation, resolution or selection publication.
 
-For example, after constructing a plan from the expected resolved types and
-creating any live destination entry, read both sources afresh:
-
-```cpp
-SBulkDataEntryView a, b;
-if (baked_bulk_data.entry(baked_handle, a) && live_bulk_data.entry(live_handle, b) &&
-    (a.type == expected_a) && (b.type == expected_b))
-{
-    const CByteConstView sources[] = {
-        CByteConstView{ a.bytes, static_cast<std::size_t>(a.byte_count) },
-        CByteConstView{ b.bytes, static_cast<std::size_t>(b.byte_count) }
-    };
-    const bool filled_external = plan.execute(sources, 2u, application_buffer.view());
-    SMutableBulkDataEntryView target;
-    if (live_bulk_data.mutable_entry(target_handle, target) && (target.type == expected_destination))
-    {
-        const bool filled_live_bulk_data = plan.execute(sources, 2u, target.bytes);
-    }
-}
-```
-
-An instance entry uses the same source-view construction. A nonzero-byte
-instance source contributes one complete record, so it limits a combined
-transfer to one record; a zero-byte type imposes no byte-copy limit. A live
-instance destination uses `SMutableInstanceEntryView::bytes` with the same
-`execute()` call. Its binary snapshot changes without editing declarations,
-selection intent or descendant snapshots, including when a mapped field was
-previously unselected. Call `reconcile(diagnostic)` to update the live document
-afterwards, or let promotion or retained-value output/baking reconcile the destination document.
-Unrepresentable binary values still fail when document literals are required.
-
-Keep the plan associated with the role objects, their bound schemas and the
-type indices supplied at setup. Check entry types before execution, and rebuild
-the association if a role is rebound. Type-index equality alone does not prove
-that two different schemas describe the same type. Role entry lookup requires a
-loaded role and a handle present in its current records, but handles do not
-carry a globally unique role identity; retain each handle with its originating
-role. Baked roles borrow their document and payload, while live roles own their
-payload. A live role operation can relocate that payload, so retrieve all entry
-views after creation, capture or another possible relocation and execute before
-mutating the roles again. The executor itself performs no allocation, schema
-traversal or document edit.
+Plans retain no types owners and can outlive them. Apply them only to matching
+representations and rebuild when those representations change. Entry type indices
+carry no global type identity. Retrieve fresh views after any
+operation that can relocate a live payload. Remapping a complete instance can
+leave unmatched members unchanged; completion retains existing pins and selects
+new meaningful differences. A zero-size type uses an empty view.
 
 ## Explicit unused-storage clearing
 
@@ -1528,8 +847,8 @@ may invoke clearing on live backing. Packing zeroes new inter-entry gaps but
 preserves aggregate padding and unused bits copied inside records; callers
 requiring those to be canonical can clear the final output buffer as well.
 No construction, capture, remap or output operation invokes this broader
-unused-storage operation automatically. Loading, ordinary saving and stripping
-preserve all existing payload bytes, including nonzero gaps.
+unused-storage operation automatically. Loading, ordinary saving and raw block
+assembly preserve all existing payload bytes, including nonzero gaps.
 
 The default preserves unused bits in bit-storage words. Pass
 `EUnusedBits::clear` to zero only bits outside declared field masks; declared
@@ -1591,17 +910,17 @@ strides are not restricted to the memory token/view's 16-bit field. Supplied
 size/alignment detail must fit the ceiling and the layout rules below.
 File positions are a separate future
 domain. Recursive processing is bounded at 256 traversal
-levels; extremely deep definitions/defaults receive `storage_limit`. Export
+levels; extremely deep definitions/defaults receive `storage_limit`. C++ export
 also bounds dependency traversal. Allocation failures require no allocation to
 report, and never leave a usable partial result.
 
 `SDiagnostic` contains the first terminal reason/stage, offending occurrence,
 enclosing definition/member occurrences where available, and an optional related
-occurrence. Locations use `CSchemaHandle::is_valid()`, whose missing value is
+occurrence. Locations use `CTypesHandle::is_valid()`, whose missing value is
 distinct from schema index zero. Bit overlaps additionally report both half-open
 bit ranges with `ranges_available`. Duplicate diagnostics identify both surviving
 declarations. Diagnostics retain no document view; keep the caller's input
-alive and use `CSchemaDocumentQuery` to inspect names and paths after failure.
+alive and use `CTypesDocumentQuery` to inspect names and paths after failure.
 Live and baked handles belong to their originating document. Baked locations
 promise no source line/column information.
 
@@ -1613,9 +932,9 @@ for every member and `detail.size`. The resolver checks alignment, bounds, and
 positive extent overlap, including padding owned by nested types. Zero-byte
 members may sit at the declared size. Member records stay in declaration order;
 their physical offsets may be nonmonotonic. A structure with only zero-byte
-members remains size zero and alignment one. Only package shape and
-`types` are validated in a combined document; `instances` and `data` values are
-deliberately not evaluated.
+members remains size zero and alignment one. CResolvedTypes validates only package
+shape and `types` in a combined document; it does not evaluate instance/bulk values.
+Full CSchema validation also checks every contained data section.
 
 Explicit-layout overlap checking uses a sorted sweep with a temporary ordinal
 heap during resolution: O(n log n) work and O(n) scratch storage for n members.
@@ -1738,7 +1057,7 @@ continues to reject invalid inputs.
 
 Schema switching inherits staged types from parent records rather than walking
 each specialisation's ancestors. Consecutive base entries can reuse the current
-group's type. Promotion and reconciliation retain temporary group mappings;
+group's type. Promotion and explicit value import retain temporary group mappings;
 their lookup cursors check the current and adjacent entries before binary search.
 Interleaved group access therefore remains bounded.
 

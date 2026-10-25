@@ -79,7 +79,7 @@ bool CTypeCompatibility::same_header(const SType& a, const SType& b) const noexc
         (a.element_or_storage.is_valid() == b.element_or_storage.is_valid());
 }
 
-bool CTypeCompatibility::same_decorations(const CSchemaIndex source, const CSchemaIndex destination) const noexcept
+bool CTypeCompatibility::same_decorations(const CTypesIndex source, const CTypesIndex destination) const noexcept
 {
     if (m_rule != ETypeMatch::definition)
     {
@@ -134,7 +134,7 @@ ETypeMatchResult CTypeCompatibility::inspect(const SPair pair) noexcept
         const std::uint32_t supplied = (da.supplied_count > db.supplied_count) ? da.supplied_count : db.supplied_count;
         for (std::uint32_t i = 0u; i < supplied; ++i)
         {
-            CSchemaIndex ad, bd;
+            CTypesIndex ad, bd;
             if (!m_source.default_element(pair.source, pair.source_default, i, ad) ||
                 !m_destination.default_element(pair.destination, pair.destination_default, i, bd))
             {
@@ -167,8 +167,8 @@ ETypeMatchResult CTypeCompatibility::inspect(const SPair pair) noexcept
             {
                 return ETypeMatchResult::mismatch;
             }
-            const auto result = add({ am.type, bm.type, ((m_rule != ETypeMatch::representation) ? am.default_description : CSchemaIndex{}),
-                ((m_rule != ETypeMatch::representation) ? bm.default_description : CSchemaIndex{}) });
+            const auto result = add({ am.type, bm.type, ((m_rule != ETypeMatch::representation) ? am.default_description : CTypesIndex{}),
+                ((m_rule != ETypeMatch::representation) ? bm.default_description : CTypesIndex{}) });
             if (result != ETypeMatchResult::match)
             {
                 return result;
@@ -203,8 +203,8 @@ ETypeMatchResult CTypeCompatibility::inspect(const SPair pair) noexcept
             {
                 return ETypeMatchResult::mismatch;
             }
-            const auto result = add({ af.type, bf.type, ((m_rule != ETypeMatch::representation) ? af.default_description : CSchemaIndex{}),
-                ((m_rule != ETypeMatch::representation) ? bf.default_description : CSchemaIndex{}) });
+            const auto result = add({ af.type, bf.type, ((m_rule != ETypeMatch::representation) ? af.default_description : CTypesIndex{}),
+                ((m_rule != ETypeMatch::representation) ? bf.default_description : CTypesIndex{}) });
             if (result != ETypeMatchResult::match)
             {
                 return result;
@@ -250,8 +250,8 @@ ETypeMatchResult CTypeCompatibility::inspect_declaration(const SPair pair) noexc
     }
     for (std::uint32_t i = 0u; i < left.count; ++i)
     {
-        const CSchemaIndex ai = m_source.interface_member_at(pair.source, i);
-        const CSchemaIndex bi = m_destination.interface_member_at(pair.destination, i);
+        const CTypesIndex ai = m_source.interface_member_at(pair.source, i);
+        const CTypesIndex bi = m_destination.interface_member_at(pair.destination, i);
         SInterfaceMember am, bm;
         if (!m_source.interface_member(ai, am) || !m_destination.interface_member(bi, bm))
         {
@@ -270,7 +270,7 @@ ETypeMatchResult CTypeCompatibility::inspect_declaration(const SPair pair) noexc
     return ETypeMatchResult::match;
 }
 
-ETypeMatchResult CTypeCompatibility::compare_declaration(const CSchemaIndex source, const CSchemaIndex destination) noexcept
+ETypeMatchResult CTypeCompatibility::compare_declaration(const CTypesIndex source, const CTypesIndex destination) noexcept
 {
     SDeclaration a, b;
     if (!m_source.declaration(source, a) || !m_destination.declaration(destination, b))
@@ -288,7 +288,7 @@ ETypeMatchResult CTypeCompatibility::compare_declaration(const CSchemaIndex sour
     return compare_graph(source, destination);
 }
 
-ETypeMatchResult CTypeCompatibility::compare(const CSchemaIndex source, const CSchemaIndex destination) noexcept
+ETypeMatchResult CTypeCompatibility::compare(const CTypesIndex source, const CTypesIndex destination) noexcept
 {
     SType a, b;
     if (!m_source.is_ready() || !m_destination.is_ready() ||
@@ -303,7 +303,7 @@ ETypeMatchResult CTypeCompatibility::compare(const CSchemaIndex source, const CS
     return compare_graph(source, destination);
 }
 
-ETypeMatchResult CTypeCompatibility::compare_graph(const CSchemaIndex source, const CSchemaIndex destination) noexcept
+ETypeMatchResult CTypeCompatibility::compare_graph(const CTypesIndex source, const CTypesIndex destination) noexcept
 {
     const std::size_t first = m_pairs.size();
     ETypeMatchResult result = add({ source, destination, {}, {} });

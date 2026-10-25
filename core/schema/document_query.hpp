@@ -27,17 +27,17 @@ namespace schema
 //  Role and handle declarations
 //==============================================================================
 
-class CBakedSchema;
-class CLiveSchema;
+class CBakedTypes;
+class CLiveTypes;
 class CBakedInstances;
 class CLiveInstances;
 class CBakedBulkData;
 class CLiveBulkData;
-class CSchemaDocumentQuery;
+class CTypesDocumentQuery;
 class CInstanceDocumentQuery;
 class CBulkDataDocumentQuery;
-class CResolvedSchema;
-class CSchemaHandle;
+class CResolvedTypes;
+class CTypesHandle;
 class CInstanceHandle;
 class CBulkDataHandle;
 
@@ -98,10 +98,10 @@ struct SOccurrence
 
 //  Resolver and role adapters use these bridges; raw identities stay out of the
 //  public schema-handle construction surface.
-struct SSchemaHandleAccess
+struct STypesHandleAccess
 {
-    [[nodiscard]] static constexpr CSchemaHandle make(const SOccurrence occurrence) noexcept;
-    [[nodiscard]] static constexpr SOccurrence occurrence(const CSchemaHandle handle) noexcept;
+    [[nodiscard]] static constexpr CTypesHandle make(const SOccurrence occurrence) noexcept;
+    [[nodiscard]] static constexpr SOccurrence occurrence(const CTypesHandle handle) noexcept;
 };
 
 struct SInstanceHandleAccess
@@ -120,10 +120,10 @@ class CDocumentRead;
 
 struct SDocumentQueryAccess
 {
-    [[nodiscard]] static const CDocumentRead& read(const CSchemaDocumentQuery& query) noexcept;
+    [[nodiscard]] static const CDocumentRead& read(const CTypesDocumentQuery& query) noexcept;
     [[nodiscard]] static const CDocumentRead& read(const CInstanceDocumentQuery& query) noexcept;
     [[nodiscard]] static const CDocumentRead& read(const CBulkDataDocumentQuery& query) noexcept;
-    [[nodiscard]] static bool backs(const CResolvedSchema& schema, const CLiveDocument& document) noexcept;
+    [[nodiscard]] static bool backs(const CResolvedTypes& schema, const CLiveDocument& document) noexcept;
 };
 
 //  One read adapter for either document representation.
@@ -172,43 +172,43 @@ private:
 }   // namespace detail
 
 //==============================================================================
-//  Schema document handle
+//  Types document handle
 //==============================================================================
 
-class CSchemaHandle
+class CTypesHandle
 {
 public:
-    constexpr CSchemaHandle() noexcept = default;
+    constexpr CTypesHandle() noexcept = default;
     [[nodiscard]] constexpr bool is_valid() const noexcept { return m_occurrence.is_valid(); }
     [[nodiscard]] explicit constexpr operator bool() const noexcept { return is_valid(); }
 
 private:
-    explicit constexpr CSchemaHandle(const detail::SOccurrence occurrence) noexcept : m_occurrence(occurrence) {}
-    friend struct detail::SSchemaHandleAccess;
-    friend class CBakedSchema;
-    friend class CLiveSchema;
+    explicit constexpr CTypesHandle(const detail::SOccurrence occurrence) noexcept : m_occurrence(occurrence) {}
+    friend struct detail::STypesHandleAccess;
+    friend class CBakedTypes;
+    friend class CLiveTypes;
     detail::SOccurrence m_occurrence;
 };
 
-[[nodiscard]] constexpr bool operator==(const CSchemaHandle lhs, const CSchemaHandle rhs) noexcept;
-[[nodiscard]] constexpr bool operator!=(const CSchemaHandle lhs, const CSchemaHandle rhs) noexcept;
+[[nodiscard]] constexpr bool operator==(const CTypesHandle lhs, const CTypesHandle rhs) noexcept;
+[[nodiscard]] constexpr bool operator!=(const CTypesHandle lhs, const CTypesHandle rhs) noexcept;
 
-constexpr CSchemaHandle detail::SSchemaHandleAccess::make(const detail::SOccurrence occurrence) noexcept
+constexpr CTypesHandle detail::STypesHandleAccess::make(const detail::SOccurrence occurrence) noexcept
 {
-    return CSchemaHandle{ occurrence };
+    return CTypesHandle{ occurrence };
 }
 
-constexpr detail::SOccurrence detail::SSchemaHandleAccess::occurrence(const CSchemaHandle handle) noexcept
+constexpr detail::SOccurrence detail::STypesHandleAccess::occurrence(const CTypesHandle handle) noexcept
 {
     return handle.m_occurrence;
 }
 
-[[nodiscard]] constexpr bool operator==(const CSchemaHandle lhs, const CSchemaHandle rhs) noexcept
+[[nodiscard]] constexpr bool operator==(const CTypesHandle lhs, const CTypesHandle rhs) noexcept
 {
-    return detail::SSchemaHandleAccess::occurrence(lhs) == detail::SSchemaHandleAccess::occurrence(rhs);
+    return detail::STypesHandleAccess::occurrence(lhs) == detail::STypesHandleAccess::occurrence(rhs);
 }
 
-[[nodiscard]] constexpr bool operator!=(const CSchemaHandle lhs, const CSchemaHandle rhs) noexcept
+[[nodiscard]] constexpr bool operator!=(const CTypesHandle lhs, const CTypesHandle rhs) noexcept
 {
     return !(lhs == rhs);
 }
@@ -220,35 +220,35 @@ constexpr detail::SOccurrence detail::SSchemaHandleAccess::occurrence(const CSch
 //  Borrowed schema-role read view. A baked query retains its view object by
 //  value; the caller keeps the block bytes alive. A live query borrows its
 //  document. Handles are meaningful only with their originating document.
-class CSchemaDocumentQuery
+class CTypesDocumentQuery
 {
 public:
-    CSchemaDocumentQuery() noexcept = default;
-    explicit CSchemaDocumentQuery(const CLiveDocument& document) noexcept;
-    explicit CSchemaDocumentQuery(const CBakedDocument& document) noexcept;
+    CTypesDocumentQuery() noexcept = default;
+    explicit CTypesDocumentQuery(const CLiveDocument& document) noexcept;
+    explicit CTypesDocumentQuery(const CBakedDocument& document) noexcept;
 
     [[nodiscard]] bool is_ready() const noexcept;
-    [[nodiscard]] CSchemaHandle root() const noexcept;
-    [[nodiscard]] bool contains(const CSchemaHandle value) const noexcept;
-    [[nodiscard]] EDocumentValueKind value_kind(const CSchemaHandle value) const noexcept;
-    [[nodiscard]] CSchemaHandle object_child(const CSchemaHandle object, const CStringView& name) const noexcept;
-    [[nodiscard]] CSchemaHandle parent(const CSchemaHandle value) const noexcept;
-    [[nodiscard]] CSchemaHandle first_child(const CSchemaHandle value) const noexcept;
-    [[nodiscard]] CSchemaHandle next_sibling(const CSchemaHandle value) const noexcept;
-    [[nodiscard]] CSchemaHandle array_at(const CSchemaHandle value, const std::uint32_t ordinal) const noexcept;
-    [[nodiscard]] std::uint32_t child_count(const CSchemaHandle value) const noexcept;
-    [[nodiscard]] bool is_object_entry(const CSchemaHandle value) const noexcept;
-    [[nodiscard]] CPropertyNameId name_id(const CSchemaHandle value) const noexcept;
-    [[nodiscard]] CStringView name(const CSchemaHandle value) const noexcept;
+    [[nodiscard]] CTypesHandle root() const noexcept;
+    [[nodiscard]] bool contains(const CTypesHandle value) const noexcept;
+    [[nodiscard]] EDocumentValueKind value_kind(const CTypesHandle value) const noexcept;
+    [[nodiscard]] CTypesHandle object_child(const CTypesHandle object, const CStringView& name) const noexcept;
+    [[nodiscard]] CTypesHandle parent(const CTypesHandle value) const noexcept;
+    [[nodiscard]] CTypesHandle first_child(const CTypesHandle value) const noexcept;
+    [[nodiscard]] CTypesHandle next_sibling(const CTypesHandle value) const noexcept;
+    [[nodiscard]] CTypesHandle array_at(const CTypesHandle value, const std::uint32_t ordinal) const noexcept;
+    [[nodiscard]] std::uint32_t child_count(const CTypesHandle value) const noexcept;
+    [[nodiscard]] bool is_object_entry(const CTypesHandle value) const noexcept;
+    [[nodiscard]] CPropertyNameId name_id(const CTypesHandle value) const noexcept;
+    [[nodiscard]] CStringView name(const CTypesHandle value) const noexcept;
     [[nodiscard]] CStringView property_name(const CPropertyNameId id) const noexcept;
     [[nodiscard]] CPropertyNameId find_property_name_id(const CStringView& name) const noexcept;
-    [[nodiscard]] CStringView string_value(const CSchemaHandle value) const noexcept;
-    [[nodiscard]] bool boolean_value(const CSchemaHandle value, bool& result) const noexcept;
-    [[nodiscard]] bool signed_integer_value(const CSchemaHandle value, std::int64_t& result) const noexcept;
-    [[nodiscard]] bool unsigned_integer_value(const CSchemaHandle value, std::uint64_t& result) const noexcept;
-    [[nodiscard]] bool integer_metadata(const CSchemaHandle value, CIntegerMetadata& result) const noexcept;
-    [[nodiscard]] bool floating_point_value(const CSchemaHandle value, double& result) const noexcept;
-    [[nodiscard]] bool suppresses_newline_escaping(const CSchemaHandle value) const noexcept;
+    [[nodiscard]] CStringView string_value(const CTypesHandle value) const noexcept;
+    [[nodiscard]] bool boolean_value(const CTypesHandle value, bool& result) const noexcept;
+    [[nodiscard]] bool signed_integer_value(const CTypesHandle value, std::int64_t& result) const noexcept;
+    [[nodiscard]] bool unsigned_integer_value(const CTypesHandle value, std::uint64_t& result) const noexcept;
+    [[nodiscard]] bool integer_metadata(const CTypesHandle value, CIntegerMetadata& result) const noexcept;
+    [[nodiscard]] bool floating_point_value(const CTypesHandle value, double& result) const noexcept;
+    [[nodiscard]] bool suppresses_newline_escaping(const CTypesHandle value) const noexcept;
 
 private:
     friend struct detail::SDocumentQueryAccess;
@@ -418,125 +418,125 @@ private:
 };
 
 //==============================================================================
-//  CSchemaDocumentQuery out of class function bodies
+//  CTypesDocumentQuery out of class function bodies
 //==============================================================================
 
-inline CSchemaDocumentQuery::CSchemaDocumentQuery(const CLiveDocument& document) noexcept : m_query(document)
+inline CTypesDocumentQuery::CTypesDocumentQuery(const CLiveDocument& document) noexcept : m_query(document)
 {
 }
 
-inline CSchemaDocumentQuery::CSchemaDocumentQuery(const CBakedDocument& document) noexcept : m_query(document)
+inline CTypesDocumentQuery::CTypesDocumentQuery(const CBakedDocument& document) noexcept : m_query(document)
 {
 }
 
-[[nodiscard]] inline bool CSchemaDocumentQuery::is_ready() const noexcept
+[[nodiscard]] inline bool CTypesDocumentQuery::is_ready() const noexcept
 {
     return m_query.is_ready();
 }
 
-[[nodiscard]] inline CSchemaHandle CSchemaDocumentQuery::root() const noexcept
+[[nodiscard]] inline CTypesHandle CTypesDocumentQuery::root() const noexcept
 {
-    return detail::SSchemaHandleAccess::make(m_query.root());
+    return detail::STypesHandleAccess::make(m_query.root());
 }
 
-[[nodiscard]] inline bool CSchemaDocumentQuery::contains(const CSchemaHandle value) const noexcept
+[[nodiscard]] inline bool CTypesDocumentQuery::contains(const CTypesHandle value) const noexcept
 {
-    return m_query.contains(detail::SSchemaHandleAccess::occurrence(value));
+    return m_query.contains(detail::STypesHandleAccess::occurrence(value));
 }
 
-[[nodiscard]] inline EDocumentValueKind CSchemaDocumentQuery::value_kind(const CSchemaHandle value) const noexcept
+[[nodiscard]] inline EDocumentValueKind CTypesDocumentQuery::value_kind(const CTypesHandle value) const noexcept
 {
-    return m_query.value_kind(detail::SSchemaHandleAccess::occurrence(value));
+    return m_query.value_kind(detail::STypesHandleAccess::occurrence(value));
 }
 
-[[nodiscard]] inline CSchemaHandle CSchemaDocumentQuery::object_child(const CSchemaHandle object, const CStringView& name) const noexcept
+[[nodiscard]] inline CTypesHandle CTypesDocumentQuery::object_child(const CTypesHandle object, const CStringView& name) const noexcept
 {
-    return detail::SSchemaHandleAccess::make(m_query.object_child(detail::SSchemaHandleAccess::occurrence(object), name));
+    return detail::STypesHandleAccess::make(m_query.object_child(detail::STypesHandleAccess::occurrence(object), name));
 }
 
-[[nodiscard]] inline CSchemaHandle CSchemaDocumentQuery::parent(const CSchemaHandle value) const noexcept
+[[nodiscard]] inline CTypesHandle CTypesDocumentQuery::parent(const CTypesHandle value) const noexcept
 {
-    return detail::SSchemaHandleAccess::make(m_query.parent(detail::SSchemaHandleAccess::occurrence(value)));
+    return detail::STypesHandleAccess::make(m_query.parent(detail::STypesHandleAccess::occurrence(value)));
 }
 
-[[nodiscard]] inline CSchemaHandle CSchemaDocumentQuery::first_child(const CSchemaHandle value) const noexcept
+[[nodiscard]] inline CTypesHandle CTypesDocumentQuery::first_child(const CTypesHandle value) const noexcept
 {
-    return detail::SSchemaHandleAccess::make(m_query.first_child(detail::SSchemaHandleAccess::occurrence(value)));
+    return detail::STypesHandleAccess::make(m_query.first_child(detail::STypesHandleAccess::occurrence(value)));
 }
 
-[[nodiscard]] inline CSchemaHandle CSchemaDocumentQuery::next_sibling(const CSchemaHandle value) const noexcept
+[[nodiscard]] inline CTypesHandle CTypesDocumentQuery::next_sibling(const CTypesHandle value) const noexcept
 {
-    return detail::SSchemaHandleAccess::make(m_query.next_sibling(detail::SSchemaHandleAccess::occurrence(value)));
+    return detail::STypesHandleAccess::make(m_query.next_sibling(detail::STypesHandleAccess::occurrence(value)));
 }
 
-[[nodiscard]] inline CSchemaHandle CSchemaDocumentQuery::array_at(const CSchemaHandle value, const std::uint32_t ordinal) const noexcept
+[[nodiscard]] inline CTypesHandle CTypesDocumentQuery::array_at(const CTypesHandle value, const std::uint32_t ordinal) const noexcept
 {
-    return detail::SSchemaHandleAccess::make(m_query.array_at(detail::SSchemaHandleAccess::occurrence(value), ordinal));
+    return detail::STypesHandleAccess::make(m_query.array_at(detail::STypesHandleAccess::occurrence(value), ordinal));
 }
 
-[[nodiscard]] inline std::uint32_t CSchemaDocumentQuery::child_count(const CSchemaHandle value) const noexcept
+[[nodiscard]] inline std::uint32_t CTypesDocumentQuery::child_count(const CTypesHandle value) const noexcept
 {
-    return m_query.child_count(detail::SSchemaHandleAccess::occurrence(value));
+    return m_query.child_count(detail::STypesHandleAccess::occurrence(value));
 }
 
-[[nodiscard]] inline bool CSchemaDocumentQuery::is_object_entry(const CSchemaHandle value) const noexcept
+[[nodiscard]] inline bool CTypesDocumentQuery::is_object_entry(const CTypesHandle value) const noexcept
 {
-    return m_query.is_object_entry(detail::SSchemaHandleAccess::occurrence(value));
+    return m_query.is_object_entry(detail::STypesHandleAccess::occurrence(value));
 }
 
-[[nodiscard]] inline CPropertyNameId CSchemaDocumentQuery::name_id(const CSchemaHandle value) const noexcept
+[[nodiscard]] inline CPropertyNameId CTypesDocumentQuery::name_id(const CTypesHandle value) const noexcept
 {
-    return m_query.name_id(detail::SSchemaHandleAccess::occurrence(value));
+    return m_query.name_id(detail::STypesHandleAccess::occurrence(value));
 }
 
-[[nodiscard]] inline CStringView CSchemaDocumentQuery::name(const CSchemaHandle value) const noexcept
+[[nodiscard]] inline CStringView CTypesDocumentQuery::name(const CTypesHandle value) const noexcept
 {
-    return m_query.name(detail::SSchemaHandleAccess::occurrence(value));
+    return m_query.name(detail::STypesHandleAccess::occurrence(value));
 }
 
-[[nodiscard]] inline CStringView CSchemaDocumentQuery::property_name(const CPropertyNameId id) const noexcept
+[[nodiscard]] inline CStringView CTypesDocumentQuery::property_name(const CPropertyNameId id) const noexcept
 {
     return m_query.property_name(id);
 }
 
-[[nodiscard]] inline CPropertyNameId CSchemaDocumentQuery::find_property_name_id(const CStringView& name) const noexcept
+[[nodiscard]] inline CPropertyNameId CTypesDocumentQuery::find_property_name_id(const CStringView& name) const noexcept
 {
     return m_query.find_property_name_id(name);
 }
 
-[[nodiscard]] inline CStringView CSchemaDocumentQuery::string_value(const CSchemaHandle value) const noexcept
+[[nodiscard]] inline CStringView CTypesDocumentQuery::string_value(const CTypesHandle value) const noexcept
 {
-    return m_query.string_value(detail::SSchemaHandleAccess::occurrence(value));
+    return m_query.string_value(detail::STypesHandleAccess::occurrence(value));
 }
 
-[[nodiscard]] inline bool CSchemaDocumentQuery::boolean_value(const CSchemaHandle value, bool& result) const noexcept
+[[nodiscard]] inline bool CTypesDocumentQuery::boolean_value(const CTypesHandle value, bool& result) const noexcept
 {
-    return m_query.boolean_value(detail::SSchemaHandleAccess::occurrence(value), result);
+    return m_query.boolean_value(detail::STypesHandleAccess::occurrence(value), result);
 }
 
-[[nodiscard]] inline bool CSchemaDocumentQuery::signed_integer_value(const CSchemaHandle value, std::int64_t& result) const noexcept
+[[nodiscard]] inline bool CTypesDocumentQuery::signed_integer_value(const CTypesHandle value, std::int64_t& result) const noexcept
 {
-    return m_query.signed_integer_value(detail::SSchemaHandleAccess::occurrence(value), result);
+    return m_query.signed_integer_value(detail::STypesHandleAccess::occurrence(value), result);
 }
 
-[[nodiscard]] inline bool CSchemaDocumentQuery::unsigned_integer_value(const CSchemaHandle value, std::uint64_t& result) const noexcept
+[[nodiscard]] inline bool CTypesDocumentQuery::unsigned_integer_value(const CTypesHandle value, std::uint64_t& result) const noexcept
 {
-    return m_query.unsigned_integer_value(detail::SSchemaHandleAccess::occurrence(value), result);
+    return m_query.unsigned_integer_value(detail::STypesHandleAccess::occurrence(value), result);
 }
 
-[[nodiscard]] inline bool CSchemaDocumentQuery::floating_point_value(const CSchemaHandle value, double& result) const noexcept
+[[nodiscard]] inline bool CTypesDocumentQuery::floating_point_value(const CTypesHandle value, double& result) const noexcept
 {
-    return m_query.floating_point_value(detail::SSchemaHandleAccess::occurrence(value), result);
+    return m_query.floating_point_value(detail::STypesHandleAccess::occurrence(value), result);
 }
 
-[[nodiscard]] inline bool CSchemaDocumentQuery::integer_metadata(const CSchemaHandle value, CIntegerMetadata& result) const noexcept
+[[nodiscard]] inline bool CTypesDocumentQuery::integer_metadata(const CTypesHandle value, CIntegerMetadata& result) const noexcept
 {
-    return m_query.integer_metadata(detail::SSchemaHandleAccess::occurrence(value), result);
+    return m_query.integer_metadata(detail::STypesHandleAccess::occurrence(value), result);
 }
 
-[[nodiscard]] inline bool CSchemaDocumentQuery::suppresses_newline_escaping(const CSchemaHandle value) const noexcept
+[[nodiscard]] inline bool CTypesDocumentQuery::suppresses_newline_escaping(const CTypesHandle value) const noexcept
 {
-    return m_query.suppresses_newline_escaping(detail::SSchemaHandleAccess::occurrence(value));
+    return m_query.suppresses_newline_escaping(detail::STypesHandleAccess::occurrence(value));
 }
 
 //==============================================================================

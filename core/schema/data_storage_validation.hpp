@@ -71,7 +71,7 @@ template<class TReason>
 
 template<class TReason>
 [[nodiscard]] static bool check_data_range(const std::uint64_t offset, const std::uint64_t extent,
-    const std::uint64_t alignment, const std::uint64_t cursor, const bool supplied,
+    const std::uint64_t alignment, const std::uint64_t cursor,
     const std::size_t payload_size, TReason& reason) noexcept
 {
     if ((offset < cursor) && ((extent != 0u) || (offset != 0u)))
@@ -81,7 +81,7 @@ template<class TReason>
     }
     if ((offset > UINT32_MAX) || (offset > memory::k_byte_size_ceiling) ||
         ((offset & (alignment - 1u)) != 0u) || (extent > (memory::k_byte_size_ceiling - offset)) ||
-        (supplied && ((offset + extent) > payload_size)))
+        ((offset + extent) > payload_size))
     {
         reason = TReason::invalid_range;
         return false;

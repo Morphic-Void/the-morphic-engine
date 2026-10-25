@@ -121,7 +121,7 @@ Completed schema `.bsd` consumers request 128-byte alignment and bind
 their separately owned schema after loading. Host I/O status and caller-side
 format/schema diagnostics remain separate; attachment failure does not dispose
 the successfully loaded asset. The
-[schema runtime API](../schema/runtime-api.md#host-persistence-orchestration)
+[schema runtime API](../schema/runtime-api.md#persistence-envelope)
 describes admission, construction, attachment and explicit release sequences.
 
 Baked loads request at least 32-byte alignment. Other loads preserve the file

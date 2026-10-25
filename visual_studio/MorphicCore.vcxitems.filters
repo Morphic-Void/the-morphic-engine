@@ -961,6 +961,12 @@
     <Text Include="..\LICENSE.txt">
       <Filter>Docs</Filter>
     </Text>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\schema.hpp">
+      <Filter>Core\include\schema</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\types_admission.hpp">
+      <Filter>Core\include\schema</Filter>
+    </ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\document_query.hpp">
       <Filter>Core\include\schema</Filter>
     </ClInclude>
@@ -976,7 +982,7 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\data_block_format.hpp">
       <Filter>Core\include\schema</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\resolved_schema.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\resolved_types.hpp">
       <Filter>Core\include\schema</Filter>
     </ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\value_conversion.hpp">
@@ -994,31 +1000,22 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\data_document_validation.hpp">
       <Filter>Core\include\schema</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\data_merge.hpp">
-      <Filter>Core\include\schema</Filter>
-    </ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\data_storage_validation.hpp">
       <Filter>Core\include\schema</Filter>
     </ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\document_construction.hpp">
       <Filter>Core\include\schema</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\document_composition.hpp">
-      <Filter>Core\include\schema</Filter>
-    </ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\data_reconstruction.hpp">
-      <Filter>Core\include\schema</Filter>
-    </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\data_preparation.hpp">
-      <Filter>Core\include\schema</Filter>
-    </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\schema_merge.hpp">
       <Filter>Core\include\schema</Filter>
     </ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\data_model\document_copy.hpp">
       <Filter>Core\include\data_model</Filter>
     </ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\value_codec.hpp">
+      <Filter>Core\include\schema</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\instance_selection.hpp">
       <Filter>Core\include\schema</Filter>
     </ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\integer_notation.hpp">
@@ -1030,13 +1027,10 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\unused_storage.hpp">
       <Filter>Core\include\schema</Filter>
     </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\schema_wrappers.hpp">
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\types_wrappers.hpp">
       <Filter>Core\include\schema</Filter>
     </ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\baked_bulk_data.hpp">
-      <Filter>Core\include\schema</Filter>
-    </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\data_output.hpp">
       <Filter>Core\include\schema</Filter>
     </ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\live_bulk_data.hpp">
@@ -1048,6 +1042,15 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\schema\baked_instances.hpp">
       <Filter>Core\include\schema</Filter>
     </ClInclude>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\schema.cpp">
+      <Filter>Core\src\schema</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\schema_runtime.cpp">
+      <Filter>Core\src\schema</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\types_admission.cpp">
+      <Filter>Core\src\schema</Filter>
+    </ClCompile>
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\document_query.cpp">
       <Filter>Core\src\schema</Filter>
     </ClCompile>
@@ -1060,7 +1063,7 @@
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\data_block_format.cpp">
       <Filter>Core\src\schema</Filter>
     </ClCompile>
-    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\resolved_schema.cpp">
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\resolved_types.cpp">
       <Filter>Core\src\schema</Filter>
     </ClCompile>
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\type_compatibility.cpp">
@@ -1072,22 +1075,10 @@
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\data_document_validation.cpp">
       <Filter>Core\src\schema</Filter>
     </ClCompile>
-    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\data_merge.cpp">
-      <Filter>Core\src\schema</Filter>
-    </ClCompile>
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\document_construction.cpp">
       <Filter>Core\src\schema</Filter>
     </ClCompile>
-    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\document_composition.cpp">
-      <Filter>Core\src\schema</Filter>
-    </ClCompile>
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\data_reconstruction.cpp">
-      <Filter>Core\src\schema</Filter>
-    </ClCompile>
-    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\data_preparation.cpp">
-      <Filter>Core\src\schema</Filter>
-    </ClCompile>
-    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\schema_merge.cpp">
       <Filter>Core\src\schema</Filter>
     </ClCompile>
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\data_model\document_copy.cpp">
@@ -1096,13 +1087,16 @@
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\value_codec.cpp">
       <Filter>Core\src\schema</Filter>
     </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\instance_selection.cpp">
+      <Filter>Core\src\schema</Filter>
+    </ClCompile>
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\data_remap.cpp">
       <Filter>Core\src\schema</Filter>
     </ClCompile>
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\unused_storage.cpp">
       <Filter>Core\src\schema</Filter>
     </ClCompile>
-    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\schema_wrappers.cpp">
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\types_wrappers.cpp">
       <Filter>Core\src\schema</Filter>
     </ClCompile>
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\baked_bulk_data.cpp">
@@ -1123,10 +1117,10 @@
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\baked_instances.cpp">
       <Filter>Core\src\schema</Filter>
     </ClCompile>
-    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\schema_declarations.cpp">
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\types_declarations.cpp">
       <Filter>Core\src\schema</Filter>
     </ClCompile>
-    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\schema_output.cpp">
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\schema\types_output.cpp">
       <Filter>Core\src\schema</Filter>
     </ClCompile>
   </ItemGroup>

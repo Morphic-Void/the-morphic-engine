@@ -2,7 +2,7 @@
 //  Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited
 //  License: MIT (see LICENSE file in repository root)
 //
-//  File:    schema_output.cpp
+//  File:    types_output.cpp
 //  Authors: Ritchie Brannan / OpenAI Codex
 //  Date:    04 Oct 26
 //
@@ -23,40 +23,40 @@ namespace schema
 
 struct SIntegerPresentation
 {
-    CSchemaHandle source;
+    CTypesHandle source;
     EIntegerDomain domain{};
     EIntegerNotation notation{};
 };
 
-[[nodiscard]] static std::uint64_t presentation_key(const CSchemaHandle source) noexcept
+[[nodiscard]] static std::uint64_t presentation_key(const CTypesHandle source) noexcept
 {
-    return detail::SSchemaHandleAccess::occurrence(source).query_value();
+    return detail::STypesHandleAccess::occurrence(source).query_value();
 }
 
 //  Reuse the document copier, overriding only integer observations. Rules are
 //  sorted once; each lookup is logarithmic and no index survives the output call.
-class CSchemaOutputQuery : public CSchemaDocumentQuery
+class CSchemaOutputQuery : public CTypesDocumentQuery
 {
 public:
-    CSchemaOutputQuery(const CSchemaDocumentQuery& source, const TPodVector<SIntegerPresentation>& rules) noexcept :
-        CSchemaDocumentQuery(source), m_rules(rules) {}
+    CSchemaOutputQuery(const CTypesDocumentQuery& source, const TPodVector<SIntegerPresentation>& rules) noexcept :
+        CTypesDocumentQuery(source), m_rules(rules) {}
 
-    [[nodiscard]] bool integer_metadata(const CSchemaHandle value, CIntegerMetadata& result) const noexcept;
-    [[nodiscard]] bool signed_integer_value(const CSchemaHandle value, std::int64_t& result) const noexcept;
-    [[nodiscard]] bool unsigned_integer_value(const CSchemaHandle value, std::uint64_t& result) const noexcept;
+    [[nodiscard]] bool integer_metadata(const CTypesHandle value, CIntegerMetadata& result) const noexcept;
+    [[nodiscard]] bool signed_integer_value(const CTypesHandle value, std::int64_t& result) const noexcept;
+    [[nodiscard]] bool unsigned_integer_value(const CTypesHandle value, std::uint64_t& result) const noexcept;
 
 private:
     const TPodVector<SIntegerPresentation>& m_rules;
 };
 
-bool CSchemaOutputQuery::signed_integer_value(const CSchemaHandle value, std::int64_t& result) const noexcept
+bool CSchemaOutputQuery::signed_integer_value(const CTypesHandle value, std::int64_t& result) const noexcept
 {
-    if (CSchemaDocumentQuery::signed_integer_value(value, result))
+    if (CTypesDocumentQuery::signed_integer_value(value, result))
     {
         return true;
     }
     std::uint64_t raw{};
-    if (!CSchemaDocumentQuery::unsigned_integer_value(value, raw) || (raw > INT64_MAX))
+    if (!CTypesDocumentQuery::unsigned_integer_value(value, raw) || (raw > INT64_MAX))
     {
         return false;
     }
@@ -64,14 +64,14 @@ bool CSchemaOutputQuery::signed_integer_value(const CSchemaHandle value, std::in
     return true;
 }
 
-bool CSchemaOutputQuery::unsigned_integer_value(const CSchemaHandle value, std::uint64_t& result) const noexcept
+bool CSchemaOutputQuery::unsigned_integer_value(const CTypesHandle value, std::uint64_t& result) const noexcept
 {
-    if (CSchemaDocumentQuery::unsigned_integer_value(value, result))
+    if (CTypesDocumentQuery::unsigned_integer_value(value, result))
     {
         return true;
     }
     std::int64_t raw{};
-    if (!CSchemaDocumentQuery::signed_integer_value(value, raw) || (raw < 0))
+    if (!CTypesDocumentQuery::signed_integer_value(value, raw) || (raw < 0))
     {
         return false;
     }
@@ -79,7 +79,7 @@ bool CSchemaOutputQuery::unsigned_integer_value(const CSchemaHandle value, std::
     return true;
 }
 
-bool CSchemaOutputQuery::integer_metadata(const CSchemaHandle value, CIntegerMetadata& result) const noexcept
+bool CSchemaOutputQuery::integer_metadata(const CTypesHandle value, CIntegerMetadata& result) const noexcept
 {
     std::size_t first = 0u, last = m_rules.size();
     const std::uint64_t key = presentation_key(value);
@@ -97,7 +97,7 @@ bool CSchemaOutputQuery::integer_metadata(const CSchemaHandle value, CIntegerMet
     }
     if ((first == m_rules.size()) || (m_rules[first].source != value))
     {
-        return CSchemaDocumentQuery::integer_metadata(value, result);
+        return CTypesDocumentQuery::integer_metadata(value, result);
     }
     const SIntegerPresentation& rule = m_rules[first];
     if (rule.domain == EIntegerDomain::signed_value)
@@ -151,7 +151,7 @@ bool CSchemaOutputQuery::integer_metadata(const CSchemaHandle value, CIntegerMet
         append_layout_integer(document, detail, "size", static_cast<std::uint32_t>(layout.size));
 }
 
-bool CResolvedSchema::prepare_output(CLiveDocument& destination, SDiagnostic& diagnostic) const noexcept
+bool CResolvedTypes::prepare_output(CLiveDocument& destination, SDiagnostic& diagnostic) const noexcept
 {
     diagnostic = {};
     if (!is_ready() || destination.is_ready())
@@ -160,7 +160,7 @@ bool CResolvedSchema::prepare_output(CLiveDocument& destination, SDiagnostic& di
         return false;
     }
     TPodVector<SIntegerPresentation> rules;
-    const auto add = [&](const CSchemaHandle source, const EIntegerDomain domain, const EIntegerNotation notation) noexcept
+    const auto add = [&](const CTypesHandle source, const EIntegerDomain domain, const EIntegerNotation notation) noexcept
     {
         if (!source || (m_document.value_kind(source) != EDocumentValueKind::integer))
         {
@@ -174,12 +174,12 @@ bool CResolvedSchema::prepare_output(CLiveDocument& destination, SDiagnostic& di
         }
         return true;
     };
-    const auto structural = [&](const CSchemaHandle owner, const char* const name) noexcept
+    const auto structural = [&](const CTypesHandle owner, const char* const name) noexcept
     {
         return add(m_document.object_child(owner, CStringView{ name }),
             EIntegerDomain::unsigned_value, EIntegerNotation::decimal_or_hexadecimal);
     };
-    const auto ordinary = [&](const CSchemaHandle source, const EPrimitive primitive) noexcept
+    const auto ordinary = [&](const CTypesHandle source, const EPrimitive primitive) noexcept
     {
         if ((primitive < EPrimitive::i8) || (primitive > EPrimitive::u64))
         {
@@ -201,7 +201,7 @@ bool CResolvedSchema::prepare_output(CLiveDocument& destination, SDiagnostic& di
         }
         else if (type.category == ECategory::structure)
         {
-            const CSchemaHandle detail = m_document.object_child(type.source, CStringView{ "detail" });
+            const CTypesHandle detail = m_document.object_child(type.source, CStringView{ "detail" });
             if (!structural(detail, "size") || !structural(detail, "alignment"))
             {
                 return false;
@@ -228,7 +228,7 @@ bool CResolvedSchema::prepare_output(CLiveDocument& destination, SDiagnostic& di
         {
             for (std::uint32_t field = 0u; field < type.count; ++field)
             {
-                const CSchemaHandle mask = m_document.object_child(m_fields[type.first + field].source, CStringView{ "mask" });
+                const CTypesHandle mask = m_document.object_child(m_fields[type.first + field].source, CStringView{ "mask" });
                 if (!add(mask, EIntegerDomain::unsigned_value, mask_notation(type.size)))
                 {
                     return false;
@@ -266,7 +266,7 @@ bool CResolvedSchema::prepare_output(CLiveDocument& destination, SDiagnostic& di
         return false;
     }
     const CSchemaOutputQuery source{ m_document, rules };
-    const CSchemaHandle types = source.object_child(source.root(), CStringView{ "types" });
+    const CTypesHandle types = source.object_child(source.root(), CStringView{ "types" });
     const CNodeKey copied = document_translation::detail::copy_valid_subtree(staged, source, types, CStringView{ "types" });
     if (!copied || !staged.append_child(staged.root(), copied).succeeded())
     {
@@ -277,10 +277,10 @@ bool CResolvedSchema::prepare_output(CLiveDocument& destination, SDiagnostic& di
 
     //  Copying preserves declaration order, so pair the two structure walks.
     //  Avoid a repeated name search across the destination's definition list.
-    const CSchemaHandle source_structures = source.object_child(types, CStringView{ "structures" });
+    const CTypesHandle source_structures = source.object_child(types, CStringView{ "structures" });
     const CNodeKey output_structures = staged.object_child(copied, CStringView{ "structures" });
     CNodeKey output = staged.first_child(output_structures);
-    for (CSchemaHandle original = source.first_child(source_structures); original;
+    for (CTypesHandle original = source.first_child(source_structures); original;
         original = source.next_sibling(original), output = staged.next_sibling(output))
     {
         SType layout;

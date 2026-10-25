@@ -10,12 +10,12 @@ Date:   25 Sep 2026
 [schema-example.json](schema-example.json) illustrates layout, short input and
 `detail.internal` as the internal-layout marker. Its `types` section is a resolver
 and C++ compiler acceptance fixture. The instance and bulk data sections illustrate
-materialisation with reserved locators and are exercised by data-role tests,
+binary-free aggregate materialisation and are exercised by data-role tests,
 including live instance baking and reload.
 The [specification](specification.md) defines the semantics.
 
-The instance and bulk data entries use unset locators for materialisation. Named
-declarations and inheritance form the intended embedded instance representation; no
+The instance and bulk data entries have no runtime locators. Named
+declarations and inheritance form the authoring instance representation; no
 additional flattened-value field is required. See the [runtime API](runtime-api.md)
 for interfaces and [validation](validation.md) for regression and compiler checks.
 
@@ -36,10 +36,9 @@ C++ declarations instead choose ordinary integer notation by value; see the
 ## Grammar illustrated by the sample
 
 This is an authoring example, not a saved binary-backed output document. Its
-`valid: false` locators reserve fields for materialisation, and its declarations
-deliberately retain redundant selections to illustrate input and inheritance.
-Reconciliation/output may remove those selections, add locator sizes and assign
-valid offsets. The file uses Morphic JSON extensions despite its `.json` suffix;
+declarations deliberately retain equal selections to illustrate input and
+inheritance. Runtime construction assigns locators and strips literal values while
+preserving those selections; promotion, baking and import do not minimise them. The file uses Morphic JSON extensions despite its `.json` suffix;
 strict-JSON tools should consume the writer's strict mode instead.
 
 | Construct | Spelling and meaning |
@@ -52,8 +51,8 @@ strict-JSON tools should consume the writer's strict mode instead.
 | Fixed array | `{ "element": "f32", "count": 2 }`. Count identifies an array; the element descriptor can itself be an array descriptor. Count is positive; optional `stride` and `alignment` override the natural element stride and array alignment. The sample uses their defaults. |
 | Bit structure | Integer `storage` describes the containing word; ordered named `members` select fields with non-zero contiguous `mask` values. |
 | Bit member | `type` gives the field's base/logical type: an integer, `b8`, or a named enum. Optional `interpretation` retains specialised meaning such as `unorm`; optional scalar `default` belongs to this field definition. |
-| Instance | `instances` groups named instances by type. Each base or specialisation reserves a `locator`; `declaration` holds supplied values when present, and `specialisation` holds named children inheriting from that instance. An absent declaration selects no values: a base uses defaults and a child inherits unchanged. |
-| Bulk data collection | `data` groups named collections by type. Each collection is an object with a `locator` and optional `data` array of complete unnamed records. The sample's unset locator reserves `offset`, `valid`, and `count` for materialisation. Records have no specialisation mechanism. |
+| Instance | `instances` groups named instances by type. Each base or specialisation has optional `declaration` holding supplied values when present, and `specialisation` holding named children inheriting from that instance. An absent declaration selects no values: a base uses defaults and a child inherits unchanged. |
+| Bulk data collection | `data` groups named collections by type. Each collection has a required nonempty `data` array of complete records. Runtime construction derives its locator and count. Records have no specialisation mechanism. |
 
 Leaf instances omit `specialisation` in this form. A member's `type` accepts
 either a named type or an array descriptor containing both `element` and
@@ -132,7 +131,8 @@ so a shifted mask need not fit the logical field type or its enum value set.
   `position` and `colour` are unchanged. The base's omitted `colour` uses
   `ColourRgba8` defaults, including alpha 255. Declared array count and
   structure size are unchanged by short input.
-- Null is not an omission marker and is invalid anywhere in these values.
+- Null is allowed only as a positional instance-inheritance hole. Defaults, named
+  field values and complete bulk records still reject it.
 - `Material.base` gets `alpha`, `z`, and roughness 0.5 from defaults. `polished`
   changes roughness to 0.1; its child `hidden` preserves that roughness and
   changes only visibility. Sibling `rough` inherits from `base`, not `polished`.
@@ -176,7 +176,7 @@ structure instead requires a supplied size, validated for fit and alignment;
 additional trailing space is allowed and belongs to the structure.
 If `detail` or its `alignment` property is omitted, the natural
 alignment rules apply, respecting any explicit alignment of nested types.
-`CResolvedSchema::prepare_output()` includes both structure `detail.alignment` and
+`CResolvedTypes::prepare_output()` includes both structure `detail.alignment` and
 `detail.size`, adding missing properties from the resolved layout.
 Natural-layout input may omit both; explicit-offset schema creation
 must supply size and baked resolution requires it. All structure
@@ -208,7 +208,7 @@ The test suite generates and compiles the declarations, but the sample does not
 establish export mechanics.
 
 Layout validation resolves and compiler-checks `InternalRecord` and its dependent
-`ArrayExamples` on x86 and x64. The baked loaders can materialise the instance hierarchy and
+`ArrayExamples` on x86 and x64. `CSchema` validates its contained types and materialises the instance hierarchy and
 `Vertex.triangle`; the full
 example deliberately covers more than schema resolution.
 
@@ -217,7 +217,7 @@ numeric extensions here it emits equivalent values without explicit `+` signs
 or hexadecimal notation. Morphic output retains signed-domain and notation intent,
 including a minimum hex width derived from parsed digit counts. A generic round
 trip preserves `0x0001` and expands `0x1` to `0x01`; it does not select formatting
-from schema types. `CResolvedSchema::prepare_output()` sets the data model's
+from schema types. `CResolvedTypes::prepare_output()` sets the data model's
 presentation metadata for full-width masks and other schema-specific rules.
 Instance and bulk data reconstruction apply the same ordinary integer policy.
 
@@ -226,5 +226,5 @@ Instance and bulk data reconstruction apply the same ordinary integer policy.
 `test_schema_sample` in `Schema_test_suite.cpp` reads this file through the engine's
 Morphic parser, bakes and resolves its schema, checks layouts, generates C++
 validation fixtures, materialises its bulk data and instance data, promotes both roles,
-and exercises embedded/external baking and reload. Generated declarations are
+and exercises complete stripped baking, explicit value import and reload. Generated declarations are
 compiled by the separate layout-validation checks.

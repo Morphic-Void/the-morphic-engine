@@ -10,7 +10,7 @@
 
 #include "schema/baked_bulk_data.hpp"
 #include "schema/baked_data_block.hpp"
-#include "schema/data_block_construction.hpp"
+#include "schema/data_block_format.hpp"
 #include "schema/type_compatibility.hpp"
 #include "schema/value_codec.hpp"
 #include "schema/data_document_validation.hpp"
@@ -49,23 +49,18 @@ void CBakedBulkData::clear() noexcept
 {
     clear_loaded();
     m_binding.release();
-    m_mutable.clear();
     m_document.clear();
-    m_working_document.deallocate();
 }
 
 void CBakedBulkData::take_from(CBakedBulkData& source) noexcept
 {
-    m_working_document = std::move(source.m_working_document);
     m_document = source.m_document;
-    m_mutable = source.m_mutable;
     m_binding = std::move(source.m_binding);
     m_payload = source.m_payload;
     m_records = std::move(source.m_records);
     m_record_index = std::move(source.m_record_index);
     m_loaded = source.m_loaded;
     source.m_document.clear();
-    source.m_mutable.clear();
     source.m_payload = {};
     source.m_loaded = false;
 }
@@ -80,154 +75,102 @@ bool CBakedBulkData::set_document(const CBakedDocument& document) noexcept
     return true;
 }
 
-bool CBakedBulkData::set_document(const CMutableBakedDocument& document) noexcept
-{
-    if (document_ready() || m_binding.is_attached() || !document.is_ready())
-    {
-        return false;
-    }
-    m_mutable = document;
-    m_document = document.baked();
-    return true;
-}
-
 template<class TSchema>
-bool CBakedBulkData::attach_block_to(const CBakedDataBlock& block, TSchema& schema,
-    CByteBuffer& returned_owner, const bool compare_embedded, SBulkDataDiagnostic& diagnostic) noexcept
+bool CBakedBulkData::attach_block_to(const CBakedDataBlock& block, TSchema& types, SBulkDataDiagnostic& diagnostic) noexcept
 {
     diagnostic = {};
-    if (document_ready() || !block.loaded_ready() || returned_owner.is_ready())
+    if (document_ready() || !block.loaded_ready() || (block.has_bulk_data() && !block.bulk_binary_available()))
     {
         diagnostic.reason = EBulkDataLoadReason::invalid_input;
         return false;
     }
     CBakedBulkData staged;
-    CBakedDocumentBlock working;
-    if (block.bulk_binary_available())
-    {
-        if (!staged.set_document(block.document()) || !staged.attach_schema(schema, block.bulk_payload_view(), compare_embedded, diagnostic)) return false;
-    }
-    else
-    {
-        SDataBlockDiagnostic preparation;
-        if (!detail::prepare_missing_data_document(block.document(), true, working, preparation) ||
-            !staged.set_document(CMutableBakedDocument{ working }) || !staged.attach_schema(schema, returned_owner, diagnostic))
-        {
-            if (diagnostic.reason == EBulkDataLoadReason::none) diagnostic.reason = EBulkDataLoadReason::invalid_input;
-            diagnostic.occurrence = detail::SBulkDataHandleAccess::make(detail::SOccurrence{
-                detail::materialisation_source_value(block.document(), working.document(), detail::SBulkDataHandleAccess::occurrence(diagnostic.occurrence).baked) });
-            return false;
-        }
-        staged.m_working_document = std::move(working);
-    }
+    if (!staged.set_document(block.document()) || !staged.attach_types(types, block.bulk_payload_view(), diagnostic)) return false;
     take_from(staged);
     return true;
 }
 
-bool CBakedBulkData::attach_block(const CBakedDataBlock& block, CBakedSchema& schema,
-    CByteBuffer& returned_owner, const bool compare_embedded, SBulkDataDiagnostic& diagnostic) noexcept
+bool CBakedBulkData::attach_block(const CBakedDataBlock& block, CBakedTypes& types, SBulkDataDiagnostic& diagnostic) noexcept
 {
-    return attach_block_to(block, schema, returned_owner, compare_embedded, diagnostic);
+    return attach_block_to(block, types, diagnostic);
 }
 
-bool CBakedBulkData::attach_block(const CBakedDataBlock& block, CLiveSchema& schema,
-    CByteBuffer& returned_owner, const bool compare_embedded, SBulkDataDiagnostic& diagnostic) noexcept
+bool CBakedBulkData::attach_block(const CBakedDataBlock& block, CLiveTypes& types, SBulkDataDiagnostic& diagnostic) noexcept
 {
-    return attach_block_to(block, schema, returned_owner, compare_embedded, diagnostic);
+    return attach_block_to(block, types, diagnostic);
 }
 
 template<class TSchema>
-bool CBakedBulkData::attach_to(TSchema& schema, CByteBuffer* const returned_owner, const CByteConstView& payload,
-    const bool compare_embedded, SBulkDataDiagnostic& diagnostic) noexcept
+bool CBakedBulkData::attach_to(TSchema& types, const CByteConstView& payload, SBulkDataDiagnostic& diagnostic) noexcept
 {
     diagnostic = {};
-    if (!document_ready() || m_loaded || m_binding.is_attached())
+    if (!document_ready() || m_loaded || m_binding.is_attached() || !types.resolved_ready())
     {
         diagnostic.reason = EBulkDataLoadReason::invalid_input;
         return false;
     }
     CBakedBulkData prepared;
     prepared.m_document = m_document;
-    prepared.m_mutable = m_mutable;
-    if (!prepared.m_binding.bind(schema))
+    CBakedTypes embedded;
+    if (m_document.object_child(m_document.root(), CStringView{ "types" }))
     {
-        diagnostic.reason = EBulkDataLoadReason::invalid_input;
-        return false;
+        SDiagnostic error;
+        if (!embedded.set_document(m_document) || !embedded.resolve(error))
+        {
+            diagnostic.reason = error.reason == EReason::allocation_failed ? EBulkDataLoadReason::allocation_failed : EBulkDataLoadReason::invalid_input;
+            diagnostic.occurrence = detail::SBulkDataHandleAccess::make(detail::STypesHandleAccess::occurrence(error.occurrence));
+            return false;
+        }
+        if (!prepared.m_binding.bind(embedded) || !prepared.load_supplied(payload, diagnostic) ||
+            !prepared.switch_to(types, ETypeBindMode::checked, diagnostic)) return false;
     }
-    if (returned_owner ? !prepared.materialise(*returned_owner, diagnostic) :
-        !prepared.load_supplied(payload, compare_embedded, diagnostic))
-    {
-        return false;
-    }
+    else if (!prepared.m_binding.bind(types) || !prepared.load_supplied(payload, diagnostic)) return false;
     take_from(prepared);
     return true;
 }
 
-bool CBakedBulkData::attach_schema(CBakedSchema& schema, const CByteConstView& payload,
-    const bool compare_embedded, SBulkDataDiagnostic& diagnostic) noexcept
+bool CBakedBulkData::attach_types(CBakedTypes& types, const CByteConstView& payload, SBulkDataDiagnostic& diagnostic) noexcept
 {
-    return attach_to(schema, nullptr, payload, compare_embedded, diagnostic);
+    return attach_to(types, payload, diagnostic);
 }
 
-bool CBakedBulkData::attach_schema(CBakedSchema& schema, CByteBuffer& returned_owner, SBulkDataDiagnostic& diagnostic) noexcept
+bool CBakedBulkData::attach_types(CLiveTypes& types, const CByteConstView& payload, SBulkDataDiagnostic& diagnostic) noexcept
 {
-    return attach_to(schema, &returned_owner, {}, false, diagnostic);
-}
-
-bool CBakedBulkData::attach_schema(CLiveSchema& schema, const CByteConstView& payload,
-    const bool compare_embedded, SBulkDataDiagnostic& diagnostic) noexcept
-{
-    return attach_to(schema, nullptr, payload, compare_embedded, diagnostic);
-}
-
-bool CBakedBulkData::attach_schema(CLiveSchema& schema, CByteBuffer& returned_owner, SBulkDataDiagnostic& diagnostic) noexcept
-{
-    return attach_to(schema, &returned_owner, {}, false, diagnostic);
+    return attach_to(types, payload, diagnostic);
 }
 
 template<class TSchema>
-bool CBakedBulkData::switch_to(TSchema& schema, const ESchemaSwitchMode mode, SBulkDataDiagnostic& diagnostic) noexcept
+bool CBakedBulkData::switch_to(TSchema& schema, const ETypeBindMode mode, SBulkDataDiagnostic& diagnostic) noexcept
 {
     diagnostic = {};
-    if (!m_loaded || ((mode != ESchemaSwitchMode::checked) && (mode != ESchemaSwitchMode::trusted)))
+    if (!m_loaded || ((mode != ETypeBindMode::checked) && (mode != ETypeBindMode::asserted_recovery)))
     {
         diagnostic.reason = EBulkDataLoadReason::invalid_input;
         return false;
     }
-    CSchemaBinding proposed;
+    CTypesBinding proposed;
     if (!proposed.bind(schema))
     {
         diagnostic.reason = EBulkDataLoadReason::invalid_input;
         return false;
     }
     const detail::CDocumentRead document{ m_document };
-    TPodVector<CSchemaIndex> types;
+    if ((mode == ETypeBindMode::asserted_recovery) == static_cast<bool>(m_binding.resolved()))
+    {
+        diagnostic.reason = EBulkDataLoadReason::invalid_input;
+        return false;
+    }
+    TPodVector<CTypesIndex> types;
     detail::SOccurrence failure;
-    const auto result = detail::prepare_schema_switch<false>(document,
+    const auto result = detail::prepare_types_binding<false>(document,
         document.object_child(document.root(), CStringView{ "data" }), m_binding.resolved(), *proposed.resolved(),
-        mode == ESchemaSwitchMode::checked, m_records, types, failure);
+        mode == ETypeBindMode::checked, m_records, types, failure);
     if (result != ETypeMatchResult::match)
     {
         diagnostic.reason = (result == ETypeMatchResult::allocation_failed) ? EBulkDataLoadReason::allocation_failed :
             (result == ETypeMatchResult::invalid_input) ? EBulkDataLoadReason::invalid_input : EBulkDataLoadReason::incompatible_schema;
         diagnostic.occurrence = detail::SBulkDataHandleAccess::make(failure);
         return false;
-    }
-    const CByteConstView payload = m_payload;
-    if ((mode == ESchemaSwitchMode::checked) && !values_stripped())
-    {
-        detail::SValueDiagnostic error;
-        const auto checked = detail::check_bulk_records(*proposed.resolved(), document, m_records, payload.data(),
-            [&](const std::size_t i) noexcept
-            {
-                return types[i];
-            }, error);
-        if (checked != detail::EValueCheck::match)
-        {
-            diagnostic.reason = detail::value_failure(error, ((checked == detail::EValueCheck::mismatch) ? EBulkDataLoadReason::embedded_mismatch : EBulkDataLoadReason::incomplete_record));
-            diagnostic.occurrence = detail::SBulkDataHandleAccess::make(error.occurrence);
-            return false;
-        }
     }
     for (std::size_t i = 0u; i < m_records.size(); ++i)
     {
@@ -237,12 +180,12 @@ bool CBakedBulkData::switch_to(TSchema& schema, const ESchemaSwitchMode mode, SB
     return true;
 }
 
-bool CBakedBulkData::switch_schema(CBakedSchema& schema, const ESchemaSwitchMode mode, SBulkDataDiagnostic& diagnostic) noexcept
+bool CBakedBulkData::rebind_types(CBakedTypes& schema, const ETypeBindMode mode, SBulkDataDiagnostic& diagnostic) noexcept
 {
     return switch_to(schema, mode, diagnostic);
 }
 
-bool CBakedBulkData::switch_schema(CLiveSchema& schema, const ESchemaSwitchMode mode, SBulkDataDiagnostic& diagnostic) noexcept
+bool CBakedBulkData::rebind_types(CLiveTypes& schema, const ETypeBindMode mode, SBulkDataDiagnostic& diagnostic) noexcept
 {
     return switch_to(schema, mode, diagnostic);
 }
@@ -323,28 +266,26 @@ bool CBakedBulkData::entry(const CBulkDataHandle handle, SBulkDataEntryView& res
 //  Load planning
 //==============================================================================
 
-bool CBakedBulkData::plan(const bool supplied, const std::size_t payload_size,
+bool CBakedBulkData::plan(const std::size_t payload_size,
     TPodVector<SRecord>& records, std::size_t& total_size, SBulkDataDiagnostic& diagnostic) const noexcept
 {
     total_size = 0u;
-    const CResolvedSchema* const schema = m_binding.resolved();
+    const CResolvedTypes* const schema = m_binding.resolved();
     if (!document_ready() || !schema)
     {
         return fail(diagnostic, EBulkDataLoadReason::invalid_input, {});
     }
     detail::SDataBlockRoot metadata;
     SDataBlockDiagnostic root_error;
-    if (!detail::read_data_block_root(detail::CDocumentRead{ m_document }, metadata, root_error))
+    const bool envelope = static_cast<bool>(m_document.object_child(m_document.root(), CStringView{ "fileType" }));
+    if (!detail::read_data_block_root(detail::CDocumentRead{ m_document }, metadata, root_error, envelope))
     {
         return fail(diagnostic, EBulkDataLoadReason::invalid_input, root_error.location.baked_value);
     }
-    if (metadata.bulk_size && !supplied) return fail(diagnostic, EBulkDataLoadReason::binary_required, metadata.bulk_size.baked);
     if (metadata.bulk_size && (metadata.bulk_bytes != payload_size)) return fail(diagnostic, EBulkDataLoadReason::invalid_range, metadata.bulk_size.baked);
-    const bool stripped = metadata.stripped;
-    if (stripped && !supplied)
+    if (!metadata.stripped)
     {
-        const CBakedValueIndex marker = m_document.object_child(m_document.root(), CStringView{ "stripped" });
-        return fail(diagnostic, EBulkDataLoadReason::binary_required, marker);
+        return fail(diagnostic, EBulkDataLoadReason::invalid_input, m_document.root());
     }
     const CBakedValueIndex data_root = metadata.bulk_data.baked;
     if (!data_root.is_valid())
@@ -358,7 +299,7 @@ bool CBakedBulkData::plan(const bool supplied, const std::size_t payload_size,
         {
             return fail(diagnostic, EBulkDataLoadReason::invalid_input, group);
         }
-        const CSchemaIndex type = schema->find_type(m_document.name(group));
+        const CTypesIndex type = schema->find_type(m_document.name(group));
         SType layout;
         if (!type.is_valid() || !schema->type(type, layout))
         {
@@ -384,22 +325,9 @@ bool CBakedBulkData::plan(const bool supplied, const std::size_t payload_size,
             {
                 return fail(diagnostic, EBulkDataLoadReason::missing_property, entry);
             }
-            if (embedded.is_valid() && (stripped || (m_document.value_type(embedded) != EBakedValueType::array)))
+            if (embedded.is_valid())
             {
                 return fail(diagnostic, EBulkDataLoadReason::invalid_input, embedded);
-            }
-            for (CBakedValueIndex value = m_document.first_child(embedded); value.is_valid(); value = m_document.next_sibling(value))
-            {
-                if (m_document.is_object_entry(value) && !
-                    ((layout.category == ECategory::structure) ? schema->find_member(type, m_document.name(value)) :
-                        ((layout.category == ECategory::bit_structure) ? schema->find_field(type, m_document.name(value)) : CSchemaIndex{})))
-                {
-                    return fail(diagnostic, EBulkDataLoadReason::invalid_input, value);
-                }
-            }
-            if (!supplied && !embedded.is_valid())
-            {
-                return fail(diagnostic, EBulkDataLoadReason::missing_property, entry);
             }
             detail::SDataLocator parsed;
             detail::SOccurrence failure;
@@ -409,7 +337,6 @@ bool CBakedBulkData::plan(const bool supplied, const std::size_t payload_size,
             {
                 return fail(diagnostic, reason, failure.baked);
             }
-            const CBakedValueIndex offset_node = parsed.offset_node.baked;
             const CBakedValueIndex valid_node = parsed.valid_node.baked;
             const CBakedValueIndex count_node = parsed.count_node.baked;
             const CBakedValueIndex size_node = parsed.size_node.baked;
@@ -417,19 +344,7 @@ bool CBakedBulkData::plan(const bool supplied, const std::size_t payload_size,
             const std::uint64_t raw_count = parsed.count, raw_size = parsed.size;
             const bool prior_valid = parsed.valid;
             std::uint64_t count{};
-            if (embedded.is_valid())
-            {
-                count = m_document.child_count(embedded);
-                if (count == 0u)
-                {
-                    return fail(diagnostic, EBulkDataLoadReason::invalid_count, embedded);
-                }
-                if (count_node.is_valid() && (raw_count != count))
-                {
-                    return fail(diagnostic, EBulkDataLoadReason::invalid_count, count_node);
-                }
-            }
-            else if (count_node.is_valid())
+            if (count_node.is_valid())
             {
                 count = raw_count;
             }
@@ -446,38 +361,23 @@ bool CBakedBulkData::plan(const bool supplied, const std::size_t payload_size,
             {
                 return fail(diagnostic, EBulkDataLoadReason::invalid_range, size_node);
             }
-            if (supplied && !prior_valid)
-            {
-                return fail(diagnostic, EBulkDataLoadReason::invalid_locator, valid_node);
-            }
-            if (!supplied && !prior_valid && !m_mutable.is_ready())
+            if (!prior_valid)
             {
                 return fail(diagnostic, EBulkDataLoadReason::invalid_locator, valid_node);
             }
             std::uint64_t offset = raw_offset;
-            if (!prior_valid)
-            {
-                if (!detail::align_data_offset(cursor, layout.alignment, offset))
-                {
-                    return fail(diagnostic, EBulkDataLoadReason::invalid_range, locator);
-                }
-            }
-            if (!detail::check_data_range(offset, extent, layout.alignment, cursor, supplied, payload_size, reason))
+            if (!detail::check_data_range(offset, extent, layout.alignment, cursor, payload_size, reason))
             {
                 return fail(diagnostic, reason, locator);
             }
             const std::uint64_t end = offset + extent;
             SRecord record;
             record.entry = entry;
-            record.data = embedded;
-            record.offset_node = offset_node;
-            record.valid_node = valid_node;
             record.type = type;
             record.count = static_cast<std::uint32_t>(count);
             record.offset = static_cast<std::uint32_t>(offset);
             record.extent = static_cast<std::uint32_t>(extent);
             record.stride = static_cast<std::uint32_t>(layout.size);
-            record.prior_valid = prior_valid;
             if (!records.push_back(record))
             {
                 return fail(diagnostic, EBulkDataLoadReason::allocation_failed, entry);
@@ -493,30 +393,10 @@ bool CBakedBulkData::plan(const bool supplied, const std::size_t payload_size,
 }
 
 //==============================================================================
-//  Embedded-value comparison
+//  Loading supplied storage
 //==============================================================================
 
-bool CBakedBulkData::compare_embedded(const TPodVector<SRecord>& records, const CByteConstView& payload, SBulkDataDiagnostic& diagnostic) const noexcept
-{
-    detail::SValueDiagnostic error;
-    const auto checked = detail::check_bulk_records(*m_binding.resolved(), detail::CDocumentRead{ m_document }, records,
-        payload.data(), [&](const std::size_t i) noexcept
-        {
-            return records[i].type;
-        }, error);
-    if (checked == detail::EValueCheck::match)
-    {
-        return true;
-    }
-    return fail(diagnostic, detail::value_failure(error, ((checked == detail::EValueCheck::mismatch) ? EBulkDataLoadReason::embedded_mismatch :
-        EBulkDataLoadReason::incomplete_record)), error.occurrence.baked);
-}
-
-//==============================================================================
-//  Loading and materialisation
-//==============================================================================
-
-bool CBakedBulkData::load_supplied(const CByteConstView& payload, const bool compare_embedded, SBulkDataDiagnostic& diagnostic) noexcept
+bool CBakedBulkData::load_supplied(const CByteConstView& payload, SBulkDataDiagnostic& diagnostic) noexcept
 {
     clear_loaded();
     diagnostic = {};
@@ -526,13 +406,9 @@ bool CBakedBulkData::load_supplied(const CByteConstView& payload, const bool com
     }
     TPodVector<SRecord> staged;
     std::size_t total_size{};
-    if (!plan(true, payload.size(), staged, total_size, diagnostic) || (total_size != 0u && !payload.is_ready()))
+    if (!plan(payload.size(), staged, total_size, diagnostic) || (total_size != 0u && !payload.is_ready()))
     {
         return diagnostic.reason == EBulkDataLoadReason::none ? fail(diagnostic, EBulkDataLoadReason::invalid_range, {}) : false;
-    }
-    if (compare_embedded && !values_stripped() && !this->compare_embedded(staged, payload, diagnostic))
-    {
-        return false;
     }
     CBakedRecordIndex index;
     if (!index.build(staged))
@@ -542,81 +418,6 @@ bool CBakedBulkData::load_supplied(const CByteConstView& payload, const bool com
     m_records = std::move(staged);
     m_record_index = std::move(index);
     m_payload = payload;
-    m_loaded = true;
-    return true;
-}
-
-bool CBakedBulkData::materialise(CByteBuffer& returned_owner, SBulkDataDiagnostic& diagnostic) noexcept
-{
-    clear_loaded();
-    diagnostic = {};
-    if (returned_owner.is_ready())
-    {
-        return fail(diagnostic, EBulkDataLoadReason::invalid_input, {});
-    }
-    TPodVector<SRecord> staged;
-    std::size_t total_size{};
-    if (!plan(false, 0u, staged, total_size, diagnostic))
-    {
-        return false;
-    }
-    CBakedRecordIndex index;
-    if (!index.build(staged))
-    {
-        return fail(diagnostic, EBulkDataLoadReason::allocation_failed, {});
-    }
-    CByteBuffer payload;
-    if ((total_size != 0u) && (!payload.allocate(total_size, k_max_alignment) || !payload.set_size(total_size)))
-    {
-        return fail(diagnostic, EBulkDataLoadReason::allocation_failed, {});
-    }
-    const CResolvedSchema* const schema = m_binding.resolved();
-    detail::CDocumentRead document{ m_document };
-    std::size_t constructed_end{};
-    for (std::size_t ordinal = 0u; ordinal < staged.size(); ++ordinal)
-    {
-        const SRecord& record = staged[ordinal];
-        if (record.extent != 0u)
-        {   //  This payload is new; supplied payloads never pass through construction.
-            if (record.offset > constructed_end)
-            {
-                std::memset((payload.data() + constructed_end), 0, (record.offset - constructed_end));
-            }
-            constructed_end = static_cast<std::size_t>(record.offset) + record.extent;
-        }
-        CBakedValueIndex source = m_document.first_child(record.data);
-        for (std::uint32_t index = 0u; index < record.count; ++index)
-        {
-            detail::SValueDiagnostic value_error;
-            const std::uint64_t record_offset = static_cast<std::uint64_t>(record.offset) +
-                (static_cast<std::uint64_t>(record.stride) * index);
-            std::uint8_t* const target = (record.stride == 0u) ? nullptr : (payload.data() + record_offset);
-            if (!detail::construct_value(*schema, document, record.type, detail::SOccurrence{ source },
-                target, record.stride, detail::EConstructionMode::complete_bulk_data, value_error, m_document.is_object_entry(source)))
-            {
-                return fail(diagnostic, detail::value_failure(value_error, EBulkDataLoadReason::incomplete_record), value_error.occurrence.is_baked() ?
-                    value_error.occurrence.baked : source);
-            }
-            source = m_document.next_sibling(source);
-        }
-    }
-
-    //  Every allocation and conversion has succeeded. Only reserved scalar
-    //  nodes are changed; a failed setter leaves this role unready.
-    for (std::size_t ordinal = 0u; ordinal < staged.size(); ++ordinal)
-    {
-        const SRecord& record = staged[ordinal];
-        if (!record.prior_valid &&
-            (!m_mutable.set_unsigned_integer_value(record.offset_node, record.offset) ||
-             !m_mutable.set_boolean_value(record.valid_node, true)))
-        {
-            return fail(diagnostic, EBulkDataLoadReason::invalid_locator, record.entry);
-        }
-    }
-    returned_owner = std::move(payload);
-    m_payload = returned_owner.const_view();
-    m_records = std::move(staged);
-    m_record_index = std::move(index);
     m_loaded = true;
     return true;
 }

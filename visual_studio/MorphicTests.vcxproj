@@ -124,6 +124,7 @@
     <ClCompile Include="..\tests\test_suites\DocumentParser_test_suite.cpp" />
     <ClCompile Include="..\tests\test_suites\DocumentStructure_test_suite.cpp" />
     <ClCompile Include="..\tests\test_suites\DocumentWriter_test_suite.cpp" />
+    <ClCompile Include="..\tests\test_suites\SchemaModel_test_cases.cpp" />
     <ClCompile Include="..\tests\test_suites\Schema_test_suite.cpp" />
     <ClCompile Include="..\tests\test_suites\SchemaDataBlock_test_cases.cpp" />
     <ClCompile Include="..\tests\test_suites\SchemaMerge_test_cases.cpp" />
@@ -165,6 +166,7 @@
     <ClInclude Include="..\tests\environment\test_environment.hpp" />
     <ClInclude Include="..\tests\environment\test_paths.hpp" />
     <ClInclude Include="..\tests\support\document_helpers.hpp" />
+    <ClInclude Include="..\tests\support\schema_fixtures.hpp" />
     <ClInclude Include="..\tests\support\file_helpers.hpp" />
     <ClInclude Include="..\tests\support\test_allocator.hpp" />
     <ClInclude Include="..\tests\support\test_context.hpp" />
@@ -188,6 +190,7 @@
     <ClInclude Include="..\tests\test_suites\DocumentParser_test_suite.hpp" />
     <ClInclude Include="..\tests\test_suites\DocumentStructure_test_suite.hpp" />
     <ClInclude Include="..\tests\test_suites\DocumentWriter_test_suite.hpp" />
+    <ClInclude Include="..\tests\test_suites\SchemaModel_test_cases.hpp" />
     <ClInclude Include="..\tests\test_suites\Schema_test_suite.hpp" />
     <ClInclude Include="..\tests\test_suites\SchemaDataBlock_test_cases.hpp" />
     <ClInclude Include="..\tests\test_suites\SchemaMerge_test_cases.hpp" />

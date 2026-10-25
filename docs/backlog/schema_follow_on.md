@@ -19,8 +19,8 @@ Selection and priority will follow the progression and concrete needs of other
 systems. The suggestions below are possible responses to those needs, not a
 standalone schema completion programme.
 
-Persistence, schema-independent blocks and role attachment/switching, type/data
-merging, document preparation and composition are complete and committed.
+Persistence, common blocks, type/declaration extensions, aggregate composition and
+merging, binary-backed runtime editing and shared construction are complete.
 The [delivery record](../project/completed_milestones.md#schema-delivery-status)
 owns history and verification; the [persistence and aggregation contract](../schema/persistence-and-aggregation.md)
 owns implemented behaviour. This backlog does not repeat those completed plans.
@@ -252,19 +252,26 @@ They are not automatically selected by ingestion or the shader-representation
 discussion. A convenience catalogue of graphics formats, CSV review export and
 a general instance-reference path language are also unselected ideas.
 Independent fixed-array stride/alignment and rounded array tail padding are
-covered by the [array extension scope](../schema/array-layout-extension.md).
+covered by the [fixed-array contract](../schema/specification.md#fixed-arrays).
 Resolved schema name lookup is indexed; callers can retain resolved indices for
 repeated access. Combining the distinct
 subtree-copy and whole-document-promotion traversals is not selected; their
 shared value construction is already implemented.
 
+The document-model delivery does not select automatic edit completion/cancellation,
+snapshot rollback, concurrent editing, layout migration, indexed sparse-selection
+syntax, zero-count bulk import/baking or persistent cross-document references.
+Current scoped edits require explicit completion; sparse selections use positional
+null holes. Revisit these boundaries only for a concrete consumer requirement.
+
 ## Remaining construction and editing costs
 
 The [role/construction milestone](../project/completed_milestones.md#schema-role-attachment-and-construction)
-records controlled attachment, string-ID reuse, lexical preload for whole baked
-promotion and single-pass reconciliation with a separate final fidelity check.
-Schema merge, preparation and composition now preload selected/generated strings
-and reserve cheaply known storage through their shared construction helper.
+records earlier controlled attachment and string-preload work. Its global
+reconciliation and preparation APIs have been superseded by the
+[document model](../schema/runtime-api.md#aggregate-authoring). Aggregate merging
+and composition preload selected/generated strings and reserve cheaply known
+storage; materialisation and baking share an operation-local construction plan.
 
 Distinct strings inserted in arbitrary order through ordinary editing can still
 shift a quadratic total of sorted-index entries. General selected-copy paths use

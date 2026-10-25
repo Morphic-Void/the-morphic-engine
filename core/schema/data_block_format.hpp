@@ -19,7 +19,7 @@ namespace schema::detail
 {
 
 constexpr std::size_t k_data_block_alignment = 128u;
-constexpr std::uint64_t k_data_block_version = 1u;
+constexpr std::uint64_t k_data_block_version = 2u;
 
 enum class EDataDomain : std::uint8_t { instances = 0u, bulk_data };
 
@@ -43,7 +43,7 @@ struct SDataBlockView
     bool has_instances{}, has_bulk_data{}, stripped{};
 };
 
-//  Checked arithmetic independent of storage, also used by future assembly.
+//  Checked arithmetic independent of storage, shared with assembly.
 //  Resets outputs on entry; zero payload has no alignment tail or dummy range.
 [[nodiscard]] bool read_data_block_root(const CDocumentRead& document, SDataBlockRoot& output,
     SDataBlockDiagnostic& diagnostic, const bool require_envelope = false) noexcept;

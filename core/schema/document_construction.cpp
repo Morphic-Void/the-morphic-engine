@@ -55,96 +55,6 @@ bool CDocumentStrings::collect(const CDocumentRead& source, const SOccurrence va
     return true;
 }
 
-bool CDocumentStrings::reconstruction_type(const CResolvedSchema& schema, const CSchemaIndex type) noexcept
-{
-    if (m_types.is_ready() && (m_types.find_index({ type.query_value() }) >= 0))
-    {
-        return true;
-    }
-    if (!m_types.is_ready())
-    {
-        if (!m_types.initialise(1u) || !string(CStringView{ "nan" }) ||
-            !string(CStringView{ "inf" }) || !string(CStringView{ "-inf" }))
-        {
-            return fail(EDocumentBuildReason::allocation_failed);
-        }
-    }
-    TPodVector<CSchemaIndex> pending;
-    if (!pending.push_back(type))
-    {
-        return fail(EDocumentBuildReason::allocation_failed);
-    }
-    while (pending.size())
-    {
-        CSchemaIndex current;
-        (void)pending.pop_back(current);
-        const STypeKey key{ current.query_value() };
-        if (m_types.find_index(key) >= 0)
-        {
-            continue;
-        }
-        if (m_types.insert(key, 0u) < 0)
-        {
-            return fail(EDocumentBuildReason::allocation_failed);
-        }
-        SType layout;
-        if (!schema.type(current, layout))
-        {
-            return fail(EDocumentBuildReason::construction_failed);
-        }
-        if (layout.category == ECategory::array)
-        {
-            if (!pending.push_back(layout.element_or_storage))
-            {
-                return fail(EDocumentBuildReason::allocation_failed);
-            }
-        }
-        else if (layout.category == ECategory::enumeration)
-        {
-            for (std::uint32_t i = 0u; i < layout.count; ++i)
-            {
-                SLabel label;
-                (void)schema.label(schema.label_at(current, i), label);
-                if (!string(schema.name(label.name)))
-                {
-                    return false;
-                }
-            }
-        }
-        else if ((layout.category == ECategory::structure) || (layout.category == ECategory::bit_structure))
-        {
-            for (std::uint32_t i = 0u; i < layout.count; ++i)
-            {
-                CSchemaIndex child;
-                CPropertyNameId child_name;
-                if (layout.category == ECategory::structure)
-                {
-                    SMember member;
-                    (void)schema.member(schema.member_at(current, i), member);
-                    child = member.type;
-                    child_name = member.name;
-                }
-                else
-                {
-                    SField field;
-                    (void)schema.field(schema.field_at(current, i), field);
-                    child = field.type;
-                    child_name = field.name;
-                }
-                if (!name(schema.name(child_name)))
-                {
-                    return false;
-                }
-                if (!pending.push_back(child))
-                {
-                    return fail(EDocumentBuildReason::allocation_failed);
-                }
-            }
-        }
-    }
-    return true;
-}
-
 bool CDocumentStrings::initialise(CLiveDocument& target, const std::uint64_t structural_nodes) noexcept
 {
     constexpr auto limit = memory::t_max_elements<CLiveNode>();
@@ -210,6 +120,40 @@ bool CDocumentStrings::preload_domain(CLiveDocument& target, TPodVector<CStringV
         if (!imported)
         {
             return fail(EDocumentBuildReason::construction_failed);
+        }
+    }
+    return true;
+}
+
+bool copy_document_sections(const SDocumentSection* sections, const std::size_t count,
+    CLiveDocument& target, SDocumentBuildDiagnostic& diagnostic) noexcept
+{
+    diagnostic = {};
+    CDocumentStrings strings;
+    for (std::size_t i = 0u; i < count; ++i)
+    {
+        if (sections[i].section && !strings.collect(*sections[i].source, sections[i].section, 1u))
+        {
+            diagnostic = strings.diagnostic();
+            return false;
+        }
+    }
+    if (!strings.initialise(target, 2u) || !strings.preload(target))
+    {
+        diagnostic = strings.diagnostic();
+        return false;
+    }
+    for (std::size_t i = 0u; i < count; ++i)
+    {
+        const auto& input = sections[i];
+        if (!input.section) continue;
+        const CNodeKey copied = copy_document_subtree(*input.source, input.section, target, 1u, diagnostic);
+        if (!copied || !CDocumentConstruction::append(target, target.root(), copied))
+        {
+            if (diagnostic.reason == EDocumentBuildReason::none) diagnostic.reason = EDocumentBuildReason::construction_failed;
+            diagnostic.occurrence = input.section;
+            diagnostic.stage = EDocumentBuildStage::copying;
+            return false;
         }
     }
     return true;

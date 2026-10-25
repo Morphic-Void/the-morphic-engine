@@ -215,7 +215,7 @@ CStringView CDocumentRead::string_value(const SOccurrence value) const noexcept
 
 }   // namespace detail
 
-const detail::CDocumentRead& detail::SDocumentQueryAccess::read(const CSchemaDocumentQuery& query) noexcept
+const detail::CDocumentRead& detail::SDocumentQueryAccess::read(const CTypesDocumentQuery& query) noexcept
 {
     return query.m_query;
 }

@@ -41,8 +41,8 @@ namespace schema
     return static_cast<std::int64_t>((bits ^ sign) - sign);
 }
 
-[[nodiscard]] static CNodeKey create_decoded_scalar(CLiveDocument& document, const CResolvedSchema& schema,
-    const CSchemaIndex type, const std::uint64_t bits, const unsigned width,
+[[nodiscard]] static CNodeKey create_decoded_scalar(CLiveDocument& document, const CResolvedTypes& schema,
+    const CTypesIndex type, const std::uint64_t bits, const unsigned width,
     const CStringView& name, EScalarDecodeReason& reason) noexcept
 {
     SType layout;
@@ -64,7 +64,7 @@ namespace schema
             value.value.unsigned_value = bits;
         }
         SLabel label;
-        const CSchemaIndex found = schema.first_label_for_value(type, value);
+        const CTypesIndex found = schema.first_label_for_value(type, value);
         if (!found || !schema.label(found, label))
         {
             reason = EScalarDecodeReason::unrepresentable_value;
@@ -118,8 +118,8 @@ namespace schema
     return document.create_unsigned_integer(bits, unsigned_integer_metadata(bits, integer_notation(layout.primitive)), name);
 }
 
-CNodeKey decode_document_scalar(CLiveDocument& document, const CResolvedSchema& schema,
-    const CSchemaIndex type, const std::uint64_t bits, const unsigned width,
+CNodeKey decode_document_scalar(CLiveDocument& document, const CResolvedTypes& schema,
+    const CTypesIndex type, const std::uint64_t bits, const unsigned width,
     const CStringView& name, EScalarDecodeReason& reason) noexcept
 {
     reason = EScalarDecodeReason::none;
@@ -145,7 +145,7 @@ namespace detail
 
 enum class EWriteMode : std::uint8_t { instance = 0u, bulk_data, alternative };
 
-bool is_scalar_shorthand(const CResolvedSchema& schema, const CSchemaIndex type,
+bool is_scalar_shorthand(const CResolvedTypes& schema, const CTypesIndex type,
     const SType& layout, const CDocumentRead& document, const SOccurrence value) noexcept
 {
     if (layout.count != 1u)
@@ -207,14 +207,14 @@ bool is_scalar_shorthand(const CResolvedSchema& schema, const CSchemaIndex type,
 }
 
 [[nodiscard]] static bool value_fail(SValueDiagnostic& diagnostic, const EReason reason,
-    const SOccurrence source, const CSchemaIndex type) noexcept
+    const SOccurrence source, const CTypesIndex type) noexcept
 {
     if (diagnostic.reason == EReason::none) diagnostic = { reason, source, type };
     return false;
 }
 
-[[nodiscard]] static CSchemaIndex selected_component(const CResolvedSchema& schema, const CDocumentRead& document,
-    const CSchemaIndex type, const ECategory category, const SOccurrence source) noexcept
+[[nodiscard]] static CTypesIndex selected_component(const CResolvedTypes& schema, const CDocumentRead& document,
+    const CTypesIndex type, const ECategory category, const SOccurrence source) noexcept
 {
     return category == ECategory::bit_structure ? schema.find_field(type, document.name(source)) :
         schema.find_member(type, document.name(source));
@@ -225,18 +225,18 @@ struct SCompoundShape
     EDocumentValueKind kind{ EDocumentValueKind::invalid };
     std::uint32_t supplied{};
     bool shorthand{};
-    CSchemaIndex singleton;
+    CTypesIndex singleton;
 };
 
-[[nodiscard]] static bool compound_shape(const CResolvedSchema& schema, const CDocumentRead& document,
-    const CSchemaIndex type, const SType& layout, const SOccurrence source, const bool singleton_element,
+[[nodiscard]] static bool compound_shape(const CResolvedTypes& schema, const CDocumentRead& document,
+    const CTypesIndex type, const SType& layout, const SOccurrence source, const bool singleton_element,
     const bool complete, SCompoundShape& input, CObjectSelection* const named, SValueDiagnostic& diagnostic) noexcept;
-[[nodiscard]] static bool array_shape(const CResolvedSchema& schema, const CDocumentRead& document,
-    const CSchemaIndex type, const SType& layout, const SOccurrence source, const bool complete,
+[[nodiscard]] static bool array_shape(const CResolvedTypes& schema, const CDocumentRead& document,
+    const CTypesIndex type, const SType& layout, const SOccurrence source, const bool complete,
     SType& element, std::uint32_t& supplied, SValueDiagnostic& diagnostic) noexcept;
-[[nodiscard]] static bool read_scalar(const CResolvedSchema& schema, const CDocumentRead& document,
-    const CSchemaIndex type, const SOccurrence source, SScalar& result, SValueDiagnostic& diagnostic) noexcept;
-[[nodiscard]] static bool read_field_scalar(const CResolvedSchema& schema, const CDocumentRead& document,
+[[nodiscard]] static bool read_scalar(const CResolvedTypes& schema, const CDocumentRead& document,
+    const CTypesIndex type, const SOccurrence source, SScalar& result, SValueDiagnostic& diagnostic) noexcept;
+[[nodiscard]] static bool read_field_scalar(const CResolvedTypes& schema, const CDocumentRead& document,
     const SField& field, const SOccurrence source, SScalar& result, SValueDiagnostic& diagnostic) noexcept;
 
 //==============================================================================
@@ -261,17 +261,17 @@ struct SValueStorage
 class CValueWriter
 {
 public:
-    CValueWriter(const CResolvedSchema& schema, const CDocumentRead& document,
+    CValueWriter(const CResolvedTypes& schema, const CDocumentRead& document,
         const EWriteMode mode, SValueDiagnostic& diagnostic, const bool checking = false) noexcept :
         m_schema(schema), m_document(document), m_mode(mode), m_diagnostic(diagnostic), m_checking(checking) {}
 
     [[nodiscard]] bool matches() const noexcept { return m_matches; }
 
-    [[nodiscard]] bool write(const CSchemaIndex type, const CSchemaIndex description, const SOccurrence& source,
+    [[nodiscard]] bool write(const CTypesIndex type, const CTypesIndex description, const SOccurrence& source,
         const SValueStorage& storage, const std::size_t destination_size,
         const unsigned depth, const bool singleton_element = false) noexcept;
 
-    [[nodiscard]] bool fail(const EReason reason, const SOccurrence& source, const CSchemaIndex type) noexcept
+    [[nodiscard]] bool fail(const EReason reason, const SOccurrence& source, const CTypesIndex type) noexcept
     {
         if (m_diagnostic.reason == EReason::none)
         {
@@ -286,21 +286,21 @@ private:
         CObjectSelection named;
     };
 
-    [[nodiscard]] bool prepare_compound(const CSchemaIndex type, const SType& layout,
+    [[nodiscard]] bool prepare_compound(const CTypesIndex type, const SType& layout,
         const SOccurrence& source, const bool singleton_element, SCompoundInput& input) noexcept;
-    [[nodiscard]] bool scalar(const CSchemaIndex type, const SOccurrence& source, SScalar& result) noexcept;
+    [[nodiscard]] bool scalar(const CTypesIndex type, const SOccurrence& source, SScalar& result) noexcept;
     [[nodiscard]] bool field_scalar(const SField& field, const SOccurrence& source, SScalar& result) noexcept;
-    [[nodiscard]] bool scalar_value(const CSchemaIndex type, const CSchemaIndex description, const SType& layout,
+    [[nodiscard]] bool scalar_value(const CTypesIndex type, const CTypesIndex description, const SType& layout,
         const SOccurrence& source, const SValueStorage& storage) noexcept;
-    [[nodiscard]] bool structure(const CSchemaIndex type, const SType& layout, const SOccurrence& source,
+    [[nodiscard]] bool structure(const CTypesIndex type, const SType& layout, const SOccurrence& source,
         const SValueStorage& storage, const std::size_t destination_size,
         const unsigned depth, const bool singleton_element) noexcept;
-    [[nodiscard]] bool array(const CSchemaIndex type, const CSchemaIndex description, const SType& layout, const SOccurrence& source,
+    [[nodiscard]] bool array(const CTypesIndex type, const CTypesIndex description, const SType& layout, const SOccurrence& source,
         const SValueStorage& storage, const std::size_t destination_size, const unsigned depth) noexcept;
-    [[nodiscard]] bool bit_structure(const CSchemaIndex type, const SType& layout, const SOccurrence& source,
+    [[nodiscard]] bool bit_structure(const CTypesIndex type, const SType& layout, const SOccurrence& source,
         const SValueStorage& storage, const bool singleton_element) noexcept;
 
-    const CResolvedSchema& m_schema;
+    const CResolvedTypes& m_schema;
     const CDocumentRead& m_document;
     const EWriteMode m_mode;
     SValueDiagnostic& m_diagnostic;
@@ -308,13 +308,13 @@ private:
     bool m_matches{ true };
 };
 
-CSchemaIndex CObjectSelection::component(const SOccurrence source) const noexcept
+CTypesIndex CObjectSelection::component(const SOccurrence source) const noexcept
 {
     return selected_component(*m_schema, *m_document, m_type, m_category, source);
 }
 
-bool CObjectSelection::prepare(const CResolvedSchema& schema, const CDocumentRead& document,
-    const CSchemaIndex type, const ECategory category, const SOccurrence source, SValueDiagnostic& diagnostic) noexcept
+bool CObjectSelection::prepare(const CResolvedTypes& schema, const CDocumentRead& document,
+    const CTypesIndex type, const ECategory category, const SOccurrence source, SValueDiagnostic& diagnostic) noexcept
 {
     m_schema = &schema;
     m_document = &document;
@@ -324,12 +324,12 @@ bool CObjectSelection::prepare(const CResolvedSchema& schema, const CDocumentRea
     m_next = 0u;
     m_selected = {};
     m_cursor = {};
-    const auto fail = [&diagnostic](const EReason reason, const SOccurrence at, const CSchemaIndex selected)
+    const auto fail = [&diagnostic](const EReason reason, const SOccurrence at, const CTypesIndex selected)
     {
         if (diagnostic.reason == EReason::none) diagnostic = { reason, at, selected };
         return false;
     };
-    CSchemaIndex previous;
+    CTypesIndex previous;
     bool ordered = true;
     for (SOccurrence child = m_document->first_child(source); child.is_valid(); child = m_document->next_sibling(child))
     {
@@ -337,7 +337,7 @@ bool CObjectSelection::prepare(const CResolvedSchema& schema, const CDocumentRea
         {
             return fail(EReason::invalid_input, child, type);
         }
-        const CSchemaIndex selected = component(child);
+        const CTypesIndex selected = component(child);
         if (!selected)
         {
             return fail(EReason::unknown_property, child, type);
@@ -378,7 +378,7 @@ bool CObjectSelection::prepare(const CResolvedSchema& schema, const CDocumentRea
     return true;
 }
 
-SOccurrence CObjectSelection::child(const CSchemaIndex selected) noexcept
+SOccurrence CObjectSelection::child(const CTypesIndex selected) noexcept
 {
     if (!selected || (m_selected != selected))
     {
@@ -389,17 +389,17 @@ SOccurrence CObjectSelection::child(const CSchemaIndex selected) noexcept
     {
         ++m_next;
         m_cursor = m_next < m_named.size() ? m_named[m_next].source : SOccurrence{};
-        m_selected = m_next < m_named.size() ? m_named[m_next].selected : CSchemaIndex{};
+        m_selected = m_next < m_named.size() ? m_named[m_next].selected : CTypesIndex{};
     }
     else
     {
         m_cursor = m_document->next_sibling(m_cursor);
-        m_selected = m_cursor.is_valid() ? component(m_cursor) : CSchemaIndex{};
+        m_selected = m_cursor.is_valid() ? component(m_cursor) : CTypesIndex{};
     }
     return result;
 }
 
-[[nodiscard]] static bool validate_positional(const CDocumentRead& document, const CSchemaIndex type,
+[[nodiscard]] static bool validate_positional(const CDocumentRead& document, const CTypesIndex type,
     const SOccurrence source, SValueDiagnostic& diagnostic) noexcept
 {
     for (SOccurrence child = document.first_child(source); child.is_valid(); child = document.next_sibling(child))
@@ -412,8 +412,8 @@ SOccurrence CObjectSelection::child(const CSchemaIndex selected) noexcept
     return true;
 }
 
-[[nodiscard]] static bool compound_shape(const CResolvedSchema& schema, const CDocumentRead& document,
-    const CSchemaIndex type, const SType& layout, const SOccurrence source, const bool singleton_element,
+[[nodiscard]] static bool compound_shape(const CResolvedTypes& schema, const CDocumentRead& document,
+    const CTypesIndex type, const SType& layout, const SOccurrence source, const bool singleton_element,
     const bool complete, SCompoundShape& input, CObjectSelection* const named, SValueDiagnostic& diagnostic) noexcept
 {
     input.kind = source.is_valid() ? document.value_kind(source) : EDocumentValueKind::invalid;
@@ -469,15 +469,15 @@ SOccurrence CObjectSelection::child(const CSchemaIndex selected) noexcept
     return true;
 }
 
-bool CValueWriter::prepare_compound(const CSchemaIndex type, const SType& layout,
+bool CValueWriter::prepare_compound(const CTypesIndex type, const SType& layout,
     const SOccurrence& source, const bool singleton_element, SCompoundInput& input) noexcept
 {
     return compound_shape(m_schema, m_document, type, layout, source, singleton_element,
         (m_mode == EWriteMode::bulk_data), input, &input.named, m_diagnostic);
 }
 
-[[nodiscard]] static bool read_scalar(const CResolvedSchema& schema, const CDocumentRead& document,
-    const CSchemaIndex type, const SOccurrence source, SScalar& result, SValueDiagnostic& diagnostic) noexcept
+[[nodiscard]] static bool read_scalar(const CResolvedTypes& schema, const CDocumentRead& document,
+    const CTypesIndex type, const SOccurrence source, SScalar& result, SValueDiagnostic& diagnostic) noexcept
 {
     SType layout;
     if (!schema.type(type, layout))
@@ -490,7 +490,7 @@ bool CValueWriter::prepare_compound(const CSchemaIndex type, const SType& layout
         {
             return value_fail(diagnostic, EReason::invalid_input, source, type);
         }
-        const CSchemaIndex label_index = schema.find_label(type, document.string_value(source));
+        const CTypesIndex label_index = schema.find_label(type, document.string_value(source));
         SLabel label;
         if (!label_index || !schema.label(label_index, label))
         {
@@ -511,7 +511,7 @@ bool CValueWriter::prepare_compound(const CSchemaIndex type, const SType& layout
     return true;
 }
 
-[[nodiscard]] static bool read_field_scalar(const CResolvedSchema& schema, const CDocumentRead& document,
+[[nodiscard]] static bool read_field_scalar(const CResolvedTypes& schema, const CDocumentRead& document,
     const SField& field, const SOccurrence source, SScalar& result, SValueDiagnostic& diagnostic) noexcept
 {
     if ((field.interpretation == EInterpretation::ordinary) ||
@@ -540,7 +540,7 @@ bool CValueWriter::prepare_compound(const CSchemaIndex type, const SType& layout
     return true;
 }
 
-bool CValueWriter::scalar(const CSchemaIndex type, const SOccurrence& source, SScalar& result) noexcept
+bool CValueWriter::scalar(const CTypesIndex type, const SOccurrence& source, SScalar& result) noexcept
 {
     return read_scalar(m_schema, m_document, type, source, result, m_diagnostic);
 }
@@ -550,7 +550,7 @@ bool CValueWriter::field_scalar(const SField& field, const SOccurrence& source, 
     return read_field_scalar(m_schema, m_document, field, source, result, m_diagnostic);
 }
 
-bool CValueWriter::scalar_value(const CSchemaIndex type, const CSchemaIndex description, const SType& layout,
+bool CValueWriter::scalar_value(const CTypesIndex type, const CTypesIndex description, const SType& layout,
     const SOccurrence& source, const SValueStorage& storage) noexcept
 {
     if ((m_mode == EWriteMode::bulk_data) && !source.is_valid())
@@ -589,7 +589,7 @@ bool CValueWriter::scalar_value(const CSchemaIndex type, const CSchemaIndex desc
     return true;
 }
 
-bool CValueWriter::structure(const CSchemaIndex type, const SType& layout, const SOccurrence& source,
+bool CValueWriter::structure(const CTypesIndex type, const SType& layout, const SOccurrence& source,
     const SValueStorage& storage, const std::size_t destination_size,
     const unsigned depth, const bool singleton_element) noexcept
 {
@@ -605,7 +605,7 @@ bool CValueWriter::structure(const CSchemaIndex type, const SType& layout, const
     }
     for (std::uint32_t ordinal = 0u; ordinal < layout.count; ++ordinal)
     {
-        const CSchemaIndex member_index = m_schema.member_at(type, ordinal);
+        const CTypesIndex member_index = m_schema.member_at(type, ordinal);
         SMember member;
         if (!m_schema.member(member_index, member) || (member.offset > destination_size) ||
             (member.size > destination_size - static_cast<std::size_t>(member.offset)))
@@ -629,6 +629,11 @@ bool CValueWriter::structure(const CSchemaIndex type, const SType& layout, const
         if (positional.is_valid() && !singleton_element && (input.kind == EDocumentValueKind::array))
         {
             positional = m_document.next_sibling(positional);
+        }
+        if ((m_mode != EWriteMode::bulk_data) && !singleton_element &&
+            (input.kind == EDocumentValueKind::array) && inherited_hole(m_document, child))
+        {
+            child = {};
         }
         const bool child_singleton = !singleton_element && (input.kind == EDocumentValueKind::array) &&
             child.is_valid() && m_document.is_object_entry(child);
@@ -659,8 +664,8 @@ bool CValueWriter::structure(const CSchemaIndex type, const SType& layout, const
     return true;
 }
 
-[[nodiscard]] static bool array_shape(const CResolvedSchema& schema, const CDocumentRead& document,
-    const CSchemaIndex type, const SType& layout, const SOccurrence source, const bool complete,
+[[nodiscard]] static bool array_shape(const CResolvedTypes& schema, const CDocumentRead& document,
+    const CTypesIndex type, const SType& layout, const SOccurrence source, const bool complete,
     SType& element, std::uint32_t& supplied, SValueDiagnostic& diagnostic) noexcept
 {
     if (source.is_valid() && (document.value_kind(source) != EDocumentValueKind::array))
@@ -695,7 +700,7 @@ bool CValueWriter::structure(const CSchemaIndex type, const SType& layout, const
     return true;
 }
 
-bool CValueWriter::array(const CSchemaIndex type, const CSchemaIndex description, const SType& layout, const SOccurrence& source,
+bool CValueWriter::array(const CTypesIndex type, const CTypesIndex description, const SType& layout, const SOccurrence& source,
     const SValueStorage& storage, const std::size_t destination_size, const unsigned depth) noexcept
 {
     SType element;
@@ -713,16 +718,20 @@ bool CValueWriter::array(const CSchemaIndex type, const CSchemaIndex description
     SOccurrence positional = source.is_valid() ? m_document.first_child(source) : SOccurrence{};
     for (std::uint32_t ordinal = 0u; ordinal < visited; ++ordinal)
     {
-        const SOccurrence child = ordinal < supplied ? positional : SOccurrence{};
+        SOccurrence child = ordinal < supplied ? positional : SOccurrence{};
         if (positional.is_valid())
         {
             positional = m_document.next_sibling(positional);
+        }
+        if ((m_mode != EWriteMode::bulk_data) && inherited_hole(m_document, child))
+        {
+            child = {};
         }
         if (!child.is_valid() && (m_mode == EWriteMode::alternative) && !m_checking)
         {
             continue;
         }
-        CSchemaIndex element_default;
+        CTypesIndex element_default;
         if ((m_mode != EWriteMode::bulk_data) &&
             !m_schema.default_element(type, description, ordinal, element_default))
         {
@@ -743,7 +752,7 @@ bool CValueWriter::array(const CSchemaIndex type, const CSchemaIndex description
     return true;
 }
 
-bool CValueWriter::bit_structure(const CSchemaIndex type, const SType& layout, const SOccurrence& source,
+bool CValueWriter::bit_structure(const CTypesIndex type, const SType& layout, const SOccurrence& source,
     const SValueStorage& storage, const bool singleton_element) noexcept
 {
     SCompoundInput input;
@@ -759,14 +768,14 @@ bool CValueWriter::bit_structure(const CSchemaIndex type, const SType& layout, c
     for (std::uint32_t ordinal = 0u; ordinal < layout.count; ++ordinal)
     {
         SField field;
-        const CSchemaIndex field_index = m_schema.field_at(type, ordinal);
+        const CTypesIndex field_index = m_schema.field_at(type, ordinal);
         if (!m_schema.field(field_index, field))
         {
             return fail(EReason::invalid_layout, source, type);
         }
         used_mask |= field.mask;
         const bool selected_singleton = singleton_element && (input.singleton == field_index);
-        const SOccurrence child = (selected_singleton || input.shorthand) ? source :
+        SOccurrence child = (selected_singleton || input.shorthand) ? source :
             (!singleton_element && (input.kind == EDocumentValueKind::object)) ?
             input.named.child(field_index) :
             ((!singleton_element && (input.kind == EDocumentValueKind::array) && (ordinal < input.supplied)) ?
@@ -774,6 +783,11 @@ bool CValueWriter::bit_structure(const CSchemaIndex type, const SType& layout, c
         if (positional.is_valid() && !singleton_element && (input.kind == EDocumentValueKind::array))
         {
             positional = m_document.next_sibling(positional);
+        }
+        if ((m_mode != EWriteMode::bulk_data) && !singleton_element &&
+            (input.kind == EDocumentValueKind::array) && inherited_hole(m_document, child))
+        {
+            child = {};
         }
         if ((m_mode == EWriteMode::bulk_data) && !child.is_valid())
         {
@@ -814,7 +828,7 @@ bool CValueWriter::bit_structure(const CSchemaIndex type, const SType& layout, c
     return true;
 }
 
-bool CValueWriter::write(const CSchemaIndex type, const CSchemaIndex description, const SOccurrence& source,
+bool CValueWriter::write(const CTypesIndex type, const CTypesIndex description, const SOccurrence& source,
     const SValueStorage& storage, const std::size_t destination_size,
     const unsigned depth, const bool singleton_element) noexcept
 {
@@ -843,9 +857,7 @@ bool CValueWriter::write(const CSchemaIndex type, const CSchemaIndex description
     {
         case ECategory::primitive:
         case ECategory::enumeration:
-        {
             return scalar_value(type, description, layout, source, storage);
-        }
         case ECategory::structure:
             return structure(type, layout, source, storage, destination_size, depth, singleton_element);
         case ECategory::array:
@@ -861,8 +873,8 @@ bool CValueWriter::write(const CSchemaIndex type, const CSchemaIndex description
 //  Construction preflight
 //==============================================================================
 
-[[nodiscard]] static bool declaration_preflight(const CResolvedSchema& schema, const CDocumentRead& document,
-    const CSchemaIndex type, const SOccurrence declaration, SValueDiagnostic& diagnostic, SType& layout) noexcept
+[[nodiscard]] static bool declaration_preflight(const CResolvedTypes& schema, const CDocumentRead& document,
+    const CTypesIndex type, const SOccurrence declaration, SValueDiagnostic& diagnostic, SType& layout) noexcept
 {
     diagnostic = {};
     if (!schema.is_ready() || !document.is_ready() || (declaration.is_valid() && !document.contains(declaration)) ||
@@ -874,8 +886,8 @@ bool CValueWriter::write(const CSchemaIndex type, const CSchemaIndex description
     return true;
 }
 
-[[nodiscard]] static bool preflight(const CResolvedSchema& schema, const CDocumentRead& document,
-    const CSchemaIndex type, const SOccurrence declaration, const std::uint8_t* const bytes,
+[[nodiscard]] static bool preflight(const CResolvedTypes& schema, const CDocumentRead& document,
+    const CTypesIndex type, const SOccurrence declaration, const std::uint8_t* const bytes,
     const std::size_t byte_count, SValueDiagnostic& diagnostic, SType& layout) noexcept
 {
     if (!declaration_preflight(schema, document, type, declaration, diagnostic, layout))
@@ -895,8 +907,8 @@ bool CValueWriter::write(const CSchemaIndex type, const CSchemaIndex description
 //  Declaration-only validation
 //==============================================================================
 
-[[nodiscard]] static bool validate_declared_value(const CResolvedSchema& schema, const CDocumentRead& document,
-    const CSchemaIndex type, const SOccurrence source, const bool complete,
+[[nodiscard]] static bool validate_declared_value(const CResolvedTypes& schema, const CDocumentRead& document,
+    const CTypesIndex type, const SOccurrence source, const bool complete,
     const unsigned depth, const bool singleton_element, SValueDiagnostic& diagnostic) noexcept
 {
     if (!source && !complete)
@@ -928,6 +940,10 @@ bool CValueWriter::write(const CSchemaIndex type, const CSchemaIndex description
         }
         for (SOccurrence child = document.first_child(source); child; child = document.next_sibling(child))
         {
+            if (!complete && inherited_hole(document, child))
+            {
+                continue;
+            }
             if (!validate_declared_value(schema, document, layout.element_or_storage, child, complete,
                 (depth + 1u), document.is_object_entry(child), diagnostic))
             {
@@ -949,8 +965,13 @@ bool CValueWriter::write(const CSchemaIndex type, const CSchemaIndex description
     SOccurrence child = single ? source : document.first_child(source);
     for (std::uint32_t ordinal = 0u; ordinal < input.supplied; ++ordinal)
     {
+        if (!complete && !single && (input.kind == EDocumentValueKind::array) && inherited_hole(document, child))
+        {
+            child = document.next_sibling(child);
+            continue;
+        }
         const bool bit_structure = layout.category == ECategory::bit_structure;
-        const CSchemaIndex selected = singleton_element ? input.singleton :
+        const CTypesIndex selected = singleton_element ? input.singleton :
             ((input.kind == EDocumentValueKind::object) ? selected_component(schema, document, type, layout.category, child) :
                 (bit_structure ? schema.field_at(type, ordinal) : schema.member_at(type, ordinal)));
         if (bit_structure)
@@ -995,8 +1016,8 @@ bool CValueWriter::write(const CSchemaIndex type, const CSchemaIndex description
     return true;
 }
 
-bool validate_declaration(const CResolvedSchema& schema, const CDocumentRead& document,
-    const CSchemaIndex type, const SOccurrence declaration, const EConstructionMode mode,
+bool validate_declaration(const CResolvedTypes& schema, const CDocumentRead& document,
+    const CTypesIndex type, const SOccurrence declaration, const EConstructionMode mode,
     SValueDiagnostic& diagnostic, const bool singleton_element) noexcept
 {
     SType layout;
@@ -1016,7 +1037,7 @@ bool validate_declaration(const CResolvedSchema& schema, const CDocumentRead& do
 //  Encoded-value comparison
 //==============================================================================
 
-[[nodiscard]] static bool compare_encoded_value(const CResolvedSchema& schema, const CSchemaIndex type,
+[[nodiscard]] static bool compare_encoded_value(const CResolvedTypes& schema, const CTypesIndex type,
     const std::uint8_t* const expected, const std::uint8_t* const actual,
     const std::size_t available, const unsigned depth) noexcept
 {
@@ -1099,7 +1120,7 @@ bool validate_declaration(const CResolvedSchema& schema, const CDocumentRead& do
 //  Construction and comparison entry points
 //==============================================================================
 
-bool construct_value(const CResolvedSchema& schema, const CDocumentRead& document, const CSchemaIndex type,
+bool construct_value(const CResolvedTypes& schema, const CDocumentRead& document, const CTypesIndex type,
     const SOccurrence declaration, std::uint8_t* const destination, const std::size_t destination_size,
     const EConstructionMode mode, SValueDiagnostic& diagnostic, const bool singleton_element) noexcept
 {
@@ -1118,7 +1139,7 @@ bool construct_value(const CResolvedSchema& schema, const CDocumentRead& documen
     return writer.write(type, {}, declaration, { destination, destination, nullptr }, static_cast<std::size_t>(layout.size), 0u, singleton_element);
 }
 
-bool construct_alternative(const CResolvedSchema& schema, const CDocumentRead& document, const CSchemaIndex type,
+bool construct_alternative(const CResolvedTypes& schema, const CDocumentRead& document, const CTypesIndex type,
     const SOccurrence declaration, const std::uint8_t* const base, const std::size_t base_size,
     std::uint8_t* const destination, const std::size_t destination_size, SValueDiagnostic& diagnostic) noexcept
 {
@@ -1146,8 +1167,8 @@ bool construct_alternative(const CResolvedSchema& schema, const CDocumentRead& d
     return writer.write(type, {}, declaration, { destination, destination, nullptr }, static_cast<std::size_t>(layout.size), 0u);
 }
 
-bool check_value(const CResolvedSchema& schema, const CDocumentRead& document,
-    const CSchemaIndex type, const SOccurrence declaration, const std::uint8_t* const bytes,
+bool check_value(const CResolvedTypes& schema, const CDocumentRead& document,
+    const CTypesIndex type, const SOccurrence declaration, const std::uint8_t* const bytes,
     const std::size_t size, const EConstructionMode mode, bool& matches, SValueDiagnostic& diagnostic,
     const bool singleton_element) noexcept
 {
@@ -1172,8 +1193,8 @@ bool check_value(const CResolvedSchema& schema, const CDocumentRead& document,
     return true;
 }
 
-bool check_alternative(const CResolvedSchema& schema, const CDocumentRead& document,
-    const CSchemaIndex type, const SOccurrence declaration, const std::uint8_t* const base,
+bool check_alternative(const CResolvedTypes& schema, const CDocumentRead& document,
+    const CTypesIndex type, const SOccurrence declaration, const std::uint8_t* const base,
     const std::size_t base_size, const std::uint8_t* const bytes, const std::size_t size,
     bool& matches, SValueDiagnostic& diagnostic) noexcept
 {
@@ -1193,7 +1214,7 @@ bool check_alternative(const CResolvedSchema& schema, const CDocumentRead& docum
     return true;
 }
 
-bool compare_encoded(const CResolvedSchema& schema, const CSchemaIndex type,
+bool compare_encoded(const CResolvedTypes& schema, const CTypesIndex type,
     const std::uint8_t* const expected, const std::size_t expected_size,
     const std::uint8_t* const actual, const std::size_t actual_size) noexcept
 {

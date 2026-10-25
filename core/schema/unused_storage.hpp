@@ -15,7 +15,7 @@
 #ifndef SCHEMA_UNUSED_STORAGE_HPP_INCLUDED
 #define SCHEMA_UNUSED_STORAGE_HPP_INCLUDED
 
-#include "schema/resolved_schema.hpp"
+#include "schema/resolved_types.hpp"
 
 namespace schema
 {
@@ -32,7 +32,7 @@ enum class EUnusedBits : std::uint8_t { preserve = 0u, clear };
 
 //  Standalone values must occupy complete type extents, including array tail padding.
 //  No byte is changed on failure.
-[[nodiscard]] bool clear_unused_storage(const CResolvedSchema& schema, const CSchemaIndex type, const CByteView values, const EUnusedBits bits = EUnusedBits::preserve) noexcept;
+[[nodiscard]] bool clear_unused_storage(const CResolvedTypes& schema, const CTypesIndex type, const CByteView values, const EUnusedBits bits = EUnusedBits::preserve) noexcept;
 
 //==============================================================================
 //  Document payload clearing
@@ -40,8 +40,8 @@ enum class EUnusedBits : std::uint8_t { preserve = 0u, clear };
 
 //  The supplied writable view defines the used payload range. Locator metadata
 //  identifies occupied extents; every other byte in the view is cleared.
-[[nodiscard]] bool clear_unused_storage(const CResolvedSchema& schema, const CInstanceDocumentQuery& document, const CByteView payload, const EUnusedBits bits = EUnusedBits::preserve) noexcept;
-[[nodiscard]] bool clear_unused_storage(const CResolvedSchema& schema, const CBulkDataDocumentQuery& document, const CByteView payload, const EUnusedBits bits = EUnusedBits::preserve) noexcept;
+[[nodiscard]] bool clear_unused_storage(const CResolvedTypes& schema, const CInstanceDocumentQuery& document, const CByteView payload, const EUnusedBits bits = EUnusedBits::preserve) noexcept;
+[[nodiscard]] bool clear_unused_storage(const CResolvedTypes& schema, const CBulkDataDocumentQuery& document, const CByteView payload, const EUnusedBits bits = EUnusedBits::preserve) noexcept;
 
 }   // namespace schema
 

@@ -58,11 +58,10 @@ template<class TReason>
     }
 }
 
-//  Inputs have already passed their domain admission. Target is private, empty
-//  staging. Bulk prefix applies only at depth three in the prepared data grammar.
-[[nodiscard]] bool merge_document_section(const CDocumentRead& first, const CDocumentRead& second,
-    const CStringView& section, const bool bulk_prefix, CLiveDocument& target,
-    SDocumentMergeDiagnostic& diagnostic) noexcept;
+//  All three authoring sections, with one string-preparation pass. Both-absent
+//  sections remain absent; callers perform named-definition admission first.
+[[nodiscard]] bool merge_document_sections(const CDocumentRead& first, const CDocumentRead& second,
+    CLiveDocument& target, SDocumentMergeDiagnostic& diagnostic) noexcept;
 
 }   // namespace schema::detail
 

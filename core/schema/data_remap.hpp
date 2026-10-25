@@ -15,7 +15,7 @@
 #ifndef DATA_REMAP_HPP_INCLUDED
 #define DATA_REMAP_HPP_INCLUDED
 
-#include "schema/resolved_schema.hpp"
+#include "schema/resolved_types.hpp"
 
 namespace schema
 {
@@ -38,7 +38,7 @@ struct SRemapDiagnostic
 {
     ERemapReason reason{ ERemapReason::none };
     std::size_t source{};
-    CSchemaIndex source_member, destination_member;
+    CTypesIndex source_member, destination_member;
 };
 
 //==============================================================================
@@ -47,8 +47,8 @@ struct SRemapDiagnostic
 
 struct SRemapSourceType
 {
-    const CResolvedSchema* schema{};
-    CSchemaIndex type;
+    const CResolvedTypes* schema{};
+    CTypesIndex type;
 };
 
 //==============================================================================
@@ -65,7 +65,7 @@ public:
     CDataRemapPlan& operator=(const CDataRemapPlan&) = delete;
 
     [[nodiscard]] bool initialise(const SRemapSourceType* const sources, const std::size_t source_count,
-        const CResolvedSchema& destination_schema, const CSchemaIndex destination_type,
+        const CResolvedTypes& destination_schema, const CTypesIndex destination_type,
         SRemapDiagnostic& diagnostic) noexcept;
     void clear() noexcept;
 

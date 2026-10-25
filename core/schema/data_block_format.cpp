@@ -122,11 +122,20 @@ bool read_data_block_root(const CDocumentRead& document, SDataBlockRoot& output,
     {
         return root_failure(diagnostic, EDataBlockReason::invalid_property_type, stripped);
     }
+    if (require_envelope && (!stripped || !staged.stripped))
+    {
+        return root_failure(diagnostic, stripped ? EDataBlockReason::invalid_input : EDataBlockReason::missing_property,
+            stripped ? stripped : root);
+    }
     const SOccurrence sizes[]{ staged.instance_size, staged.bulk_size };
     const SOccurrence sections[]{ staged.instances, staged.bulk_data };
     std::uint64_t* const counts[]{ &staged.instance_bytes, &staged.bulk_bytes };
     for (unsigned index = 0u; index < 2u; ++index)
     {
+        if (require_envelope && sections[index] && !sizes[index])
+        {
+            return root_failure(diagnostic, EDataBlockReason::missing_property, sections[index]);
+        }
         if (!sizes[index]) continue;
         if (!sections[index]) return root_failure(diagnostic, EDataBlockReason::missing_property, sizes[index]);
         if (!document.unsigned_integer_value(sizes[index], *counts[index]))

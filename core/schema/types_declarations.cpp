@@ -2,13 +2,13 @@
 //  Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited
 //  License: MIT (see LICENSE file in repository root)
 //
-//  File:    schema_declarations.cpp
+//  File:    types_declarations.cpp
 //  Authors: Ritchie Brannan / OpenAI Codex
 //  Date:    26 Sep 26
 //
 //  Emit C++17 data declarations from an immutable resolved schema.
 
-#include "schema/resolved_schema.hpp"
+#include "schema/resolved_types.hpp"
 
 #include <algorithm>
 #include <charconv>
@@ -28,7 +28,7 @@ static constexpr std::uint64_t k_decimal_limit = 65535u;
 class CGenerator
 {
 public:
-    CGenerator(const CResolvedSchema& schema, const CStringView& namespace_name, SDiagnostic& error) noexcept;
+    CGenerator(const CResolvedTypes& schema, const CStringView& namespace_name, SDiagnostic& error) noexcept;
     bool run(CByteBuffer& output) noexcept;
 
 private:
@@ -41,7 +41,7 @@ private:
 
     struct SArrayHelpers
     {
-        CSchemaIndex type;
+        CTypesIndex type;
         std::uint32_t slot{}, array{}; // Zero means no helper at this level.
         bool emitted{};
     };
@@ -56,40 +56,40 @@ private:
     bool mask(const std::uint64_t value, const SType& storage) noexcept;
     bool primitive(const EPrimitive primitive) noexcept;
     bool local_type_name(const CStringView& name) noexcept;
-    bool type_name(const CSchemaIndex type_index) noexcept;
-    bool extents(const CSchemaIndex type_index) noexcept;
-    bool dependency(const CSchemaIndex type_index, const unsigned depth) noexcept;
+    bool type_name(const CTypesIndex type_index) noexcept;
+    bool extents(const CTypesIndex type_index) noexcept;
+    bool dependency(const CTypesIndex type_index, const unsigned depth) noexcept;
     bool collect_arrays() noexcept;
-    SArrayHelpers* array_helpers(const CSchemaIndex type_index) noexcept;
+    SArrayHelpers* array_helpers(const CTypesIndex type_index) noexcept;
     bool helper_name(const std::uint32_t number, const bool qualified = false) noexcept;
     bool allocate_helper(std::uint32_t& number) noexcept;
-    bool emit_array(const CSchemaIndex type_index, const SType& layout) noexcept;
-    bool native_structure_layout(const CSchemaIndex type_index, const SType& type_info,
+    bool emit_array(const CTypesIndex type_index, const SType& layout) noexcept;
+    bool native_structure_layout(const CTypesIndex type_index, const SType& type_info,
         bool& matches, std::uint64_t& natural_alignment, bool& inherited_increase) noexcept;
-    bool has_increased_alignment(const CSchemaIndex type_index, bool& result) noexcept;
+    bool has_increased_alignment(const CTypesIndex type_index, bool& result) noexcept;
     bool emit_member(const SMember& member) noexcept;
     bool emit_padding(const std::uint64_t count) noexcept;
-    bool emit_structure_members(const CSchemaIndex type_index, const SType& type_info, const bool physical_order) noexcept;
+    bool emit_structure_members(const CTypesIndex type_index, const SType& type_info, const bool physical_order) noexcept;
     bool definition(const std::uint32_t definition_ordinal, const unsigned depth) noexcept;
-    bool declaration_name(const CSchemaIndex index) noexcept;
+    bool declaration_name(const CTypesIndex index) noexcept;
     bool non_storage_comments() noexcept;
 
     //  Borrowed input and per-run output state.
-    const CResolvedSchema& m_schema;
+    const CResolvedTypes& m_schema;
     CStringView m_namespace;
     SDiagnostic& m_diagnostic;
-    CSchemaHandle m_current_type, m_current_member;
+    CTypesHandle m_current_type, m_current_member;
     TPodVector<char> m_bytes;
     TPodVector<EEmissionState> m_emitted; // Increased alignment includes inherited alignment.
     TPodVector<SArrayHelpers> m_arrays; // Sorted by opaque index value; populated before emission.
     std::uint64_t m_next_helper_name{ 1u };
     bool m_helper_scope{};
     bool m_global_std_shadow{};
-    CSchemaIndex m_enclosing_structure;
+    CTypesIndex m_enclosing_structure;
     std::uint64_t m_next_padding_name{};
 };
 
-CGenerator::CGenerator(const CResolvedSchema& schema, const CStringView& namespace_name, SDiagnostic& error) noexcept
+CGenerator::CGenerator(const CResolvedTypes& schema, const CStringView& namespace_name, SDiagnostic& error) noexcept
     : m_schema(schema), m_namespace(namespace_name), m_diagnostic(error)
 {
 }
@@ -164,7 +164,7 @@ bool CGenerator::run(CByteBuffer& output) noexcept
     return true;
 }
 
-bool CGenerator::declaration_name(const CSchemaIndex index) noexcept
+bool CGenerator::declaration_name(const CTypesIndex index) noexcept
 {
     SDeclaration declaration;
     if (!m_schema.declaration(index, declaration))
@@ -187,7 +187,7 @@ bool CGenerator::non_storage_comments() noexcept
 {
     for (std::uint32_t i = m_schema.definition_count(); i < m_schema.declaration_count(); ++i)
     {
-        const CSchemaIndex index = m_schema.declaration_at(i);
+        const CTypesIndex index = m_schema.declaration_at(i);
         SDeclaration declaration;
         if (!m_schema.declaration(index, declaration))
         {
@@ -372,7 +372,7 @@ bool CGenerator::local_type_name(const CStringView& name) noexcept
     return text(name);
 }
 
-bool CGenerator::type_name(const CSchemaIndex type_index) noexcept
+bool CGenerator::type_name(const CTypesIndex type_index) noexcept
 {
     SType type_info;
     if (!m_schema.type(type_index, type_info))
@@ -399,7 +399,7 @@ bool CGenerator::type_name(const CSchemaIndex type_index) noexcept
     return local_type_name(m_schema.name(type_info.name));
 }
 
-bool CGenerator::extents(const CSchemaIndex type_index) noexcept
+bool CGenerator::extents(const CTypesIndex type_index) noexcept
 {
     SType type_info;
     if (!m_schema.type(type_index, type_info))
@@ -419,7 +419,7 @@ bool CGenerator::extents(const CSchemaIndex type_index) noexcept
         ((helpers && helpers->slot) || extents(type_info.element_or_storage));
 }
 
-bool CGenerator::dependency(const CSchemaIndex type_index, const unsigned depth) noexcept
+bool CGenerator::dependency(const CTypesIndex type_index, const unsigned depth) noexcept
 {
     SType type_info;
     if (!m_schema.type(type_index, type_info))
@@ -450,7 +450,7 @@ bool CGenerator::collect_arrays() noexcept
 {
     for (std::uint32_t ordinal = 0u; ordinal < m_schema.definition_count(); ++ordinal)
     {
-        const CSchemaIndex definition = m_schema.definition_at(ordinal);
+        const CTypesIndex definition = m_schema.definition_at(ordinal);
         SType layout;
         if (!m_schema.type(definition, layout))
         {
@@ -467,7 +467,7 @@ bool CGenerator::collect_arrays() noexcept
             {
                 return fail(EReason::invalid_input);
             }
-            CSchemaIndex current = member.type;
+            CTypesIndex current = member.type;
             SType array;
             while (m_schema.type(current, array) && (array.category == ECategory::array) && (array.size != 0u))
             {
@@ -496,7 +496,7 @@ bool CGenerator::collect_arrays() noexcept
     return true;
 }
 
-CGenerator::SArrayHelpers* CGenerator::array_helpers(const CSchemaIndex type_index) noexcept
+CGenerator::SArrayHelpers* CGenerator::array_helpers(const CTypesIndex type_index) noexcept
 {
     std::size_t first = 0u, last = m_arrays.size();
     while (first < last)
@@ -548,7 +548,7 @@ bool CGenerator::allocate_helper(std::uint32_t& number) noexcept
     return fail(EReason::storage_limit);
 }
 
-bool CGenerator::emit_array(const CSchemaIndex type_index, const SType& layout) noexcept
+bool CGenerator::emit_array(const CTypesIndex type_index, const SType& layout) noexcept
 {
     SArrayHelpers* const helpers = array_helpers(type_index);
     if (!helpers || helpers->emitted)
@@ -592,9 +592,9 @@ bool CGenerator::emit_array(const CSchemaIndex type_index, const SType& layout) 
     return true;
 }
 
-bool CGenerator::has_increased_alignment(const CSchemaIndex type_index, bool& result) noexcept
+bool CGenerator::has_increased_alignment(const CTypesIndex type_index, bool& result) noexcept
 {
-    CSchemaIndex current = type_index;
+    CTypesIndex current = type_index;
     SType type_info;
     do
     {
@@ -631,7 +631,7 @@ bool CGenerator::has_increased_alignment(const CSchemaIndex type_index, bool& re
     return true;
 }
 
-bool CGenerator::native_structure_layout(const CSchemaIndex type_index, const SType& type_info,
+bool CGenerator::native_structure_layout(const CTypesIndex type_index, const SType& type_info,
     bool& matches, std::uint64_t& natural_alignment, bool& inherited_increase) noexcept
 {
     matches = true;
@@ -708,7 +708,7 @@ bool CGenerator::emit_padding(const std::uint64_t count) noexcept
     return fail(EReason::storage_limit);
 }
 
-bool CGenerator::emit_structure_members(const CSchemaIndex type_index, const SType& type_info, const bool physical_order) noexcept
+bool CGenerator::emit_structure_members(const CTypesIndex type_index, const SType& type_info, const bool physical_order) noexcept
 {
     if (!physical_order)
     {
@@ -771,7 +771,7 @@ bool CGenerator::definition(const std::uint32_t definition_ordinal, const unsign
     {
         return fail(EReason::storage_limit);
     }
-    const CSchemaIndex type_index = m_schema.definition_at(definition_ordinal);
+    const CTypesIndex type_index = m_schema.definition_at(definition_ordinal);
     SType type_info;
     if (!m_schema.type(type_index, type_info))
     {
@@ -912,7 +912,7 @@ bool CGenerator::definition(const std::uint32_t definition_ordinal, const unsign
 
 }   // namespace declaration_writer
 
-bool generate_cpp(const CResolvedSchema& schema, const CStringView& name_space, CByteBuffer& output, SDiagnostic& diagnostic) noexcept
+bool generate_cpp(const CResolvedTypes& schema, const CStringView& name_space, CByteBuffer& output, SDiagnostic& diagnostic) noexcept
 {
     output.deallocate();
     diagnostic = {};

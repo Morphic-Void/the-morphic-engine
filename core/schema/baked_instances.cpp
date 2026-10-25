@@ -6,13 +6,14 @@
 //  Authors: Ritchie Brannan / OpenAI Codex
 //  Date:    01 Oct 26
 //
-//  Validate baked instance locators and construct independent snapshots.
+//  Attach complete baked snapshots and validate their selection inheritance.
 
 #include "schema/baked_instances.hpp"
 #include "schema/baked_data_block.hpp"
-#include "schema/data_block_construction.hpp"
+#include "schema/data_block_format.hpp"
 #include "schema/type_compatibility.hpp"
 #include "schema/value_codec.hpp"
+#include "schema/instance_selection.hpp"
 #include "schema/data_document_validation.hpp"
 #include "schema/data_storage_validation.hpp"
 #include "memory/memory_policies.hpp"
@@ -48,23 +49,18 @@ void CBakedInstances::clear() noexcept
 {
     clear_loaded();
     m_binding.release();
-    m_mutable.clear();
     m_document.clear();
-    m_working_document.deallocate();
 }
 
 void CBakedInstances::take_from(CBakedInstances& source) noexcept
 {
-    m_working_document = std::move(source.m_working_document);
     m_document = source.m_document;
-    m_mutable = source.m_mutable;
     m_binding = std::move(source.m_binding);
     m_payload = source.m_payload;
     m_records = std::move(source.m_records);
     m_record_index = std::move(source.m_record_index);
     m_loaded = source.m_loaded;
     source.m_document.clear();
-    source.m_mutable.clear();
     source.m_payload = {};
     source.m_loaded = false;
 }
@@ -79,131 +75,114 @@ bool CBakedInstances::set_document(const CBakedDocument& document) noexcept
     return true;
 }
 
-bool CBakedInstances::set_document(const CMutableBakedDocument& document) noexcept
-{
-    if (document_ready() || m_binding.is_attached() || !document.is_ready())
-    {
-        return false;
-    }
-    m_mutable = document;
-    m_document = document.baked();
-    return true;
-}
-
 template<class TSchema>
-bool CBakedInstances::attach_block_to(const CBakedDataBlock& block, TSchema& schema,
-    CByteBuffer& returned_owner, const bool compare_embedded, SInstanceDiagnostic& diagnostic) noexcept
+bool CBakedInstances::attach_block_to(const CBakedDataBlock& block, TSchema& types, SInstanceDiagnostic& diagnostic) noexcept
 {
     diagnostic = {};
-    if (document_ready() || !block.loaded_ready() || returned_owner.is_ready())
+    if (document_ready() || !block.loaded_ready() || (block.has_instances() && !block.instance_binary_available()))
     {
         diagnostic.reason = EInstanceLoadReason::invalid_input;
         return false;
     }
     CBakedInstances staged;
-    CBakedDocumentBlock working;
-    if (block.instance_binary_available())
-    {
-        if (!staged.set_document(block.document()) || !staged.attach_schema(schema, block.instance_payload_view(), compare_embedded, diagnostic)) return false;
-    }
-    else
-    {
-        SDataBlockDiagnostic preparation;
-        if (!detail::prepare_missing_data_document(block.document(), false, working, preparation) ||
-            !staged.set_document(CMutableBakedDocument{ working }) || !staged.attach_schema(schema, returned_owner, diagnostic))
-        {
-            if (diagnostic.reason == EInstanceLoadReason::none) diagnostic.reason = EInstanceLoadReason::invalid_input;
-            diagnostic.occurrence = detail::SInstanceHandleAccess::make(detail::SOccurrence{
-                detail::materialisation_source_value(block.document(), working.document(), detail::SInstanceHandleAccess::occurrence(diagnostic.occurrence).baked) });
-            return false;
-        }
-        staged.m_working_document = std::move(working);
-    }
+    if (!staged.set_document(block.document()) || !staged.attach_types(types, block.instance_payload_view(), diagnostic)) return false;
     take_from(staged);
     return true;
 }
 
-bool CBakedInstances::attach_block(const CBakedDataBlock& block, CBakedSchema& schema,
-    CByteBuffer& returned_owner, const bool compare_embedded, SInstanceDiagnostic& diagnostic) noexcept
+bool CBakedInstances::attach_block(const CBakedDataBlock& block, CBakedTypes& types, SInstanceDiagnostic& diagnostic) noexcept
 {
-    return attach_block_to(block, schema, returned_owner, compare_embedded, diagnostic);
+    return attach_block_to(block, types, diagnostic);
 }
 
-bool CBakedInstances::attach_block(const CBakedDataBlock& block, CLiveSchema& schema,
-    CByteBuffer& returned_owner, const bool compare_embedded, SInstanceDiagnostic& diagnostic) noexcept
+bool CBakedInstances::attach_block(const CBakedDataBlock& block, CLiveTypes& types, SInstanceDiagnostic& diagnostic) noexcept
 {
-    return attach_block_to(block, schema, returned_owner, compare_embedded, diagnostic);
+    return attach_block_to(block, types, diagnostic);
 }
 
 template<class TSchema>
-bool CBakedInstances::attach_to(TSchema& schema, CByteBuffer* const returned_owner, const CByteConstView& payload,
-    const bool compare_embedded, SInstanceDiagnostic& diagnostic) noexcept
+bool CBakedInstances::attach_to(TSchema& types, const CByteConstView& payload, SInstanceDiagnostic& diagnostic) noexcept
 {
     diagnostic = {};
-    if (!document_ready() || m_loaded || m_binding.is_attached())
+    if (!document_ready() || m_loaded || m_binding.is_attached() || !types.resolved_ready())
     {
         diagnostic.reason = EInstanceLoadReason::invalid_input;
         return false;
     }
     CBakedInstances prepared;
     prepared.m_document = m_document;
-    prepared.m_mutable = m_mutable;
-    if (!prepared.m_binding.bind(schema))
+    CBakedTypes embedded;
+    if (m_document.object_child(m_document.root(), CStringView{ "types" }))
     {
-        diagnostic.reason = EInstanceLoadReason::invalid_input;
-        return false;
+        SDiagnostic error;
+        if (!embedded.set_document(m_document) || !embedded.resolve(error))
+        {
+            diagnostic.reason = error.reason == EReason::allocation_failed ? EInstanceLoadReason::allocation_failed : EInstanceLoadReason::invalid_input;
+            diagnostic.occurrence = detail::SInstanceHandleAccess::make(detail::STypesHandleAccess::occurrence(error.occurrence));
+            return false;
+        }
+        if (!prepared.m_binding.bind(embedded) || !prepared.load_supplied(payload, diagnostic) ||
+            !prepared.switch_to(types, ETypeBindMode::checked, diagnostic, nullptr, true)) return false;
     }
-    if (returned_owner ? !prepared.materialise(*returned_owner, diagnostic) : !prepared.load_supplied(payload, compare_embedded, diagnostic))
-    {
-        return false;
-    }
+    else if (!prepared.m_binding.bind(types) || !prepared.load_supplied(payload, diagnostic)) return false;
     take_from(prepared);
     return true;
 }
 
-bool CBakedInstances::attach_schema(CBakedSchema& schema, const CByteConstView& payload,
-    const bool compare_embedded, SInstanceDiagnostic& diagnostic) noexcept
+bool CBakedInstances::attach_types(CBakedTypes& types, const CByteConstView& payload, SInstanceDiagnostic& diagnostic) noexcept
 {
-    return attach_to(schema, nullptr, payload, compare_embedded, diagnostic);
+    return attach_to(types, payload, diagnostic);
 }
 
-bool CBakedInstances::attach_schema(CBakedSchema& schema, CByteBuffer& returned_owner, SInstanceDiagnostic& diagnostic) noexcept
+bool CBakedInstances::attach_types(CLiveTypes& types, const CByteConstView& payload, SInstanceDiagnostic& diagnostic) noexcept
 {
-    return attach_to(schema, &returned_owner, {}, false, diagnostic);
-}
-
-bool CBakedInstances::attach_schema(CLiveSchema& schema, const CByteConstView& payload,
-    const bool compare_embedded, SInstanceDiagnostic& diagnostic) noexcept
-{
-    return attach_to(schema, nullptr, payload, compare_embedded, diagnostic);
-}
-
-bool CBakedInstances::attach_schema(CLiveSchema& schema, CByteBuffer& returned_owner, SInstanceDiagnostic& diagnostic) noexcept
-{
-    return attach_to(schema, &returned_owner, {}, false, diagnostic);
+    return attach_to(types, payload, diagnostic);
 }
 
 template<class TSchema>
-bool CBakedInstances::switch_to(TSchema& schema, const ESchemaSwitchMode mode, SInstanceDiagnostic& diagnostic) noexcept
+bool CBakedInstances::switch_to(TSchema& schema, const ETypeBindMode mode, SInstanceDiagnostic& diagnostic,
+    CByteBuffer* replacement, const bool source_validated) noexcept
 {
     diagnostic = {};
-    if (!m_loaded || ((mode != ESchemaSwitchMode::checked) && (mode != ESchemaSwitchMode::trusted)))
+    if (!m_loaded || (replacement && replacement->capacity()) ||
+        ((mode != ETypeBindMode::checked) && (mode != ETypeBindMode::asserted_recovery)))
     {
         diagnostic.reason = EInstanceLoadReason::invalid_input;
         return false;
     }
-    CSchemaBinding proposed;
+    CTypesBinding proposed;
     if (!proposed.bind(schema))
     {
         diagnostic.reason = EInstanceLoadReason::invalid_input;
         return false;
     }
     const detail::CDocumentRead document{ m_document };
-    TPodVector<CSchemaIndex> types;
+    const auto* prior = m_binding.resolved();
+    if ((mode == ETypeBindMode::asserted_recovery) == static_cast<bool>(prior))
+    {
+        diagnostic.reason = EInstanceLoadReason::invalid_input;
+        return false;
+    }
+    detail::SValueDiagnostic error;
+    //  Only initial attachment can reuse the source check performed by load_supplied.
+    //  Public rebinding rechecks borrowed bytes, even when the owner is unchanged.
+    if (prior && !source_validated)
+    {
+        const auto checked = detail::check_selected_records(*prior, document, m_records, m_payload.data(),
+            [&](const std::size_t i) noexcept { return m_records[i].type; }, error);
+        if (checked != detail::EValueCheck::match)
+        {
+            diagnostic.reason = detail::value_failure(error, checked == detail::EValueCheck::mismatch ?
+                EInstanceLoadReason::inheritance_mismatch : EInstanceLoadReason::invalid_declaration);
+            diagnostic.occurrence = detail::SInstanceHandleAccess::make(error.occurrence);
+            return false;
+        }
+    }
+    TPodVector<CTypesIndex> types;
     detail::SOccurrence failure;
-    const auto result = detail::prepare_schema_switch<true>(document,
+    const auto result = detail::prepare_types_binding<true>(document,
         document.object_child(document.root(), CStringView{ "instances" }), m_binding.resolved(), *proposed.resolved(),
-        mode == ESchemaSwitchMode::checked, m_records, types, failure);
+        mode == ETypeBindMode::checked, m_records, types, failure);
     if (result != ETypeMatchResult::match)
     {
         diagnostic.reason = (result == ETypeMatchResult::allocation_failed) ? EInstanceLoadReason::allocation_failed :
@@ -211,18 +190,33 @@ bool CBakedInstances::switch_to(TSchema& schema, const ESchemaSwitchMode mode, S
         diagnostic.occurrence = detail::SInstanceHandleAccess::make(failure);
         return false;
     }
-    const CByteConstView payload = m_payload;
-    if ((mode == ESchemaSwitchMode::checked) && !values_stripped())
+    CByteBuffer staged;
+    if (replacement)
     {
-        detail::SValueDiagnostic error;
-        const auto checked = detail::check_instance_records(*proposed.resolved(), document, m_records, payload.data(),
+        if (m_payload.size() && (!staged.allocate(m_payload.size(), k_max_alignment) || !staged.set_size(m_payload.size())))
+        {
+            diagnostic.reason = EInstanceLoadReason::allocation_failed;
+            return false;
+        }
+        if (m_payload.size()) std::memcpy(staged.data(), m_payload.data(), m_payload.size());
+        if (!detail::rebuild_inherited_records(*proposed.resolved(), document, m_records, staged.data(), staged.size(),
+            [&](const std::size_t i) noexcept { return types[i]; }, error))
+        {
+            diagnostic.reason = detail::value_failure(error, EInstanceLoadReason::invalid_declaration);
+            diagnostic.occurrence = detail::SInstanceHandleAccess::make(error.occurrence);
+            return false;
+        }
+    }
+    else
+    {
+        const auto checked = detail::check_selected_records(*proposed.resolved(), document, m_records, m_payload.data(),
             [&](const std::size_t i) noexcept
             {
                 return types[i];
             }, error);
         if (checked != detail::EValueCheck::match)
         {
-            diagnostic.reason = detail::value_failure(error, ((checked == detail::EValueCheck::mismatch) ? EInstanceLoadReason::embedded_mismatch : EInstanceLoadReason::invalid_declaration));
+            diagnostic.reason = detail::value_failure(error, ((checked == detail::EValueCheck::mismatch) ? EInstanceLoadReason::inheritance_mismatch : EInstanceLoadReason::invalid_declaration));
             diagnostic.occurrence = detail::SInstanceHandleAccess::make(error.occurrence);
             return false;
         }
@@ -232,15 +226,32 @@ bool CBakedInstances::switch_to(TSchema& schema, const ESchemaSwitchMode mode, S
         m_records[i].type = types[i];
     }
     m_binding = std::move(proposed);
+    if (replacement)
+    {
+        *replacement = std::move(staged);
+        m_payload = replacement->const_view();
+    }
     return true;
 }
 
-bool CBakedInstances::switch_schema(CBakedSchema& schema, const ESchemaSwitchMode mode, SInstanceDiagnostic& diagnostic) noexcept
+bool CBakedInstances::rebind_types(CBakedTypes& types, CByteBuffer& replacement,
+    const ETypeBindMode mode, SInstanceDiagnostic& diagnostic) noexcept
+{
+    return switch_to(types, mode, diagnostic, &replacement);
+}
+
+bool CBakedInstances::rebind_types(CLiveTypes& types, CByteBuffer& replacement,
+    const ETypeBindMode mode, SInstanceDiagnostic& diagnostic) noexcept
+{
+    return switch_to(types, mode, diagnostic, &replacement);
+}
+
+bool CBakedInstances::rebind_types(CBakedTypes& schema, const ETypeBindMode mode, SInstanceDiagnostic& diagnostic) noexcept
 {
     return switch_to(schema, mode, diagnostic);
 }
 
-bool CBakedInstances::switch_schema(CLiveSchema& schema, const ESchemaSwitchMode mode, SInstanceDiagnostic& diagnostic) noexcept
+bool CBakedInstances::rebind_types(CLiveTypes& schema, const ETypeBindMode mode, SInstanceDiagnostic& diagnostic) noexcept
 {
     return switch_to(schema, mode, diagnostic);
 }
@@ -376,28 +387,26 @@ bool CBakedInstances::entry(const CInstanceHandle handle, SInstanceEntryView& re
 //  Load planning
 //==============================================================================
 
-bool CBakedInstances::plan(const bool supplied, const std::size_t supplied_size,
+bool CBakedInstances::plan(const std::size_t supplied_size,
     TPodVector<SRecord>& records, std::size_t& payload_size, SInstanceDiagnostic& diagnostic) const noexcept
 {
     payload_size = 0u;
-    const CResolvedSchema* const schema = m_binding.resolved();
+    const CResolvedTypes* const schema = m_binding.resolved();
     if (!document_ready() || !schema)
     {
         return fail(diagnostic, EInstanceLoadReason::invalid_input, {});
     }
     detail::SDataBlockRoot metadata;
     SDataBlockDiagnostic root_error;
-    if (!detail::read_data_block_root(detail::CDocumentRead{ m_document }, metadata, root_error))
+    const bool envelope = static_cast<bool>(m_document.object_child(m_document.root(), CStringView{ "fileType" }));
+    if (!detail::read_data_block_root(detail::CDocumentRead{ m_document }, metadata, root_error, envelope))
     {
         return fail(diagnostic, EInstanceLoadReason::invalid_input, root_error.location.baked_value);
     }
-    if (metadata.instance_size && !supplied) return fail(diagnostic, EInstanceLoadReason::binary_required, metadata.instance_size.baked);
     if (metadata.instance_size && (metadata.instance_bytes != supplied_size)) return fail(diagnostic, EInstanceLoadReason::invalid_range, metadata.instance_size.baked);
-    const bool stripped = metadata.stripped;
-    if (stripped && !supplied)
+    if (!metadata.stripped)
     {
-        const CBakedValueIndex marker = m_document.object_child(m_document.root(), CStringView{ "stripped" });
-        return fail(diagnostic, EInstanceLoadReason::binary_required, marker);
+        return fail(diagnostic, EInstanceLoadReason::invalid_input, m_document.root());
     }
     const CBakedValueIndex instances = metadata.instances.baked;
     if (!instances.is_valid())
@@ -411,7 +420,7 @@ bool CBakedInstances::plan(const bool supplied, const std::size_t supplied_size,
         {
             return fail(diagnostic, EInstanceLoadReason::invalid_input, group);
         }
-        const CSchemaIndex type = schema->find_type(m_document.name(group));
+        const CTypesIndex type = schema->find_type(m_document.name(group));
         SType layout;
         if (!type.is_valid() || !schema->type(type, layout))
         {
@@ -446,9 +455,12 @@ bool CBakedInstances::plan(const bool supplied, const std::size_t supplied_size,
             const CBakedValueIndex declaration = m_document.object_child(instance, CStringView{ "declaration" });
             const CBakedValueIndex specialisations = m_document.object_child(instance, CStringView{ "specialisation" });
             const CBakedValueIndex locator = m_document.object_child(instance, CStringView{ "locator" });
-            if (declaration.is_valid() && (stripped || (m_document.value_type(declaration) == EBakedValueType::null_value)))
+            detail::SValueDiagnostic selection_error;
+            const detail::CDocumentRead selection_document{ m_document };
+            if (!detail::validate_selection(*schema, type, { &selection_document, detail::SOccurrence{ declaration } }, selection_error))
             {
-                return fail(diagnostic, EInstanceLoadReason::invalid_declaration, declaration);
+                return fail(diagnostic, detail::value_failure(selection_error, EInstanceLoadReason::invalid_declaration),
+                    selection_error.occurrence ? selection_error.occurrence.baked : declaration);
             }
             if (specialisations.is_valid() && (m_document.value_type(specialisations) != EBakedValueType::object))
             {
@@ -466,24 +478,15 @@ bool CBakedInstances::plan(const bool supplied, const std::size_t supplied_size,
             {
                 return fail(diagnostic, reason, failure.baked);
             }
-            const CBakedValueIndex offset_node = parsed.offset_node.baked;
             const CBakedValueIndex valid_node = parsed.valid_node.baked;
             const std::uint64_t raw_offset = parsed.offset;
             const bool prior_valid = parsed.valid;
-            if (supplied && !prior_valid)
-            {
-                return fail(diagnostic, EInstanceLoadReason::invalid_locator, valid_node);
-            }
-            if (!supplied && !prior_valid && !m_mutable.is_ready())
+            if (!prior_valid)
             {
                 return fail(diagnostic, EInstanceLoadReason::invalid_locator, valid_node);
             }
             std::uint64_t offset = raw_offset;
-            if (!prior_valid && !detail::align_data_offset(cursor, layout.alignment, offset))
-            {
-                return fail(diagnostic, EInstanceLoadReason::invalid_range, locator);
-            }
-            if (!detail::check_data_range(offset, layout.size, layout.alignment, cursor, supplied, supplied_size, reason))
+            if (!detail::check_data_range(offset, layout.size, layout.alignment, cursor, supplied_size, reason))
             {
                 return fail(diagnostic, reason, locator);
             }
@@ -495,13 +498,10 @@ bool CBakedInstances::plan(const bool supplied, const std::size_t supplied_size,
             SRecord record;
             record.entry = instance;
             record.declaration = declaration;
-            record.offset_node = offset_node;
-            record.valid_node = valid_node;
             record.type = type;
             record.parent = frame.parent;
             record.offset = static_cast<std::uint32_t>(offset);
             record.extent = static_cast<std::uint32_t>(layout.size);
-            record.prior_valid = prior_valid;
             if (!records.push_back(record))
             {
                 return fail(diagnostic, EInstanceLoadReason::allocation_failed, instance);
@@ -526,13 +526,13 @@ bool CBakedInstances::plan(const bool supplied, const std::size_t supplied_size,
 }
 
 //==============================================================================
-//  Embedded-value comparison
+//  Inherited-value consistency
 //==============================================================================
 
-bool CBakedInstances::compare_embedded(const TPodVector<SRecord>& records, const CByteConstView& payload, SInstanceDiagnostic& diagnostic) const noexcept
+bool CBakedInstances::check_inheritance(const TPodVector<SRecord>& records, const CByteConstView& payload, SInstanceDiagnostic& diagnostic) const noexcept
 {
     detail::SValueDiagnostic error;
-    const auto checked = detail::check_instance_records(*m_binding.resolved(), detail::CDocumentRead{ m_document }, records,
+    const auto checked = detail::check_selected_records(*m_binding.resolved(), detail::CDocumentRead{ m_document }, records,
         payload.data(), [&](const std::size_t i) noexcept
         {
             return records[i].type;
@@ -541,15 +541,15 @@ bool CBakedInstances::compare_embedded(const TPodVector<SRecord>& records, const
     {
         return true;
     }
-    return fail(diagnostic, detail::value_failure(error, ((checked == detail::EValueCheck::mismatch) ? EInstanceLoadReason::embedded_mismatch :
+    return fail(diagnostic, detail::value_failure(error, ((checked == detail::EValueCheck::mismatch) ? EInstanceLoadReason::inheritance_mismatch :
         EInstanceLoadReason::invalid_declaration)), error.occurrence.baked);
 }
 
 //==============================================================================
-//  Loading and materialisation
+//  Loading supplied storage
 //==============================================================================
 
-bool CBakedInstances::load_supplied(const CByteConstView& payload, const bool compare_embedded, SInstanceDiagnostic& diagnostic) noexcept
+bool CBakedInstances::load_supplied(const CByteConstView& payload, SInstanceDiagnostic& diagnostic) noexcept
 {
     clear_loaded();
     diagnostic = {};
@@ -559,12 +559,12 @@ bool CBakedInstances::load_supplied(const CByteConstView& payload, const bool co
     }
     TPodVector<SRecord> staged;
     std::size_t payload_size{};
-    if (!plan(true, payload.size(), staged, payload_size, diagnostic) || ((payload_size != 0u) && !payload.is_ready()))
+    if (!plan(payload.size(), staged, payload_size, diagnostic) || ((payload_size != 0u) && !payload.is_ready()))
     {
         return (diagnostic.reason == EInstanceLoadReason::none) ?
             fail(diagnostic, EInstanceLoadReason::invalid_range, {}) : false;
     }
-    if (compare_embedded && !values_stripped() && !this->compare_embedded(staged, payload, diagnostic))
+    if (!this->check_inheritance(staged, payload, diagnostic))
     {
         return false;
     }
@@ -576,86 +576,6 @@ bool CBakedInstances::load_supplied(const CByteConstView& payload, const bool co
     m_records = std::move(staged);
     m_record_index = std::move(index);
     m_payload = payload;
-    m_loaded = true;
-    return true;
-}
-
-bool CBakedInstances::materialise(CByteBuffer& returned_owner, SInstanceDiagnostic& diagnostic) noexcept
-{
-    clear_loaded();
-    diagnostic = {};
-    if (returned_owner.is_ready())
-    {
-        return fail(diagnostic, EInstanceLoadReason::invalid_input, {});
-    }
-    TPodVector<SRecord> staged;
-    std::size_t payload_size{};
-    if (!plan(false, 0u, staged, payload_size, diagnostic))
-    {
-        return false;
-    }
-    CBakedRecordIndex index;
-    if (!index.build(staged))
-    {
-        return fail(diagnostic, EInstanceLoadReason::allocation_failed, {});
-    }
-    CByteBuffer payload;
-    if ((payload_size != 0u) && (!payload.allocate(payload_size, k_max_alignment) || !payload.set_size(payload_size)))
-    {
-        return fail(diagnostic, EInstanceLoadReason::allocation_failed, {});
-    }
-    const CResolvedSchema* const schema = m_binding.resolved();
-    detail::CDocumentRead document{ m_document };
-    std::size_t constructed_end{};
-    for (std::size_t ordinal = 0u; ordinal < staged.size(); ++ordinal)
-    {
-        const SRecord& record = staged[ordinal];
-        if (record.extent != 0u)
-        {   //  This payload is new; supplied payloads never pass through construction.
-            if (record.offset > constructed_end)
-            {
-                std::memset((payload.data() + constructed_end), 0, (record.offset - constructed_end));
-            }
-            constructed_end = static_cast<std::size_t>(record.offset) + record.extent;
-        }
-        std::uint8_t* const target = (record.extent == 0u) ? nullptr : (payload.data() + record.offset);
-        const detail::SOccurrence declaration{ record.declaration };
-        detail::SValueDiagnostic value_error;
-        bool converted{};
-        if (record.parent == k_no_parent)
-        {
-            converted = detail::construct_value(*schema, document, record.type, declaration, target, record.extent,
-                detail::EConstructionMode::instance, value_error);
-        }
-        else
-        {
-            const SRecord& parent = staged[record.parent];
-            const std::uint8_t* const base = (parent.extent == 0u) ? nullptr : (payload.data() + parent.offset);
-            converted = detail::construct_alternative(*schema, document, record.type, declaration, base,
-                parent.extent, target, record.extent, value_error);
-        }
-        if (!converted)
-        {
-            return fail(diagnostic, detail::value_failure(value_error, EInstanceLoadReason::invalid_declaration),
-                (value_error.occurrence.is_baked() ? value_error.occurrence.baked : record.entry));
-        }
-    }
-
-    //  All conversions have succeeded. Publish only reserved scalar locators.
-    for (std::size_t ordinal = 0u; ordinal < staged.size(); ++ordinal)
-    {
-        const SRecord& record = staged[ordinal];
-        if (!record.prior_valid &&
-            (!m_mutable.set_unsigned_integer_value(record.offset_node, record.offset) ||
-             !m_mutable.set_boolean_value(record.valid_node, true)))
-        {
-            return fail(diagnostic, EInstanceLoadReason::invalid_locator, record.entry);
-        }
-    }
-    returned_owner = std::move(payload);
-    m_payload = returned_owner.const_view();
-    m_records = std::move(staged);
-    m_record_index = std::move(index);
     m_loaded = true;
     return true;
 }

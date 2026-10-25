@@ -16,7 +16,7 @@
 #ifndef TYPE_COMPATIBILITY_HPP_INCLUDED
 #define TYPE_COMPATIBILITY_HPP_INCLUDED
 
-#include "schema/resolved_schema.hpp"
+#include "schema/resolved_types.hpp"
 #include "containers/TPodVector.hpp"
 #include "memory/memory_policies.hpp"
 
@@ -165,31 +165,31 @@ enum class EDeclarationMatch : std::uint8_t { compatibility = 0, definition };
 class CTypeCompatibility
 {
 public:
-    CTypeCompatibility(const CResolvedSchema& source, const CResolvedSchema& destination, const ETypeMatch rule) noexcept
+    CTypeCompatibility(const CResolvedTypes& source, const CResolvedTypes& destination, const ETypeMatch rule) noexcept
         : m_source(source), m_destination(destination), m_rule(rule) {}
 
-    [[nodiscard]] ETypeMatchResult compare(const CSchemaIndex source, const CSchemaIndex destination) noexcept;
+    [[nodiscard]] ETypeMatchResult compare(const CTypesIndex source, const CTypesIndex destination) noexcept;
     [[nodiscard]] std::size_t cached_pair_count() const noexcept { return m_pairs.size(); }
 
 private:
     friend class CDeclarationCompatibility;
     struct SPair
     {
-        CSchemaIndex source, destination, source_default, destination_default;
+        CTypesIndex source, destination, source_default, destination_default;
         ETypeMatchResult result{ ETypeMatchResult::match };
     };
 
     [[nodiscard]] static std::uint32_t hash(const SPair& pair) noexcept;
     [[nodiscard]] ETypeMatchResult add(const SPair pair) noexcept;
     [[nodiscard]] bool same_header(const SType& source, const SType& destination) const noexcept;
-    [[nodiscard]] bool same_decorations(const CSchemaIndex source, const CSchemaIndex destination) const noexcept;
+    [[nodiscard]] bool same_decorations(const CTypesIndex source, const CTypesIndex destination) const noexcept;
     [[nodiscard]] ETypeMatchResult inspect(const SPair pair) noexcept;
     [[nodiscard]] ETypeMatchResult inspect_declaration(const SPair pair) noexcept;
-    [[nodiscard]] ETypeMatchResult compare_declaration(const CSchemaIndex source, const CSchemaIndex destination) noexcept;
-    [[nodiscard]] ETypeMatchResult compare_graph(const CSchemaIndex source, const CSchemaIndex destination) noexcept;
+    [[nodiscard]] ETypeMatchResult compare_declaration(const CTypesIndex source, const CTypesIndex destination) noexcept;
+    [[nodiscard]] ETypeMatchResult compare_graph(const CTypesIndex source, const CTypesIndex destination) noexcept;
 
-    const CResolvedSchema& m_source;
-    const CResolvedSchema& m_destination;
+    const CResolvedTypes& m_source;
+    const CResolvedTypes& m_destination;
     const ETypeMatch m_rule;
     TPodVector<SPair> m_pairs;
     COrdinalHashIndex m_index;
@@ -201,10 +201,10 @@ private:
 class CDeclarationCompatibility
 {
 public:
-    CDeclarationCompatibility(const CResolvedSchema& source, const CResolvedSchema& destination, const EDeclarationMatch rule) noexcept
+    CDeclarationCompatibility(const CResolvedTypes& source, const CResolvedTypes& destination, const EDeclarationMatch rule) noexcept
         : m_graph(source, destination, (rule == EDeclarationMatch::definition) ? ETypeMatch::definition : ETypeMatch::representation) {}
 
-    [[nodiscard]] ETypeMatchResult compare(const CSchemaIndex source, const CSchemaIndex destination) noexcept
+    [[nodiscard]] ETypeMatchResult compare(const CTypesIndex source, const CTypesIndex destination) noexcept
     {
         return m_graph.compare_declaration(source, destination);
     }
@@ -219,9 +219,9 @@ namespace detail
 //  Document identities and record order survive a schema switch. Stage only
 //  owner-local type indices; the caller publishes them with its new binding.
 template<bool Instances, class TRecords>
-[[nodiscard]] static ETypeMatchResult prepare_schema_switch(const CDocumentRead& document, const SOccurrence section,
-    const CResolvedSchema* const source, const CResolvedSchema& target, const bool checked,
-    const TRecords& records, TPodVector<CSchemaIndex>& types, SOccurrence& failure) noexcept
+[[nodiscard]] static ETypeMatchResult prepare_types_binding(const CDocumentRead& document, const SOccurrence section,
+    const CResolvedTypes* const source, const CResolvedTypes& target, const bool checked,
+    const TRecords& records, TPodVector<CTypesIndex>& types, SOccurrence& failure) noexcept
 {
     if (checked && !source)
     {
@@ -232,7 +232,7 @@ template<bool Instances, class TRecords>
     {
         failure = group;
         const CStringView name = document.name(group);
-        const CSchemaIndex proposed = target.find_type(name);
+        const CTypesIndex proposed = target.find_type(name);
         if (!proposed)
         {
             return ETypeMatchResult::mismatch;
@@ -251,7 +251,16 @@ template<bool Instances, class TRecords>
         return ETypeMatchResult::allocation_failed;
     }
     SOccurrence previous_group;
-    CSchemaIndex previous_type;
+    CTypesIndex previous_type;
+    const auto append_type = [&](const std::size_t i, const CTypesIndex proposed) noexcept
+    {
+        SType layout;
+        if (!target.type(proposed, layout)) return ETypeMatchResult::mismatch;
+        std::uint64_t extent = layout.size;
+        if constexpr (!Instances) extent *= records[i].count;
+        if (extent != records[i].extent || (records[i].offset & (layout.alignment - 1u))) return ETypeMatchResult::mismatch;
+        return types.push_back(proposed) ? ETypeMatchResult::match : ETypeMatchResult::allocation_failed;
+    };
     for (std::size_t i = 0u; i < records.size(); ++i)
     {
         failure = SOccurrence{ records[i].entry };
@@ -265,11 +274,9 @@ template<bool Instances, class TRecords>
                 {
                     return ETypeMatchResult::invalid_input;
                 }
-                const CSchemaIndex inherited = types[records[i].parent];
-                if (!types.push_back(inherited))
-                {
-                    return ETypeMatchResult::allocation_failed;
-                }
+                const CTypesIndex inherited = types[records[i].parent];
+                const auto added = append_type(i, inherited);
+                if (added != ETypeMatchResult::match) return added;
                 continue;
             }
         }
@@ -287,10 +294,8 @@ template<bool Instances, class TRecords>
             }
             previous_group = group;
         }
-        if (!types.push_back(previous_type))
-        {
-            return ETypeMatchResult::allocation_failed;
-        }
+        const auto added = append_type(i, previous_type);
+        if (added != ETypeMatchResult::match) return added;
     }
     failure = {};
     return ETypeMatchResult::match;

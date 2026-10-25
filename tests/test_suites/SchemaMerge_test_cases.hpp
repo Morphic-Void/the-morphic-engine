@@ -15,6 +15,6 @@
 #define SCHEMA_MERGE_TEST_CASES_HPP_INCLUDED
 
 namespace tests { struct TTestContext; }
-void run_schema_merge_cases(tests::TTestContext& context);
+void run_types_merge_cases(tests::TTestContext& context);
 
 #endif // SCHEMA_MERGE_TEST_CASES_HPP_INCLUDED

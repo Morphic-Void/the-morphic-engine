@@ -18,7 +18,7 @@
 
 #include "data_model/live_document.hpp"
 #include "schema/document_query.hpp"
-#include "schema/resolved_schema.hpp"
+#include "schema/resolved_types.hpp"
 #include "memory/memory_context.hpp"
 #include "tests/support/test_allocator.hpp"
 #include "tests/support/test_context.hpp"
@@ -2056,11 +2056,11 @@ void test_schema_document_query_wide_live_key(TTestContext& ctx)
     TEST_EXPECT(ctx, schema_document.append_child(members, member).succeeded());
     const CNodeKey type = schema_document.create_string(CStringView{ "u8" }, CStringView{ "type" });
     TEST_EXPECT(ctx, schema_document.append_child(member, type).succeeded());
-    schema::CResolvedSchema resolved;
+    schema::CResolvedTypes resolved;
     schema::SDiagnostic diagnostic;
     TEST_EXPECT(ctx, resolved.resolve(schema_document, diagnostic));
-    const schema::CSchemaDocumentQuery schema_query{ schema_document };
-    const schema::CSchemaHandle role_definition = schema_query.object_child(
+    const schema::CTypesDocumentQuery schema_query{ schema_document };
+    const schema::CTypesHandle role_definition = schema_query.object_child(
         schema_query.object_child(schema_query.object_child(schema_query.root(), CStringView{ "types" }),
             CStringView{ "structures" }), CStringView{ "High" });
     TEST_EXPECT(ctx, schema_query.contains(role_definition));

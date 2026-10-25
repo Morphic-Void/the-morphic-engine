@@ -9,14 +9,14 @@
 //  Shared document-literal conversion for schema defaults and payload values.
 
 //  Internal schema literal conversion. Included by resolver/codec implementations;
-//  consumers should use resolved_schema.hpp or the appropriate role header.
+//  consumers should use resolved_types.hpp or the appropriate role header.
 
 #pragma once
 
 #ifndef SCHEMA_VALUE_CONVERSION_HPP_INCLUDED
 #define SCHEMA_VALUE_CONVERSION_HPP_INCLUDED
 
-#include "schema/resolved_schema.hpp"
+#include "schema/resolved_types.hpp"
 #include "types/fp16data_t.hpp"
 
 #include <cmath>

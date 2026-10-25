@@ -16,7 +16,7 @@
 #ifndef SCHEMA_BAKED_INSTANCES_HPP_INCLUDED
 #define SCHEMA_BAKED_INSTANCES_HPP_INCLUDED
 
-#include "schema/schema_wrappers.hpp"
+#include "schema/types_wrappers.hpp"
 #include "schema/record_index.hpp"
 #include "containers/ByteBuffers.hpp"
 
@@ -39,7 +39,7 @@ enum class EInstanceLoadReason : std::uint8_t
     invalid_range,
     overlap,
     invalid_declaration,
-    embedded_mismatch,
+    inheritance_mismatch,
     unrepresentable_value,
     allocation_failed,
     incompatible_schema,
@@ -58,7 +58,7 @@ struct SInstanceDiagnostic
 
 struct SInstanceEntryView
 {
-    CSchemaIndex type;
+    CTypesIndex type;
     CInstanceHandle parent;
     CInstanceHandle declaration;
     std::uint32_t offset{};
@@ -87,35 +87,29 @@ public:
 
     void clear() noexcept;
 
-    //  Borrow supplied block bytes, or construct independent working bytes.
-    [[nodiscard]] bool attach_block(const class CBakedDataBlock& block, CBakedSchema& schema,
-        CByteBuffer& returned_owner, const bool compare_embedded, SInstanceDiagnostic& diagnostic) noexcept;
-    [[nodiscard]] bool attach_block(const class CBakedDataBlock& block, CLiveSchema& schema,
-        CByteBuffer& returned_owner, const bool compare_embedded, SInstanceDiagnostic& diagnostic) noexcept;
-
+    //  Runtime descriptions and binaries are complete and immutable. A supplied
+    //  zero-byte payload is explicit. Embedded types validate the original bytes.
+    [[nodiscard]] bool attach_block(const class CBakedDataBlock& block, CBakedTypes& types, SInstanceDiagnostic& diagnostic) noexcept;
+    [[nodiscard]] bool attach_block(const class CBakedDataBlock& block, CLiveTypes& types, SInstanceDiagnostic& diagnostic) noexcept;
     [[nodiscard]] bool set_document(const CBakedDocument& document) noexcept;
-    [[nodiscard]] bool set_document(const CMutableBakedDocument& document) noexcept;
+    [[nodiscard]] bool attach_types(CBakedTypes& types, const CByteConstView& payload, SInstanceDiagnostic& diagnostic) noexcept;
+    [[nodiscard]] bool attach_types(CLiveTypes& types, const CByteConstView& payload, SInstanceDiagnostic& diagnostic) noexcept;
 
-    //  Attachment publishes a complete association. Overloads distinguish a
-    //  supplied (possibly zero-byte) binary from construction of a new binary.
-    //  Supplied bytes are borrowed. Construction returns an owner to the caller
-    //  and borrows its stable allocation; the output must be unallocated.
-    //  Stripped descriptions require the supplied-payload overload.
-    [[nodiscard]] bool attach_schema(CBakedSchema& schema, const CByteConstView& payload, const bool compare_embedded, SInstanceDiagnostic& diagnostic) noexcept;
-    [[nodiscard]] bool attach_schema(CBakedSchema& schema, CByteBuffer& returned_owner, SInstanceDiagnostic& diagnostic) noexcept;
-    [[nodiscard]] bool attach_schema(CLiveSchema& schema, const CByteConstView& payload, const bool compare_embedded, SInstanceDiagnostic& diagnostic) noexcept;
-    [[nodiscard]] bool attach_schema(CLiveSchema& schema, CByteBuffer& returned_owner, SInstanceDiagnostic& diagnostic) noexcept;
-
-    //  Switch only the schema association; all document and payload identities survive.
-    [[nodiscard]] bool switch_schema(CBakedSchema& schema, const ESchemaSwitchMode mode, SInstanceDiagnostic& diagnostic) noexcept;
-    [[nodiscard]] bool switch_schema(CLiveSchema& schema, const ESchemaSwitchMode mode, SInstanceDiagnostic& diagnostic) noexcept;
+    //  Without replacement storage, inherited values must already match target defaults.
+    //  Replacement overloads require an empty owner, publish independently rebuilt
+    //  bytes and borrow that owner afterwards. The source description is unchanged.
+    [[nodiscard]] bool rebind_types(CBakedTypes& schema, const ETypeBindMode mode, SInstanceDiagnostic& diagnostic) noexcept;
+    [[nodiscard]] bool rebind_types(CLiveTypes& schema, const ETypeBindMode mode, SInstanceDiagnostic& diagnostic) noexcept;
+    [[nodiscard]] bool rebind_types(CBakedTypes& types, CByteBuffer& replacement,
+        const ETypeBindMode mode, SInstanceDiagnostic& diagnostic) noexcept;
+    [[nodiscard]] bool rebind_types(CLiveTypes& types, CByteBuffer& replacement,
+        const ETypeBindMode mode, SInstanceDiagnostic& diagnostic) noexcept;
 
     //==============================================================================
     //  Promotion
     //==============================================================================
 
-    [[nodiscard]] bool promote(class CLiveInstances& destination, CBakedSchema& schema, SInstanceDiagnostic& diagnostic) const noexcept;
-    [[nodiscard]] bool promote(class CLiveInstances& destination, CLiveSchema& schema, SInstanceDiagnostic& diagnostic) const noexcept;
+    [[nodiscard]] bool promote(class CLiveInstances& destination, SInstanceDiagnostic& diagnostic) const noexcept;
 
     //==============================================================================
     //  Queries and payload access
@@ -141,15 +135,15 @@ private:
     //==============================================================================
 
     friend class CLiveInstances;
+    friend class CSchema;
     static constexpr std::uint32_t k_no_parent = UINT32_MAX;
 
     struct SRecord
     {
-        CBakedValueIndex entry, declaration, offset_node, valid_node;
-        CSchemaIndex type;
+        CBakedValueIndex entry, declaration;
+        CTypesIndex type;
         std::uint32_t parent{ k_no_parent };
         std::uint32_t offset{}, extent{};
-        bool prior_valid{};
     };
 
     struct SFrame
@@ -162,30 +156,26 @@ private:
     void clear_loaded() noexcept;
     void take_from(CBakedInstances& source) noexcept;
     template<class TSchema>
-    [[nodiscard]] bool attach_block_to(const CBakedDataBlock& block, TSchema& schema,
-        CByteBuffer& returned_owner, const bool compare_embedded, SInstanceDiagnostic& diagnostic) noexcept;
+    [[nodiscard]] bool attach_block_to(const CBakedDataBlock& block, TSchema& types, SInstanceDiagnostic& diagnostic) noexcept;
     template<class TSchema>
-    [[nodiscard]] bool attach_to(TSchema& schema, CByteBuffer* const returned_owner, const CByteConstView& payload,
-        const bool compare_embedded, SInstanceDiagnostic& diagnostic) noexcept;
+    [[nodiscard]] bool attach_to(TSchema& types, const CByteConstView& payload, SInstanceDiagnostic& diagnostic) noexcept;
     template<class TSchema>
-    [[nodiscard]] bool switch_to(TSchema& schema, const ESchemaSwitchMode mode, SInstanceDiagnostic& diagnostic) noexcept;
+    [[nodiscard]] bool switch_to(TSchema& schema, const ETypeBindMode mode, SInstanceDiagnostic& diagnostic,
+        CByteBuffer* replacement = nullptr, const bool source_validated = false) noexcept;
     [[nodiscard]] bool record_index(const CInstanceHandle handle, std::uint32_t& result) const noexcept;
-    [[nodiscard]] bool plan(const bool supplied, const std::size_t supplied_size,
+    [[nodiscard]] bool plan(const std::size_t supplied_size,
         TPodVector<SRecord>& records, std::size_t& payload_size,
         SInstanceDiagnostic& diagnostic) const noexcept;
-    [[nodiscard]] bool compare_embedded(const TPodVector<SRecord>& records, const CByteConstView& payload,
+    [[nodiscard]] bool check_inheritance(const TPodVector<SRecord>& records, const CByteConstView& payload,
         SInstanceDiagnostic& diagnostic) const noexcept;
-    [[nodiscard]] bool load_supplied(const CByteConstView& payload, const bool compare_embedded, SInstanceDiagnostic& diagnostic) noexcept;
-    [[nodiscard]] bool materialise(CByteBuffer& returned_owner, SInstanceDiagnostic& diagnostic) noexcept;
+    [[nodiscard]] bool load_supplied(const CByteConstView& payload, SInstanceDiagnostic& diagnostic) noexcept;
 
     //==============================================================================
     //  Borrowed state and record index
     //==============================================================================
 
-    CBakedDocumentBlock m_working_document;
     CBakedDocument m_document;
-    CMutableBakedDocument m_mutable;
-    CSchemaBinding m_binding;
+    CTypesBinding m_binding;
     CByteConstView m_payload;
     TPodVector<SRecord> m_records;
     CBakedRecordIndex m_record_index;

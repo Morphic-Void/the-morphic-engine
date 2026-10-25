@@ -10,8 +10,8 @@
 //  Type-schema merge semantics, transactional failure and construction growth.
 
 #include "tests/test_suites/SchemaMerge_test_cases.hpp"
-#include "schema/schema_merge.hpp"
-#include "schema/schema_wrappers.hpp"
+#include "tests/support/schema_fixtures.hpp"
+#include "schema/types_wrappers.hpp"
 #include "schema/live_instances.hpp"
 #include "data_model/document_translation.hpp"
 #include "data_model/live_document.hpp"
@@ -31,7 +31,7 @@ namespace
 using namespace schema;
 using tests::TTestContext;
 
-static_assert(std::is_trivially_copyable_v<SSchemaMergeDiagnostic>);
+static_assert(std::is_trivially_copyable_v<SSchemaDiagnostic>);
 
 static std::string schema_text(const std::string& descriptor, const std::string& detail = {})
 {
@@ -54,7 +54,7 @@ static auto member_default(const TDocument& query)
 }
 
 static void expect_merge(TTestContext& ctx, const std::string& first, const std::string& second,
-    const ESchemaMergeReason reason = ESchemaMergeReason::none)
+    const ESchemaReason reason = ESchemaReason::none, const bool valid = true)
 {
     CLiveDocument a, b, output;
     TEST_EXPECT(ctx, tests::parse_document(first, a) && tests::parse_document(second, b));
@@ -63,31 +63,31 @@ static void expect_merge(TTestContext& ctx, const std::string& first, const std:
     TEST_EXPECT(ctx, document_translation::bake(output, before));
     const CNodeKey sentinel = output.first_child(output.root());
     const CSchemaDocumentQuery aq{ a }, bq{ b };
-    SSchemaMergeDiagnostic diagnostic;
-    const bool merged = merge_type_schemas(aq, bq, output, diagnostic);
-    if (merged != (reason == ESchemaMergeReason::none) || diagnostic.reason != reason)
+    SSchemaDiagnostic diagnostic;
+    const bool merged = tests::merge_schema_documents(aq, bq, output, diagnostic);
+    if (merged != (reason == ESchemaReason::none) || diagnostic.reason != reason)
     {
         std::cerr << "Merge reason=" << static_cast<unsigned>(diagnostic.reason) << " stage=" << static_cast<unsigned>(diagnostic.stage)
             << " expected=" << static_cast<unsigned>(reason) << " first=" << first << " second=" << second << '\n';
     }
-    TEST_EXPECT(ctx, merged == (reason == ESchemaMergeReason::none));
+    TEST_EXPECT(ctx, merged == (reason == ESchemaReason::none));
     TEST_EXPECT(ctx, diagnostic.reason == reason);
     if (merged)
     {
         TEST_EXPECT(ctx, output.check_integrity() && output.is_complete());
         TEST_EXPECT(ctx, output.child_count(output.root()) == 1u);
-        TEST_EXPECT(ctx, diagnostic.stage == ESchemaMergeStage::none && !diagnostic.first && !diagnostic.second);
-        CResolvedSchema resolved;
+        TEST_EXPECT(ctx, diagnostic.stage == ESchemaStage::none && !diagnostic.first && !diagnostic.second);
+        CResolvedTypes resolved;
         SDiagnostic validation;
-        TEST_EXPECT(ctx, resolved.resolve(output, validation));
+        TEST_EXPECT(ctx, resolved.resolve(output, validation) == valid);
     }
     else
     {
         TEST_EXPECT(ctx, output.contains(sentinel) && tests::same_baked_document(output, before));
-        if ((reason == ESchemaMergeReason::conflicting_value) || (reason == ESchemaMergeReason::incompatible_type))
+        if ((reason == ESchemaReason::conflicting_value) || (reason == ESchemaReason::incompatible_definition))
         {
             TEST_EXPECT(ctx, aq.contains(diagnostic.first) && bq.contains(diagnostic.second));
-            TEST_EXPECT(ctx, diagnostic.validation.reason == EReason::none);
+            TEST_EXPECT(ctx, diagnostic.types.reason == EReason::none);
         }
     }
 }
@@ -98,52 +98,52 @@ static void test_rules(TTestContext& ctx)
     expect_merge(ctx, empty, empty);
     expect_merge(ctx, scalar_schema("u32"), scalar_schema("u32", "10"));
     expect_merge(ctx, scalar_schema("u32", "10"), scalar_schema("u32"));
-    expect_merge(ctx, scalar_schema("u32", "0"), scalar_schema("u32", "10"), ESchemaMergeReason::conflicting_value);
-    expect_merge(ctx, scalar_schema("u32", "10"), scalar_schema("i32", "10"), ESchemaMergeReason::incompatible_type);
-    expect_merge(ctx, scalar_schema("f64", "0.0"), scalar_schema("f64", "-0.0"), ESchemaMergeReason::conflicting_value);
-    expect_merge(ctx, scalar_schema("f64", "1"), scalar_schema("f64", "1.0"), ESchemaMergeReason::conflicting_value);
+    expect_merge(ctx, scalar_schema("u32", "0"), scalar_schema("u32", "10"), ESchemaReason::conflicting_value);
+    expect_merge(ctx, scalar_schema("u32", "10"), scalar_schema("i32", "10"), ESchemaReason::incompatible_definition);
+    expect_merge(ctx, scalar_schema("f64", "0.0"), scalar_schema("f64", "-0.0"), ESchemaReason::conflicting_value);
+    expect_merge(ctx, scalar_schema("f64", "1"), scalar_schema("f64", "1.0"), ESchemaReason::conflicting_value);
     expect_merge(ctx, scalar_schema("u64", "18446744073709551615"), scalar_schema("u64", "0xffffffffffffffff"));
     expect_merge(ctx, scalar_schema("i64", "-1"), scalar_schema("i64", "-0x01"));
-    expect_merge(ctx, scalar_schema("f64", "-1"), scalar_schema("f64", "18446744073709551615"), ESchemaMergeReason::conflicting_value);
-    expect_merge(ctx, scalar_schema("f64", "\"nan\""), scalar_schema("f64", "\"NaN\""), ESchemaMergeReason::conflicting_value);
+    expect_merge(ctx, scalar_schema("f64", "-1"), scalar_schema("f64", "18446744073709551615"), ESchemaReason::conflicting_value);
+    expect_merge(ctx, scalar_schema("f64", "\"nan\""), scalar_schema("f64", "\"NaN\""), ESchemaReason::conflicting_value);
     expect_merge(ctx, scalar_schema("u32"), schema_text(R"({"type":"u32","offset":0})", R"("detail":{"size":4,"alignment":4},)"));
-    expect_merge(ctx, scalar_schema("u32"), schema_text(R"({"type":"u32"})", R"("detail":{"alignment":8},)"), ESchemaMergeReason::incompatible_type);
+    expect_merge(ctx, scalar_schema("u32"), schema_text(R"({"type":"u32"})", R"("detail":{"alignment":8},)"), ESchemaReason::incompatible_definition);
     expect_merge(ctx, schema_text(R"({"type":"u32"})", R"("detail":{"internal":true},)"),
-        schema_text(R"({"type":"u32"})", R"("detail":{"internal":false},)"), ESchemaMergeReason::conflicting_value);
+        schema_text(R"({"type":"u32"})", R"("detail":{"internal":false},)"), ESchemaReason::conflicting_value);
     const std::string array = R"({"type":{"element":"u32","count":3})";
     expect_merge(ctx, schema_text(array + "}"), schema_text(array + R"(,"default":[1,2]})"));
-    expect_merge(ctx, schema_text(array + R"(,"default":[1]})"), schema_text(array + R"(,"default":[1,2]})"), ESchemaMergeReason::conflicting_value);
-    expect_merge(ctx, schema_text(array + R"(,"default":[1,2]})"), schema_text(array + R"(,"default":[1,3]})"), ESchemaMergeReason::conflicting_value);
+    expect_merge(ctx, schema_text(array + R"(,"default":[1]})"), schema_text(array + R"(,"default":[1,2]})"), ESchemaReason::conflicting_value);
+    expect_merge(ctx, schema_text(array + R"(,"default":[1,2]})"), schema_text(array + R"(,"default":[1,3]})"), ESchemaReason::conflicting_value);
     expect_merge(ctx, schema_text(R"({"type":{"element":{"element":"u32","count":2},"count":2},"default":[[1],[]]})"),
         schema_text(R"({"type":{"element":{"element":"u32","count":2},"count":2}})"));
-    expect_merge(ctx, schema_text(array + "}"), schema_text(R"({"type":{"element":"u32","count":4}})"), ESchemaMergeReason::incompatible_type);
+    expect_merge(ctx, schema_text(array + "}"), schema_text(R"({"type":{"element":"u32","count":4}})"), ESchemaReason::incompatible_definition);
 
     const std::string order_a = R"({"types":{"structures":{"Item":{"members":[{"a":{"type":"u8"}},{"b":{"type":"u8"}}]}}}})";
     const std::string order_b = R"({"types":{"structures":{"Item":{"members":[{"b":{"type":"u8"}},{"a":{"type":"u8"}}]}}}})";
-    expect_merge(ctx, order_a, order_b, ESchemaMergeReason::incompatible_type);
+    expect_merge(ctx, order_a, order_b, ESchemaReason::incompatible_definition);
     expect_merge(ctx, R"({"types":{"enumerations":{"E":{"storage":"u8","values":{"a":0,"b":1}}}}})",
-        R"({"types":{"enumerations":{"E":{"storage":"u8","values":{"b":1,"a":0}}}}})", ESchemaMergeReason::incompatible_type);
+        R"({"types":{"enumerations":{"E":{"storage":"u8","values":{"b":1,"a":0}}}}})", ESchemaReason::incompatible_definition);
     expect_merge(ctx, R"({"types":{"enumerations":{"Item":{"storage":"u8","values":{"a":0}}}}})",
-        scalar_schema("u8"), ESchemaMergeReason::incompatible_type);
+        scalar_schema("u8"), ESchemaReason::incompatible_definition);
     const std::string references = R"({"types":{"structures":{"A":{"members":[]},"B":{"members":[]},"Item":{"members":[{"v":{"type":")";
-    expect_merge(ctx, references + "A\"}}]}}}}", references + "B\"}}]}}}}", ESchemaMergeReason::incompatible_type);
+    expect_merge(ctx, references + "A\"}}]}}}}", references + "B\"}}]}}}}", ESchemaReason::incompatible_definition);
     const std::string fields = R"({"types":{"bit_structures":{"Flags":{"storage":"u8","members":[{"v":{"type":"u8","mask":3)";
     expect_merge(ctx, fields + "}}]}}}}", fields + ",\"default\":2}}]}}}}");
-    expect_merge(ctx, fields + ",\"default\":1}}]}}}}", fields + ",\"default\":2}}]}}}}", ESchemaMergeReason::conflicting_value);
-    expect_merge(ctx, fields + "}}]}}}}", R"({"types":{"bit_structures":{"Flags":{"storage":"u8","members":[{"v":{"type":"u8","mask":7}}]}}}})", ESchemaMergeReason::incompatible_type);
-    expect_merge(ctx, scalar_schema("Missing"), R"({"types":{"structures":{"Missing":{"members":[]}}}})", ESchemaMergeReason::invalid_source);
-    expect_merge(ctx, empty, scalar_schema("u8", "300"), ESchemaMergeReason::invalid_source);
-    expect_merge(ctx, empty, schema_text(R"({"type":"u32","description":"text"})"), ESchemaMergeReason::invalid_source);
-    expect_merge(ctx, empty, R"({"types":{"structures":{"Inner":{"members":[]},"Item":{"members":[{"v":{"type":"Inner","default":{}}}]}}}})", ESchemaMergeReason::invalid_source);
-    expect_merge(ctx, R"({"types":{},"instances":{},"data":{},"stripped":true})", empty);
+    expect_merge(ctx, fields + ",\"default\":1}}]}}}}", fields + ",\"default\":2}}]}}}}", ESchemaReason::conflicting_value);
+    expect_merge(ctx, fields + "}}]}}}}", R"({"types":{"bit_structures":{"Flags":{"storage":"u8","members":[{"v":{"type":"u8","mask":7}}]}}}})", ESchemaReason::incompatible_definition);
+    expect_merge(ctx, scalar_schema("Missing"), R"({"types":{"structures":{"Missing":{"members":[]}}}})");
+    expect_merge(ctx, empty, scalar_schema("u8", "300"), ESchemaReason::none, false);
+    expect_merge(ctx, empty, schema_text(R"({"type":"u32","description":"text"})"), ESchemaReason::invalid_types);
+    expect_merge(ctx, empty, R"({"types":{"structures":{"Inner":{"members":[]},"Item":{"members":[{"v":{"type":"Inner","default":{}}}]}}}})", ESchemaReason::none, false);
+    expect_merge(ctx, R"({"types":{},"instances":{},"data":{},"stripped":true})", empty, ESchemaReason::unknown_property);
 
     CLiveDocument a, result;
     TEST_EXPECT(ctx, tests::parse_document(empty, a));
-    SSchemaMergeDiagnostic diagnostic;
-    TEST_EXPECT(ctx, !merge_type_schemas({}, CSchemaDocumentQuery{ a }, result, diagnostic));
-    TEST_EXPECT(ctx, diagnostic.stage == ESchemaMergeStage::first_source_validation && !result.is_ready());
-    TEST_EXPECT(ctx, !merge_type_schemas(CSchemaDocumentQuery{ a }, {}, result, diagnostic));
-    TEST_EXPECT(ctx, diagnostic.stage == ESchemaMergeStage::second_source_validation);
+    SSchemaDiagnostic diagnostic;
+    TEST_EXPECT(ctx, !tests::merge_schema_documents({}, CSchemaDocumentQuery{ a }, result, diagnostic));
+    TEST_EXPECT(ctx, diagnostic.stage == ESchemaStage::structure && !result.is_ready());
+    TEST_EXPECT(ctx, !tests::merge_schema_documents(CSchemaDocumentQuery{ a }, {}, result, diagnostic));
+    TEST_EXPECT(ctx, diagnostic.stage == ESchemaStage::structure);
 }
 
 static void test_presentation(TTestContext& ctx)
@@ -163,8 +163,8 @@ static void test_presentation(TTestContext& ctx)
             CLiveDocument a, b, result;
             TEST_EXPECT(ctx, tests::parse_document(scalar_schema("u32", reverse ? item.second : item.first), a));
             TEST_EXPECT(ctx, tests::parse_document(scalar_schema("u32", reverse ? item.first : item.second), b));
-            SSchemaMergeDiagnostic diagnostic;
-            TEST_EXPECT(ctx, merge_type_schemas(CSchemaDocumentQuery{ a }, CSchemaDocumentQuery{ b }, result, diagnostic));
+            SSchemaDiagnostic diagnostic;
+            TEST_EXPECT(ctx, tests::merge_schema_documents(CSchemaDocumentQuery{ a }, CSchemaDocumentQuery{ b }, result, diagnostic));
             CIntegerMetadata metadata;
             const CSchemaDocumentQuery query{ result };
             TEST_EXPECT(ctx, query.integer_metadata(member_default(query), metadata));
@@ -209,8 +209,8 @@ static void test_presentation(TTestContext& ctx)
             return replacement && document.erase_payload(value) && document.attach_payload(value, replacement);
         };
         TEST_EXPECT(ctx, replace(a, true) && replace(b, false));
-        SSchemaMergeDiagnostic diagnostic;
-        TEST_EXPECT(ctx, merge_type_schemas(CSchemaDocumentQuery{ a }, CSchemaDocumentQuery{ b }, result, diagnostic));
+        SSchemaDiagnostic diagnostic;
+        TEST_EXPECT(ctx, tests::merge_schema_documents(CSchemaDocumentQuery{ a }, CSchemaDocumentQuery{ b }, result, diagnostic));
         const CSchemaDocumentQuery query{ result };
         CIntegerMetadata metadata;
         TEST_EXPECT(ctx, query.integer_metadata(member_default(query), metadata));
@@ -242,8 +242,8 @@ static void test_newline_presentation(TTestContext& ctx)
             TEST_EXPECT(ctx, aq.suppresses_newline_escaping(member_default(aq)) == first_suppresses);
             TEST_EXPECT(ctx, bq.suppresses_newline_escaping(member_default(bq)) == second_suppresses);
 
-            SSchemaMergeDiagnostic diagnostic;
-            TEST_EXPECT(ctx, merge_type_schemas(aq, bq, result, diagnostic));
+            SSchemaDiagnostic diagnostic;
+            TEST_EXPECT(ctx, tests::merge_schema_documents(aq, bq, result, diagnostic));
             const CSchemaDocumentQuery query{ result };
             const CSchemaHandle value = member_default(query);
             TEST_EXPECT(ctx, query.string_value(value) == CStringView{ "nan" });
@@ -281,8 +281,8 @@ static void test_one_sided_presentation(TTestContext& ctx)
 
                     //  Exercise both whole-subtree copying and a missing default
                     //  inside a shared type, with the supplied source on either side.
-                    SSchemaMergeDiagnostic diagnostic;
-                    TEST_EXPECT(ctx, merge_type_schemas((reverse ? absent : supplied), (reverse ? supplied : absent), result, diagnostic));
+                    SSchemaDiagnostic diagnostic;
+                    TEST_EXPECT(ctx, tests::merge_schema_documents((reverse ? absent : supplied), (reverse ? supplied : absent), result, diagnostic));
                     const CSchemaDocumentQuery query{ result };
                     const CSchemaHandle defaults = member_default(query);
                     TEST_EXPECT(ctx, query.child_count(defaults) == 2u);
@@ -315,13 +315,13 @@ static void test_forms_and_aliasing(TTestContext& ctx)
         TEST_EXPECT(ctx, document_translation::bake(a, ab) && document_translation::bake(b, bb));
         const CSchemaDocumentQuery aq = (form & 1u) ? CSchemaDocumentQuery{ ab.document() } : CSchemaDocumentQuery{ a };
         const CSchemaDocumentQuery bq = (form & 2u) ? CSchemaDocumentQuery{ bb.document() } : CSchemaDocumentQuery{ b };
-        SSchemaMergeDiagnostic diagnostic;
-        TEST_EXPECT(ctx, merge_type_schemas(aq, bq, result, diagnostic));
+        SSchemaDiagnostic diagnostic;
+        TEST_EXPECT(ctx, tests::merge_schema_documents(aq, bq, result, diagnostic));
         a.deallocate();
         b.deallocate();
         ab = {};
         bb = {};
-        CResolvedSchema resolved;
+        CResolvedTypes resolved;
         SDiagnostic validation;
         TEST_EXPECT(ctx, resolved.resolve(result, validation));
         SMember member;
@@ -336,8 +336,8 @@ static void test_forms_and_aliasing(TTestContext& ctx)
         TEST_EXPECT(ctx, tests::parse_document(scalar_schema("u32", "10"), a));
         TEST_EXPECT(ctx, tests::parse_document(scalar_schema("u32"), b));
         CLiveDocument& result = (alias == 0u) ? separate : ((alias == 2u) ? b : a);
-        SSchemaMergeDiagnostic diagnostic;
-        TEST_EXPECT(ctx, merge_type_schemas(CSchemaDocumentQuery{ a }, CSchemaDocumentQuery{ (alias == 3u) ? a : b }, result, diagnostic));
+        SSchemaDiagnostic diagnostic;
+        TEST_EXPECT(ctx, tests::merge_schema_documents(CSchemaDocumentQuery{ a }, CSchemaDocumentQuery{ (alias == 3u) ? a : b }, result, diagnostic));
         TEST_EXPECT(ctx, result.check_integrity());
         CSchemaDocumentQuery query{ result };
         std::uint64_t value{};
@@ -363,10 +363,10 @@ static void test_order_and_growth(TTestContext& ctx)
         CLiveDocument a, b, result;
         TEST_EXPECT(ctx, tests::parse_document(wide_schema(count, true), a));
         TEST_EXPECT(ctx, tests::parse_document(wide_schema((count + 1u), false), b));
-        SSchemaMergeDiagnostic diagnostic;
+        SSchemaDiagnostic diagnostic;
         platform::system::CPerfCounter timer;
         (void)timer.update();
-        TEST_EXPECT(ctx, merge_type_schemas(CSchemaDocumentQuery{ a }, CSchemaDocumentQuery{ b }, result, diagnostic));
+        TEST_EXPECT(ctx, tests::merge_schema_documents(CSchemaDocumentQuery{ a }, CSchemaDocumentQuery{ b }, result, diagnostic));
         const std::uint64_t elapsed = timer.query_delta();
         platform::system::CPerfCountConversion conversion;
         std::uint64_t micros{};
@@ -393,7 +393,7 @@ static void test_depth(TTestContext& ctx)
 {
     //  types=0, structures=1, Item=2, members=3, v=4, type=5.
     //  Each array descriptor adds one edge to its scalar element leaf.
-    for (const unsigned arrays : { 250u, 251u })
+    for (const unsigned arrays : { 249u, 250u })
     {
         std::string type = "\"u8\"";
         for (unsigned i = 0u; i < arrays; ++i)
@@ -406,17 +406,17 @@ static void test_depth(TTestContext& ctx)
             const std::string deep = schema_text("{\"type\":" + type + "}");
             TEST_EXPECT(ctx, tests::parse_document(deep, a));
             TEST_EXPECT(ctx, tests::parse_document(shared ? deep : R"({"types":{}})", b));
-            CResolvedSchema source;
+            CResolvedTypes source;
             SDiagnostic validation;
             TEST_EXPECT(ctx, source.resolve(a, validation));
             TEST_EXPECT(ctx, tests::parse_document(R"({"sentinel":4})", output));
             const CNodeKey sentinel = output.first_child(output.root());
-            SSchemaMergeDiagnostic diagnostic;
-            const bool merged = merge_type_schemas(CSchemaDocumentQuery{ a }, CSchemaDocumentQuery{ b }, output, diagnostic);
-            TEST_EXPECT(ctx, merged == (arrays == 250u));
+            SSchemaDiagnostic diagnostic;
+            const bool merged = tests::merge_schema_documents(CSchemaDocumentQuery{ a }, CSchemaDocumentQuery{ b }, output, diagnostic);
+            TEST_EXPECT(ctx, merged == (arrays == 249u));
             if (!merged)
             {
-                TEST_EXPECT(ctx, diagnostic.stage == ESchemaMergeStage::document_merge && diagnostic.reason == ESchemaMergeReason::storage_limit);
+                TEST_EXPECT(ctx, diagnostic.stage == ESchemaStage::structure && diagnostic.reason == ESchemaReason::storage_limit);
                 TEST_EXPECT(ctx, CSchemaDocumentQuery{ a }.contains(diagnostic.first) && output.contains(sentinel));
             }
             else
@@ -429,7 +429,6 @@ static void test_depth(TTestContext& ctx)
 
 static void test_failures(TTestContext& ctx)
 {
-    bool saw_result_failure = false;
     for (unsigned alias = 0u; alias < 4u; ++alias)
     {
         bool completed = false;
@@ -447,44 +446,36 @@ static void test_failures(TTestContext& ctx)
             tests::TAllocationFailureFixture fixture{ 0u, fail };
             memory::CMemoryAllocator allocator{ &fixture, &tests::allocate_with_failure, &tests::deallocate_test_memory };
             memory::CMemoryContext context{ allocator };
-            SSchemaMergeDiagnostic diagnostic;
+            SSchemaDiagnostic diagnostic;
             {
                 tests::TMemoryContextScope scope{ &context };
-                completed = merge_type_schemas(CSchemaDocumentQuery{ a }, CSchemaDocumentQuery{ (alias == 3u) ? a : b }, destination, diagnostic);
+                completed = tests::merge_schema_documents(CSchemaDocumentQuery{ a }, CSchemaDocumentQuery{ (alias == 3u) ? a : b }, destination, diagnostic);
             }
             if (!completed)
             {
-                TEST_EXPECT(ctx, diagnostic.reason != ESchemaMergeReason::none);
+                TEST_EXPECT(ctx, diagnostic.reason != ESchemaReason::none);
                 TEST_EXPECT(ctx, tests::same_baked_document(a, before_a) && tests::same_baked_document(b, before_b));
                 TEST_EXPECT(ctx, destination.contains(retained) && tests::same_baked_document(destination, before_output));
-                if (diagnostic.stage == ESchemaMergeStage::result_validation)
-                {
-                    saw_result_failure = true;
-                    TEST_EXPECT(ctx, !diagnostic.first && !diagnostic.second && !diagnostic.validation.occurrence &&
-                        !diagnostic.validation.enclosing_type && !diagnostic.validation.enclosing_member && !diagnostic.validation.related);
-                    TEST_EXPECT(ctx, !diagnostic.validation.ranges_available && (diagnostic.validation.range_begin == 0u) &&
-                        (diagnostic.validation.range_end == 0u) && (diagnostic.validation.related_begin == 0u) && (diagnostic.validation.related_end == 0u));
-                }
+
             }
             destination.deallocate();
             TEST_EXPECT(ctx, context.is_attribution_empty());
         }
         TEST_EXPECT(ctx, completed);
     }
-    TEST_EXPECT(ctx, saw_result_failure);
 }
 
 static void test_integration(TTestContext& ctx)
 {
     CLiveDocument a, b, merged;
     TEST_EXPECT(ctx, tests::parse_document(scalar_schema("u32"), a) && tests::parse_document(scalar_schema("u32", "10"), b));
-    SSchemaMergeDiagnostic diagnostic;
-    TEST_EXPECT(ctx, merge_type_schemas(CSchemaDocumentQuery{ a }, CSchemaDocumentQuery{ b }, merged, diagnostic));
-    CLiveSchema schema;
+    SSchemaDiagnostic diagnostic;
+    TEST_EXPECT(ctx, tests::merge_schema_documents(CSchemaDocumentQuery{ a }, CSchemaDocumentQuery{ b }, merged, diagnostic));
+    CLiveTypes schema;
     SDiagnostic validation;
     TEST_EXPECT(ctx, schema.try_adopt(std::move(merged)) && schema.resolve(validation));
     CBakedDocumentBlock baked;
-    CBakedSchema baked_schema;
+    CBakedTypes baked_schema;
     TEST_EXPECT(ctx, schema.bake(baked, baked_schema));
     CLiveInstances instances;
     SInstanceDiagnostic instance_error;
@@ -520,8 +511,8 @@ static void test_shared_dependencies_and_omissions(TTestContext& ctx)
 
     CLiveDocument a, b, result;
     TEST_EXPECT(ctx, tests::parse_document(scalar_schema("u32"), a) && tests::parse_document(scalar_schema("u32"), b));
-    SSchemaMergeDiagnostic diagnostic;
-    TEST_EXPECT(ctx, merge_type_schemas(CSchemaDocumentQuery{ a }, CSchemaDocumentQuery{ b }, result, diagnostic));
+    SSchemaDiagnostic diagnostic;
+    TEST_EXPECT(ctx, tests::merge_schema_documents(CSchemaDocumentQuery{ a }, CSchemaDocumentQuery{ b }, result, diagnostic));
     const CSchemaDocumentQuery query{ result };
     TEST_EXPECT(ctx, !member_default(query));
     const auto types = query.object_child(query.root(), CStringView{ "types" });
@@ -537,15 +528,15 @@ static void test_shared_dependencies_and_omissions(TTestContext& ctx)
         TEST_EXPECT(ctx, document_translation::bake(result, before));
         const CSchemaDocumentQuery aq = (form & 1u) ? CSchemaDocumentQuery{ ab.document() } : CSchemaDocumentQuery{ a };
         const CSchemaDocumentQuery bq = (form & 2u) ? CSchemaDocumentQuery{ bb.document() } : CSchemaDocumentQuery{ b };
-        TEST_EXPECT(ctx, !merge_type_schemas(aq, bq, result, diagnostic));
-        TEST_EXPECT(ctx, diagnostic.reason == ESchemaMergeReason::conflicting_value);
+        TEST_EXPECT(ctx, !tests::merge_schema_documents(aq, bq, result, diagnostic));
+        TEST_EXPECT(ctx, diagnostic.reason == ESchemaReason::conflicting_value);
         TEST_EXPECT(ctx, diagnostic.first == member_default(aq) && diagnostic.second == member_default(bq));
         TEST_EXPECT(ctx, tests::same_baked_document(result, before));
     }
 }
 }
 
-void run_schema_merge_cases(tests::TTestContext& context)
+void run_types_merge_cases(tests::TTestContext& context)
 {
     test_rules(context);
     test_presentation(context);

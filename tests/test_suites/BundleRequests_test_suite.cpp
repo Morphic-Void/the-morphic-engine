@@ -23,6 +23,7 @@
 #include "platform/filesystem/file.hpp"
 #include "platform/filesystem/internal/file_utils.hpp"
 #include "schema/baked_data_block.hpp"
+#include "schema/schema.hpp"
 #include "schema/live_instances.hpp"
 #include "schema/live_bulk_data.hpp"
 #include "tests/environment/test_paths.hpp"
@@ -537,7 +538,7 @@ void test_complete_baked_buffers(TTestContext& ctx, const bool dedicated)
 }
 
 template<bool Instances>
-void test_schema_persistence(TTestContext& ctx, SFixture& fixture, schema::CBakedSchema& schema)
+void test_schema_persistence(TTestContext& ctx, SFixture& fixture, schema::CBakedTypes& schema)
 {
     using Block = schema::CBakedDataBlock;
     using Live = std::conditional_t<Instances, schema::CLiveInstances, schema::CLiveBulkData>;
@@ -555,7 +556,7 @@ void test_schema_persistence(TTestContext& ctx, SFixture& fixture, schema::CBake
         TEST_EXPECT(ctx, block.loaded_ready());
         Role role;
         RoleDiagnostic error;
-        TEST_EXPECT(ctx, role.set_document(block.document()) && role.attach_schema(schema, (Instances ? block.instance_payload_view() : block.bulk_payload_view()), true, error));
+        TEST_EXPECT(ctx, role.attach_block(block, schema, error));
         if constexpr (Instances)
         {
             schema::SInstanceEntryView entry;
@@ -578,7 +579,7 @@ void test_schema_persistence(TTestContext& ctx, SFixture& fixture, schema::CBake
         TEST_EXPECT(ctx, live.capture_base(CStringView{ "Pair" }, CStringView{ "sample" }, CByteConstView{ values, 2u }, role_diagnostic));
     else
         TEST_EXPECT(ctx, live.capture(CStringView{ "Pair" }, CStringView{ "sample" }, CByteConstView{ values, 4u }, 2u, role_diagnostic));
-    TEST_EXPECT(ctx, live.bake(local, schema, schema::EDataOutputForm::embedded, diagnostic));
+    TEST_EXPECT(ctx, live.bake(local, diagnostic));
     check_role(local);
     const auto bytes = local.file_bytes();
     const std::vector<std::uint8_t> snapshot(bytes.data(), bytes.data() + bytes.size());
@@ -602,7 +603,7 @@ void test_schema_persistence(TTestContext& ctx, SFixture& fixture, schema::CBake
     TEST_EXPECT(ctx, tests::same_bytes(loaded.byte_view(), snapshot));
 
     //  Successful I/O does not imply successful caller-side schema attachment.
-    schema::CLiveSchema missing;
+    schema::CLiveTypes missing;
     CLiveDocument empty;
     schema::SDiagnostic schema_diagnostic;
     constexpr char empty_types[] = R"({"types":{}})";
@@ -611,7 +612,7 @@ void test_schema_persistence(TTestContext& ctx, SFixture& fixture, schema::CBake
     TEST_EXPECT(ctx, attached.attach_asset(loaded.asset, loaded.byte_view(), diagnostic.block));
     Role rejected;
     TEST_EXPECT(ctx, rejected.set_document(attached.document()) &&
-        !rejected.attach_schema(missing, (Instances ? attached.instance_payload_view() : attached.bulk_payload_view()), true, role_diagnostic));
+        !rejected.attach_types(missing, (Instances ? attached.instance_payload_view() : attached.bulk_payload_view()), role_diagnostic));
     TEST_EXPECT(ctx, attached.loaded_ready() && tests::same_bytes(loaded.byte_view(), snapshot) && missing.reference_count() == 0u);
     check_role(attached);
 
@@ -622,10 +623,10 @@ void test_schema_persistence(TTestContext& ctx, SFixture& fixture, schema::CBake
     const auto parsed = fixture.result(ctx, 5);
     Block materialised;
     // JSON retains the envelope and supplied-range metadata; provide its source bytes.
-    schema::SDataBlockBuildDiagnostic build_error;
+    schema::SDataBlockDiagnostic build_error;
     const CByteConstView retained_payload = Instances ? attached.instance_payload_view() : attached.bulk_payload_view();
     const schema::SDataBlockPayloads payloads{ Instances ? &retained_payload : nullptr, Instances ? nullptr : &retained_payload };
-    TEST_EXPECT(ctx, materialised.materialise(parsed.document_view(), schema, schema::EDataOutputForm::stripped, build_error, payloads));
+    TEST_EXPECT(ctx, materialised.assemble(parsed.document_view(), payloads, build_error));
     fixture.dispose(ctx, parsed.asset);
     check_role(materialised);
     const auto materialised_bytes = materialised.file_bytes();
@@ -721,9 +722,10 @@ void test_combined_schema_persistence(TTestContext& ctx, SFixture& fixture)
         "data":{"u32":{"code":{"data":[1,2,3]}}}})";
     CLiveDocument document;
     schema::CBakedDataBlock source;
-    schema::SDataBlockBuildDiagnostic build;
+    schema::SSchemaDiagnostic build;
+    schema::CSchema authoring;
     TEST_EXPECT(ctx, document_parser::parse(CByteConstView{ reinterpret_cast<const std::uint8_t*>(json), sizeof(json) - 1u }, document).accepted() &&
-        source.materialise(document, schema::EDataOutputForm::external, build));
+        authoring.try_adopt(std::move(document), build) && authoring.bake(source, build));
     if (!source.loaded_ready()) return;
     const auto bytes = source.file_bytes();
     const std::vector<std::uint8_t> snapshot(bytes.data(), bytes.data() + bytes.size());
@@ -742,18 +744,16 @@ void test_combined_schema_persistence(TTestContext& ctx, SFixture& fixture)
         schema::CBakedDataBlock block;
         schema::SDataBlockDiagnostic error;
         TEST_EXPECT(ctx, block.attach_asset(result.asset, result.byte_view(), error) && tests::same_bytes(block.file_bytes(), snapshot));
-        schema::CBakedSchema types;
+        schema::CBakedTypes types;
         schema::SDiagnostic schema_error;
         TEST_EXPECT(ctx, types.set_block(block) && types.resolve(schema_error));
         schema::CBakedInstances instances;
         schema::CBakedBulkData bulk;
-        CByteBuffer first, second;
         schema::SInstanceDiagnostic instance_error;
         schema::SBulkDataDiagnostic bulk_error;
-        TEST_EXPECT(ctx, instances.attach_block(block, types, first, true, instance_error) &&
-            bulk.attach_block(block, types, second, true, bulk_error));
+        TEST_EXPECT(ctx, instances.attach_block(block, types, instance_error) && bulk.attach_block(block, types, bulk_error));
         TEST_EXPECT(ctx, instances.payload_view().size() == 1u && instances.payload_view().data()[0] == 7u &&
-            bulk.payload_view().size() == 12u && !first.is_ready() && !second.is_ready());
+            bulk.payload_view().size() == 12u);
     };
     inspect(loaded);
     fixture.dispose(ctx, loaded.asset);
@@ -773,9 +773,9 @@ void test_schema_workflows(TTestContext& ctx, const bool dedicated)
     if (!fixture.initialise(dedicated)) { TEST_EXPECT(ctx, false); return; }
     constexpr char types[] = R"({"types":{"structures":{"Pair":{"members":[{"a":{"type":"u8"}},{"b":{"type":"u8"}}]}}}})";
     CLiveDocument document;
-    schema::CLiveSchema live_schema;
+    schema::CLiveTypes live_schema;
     CBakedDocumentBlock storage;
-    schema::CBakedSchema schema;
+    schema::CBakedTypes schema;
     schema::SDiagnostic diagnostic;
     const bool ready = document_parser::parse(CByteConstView{ reinterpret_cast<const std::uint8_t*>(types), sizeof(types) - 1u }, document).accepted() &&
         live_schema.try_adopt(std::move(document)) && live_schema.resolve(diagnostic) && live_schema.bake(storage, schema) && schema.resolve(diagnostic);

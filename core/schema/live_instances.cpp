@@ -11,6 +11,7 @@
 #include "schema/live_instances.hpp"
 #include "schema/type_compatibility.hpp"
 #include "schema/value_codec.hpp"
+#include "schema/instance_selection.hpp"
 #include "schema/integer_notation.hpp"
 #include "data_model/document_copy.hpp"
 #include "memory/memory_policies.hpp"
@@ -87,7 +88,7 @@ bool CLiveInstances::initialise_document(const std::size_t capacity) noexcept
         append_node(m_document, m_document.root(), m_document.create_object(CStringView{ "instances" }));
 }
 
-bool CLiveInstances::initialise(CBakedSchema& schema, const std::size_t capacity) noexcept
+bool CLiveInstances::initialise(CBakedTypes& schema, const std::size_t capacity) noexcept
 {
     if (document_ready() || m_binding.is_attached() || !schema.resolved_ready())
     {
@@ -103,7 +104,7 @@ bool CLiveInstances::initialise(CBakedSchema& schema, const std::size_t capacity
     return true;
 }
 
-bool CLiveInstances::initialise(CLiveSchema& schema, const std::size_t capacity) noexcept
+bool CLiveInstances::initialise(CLiveTypes& schema, const std::size_t capacity) noexcept
 {
     if (document_ready() || m_binding.is_attached() || !schema.resolved_ready())
     {
@@ -120,26 +121,44 @@ bool CLiveInstances::initialise(CLiveSchema& schema, const std::size_t capacity)
 }
 
 template<class TSchema>
-bool CLiveInstances::switch_to(TSchema& schema, const ESchemaSwitchMode mode, SInstanceDiagnostic& diagnostic) noexcept
+bool CLiveInstances::switch_to(TSchema& schema, const ETypeBindMode mode, SInstanceDiagnostic& diagnostic) noexcept
 {
     diagnostic = {};
-    if (!m_loaded || ((mode != ESchemaSwitchMode::checked) && (mode != ESchemaSwitchMode::trusted)))
+    if (!m_loaded || pending_edit() || ((mode != ETypeBindMode::checked) && (mode != ETypeBindMode::asserted_recovery)))
     {
         diagnostic.reason = EInstanceLoadReason::invalid_input;
         return false;
     }
-    CSchemaBinding proposed;
+    CTypesBinding proposed;
     if (!proposed.bind(schema))
     {
         diagnostic.reason = EInstanceLoadReason::invalid_input;
         return false;
     }
     const detail::CDocumentRead document{ m_document };
-    TPodVector<CSchemaIndex> types;
+    const CResolvedTypes* const prior = m_binding.resolved();
+    if ((mode == ETypeBindMode::asserted_recovery) == static_cast<bool>(prior))
+    {
+        diagnostic.reason = EInstanceLoadReason::invalid_input;
+        return false;
+    }
+    detail::SValueDiagnostic error;
+    if (prior)
+    {
+        const auto checked = detail::check_selected_records(*prior, document, m_records, m_payload.data(),
+            [&](const std::size_t i) noexcept { return m_records[i].type; }, error);
+        if (checked != detail::EValueCheck::match)
+        {
+            diagnostic.reason = detail::value_failure(error, checked == detail::EValueCheck::mismatch ? EInstanceLoadReason::inheritance_mismatch : EInstanceLoadReason::invalid_declaration);
+            diagnostic.occurrence = detail::SInstanceHandleAccess::make(error.occurrence);
+            return false;
+        }
+    }
+    TPodVector<CTypesIndex> types;
     detail::SOccurrence failure;
-    const auto result = detail::prepare_schema_switch<true>(document,
+    const auto result = detail::prepare_types_binding<true>(document,
         document.object_child(document.root(), CStringView{ "instances" }), m_binding.resolved(), *proposed.resolved(),
-        mode == ESchemaSwitchMode::checked, m_records, types, failure);
+        mode == ETypeBindMode::checked, m_records, types, failure);
     if (result != ETypeMatchResult::match)
     {
         diagnostic.reason = (result == ETypeMatchResult::allocation_failed) ? EInstanceLoadReason::allocation_failed :
@@ -147,42 +166,42 @@ bool CLiveInstances::switch_to(TSchema& schema, const ESchemaSwitchMode mode, SI
         diagnostic.occurrence = detail::SInstanceHandleAccess::make(failure);
         return false;
     }
-    const CByteConstView payload = m_payload.const_view();
-    if (mode == ESchemaSwitchMode::checked)
+    CByteBuffer payload;
+    if (m_payload.size() && (!payload.allocate(m_payload.size(), k_max_alignment) || !payload.set_size(m_payload.size())))
     {
-        detail::SValueDiagnostic error;
-        const auto checked = detail::check_instance_records(*proposed.resolved(), document, m_records, payload.data(),
-            [&](const std::size_t i) noexcept
-            {
-                return types[i];
-            }, error);
-        if (checked != detail::EValueCheck::match)
-        {
-            diagnostic.reason = detail::value_failure(error, ((checked == detail::EValueCheck::mismatch) ? EInstanceLoadReason::embedded_mismatch : EInstanceLoadReason::invalid_declaration));
-            diagnostic.occurrence = detail::SInstanceHandleAccess::make(error.occurrence);
-            return false;
-        }
+        diagnostic.reason = EInstanceLoadReason::allocation_failed;
+        return false;
+    }
+    if (m_payload.size()) std::memcpy(payload.data(), m_payload.data(), m_payload.size());
+    if (!detail::rebuild_inherited_records(*proposed.resolved(), document, m_records, payload.data(), payload.size(),
+        [&](const std::size_t i) noexcept { return types[i]; }, error))
+    {
+        diagnostic.reason = detail::value_failure(error, EInstanceLoadReason::invalid_declaration);
+        diagnostic.occurrence = detail::SInstanceHandleAccess::make(error.occurrence);
+        return false;
     }
     for (std::size_t i = 0u; i < m_records.size(); ++i)
     {
         m_records[i].type = types[i];
     }
     m_binding = std::move(proposed);
+    if (payload.size()) std::memcpy(m_payload.data(), payload.data(), payload.size());
     return true;
 }
 
-bool CLiveInstances::switch_schema(CBakedSchema& schema, const ESchemaSwitchMode mode, SInstanceDiagnostic& diagnostic) noexcept
+bool CLiveInstances::rebind_types(CBakedTypes& schema, const ETypeBindMode mode, SInstanceDiagnostic& diagnostic) noexcept
 {
     return switch_to(schema, mode, diagnostic);
 }
 
-bool CLiveInstances::switch_schema(CLiveSchema& schema, const ESchemaSwitchMode mode, SInstanceDiagnostic& diagnostic) noexcept
+bool CLiveInstances::rebind_types(CLiveTypes& schema, const ETypeBindMode mode, SInstanceDiagnostic& diagnostic) noexcept
 {
     return switch_to(schema, mode, diagnostic);
 }
 
 void CLiveInstances::clear() noexcept
 {
+    m_pending = k_no_parent;
     m_loaded = false;
     m_records.deallocate();
     m_payload.deallocate();
@@ -198,6 +217,8 @@ void CLiveInstances::disable() noexcept
 
 void CLiveInstances::take_from(CLiveInstances& source) noexcept
 {
+    m_pending = k_no_parent;
+    source.m_pending = k_no_parent;
     m_document = std::move(source.m_document);
     m_payload = std::move(source.m_payload);
     m_records = std::move(source.m_records);
@@ -212,7 +233,7 @@ void CLiveInstances::take_from(CLiveInstances& source) noexcept
 
 CInstanceDocumentQuery CLiveInstances::document_query() const noexcept
 {
-    return CInstanceDocumentQuery{ m_document };
+    return pending_edit() ? CInstanceDocumentQuery{} : CInstanceDocumentQuery{ m_document };
 }
 
 CInstanceHandle CLiveInstances::instances_root() const noexcept
@@ -334,7 +355,7 @@ bool CLiveInstances::mutable_entry(const CInstanceHandle handle, SMutableInstanc
 
 bool CLiveInstances::clear_unused_storage(const EUnusedBits bits) noexcept
 {
-    const CResolvedSchema* const resolved = m_binding.resolved();
+    const CResolvedTypes* const resolved = m_binding.resolved();
     return loaded_ready() && resolved &&
         schema::clear_unused_storage(*resolved, document_query(), m_payload.view(), bits);
 }
@@ -343,12 +364,12 @@ bool CLiveInstances::clear_unused_storage(const EUnusedBits bits) noexcept
 //  Instance creation
 //==============================================================================
 
-CInstanceHandle CLiveInstances::append_instance(const CSchemaIndex type, const std::uint32_t parent,
+CInstanceHandle CLiveInstances::append_instance(const CTypesIndex type, const std::uint32_t parent,
     const CStringView& type_name, const CStringView& name, const detail::CDocumentRead& source,
     const detail::SOccurrence declaration, const CByteConstView& complete,
-    SInstanceDiagnostic& diagnostic) noexcept
+    SInstanceDiagnostic& diagnostic, const bool stripped) noexcept
 {
-    const CResolvedSchema* const schema = m_binding.resolved();
+    const CResolvedTypes* const schema = m_binding.resolved();
     SType layout;
     if (!loaded_ready() || !schema || !schema->type(type, layout) || name.empty() ||
         ((parent != k_no_parent) && (parent >= m_records.size())))
@@ -430,14 +451,16 @@ CInstanceHandle CLiveInstances::append_instance(const CSchemaIndex type, const s
     CNodeKey copied_declaration;
     if (declaration.is_valid())
     {
-        copied_declaration = document_translation::detail::copy_valid_subtree(m_document, source, declaration, CStringView{ "declaration" });
+        detail::SValueDiagnostic error;
+        copied_declaration = stripped ? detail::copy_selection(m_document, *schema, type, { &source, declaration }, CStringView{ "declaration" }, error) :
+            detail::strip_selection(m_document, *schema, type, { &source, declaration }, CStringView{ "declaration" }, error);
         if (!append_node(m_document, instance, copied_declaration))
         {
             if (copied_declaration && m_document.is_detached(copied_declaration))
             {
                 (void)m_document.erase(copied_declaration);
             }
-            diagnostic.reason = EInstanceLoadReason::allocation_failed;
+            diagnostic.reason = detail::value_failure(error, EInstanceLoadReason::invalid_declaration);
             return {};
         }
     }
@@ -449,6 +472,7 @@ CInstanceHandle CLiveInstances::append_instance(const CSchemaIndex type, const s
         diagnostic.reason = EInstanceLoadReason::allocation_failed;
         return {};
     }
+    if (offset > position) std::memset(m_payload.data() + position, 0, offset - position);
     if (layout.size)
     {
         std::memcpy((m_payload.data() + offset), stable.data(), static_cast<std::size_t>(layout.size));
@@ -470,7 +494,7 @@ CInstanceHandle CLiveInstances::append_instance(const CSchemaIndex type, const s
     }
     cleanup.group = {};
     cleanup.entry = {};
-    if (!m_records.push_back({ instance, copied_declaration, group, type, parent,
+    if (!m_records.push_back({ instance, copied_declaration, type, parent,
         offset, static_cast<std::uint32_t>(layout.size) }))
     {
         disable();
@@ -485,13 +509,13 @@ CInstanceHandle CLiveInstances::create_base(const CStringView& type, const CStri
     SInstanceDiagnostic& diagnostic) noexcept
 {
     diagnostic = {};
-    const CResolvedSchema* const schema = m_binding.resolved();
+    const CResolvedTypes* const schema = m_binding.resolved();
     if (!loaded_ready() || !schema || type.empty() || name.empty())
     {
         diagnostic.reason = EInstanceLoadReason::invalid_input;
         return {};
     }
-    const CSchemaIndex type_index = schema->find_type(type);
+    const CTypesIndex type_index = schema->find_type(type);
     SType layout;
     if (!type_index || !schema->type(type_index, layout))
     {
@@ -515,6 +539,7 @@ CInstanceHandle CLiveInstances::create_base(const CStringView& type, const CStri
         return {};
     }
     detail::SValueDiagnostic error;
+    if (encoded.size()) std::memset(encoded.data(), 0, encoded.size());
     if (!detail::construct_value(*schema, document, type_index, value, encoded.data(),
         encoded.size(), detail::EConstructionMode::instance, error))
     {
@@ -536,7 +561,7 @@ CInstanceHandle CLiveInstances::create_specialisation(const CInstanceHandle pare
         return {};
     }
     const SRecord& parent_record = m_records[parent_index];
-    const CResolvedSchema* const schema = m_binding.resolved();
+    const CResolvedTypes* const schema = m_binding.resolved();
     const CInstanceDocumentQuery fallback = document_query();
     const detail::CDocumentRead& document = declaration ? source.m_query : fallback.m_query;
     const detail::SOccurrence value = detail::SInstanceHandleAccess::occurrence(declaration);

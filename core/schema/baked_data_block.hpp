@@ -14,26 +14,18 @@
 #define SCHEMA_BAKED_DATA_BLOCK_HPP_INCLUDED
 
 #include "schema/data_block.hpp"
-#include "schema/data_output.hpp"
 #include "assets/asset_repository.hpp"
 
 namespace schema
 {
 
-//  Null means unavailable; a pointer to an empty view means supplied zero bytes.
+//  Null omits a domain; each present section requires its matching pointer.
+//  A pointer to an empty view explicitly supplies zero bytes.
 //  The views and their bytes are borrowed for the duration of the operation.
 struct SDataBlockPayloads
 {
     const CByteConstView* instances{ nullptr };
     const CByteConstView* bulk_data{ nullptr };
-};
-
-struct SDataBlockBuildDiagnostic
-{
-    SDataBlockDiagnostic block;
-    SDiagnostic schema;
-    SInstanceDiagnostic instances;
-    SBulkDataDiagnostic bulk_data;
 };
 
 class CBakedDataBlock
@@ -54,24 +46,6 @@ public:
     //  Schema-independent assembly. Empty destination; failure preserves inputs.
     [[nodiscard]] bool assemble(const CLiveDocument& description, const SDataBlockPayloads& payloads, SDataBlockDiagnostic& diagnostic) noexcept;
     [[nodiscard]] bool assemble(const CBakedDocument& description, const SDataBlockPayloads& payloads, SDataBlockDiagnostic& diagnostic) noexcept;
-
-    //  Resolve embedded definitions, or use the supplied schema if types are absent.
-    //  Validate supplied bytes and construct missing binaries before publication.
-    [[nodiscard]] bool materialise(const CLiveDocument& description, const EDataOutputForm form,
-        SDataBlockBuildDiagnostic& diagnostic, const SDataBlockPayloads& payloads = {}) noexcept;
-    [[nodiscard]] bool materialise(const CLiveDocument& description, CBakedSchema& schema, const EDataOutputForm form,
-        SDataBlockBuildDiagnostic& diagnostic, const SDataBlockPayloads& payloads = {}) noexcept;
-    [[nodiscard]] bool materialise(const CLiveDocument& description, CLiveSchema& schema, const EDataOutputForm form,
-        SDataBlockBuildDiagnostic& diagnostic, const SDataBlockPayloads& payloads = {}) noexcept;
-    [[nodiscard]] bool materialise(const CBakedDocument& description, const EDataOutputForm form,
-        SDataBlockBuildDiagnostic& diagnostic, const SDataBlockPayloads& payloads = {}) noexcept;
-    [[nodiscard]] bool materialise(const CBakedDocument& description, CBakedSchema& schema, const EDataOutputForm form,
-        SDataBlockBuildDiagnostic& diagnostic, const SDataBlockPayloads& payloads = {}) noexcept;
-    [[nodiscard]] bool materialise(const CBakedDocument& description, CLiveSchema& schema, const EDataOutputForm form,
-        SDataBlockBuildDiagnostic& diagnostic, const SDataBlockPayloads& payloads = {}) noexcept;
-    [[nodiscard]] bool strip_to(CBakedDataBlock& destination, SDataBlockBuildDiagnostic& diagnostic) const noexcept;
-    [[nodiscard]] bool strip_to(CBakedDataBlock& destination, CBakedSchema& schema, SDataBlockBuildDiagnostic& diagnostic) const noexcept;
-    [[nodiscard]] bool strip_to(CBakedDataBlock& destination, CLiveSchema& schema, SDataBlockBuildDiagnostic& diagnostic) const noexcept;
 
     void clear() noexcept;
     [[nodiscard]] bool release_local(CBakedDocumentBlock& output) noexcept;

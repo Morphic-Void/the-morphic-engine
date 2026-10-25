@@ -29,7 +29,7 @@ namespace schema
 //==============================================================================
 
 //  Live roles append freshly allocated monotonic entry keys. Replacement keeps
-//  the key, ordered erasure keeps the sequence, and promotion/reconciliation
+//  the key, ordered erasure keeps the sequence, and promotion
 //  create fresh keys in record order. Search that sequence without an index.
 template<class TRecords, class TKey, class TOrdinal>
 [[nodiscard]] bool find_live_record(const TRecords& records, const TKey key, TOrdinal& ordinal) noexcept
