@@ -50,6 +50,10 @@ or that work has been authorised.
   integration findings, source bundles, renderer-owned reports, publication,
   agreed defaults and configurable limits, remaining design choices, deferred
   reflection and the decision not to plan stream output.
+- [Shader reflection and component libraries](modules/shader_reflection_design.md):
+  agreed schema mappings, resource and stage interfaces, naming and explicit type
+  sharing, combined reports/publication, live library assembly and remaining
+  decisions before implementation.
 - [Schema follow-on work](backlog/schema_follow_on.md): conversion, related
   representations, typed serialisation, selectable generation, ingestion and
   optional orchestration beyond the completed aggregation APIs.

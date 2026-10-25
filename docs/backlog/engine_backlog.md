@@ -131,6 +131,13 @@ remain potential consumers, to be selected as separate work.
   operation. Use the small bundled shader support
   include for binding/location macros; defer richer binding descriptions to
   reflection/pipeline conditioning.
+  Follow the agreed [reflection/component-library design](../modules/shader_reflection_design.md)
+  for schema mappings, explicit type sharing, stage regions, retained failure
+  reports and live assembly. Generic schema composition and version-2 `.bsd`
+  persistence are implemented; library payload packing/locator relocation and
+  remaining authoring/public contracts still need design. Preserve the distinction
+  between semantic binding, matrix interpretation and concrete CPU buffer layout.
+  Neither document composition nor raw block assembly relocates component payloads.
   CPU readback is deferred. Stream output/transform feedback is not
   planned; prefer compute for future GPU data-generation work.
 - Condition and validate graphics pipelines: shader reflection, PSO metadata,

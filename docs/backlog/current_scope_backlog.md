@@ -87,6 +87,17 @@ to reflection and pipeline conditioning. Request/result structure choices,
 development defaults, feature restrictions and configurable service limits are
 implemented. Remaining binding conventions and platform validation are recorded
 in the design; reflection and subsequent conditioning remain future work.
+The agreed [reflection/component-library design](../modules/shader_reflection_design.md)
+uses schema associations, interfaces and decorations, explicit shared-type
+mappings, per-vertex/per-patch declarations and combined diagnostic reports.
+Intermediate live results stay in rendering for library aggregation before
+baking/assembly. Generic schema composition and version-2 `.bsd` persistence are
+implemented. Explicit shader/variant entries, reversible qualified identities,
+deterministic binary packing and the initial unsupported-feature policy are agreed
+starting points. Their detailed grammar/encoding, packing records, additional
+producer/consumer convention metadata and public API limits remain to settle.
+The reflection design distinguishes semantic binding from
+concrete CPU buffer layouts and records the agreed compact storage terminology.
 Final deployment/platform bindings, UGC providers, general document navigation,
 save-game integration, automatic cache reclamation and trust/layers remain future
 work. [Module batch runners](../modules/batch_runners.md) now provide coarse

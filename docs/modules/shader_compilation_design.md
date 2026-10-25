@@ -4,7 +4,7 @@ License: MIT (see LICENSE file in repository root)
 File:   shader_compilation_design.md
 Author: Ritchie Brannan
 Drafting and editorial assistance: OpenAI Codex
-Date:   22 Oct 2026
+Date:   25 Oct 2026
 
 # Shader compilation direction
 
@@ -13,6 +13,14 @@ Request/result structure choices, compilation defaults, feature restrictions and
 configurable service limits were agreed on 21 October 2026. The initial
 compile-only path is now implemented; the implementation and validation record
 below distinguishes it from deferred reflection and pipeline work.
+
+The agreed next phase is described in [reflection and component libraries](shader_reflection_design.md):
+schema-backed resource and stage interfaces, explicit shared-type mappings,
+renderer-owned compile/reflect reports and live library assembly before baking.
+Reflection/library conditioning remains unimplemented and lists its remaining
+decisions; generic schema composition and version-2 persistence are implemented. The
+compile-only contracts below describe current behaviour, not the final library
+representation or publication envelope.
 
 ## Initial implementation
 
@@ -538,11 +546,37 @@ can tune them without changing request/result layouts. Requests must not silentl
 raise service ceilings. The tests exercise extension/capability rejection and
 request, source, artifact and diagnostic ceilings.
 
-## Deferred reflection and pipeline validation
+## Reflection direction and deferred pipeline validation
 
-Reflection will consume retained compiled artifacts separately. Later pipeline
-conditioning should validate vertex-buffer construction and stage connections,
-including tessellation patch interfaces and topology. The PoC's intended sequence
+Reflection will consume retained compiled artifacts separately under the agreed
+[reflection and component-library design](shader_reflection_design.md). It uses
+physical schemas, non-storage associations/interfaces and renderer-interpreted
+decorations; intermediate results stay in rendering and diagnostics survive
+ordinary compilation or reflection failure. Semantic stage/value interpretation
+is distinct from concrete buffer layouts used to construct or validate CPU data.
+Compact names such as `float3x4`, `float3_` and `float3_x4` describe matrices and
+padded storage under that contract; checked structure/layout and context-qualified
+metadata remain authoritative. Matrix interpretation, byte storage and
+mathematical usage conventions are recorded separately.
+
+The implemented schema model permits authoring-fragment composition before final
+contained-type validation. Per-shader runtime results can retain binary SPIR-V
+without literal expansion. Version-2 `.bsd` persistence supplies combined storage;
+library assembly still needs explicit multi-source payload packing and locator
+relocation before raw assembly and typed/rendering validation. Authoring
+`CSchema::bake` and byte-preserving `CBakedDataBlock::assemble` are distinct routes.
+The reflection design records their constraints and the remaining contract choices.
+Its agreed authoring starting point uses an ordered explicit shader/variant list,
+existing compilation defaults and define precedence, and separate public,
+declaration and descriptive identities. Deterministic packing preserves binary
+artifacts; specialization-dependent shapes/execution dimensions initially fail
+with diagnostics. Exact identity encoding and public conditioning APIs remain open.
+
+Later pipeline conditioning should validate vertex-buffer construction and stage
+connections, including tessellation patch interfaces and topology. The library
+content description will eventually select components for PSO generation;
+reflection or schema merging alone does not validate those combinations.
+The PoC's intended sequence
 of extracting reflection before stripping distribution shaders remains useful.
 Its reconstructed [fixtures](../../tests/shader/fixtures/poc/ORIGIN.txt) provide
 test material, not a production shader/JSON specification or evidence that the
