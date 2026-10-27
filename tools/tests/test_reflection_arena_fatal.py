@@ -1,7 +1,7 @@
 # Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited
 # License: MIT (see LICENSE file in repository root)
 
-"""Run reflection arena fatal cases only in disposable child processes."""
+"""Run reflection arena allocation failure cases in disposable child processes."""
 
 import argparse
 from pathlib import Path
@@ -22,8 +22,10 @@ def main():
     root.mkdir(parents=True)
     print(f"Reflection arena fatal evidence: {root}")
     for mode, consumed, requested in (
-        ("capacity", "64", "1 x 1"),
-        ("alignment", "63", "1 x 1"),
+        ("growth-directory", "4096", "1 x 1"),
+        ("growth-block", "4096", "1 x 1"),
+        ("alignment", "4095", "1 x 1"),
+        ("oversized", "0", "1 x 4097"),
         ("overflow", "0", None),
     ):
         output = root / mode
@@ -41,8 +43,9 @@ def main():
         if child.returncode not in expected:
             raise AssertionError(f"{mode}: exit {child.returncode}, expected {expected}\n{child.stdout}\n{child.stderr}")
         records = [path.read_text(errors="replace") for path in output.rglob("*direct*") if path.is_file()]
-        evidence = next((record for record in records if "SPIRV-Reflect arena exhausted:" in record), "")
-        for field in ("identity=arena-fatal-fixture", "input=20", "capacity=64", f"consumed={consumed}", "requested="):
+        evidence = next((record for record in records if "SPIRV-Reflect arena allocation failed:" in record), "")
+        for field in ("identity=arena-fatal-fixture", "input=20", "capacity=4096", f"consumed={consumed}",
+                      "requested=", "blocks=1", "block_size=4096", "allocated=4096"):
             if field not in evidence:
                 raise AssertionError(f"{mode}: missing panic evidence {field!r}")
         if requested is not None and f"requested={requested} bytes" not in evidence:

@@ -29,8 +29,8 @@ requires those files; compilation does not require a GPU or graphics device.
 
 The DXC adapter enables exceptions (`/EHsc` or `-fexceptions`). Its compiler
 objects and temporary allocations remain local to that boundary. The private
-SPIRV-Reflect adapter uses a fixed per-operation arena and has no exception
-compiler allowance. Initial arena allocation failure is recoverable; exhaustion
+SPIRV-Reflect adapter uses a growing per-operation `CBumpBuffer` and has no exception
+compiler allowance. Initial arena allocation failure is recoverable; a failed bump
 during vendor execution terminates with a best-effort diagnostic. See the
 [reflection checkpoint](../modules/shader_reflection_design.md#initial-adapter-checkpoint).
 Ordinary suites include shader compilation and transport cases, so the compiler
@@ -185,20 +185,24 @@ local commits require a push before those workflows can validate them.
 The separate direct TGA round-trip helper is compiled into `MorphicTests` as a
 manual test but is intentionally not registered or invoked.
 
-Reflection arena exhaustion is tested only in disposable child processes:
+Reflection arena fatal allocation failures are tested only in disposable child processes:
 
 ```powershell
 python tools/tests/test_reflection_arena_fatal.py --binary build/bin/x64/Debug/MorphicTests.exe --output-directory build/reflection-arena-fatal
 ```
 
 On Linux, `ctest --test-dir build/shader-linux -R MorphicReflectionArenaFatal
---output-on-failure` runs the same harness. It checks capacity exhaustion,
-alignment padding and `calloc` size overflow, requiring the expected fatal exit
-and matching panic fields. Every invocation retains logs and captured output in
+--output-on-failure` runs the same harness. It injects failure when growing the
+pointer directory or allocating another block, including an alignment-induced
+block transition. It also checks oversized bumps and `calloc` size overflow,
+requiring the expected fatal exit and matching panic fields. Every invocation
+retains logs and captured output in
 a fresh UUID directory, so previous logs cannot satisfy a new run. Do not invoke
 the `--reflection-arena-fatal` test executable switch in the ordinary runner.
 The ordinary suite covers recoverable initial allocation failure, no-op frees,
 whole-arena reclamation, nested/concurrent routing and usage measurements.
-It also covers structural sizing, alignment-conditioned capacity, bootstrap and
+It also covers structural sizing, power-of-two block reservation and full usable
+capacity, successful growth with stable pointers and zeroing, reclamation of all
+blocks, real vendor reflection with an underestimated initial block, bootstrap and
 final working-memory rejection before arena allocation, 32-bit counter limits,
 source-copy accumulation, sparse IDs and repeated nested type expansion.

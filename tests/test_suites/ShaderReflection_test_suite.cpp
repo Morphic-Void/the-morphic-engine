@@ -168,7 +168,7 @@ static void check_schema(tests::TTestContext& ctx, const CResult& result)
     TEST_EXPECT(ctx, result.storage_statistics().reflection_arena_consumed != 0u);
     TEST_EXPECT(ctx, result.storage_statistics().reflection_arena_consumed <= result.storage_statistics().reflection_arena_capacity);
     TEST_EXPECT(ctx, result.storage_statistics().working_estimate == EWorkingEstimate::complete);
-    TEST_EXPECT(ctx, result.storage_statistics().reflection_arena_capacity == result.storage_statistics().reflection_arena_reserved_bytes);
+    TEST_EXPECT(ctx, result.storage_statistics().reflection_arena_capacity >= result.storage_statistics().reflection_arena_reserved_bytes);
     if (result.schema() == nullptr)
     {
         return;
@@ -1920,9 +1920,27 @@ static void* MV_STD_ABI_CALL admission_allocate(void* const state, const std::si
     return tests::allocate_test_memory(nullptr, alignment, bytes);
 }
 
-static void sizing_admission(tests::TTestContext& ctx, const shader::CShaderCompileReport& report)
+static void sizing_admission(tests::TTestContext& ctx)
 {
     using namespace rendering::shader_reflection::detail;
+    //  Expanded members make final admission materially larger than bootstrap,
+    //  even after both reservations are rounded to power-of-two blocks.
+    shader::CShaderCompileReport report;
+    const bool compiled = compile(report, R"(
+struct Leaf { float4 a; float4 b; };
+struct Pair { Leaf a; Leaf b; };
+struct Quad { Pair a; Pair b; };
+struct Octet { Quad a; Quad b; };
+struct Payload { Octet a; Octet b; };
+StructuredBuffer<Payload> input : register(t0);
+RWStructuredBuffer<float4> output : register(u0);
+[numthreads(1,1,1)] void main() { output[0] = input[0].a.a.a.a.a; }
+)");
+    TEST_EXPECT(ctx, compiled);
+    if (!compiled)
+    {
+        return;
+    }
     static_assert(sizeof(SAllocationCounts) == 23u * sizeof(std::uint32_t));
     const auto ceiling = static_cast<std::uint32_t>(memory::k_byte_size_ceiling);
     std::uint32_t count = ceiling - 1u;
@@ -1943,21 +1961,26 @@ static void sizing_admission(tests::TTestContext& ctx, const shader::CShaderComp
     excessive.entry_points = std::numeric_limits<std::uint32_t>::max();
     TEST_EXPECT(ctx, !estimate_allocation(excessive, plan) && (plan.reserved_bytes == 0u));
 
+    TEST_EXPECT(ctx, plan_allocation(0u, plan) && (plan.reserved_bytes == 65536u));
+    TEST_EXPECT(ctx, plan_allocation(32768u, plan) && (plan.reserved_bytes == 131072u));
+    TEST_EXPECT(ctx, plan_allocation(32769u, plan) && (plan.reserved_bytes == 262144u));
     TEST_EXPECT(ctx, plan_allocation(1u, plan));
     TEST_EXPECT(ctx, plan.requested_bytes == 65538u);
-    TEST_EXPECT(ctx, plan.reserved_bytes == memory::condition_bytes(plan.alignment, plan.requested_bytes));
+    TEST_EXPECT(ctx, plan.reserved_bytes == 131072u);
     TEST_EXPECT(ctx, plan.reserved_bytes > plan.requested_bytes);
     {
         SAllocationOwner owner{ nullptr };
         owner.plan = plan;
         TEST_EXPECT(ctx, owner.arena.allocate(plan.reserved_bytes, plan.alignment));
-        owner.capacity = owner.arena.capacity();
+        owner.capacity = owner.arena.block_size();
         TEST_EXPECT(ctx, owner.capacity == plan.reserved_bytes);
         TEST_EXPECT(ctx, owner.arena.memory_attribution().allocation_size == owner.capacity);
         auto* const bytes = static_cast<std::uint8_t*>(owner.allocate(owner.capacity));
         bytes[plan.requested_bytes] = 0x6bu;
         bytes[owner.capacity - 1u] = 0x5au;
         TEST_EXPECT(ctx, owner.consumed == plan.reserved_bytes);
+        TEST_EXPECT(ctx, owner.arena.buffer_count() == 1u);
+        TEST_EXPECT(ctx, owner.arena.allocated_size_with_alignment() == owner.consumed);
         TEST_EXPECT(ctx, bytes[plan.requested_bytes] == 0x6bu && bytes[owner.capacity - 1u] == 0x5au);
     }
 
@@ -2185,6 +2208,29 @@ static void structural_regressions(tests::TTestContext& ctx)
         std::cout << "StructuralSizing depth=" << shape.first << " resources=" << shape.second << " status=" <<
             static_cast<unsigned>(status) << " reason=" << static_cast<unsigned>(result.diagnostic().reason) <<
             " consumed=" << usage.reflection_arena_consumed << '\n';
+        if (shape.first == 6u)
+        {
+            //  Deliberately underestimate a real shader's cumulative vendor
+            //  storage. Individual requests fit; additional blocks must succeed.
+            memory::CMemoryAllocator allocator{ nullptr, tests::allocate_test_memory, tests::deallocate_test_memory };
+            memory::CMemoryContext context{ allocator };
+            {
+                SContextScope scope{ context };
+                detail::SAllocationPlan plan;
+                TEST_EXPECT(ctx, detail::plan_allocation(0u, plan));
+                detail::CModule module;
+                bool size_rejected = false;
+                TEST_EXPECT(ctx, module.create(report.shader.view().size(), report.shader.view().data(), plan,
+                    size_rejected, CStringView{ "underestimated arena" }) == SPV_REFLECT_RESULT_SUCCESS);
+                TEST_EXPECT(ctx, !size_rejected && (module.value().descriptor_binding_count == (shape.second + 1u)));
+                const auto capacity = module.arena_capacity();
+                const auto consumed = module.arena_consumed();
+                TEST_EXPECT(ctx, (consumed > plan.reserved_bytes) && (capacity >= consumed));
+                module.close();
+                TEST_EXPECT(ctx, (module.arena_capacity() == capacity) && (module.arena_consumed() == consumed));
+            }
+            TEST_EXPECT(ctx, context.is_attribution_empty());
+        }
     }
 }
 
@@ -2203,14 +2249,21 @@ static void allocation_arena(tests::TTestContext& ctx)
         {
             return;
         }
-        std::memset(owner.arena.data(), 0xa5, owner.capacity);
+        auto* const base = static_cast<unsigned char*>(owner.arena.bump(owner.capacity));
+        TEST_EXPECT(ctx, base != nullptr);
+        if (base == nullptr)
+        {
+            return;
+        }
+        std::memset(base, 0xa5, owner.capacity);
+        owner.arena.reset();
         const auto attempts = failure.attempts;
         void* addresses[96]{};
         std::size_t previous_end = 0u;
         for (std::size_t i = 0u; i < 96u; ++i)
         {
             addresses[i] = owner.allocate(i);
-            const auto offset = static_cast<unsigned char*>(addresses[i]) - owner.arena.data();
+            const auto offset = static_cast<unsigned char*>(addresses[i]) - base;
             TEST_EXPECT(ctx, reinterpret_cast<std::uintptr_t>(addresses[i]) % alignof(std::max_align_t) == 0u);
             TEST_EXPECT(ctx, static_cast<std::size_t>(offset) >= previous_end);
             previous_end = static_cast<std::size_t>(offset) + std::max(i, std::size_t{ 1u });
@@ -2228,7 +2281,27 @@ static void allocation_arena(tests::TTestContext& ctx)
             TEST_EXPECT(ctx, *static_cast<unsigned char*>(addresses[i]) == i);
         }
         TEST_EXPECT(ctx, failure.attempts == attempts);
+        TEST_EXPECT(ctx, owner.arena.buffer_count() == 1u);
+        TEST_EXPECT(ctx, owner.arena.allocated_size_with_alignment() == owner.consumed);
         TEST_EXPECT(ctx, owner.consumed <= owner.capacity);
+
+        const auto block_size = owner.arena.block_size();
+        const auto consumed = owner.consumed;
+        auto* const grown = static_cast<unsigned char*>(owner.allocate(block_size));
+        std::memset(grown, 0x6b, block_size);
+        const auto* const grown_zeroed = static_cast<unsigned char*>(owner.allocate_zeroed(1u, block_size));
+        TEST_EXPECT(ctx, owner.arena.buffer_count() == 3u);
+        TEST_EXPECT(ctx, owner.capacity == (3u * block_size));
+        TEST_EXPECT(ctx, owner.consumed == (consumed + (2u * block_size)));
+        TEST_EXPECT(ctx, owner.arena.memory_attribution().allocation_size > owner.capacity);
+        for (std::size_t i = 0u; i < block_size; ++i)
+        {
+            TEST_EXPECT(ctx, grown[i] == 0x6bu && grown_zeroed[i] == 0u);
+        }
+        for (std::size_t i = 0u; i < 96u; ++i)
+        {
+            TEST_EXPECT(ctx, *static_cast<unsigned char*>(addresses[i]) == i);
+        }
     }
     TEST_EXPECT(ctx, context.is_attribution_empty());
     {
@@ -2637,23 +2710,34 @@ int run_shader_reflection_arena_fatal(const char* const mode)
     {
         return 2;
     }
+    tests::TAllocationFailureFixture failure;
+    memory::CMemoryAllocator allocator{ &failure, tests::allocate_with_failure, tests::deallocate_test_memory };
+    memory::CMemoryContext context{ allocator };
+    shader_reflection_tests::SContextScope scope{ context };
     rendering::shader_reflection::detail::SAllocationOwner owner{ nullptr };
     owner.identity = CStringView{ "arena-fatal-fixture" };
     owner.input_bytes = 20u;
-    owner.capacity = 64u;
+    owner.capacity = 4096u;
     if (!owner.arena.allocate(owner.capacity, alignof(std::max_align_t)))
     {
         return 3;
     }
-    if (std::strcmp(mode, "capacity") == 0)
+    if ((std::strcmp(mode, "growth-directory") == 0) || (std::strcmp(mode, "growth-block") == 0))
     {
         (void)owner.allocate(owner.capacity);
+        //  Growth first allocates the pointer directory, then the next block.
+        failure.fail_on = failure.attempts + ((std::strcmp(mode, "growth-block") == 0) ? 1u : 0u);
         (void)owner.allocate(1u);
     }
     else if (std::strcmp(mode, "alignment") == 0)
     {
         (void)owner.allocate(owner.capacity - 1u);
+        failure.fail_on = failure.attempts;
         (void)owner.allocate(1u);
+    }
+    else if (std::strcmp(mode, "oversized") == 0)
+    {
+        (void)owner.allocate(owner.arena.block_size() + 1u);
     }
     else if (std::strcmp(mode, "overflow") == 0)
     {
@@ -2679,7 +2763,7 @@ int run_shader_reflection_tests()
             TEST_EXPECT(ctx, reflect({ &report, CStringView{ "caller identity / untouched" } }, {}, retained) == EStatus::success);
             check_schema(ctx, retained);
             limits(ctx, report);
-            sizing_admission(ctx, report);
+            sizing_admission(ctx);
             structural_regressions(ctx);
             preflight_rejections(ctx, report);
             lifetime(ctx, report);

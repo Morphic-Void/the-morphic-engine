@@ -139,8 +139,9 @@ struct SStorageStatistics
     std::uint64_t reflection_arena_estimated_bytes{ 0u };
     std::uint64_t reflection_arena_requested_bytes{ 0u };
     std::uint64_t reflection_arena_reserved_bytes{ 0u };
-    //  Actual exposed capacity (zero until setup succeeds) and cumulative bump
-    //  usage. Both remain available after the operation releases its storage.
+    //  Actual total block capacity (zero until setup succeeds) may grow beyond
+    //  the initial reservation. Bump usage includes alignment but excludes unused
+    //  block tails and directory storage. Both survive release of the storage.
     std::uint64_t reflection_arena_capacity{ 0u };
     std::uint64_t reflection_arena_consumed{ 0u };
 };

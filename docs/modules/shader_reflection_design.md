@@ -193,14 +193,16 @@ ordinary allocation failure remain independent checks. The codebase-wide 2 GiB
 single-allocation ceiling is unchanged.
 
 The private `spirv_reflect_adapter.cpp` compiles unmodified vendored source.
-Each nonmovable module owns one fixed-capacity `CByteBuffer` arena for the entire
-reflection operation. Vendor `malloc` and `calloc` bump within that buffer;
-allocations are aligned to `std::max_align_t`, and `calloc` zeroes its requested
-bytes. Zero-sized requests consume at least one byte. All addresses stay stable:
-there is no growth, relocation, wraparound or reuse of released space. Vendor
+Each nonmovable module owns one `CBumpBuffer` for the entire reflection operation.
+It initially allocates one block and can add blocks when the heuristic sizing is
+insufficient. Vendor `malloc` and `calloc` bump within those blocks; allocations
+are aligned to `std::max_align_t`, and `calloc` zeroes its requested bytes.
+Zero-sized requests consume at least one byte. All addresses stay stable across
+growth: there is no relocation, wraparound or reuse of released space. Vendor
 `free` is a no-op. Cumulative consumption includes alignment padding and all
-abandoned temporaries. Invalid or missed vendor frees are deliberately not
-tracked or diagnosed; this is the accepted tradeoff for whole-arena reclamation.
+abandoned temporaries, but excludes skipped block tails and the block directory.
+Invalid or missed vendor frees are deliberately not tracked or diagnosed; this is
+the accepted tradeoff for whole-arena reclamation.
 
 The raw arena demand is **64 KiB + twice the structural estimate of cumulative
 vendor allocation**. The exact baseline is input bytes plus one native vendor
@@ -227,10 +229,18 @@ the allocation ceiling. Checked products and aggregate working totals use
 64-bit arithmetic. Oversized values are rejected, never clipped into admission.
 
 The raw demand is explicitly rounded using the memory context's alignment
-conditioning before admission. `CByteBuffer::allocate` then requests that exact
-conditioned reservation, without buffer growth. The arena uses its full exposed
-`capacity()`, including the specified alignment tail. Heap-private padding and
-headers are not payload. Arena alignment is currently 16 bytes on GCC Linux x64
+conditioning and then up to a power of two before admission, matching
+`CBumpBuffer::allocate`. Admission charges that full initial block reservation;
+rounding can therefore reject a request that previously fitted the working-memory limit.
+The arena uses the full `block_size()` and may add blocks during vendor execution.
+Growth is an escape hatch for an underestimated workload: it is not rejected by
+the initial working-memory admission estimate. The estimate is not a runtime cap.
+Each request must still fit one block; `CBumpBuffer` cannot split a request across
+blocks or enlarge its configured block size. Such a request fails through the
+same panic path as failed growth.
+Consumption comes from `allocated_size_with_alignment()` and is retained after
+cleanup for reporting. Heap-private padding and headers are not payload.
+Arena alignment is currently 16 bytes on GCC Linux x64
 and eight on MSVC x64/x86; use native policies, not those constants. This remains
 per-operation admission, not an aggregate concurrency memory limit.
 
@@ -238,11 +248,12 @@ The capacity formula is an empirical
 allowance, not a proven bound on vendor expansion. Overflow-safe sizing and the
 2 GiB single-allocation ceiling are enforced before vendor entry. Failure to
 allocate the initial arena is an ordinary recoverable allocation failure.
-Exhaustion inside vendor execution never returns null: it invokes `MV_PANIC`
-and terminates, since upstream allocation/partial-cleanup paths are not reliably
+Failed bumps inside vendor execution never return null to the vendor: they invoke
+`MV_PANIC` and terminate, since upstream allocation/partial-cleanup paths are not reliably
 null-safe. The panic includes identity (up to 512 bytes plus its full length),
-input size, capacity, consumed bytes, requested allocation dimensions and
-structural estimate/raw demand/selected reservation.
+input size, total block capacity, consumed bytes, requested allocation dimensions,
+structural estimate/raw demand/initial reservation, block count, block size and
+actual attributed allocation bytes (including directory storage).
 
 Direct create/destroy entry and completion records bypass informational macro
 filtering and attempt immediate write/flush. These and panic reporting are best
@@ -258,16 +269,18 @@ nested calls restore the previous owner and concurrent jobs have independent
 arenas. The private module object is constructed during requester-side job
 preparation in aligned engine-owned storage. Arena allocation and vendor parsing
 occur during execution under the memory context installed by batch work. After
-extraction, vendor destruction runs while the arena remains alive, then the
-entire buffer is released before publication. Ordinary creation errors also
-release the buffer. The noexcept destructor is an arena-only fallback and never
+extraction, vendor destruction runs while the arena remains alive, then all blocks
+and the directory are released before publication. Ordinary creation errors also
+release the storage. The noexcept destructor is an arena-only fallback and never
 invokes vendor code. The job retains its module object until requester-side
 destruction after drain. Copied results do not borrow arena storage. The narrow
 placement-construction policy allowance remains confined to the implementation.
 
 `SStorageStatistics` distinguishes estimated vendor usage, raw demand, selected
-reservation, actual exposed capacity and alignment-inclusive consumption. Actual
-capacity remains zero until allocation succeeds. Capacity and consumption remain
+initial reservation, actual total block capacity and alignment-inclusive consumption.
+Actual capacity remains zero until allocation succeeds and may exceed the initial
+reservation after growth. Capacity excludes directory storage; consumption excludes
+skipped block tails and directory storage. Capacity and consumption remain
 available after reclamation; they do not indicate currently live memory.
 `working_estimate` distinguishes unavailable, bootstrap lower bound and complete
 working estimates, including early/final admission failures. Preflight and owner
@@ -278,7 +291,7 @@ bindings or 128/512 live structure fields, with and without debug/source data.
 The sample is a capacity regression corpus, not a comprehensive production
 shader workload.
 
-| Scaling fixture | SPIR-V bytes | Consumed bytes (Linux x64) | Arena allowance |
+| Scaling fixture | SPIR-V bytes | Consumed bytes (Linux x64) | Raw arena demand |
 | --- | ---: | ---: | ---: |
 | 256 bindings, no debug | 60,192 | 1,142,820 | 2,577,904 |
 | 256 bindings, source debug | 159,212 | 1,742,420 | 3,853,456 |
@@ -286,6 +299,9 @@ shader workload.
 | 128 fields, source debug | 79,052 | 992,164 | 2,208,368 |
 | 512 fields, no debug | 99,244 | 2,507,396 | 5,502,240 |
 | 512 fields, source debug | 280,172 | 3,790,820 | 8,235,584 |
+
+These demands precede the power-of-two rounding required by `CBumpBuffer`;
+the full rounded reservation is charged to working-memory admission.
 
 The structural model was frozen against 32 calibration cases before 63 broader
 holdouts were generated. Its minimum observed Linux x64 headroom was 2.0006x,

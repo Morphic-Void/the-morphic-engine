@@ -16,7 +16,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <limits>
-#include "containers/ByteBuffers.hpp"
+#include "containers/BumpBuffer.hpp"
 #include "containers/StringBuffers.hpp"
 #include "external/SPIRV-Reflect/spirv_reflect.h"
 
@@ -100,7 +100,7 @@ struct SAllocationPlan
 struct SAllocationOwner
 {
     CModule* module;
-    CByteBuffer arena;
+    CBumpBuffer arena;
     CStringView identity;
     SAllocationPlan plan;
     std::size_t input_bytes{ 0u };
@@ -111,7 +111,7 @@ struct SAllocationOwner
     [[noreturn]] void exhausted(const std::size_t count, const std::size_t bytes) const noexcept;
 };
 
-//  One fixed arena owns all vendor storage through creation and extraction.
+//  One growing arena owns all vendor storage through creation and extraction.
 //  Vendor frees do nothing; close or destruction reclaims the entire arena.
 //  The final engine schema copies its data and does not borrow this owner.
 class CModule final
@@ -126,8 +126,8 @@ public:
     CModule(CModule&&) = delete;
     CModule& operator=(CModule&&) = delete;
 
-    //  Initial arena allocation is recoverable, before vendor entry. Exhaustion
-    //  during reflection terminates; vendor allocations must never return null.
+    //  Initial arena allocation is recoverable, before vendor entry. Failed bumps
+    //  during reflection terminate; vendor allocations must never return null.
     //  Identity is borrowed until close, including synchronous log calls.
     [[nodiscard]] SpvReflectResult create(const std::size_t bytes, const void* const words,
         const SAllocationPlan& plan, bool& allocation_size_rejected, const CStringView identity = {}) noexcept;

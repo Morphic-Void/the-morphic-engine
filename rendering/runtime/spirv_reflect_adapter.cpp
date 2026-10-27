@@ -6,9 +6,9 @@
 //  Authors: Ritchie Brannan / OpenAI Codex
 //  Date:    26 Oct 26
 //
-//  Private allocation routing for unmodified SPIRV-Reflect. One fixed arena
+//  Private allocation routing for unmodified SPIRV-Reflect. One growing arena
 //  keeps vendor addresses stable until extraction and destruction complete.
-//  Initial allocation can fail normally; exhaustion during vendor execution
+//  Initial allocation can fail normally; allocation failure during vendor execution
 //  terminates with a best-effort diagnostic. Vendor frees are intentionally inert.
 
 #include "memory/memory_context.hpp"
@@ -61,11 +61,12 @@ bool plan_allocation(const std::uint64_t estimated_bytes, SAllocationPlan& plan)
     }
     const auto requested = k_arena_allowance + (static_cast<std::size_t>(estimated_bytes) * k_arena_multiplier);
     const auto alignment = memory::condition_alignment(alignof(std::max_align_t));
-    const auto reserved = memory::condition_bytes(alignment, requested);
-    if (reserved == 0u)
+    const auto conditioned = memory::condition_bytes(alignment, requested);
+    if (conditioned == 0u)
     {
         return false;
     }
+    const auto reserved = bit_ops::round_up_to_pow2(conditioned);
     plan = { static_cast<std::uint32_t>(estimated_bytes), requested, reserved, alignment };
     return true;
 }
@@ -73,29 +74,25 @@ bool plan_allocation(const std::uint64_t estimated_bytes, SAllocationPlan& plan)
 [[noreturn]] void SAllocationOwner::exhausted(const std::size_t count, const std::size_t bytes) const noexcept
 {
     //  Bound identity text so numeric evidence fits the fixed panic buffer.
-    MV_PANIC("SPIRV-Reflect arena exhausted: identity=%.*s identity_bytes=%zu input=%zu capacity=%zu consumed=%zu requested=%zu x %zu bytes estimate=%llu demand=%zu reserved=%zu",
+    MV_PANIC("SPIRV-Reflect arena allocation failed: identity=%.*s identity_bytes=%zu input=%zu capacity=%zu consumed=%zu requested=%zu x %zu bytes estimate=%llu demand=%zu reserved=%zu blocks=%zu block_size=%zu allocated=%llu",
         static_cast<int>(std::min(identity.length(), std::size_t{ 512u })),
         identity.cstring() != nullptr ? identity.cstring() : "", identity.length(),
         input_bytes, capacity, consumed, count, bytes,
-        static_cast<unsigned long long>(plan.estimated_bytes), plan.requested_bytes, plan.reserved_bytes);
+        static_cast<unsigned long long>(plan.estimated_bytes), plan.requested_bytes, plan.reserved_bytes,
+        arena.buffer_count(), arena.block_size(), static_cast<unsigned long long>(arena.memory_attribution().allocation_size));
 }
 
 void* SAllocationOwner::allocate(const std::size_t size) noexcept
 {
     constexpr auto alignment = alignof(std::max_align_t);
-    const auto padding = (alignment - (consumed % alignment)) % alignment;
     const auto bytes = std::max(size, std::size_t{ 1u });
-    if (!arena.is_ready() || (consumed > capacity) || (padding > (capacity - consumed)))
+    void* const address = arena.bump(bytes, alignment);
+    if (address == nullptr)
     {
         exhausted(1u, size);
     }
-    const auto offset = consumed + padding;
-    if (bytes > (capacity - offset))
-    {
-        exhausted(1u, size);
-    }
-    auto* const address = arena.data() + offset;
-    consumed = offset + bytes;
+    consumed = arena.allocated_size_with_alignment();
+    capacity = arena.buffer_count() * arena.block_size();
     return address;
 }
 
@@ -139,11 +136,13 @@ static void breadcrumb(const SAllocationOwner& owner, const char* const phase, c
     //  Direct reporting deliberately bypasses informational macro filtering.
     //  Fixed formatting storage and immediate flush do not guarantee delivery.
     (void)debug_system::report_immediate(debug_system::EEventLevel::info, MV_INTERNAL_USAGE_POINT,
-        "SPIRV-Reflect %s: identity=%.*s identity_bytes=%zu input=%zu capacity=%zu consumed=%zu result=%d estimate=%llu demand=%zu reserved=%zu",
+        "SPIRV-Reflect %s: identity=%.*s identity_bytes=%zu input=%zu capacity=%zu consumed=%zu result=%d estimate=%llu demand=%zu reserved=%zu blocks=%zu block_size=%zu allocated=%llu",
         phase, static_cast<int>(std::min(owner.identity.length(), std::size_t{ 512u })),
         owner.identity.cstring() != nullptr ? owner.identity.cstring() : "", owner.identity.length(),
         owner.input_bytes, owner.capacity, owner.consumed, static_cast<int>(result),
-        static_cast<unsigned long long>(owner.plan.estimated_bytes), owner.plan.requested_bytes, owner.plan.reserved_bytes);
+        static_cast<unsigned long long>(owner.plan.estimated_bytes), owner.plan.requested_bytes, owner.plan.reserved_bytes,
+        owner.arena.buffer_count(), owner.arena.block_size(),
+        static_cast<unsigned long long>(owner.arena.memory_attribution().allocation_size));
 }
 
 }   //  namespace rendering::shader_reflection::detail
@@ -313,8 +312,8 @@ SpvReflectResult CModule::create(const std::size_t bytes, const void* const word
     {
         return SPV_REFLECT_RESULT_ERROR_ALLOC_FAILED;
     }
-    const auto usable = m_allocations.arena.capacity();
-    if ((usable != plan.reserved_bytes) ||
+    const auto usable = m_allocations.arena.block_size();
+    if ((m_allocations.arena.buffer_count() != 1u) || (usable != plan.reserved_bytes) ||
         (m_allocations.arena.memory_attribution().allocation_size != plan.reserved_bytes))
     {
         m_allocations.arena.deallocate();
