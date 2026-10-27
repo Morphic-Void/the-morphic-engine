@@ -797,6 +797,9 @@
     <None Include="$(MSBuildThisFileDirectory)..\docs\architecture\codebase-model.md">
       <Filter>Docs\architecture</Filter>
     </None>
+    <None Include="$(MSBuildThisFileDirectory)..\docs\containers\BumpBuffer.md">
+      <Filter>Docs\containers</Filter>
+    </None>
     <None Include="$(MSBuildThisFileDirectory)..\docs\containers\ByteBuffers.md">
       <Filter>Docs\containers</Filter>
     </None>

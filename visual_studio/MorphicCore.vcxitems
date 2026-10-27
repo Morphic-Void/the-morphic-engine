@@ -279,6 +279,7 @@
     <None Include="$(MSBuildThisFileDirectory)..\docs\architecture\codebase-model.md" />
     <None Include="$(MSBuildThisFileDirectory)..\docs\data_model\data_model_design_notes.md" />
     <None Include="$(MSBuildThisFileDirectory)..\docs\data_model\revised_data_model.md" />
+    <None Include="$(MSBuildThisFileDirectory)..\docs\containers\BumpBuffer.md" />
     <None Include="$(MSBuildThisFileDirectory)..\docs\containers\ByteBuffers.md" />
     <None Include="$(MSBuildThisFileDirectory)..\docs\containers\slots\TOrderedSlots.md" />
     <None Include="$(MSBuildThisFileDirectory)..\docs\containers\slots\TUnorderedSlots.md" />
