@@ -21,6 +21,7 @@
 #ifndef CONTAINERS_HPP_INCLUDED
 #define CONTAINERS_HPP_INCLUDED
 
+#include "containers/BumpBuffer.hpp"
 #include "containers/ByteBuffers.hpp"
 #include "containers/StringBuffers.hpp"
 #include "containers/TInstance.hpp"

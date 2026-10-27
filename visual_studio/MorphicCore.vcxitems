@@ -30,6 +30,7 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\bit_utils\bit_utils.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\bit_utils\spatial_codes.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\bit_utils\TBitField.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\containers\BumpBuffer.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\containers\ByteBuffers.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\containers\containers.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\containers\slots\SlotsRankMap.hpp" />

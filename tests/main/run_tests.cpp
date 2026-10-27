@@ -24,6 +24,7 @@
 #include "tests/test_suites/Bundle_test_suite.hpp"
 #include "tests/test_suites/BundleBuilder_test_suite.hpp"
 #include "tests/test_suites/ByteBuffers_test_suite.hpp"
+#include "tests/test_suites/BumpBuffer_test_suite.hpp"
 #include "tests/test_suites/PermutationValidation_test_suite.hpp"
 #include "tests/test_suites/CMemoryToken_test_suite.hpp"
 #include "tests/test_suites/CMemoryView_test_suite.hpp"
@@ -276,6 +277,7 @@ int run_tests(ETestRunMode mode)
     cumulative_result += run_isolated_suite("LiveDocument", &run_live_document_tests);
     cumulative_result += run_isolated_suite("TPodVector", &run_pod_vector_tests);
     cumulative_result += run_isolated_suite("ByteBuffers", &run_byte_buffer_tests);
+    cumulative_result += run_isolated_suite("BumpBuffer", &run_bump_buffer_tests);
     cumulative_result += run_isolated_suite("PermutationValidation", &run_permutation_validation_tests);
     cumulative_result += run_isolated_suite("ImageView", &run_image_view_tests);
     cumulative_result += run_isolated_suite("TextLinter", &run_text_linter_tests);

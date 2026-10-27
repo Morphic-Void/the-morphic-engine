@@ -253,6 +253,9 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\bit_utils\TBitField.hpp">
       <Filter>Core\include\bit_utils</Filter>
     </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\containers\BumpBuffer.hpp">
+      <Filter>Core\include\containers</Filter>
+    </ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\containers\ByteBuffers.hpp">
       <Filter>Core\include\containers</Filter>
     </ClInclude>
