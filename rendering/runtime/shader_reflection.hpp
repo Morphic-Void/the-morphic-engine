@@ -121,12 +121,26 @@ struct SRequest
     CStringView component_identity;
 };
 
+enum class EWorkingEstimate : std::uint8_t
+{
+    unavailable = 0u,
+    bootstrap,
+    complete
+};
+
 struct SStorageStatistics
 {
+    //  Phase distinguishes a bootstrap lower bound from the completed estimate.
+    EWorkingEstimate working_estimate{ EWorkingEstimate::unavailable };
     std::uint64_t estimated_working_bytes{ 0u };
+    std::uint64_t preflight_bytes{ 0u };
+    std::uint64_t reflection_owner_bytes{ 0u };
     std::uint64_t retained_bytes{ 0u };
-    //  Reserved allowance and cumulative bump usage, including alignment and
-    //  temporaries. These remain available after the operation releases storage.
+    std::uint64_t reflection_arena_estimated_bytes{ 0u };
+    std::uint64_t reflection_arena_requested_bytes{ 0u };
+    std::uint64_t reflection_arena_reserved_bytes{ 0u };
+    //  Actual exposed capacity (zero until setup succeeds) and cumulative bump
+    //  usage. Both remain available after the operation releases its storage.
     std::uint64_t reflection_arena_capacity{ 0u };
     std::uint64_t reflection_arena_consumed{ 0u };
 };
@@ -218,7 +232,7 @@ private:
     friend EStatus reflect(const SRequest&, const SLimits&, CResult&) noexcept;
     friend struct SReflectionTestAccess;
     [[nodiscard]] static EStatus reflect_module(const SRequest& request, const SLimits& limits,
-        CResult& result, detail::CModule& module) noexcept;
+        CResult& result, detail::CModule& module, const std::uint64_t owner_bytes) noexcept;
     //  Opaque, aligned engine-owned storage keeps vendor types out of this header.
     //  The module is constructed once during prepare and destroyed before storage.
     CByteBuffer m_module_storage;

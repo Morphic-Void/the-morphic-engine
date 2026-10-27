@@ -62,6 +62,10 @@ namespace rendering::shader_reflection
 
 struct SReflectionTestAccess
 {
+    static std::uint64_t owner_bytes(const CReflectJob& job) noexcept
+    {
+        return job.m_reflection.m_module_storage.memory_attribution().allocation_size;
+    }
     static const detail::CModule* module(const CReflectJob& job) noexcept
     {
         return reinterpret_cast<const detail::CModule*>(job.m_reflection.m_module_storage.data());
@@ -74,6 +78,16 @@ namespace shader_reflection_tests
 {
 
 using namespace rendering::shader_reflection;
+
+static SpvReflectResult create_module(detail::CModule& module, const std::size_t bytes,
+    const void* const words, bool& size_rejected)
+{
+    //  Direct vendor cleanup/error fixtures deliberately bypass production
+    //  preflight. Supply their old allowance explicitly, never as a runtime fallback.
+    detail::SAllocationPlan plan;
+    size_rejected = !detail::plan_allocation(static_cast<std::uint64_t>(bytes) * 32u, plan);
+    return size_rejected ? SPV_REFLECT_RESULT_ERROR_ALLOC_FAILED : module.create(bytes, words, plan, size_rejected);
+}
 
 struct SContextScope
 {
@@ -153,6 +167,8 @@ static void check_schema(tests::TTestContext& ctx, const CResult& result)
     TEST_EXPECT(ctx, result.schema() != nullptr);
     TEST_EXPECT(ctx, result.storage_statistics().reflection_arena_consumed != 0u);
     TEST_EXPECT(ctx, result.storage_statistics().reflection_arena_consumed <= result.storage_statistics().reflection_arena_capacity);
+    TEST_EXPECT(ctx, result.storage_statistics().working_estimate == EWorkingEstimate::complete);
+    TEST_EXPECT(ctx, result.storage_statistics().reflection_arena_capacity == result.storage_statistics().reflection_arena_reserved_bytes);
     if (result.schema() == nullptr)
     {
         return;
@@ -482,7 +498,7 @@ static void qualifiers_and_modes(tests::TTestContext& ctx, const shader::CShader
 {
     rendering::shader_reflection::detail::CModule module;
     bool size_rejected = false;
-    TEST_EXPECT(ctx, module.create(report.shader.view().size(), report.shader.view().data(), size_rejected) == SPV_REFLECT_RESULT_SUCCESS);
+    TEST_EXPECT(ctx, create_module(module, report.shader.view().size(), report.shader.view().data(), size_rejected) == SPV_REFLECT_RESULT_SUCCESS);
     std::uint32_t input = 0u, output = 0u;
     for (std::uint32_t i = 0u; i < module.value().input_variable_count; ++i)
     {
@@ -1330,7 +1346,7 @@ static void buffer_layouts(tests::TTestContext& ctx)
     }
     rendering::shader_reflection::detail::CModule reflected;
     bool size_rejected = false;
-    TEST_EXPECT(ctx, reflected.create(report.shader.view().size(), report.shader.view().data(), size_rejected) == SPV_REFLECT_RESULT_SUCCESS);
+    TEST_EXPECT(ctx, create_module(reflected, report.shader.view().size(), report.shader.view().data(), size_rejected) == SPV_REFLECT_RESULT_SUCCESS);
     const auto& raw = reflected.value();
     if (raw.descriptor_binding_count == 11u)
     {
@@ -1453,7 +1469,7 @@ static void fixed_prefix_rejection(tests::TTestContext& ctx, const shader::CShad
 {
     rendering::shader_reflection::detail::CModule module;
     bool size_rejected = false;
-    TEST_EXPECT(ctx, module.create(source.shader.view().size(), source.shader.view().data(), size_rejected) == SPV_REFLECT_RESULT_SUCCESS);
+    TEST_EXPECT(ctx, create_module(module, source.shader.view().size(), source.shader.view().data(), size_rejected) == SPV_REFLECT_RESULT_SUCCESS);
     TEST_EXPECT(ctx, module.value().descriptor_binding_count == 4u);
     if (module.value().descriptor_binding_count != 4u)
     {
@@ -1700,7 +1716,7 @@ static void runtime_elements(tests::TTestContext& ctx)
     //  A legal larger runtime stride does not enlarge the reusable element.
     rendering::shader_reflection::detail::CModule module;
     bool size_rejected = false;
-    TEST_EXPECT(ctx, module.create(report.shader.view().size(), report.shader.view().data(), size_rejected) == SPV_REFLECT_RESULT_SUCCESS);
+    TEST_EXPECT(ctx, create_module(module, report.shader.view().size(), report.shader.view().data(), size_rejected) == SPV_REFLECT_RESULT_SUCCESS);
     if (module.value().descriptor_binding_count != 0u)
     {
         const auto block_id = module.value().descriptor_bindings[0u].block.type_description->id;
@@ -1880,6 +1896,298 @@ static bool MV_STD_ABI_CALL nested_deallocate(void* const state, const std::size
     return tests::deallocate_test_memory(nullptr, alignment, pointer);
 }
 
+struct SAdmissionAllocations
+{
+    std::size_t attempts{ 0u };
+    std::size_t arena_attempts{ 0u };
+    std::size_t arena_bytes{ 0u };
+    bool reject_arena{ false };
+};
+
+static void* MV_STD_ABI_CALL admission_allocate(void* const state, const std::size_t alignment, const std::size_t bytes) noexcept
+{
+    auto& observation = *static_cast<SAdmissionAllocations*>(state);
+    ++observation.attempts;
+    if (detail::SModuleTestAccess::active() != nullptr)
+    {
+        ++observation.arena_attempts;
+        observation.arena_bytes = bytes;
+        if (observation.reject_arena)
+        {
+            return nullptr;
+        }
+    }
+    return tests::allocate_test_memory(nullptr, alignment, bytes);
+}
+
+static void sizing_admission(tests::TTestContext& ctx, const shader::CShaderCompileReport& report)
+{
+    using namespace rendering::shader_reflection::detail;
+    static_assert(sizeof(SAllocationCounts) == 23u * sizeof(std::uint32_t));
+    const auto ceiling = static_cast<std::uint32_t>(memory::k_byte_size_ceiling);
+    std::uint32_t count = ceiling - 1u;
+    TEST_EXPECT(ctx, add_count(count, 1u) && (count == ceiling));
+    TEST_EXPECT(ctx, !add_count(count, 1u) && (count == ceiling));
+    count = std::numeric_limits<std::uint32_t>::max();
+    TEST_EXPECT(ctx, !add_count(count, 1u));
+    std::uint64_t aggregate = std::numeric_limits<std::uint64_t>::max();
+    TEST_EXPECT(ctx, !add_size(aggregate, 1u));
+    TEST_EXPECT(ctx, !multiply_size(aggregate, 2u));
+    SAllocationPlan plan;
+    const auto maximum_estimate = (ceiling - 65536u) / 2u;
+    TEST_EXPECT(ctx, plan_allocation(maximum_estimate, plan) && (plan.reserved_bytes == ceiling));
+    TEST_EXPECT(ctx, !plan_allocation(static_cast<std::uint64_t>(maximum_estimate) + 1u, plan));
+    TEST_EXPECT(ctx, plan.reserved_bytes == 0u);
+    SAllocationCounts excessive;
+    excessive.resources = std::numeric_limits<std::uint32_t>::max();
+    excessive.entry_points = std::numeric_limits<std::uint32_t>::max();
+    TEST_EXPECT(ctx, !estimate_allocation(excessive, plan) && (plan.reserved_bytes == 0u));
+
+    TEST_EXPECT(ctx, plan_allocation(1u, plan));
+    TEST_EXPECT(ctx, plan.requested_bytes == 65538u);
+    TEST_EXPECT(ctx, plan.reserved_bytes == memory::condition_bytes(plan.alignment, plan.requested_bytes));
+    TEST_EXPECT(ctx, plan.reserved_bytes > plan.requested_bytes);
+    {
+        SAllocationOwner owner{ nullptr };
+        owner.plan = plan;
+        TEST_EXPECT(ctx, owner.arena.allocate(plan.reserved_bytes, plan.alignment));
+        owner.capacity = owner.arena.capacity();
+        TEST_EXPECT(ctx, owner.capacity == plan.reserved_bytes);
+        TEST_EXPECT(ctx, owner.arena.memory_attribution().allocation_size == owner.capacity);
+        auto* const bytes = static_cast<std::uint8_t*>(owner.allocate(owner.capacity));
+        bytes[plan.requested_bytes] = 0x6bu;
+        bytes[owner.capacity - 1u] = 0x5au;
+        TEST_EXPECT(ctx, owner.consumed == plan.reserved_bytes);
+        TEST_EXPECT(ctx, bytes[plan.requested_bytes] == 0x6bu && bytes[owner.capacity - 1u] == 0x5au);
+    }
+
+    CResult good;
+    TEST_EXPECT(ctx, reflect({ &report, CStringView{ "sizing" } }, {}, good) == EStatus::success);
+    const auto& usage = good.storage_statistics();
+    TEST_EXPECT(ctx, usage.reflection_owner_bytes == 0u);
+    TEST_EXPECT(ctx, usage.reflection_arena_estimated_bytes >= usage.reflection_arena_consumed);
+    TEST_EXPECT(ctx, usage.reflection_arena_requested_bytes == 65536u + (2u * usage.reflection_arena_estimated_bytes));
+    TEST_EXPECT(ctx, usage.reflection_arena_reserved_bytes == usage.reflection_arena_capacity);
+    TEST_EXPECT(ctx, usage.preflight_bytes != 0u);
+    TEST_EXPECT(ctx, usage.estimated_working_bytes == usage.reflection_arena_reserved_bytes + usage.preflight_bytes +
+        (8u * report.shader.view().size()) + 65536u);
+    for (std::uint32_t mode = 0u; mode < 3u; ++mode)
+    {
+        SAdmissionAllocations observation;
+        observation.reject_arena = mode == 2u;
+        memory::CMemoryAllocator allocator{ &observation, admission_allocate, tests::deallocate_test_memory };
+        memory::CMemoryContext context{ allocator };
+        {
+            SContextScope scope{ context };
+            SLimits policy;
+            if (mode == 0u)
+            {
+                policy.estimated_working_bytes = 0u;
+            }
+            else if (mode == 1u)
+            {
+                policy.estimated_working_bytes = static_cast<std::size_t>(usage.estimated_working_bytes - 1u);
+            }
+            CResult rejected;
+            const auto status = reflect({ &report, CStringView{ "sizing" } }, policy, rejected);
+            const auto& failed = rejected.storage_statistics();
+            TEST_EXPECT(ctx, status == ((mode == 2u) ? EStatus::allocation_failed : EStatus::limit_exceeded));
+            TEST_EXPECT(ctx, failed.working_estimate == ((mode == 0u) ? EWorkingEstimate::bootstrap : EWorkingEstimate::complete));
+            TEST_EXPECT(ctx, failed.reflection_arena_capacity == 0u && failed.reflection_arena_consumed == 0u);
+            TEST_EXPECT(ctx, observation.arena_attempts == ((mode == 2u) ? 1u : 0u));
+            if (mode == 0u)
+            {
+                //  Only identity and bounded diagnostics, no index or arena.
+                TEST_EXPECT(ctx, observation.attempts == 2u);
+                TEST_EXPECT(ctx, failed.reflection_arena_reserved_bytes == 0u);
+            }
+            else
+            {
+                TEST_EXPECT(ctx, failed.reflection_arena_reserved_bytes == usage.reflection_arena_reserved_bytes);
+                TEST_EXPECT(ctx, failed.estimated_working_bytes == usage.estimated_working_bytes);
+            }
+            if (mode == 2u)
+            {
+                TEST_EXPECT(ctx, observation.arena_bytes == usage.reflection_arena_reserved_bytes);
+            }
+        }
+        TEST_EXPECT(ctx, context.is_attribution_empty());
+    }
+}
+
+static void append_literal(std::vector<std::uint32_t>& words, const SpvOp opcode,
+    const std::vector<std::uint32_t>& operands, const std::string& text)
+{
+    const auto begin = words.size();
+    const auto count = 1u + operands.size() + ((text.size() + 4u) / 4u);
+    words.resize(begin + count, 0u);
+    words[begin] = (static_cast<std::uint32_t>(count) << 16u) | opcode;
+    std::copy(operands.begin(), operands.end(), words.begin() + begin + 1u);
+    std::memcpy(words.data() + begin + 1u + operands.size(), text.data(), text.size());
+}
+
+static bool source_fixture(shader::CShaderCompileReport& report, const std::uint32_t count,
+    const std::size_t chunk_bytes, const bool continued, const bool omit_initial = false, const bool unterminated = false)
+{
+    //  Synthetic debug instruction changes test the private allocation boundary;
+    //  they are not evidence of a newly supported engine shader input contract.
+    if (!compile(report, "[numthreads(1,1,1)] void main() {}", shader::EStage::compute, shader::EDebug::none))
+    {
+        return false;
+    }
+    const auto artifact = report.shader.view();
+    std::vector<std::uint32_t> words(artifact.size() / 4u);
+    std::memcpy(words.data(), artifact.data(), artifact.size());
+    const auto file = words[3]++;
+    std::vector<std::uint32_t> debug;
+    append_literal(debug, SpvOpString, { file }, "sizing.hlsl");
+    const std::string text(chunk_bytes, 'x');
+    for (std::uint32_t i = 0u; i < count; ++i)
+    {
+        if (!omit_initial && ((i == 0u) || !continued))
+        {
+            append_literal(debug, SpvOpSource, { SpvSourceLanguageHLSL, 600u, file }, text);
+        }
+        else
+        {
+            append_literal(debug, SpvOpSourceContinued, {}, text);
+        }
+    }
+    if (unterminated)
+    {
+        debug.back() = 0x78787878u;
+    }
+    std::size_t insertion = 5u;
+    for (; insertion < words.size(); insertion += words[insertion] >> 16u)
+    {
+        const auto op = words[insertion] & 0xffffu;
+        if ((op != SpvOpCapability) && (op != SpvOpExtension) && (op != SpvOpExtInstImport) &&
+            (op != SpvOpMemoryModel) && (op != SpvOpEntryPoint) && (op != SpvOpExecutionMode) && (op != SpvOpExecutionModeId))
+        {
+            break;
+        }
+    }
+    words.insert(words.begin() + insertion, debug.begin(), debug.end());
+    if (!report.shader.bytes.resize(words.size() * 4u, 4u))
+    {
+        return false;
+    }
+    std::memcpy(report.shader.bytes.data(), words.data(), words.size() * 4u);
+    return true;
+}
+
+static void structural_regressions(tests::TTestContext& ctx)
+{
+    for (const auto bound : { 65536u, 262144u })
+    {
+        shader::CShaderCompileReport report;
+        const bool ready = compile(report, "[numthreads(1,1,1)] void main() {}", shader::EStage::compute, shader::EDebug::none);
+        TEST_EXPECT(ctx, ready);
+        if (!ready)
+        {
+            continue;
+        }
+        reinterpret_cast<std::uint32_t*>(report.shader.bytes.data())[3u] = bound;
+        CResult result;
+        TEST_EXPECT(ctx, reflect({ &report, CStringView{ "synthetic sparse IDs" } }, {}, result) == EStatus::success);
+        const auto& usage = result.storage_statistics();
+        TEST_EXPECT(ctx, usage.reflection_arena_consumed > (65536u + (64u * report.shader.view().size())));
+        TEST_EXPECT(ctx, usage.reflection_arena_estimated_bytes >= usage.reflection_arena_consumed);
+    }
+    std::uint64_t replacement_estimate = 0u;
+    std::size_t replacement_bytes = 0u;
+    for (std::uint32_t mode = 0u; mode < 6u; ++mode)
+    {
+        shader::CShaderCompileReport report;
+        const auto count = (mode == 2u) ? 256u : ((mode == 3u) ? 1024u : 4u);
+        const auto chunk = ((mode == 2u) || (mode == 3u)) ? 4096u : 64u;
+        const bool ready = source_fixture(report, count, chunk, mode != 0u, mode == 4u, mode == 5u);
+        TEST_EXPECT(ctx, ready);
+        if (!ready)
+        {
+            continue;
+        }
+        SAdmissionAllocations observation;
+        memory::CMemoryAllocator allocator{ &observation, admission_allocate, tests::deallocate_test_memory };
+        memory::CMemoryContext context{ allocator };
+        {
+            SContextScope scope{ context };
+            CResult result;
+            const auto status = reflect({ &report, CStringView{ "synthetic source copies" } }, {}, result);
+            const auto& usage = result.storage_statistics();
+            if (mode < 2u)
+            {
+                TEST_EXPECT(ctx, status == EStatus::success);
+                TEST_EXPECT(ctx, usage.reflection_arena_estimated_bytes >= usage.reflection_arena_consumed);
+                if (mode == 0u)
+                {
+                    replacement_estimate = usage.reflection_arena_estimated_bytes;
+                    replacement_bytes = report.shader.view().size();
+                }
+                else
+                {
+                    //  Same counters except input bytes and cumulative copies:
+                    //  four 64-byte replacements cost325; continuations cost901.
+                    TEST_EXPECT(ctx, usage.reflection_arena_estimated_bytes + replacement_bytes ==
+                        replacement_estimate + report.shader.view().size() + 576u);
+                }
+            }
+            else
+            {
+                TEST_EXPECT(ctx, observation.arena_attempts == 0u && usage.reflection_arena_capacity == 0u);
+                TEST_EXPECT(ctx, status == ((mode < 4u) ? EStatus::limit_exceeded : EStatus::invalid_input));
+                const auto reason = (mode == 2u) ? EReason::working_limit :
+                    ((mode == 3u) ? EReason::allocation_size_limit : EReason::malformed_artifact);
+                TEST_EXPECT(ctx, result.diagnostic().reason == reason);
+                TEST_EXPECT(ctx, usage.working_estimate == ((mode == 2u) ? EWorkingEstimate::complete : EWorkingEstimate::unavailable));
+            }
+        }
+        TEST_EXPECT(ctx, context.is_attribution_empty());
+    }
+    for (const auto shape : { std::pair{ 6u, 1u }, std::pair{ 9u, 1u }, std::pair{ 9u, 8u }, std::pair{ 11u, 4u } })
+    {
+        std::string source = "struct S0{float4 value;};\n";
+        for (std::uint32_t d = 1u; d <= shape.first; ++d)
+        {
+            source += "struct S" + std::to_string(d) + "{S" + std::to_string(d - 1u) + " child0;S" +
+                std::to_string(d - 1u) + " child1;};\n";
+        }
+        for (std::uint32_t r = 0u; r < shape.second; ++r)
+        {
+            source += "StructuredBuffer<S" + std::to_string(shape.first) + "> input" + std::to_string(r) +
+                ":register(t" + std::to_string(r) + ");\n";
+        }
+        source += "RWStructuredBuffer<float4> sink:register(u0);\n[numthreads(1,1,1)] void main(uint3 tid:SV_DispatchThreadID){float4 v=0;";
+        for (std::uint32_t r = 0u; r < shape.second; ++r)
+        {
+            source += "v+=input" + std::to_string(r) + "[tid.x]";
+            for (std::uint32_t d = 0u; d < shape.first; ++d)
+            {
+                source += ".child0";
+            }
+            source += ".value;";
+        }
+        source += "sink[tid.x]=v;}";
+        shader::CShaderCompileReport report;
+        const bool ready = compile(report, source.c_str(), shader::EStage::compute, shader::EDebug::none);
+        TEST_EXPECT(ctx, ready);
+        if (!ready)
+        {
+            continue;
+        }
+        CResult result;
+        const auto status = reflect({ &report, CStringView{ "shared nested types" } }, {}, result);
+        const auto& usage = result.storage_statistics();
+        TEST_EXPECT(ctx, status == EStatus::success);
+        TEST_EXPECT(ctx, usage.working_estimate == EWorkingEstimate::complete);
+        TEST_EXPECT(ctx, usage.reflection_arena_consumed > (65536u + (64u * report.shader.view().size())));
+        TEST_EXPECT(ctx, usage.reflection_arena_estimated_bytes >= usage.reflection_arena_consumed);
+        std::cout << "StructuralSizing depth=" << shape.first << " resources=" << shape.second << " status=" <<
+            static_cast<unsigned>(status) << " reason=" << static_cast<unsigned>(result.diagnostic().reason) <<
+            " consumed=" << usage.reflection_arena_consumed << '\n';
+    }
+}
+
 static void allocation_arena(tests::TTestContext& ctx)
 {
     using namespace rendering::shader_reflection::detail;
@@ -1929,15 +2237,15 @@ static void allocation_arena(tests::TTestContext& ctx)
         bool size_rejected = false;
         const std::uint32_t empty[]{ 0x07230203u, 0x00010000u, 0u, 1u, 0u };
         failure.reject_all = true;
-        TEST_EXPECT(ctx, module.create(sizeof(empty), empty, size_rejected) == SPV_REFLECT_RESULT_ERROR_ALLOC_FAILED);
+        TEST_EXPECT(ctx, create_module(module, sizeof(empty), empty, size_rejected) == SPV_REFLECT_RESULT_ERROR_ALLOC_FAILED);
         TEST_EXPECT(ctx, failure.failed && !size_rejected);
         TEST_EXPECT(ctx, module.arena_consumed() == 0u && module.value()._internal == nullptr);
     }
     TEST_EXPECT(ctx, context.is_attribution_empty());
-    std::size_t capacity = 0u;
-    TEST_EXPECT(ctx, SAllocationOwner::capacity_for(0u, capacity) && (capacity != 0u));
-    TEST_EXPECT(ctx, !SAllocationOwner::capacity_for(memory::k_byte_size_ceiling, capacity) && (capacity == 0u));
-    TEST_EXPECT(ctx, !SAllocationOwner::capacity_for(static_cast<std::size_t>(-1), capacity));
+    SAllocationPlan plan;
+    TEST_EXPECT(ctx, plan_allocation(0u, plan) && (plan.reserved_bytes != 0u));
+    TEST_EXPECT(ctx, !plan_allocation(memory::k_byte_size_ceiling, plan) && (plan.reserved_bytes == 0u));
+    TEST_EXPECT(ctx, !plan_allocation(std::numeric_limits<std::uint64_t>::max(), plan));
 }
 
 struct SCleanupFault
@@ -2030,7 +2338,7 @@ static void adapter_cleanup(tests::TTestContext& ctx, const shader::CShaderCompi
         SContextScope scope{ context };
         rendering::shader_reflection::detail::CModule module;
         bool size_rejected = false;
-        TEST_EXPECT(ctx, module.create(report.shader.view().size(), report.shader.view().data(), size_rejected) == SPV_REFLECT_RESULT_SUCCESS);
+        TEST_EXPECT(ctx, create_module(module, report.shader.view().size(), report.shader.view().data(), size_rejected) == SPV_REFLECT_RESULT_SUCCESS);
         TEST_EXPECT(ctx, nested.nested_status == EStatus::success);
         TEST_EXPECT(ctx, SModuleTestAccess::active() == nullptr);
         const auto consumed = module.arena_consumed();
@@ -2048,11 +2356,11 @@ static void adapter_cleanup(tests::TTestContext& ctx, const shader::CShaderCompi
         rendering::shader_reflection::detail::CModule module;
         bool size_rejected = false;
         const std::uint32_t empty[]{ 0x07230203u, 0x00010000u, 0u, 1u, 0u };
-        const auto ordinary = module.create(sizeof(empty), empty, size_rejected);
+        const auto ordinary = create_module(module, sizeof(empty), empty, size_rejected);
         TEST_EXPECT(ctx, (ordinary != SPV_REFLECT_RESULT_SUCCESS) && !size_rejected);
         TEST_EXPECT(ctx, module.value()._internal == nullptr);
         TEST_EXPECT(ctx, context.is_attribution_empty());
-        const auto oversized = module.create(memory::k_byte_size_ceiling + 1u, empty, size_rejected);
+        const auto oversized = create_module(module, memory::k_byte_size_ceiling + 1u, empty, size_rejected);
         TEST_EXPECT(ctx, (oversized == SPV_REFLECT_RESULT_ERROR_ALLOC_FAILED) && size_rejected);
         TEST_EXPECT(ctx, module.value()._internal == nullptr);
         TEST_EXPECT(ctx, context.is_attribution_empty());
@@ -2061,7 +2369,7 @@ static void adapter_cleanup(tests::TTestContext& ctx, const shader::CShaderCompi
         SContextScope scope{ context };
         rendering::shader_reflection::detail::CModule module;
         bool size_rejected = false;
-        TEST_EXPECT(ctx, module.create(report.shader.view().size(), report.shader.view().data(), size_rejected) == SPV_REFLECT_RESULT_SUCCESS);
+        TEST_EXPECT(ctx, create_module(module, report.shader.view().size(), report.shader.view().data(), size_rejected) == SPV_REFLECT_RESULT_SUCCESS);
         TEST_EXPECT(ctx, !context.is_attribution_empty());
         if (module.value()._internal != nullptr)
         {
@@ -2076,7 +2384,7 @@ static void adapter_cleanup(tests::TTestContext& ctx, const shader::CShaderCompi
         SContextScope scope{ context };
         CModule module;
         bool size_rejected = false;
-        TEST_EXPECT(ctx, module.create(report.shader.view().size(), report.shader.view().data(), size_rejected) == SPV_REFLECT_RESULT_SUCCESS);
+        TEST_EXPECT(ctx, create_module(module, report.shader.view().size(), report.shader.view().data(), size_rejected) == SPV_REFLECT_RESULT_SUCCESS);
         SCloseWork work{ &module };
         platform::threading::CThread worker;
         const bool started = worker.create(&close_on_worker, &work);
@@ -2092,7 +2400,7 @@ static void adapter_cleanup(tests::TTestContext& ctx, const shader::CShaderCompi
         SContextScope scope{ context };
         CModule module;
         bool size_rejected = false;
-        TEST_EXPECT(ctx, module.create(report.shader.view().size(), report.shader.view().data(), size_rejected) == SPV_REFLECT_RESULT_SUCCESS);
+        TEST_EXPECT(ctx, create_module(module, report.shader.view().size(), report.shader.view().data(), size_rejected) == SPV_REFLECT_RESULT_SUCCESS);
         //  No explicit close: noexcept fallback reclaims only the arena.
     }
     TEST_EXPECT(ctx, context.is_attribution_empty());
@@ -2199,6 +2507,9 @@ static void lifetime(tests::TTestContext& ctx, const shader::CShaderCompileRepor
         TEST_EXPECT(ctx, !detail::SModuleTestAccess::created(*a_allocations.expected));
         TEST_EXPECT(ctx, !detail::SModuleTestAccess::created(*b_allocations.expected));
         TEST_EXPECT(ctx, !a_allocations.owner_released && !b_allocations.owner_released);
+        TEST_EXPECT(ctx, a_job.result.storage_statistics().reflection_owner_bytes == SReflectionTestAccess::owner_bytes(a_job));
+        TEST_EXPECT(ctx, b_job.result.storage_statistics().reflection_owner_bytes == SReflectionTestAccess::owner_bytes(b_job));
+        TEST_EXPECT(ctx, a_job.result.storage_statistics().reflection_owner_bytes != 0u);
         first = std::move(a_job.result);
         second = std::move(b_job.result);
         a_job.run();
@@ -2368,6 +2679,8 @@ int run_shader_reflection_tests()
             TEST_EXPECT(ctx, reflect({ &report, CStringView{ "caller identity / untouched" } }, {}, retained) == EStatus::success);
             check_schema(ctx, retained);
             limits(ctx, report);
+            sizing_admission(ctx, report);
+            structural_regressions(ctx);
             preflight_rejections(ctx, report);
             lifetime(ctx, report);
             adapter_cleanup(ctx, report);

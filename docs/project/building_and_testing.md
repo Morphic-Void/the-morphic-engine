@@ -199,3 +199,6 @@ a fresh UUID directory, so previous logs cannot satisfy a new run. Do not invoke
 the `--reflection-arena-fatal` test executable switch in the ordinary runner.
 The ordinary suite covers recoverable initial allocation failure, no-op frees,
 whole-arena reclamation, nested/concurrent routing and usage measurements.
+It also covers structural sizing, alignment-conditioned capacity, bootstrap and
+final working-memory rejection before arena allocation, 32-bit counter limits,
+source-copy accumulation, sparse IDs and repeated nested type expansion.

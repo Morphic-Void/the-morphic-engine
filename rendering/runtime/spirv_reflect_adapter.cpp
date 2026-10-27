@@ -29,7 +29,7 @@ static thread_local SAllocationOwner* t_allocations{ nullptr };
 //  Empirical allowance, not a bound on arbitrary vendor expansion. Consumption
 //  includes alignment and temporary allocations even after vendor free calls.
 static constexpr std::size_t k_arena_allowance = 64u * 1024u;
-static constexpr std::size_t k_arena_multiplier = 64u;
+static constexpr std::size_t k_arena_multiplier = 2u;
 
 class CActiveOwner final
 {
@@ -52,24 +52,32 @@ private:
     SAllocationOwner* const m_previous;
 };
 
-bool SAllocationOwner::capacity_for(const std::size_t input_bytes, std::size_t& capacity) noexcept
+bool plan_allocation(const std::uint64_t estimated_bytes, SAllocationPlan& plan) noexcept
 {
-    capacity = 0u;
-    if (input_bytes > ((memory::k_byte_size_ceiling - k_arena_allowance) / k_arena_multiplier))
+    plan = {};
+    if (estimated_bytes > ((memory::k_byte_size_ceiling - k_arena_allowance) / k_arena_multiplier))
     {
         return false;
     }
-    capacity = k_arena_allowance + (input_bytes * k_arena_multiplier);
+    const auto requested = k_arena_allowance + (static_cast<std::size_t>(estimated_bytes) * k_arena_multiplier);
+    const auto alignment = memory::condition_alignment(alignof(std::max_align_t));
+    const auto reserved = memory::condition_bytes(alignment, requested);
+    if (reserved == 0u)
+    {
+        return false;
+    }
+    plan = { static_cast<std::uint32_t>(estimated_bytes), requested, reserved, alignment };
     return true;
 }
 
 [[noreturn]] void SAllocationOwner::exhausted(const std::size_t count, const std::size_t bytes) const noexcept
 {
     //  Bound identity text so numeric evidence fits the fixed panic buffer.
-    MV_PANIC("SPIRV-Reflect arena exhausted: identity=%.*s identity_bytes=%zu input=%zu capacity=%zu consumed=%zu requested=%zu x %zu bytes",
+    MV_PANIC("SPIRV-Reflect arena exhausted: identity=%.*s identity_bytes=%zu input=%zu capacity=%zu consumed=%zu requested=%zu x %zu bytes estimate=%llu demand=%zu reserved=%zu",
         static_cast<int>(std::min(identity.length(), std::size_t{ 512u })),
         identity.cstring() != nullptr ? identity.cstring() : "", identity.length(),
-        input_bytes, capacity, consumed, count, bytes);
+        input_bytes, capacity, consumed, count, bytes,
+        static_cast<unsigned long long>(plan.estimated_bytes), plan.requested_bytes, plan.reserved_bytes);
 }
 
 void* SAllocationOwner::allocate(const std::size_t size) noexcept
@@ -131,10 +139,11 @@ static void breadcrumb(const SAllocationOwner& owner, const char* const phase, c
     //  Direct reporting deliberately bypasses informational macro filtering.
     //  Fixed formatting storage and immediate flush do not guarantee delivery.
     (void)debug_system::report_immediate(debug_system::EEventLevel::info, MV_INTERNAL_USAGE_POINT,
-        "SPIRV-Reflect %s: identity=%.*s identity_bytes=%zu input=%zu capacity=%zu consumed=%zu result=%d",
+        "SPIRV-Reflect %s: identity=%.*s identity_bytes=%zu input=%zu capacity=%zu consumed=%zu result=%d estimate=%llu demand=%zu reserved=%zu",
         phase, static_cast<int>(std::min(owner.identity.length(), std::size_t{ 512u })),
         owner.identity.cstring() != nullptr ? owner.identity.cstring() : "", owner.identity.length(),
-        owner.input_bytes, owner.capacity, owner.consumed, static_cast<int>(result));
+        owner.input_bytes, owner.capacity, owner.consumed, static_cast<int>(result),
+        static_cast<unsigned long long>(owner.plan.estimated_bytes), owner.plan.requested_bytes, owner.plan.reserved_bytes);
 }
 
 }   //  namespace rendering::shader_reflection::detail
@@ -161,6 +170,101 @@ static void breadcrumb(const SAllocationOwner& owner, const char* const phase, c
 namespace rendering::shader_reflection::detail
 {
 
+//  Keep the frozen model's native coefficients beside the vendor definitions.
+//  Updating SPIRV-Reflect requires auditing its allocation sites and these terms.
+class CAllocationEstimate final
+{
+public:
+    [[nodiscard]] bool add(const std::uint64_t count, const std::uint64_t bytes,
+        const std::uint64_t copies = 1u) noexcept
+    {
+        auto term = count;
+        return multiply_size(term, bytes) && multiply_size(term, copies) && add_size(m_total, term);
+    }
+
+    [[nodiscard]] bool finish(SAllocationPlan& plan) const noexcept
+    {
+        return plan_allocation(m_total, plan);
+    }
+
+private:
+    std::uint64_t m_total{ 0u };
+};
+
+static bool baseline(CAllocationEstimate& estimate, const SAllocationCounts& counts) noexcept
+{
+    return estimate.add(counts.input_bytes, 1u) &&
+        estimate.add(counts.instructions, sizeof(SpvReflectPrvNode)) &&
+        estimate.add(counts.id_bound, sizeof(std::uint32_t));
+}
+
+bool estimate_baseline(const SAllocationCounts& counts, SAllocationPlan& plan) noexcept
+{
+    plan = {};
+    CAllocationEstimate estimate;
+    return baseline(estimate, counts) && estimate.finish(plan);
+}
+
+bool estimate_allocation(const SAllocationCounts& counts, SAllocationPlan& plan) noexcept
+{
+    plan = {};
+    CAllocationEstimate estimate;
+    constexpr auto padding = alignof(std::max_align_t);
+    constexpr auto pointer = sizeof(void*);
+    auto passes = static_cast<std::uint64_t>(counts.entry_points);
+    if (!add_size(passes, 1u) || !baseline(estimate, counts))
+    {
+        return false;
+    }
+
+    //  Type copies and declared-member metadata, including repeated DAG paths.
+    if (!estimate.add(counts.types, sizeof(SpvReflectTypeDescription) + padding) ||
+        !estimate.add(counts.expanded_type_members, sizeof(SpvReflectTypeDescription) + padding) ||
+        !estimate.add(counts.declared_members, sizeof(SpvReflectPrvDecorations) + pointer + (2u * padding)))
+    {
+        return false;
+    }
+
+    //  All resource/interface roots are charged, even if not statically used.
+    if (!estimate.add(counts.resources, sizeof(SpvReflectDescriptorBinding)) ||
+        !estimate.add(counts.resources, 64u, passes) ||
+        !estimate.add(counts.push_constant_roots, sizeof(SpvReflectBlockVariable) + padding) ||
+        !estimate.add(counts.expanded_resource_members, sizeof(SpvReflectBlockVariable) + pointer + (2u * padding)) ||
+        !estimate.add(counts.interfaces, sizeof(SpvReflectInterfaceVariable) + pointer + 4u + padding, counts.entry_points) ||
+        !estimate.add(counts.expanded_interface_members, sizeof(SpvReflectInterfaceVariable) + pointer + 4u + padding, counts.entry_points))
+    {
+        return false;
+    }
+
+    //  Access records include argument and copy-memory operands. Per-entry
+    //  scratch is charged without reconstructing the vendor's reachability sets.
+    if (!estimate.add(counts.functions, sizeof(SpvReflectPrvFunction) + (4u * padding)) ||
+        !estimate.add(counts.parameters, 4u) ||
+        !estimate.add(counts.calls, 4u + pointer) ||
+        !estimate.add(counts.expanded_entry_calls, 4u) ||
+        !estimate.add(counts.access_records, sizeof(SpvReflectPrvAccessedVariable) + 8u, passes) ||
+        !estimate.add(counts.access_chains, sizeof(SpvReflectPrvAccessChain) + padding) ||
+        !estimate.add(counts.access_indices, 4u))
+    {
+        return false;
+    }
+
+    //  Embedded source replacements/concatenations remain allocated until close.
+    //  Fixed slack is empirical and deliberately unchanged from the frozen model.
+    if (!estimate.add(counts.strings, sizeof(SpvReflectPrvString) + padding) ||
+        !estimate.add(counts.cumulative_source_bytes, 1u) ||
+        !estimate.add(counts.source_allocations, padding) ||
+        !estimate.add(1u, padding) ||
+        !estimate.add(counts.entry_points, sizeof(SpvReflectEntryPoint) + 64u) ||
+        !estimate.add(1u, 4096u) ||
+        !estimate.add(counts.instructions, 16u) ||
+        !estimate.add(counts.specializations, 64u))
+    {
+        return false;
+    }
+    return estimate.finish(plan);
+}
+
 CModule* CModule::active() noexcept
 {
     return (t_allocations != nullptr) ? t_allocations->module : nullptr;
@@ -184,7 +288,7 @@ void CModule::close() noexcept
 }
 
 SpvReflectResult CModule::create(const std::size_t bytes, const void* const words,
-    bool& allocation_size_rejected, const CStringView identity) noexcept
+    const SAllocationPlan& plan, bool& allocation_size_rejected, const CStringView identity) noexcept
 {
     allocation_size_rejected = false;
     if (m_created)
@@ -193,16 +297,30 @@ SpvReflectResult CModule::create(const std::size_t bytes, const void* const word
     }
     m_allocations.input_bytes = bytes;
     m_allocations.consumed = 0u;
-    if (!SAllocationOwner::capacity_for(bytes, m_allocations.capacity))
+    m_allocations.capacity = 0u;
+    m_allocations.plan = {};
+    SAllocationPlan checked;
+    if ((bytes > memory::k_byte_size_ceiling) || !plan_allocation(plan.estimated_bytes, checked) ||
+        (checked.requested_bytes != plan.requested_bytes) || (checked.reserved_bytes != plan.reserved_bytes) ||
+        (checked.alignment != plan.alignment))
     {
         allocation_size_rejected = true;
         return SPV_REFLECT_RESULT_ERROR_ALLOC_FAILED;
     }
+    m_allocations.plan = plan;
     CActiveOwner scope{ m_allocations };
-    if (!m_allocations.arena.allocate(m_allocations.capacity, alignof(std::max_align_t)))
+    if (!m_allocations.arena.allocate(plan.reserved_bytes, plan.alignment))
     {
         return SPV_REFLECT_RESULT_ERROR_ALLOC_FAILED;
     }
+    const auto usable = m_allocations.arena.capacity();
+    if ((usable != plan.reserved_bytes) ||
+        (m_allocations.arena.memory_attribution().allocation_size != plan.reserved_bytes))
+    {
+        m_allocations.arena.deallocate();
+        return SPV_REFLECT_RESULT_ERROR_INTERNAL_ERROR;
+    }
+    m_allocations.capacity = usable;
     m_allocations.identity = identity;
     breadcrumb(m_allocations, "create begin", SPV_REFLECT_RESULT_SUCCESS);
     const auto result = CreateShaderModule(0u, bytes, words, &m_module);

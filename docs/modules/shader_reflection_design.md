@@ -182,8 +182,11 @@ processing, including repeated paths through shared dependencies.
 Retained names/metadata have a 4 KiB individual limit and 4 MiB aggregate limit;
 diagnostics have a 64 KiB limit and truncation flag. Embedded source/debug blobs
 use the artifact limit, not the retained-name limit. The retained-result default
-is 16 MiB. Working-storage admission uses a provisional 128 MiB estimate: eight
-times artifact bytes, plus the arena reservation, ID-index storage and 64 KiB allowance. This is an
+is 16 MiB. Working-storage admission retains the 128 MiB default. It charges the
+conditioned arena reservation, exact conditioned node/edge/annotation storage,
+the prepared job owner's actual conditioned allocation (zero for a synchronous
+stack-owned module), eight times artifact bytes and a 64 KiB allowance. The last
+two terms remain approximate extraction/miscellaneous storage. This is an
 estimate, not an enforced or measured peak. Counts, checked arithmetic and
 ordinary allocation failure remain independent checks. The codebase-wide 2 GiB
 single-allocation ceiling is unchanged.
@@ -198,12 +201,37 @@ there is no growth, relocation, wraparound or reuse of released space. Vendor
 abandoned temporaries. Invalid or missed vendor frees are deliberately not
 tracked or diagnosed; this is the accepted tradeoff for whole-arena reclamation.
 
-Capacity is **64 KiB + 64 times the input SPIR-V byte count**. This reservation
-is per concurrent operation, irrespective of how much it ultimately consumes.
-A 1 MiB artifact reserves 64 MiB + 64 KiB. The default 128 MiB working estimate
-includes that reservation plus estimated index/document storage, so it can
-reject inputs well below the separate 16 MiB artifact limit. This is admission
-per operation, not an aggregate concurrency memory limit.
+The raw arena demand is **64 KiB + twice the structural estimate of cumulative
+vendor allocation**. The exact baseline is input bytes plus one native vendor
+parser node per instruction and a four-byte entry per header ID. Instructions
+include debug records. Residual terms charge type descriptions, declared member
+metadata, expanded member occurrences across every type/resource/interface root,
+functions/parameters/calls, accesses/index operands, entry points, strings and
+cumulative embedded-source replacement/continuation copies. Arrays propagate
+member descriptions without multiplying by element count; repeated shared types
+are charged each time. Coefficients use vendor-private `sizeof` values in the
+adapter, with the frozen model's padding and miscellaneous allowances. Vendor
+updates require re-auditing those allocation categories, not merely recompiling.
+
+A bounded, non-allocating scan counts instructions and exact index capacities.
+Bootstrap admission uses that storage plus a baseline-only arena lower bound.
+Only after it passes are the three local index vectors allocated exactly. The
+existing memoized DAG traversal additionally computes expanded member weights;
+a bounded root scan completes the estimate. Final working-memory admission
+precedes arena allocation and all vendor entry. There is only one preflight
+index, retained through extraction. The existing single-entrypoint requirement
+is now rejected before vendor invocation. The 23 stored sizing counters and
+per-node member weights are 32-bit; repeated source/graph totals reject beyond
+the allocation ceiling. Checked products and aggregate working totals use
+64-bit arithmetic. Oversized values are rejected, never clipped into admission.
+
+The raw demand is explicitly rounded using the memory context's alignment
+conditioning before admission. `CByteBuffer::allocate` then requests that exact
+conditioned reservation, without buffer growth. The arena uses its full exposed
+`capacity()`, including the specified alignment tail. Heap-private padding and
+headers are not payload. Arena alignment is currently 16 bytes on GCC Linux x64
+and eight on MSVC x64/x86; use native policies, not those constants. This remains
+per-operation admission, not an aggregate concurrency memory limit.
 
 The capacity formula is an empirical
 allowance, not a proven bound on vendor expansion. Overflow-safe sizing and the
@@ -212,7 +240,8 @@ allocate the initial arena is an ordinary recoverable allocation failure.
 Exhaustion inside vendor execution never returns null: it invokes `MV_PANIC`
 and terminates, since upstream allocation/partial-cleanup paths are not reliably
 null-safe. The panic includes identity (up to 512 bytes plus its full length),
-input size, capacity, consumed bytes and requested allocation dimensions.
+input size, capacity, consumed bytes, requested allocation dimensions and
+structural estimate/raw demand/selected reservation.
 
 Direct create/destroy entry and completion records bypass informational macro
 filtering and attempt immediate write/flush. These and panic reporting are best
@@ -235,9 +264,13 @@ invokes vendor code. The job retains its module object until requester-side
 destruction after drain. Copied results do not borrow arena storage. The narrow
 placement-construction policy allowance remains confined to the implementation.
 
-`SStorageStatistics::reflection_arena_capacity` and `reflection_arena_consumed`
-retain the reserved allowance and alignment-inclusive cumulative consumption
-after reclamation. Re-measure after vendor updates or materially different
+`SStorageStatistics` distinguishes estimated vendor usage, raw demand, selected
+reservation, actual exposed capacity and alignment-inclusive consumption. Actual
+capacity remains zero until allocation succeeds. Capacity and consumption remain
+available after reclamation; they do not indicate currently live memory.
+`working_estimate` distinguishes unavailable, bootstrap lower bound and complete
+working estimates, including early/final admission failures. Preflight and owner
+allocation charges are also recorded. Re-measure after vendor updates or materially different
 shader workloads. The October 2026 calibration includes existing resource,
 buffer, packed-layout and stage fixtures, plus scaling shaders with 256 input
 bindings or 128/512 live structure fields, with and without debug/source data.
@@ -246,24 +279,29 @@ shader workload.
 
 | Scaling fixture | SPIR-V bytes | Consumed bytes (Linux x64) | Arena allowance |
 | --- | ---: | ---: | ---: |
-| 256 bindings, no debug | 60,192 | 1,142,820 | 3,917,824 |
-| 256 bindings, source debug | 159,212 | 1,742,420 | 10,255,104 |
-| 128 fields, no debug | 25,516 | 650,372 | 1,698,560 |
-| 128 fields, source debug | 79,052 | 992,164 | 5,124,864 |
-| 512 fields, no debug | 99,244 | 2,507,396 | 6,417,152 |
-| 512 fields, source debug | 280,172 | 3,790,820 | 17,996,544 |
+| 256 bindings, no debug | 60,192 | 1,142,820 | 2,577,904 |
+| 256 bindings, source debug | 159,212 | 1,742,420 | 3,853,456 |
+| 128 fields, no debug | 25,516 | 650,372 | 1,480,992 |
+| 128 fields, source debug | 79,052 | 992,164 | 2,208,368 |
+| 512 fields, no debug | 99,244 | 2,507,396 | 5,502,240 |
+| 512 fields, source debug | 280,172 | 3,790,820 | 8,235,584 |
 
-The largest measured utilisation in these scaling cases is about 39.1%, leaving
-at least 2.55 times observed consumption. Existing fixture samples range from
-472 to 25,160 input bytes and 14,664 to 242,308 consumed bytes. Their smallest
-no-debug inputs reach about 31.6 times input size, comfortably covered by the
-fixed allowance. Windows x64 consumed 1,134,412 / 1,733,772 bytes for the binding
-cases, 649,148 / 990,932 for 128 fields, and 2,503,100 / 3,786,276 for 512 fields
-(no debug / source debug). Native alignment and emitted debug data can differ.
-Debug x64 ordinary suites passed on Windows and Ubuntu/GCC under WSL, including
-5,701 reflection and 1,649 conditioning checks per platform. Isolated fatal
-cases passed on both platforms; the source-manifest tests reject the removed
-reflection exception settings. These results describe this local checkpoint.
+The structural model was frozen against 32 calibration cases before 63 broader
+holdouts were generated. Its minimum observed Linux x64 headroom was 2.0006x,
+with no underestimated cumulative consumption. This is empirical, not a bound
+on arbitrary shaders, extensions or vendor versions. Native alignment and debug
+data can differ. Production estimates matched the frozen model on all 95 inputs
+using a separate diagnostic harness; that harness widened limits only to compare
+previously classified stress inputs and did not change production admission.
+
+The old input-byte allowance exhausted on eleven holdouts, seven passing its
+default preflight. Four were DXC-generated nested/shared-type shaders; three
+were synthetic sparse-ID or continued-source stress. Valid SPIR-V and preflight
+admission do not themselves establish supported engine extraction. Regression
+tests now compile the four nested shapes through the engine facade and check
+their extraction, test the synthetic sizing boundaries separately, and reject
+the oversized continuation case before arena allocation. Existing per-job,
+failure-injection and isolated fatal tests retain the lifetime/failure contract.
 
 ### Renderer-local composed conditioning
 
