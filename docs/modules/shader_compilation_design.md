@@ -17,8 +17,9 @@ below distinguishes it from deferred reflection and pipeline work.
 The agreed next phase is described in [reflection and component libraries](shader_reflection_design.md):
 schema-backed resource and stage interfaces, explicit shared-type mappings,
 renderer-owned compile/reflect reports and live library assembly before baking.
-Reflection/library conditioning remains unimplemented and lists its remaining
-decisions; generic schema composition and version-2 persistence are implemented. The
+The complete reflection/library conditioning path remains unimplemented; the
+reflection document describes its narrower initial adapter checkpoint and remaining
+decisions. Generic schema composition and version-2 persistence are implemented. The
 compile-only contracts below describe current behaviour, not the final library
 representation or publication envelope.
 
@@ -60,9 +61,10 @@ and `shader_group_view()`. A successful publication can contain failed shaders;
 inspect the group summary and each report. Views remain valid until disposal of
 that group asset. Compiler jobs and report classes have no Host asset dependency.
 
-Only `shader_compiler.cpp` enables C++ exceptions. Temporary STL storage and DXC
-interfaces are confined to that boundary. Other engine translation units retain
-their exception-free settings. The adapter explicitly loads the compiler beside
+`shader_compiler.cpp` enables C++ exceptions for temporary STL storage and DXC
+interfaces. Reflection separately confines its allocation-failure marker to
+`spirv_reflect_adapter.cpp`; the importer and other engine translation units retain
+their exception-free settings. The DXC adapter explicitly loads the compiler beside
 the executable, pins it on Windows or uses Linux `RTLD_NODELETE`, and balances
 load references so renderer replacement does not accumulate references. DXC
 objects are created and destroyed on each executing callback's thread.
@@ -569,8 +571,11 @@ The reflection design records their constraints and the remaining contract choic
 Its agreed authoring starting point uses an ordered explicit shader/variant list,
 existing compilation defaults and define precedence, and separate public,
 declaration and descriptive identities. Deterministic packing preserves binary
-artifacts; specialization-dependent shapes/execution dimensions initially fail
-with diagnostics. Exact identity encoding and public conditioning APIs remain open.
+artifacts. The first individual-shader reflector rejects all specialization
+constants with diagnostics; compile-only behaviour is unchanged. Specialization
+support remains required before the overall shader work is complete and will be
+designed with PSO construction. Exact identity encoding and public conditioning
+APIs remain open.
 
 Later pipeline conditioning should validate vertex-buffer construction and stage
 connections, including tessellation patch interfaces and topology. The library

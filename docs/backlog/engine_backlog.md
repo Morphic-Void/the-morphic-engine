@@ -143,6 +143,12 @@ remain potential consumers, to be selected as separate work.
 - Condition and validate graphics pipelines: shader reflection, PSO metadata,
   pipeline descriptions, graphics state and API-specific/agnostic processing.
   Runtime rendering must accept both offline and on-demand conditioned data.
+- Add shader specialization-constant support before considering the overall
+  shader work complete. The first individual-shader reflector deliberately rejects
+  all specialization constants; this is a temporary scope restriction and does not
+  change compile-only behaviour. Settle metadata, value selection, validation and
+  shape/execution dependencies once PSO construction is sufficiently defined.
+  Completion of the initial reflector does not close this required follow-up.
 - Keep image conversion, compression/decompression and graphics asset
   conditioning separable from pipeline conditioning, for runtime and offline use.
 - Build a swappable renderer/RHI with Vulkan as the primary first implementation.

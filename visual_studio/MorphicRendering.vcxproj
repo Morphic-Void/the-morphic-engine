@@ -99,6 +99,9 @@
     <ClCompile Include="..\rendering\runtime\basis_codec.cpp" />
     <ClCompile Include="..\rendering\runtime\texture_jobs.cpp" />
     <ClCompile Include="..\rendering\runtime\shader_requests.cpp" />
+    <ClCompile Include="..\rendering\runtime\shader_reflection.cpp" />
+    <ClCompile Include="..\rendering\runtime\shader_conditioning.cpp" />
+    <ClCompile Include="..\rendering\runtime\spirv_reflect_adapter.cpp" />
     <ClCompile Include="..\rendering\runtime\shader_compiler.cpp">
       <ExceptionHandling>Sync</ExceptionHandling>
       <AdditionalIncludeDirectories>$(ProjectDir)..\build\dependencies\dxc\inc;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
@@ -146,6 +149,9 @@
     <ClInclude Include="..\rendering\runtime\basis_codec.hpp" />
     <None Include="..\rendering\shaders\morphic_shader.hlsli" />
     <ClInclude Include="..\rendering\runtime\shader_requests.hpp" />
+    <ClInclude Include="..\rendering\runtime\shader_reflection.hpp" />
+    <ClInclude Include="..\rendering\runtime\shader_conditioning.hpp" />
+    <ClInclude Include="..\rendering\runtime\shader_reflection_spirv.hpp" />
     <ClInclude Include="..\rendering\runtime\shader_compiler.hpp" />
     <ClInclude Include="..\rendering\runtime\texture_jobs.hpp" />
   </ItemGroup>

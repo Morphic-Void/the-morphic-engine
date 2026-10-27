@@ -22,6 +22,9 @@
     <ClInclude Include="..\rendering\module\types\local_types.hpp"><Filter>Rendering\include\module\types</Filter></ClInclude>
     <ClInclude Include="..\rendering\runtime\rendering_thread.hpp"><Filter>Rendering\include\runtime</Filter></ClInclude>
     <ClInclude Include="..\rendering\runtime\basis_codec.hpp"><Filter>Rendering\include\runtime</Filter></ClInclude>
+    <ClInclude Include="..\rendering\runtime\shader_reflection.hpp"><Filter>Rendering\include\runtime</Filter></ClInclude>
+    <ClInclude Include="..\rendering\runtime\shader_conditioning.hpp"><Filter>Rendering\include\runtime</Filter></ClInclude>
+    <ClInclude Include="..\rendering\runtime\shader_reflection_spirv.hpp"><Filter>Rendering\include\runtime</Filter></ClInclude>
     <ClInclude Include="..\rendering\runtime\shader_compiler.hpp"><Filter>Rendering\include\runtime</Filter></ClInclude>
     <ClInclude Include="..\rendering\runtime\shader_requests.hpp"><Filter>Rendering\include\runtime</Filter></ClInclude>
     <ClInclude Include="..\rendering\runtime\texture_jobs.hpp"><Filter>Rendering\include\runtime</Filter></ClInclude>
@@ -31,6 +34,9 @@
     <ClCompile Include="..\rendering\module\types\local_type_ids.cpp"><Filter>Rendering\src\module\types</Filter></ClCompile>
     <ClCompile Include="..\rendering\runtime\rendering_thread.cpp"><Filter>Rendering\src\runtime</Filter></ClCompile>
     <ClCompile Include="..\rendering\runtime\basis_codec.cpp"><Filter>Rendering\src\runtime</Filter></ClCompile>
+    <ClCompile Include="..\rendering\runtime\shader_reflection.cpp"><Filter>Rendering\src\runtime</Filter></ClCompile>
+    <ClCompile Include="..\rendering\runtime\shader_conditioning.cpp"><Filter>Rendering\src\runtime</Filter></ClCompile>
+    <ClCompile Include="..\rendering\runtime\spirv_reflect_adapter.cpp"><Filter>Rendering\src\runtime</Filter></ClCompile>
     <ClCompile Include="..\rendering\runtime\shader_compiler.cpp"><Filter>Rendering\src\runtime</Filter></ClCompile>
     <ClCompile Include="..\rendering\runtime\shader_requests.cpp"><Filter>Rendering\src\runtime</Filter></ClCompile>
     <ClCompile Include="..\rendering\runtime\texture_jobs.cpp"><Filter>Rendering\src\runtime</Filter></ClCompile>

@@ -42,6 +42,11 @@
     <ClCompile Include="..\tests\test_suites\BundleRequests_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
     <ClCompile Include="..\tests\test_suites\BundleService_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
     <ClCompile Include="..\tests\test_suites\TextureService_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
+    <ClCompile Include="..\tests\test_suites\ShaderReflection_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
+    <ClCompile Include="..\rendering\runtime\shader_reflection.cpp" />
+    <ClCompile Include="..\rendering\runtime\shader_conditioning.cpp" />
+    <ClCompile Include="..\tests\test_suites\ShaderConditioning_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
+    <ClCompile Include="..\rendering\runtime\spirv_reflect_adapter.cpp" />
     <ClCompile Include="..\tests\test_suites\TextureBatch_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
     <ClCompile Include="..\host\runtime\host_worker_thread.cpp" />
     <ClCompile Include="..\host\runtime\asset_service.cpp" />
@@ -110,6 +115,8 @@
     <ClInclude Include="..\tests\test_suites\BundleRequests_test_suite.hpp"><Filter>Tests\test_suites</Filter></ClInclude>
     <ClInclude Include="..\tests\test_suites\BundleService_test_suite.hpp"><Filter>Tests\test_suites</Filter></ClInclude>
     <ClInclude Include="..\tests\test_suites\TextureService_test_suite.hpp"><Filter>Tests\test_suites</Filter></ClInclude>
+    <ClInclude Include="..\tests\test_suites\ShaderReflection_test_suite.hpp"><Filter>Tests\test_suites</Filter></ClInclude>
+    <ClInclude Include="..\tests\test_suites\ShaderConditioning_test_suite.hpp"><Filter>Tests\test_suites</Filter></ClInclude>
     <ClInclude Include="..\tests\test_suites\TextureBatch_test_suite.hpp"><Filter>Tests\test_suites</Filter></ClInclude>
     <ClInclude Include="..\tests\test_suites\BakedDocument_test_suite.hpp"><Filter>Tests\test_suites</Filter></ClInclude>
     <ClInclude Include="..\tests\test_suites\BakedDocumentTransfer_test_suite.hpp"><Filter>Tests\test_suites</Filter></ClInclude>

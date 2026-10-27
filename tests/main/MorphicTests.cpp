@@ -8,10 +8,12 @@
 //  Date:    21 Oct 26
 
 #include <iostream>
+#include <cstring>
 
 #include "tests/environment/test_environment.hpp"
 #include "tests/environment/test_paths.hpp"
 #include "tests/main/run_tests.hpp"
+#include "tests/test_suites/ShaderReflection_test_suite.hpp"
 
 int main(const int argc, char** const argv)
 {
@@ -47,6 +49,14 @@ int main(const int argc, char** const argv)
         return 1;
     }
 
+    for (int i = 1; i < argc; ++i)
+    {
+        constexpr char prefix[] = "--reflection-arena-fatal=";
+        if (std::strncmp(argv[i], prefix, sizeof(prefix) - 1u) == 0)
+        {
+            return run_shader_reflection_arena_fatal(argv[i] + sizeof(prefix) - 1u);
+        }
+    }
     const int result = run_tests(parse_test_run_mode(argc, argv));
     if (!test_environment::is_clean())
     {

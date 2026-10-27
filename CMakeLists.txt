@@ -110,6 +110,10 @@ enable_testing()
 add_test(NAME MorphicOrdinary COMMAND MorphicTests -t1 --log-tag=linux-ci
     "--output-directory=${CMAKE_BINARY_DIR}/test-output")
 set_tests_properties(MorphicOrdinary PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}" TIMEOUT 600)
+add_test(NAME MorphicReflectionArenaFatal COMMAND "${Python3_EXECUTABLE}"
+    "${CMAKE_SOURCE_DIR}/tools/tests/test_reflection_arena_fatal.py" --binary "$<TARGET_FILE:MorphicTests>"
+    "--output-directory=${CMAKE_BINARY_DIR}/reflection-arena-fatal")
+set_tests_properties(MorphicReflectionArenaFatal PROPERTIES TIMEOUT 120)
 foreach(workers IN ITEMS 1 2)
     add_test(NAME MorphicHostAcceptance${workers}Worker COMMAND "${Python3_EXECUTABLE}"
         "${CMAKE_SOURCE_DIR}/tests/texture/run_tests.py" --engine "$<TARGET_FILE:MorphicHost>"

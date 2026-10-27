@@ -81,6 +81,20 @@ class SourceManifestTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "per-file ClCompile"):
                 collect_sources(self.project(changed, "visual_studio/MorphicRendering.vcxproj"), self.root)
 
+    def test_reflection_exception_metadata_is_rejected(self):
+        source = self.root / "rendering/runtime/spirv_reflect_adapter.cpp"
+        source.parent.mkdir(parents=True)
+        source.touch()
+        body = (
+            '<ItemGroup><ClCompile Include="..\\rendering\\runtime\\spirv_reflect_adapter.cpp">'
+            '<ExceptionHandling>false</ExceptionHandling>'
+            '<AdditionalOptions>/EHs /EHc- %(AdditionalOptions)</AdditionalOptions>'
+            '</ClCompile></ItemGroup>'
+        )
+        for name in ("MorphicRendering", "MorphicTests"):
+            with self.assertRaisesRegex(ValueError, "per-file ClCompile"):
+                collect_sources(self.project(body, f"visual_studio/{name}.vcxproj"), self.root)
+
     def test_shared_import_cycle_fails(self):
         project = self.project('<Import Project="core.vcxitems" Label="Shared" />')
         self.project('<Import Project="project.vcxproj" Label="Shared" />', "core.vcxitems")

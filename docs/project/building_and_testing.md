@@ -27,8 +27,12 @@ Linux x86-64 shared library. Builds copy the compiler beside the executables and
 retain package licence texts in `dxc-licences`. Deployment of shader compilation
 requires those files; compilation does not require a GPU or graphics device.
 
-The rendering adapter alone enables exceptions (`/EHsc` or `-fexceptions`).
-Its compiler objects and temporary allocations remain local to that boundary.
+The DXC adapter enables exceptions (`/EHsc` or `-fexceptions`). Its compiler
+objects and temporary allocations remain local to that boundary. The private
+SPIRV-Reflect adapter uses a fixed per-operation arena and has no exception
+compiler allowance. Initial arena allocation failure is recoverable; exhaustion
+during vendor execution terminates with a best-effort diagnostic. See the
+[reflection checkpoint](../modules/shader_reflection_design.md#initial-adapter-checkpoint).
 Ordinary suites include shader compilation and transport cases, so the compiler
 must be deployed when running them. See the
 [shader design](../modules/shader_compilation_design.md) for request/result use,
@@ -180,3 +184,18 @@ local commits require a push before those workflows can validate them.
 
 The separate direct TGA round-trip helper is compiled into `MorphicTests` as a
 manual test but is intentionally not registered or invoked.
+
+Reflection arena exhaustion is tested only in disposable child processes:
+
+```powershell
+python tools/tests/test_reflection_arena_fatal.py --binary build/bin/x64/Debug/MorphicTests.exe --output-directory build/reflection-arena-fatal
+```
+
+On Linux, `ctest --test-dir build/shader-linux -R MorphicReflectionArenaFatal
+--output-on-failure` runs the same harness. It checks capacity exhaustion,
+alignment padding and `calloc` size overflow, requiring the expected fatal exit
+and matching panic fields. Every invocation retains logs and captured output in
+a fresh UUID directory, so previous logs cannot satisfy a new run. Do not invoke
+the `--reflection-arena-fatal` test executable switch in the ordinary runner.
+The ordinary suite covers recoverable initial allocation failure, no-op frees,
+whole-arena reclamation, nested/concurrent routing and usage measurements.

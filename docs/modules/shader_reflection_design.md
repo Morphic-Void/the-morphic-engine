@@ -4,18 +4,20 @@ License: MIT (see LICENSE file in repository root)
 File:   shader_reflection_design.md
 Author: Ritchie Brannan
 Drafting and editorial assistance: OpenAI Codex
-Date:   25 Oct 2026
+Date:   26 Oct 2026
 
 # Shader reflection and component libraries
 
 ## Status and boundaries
 
-This records the reflection design agreed through 25 October 2026. Reflection,
-combined conditioning reports and component-library assembly are not implemented.
+This records the reflection design agreed through 26 October 2026. Renderer-local
+individual-artifact reflection and a composed compile/reflect job and report are
+implemented within the boundaries below. Component-library assembly and production
+combined-group request/publication contracts remain unimplemented.
 Generic schema composition and version-2 combined persistence are implemented.
 The existing [compilation path](shader_compilation_design.md) remains the
-implemented baseline. The final section identifies decisions required before
-implementation. The version 1 decoration vocabulary and canonical stage shapes
+implemented baseline. The final section identifies decisions for later integration
+and library implementation. The version 1 decoration vocabulary and canonical stage shapes
 below are agreed, with the compact naming and interpretation distinctions recorded
 here superseding the earlier `Float3x4`/`Matrix3x4f` conventions. Additional
 producer/consumer convention metadata, full library authoring grammar and generated
@@ -43,6 +45,261 @@ DXC, SPIRV-Reflect or Basis Universal headers or implementation. Public contract
 use engine-owned storage and abstractions. Initial reflection consumes artifacts
 from the engine compilation path; independently loaded binaries would require
 an explicit validation boundary. SPIRV-Reflect is not a SPIR-V validator.
+
+### Initial adapter checkpoint
+
+The renderer-private API is `rendering/runtime/shader_reflection.hpp`.
+`SRequest` borrows an existing `CShaderCompileReport` and a nonempty opaque UTF-8
+component identity. `reflect` requires an empty `CResult`; an occupied result is
+preserved and the call returns `invalid_input`. Compilation status, artifact and
+diagnostics remain unchanged. `CReflectJob` supplies the existing batch callback
+shape without adding Host messages or SYSTEM identities. Its `prepare()` must
+succeed on the rendering/requester thread before dispatch. Each job owns a
+nonmovable `CReflection` instance containing the private module and operation
+arena; the callback exclusively borrows that prepared instance. Preparation
+failure leaves the result `not_executed`. Direct synchronous `reflect()` calls
+instead own a temporary module on their calling thread.
+
+This checkpoint accepts conventional entries in all six stages, with canonical
+non-storage stage interfaces and checked literal execution modes. Resources
+currently include separate samplers, sampled/storage
+images and uniform/storage texel buffers, with fixed descriptor arrays. Actual
+variable/type decoration ownership is preserved, including access flags; flags
+are not propagated through associations. The bundled compiler currently rejects
+multidimensional descriptor arrays during SPIR-V legalization; real-artifact
+fixtures cover one-dimensional arrays, including extent one.
+It emits the three ordered root groups and entry-point metadata, then validates
+the complete types-only `CSchema` before publication. Uniform and storage buffers
+now import 32-bit scalar/vector/structure storage, nested fixed arrays and matrices.
+Storage-buffer runtime tails use buffer-layout interfaces and stride-bearing
+sequence associations. Runtime matrix and array elements have private, one-member
+physical structures so associations can target named declarations. The member
+`storage` begins at offset zero; its inline descriptor retains dimensions,
+strides and matrix interpretation, while the wrapper retains exact complete
+size/alignment and has no fabricated source metadata. Runtime stride remains
+independent. Raw/structured/typed interpretation follows available compiler
+user-type metadata. Fixed-prefix runtime blocks, other resource categories and
+execution modes outside the checked table fail explicitly. All
+specialization constants reject, with identifiable shape/execution reasons where
+available. Required specialization support remains unfinished, as recorded below.
+
+Stage values use primitive leaves and separate vector, matrix, fixed-array and
+structure interfaces. Matrices retain their compiled SPIR-V basis and have no
+storage-major claim. Ordinary arrays, including extent one and inner arrays
+inside a vertex wrapper, retain every dimension. Actual variable/member locations,
+components, indices, built-ins, HLSL semantics and qualifier flags remain on their
+owners; groups and referenced shapes do not acquire copies. Applicable nonempty
+value groups follow the fixed order below. Conventional built-ins are classified
+by stage/direction and their own facts, not the library's merged convenience flags.
+For example, DXC's domain-stage `PrimitiveId` keeps its actual `Patch` decoration
+on the occurrence while remaining in the system group.
+Tessellation-control vertex inputs/outputs and tessellation-evaluation/geometry
+vertex inputs use outer vertex-array associations; patch and system arrays do not.
+
+Homogeneous reflected aggregates remain intact. An aggregate whose members need
+different value domains currently rejects with `unsupported_interface`, including
+type/member coordinates where available. This is an initial importer restriction,
+not a declaration that the SPIR-V is invalid or a permanent design exclusion.
+An aggregate carrying `Patch` on its containing occurrence currently also passes
+the user-varying direction guard before member built-ins are classified: it is
+admitted only for control-stage output or evaluation-stage input. Other directions
+reject with `unsupported_interface`, even if a homogeneous built-in aggregate
+could be legal there. The scalar `PrimitiveId` fixtures do not establish general
+support for such Patch-decorated built-in aggregates.
+No hierarchy is reconstructed after compiler flattening. Private shape, group
+and wrapper identities remain deterministic and document-local; source names are
+decorations. Resources, shapes, wrappers and groups share declaration/member limits.
+
+The literal execution table admits compute `LocalSize`; tessellation spacing,
+winding, topology, point mode and `OutputVertices`; geometry input/output topology,
+`Invocations` and `OutputVertices`; and fragment `OriginUpperLeft`,
+`EarlyFragmentTests`, `DepthReplacing`, `DepthGreater`, `DepthLess` and
+`DepthUnchanged`. Stage masks, operand counts, positive literal counts, duplicates
+and exclusive mode families are checked. Required local compute/fragment/geometry
+and control-stage facts are checked, while tessellation facts permitted to reside
+in another stage remain separate from future cross-stage/PSO validation. Unknown
+modes, symbolic operands and unsupported correctness-relevant annotations reject.
+
+Maintained fixtures cover DXC output from all six stages, scalar logical Boolean
+inputs, patch versus vertex wrappers and inner arrays, qualifier combinations,
+explicit component/index coordinates, homogeneous aggregate ownership, non-square
+matrices, nested arrays of one, mixed-domain rejection, conflicting/unknown modes,
+compatible qualifier combinations and rejection of mutually exclusive qualifiers,
+exact shared count limits and allocation-failure sweeps. Controlled SPIR-V fixtures
+exercise shapes the compiler can flatten; they do not broaden the production input
+contract to unvalidated external binaries. Fixed-prefix runtime buffers remain
+unsupported alongside this stage-interface support.
+
+Physical declarations are cached by raw type, buffer layout context and matrix
+storage interpretation. A shared SPIR-V type can require distinct UBO and storage
+representations. Scalar/vector placement remains scalar-aligned for the selected
+relaxed layout; vector members cannot straddle a 16-byte boundary. Aggregate
+alignment follows the selected std140 extended or std430 base requirements.
+Structures round their complete reusable extent to that derived alignment.
+Array/matrix slots and explicit strides remain authoritative; overlapping owned
+tails reject with `unrepresentable_layout` rather than clipping padding.
+
+| Declared structure | UBO alignment/size | Storage alignment/size | UBO/storage array stride in fixtures |
+| --- | --- | --- | --- |
+| One `float` | 16/16 | 4/4 | 16/4 |
+| One `float3` | 16/16 | 16/16 | 16/16 |
+
+These are complete CPU construction/reuse representations, not inferred original
+HLSL/C++ ABIs. The declared content of the two examples spans 4/12 bytes before
+tail padding; that is neither instruction/liveness-based accessed range nor a
+minimum descriptor-range claim. Device binding-offset alignment and descriptor
+range policy remain outside reflection. Scalar-field vector representations do
+not force every vector to own 16 bytes; e.g. `float3` plus a scalar can occupy
+offsets 0/12. Runtime sequence stride is recorded separately even when it equals
+the complete element schema size.
+
+`CResult` owns the exact identity, diagnostic text and successful schema.
+Declaration names are document-local; public qualified identities remain deferred.
+Schema access is const. Borrowed result views expire when their owner is cleared,
+replaced or destroyed; the compilation report may be disposed after reflection
+finishes. Ordinary engine allocator context lifetimes apply. Dispose results
+before unloading the rendering module. Failures publish no schema. Diagnostics
+retain scalar reasons/stages and optional SPIR-V coordinates, never discarded
+staging handles.
+
+Admissible identity is retained exactly on blocked compilation and ordinary
+failure, including early context/admission rejection, and included in retained
+storage accounting. Invalid or unbounded identity, allocation failure while
+copying it, or the retained-result limit may leave it absent. Secondary identity
+or diagnostic retention failure preserves an existing primary failure reason.
+The diagnostic truncation flag also indicates text omitted because allocation
+failed or the retained-result limit discarded the payload; the fixed structured
+diagnostic remains available without allocation.
+
+Service defaults are 16 MiB artifact, 262,144 ID bound, 1,048,576 instructions,
+1,024 resources, 4,096 top-level stage values, 4,096 generated declarations,
+32,768 generated members, 1,024 members per aggregate, eight array dimensions,
+32 dependency levels and 262,144 document nodes. Dependency traversal has a
+32-level implementation ceiling; service policy may lower it. Preflight covers
+type dependency expansion and static function-call graphs before library
+processing, including repeated paths through shared dependencies.
+
+Retained names/metadata have a 4 KiB individual limit and 4 MiB aggregate limit;
+diagnostics have a 64 KiB limit and truncation flag. Embedded source/debug blobs
+use the artifact limit, not the retained-name limit. The retained-result default
+is 16 MiB. Working-storage admission uses a provisional 128 MiB estimate: eight
+times artifact bytes, plus the arena reservation, ID-index storage and 64 KiB allowance. This is an
+estimate, not an enforced or measured peak. Counts, checked arithmetic and
+ordinary allocation failure remain independent checks. The codebase-wide 2 GiB
+single-allocation ceiling is unchanged.
+
+The private `spirv_reflect_adapter.cpp` compiles unmodified vendored source.
+Each nonmovable module owns one fixed-capacity `CByteBuffer` arena for the entire
+reflection operation. Vendor `malloc` and `calloc` bump within that buffer;
+allocations are aligned to `std::max_align_t`, and `calloc` zeroes its requested
+bytes. Zero-sized requests consume at least one byte. All addresses stay stable:
+there is no growth, relocation, wraparound or reuse of released space. Vendor
+`free` is a no-op. Cumulative consumption includes alignment padding and all
+abandoned temporaries. Invalid or missed vendor frees are deliberately not
+tracked or diagnosed; this is the accepted tradeoff for whole-arena reclamation.
+
+Capacity is **64 KiB + 64 times the input SPIR-V byte count**. This reservation
+is per concurrent operation, irrespective of how much it ultimately consumes.
+A 1 MiB artifact reserves 64 MiB + 64 KiB. The default 128 MiB working estimate
+includes that reservation plus estimated index/document storage, so it can
+reject inputs well below the separate 16 MiB artifact limit. This is admission
+per operation, not an aggregate concurrency memory limit.
+
+The capacity formula is an empirical
+allowance, not a proven bound on vendor expansion. Overflow-safe sizing and the
+2 GiB single-allocation ceiling are enforced before vendor entry. Failure to
+allocate the initial arena is an ordinary recoverable allocation failure.
+Exhaustion inside vendor execution never returns null: it invokes `MV_PANIC`
+and terminates, since upstream allocation/partial-cleanup paths are not reliably
+null-safe. The panic includes identity (up to 512 bytes plus its full length),
+input size, capacity, consumed bytes and requested allocation dimensions.
+
+Direct create/destroy entry and completion records bypass informational macro
+filtering and attempt immediate write/flush. These and panic reporting are best
+effort, not guaranteed durable or allocation-free: the debug service uses fixed
+formatting storage but also CRT formatting/output, and panic's file write may be
+skipped on lock contention. An entry without completion locates the unfinished
+vendor phase. No recovery from arbitrary corruption or ordinary parser-error
+cleanup faults is claimed. The adapter introduces no exceptions or exception
+compiler settings; unrelated DXC external-exception containment is unchanged.
+
+Scoped thread-local state routes allocation calls to the active operation;
+nested calls restore the previous owner and concurrent jobs have independent
+arenas. The private module object is constructed during requester-side job
+preparation in aligned engine-owned storage. Arena allocation and vendor parsing
+occur during execution under the memory context installed by batch work. After
+extraction, vendor destruction runs while the arena remains alive, then the
+entire buffer is released before publication. Ordinary creation errors also
+release the buffer. The noexcept destructor is an arena-only fallback and never
+invokes vendor code. The job retains its module object until requester-side
+destruction after drain. Copied results do not borrow arena storage. The narrow
+placement-construction policy allowance remains confined to the implementation.
+
+`SStorageStatistics::reflection_arena_capacity` and `reflection_arena_consumed`
+retain the reserved allowance and alignment-inclusive cumulative consumption
+after reclamation. Re-measure after vendor updates or materially different
+shader workloads. The October 2026 calibration includes existing resource,
+buffer, packed-layout and stage fixtures, plus scaling shaders with 256 input
+bindings or 128/512 live structure fields, with and without debug/source data.
+The sample is a capacity regression corpus, not a comprehensive production
+shader workload.
+
+| Scaling fixture | SPIR-V bytes | Consumed bytes (Linux x64) | Arena allowance |
+| --- | ---: | ---: | ---: |
+| 256 bindings, no debug | 60,192 | 1,142,820 | 3,917,824 |
+| 256 bindings, source debug | 159,212 | 1,742,420 | 10,255,104 |
+| 128 fields, no debug | 25,516 | 650,372 | 1,698,560 |
+| 128 fields, source debug | 79,052 | 992,164 | 5,124,864 |
+| 512 fields, no debug | 99,244 | 2,507,396 | 6,417,152 |
+| 512 fields, source debug | 280,172 | 3,790,820 | 17,996,544 |
+
+The largest measured utilisation in these scaling cases is about 39.1%, leaving
+at least 2.55 times observed consumption. Existing fixture samples range from
+472 to 25,160 input bytes and 14,664 to 242,308 consumed bytes. Their smallest
+no-debug inputs reach about 31.6 times input size, comfortably covered by the
+fixed allowance. Windows x64 consumed 1,134,412 / 1,733,772 bytes for the binding
+cases, 649,148 / 990,932 for 128 fields, and 2,503,100 / 3,786,276 for 512 fields
+(no debug / source debug). Native alignment and emitted debug data can differ.
+Debug x64 ordinary suites passed on Windows and Ubuntu/GCC under WSL, including
+5,701 reflection and 1,649 conditioning checks per platform. Isolated fatal
+cases passed on both platforms; the source-manifest tests reject the removed
+reflection exception settings. These results describe this local checkpoint.
+
+### Renderer-local composed conditioning
+
+`rendering/runtime/shader_conditioning.hpp` provides the nonmovable
+`CCompileReflectJob` and move-only `CCompileReflectReport`. Requester-side
+preparation copies the bounded opaque identity and service policies, constructs
+the job's private reflection instance and initialises the DXC factory before
+dispatch. A separate preparation status reports setup
+failure; both stage reports remain `not_executed` and an unready job is not submitted.
+The compile request/member and complete source-bundle backing remain borrowed.
+
+The one-shot callback runs compilation followed by reflection synchronously on
+its executing thread. Compilation failure takes reflection's blocked path without
+vendor parsing. Reflection failure preserves the compiled artifact and compiler
+diagnostics, retains its own diagnostic and publishes no schema. Both independent
+operations and their individual job wrappers remain available.
+
+The submitting owner keeps stable jobs and borrowed inputs alive through terminal
+response consumption. Multiple jobs and groups can share immutable bundle backing;
+its owner must retain it until every borrowing job drains. Batch exit is scoped to
+the requester route, not a group. Queued, inline, rejected and discarded outcomes
+remain the existing batch client's responsibility and are retained separately from
+the two stage statuses. Reports can move out after completion and outlive jobs and
+inputs; captured allocator contexts and rendering code must outlive the reports'
+final destruction.
+
+Maintained tests exercise the production callbacks through `CBatchClient` with
+controlled native workers: overlapping groups, out-of-order collection, independent
+routes, exit/context-install discards, queue-saturation inline fallback, stage/setup
+failures and retained reports after input/job destruction. These are not live Host
+pool or DLL-unload tests. Standalone job tests also verify that allocation hooks
+on two workers route to the exact distinct instances prepared by the requester,
+that vendor access and arena reclamation finish before return, and that owner destruction follows
+drain while retained reports and their allocation contexts remain alive. The
+compile-only Host message contract is unchanged;
+this checkpoint adds no production combined-group service or publication envelope.
 
 ## Existing schema foundation
 
@@ -697,10 +954,19 @@ distinct.
 
 ### Initial feature boundary
 
-Reject specialization-dependent shapes and execution dimensions initially, with
-an identifiable unsupported-feature diagnostic. Do not silently freeze them at
-default specialization values. This policy does not yet settle every other use
-of specialization constants; acceptance beyond this boundary must be explicit.
+The first individual-shader reflection slice rejects all specialization constants
+with an identifiable unsupported-feature diagnostic, distinguishing shape and
+execution dependencies where possible. This broader initial restriction was
+approved on 26 October; it does not change the existing compile-only path. Do not
+silently freeze specialization constants at their default values.
+
+Specialization support is required before the overall shader work can be
+considered complete. It is deferred from this slice, not dropped from scope.
+Revisit its metadata, value selection, validation and effects on reflection when
+PSO construction is sufficiently defined. The exact supported forms and contract
+remain to design with that work; passing the first reflection slice does not
+close this requirement. Track it in the [engine backlog](../backlog/engine_backlog.md).
+
 Reject physical layouts that cannot be represented faithfully, including cases
 where schema extent/padding ownership would misdescribe the compiled layout.
 Neither unsupported semantics nor unrepresentable storage may produce a
@@ -884,11 +1150,12 @@ remaining contract details, not a reopening of those policies:
    declarations, members, depth, strings, diagnostics and total retained live/final
    bytes, including temporary finalisation overlap. Preserve Core dependency rules
    and existing compile-only behaviour during migration.
-4. **Additional feature contracts.** Specialization-dependent shapes/execution
-   dimensions and unrepresentable physical layouts fail visibly under the agreed
-   initial policy. Settle any other specialization-constant support and the
-   concrete representation of wider Boolean buffer values without mapping them
-   blindly to `b8`.
+4. **Additional feature contracts.** All specialization constants and
+   unrepresentable physical layouts fail visibly in the first reflection slice.
+   Specialization support remains a required follow-up with PSO construction,
+   rather than a prerequisite for this bounded slice. Settle the concrete
+   representation of wider Boolean buffer values without mapping them blindly
+   to `b8`.
 
 The checked execution-mode/stage table, renderer semantic validation, layout
 fixtures and failure tests are implementation/verification work. They must prove
