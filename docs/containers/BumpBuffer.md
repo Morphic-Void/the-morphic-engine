@@ -31,7 +31,8 @@ Changing the buffer configuration is destructive, as described below.
 - No exceptions are used.
 - Storage is untyped and byte-addressable.
 - Sizes and alignment values are expressed in bytes.
-- Block size and configured alignment must be non-zero powers of two.
+- Requested block size is rounded up to a power of two, with a 4096-byte minimum.
+- Configured alignment must be a non-zero power of two.
 - Callers manage object construction and destruction when using typed objects.
 - Storage is not zero-filled, including after reset.
 - Concurrent access to a shared buffer requires external synchronisation.
@@ -82,7 +83,9 @@ It may be greater than the block size.
 allocate(block_size, align):
 
 - defaults align to alignof(std::max_align_t) when omitted
-- requires both arguments to be non-zero powers of two
+- rounds block_size up to a power of two, then enforces a 4096-byte minimum
+- accepts zero block size, selecting the 4096-byte minimum
+- requires align to be a non-zero power of two
 - rejects unsupported token configurations without changing existing state
 - treats every alignment change as a configuration change, including a decrease
 
@@ -105,12 +108,19 @@ allocate(block_size, align):
 
 - returns true when the buffer is ready for bump allocation
 - resets current bump allocations and their statistics
+- compares the normalised block size and alignment with the current settings
 - with matching settings and existing storage, retains all blocks without
   calling the underlying allocator
 - with matching settings but no storage, allocates the first block
 - with changed settings, releases all existing storage and attempts to
   allocate one fresh block
 - leaves state unchanged when the requested configuration is invalid
+
+block_size reports the normalised size. Requests from zero through 4096
+select 4096-byte blocks; 4097 through 8192 select 8192-byte blocks. Different
+requests that select the same block size reuse storage when alignment also
+matches. Oversized requests beyond memory::k_byte_size_ceiling are rejected
+before rounding, leaving the buffer unchanged.
 
 If a fresh block cannot be allocated, the buffer is empty and not ready,
 with zero buffers and allocation statistics. The requested valid
@@ -183,10 +193,10 @@ The aligned total excludes skipped block tails, unused capacity, and the
 memory token's directory. It is not the total backing allocation size.
 buffer_count excludes the directory and is unchanged by reset.
 
-For example, in a 64-byte block, bump(3, 1) followed by bump(5, 8) produces
+For example, in a 4096-byte block, bump(3, 1) followed by bump(5, 8) produces
 two allocations, 8 payload bytes, and 13 bytes including alignment. The
-second allocation starts at offset 8. After reset, bump(60, 1) followed by
-bump(8, 1) uses two blocks but reports 68 bytes for both byte totals: the
+second allocation starts at offset 8. After reset, bump(4092, 1) followed by
+bump(8, 1) uses two blocks but reports 4100 bytes for both byte totals: the
 skipped 4-byte tail is not alignment padding.
 
 ## Usage

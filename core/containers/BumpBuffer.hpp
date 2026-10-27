@@ -19,6 +19,7 @@
 #ifndef BUMP_BUFFER_HPP_INCLUDED
 #define BUMP_BUFFER_HPP_INCLUDED
 
+#include <algorithm>    //  std::max
 #include <cstddef>      //  std::size_t, std::max_align_t
 #include <utility>      //  std::move, std::exchange
 
@@ -66,8 +67,9 @@ public:
     [[nodiscard]] std::size_t allocated_size_with_alignment() const noexcept { return m_allocated_size_with_alignment; }
     [[nodiscard]] std::size_t buffer_count() const noexcept { return m_token.is_stable() ? (m_token.count() / block_size()) : std::size_t{ 0u }; }
 
-    //  Buffer allocation: block_size and align must be non-zero powers of two.
-    //  Matching settings reset bumps/statistics and retain all backing blocks.
+    //  Buffer allocation: round block_size up to a power of two, at least 4096.
+    //  align must be a non-zero power of two. Matching normalised settings
+    //  reset bumps/statistics and retain all backing blocks.
     //  Changed settings release old storage before allocating a fresh block;
     //  allocation failure leaves an empty, configured buffer that is not ready.
     //  Invalid settings leave the existing state unchanged.
@@ -138,13 +140,14 @@ inline bool CBumpBuffer::is_valid() const noexcept
 
 inline bool CBumpBuffer::allocate(const std::size_t block_size, const std::size_t align) noexcept
 {
-    if (!bit_ops::is_pow2(block_size) || !bit_ops::is_pow2(align))
+    if ((block_size > memory::k_byte_size_ceiling) || !bit_ops::is_pow2(align))
     {
         return false;
     }
-    if ((block_size != this->block_size()) || (align != this->align()))
+    const std::size_t normalised_block_size = std::max(std::size_t{ 4096u }, bit_ops::round_up_to_pow2(block_size));
+    if ((normalised_block_size != this->block_size()) || (align != this->align()))
     {
-        memory::CMemoryToken token{ 1u, align, block_size, m_token.context() };
+        memory::CMemoryToken token{ 1u, align, normalised_block_size, m_token.context() };
         if (!token.is_stable())
         {
             return false;
@@ -152,7 +155,7 @@ inline bool CBumpBuffer::allocate(const std::size_t block_size, const std::size_
         m_token = std::move(token);
     }
     reset();
-    return m_token.owns_storage() || m_token.allocate(block_size, false);
+    return m_token.owns_storage() || m_token.allocate(normalised_block_size, false);
 }
 
 inline void CBumpBuffer::reset() noexcept
