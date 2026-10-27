@@ -70,13 +70,12 @@ class SourceManifestTests(unittest.TestCase):
         source.touch()
         body = (
             '<ItemGroup><ClCompile Include="..\\rendering\\runtime\\shader_compiler.cpp">'
-            '<ExceptionHandling>Sync</ExceptionHandling>'
             '<AdditionalIncludeDirectories>$(ProjectDir)..\\build\\dependencies\\dxc\\inc;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>'
             '</ClCompile></ItemGroup>'
         )
         project = self.project(body, "visual_studio/MorphicRendering.vcxproj")
         self.assertEqual(collect_sources(project, self.root)[0], [source])
-        for changed in (body.replace('Sync', 'Async'), body.replace('</ClCompile>',
+        for changed in (body.replace('</ClCompile>', '<ExceptionHandling>Sync</ExceptionHandling></ClCompile>'), body.replace('</ClCompile>',
                         '<ExcludedFromBuild>true</ExcludedFromBuild></ClCompile>')):
             with self.assertRaisesRegex(ValueError, "per-file ClCompile"):
                 collect_sources(self.project(changed, "visual_studio/MorphicRendering.vcxproj"), self.root)

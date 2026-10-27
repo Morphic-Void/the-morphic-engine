@@ -27,9 +27,10 @@ Linux x86-64 shared library. Builds copy the compiler beside the executables and
 retain package licence texts in `dxc-licences`. Deployment of shader compilation
 requires those files; compilation does not require a GPU or graphics device.
 
-The DXC adapter enables exceptions (`/EHsc` or `-fexceptions`). Its compiler
-objects and temporary allocations remain local to that boundary. The private
-SPIRV-Reflect adapter uses a growing per-operation `CBumpBuffer` and has no exception
+The DXC adapter uses the engine's exception-free settings and checked engine
+containers for temporary storage. Compiler interfaces return HRESULTs; adapter
+allocation failures return explicit engine statuses. The private SPIRV-Reflect
+adapter uses a growing per-operation `CBumpBuffer` and has no exception
 compiler allowance. Initial arena allocation failure is recoverable; a failed bump
 during vendor execution terminates with a best-effort diagnostic. See the
 [reflection checkpoint](../modules/shader_reflection_design.md#initial-adapter-checkpoint).

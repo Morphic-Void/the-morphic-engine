@@ -89,7 +89,6 @@ if(NOT EXISTS "${dxc_root}/include/dxc/dxcapi.h")
 endif()
 target_include_directories(MorphicRendering PRIVATE "${dxc_root}/include/dxc")
 target_include_directories(MorphicTests PRIVATE "${dxc_root}/include/dxc")
-set_source_files_properties(rendering/runtime/shader_compiler.cpp PROPERTIES COMPILE_OPTIONS "-fexceptions")
 add_custom_command(TARGET MorphicRendering POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different "${dxc_root}/lib/libdxcompiler.so" "$<TARGET_FILE_DIR:MorphicRendering>"
     VERBATIM)

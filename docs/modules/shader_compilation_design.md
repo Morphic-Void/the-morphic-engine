@@ -61,11 +61,13 @@ and `shader_group_view()`. A successful publication can contain failed shaders;
 inspect the group summary and each report. Views remain valid until disposal of
 that group asset. Compiler jobs and report classes have no Host asset dependency.
 
-`shader_compiler.cpp` enables C++ exceptions for temporary STL storage and DXC
-interfaces. Reflection separately confines its allocation-failure marker to
-`spirv_reflect_adapter.cpp`; the importer and other engine translation units retain
-their exception-free settings. The DXC adapter explicitly loads the compiler beside
-the executable, pins it on Windows or uses Linux `RTLD_NODELETE`, and balances
+`shader_compiler.cpp` uses checked engine containers for temporary storage and
+explicit status returns, with no per-file exception allowance. Request validation
+is allocation-free. UTF conversion rejects malformed encodings and embedded NULs;
+argument pointers are materialised after their backing storage stops growing.
+Include callbacks retain allocation failures even if DXC tries another candidate.
+The DXC adapter explicitly loads the compiler beside the executable, pins it on
+Windows or uses Linux `RTLD_NODELETE`, and balances
 load references so renderer replacement does not accumulate references. DXC
 objects are created and destroyed on each executing callback's thread.
 
@@ -104,9 +106,10 @@ retains output only when the enclosing operation publishes it. Compilation and
 reflection remain separate operations; compiling a group does not link or
 validate a pipeline.
 
-Compilation will run in-process, with C++ exceptions contained and converted at
-the DXC boundary or in a small exception-enabled adapter before returning to
-exception-free engine code. A compiler helper process is not part of this scope.
+Compilation runs in-process, with DXC converting its internal C++ exceptions
+into HRESULTs and result diagnostics. The engine adapter uses explicit error
+returns and is compiled without exception handling. A compiler helper process is
+not part of this scope.
 
 The default buffer layout is vector-relaxed std140 for uniform buffers and
 vector-relaxed std430 for storage buffers. CPU and shader representations may
@@ -386,6 +389,11 @@ a non-throwing interface. Catch within that adapter before unwinding could cross
 engine frames. The rest of the engine retains its exception-free build policy;
 engine callbacks must not throw. Whether an extra shim is needed depends on the
 actual API paths used and their verified boundary behaviour.
+The current adapter uses DXC's existing conversion boundaries and has no extra
+catch shim. Its own include callbacks are non-throwing, and its scratch storage
+uses checked engine allocation. Allocation-failure tests sweep the adapter's
+successful allocation path, including include callbacks and retained reports;
+these tests do not inject failures into DXC's private allocator.
 `DxcCreateInstance2` offers a custom `IMalloc`, but allocator replacement is not
 needed for the initial adapter and does not prove complete allocation accounting
 or recoverability. See the

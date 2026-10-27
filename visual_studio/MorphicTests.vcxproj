@@ -118,7 +118,6 @@
     <ClCompile Include="..\tests\test_suites\ShaderConditioning_test_suite.cpp" />
     <ClCompile Include="..\rendering\runtime\spirv_reflect_adapter.cpp" />
     <ClCompile Include="..\rendering\runtime\shader_compiler.cpp">
-      <ExceptionHandling>Sync</ExceptionHandling>
       <AdditionalIncludeDirectories>$(ProjectDir)..\build\dependencies\dxc\inc;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <ClInclude Include="..\tests\test_suites\ShaderBatch_cases.hpp" />

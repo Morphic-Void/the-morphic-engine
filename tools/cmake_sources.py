@@ -45,10 +45,9 @@ def collect_sources(project, repository):
             if element.tag == NS + "ClCompile" and any(
                 key in element.attrib for key in ("Include", "Remove", "Update")
             ):
-                # Only the DXC boundary has reviewed per-file compiler settings.
-                # CMake explicitly mirrors its exception flag and include path.
+                # Only the DXC adapter has a reviewed per-file include path.
+                # CMake mirrors it; exception-handling overrides are rejected.
                 dxc_metadata = {
-                    NS + "ExceptionHandling": "Sync",
                     NS + "AdditionalIncludeDirectories": "$(ProjectDir)..\\build\\dependencies\\dxc\\inc;%(AdditionalIncludeDirectories)",
                 }
                 reviewed_dxc = (

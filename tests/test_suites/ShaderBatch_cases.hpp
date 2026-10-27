@@ -17,6 +17,7 @@
 #include "shader/shader_messages.hpp"
 #include "rendering/runtime/shader_compiler.hpp"
 #include "tests/support/document_helpers.hpp"
+#include "tests/support/test_allocator.hpp"
 #include "platform/filesystem/file.hpp"
 #include <filesystem>
 #include <string>
@@ -52,11 +53,18 @@ V ds(Patch p, float3 location : SV_DomainLocation, const OutputPatch<V,3> input)
 { V o; o.p = input[0].p * location.x + input[1].p * location.y + input[2].p * location.z; return o; }
 )";
 
+static const char* const k_unicode_shader =
+    "#include \"\xc3\xa9\xf0\x9f\x98\x80.hlsli\"\n"
+    "#include \"./\xc3\xa9\xf0\x9f\x98\x80.hlsli\"\n"
+    "#warning retained Unicode source warning\n"
+    "RWStructuredBuffer<uint> output:register(u0); [numthreads(1,1,1)] void main(){output[0]=UNICODE_VALUE;}";
+static const char* const k_unicode_include = "#pragma once\n#define UNICODE_VALUE 7\n";
+
 static bool make_bundle(CBakedDocumentBlock& block, bundle::CBundleView& view)
 {
     CLiveDocument inventory;
     if (!tests::parse_document(
-            R"({"main.hlsl":{},"inc":{"content":{"a.hlsli":{}}},"shared.hlsli":{},"bad.hlsl":{},"double.hlsl":{},"missing.hlsl":{},"escape.hlsl":{},"warning.hlsl":{},"morphic_shader.hlsli":{},"counter.hlsl":{},"push.hlsl":{},"wave.hlsl":{}})",
+            R"({"main.hlsl":{},"inc":{"content":{"a.hlsli":{}}},"shared.hlsli":{},"bad.hlsl":{},"double.hlsl":{},"missing.hlsl":{},"escape.hlsl":{},"warning.hlsl":{},"morphic_shader.hlsli":{},"counter.hlsl":{},"push.hlsl":{},"wave.hlsl":{},"unicode.hlsl":{},"\u00e9\ud83d\ude00.hlsli":{}})",
             inventory))
     {
         return false;
@@ -77,12 +85,14 @@ static bool make_bundle(CBakedDocumentBlock& block, bundle::CBundleView& view)
         "AppendStructuredBuffer<uint> output:register(u0); [numthreads(1,1,1)] void main(){output.Append(1);}",
         "struct P{uint x;}; [[vk::push_constant]] P p; RWStructuredBuffer<uint> output:register(u0); "
         "[numthreads(1,1,1)] void main(){output[0]=p.x;}",
-        "RWStructuredBuffer<uint> output:register(u0); [numthreads(1,1,1)] void main(){output[0]=WaveGetLaneIndex();}"
+        "RWStructuredBuffer<uint> output:register(u0); [numthreads(1,1,1)] void main(){output[0]=WaveGetLaneIndex();}",
+        k_unicode_shader, k_unicode_include
     };
     const char* const names[]{ "main.hlsl", "a.hlsli", "shared.hlsli", "bad.hlsl", "double.hlsl", "missing.hlsl",
-        "escape.hlsl", "warning.hlsl", "morphic_shader.hlsli", "counter.hlsl", "push.hlsl", "wave.hlsl" };
+        "escape.hlsl", "warning.hlsl", "morphic_shader.hlsli", "counter.hlsl", "push.hlsl", "wave.hlsl",
+        "unicode.hlsl", "\xc3\xa9\xf0\x9f\x98\x80.hlsli" };
     TPodVector<bundle::SBuildSource> sources;
-    for (std::uint32_t i = 0u; i < 12u; ++i)
+    for (std::uint32_t i = 0u; i < 14u; ++i)
     {
         CNodeKey parent = inventory.root();
         if (i == 1u)
@@ -533,6 +543,125 @@ static void poc(tests::TTestContext& ctx, texture_batch_tests::SFixture& fixture
             TEST_EXPECT(ctx, report.status == EStatus::success);
         }
     }
+}
+
+static void compiler_scratch(tests::TTestContext& ctx)
+{
+    using namespace shader;
+    using rendering::shader_compiler::SLimits;
+    using rendering::shader_compiler::compile;
+    using rendering::shader_compiler::validate_request;
+    CBakedDocumentBlock block;
+    bundle::CBundleView sources;
+    CCompileRequest request;
+    TEST_EXPECT(ctx, make_bundle(block, sources));
+    TEST_EXPECT(ctx, request.entries.initialise(1u));
+    auto& entry = request.entries[0u];
+    entry.stage = EStage::compute;
+    {
+        CShaderCompileReport report;
+        compile(request, 0u, sources, {}, report);
+        TEST_EXPECT(ctx, report.status == EStatus::invalid_input);
+        TEST_EXPECT(ctx, !report.shader.view().is_ready());
+        TEST_EXPECT(ctx, entry.source_path.set("main.hlsl"));
+        compile(request, 0u, sources, {}, report);
+        TEST_EXPECT(ctx, report.status == EStatus::invalid_input);
+        TEST_EXPECT(ctx, !report.shader.view().is_ready());
+    }
+    TEST_EXPECT(ctx, entry.source_path.set("./INC/../MAIN.hlsl") && entry.entry_point.set("cs"));
+    TEST_EXPECT(ctx, request.include_roots.initialise(1u) && request.include_roots[0u].set("inc"));
+    TEST_EXPECT(ctx, request.definitions.initialise(2u));
+    TEST_EXPECT(ctx, request.definitions[0u].name.set("VALUE") && request.definitions[0u].value.set("2"));
+    TEST_EXPECT(ctx, request.definitions[1u].name.set("USE_INCLUDE_ROOT"));
+    TEST_EXPECT(ctx, entry.definitions.initialise(1u));
+    TEST_EXPECT(ctx, entry.definitions[0u].name.set("VALUE") && entry.definitions[0u].value.set("4"));
+
+    //  Validation must neither allocate nor accept the document-specific
+    //  modified NUL encoding, surrogate encodings, overlong or truncated UTF-8.
+    for (const char* const invalid : { "bad\xc0\x80", "bad\xc1\x81", "bad\xed\xa0\x80", "bad\xf4\x90\x80\x80", "bad\xe2\x82" })
+    {
+        TEST_EXPECT(ctx, request.definitions[1u].value.set(invalid));
+        TEST_EXPECT(ctx, validate_request(request, {}) == EStatus::invalid_input);
+    }
+    TEST_EXPECT(ctx, request.definitions[1u].value.set("x\0y", 3u));
+    TEST_EXPECT(ctx, validate_request(request, {}) == EStatus::invalid_input);
+    TEST_EXPECT(ctx, request.definitions[1u].value.set("\xc2\xa3\xf0\x9f\x98\x80"));
+    tests::TAllocationFailureFixture validation_failure;
+    validation_failure.reject_all = true;
+    memory::CMemoryAllocator validation_allocator{ &validation_failure, tests::allocate_with_failure, tests::deallocate_test_memory };
+    memory::CMemoryContext validation_context{ validation_allocator };
+    auto* const previous = memory::set_thread_memory_context(&validation_context);
+    const auto valid = validate_request(request, {});
+    (void)memory::set_thread_memory_context(previous);
+    TEST_EXPECT(ctx, valid == EStatus::success && validation_failure.attempts == 0u);
+    TEST_EXPECT(ctx, validation_context.is_attribution_empty());
+    TEST_EXPECT(ctx, request.definitions[1u].value.set("\"\xc2\xa3\xf0\x9f\x98\x80\""));
+    for (const char* const invalid : { "../main.hlsl", "a/../../main.hlsl", "/main.hlsl", "C:\\main.hlsl", "a/..", "." })
+    {
+        TEST_EXPECT(ctx, entry.source_path.set(invalid));
+        TEST_EXPECT(ctx, validate_request(request, {}) == EStatus::invalid_input);
+    }
+    TEST_EXPECT(ctx, entry.source_path.set("./INC\\../UNICODE.hlsl") && entry.entry_point.set("main"));
+
+    for (const auto scenario : { 0u, 1u, 2u, 3u })
+    {
+        entry.options.debug = ((scenario & 1u) == 0u) ? EDebug::none : EDebug::source_debug;
+        const bool include_limit = scenario >= 2u;
+        SLimits limits;
+        if (include_limit) limits.source_bytes = std::strlen(k_unicode_shader);
+        tests::TAllocationFailureFixture baseline;
+        memory::CMemoryAllocator allocator{ &baseline, tests::allocate_with_failure, tests::deallocate_test_memory };
+        memory::CMemoryContext context{ allocator };
+        auto* const saved = memory::set_thread_memory_context(&context);
+        {
+            CShaderCompileReport report;
+            compile(request, 0u, sources, limits, report);
+            TEST_EXPECT(ctx, report.status == (include_limit ? EStatus::limit_exceeded : EStatus::success));
+            TEST_EXPECT(ctx, report.shader.view().is_ready() == !include_limit);
+            const std::string provenance{ (report.provenance.cstring() != nullptr) ? report.provenance.cstring() : "" };
+            TEST_EXPECT(ctx, provenance.find("define=VALUE=4\n") != std::string::npos);
+            TEST_EXPECT(ctx, provenance.find("define=VALUE=2\n") == std::string::npos);
+            const char* const dependency = "source=\xc3\xa9\xf0\x9f\x98\x80.hlsli;";
+            const auto first = provenance.find(dependency);
+            TEST_EXPECT(ctx, (first != std::string::npos) == !include_limit);
+            if (!include_limit) TEST_EXPECT(ctx, provenance.find(dependency, first + 1u) == std::string::npos);
+        }
+        (void)memory::set_thread_memory_context(saved);
+        TEST_EXPECT(ctx, context.is_attribution_empty());
+        const auto attempts = baseline.attempts;
+        TEST_EXPECT(ctx, attempts != 0u);
+        //  Sweep successful compilation and include-limit reporting, including
+        //  callbacks, diagnostics/provenance and the final retained artifact.
+        for (std::size_t attempt = 0u; attempt < attempts; ++attempt)
+        {
+            baseline = {};
+            baseline.fail_on = attempt;
+            auto* const restored = memory::set_thread_memory_context(&context);
+            {
+                CShaderCompileReport report;
+                compile(request, 0u, sources, limits, report);
+                TEST_EXPECT(ctx, baseline.failed);
+                TEST_EXPECT(ctx, report.status == EStatus::allocation_failed);
+                TEST_EXPECT(ctx, !report.shader.view().is_ready());
+            }
+            (void)memory::set_thread_memory_context(restored);
+            TEST_EXPECT(ctx, context.is_attribution_empty());
+        }
+    }
+    TEST_EXPECT(ctx, entry.source_path.set("unicode.hlsl") && entry.entry_point.set("main"));
+    //  A supplementary code point exercises both directions of DXC's wide
+    //  interface. Repeated includes and the preprocessing pass share one budget.
+    SLimits unicode_limits;
+    unicode_limits.source_bytes = std::strlen(k_unicode_shader) + std::strlen(k_unicode_include);
+    CShaderCompileReport report;
+    compile(request, 0u, sources, unicode_limits, report);
+    TEST_EXPECT(ctx, report.status == EStatus::success && report.shader.view().is_ready());
+    const std::string provenance{ (report.provenance.cstring() != nullptr) ? report.provenance.cstring() : "" };
+    const char* const dependency = "source=\xc3\xa9\xf0\x9f\x98\x80.hlsli;";
+    const auto first = provenance.find(dependency);
+    TEST_EXPECT(ctx, first != std::string::npos);
+    TEST_EXPECT(ctx, provenance.find(dependency, first + 1u) == std::string::npos);
+    TEST_EXPECT(ctx, report.diagnostics.length() != 0u);
 }
 
 static void limits(tests::TTestContext& ctx)

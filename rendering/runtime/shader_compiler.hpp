@@ -6,7 +6,7 @@
 //  Authors: Ritchie Brannan / OpenAI Codex
 //  Date:    22 Oct 26
 //
-//  Non-throwing boundary to the exception-enabled DXC adapter.
+//  Non-throwing DXC adapter with checked engine-owned scratch storage.
 
 #pragma once
 

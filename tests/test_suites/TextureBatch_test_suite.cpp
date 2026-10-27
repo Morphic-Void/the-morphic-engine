@@ -640,6 +640,7 @@ int run_texture_batch_tests()
         shader_batch_tests::options_and_admission(ctx, fixture);
         shader_batch_tests::poc(ctx, fixture);
         shader_batch_tests::limits(ctx);
+        shader_batch_tests::compiler_scratch(ctx);
     }
     return ctx.report("TextureBatch");
 }

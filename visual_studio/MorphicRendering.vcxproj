@@ -103,7 +103,6 @@
     <ClCompile Include="..\rendering\runtime\shader_conditioning.cpp" />
     <ClCompile Include="..\rendering\runtime\spirv_reflect_adapter.cpp" />
     <ClCompile Include="..\rendering\runtime\shader_compiler.cpp">
-      <ExceptionHandling>Sync</ExceptionHandling>
       <AdditionalIncludeDirectories>$(ProjectDir)..\build\dependencies\dxc\inc;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <ClCompile Include="..\external\basis_universal\encoder\3rdparty\android_astc_decomp.cpp" />
