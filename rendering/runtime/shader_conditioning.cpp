@@ -8,7 +8,7 @@
 //
 //  One stable callback owns both stage reports and executes them in sequence.
 
-#include "rendering/runtime/shader_conditioning.hpp"
+#include "runtime/shader_conditioning.hpp"
 #include "text/utf8_string.hpp"
 
 namespace rendering::shader_conditioning

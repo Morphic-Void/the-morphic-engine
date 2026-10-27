@@ -19,9 +19,9 @@
 #include <cstddef>      //  std::size_t
 #include <new>          //  std::nothrow, aligned operator new[]/delete[]
 
-#include "host/system/host_context.hpp"
+#include "system/host_context.hpp"
 #include <local_type_ids.hpp>
-#include "host/system/system_id_definitions.hpp"
+#include "system/system_id_definitions.hpp"
 #include "platform/platform_defines.hpp"
 #include "memory/memory_policies.hpp"
 #include "memory/memory_context.hpp"

@@ -55,6 +55,18 @@ both C and C++ symbols retain hidden visibility inside the rendering module.
 The policy checker runs before engine target compilation and policy errors
 stop the build.
 
+Each production target adds its own module root for module-relative includes.
+MorphicTests adds the Host, Executive, and Rendering roots because it compiles
+sources and consumes headers from those modules. Its build-selected LOCAL
+catalogue still comes from `tests/environment`; the Host catalogue comes from
+`host/module/types`. Cross-module includes retain their repository-relative
+prefixes. These include directories are maintained explicitly in both CMake
+and the Visual Studio projects.
+
+CTest also runs `MorphicPolicyIncludes`, exercising the policy checker's
+module-relative resolution, catalogue-name collisions, explicit cross-module
+paths, missing includes, and ambiguity diagnostics.
+
 Debug and Release use the same engine build definitions as their Visual Studio
 counterparts. Debug enables development checks and information level 3;
 Release disables development checks and uses information level 1. CMake's

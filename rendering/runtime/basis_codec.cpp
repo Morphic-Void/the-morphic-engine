@@ -9,7 +9,7 @@
 //  Basis Universal stays inside the rendering DLL. Each call uses a fresh
 //  compressor or transcoder; the rendering thread owns initialization.
 
-#include "rendering/runtime/basis_codec.hpp"
+#include "runtime/basis_codec.hpp"
 
 #include <cmath>
 #include <cstddef>

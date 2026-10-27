@@ -20,10 +20,10 @@
 #include <cstddef>      //  std::size_t
 #include <cstdint>      //  std::int32_t, std::uint8_t
 
-#include "host/runtime/asset_service.hpp"
-#include "host/runtime/batch_pool.hpp"
-#include "host/runtime/module_service.hpp"
-#include "host/runtime/worker_policy.hpp"
+#include "runtime/asset_service.hpp"
+#include "runtime/batch_pool.hpp"
+#include "runtime/module_service.hpp"
+#include "runtime/worker_policy.hpp"
 #include "containers/TInstance.hpp"
 #include "containers/TUnorderedCollection.hpp"
 #include "debug/service.hpp"

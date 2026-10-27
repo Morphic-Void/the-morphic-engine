@@ -13,8 +13,8 @@
 #ifndef RENDERING_RUNTIME_SHADER_CONDITIONING_HPP_INCLUDED
 #define RENDERING_RUNTIME_SHADER_CONDITIONING_HPP_INCLUDED
 
-#include "rendering/runtime/shader_compiler.hpp"
-#include "rendering/runtime/shader_reflection.hpp"
+#include "runtime/shader_compiler.hpp"
+#include "runtime/shader_reflection.hpp"
 
 namespace rendering::shader_conditioning
 {

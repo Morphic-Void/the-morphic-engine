@@ -13,7 +13,7 @@
 #ifndef RENDERING_RUNTIME_SHADER_REQUESTS_HPP_INCLUDED
 #define RENDERING_RUNTIME_SHADER_REQUESTS_HPP_INCLUDED
 
-#include "rendering/runtime/shader_compiler.hpp"
+#include "runtime/shader_compiler.hpp"
 #include "shader/shader_messages.hpp"
 #include "threading/CThreadPackage.hpp"
 

@@ -8,7 +8,7 @@
 //
 //  Non-throwing DXC adapter. Engine scratch and COM objects never escape.
 
-#include "rendering/runtime/shader_compiler.hpp"
+#include "runtime/shader_compiler.hpp"
 #include "debug/macros.hpp"
 #include "external/SuiteUTF/include/utf_toolkit.h"
 #include <charconv>

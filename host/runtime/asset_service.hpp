@@ -18,7 +18,7 @@
 #include "assets/asset_repository.hpp"
 #include "containers/TUnorderedCollection.hpp"
 #include "assets/asset_messages.hpp"
-#include "host/runtime/host_payloads.hpp"
+#include "runtime/host_payloads.hpp"
 #include "threading/CThreadPackage.hpp"
 
 namespace host

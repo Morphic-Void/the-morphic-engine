@@ -10,10 +10,10 @@
 
 #include "threading/messages/message_helpers.hpp"
 
-#include "rendering/runtime/rendering_thread.hpp"
-#include "rendering/runtime/basis_codec.hpp"
-#include "rendering/runtime/texture_jobs.hpp"
-#include "rendering/runtime/shader_requests.hpp"
+#include "runtime/rendering_thread.hpp"
+#include "runtime/basis_codec.hpp"
+#include "runtime/texture_jobs.hpp"
+#include "runtime/shader_requests.hpp"
 
 #include "containers/TUnorderedCollection.hpp"
 #include "debug/macros.hpp"

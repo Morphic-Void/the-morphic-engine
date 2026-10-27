@@ -8,7 +8,7 @@
 //
 //  Host-owned runners for module-defined batch work.
 
-#include "host/runtime/batch_pool.hpp"
+#include "runtime/batch_pool.hpp"
 
 #include "debug/macros.hpp"
 #include "module/bound_module.hpp"

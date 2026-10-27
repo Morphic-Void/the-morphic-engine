@@ -8,7 +8,7 @@
 //
 //  Typed codec operations and batch callback entry points.
 
-#include "rendering/runtime/texture_jobs.hpp"
+#include "runtime/texture_jobs.hpp"
 
 namespace rendering
 {

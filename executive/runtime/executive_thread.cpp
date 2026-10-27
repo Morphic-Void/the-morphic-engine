@@ -15,8 +15,8 @@
 #include <limits>       //  std::numeric_limits
 #include <utility>      //  std::move
 
-#include "executive/runtime/executive_thread.hpp"
-#include "executive/runtime/request_preparation.hpp"
+#include "runtime/executive_thread.hpp"
+#include "runtime/request_preparation.hpp"
 #include "module/module_binding_context.hpp"
 
 #include "debug/macros.hpp"

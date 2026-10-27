@@ -15,7 +15,7 @@
 #include <stdlib.h>
 #include <cstring>
 #include <cstddef>
-#include "rendering/runtime/shader_reflection_spirv.hpp"
+#include "runtime/shader_reflection_spirv.hpp"
 #if defined(WIN32)
 #define _CRTDBG_MAP_ALLOC
 #include <crtdbg.h>

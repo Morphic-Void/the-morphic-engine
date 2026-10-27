@@ -79,8 +79,13 @@ foreach(target IN ITEMS MorphicHost MorphicExecutive MorphicRendering MorphicTes
     set_target_properties(${target} PROPERTIES C_VISIBILITY_PRESET hidden CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN YES)
     add_dependencies(${target} MorphicPolicyCheck)
 endforeach()
-target_include_directories(MorphicHost PRIVATE "${CMAKE_SOURCE_DIR}/host/module/types")
-target_include_directories(MorphicTests PRIVATE "${CMAKE_SOURCE_DIR}/tests/environment")
+target_include_directories(MorphicHost PRIVATE
+    "${CMAKE_SOURCE_DIR}/host/module/types" "${CMAKE_SOURCE_DIR}/host")
+target_include_directories(MorphicExecutive PRIVATE "${CMAKE_SOURCE_DIR}/executive")
+target_include_directories(MorphicRendering PRIVATE "${CMAKE_SOURCE_DIR}/rendering")
+target_include_directories(MorphicTests PRIVATE
+    "${CMAKE_SOURCE_DIR}/tests/environment"
+    "${CMAKE_SOURCE_DIR}/host" "${CMAKE_SOURCE_DIR}/executive" "${CMAKE_SOURCE_DIR}/rendering")
 
 target_include_directories(MorphicRendering PRIVATE "${CMAKE_SOURCE_DIR}/external/basis_universal")
 set(dxc_root "${CMAKE_SOURCE_DIR}/build/dependencies/dxc")
@@ -106,6 +111,9 @@ add_dependencies(MorphicHost MorphicExecutive MorphicRendering)
 add_dependencies(MorphicTests MorphicExecutive MorphicRendering)
 
 enable_testing()
+add_test(NAME MorphicPolicyIncludes COMMAND "${Python3_EXECUTABLE}"
+    "${CMAKE_SOURCE_DIR}/tools/tests/test_policy_includes.py" --binary "$<TARGET_FILE:MorphicPolicyValidator>")
+set_tests_properties(MorphicPolicyIncludes PROPERTIES TIMEOUT 60)
 add_test(NAME MorphicOrdinary COMMAND MorphicTests -t1 --log-tag=linux-ci
     "--output-directory=${CMAKE_BINARY_DIR}/test-output")
 set_tests_properties(MorphicOrdinary PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}" TIMEOUT 600)

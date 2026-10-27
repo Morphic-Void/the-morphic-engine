@@ -1,3 +1,4 @@
+
 //  Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited
 //  License: MIT (see LICENSE file in repository root)
 //
@@ -704,6 +705,13 @@ static void check_include(
         root / fs::path(operand),
         root / "core" / fs::path(operand)
     };
+    // Module-relative includes belong to the including file's module, even
+    // when that source is compiled into the test executable.
+    const fs::path component = *relative_path.begin();
+    if ((component == "host") || (component == "executive") || (component == "rendering"))
+    {
+        candidates.push_back(root / component / fs::path(operand));
+    }
     std::set<std::string> resolved;
     for (const fs::path& candidate : candidates)
     {

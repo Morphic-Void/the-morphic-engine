@@ -12,9 +12,9 @@
 
 #include <cstdio>
 
-#include "host/entry/bootstrap_config.hpp"
-#include "host/runtime/host.hpp"
-#include "host/system/host_context.hpp"
+#include "entry/bootstrap_config.hpp"
+#include "runtime/host.hpp"
+#include "system/host_context.hpp"
 #include "platform/system/process_priority.hpp"
 
 int main(const int argc, char** const argv)

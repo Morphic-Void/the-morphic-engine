@@ -9,14 +9,14 @@
 //  Bounded reflection staging and transactional publication. Physical resource
 //  layouts and non-storage stage-value shapes remain separate descriptions.
 
-#include "rendering/runtime/shader_reflection.hpp"
+#include "runtime/shader_reflection.hpp"
 #include "schema/schema.hpp"
 #include "text/utf8_string.hpp"
 #include <charconv>
 #include <new>
 
 #define SPV_ENABLE_UTILITY_CODE
-#include "rendering/runtime/shader_reflection_spirv.hpp"
+#include "runtime/shader_reflection_spirv.hpp"
 
 namespace rendering::shader_reflection
 {

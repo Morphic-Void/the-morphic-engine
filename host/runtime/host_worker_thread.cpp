@@ -15,8 +15,8 @@
 #include <cstdint>      //  std::uint32_t
 #include <utility>      //  std::move
 
-#include "host/runtime/host_worker_thread.hpp"
-#include "host/runtime/module_service.hpp"
+#include "runtime/host_worker_thread.hpp"
+#include "runtime/module_service.hpp"
 
 #include "debug/macros.hpp"
 #include "data_model/document_parser.hpp"
@@ -29,7 +29,7 @@
 #include "assets/asset_messages.hpp"
 #include "system/service_messages.hpp"
 #include "image/image_messages.hpp"
-#include "host/runtime/host_payloads.hpp"
+#include "runtime/host_payloads.hpp"
 #include "threading/CThreadPackage.hpp"
 
 namespace host

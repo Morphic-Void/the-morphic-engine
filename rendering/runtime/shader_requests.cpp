@@ -8,7 +8,7 @@
 //
 //  Drain every accepted callback before returning the group's borrowed bundle.
 
-#include "rendering/runtime/shader_requests.hpp"
+#include "runtime/shader_requests.hpp"
 #include "threading/messages/message_helpers.hpp"
 
 namespace rendering

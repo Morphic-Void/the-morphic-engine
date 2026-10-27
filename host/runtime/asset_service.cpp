@@ -17,7 +17,7 @@
 #include <type_traits>
 #include <utility>
 
-#include "host/runtime/asset_service.hpp"
+#include "runtime/asset_service.hpp"
 #include "debug/macros.hpp"
 #include "image/image_messages.hpp"
 #include "image/texture_messages.hpp"

@@ -13,7 +13,7 @@
 #ifndef EXECUTIVE_THREAD_HPP_INCLUDED
 #define EXECUTIVE_THREAD_HPP_INCLUDED
 
-#include "executive/module/binding/executive_binding.hpp"
+#include "module/binding/executive_binding.hpp"
 
 namespace executive
 {

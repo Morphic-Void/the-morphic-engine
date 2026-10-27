@@ -12,10 +12,10 @@
 #include <cstring>
 #include <limits>
 
-#include "host/entry/bootstrap_config.hpp"
+#include "entry/bootstrap_config.hpp"
 #include "platform/module/binding.hpp"
-#include "host/runtime/batch_pool.hpp"
-#include "host/runtime/worker_policy.hpp"
+#include "runtime/batch_pool.hpp"
+#include "runtime/worker_policy.hpp"
 
 namespace host
 {

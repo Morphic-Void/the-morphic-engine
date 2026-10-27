@@ -10,10 +10,10 @@
 
 #include <cstdint>      //  std::uint32_t
 
-#include "rendering/module/binding/rendering_binding.hpp"
+#include "module/binding/rendering_binding.hpp"
 
-#include "rendering/module/types/local_type_ids.hpp"
-#include "rendering/runtime/rendering_thread.hpp"
+#include "module/types/local_type_ids.hpp"
+#include "runtime/rendering_thread.hpp"
 #include "module/module_binding_context.hpp"
 
 namespace rendering::module_binding

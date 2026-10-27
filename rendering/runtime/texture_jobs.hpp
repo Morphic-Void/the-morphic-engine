@@ -16,7 +16,7 @@
 #include <utility>
 
 #include "platform/platform_defines.hpp"
-#include "rendering/runtime/basis_codec.hpp"
+#include "runtime/basis_codec.hpp"
 
 namespace rendering
 {

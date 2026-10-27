@@ -13,7 +13,7 @@
 #ifndef HOST_LOCAL_TYPES_HPP_INCLUDED
 #define HOST_LOCAL_TYPES_HPP_INCLUDED
 
-#include "host/runtime/host_payloads.hpp"
+#include "runtime/host_payloads.hpp"
 #include "image/image_messages.hpp"
 
 namespace host

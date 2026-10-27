@@ -10,10 +10,10 @@
 
 #include <cstdint>      //  std::uint32_t
 
-#include "executive/module/binding/executive_binding.hpp"
+#include "module/binding/executive_binding.hpp"
 
-#include "executive/module/types/local_type_ids.hpp"
-#include "executive/runtime/executive_thread.hpp"
+#include "module/types/local_type_ids.hpp"
+#include "runtime/executive_thread.hpp"
 #include "module/module_binding_context.hpp"
 
 namespace executive::module_binding

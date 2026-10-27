@@ -123,6 +123,12 @@ Context-dependent findings are warnings initially:
 - `INC102`: macro-expanded include operand not evaluated; and
 - `PRJ101`: project condition beyond the limited evaluator.
 
+Quoted project includes are checked relative to the including file's directory,
+the repository root, and core. Files under Host, Executive, and Rendering also
+use their own module root, including when those sources are compiled into tests.
+Other modules remain explicitly qualified; their roots are not added as fallback
+candidates. Multiple distinct matching files still produce `INC005`.
+
 Errors produce a non-zero exit status. Warnings are reported but do not fail
 the build. Invocation or policy-loading failures use a distinct non-zero exit
 status from policy violations.

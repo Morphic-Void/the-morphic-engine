@@ -19,10 +19,10 @@
 #include <algorithm>    //  std::min
 #include <cstdint>      //  std::int32_t, std::uint8_t, std::uint64_t
 
-#include "host/runtime/host.hpp"
-#include "host/system/host_context.hpp"
-#include "host/runtime/host_worker_thread.hpp"
-#include "host/system/system_id_definitions.hpp"
+#include "runtime/host.hpp"
+#include "system/host_context.hpp"
+#include "runtime/host_worker_thread.hpp"
+#include "system/system_id_definitions.hpp"
 #include "executive/module/binding/executive_binding.hpp"
 #include "rendering/module/binding/rendering_binding.hpp"
 #include "platform/system/performance_counter.hpp"
@@ -32,7 +32,7 @@
 #include "system/service_messages.hpp"
 #include "image/texture_messages.hpp"
 #include "shader/shader_messages.hpp"
-#include "host/runtime/host_payloads.hpp"
+#include "runtime/host_payloads.hpp"
 #include "threading/CThreadPackage.hpp"
 
 #include "debug/macros.hpp"

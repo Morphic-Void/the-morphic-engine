@@ -13,7 +13,7 @@
 #ifndef RENDERING_THREAD_HPP_INCLUDED
 #define RENDERING_THREAD_HPP_INCLUDED
 
-#include "rendering/module/binding/rendering_binding.hpp"
+#include "module/binding/rendering_binding.hpp"
 
 namespace rendering
 {
