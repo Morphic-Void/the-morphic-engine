@@ -571,11 +571,15 @@ The reflection design records their constraints and the remaining contract choic
 Its agreed authoring starting point uses an ordered explicit shader/variant list,
 existing compilation defaults and define precedence, and separate public,
 declaration and descriptive identities. Deterministic packing preserves binary
-artifacts. The first individual-shader reflector rejects all specialization
+artifacts. Compile-time variants are the baseline: explicit named compilation
+targets select entry points, defines and compilation settings, with no automatic
+permutation expansion. The individual-shader reflector rejects all specialization
 constants with diagnostics; compile-only behaviour is unchanged. Specialization
-support remains required before the overall shader work is complete and will be
-designed with PSO construction. Exact identity encoding and public conditioning
-APIs remain open.
+constants are currently unsupported by reflection and conditioning, and support
+is not planned. They are not a requirement for completing the agreed shader work
+or a scheduled part of PSO construction. A concrete future use case may justify
+reconsideration through a separate design decision. Exact identity encoding and
+public conditioning APIs remain open.
 
 Later pipeline conditioning should validate vertex-buffer construction and stage
 connections, including tessellation patch interfaces and topology. The library

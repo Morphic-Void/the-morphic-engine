@@ -81,7 +81,8 @@ independent. Raw/structured/typed interpretation follows available compiler
 user-type metadata. Fixed-prefix runtime blocks, other resource categories and
 execution modes outside the checked table fail explicitly. All
 specialization constants reject, with identifiable shape/execution reasons where
-available. Required specialization support remains unfinished, as recorded below.
+available. Compile-time variants are the baseline; specialization constants are
+currently unsupported and support is not planned, as recorded below.
 
 Stage values use primitive leaves and separate vector, matrix, fixed-array and
 structure interfaces. Matrices retain their compiled SPIR-V basis and have no
@@ -992,18 +993,23 @@ distinct.
 
 ### Initial feature boundary
 
-The first individual-shader reflection slice rejects all specialization constants
+The individual-shader reflector rejects all specialization constants
 with an identifiable unsupported-feature diagnostic, distinguishing shape and
-execution dependencies where possible. This broader initial restriction was
-approved on 26 October; it does not change the existing compile-only path. Do not
-silently freeze specialization constants at their default values.
+execution dependencies where possible. This does not change the existing
+compile-only path. Do not silently freeze specialization constants at their
+default values.
 
-Specialization support is required before the overall shader work can be
-considered complete. It is deferred from this slice, not dropped from scope.
-Revisit its metadata, value selection, validation and effects on reflection when
-PSO construction is sufficiently defined. The exact supported forms and contract
-remain to design with that work; passing the first reflection slice does not
-close this requirement. Track it in the [engine backlog](../backlog/engine_backlog.md).
+Compile-time variants are the baseline: explicit named compilation targets select
+entry points, defines and compilation settings, producing independently compiled
+and reflected artifacts. This does not introduce automatic permutation expansion.
+
+Specialization constants are currently unsupported by shader reflection and
+conditioning, and support is not planned. The 27 October decision supersedes the
+earlier required follow-up: specialization support is not a prerequisite for
+completing the agreed shader work and is not scheduled as part of PSO construction.
+A concrete future use case may justify reconsidering metadata, value selection,
+validation and effects on reflection through a separate design decision. Record
+this scope in the [engine backlog](../backlog/engine_backlog.md).
 
 Reject physical layouts that cannot be represented faithfully, including cases
 where schema extent/padding ownership would misdescribe the compiled layout.
@@ -1188,12 +1194,10 @@ remaining contract details, not a reopening of those policies:
    declarations, members, depth, strings, diagnostics and total retained live/final
    bytes, including temporary finalisation overlap. Preserve Core dependency rules
    and existing compile-only behaviour during migration.
-4. **Additional feature contracts.** All specialization constants and
-   unrepresentable physical layouts fail visibly in the first reflection slice.
-   Specialization support remains a required follow-up with PSO construction,
-   rather than a prerequisite for this bounded slice. Settle the concrete
-   representation of wider Boolean buffer values without mapping them blindly
-   to `b8`.
+4. **Additional feature contracts.** Settle the concrete representation of wider
+   Boolean buffer values without mapping them blindly to `b8`. Unrepresentable
+   physical layouts fail visibly. Specialization constants also fail visibly;
+   their support is not planned and is not an outstanding implementation decision.
 
 The checked execution-mode/stage table, renderer semantic validation, layout
 fixtures and failure tests are implementation/verification work. They must prove
