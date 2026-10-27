@@ -105,6 +105,8 @@ The principal conclusive rules are:
 - `GID001` and `GID002`: catalogue or registration macro outside its permitted
   surface;
 - `INC001`: direct non-project include outside the reviewed allowlist;
+- `INC002`: core project include outside core or SuiteUTF, or a core include
+  whose macro-expanded operand cannot be checked;
 - `INC003`: direct `windows.h` use outside the wrapper;
 - `INC004`: unresolved quoted project include;
 - `PRJ001`: applicable project configuration does not explicitly select C++17;
@@ -120,7 +122,7 @@ Context-dependent findings are warnings initially:
 - `MEM003`: raw allocation primitive outside approved infrastructure;
 - `INC005`: ambiguously resolved quoted include;
 - `INC101`: apparently unused `<new>` include;
-- `INC102`: macro-expanded include operand not evaluated; and
+- `INC102`: macro-expanded include operand outside core not evaluated; and
 - `PRJ101`: project condition beyond the limited evaluator.
 
 Quoted project includes are checked relative to the including file's directory,
@@ -128,6 +130,18 @@ the repository root, and core. Files under Host, Executive, and Rendering also
 use their own module root, including when those sources are compiled into tests.
 Other modules remain explicitly qualified; their roots are not added as fallback
 candidates. Multiple distinct matching files still produce `INC005`.
+
+Core project includes may resolve only within `core/` or `external/SuiteUTF/`.
+SuiteUTF is an explicit exception because it is controlled by the engine's
+author and intended for low-level integration. Other engine modules, tests,
+tools, and vendor libraries are outside this boundary. The check normalises
+path separators and resolves parent segments and symbolic links before
+checking the destination; a matching forbidden candidate fails the check even
+if another candidate is allowed. It applies to quoted and angle-bracket
+operands, and system-header permissions cannot override it. Approved standard
+and platform headers retain their existing permissions. Core must use literal
+include operands so the checker can verify this boundary; macro-expanded
+operands are errors there and remain warnings elsewhere.
 
 Errors produce a non-zero exit status. Warnings are reported but do not fail
 the build. Invocation or policy-loading failures use a distinct non-zero exit
@@ -156,6 +170,14 @@ token-pasting are not evaluated. A header permission is not an exemption from
 this symbol check; tooling outside the configured scan roots remains exempt.
 
 ## Focused regression tests
+
+Run `python tools/tests/test_policy_includes.py --binary <validator-path>` to
+check include resolution and the core boundary in an isolated fixture checkout.
+Linux CI runs these cases through `MorphicPolicyIncludes` in CTest. They cover
+module and vendor dependencies, SuiteUTF, relative and absolute paths,
+backslashes, ambiguous candidates, angle-bracket permissions, macro operands,
+and symbolic-link escapes. Windows skips the symbolic-link cases when the
+account lacks the required privilege; Linux runs them normally.
 
 After building the validator, run
 `tools/policy_validator/test_stable_sort.ps1` in PowerShell. It defaults to the

@@ -639,6 +639,37 @@ static void add_diagnostic(
     diagnostics.push_back({ path, line, column, severity, std::move(rule), std::move(message), false });
 }
 
+[[nodiscard]] static bool core_include_target_is_allowed(const fs::path& root, const fs::path& candidate)
+{
+    std::error_code error;
+    const fs::path canonical_target = fs::weakly_canonical(candidate, error);
+    if (error)
+    {
+        return false;
+    }
+    std::string target = normalise_relative_path(canonical_target);
+#ifdef _WIN32
+    target = lower_copy(target);
+#endif
+    for (const fs::path& allowed : { root / "core", root / "external" / "SuiteUTF" })
+    {
+        const fs::path canonical_allowed = fs::weakly_canonical(allowed, error);
+        if (error)
+        {
+            continue;
+        }
+        std::string prefix = normalise_relative_path(canonical_allowed) + '/';
+#ifdef _WIN32
+        prefix = lower_copy(prefix);
+#endif
+        if (target.rfind(prefix, 0u) == 0u)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
 static void check_include(
     const fs::path& root,
     const fs::path& absolute_path,
@@ -660,17 +691,26 @@ static void check_include(
         return;
     }
     text = trim(text.substr(7u));
-    if (text.size() < 3u)
+    if (text.empty())
     {
         return;
     }
 
+    const bool in_core = normalise_relative_path(relative_path).rfind("core/", 0u) == 0u;
     const char opening = text[0];
     const char closing = (opening == '<') ? '>' : ((opening == '"') ? '"' : '\0');
     if (closing == '\0')
     {
-        add_diagnostic(diagnostics, relative_path, directive.line, directive.column,
-            ESeverity::warning, "INC102", "macro-expanded include operand was not evaluated");
+        if (in_core)
+        {
+            add_diagnostic(diagnostics, relative_path, directive.line, directive.column,
+                ESeverity::error, "INC002", "core include must use a literal operand so its boundary can be checked");
+        }
+        else
+        {
+            add_diagnostic(diagnostics, relative_path, directive.line, directive.column,
+                ESeverity::warning, "INC102", "macro-expanded include operand was not evaluated");
+        }
         return;
     }
     const std::size_t close = text.find(closing, 1u);
@@ -682,6 +722,42 @@ static void check_include(
     }
     const std::string operand = text.substr(1u, close - 1u);
     const std::size_t column = directive.column + directive.text.find(operand);
+
+    // Treat both separator spellings consistently, including when Linux CI
+    // checks an include that would be accepted by the Windows compiler.
+    std::string project_operand = operand;
+    std::replace(project_operand.begin(), project_operand.end(), '\\', '/');
+    std::vector<fs::path> candidates = {
+        root / fs::path(project_operand),
+        root / "core" / fs::path(project_operand)
+    };
+    if (opening == '"')
+    {
+        candidates.insert(candidates.begin(), absolute_path.parent_path() / fs::path(project_operand));
+    }
+    // Module-relative includes belong to the including file's module, even
+    // when that source is compiled into the test executable.
+    const fs::path component = *relative_path.begin();
+    if ((component == "host") || (component == "executive") || (component == "rendering"))
+    {
+        candidates.push_back(root / component / fs::path(project_operand));
+    }
+    std::set<std::string> resolved;
+    for (const fs::path& candidate : candidates)
+    {
+        std::error_code error;
+        if (fs::is_regular_file(candidate, error))
+        {
+            if (in_core && !core_include_target_is_allowed(root, candidate))
+            {
+                add_diagnostic(diagnostics, relative_path, directive.line, column,
+                    ESeverity::error, "INC002", "core include " + operand +
+                        " resolves outside core and SuiteUTF: " + normalise_relative_path(candidate));
+                return;
+            }
+            resolved.insert(normalise_relative_path(candidate.lexically_normal()));
+        }
+    }
 
     if (opening == '<')
     {
@@ -700,27 +776,6 @@ static void check_include(
         return;
     }
 
-    std::vector<fs::path> candidates = {
-        absolute_path.parent_path() / fs::path(operand),
-        root / fs::path(operand),
-        root / "core" / fs::path(operand)
-    };
-    // Module-relative includes belong to the including file's module, even
-    // when that source is compiled into the test executable.
-    const fs::path component = *relative_path.begin();
-    if ((component == "host") || (component == "executive") || (component == "rendering"))
-    {
-        candidates.push_back(root / component / fs::path(operand));
-    }
-    std::set<std::string> resolved;
-    for (const fs::path& candidate : candidates)
-    {
-        std::error_code error;
-        if (fs::is_regular_file(candidate, error))
-        {
-            resolved.insert(normalise_relative_path(candidate.lexically_normal()));
-        }
-    }
     if (resolved.empty())
     {
         add_diagnostic(diagnostics, relative_path, directive.line, column,

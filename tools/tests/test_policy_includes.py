@@ -6,20 +6,23 @@
 import argparse
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 
 
-def check(binary, root, source, operand, errors=0, warnings=0, rule=None):
+def check(binary, root, source, operand, errors=0, warnings=0, rule=None, opening='"', raw=False):
     path = root / source
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(f'\n#include "{operand}"\n', encoding="utf-8")
+    closing = '>' if opening == '<' else '"'
+    directive = operand if raw else f"{opening}{operand}{closing}"
+    path.write_text(f'\n#include {directive}\n', encoding="utf-8")
     try:
         result = subprocess.run(
             [str(binary), "--root", str(root), "--no-report"],
             capture_output=True, text=True, timeout=30,
         )
-        summary = f"{errors} error(s), {warnings} warning(s)"
-        if (result.returncode != (1 if errors else 0) or summary not in result.stdout
+        summary = f"MorphicPolicyValidator: {errors} error(s), {warnings} warning(s), 0 suppressed diagnostic(s)"
+        if (result.returncode != (1 if errors else 0) or summary not in result.stdout.splitlines()
                 or (rule is not None and rule not in result.stdout)):
             raise AssertionError(f"{source}: {operand}\n{result.stdout}\n{result.stderr}")
     finally:
@@ -42,6 +45,9 @@ def main():
             scope = "tests" if component == "tests" else "engine"
             policy += f"scan|{component}|{scope}\n"
         policy += "project|fixture.vcxproj|engine\n"
+        policy += "include|cstdint|all|any|*|engine-wide\n"
+        # A system-header permission must not override the core boundary.
+        policy += "include|rendering/runtime/only_rendering.hpp|all|any|*|fixture\n"
         (root / "fixture.vcxproj").write_text(
             '<Project><ItemGroup><ProjectConfiguration Include="Debug|x64" />'
             '</ItemGroup><ItemDefinitionGroup><ClCompile>'
@@ -57,6 +63,9 @@ def main():
             "rendering/module/types/local_type_ids.hpp",
             "rendering/runtime/only_rendering.hpp",
             "host/runtime/local.hpp", "host/debug/macros.hpp",
+            "tests/helper.hpp", "tools/helper.hpp", "audio/runtime/helper.hpp",
+            "external/other/header.hpp", "external/SuiteUTF_extra/header.hpp",
+            "core/shared.hpp", "shared.hpp",
         ):
             path = root / header
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -80,7 +89,43 @@ def main():
                   errors=1, rule="INC004")
         check(binary, root, "rendering/runtime/probe.cpp", "runtime/missing.hpp",
               errors=1, rule="INC004")
-    print("Policy include resolution: all 13 cases passed")
+
+        for operand in (
+            "host/runtime/local.hpp", "executive/module/types/local_type_ids.hpp",
+            "rendering/runtime/only_rendering.hpp", "tests/helper.hpp", "tools/helper.hpp",
+            "audio/runtime/helper.hpp", "external/other/header.hpp",
+            "external/SuiteUTF_extra/header.hpp", "../host/runtime/local.hpp",
+            "../core/../host/runtime/local.hpp", "external/SuiteUTF/../other/header.hpp",
+            r"host\runtime\local.hpp", str(root / "host/runtime/local.hpp"),
+        ):
+            check(binary, root, "core/probe.cpp", operand, errors=1, rule="INC002")
+        for operand in ("debug/macros.hpp", "core/debug/macros.hpp",
+                        "external/SuiteUTF/include/../include/utf_toolkit.h",
+                        str(root / "core/debug/macros.hpp")):
+            check(binary, root, "core/probe.cpp", operand)
+        check(binary, root, "core/probe.def", "host/runtime/local.hpp", errors=1, rule="INC002")
+        check(binary, root, "core/probe.cpp", "shared.hpp", errors=1, rule="INC002")
+        check(binary, root, "core/probe.cpp", "cstdint", opening='<')
+        check(binary, root, "core/probe.cpp", "rendering/runtime/only_rendering.hpp",
+              errors=1, rule="INC002", opening='<')
+        check(binary, root, "core/probe.cpp", "H", errors=1, rule="INC002", raw=True)
+        check(binary, root, "host/runtime/probe.cpp", "HEADER_PATH", warnings=1, rule="INC102", raw=True)
+
+        # Resolve aliases before admitting either core or the SuiteUTF exception.
+        for alias in ("core/alias.hpp", "external/SuiteUTF/include/alias.hpp"):
+            link = root / alias
+            try:
+                link.symlink_to(root / "host/runtime/local.hpp")
+            except OSError as error:
+                if sys.platform != "win32" or error.winerror != 1314:
+                    raise
+                print(f"Symlink fixture unavailable: {error}")
+                continue
+            try:
+                check(binary, root, "core/probe.cpp", alias, errors=1, rule="INC002")
+            finally:
+                link.unlink()
+    print("Policy include resolution and core boundary checks passed")
 
 
 if __name__ == "__main__":
