@@ -188,7 +188,7 @@ operations and releasing their inputs or bundle reservations.
 
 Permitted empty replies keep their ordinary failure mapping: file and bundle
 file loads report `read_failed`; TGA replies report `conditioning_failed`;
-document, bundle-build and texture replies report `allocation_failed`.
+document and bundle-build replies report `allocation_failed`.
 Wrong present payload types never masquerade as these allocation-related empty
 replies. Bundle preparation still returns a POD status against Host-owned work.
 
@@ -323,7 +323,8 @@ until process exit; see the module lifecycle notes for that fallback.
   aggregate memory-attribution hooks.
 - `core/image/image_messages.hpp`: Host-understood TGA work and storage, supporting
   debug and diagnostic image flows.
-- `core/image/texture_messages.hpp`: shared texture requests and work.
+- `rendering/runtime/resource_requests.*`: Rendering-owned texture/shader requests,
+  generic source acquisitions and releases; Host never receives typed results.
 - `host/runtime/host_payloads.hpp`: private worker exchanges and retained wrappers.
   These and the TGA worker protocols use component-local identities. Adjacent
   owner fragments feed the Host and service-test LOCAL operation tables.
@@ -331,7 +332,7 @@ until process exit; see the module lifecycle notes for that fallback.
   worker dispatch and correlated completion.
 - `host/runtime/host_worker_thread.cpp`: file and conditioning execution.
 - `host/runtime/host.cpp`: runtime routing, draining and shutdown order.
-- `executive/runtime/executive_thread.cpp`: 71 named sequential scenarios plus 32
+- `executive/runtime/executive_thread.cpp`: 50 named sequential scenarios plus 32
   concurrent saves through the actual Host, file, conditioning and rendering threads.
 
 The Executive exercise checks raw byte equality and alignment, TGA pixel equality,

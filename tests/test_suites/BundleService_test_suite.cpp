@@ -15,7 +15,6 @@
 #include "assets/internal/bundle_builder_io.hpp"
 #include "data_model/document_translation.hpp"
 #include "host/runtime/asset_service.hpp"
-#include "image/texture_messages.hpp"
 #include "tests/support/test_allocator.hpp"
 #include "tests/support/test_context.hpp"
 #include "tests/support/thread_helpers.hpp"
@@ -77,7 +76,6 @@ struct SFixture
     {
         CLiveDocument document;
         service.set_filesystem(image);
-        service.set_rendering(&package);
         return tests::parse_document(R"({"roots":{"work:":{"source":"unused","writable":true,"content":{}}}})", document) &&
             image.adopt(std::move(document)) && conversion.init() && service.initialise() &&
             service.configure_workers(package, nullptr) && package.startup();
@@ -610,47 +608,17 @@ void test_conversion_lifetime(TTestContext& ctx)
 {
     SFixture fixture;
     TEST_EXPECT(ctx, fixture.initialise());
-    const auto original = fixture.publish(ctx);
-    CAssetService::CBundleOperation operation;
-    TEST_EXPECT(ctx, fixture.service.begin_bundle_file(fixture.resolve(ctx), 128u, operation) == EAssetStatus::success);
-    const auto source = fixture.service.retain_bundle_file(operation, EAssetFileFormat::raw);
-    operation.reset();
-    auto request = CErasedOwner::create<TextureDecodeRequest>();
-    request.payload<TextureDecodeRequest>()->source = source.asset;
-    fixture.request<TextureDecodeRequest>(ctx, 30, std::move(request));
-    TextureDecodeWork work;
-    TEST_EXPECT(ctx, fixture.receive(work, 0) && work.input->size() == 3u);
-    fixture.service.request_disposal({ original.asset }, 31, fixture.package);
-    auto rejected_request = CErasedOwner::create<TextureDecodeRequest>();
-    rejected_request.payload<TextureDecodeRequest>()->source = source.asset;
-    fixture.request<TextureDecodeRequest>(ctx, 32, std::move(rejected_request));
-    AssetResult rejected;
-    TEST_EXPECT(ctx, fixture.receive(rejected, 32) && rejected.status == EAssetStatus::invalid_asset);
-    fixture.service.request_disposal({ source.asset }, 33, fixture.package);
+    const auto source = fixture.publish(ctx);
+    const auto borrowed = acquire(ctx, fixture, source.asset);
+    fixture.service.request_disposal({ source.asset }, 31, fixture.package);
+    (void)acquire(ctx, fixture, source.asset, EAssetAcquireView::bytes, EAssetStatus::invalid_asset);
+    CByteBuffer independent;
+    TEST_EXPECT(ctx, independent.resize(borrowed.byte_view().size()));
+    std::memcpy(independent.data(), borrowed.byte_view().data(), independent.size());
+    release(ctx, fixture, borrowed.acquisition);
     fixture.service.complete_disposals();
-    TEST_EXPECT(ctx, !fixture.service.is_idle() && std::memcmp(work.input->data(), "abc", 3u) == 0);
-    auto owner = CErasedOwner::create<TextureDecodeResult>();
-    auto* decoded = owner.payload<TextureDecodeResult>();
-    TEST_EXPECT(ctx, decoded != nullptr && decoded->texture.buffer.resize(4u, 16u));
-    if (decoded == nullptr) return;
-    std::memset(decoded->texture.buffer.data(), 0x5a, 4u);
-    decoded->texture.description.width = 1u;
-    decoded->texture.description.height = 1u;
-    decoded->texture.description.row_pitch = 4u;
-    decoded->status = ETextureStatus::success;
-    threading::CErasedOwnerMsg completion;
-    completion.set_message_type<TextureDecodeResult>();
-    completion.set_async_slot(0);
-    completion.set_owner(std::move(owner));
-    fixture.service.complete(completion, fixture.package);
-    AssetResult independent;
-    TEST_EXPECT(ctx, fixture.receive(independent, 30) && independent.asset && independent.status == EAssetStatus::success);
-    fixture.service.complete_disposals();
-    AssetDisposeResult disposed;
-    TEST_EXPECT(ctx, fixture.receive(disposed, 33) && disposed.status == EAssetStatus::success);
-    fixture.notification(ctx, original.asset);
-    TEST_EXPECT(ctx, fixture.service.is_idle() && independent.decoded_texture_view().bytes.data()[0] == 0x5a);
-    fixture.dispose(ctx, independent.asset);
+    fixture.notification(ctx, source.asset);
+    TEST_EXPECT(ctx, fixture.service.is_idle() && independent.size() != 0u);
 }
 
 std::uint32_t MV_STD_ABI_CALL blocked_recipient(void* data) noexcept

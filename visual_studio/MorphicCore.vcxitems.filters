@@ -213,24 +213,6 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\image\texture_data.hpp">
-      <Filter>Core\include\image</Filter>
-    </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\image\texture_messages.hpp">
-      <Filter>Core\include\image</Filter>
-    </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\image\texture_owner_payloads.def">
-      <Filter>Core\include\image</Filter>
-    </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\shader\shader_data.hpp">
-      <Filter>Core\include\shader</Filter>
-    </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\shader\shader_messages.hpp">
-      <Filter>Core\include\shader</Filter>
-    </ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\shader\shader_owner_payloads.def">
-      <Filter>Core\include\shader</Filter>
-    </ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\assets\internal\bundle_builder_io.hpp"><Filter>Core\include\assets\internal</Filter></ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\assets\bundle_builder.hpp"><Filter>Core\include\assets</Filter></ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\filesystem\logical_path.hpp"><Filter>Core\include\filesystem</Filter></ClInclude>

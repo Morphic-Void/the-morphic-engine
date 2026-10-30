@@ -13,6 +13,8 @@
     <Filter Include="Rendering\src\module\types"><UniqueIdentifier>{f01fbee1-46d6-4c27-89af-750abac0f286}</UniqueIdentifier></Filter>
     <Filter Include="Rendering\src\runtime"><UniqueIdentifier>{fdf22805-900c-42b1-983c-a0eed76326dd}</UniqueIdentifier></Filter>
     <Filter Include="Basis Universal"><UniqueIdentifier>{2d65f09a-ec12-41c2-93db-dad0abf5d715}</UniqueIdentifier></Filter>
+    <Filter Include="Rendering\include\shader"><UniqueIdentifier>{4186a63f-d289-55ea-8413-0c495a85b426}</UniqueIdentifier></Filter>
+    <Filter Include="Rendering\include\texture"><UniqueIdentifier>{5e371933-b47a-5d93-8f1d-264604f02889}</UniqueIdentifier></Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\rendering\module\binding\rendering_binding.hpp"><Filter>Rendering\include\module\binding</Filter></ClInclude>
@@ -74,5 +76,15 @@
     <ClCompile Include="..\external\basis_universal\encoder\pvpngreader.cpp"><Filter>Basis Universal</Filter></ClCompile>
     <ClCompile Include="..\external\basis_universal\transcoder\basisu_transcoder.cpp"><Filter>Basis Universal</Filter></ClCompile>
     <ClCompile Include="..\external\basis_universal\zstd\zstd.c"><Filter>Basis Universal</Filter></ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\rendering\runtime\texture_requests.cpp"><Filter>Rendering\src\runtime</Filter></ClCompile>
+    <ClCompile Include="..\rendering\runtime\resource_requests.cpp"><Filter>Rendering\src\runtime</Filter></ClCompile>
+    <ClInclude Include="..\rendering\runtime\texture_requests.hpp"><Filter>Rendering\include\runtime</Filter></ClInclude>
+    <ClInclude Include="..\rendering\runtime\resource_requests.hpp"><Filter>Rendering\include\runtime</Filter></ClInclude>
+    <ClInclude Include="..\rendering\texture\texture_data.hpp"><Filter>Rendering\include\texture</Filter></ClInclude>
+    <ClInclude Include="..\rendering\texture\texture_requests.hpp"><Filter>Rendering\include\texture</Filter></ClInclude>
+    <ClInclude Include="..\rendering\shader\shader_data.hpp"><Filter>Rendering\include\shader</Filter></ClInclude>
+    <ClInclude Include="..\rendering\shader\shader_requests.hpp"><Filter>Rendering\include\shader</Filter></ClInclude>
   </ItemGroup>
 </Project>

@@ -14,7 +14,7 @@
 #define RENDERING_RUNTIME_SHADER_REQUESTS_HPP_INCLUDED
 
 #include "runtime/shader_compiler.hpp"
-#include "shader/shader_messages.hpp"
+#include "shader/shader_requests.hpp"
 #include "threading/CThreadPackage.hpp"
 
 namespace rendering
@@ -24,21 +24,20 @@ class CShaderRequests final
 {
 public:
     static constexpr std::uint32_t k_correlation_tag = 0x80000000u;
-    CShaderRequests(
-        threading::CThreadContext& context, threading::CBatchClient& batch,
-        const shader_compiler::SLimits& limits = {}) noexcept
-        : m_context{ context }, m_batch{ batch }, m_limits{ limits }
-    {
-    }
+    using FComplete = void(*)(void*, std::int32_t, ShaderCompileResult&&) noexcept;
+    CShaderRequests(threading::CBatchClient& batch, void* client, FComplete complete,
+        const shader_compiler::SLimits& limits = {}) noexcept :
+        m_client{ client }, m_complete{ complete }, m_batch{ batch }, m_limits{ limits } {}
     [[nodiscard]] bool initialise() noexcept { return m_groups.initialise() && m_jobs.initialise(); }
     [[nodiscard]] bool pending() const noexcept { return !m_groups.is_empty(); }
-    [[nodiscard]] bool submit(const threading::CErasedPodMsg& message) noexcept;
+    [[nodiscard]] bool submit(const ShaderCompileWork& input, std::int32_t correlation) noexcept;
     [[nodiscard]] bool complete(const threading::SBatchResponse& response) noexcept;
 
 private:
     struct SGroup
     {
-        threading::CErasedOwnerMsg response;
+        ShaderCompileResult response;
+        std::int32_t correlation{ -1 };
         std::uint32_t remaining{ 0u };
         std::uint64_t retained_bytes{ 0u };
     };
@@ -47,11 +46,13 @@ private:
         TInstance<shader_compiler::CCompileJob> work;
         std::int32_t group{ -1 };
         std::uint32_t member{ 0u };
+        std::uint32_t identity{ 0u };
     };
-    [[nodiscard]] bool collect(
-        const std::int32_t group, const std::uint32_t member, shader::CShaderCompileReport&& report) noexcept;
+    [[nodiscard]] bool collect(const std::int32_t group, const std::uint32_t member, shader::CShaderCompileReport&& report) noexcept;
     [[nodiscard]] bool finish(const std::int32_t group) noexcept;
-    threading::CThreadContext& m_context;
+    void* m_client;
+    FComplete m_complete;
+    std::uint32_t m_next{ 1u };
     threading::CBatchClient& m_batch;
     const shader_compiler::SLimits m_limits;
     TUnorderedCollection<SGroup> m_groups;

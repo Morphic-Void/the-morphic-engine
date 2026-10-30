@@ -21,7 +21,7 @@
 #include "platform/threading/processor_relax.hpp"
 #include "rendering/runtime/texture_jobs.hpp"
 #include "assets/asset_messages.hpp"
-#include "image/texture_messages.hpp"
+#include "rendering/texture/texture_requests.hpp"
 #include "system/service_messages.hpp"
 #include "threading/messages/message_helpers.hpp"
 #include "tests/environment/test_environment.hpp"
@@ -40,7 +40,7 @@ static_assert(!std::is_copy_constructible_v<rendering::CTextureEncodeJob> &&
 static_assert(!std::is_copy_constructible_v<rendering::CTextureDecodeJob> &&
     !std::is_move_constructible_v<rendering::CTextureDecodeJob>);
 
-struct SFixture
+struct SRealFixture
 {
     platform::system::CPerfCountConversion conversion;
     TInstance<debug_system::CDebugServiceState> debug_service;
@@ -50,7 +50,7 @@ struct SFixture
     threading::SBatchWork held;
     platform::threading::FThreadEntry entry{ nullptr };
 
-    ~SFixture() noexcept
+    ~SRealFixture() noexcept
     {
         stop();
         if (debug_service) (void)debug_service->stop();
@@ -131,64 +131,18 @@ struct SFixture
         package.reset();
     }
 
-    template<typename TWork, typename TResult>
-    CErasedOwner operation(tests::TTestContext& ctx, const TWork& work, const std::int32_t slot,
-        const bool queued, const threading::EBatchCompletion completion, const bool exit_before_completion) noexcept
-    {
-        threading::CErasedPodMsg request;
-        request.set_async_slot(slot);
-        request.assign_payload(work);
-        const bool posted = package->post(request);
-        TEST_EXPECT(ctx, posted);
-        if (!posted) return {};
-        if (queued)
-        {
-            const bool acquired = tests::wait_until(conversion, [this]() noexcept { return acquire(); });
-            TEST_EXPECT(ctx, acquired);
-            if (!acquired) return {};
-            TEST_EXPECT(ctx, (held.memory_context == test_environment::rendering_memory_context()));
-            threading::CErasedOwnerMsg premature;
-            TEST_EXPECT(ctx, !package->read(premature));
-            TEST_EXPECT(ctx, (package->batch_client()->outstanding() == 1u));
-            if (exit_before_completion)
-            {
-                package->request_exit();
-                TEST_EXPECT(ctx, tests::wait_until(conversion, [this]() noexcept
-                {
-                    return package->query_state() == threading::EThreadRunState::Exiting;
-                }));
-                TEST_EXPECT(ctx, (package->batch_client()->outstanding() == 1u));
-            }
-            if (completion == threading::EBatchCompletion::executed)
-            {
-                const bool prepared = module.prepare_batch_thread(thread_ids::batch_runner_00, held.memory_context);
-                TEST_EXPECT(ctx, prepared);
-                if (!prepared) return {};
-                //  Models a runner admitted before the exit request, finishing afterward.
-                held.function(held.object);
-            }
-            TEST_EXPECT(ctx, complete(completion));
-        }
-        threading::CErasedOwnerMsg response;
-        const bool received = tests::wait_until(conversion, [this, &response]() noexcept { return package->read(response); });
-        TEST_EXPECT(ctx, received);
-        if (!received) return {};
-        TEST_EXPECT(ctx, (response.query_async_slot() == slot));
-        TEST_EXPECT(ctx, response.is_message_a<TResult>());
-        TEST_EXPECT(ctx, (package->batch_client()->outstanding() == 0u));
-        return response.take_owner();
-    }
+
 };
 
-struct SStopRendering
+struct SStopRealRendering
 {
-    SFixture& fixture;
-    ~SStopRendering() noexcept { fixture.stop(); }
+    SRealFixture& fixture;
+    ~SStopRealRendering() noexcept { fixture.stop(); }
 };
 
-static void test_module_test_protocol(tests::TTestContext& ctx, SFixture& fixture)
+static void test_module_test_protocol(tests::TTestContext& ctx, SRealFixture& fixture)
 {
-    SStopRendering stop{ fixture };
+    SStopRealRendering stop{ fixture };
     const bool started = fixture.start(false);
     TEST_EXPECT(ctx, started);
     if (!started) return;
@@ -206,13 +160,17 @@ static void test_module_test_protocol(tests::TTestContext& ctx, SFixture& fixtur
     TEST_EXPECT(ctx, receive(reply) && reply.copy_payload_to(result));
     TEST_EXPECT(ctx, reply.query_async_slot() == 80 && result.status == ETestRunStatus::invalid_request);
 
-    TEST_EXPECT(ctx, send(81, module_ids::render_vulkan));
+    // Test callers may use the full positive correlation range; resource
+    // acquisition replies are distinguished by type, not the caller's slot.
+    constexpr std::int32_t run_slot = INT32_MAX;
+    constexpr std::int32_t busy_slot = INT32_MAX - 1;
+    TEST_EXPECT(ctx, send(run_slot, module_ids::render_vulkan));
     threading::CErasedOwnerMsg input;
     TEST_EXPECT(ctx, tests::wait_until(fixture.conversion, [&]() noexcept { return fixture.package->read(input); }));
     TEST_EXPECT(ctx, input.is_message_a<RawAssetTransfer>());
-    TEST_EXPECT(ctx, send(82, module_ids::render_vulkan));
+    TEST_EXPECT(ctx, send(busy_slot, module_ids::render_vulkan));
     TEST_EXPECT(ctx, receive(reply) && reply.copy_payload_to(result));
-    TEST_EXPECT(ctx, reply.query_async_slot() == 82 && result.status == ETestRunStatus::busy);
+    TEST_EXPECT(ctx, reply.query_async_slot() == busy_slot && result.status == ETestRunStatus::busy);
 
     //  Failed setup reports a terminal result and permits another run.
     AssetResult failed;
@@ -220,7 +178,7 @@ static void test_module_test_protocol(tests::TTestContext& ctx, SFixture& fixtur
     TEST_EXPECT(ctx, fixture.package->post(threading::make_pod_message(input.query_async_slot(), failed)));
     input = {};
     TEST_EXPECT(ctx, receive(reply) && reply.copy_payload_to(result));
-    TEST_EXPECT(ctx, reply.query_async_slot() == 81 && result.status == ETestRunStatus::failed &&
+    TEST_EXPECT(ctx, reply.query_async_slot() == run_slot && result.status == ETestRunStatus::failed &&
         result.passed == 0u && result.failed == 0u && result.skipped == 23u);
 
     TEST_EXPECT(ctx, send(83, module_ids::render_vulkan));
@@ -256,6 +214,12 @@ static void test_module_test_protocol(tests::TTestContext& ctx, SFixture& fixtur
     TEST_EXPECT(ctx, test_environment::rendering_memory_context()->is_attribution_empty());
 }
 
+} // namespace texture_batch_tests
+
+#include "tests/support/rendering_service_fixture.hpp"
+
+namespace texture_batch_tests
+{
 static void test_jobs(tests::TTestContext& ctx, SFixture& fixture)
 {
     TextureEncodeRequest input;
@@ -274,13 +238,13 @@ static void test_jobs(tests::TTestContext& ctx, SFixture& fixture)
         {
             if (queued)
             {
-                CErasedOwner discarded = fixture.operation<TextureEncodeWork, TextureEncodeResult>(
+                SLocalOwner discarded = fixture.operation<TextureEncodeWork, TextureEncodeResult>(
                     ctx, encode, 9, true, EBatchCompletion::discarded_context_install_failed, false);
                 const TextureEncodeResult* const result = discarded.payload<TextureEncodeResult>();
                 TEST_EXPECT(ctx, ((result != nullptr) && (result->status == ETextureStatus::codec_failed) &&
                     !result->texture.view().is_ready()));
             }
-            CErasedOwner encoded = fixture.operation<TextureEncodeWork, TextureEncodeResult>(
+            SLocalOwner encoded = fixture.operation<TextureEncodeWork, TextureEncodeResult>(
                 ctx, encode, 10, queued, EBatchCompletion::executed, false);
             const TextureEncodeResult* const source = encoded.payload<TextureEncodeResult>();
             TEST_EXPECT(ctx, ((source != nullptr) && (source->status == ETextureStatus::success) &&
@@ -291,13 +255,13 @@ static void test_jobs(tests::TTestContext& ctx, SFixture& fixture)
             const TextureDecodeWork decode{ (&request), (&bytes) };
             if (queued)
             {
-                CErasedOwner discarded = fixture.operation<TextureDecodeWork, TextureDecodeResult>(
+                SLocalOwner discarded = fixture.operation<TextureDecodeWork, TextureDecodeResult>(
                     ctx, decode, 11, true, EBatchCompletion::discarded_context_install_failed, false);
                 const TextureDecodeResult* const result = discarded.payload<TextureDecodeResult>();
                 TEST_EXPECT(ctx, ((result != nullptr) && (result->status == ETextureStatus::codec_failed) &&
                     !result->texture.view().is_ready()));
             }
-            CErasedOwner decoded = fixture.operation<TextureDecodeWork, TextureDecodeResult>(
+            SLocalOwner decoded = fixture.operation<TextureDecodeWork, TextureDecodeResult>(
                 ctx, decode, 12, queued, EBatchCompletion::executed, queued);
             const TextureDecodeResult* const result = decoded.payload<TextureDecodeResult>();
             TEST_EXPECT(ctx, ((result != nullptr) && (result->status == ETextureStatus::success) &&
@@ -313,7 +277,7 @@ static void test_jobs(tests::TTestContext& ctx, SFixture& fixture)
         TEST_EXPECT(ctx, started);
         if (!started) return;
         {
-            CErasedOwner discarded;
+            SLocalOwner discarded;
             if (decode_job)
             {
                 TextureDecodeRequest request;
@@ -336,86 +300,6 @@ static void test_jobs(tests::TTestContext& ctx, SFixture& fixture)
         TEST_EXPECT(ctx, test_environment::rendering_memory_context()->is_attribution_empty());
     }
 }
-
-//  A client echo keeps the real Host reply transport in the integration path.
-struct SServiceFixture
-{
-    SFixture& rendering;
-    host::CAssetService service;
-    TInstance<threading::CThreadPackage> client;
-
-    explicit SServiceFixture(SFixture& source) noexcept : rendering{ source } {}
-    ~SServiceFixture() noexcept
-    {
-        rendering.stop();
-        if (client) (void)client->shutdown();
-        service.deallocate();
-    }
-
-    bool initialise() noexcept
-    {
-        if (!rendering.start(true) || !service.initialise()) return false;
-        service.set_rendering(rendering.package.operator->());
-        const threading::ThreadConfig config{ thread_ids::executive, module_ids::executable,
-            platform::threading::EThreadPriority::Normal, (&tests::echo_pod_messages) };
-        return client.emplace(config, rendering.conversion) && client->startup();
-    }
-
-    template<typename T>
-    bool request(const std::int32_t slot, CErasedOwner&& owner) noexcept
-    {
-        if (owner.payload<T>() == nullptr) return false;
-        threading::CErasedOwnerMsg message;
-        message.set_async_slot(slot);
-        message.set_message_type<T>();
-        message.set_owner(std::move(owner));
-        service.request(message, (*client));
-        return true;
-    }
-
-    bool encode(const std::int32_t slot, const bool hdr, const std::uint32_t width) noexcept
-    {
-        CErasedOwner owner = CErasedOwner::create<TextureEncodeRequest>();
-        TextureEncodeRequest* const request = owner.payload<TextureEncodeRequest>();
-        if (request == nullptr) return false;
-        request->format = hdr ? image::texture::EInputFormat::rgba32f : image::texture::EInputFormat::rgba8;
-        request->options.encoding = hdr ? image::texture::EEncoding::uastc_hdr_4x4 : image::texture::EEncoding::uastc_ldr_4x4;
-        if (!request->input.allocate((width * (hdr ? 16u : 4u)), 4u, 16u)) return false;
-        for (std::uint32_t y = 0u; y < 4u; ++y)
-        {
-            if (hdr)
-            {
-                const float pixel[]{ 4.0f, 2.0f, 1.0f, 1.0f };
-                for (std::uint32_t x = 0u; x < width; ++x)
-                    std::memcpy((request->input.row_data(y) + (x * sizeof(pixel))), pixel, sizeof(pixel));
-            }
-            else std::memset(request->input.row_data(y), 255, (width * 4u));
-        }
-        return this->request<TextureEncodeRequest>(slot, std::move(owner));
-    }
-
-    bool decode(const std::int32_t slot, const CAssetId asset, const bool hdr) noexcept
-    {
-        CErasedOwner owner = CErasedOwner::create<TextureDecodeRequest>();
-        TextureDecodeRequest* const request = owner.payload<TextureDecodeRequest>();
-        if (request == nullptr) return false;
-        request->source = asset;
-        request->target = hdr ? image::texture::EStorageFormat::rgba16f : image::texture::EStorageFormat::rgba8;
-        return this->request<TextureDecodeRequest>(slot, std::move(owner));
-    }
-
-    bool receive(const std::int32_t expected_slot, AssetResult& result) noexcept
-    {
-        threading::CErasedPodMsg reply;
-        const bool received = tests::wait_until(rendering.conversion, [this, &reply]() noexcept
-        {
-            threading::CErasedOwnerMsg completion;
-            while (rendering.package->read(completion)) service.complete(completion, (*rendering.package));
-            return client->read(reply);
-        });
-        return received && (reply.query_async_slot() == expected_slot) && reply.copy_payload_to(result);
-    }
-};
 
 //  Workers enter together, but terminal responses are published explicitly so
 //  result ordering and draining do not depend on relative codec speeds.
@@ -449,6 +333,7 @@ struct SConcurrentJobs
     static std::uint32_t MV_STD_ABI_CALL run(void* const data) noexcept
     {
         SWorker& worker = *static_cast<SWorker*>(data);
+        tests::TMemoryContextScope memory{ worker.work.memory_context };
         worker.prepared = worker.group->fixture.module.prepare_batch_thread(
             worker.identity, worker.work.memory_context);
         worker.group->entered.fetch_add(1u, std::memory_order_release);
@@ -513,7 +398,7 @@ static void test_saturated_requests(tests::TTestContext& ctx, SFixture& fixture)
     constexpr std::uint32_t count = threading::k_batch_channel_capacity;
     for (std::uint32_t index = 0u; index <= count; ++index)
     {
-        threading::CErasedPodMsg message;
+        SLocalWork message;
         message.set_async_slot(static_cast<std::int32_t>(1000u + index));
         message.assign_payload(TextureDecodeWork{ (&request), (&empty) });
         const bool posted = tests::wait_until(fixture.conversion, [&fixture, &message]() noexcept
@@ -524,7 +409,7 @@ static void test_saturated_requests(tests::TTestContext& ctx, SFixture& fixture)
         if (!posted) return;
     }
     //  The last request executes inline while the first 128 remain queued.
-    threading::CErasedOwnerMsg response;
+    SLocalReply response;
     const bool received = tests::wait_until(fixture.conversion, [&fixture, &response]() noexcept
     {
         return fixture.package->read(response);
@@ -533,7 +418,7 @@ static void test_saturated_requests(tests::TTestContext& ctx, SFixture& fixture)
     if (!received) return;
     TEST_EXPECT(ctx, (response.query_async_slot() == static_cast<std::int32_t>(1000u + count)));
     {
-        CErasedOwner owner = response.take_owner();
+        SLocalOwner owner = response.take_owner();
         const auto* const result = owner.payload<TextureDecodeResult>();
         TEST_EXPECT(ctx, ((result != nullptr) && (result->status == ETextureStatus::invalid_input)));
     }
@@ -546,6 +431,7 @@ static void test_saturated_requests(tests::TTestContext& ctx, SFixture& fixture)
         const bool prepared = fixture.module.prepare_batch_thread(thread_ids::batch_runner_00, fixture.held.memory_context);
         TEST_EXPECT(ctx, prepared);
         if (!prepared) return;
+        tests::TMemoryContextScope memory{ fixture.held.memory_context };
         fixture.held.function(fixture.held.object);
         TEST_EXPECT(ctx, fixture.complete(threading::EBatchCompletion::executed));
         const bool completed = tests::wait_until(fixture.conversion, [&fixture, &response]() noexcept
@@ -555,138 +441,12 @@ static void test_saturated_requests(tests::TTestContext& ctx, SFixture& fixture)
         TEST_EXPECT(ctx, completed);
         if (!completed) return;
         TEST_EXPECT(ctx, (response.query_async_slot() == static_cast<std::int32_t>(1000u + index)));
-        CErasedOwner owner = response.take_owner();
+        SLocalOwner owner = response.take_owner();
         const auto* const result = owner.payload<TextureDecodeResult>();
         TEST_EXPECT(ctx, ((result != nullptr) && (result->status == ETextureStatus::invalid_input)));
     }
     TEST_EXPECT(ctx, (fixture.package->batch_client()->outstanding() == 0u));
     fixture.stop();
-    TEST_EXPECT(ctx, test_environment::rendering_memory_context()->is_attribution_empty());
-}
-
-static void test_multiple_requests(tests::TTestContext& ctx, SFixture& rendering)
-{
-    SServiceFixture fixture{ rendering };
-    const bool ready = fixture.initialise();
-    TEST_EXPECT(ctx, ready);
-    if (!ready) return;
-    AssetResult sources[2];
-    {
-        SConcurrentJobs jobs{ fixture.rendering };
-        TEST_EXPECT(ctx, fixture.encode(100, false, 4u));
-        TEST_EXPECT(ctx, fixture.encode(101, true, 8u));
-        TEST_EXPECT(ctx, fixture.request<TextureEncodeRequest>(102, CErasedOwner::create<TextureEncodeRequest>()));
-        TEST_EXPECT(ctx, fixture.encode(103, false, 12u));
-        const bool acquired = jobs.acquire();
-        TEST_EXPECT(ctx, acquired);
-        if (!acquired) return;
-        TEST_EXPECT(ctx, (fixture.rendering.package->batch_client()->outstanding() == 4u));
-        const bool started = jobs.start(3u);
-        TEST_EXPECT(ctx, started);
-        if (!started) return;
-        jobs.join();
-        for (std::uint32_t index = 0u; index < 3u; ++index) TEST_EXPECT(ctx, jobs.workers[index].prepared);
-        threading::CErasedOwnerMsg premature;
-        TEST_EXPECT(ctx, !fixture.rendering.package->read(premature));
-        for (std::int32_t index = 3; index >= 0; --index)
-        {
-            TEST_EXPECT(ctx, SConcurrentJobs::complete(jobs.workers[index], (index == 3 ?
-                threading::EBatchCompletion::discarded_context_install_failed : threading::EBatchCompletion::executed)));
-            AssetResult result;
-            const bool received = fixture.receive((100 + index), result);
-            TEST_EXPECT(ctx, received);
-            if (!received) return;
-            const EAssetStatus expected = (index == 3) ? EAssetStatus::conditioning_failed :
-                ((index == 2) ? EAssetStatus::invalid_request : EAssetStatus::success);
-            TEST_EXPECT(ctx, (result.status == expected));
-            if (index < 2)
-            {
-                sources[index] = result;
-                const auto view = result.encoded_texture_view();
-                TEST_EXPECT(ctx, (view.is_ready() && (view.description.width == ((index == 0) ? 4u : 8u)) &&
-                    (view.description.encoding == ((index == 0) ? image::texture::EEncoding::uastc_ldr_4x4 :
-                        image::texture::EEncoding::uastc_hdr_4x4))));
-            }
-        }
-    }
-    TEST_EXPECT(ctx, fixture.service.is_idle());
-    if (!sources[0].asset || !sources[1].asset) return;
-    {
-        SConcurrentJobs jobs{ fixture.rendering };
-        TEST_EXPECT(ctx, fixture.decode(200, sources[0].asset, false));
-        TEST_EXPECT(ctx, fixture.decode(201, sources[1].asset, true));
-        TEST_EXPECT(ctx, fixture.encode(202, false, 12u));
-        TEST_EXPECT(ctx, fixture.decode(203, sources[1].asset, false)); // Incompatible target.
-        const bool acquired = jobs.acquire();
-        TEST_EXPECT(ctx, acquired);
-        if (!acquired) return;
-        const bool started = jobs.start(4u);
-        TEST_EXPECT(ctx, started);
-        if (!started) return;
-        fixture.service.request_disposal(AssetDisposeRequest{ sources[0].asset }, 204, (*fixture.client));
-        fixture.service.complete_disposals();
-        fixture.rendering.package->request_exit();
-        TEST_EXPECT(ctx, tests::wait_until(fixture.rendering.conversion, [&fixture]() noexcept
-        {
-            return fixture.rendering.package->query_state() == threading::EThreadRunState::Exiting;
-        }));
-        //  These workers were admitted before exit. Their callbacks finish afterward.
-        jobs.join();
-        for (const auto& worker : jobs.workers) TEST_EXPECT(ctx, worker.prepared);
-        for (std::int32_t index = 3; index >= 0; --index)
-        {
-            TEST_EXPECT(ctx, SConcurrentJobs::complete(jobs.workers[index], threading::EBatchCompletion::executed));
-            AssetResult result;
-            const bool received = fixture.receive((200 + index), result);
-            TEST_EXPECT(ctx, received);
-            if (!received) return;
-            TEST_EXPECT(ctx, (result.status == ((index == 3) ? EAssetStatus::invalid_request : EAssetStatus::success)));
-            if (index == 2)
-            {
-                const auto view = result.encoded_texture_view();
-                TEST_EXPECT(ctx, (view.is_ready() && (view.description.width == 12u)));
-            }
-            if (index < 2)
-            {
-                const auto view = result.decoded_texture_view();
-                TEST_EXPECT(ctx, (view.is_ready() && (view.description.width == ((index == 0) ? 4u : 8u)) &&
-                    (view.description.format == ((index == 0) ? image::texture::EStorageFormat::rgba8 :
-                        image::texture::EStorageFormat::rgba16f))));
-                if (view.is_ready() && (index == 0)) TEST_EXPECT(ctx, (view.bytes.data()[0] > 250u));
-                if (view.is_ready() && (index == 1))
-                {
-                    std::uint16_t red_bits = 0u;
-                    std::memcpy((&red_bits), view.bytes.data(), sizeof(red_bits));
-                    const float red = static_cast<float>(fp16data_t::fromBits(red_bits)) * view.description.hdr_scale;
-                    TEST_EXPECT(ctx, ((red > 3.5f) && (red < 4.5f)));
-                }
-            }
-            fixture.service.complete_disposals();
-            if (index != 0)
-            {
-                TEST_EXPECT(ctx, (fixture.rendering.package->query_state() == threading::EThreadRunState::Exiting));
-                threading::CErasedPodMsg premature;
-                TEST_EXPECT(ctx, !fixture.client->read(premature));
-            }
-        }
-        threading::CErasedPodMsg reply;
-        TEST_EXPECT(ctx, tests::wait_until(fixture.rendering.conversion, [&fixture, &reply]() noexcept
-        {
-            return fixture.client->read(reply);
-        }));
-        AssetDisposeResult disposed;
-        TEST_EXPECT(ctx, ((reply.query_async_slot() == 204) && reply.copy_payload_to(disposed) &&
-            (disposed.status == EAssetStatus::success) && (disposed.asset == sources[0].asset)));
-    }
-    TEST_EXPECT(ctx, fixture.service.is_idle());
-    TEST_EXPECT(ctx, !fixture.service.failed());
-    TEST_EXPECT(ctx, tests::wait_until(fixture.rendering.conversion, [&fixture]() noexcept
-    {
-        return fixture.rendering.package->query_state() == threading::EThreadRunState::Exited;
-    }));
-    TEST_EXPECT(ctx, (fixture.rendering.package->batch_client()->outstanding() == 0u));
-    fixture.rendering.stop();
-    fixture.service.deallocate();
     TEST_EXPECT(ctx, test_environment::rendering_memory_context()->is_attribution_empty());
 }
 
@@ -699,17 +459,18 @@ int run_texture_batch_tests()
     tests::TTestContext ctx;
     //  Module installation is once per binding lifetime, including on loaders
     //  that retain the native image after dlclose. Restart only its thread.
+    texture_batch_tests::SRealFixture real;
+    TEST_EXPECT(ctx, real.initialise());
+    texture_batch_tests::test_module_test_protocol(ctx, real);
     texture_batch_tests::SFixture fixture;
     const bool ready = fixture.initialise();
     TEST_EXPECT(ctx, ready);
     if (ready)
     {
-        texture_batch_tests::test_module_test_protocol(ctx, fixture);
         texture_batch_tests::test_jobs(ctx, fixture);
-        texture_batch_tests::test_multiple_requests(ctx, fixture);
         texture_batch_tests::test_saturated_requests(ctx, fixture);
         shader_batch_tests::run(ctx, fixture);
-        shader_batch_tests::host_groups(ctx, fixture);
+        shader_batch_tests::resource_groups(ctx, fixture);
         shader_batch_tests::options_and_admission(ctx, fixture);
         shader_batch_tests::poc(ctx, fixture);
         shader_batch_tests::limits(ctx);

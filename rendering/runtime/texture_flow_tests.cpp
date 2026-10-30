@@ -6,8 +6,7 @@
 //  Authors: Ritchie Brannan / OpenAI Codex
 //  Date:    27 Oct 26
 //
-//  Texture flow fixtures and assertions belong to Rendering. Host retains the
-//  existing typed asset plumbing during this first boundary migration stage.
+//  Rendering exercises its local services; Host only retains opaque source bytes.
 
 #include "threading/messages/message_helpers.hpp"
 #include "runtime/texture_flow_tests.hpp"
@@ -17,11 +16,12 @@
 #include <utility>
 
 #include "debug/macros.hpp"
-#include "image/texture_messages.hpp"
+#include "texture/texture_requests.hpp"
 #include "types/fp16data_t.hpp"
 
 namespace rendering
 {
+
 namespace texture_acceptance
 {
 
@@ -57,36 +57,34 @@ struct SScenario
     EScenario identity;
     const char* name;
     EAssetStatus status;
-    EAssetKind retained_kind;
-    EDocumentPolicyStatus policy;
-    std::uint32_t findings;
+    EResourceKind retained_kind;
 };
 
 //  Preserve the original cases, ordering, expected statuses and assertions.
 static constexpr SScenario scenarios[]{
-    { EScenario::encode_texture_ldr,           "encode_texture_ldr",           EAssetStatus::success,             EAssetKind::encoded_texture, EDocumentPolicyStatus::unexamined,      0u },
-    { EScenario::decode_texture_ldr_bc7,       "decode_texture_ldr_bc7",       EAssetStatus::success,             EAssetKind::decoded_texture, EDocumentPolicyStatus::unexamined,      0u },
-    { EScenario::decode_texture_ldr_rgba,      "decode_texture_ldr_rgba",      EAssetStatus::success,             EAssetKind::decoded_texture, EDocumentPolicyStatus::unexamined,      0u },
-    { EScenario::encode_texture_hdr,           "encode_texture_hdr",           EAssetStatus::success,             EAssetKind::encoded_texture, EDocumentPolicyStatus::unexamined,      0u },
-    { EScenario::decode_texture_hdr_bc6h,      "decode_texture_hdr_bc6h",      EAssetStatus::success,             EAssetKind::decoded_texture, EDocumentPolicyStatus::unexamined,      0u },
-    { EScenario::decode_texture_hdr_half,      "decode_texture_hdr_half",      EAssetStatus::success,             EAssetKind::decoded_texture, EDocumentPolicyStatus::unexamined,      0u },
-    { EScenario::encode_texture_gray_mips,     "encode_texture_gray_mips",     EAssetStatus::success,             EAssetKind::encoded_texture, EDocumentPolicyStatus::unexamined,      0u },
-    { EScenario::decode_texture_gray_bc7,      "decode_texture_gray_bc7",      EAssetStatus::success,             EAssetKind::decoded_texture, EDocumentPolicyStatus::unexamined,      0u },
-    { EScenario::decode_texture_gray_mip,      "decode_texture_gray_mip",      EAssetStatus::success,             EAssetKind::decoded_texture, EDocumentPolicyStatus::unexamined,      0u },
-    { EScenario::encode_texture_float_mips,    "encode_texture_float_mips",    EAssetStatus::success,             EAssetKind::encoded_texture, EDocumentPolicyStatus::unexamined,      0u },
-    { EScenario::decode_texture_float_mip,     "decode_texture_float_mip",     EAssetStatus::success,             EAssetKind::decoded_texture, EDocumentPolicyStatus::unexamined,      0u },
-    { EScenario::reject_texture_budget,        "reject_texture_budget",        EAssetStatus::invalid_request,     EAssetKind::none,            EDocumentPolicyStatus::unexamined,      0u },
-    { EScenario::reject_texture_row,           "reject_texture_row",           EAssetStatus::invalid_request,     EAssetKind::none,            EDocumentPolicyStatus::unexamined,      0u },
-    { EScenario::reject_texture_negative,      "reject_texture_negative",      EAssetStatus::invalid_request,     EAssetKind::none,            EDocumentPolicyStatus::unexamined,      0u },
-    { EScenario::reject_texture_nonfinite,     "reject_texture_nonfinite",     EAssetStatus::invalid_request,     EAssetKind::none,            EDocumentPolicyStatus::unexamined,      0u },
-    { EScenario::reject_texture_transfer,      "reject_texture_transfer",      EAssetStatus::invalid_request,     EAssetKind::none,            EDocumentPolicyStatus::unexamined,      0u },
-    { EScenario::reject_texture_mode,          "reject_texture_mode",          EAssetStatus::invalid_request,     EAssetKind::none,            EDocumentPolicyStatus::unexamined,      0u },
-    { EScenario::reject_texture_profile,       "reject_texture_profile",       EAssetStatus::invalid_request,     EAssetKind::none,            EDocumentPolicyStatus::unexamined,      0u },
-    { EScenario::reject_texture_level,         "reject_texture_level",         EAssetStatus::invalid_request,     EAssetKind::none,            EDocumentPolicyStatus::unexamined,      0u },
-    { EScenario::reject_texture_target,        "reject_texture_target",        EAssetStatus::invalid_request,     EAssetKind::none,            EDocumentPolicyStatus::unexamined,      0u },
-    { EScenario::reject_texture_bc7_transfer,  "reject_texture_bc7_transfer",  EAssetStatus::invalid_request,     EAssetKind::none,            EDocumentPolicyStatus::unexamined,      0u },
-    { EScenario::reject_texture_container,     "reject_texture_container",     EAssetStatus::invalid_request,     EAssetKind::none,            EDocumentPolicyStatus::unexamined,      0u },
-    { EScenario::reject_texture_asset,         "reject_texture_asset",         EAssetStatus::invalid_asset,       EAssetKind::none,            EDocumentPolicyStatus::unexamined,      0u },
+    { EScenario::encode_texture_ldr,           "encode_texture_ldr",           EAssetStatus::success,             EResourceKind::encoded_texture },
+    { EScenario::decode_texture_ldr_bc7,       "decode_texture_ldr_bc7",       EAssetStatus::success,             EResourceKind::decoded_texture },
+    { EScenario::decode_texture_ldr_rgba,      "decode_texture_ldr_rgba",      EAssetStatus::success,             EResourceKind::decoded_texture },
+    { EScenario::encode_texture_hdr,           "encode_texture_hdr",           EAssetStatus::success,             EResourceKind::encoded_texture },
+    { EScenario::decode_texture_hdr_bc6h,      "decode_texture_hdr_bc6h",      EAssetStatus::success,             EResourceKind::decoded_texture },
+    { EScenario::decode_texture_hdr_half,      "decode_texture_hdr_half",      EAssetStatus::success,             EResourceKind::decoded_texture },
+    { EScenario::encode_texture_gray_mips,     "encode_texture_gray_mips",     EAssetStatus::success,             EResourceKind::encoded_texture },
+    { EScenario::decode_texture_gray_bc7,      "decode_texture_gray_bc7",      EAssetStatus::success,             EResourceKind::decoded_texture },
+    { EScenario::decode_texture_gray_mip,      "decode_texture_gray_mip",      EAssetStatus::success,             EResourceKind::decoded_texture },
+    { EScenario::encode_texture_float_mips,    "encode_texture_float_mips",    EAssetStatus::success,             EResourceKind::encoded_texture },
+    { EScenario::decode_texture_float_mip,     "decode_texture_float_mip",     EAssetStatus::success,             EResourceKind::decoded_texture },
+    { EScenario::reject_texture_budget,        "reject_texture_budget",        EAssetStatus::invalid_request,     EResourceKind::none },
+    { EScenario::reject_texture_row,           "reject_texture_row",           EAssetStatus::invalid_request,     EResourceKind::none },
+    { EScenario::reject_texture_negative,      "reject_texture_negative",      EAssetStatus::invalid_request,     EResourceKind::none },
+    { EScenario::reject_texture_nonfinite,     "reject_texture_nonfinite",     EAssetStatus::invalid_request,     EResourceKind::none },
+    { EScenario::reject_texture_transfer,      "reject_texture_transfer",      EAssetStatus::invalid_request,     EResourceKind::none },
+    { EScenario::reject_texture_mode,          "reject_texture_mode",          EAssetStatus::invalid_request,     EResourceKind::none },
+    { EScenario::reject_texture_profile,       "reject_texture_profile",       EAssetStatus::invalid_request,     EResourceKind::none },
+    { EScenario::reject_texture_level,         "reject_texture_level",         EAssetStatus::invalid_request,     EResourceKind::none },
+    { EScenario::reject_texture_target,        "reject_texture_target",        EAssetStatus::invalid_request,     EResourceKind::none },
+    { EScenario::reject_texture_bc7_transfer,  "reject_texture_bc7_transfer",  EAssetStatus::invalid_request,     EResourceKind::none },
+    { EScenario::reject_texture_container,     "reject_texture_container",     EAssetStatus::invalid_request,     EResourceKind::none },
+    { EScenario::reject_texture_asset,         "reject_texture_asset",         EAssetStatus::invalid_asset,       EResourceKind::none },
 };
 static constexpr std::uint32_t scenario_count = sizeof(scenarios) / sizeof(scenarios[0]);
 static_assert(scenario_count == 23u, "Texture acceptance coverage");
@@ -103,20 +101,18 @@ static bool expect(const SScenario& scenario, const bool satisfied, const char* 
 
 }   //  namespace texture_acceptance
 
-static bool prepare_texture_decode_request(threading::CErasedOwnerMsg& pending, const std::int32_t slot,
+static bool prepare_texture_decode_request(STextureInput& pending, const std::int32_t slot,
     const CAssetId source, const image::texture::EStorageFormat target, const std::uint32_t level = 0u) noexcept
 {
-    auto candidate = threading::make_owner_message<TextureDecodeRequest>(slot);
-    auto* const request = candidate.owner().payload<TextureDecodeRequest>();
-    if (request == nullptr) return false;
+    (void)slot;
+    auto* const request = &pending.decode;
     request->source = source;
     request->target = target;
     request->level = level;
-    pending = std::move(candidate);
     return true;
 }
 
-bool CTextureFlowTests::prepare_texture_fixture(threading::CErasedOwnerMsg& pending, const std::int32_t slot, const texture_acceptance::EScenario scenario) noexcept
+bool CTextureFlowTests::prepare_texture_fixture(STextureInput& pending, const std::int32_t slot, const texture_acceptance::EScenario scenario) noexcept
 {
     using namespace texture_acceptance;
     using namespace image::texture;
@@ -128,9 +124,10 @@ bool CTextureFlowTests::prepare_texture_fixture(threading::CErasedOwnerMsg& pend
     const bool mips = gray || (scenario == EScenario::encode_texture_float_mips);
     const std::uint32_t pixel_bytes = gray ? 1u : (hdr ? (full_float ? 16u : 8u) : 4u);
     const std::uint32_t row_bytes = (scenario == EScenario::reject_texture_row) ? 15u : (4u * pixel_bytes);
-    auto candidate = threading::make_owner_message<TextureEncodeRequest>(slot);
-    TextureEncodeRequest* const request = candidate.owner().payload<TextureEncodeRequest>();
-    if ((request == nullptr) || !request->input.allocate(row_bytes, 4u, 16u))
+    (void)slot;
+    pending.encoding = true;
+    auto* const request = &pending.encode;
+    if (!request->input.allocate(row_bytes, 4u, 16u))
     {
         return false;
     }
@@ -183,11 +180,10 @@ bool CTextureFlowTests::prepare_texture_fixture(threading::CErasedOwnerMsg& pend
             }
         }
     }
-    pending = std::move(candidate);
     return true;
 }
 
-bool CTextureFlowTests::prepare_scenario(threading::CErasedOwnerMsg& pending,
+bool CTextureFlowTests::prepare_scenario(STextureInput& pending,
     const texture_acceptance::SScenario& scenario, const std::int32_t slot) noexcept
 {
     using namespace texture_acceptance;
@@ -208,11 +204,11 @@ bool CTextureFlowTests::prepare_scenario(threading::CErasedOwnerMsg& pending,
         }
         case EScenario::decode_texture_ldr_bc7:
         {
-            return prepare_texture_decode_request(pending, slot, m_ldr_texture.asset, image::texture::EStorageFormat::bc7_srgb);
+            return prepare_texture_decode_request(pending, slot, m_ldr_texture, image::texture::EStorageFormat::bc7_srgb);
         }
         case EScenario::decode_texture_ldr_rgba:
         {
-            return prepare_texture_decode_request(pending, slot, m_ldr_texture.asset, image::texture::EStorageFormat::rgba8);
+            return prepare_texture_decode_request(pending, slot, m_ldr_texture, image::texture::EStorageFormat::rgba8);
         }
         case EScenario::encode_texture_hdr:
         {
@@ -220,35 +216,35 @@ bool CTextureFlowTests::prepare_scenario(threading::CErasedOwnerMsg& pending,
         }
         case EScenario::decode_texture_hdr_bc6h:
         {
-            return prepare_texture_decode_request(pending, slot, m_hdr_texture.asset, image::texture::EStorageFormat::bc6h_ufloat);
+            return prepare_texture_decode_request(pending, slot, m_hdr_texture, image::texture::EStorageFormat::bc6h_ufloat);
         }
         case EScenario::decode_texture_hdr_half:
         {
-            return prepare_texture_decode_request(pending, slot, m_hdr_texture.asset, image::texture::EStorageFormat::rgba16f);
+            return prepare_texture_decode_request(pending, slot, m_hdr_texture, image::texture::EStorageFormat::rgba16f);
         }
         case EScenario::decode_texture_gray_bc7:
         {
-            return prepare_texture_decode_request(pending, slot, m_ldr_texture.asset, image::texture::EStorageFormat::bc7_unorm, 0u);
+            return prepare_texture_decode_request(pending, slot, m_ldr_texture, image::texture::EStorageFormat::bc7_unorm, 0u);
         }
         case EScenario::decode_texture_gray_mip:
         {
-            return prepare_texture_decode_request(pending, slot, m_ldr_texture.asset, image::texture::EStorageFormat::rgba8, 2u);
+            return prepare_texture_decode_request(pending, slot, m_ldr_texture, image::texture::EStorageFormat::rgba8, 2u);
         }
         case EScenario::decode_texture_float_mip:
         {
-            return prepare_texture_decode_request(pending, slot, m_hdr_texture.asset, image::texture::EStorageFormat::rgba16f, 1u);
+            return prepare_texture_decode_request(pending, slot, m_hdr_texture, image::texture::EStorageFormat::rgba16f, 1u);
         }
         case EScenario::reject_texture_level:
         {
-            return prepare_texture_decode_request(pending, slot, m_ldr_texture.asset, image::texture::EStorageFormat::rgba8, 3u);
+            return prepare_texture_decode_request(pending, slot, m_ldr_texture, image::texture::EStorageFormat::rgba8, 3u);
         }
         case EScenario::reject_texture_target:
         {
-            return prepare_texture_decode_request(pending, slot, m_hdr_texture.asset, image::texture::EStorageFormat::rgba8, 0u);
+            return prepare_texture_decode_request(pending, slot, m_hdr_texture, image::texture::EStorageFormat::rgba8, 0u);
         }
         case EScenario::reject_texture_bc7_transfer:
         {
-            return prepare_texture_decode_request(pending, slot, m_ldr_texture.asset, image::texture::EStorageFormat::bc7_srgb, 0u);
+            return prepare_texture_decode_request(pending, slot, m_ldr_texture, image::texture::EStorageFormat::bc7_srgb, 0u);
         }
         case EScenario::reject_texture_container:
         {
@@ -262,23 +258,11 @@ bool CTextureFlowTests::prepare_scenario(threading::CErasedOwnerMsg& pending,
     return false;
 }
 
-bool CTextureFlowTests::check(const texture_acceptance::SScenario& scenario, const AssetResult& result) noexcept
+bool CTextureFlowTests::check(const texture_acceptance::SScenario& scenario, const SResourceResult& result) noexcept
 {
     using namespace texture_acceptance;
-    if ((result.status != scenario.status) || (result.kind != scenario.retained_kind) ||
-        (result.document_policy != scenario.policy) || (result.document_findings != scenario.findings))
-    {
-        MV_LOG_RICH(error, "Rendering: %s: status %u/%u, kind %u/%u, policy %u/%u, findings 0x%08x/0x%08x (actual/expected)",
-            scenario.name, static_cast<unsigned int>(result.status), static_cast<unsigned int>(scenario.status),
-            static_cast<unsigned int>(result.kind), static_cast<unsigned int>(scenario.retained_kind),
-            static_cast<unsigned int>(result.document_policy), static_cast<unsigned int>(scenario.policy),
-            result.document_findings, scenario.findings);
-        return false;
-    }
-    if (!expect(scenario, (static_cast<bool>(result.asset) == (scenario.retained_kind != EAssetKind::none)), "retained asset identity"))
-    {
-        return false;
-    }
+    if (!expect(scenario, result.status == scenario.status, "completion status") ||
+        !expect(scenario, result.kind == scenario.retained_kind, "result kind")) return false;
     switch (scenario.identity)
     {
         case EScenario::encode_texture_gray_mips:
@@ -291,14 +275,6 @@ bool CTextureFlowTests::check(const texture_acceptance::SScenario& scenario, con
                 (scenario.identity == EScenario::encode_texture_float_mips);
             const bool mips = (scenario.identity == EScenario::encode_texture_gray_mips) ||
                 (scenario.identity == EScenario::encode_texture_float_mips);
-            if (hdr)
-            {
-                m_hdr_texture = result;
-            }
-            else
-            {
-                m_ldr_texture = result;
-            }
             return
                 expect(scenario, (view.is_ready() && (view.bytes.align() >= 16u)),
                     "aligned KTX2 view") &&
@@ -452,20 +428,38 @@ bool CTextureFlowTests::complete(const threading::CErasedPodMsg& message) noexce
         m_raw = result;
         m_phase = EPhase::scenarios;
     }
-    else
+    else if (m_phase == EPhase::publication)
     {
-        const auto& scenario = scenarios[m_scenario_index++];
-        if (check(scenario, result))
-        {
-            ++m_result.passed;
-            MV_LOG_RICH(info, "Rendering: %s passed", scenario.name);
-        }
-        else
-        {
-            ++m_result.failed;
-            m_result.status = ETestRunStatus::failed;
-            return dispose_next();
-        }
+        if ((result.status != EAssetStatus::success) || !result.asset || (result.kind != EAssetKind::raw)) return false;
+        if (m_publishing_hdr) m_hdr_texture = result.asset;
+        else m_ldr_texture = result.asset;
+        m_phase = EPhase::scenarios;
+    }
+    return next();
+}
+
+bool CTextureFlowTests::complete(SResourceResult&& result, const std::int32_t correlation) noexcept
+{
+    using namespace texture_acceptance;
+    if (!m_active || (m_phase != EPhase::scenarios) || (correlation != m_pending_slot)) return false;
+    const auto& scenario = scenarios[m_scenario_index++];
+    if (!check(scenario, result))
+    {
+        ++m_result.failed;
+        m_result.status = ETestRunStatus::failed;
+        return dispose_next();
+    }
+    ++m_result.passed;
+    MV_LOG_RICH(info, "Rendering: %s passed", scenario.name);
+    if (result.kind == EResourceKind::encoded_texture)
+    {
+        m_publishing_hdr = (result.encoded.description.encoding == image::texture::EEncoding::uastc_hdr_4x4);
+        auto transfer = threading::make_owner_message<RawAssetTransfer>(++m_pending_slot);
+        auto* raw = transfer.owner().payload<RawAssetTransfer>();
+        if (raw == nullptr) return false;
+        raw->storage.value = std::move(result.encoded.buffer);
+        m_phase = EPhase::publication;
+        return m_context.post(std::move(transfer));
     }
     return next();
 }
@@ -478,9 +472,9 @@ bool CTextureFlowTests::next() noexcept
         return dispose_next();
     }
     if (m_scenario_index == texture_acceptance::scenario_count) return dispose_next();
-    threading::CErasedOwnerMsg pending;
+    STextureInput pending;
     if (prepare_scenario(pending, texture_acceptance::scenarios[m_scenario_index], ++m_pending_slot) &&
-        m_context.post(std::move(pending))) return true;
+        (pending.encoding ? m_requests.submit(std::move(pending.encode), m_pending_slot) : m_requests.submit(pending.decode, m_pending_slot))) return true;
     ++m_result.failed;
     m_result.status = ETestRunStatus::failed;
     return dispose_next();
@@ -489,6 +483,7 @@ bool CTextureFlowTests::next() noexcept
 bool CTextureFlowTests::dispose_next() noexcept
 {
     m_phase = EPhase::disposal;
+
     //  No borrowed views are inspected after cleanup starts. Dispose every
     //  fixture and result before publishing the test completion.
     m_raw = {};

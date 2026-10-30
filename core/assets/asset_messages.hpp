@@ -26,8 +26,6 @@
 #include "data_model/document_writer.hpp"
 #include "image/codec/tga.hpp"
 #include "image/image_view.hpp"
-#include "image/texture_data.hpp"
-#include "shader/shader_data.hpp"
 #include "system/erased_owner_registration.hpp"
 #include "system/system_type_registration.hpp"
 
@@ -235,7 +233,7 @@ struct AssetDisposeResult
 
 struct BundleDisposedNotification { CAssetId asset{}; };
 
-enum class EAssetKind : std::uint8_t { none = 0, raw, image, baked, live, encoded_texture, decoded_texture, bundle, shader_group };
+enum class EAssetKind : std::uint8_t { none = 0, raw, image, baked, live, bundle = 7 };
 
 struct BakedAssetView
 {
@@ -250,9 +248,6 @@ union AssetViews
     bundle::CBundleView bundle;
     const image::CImageView* image;
     CLiveDocument* live;
-    const image::texture::CEncodedTexture* encoded_texture;
-    const image::texture::CDecodedTexture* decoded_texture;
-    const shader::CCompileGroup* shader_group;
 
     AssetViews() noexcept : bytes{} {}
     explicit AssetViews(const memory::CMemoryConstView& value) noexcept : bytes{ value } {}
@@ -260,9 +255,6 @@ union AssetViews
     explicit AssetViews(const bundle::CBundleView& value) noexcept : bundle{ value } {}
     explicit AssetViews(const image::CImageView* const value) noexcept : image{ value } {}
     explicit AssetViews(CLiveDocument* const value) noexcept : live{ value } {}
-    explicit AssetViews(const image::texture::CEncodedTexture* const value) noexcept : encoded_texture{ value } {}
-    explicit AssetViews(const image::texture::CDecodedTexture* const value) noexcept : decoded_texture{ value } {}
-    explicit AssetViews(const shader::CCompileGroup* const value) noexcept : shader_group{ value } {}
 };
 
 struct AssetResult
@@ -278,17 +270,6 @@ struct AssetResult
     {
         views = AssetViews{ value };
         kind = EAssetKind::raw;
-    }
-
-    void set_shader_group_view(const shader::CCompileGroup* const value) noexcept
-    {
-        views = AssetViews{ value };
-        kind = EAssetKind::shader_group;
-    }
-
-    [[nodiscard]] const shader::CCompileGroup* shader_group_view() const noexcept
-    {
-        return (kind == EAssetKind::shader_group) ? views.shader_group : nullptr;
     }
 
     void set_bundle_view(const bundle::CBundleView& value) noexcept
@@ -320,25 +301,9 @@ struct AssetResult
         kind = EAssetKind::live;
     }
 
-    void set_encoded_texture_view(const image::texture::CEncodedTexture* const value) noexcept
-    {
-        views = AssetViews{ value };
-        kind = EAssetKind::encoded_texture;
-    }
-
-    void set_decoded_texture_view(const image::texture::CDecodedTexture* const value) noexcept
-    {
-        views = AssetViews{ value };
-        kind = EAssetKind::decoded_texture;
-    }
-
     [[nodiscard]] CByteConstView byte_view() const noexcept
     {
         if (kind == EAssetKind::bundle) return views.bundle.bytes();
-        if ((kind == EAssetKind::encoded_texture) && (views.encoded_texture != nullptr))
-        {
-            return views.encoded_texture->buffer.const_view();
-        }
         const memory::CMemoryConstView bytes = (kind == EAssetKind::raw) ? views.bytes :
             ((kind == EAssetKind::baked) ? views.baked.bytes : memory::CMemoryConstView{});
         return CByteConstView{ static_cast<const std::uint8_t*>(bytes.data()), bytes.count(), bytes.storage_alignment() };
@@ -358,18 +323,6 @@ struct AssetResult
     [[nodiscard]] CLiveDocument* live_document() const noexcept
     {
         return (kind == EAssetKind::live) ? views.live : nullptr;
-    }
-
-    [[nodiscard]] image::texture::CEncodedView encoded_texture_view() const noexcept
-    {
-        return ((kind == EAssetKind::encoded_texture) && (views.encoded_texture != nullptr)) ?
-            views.encoded_texture->view() : image::texture::CEncodedView{};
-    }
-
-    [[nodiscard]] image::texture::CDecodedView decoded_texture_view() const noexcept
-    {
-        return ((kind == EAssetKind::decoded_texture) && (views.decoded_texture != nullptr)) ?
-            views.decoded_texture->view() : image::texture::CDecodedView{};
     }
 };
 

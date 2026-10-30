@@ -3,44 +3,38 @@ License: MIT (see LICENSE file in repository root)
 
 # Basis Universal texture conditioning
 
-Core owns the texture data, views and cross-component contracts in
-`core/image/texture_data.hpp` and `core/image/texture_messages.hpp`. Their
-ownership registrations also live in Core. Requests, borrowed work and owning
-results retain SYSTEM identities for exchange between components. Basis
-integration, codec execution and batch jobs remain private to rendering; the
-shared contracts do not depend on rendering headers or Basis types.
-Rendering translates the Core format/profile enums into Basis configuration and
-transcoder formats. Core must not include or compile Basis or DXC headers or
-source, including through another header.
+Rendering owns the contracts in `rendering/texture/texture_data.hpp` and
+`texture_requests.hpp`, the Basis adapter and all typed operations. Core, Host
+and Executive have no texture formats, options, metadata or SYSTEM texture
+identities. TGA remains a separate core facility available to every component.
 
-The rendering thread owns Basis Universal initialization and texture job
-dispatch. It initializes Basis before accepting work, submits encoding and
-transcoding through its batch client, and deinitializes Basis after accepted
-requests and batch completions have drained. With no available batch runners
-or queue capacity, the batch client executes the job inline on rendering.
-The Host and rendering accept multiple encode and decode requests across clients.
-Each request retains its own input and result until completion. There is no
-texture-specific admission limit; existing transport capacities and per-input
-bounds still apply.
+`CResourceRequests` owns encode pixels and decode descriptors. Decode obtains a
+read-only byte view through generic `AssetAcquireRequest`; the Host does not
+interpret the container. Rendering retains that acquisition until the job drains,
+then sends `AssetReleaseRequest` and waits for its acknowledgement before
+returning the owning result to the Rendering caller. Multiple requests are
+independent; disposal rejects new acquisitions and waits for existing ones.
 
-An Executive sends an owning `TextureEncodeRequest` with a top-down
-`CByteRectBuffer`, input format, transfer function and `CEncodeOptions`. The
-Host retains that request while rendering borrows it. Input formats are gray8,
-RGBA8, RGBA16F and RGBA32F. HDR encoding accepts linear RGB from the float
-formats, rejects negative or non-finite RGB, and discards alpha. LDR accepts
-gray8 or RGBA8. Profiles select Basis quality/effort values 80/1 for
-`runtime_fast` and 100/10 for `build_quality` in LDR. HDR has no RDO quality
-knob, so both profiles use quality 100 and differ by effort 1 or 10. Mip
-generation is optional.
+The Rendering thread initializes Basis before accepting work and deinitializes
+it after accepted jobs drain. With no available batch runners or queue capacity,
+the batch client executes inline. There is no texture-specific admission limit;
+existing transport capacities and per-input bounds still apply.
+
+`TextureEncodeRequest` transfers top-down pixels into Rendering. Input formats
+are gray8, RGBA8, RGBA16F and RGBA32F. HDR accepts linear float RGB, rejects
+negative or non-finite RGB and discards alpha. LDR accepts gray8 or RGBA8.
+Profiles select Basis quality/effort 80/1 for `runtime_fast` and 100/10 for
+`build_quality` in LDR. HDR uses quality 100 and effort 1 or 10. Mip generation
+is optional.
 
 The result is a KTX2 container with UASTC LDR 4x4 or UASTC HDR 4x4 data in
 one 16-byte-aligned byte buffer. `CEncodedDescription` records dimensions,
 levels, container, encoding, transfer function and the HDR scale read from
-`KTXmapRange`. The Host retains this object under an asset ID; clients receive
-a borrowed `CEncodedView`. A retained encoded asset can be saved with an
-`AssetSaveRequest` using the raw file format.
+`KTXmapRange`. Rendering owns this object and its views. To retain or serialize
+the container through Host, move its byte buffer into `RawAssetTransfer` and
+use the existing raw save contract. No typed texture owner crosses that boundary.
 
-A `TextureDecodeRequest` names a retained encoded texture or raw KTX2 asset,
+A `TextureDecodeRequest` names a retained raw KTX2 asset,
 a mip level and an engine storage format. LDR may be transcoded to RGBA8 or
 BC7 in linear or sRGB form. HDR may be transcoded to RGBA16F or BC6H unsigned
 float. One mip is returned in a 16-byte-aligned buffer. The decoded view
@@ -66,31 +60,21 @@ Their `run()` methods perform the typed operations; the static
 `execute(void*) noexcept` entry points use `MV_STD_ABI_CALL` and match `FBatchWork`.
 The classes have no Host-message or submission-policy dependencies.
 
-The rendering dispatcher keeps each job at a stable address and retains its
-result message in an independent request record. Batch correlation IDs identify
-these records; Host request slots are retained separately for replies. Records
-can grow without relocating jobs, and completions may arrive in any order.
-A queued completion publishes the job's output before rendering reads it;
-inline completion can be handled immediately. The
-rendering thread then moves the output into the owning Host reply. Batch runners
-install the rendering module and memory context before invoking a job.
+`CTextureRequests` keeps jobs at stable addresses. Monotonic batch correlations
+identify active jobs independently of reusable storage slots; stale or duplicate
+completions are rejected. Queued completions publish output before Rendering
+reads it, while inline completion is immediate. Batch runners install Rendering's
+module and memory context before invoking a job.
 
-The codec, jobs and replies share `ETextureStatus`, declared in
-`core/image/texture_data.hpp`; its five numeric values are unchanged.
-Rendering updates the response payload in place and checks texture-view readiness
-before reporting success. Unusable output with a success status is diagnosed and
-returned as `codec_failed`. The Host checks generic backing bytes, retains the
-whole result owner, and exposes Rendering's metadata without interpreting it.
-Encode and decode share that Host retention sequence but keep distinct payloads.
+`ETextureStatus` is Rendering-local. Unusable output with a success status becomes
+`codec_failed`. Rejected or discarded work also produces `codec_failed`, mapped
+by Rendering to `EAssetStatus::conditioning_failed`; allocation failure remains
+distinct. These service statuses do not expose texture details to Host.
 
-Rejected or discarded jobs produce `ETextureStatus::codec_failed`, which the
-Host maps to `EAssetStatus::conditioning_failed`. Job/result allocation failure
-uses the existing allocation-failure path. Each completed request releases only
-its own source borrow. Disposal waits for all existing borrowers, and refuses
-new borrowers once disposal is pending. During exit, rendering drains every
-outstanding job and returns its result before Basis shutdown; module unload
-also waits for batch return publishers. Batch saturation can execute work on
-the rendering thread alongside jobs already running on batch workers.
+Shutdown drains callbacks before releasing acquired views or destroying request
+storage. A failed release delivery is terminal: the source remains protected
+until Host reclaims the abandoned acquisition after thread and batch publishers
+have drained. Module unload observes the same batch-return lifetime boundary.
 
 ## Acceptance coverage
 
@@ -99,8 +83,8 @@ Host routes that request and its correlated `RunTestsResult`, which reports over
 status and passed/failed/skipped counts. Rendering owns test selection, fixture
 preparation, sequencing, assertions and cleanup in `texture_flow_tests.cpp`.
 The runner disposes every retained fixture and result before reporting completion.
-Host still supplies the existing typed texture asset service in this migration
-stage; the texture and shader contracts have not yet moved out of core.
+The runner calls Rendering-local services. Host retains only generic fixture and
+encoded-container bytes; decoded textures remain owned within Rendering.
 
 Executive retains 50 general asset cases, including TGA. TGA remains core
 functionality available to Host and every module, separate from this texture
@@ -112,28 +96,22 @@ invalid mip levels, incompatible decode targets, malformed containers and
 invalid asset identities. The checks include byte alignment, mip dimensions,
 row pitch, grayscale expansion and HDR values above 1.0 after applying scale.
 
-The ordinary `TextureService` suite holds renderer completions explicitly.
-It checks concurrent encode/encode, encode/decode and decode/decode admission,
-completion in a different order, retention until the last source borrower
-finishes, refusal of new borrowers once disposal is pending, and recovery after
-a failed codec operation. This does not depend on codec duration or scheduling.
-It also checks permitted empty completions, status mapping, missing output
-storage, retained addresses and hazards, and terminal rejection of malformed
-payloads, wrong sender/phase, unknown slots and duplicate completions. Rejected
-messages retain ownership, and pending worker inputs survive until cleanup.
+The ordinary `TextureService` suite connects the production Rendering service
+to a real generic Host asset service and controls batch completions. It checks
+concurrent LDR/HDR encode/decode jobs, reverse completion, isolated failures,
+source disposal, rejection of new borrows during disposal, acquisition release
+acknowledgements, stale/duplicate/wrong-phase completions, allocation failure,
+delivery failure and shutdown with acquired inputs. These tests use explicit
+barriers and completion control rather than codec timing.
 
-The ordinary `TextureBatch` suite loads the real rendering module and controls
-its batch queue. It checks inline and queued encode/decode, recovery after
-context-install discard, both job types discarded during exit, an executed
-decode completing after exit was requested, correlation, transferred output
-and empty rendering memory attribution after draining. Integration checks use
-the Host asset service and real rendering module with multiple LDR/HDR jobs
-executed by concurrent workers, reverse completion order, isolated failures and
-discards, source disposal and shutdown with several requests outstanding. A
-saturation case retains 128 queued jobs while a further request completes
-inline, exercising request storage growth and independent cleanup. Process
-harnesses also verify codec execution is attributed to rendering for inline work and to a
-rendering-module batch runner for queued work.
+`TextureBatch` checks typed job execution inline and queued, context-install
+discard, exit draining, output ownership, empty Rendering memory attribution and
+128 queued requests plus inline saturation. Shader cases retain compiler/report
+coverage and concurrent group lifetime checks against the generic Host boundary.
+Typed services run inside the test binary because their contracts are local to
+Rendering. A separate real-DLL test drives generic `RunTestsRequest`, including
+busy rejection, cancellation, setup failure and cleanup. Host process harnesses
+verify real module transport and inline/batch execution attribution.
 
 Linux CTest also runs the real Host/Executive/Rendering acceptance flow using
 `tests/texture/run_tests.py`; its isolated filesystem and logs are retained

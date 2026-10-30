@@ -73,7 +73,6 @@ public:
 
     //  A null conditioning worker routes conditioning to file_io.
     [[nodiscard]] bool configure_workers(threading::CThreadPackage& file_io, threading::CThreadPackage* const conditioning) noexcept;
-    void set_rendering(threading::CThreadPackage* const rendering) noexcept { m_rendering = rendering; }
     void deallocate() noexcept;
 
     //  Requires stopped workers: no outstanding borrower may still read inputs.
@@ -106,9 +105,6 @@ private:
         decoding,
         conditioning,
         encoding,
-        texture_encoding,
-        texture_decoding,
-        shader_compiling,
         saving,
         disposing,
         bundle_loading,
@@ -145,9 +141,6 @@ private:
 
         AssetResult working_views;  //  May refer to temporary storage; never publish directly.
         CAssetId retained_asset{};  //  Only this identity permits client views.
-        CAssetId texture_source{};  //  Borrowed input blocks disposal until rendering completes.
-        CByteConstView texture_source_view; //  Stable POD work descriptor target.
-        bundle::CBundleView shader_sources; //  Protected by backing through the group response.
     };
 
     //  True means the type matched; working_views.status reports acceptance or rejection.
@@ -178,8 +171,6 @@ private:
     void complete_image_decode(const std::int32_t slot) noexcept;
     void complete_image_encode(const std::int32_t slot) noexcept;
     void complete_document_conditioning(const std::int32_t slot) noexcept;
-    template<typename TResult>
-    void complete_texture_result(const std::int32_t slot) noexcept;
 
     struct SBundleControl
     {
@@ -214,7 +205,6 @@ private:
     filesystem_image::CImage* m_filesystem{ nullptr };
     threading::CThreadPackage* m_file_io{ nullptr };
     threading::CThreadPackage* m_conditioning{ nullptr };
-    threading::CThreadPackage* m_rendering{ nullptr };
 
     //  Address-stable objects: workers borrow save_settings until completion.
     TUnorderedCollection<SOperation> m_operations;

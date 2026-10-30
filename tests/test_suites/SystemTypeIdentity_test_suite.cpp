@@ -19,7 +19,6 @@
 #include "system/system_id_registry.hpp"
 #include "system/service_messages.hpp"
 #include "system/type_registration.hpp"
-#include "image/texture_messages.hpp"
 #include "tests/test_suites/SystemTypeIdentity_test_suite.hpp"
 #include "tests/support/test_context.hpp"
 #include "tests/support/test_scopes.hpp"
@@ -211,12 +210,6 @@ void test_host_protocol_categories(TTestContext& ctx)
     static_assert(k_type_id_v<FilesystemRefreshRequest>.is_system());
     static_assert(k_type_id_v<BundleLoadRequest>.is_system());
     static_assert(k_type_id_v<BundleBakeRequest>.is_system());
-    static_assert(k_type_id_v<TextureEncodeRequest>.is_system());
-    static_assert(k_type_id_v<TextureDecodeRequest>.is_system());
-    static_assert(k_type_id_v<TextureEncodeWork>.is_system());
-    static_assert(k_type_id_v<TextureDecodeWork>.is_system());
-    static_assert(k_type_id_v<TextureEncodeResult>.is_system());
-    static_assert(k_type_id_v<TextureDecodeResult>.is_system());
 }
 
 void test_erased_transport_admission(TTestContext& ctx)

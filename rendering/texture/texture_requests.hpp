@@ -2,28 +2,26 @@
 //  Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited
 //  License: MIT (see LICENSE file in repository root)
 //
-//  File:    texture_messages.hpp
+//  File:    texture_requests.hpp
 //  Authors: Ritchie Brannan / OpenAI Codex
 //  Date:    20 Oct 26
 //
-//  Shared texture conditioning requests, borrowed work and owning results.
+//  Rendering-local texture requests, borrowed work and owning results.
 
 #pragma once
 
-#ifndef CORE_IMAGE_TEXTURE_MESSAGES_HPP_INCLUDED
-#define CORE_IMAGE_TEXTURE_MESSAGES_HPP_INCLUDED
+#ifndef RENDERING_TEXTURE_REQUESTS_HPP_INCLUDED
+#define RENDERING_TEXTURE_REQUESTS_HPP_INCLUDED
 
 #include <cstddef>
 #include <cstdint>
 
 #include "assets/asset_repository.hpp"
 #include "containers/ByteBuffers.hpp"
-#include "image/texture_data.hpp"
-#include "system/erased_owner_registration.hpp"
-#include "system/system_type_registration.hpp"
+#include "texture/texture_data.hpp"
 
-//  Texture work is submitted to the rendering thread. Requests borrow Host
-//  storage; results own aligned bytes that the Host can retain for client views.
+//  Rendering retains requests while batch jobs borrow their inputs. Results own
+//  aligned bytes and stay within Rendering until explicitly exported as raw data.
 struct TextureEncodeRequest;
 struct TextureDecodeRequest;
 
@@ -64,8 +62,8 @@ struct TextureDecodeResult
     }
 };
 
-//  Encoding transfers source pixels into the Host. Decoding borrows a retained
-//  encoded texture; its identity remains live until the rendering reply arrives.
+//  Encoding transfers pixels into Rendering. Decoding acquires generic source
+//  bytes from Host and releases the acquisition after the batch callback drains.
 struct TextureEncodeRequest
 {
     CByteRectBuffer input;
@@ -88,18 +86,4 @@ struct TextureDecodeRequest
     std::uint32_t level{ 0u };
 };
 
-//  Type bindings precede owning-payload eligibility.
-MV_REGISTER_SYSTEM_TYPE(TextureEncodeWork, system_type_ids::texture_encode_work);
-MV_REGISTER_SYSTEM_TYPE(TextureDecodeWork, system_type_ids::texture_decode_work);
-MV_REGISTER_SYSTEM_TYPE(TextureEncodeRequest, system_type_ids::texture_encode_request);
-MV_REGISTER_SYSTEM_TYPE(TextureDecodeRequest, system_type_ids::texture_decode_request);
-MV_REGISTER_SYSTEM_TYPE(TextureEncodeResult, system_type_ids::texture_encode_result);
-MV_REGISTER_SYSTEM_TYPE(TextureDecodeResult, system_type_ids::texture_decode_result);
-
-#define MV_ERASED_OWNER_PAYLOAD(type) MV_REGISTER_ERASED_OWNER_PAYLOAD(type);
-#define MV_ERASED_OWNER_PAYLOAD_WITH_STORAGE(type, member) MV_REGISTER_ERASED_OWNER_PAYLOAD(type);
-#include "image/texture_owner_payloads.def"
-#undef MV_ERASED_OWNER_PAYLOAD_WITH_STORAGE
-#undef MV_ERASED_OWNER_PAYLOAD
-
-#endif  //  CORE_IMAGE_TEXTURE_MESSAGES_HPP_INCLUDED
+#endif  //  RENDERING_TEXTURE_REQUESTS_HPP_INCLUDED

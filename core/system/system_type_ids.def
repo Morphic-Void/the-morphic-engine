@@ -1,5 +1,6 @@
 //  Built-in transported type identity catalog.
 //  Defines MV_SYSTEM_TYPES(type_macro).
+//  Reserved entries preserve numeric identities after module-local contracts move out.
 
 #define MV_SYSTEM_TYPES(type_macro) \
     type_macro(byte_buffer) \
@@ -8,12 +9,12 @@
     type_macro(string_buffer) \
     type_macro(stable_strings) \
     type_macro(unrecognised_msg) \
-    type_macro(texture_encode_work) \
-    type_macro(texture_decode_work) \
-    type_macro(texture_encode_request) \
-    type_macro(texture_decode_request) \
-    type_macro(texture_encode_result) \
-    type_macro(texture_decode_result) \
+    type_macro(reserved_0) \
+    type_macro(reserved_1) \
+    type_macro(reserved_2) \
+    type_macro(reserved_3) \
+    type_macro(reserved_4) \
+    type_macro(reserved_5) \
     type_macro(executive_thread_function) \
     type_macro(raw_asset_transfer) \
     type_macro(image_asset_transfer) \
@@ -33,9 +34,9 @@
     type_macro(bundle_load_request) \
     type_macro(bundle_bake_request) \
     type_macro(bundle_reference_request) \
-    type_macro(shader_compile_request) \
-    type_macro(shader_compile_work) \
-    type_macro(shader_compile_result) \
+    type_macro(reserved_6) \
+    type_macro(reserved_7) \
+    type_macro(reserved_8) \
     type_macro(run_tests_request) \
     type_macro(run_tests_result) \
     type_macro(asset_acquire_request) \

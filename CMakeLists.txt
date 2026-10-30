@@ -106,6 +106,8 @@ foreach(licence IN LISTS dxc_licences)
 endforeach()
 target_compile_definitions(MorphicRendering PRIVATE
     BASISU_SUPPORT_SSE=0 BASISU_SUPPORT_OPENCL=0 BASISD_SUPPORT_KTX2_ZSTD=1)
+target_include_directories(MorphicTests PRIVATE "${CMAKE_SOURCE_DIR}/external/basis_universal")
+target_compile_definitions(MorphicTests PRIVATE BASISU_SUPPORT_SSE=0 BASISU_SUPPORT_OPENCL=0 BASISD_SUPPORT_KTX2_ZSTD=1)
 set_target_properties(MorphicHost PROPERTIES OUTPUT_NAME MorphicEngine)
 add_dependencies(MorphicHost MorphicExecutive MorphicRendering)
 add_dependencies(MorphicTests MorphicExecutive MorphicRendering)

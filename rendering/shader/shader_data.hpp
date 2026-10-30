@@ -10,8 +10,8 @@
 
 #pragma once
 
-#ifndef CORE_SHADER_DATA_HPP_INCLUDED
-#define CORE_SHADER_DATA_HPP_INCLUDED
+#ifndef RENDERING_SHADER_DATA_HPP_INCLUDED
+#define RENDERING_SHADER_DATA_HPP_INCLUDED
 
 #include "containers/StringBuffers.hpp"
 #include "containers/TUnorderedCollection.hpp"
@@ -313,4 +313,4 @@ inline void TMembers<T>::unsafe_replace_memory_context_without_accounting(
 
 }   //  namespace shader
 
-#endif   //  CORE_SHADER_DATA_HPP_INCLUDED
+#endif   //  RENDERING_SHADER_DATA_HPP_INCLUDED

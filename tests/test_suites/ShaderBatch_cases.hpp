@@ -3,10 +3,11 @@
 //  License: MIT (see LICENSE file in repository root)
 //
 //  File:    ShaderBatch_cases.hpp
-//  Authors: Ritchie Brannan / OpenAI Codex
+//  Primary implementation: OpenAI Codex
+//  Reviewed and accepted by: Ritchie Brannan
 //  Date:    22 Oct 26
 //
-//  Real rendering-module shader cases using the controlled batch fixture.
+//  Rendering-local shader services using the controlled batch fixture.
 
 #pragma once
 
@@ -14,10 +15,11 @@
 #define TESTS_TEST_SUITES_SHADERBATCH_CASES_HPP_INCLUDED
 
 #include "assets/internal/bundle_builder_io.hpp"
-#include "shader/shader_messages.hpp"
+#include "rendering/shader/shader_requests.hpp"
 #include "rendering/runtime/shader_compiler.hpp"
 #include "tests/support/document_helpers.hpp"
 #include "tests/support/test_allocator.hpp"
+#include "tests/support/resource_service_fixture.hpp"
 #include "platform/filesystem/file.hpp"
 #include <filesystem>
 #include <string>
@@ -179,6 +181,72 @@ static void check_reports(tests::TTestContext& ctx, const shader::CCompileGroup&
     }
 }
 
+static void resource_groups(tests::TTestContext& ctx, texture_batch_tests::SFixture& rendering)
+{
+    filesystem_image::CImage image;
+    texture_batch_tests::SResourceFixture fixture{ rendering };
+    CLiveDocument document;
+    TEST_EXPECT(ctx, tests::parse_document(R"({"roots":{}})", document) && image.adopt(std::move(document)));
+    TEST_EXPECT(ctx, fixture.initialise());
+    fixture.assets.set_filesystem(image);
+    BundlePreparation prepared;
+    TEST_EXPECT(ctx, make_bundle(prepared.block, prepared.view) && prepared.directory.prepare(prepared.view));
+    std::uint64_t binding = 0u;
+    TEST_EXPECT(ctx, image.reserve_bundle("shader:", binding));
+    const auto source = fixture.assets.publish_bundle(prepared, binding, *fixture.client);
+    TEST_EXPECT(ctx, source.status == EAssetStatus::success);
+    for (int group = 0; group < 2; ++group)
+    {
+        ShaderCompileRequest request;
+        request.bundle = source.asset;
+        TEST_EXPECT(ctx, request.input.entries.initialise(2u));
+        for (std::uint32_t i = 0; i < 2u; ++i)
+        {
+            auto& entry = request.input.entries[i];
+            TEST_EXPECT(ctx, entry.source_path.set(i ? "bad.hlsl" : "main.hlsl"));
+            TEST_EXPECT(ctx, entry.entry_point.set(i ? "main" : "cs"));
+            entry.stage = EStage::compute;
+        }
+        TEST_EXPECT(ctx, fixture.submit(std::move(request), 600 + group));
+    }
+    TEST_EXPECT(ctx, tests::wait_until(rendering.conversion, [&]() noexcept {
+        fixture.pump(); return rendering.package->batch_client()->outstanding() == 4u;
+    }));
+    texture_batch_tests::SConcurrentJobs workers{ rendering };
+    TEST_EXPECT(ctx, workers.acquire());
+    fixture.assets.request_disposal({ source.asset }, 602, *fixture.client);
+    fixture.assets.complete_disposals();
+    TEST_EXPECT(ctx, fixture.messages.empty());
+    TEST_EXPECT(ctx, workers.start(4u));
+    workers.join();
+    for (auto& worker : workers.workers) TEST_EXPECT(ctx, workers.complete(worker, threading::EBatchCompletion::executed));
+    rendering::SResourceResult groups[2];
+    bool seen[2]{};
+    for (int i = 0; i < 2; ++i)
+    {
+        rendering::SResourceResult result;
+        std::int32_t slot = -1;
+        const bool received = tests::wait_until(rendering.conversion, [&]() noexcept { return fixture.receive(result, slot); });
+        TEST_EXPECT(ctx, received && slot >= 600 && slot < 602);
+        if (!received || slot < 600 || slot >= 602) return;
+        TEST_EXPECT(ctx, !seen[slot - 600] && result.status == EAssetStatus::success);
+        seen[slot - 600] = true;
+        groups[slot - 600] = std::move(result);
+    }
+    BundleDisposedNotification notification;
+    std::int32_t slot;
+    TEST_EXPECT(ctx, tests::wait_until(rendering.conversion, [&]() noexcept { return fixture.receive_host(notification, slot); }));
+    TEST_EXPECT(ctx, notification.asset == source.asset);
+    // Source bundle is gone; successful artifacts and failed-member reports survive.
+    for (const auto& result : groups)
+    {
+        const auto& group = result.shaders;
+        TEST_EXPECT(ctx, group.summary.succeeded == 1u && group.summary.failed == 1u);
+        TEST_EXPECT(ctx, group.reports[0u].shader.view().is_ready() && group.reports[1u].diagnostics.length() != 0u);
+    }
+    TEST_EXPECT(ctx, fixture.valid && fixture.assets.is_idle() && !fixture.requests->pending());
+}
+
 static void run(tests::TTestContext& ctx, texture_batch_tests::SFixture& fixture)
 {
     for (std::uint32_t pass = 0u; pass < 3u; ++pass)
@@ -201,7 +269,7 @@ static void run(tests::TTestContext& ctx, texture_batch_tests::SFixture& fixture
             return;
         }
         texture_batch_tests::SStopRendering stop{ fixture };
-        threading::CErasedPodMsg message;
+        texture_batch_tests::SLocalWork message;
         message.set_async_slot(501);
         message.assign_payload(ShaderCompileWork{ &request, sources });
         TEST_EXPECT(ctx, fixture.package->post(message));
@@ -232,11 +300,12 @@ static void run(tests::TTestContext& ctx, texture_batch_tests::SFixture& fixture
                     continue;
                 }
                 TEST_EXPECT(ctx, fixture.module.prepare_batch_thread(thread_ids::batch_runner_00, job.memory_context));
+                tests::TMemoryContextScope memory{ job.memory_context };
                 job.function(job.object);
                 TEST_EXPECT(ctx, job.requester->complete({ job.correlation, threading::EBatchCompletion::executed }));
             }
         }
-        threading::CErasedOwnerMsg response;
+        texture_batch_tests::SLocalReply response;
         const bool received =
             tests::wait_until(fixture.conversion, [&]() noexcept { return fixture.package->read(response); });
         TEST_EXPECT(ctx, received);
@@ -257,131 +326,6 @@ static void run(tests::TTestContext& ctx, texture_batch_tests::SFixture& fixture
         fixture.stop();
         TEST_EXPECT(ctx, test_environment::rendering_memory_context()->is_attribution_empty());
     }
-}
-
-static void host_groups(tests::TTestContext& ctx, texture_batch_tests::SFixture& rendering)
-{
-    filesystem_image::CImage image;
-    texture_batch_tests::SServiceFixture fixture{ rendering };
-    CLiveDocument document;
-    TEST_EXPECT(ctx,
-        tests::parse_document(R"({"roots":{"work:":{"source":"unused","writable":true,"content":{}}}})", document));
-    TEST_EXPECT(ctx, image.adopt(std::move(document)));
-    fixture.service.set_filesystem(image);
-    const bool ready = fixture.initialise();
-    TEST_EXPECT(ctx, ready);
-    if (!ready)
-    {
-        return;
-    }
-    BundlePreparation prepared;
-    TEST_EXPECT(ctx, make_bundle(prepared.block, prepared.view));
-    TEST_EXPECT(ctx, prepared.directory.prepare(prepared.view));
-    std::uint64_t binding = 0u;
-    TEST_EXPECT(ctx, image.reserve_bundle("shader:", binding));
-    const auto source = fixture.service.publish_bundle(prepared, binding, *fixture.client);
-    TEST_EXPECT(ctx, source.status == EAssetStatus::success);
-    if (source.status != EAssetStatus::success)
-    {
-        return;
-    }
-    for (std::int32_t group = 0; group < 2; ++group)
-    {
-        auto owner = CErasedOwner::create<ShaderCompileRequest>();
-        auto* const request = owner.payload<ShaderCompileRequest>();
-        TEST_EXPECT(ctx, request != nullptr);
-        if (request == nullptr)
-        {
-            return;
-        }
-        request->bundle = source.asset;
-        TEST_EXPECT(ctx, request->input.entries.initialise(2u));
-        for (std::uint32_t i = 0u; i < 2u; ++i)
-        {
-            auto& entry = request->input.entries[i];
-            TEST_EXPECT(ctx, entry.source_path.set((i == 0u) ? "main.hlsl" : "bad.hlsl"));
-            TEST_EXPECT(ctx, entry.entry_point.set((i == 0u) ? "cs" : "main"));
-            entry.stage = EStage::compute;
-        }
-        TEST_EXPECT(ctx, fixture.request<ShaderCompileRequest>((600 + group), std::move(owner)));
-    }
-    texture_batch_tests::SConcurrentJobs workers{ rendering };
-    const bool acquired = workers.acquire();
-    TEST_EXPECT(ctx, acquired);
-    if (!acquired)
-    {
-        return;
-    }
-    fixture.service.request_disposal({ source.asset }, 602, *fixture.client);
-    fixture.service.complete_disposals();
-    threading::CErasedPodMsg premature;
-    TEST_EXPECT(ctx, !fixture.client->read(premature));
-    TEST_EXPECT(ctx, workers.start(4u));
-    workers.join();
-    for (auto& worker : workers.workers)
-    {
-        TEST_EXPECT(ctx, workers.complete(worker, threading::EBatchCompletion::executed));
-    }
-    AssetResult groups[2];
-    // Delivery order between groups is unspecified; preserve request correlation.
-    for (std::uint32_t i = 0u; i < 2u; ++i)
-    {
-        threading::CErasedPodMsg reply;
-        const bool received = tests::wait_until(rendering.conversion, [&]() noexcept {
-            threading::CErasedOwnerMsg completed;
-            while (rendering.package->read(completed))
-            {
-                fixture.service.complete(completed, *rendering.package);
-            }
-            return fixture.client->read(reply);
-        });
-        TEST_EXPECT(ctx, received);
-        if (!received)
-        {
-            return;
-        }
-        const auto index = reply.query_async_slot() - 600;
-        TEST_EXPECT(ctx, (index >= 0) && (index < 2));
-        if ((index < 0) || (index >= 2))
-        {
-            return;
-        }
-        TEST_EXPECT(ctx, reply.copy_payload_to(groups[index]));
-        TEST_EXPECT(ctx, groups[index].status == EAssetStatus::success);
-    }
-    fixture.service.complete_disposals();
-    threading::CErasedPodMsg reply;
-    bool notified = false;
-    TEST_EXPECT(ctx, tests::wait_until(rendering.conversion, [&]() noexcept {
-        while (fixture.client->read(reply))
-        {
-            BundleDisposedNotification notification;
-            if (reply.copy_payload_to(notification))
-            {
-                notified = (notification.asset == source.asset);
-            }
-            else
-            {
-                TEST_EXPECT(ctx, false);
-            }
-        }
-        return notified;
-    }));
-    // Source backing is gone; successful shaders and failure diagnostics survive.
-    for (const auto& result : groups)
-    {
-        const auto* const group = result.shader_group_view();
-        TEST_EXPECT(ctx, group != nullptr);
-        if (group != nullptr)
-        {
-            TEST_EXPECT(ctx, (group->summary.succeeded == 1u) && (group->summary.failed == 1u));
-            TEST_EXPECT(ctx, group->reports[0u].shader.view().is_ready());
-            TEST_EXPECT(ctx, group->reports[1u].diagnostics.length() != 0u);
-        }
-    }
-    TEST_EXPECT(ctx, !fixture.service.failed());
-    rendering.stop();
-    fixture.service.deallocate();
 }
 
 static void options_and_admission(tests::TTestContext& ctx, texture_batch_tests::SFixture& fixture)

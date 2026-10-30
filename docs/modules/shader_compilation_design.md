@@ -25,27 +25,17 @@ representation or publication envelope.
 
 ## Initial implementation
 
-Core owns the public shader data and cross-component message contracts. Shared
-data types use namespace `shader`; rendering's compiler adapter, jobs and
-`SLimits` service policy remain in `rendering::shader_compiler`. Core, Host and
-Executive consume the Core contracts without including rendering's conditioning
-implementation. The request, borrowed-work and owning-result exchanges retain
-SYSTEM identities because they cross component boundaries. Compiler objects and
-batch job state remain private to rendering.
+Rendering owns shader contracts in `rendering/shader/shader_data.hpp` and
+`shader_requests.hpp`. They have no SYSTEM transport identities. Core, Host and
+Executive have no shader or texture types; TGA remains a core image facility.
+Compiler objects, options, service limits, jobs and report interpretation all
+remain in Rendering.
 
-Core must not include or compile DXC or Basis Universal source or headers,
-directly or transitively. Shared stage, target, format and option values are
-engine-defined abstractions; rendering translates them to compiler/codec values
-and flags. Shared artifact owners contain engine buffers and descriptions, with
-no compiler interfaces or codec objects in their public types.
-
-The public contracts are in `core/shader/shader_data.hpp` and
-`shader_messages.hpp`. A `ShaderCompileRequest` owns its `CCompileRequest` and
-names one bundle asset. Initialise its fixed ordered member arrays, then fill
-the include roots, common definitions and per-entry fields. The Host protects
-the complete bundle backing with an operation lease and sends the immutable
-view to rendering. That lease lasts through every accepted callback and its
-terminal response, including shutdown, until the group reply returns.
+A `ShaderCompileRequest` owns its ordered `CCompileRequest` and names one generic
+bundle asset. `CResourceRequests` obtains an immutable bundle view through
+`AssetAcquireRequest`, retains the request through every accepted callback, and
+releases its acquisition only when the group finishes. It waits for the release
+acknowledgement before transferring the owning result to its Rendering caller.
 
 `CShaderRequests` coordinates stable `CCompileJob` objects through the existing
 batch client. Shader correlations occupy the high-bit range, distinct from
@@ -55,11 +45,10 @@ Individual requests cannot raise those ceilings. Budget accounting reserves
 member records first, then accounts owned report allocations during collection.
 Limit failure can leave a member status without optional report payload.
 
-The compile-only operation publishes one `ShaderCompileResult` owner as a Host
-asset. The client's ordinary `AssetResult` carries service status, asset identity
-and `shader_group_view()`. A successful publication can contain failed shaders;
-inspect the group summary and each report. Views remain valid until disposal of
-that group asset. Compiler jobs and report classes have no Host asset dependency.
+The compile-only operation returns one owning group within Rendering. Successful
+execution can contain failed shaders; inspect the group summary and every report.
+The group and diagnostics survive disposal of the source bundle. Host can retain
+and serialize explicitly exported bytes or documents without interpreting shaders.
 
 `shader_compiler.cpp` uses checked engine containers for temporary storage and
 explicit status returns, with no per-file exception allowance. Request validation
@@ -254,20 +243,11 @@ succeeded, completed with member failures and infrastructure interruption.
 Member status describes success, invalid input, compilation failure, allocation
 failure or work not executed. Limit failures also need an identifiable outcome.
 
-Publication belongs to the enclosing rendering operation. Initially an explicit
-compile-only request transfers its completed group, including failure reports,
-to the Host for client access. The intended public lifetime is one retained
-group asset with borrowed views into its reports and compiled bytes. Disposal
-invalidates all of those views. Separate report assets and extraction/independent
-retention are not required initially. A published group does not imply that all
-members compiled successfully. The texture policy of discarding unsuccessful
-results must not be copied into this shader path.
-
-A later condition-and-package operation can retain intermediate groups entirely
-within rendering and publish only its final output and appropriate diagnostics.
-Both operations reuse the same compiler jobs and owning result classes. The
-initial compile-only publication provides an observable end-to-end path without
-making Host ownership a prerequisite for subsequent renderer work.
+Publication belongs to the enclosing Rendering operation. Compile-only requests
+return their completed groups, including failed-member reports, to a Rendering
+caller. Later condition-and-package operations can retain intermediate groups and
+export final bytes or documents through generic Host services. Both paths reuse
+the same compiler jobs and owning result classes.
 
 Keep infrastructure/admission failure distinct from shader failure. In particular,
 failure to allocate a report may leave only a member status and no report body.
@@ -275,9 +255,8 @@ Ordinary errors do not cancel siblings. Shutdown and cooperative cancellation
 must drain accepted work; they cannot forcibly interrupt a synchronous DXC call.
 Catastrophic compiler failure has the separate constraints described below.
 
-The agreed publication path sends one terminal completion for a compile-only
-group. Its bounded message carries correlation, service status, group asset ID
-and a borrowed group view. Reserve member-result bookkeeping before dispatch so
+The completion path returns one owning result per compile-only group, with caller
+correlation and service status. Reserve member-result bookkeeping before dispatch so
 failure can still be recorded without a full report body. Failed publication
 releases unpublished output. The agreed compilation options and configurable
 service limits are specified below.

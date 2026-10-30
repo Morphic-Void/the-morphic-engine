@@ -15,7 +15,7 @@
 
 #include <cstdint>
 
-#include "image/texture_data.hpp"
+#include "texture/texture_data.hpp"
 
 namespace rendering::basis_codec
 {

@@ -13,31 +13,41 @@
 #ifndef RENDERING_TEXTURE_FLOW_TESTS_HPP_INCLUDED
 #define RENDERING_TEXTURE_FLOW_TESTS_HPP_INCLUDED
 
-#include "assets/asset_messages.hpp"
+#include "runtime/resource_requests.hpp"
 #include "system/service_messages.hpp"
 #include "threading/CThreadPackage.hpp"
 
 namespace rendering
 {
+
 namespace texture_acceptance { struct SScenario; enum class EScenario : std::uint8_t; }
+
+struct STextureInput
+{
+    TextureEncodeRequest encode;
+    TextureDecodeRequest decode;
+    bool encoding{ false };
+};
 
 class CTextureFlowTests final
 {
 public:
-    CTextureFlowTests(threading::CThreadContext& context, const module_ids::id_type module) noexcept :
-        m_context{ context }, m_module{ module } {}
+    CTextureFlowTests(threading::CThreadContext& context, const module_ids::id_type module, CResourceRequests& requests) noexcept :
+        m_context{ context }, m_module{ module }, m_requests{ requests } {}
 
     [[nodiscard]] bool pending() const noexcept { return m_active; }
     [[nodiscard]] bool start(const threading::CErasedPodMsg& message) noexcept;
     [[nodiscard]] bool complete(const threading::CErasedPodMsg& message) noexcept;
 
+    [[nodiscard]] bool complete(SResourceResult&& result, std::int32_t correlation) noexcept;
+
 private:
-    enum class EPhase : std::uint8_t { fixture = 0, scenarios, disposal };
-    [[nodiscard]] bool prepare_scenario(threading::CErasedOwnerMsg& pending,
+    enum class EPhase : std::uint8_t { fixture = 0, scenarios, publication, disposal };
+    [[nodiscard]] bool prepare_scenario(STextureInput& pending,
         const texture_acceptance::SScenario& scenario, const std::int32_t slot) noexcept;
-    [[nodiscard]] bool prepare_texture_fixture(threading::CErasedOwnerMsg& pending,
+    [[nodiscard]] bool prepare_texture_fixture(STextureInput& pending,
         const std::int32_t slot, const texture_acceptance::EScenario scenario) noexcept;
-    [[nodiscard]] bool check(const texture_acceptance::SScenario& scenario, const AssetResult& result) noexcept;
+    [[nodiscard]] bool check(const texture_acceptance::SScenario& scenario, const SResourceResult& result) noexcept;
     [[nodiscard]] bool next() noexcept;
     [[nodiscard]] bool dispose_next() noexcept;
     [[nodiscard]] bool finish() noexcept;
@@ -46,8 +56,10 @@ private:
     const module_ids::id_type m_module;
     RunTestsResult m_result;
     AssetResult m_raw;
-    AssetResult m_ldr_texture;
-    AssetResult m_hdr_texture;
+    CAssetId m_ldr_texture;
+    CAssetId m_hdr_texture;
+    CResourceRequests& m_requests;
+    bool m_publishing_hdr{ false };
     CAssetId m_assets[24]{};
     std::uint32_t m_asset_count{ 0u };
     std::uint32_t m_scenario_index{ 0u };

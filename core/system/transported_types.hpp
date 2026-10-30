@@ -16,7 +16,5 @@
 
 #include "assets/asset_messages.hpp"
 #include "system/service_messages.hpp"
-#include "image/texture_messages.hpp"
-#include "shader/shader_messages.hpp"
 
 #endif  //  TRANSPORTED_TYPES_HPP_INCLUDED

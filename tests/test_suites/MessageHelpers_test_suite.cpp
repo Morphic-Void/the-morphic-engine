@@ -17,7 +17,6 @@
 
 #include "tests/environment/local_type_ids.hpp"
 #include "executive/runtime/request_preparation.hpp"
-#include "image/texture_messages.hpp"
 #include "tests/support/test_allocator.hpp"
 #include "tests/support/test_context.hpp"
 #include "tests/support/test_scopes.hpp"
@@ -106,7 +105,6 @@ static void test_helpers(TTestContext& ctx, SAllocator& allocator)
     const auto notice = make_pod_message(k_uncorrelated_slot, BundleDisposedNotification{});
     TEST_EXPECT(ctx, notice.is_payload_a<BundleDisposedNotification>() && notice.query_async_slot() == -1);
     test_pair<AssetLoadRequest, AssetLoadRequest>(ctx, allocator);
-    test_pair<TextureEncodeResult, TextureEncodeResult>(ctx, allocator);
     //  Shared storage must not make the two completion protocols interchangeable.
     test_pair<FileLoadResult, ByteStorage, TgaEncodeResult>(ctx, allocator);
     test_pair<TgaEncodeResult, ByteStorage, FileLoadResult>(ctx, allocator);

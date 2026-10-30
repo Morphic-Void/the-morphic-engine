@@ -1,3 +1,0 @@
-//  Shared shader SYSTEM erased-owner payload declarations.
-MV_ERASED_OWNER_PAYLOAD_WITH_STORAGE(ShaderCompileRequest, input)
-MV_ERASED_OWNER_PAYLOAD_WITH_STORAGE(ShaderCompileResult, group)

@@ -178,4 +178,14 @@
     <Copy SourceFiles="@(DxcLicence)" DestinationFolder="$(OutDir)dxc-licences" SkipUnchangedFiles="true" />
   </Target>
   <ImportGroup Label="ExtensionTargets" />
+  <ItemGroup>
+    <ClCompile Include="..\rendering\runtime\texture_requests.cpp" />
+    <ClCompile Include="..\rendering\runtime\resource_requests.cpp" />
+    <ClInclude Include="..\rendering\runtime\texture_requests.hpp" />
+    <ClInclude Include="..\rendering\runtime\resource_requests.hpp" />
+    <ClInclude Include="..\rendering\texture\texture_data.hpp" />
+    <ClInclude Include="..\rendering\texture\texture_requests.hpp" />
+    <ClInclude Include="..\rendering\shader\shader_data.hpp" />
+    <ClInclude Include="..\rendering\shader\shader_requests.hpp" />
+  </ItemGroup>
 </Project>

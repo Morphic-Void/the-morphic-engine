@@ -31,8 +31,6 @@
 #include "platform/threading/hw_thread_count.hpp"
 #include "assets/asset_messages.hpp"
 #include "system/service_messages.hpp"
-#include "image/texture_messages.hpp"
-#include "shader/shader_messages.hpp"
 #include "runtime/host_payloads.hpp"
 #include "threading/CThreadPackage.hpp"
 
@@ -172,7 +170,6 @@ bool CHost::start_rendering() noexcept
     }
 
     m_thread_slots[static_cast<std::uint32_t>(EWorkerThreadID::rendering)] = slot;
-    m_asset_service.set_rendering(package);
     MV_LOG(info, "Host: Rendering started after asynchronous binding");
     return true;
 }
@@ -189,7 +186,6 @@ bool CHost::stop_rendering(const threading::EThreadRunState state) noexcept
     {
         return false;
     }
-    m_asset_service.set_rendering(nullptr);
     rendering->request_exit();
     if ((state != threading::EThreadRunState::Exited) && (state != threading::EThreadRunState::Failed))
     {
@@ -739,8 +735,7 @@ void CHost::run() noexcept
                 {
                     receive_request(owned, package);
                 }
-                else if ((&package == rendering) && !owned.is_message_a<TextureEncodeResult>() &&
-                    !owned.is_message_a<TextureDecodeResult>() && !owned.is_message_a<ShaderCompileResult>())
+                else if (&package == rendering)
                 {
                     m_asset_service.request(owned, package);
                 }
