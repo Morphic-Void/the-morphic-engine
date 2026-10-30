@@ -9,7 +9,7 @@ Date:   21 Sep 2026
 # Asynchronous module lifecycle
 
 This reference describes the implemented Host DLL service, Executive startup
-policy and passive rendering module. Completion history and validation evidence
+policy and Rendering service thread. Completion history and validation evidence
 are recorded in [completed milestones](../project/completed_milestones.md).
 
 Module loading, binding, context installation, compatibility
@@ -38,9 +38,9 @@ Executive; a selector implementation can run without a renderer or choose anothe
 implementation later. The normal Executive first sends an owning load request
 for `package:/bin/MorphicRendering` with the native extension appended by
 `platform::module::make_module_filename`, and `render_vulkan`. It validates
-the correlated acknowledgement before accepting completion, then starts its
-71 sequential and 32 concurrent asset acceptance operations only when rendering
-is available.
+the correlated acknowledgement before accepting completion, then asks Rendering
+to run its own tests through `RunTestsRequest`. Successful completion permits the
+Executive's 50 sequential and 32 concurrent general asset acceptance operations.
 
 After Executive replacement, `already_loaded` is accepted only for the requested
 Vulkan identity with `available == true`; no extra thread, unload or replacement
@@ -130,8 +130,8 @@ An ordinary owning `ModuleRequest` loads the DLL. The worker requires its
 an additional function. The Host provisions a normal-priority `CThreadPackage`
 using the bound module's advertised identity, stable memory context and
 `CBoundModule::prepare_thread`. The entry point verifies the installed thread
-context, publishes readiness, and parks on the existing wait predicate until
-exit is requested. The normal Executive and applicable lifecycle fixtures request
+context, publishes readiness, and services requests and batch completions until
+accepted work drains during exit. The normal Executive and applicable lifecycle fixtures request
 rendering explicitly; renderer-free selector fixtures do not.
 
 Rendering load/replacement keeps the module operation pending through thread
@@ -154,6 +154,25 @@ The real stub replaces the successful service fixture in lifecycle validation.
 The test Executive, deliberate missing-export/failed-startup DLLs, and a rendering
 fixture that posts disposals during exit remain fixtures; production rendering
 contains no test switches.
+
+## Module test routing
+
+`RunTestsRequest` selects a module identity. Host resolves it among registered
+module service threads, excluding its background I/O and conditioning workers.
+Missing destinations, non-running threads and requests to the caller's own
+thread return `unavailable`; malformed identities or negative correlations return
+`invalid_request`. An active run or module lifecycle transition returns `busy`.
+
+One run is active at a time. Host preserves the correlation and forwards the
+destination's status and counts without interpreting its tests. Both packages
+remain alive until completion. Terminal-state handling samples the actual test
+worker before draining its final messages: a valid final completion takes
+precedence; otherwise Host returns a failed result. Caller acquisition release
+and deferred disposal continue during shutdown before joining and unloading.
+
+Lifecycle fixtures exercise Rendering as caller and Executive as worker,
+including rejection checks, nested requests, final replies, worker exit without
+a reply, and an explicit caller-unload request during the run.
 
 ## Ownership, dependencies and shutdown
 

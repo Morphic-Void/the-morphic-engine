@@ -40,7 +40,7 @@ if (!$SkipBuild) {
 }
 
 if ($Cases.Count -eq 0) {
-    $Cases = @('bundle', 'bundle-inline', 'bundle-late-reference', 'bundle-replace', 'bundle-shutdown', 'bundle-failures', 'bundle-rendering', 'batch', 'batch-inline', 'batch-exit', 'ordinary', 'dependency', 'disposal', 'disposal-during-save', 'shutdown', 'shutdown-dependency', 'replace', 'replace-dependency', 'replace-missing', 'bootstrap-missing', 'startup-failure', 'replace-startup-failure', 'thread-failures', 'render-shutdown', 'render-shutdown-dependency', 'render-replace-dependency', 'render-executive-replace', 'render-drain', 'render-exit-disposal', 'normal-startup', 'normal-unavailable', 'normal-bad-start', 'normal-missing-thread', 'normal-tests-malformed', 'acquire-render-release', 'acquire-render-abandon', 'acquire-render-replace')
+    $Cases = @('bundle', 'bundle-inline', 'bundle-late-reference', 'bundle-replace', 'bundle-shutdown', 'bundle-failures', 'bundle-rendering', 'batch', 'batch-inline', 'batch-exit', 'ordinary', 'dependency', 'disposal', 'disposal-during-save', 'shutdown', 'shutdown-dependency', 'replace', 'replace-dependency', 'replace-missing', 'bootstrap-missing', 'startup-failure', 'replace-startup-failure', 'thread-failures', 'render-shutdown', 'render-shutdown-dependency', 'render-replace-dependency', 'render-executive-replace', 'render-drain', 'render-exit-disposal', 'normal-startup', 'normal-unavailable', 'normal-bad-start', 'normal-missing-thread', 'normal-tests-malformed', 'acquire-render-release', 'acquire-render-abandon', 'acquire-render-replace', 'tests-routing', 'tests-worker-exit', 'tests-client-unload')
 }
 foreach ($case in $Cases) {
     $tag = "lifecycle-$suffix-$case"
@@ -239,6 +239,20 @@ foreach ($case in $Cases) {
         }
         $starts = [regex]::Matches($events, 'Host: Rendering started after asynchronous binding').Count
         $joins = [regex]::Matches($events, 'Host: Rendering thread joined').Count
+        if ($case -in @('tests-routing', 'tests-worker-exit', 'tests-client-unload')) {
+            $completion = $events.IndexOf('Lifecycle tests: Executive terminal completion passed')
+            $cleanup = $events.IndexOf('Lifecycle tests: caller acquisition and disposal drained')
+            $joined = $events.IndexOf('Host: Rendering thread joined')
+            if (($starts -ne 1) -or
+                !$events.Contains('Lifecycle tests: Executive destination, correlation and rejection checks passed') -or
+                ($completion -lt 0) -or ($cleanup -lt $completion) -or ($joined -lt $cleanup)) {
+                throw 'Generic module test routing or shutdown disposal checks incomplete.'
+            }
+            if (($case -eq 'tests-client-unload') -and
+                !$events.Contains('Lifecycle tests: caller unload waited for completion and cleanup')) {
+                throw 'The caller unload did not wait for the active test route.'
+            }
+        }
         if ($case.StartsWith('acquire-render-') -and (($starts -ne 1) -or
             !$events.Contains('Lifecycle rendering: acquired bytes survive exit request'))) {
             throw 'Acquisition storage did not survive the Rendering exit request.'

@@ -93,6 +93,7 @@ private:
     void shutdown_debug_service() noexcept;
 
     [[nodiscard]] threading::CThreadPackage* thread_package(const EWorkerThreadID id) noexcept;
+    [[nodiscard]] threading::CThreadPackage* module_thread_package(const module_ids::id_type module) noexcept;
     [[nodiscard]] threading::CThreadPackage* worker_package(const std::uint32_t index) noexcept;
 
     TInstance<debug_system::CDebugServiceState> m_debug_service_owner;

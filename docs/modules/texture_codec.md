@@ -82,6 +82,11 @@ Executive sends a generic `RunTestsRequest` naming the selected Rendering module
 Host routes that request and its correlated `RunTestsResult`, which reports overall
 status and passed/failed/skipped counts. Rendering owns test selection, fixture
 preparation, sequencing, assertions and cleanup in `texture_flow_tests.cpp`.
+Host finds the destination among registered module service threads by module
+identity; background I/O/conditioning workers are not test destinations. One
+run is active at a time, with both caller and worker protected from teardown.
+Terminal failure follows the actual worker's state after draining its final
+messages, including when Executive is the worker and Rendering is the caller.
 The runner disposes every retained fixture and result before reporting completion.
 The runner calls Rendering-local services. Host retains only generic fixture and
 encoded-container bytes; decoded textures remain owned within Rendering.

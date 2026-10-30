@@ -25,7 +25,6 @@
 #include "runtime/host_worker_thread.hpp"
 #include "system/system_id_definitions.hpp"
 #include "executive/module/binding/executive_binding.hpp"
-#include "rendering/module/binding/rendering_binding.hpp"
 #include "platform/system/performance_counter.hpp"
 #include "platform/threading/processor_relax.hpp"
 #include "platform/threading/hw_thread_count.hpp"
@@ -147,7 +146,7 @@ bool CHost::start_executive() noexcept
 bool CHost::start_rendering() noexcept
 {
     modules::CBoundModule* const binding = m_module_service.pending_binding();
-    const auto entry = reinterpret_cast<rendering::FRenderingThread>(m_module_service.pending_thread_function());
+    const auto entry = reinterpret_cast<platform::threading::FThreadEntry>(m_module_service.pending_thread_function());
     if ((binding == nullptr) || (entry == nullptr))
     {
         return false;
@@ -182,7 +181,7 @@ bool CHost::stop_rendering(const threading::EThreadRunState state) noexcept
         return true;
     }
 
-    if (!m_asset_service.work_idle() || (m_test_worker == rendering))
+    if (!m_asset_service.work_idle() || (m_test_worker == rendering) || (m_test_client == rendering))
     {
         return false;
     }
@@ -256,6 +255,21 @@ threading::CThreadPackage* CHost::thread_package(const EWorkerThreadID id) noexc
         return nullptr;
     }
     return m_thread_packages.get_object(m_thread_slots[index]);
+}
+
+threading::CThreadPackage* CHost::module_thread_package(const module_ids::id_type module) noexcept
+{
+    //  Only registered module service threads are destinations. Host's I/O and
+    //  conditioning workers share the executable identity but do not run tests.
+    for (const auto slot : m_thread_slots)
+    {
+        auto* const package = (slot >= 0) ? m_thread_packages.get_object(slot) : nullptr;
+        if ((package != nullptr) && (package->module_id() == module))
+        {
+            return package;
+        }
+    }
+    return nullptr;
 }
 
 threading::CThreadPackage* CHost::worker_package(const std::uint32_t index) noexcept
@@ -352,12 +366,12 @@ void CHost::request_tests(const RunTestsRequest& request, const std::int32_t slo
 {
     RunTestsResult result;
     result.module = request.module;
-    threading::CThreadPackage* const worker = thread_package(EWorkerThreadID::rendering);
+    threading::CThreadPackage* const worker = module_thread_package(request.module);
     if ((slot < 0) || !module_ids::ops::is_valid_id(request.module))
         result.status = ETestRunStatus::invalid_request;
     else if ((m_test_client != nullptr) || (m_phase != EPhase::running) || !m_module_service.is_idle())
         result.status = ETestRunStatus::busy;
-    else if ((worker == nullptr) || (worker == &client) || (worker->module_id() != request.module) ||
+    else if ((worker == nullptr) || (worker == &client) ||
         ((worker->query_state() != threading::EThreadRunState::Running) && (worker->query_state() != threading::EThreadRunState::Waiting)))
         result.status = ETestRunStatus::unavailable;
     else if (!worker->post(threading::make_pod_message(slot, request)))
@@ -672,6 +686,9 @@ void CHost::run() noexcept
         threading::CThreadPackage* const rendering = thread_package(EWorkerThreadID::rendering);
         const threading::EThreadRunState rendering_state = (rendering != nullptr) ?
             rendering->query_state() : threading::EThreadRunState::Empty;
+        threading::CThreadPackage* const test_worker = m_test_worker;
+        const threading::EThreadRunState test_worker_state = (test_worker != nullptr) ?
+            test_worker->query_state() : threading::EThreadRunState::Empty;
 
         for (std::int32_t slot = m_thread_packages.first_live(); slot >= 0; slot = m_thread_packages.next_live(slot))
         {
@@ -752,8 +769,8 @@ void CHost::run() noexcept
 
         //  Terminal state was observed before draining replies, so an accepted
         //  test run without a completion can now be reported as failed.
-        if ((m_test_worker != nullptr) &&
-            ((rendering_state == threading::EThreadRunState::Failed) || (rendering_state == threading::EThreadRunState::Exited)))
+        if ((test_worker != nullptr) && (m_test_worker == test_worker) &&
+            ((test_worker_state == threading::EThreadRunState::Failed) || (test_worker_state == threading::EThreadRunState::Exited)))
         {
             RunTestsResult result;
             result.module = m_test_worker->module_id();

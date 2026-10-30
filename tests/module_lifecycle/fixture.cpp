@@ -612,9 +612,75 @@ static bool unload_during_saves(threading::CThreadContext& context, const bool r
     }
 }
 
+static bool executive_test_routing_case(threading::CThreadContext& context,
+    const bool exit_without_completion, const bool unload_client) noexcept
+{
+    if (!operation(context, EModuleAction::load,
+        test_environment::module_filename("package:/bin/MorphicLifecycleRenderingDisposal").c_str(),
+        1, EModuleStatus::success, true)) return false;
+
+    threading::CErasedPodMsg message;
+    RunTestsRequest request;
+    if (!receive(context, message) || !message.copy_payload_to(request) ||
+        (request.module != module_ids::executive) || (message.query_async_slot() != INT32_MAX)) return false;
+
+    //  The Executive is the test worker. Another request, including one from
+    //  that worker, must receive busy until the current result is forwarded.
+    message.set_async_slot(90);
+    message.assign_payload(RunTestsRequest{ module_ids::render_vulkan });
+    RunTestsResult busy;
+    if (!context.post(message) || !receive(context, message) || !message.copy_payload_to(busy) ||
+        (message.query_async_slot() != 90) || (busy.module != module_ids::render_vulkan) ||
+        (busy.status != ETestRunStatus::busy)) return false;
+    message.set_async_slot(INT32_MAX);
+    message.assign_payload(RunTestsResult{ module_ids::executive, ETestRunStatus::success, 7u, 0u, 2u });
+    if (!context.post(message)) return false;
+
+    if (!receive(context, message) || !message.copy_payload_to(request) ||
+        (request.module != module_ids::executive) || (message.query_async_slot() != 111)) return false;
+    if (unload_client)
+    {
+        if (!post(context, EModuleAction::unload, module_ids::render_vulkan, nullptr, 120)) return false;
+        ModuleResult notice;
+        if (!receive(context, message) || !message.copy_payload_to(notice) ||
+            (message.query_async_slot() != 120) || (notice.notice != EModuleNotice::acknowledged) ||
+            (notice.status != EModuleStatus::success)) return false;
+        //  A Host round trip after acknowledgement ensures teardown has had
+        //  an opportunity to run while the caller is still waiting for us.
+        message.set_async_slot(121);
+        message.assign_payload(AssetAcquireRequest{});
+        AssetAcquireResult barrier;
+        if (!context.post(message) || !receive(context, message) || !message.copy_payload_to(barrier) ||
+            (message.query_async_slot() != 121) || (barrier.status != EAssetStatus::invalid_asset)) return false;
+    }
+    if (!exit_without_completion)
+    {
+        //  This final reply must be drained before terminal-state handling.
+        //  Host forwards module test failures and their counts unchanged.
+        message.set_async_slot(111);
+        message.assign_payload(RunTestsResult{ module_ids::executive, ETestRunStatus::failed, 3u, 1u, 2u });
+        if (!context.post(message)) return false;
+    }
+    if (unload_client)
+    {
+        ModuleResult notice;
+        if (!receive(context, message) || !message.copy_payload_to(notice) ||
+            (message.query_async_slot() != 120) || (notice.notice != EModuleNotice::completed) ||
+            (notice.status != EModuleStatus::success) || notice.available) return false;
+        MV_LOG(info, "Lifecycle tests: caller unload waited for completion and cleanup");
+    }
+    return self_terminate(context, nullptr);
+}
+
 static bool run_case(threading::CThreadContext& context,
     threading::CThreadResources& resources, const char* const selected) noexcept
 {
+    if ((std::strcmp(selected, "tests-routing") == 0) || (std::strcmp(selected, "tests-worker-exit") == 0) ||
+        (std::strcmp(selected, "tests-client-unload") == 0))
+    {
+        return executive_test_routing_case(context, std::strcmp(selected, "tests-worker-exit") == 0,
+            std::strcmp(selected, "tests-client-unload") == 0);
+    }
     if ((std::strcmp(selected, "acquire-render-release") == 0) || (std::strcmp(selected, "acquire-render-abandon") == 0) ||
         (std::strcmp(selected, "acquire-render-replace") == 0))
     {
@@ -871,6 +937,121 @@ static bool rendering_acquisition_case(threading::CThreadContext& context, const
     return true;
 }
 
+static bool rendering_test_routing_case(threading::CThreadContext& context, const bool worker_exits) noexcept
+{
+    //  Shutdown may be requested after Executive's terminal publication. Keep
+    //  receiving the test result and asset cleanup replies during that drain.
+    auto read = [&context](threading::CErasedPodMsg& message, const bool test_pending = false) noexcept
+    {
+        platform::system::CPerfCounter timer;
+        (void)timer.update();
+        while (timer.query_delta() < context.perf_count_conversion().query_ticks_per_second() * 10u)
+        {
+            if (context.read(message)) return true;
+            //  Completion must be published before Host requests caller exit.
+            //  Re-read after observing exit to include that final publication.
+            if (test_pending && context.exit_requested()) return context.read(message);
+            context.advance_heartbeat();
+            platform::threading::processor_relax();
+        }
+        return false;
+    };
+    threading::CErasedPodMsg message;
+    auto rejected = [&](const module_ids::id_type module, const std::int32_t slot,
+        const ETestRunStatus status) noexcept
+    {
+        message.set_async_slot(slot);
+        message.assign_payload(RunTestsRequest{ module });
+        RunTestsResult result;
+        return context.post(message) && read(message) && message.copy_payload_to(result) &&
+            (message.query_async_slot() == slot) && (result.module == module) && (result.status == status) &&
+            (result.passed == 0u) && (result.failed == 0u) && (result.skipped == 0u);
+    };
+
+    //  Startup can still be completing the Rendering load. Once it is idle,
+    //  an executable identity must not select a Host background worker.
+    platform::system::CPerfCounter timer;
+    (void)timer.update();
+    RunTestsResult result;
+    do
+    {
+        message.set_async_slot(100);
+        message.assign_payload(RunTestsRequest{ module_ids::executable });
+        if (!context.post(message) || !read(message) || !message.copy_payload_to(result) ||
+            (message.query_async_slot() != 100) || (result.module != module_ids::executable)) return false;
+    } while ((result.status == ETestRunStatus::busy) &&
+        (timer.query_delta() < context.perf_count_conversion().query_ticks_per_second() * 10u));
+    if ((result.status != ETestRunStatus::unavailable) ||
+        !rejected({}, 101, ETestRunStatus::invalid_request) ||
+        !rejected(module_ids::executive, -1, ETestRunStatus::invalid_request) ||
+        !rejected(module_ids::platform_windows, 102, ETestRunStatus::unavailable) ||
+        !rejected(module_ids::render_vulkan, 103, ETestRunStatus::unavailable)) return false;
+
+    message.set_async_slot(INT32_MAX);
+    message.assign_payload(RunTestsRequest{ module_ids::executive });
+    if (!context.post(message) || !read(message) || !message.copy_payload_to(result) ||
+        (message.query_async_slot() != INT32_MAX) || (result.module != module_ids::executive) ||
+        (result.status != ETestRunStatus::success) || (result.passed != 7u) ||
+        (result.failed != 0u) || (result.skipped != 2u)) return false;
+    MV_LOG(info, "Lifecycle tests: Executive destination, correlation and rejection checks passed");
+
+    auto owner = CErasedOwner::create<RawAssetTransfer>();
+    auto* const transfer = owner.payload<RawAssetTransfer>();
+    if (!transfer || !transfer->storage.value.resize(16u)) return false;
+    std::memset(transfer->storage.value.data(), 0x5a, 16u);
+    threading::CErasedOwnerMsg input;
+    input.set_message_type<RawAssetTransfer>();
+    input.set_async_slot(108);
+    input.set_owner(std::move(owner));
+    AssetResult retained;
+    if (!context.post(std::move(input)) || !read(message) || !message.copy_payload_to(retained) ||
+        (message.query_async_slot() != 108) || (retained.status != EAssetStatus::success)) return false;
+    message.set_async_slot(109);
+    message.assign_payload(AssetAcquireRequest{ retained.asset });
+    AssetAcquireResult acquired;
+    if (!context.post(message) || !read(message) || !message.copy_payload_to(acquired) ||
+        (message.query_async_slot() != 109) || (acquired.status != EAssetStatus::success) ||
+        !acquired.acquisition) return false;
+    message.set_async_slot(110);
+    message.assign_payload(AssetDisposeRequest{ retained.asset });
+    if (!context.post(message)) return false;
+
+    message.set_async_slot(111);
+    message.assign_payload(RunTestsRequest{ module_ids::executive });
+    if (!context.post(message) || !read(message, true) || !message.copy_payload_to(result) ||
+        (message.query_async_slot() != 111) || (result.module != module_ids::executive) ||
+        (result.status != ETestRunStatus::failed) || (result.passed != (worker_exits ? 0u : 3u)) ||
+        (result.failed != (worker_exits ? 0u : 1u)) || (result.skipped != (worker_exits ? 0u : 2u))) return false;
+    MV_LOG(info, "Lifecycle tests: Executive terminal completion passed");
+    if ((acquired.byte_view().size() != 16u) || (acquired.byte_view().data()[15] != 0x5a)) return false;
+    message.set_async_slot(112);
+    message.assign_payload(AssetReleaseRequest{ acquired.acquisition });
+    if (!context.post(message)) return false;
+    bool released{ false }, disposed{ false };
+    for (unsigned i = 0u; i < 2u; ++i)
+    {
+        if (!read(message)) return false;
+        AssetReleaseResult release;
+        AssetDisposeResult disposal;
+        if ((message.query_async_slot() == 112) && message.copy_payload_to(release))
+        {
+            if (released || (release.status != EAssetStatus::success) || (release.acquisition != acquired.acquisition)) return false;
+            released = true;
+        }
+        else if ((message.query_async_slot() == 110) && message.copy_payload_to(disposal))
+        {
+            if (disposed || (disposal.status != EAssetStatus::success) || (disposal.asset != retained.asset)) return false;
+            disposed = true;
+        }
+        else return false;
+    }
+    if (!released || !disposed) return false;
+    MV_LOG(info, "Lifecycle tests: caller acquisition and disposal drained");
+    std::uint32_t epoch{ 0u };
+    while (!context.exit_requested()) epoch = context.wait_for_new_epoch(epoch);
+    return true;
+}
+
 static bool malformed_test_completion(threading::CThreadContext& context) noexcept
 {
     std::uint32_t epoch{ 0u };
@@ -905,6 +1086,18 @@ static std::uint32_t MV_STD_ABI_CALL rendering_entry(void* const data) noexcept
     context.startup();
     char selected[32]{};
     std::size_t required{ 0u };
+    if ((getenv_s(&required, selected, sizeof(selected), "MORPHIC_LIFECYCLE_CASE") == 0) &&
+        ((std::strcmp(selected, "tests-routing") == 0) || (std::strcmp(selected, "tests-worker-exit") == 0) ||
+            (std::strcmp(selected, "tests-client-unload") == 0)))
+    {
+        MV_LOG(info, "Rendering: Running");
+        context.mark_running();
+        const bool success = rendering_test_routing_case(context, std::strcmp(selected, "tests-worker-exit") == 0);
+        MV_LOG(info, "Rendering: Exited");
+        if (success) context.mark_exited();
+        else context.mark_failed(1u);
+        return success ? 0u : 1u;
+    }
     if ((getenv_s(&required, selected, sizeof(selected), "MORPHIC_LIFECYCLE_CASE") == 0) &&
         ((std::strcmp(selected, "acquire-render-release") == 0) || (std::strcmp(selected, "acquire-render-abandon") == 0) ||
             (std::strcmp(selected, "acquire-render-replace") == 0)))
