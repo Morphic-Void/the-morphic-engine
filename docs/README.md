@@ -46,6 +46,12 @@ or that work has been authorised.
 - [Deferred resource and lifecycle design](backlog/consolidation_deferred_design.md)
   and [filesystem limitations and future considerations](backlog/filesystem_asset_mapping.md).
 - [Schema source-ingestion survey](schema/header-survey.md).
+- [Platform module and host-pumped lifecycle](modules/platform_host_pumped_design.md):
+  agreed window/input ownership, optional Host pumping, explicit window uses,
+  extension callbacks, lifecycle gaps, implementation stages and open decisions.
+- [Audio module: one requested tone test](modules/audio_module_design.md):
+  a single Executive test request, miniaudio containment, finite tone/fade,
+  callback and shutdown ownership, implementation stages and remaining choices.
 - [Shader compilation direction](modules/shader_compilation_design.md): DXC
   integration findings, source bundles, renderer-owned reports, publication,
   agreed defaults and configurable limits, remaining design choices, deferred
