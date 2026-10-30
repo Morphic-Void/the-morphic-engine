@@ -109,6 +109,7 @@ public:
     bool read(CErasedOwnerMsg& msg) noexcept;
 
     [[nodiscard]] EThreadRunState query_state() const noexcept;
+    [[nodiscard]] module_ids::id_type module_id() const noexcept { return m_resources.config.worker_module_id; }
     [[nodiscard]] CBatchClient* batch_client() noexcept { return m_resources.batch_client; }
 
 private:

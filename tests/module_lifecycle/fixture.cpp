@@ -791,6 +791,33 @@ static std::uint32_t MV_STD_ABI_CALL rendering_entry(void* const data) noexcept
     return 1u;
 }
 #elif MV_LIFECYCLE_RENDERING_DISPOSAL
+static bool malformed_test_completion(threading::CThreadContext& context) noexcept
+{
+    std::uint32_t epoch{ 0u };
+    while (!context.exit_requested())
+    {
+        threading::CErasedPodMsg message;
+        RunTestsRequest request;
+        if (context.read(message))
+        {
+            if (!message.copy_payload_to(request)) return false;
+            RunTestsResult result;
+            result.module = request.module;
+            result.status = ETestRunStatus::success;
+            result.passed = 1u;
+            message.set_async_slot(message.query_async_slot() + 1);
+            message.assign_payload(result);
+            if (!context.post(message)) return false;
+            MV_LOG(info, "Lifecycle rendering: malformed test completion posted");
+            break;
+        }
+        epoch = context.wait_for_new_epoch(epoch);
+    }
+    //  Host must terminate the worker and release the pending test route.
+    while (!context.exit_requested()) epoch = context.wait_for_new_epoch(epoch);
+    return true;
+}
+
 static std::uint32_t MV_STD_ABI_CALL rendering_entry(void* const data) noexcept
 {
     auto& resources = *static_cast<threading::CThreadResources*>(data);
@@ -798,6 +825,17 @@ static std::uint32_t MV_STD_ABI_CALL rendering_entry(void* const data) noexcept
     context.startup();
     char selected[32]{};
     std::size_t required{ 0u };
+    if ((getenv_s(&required, selected, sizeof(selected), "MORPHIC_LIFECYCLE_CASE") == 0) &&
+        (std::strcmp(selected, "normal-tests-malformed") == 0))
+    {
+        MV_LOG(info, "Rendering: Running");
+        context.mark_running();
+        const bool success = malformed_test_completion(context);
+        MV_LOG(info, "Rendering: Exited");
+        if (success) context.mark_exited();
+        else context.mark_failed(1u);
+        return success ? 0u : 1u;
+    }
     if ((getenv_s(&required, selected, sizeof(selected), "MORPHIC_LIFECYCLE_CASE") == 0) &&
         (std::strcmp(selected, "bundle-rendering") == 0))
     {

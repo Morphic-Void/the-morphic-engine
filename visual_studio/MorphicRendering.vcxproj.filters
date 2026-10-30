@@ -21,6 +21,7 @@
     <ClInclude Include="..\rendering\module\types\local_type_ids.hpp"><Filter>Rendering\include\module\types</Filter></ClInclude>
     <ClInclude Include="..\rendering\module\types\local_types.hpp"><Filter>Rendering\include\module\types</Filter></ClInclude>
     <ClInclude Include="..\rendering\runtime\rendering_thread.hpp"><Filter>Rendering\include\runtime</Filter></ClInclude>
+    <ClInclude Include="..\rendering\runtime\texture_flow_tests.hpp"><Filter>Rendering\include\runtime</Filter></ClInclude>
     <ClInclude Include="..\rendering\runtime\basis_codec.hpp"><Filter>Rendering\include\runtime</Filter></ClInclude>
     <ClInclude Include="..\rendering\runtime\shader_reflection.hpp"><Filter>Rendering\include\runtime</Filter></ClInclude>
     <ClInclude Include="..\rendering\runtime\shader_conditioning.hpp"><Filter>Rendering\include\runtime</Filter></ClInclude>
@@ -33,6 +34,7 @@
     <ClCompile Include="..\rendering\module\binding\rendering_binding.cpp"><Filter>Rendering\src\module\binding</Filter></ClCompile>
     <ClCompile Include="..\rendering\module\types\local_type_ids.cpp"><Filter>Rendering\src\module\types</Filter></ClCompile>
     <ClCompile Include="..\rendering\runtime\rendering_thread.cpp"><Filter>Rendering\src\runtime</Filter></ClCompile>
+    <ClCompile Include="..\rendering\runtime\texture_flow_tests.cpp"><Filter>Rendering\src\runtime</Filter></ClCompile>
     <ClCompile Include="..\rendering\runtime\basis_codec.cpp"><Filter>Rendering\src\runtime</Filter></ClCompile>
     <ClCompile Include="..\rendering\runtime\shader_reflection.cpp"><Filter>Rendering\src\runtime</Filter></ClCompile>
     <ClCompile Include="..\rendering\runtime\shader_conditioning.cpp"><Filter>Rendering\src\runtime</Filter></ClCompile>

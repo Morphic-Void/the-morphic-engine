@@ -96,6 +96,7 @@
     <ClCompile Include="..\rendering\module\binding\rendering_binding.cpp" />
     <ClCompile Include="..\rendering\module\types\local_type_ids.cpp" />
     <ClCompile Include="..\rendering\runtime\rendering_thread.cpp" />
+    <ClCompile Include="..\rendering\runtime\texture_flow_tests.cpp" />
     <ClCompile Include="..\rendering\runtime\basis_codec.cpp" />
     <ClCompile Include="..\rendering\runtime\texture_jobs.cpp" />
     <ClCompile Include="..\rendering\runtime\shader_requests.cpp" />
@@ -145,6 +146,7 @@
     <ClInclude Include="..\rendering\module\types\local_type_ids.hpp" />
     <ClInclude Include="..\rendering\module\types\local_types.hpp" />
     <ClInclude Include="..\rendering\runtime\rendering_thread.hpp" />
+    <ClInclude Include="..\rendering\runtime\texture_flow_tests.hpp" />
     <ClInclude Include="..\rendering\runtime\basis_codec.hpp" />
     <None Include="..\rendering\shaders\morphic_shader.hlsli" />
     <ClInclude Include="..\rendering\runtime\shader_requests.hpp" />

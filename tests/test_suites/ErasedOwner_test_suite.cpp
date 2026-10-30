@@ -114,14 +114,30 @@ static void check_rendering_notices(tests::TTestContext& ctx, modules::CBoundMod
         }
         reply.assign_payload(result);
         TEST_EXPECT(ctx, package.post(reply));
-        TEST_EXPECT(ctx, read_request(package, request, conversion));
         if ((scenario == ECase::loaded) || (scenario == ECase::already_loaded))
         {
+            threading::CErasedPodMsg tests_request;
+            TEST_EXPECT(ctx, tests::wait_until(conversion, [&]() noexcept { return package.read(tests_request); }));
+            RunTestsRequest tests;
+            TEST_EXPECT(ctx, tests_request.copy_payload_to(tests) && tests.module == module_ids::render_vulkan);
+            TEST_EXPECT(ctx, tests_request.query_async_slot() == slot + 1);
+            TEST_EXPECT(ctx, !package.read(request));
+            //  Executive only observes generic completion; it does not know
+            //  the destination's test cases or require a particular case count.
+            RunTestsResult completed;
+            completed.module = module_ids::render_vulkan;
+            completed.status = ETestRunStatus::success;
+            completed.passed = 7u;
+            reply.set_async_slot(slot + 1);
+            reply.assign_payload(completed);
+            TEST_EXPECT(ctx, package.post(reply));
+            TEST_EXPECT(ctx, read_request(package, request, conversion));
             TEST_EXPECT(ctx, request.is_message_a<RawAssetTransfer>());
-            TEST_EXPECT(ctx, request.query_async_slot() == slot + 1);
+            TEST_EXPECT(ctx, request.query_async_slot() == slot + 2);
         }
         else
         {
+            TEST_EXPECT(ctx, read_request(package, request, conversion));
             const ModuleRequest* const shutdown = request.owner().payload<ModuleRequest>();
             TEST_EXPECT(ctx, (shutdown != nullptr) && (shutdown->action == EModuleAction::unload) &&
                 (shutdown->module == module_ids::executive));

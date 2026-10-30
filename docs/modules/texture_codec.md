@@ -94,7 +94,17 @@ the rendering thread alongside jobs already running on batch workers.
 
 ## Acceptance coverage
 
-The Executive's 71 sequential asset cases include 23 texture cases: RGBA8 and
+Executive sends a generic `RunTestsRequest` naming the selected Rendering module.
+Host routes that request and its correlated `RunTestsResult`, which reports overall
+status and passed/failed/skipped counts. Rendering owns test selection, fixture
+preparation, sequencing, assertions and cleanup in `texture_flow_tests.cpp`.
+The runner disposes every retained fixture and result before reporting completion.
+Host still supplies the existing typed texture asset service in this migration
+stage; the texture and shader contracts have not yet moved out of core.
+
+Executive retains 50 general asset cases, including TGA. TGA remains core
+functionality available to Host and every module, separate from this texture
+infrastructure. Rendering runs the original 23 texture cases: RGBA8 and
 RGBA16F round trips, gray8 and RGBA32F with build-quality mip generation,
 all five output formats, and rejection of pixel-budget overflow, malformed
 rows, negative/non-finite HDR RGB, incompatible modes/transfers/profiles,
@@ -128,4 +138,6 @@ rendering-module batch runner for queued work.
 Linux CTest also runs the real Host/Executive/Rendering acceptance flow using
 `tests/texture/run_tests.py`; its isolated filesystem and logs are retained
 under the selected output directory. The Windows worker and lifecycle
-harnesses check the same 71-case completion summary.
+harnesses check the same split completion summaries and the individual Rendering
+cases in `tests/texture/flow_cases.json`, including their execution on the rendering
+thread. Existing codec route checks still verify inline and batch execution.

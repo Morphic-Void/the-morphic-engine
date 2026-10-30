@@ -17,6 +17,7 @@
 
 #include "tests/environment/local_type_ids.hpp"
 #include "executive/runtime/request_preparation.hpp"
+#include "image/texture_messages.hpp"
 #include "tests/support/test_allocator.hpp"
 #include "tests/support/test_context.hpp"
 #include "tests/support/test_scopes.hpp"
@@ -203,9 +204,12 @@ static void test_request_fields(TTestContext& ctx)
     pending = {};
     TEST_EXPECT(ctx, prepare_bundle_bake_request(pending, 15, "source:", "baked:"));
     TEST_EXPECT(ctx, pending.owner().payload<BundleBakeRequest>()->paths.subdirectory.length() == 0u);
-    pending = {};
-    TEST_EXPECT(ctx, prepare_texture_decode_request(pending, 16, {}, image::texture::EStorageFormat::rgba8, 3u));
-    TEST_EXPECT(ctx, pending.owner().payload<TextureDecodeRequest>()->level == 3u);
+    const auto tests = make_pod_message(16, RunTestsRequest{ module_ids::render_vulkan });
+    RunTestsRequest request;
+    TEST_EXPECT(ctx, tests.copy_payload_to(request) && request.module == module_ids::render_vulkan && tests.query_async_slot() == 16);
+    const auto completion = make_pod_message(16, RunTestsResult{ module_ids::render_vulkan, ETestRunStatus::success, 4u, 0u, 2u });
+    RunTestsResult result;
+    TEST_EXPECT(ctx, completion.copy_payload_to(result) && result.passed == 4u && result.failed == 0u && result.skipped == 2u);
 }
 
 static void test_prepared_post(TTestContext& ctx, memory::CMemoryAllocator& allocator, memory::CMemoryContext& source)

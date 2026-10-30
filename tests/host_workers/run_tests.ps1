@@ -123,7 +123,9 @@ foreach ($requested in @(0, 1, 2, 3, 9, 128)) {
     $directEvents = Get-Content -LiteralPath $directLog -Raw
     $events = (Get-Content -LiteralPath $log -Raw) + $directEvents
     Assert-HostDiagnostics -Events $events -Runtime $runtime
-    if (!$events.Contains('Asset acceptance: 73 sequential and 32 concurrent operations passed') -or
+    if (!$events.Contains('Rendering acceptance: 23 texture flow tests passed') -or
+        !$events.Contains('Executive: Module tests completed: 23 passed, 0 failed, 0 skipped') -or
+        !$events.Contains('Asset acceptance: 50 sequential and 32 concurrent operations passed') -or
         !$events.Contains('Filesystem acceptance: 12 queued refresh, concurrent access and cache operations passed') -or
         !$events.Contains('Bundle acceptance: bake, reference, save, close and reload passed')) {
         throw "Acceptance flow incomplete: $log"

@@ -14,6 +14,7 @@
 #include "runtime/basis_codec.hpp"
 #include "runtime/texture_jobs.hpp"
 #include "runtime/shader_requests.hpp"
+#include "runtime/texture_flow_tests.hpp"
 
 #include "containers/TUnorderedCollection.hpp"
 #include "debug/macros.hpp"
@@ -187,6 +188,7 @@ static std::uint32_t MV_STD_ABI_CALL thread_entry(void* const user_data) noexcep
     }
     CTextureRequests requests{ context, (*resources.batch_client) };
     CShaderRequests shaders{ context, (*resources.batch_client) };
+    CTextureFlowTests tests{ context, resources.config.worker_module_id };
     if (!requests.initialise() || !shaders.initialise())
     {
         basis_codec::shutdown();
@@ -221,9 +223,14 @@ static std::uint32_t MV_STD_ABI_CALL thread_entry(void* const user_data) noexcep
         while (!failed && context.read(message))
         {
             progressed = true;
-            failed = !(message.is_payload_a<ShaderCompileWork>() ? shaders.submit(message) : requests.submit(message));
+            if (message.is_payload_a<RunTestsRequest>())
+                failed = !tests.start(message);
+            else if (message.is_payload_a<AssetResult>() || message.is_payload_a<AssetDisposeResult>())
+                failed = !tests.complete(message);
+            else
+                failed = !(message.is_payload_a<ShaderCompileWork>() ? shaders.submit(message) : requests.submit(message));
         }
-        if ((context.exit_requested() || failed) && !requests.pending() && !shaders.pending())
+        if ((context.exit_requested() || failed) && !requests.pending() && !shaders.pending() && (failed || !tests.pending()))
         {
             break;
         }
@@ -244,7 +251,7 @@ static std::uint32_t MV_STD_ABI_CALL thread_entry(void* const user_data) noexcep
     basis_codec::shutdown();
     if (failed)
     {
-        MV_CRITICAL_EVENT("Rendering: Texture work response delivery failed");
+        MV_CRITICAL_EVENT("Rendering: Work or test response delivery failed");
         context.mark_failed(2u);
         return 2u;
     }

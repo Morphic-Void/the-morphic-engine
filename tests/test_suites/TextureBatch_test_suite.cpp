@@ -22,6 +22,8 @@
 #include "rendering/runtime/texture_jobs.hpp"
 #include "assets/asset_messages.hpp"
 #include "image/texture_messages.hpp"
+#include "system/service_messages.hpp"
+#include "threading/messages/message_helpers.hpp"
 #include "tests/environment/test_environment.hpp"
 #include "tests/environment/test_paths.hpp"
 #include "tests/support/test_context.hpp"
@@ -183,6 +185,76 @@ struct SStopRendering
     SFixture& fixture;
     ~SStopRendering() noexcept { fixture.stop(); }
 };
+
+static void test_module_test_protocol(tests::TTestContext& ctx, SFixture& fixture)
+{
+    SStopRendering stop{ fixture };
+    const bool started = fixture.start(false);
+    TEST_EXPECT(ctx, started);
+    if (!started) return;
+    auto send = [&fixture](const std::int32_t slot, const module_ids::id_type module) noexcept
+    {
+        return fixture.package->post(threading::make_pod_message(slot, RunTestsRequest{ module }));
+    };
+    auto receive = [&fixture](threading::CErasedPodMsg& message) noexcept
+    {
+        return tests::wait_until(fixture.conversion, [&]() noexcept { return fixture.package->read(message); });
+    };
+    threading::CErasedPodMsg reply;
+    RunTestsResult result;
+    TEST_EXPECT(ctx, send(80, module_ids::executive));
+    TEST_EXPECT(ctx, receive(reply) && reply.copy_payload_to(result));
+    TEST_EXPECT(ctx, reply.query_async_slot() == 80 && result.status == ETestRunStatus::invalid_request);
+
+    TEST_EXPECT(ctx, send(81, module_ids::render_vulkan));
+    threading::CErasedOwnerMsg input;
+    TEST_EXPECT(ctx, tests::wait_until(fixture.conversion, [&]() noexcept { return fixture.package->read(input); }));
+    TEST_EXPECT(ctx, input.is_message_a<RawAssetTransfer>());
+    TEST_EXPECT(ctx, send(82, module_ids::render_vulkan));
+    TEST_EXPECT(ctx, receive(reply) && reply.copy_payload_to(result));
+    TEST_EXPECT(ctx, reply.query_async_slot() == 82 && result.status == ETestRunStatus::busy);
+
+    //  Failed setup reports a terminal result and permits another run.
+    AssetResult failed;
+    failed.status = EAssetStatus::allocation_failed;
+    TEST_EXPECT(ctx, fixture.package->post(threading::make_pod_message(input.query_async_slot(), failed)));
+    input = {};
+    TEST_EXPECT(ctx, receive(reply) && reply.copy_payload_to(result));
+    TEST_EXPECT(ctx, reply.query_async_slot() == 81 && result.status == ETestRunStatus::failed &&
+        result.passed == 0u && result.failed == 0u && result.skipped == 23u);
+
+    TEST_EXPECT(ctx, send(83, module_ids::render_vulkan));
+    TEST_EXPECT(ctx, tests::wait_until(fixture.conversion, [&]() noexcept { return fixture.package->read(input); }));
+    fixture.package->request_exit();
+    TEST_EXPECT(ctx, tests::wait_until(fixture.conversion, [&]() noexcept
+    {
+        return fixture.package->query_state() == threading::EThreadRunState::Exiting;
+    }));
+    host::CAssetService service;
+    TEST_EXPECT(ctx, service.initialise());
+    //  The fixture reply arrives after exit. Rendering must release the new
+    //  retained asset and wait for disposal before completing and terminating.
+    service.request(input, *fixture.package);
+    TEST_EXPECT(ctx, receive(reply));
+    AssetDisposeRequest disposal;
+    TEST_EXPECT(ctx, reply.copy_payload_to(disposal) && disposal.asset);
+    threading::CErasedPodMsg premature;
+    TEST_EXPECT(ctx, !fixture.package->read(premature));
+    TEST_EXPECT(ctx, fixture.package->query_state() == threading::EThreadRunState::Exiting);
+    service.request_disposal(disposal, reply.query_async_slot(), *fixture.package);
+    service.complete_disposals();
+    TEST_EXPECT(ctx, receive(reply) && reply.copy_payload_to(result));
+    TEST_EXPECT(ctx, reply.query_async_slot() == 83 && result.module == module_ids::render_vulkan &&
+        result.status == ETestRunStatus::cancelled && result.passed == 0u && result.failed == 0u && result.skipped == 23u);
+    TEST_EXPECT(ctx, service.is_idle() && !service.failed());
+    service.deallocate();
+    TEST_EXPECT(ctx, tests::wait_until(fixture.conversion, [&]() noexcept
+    {
+        return fixture.package->query_state() == threading::EThreadRunState::Exited;
+    }));
+    fixture.stop();
+    TEST_EXPECT(ctx, test_environment::rendering_memory_context()->is_attribution_empty());
+}
 
 static void test_jobs(tests::TTestContext& ctx, SFixture& fixture)
 {
@@ -632,6 +704,7 @@ int run_texture_batch_tests()
     TEST_EXPECT(ctx, ready);
     if (ready)
     {
+        texture_batch_tests::test_module_test_protocol(ctx, fixture);
         texture_batch_tests::test_jobs(ctx, fixture);
         texture_batch_tests::test_multiple_requests(ctx, fixture);
         texture_batch_tests::test_saturated_requests(ctx, fixture);

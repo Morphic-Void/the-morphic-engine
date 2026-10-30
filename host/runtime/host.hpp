@@ -77,6 +77,9 @@ private:
     [[nodiscard]] bool start_rendering() noexcept;
     [[nodiscard]] bool stop_rendering(const threading::EThreadRunState state) noexcept;
     void receive_request(threading::CErasedOwnerMsg& message, threading::CThreadPackage& executive) noexcept;
+    void request_tests(const RunTestsRequest& request, const std::int32_t slot, threading::CThreadPackage& client) noexcept;
+    void complete_tests(const threading::CErasedPodMsg& message, threading::CThreadPackage& worker) noexcept;
+    void finish_tests(const RunTestsResult& result) noexcept;
     void request_refresh(threading::CErasedOwnerMsg& message, threading::CThreadPackage& executive) noexcept;
     void dispatch_refresh() noexcept;
     void complete_scan(threading::CErasedOwnerMsg& message) noexcept;
@@ -99,6 +102,10 @@ private:
 
     TUnorderedCollection<threading::CThreadPackage> m_thread_packages;
     CAssetService m_asset_service;
+    //  One module test run at a time; both packages remain live until completion.
+    threading::CThreadPackage* m_test_client{ nullptr };
+    threading::CThreadPackage* m_test_worker{ nullptr };
+    std::int32_t m_test_slot{ -1 };
     CBatchPool m_batch_pool;
     filesystem_image::CImage m_filesystem;
     struct SRefresh

@@ -130,22 +130,4 @@ bool prepare_bundle_bake_request(threading::CErasedOwnerMsg& pending, const std:
     return true;
 }
 
-bool prepare_texture_decode_request(threading::CErasedOwnerMsg& pending, const std::int32_t slot,
-    const CAssetId source, const image::texture::EStorageFormat target, const std::uint32_t level) noexcept
-{
-    if (!can_prepare_request(pending, slot)) return false;
-    auto candidate = threading::make_owner_message<TextureDecodeRequest>(slot);
-    auto* const request = candidate.owner().payload<TextureDecodeRequest>();
-    if (request == nullptr)
-    {
-        MV_LOG(error, "Executive: texture decode request preparation failed at slot {}", slot);
-        return false;
-    }
-    request->source = source;
-    request->target = target;
-    request->level = level;
-    pending = std::move(candidate);
-    return true;
-}
-
 }   //  namespace executive::request_preparation

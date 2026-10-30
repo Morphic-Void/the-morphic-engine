@@ -12,7 +12,6 @@
 
 #include <cstdint>      //  std::int32_t, std::uint32_t, std::uint64_t
 #include <cstring>      //  std::strcmp
-#include <limits>       //  std::numeric_limits
 #include <utility>      //  std::move
 
 #include "runtime/executive_thread.hpp"
@@ -21,7 +20,6 @@
 
 #include "debug/macros.hpp"
 #include "image/codec/tga.hpp"
-#include "types/fp16data_t.hpp"
 #include "data_model/document_parser.hpp"
 #include "data_model/document_translation.hpp"
 #include "data_model/document_writer.hpp"
@@ -31,7 +29,6 @@
 #include "system/system_id_registry.hpp"
 #include "assets/asset_messages.hpp"
 #include "system/service_messages.hpp"
-#include "image/texture_messages.hpp"
 #include "threading/CThreadPackage.hpp"
 #include "tests/support/host_test_paths.hpp"
 
@@ -93,29 +90,7 @@ enum class EScenario : std::uint8_t
     write_unterminated_string,
     reject_unterminated_string,
     load_tga_bottom_up,
-    encode_texture_ldr,
-    decode_texture_ldr_bc7,
-    decode_texture_ldr_rgba,
-    encode_texture_hdr,
-    decode_texture_hdr_bc6h,
-    decode_texture_hdr_half,
-    encode_texture_gray_mips,
-    decode_texture_gray_bc7,
-    decode_texture_gray_mip,
-    encode_texture_float_mips,
-    decode_texture_float_mip,
-    reject_texture_budget,
-    reject_texture_row,
-    reject_texture_negative,
-    reject_texture_nonfinite,
-    reject_texture_transfer,
-    reject_texture_mode,
-    reject_texture_profile,
-    reject_texture_level,
-    reject_texture_target,
-    reject_texture_bc7_transfer,
-    reject_texture_container,
-    reject_texture_asset,
+
 };
 
 struct SScenario
@@ -180,29 +155,6 @@ static constexpr SScenario scenarios[]{
     { EScenario::write_unterminated_string,    "write_unterminated_string",    EAssetStatus::success,             EAssetKind::none,            EDocumentPolicyStatus::unexamined,      0u },
     { EScenario::reject_unterminated_string,   "reject_unterminated_string",   EAssetStatus::conditioning_failed, EAssetKind::none,            EDocumentPolicyStatus::unexamined,      0u },
     { EScenario::load_tga_bottom_up,           "load_tga_bottom_up",           EAssetStatus::success,             EAssetKind::image,           EDocumentPolicyStatus::unexamined,      0u },
-    { EScenario::encode_texture_ldr,           "encode_texture_ldr",           EAssetStatus::success,             EAssetKind::encoded_texture, EDocumentPolicyStatus::unexamined,      0u },
-    { EScenario::decode_texture_ldr_bc7,       "decode_texture_ldr_bc7",       EAssetStatus::success,             EAssetKind::decoded_texture, EDocumentPolicyStatus::unexamined,      0u },
-    { EScenario::decode_texture_ldr_rgba,      "decode_texture_ldr_rgba",      EAssetStatus::success,             EAssetKind::decoded_texture, EDocumentPolicyStatus::unexamined,      0u },
-    { EScenario::encode_texture_hdr,           "encode_texture_hdr",           EAssetStatus::success,             EAssetKind::encoded_texture, EDocumentPolicyStatus::unexamined,      0u },
-    { EScenario::decode_texture_hdr_bc6h,      "decode_texture_hdr_bc6h",      EAssetStatus::success,             EAssetKind::decoded_texture, EDocumentPolicyStatus::unexamined,      0u },
-    { EScenario::decode_texture_hdr_half,      "decode_texture_hdr_half",      EAssetStatus::success,             EAssetKind::decoded_texture, EDocumentPolicyStatus::unexamined,      0u },
-    { EScenario::encode_texture_gray_mips,     "encode_texture_gray_mips",     EAssetStatus::success,             EAssetKind::encoded_texture, EDocumentPolicyStatus::unexamined,      0u },
-    { EScenario::decode_texture_gray_bc7,      "decode_texture_gray_bc7",      EAssetStatus::success,             EAssetKind::decoded_texture, EDocumentPolicyStatus::unexamined,      0u },
-    { EScenario::decode_texture_gray_mip,      "decode_texture_gray_mip",      EAssetStatus::success,             EAssetKind::decoded_texture, EDocumentPolicyStatus::unexamined,      0u },
-    { EScenario::encode_texture_float_mips,    "encode_texture_float_mips",    EAssetStatus::success,             EAssetKind::encoded_texture, EDocumentPolicyStatus::unexamined,      0u },
-    { EScenario::decode_texture_float_mip,     "decode_texture_float_mip",     EAssetStatus::success,             EAssetKind::decoded_texture, EDocumentPolicyStatus::unexamined,      0u },
-    { EScenario::reject_texture_budget,        "reject_texture_budget",        EAssetStatus::invalid_request,     EAssetKind::none,            EDocumentPolicyStatus::unexamined,      0u },
-    { EScenario::reject_texture_row,           "reject_texture_row",           EAssetStatus::invalid_request,     EAssetKind::none,            EDocumentPolicyStatus::unexamined,      0u },
-    { EScenario::reject_texture_negative,      "reject_texture_negative",      EAssetStatus::invalid_request,     EAssetKind::none,            EDocumentPolicyStatus::unexamined,      0u },
-    { EScenario::reject_texture_nonfinite,     "reject_texture_nonfinite",     EAssetStatus::invalid_request,     EAssetKind::none,            EDocumentPolicyStatus::unexamined,      0u },
-    { EScenario::reject_texture_transfer,      "reject_texture_transfer",      EAssetStatus::invalid_request,     EAssetKind::none,            EDocumentPolicyStatus::unexamined,      0u },
-    { EScenario::reject_texture_mode,          "reject_texture_mode",          EAssetStatus::invalid_request,     EAssetKind::none,            EDocumentPolicyStatus::unexamined,      0u },
-    { EScenario::reject_texture_profile,       "reject_texture_profile",       EAssetStatus::invalid_request,     EAssetKind::none,            EDocumentPolicyStatus::unexamined,      0u },
-    { EScenario::reject_texture_level,         "reject_texture_level",         EAssetStatus::invalid_request,     EAssetKind::none,            EDocumentPolicyStatus::unexamined,      0u },
-    { EScenario::reject_texture_target,        "reject_texture_target",        EAssetStatus::invalid_request,     EAssetKind::none,            EDocumentPolicyStatus::unexamined,      0u },
-    { EScenario::reject_texture_bc7_transfer,  "reject_texture_bc7_transfer",  EAssetStatus::invalid_request,     EAssetKind::none,            EDocumentPolicyStatus::unexamined,      0u },
-    { EScenario::reject_texture_container,     "reject_texture_container",     EAssetStatus::invalid_request,     EAssetKind::none,            EDocumentPolicyStatus::unexamined,      0u },
-    { EScenario::reject_texture_asset,         "reject_texture_asset",         EAssetStatus::invalid_asset,       EAssetKind::none,            EDocumentPolicyStatus::unexamined,      0u },
 };
 
 static constexpr std::uint32_t scenario_count = sizeof(scenarios) / sizeof(scenarios[0]);
@@ -277,7 +229,7 @@ private:
     //  Failure codes start at one because zero is the successful thread exit code.
     enum class EFailure : std::uint32_t { registry = 1u, timing, submission, completion, timeout };
 
-    enum class EPhase : std::uint8_t { rendering_acknowledgement = 0, rendering_completion, sequential, concurrent, filesystem, bundle, awaiting_exit, complete };
+    enum class EPhase : std::uint8_t { rendering_acknowledgement = 0, rendering_completion, module_tests, sequential, concurrent, filesystem, bundle, awaiting_exit, complete };
 
     CExecutiveThread(const CExecutiveThread&) noexcept = delete;
     CExecutiveThread& operator=(const CExecutiveThread&) noexcept = delete;
@@ -297,7 +249,6 @@ private:
     [[nodiscard]] bool prepare_image_fixture(threading::CErasedOwnerMsg& pending, const std::int32_t slot, const bool greyscale, const bool storage_bottom_up, const EAssetRetention retention, const char* const file) noexcept;
     [[nodiscard]] bool prepare_live_fixture(threading::CErasedOwnerMsg& pending, const std::int32_t slot, const EAssetRetention retention, const bool save, const char* const file, const AssetSaveSettings& settings) noexcept;
     [[nodiscard]] bool prepare_baked_fixture(threading::CErasedOwnerMsg& pending, const std::int32_t slot, const EAssetRetention retention, const bool save, const char* const file, const AssetSaveSettings& settings) noexcept;
-    [[nodiscard]] bool prepare_texture_fixture(threading::CErasedOwnerMsg& pending, const std::int32_t slot, const asset_acceptance::EScenario scenario) noexcept;
     [[nodiscard]] bool prepare_expected_document() noexcept;
     [[nodiscard]] bool submit_concurrent_saves() noexcept;
     [[nodiscard]] bool complete_concurrent_save(const threading::CErasedPodMsg& message) noexcept;
@@ -320,8 +271,6 @@ private:
     image::CImageView m_image_view;
     AssetResult m_live;
     AssetResult m_baked;
-    AssetResult m_ldr_texture;
-    AssetResult m_hdr_texture;
     CBakedDocumentBlock m_expected;
     bool m_save_completed[asset_acceptance::concurrent_save_count]{};
     std::uint32_t m_completed_save_count{ 0u };
@@ -446,7 +395,7 @@ bool CExecutiveThread::accept_rendering_notice(const threading::CErasedPodMsg& m
         {
             return false;
         }
-        m_phase = EPhase::sequential;
+        m_phase = EPhase::module_tests;
         ++m_pending_slot;
         MV_LOG(info, "Executive: Rendering ready ({})",
             ((result.status == EModuleStatus::already_loaded) ?
@@ -506,78 +455,6 @@ bool CExecutiveThread::prepare_baked_fixture(threading::CErasedOwnerMsg& pending
         request_preparation::prepare_asset_transfer(pending, slot, block, retention, save, file, settings);
 }
 
-bool CExecutiveThread::prepare_texture_fixture(threading::CErasedOwnerMsg& pending, const std::int32_t slot, const asset_acceptance::EScenario scenario) noexcept
-{
-    if (!request_preparation::can_prepare_request(pending, slot)) return false;
-    using namespace asset_acceptance;
-    using namespace image::texture;
-    const bool gray = (scenario == EScenario::encode_texture_gray_mips);
-    const bool full_float = (scenario == EScenario::encode_texture_float_mips) ||
-        (scenario == EScenario::reject_texture_negative) || (scenario == EScenario::reject_texture_nonfinite);
-    const bool hdr = full_float || (scenario == EScenario::encode_texture_hdr) ||
-        (scenario == EScenario::reject_texture_transfer);
-    const bool mips = gray || (scenario == EScenario::encode_texture_float_mips);
-    const std::uint32_t pixel_bytes = gray ? 1u : (hdr ? (full_float ? 16u : 8u) : 4u);
-    const std::uint32_t row_bytes = (scenario == EScenario::reject_texture_row) ? 15u : (4u * pixel_bytes);
-    auto candidate = threading::make_owner_message<TextureEncodeRequest>(slot);
-    TextureEncodeRequest* const request = candidate.owner().payload<TextureEncodeRequest>();
-    if ((request == nullptr) || !request->input.allocate(row_bytes, 4u, 16u))
-    {
-        return false;
-    }
-    request->format = gray ? EInputFormat::gray8 :
-        (hdr ? (full_float ? EInputFormat::rgba32f : EInputFormat::rgba16f) : EInputFormat::rgba8);
-    request->transfer = (hdr || gray) ? ETransfer::linear : ETransfer::srgb;
-    request->options.encoding = hdr ? EEncoding::uastc_hdr_4x4 : EEncoding::uastc_ldr_4x4;
-    request->options.max_pixels = (scenario == EScenario::reject_texture_budget) ? 15u : 16u;
-    request->options.generate_mips = mips;
-    request->options.profile = mips ? EEncodeProfile::build_quality : EEncodeProfile::runtime_fast;
-    if (scenario == EScenario::reject_texture_transfer)
-    {
-        request->transfer = ETransfer::srgb;
-    }
-    if (scenario == EScenario::reject_texture_mode)
-    {
-        request->options.encoding = EEncoding::uastc_hdr_4x4;
-    }
-    if (scenario == EScenario::reject_texture_profile)
-    {
-        request->options.profile = static_cast<EEncodeProfile>(255u);
-    }
-    for (std::uint32_t y = 0u; y < 4u; ++y)
-    {
-        std::uint8_t* const row = request->input.row_data(y);
-        std::memset(row, 0, row_bytes);
-        for (std::uint32_t x = 0u; x < (row_bytes / pixel_bytes); ++x)
-        {
-            if (gray)
-            {
-                row[x] = 128u;
-            }
-            else if (full_float)
-            {
-                const float red = (scenario == EScenario::reject_texture_negative) ? -1.0f :
-                    ((scenario == EScenario::reject_texture_nonfinite) ? std::numeric_limits<float>::infinity() : 4.0f);
-                const float pixel[4]{ red, 0.5f, 0.25f, 1.0f };
-                std::memcpy((row + (x * sizeof(pixel))), pixel, sizeof(pixel));
-            }
-            else if (hdr)
-            {
-                const std::uint16_t pixel[4]{ 0x4400u, 0x3800u, 0x3400u, 0x3c00u };
-                std::memcpy((row + (x * sizeof(pixel))), pixel, sizeof(pixel));
-            }
-            else
-            {
-                const std::uint8_t pixel[4]{ static_cast<std::uint8_t>(x * 50u),
-                    static_cast<std::uint8_t>(y * 50u), 80u, 255u };
-                std::memcpy((row + (x * sizeof(pixel))), pixel, sizeof(pixel));
-            }
-        }
-    }
-    pending = std::move(candidate);
-    return true;
-}
-
 bool CExecutiveThread::prepare_expected_document() noexcept
 {
     CLiveDocument document;
@@ -616,71 +493,6 @@ bool CExecutiveThread::prepare_scenario(threading::CErasedOwnerMsg& pending, con
         case EScenario::load_tga_bottom_up:
         {
             return request_preparation::prepare_load_request(pending, slot, EAssetFileFormat::tga, "dev-source:/test_input.tga", {}, false);
-        }
-        case EScenario::encode_texture_gray_mips:
-        case EScenario::encode_texture_float_mips:
-        case EScenario::reject_texture_budget:
-        case EScenario::reject_texture_row:
-        case EScenario::reject_texture_negative:
-        case EScenario::reject_texture_nonfinite:
-        case EScenario::reject_texture_transfer:
-        case EScenario::reject_texture_mode:
-        case EScenario::reject_texture_profile:
-        case EScenario::encode_texture_ldr:
-        {
-            return prepare_texture_fixture(pending, slot, scenario.identity);
-        }
-        case EScenario::decode_texture_ldr_bc7:
-        {
-            return request_preparation::prepare_texture_decode_request(pending, slot, m_ldr_texture.asset, image::texture::EStorageFormat::bc7_srgb);
-        }
-        case EScenario::decode_texture_ldr_rgba:
-        {
-            return request_preparation::prepare_texture_decode_request(pending, slot, m_ldr_texture.asset, image::texture::EStorageFormat::rgba8);
-        }
-        case EScenario::encode_texture_hdr:
-        {
-            return prepare_texture_fixture(pending, slot, scenario.identity);
-        }
-        case EScenario::decode_texture_hdr_bc6h:
-        {
-            return request_preparation::prepare_texture_decode_request(pending, slot, m_hdr_texture.asset, image::texture::EStorageFormat::bc6h_ufloat);
-        }
-        case EScenario::decode_texture_hdr_half:
-        {
-            return request_preparation::prepare_texture_decode_request(pending, slot, m_hdr_texture.asset, image::texture::EStorageFormat::rgba16f);
-        }
-        case EScenario::decode_texture_gray_bc7:
-        {
-            return request_preparation::prepare_texture_decode_request(pending, slot, m_ldr_texture.asset, image::texture::EStorageFormat::bc7_unorm, 0u);
-        }
-        case EScenario::decode_texture_gray_mip:
-        {
-            return request_preparation::prepare_texture_decode_request(pending, slot, m_ldr_texture.asset, image::texture::EStorageFormat::rgba8, 2u);
-        }
-        case EScenario::decode_texture_float_mip:
-        {
-            return request_preparation::prepare_texture_decode_request(pending, slot, m_hdr_texture.asset, image::texture::EStorageFormat::rgba16f, 1u);
-        }
-        case EScenario::reject_texture_level:
-        {
-            return request_preparation::prepare_texture_decode_request(pending, slot, m_ldr_texture.asset, image::texture::EStorageFormat::rgba8, 3u);
-        }
-        case EScenario::reject_texture_target:
-        {
-            return request_preparation::prepare_texture_decode_request(pending, slot, m_hdr_texture.asset, image::texture::EStorageFormat::rgba8, 0u);
-        }
-        case EScenario::reject_texture_bc7_transfer:
-        {
-            return request_preparation::prepare_texture_decode_request(pending, slot, m_ldr_texture.asset, image::texture::EStorageFormat::bc7_srgb, 0u);
-        }
-        case EScenario::reject_texture_container:
-        {
-            return request_preparation::prepare_texture_decode_request(pending, slot, m_raw.asset, image::texture::EStorageFormat::rgba8, 0u);
-        }
-        case EScenario::reject_texture_asset:
-        {
-            return request_preparation::prepare_texture_decode_request(pending, slot, CAssetId{}, image::texture::EStorageFormat::rgba8, 0u);
         }
         case EScenario::save_retained_image:
         case EScenario::save_cached_image:
@@ -911,107 +723,6 @@ bool CExecutiveThread::check(const asset_acceptance::SScenario& scenario, const 
         case EScenario::save_retained_greyscale:
         {
             return expect(scenario, (image.is_greyscale() && image.vertical_flip() && (image.texel(2, 3) == 0xccu)), "bottom-up greyscale texel");
-        }
-        case EScenario::encode_texture_gray_mips:
-        case EScenario::encode_texture_float_mips:
-        case EScenario::encode_texture_ldr:
-        case EScenario::encode_texture_hdr:
-        {
-            const image::texture::CEncodedView view = result.encoded_texture_view();
-            const bool hdr = (scenario.identity == EScenario::encode_texture_hdr) ||
-                (scenario.identity == EScenario::encode_texture_float_mips);
-            const bool mips = (scenario.identity == EScenario::encode_texture_gray_mips) ||
-                (scenario.identity == EScenario::encode_texture_float_mips);
-            if (hdr)
-            {
-                m_hdr_texture = result;
-            }
-            else
-            {
-                m_ldr_texture = result;
-            }
-            return
-                expect(scenario, (view.is_ready() && (view.bytes.align() >= 16u)),
-                    "aligned KTX2 view") &&
-                expect(scenario,
-                    ((view.description.width == 4u) && (view.description.height == 4u) && (view.description.levels == (mips ? 3u : 1u))),
-                    "encoded dimensions and levels") &&
-                expect(scenario,
-                    (view.description.container == image::texture::EContainer::ktx2),
-                    "KTX2 container") &&
-                expect(scenario,
-                    (view.description.encoding == (hdr ? image::texture::EEncoding::uastc_hdr_4x4 : image::texture::EEncoding::uastc_ldr_4x4)),
-                    "encoded mode") &&
-                expect(scenario,
-                    (view.description.transfer == ((hdr || mips) ? image::texture::ETransfer::linear : image::texture::ETransfer::srgb)),
-                    "encoded transfer");
-        }
-        case EScenario::decode_texture_gray_bc7:
-        case EScenario::decode_texture_gray_mip:
-        case EScenario::decode_texture_float_mip:
-        {
-            const image::texture::CDecodedView view = result.decoded_texture_view();
-            const bool hdr = (scenario.identity == EScenario::decode_texture_float_mip);
-            const bool blocks = (scenario.identity == EScenario::decode_texture_gray_bc7);
-            const std::uint32_t width = blocks ? 4u : (hdr ? 2u : 1u);
-            const std::uint32_t level = blocks ? 0u : (hdr ? 1u : 2u);
-            const std::uint32_t pitch = blocks ? 16u : (width * (hdr ? 8u : 4u));
-            if (!expect(scenario, (view.is_ready() && (view.bytes.align() >= 16u) &&
-                (view.description.width == width) && (view.description.height == width) &&
-                (view.description.level == level) && (view.description.row_pitch == pitch) &&
-                (view.description.format == (blocks ? image::texture::EStorageFormat::bc7_unorm :
-                    (hdr ? image::texture::EStorageFormat::rgba16f : image::texture::EStorageFormat::rgba8))) &&
-                (view.description.transfer == image::texture::ETransfer::linear) &&
-                (view.bytes.size() == (blocks ? 16u : (pitch * width)))), "mip layout"))
-            {
-                return false;
-            }
-            if (hdr)
-            {
-                std::uint16_t red_bits = 0u;
-                std::memcpy((&red_bits), view.bytes.data(), sizeof(red_bits));
-                const float red = static_cast<float>(fp16data_t::fromBits(red_bits)) * view.description.hdr_scale;
-                return expect(scenario, ((red > 3.0f) && (red < 5.0f)), "float HDR mip range");
-            }
-            if (!blocks)
-            {
-                const std::uint8_t* const pixel = view.bytes.data();
-                return expect(scenario, ((pixel[0] >= 120u) && (pixel[0] <= 136u) &&
-                    (pixel[1] >= 120u) && (pixel[1] <= 136u) &&
-                    (pixel[2] >= 120u) && (pixel[2] <= 136u) && (pixel[3] > 250u)), "grayscale expansion");
-            }
-            return true;
-        }
-        case EScenario::decode_texture_ldr_bc7:
-        case EScenario::decode_texture_ldr_rgba:
-        case EScenario::decode_texture_hdr_bc6h:
-        case EScenario::decode_texture_hdr_half:
-        {
-            const image::texture::CDecodedView view = result.decoded_texture_view();
-            const bool blocks =
-                (scenario.identity == EScenario::decode_texture_ldr_bc7) ||
-                (scenario.identity == EScenario::decode_texture_hdr_bc6h);
-            const std::size_t expected_size = blocks ? 16u :
-                ((scenario.identity == EScenario::decode_texture_ldr_rgba) ? 64u : 128u);
-            if (!expect(scenario, (view.is_ready() && (view.bytes.align() >= 16u) && (view.bytes.size() == expected_size) &&
-                (view.description.width == 4u) && (view.description.height == 4u) &&
-                (view.description.row_pitch == (blocks ? 16u : ((scenario.identity == EScenario::decode_texture_ldr_rgba) ? 16u : 32u)))),
-                "decoded layout"))
-            {
-                return false;
-            }
-            if (scenario.identity == EScenario::decode_texture_ldr_rgba)
-            {
-                return expect(scenario, (view.bytes.data()[3] > 200u), "LDR alpha");
-            }
-            if (scenario.identity == EScenario::decode_texture_hdr_half)
-            {
-                std::uint16_t red_bits = 0u;
-                std::memcpy((&red_bits), view.bytes.data(), sizeof(red_bits));
-                const float red = static_cast<float>(fp16data_t::fromBits(red_bits)) * view.description.hdr_scale;
-                return expect(scenario, (red > 1.5f), "HDR value above bloom threshold");
-            }
-            return true;
         }
         case EScenario::retain_live:
         {
@@ -1347,14 +1058,33 @@ void CExecutiveThread::operate() noexcept
                         fail(EFailure::submission, "system shutdown request");
                     }
                 }
-                else if (m_phase == EPhase::sequential)
+                else if (m_phase == EPhase::module_tests)
                 {
-                    threading::CErasedOwnerMsg pending;
-                    if (!prepare_scenario(pending, scenarios[m_scenario_index], m_pending_slot))
-                        fail(EFailure::submission, "initial asset request preparation");
-                    else if (!m_context.post(std::move(pending)))
-                        fail(EFailure::submission, "initial asset request submission");
+                    const auto request = threading::make_pod_message(m_pending_slot, RunTestsRequest{ module_ids::render_vulkan });
+                    if (!m_context.post(request)) fail(EFailure::submission, "module test request submission");
                 }
+                continue;
+            }
+            if (m_phase == EPhase::module_tests)
+            {
+                RunTestsResult result;
+                if ((message.query_async_slot() != m_pending_slot) || !message.copy_payload_to(result) ||
+                    (result.module != module_ids::render_vulkan) || (result.status != ETestRunStatus::success) ||
+                    (result.failed != 0u) || (result.passed == 0u))
+                {
+                    fail(EFailure::completion, "module tests");
+                    continue;
+                }
+                MV_LOG(info, "Executive: Module tests completed: {} passed, {} failed, {} skipped",
+                    result.passed, result.failed, result.skipped);
+                m_phase = EPhase::sequential;
+                ++m_pending_slot;
+                (void)m_perf_counter.update();
+                threading::CErasedOwnerMsg pending;
+                if (!prepare_scenario(pending, scenarios[m_scenario_index], m_pending_slot))
+                    fail(EFailure::submission, "initial asset request preparation");
+                else if (!m_context.post(std::move(pending)))
+                    fail(EFailure::submission, "initial asset request submission");
                 continue;
             }
             ModuleResult module_result;
@@ -1447,7 +1177,7 @@ void CExecutiveThread::fail(const EFailure failure, const char* const reason) no
     {
         m_failure_code = static_cast<std::uint32_t>(failure);
         const char* const scenario = ((m_phase == EPhase::rendering_acknowledgement) || (m_phase == EPhase::rendering_completion)) ?
-            "rendering_startup" : ((m_phase == EPhase::filesystem) ? "filesystem" :
+            "rendering_startup" : (m_phase == EPhase::module_tests) ? "module_tests" : ((m_phase == EPhase::filesystem) ? "filesystem" :
                 ((m_phase == EPhase::bundle) ? "bundle" : ((m_scenario_index < asset_acceptance::scenario_count) ?
                     asset_acceptance::scenarios[m_scenario_index].name : "concurrent_saves")));
         MV_LOG_RICH(error, "Executive: %s failed: %s (scenario slot %d, filesystem step %d, bundle step %d)",

@@ -184,7 +184,7 @@ bool CHost::stop_rendering(const threading::EThreadRunState state) noexcept
         return true;
     }
 
-    if (!m_asset_service.is_idle())
+    if (!m_asset_service.is_idle() || (m_test_worker == rendering))
     {
         return false;
     }
@@ -348,6 +348,53 @@ void CHost::receive_request(threading::CErasedOwnerMsg& message, threading::CThr
     }
 
     m_asset_service.request(message, executive);
+}
+
+void CHost::request_tests(const RunTestsRequest& request, const std::int32_t slot, threading::CThreadPackage& client) noexcept
+{
+    RunTestsResult result;
+    result.module = request.module;
+    threading::CThreadPackage* const worker = thread_package(EWorkerThreadID::rendering);
+    if ((slot < 0) || !module_ids::ops::is_valid_id(request.module))
+        result.status = ETestRunStatus::invalid_request;
+    else if ((m_test_client != nullptr) || (m_phase != EPhase::running) || !m_module_service.is_idle())
+        result.status = ETestRunStatus::busy;
+    else if ((worker == nullptr) || (worker == &client) || (worker->module_id() != request.module) ||
+        ((worker->query_state() != threading::EThreadRunState::Running) && (worker->query_state() != threading::EThreadRunState::Waiting)))
+        result.status = ETestRunStatus::unavailable;
+    else if (!worker->post(threading::make_pod_message(slot, request)))
+        result.status = ETestRunStatus::delivery_failed;
+    else
+    {
+        m_test_client = &client;
+        m_test_worker = worker;
+        m_test_slot = slot;
+        return;
+    }
+    if (!client.post(threading::make_pod_message(slot, result))) m_runtime_failed = true;
+}
+
+void CHost::finish_tests(const RunTestsResult& result) noexcept
+{
+    if (!m_test_client->post(threading::make_pod_message(m_test_slot, result))) m_runtime_failed = true;
+    m_test_client = nullptr;
+    m_test_worker = nullptr;
+    m_test_slot = -1;
+}
+
+void CHost::complete_tests(const threading::CErasedPodMsg& message, threading::CThreadPackage& worker) noexcept
+{
+    RunTestsResult result;
+    if ((m_test_worker != &worker) || (message.query_async_slot() != m_test_slot) ||
+        !message.copy_payload_to(result) || (result.module != worker.module_id()))
+    {
+        m_runtime_failed = true;
+        //  Keep both packages alive until the worker drains and terminates;
+        //  otherwise a malformed terminal reply could strand the active run.
+        if (m_test_worker != nullptr) m_test_worker->request_exit();
+        return;
+    }
+    finish_tests(result);
 }
 
 
@@ -518,7 +565,7 @@ void CHost::advance_lifecycle(const threading::EThreadRunState executive_state) 
             m_phase = EPhase::stopping_executive;
         }
 
-        if ((m_phase == EPhase::stopping_executive) && stopped && m_asset_service.is_idle() && m_module_service.is_idle() && filesystem_idle())
+        if ((m_phase == EPhase::stopping_executive) && stopped && (m_test_client == nullptr) && m_asset_service.is_idle() && m_module_service.is_idle() && filesystem_idle())
         {
             if (executive->batch_client() != nullptr)
             {
@@ -563,7 +610,7 @@ void CHost::advance_lifecycle(const threading::EThreadRunState executive_state) 
         }
     }
 
-    if ((m_phase == EPhase::shutting_down) && m_asset_service.is_idle() && m_module_service.is_idle() && filesystem_idle())
+    if ((m_phase == EPhase::shutting_down) && (m_test_client == nullptr) && m_asset_service.is_idle() && m_module_service.is_idle() && filesystem_idle())
     {
         if (!m_module_service.request_shutdown())
         {   //  Dependent assets were disposed of before each module unload.
@@ -625,7 +672,16 @@ void CHost::run() noexcept
             {
                 AssetDisposeRequest disposal;
                 BundleReferenceRequest reference;
-                if (message.copy_payload_to(disposal))
+                RunTestsRequest tests;
+                if (message.copy_payload_to(tests))
+                {
+                    request_tests(tests, message.query_async_slot(), package);
+                }
+                else if (message.is_payload_a<RunTestsResult>())
+                {
+                    complete_tests(message, package);
+                }
+                else if (message.copy_payload_to(disposal))
                 {
                     m_asset_service.request_disposal(disposal, message.query_async_slot(), package);
                 }
@@ -674,6 +730,17 @@ void CHost::run() noexcept
                     m_asset_service.complete(owned, package);
                 }
             }
+        }
+
+        //  Terminal state was observed before draining replies, so an accepted
+        //  test run without a completion can now be reported as failed.
+        if ((m_test_worker != nullptr) &&
+            ((rendering_state == threading::EThreadRunState::Failed) || (rendering_state == threading::EThreadRunState::Exited)))
+        {
+            RunTestsResult result;
+            result.module = m_test_worker->module_id();
+            result.status = ETestRunStatus::failed;
+            finish_tests(result);
         }
 
         //  Complete disposal after draining worker replies, then advance module

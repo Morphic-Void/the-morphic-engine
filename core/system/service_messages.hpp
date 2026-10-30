@@ -29,6 +29,22 @@
 struct UnrecognisedMsg { system_type_id msg_id; };
 
 //==============================================================================
+//  Module tests: the destination owns test selection, execution and diagnostics.
+//  A correlated completion follows all accepted work and fixture cleanup.
+//==============================================================================
+
+enum class ETestRunStatus : std::uint8_t { success = 0, failed, busy, unavailable, invalid_request, cancelled, delivery_failed };
+struct RunTestsRequest { module_ids::id_type module{}; };
+struct RunTestsResult
+{
+    module_ids::id_type module{};
+    ETestRunStatus status{ ETestRunStatus::invalid_request };
+    std::uint32_t passed{ 0u };
+    std::uint32_t failed{ 0u };
+    std::uint32_t skipped{ 0u };
+};
+
+//==============================================================================
 //  Module lifecycle: owning client requests and correlated notifications
 //==============================================================================
 
@@ -77,6 +93,8 @@ struct FilesystemRefreshResult { EFilesystemStatus status{ EFilesystemStatus::sc
 
 //  Type bindings precede owning-payload eligibility.
 MV_REGISTER_SYSTEM_TYPE(UnrecognisedMsg, system_type_ids::unrecognised_msg);
+MV_REGISTER_SYSTEM_TYPE(RunTestsRequest, system_type_ids::run_tests_request);
+MV_REGISTER_SYSTEM_TYPE(RunTestsResult, system_type_ids::run_tests_result);
 MV_REGISTER_SYSTEM_TYPE(CByteBuffer, system_type_ids::byte_buffer);
 MV_REGISTER_SYSTEM_TYPE(CByteRectBuffer, system_type_ids::byte_rect_buffer);
 MV_REGISTER_SYSTEM_TYPE(CSimpleString, system_type_ids::simple_string);

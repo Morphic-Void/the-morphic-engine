@@ -16,7 +16,6 @@
 #include "assets/asset_messages.hpp"
 #include "debug/macros.hpp"
 #include "system/service_messages.hpp"
-#include "image/texture_messages.hpp"
 #include "threading/messages/message_helpers.hpp"
 
 namespace executive::request_preparation
@@ -43,9 +42,6 @@ namespace executive::request_preparation
 
 [[nodiscard]] bool prepare_bundle_bake_request(threading::CErasedOwnerMsg& pending, const std::int32_t slot,
     const char* source_root, const char* root) noexcept;
-
-[[nodiscard]] bool prepare_texture_decode_request(threading::CErasedOwnerMsg& pending, const std::int32_t slot,
-    const CAssetId source, const image::texture::EStorageFormat target, const std::uint32_t level = 0u) noexcept;
 
 //  The public transfer contract already supplies the resource-to-request mapping.
 //  Only after every fallible step succeeds may the caller's storage move.

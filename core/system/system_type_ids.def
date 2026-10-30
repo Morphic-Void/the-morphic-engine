@@ -35,4 +35,6 @@
     type_macro(bundle_reference_request) \
     type_macro(shader_compile_request) \
     type_macro(shader_compile_work) \
-    type_macro(shader_compile_result)
+    type_macro(shader_compile_result) \
+    type_macro(run_tests_request) \
+    type_macro(run_tests_result)

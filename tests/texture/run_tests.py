@@ -22,7 +22,7 @@ def check_diagnostics(events, repository, runtime):
     for entry in expected:
         entry["message"] = entry["message"].replace("{runtime}", runtime.as_posix())
     passes = sorted((int(incident), scenario) for incident, scenario in re.findall(
-        r"(?m)^\[(\d+)\].*\[executive_thread\.cpp:\d+\] Executive: (\w+) passed\r?$", events))
+        r"(?m)^\[(\d+)\].*\[(?:executive_thread|texture_flow_tests)\.cpp:\d+\] (?:Executive|Rendering): (\w+) passed\r?$", events))
     seen = set()
     for line in events.splitlines():
         if not re.search(r"\[(assert|error|critical|fatal):", line):
@@ -75,12 +75,19 @@ def main():
     direct_log = logs[0].with_name(logs[0].name.replace("morphic_debug.", "morphic_debug_direct.", 1))
     direct_events = direct_log.read_text(encoding="utf-8")
     events = logs[0].read_text(encoding="utf-8") + direct_events
-    for expected in ("Asset acceptance: 73 sequential and 32 concurrent operations passed",
+    for expected in ("Asset acceptance: 50 sequential and 32 concurrent operations passed",
+                     "Rendering acceptance: 23 texture flow tests passed",
+                     "Executive: Module tests completed: 23 passed, 0 failed, 0 skipped",
                      "Filesystem acceptance: 12 queued refresh, concurrent access and cache operations passed",
                      "Bundle acceptance: bake, reference, save, close and reload passed",
                      "Rendering Basis: shut down", "Host: Rendering thread joined"):
         if expected not in events:
             raise RuntimeError(f"Missing {expected!r}; inspect {logs[0]}")
+    expected_cases = json.loads((repository / "tests/texture/flow_cases.json").read_text(encoding="utf-8"))
+    actual_cases = re.findall(
+        r"\[render_vulkan:rendering\].*\[texture_flow_tests\.cpp:\d+\] Rendering: (\w+) passed", events)
+    if sorted(actual_cases) != sorted(expected_cases):
+        raise RuntimeError(f"Missing, duplicate or unexpected rendering cases: {actual_cases}")
     check_diagnostics(events, repository, runtime)
     workers = re.search(r"Host: Background workers (\d+), dedicated conditioning workers (\d+), "
                         r"reported hardware threads (\d+)", events)
@@ -100,7 +107,7 @@ def main():
         if not re.search(rf"\[render_vulkan:{thread}\].*Rendering Basis: {operation}", direct_events):
             raise RuntimeError(f"Incorrect {operation} thread or module context; inspect {direct_log}")
     print(f"Host acceptance passed with {expected_workers} worker(s) "
-          "(73 sequential, 32 concurrent, 12 filesystem operations and bundle persistence).")
+          "(50 asset cases, 23 rendering texture cases, 32 concurrent, 12 filesystem operations and bundle persistence).")
 
 
 if __name__ == "__main__":
