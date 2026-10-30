@@ -163,7 +163,62 @@ struct BundleLoadRequest { BundleLoadPaths paths; };
 struct BundleBakeRequest { BundleBakePaths paths; };
 struct BundleReferenceRequest { CAssetId source{}; };
 
-//  Callers quiesce borrowed views before requesting disposal. Completion contains
+//  Host-issued acquisition identities are distinct from asset identities and
+//  are never reused during a service lifetime. Only the acquiring client may
+//  release one. Copying a view or token does not acquire another reference.
+class CAssetAcquisitionId
+{
+public:
+    constexpr CAssetAcquisitionId() noexcept = default;
+    explicit constexpr CAssetAcquisitionId(const std::uint64_t value) noexcept : m_value{ value } {}
+    [[nodiscard]] constexpr std::uint64_t query_value() const noexcept { return m_value; }
+    [[nodiscard]] explicit constexpr operator bool() const noexcept { return m_value != 0u; }
+    [[nodiscard]] constexpr bool operator==(const CAssetAcquisitionId other) const noexcept { return m_value == other.m_value; }
+    [[nodiscard]] constexpr bool operator!=(const CAssetAcquisitionId other) const noexcept { return !(*this == other); }
+private:
+    std::uint64_t m_value{ 0u };
+};
+
+enum class EAssetAcquireView : std::uint8_t { bytes = 0, bundle };
+struct AssetAcquireRequest { CAssetId source{}; EAssetAcquireView view{ EAssetAcquireView::bytes }; };
+struct AssetReleaseRequest { CAssetAcquisitionId acquisition{}; };
+
+union AssetAcquiredViews
+{
+    CByteConstView bytes;
+    bundle::CBundleView bundle;
+    AssetAcquiredViews() noexcept : bytes{} {}
+    explicit AssetAcquiredViews(const CByteConstView value) noexcept : bytes{ value } {}
+    explicit AssetAcquiredViews(const bundle::CBundleView value) noexcept : bundle{ value } {}
+};
+
+//  Success pins immutable storage until release. This protects lifetime, not
+//  concurrent mutation: callers must keep the source immutable while acquired.
+//  Failed acquisition returns neither a token nor a view. Bundle closure and
+//  pending disposal reject new acquisitions without invalidating admitted ones.
+struct AssetAcquireResult
+{
+    CAssetAcquisitionId acquisition{};
+    AssetAcquiredViews views;
+    EAssetAcquireView view{ EAssetAcquireView::bytes };
+    EAssetStatus status{ EAssetStatus::invalid_asset };
+    [[nodiscard]] CByteConstView byte_view() const noexcept
+    {
+        return ((status == EAssetStatus::success) && (view == EAssetAcquireView::bytes)) ? views.bytes : CByteConstView{};
+    }
+    [[nodiscard]] bundle::CBundleView bundle_view() const noexcept
+    {
+        return ((status == EAssetStatus::success) && (view == EAssetAcquireView::bundle)) ? views.bundle : bundle::CBundleView{};
+    }
+};
+
+//  Quiesce every user of the view before posting release. Success releases the
+//  borrow only; asset disposal is separate. Invalid, stale or foreign tokens
+//  return invalid_request without affecting any acquisition.
+struct AssetReleaseResult { CAssetAcquisitionId acquisition{}; EAssetStatus status{ EAssetStatus::invalid_request }; };
+
+//  Callers quiesce unprotected views before disposal; acquired views remain valid
+//  until release. Completion contains
 //  no view; an accepted request prevents further saves using this identity.
 struct AssetDisposeRequest { CAssetId asset{}; };
 
@@ -332,6 +387,10 @@ MV_REGISTER_SYSTEM_TYPE(BundleDisposedNotification, system_type_ids::bundle_disp
 MV_REGISTER_SYSTEM_TYPE(BundleLoadRequest, system_type_ids::bundle_load_request);
 MV_REGISTER_SYSTEM_TYPE(BundleBakeRequest, system_type_ids::bundle_bake_request);
 MV_REGISTER_SYSTEM_TYPE(BundleReferenceRequest, system_type_ids::bundle_reference_request);
+MV_REGISTER_SYSTEM_TYPE(AssetAcquireRequest, system_type_ids::asset_acquire_request);
+MV_REGISTER_SYSTEM_TYPE(AssetAcquireResult, system_type_ids::asset_acquire_result);
+MV_REGISTER_SYSTEM_TYPE(AssetReleaseRequest, system_type_ids::asset_release_request);
+MV_REGISTER_SYSTEM_TYPE(AssetReleaseResult, system_type_ids::asset_release_result);
 
 #define MV_ERASED_OWNER_PAYLOAD(type) MV_REGISTER_ERASED_OWNER_PAYLOAD(type);
 #define MV_ERASED_OWNER_PAYLOAD_WITH_STORAGE(type, member) MV_REGISTER_ERASED_OWNER_PAYLOAD(type);

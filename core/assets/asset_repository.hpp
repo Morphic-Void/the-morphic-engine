@@ -84,11 +84,11 @@ static_assert((sizeof(CAssetId) == sizeof(std::uint64_t)), "CAssetId must occupy
 
 //  Host-thread-only backing leases. Releasing a lease never destroys backing
 //  storage; the Host finalises it after all records and operations have drained.
-enum class EAssetBackingRole : std::uint8_t { none = 0, original, complete, file, operation };
+enum class EAssetBackingRole : std::uint8_t { none = 0, original, complete, file, operation, acquisition };
 
 struct SAssetBackingState
 {
-    std::uint32_t records{ 0u };
+    std::uint32_t records{ 0u }; //  Retained records and client acquisitions.
     std::uint32_t complete_views{ 0u };
     std::uint32_t operations{ 0u };
     bool open{ true };

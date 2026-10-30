@@ -40,7 +40,7 @@ if (!$SkipBuild) {
 }
 
 if ($Cases.Count -eq 0) {
-    $Cases = @('bundle', 'bundle-inline', 'bundle-late-reference', 'bundle-replace', 'bundle-shutdown', 'bundle-failures', 'bundle-rendering', 'batch', 'batch-inline', 'batch-exit', 'ordinary', 'dependency', 'disposal', 'disposal-during-save', 'shutdown', 'shutdown-dependency', 'replace', 'replace-dependency', 'replace-missing', 'bootstrap-missing', 'startup-failure', 'replace-startup-failure', 'thread-failures', 'render-shutdown', 'render-shutdown-dependency', 'render-replace-dependency', 'render-executive-replace', 'render-drain', 'render-exit-disposal', 'normal-startup', 'normal-unavailable', 'normal-bad-start', 'normal-missing-thread', 'normal-tests-malformed')
+    $Cases = @('bundle', 'bundle-inline', 'bundle-late-reference', 'bundle-replace', 'bundle-shutdown', 'bundle-failures', 'bundle-rendering', 'batch', 'batch-inline', 'batch-exit', 'ordinary', 'dependency', 'disposal', 'disposal-during-save', 'shutdown', 'shutdown-dependency', 'replace', 'replace-dependency', 'replace-missing', 'bootstrap-missing', 'startup-failure', 'replace-startup-failure', 'thread-failures', 'render-shutdown', 'render-shutdown-dependency', 'render-replace-dependency', 'render-executive-replace', 'render-drain', 'render-exit-disposal', 'normal-startup', 'normal-unavailable', 'normal-bad-start', 'normal-missing-thread', 'normal-tests-malformed', 'acquire-render-release', 'acquire-render-abandon', 'acquire-render-replace')
 }
 foreach ($case in $Cases) {
     $tag = "lifecycle-$suffix-$case"
@@ -239,6 +239,15 @@ foreach ($case in $Cases) {
         }
         $starts = [regex]::Matches($events, 'Host: Rendering started after asynchronous binding').Count
         $joins = [regex]::Matches($events, 'Host: Rendering thread joined').Count
+        if ($case.StartsWith('acquire-render-') -and (($starts -ne 1) -or
+            !$events.Contains('Lifecycle rendering: acquired bytes survive exit request'))) {
+            throw 'Acquisition storage did not survive the Rendering exit request.'
+        }
+        if (($case -eq 'acquire-render-replace') -and
+            (($events.IndexOf('Lifecycle fixture: shutdown passed') -lt 0) -or
+                ($events.IndexOf('Lifecycle rendering: acquired bytes survive exit request') -lt $events.IndexOf('Lifecycle fixture: shutdown passed')))) {
+            throw 'Rendering acquisition did not survive Executive replacement.'
+        }
         if (($case -eq 'normal-startup') -and ($starts -ne 1)) { throw 'Normal Executive did not start exactly one renderer.' }
         if (($serviceFailure -or ($case -in @('shutdown', 'shutdown-dependency'))) -and ($starts -ne 0)) { throw "$case unexpectedly started a renderer." }
         if (($case -eq 'render-executive-replace') -and !$events.Contains('Executive: Rendering ready (already loaded)')) { throw 'Replacement Executive did not reuse the available renderer.' }

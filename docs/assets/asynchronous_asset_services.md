@@ -37,10 +37,10 @@ defaults to strict JSON, with the existing writer options available explicitly.
 `AssetDisposeRequest` carries only a retained `CAssetId`. Ordinary assets may be
 disposed of by any connected thread; an original bundle ID is restricted to its
 requesting thread instance. The Host rejects further saves using that ID once disposal is
-accepted, waits for accepted operations using it to finish, and destroys the
+accepted, waits for accepted operations and acquisitions using it to finish, and destroys the
 asset. `AssetDisposeResult` returns the same ID and a status, with no views.
 Invalid, stale and already pending disposal IDs return `invalid_asset`.
-Callers must quiesce all borrowed views before requesting disposal. Save results
+Callers must quiesce unprotected borrowed views before requesting disposal. Save results
 already in transit do not extend the asset's lifetime. POD and owning requests
 use separate queues, so sending a save before a disposal does not itself prove
 the save has been admitted; clients must establish that ordering when needed.
@@ -66,6 +66,48 @@ the same message or explicitly abandon it. The current Executive exercise flows
 retain their terminal failure policy and release the local pending message on
 return; they do not introduce retries. Scenario selection and fixture generation
 remain in the Executive thread, separate from reusable request preparation.
+
+## Protected acquisition and release
+
+`AssetAcquireRequest` selects a retained asset and a read-only byte or bundle
+view. The correlated `AssetAcquireResult` supplies that view and a distinct
+`CAssetAcquisitionId`. Acquiring is zero-copy and does not interpret rendering
+formats. Byte acquisition uses the asset's existing byte representation; it
+does not encode TGA images or serialise live documents. TGA remains shared core
+functionality and retains its existing load, save and disposal contracts.
+
+Each successful acquisition independently protects its source storage. Tokens
+are monotonically issued, bound to the requesting thread-package instance and
+not reused when an acquisition slot is recycled. Copied views and tokens do not
+create additional protection. The client must keep the source immutable while
+it is acquired; acquisition guarantees lifetime, not exclusion of mutation.
+
+`AssetReleaseRequest` ends one acquisition. All users of the acquired view,
+including batch jobs, must finish before release is posted. The correlated
+`AssetReleaseResult` contains the token and status, with no view. Release does
+not dispose of the underlying asset. Invalid, duplicate and wrong-client tokens
+return `invalid_request` without changing another acquisition. Invalid source
+IDs, pending disposal and closed bundle backing reject acquisition with
+`invalid_asset`; unsupported view selections return `invalid_request`. Failed
+acquisition returns no token or view. If a successful acquisition reply cannot
+be delivered, Host removes that acquisition before entering its failure path.
+
+Ordinary disposal closes admission immediately and waits for every acquisition
+and accepted operation. Bundle closure still removes the original identity and
+closes the root immediately; existing acquired bundle and sub-file views keep
+the backing alive until release. Generic acquisitions use Host-managed backing
+leases and do not create complete-bundle reference records or change their
+existing closure diagnostics. Final bundle notification follows storage release.
+
+Host distinguishes work in flight from acquisitions and deferred disposal.
+Holding an acquisition does not prevent a client receiving an exit request.
+After terminal state was observed before queue draining, and after batch work
+and return publishers have drained, Host reclaims any abandoned acquisitions.
+Pending disposal replies finish before the client's package is destroyed or
+reused. Executive replacement preserves a live renderer and its independent
+acquisitions. Full shutdown releases acquisition bookkeeping before assets and
+bundle storage. Dependency cleanup waits for acquisitions of assets dependent
+on the outgoing module; independent acquisitions do not block replacement.
 
 ## Loads and conditioning
 

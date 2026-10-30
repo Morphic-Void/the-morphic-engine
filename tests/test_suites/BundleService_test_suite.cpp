@@ -156,6 +156,174 @@ struct SFixture
     }
 };
 
+AssetResult retain_acquisition_fixture(TTestContext& ctx, SFixture& fixture, const mount_point_ids::id_type dependency = {})
+{
+    auto owner = CErasedOwner::create<RawAssetTransfer>();
+    if (dependency.is_valid()) owner.add_hazard(dependency);
+    auto* raw = owner.payload<RawAssetTransfer>();
+    TEST_EXPECT(ctx, raw && raw->storage.value.resize(32u, 32u));
+    if (raw == nullptr || !raw->storage.value.is_ready()) return {};
+    std::memset(raw->storage.value.data(), 0x5a, 32u);
+    fixture.request<RawAssetTransfer>(ctx, 10, std::move(owner));
+    AssetResult result;
+    TEST_EXPECT(ctx, fixture.receive(result, 10) && result.status == EAssetStatus::success && result.asset);
+    return result;
+}
+
+AssetAcquireResult acquire(TTestContext& ctx, SFixture& fixture, CAssetId source,
+    EAssetAcquireView view = EAssetAcquireView::bytes, EAssetStatus status = EAssetStatus::success)
+{
+    fixture.service.request_acquire({ source, view }, 11, fixture.package);
+    AssetAcquireResult result;
+    TEST_EXPECT(ctx, fixture.receive(result, 11) && result.status == status);
+    TEST_EXPECT(ctx, static_cast<bool>(result.acquisition) == (status == EAssetStatus::success));
+    return result;
+}
+
+void release(TTestContext& ctx, SFixture& fixture, CAssetAcquisitionId id,
+    EAssetStatus status = EAssetStatus::success, threading::CThreadPackage* client = nullptr)
+{
+    fixture.service.request_release({ id }, 12, client ? *client : fixture.package);
+    AssetReleaseResult result;
+    TEST_EXPECT(ctx, fixture.receive(result, 12, client) && result.acquisition == id && result.status == status);
+}
+
+void test_generic_acquisitions(TTestContext& ctx)
+{
+    SFixture fixture, other;
+    TEST_EXPECT(ctx, fixture.initialise() && other.initialise());
+    const auto original = retain_acquisition_fixture(ctx, fixture);
+    const auto first = acquire(ctx, fixture, original.asset);
+    const auto second = acquire(ctx, fixture, original.asset);
+    TEST_EXPECT(ctx, first.acquisition != second.acquisition);
+    TEST_EXPECT(ctx, first.byte_view().data() == original.byte_view().data() && first.byte_view().align() == 32u);
+    TEST_EXPECT(ctx, fixture.service.work_idle() && !fixture.service.is_idle() && !fixture.service.client_idle(fixture.package));
+    TEST_EXPECT(ctx, fixture.service.dependencies_idle(mount_point_ids::executive));
+    fixture.service.dispose_dependencies(mount_point_ids::executive);
+    TEST_EXPECT(ctx, second.byte_view().data()[31] == 0x5a);
+    fixture.service.release_client_acquisitions(fixture.package); // A live client cannot be reclaimed.
+    TEST_EXPECT(ctx, !fixture.service.is_idle());
+    (void)acquire(ctx, fixture, original.asset, EAssetAcquireView::bundle, EAssetStatus::invalid_request);
+    (void)acquire(ctx, fixture, original.asset, static_cast<EAssetAcquireView>(255u), EAssetStatus::invalid_request);
+    (void)acquire(ctx, fixture, {}, EAssetAcquireView::bytes, EAssetStatus::invalid_asset);
+    release(ctx, fixture, {}, EAssetStatus::invalid_request);
+    release(ctx, fixture, first.acquisition, EAssetStatus::invalid_request, &other.package);
+
+    fixture.service.request_disposal({ original.asset }, 20, fixture.package);
+    fixture.service.complete_disposals();
+    (void)acquire(ctx, fixture, original.asset, EAssetAcquireView::bytes, EAssetStatus::invalid_asset);
+    TEST_EXPECT(ctx, second.byte_view().data()[31] == 0x5a && fixture.service.work_idle());
+    release(ctx, fixture, first.acquisition);
+    fixture.service.complete_disposals();
+    //  The invalid acquire reply is a FIFO barrier: disposal is still deferred.
+    (void)acquire(ctx, fixture, original.asset, EAssetAcquireView::bytes, EAssetStatus::invalid_asset);
+    TEST_EXPECT(ctx, second.byte_view().data()[0] == 0x5a);
+    release(ctx, fixture, second.acquisition);
+    fixture.service.complete_disposals();
+    AssetDisposeResult disposed;
+    TEST_EXPECT(ctx, fixture.receive(disposed, 20) && disposed.status == EAssetStatus::success);
+    release(ctx, fixture, second.acquisition, EAssetStatus::invalid_request);
+    TEST_EXPECT(ctx, fixture.service.is_idle());
+
+    const auto retained = retain_acquisition_fixture(ctx, fixture);
+    const auto third = acquire(ctx, fixture, retained.asset);
+    release(ctx, fixture, third.acquisition);
+    const auto fourth = acquire(ctx, fixture, retained.asset);
+    TEST_EXPECT(ctx, third.acquisition != fourth.acquisition && fourth.byte_view().data()[0] == 0x5a);
+    release(ctx, fixture, third.acquisition, EAssetStatus::invalid_request);
+    release(ctx, fixture, fourth.acquisition);
+    fixture.dispose(ctx, retained.asset);
+
+    const auto dependent = retain_acquisition_fixture(ctx, fixture, mount_point_ids::render);
+    const auto protected_dependency = acquire(ctx, fixture, dependent.asset);
+    TEST_EXPECT(ctx, !fixture.service.dependencies_idle(mount_point_ids::render));
+    TEST_EXPECT(ctx, fixture.service.dependencies_idle(mount_point_ids::executive));
+    release(ctx, fixture, protected_dependency.acquisition);
+    TEST_EXPECT(ctx, fixture.service.dependencies_idle(mount_point_ids::render));
+    fixture.dispose(ctx, dependent.asset);
+}
+
+void test_acquired_bundle_closure(TTestContext& ctx)
+{
+    SFixture fixture;
+    TEST_EXPECT(ctx, fixture.initialise());
+    const auto original = fixture.publish(ctx);
+    const auto complete = acquire(ctx, fixture, original.asset, EAssetAcquireView::bundle);
+    const auto bytes = acquire(ctx, fixture, original.asset);
+    CAssetService::CBundleOperation operation;
+    TEST_EXPECT(ctx, fixture.service.begin_bundle_file(fixture.resolve(ctx), 128u, operation) == EAssetStatus::success);
+    const auto file = fixture.service.retain_bundle_file(operation, EAssetFileFormat::raw);
+    operation.reset();
+    const auto acquired_file = acquire(ctx, fixture, file.asset);
+    fixture.service.request_disposal({ original.asset }, 20, fixture.package);
+    fixture.service.complete_disposals();
+    TEST_EXPECT(ctx, fixture.image.root_state("pack:") == ERootState::closed);
+    TEST_EXPECT(ctx, complete.bundle_view().lookup(CStringView{ "raw" }).status == bundle::ELookupStatus::success);
+    TEST_EXPECT(ctx, bytes.byte_view().data() == original.byte_view().data());
+    TEST_EXPECT(ctx, std::memcmp(acquired_file.byte_view().data(), "abc", 3u) == 0);
+    (void)acquire(ctx, fixture, original.asset, EAssetAcquireView::bundle, EAssetStatus::invalid_asset);
+    (void)acquire(ctx, fixture, file.asset, EAssetAcquireView::bytes, EAssetStatus::invalid_asset);
+    fixture.service.request_disposal({ file.asset }, 21, fixture.package);
+    release(ctx, fixture, complete.acquisition);
+    release(ctx, fixture, bytes.acquisition);
+    fixture.service.complete_disposals();
+    (void)acquire(ctx, fixture, file.asset, EAssetAcquireView::bytes, EAssetStatus::invalid_asset);
+    release(ctx, fixture, acquired_file.acquisition);
+    fixture.service.complete_disposals();
+    AssetDisposeResult disposed;
+    TEST_EXPECT(ctx, fixture.receive(disposed, 21) && disposed.status == EAssetStatus::success);
+    fixture.notification(ctx, original.asset);
+    TEST_EXPECT(ctx, fixture.service.is_idle());
+}
+
+void test_acquisition_save_and_client_exit(TTestContext& ctx)
+{
+    SFixture fixture;
+    TEST_EXPECT(ctx, fixture.initialise());
+    const auto original = retain_acquisition_fixture(ctx, fixture);
+    const auto acquired = acquire(ctx, fixture, original.asset);
+    fixture.save(ctx, original.asset, 30);
+    FileSaveRequest work;
+    threading::CErasedPodMsg message;
+    TEST_EXPECT(ctx, tests::wait_until(fixture.conversion, [&]() noexcept { return fixture.package.read(message); }));
+    TEST_EXPECT(ctx, message.copy_payload_to(work));
+    const auto work_slot = message.query_async_slot();
+    fixture.service.request_disposal({ original.asset }, 31, fixture.package);
+    release(ctx, fixture, acquired.acquisition);
+    fixture.service.complete_disposals();
+    TEST_EXPECT(ctx, !fixture.service.work_idle());
+    fixture.complete_save(work_slot);
+    AssetResult saved;
+    TEST_EXPECT(ctx, fixture.receive(saved, 30) && saved.status == EAssetStatus::success);
+    fixture.service.complete_disposals();
+    AssetDisposeResult disposed;
+    TEST_EXPECT(ctx, fixture.receive(disposed, 31) && disposed.status == EAssetStatus::success);
+
+    const auto retained = retain_acquisition_fixture(ctx, fixture);
+    const threading::ThreadConfig config{ thread_ids::rendering, module_ids::executable,
+        platform::threading::EThreadPriority::Normal, &tests::echo_pod_messages };
+    auto client = TInstance<threading::CThreadPackage>::create(config, fixture.conversion);
+    TEST_EXPECT(ctx, client && client->startup());
+    fixture.service.request_acquire({ retained.asset }, 40, *client);
+    AssetAcquireResult abandoned;
+    TEST_EXPECT(ctx, fixture.receive(abandoned, 40, &*client) && abandoned.status == EAssetStatus::success);
+    (void)client->shutdown();
+    fixture.service.detach_client(*client);
+    TEST_EXPECT(ctx, fixture.service.is_idle());
+    //  Reuse the same package address. A previous instance's token stays stale.
+    const auto* address = &*client;
+    TEST_EXPECT(ctx, client.emplace(config, fixture.conversion) && (&*client == address) && client->startup());
+    fixture.service.request_acquire({ retained.asset }, 41, *client);
+    AssetAcquireResult fresh;
+    TEST_EXPECT(ctx, fixture.receive(fresh, 41, &*client) && fresh.status == EAssetStatus::success);
+    TEST_EXPECT(ctx, abandoned.acquisition != fresh.acquisition);
+    release(ctx, fixture, abandoned.acquisition, EAssetStatus::invalid_request, &*client);
+    release(ctx, fixture, fresh.acquisition, EAssetStatus::success, &*client);
+    fixture.dispose(ctx, retained.asset);
+    (void)client->shutdown();
+    fixture.service.detach_client(*client);
+}
+
 void test_closure_and_retained_records(TTestContext& ctx)
 {
     SFixture fixture;
@@ -531,6 +699,68 @@ void test_live_notification_failure(TTestContext& ctx)
 }
 
 
+void test_acquisition_failure(TTestContext& ctx)
+{
+    bool succeeded = false;
+    std::size_t failures = 0u;
+    for (std::size_t attempt = 1u; attempt < 32u && !succeeded; ++attempt)
+    {
+        tests::TAllocationFailureFixture state;
+        memory::CMemoryAllocator allocator{ &state, &tests::allocate_with_failure, &tests::deallocate_test_memory, system_ids::host };
+        memory::CMemoryContext memory{ allocator, system_ids::host };
+        {
+            tests::TMemoryContextScope scope{ &memory };
+            SFixture fixture;
+            TEST_EXPECT(ctx, fixture.initialise());
+            const auto original = fixture.publish(ctx);
+            state.fail_on = state.attempts + attempt - 1u;
+            fixture.service.request_acquire({ original.asset, EAssetAcquireView::bundle }, 40, fixture.package);
+            state.fail_on = SIZE_MAX;
+            AssetAcquireResult result;
+            TEST_EXPECT(ctx, fixture.receive(result, 40));
+            succeeded = result.status == EAssetStatus::success;
+            if (succeeded) release(ctx, fixture, result.acquisition);
+            else
+            {
+                ++failures;
+                TEST_EXPECT(ctx, result.status == EAssetStatus::allocation_failed && !result.acquisition && !result.bundle_view().is_ready());
+            }
+            TEST_EXPECT(ctx, fixture.service.is_idle() && !fixture.service.failed());
+            fixture.service.request_disposal({ original.asset }, 41, fixture.package);
+            fixture.service.complete_disposals();
+            fixture.notification(ctx, original.asset);
+        }
+        TEST_EXPECT(ctx, memory.is_attribution_empty());
+    }
+    TEST_EXPECT(ctx, succeeded && failures != 0u);
+
+    SFixture fixture;
+    TEST_EXPECT(ctx, fixture.initialise());
+    const auto original = fixture.publish(ctx);
+    threading::CThreadPackage recipient{ threading::ThreadConfig{ thread_ids::rendering, module_ids::executable,
+        platform::threading::EThreadPriority::Normal, &blocked_recipient }, fixture.conversion };
+    TEST_EXPECT(ctx, recipient.startup());
+    threading::CErasedPodMsg filler;
+    filler.assign_payload(AssetReleaseResult{});
+    bool full = false;
+    for (unsigned i = 0u; i < 256u; ++i)
+    {
+        if (!recipient.post(filler)) { full = true; break; }
+    }
+    TEST_EXPECT(ctx, full);
+    {
+        tests::TAssertionTestScope diagnostics(ctx);
+        fixture.service.request_acquire({ original.asset, EAssetAcquireView::bundle }, 42, recipient);
+    }
+    //  An undelivered token must not pin the source or its backing storage.
+    TEST_EXPECT(ctx, fixture.service.failed() && fixture.service.is_idle());
+    fixture.service.request_disposal({ original.asset }, 43, fixture.package);
+    fixture.service.complete_disposals();
+    fixture.notification(ctx, original.asset);
+    (void)recipient.shutdown();
+    fixture.service.detach_client(recipient);
+}
+
 void test_publication_failure_and_shutdown(TTestContext& ctx)
 {
     bool succeeded = false;
@@ -591,6 +821,10 @@ void test_publication_failure_and_shutdown(TTestContext& ctx)
 int run_bundle_service_tests()
 {
     TTestContext ctx;
+    test_generic_acquisitions(ctx);
+    test_acquired_bundle_closure(ctx);
+    test_acquisition_save_and_client_exit(ctx);
+    test_acquisition_failure(ctx);
     test_closure_and_retained_records(ctx);
     test_resolved_ranges(ctx);
     test_complete_views_and_saves(ctx);

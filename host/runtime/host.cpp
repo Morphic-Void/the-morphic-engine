@@ -18,6 +18,7 @@
 
 #include <algorithm>    //  std::min
 #include <cstdint>      //  std::int32_t, std::uint8_t, std::uint64_t
+#include <utility>      //  std::pair
 
 #include "runtime/host.hpp"
 #include "system/host_context.hpp"
@@ -184,7 +185,7 @@ bool CHost::stop_rendering(const threading::EThreadRunState state) noexcept
         return true;
     }
 
-    if (!m_asset_service.is_idle() || (m_test_worker == rendering))
+    if (!m_asset_service.work_idle() || (m_test_worker == rendering))
     {
         return false;
     }
@@ -207,6 +208,7 @@ bool CHost::stop_rendering(const threading::EThreadRunState state) noexcept
     {
         return false;
     }
+    if (!m_asset_service.client_idle(*rendering)) return false;
 
     //  Terminal state was observed before the final queue drain. Accepted asset
     //  operations have also replied, so neither they nor the thread borrow the
@@ -565,7 +567,17 @@ void CHost::advance_lifecycle(const threading::EThreadRunState executive_state) 
             m_phase = EPhase::stopping_executive;
         }
 
-        if ((m_phase == EPhase::stopping_executive) && stopped && (m_test_client == nullptr) && m_asset_service.is_idle() && m_module_service.is_idle() && filesystem_idle())
+        //  On shutdown, let the other client release acquisitions during exit,
+        //  including those which defer an outgoing Executive's disposal reply.
+        //  Replacement preserves the live renderer and its independent borrows.
+        const auto* const change = m_executive_request.payload<ModuleRequest>();
+        if ((m_phase == EPhase::stopping_executive) && stopped && (m_test_client == nullptr) &&
+            m_asset_service.work_idle() && ((change == nullptr) || (change->action != EModuleAction::replace)))
+        {
+            if (auto* const rendering = thread_package(EWorkerThreadID::rendering)) rendering->request_exit();
+        }
+        if ((m_phase == EPhase::stopping_executive) && stopped && (m_test_client == nullptr) &&
+            m_asset_service.work_idle() && m_module_service.is_idle() && filesystem_idle())
         {
             if (executive->batch_client() != nullptr)
             {
@@ -581,6 +593,7 @@ void CHost::advance_lifecycle(const threading::EThreadRunState executive_state) 
                     return;
                 }
             }
+            if (!m_asset_service.client_idle(*executive)) return;
 
             //  Join before dropping queued messages or allowing the worker to
             //  unbind the outgoing Executive. No asset operation still borrows it.
@@ -610,7 +623,7 @@ void CHost::advance_lifecycle(const threading::EThreadRunState executive_state) 
         }
     }
 
-    if ((m_phase == EPhase::shutting_down) && (m_test_client == nullptr) && m_asset_service.is_idle() && m_module_service.is_idle() && filesystem_idle())
+    if ((m_phase == EPhase::shutting_down) && (m_test_client == nullptr) && m_asset_service.work_idle() && m_module_service.is_idle() && filesystem_idle())
     {
         if (!m_module_service.request_shutdown())
         {   //  Dependent assets were disposed of before each module unload.
@@ -673,7 +686,17 @@ void CHost::run() noexcept
                 AssetDisposeRequest disposal;
                 BundleReferenceRequest reference;
                 RunTestsRequest tests;
-                if (message.copy_payload_to(tests))
+                AssetAcquireRequest acquire;
+                AssetReleaseRequest release;
+                if (message.copy_payload_to(acquire))
+                {
+                    m_asset_service.request_acquire(acquire, message.query_async_slot(), package);
+                }
+                else if (message.copy_payload_to(release))
+                {
+                    m_asset_service.request_release(release, message.query_async_slot(), package);
+                }
+                else if (message.copy_payload_to(tests))
                 {
                     request_tests(tests, message.query_async_slot(), package);
                 }
@@ -750,13 +773,27 @@ void CHost::run() noexcept
             m_module_service.complete_thread_start(start_rendering());
         }
 
+        //  Terminal state was sampled before draining each client's final
+        //  messages. Batch users must also be gone before abandoned views die.
+        for (const auto& stopped : { std::pair{ executive, executive_state }, std::pair{ rendering, rendering_state } })
+        {
+            if ((stopped.first != nullptr) &&
+                ((stopped.second == threading::EThreadRunState::Exited) || (stopped.second == threading::EThreadRunState::Failed)) &&
+                ((stopped.first->batch_client() == nullptr) ||
+                    ((stopped.first->batch_client()->outstanding() == 0u) && (stopped.first->batch_client()->return_publishers() == 0u))))
+            {
+                m_asset_service.release_client_acquisitions(*stopped.first);
+            }
+        }
         m_asset_service.complete_disposals();
         dispatch_refresh();
         advance_lifecycle(executive_state);
         const bool stopping_rendering = !m_module_service.is_idle() && !m_module_service.is_in_flight() &&
             m_module_service.releases_binding() && (m_module_service.pending_mount_point() == mount_point_ids::render);
         const bool rendering_stopped = !stopping_rendering || stop_rendering(rendering_state);
-        if (rendering_stopped && m_asset_service.is_idle() && !m_module_service.is_idle() && !m_module_service.is_in_flight())
+        if (rendering_stopped && m_asset_service.work_idle() &&
+            (!m_module_service.releases_binding() || m_asset_service.dependencies_idle(m_module_service.pending_mount_point())) &&
+            !m_module_service.is_idle() && !m_module_service.is_in_flight())
         {
             if (m_module_service.releases_binding())
             {

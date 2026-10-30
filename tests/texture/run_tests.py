@@ -80,6 +80,7 @@ def main():
                      "Executive: Module tests completed: 23 passed, 0 failed, 0 skipped",
                      "Filesystem acceptance: 12 queued refresh, concurrent access and cache operations passed",
                      "Bundle acceptance: bake, reference, save, close and reload passed",
+                     "Acquisition acceptance: shared borrows, deferred disposal, stale release and client exit passed",
                      "Rendering Basis: shut down", "Host: Rendering thread joined"):
         if expected not in events:
             raise RuntimeError(f"Missing {expected!r}; inspect {logs[0]}")

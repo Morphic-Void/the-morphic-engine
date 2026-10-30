@@ -229,7 +229,7 @@ private:
     //  Failure codes start at one because zero is the successful thread exit code.
     enum class EFailure : std::uint32_t { registry = 1u, timing, submission, completion, timeout };
 
-    enum class EPhase : std::uint8_t { rendering_acknowledgement = 0, rendering_completion, module_tests, sequential, concurrent, filesystem, bundle, awaiting_exit, complete };
+    enum class EPhase : std::uint8_t { rendering_acknowledgement = 0, rendering_completion, module_tests, sequential, concurrent, filesystem, bundle, acquisitions, awaiting_exit, complete };
 
     CExecutiveThread(const CExecutiveThread&) noexcept = delete;
     CExecutiveThread& operator=(const CExecutiveThread&) noexcept = delete;
@@ -256,6 +256,7 @@ private:
     [[nodiscard]] bool complete_filesystem_exercise(const threading::CErasedPodMsg& message) noexcept;
     [[nodiscard]] bool start_bundle_exercise() noexcept;
     [[nodiscard]] bool complete_bundle_exercise(const threading::CErasedPodMsg& message) noexcept;
+    [[nodiscard]] bool complete_acquisition_exercise(const threading::CErasedPodMsg& message) noexcept;
     [[nodiscard]] bool request_system_shutdown() noexcept;
     void shutdown() noexcept;
     void fail(const EFailure failure, const char* const reason) noexcept;
@@ -281,6 +282,8 @@ private:
     AssetResult m_bundle;
     CByteBuffer m_bundle_snapshot;
     std::int32_t m_bundle_step{ 0 };
+    std::int32_t m_acquisition_step{ 0 };
+    AssetAcquireResult m_acquired[2];
     std::uint32_t m_failure_code{ 0u };
 };
 
@@ -964,9 +967,9 @@ bool CExecutiveThread::complete_bundle_exercise(const threading::CErasedPodMsg& 
         if (m_bundle_step == 6)
         {
             m_bundle_snapshot.deallocate();
-            m_phase = EPhase::complete;
+            m_phase = EPhase::acquisitions;
             MV_LOG(info, "Bundle acceptance: bake, reference, save, close and reload passed");
-            return true;
+            return m_context.post(threading::make_pod_message(3000, AssetAcquireRequest{ m_raw.asset }));
         }
         ++m_bundle_step;
         return request_preparation::prepare_bundle_load_request(pending, 2005,
@@ -1020,6 +1023,73 @@ bool CExecutiveThread::complete_bundle_exercise(const threading::CErasedPodMsg& 
         default: return false;
     }
     return m_context.post(outbound);
+}
+
+bool CExecutiveThread::complete_acquisition_exercise(const threading::CErasedPodMsg& message) noexcept
+{
+    (void)m_perf_counter.update();
+    const auto step = m_acquisition_step++;
+    AssetAcquireResult acquired;
+    AssetReleaseResult released;
+    switch (step)
+    {
+        case 0:
+        case 1:
+        {
+            if ((message.query_async_slot() != 3000 + step) || !message.copy_payload_to(acquired) ||
+                (acquired.status != EAssetStatus::success) || !acquired.acquisition ||
+                (acquired.byte_view().data() != m_raw.byte_view().data())) return false;
+            m_acquired[step] = acquired;
+            if (step == 0) return m_context.post(threading::make_pod_message(3001, AssetAcquireRequest{ m_raw.asset }));
+            return (m_acquired[0].acquisition != m_acquired[1].acquisition) &&
+                m_context.post(threading::make_pod_message(3002, AssetDisposeRequest{ m_raw.asset })) &&
+                m_context.post(threading::make_pod_message(3003, AssetAcquireRequest{ m_raw.asset }));
+        }
+        case 2:
+        {
+            if ((message.query_async_slot() != 3003) || !message.copy_payload_to(acquired) ||
+                (acquired.status != EAssetStatus::invalid_asset) || acquired.acquisition ||
+                !asset_acceptance::equal_bytes(m_acquired[0].byte_view(), m_acquired[1].byte_view())) return false;
+            return m_context.post(threading::make_pod_message(3004, AssetReleaseRequest{ m_acquired[0].acquisition }));
+        }
+        case 3:
+        case 4:
+        case 5:
+        {
+            const auto expected = (step == 4) ? EAssetStatus::invalid_request : EAssetStatus::success;
+            const auto token = m_acquired[(step == 5) ? 1 : 0].acquisition;
+            if ((message.query_async_slot() != 3001 + step) || !message.copy_payload_to(released) ||
+                (released.status != expected) || (released.acquisition != token)) return false;
+            if (step == 5) return true; // Disposal must now follow the release acknowledgement.
+            return m_context.post(threading::make_pod_message(3002 + step,
+                AssetReleaseRequest{ m_acquired[(step == 4) ? 1 : 0].acquisition }));
+        }
+        case 6:
+        {
+            AssetDisposeResult result;
+            if ((message.query_async_slot() != 3002) || !message.copy_payload_to(result) ||
+                (result.asset != m_raw.asset) || (result.status != EAssetStatus::success)) return false;
+            m_acquired[0] = {};
+            m_acquired[1] = {};
+            m_raw = {};
+            return m_context.post(threading::make_pod_message(3007, AssetAcquireRequest{ m_baked.asset }));
+        }
+        case 7:
+        {
+            if ((message.query_async_slot() != 3007) || !message.copy_payload_to(acquired) ||
+                (acquired.status != EAssetStatus::success) || !acquired.acquisition || !acquired.byte_view().is_ready())
+            {
+                return false;
+            }
+
+            //  Stop using the view and exit without releasing its token. Host
+            //  must reclaim it after our terminal state, before module teardown.
+            m_phase = EPhase::complete;
+            MV_LOG(info, "Acquisition acceptance: shared borrows, deferred disposal, stale release and client exit passed");
+            return true;
+        }
+        default: return false;
+    }
 }
 
 bool CExecutiveThread::request_system_shutdown() noexcept
@@ -1103,6 +1173,11 @@ void CExecutiveThread::operate() noexcept
             if (m_phase == EPhase::bundle)
             {
                 if (!complete_bundle_exercise(message)) fail(EFailure::completion, "bundle exercise");
+                continue;
+            }
+            if (m_phase == EPhase::acquisitions)
+            {
+                if (!complete_acquisition_exercise(message)) fail(EFailure::completion, "asset acquisition exercise");
                 continue;
             }
             if (m_phase == EPhase::filesystem)

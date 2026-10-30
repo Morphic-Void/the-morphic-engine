@@ -64,6 +64,10 @@ public:
     //  destroyed or reused. Its accepted operations must have completed first.
     void detach_client(threading::CThreadPackage& client) noexcept;
 
+    //  Only after terminal state, queue drain and batch quiescence. Idempotent;
+    //  retires abandoned borrows before a package address can be reused.
+    void release_client_acquisitions(threading::CThreadPackage& client) noexcept;
+
     void set_filesystem(filesystem_image::CImage& image) noexcept { m_filesystem = &image; }
     [[nodiscard]] bool initialise() noexcept;
 
@@ -75,6 +79,12 @@ public:
     //  Requires stopped workers: no outstanding borrower may still read inputs.
     void fail_pending() noexcept;
     [[nodiscard]] bool is_idle() const noexcept;
+
+    //  Accepted worker operations have drained. Client acquisitions and pending
+    //  disposal may remain; clients must be allowed to exit and release them.
+    [[nodiscard]] bool work_idle() const noexcept;
+    [[nodiscard]] bool client_idle(const threading::CThreadPackage& client) const noexcept;
+    [[nodiscard]] bool dependencies_idle(const mount_point_ids::id_type mount) const noexcept;
     [[nodiscard]] bool failed() const noexcept { return m_failed; }
 
     //  Requires idle operations and quiescent clients; the DLL must remain loaded.
@@ -84,6 +94,8 @@ public:
     void request(threading::CErasedOwnerMsg& message, threading::CThreadPackage& client) noexcept;
     void request_disposal(const AssetDisposeRequest& request, const std::int32_t slot, threading::CThreadPackage& client) noexcept;
     void request_reference(const BundleReferenceRequest& request, const std::int32_t slot, threading::CThreadPackage& client) noexcept;
+    void request_acquire(const AssetAcquireRequest& request, const std::int32_t slot, threading::CThreadPackage& client) noexcept;
+    void request_release(const AssetReleaseRequest& request, const std::int32_t slot, threading::CThreadPackage& client) noexcept;
     void complete(threading::CErasedOwnerMsg& message, threading::CThreadPackage& worker) noexcept;
     void complete(const threading::CErasedPodMsg& message, threading::CThreadPackage& worker) noexcept;
 
@@ -179,6 +191,14 @@ private:
         threading::CThreadPackage* owner{ nullptr }; //  Instance identity; retired by detach_client.
     };
 
+    struct SAcquisition
+    {
+        CAssetBackingLease backing;
+        threading::CThreadPackage* client{ nullptr };
+        CAssetId source{};
+        CAssetAcquisitionId identity{};
+    };
+
     [[nodiscard]] SBundleControl* find_bundle(const SAssetBackingState* const state) noexcept;
     [[nodiscard]] AssetResult retain_bundle_view(SBundleControl& bundle, const EAssetBackingRole role,
         const AssetResult& view, const mount_point_ids::id_type dependency = {}) noexcept;
@@ -189,6 +209,8 @@ private:
     //  Stable control addresses outlive repository records and accepted work.
     TUnorderedCollection<SBundleControl> m_bundles;
     CAssetRepository m_assets;
+    TUnorderedCollection<SAcquisition> m_acquisitions;
+    std::uint64_t m_next_acquisition{ 1u };
     filesystem_image::CImage* m_filesystem{ nullptr };
     threading::CThreadPackage* m_file_io{ nullptr };
     threading::CThreadPackage* m_conditioning{ nullptr };

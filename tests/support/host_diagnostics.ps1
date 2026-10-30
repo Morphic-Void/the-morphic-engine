@@ -5,6 +5,9 @@
 # Incident IDs order the combined event/direct logs; file order cannot do so.
 
 function Assert-HostDiagnostics([string] $Events, [string] $Runtime) {
+    if (!$Events.Contains('Acquisition acceptance: shared borrows, deferred disposal, stale release and client exit passed')) {
+        throw 'Generic asset acquisition acceptance did not complete.'
+    }
     $expectedCases = @(Get-Content -LiteralPath (Join-Path $PSScriptRoot '../texture/flow_cases.json') -Raw | ConvertFrom-Json)
     $actualCases = @([regex]::Matches($Events, '\[render_vulkan:rendering\].*\[texture_flow_tests\.cpp:\d+\] Rendering: (\w+) passed') |
         ForEach-Object { $_.Groups[1].Value })

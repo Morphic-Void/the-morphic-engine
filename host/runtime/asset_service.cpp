@@ -79,7 +79,7 @@ static bool matches_load_format(const EAssetKind kind, const EAssetFileFormat fo
 
 bool CAssetService::initialise() noexcept
 {
-    return m_bundles.initialise() && m_assets.initialise() && m_operations.initialise();
+    return m_bundles.initialise() && m_assets.initialise() && m_acquisitions.initialise() && m_operations.initialise();
 }
 
 EAssetStatus CAssetService::reserve_bundle(const CStringView root, std::uint64_t& binding) noexcept
@@ -99,10 +99,119 @@ void CAssetService::request_reference(const BundleReferenceRequest& request, con
 
 bool CAssetService::is_idle() const noexcept
 {
-    if (!m_operations.is_empty()) return false;
+    return m_operations.is_empty() && m_acquisitions.is_empty() && work_idle();
+}
+
+bool CAssetService::work_idle() const noexcept
+{
+    for (std::int32_t slot = m_operations.first_live(); slot >= 0; slot = m_operations.next_live(slot))
+    {
+        if (m_operations.get_object(slot)->phase != EPhase::disposing) return false;
+    }
     for (std::int32_t slot = m_bundles.first_live(); slot >= 0; slot = m_bundles.next_live(slot))
     {
         if (m_bundles.get_object(slot)->references.operations != 0u) return false;
+    }
+    return true;
+}
+
+void CAssetService::request_acquire(const AssetAcquireRequest& request, const std::int32_t slot, threading::CThreadPackage& client) noexcept
+{
+    AssetAcquireResult result;
+    if ((slot < 0) || ((request.view != EAssetAcquireView::bytes) && (request.view != EAssetAcquireView::bundle)))
+    {
+        result.status = EAssetStatus::invalid_request;
+        reply(client, slot, result);
+        return;
+    }
+    auto* const source = disposal_pending(request.source) ? nullptr : m_assets.resolve(request.source);
+    if ((source == nullptr) || ((source->backing() != nullptr) && !source->backing()->open))
+    {
+        reply(client, slot, result);
+        return;
+    }
+    AssetResult described;
+    describe_views((*source), described);
+    const bool bytes = request.view == EAssetAcquireView::bytes;
+    if (bytes ? !described.byte_view().is_ready() : !described.bundle_view().is_ready())
+    {
+        result.status = EAssetStatus::invalid_request;
+        reply(client, slot, result);
+        return;
+    }
+    const std::int32_t record_slot = (m_next_acquisition != 0u) ? m_acquisitions.emplace() : -1;
+    auto* const record = (record_slot >= 0) ? m_acquisitions.get_object(record_slot) : nullptr;
+    if ((record == nullptr) || ((source->backing() != nullptr) &&
+        !record->backing.acquire(*source->backing(), EAssetBackingRole::acquisition)))
+    {
+        if (record != nullptr) (void)m_acquisitions.erase(record_slot);
+        result.status = EAssetStatus::allocation_failed;
+        reply(client, slot, result);
+        return;
+    }
+    record->identity = CAssetAcquisitionId{ m_next_acquisition++ };
+    record->client = &client;
+    record->source = request.source;
+    result.acquisition = record->identity;
+    result.view = request.view;
+    result.views = bytes ? AssetAcquiredViews{ described.byte_view() } : AssetAcquiredViews{ described.bundle_view() };
+    result.status = EAssetStatus::success;
+    if (!client.post(threading::make_pod_message(slot, result)))
+    {
+        //  The client never received the token, so it cannot release it.
+        (void)m_acquisitions.erase(record_slot);
+        m_failed = true;
+        MV_CRITICAL_EVENT("Host: Asset acquisition reply delivery failed");
+    }
+}
+
+void CAssetService::request_release(const AssetReleaseRequest& request, const std::int32_t slot,
+    threading::CThreadPackage& client) noexcept
+{
+    AssetReleaseResult result{ request.acquisition, EAssetStatus::invalid_request };
+    if (request.acquisition)
+    {
+        for (std::int32_t index = m_acquisitions.first_live(); index >= 0; index = m_acquisitions.next_live(index))
+        {
+            const auto& record = *m_acquisitions.get_object(index);
+            if ((record.identity == request.acquisition) && (record.client == &client))
+            {
+                (void)m_acquisitions.erase(index);
+                result.status = EAssetStatus::success;
+                break;
+            }
+        }
+    }
+    reply(client, slot, result);
+}
+
+void CAssetService::release_client_acquisitions(threading::CThreadPackage& client) noexcept
+{
+    const auto state = client.query_state();
+    if ((state != threading::EThreadRunState::Exited) && (state != threading::EThreadRunState::Failed) &&
+        (state != threading::EThreadRunState::Empty)) return;
+    if ((client.batch_client() != nullptr) &&
+        ((client.batch_client()->outstanding() != 0u) || (client.batch_client()->return_publishers() != 0u)))
+    {
+        return;
+    }
+    for (std::int32_t slot = m_acquisitions.first_live(); slot >= 0;)
+    {
+        const std::int32_t next = m_acquisitions.next_live(slot);
+        if (m_acquisitions.get_object(slot)->client == &client) (void)m_acquisitions.erase(slot);
+        slot = next;
+    }
+}
+
+bool CAssetService::client_idle(const threading::CThreadPackage& client) const noexcept
+{
+    for (std::int32_t slot = m_operations.first_live(); slot >= 0; slot = m_operations.next_live(slot))
+    {
+        if (m_operations.get_object(slot)->client == &client) return false;
+    }
+    for (std::int32_t slot = m_acquisitions.first_live(); slot >= 0; slot = m_acquisitions.next_live(slot))
+    {
+        if (m_acquisitions.get_object(slot)->client == &client) return false;
     }
     return true;
 }
@@ -266,6 +375,7 @@ bool CAssetService::protect_asset(const CAssetRecord& record, CAssetBackingLease
 
 void CAssetService::detach_client(threading::CThreadPackage& client) noexcept
 {
+    release_client_acquisitions(client);
     for (std::int32_t slot = m_bundles.first_live(); slot >= 0; slot = m_bundles.next_live(slot))
     {
         SBundleControl& control = *m_bundles.get_object(slot);
@@ -340,6 +450,7 @@ void CAssetService::deallocate() noexcept
         if ((binding != 0u) && (m_filesystem != nullptr)) (void)m_filesystem->remove_bundle(binding);
     }
     m_operations.deallocate();
+    m_acquisitions.deallocate();
     m_assets.deallocate();
     for (std::int32_t slot = m_bundles.first_live(); slot >= 0; slot = m_bundles.next_live(slot))
     {
@@ -499,6 +610,10 @@ bool CAssetService::disposal_pending(const CAssetId asset) const noexcept
 
 bool CAssetService::asset_in_use(const CAssetId asset) const noexcept
 {
+    for (std::int32_t slot = m_acquisitions.first_live(); slot >= 0; slot = m_acquisitions.next_live(slot))
+    {
+        if (m_acquisitions.get_object(slot)->source == asset) return true;
+    }
     for (std::int32_t slot = m_operations.first_live(); slot >= 0; slot = m_operations.next_live(slot))
     {
         const SOperation& operation = *m_operations.get_object(slot);
@@ -573,8 +688,24 @@ void CAssetService::complete_disposals() noexcept
     finalise_bundles();
 }
 
+bool CAssetService::dependencies_idle(const mount_point_ids::id_type mount) const noexcept
+{
+    if (!work_idle()) return false;
+    for (std::int32_t slot = m_acquisitions.first_live(); slot >= 0; slot = m_acquisitions.next_live(slot))
+    {
+        const auto* const source = m_assets.resolve(m_acquisitions.get_object(slot)->source);
+        if ((source != nullptr) && source->has_dependency(mount)) return false;
+    }
+    return true;
+}
+
 void CAssetService::dispose_dependencies(const mount_point_ids::id_type mount) noexcept
 {
+    if (!dependencies_idle(mount))
+    {
+        MV_ASSERT_REPORT("Host: dependency disposal attempted with active borrowers");
+        return;
+    }
     if (m_assets.has_dependency(mount))
     {
         //  A module should release its assets before stopping. Log the violated

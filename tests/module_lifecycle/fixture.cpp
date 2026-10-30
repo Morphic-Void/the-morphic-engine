@@ -615,6 +615,24 @@ static bool unload_during_saves(threading::CThreadContext& context, const bool r
 static bool run_case(threading::CThreadContext& context,
     threading::CThreadResources& resources, const char* const selected) noexcept
 {
+    if ((std::strcmp(selected, "acquire-render-release") == 0) || (std::strcmp(selected, "acquire-render-abandon") == 0) ||
+        (std::strcmp(selected, "acquire-render-replace") == 0))
+    {
+        if (!operation(context, EModuleAction::load,
+            test_environment::module_filename("package:/bin/MorphicLifecycleRenderingDisposal").c_str(), 1, EModuleStatus::success, true)) return false;
+        threading::CErasedPodMsg request, completion;
+        request.set_async_slot(50);
+        request.assign_payload(RunTestsRequest{ module_ids::render_vulkan });
+        RunTestsResult result;
+        if (!context.post(request) || !receive(context, completion) || !completion.copy_payload_to(result) ||
+            (completion.query_async_slot() != 50) || (result.status != ETestRunStatus::success) || (result.passed != 1u)) return false;
+        if (std::strcmp(selected, "acquire-render-replace") == 0)
+        {
+            return (_putenv_s("MORPHIC_LIFECYCLE_CASE", "shutdown") == 0) &&
+                self_terminate(context, test_environment::module_filename("package:/bin/MorphicLifecycleExecutive").c_str());
+        }
+        return operation(context, EModuleAction::unload, nullptr, 2, EModuleStatus::success, false) && self_terminate(context, nullptr);
+    }
     if (std::strncmp(selected, "bundle", 6u) == 0)
     {
         memory::CMemoryContext* const memory = memory::get_ambient_memory_context();
@@ -791,6 +809,68 @@ static std::uint32_t MV_STD_ABI_CALL rendering_entry(void* const data) noexcept
     return 1u;
 }
 #elif MV_LIFECYCLE_RENDERING_DISPOSAL
+static bool rendering_acquisition_case(threading::CThreadContext& context, const bool release) noexcept
+{
+    auto read = [&context](threading::CErasedPodMsg& message) noexcept
+    {
+        platform::system::CPerfCounter timer;
+        (void)timer.update();
+        while (timer.query_delta() < context.perf_count_conversion().query_ticks_per_second() * 10u)
+        {
+            if (context.read(message)) return true;
+            context.advance_heartbeat();
+            platform::threading::processor_relax();
+        }
+        return false;
+    };
+    threading::CErasedPodMsg request, message;
+    RunTestsRequest tests;
+    if (!read(request) || !request.copy_payload_to(tests)) return false;
+    auto owner = CErasedOwner::create<RawAssetTransfer>();
+    auto* const transfer = owner.payload<RawAssetTransfer>();
+    if (!transfer || !transfer->storage.value.resize(16u)) return false;
+    std::memset(transfer->storage.value.data(), 0x5a, 16u);
+    threading::CErasedOwnerMsg input;
+    input.set_message_type<RawAssetTransfer>();
+    input.set_async_slot(60);
+    input.set_owner(std::move(owner));
+    AssetResult retained;
+    if (!context.post(std::move(input)) || !read(message) || !message.copy_payload_to(retained) ||
+        (retained.status != EAssetStatus::success)) return false;
+    message.set_async_slot(61);
+    message.assign_payload(AssetAcquireRequest{ retained.asset });
+    AssetAcquireResult acquired;
+    if (!context.post(message) || !read(message) || !message.copy_payload_to(acquired) ||
+        (acquired.status != EAssetStatus::success) || !acquired.acquisition) return false;
+    message.set_async_slot(request.query_async_slot());
+    message.assign_payload(RunTestsResult{ tests.module, ETestRunStatus::success, 1u, 0u, 0u });
+    if (!context.post(message)) return false;
+    std::uint32_t epoch{ 0u };
+    while (!context.exit_requested()) epoch = context.wait_for_new_epoch(epoch);
+    context.mark_exiting();
+    if ((acquired.byte_view().size() != 16u) || (acquired.byte_view().data()[15] != 0x5a)) return false;
+    MV_LOG(info, "Lifecycle rendering: acquired bytes survive exit request");
+    if (release)
+    {
+        message.set_async_slot(62);
+        message.assign_payload(AssetReleaseRequest{ acquired.acquisition });
+        AssetReleaseResult result;
+        if (!context.post(message) || !read(message) || !message.copy_payload_to(result) ||
+            (result.status != EAssetStatus::success)) return false;
+    }
+    message.set_async_slot(63);
+    message.assign_payload(AssetDisposeRequest{ retained.asset });
+    if (!context.post(message)) return false;
+    if (release)
+    {
+        AssetDisposeResult result;
+        if (!read(message) || !message.copy_payload_to(result) || result.status != EAssetStatus::success) return false;
+    }
+    //  In the abandon case Host must drain the final disposal, observe terminal
+    //  state and reclaim the acquisition before it can join and unload us.
+    return true;
+}
+
 static bool malformed_test_completion(threading::CThreadContext& context) noexcept
 {
     std::uint32_t epoch{ 0u };
@@ -825,6 +905,18 @@ static std::uint32_t MV_STD_ABI_CALL rendering_entry(void* const data) noexcept
     context.startup();
     char selected[32]{};
     std::size_t required{ 0u };
+    if ((getenv_s(&required, selected, sizeof(selected), "MORPHIC_LIFECYCLE_CASE") == 0) &&
+        ((std::strcmp(selected, "acquire-render-release") == 0) || (std::strcmp(selected, "acquire-render-abandon") == 0) ||
+            (std::strcmp(selected, "acquire-render-replace") == 0)))
+    {
+        MV_LOG(info, "Rendering: Running");
+        context.mark_running();
+        const bool success = rendering_acquisition_case(context, std::strcmp(selected, "acquire-render-release") == 0);
+        MV_LOG(info, "Rendering: Exited");
+        if (success) context.mark_exited();
+        else context.mark_failed(1u);
+        return success ? 0u : 1u;
+    }
     if ((getenv_s(&required, selected, sizeof(selected), "MORPHIC_LIFECYCLE_CASE") == 0) &&
         (std::strcmp(selected, "normal-tests-malformed") == 0))
     {

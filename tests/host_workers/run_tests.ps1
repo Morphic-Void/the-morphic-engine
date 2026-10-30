@@ -127,7 +127,8 @@ foreach ($requested in @(0, 1, 2, 3, 9, 128)) {
         !$events.Contains('Executive: Module tests completed: 23 passed, 0 failed, 0 skipped') -or
         !$events.Contains('Asset acceptance: 50 sequential and 32 concurrent operations passed') -or
         !$events.Contains('Filesystem acceptance: 12 queued refresh, concurrent access and cache operations passed') -or
-        !$events.Contains('Bundle acceptance: bake, reference, save, close and reload passed')) {
+        !$events.Contains('Bundle acceptance: bake, reference, save, close and reload passed') -or
+        !$events.Contains('Acquisition acceptance: shared borrows, deferred disposal, stale release and client exit passed')) {
         throw "Acceptance flow incomplete: $log"
     }
     if ($events -notmatch 'Host: Background workers (\d+), dedicated conditioning workers (\d+), reported hardware threads (\d+)') {

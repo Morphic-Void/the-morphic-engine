@@ -37,4 +37,8 @@
     type_macro(shader_compile_work) \
     type_macro(shader_compile_result) \
     type_macro(run_tests_request) \
-    type_macro(run_tests_result)
+    type_macro(run_tests_result) \
+    type_macro(asset_acquire_request) \
+    type_macro(asset_acquire_result) \
+    type_macro(asset_release_request) \
+    type_macro(asset_release_result)
