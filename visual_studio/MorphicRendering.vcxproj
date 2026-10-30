@@ -90,7 +90,7 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Platform)'=='Win32'">
     <ClCompile><PreprocessorDefinitions>WIN32;%(PreprocessorDefinitions)</PreprocessorDefinitions></ClCompile>
-    <Link><AdditionalOptions>/EXPORT:morphic_module_bootstrap_v3=_morphic_module_bootstrap_v3@4 %(AdditionalOptions)</AdditionalOptions></Link>
+    <Link><AdditionalOptions>/EXPORT:morphic_module_bootstrap_v3=_morphic_module_bootstrap_v3@4 /EXPORT:morphic_module_service_thread_v1=_morphic_module_service_thread_v1@4 %(AdditionalOptions)</AdditionalOptions></Link>
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="..\rendering\module\binding\rendering_binding.cpp" />

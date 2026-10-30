@@ -131,6 +131,21 @@ bool CBoundModule::query_function(const system_type_id function_type, FModuleFun
     return (result == EBindingResult::success) && (function != nullptr);
 }
 
+EBindingResult CBoundModule::query_service_thread(SServiceThread& service) const noexcept
+{
+    service = {};
+    if (!m_installed) return EBindingResult::invalid_argument;
+    const auto query = reinterpret_cast<FQueryServiceThread>(m_native_module.find_function(k_service_thread_symbol_name));
+    if (query == nullptr) return EBindingResult::unsupported_function;
+    SServiceThread candidate;
+    const EBindingResult result = query(&candidate);
+    if (result != EBindingResult::success) return result;
+    if ((candidate.entry == nullptr) || !thread_ids::ops::is_valid_id(candidate.thread) ||
+        (system_id_registry::lookup_thread_name(candidate.thread) == nullptr)) return EBindingResult::invalid_argument;
+    service = candidate;
+    return EBindingResult::success;
+}
+
 bool MV_STD_ABI_CALL CBoundModule::prepare_thread(void* const context, const thread_ids::id_type thread_id, void* const thread_resources) noexcept
 {
     CBoundModule* const module = static_cast<CBoundModule*>(context);

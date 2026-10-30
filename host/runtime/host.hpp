@@ -50,13 +50,6 @@ public:
         const std::uint32_t batch_runner_count) noexcept;
 
 private:
-    enum class EWorkerThreadID : std::uint8_t
-    {
-        executive = 0u,
-        rendering,
-        count
-    };
-
     enum class EPhase : std::uint8_t
     {
         starting = 0,
@@ -67,15 +60,16 @@ private:
         complete
     };
 
-    static constexpr std::size_t k_thread_count = static_cast<std::size_t>(EWorkerThreadID::count);
+    //  Scheduling estimate for the default composition, not a service capacity.
+    static constexpr std::uint32_t k_expected_service_threads = 2u;
 
     void initialise_debug_service(const char* const log_tag, const char* const log_directory) noexcept;
     [[nodiscard]] bool initialise_runtime(const char* const executive_file) noexcept;
     [[nodiscard]] bool start_threads() noexcept;
     [[nodiscard]] bool workers_failed() noexcept;
     [[nodiscard]] bool start_executive() noexcept;
-    [[nodiscard]] bool start_rendering() noexcept;
-    [[nodiscard]] bool stop_rendering(const threading::EThreadRunState state) noexcept;
+    [[nodiscard]] bool start_module_thread() noexcept;
+    [[nodiscard]] bool stop_module_thread(const mount_point_ids::id_type mount) noexcept;
     void receive_request(threading::CErasedOwnerMsg& message, threading::CThreadPackage& executive) noexcept;
     void request_tests(const RunTestsRequest& request, const std::int32_t slot, threading::CThreadPackage& client) noexcept;
     void complete_tests(const threading::CErasedPodMsg& message, threading::CThreadPackage& worker) noexcept;
@@ -92,7 +86,6 @@ private:
     void shutdown_threads() noexcept;
     void shutdown_debug_service() noexcept;
 
-    [[nodiscard]] threading::CThreadPackage* thread_package(const EWorkerThreadID id) noexcept;
     [[nodiscard]] threading::CThreadPackage* module_thread_package(const module_ids::id_type module) noexcept;
     [[nodiscard]] threading::CThreadPackage* worker_package(const std::uint32_t index) noexcept;
 
@@ -132,7 +125,12 @@ private:
     CModuleService m_module_service;
     CErasedOwner m_executive_request;
     EPhase m_phase{ EPhase::starting };
-    std::int32_t m_thread_slots[k_thread_count]{ -1, -1 };
+    struct SModuleThread
+    {
+        std::int32_t slot{ -1 };
+        threading::EThreadRunState observed_state{ threading::EThreadRunState::Empty };
+    };
+    SModuleThread m_module_threads[module_ids::k_count];
     std::int32_t m_worker_slots[k_max_worker_count]{ -1, -1 };
     std::uint32_t m_worker_count{ 0u };
     std::uint32_t m_batch_runner_count{ 0u };

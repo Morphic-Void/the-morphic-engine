@@ -38,7 +38,7 @@ struct SModuleWork
     const ModuleRequest* request{ nullptr };
     const char* physical_file{ nullptr };
     modules::FModuleFunction function{ nullptr };
-    modules::FModuleFunction thread_function{ nullptr };
+    modules::SServiceThread service_thread;
     bool cleanup_only{ false };
 };
 
@@ -61,7 +61,7 @@ public:
         debug_system::CDebugServiceState* const debug_service) noexcept;
     void complete(const threading::CErasedPodMsg& message) noexcept;
     void complete_thread_start(const bool started) noexcept;
-    void rendering_stopped() noexcept;
+    void thread_stopped(const mount_point_ids::id_type mount) noexcept;
     [[nodiscard]] bool take_internal_result(ModuleResult& result, EPurpose& purpose) noexcept;
     [[nodiscard]] bool request_shutdown() noexcept;
     void cancel_pending() noexcept;
@@ -71,7 +71,7 @@ public:
     [[nodiscard]] bool is_in_flight() const noexcept { return m_in_flight; }
     [[nodiscard]] bool needs_thread_start() const noexcept { return m_start_pending; }
     [[nodiscard]] modules::CBoundModule* pending_binding() noexcept { return m_work.next; }
-    [[nodiscard]] modules::FModuleFunction pending_thread_function() const noexcept { return m_work.thread_function; }
+    [[nodiscard]] const modules::SServiceThread& pending_service_thread() const noexcept { return m_work.service_thread; }
     [[nodiscard]] bool releases_binding() const noexcept { return m_work.previous != nullptr; }
     [[nodiscard]] bool failed() const noexcept { return m_failed; }
     [[nodiscard]] mount_point_ids::id_type pending_mount_point() const noexcept;
@@ -88,6 +88,7 @@ private:
         modules::FModuleFunction function{ nullptr };
         module_ids::id_type identity{};
         bool thread_started{ false };
+        bool has_service_thread{ false };
     };
 
     [[nodiscard]] SModuleRecord* find(const mount_point_ids::id_type mount) noexcept;

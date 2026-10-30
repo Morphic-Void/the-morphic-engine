@@ -56,3 +56,11 @@ MV_MODULE_EXPORT modules::EBindingResult MV_STD_ABI_CALL morphic_module_bootstra
 {
     return rendering::module_binding::s_binding.bootstrap(functions);
 }
+
+MV_MODULE_EXPORT modules::EBindingResult MV_STD_ABI_CALL morphic_module_service_thread_v1(
+    modules::SServiceThread* const service) noexcept
+{
+    if (service == nullptr) return modules::EBindingResult::invalid_argument;
+    *service = { thread_ids::rendering, rendering::rendering_thread_entry_point() };
+    return modules::EBindingResult::success;
+}

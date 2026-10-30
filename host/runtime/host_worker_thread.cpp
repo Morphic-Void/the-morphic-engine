@@ -314,7 +314,7 @@ static EModuleStatus perform_module_work(SModuleWork& work) noexcept
 {
     const ModuleRequest& request = *work.request;
     work.function = nullptr;
-    work.thread_function = nullptr;
+    work.service_thread = {};
     if (work.previous != nullptr)
     {
         if (!work.previous->unbind())
@@ -358,8 +358,10 @@ static EModuleStatus perform_module_work(SModuleWork& work) noexcept
             {
                 status = EModuleStatus::function_unavailable;
             }
-            if ((module_ids::ops::get_mount_point_id(request.module) == mount_point_ids::render) &&
-                !work.next->query_function(system_type_ids::rendering_thread_function, work.thread_function))
+            const modules::EBindingResult service = work.next->query_service_thread(work.service_thread);
+            if (((service != modules::EBindingResult::success) &&
+                    ((service != modules::EBindingResult::unsupported_function) || request.require_service_thread)) ||
+                ((work.service_thread.entry != nullptr) && (request.module == module_ids::executive)))
             {
                 status = EModuleStatus::function_unavailable;
             }

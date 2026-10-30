@@ -125,14 +125,13 @@ identity at the `render` mount on both Windows and Linux, with the existing
 Vulkan is the primary API planned for first implementation.
 This stage contains no graphics API calls, graphics resources or actual rendering.
 
-An ordinary owning `ModuleRequest` loads the DLL. The worker requires its
-`rendering_thread_function` export regardless of whether the client requested
-an additional function. The Host provisions a normal-priority `CThreadPackage`
-using the bound module's advertised identity, stable memory context and
-`CBoundModule::prepare_thread`. The entry point verifies the installed thread
-context, publishes readiness, and services requests and batch completions until
-accepted work drains during exit. The normal Executive and applicable lifecycle fixtures request
-rendering explicitly; renderer-free selector fixtures do not.
+An ordinary owning `ModuleRequest` loads the DLL. Rendering advertises its
+service thread through the generic capability described below. The normal
+Executive requires that capability when selecting Rendering. The entry point
+verifies the installed thread context, publishes readiness, and services
+requests and batch completions until accepted work drains during exit.
+Selector Executives may omit Rendering entirely. The existing
+`rendering_thread_function` query remains available to explicit callers.
 
 Rendering load/replacement keeps the module operation pending through thread
 startup. A failed startup joins and destroys its package, then dispatches
@@ -154,6 +153,39 @@ The real stub replaces the successful service fixture in lifecycle validation.
 The test Executive, deliberate missing-export/failed-startup DLLs, and a rendering
 fixture that posts disposals during exit remain fixtures; production rendering
 contains no test switches.
+
+## Module service threads
+
+A module may export `morphic_module_service_thread_v1(SServiceThread*)`, returning
+`EBindingResult::success` and a descriptor containing its thread identity and
+entry point. This optional, versioned export leaves the version-3 bootstrap ABI
+and the identity catalogue unchanged. Modules without the capability remain
+passive. A caller can set `ModuleRequest::require_service_thread` to reject a
+passive destination with `function_unavailable`, including an already loaded
+passive module. An existing passive binding remains available after that rejection.
+
+The I/O worker queries the capability after installation. A successful descriptor
+must have a non-null entry point and a valid, registered thread identity; malformed
+descriptors fail loading. Host starts one normal-priority service thread per
+advertising module, using its stable binding, memory context and batch client.
+It tracks packages by module identity, so several modules may have independent
+service threads. Executive retains its separate bootstrap and system-control
+role and cannot also advertise an ordinary service thread.
+
+Readiness completes the pending load or replacement. Failed startup joins the
+package and schedules worker-side unbinding before reporting failure. Host
+routes owning asset requests from every registered service and samples every
+service's state before draining final messages and releasing abandoned
+acquisitions. Unload and replacement protect active test callers/workers, wait
+for accepted asset work and batch publishers, join the service, dispose dependent
+assets, and only then unbind. Executive replacement preserves the other services;
+system shutdown requests their exit so they can release acquisitions before
+the module unload sequence proceeds.
+
+Lifecycle fixtures run a `conditioning_general` service with the `simulation`
+thread identity alongside Rendering. They cover passive capability rejection,
+malformed descriptors, failed startup, replacement and shutdown with retained
+acquisitions, deferred disposal and dependent-asset cleanup.
 
 ## Module test routing
 
@@ -190,7 +222,7 @@ have drained, the Host expects no retained assets to depend on that module. If
 any remain, it emits an assertion-level diagnostic and disposes of them before
 dispatching unbind/unload to the I/O worker. This diagnostic does not trigger a
 debugger breakpoint or cancel unloading. Independent assets remain retained.
-The Executive and rendering DLL have Host-managed threads. Callers must still
+The Executive and advertising service modules have Host-managed threads. Callers must still
 quiesce their own use of affected DLL functions and borrowed views before
 requesting unload or replacement.
 Existing module memory-attribution checks also remain enforced. These checks complement the

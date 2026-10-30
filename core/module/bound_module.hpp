@@ -44,9 +44,9 @@ public:
     //  could not safely release the DLL. The process retains its native reference.
     void retain_until_process_exit() noexcept;
 
-    [[nodiscard]] EBindingResult populate_core_functions(
-        const std::uint32_t functional_major, SCoreFunctions& functions) const noexcept;
+    [[nodiscard]] EBindingResult populate_core_functions(const std::uint32_t functional_major, SCoreFunctions& functions) const noexcept;
     [[nodiscard]] bool query_function(const system_type_id function_type, FModuleFunction& function) const noexcept;
+    [[nodiscard]] EBindingResult query_service_thread(SServiceThread& service) const noexcept;
     [[nodiscard]] const SAdvertisedIdentity& advertised_peer_identity() const noexcept { return m_advertised_peer_identity; }
     [[nodiscard]] const SAdvertisedIdentity& advertised_module_identity() const noexcept { return m_advertised_module_identity; }
     [[nodiscard]] std::uint32_t negotiated_functional_major() const noexcept { return m_negotiated_functional_major; }

@@ -32,7 +32,8 @@ namespace executive::request_preparation
     const CAssetId asset, const char* file, const AssetSaveSettings& settings) noexcept;
 
 [[nodiscard]] bool prepare_module_request(threading::CErasedOwnerMsg& pending, const std::int32_t slot,
-    const module_ids::id_type module, const EModuleAction action, const char* file = nullptr) noexcept;
+    const module_ids::id_type module, const EModuleAction action, const char* file = nullptr,
+    const bool require_service_thread = false) noexcept;
 
 [[nodiscard]] bool prepare_filesystem_request(threading::CErasedOwnerMsg& pending, const std::int32_t slot,
     const char* root) noexcept;

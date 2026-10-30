@@ -81,7 +81,7 @@ def main():
                      "Filesystem acceptance: 12 queued refresh, concurrent access and cache operations passed",
                      "Bundle acceptance: bake, reference, save, close and reload passed",
                      "Acquisition acceptance: shared borrows, deferred disposal, stale release and client exit passed",
-                     "Rendering Basis: shut down", "Host: Rendering thread joined"):
+                     "Rendering Basis: shut down", "Host: Module render_vulkan service thread joined"):
         if expected not in events:
             raise RuntimeError(f"Missing {expected!r}; inspect {logs[0]}")
     expected_cases = json.loads((repository / "tests/texture/flow_cases.json").read_text(encoding="utf-8"))

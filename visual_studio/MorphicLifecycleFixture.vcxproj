@@ -56,6 +56,8 @@
       <PreprocessorDefinitions Condition="'$(FixtureRole)'=='Executive'">MV_LIFECYCLE_EXECUTIVE=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <PreprocessorDefinitions Condition="'$(FixtureRole)'=='RenderingFailure'">MV_LIFECYCLE_RENDERING_FAILURE=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <PreprocessorDefinitions Condition="'$(FixtureRole)'=='RenderingDisposal'">MV_LIFECYCLE_RENDERING_DISPOSAL=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions Condition="'$(FixtureRole)'=='Service'">MV_LIFECYCLE_SERVICE=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions Condition="'$(FixtureRole)'=='Passive'">MV_LIFECYCLE_PASSIVE=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <WarningLevel>Level3</WarningLevel>
       <SDLCheck>true</SDLCheck>
       <ConformanceMode>true</ConformanceMode>
@@ -92,6 +94,9 @@
   <ItemDefinitionGroup Condition="'$(Platform)'=='Win32'">
     <ClCompile><PreprocessorDefinitions>WIN32;%(PreprocessorDefinitions)</PreprocessorDefinitions></ClCompile>
     <Link><AdditionalOptions>/EXPORT:morphic_module_bootstrap_v3=_morphic_module_bootstrap_v3@4 %(AdditionalOptions)</AdditionalOptions></Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Platform)'=='Win32' And ('$(FixtureRole)'=='RenderingFailure' Or '$(FixtureRole)'=='RenderingDisposal' Or '$(FixtureRole)'=='Service')">
+    <Link><AdditionalOptions>/EXPORT:morphic_module_service_thread_v1=_morphic_module_service_thread_v1@4 %(AdditionalOptions)</AdditionalOptions></Link>
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="..\tests\module_lifecycle\fixture.cpp" />

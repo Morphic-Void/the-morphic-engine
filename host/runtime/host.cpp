@@ -138,22 +138,23 @@ bool CHost::start_executive() noexcept
         return false;
     }
 
-    m_thread_slots[static_cast<std::uint32_t>(EWorkerThreadID::executive)] = slot;
+    m_module_threads[module_ids::executive_index.raw_value()].slot = slot;
     threading::CThreadPackage* const package = m_thread_packages.get_object(slot);
     return package->install_batch_client(m_batch_pool.shared(), module_ids::executive, binding) && package->startup();
 }
 
-bool CHost::start_rendering() noexcept
+bool CHost::start_module_thread() noexcept
 {
     modules::CBoundModule* const binding = m_module_service.pending_binding();
-    const auto entry = reinterpret_cast<platform::threading::FThreadEntry>(m_module_service.pending_thread_function());
+    const modules::SServiceThread& service = m_module_service.pending_service_thread();
+    const auto entry = service.entry;
     if ((binding == nullptr) || (entry == nullptr))
     {
         return false;
     }
 
     const threading::ThreadConfig configuration{
-        thread_ids::rendering, binding->advertised_module_identity().advertised_module_id,
+        service.thread, binding->advertised_module_identity().advertised_module_id,
         platform::threading::EThreadPriority::Normal, entry, (&modules::CBoundModule::prepare_thread), binding };
     const std::int32_t slot = m_thread_packages.emplace(configuration, m_perf_count_conversion);
     if (slot < 0)
@@ -168,54 +169,69 @@ bool CHost::start_rendering() noexcept
         return false;
     }
 
-    m_thread_slots[static_cast<std::uint32_t>(EWorkerThreadID::rendering)] = slot;
-    MV_LOG(info, "Host: Rendering started after asynchronous binding");
+    const auto module = binding->advertised_module_identity().advertised_module_id;
+    m_module_threads[module_ids::ops::decode_id(module).raw_value()] = { slot, threading::EThreadRunState::Empty };
+    MV_LOG_RICH(info, "Host: Module %s service thread started after asynchronous binding",
+        system_id_registry::lookup_module_name(module));
     return true;
 }
 
-bool CHost::stop_rendering(const threading::EThreadRunState state) noexcept
+bool CHost::stop_module_thread(const mount_point_ids::id_type mount) noexcept
 {
-    threading::CThreadPackage* const rendering = thread_package(EWorkerThreadID::rendering);
-    if (rendering == nullptr)
+    SModuleThread* record = nullptr;
+    threading::CThreadPackage* service = nullptr;
+    for (auto& candidate : m_module_threads)
+    {
+        auto* const package = (candidate.slot >= 0) ? m_thread_packages.get_object(candidate.slot) : nullptr;
+        if ((package != nullptr) && (module_ids::ops::get_mount_point_id(package->module_id()) == mount))
+        {
+            record = &candidate;
+            service = package;
+            break;
+        }
+    }
+    if (service == nullptr)
     {
         return true;
     }
 
-    if (!m_asset_service.work_idle() || (m_test_worker == rendering) || (m_test_client == rendering))
+    if (!m_asset_service.work_idle() || (m_test_worker == service) || (m_test_client == service))
     {
         return false;
     }
-    rendering->request_exit();
+    const auto state = record->observed_state;
+    service->request_exit();
     if ((state != threading::EThreadRunState::Exited) && (state != threading::EThreadRunState::Failed))
     {
         return false;
     }
-    if ((rendering->batch_client() != nullptr) &&
-        (rendering->batch_client()->outstanding() != 0u))
+    if ((service->batch_client() != nullptr) &&
+        (service->batch_client()->outstanding() != 0u))
     {
         m_runtime_failed = true;
         m_batch_contract_failed = true;
-        MV_CRITICAL_EVENT("Rendering exited with outstanding batch work");
+        MV_CRITICAL_EVENT("Module service thread exited with outstanding batch work");
         return false;
     }
-    if ((rendering->batch_client() != nullptr) &&
-        (rendering->batch_client()->return_publishers() != 0u))
+    if ((service->batch_client() != nullptr) &&
+        (service->batch_client()->return_publishers() != 0u))
     {
         return false;
     }
-    if (!m_asset_service.client_idle(*rendering)) return false;
+    if (!m_asset_service.client_idle(*service)) return false;
 
     //  Terminal state was observed before the final queue drain. Accepted asset
     //  operations have also replied, so neither they nor the thread borrow the
     //  package or its transports when shutdown joins and destroys them.
     m_runtime_failed = m_runtime_failed || (state == threading::EThreadRunState::Failed);
-    (void)rendering->shutdown();
-    m_asset_service.detach_client(*rendering);
-    std::int32_t& slot = m_thread_slots[static_cast<std::uint32_t>(EWorkerThreadID::rendering)];
+    const auto module = service->module_id();
+    (void)service->shutdown();
+    m_asset_service.detach_client(*service);
+    std::int32_t& slot = record->slot;
     (void)m_thread_packages.erase(slot);
-    slot = -1;
-    m_module_service.rendering_stopped();
-    MV_LOG(info, "Host: Rendering thread joined");
+    *record = {};
+    m_module_service.thread_stopped(mount);
+    MV_LOG_RICH(info, "Host: Module %s service thread joined", system_id_registry::lookup_module_name(module));
     return true;
 }
 
@@ -247,29 +263,14 @@ bool CHost::initialise_runtime(const char* const executive_file) noexcept
     return m_scan_in_flight;
 }
 
-threading::CThreadPackage* CHost::thread_package(const EWorkerThreadID id) noexcept
-{
-    const std::size_t index = static_cast<std::size_t>(id);
-    if ((index >= k_thread_count) || (m_thread_slots[index] < 0))
-    {
-        return nullptr;
-    }
-    return m_thread_packages.get_object(m_thread_slots[index]);
-}
-
 threading::CThreadPackage* CHost::module_thread_package(const module_ids::id_type module) noexcept
 {
-    //  Only registered module service threads are destinations. Host's I/O and
-    //  conditioning workers share the executable identity but do not run tests.
-    for (const auto slot : m_thread_slots)
-    {
-        auto* const package = (slot >= 0) ? m_thread_packages.get_object(slot) : nullptr;
-        if ((package != nullptr) && (package->module_id() == module))
-        {
-            return package;
-        }
-    }
-    return nullptr;
+    //  Background workers are never registered as module service destinations.
+    if (!module_ids::ops::is_valid_id(module)) return nullptr;
+    const auto index = module_ids::ops::decode_id(module).raw_value();
+    if ((index >= module_ids::k_count) || (m_module_threads[index].slot < 0)) return nullptr;
+    auto* const package = m_thread_packages.get_object(m_module_threads[index].slot);
+    return ((package != nullptr) && (package->module_id() == module)) ? package : nullptr;
 }
 
 threading::CThreadPackage* CHost::worker_package(const std::uint32_t index) noexcept
@@ -299,7 +300,7 @@ int CHost::execute(const char* const log_tag, const char* const executive_file, 
     }
     MV_LOG(info, "Host: Background workers {}, dedicated conditioning workers {}, reported hardware threads {}",
         m_worker_count, ((m_worker_count > 1u) ? (m_worker_count - 1u) : 0u), hardware_threads);
-    const std::uint32_t batch_limit = batch_runner_limit(hardware_threads, m_worker_count, static_cast<std::uint32_t>(k_thread_count));
+    const std::uint32_t batch_limit = batch_runner_limit(hardware_threads, m_worker_count, k_expected_service_threads);
     m_batch_runner_count = std::min(batch_runner_count, batch_limit);
 #if !MV_PLATFORM_HAS_NATIVE_WAIT_WORD
     m_batch_runner_count = 0u;
@@ -505,7 +506,7 @@ void CHost::executive_failure(const EModuleStatus status) noexcept
 {
     m_runtime_failed = true;
     MV_LOG(error, "Executive module lifecycle failed, status {}", static_cast<std::uint32_t>(status));
-    if (threading::CThreadPackage* const executive = thread_package(EWorkerThreadID::executive))
+    if (threading::CThreadPackage* const executive = module_thread_package(module_ids::executive))
     {
         executive->request_exit();
         m_phase = EPhase::stopping_executive;
@@ -565,7 +566,7 @@ void CHost::advance_lifecycle(const threading::EThreadRunState executive_state) 
         }
     }
 
-    threading::CThreadPackage* const executive = thread_package(EWorkerThreadID::executive);
+    threading::CThreadPackage* const executive = module_thread_package(module_ids::executive);
     if (executive != nullptr)
     {
         const threading::EThreadRunState state = executive_state;
@@ -579,12 +580,16 @@ void CHost::advance_lifecycle(const threading::EThreadRunState executive_state) 
 
         //  On shutdown, let the other client release acquisitions during exit,
         //  including those which defer an outgoing Executive's disposal reply.
-        //  Replacement preserves the live renderer and its independent borrows.
+        //  Replacement preserves other module services and their independent borrows.
         const auto* const change = m_executive_request.payload<ModuleRequest>();
         if ((m_phase == EPhase::stopping_executive) && stopped && (m_test_client == nullptr) &&
             m_asset_service.work_idle() && ((change == nullptr) || (change->action != EModuleAction::replace)))
         {
-            if (auto* const rendering = thread_package(EWorkerThreadID::rendering)) rendering->request_exit();
+            for (const auto& service : m_module_threads)
+            {
+                auto* const package = (service.slot >= 0) ? m_thread_packages.get_object(service.slot) : nullptr;
+                if ((package != nullptr) && (package != executive)) package->request_exit();
+            }
         }
         if ((m_phase == EPhase::stopping_executive) && stopped && (m_test_client == nullptr) &&
             m_asset_service.work_idle() && m_module_service.is_idle() && filesystem_idle())
@@ -610,7 +615,7 @@ void CHost::advance_lifecycle(const threading::EThreadRunState executive_state) 
             m_runtime_failed = m_runtime_failed || (state == threading::EThreadRunState::Failed);
             (void)executive->shutdown();
             m_asset_service.detach_client(*executive);
-            std::int32_t& slot = m_thread_slots[static_cast<std::uint32_t>(EWorkerThreadID::executive)];
+            std::int32_t& slot = m_module_threads[module_ids::executive_index.raw_value()].slot;
             (void)m_thread_packages.erase(slot);
             slot = -1;
 
@@ -666,7 +671,7 @@ void CHost::run() noexcept
         {
             m_runtime_failed = true;
             m_executive_request.destroy();
-            if (threading::CThreadPackage* const executive = thread_package(EWorkerThreadID::executive))
+            if (threading::CThreadPackage* const executive = module_thread_package(module_ids::executive))
             {
                 executive->request_exit();
                 m_phase = EPhase::stopping_executive;
@@ -677,15 +682,17 @@ void CHost::run() noexcept
             }
         }
 
-        threading::CThreadPackage* const executive = thread_package(EWorkerThreadID::executive);
+        threading::CThreadPackage* const executive = module_thread_package(module_ids::executive);
 
         //  Observe terminal state before draining queues, then advance the lifecycle.
         //  A terminal publication makes each DLL thread's preceding requests visible.
         const threading::EThreadRunState executive_state = (executive != nullptr) ?
             executive->query_state() : threading::EThreadRunState::Empty;
-        threading::CThreadPackage* const rendering = thread_package(EWorkerThreadID::rendering);
-        const threading::EThreadRunState rendering_state = (rendering != nullptr) ?
-            rendering->query_state() : threading::EThreadRunState::Empty;
+        for (auto& service : m_module_threads)
+        {
+            const auto* const package = (service.slot >= 0) ? m_thread_packages.get_object(service.slot) : nullptr;
+            service.observed_state = (package != nullptr) ? package->query_state() : threading::EThreadRunState::Empty;
+        }
         threading::CThreadPackage* const test_worker = m_test_worker;
         const threading::EThreadRunState test_worker_state = (test_worker != nullptr) ?
             test_worker->query_state() : threading::EThreadRunState::Empty;
@@ -752,7 +759,7 @@ void CHost::run() noexcept
                 {
                     receive_request(owned, package);
                 }
-                else if (&package == rendering)
+                else if (module_thread_package(package.module_id()) == &package)
                 {
                     m_asset_service.request(owned, package);
                 }
@@ -782,28 +789,30 @@ void CHost::run() noexcept
         //  teardown only when no asset operation retains a worker borrow.
         if (m_module_service.needs_thread_start())
         {
-            m_module_service.complete_thread_start(start_rendering());
+            m_module_service.complete_thread_start(start_module_thread());
         }
 
         //  Terminal state was sampled before draining each client's final
         //  messages. Batch users must also be gone before abandoned views die.
-        for (const auto& stopped : { std::pair{ executive, executive_state }, std::pair{ rendering, rendering_state } })
+        for (const auto& service : m_module_threads)
         {
-            if ((stopped.first != nullptr) &&
-                ((stopped.second == threading::EThreadRunState::Exited) || (stopped.second == threading::EThreadRunState::Failed)) &&
-                ((stopped.first->batch_client() == nullptr) ||
-                    ((stopped.first->batch_client()->outstanding() == 0u) && (stopped.first->batch_client()->return_publishers() == 0u))))
+            auto* const package = (service.slot >= 0) ? m_thread_packages.get_object(service.slot) : nullptr;
+            if ((package != nullptr) &&
+                ((service.observed_state == threading::EThreadRunState::Exited) ||
+                    (service.observed_state == threading::EThreadRunState::Failed)) &&
+                ((package->batch_client() == nullptr) ||
+                    ((package->batch_client()->outstanding() == 0u) && (package->batch_client()->return_publishers() == 0u))))
             {
-                m_asset_service.release_client_acquisitions(*stopped.first);
+                m_asset_service.release_client_acquisitions(*package);
             }
         }
         m_asset_service.complete_disposals();
         dispatch_refresh();
         advance_lifecycle(executive_state);
-        const bool stopping_rendering = !m_module_service.is_idle() && !m_module_service.is_in_flight() &&
-            m_module_service.releases_binding() && (m_module_service.pending_mount_point() == mount_point_ids::render);
-        const bool rendering_stopped = !stopping_rendering || stop_rendering(rendering_state);
-        if (rendering_stopped && m_asset_service.work_idle() &&
+        const bool stopping_module = !m_module_service.is_idle() && !m_module_service.is_in_flight() &&
+            m_module_service.releases_binding();
+        const bool module_stopped = !stopping_module || stop_module_thread(m_module_service.pending_mount_point());
+        if (module_stopped && m_asset_service.work_idle() &&
             (!m_module_service.releases_binding() || m_asset_service.dependencies_idle(m_module_service.pending_mount_point())) &&
             !m_module_service.is_idle() && !m_module_service.is_in_flight())
         {
@@ -830,9 +839,9 @@ void CHost::shutdown_threads() noexcept
     {
         (void)m_thread_packages.get_object(slot)->shutdown();
     }
-    for (auto& slot : m_thread_slots)
+    for (auto& service : m_module_threads)
     {
-        slot = -1;
+        service = {};
     }
     for (auto& slot : m_worker_slots)
     {

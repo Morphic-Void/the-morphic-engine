@@ -114,7 +114,8 @@ void CModuleService::request(
     SModuleRecord* const previous = find(pending_mount_point());
     if ((request->action == EModuleAction::load) && (previous != nullptr))
     {
-        finish(EModuleStatus::already_loaded);
+        finish((request->require_service_thread && !previous->has_service_thread) ?
+            EModuleStatus::function_unavailable : EModuleStatus::already_loaded);
         return;
     }
 
@@ -198,9 +199,10 @@ void CModuleService::complete(const threading::CErasedPodMsg& message) noexcept
         return;
     }
     if ((result.status == EModuleStatus::success) && (m_work.next != nullptr) &&
-        (pending_mount_point() == mount_point_ids::render))
+        (m_work.service_thread.entry != nullptr))
     {
         //  Keep the request and client correlation until the Host starts the thread.
+        find(pending_mount_point())->has_service_thread = true;
         m_start_pending = true;
         return;
     }
@@ -227,9 +229,9 @@ void CModuleService::complete_thread_start(const bool started) noexcept
     m_work.cleanup_only = true;
 }
 
-void CModuleService::rendering_stopped() noexcept
+void CModuleService::thread_stopped(const mount_point_ids::id_type mount) noexcept
 {
-    if (SModuleRecord* const record = find(mount_point_ids::render))
+    if (SModuleRecord* const record = find(mount))
     {
         record->thread_started = false;
     }
@@ -248,10 +250,11 @@ void CModuleService::finish(const EModuleStatus status) noexcept
         if ((status == EModuleStatus::success) && (m_work.next == &current->binding))
         {
             current->function = m_work.function;
+            current->has_service_thread = m_work.service_thread.entry != nullptr;
         }
 
         result.available = current->binding.is_ready() &&
-            ((pending_mount_point() != mount_point_ids::render) || current->thread_started);
+            (!current->has_service_thread || current->thread_started);
         result.module = current->identity;
         result.function = result.available ? current->function : nullptr;
     }

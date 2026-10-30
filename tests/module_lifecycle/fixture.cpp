@@ -25,6 +25,7 @@
 #include "assets/asset_messages.hpp"
 #include "system/service_messages.hpp"
 #include "threading/CThreadPackage.hpp"
+#include "threading/messages/message_helpers.hpp"
 #include "debug/macros.hpp"
 
 namespace module_lifecycle_tests
@@ -150,7 +151,7 @@ static bool batch_case(threading::CThreadContext& context,
 
 static bool post(threading::CThreadContext& context, const EModuleAction action,
     const module_ids::id_type module, const char* const file, const std::int32_t slot,
-    const system_type_id function = system_type_ids::undefined) noexcept
+    const system_type_id function = system_type_ids::undefined, const bool require_service = false) noexcept
 {
     CErasedOwner owner = CErasedOwner::create<ModuleRequest>();
     ModuleRequest* const request = owner.payload<ModuleRequest>();
@@ -161,6 +162,7 @@ static bool post(threading::CThreadContext& context, const EModuleAction action,
     request->action = action;
     request->module = module;
     request->required_function = function;
+    request->require_service_thread = require_service || (module == module_ids::render_vulkan);
     threading::CErasedOwnerMsg message;
     message.set_message_type<ModuleRequest>();
     message.set_async_slot(slot);
@@ -672,9 +674,68 @@ static bool executive_test_routing_case(threading::CThreadContext& context,
     return self_terminate(context, nullptr);
 }
 
+static bool service_lifecycle_case(threading::CThreadContext& context, const char* const selected) noexcept
+{
+    auto change = [&](const EModuleAction action, const char* const file, const std::int32_t slot,
+        const bool required, const EModuleStatus expected, const bool available) noexcept
+    {
+        if (!post(context, action, module_ids::conditioning_general, file, slot,
+            system_type_ids::undefined, required)) return false;
+        for (const auto notice : { EModuleNotice::acknowledged, EModuleNotice::completed })
+        {
+            threading::CErasedPodMsg message;
+            ModuleResult result;
+            if (!receive(context, message) || !message.copy_payload_to(result) ||
+                (message.query_async_slot() != slot) || (result.module != module_ids::conditioning_general) ||
+                (result.notice != notice) || (result.status !=
+                    ((notice == EModuleNotice::acknowledged) ? EModuleStatus::success : expected)) ||
+                ((notice == EModuleNotice::completed) && (result.available != available))) return false;
+        }
+        return true;
+    };
+    auto test = [&](const std::int32_t slot, const ETestRunStatus expected) noexcept
+    {
+        auto message = threading::make_pod_message(slot, RunTestsRequest{ module_ids::conditioning_general });
+        RunTestsResult result;
+        return context.post(message) && receive(context, message) && message.copy_payload_to(result) &&
+            (message.query_async_slot() == slot) && (result.module == module_ids::conditioning_general) &&
+            (result.status == expected) && (result.passed == ((expected == ETestRunStatus::success) ? 1u : 0u)) &&
+            (result.failed == 0u) && (result.skipped == 0u);
+    };
+    const auto service_file = test_environment::module_filename("package:/bin/MorphicLifecycleService");
+    if ((std::strcmp(selected, "service-invalid-entry") == 0) || (std::strcmp(selected, "service-invalid-id") == 0) ||
+        (std::strcmp(selected, "service-start-failure") == 0))
+    {
+        const auto expected = (std::strcmp(selected, "service-start-failure") == 0) ?
+            EModuleStatus::installation_failed : EModuleStatus::function_unavailable;
+        return change(EModuleAction::load, service_file.c_str(), 1, true, expected, false) &&
+            change(EModuleAction::unload, nullptr, 2, false, EModuleStatus::not_loaded, false) && self_terminate(context, nullptr);
+    }
+    if (!operation(context, EModuleAction::load, test_environment::module_filename("package:/bin/MorphicRendering").c_str(),
+        1, EModuleStatus::success, true)) return false;
+    const auto passive_file = test_environment::module_filename("package:/bin/MorphicLifecyclePassive");
+    if (!change(EModuleAction::load, passive_file.c_str(), 2, true, EModuleStatus::function_unavailable, false) ||
+        !change(EModuleAction::load, passive_file.c_str(), 3, false, EModuleStatus::success, true) ||
+        !test(4, ETestRunStatus::unavailable) ||
+        !change(EModuleAction::load, passive_file.c_str(), 5, true, EModuleStatus::function_unavailable, true) ||
+        !change(EModuleAction::replace, service_file.c_str(), 6, true, EModuleStatus::success, true) ||
+        !test(7, ETestRunStatus::success)) return false;
+    if (std::strcmp(selected, "service-lifecycle") == 0)
+    {
+        CAssetId dependent;
+        if (!retain_raw_asset(context, true, &dependent, mount_point_ids::conditioning) ||
+            !change(EModuleAction::replace, service_file.c_str(), 8, true, EModuleStatus::success, true) ||
+            !dispose_asset(context, dependent, EAssetStatus::invalid_asset) || !test(9, ETestRunStatus::success) ||
+            !change(EModuleAction::unload, nullptr, 10, false, EModuleStatus::success, false) ||
+            !test(11, ETestRunStatus::unavailable)) return false;
+    }
+    return self_terminate(context, nullptr);
+}
+
 static bool run_case(threading::CThreadContext& context,
     threading::CThreadResources& resources, const char* const selected) noexcept
 {
+    if (std::strncmp(selected, "service-", 8u) == 0) return service_lifecycle_case(context, selected);
     if ((std::strcmp(selected, "tests-routing") == 0) || (std::strcmp(selected, "tests-worker-exit") == 0) ||
         (std::strcmp(selected, "tests-client-unload") == 0))
     {
@@ -863,6 +924,87 @@ static std::uint32_t MV_STD_ABI_CALL executive_entry(void* const data) noexcept
     }
     return success ? 0u : 1u;
 }
+#elif MV_LIFECYCLE_SERVICE || MV_LIFECYCLE_PASSIVE
+static constexpr auto k_advertised_module_id = module_ids::conditioning_general;
+
+#if MV_LIFECYCLE_SERVICE
+static std::uint32_t MV_STD_ABI_CALL service_entry(void* const data) noexcept
+{
+    threading::CThreadContext context{ *static_cast<threading::CThreadResources*>(data) };
+    context.startup();
+    auto fail = [&]() noexcept { context.mark_failed(1u); return 1u; };
+    char selected[40]{};
+    std::size_t required{ 0u };
+    (void)getenv_s(&required, selected, sizeof(selected), "MORPHIC_LIFECYCLE_CASE");
+    if ((std::strcmp(selected, "service-start-failure") == 0) ||
+        (system_context::get_ambient_module_id() != module_ids::conditioning_general) ||
+        (system_context::get_ambient_thread_id() != thread_ids::simulation)) return fail();
+    context.mark_running();
+    auto read = [&](threading::CErasedPodMsg& message) noexcept
+    {
+        platform::system::CPerfCounter timer;
+        (void)timer.update();
+        while (timer.query_delta() < context.perf_count_conversion().query_ticks_per_second() * 10u)
+        {
+            if (context.read(message)) return true;
+            context.advance_heartbeat();
+            platform::threading::processor_relax();
+        }
+        return false;
+    };
+    threading::CErasedPodMsg message;
+    RunTestsRequest tests;
+    if (!read(message) || !message.copy_payload_to(tests) || (tests.module != module_ids::conditioning_general)) return fail();
+    const auto correlation = message.query_async_slot();
+    //  Hold a separate lifecycle borrow beyond the test completion, then prove
+    //  that replacement and system shutdown allow its release and disposal.
+    auto input = threading::make_owner_message<RawAssetTransfer>(200);
+    auto* const transfer = input.owner().payload<RawAssetTransfer>();
+    if (!transfer || !transfer->storage.value.resize(16u)) return fail();
+    std::memset(transfer->storage.value.data(), 0x6b, 16u);
+    AssetResult asset;
+    if (!context.post(std::move(input)) || !read(message) || !message.copy_payload_to(asset) ||
+        (message.query_async_slot() != 200) || (asset.status != EAssetStatus::success)) return fail();
+    message = threading::make_pod_message(201, AssetAcquireRequest{ asset.asset });
+    AssetAcquireResult acquired;
+    if (!context.post(message) || !read(message) || !message.copy_payload_to(acquired) ||
+        (message.query_async_slot() != 201) || (acquired.status != EAssetStatus::success) || !acquired.acquisition) return fail();
+    message = threading::make_pod_message(202, AssetDisposeRequest{ asset.asset });
+    if (!context.post(message)) return fail();
+    message = threading::make_pod_message(correlation, RunTestsResult{ module_ids::conditioning_general, ETestRunStatus::success, 1u, 0u, 0u });
+    if (!context.post(message)) return fail();
+    std::uint32_t epoch{ 0u };
+    while (!context.exit_requested()) epoch = context.wait_for_new_epoch(epoch);
+    context.mark_exiting();
+    if ((acquired.byte_view().size() != 16u) || (acquired.byte_view().data()[15] != 0x6b)) return fail();
+    message = threading::make_pod_message(203, AssetReleaseRequest{ acquired.acquisition });
+    if (!context.post(message)) return fail();
+    bool released{ false }, disposed{ false };
+    for (unsigned i = 0u; i < 2u; ++i)
+    {
+        AssetReleaseResult release;
+        AssetDisposeResult disposal;
+        if (!read(message)) return fail();
+        if (message.copy_payload_to(release))
+        {
+            if (released || (message.query_async_slot() != 203) || (release.status != EAssetStatus::success) ||
+                (release.acquisition != acquired.acquisition)) return fail();
+            released = true;
+        }
+        else if (message.copy_payload_to(disposal))
+        {
+            if (disposed || (message.query_async_slot() != 202) || (disposal.status != EAssetStatus::success) ||
+                (disposal.asset != asset.asset)) return fail();
+            disposed = true;
+        }
+        else return fail();
+    }
+    if (!released || !disposed) return fail();
+    MV_LOG(info, "Lifecycle service: acquisition and disposal drained");
+    context.mark_exited();
+    return 0u;
+}
+#endif
 #else
 static constexpr auto k_advertised_module_id = module_ids::render_vulkan;
 
@@ -1215,3 +1357,22 @@ MV_MODULE_EXPORT modules::EBindingResult MV_STD_ABI_CALL morphic_module_bootstra
 {
     return module_lifecycle_tests::s_binding.bootstrap(functions);
 }
+
+#if MV_LIFECYCLE_RENDERING_FAILURE || MV_LIFECYCLE_RENDERING_DISPOSAL || MV_LIFECYCLE_SERVICE
+MV_MODULE_EXPORT modules::EBindingResult MV_STD_ABI_CALL morphic_module_service_thread_v1(
+    modules::SServiceThread* const service) noexcept
+{
+    if (service == nullptr) return modules::EBindingResult::invalid_argument;
+#if MV_LIFECYCLE_SERVICE
+    *service = { thread_ids::simulation, &module_lifecycle_tests::service_entry };
+    char selected[40]{};
+    std::size_t required{ 0u };
+    (void)getenv_s(&required, selected, sizeof(selected), "MORPHIC_LIFECYCLE_CASE");
+    if (std::strcmp(selected, "service-invalid-entry") == 0) service->entry = nullptr;
+    if (std::strcmp(selected, "service-invalid-id") == 0) service->thread = {};
+#else
+    *service = { thread_ids::rendering, &module_lifecycle_tests::rendering_entry };
+#endif
+    return modules::EBindingResult::success;
+}
+#endif

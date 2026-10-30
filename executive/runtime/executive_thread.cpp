@@ -355,7 +355,7 @@ bool CExecutiveThread::initialise() noexcept
     CSimpleString rendering_file;
     if (!platform::module::make_module_filename("package:/bin/MorphicRendering", rendering_file) ||
         !request_preparation::prepare_module_request(pending, m_pending_slot,
-        module_ids::render_vulkan, EModuleAction::load, rendering_file.cstring()))
+        module_ids::render_vulkan, EModuleAction::load, rendering_file.cstring(), true))
     {
         fail(EFailure::submission, "rendering load preparation");
         return false;

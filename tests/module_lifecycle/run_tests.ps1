@@ -33,14 +33,14 @@ if (!$SkipBuild) {
         & $MSBuild (Join-Path $repository 'MorphicEngine.sln') /m "/p:Configuration=$Configuration" "/p:Platform=$solutionPlatform" /v:minimal
         if ($LASTEXITCODE -ne 0) { throw 'Solution build failed.' }
     }
-    foreach ($role in @('MissingThread', 'RenderingFailure', 'RenderingDisposal', 'Executive')) {
+    foreach ($role in @('MissingThread', 'RenderingFailure', 'RenderingDisposal', 'Service', 'Passive', 'Executive')) {
         & $MSBuild (Join-Path $repository 'visual_studio/MorphicLifecycleFixture.vcxproj') /m "/p:Configuration=$Configuration" "/p:Platform=$Platform" "/p:SolutionDir=$repository\" "/p:FixtureRole=$role" /v:minimal
         if ($LASTEXITCODE -ne 0) { throw "$role fixture build failed." }
     }
 }
 
 if ($Cases.Count -eq 0) {
-    $Cases = @('bundle', 'bundle-inline', 'bundle-late-reference', 'bundle-replace', 'bundle-shutdown', 'bundle-failures', 'bundle-rendering', 'batch', 'batch-inline', 'batch-exit', 'ordinary', 'dependency', 'disposal', 'disposal-during-save', 'shutdown', 'shutdown-dependency', 'replace', 'replace-dependency', 'replace-missing', 'bootstrap-missing', 'startup-failure', 'replace-startup-failure', 'thread-failures', 'render-shutdown', 'render-shutdown-dependency', 'render-replace-dependency', 'render-executive-replace', 'render-drain', 'render-exit-disposal', 'normal-startup', 'normal-unavailable', 'normal-bad-start', 'normal-missing-thread', 'normal-tests-malformed', 'acquire-render-release', 'acquire-render-abandon', 'acquire-render-replace', 'tests-routing', 'tests-worker-exit', 'tests-client-unload')
+    $Cases = @('bundle', 'bundle-inline', 'bundle-late-reference', 'bundle-replace', 'bundle-shutdown', 'bundle-failures', 'bundle-rendering', 'batch', 'batch-inline', 'batch-exit', 'ordinary', 'dependency', 'disposal', 'disposal-during-save', 'shutdown', 'shutdown-dependency', 'replace', 'replace-dependency', 'replace-missing', 'bootstrap-missing', 'startup-failure', 'replace-startup-failure', 'thread-failures', 'render-shutdown', 'render-shutdown-dependency', 'render-replace-dependency', 'render-executive-replace', 'render-drain', 'render-exit-disposal', 'normal-startup', 'normal-unavailable', 'normal-bad-start', 'normal-missing-thread', 'normal-tests-malformed', 'acquire-render-release', 'acquire-render-abandon', 'acquire-render-replace', 'tests-routing', 'tests-worker-exit', 'tests-client-unload', 'service-lifecycle', 'service-shutdown', 'service-invalid-entry', 'service-invalid-id', 'service-start-failure')
 }
 foreach ($case in $Cases) {
     $tag = "lifecycle-$suffix-$case"
@@ -60,7 +60,7 @@ foreach ($case in $Cases) {
             Copy-Item -LiteralPath (Join-Path $binaryDirectory $fixture) -Destination (Join-Path $launchDirectory 'MorphicRendering.dll')
         }
     }
-    $expectedExit = if ($case.EndsWith('-missing') -or $case.EndsWith('-failure') -or ($case -eq 'normal-tests-malformed')) { 1 } else { 0 }
+    $expectedExit = if ($case.EndsWith('-missing') -or ($case.EndsWith('-failure') -and ($case -ne 'service-start-failure')) -or ($case -eq 'normal-tests-malformed')) { 1 } else { 0 }
     $process = [Diagnostics.Process]::new()
     $process.StartInfo.FileName = Join-Path $launchDirectory 'MorphicEngine.exe'
     $process.StartInfo.WorkingDirectory = $runtime
@@ -125,7 +125,7 @@ foreach ($case in $Cases) {
         }
         elseif ($errors.Count -ne 0) { throw "$case has unexpected errors: $log" }
         $assertions = [regex]::Matches($events, '\[assert:').Count
-        $dependencyCleanup = $case -in @('dependency', 'shutdown-dependency', 'replace-dependency', 'render-shutdown-dependency', 'render-replace-dependency', 'render-drain')
+        $dependencyCleanup = $case -in @('dependency', 'shutdown-dependency', 'replace-dependency', 'render-shutdown-dependency', 'render-replace-dependency', 'render-drain', 'service-lifecycle')
         $expectedAssertions = if ($dependencyCleanup -or ($case -eq 'bundle-late-reference')) { 1 } else { 0 }
         if ($assertions -ne $expectedAssertions) { throw "$case has $assertions assertion logs, expected $expectedAssertions." }
         if ($dependencyCleanup) {
@@ -133,7 +133,7 @@ foreach ($case in $Cases) {
             if ($cleanup -lt 0) { throw "$case has no dependency cleanup diagnostic." }
             $unload = $events.IndexOf('Module unloaded', $cleanup)
             if ($unload -lt $cleanup) { throw "$case did not dispose dependencies before unload." }
-            if (($case -notin @('dependency', 'render-replace-dependency', 'render-drain')) -and ($events.IndexOf("Lifecycle fixture: $case passed") -gt $cleanup)) { throw "$case disposed assets before the outgoing Executive finished." }
+            if (($case -notin @('dependency', 'render-replace-dependency', 'render-drain', 'service-lifecycle')) -and ($events.IndexOf("Lifecycle fixture: $case passed") -gt $cleanup)) { throw "$case disposed assets before the outgoing Executive finished." }
         }
         if (($expectedExit -eq 1) -and ($case -ne 'normal-tests-malformed') -and !$events.Contains('Executive module lifecycle failed')) { throw "$case has no lifecycle failure diagnostic." }
         if (!$normalExecutive -and ($case -ne 'bootstrap-missing') -and ($case -ne 'startup-failure')) {
@@ -186,7 +186,7 @@ foreach ($case in $Cases) {
         }
         if ($case -eq 'bundle-rendering') {
             $owned = $events.IndexOf('Bundle fixture: Rendering owns loaded bundle')
-            $joined = $events.IndexOf('Host: Rendering thread joined')
+            $joined = $events.IndexOf('Host: Module render_vulkan service thread joined')
             $released = $events.IndexOf('Bundle fixture: Rendering ownership and post-join sub-file release passed')
             if (($owned -lt 0) -or ($joined -lt $owned) -or ($released -lt $joined)) {
                 throw 'Rendering bundle ownership and notification retirement incomplete.'
@@ -237,12 +237,12 @@ foreach ($case in $Cases) {
                 throw "$case did not wait for rendering readiness before asset acceptance."
             }
         }
-        $starts = [regex]::Matches($events, 'Host: Rendering started after asynchronous binding').Count
-        $joins = [regex]::Matches($events, 'Host: Rendering thread joined').Count
+        $starts = [regex]::Matches($events, 'Host: Module render_vulkan service thread started after asynchronous binding').Count
+        $joins = [regex]::Matches($events, 'Host: Module render_vulkan service thread joined').Count
         if ($case -in @('tests-routing', 'tests-worker-exit', 'tests-client-unload')) {
             $completion = $events.IndexOf('Lifecycle tests: Executive terminal completion passed')
             $cleanup = $events.IndexOf('Lifecycle tests: caller acquisition and disposal drained')
-            $joined = $events.IndexOf('Host: Rendering thread joined')
+            $joined = $events.IndexOf('Host: Module render_vulkan service thread joined')
             if (($starts -ne 1) -or
                 !$events.Contains('Lifecycle tests: Executive destination, correlation and rejection checks passed') -or
                 ($completion -lt 0) -or ($cleanup -lt $completion) -or ($joined -lt $cleanup)) {
@@ -267,7 +267,7 @@ foreach ($case in $Cases) {
         if (($case -eq 'render-executive-replace') -and !$events.Contains('Executive: Rendering ready (already loaded)')) { throw 'Replacement Executive did not reuse the available renderer.' }
         if ($starts -ne $joins) { throw "$case left a rendering thread unjoined." }
         if (($case -eq 'render-executive-replace') -and (($starts -ne 1) -or
-            ($events.IndexOf('Host: Rendering thread joined') -lt $events.IndexOf('Asset acceptance: 50 sequential and 32 concurrent operations passed')))) {
+            ($events.IndexOf('Host: Module render_vulkan service thread joined') -lt $events.IndexOf('Asset acceptance: 50 sequential and 32 concurrent operations passed')))) {
             throw 'Rendering did not survive the Executive replacement and acceptance flow.'
         }
         if (($case -in @('ordinary', 'dependency', 'disposal', 'disposal-during-save', 'thread-failures', 'render-shutdown', 'render-shutdown-dependency', 'render-replace-dependency', 'render-executive-replace', 'render-drain', 'render-exit-disposal')) -and ($starts -eq 0)) {
@@ -284,12 +284,30 @@ foreach ($case in $Cases) {
                 $deferred = $events.IndexOf('Host asset disposal deferred for accepted borrowers at client slot 600')
                 $completed = $events.IndexOf('Host asset disposal completed at client slot 600')
                 $finalCompleted = $events.IndexOf('Host asset disposal completed at client slot 601')
-                $joined = $events.IndexOf('Host: Rendering thread joined')
+                $joined = $events.IndexOf('Host: Module render_vulkan service thread joined')
                 # Saves can legally finish before the renderer posts disposal.
                 # When deferral occurs, require its completion ordering too.
                 if (($completed -lt 0) -or (($deferred -ge 0) -and ($completed -lt $deferred)) -or ($finalCompleted -lt 0) -or
                     ($joined -lt $completed) -or ($joined -lt $finalCompleted)) {
                     throw 'Rendering disposal did not complete and drain final requests before package destruction.'
+                }
+            }
+        }
+        if ($case -in @('service-lifecycle', 'service-shutdown')) {
+            $expectedServices = if ($case -eq 'service-lifecycle') { 2 } else { 1 }
+            $serviceStarts = [regex]::Matches($events, 'Host: Module conditioning_general service thread started').Count
+            $serviceJoins = [regex]::Matches($events, 'Host: Module conditioning_general service thread joined').Count
+            $serviceCleanup = [regex]::Matches($events, 'Lifecycle service: acquisition and disposal drained').Count
+            if (($starts -ne 1) -or ($serviceStarts -ne $expectedServices) -or
+                ($serviceJoins -ne $serviceStarts) -or ($serviceCleanup -ne $serviceStarts)) {
+                throw 'Concurrent service lifecycle or acquisition cleanup incomplete.'
+            }
+            $cleanups = 0
+            $joinedServices = 0
+            foreach ($line in ($events -split "`n")) {
+                if ($line.Contains('Lifecycle service: acquisition and disposal drained')) { ++$cleanups }
+                if ($line.Contains('Host: Module conditioning_general service thread joined')) {
+                    if (++$joinedServices -gt $cleanups) { throw 'Service joined before acquisition cleanup.' }
                 }
             }
         }
@@ -303,7 +321,7 @@ foreach ($case in $Cases) {
                 $exited = $false
             }
             if ($line.Contains('Rendering: Exited')) { $exited = $true }
-            if ($line.Contains('Host: Rendering thread joined')) {
+            if ($line.Contains('Host: Module render_vulkan service thread joined')) {
                 if (!$running -or !$exited) { throw "$case joined before the rendering exit path completed." }
                 $running = $false
             }

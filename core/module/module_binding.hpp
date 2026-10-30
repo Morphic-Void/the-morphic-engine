@@ -25,15 +25,9 @@
 //  External declarations
 //==============================================================================
 
-namespace debug_system
-{
-class CDebugServiceState;
-}
+namespace debug_system { class CDebugServiceState; }
 
-namespace memory
-{
-class CMemoryContext;
-}
+namespace memory { class CMemoryContext; }
 
 namespace modules
 {
@@ -63,15 +57,12 @@ struct SAdvertisedIdentity
 
 [[nodiscard]] constexpr bool functional_ranges_overlap(const SAdvertisedIdentity& lhs, const SAdvertisedIdentity& rhs) noexcept
 {
-    return (lhs.minimum_functional_major <= rhs.maximum_functional_major) &&
-        (rhs.minimum_functional_major <= lhs.maximum_functional_major);
+    return (lhs.minimum_functional_major <= rhs.maximum_functional_major) && (rhs.minimum_functional_major <= lhs.maximum_functional_major);
 }
 
 [[nodiscard]] constexpr std::uint32_t highest_common_functional_major(const SAdvertisedIdentity& lhs, const SAdvertisedIdentity& rhs) noexcept
 {
-    return (lhs.maximum_functional_major < rhs.maximum_functional_major)
-        ? lhs.maximum_functional_major
-        : rhs.maximum_functional_major;
+    return (lhs.maximum_functional_major < rhs.maximum_functional_major) ? lhs.maximum_functional_major : rhs.maximum_functional_major;
 }
 
 enum class EBindingResult : std::uint32_t
@@ -85,6 +76,19 @@ enum class EBindingResult : std::uint32_t
 };
 
 using FModuleFunction = void(MV_STD_ABI_CALL*)() noexcept;
+
+//  Optional, independently versioned service-thread capability. Absence means
+//  a passive module. A successful query must supply both fields; Host owns the
+//  thread and keeps the binding installed until its work drains and it joins.
+inline constexpr char k_service_thread_symbol_name[]{ "morphic_module_service_thread_v1" };
+using FServiceThreadEntry = std::uint32_t(MV_STD_ABI_CALL*)(void* const resources) noexcept;
+struct SServiceThread
+{
+    thread_ids::id_type thread{};
+    FServiceThreadEntry entry{ nullptr };
+};
+using FQueryServiceThread = EBindingResult(MV_STD_ABI_CALL*)(SServiceThread* const service) noexcept;
+static_assert(std::is_standard_layout_v<SServiceThread> && std::is_trivially_copyable_v<SServiceThread>);
 
 using FQueryAdvertisedIdentity = EBindingResult(MV_STD_ABI_CALL*)(SAdvertisedIdentity* const identity) noexcept;
 using FInstallPeerIdentity = EBindingResult(MV_STD_ABI_CALL*)(const SAdvertisedIdentity* const identity) noexcept;
