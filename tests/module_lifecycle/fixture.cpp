@@ -162,7 +162,7 @@ static bool post(threading::CThreadContext& context, const EModuleAction action,
     request->action = action;
     request->module = module;
     request->required_function = function;
-    request->require_service_thread = require_service || (module == module_ids::render_vulkan);
+    request->require_service_thread = require_service || (module == module_ids::rendering);
     threading::CErasedOwnerMsg message;
     message.set_message_type<ModuleRequest>();
     message.set_async_slot(slot);
@@ -190,7 +190,7 @@ static bool operation(threading::CThreadContext& context, const EModuleAction ac
     const char* const file, const std::int32_t slot, const EModuleStatus expected, const bool available,
     const system_type_id function = system_type_ids::undefined) noexcept
 {
-    if (!post(context, action, module_ids::render_vulkan, file, slot, function))
+    if (!post(context, action, module_ids::rendering, file, slot, function))
     {
         return false;
     }
@@ -199,7 +199,7 @@ static bool operation(threading::CThreadContext& context, const EModuleAction ac
         threading::CErasedPodMsg message;
         ModuleResult result;
         if (!receive(context, message) || !message.copy_payload_to(result) || (message.query_async_slot() != slot) ||
-            (result.module != module_ids::render_vulkan) ||
+            (result.module != module_ids::rendering) ||
             (result.notice != notice) || (result.status != ((notice == EModuleNotice::acknowledged) ? EModuleStatus::success : expected)) ||
             ((notice == EModuleNotice::completed) && ((result.available != available) ||
                 ((expected == EModuleStatus::success) && (function != system_type_ids::undefined) && (result.function == nullptr)))))
@@ -403,7 +403,7 @@ static bool disposal_during_saves(threading::CThreadContext& context) noexcept
     }
     //  An owning request behind the saves establishes their admission before
     //  disposal crosses the separate POD queue. The service is already loaded.
-    if (!post(context, EModuleAction::load, module_ids::render_vulkan, test_environment::module_filename("package:/bin/MorphicRendering").c_str(), 40))
+    if (!post(context, EModuleAction::load, module_ids::rendering, test_environment::module_filename("package:/bin/MorphicRendering").c_str(), 40))
     {
         return false;
     }
@@ -557,7 +557,7 @@ static bool unload_during_saves(threading::CThreadContext& context, const bool r
     //  This owning request follows every save on the same queue. Teardown must
     //  retain the rendering package until accepted saves and disposal replies
     //  finish, before destroying its transports or disposing dependent assets.
-    if (!post(context, EModuleAction::unload, module_ids::render_vulkan, nullptr, 40))
+    if (!post(context, EModuleAction::unload, module_ids::rendering, nullptr, 40))
     {
         return false;
     }
@@ -629,10 +629,10 @@ static bool executive_test_routing_case(threading::CThreadContext& context,
     //  The Executive is the test worker. Another request, including one from
     //  that worker, must receive busy until the current result is forwarded.
     message.set_async_slot(90);
-    message.assign_payload(RunTestsRequest{ module_ids::render_vulkan });
+    message.assign_payload(RunTestsRequest{ module_ids::rendering });
     RunTestsResult busy;
     if (!context.post(message) || !receive(context, message) || !message.copy_payload_to(busy) ||
-        (message.query_async_slot() != 90) || (busy.module != module_ids::render_vulkan) ||
+        (message.query_async_slot() != 90) || (busy.module != module_ids::rendering) ||
         (busy.status != ETestRunStatus::busy)) return false;
     message.set_async_slot(INT32_MAX);
     message.assign_payload(RunTestsResult{ module_ids::executive, ETestRunStatus::success, 7u, 0u, 2u });
@@ -642,7 +642,7 @@ static bool executive_test_routing_case(threading::CThreadContext& context,
         (request.module != module_ids::executive) || (message.query_async_slot() != 111)) return false;
     if (unload_client)
     {
-        if (!post(context, EModuleAction::unload, module_ids::render_vulkan, nullptr, 120)) return false;
+        if (!post(context, EModuleAction::unload, module_ids::rendering, nullptr, 120)) return false;
         ModuleResult notice;
         if (!receive(context, message) || !message.copy_payload_to(notice) ||
             (message.query_async_slot() != 120) || (notice.notice != EModuleNotice::acknowledged) ||
@@ -749,7 +749,7 @@ static bool run_case(threading::CThreadContext& context,
             test_environment::module_filename("package:/bin/MorphicLifecycleRenderingDisposal").c_str(), 1, EModuleStatus::success, true)) return false;
         threading::CErasedPodMsg request, completion;
         request.set_async_slot(50);
-        request.assign_payload(RunTestsRequest{ module_ids::render_vulkan });
+        request.assign_payload(RunTestsRequest{ module_ids::rendering });
         RunTestsResult result;
         if (!context.post(request) || !receive(context, completion) || !completion.copy_payload_to(result) ||
             (completion.query_async_slot() != 50) || (result.status != ETestRunStatus::success) || (result.passed != 1u)) return false;
@@ -1006,7 +1006,7 @@ static std::uint32_t MV_STD_ABI_CALL service_entry(void* const data) noexcept
 }
 #endif
 #else
-static constexpr auto k_advertised_module_id = module_ids::render_vulkan;
+static constexpr auto k_advertised_module_id = module_ids::rendering;
 
 #if MV_LIFECYCLE_RENDERING_FAILURE
 static std::uint32_t MV_STD_ABI_CALL rendering_entry(void* const data) noexcept
@@ -1126,8 +1126,8 @@ static bool rendering_test_routing_case(threading::CThreadContext& context, cons
     if ((result.status != ETestRunStatus::unavailable) ||
         !rejected({}, 101, ETestRunStatus::invalid_request) ||
         !rejected(module_ids::executive, -1, ETestRunStatus::invalid_request) ||
-        !rejected(module_ids::platform_windows, 102, ETestRunStatus::unavailable) ||
-        !rejected(module_ids::render_vulkan, 103, ETestRunStatus::unavailable)) return false;
+        !rejected(module_ids::conditioning_general, 102, ETestRunStatus::unavailable) ||
+        !rejected(module_ids::rendering, 103, ETestRunStatus::unavailable)) return false;
 
     message.set_async_slot(INT32_MAX);
     message.assign_payload(RunTestsRequest{ module_ids::executive });

@@ -759,7 +759,8 @@ the protocol, failure handling and test entry points.
 
 Completed on 21 September 2026 in `f91ded3`, after coordinator and user review.
 `MorphicRendering` is a separate solution DLL. Its `render_vulkan_windows`
-identity at that milestone was later consolidated as `render_vulkan`.
+identity at that milestone was later consolidated as `render_vulkan`, then
+renamed to the backend-neutral `rendering` during catalogue rationalisation.
 It provisions a module thread which parks until exit; no graphics API is implemented.
 Vulkan is the primary first rendering target; DirectX remains deferred.
 

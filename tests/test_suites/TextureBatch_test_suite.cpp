@@ -72,8 +72,8 @@ struct SRealFixture
         modules::FModuleFunction function = nullptr;
         if (!debug_service->configure_log_paths(log.c_str(), direct_log.c_str()) ||
             !debug_service->open_logs() || !debug_service->start() || !path.is_ready() ||
-            !module.bind(path, module_ids::render_vulkan, identity) ||
-            !module.install(test_environment::system_registry_view(), module_ids::render_vulkan,
+            !module.bind(path, module_ids::rendering, identity) ||
+            !module.install(test_environment::system_registry_view(), module_ids::rendering,
                 test_environment::rendering_memory_context(), debug_service.operator->()) ||
             !module.query_function(system_type_ids::rendering_thread_function, function))
         {
@@ -86,10 +86,10 @@ struct SRealFixture
     bool start(const bool queued) noexcept
     {
         shared.runner_count = queued ? 1u : 0u;
-        const threading::ThreadConfig config{ thread_ids::rendering, module_ids::render_vulkan,
+        const threading::ThreadConfig config{ thread_ids::rendering, module_ids::rendering,
             platform::threading::EThreadPriority::Normal, entry, (&modules::CBoundModule::prepare_thread), (&module) };
         return package.emplace(config, conversion) &&
-            package->install_batch_client(shared, module_ids::render_vulkan, (&module)) && package->startup();
+            package->install_batch_client(shared, module_ids::rendering, (&module)) && package->startup();
     }
 
     bool acquire() noexcept
@@ -164,11 +164,11 @@ static void test_module_test_protocol(tests::TTestContext& ctx, SRealFixture& fi
     // acquisition replies are distinguished by type, not the caller's slot.
     constexpr std::int32_t run_slot = INT32_MAX;
     constexpr std::int32_t busy_slot = INT32_MAX - 1;
-    TEST_EXPECT(ctx, send(run_slot, module_ids::render_vulkan));
+    TEST_EXPECT(ctx, send(run_slot, module_ids::rendering));
     threading::CErasedOwnerMsg input;
     TEST_EXPECT(ctx, tests::wait_until(fixture.conversion, [&]() noexcept { return fixture.package->read(input); }));
     TEST_EXPECT(ctx, input.is_message_a<RawAssetTransfer>());
-    TEST_EXPECT(ctx, send(busy_slot, module_ids::render_vulkan));
+    TEST_EXPECT(ctx, send(busy_slot, module_ids::rendering));
     TEST_EXPECT(ctx, receive(reply) && reply.copy_payload_to(result));
     TEST_EXPECT(ctx, reply.query_async_slot() == busy_slot && result.status == ETestRunStatus::busy);
 
@@ -181,7 +181,7 @@ static void test_module_test_protocol(tests::TTestContext& ctx, SRealFixture& fi
     TEST_EXPECT(ctx, reply.query_async_slot() == run_slot && result.status == ETestRunStatus::failed &&
         result.passed == 0u && result.failed == 0u && result.skipped == 23u);
 
-    TEST_EXPECT(ctx, send(83, module_ids::render_vulkan));
+    TEST_EXPECT(ctx, send(83, module_ids::rendering));
     TEST_EXPECT(ctx, tests::wait_until(fixture.conversion, [&]() noexcept { return fixture.package->read(input); }));
     fixture.package->request_exit();
     TEST_EXPECT(ctx, tests::wait_until(fixture.conversion, [&]() noexcept
@@ -202,7 +202,7 @@ static void test_module_test_protocol(tests::TTestContext& ctx, SRealFixture& fi
     service.request_disposal(disposal, reply.query_async_slot(), *fixture.package);
     service.complete_disposals();
     TEST_EXPECT(ctx, receive(reply) && reply.copy_payload_to(result));
-    TEST_EXPECT(ctx, reply.query_async_slot() == 83 && result.module == module_ids::render_vulkan &&
+    TEST_EXPECT(ctx, reply.query_async_slot() == 83 && result.module == module_ids::rendering &&
         result.status == ETestRunStatus::cancelled && result.passed == 0u && result.failed == 0u && result.skipped == 23u);
     TEST_EXPECT(ctx, service.is_idle() && !service.failed());
     service.deallocate();

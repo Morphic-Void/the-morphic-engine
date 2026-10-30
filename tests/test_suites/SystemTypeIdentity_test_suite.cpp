@@ -184,7 +184,7 @@ void expect_host_private_identities(TTestContext& ctx)
         TEST_EXPECT(ctx, erased_transport_admission::classify(
             identity, module_ids::executable).rejection ==
             erased_transport_admission::ERejection::none);
-        for (const auto destination : { module_ids::executive, module_ids::render_vulkan })
+        for (const auto destination : { module_ids::executive, module_ids::rendering })
         {
             TEST_EXPECT(ctx, erased_transport_admission::classify(
                 identity, destination).rejection ==

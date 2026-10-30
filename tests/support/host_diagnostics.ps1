@@ -9,7 +9,7 @@ function Assert-HostDiagnostics([string] $Events, [string] $Runtime) {
         throw 'Generic asset acquisition acceptance did not complete.'
     }
     $expectedCases = @(Get-Content -LiteralPath (Join-Path $PSScriptRoot '../texture/flow_cases.json') -Raw | ConvertFrom-Json)
-    $actualCases = @([regex]::Matches($Events, '\[render_vulkan:rendering\].*\[texture_flow_tests\.cpp:\d+\] Rendering: (\w+) passed') |
+    $actualCases = @([regex]::Matches($Events, '\[rendering:rendering\].*\[texture_flow_tests\.cpp:\d+\] Rendering: (\w+) passed') |
         ForEach-Object { $_.Groups[1].Value })
     if (($actualCases.Count -ne $expectedCases.Count) -or
         @(Compare-Object ($actualCases | Sort-Object) ($expectedCases | Sort-Object)).Count -ne 0) {

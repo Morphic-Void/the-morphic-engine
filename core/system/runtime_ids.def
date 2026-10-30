@@ -2,6 +2,7 @@
 //  Include this file with:
 //  - MV_SYSTEM_MOUNT_POINT(name)
 //  - MV_SYSTEM_MODULE(name, mount_point_name)
+//  Pre-release ordinals may change; rebuild all components together.
 
 MV_SYSTEM_MOUNT_POINT(executable)
 MV_SYSTEM_MODULE(executable, executable)
@@ -9,29 +10,9 @@ MV_SYSTEM_MODULE(executable, executable)
 MV_SYSTEM_MOUNT_POINT(executive)
 MV_SYSTEM_MODULE(executive, executive)
 
-MV_SYSTEM_MOUNT_POINT(platform)
-MV_SYSTEM_MODULE(platform_windows, platform)
-MV_SYSTEM_MODULE(platform_linux, platform)
-MV_SYSTEM_MODULE(platform_android, platform)
-MV_SYSTEM_MODULE(platform_mac_os, platform)
-
+//  Independent service identity used by module lifecycle fixtures.
 MV_SYSTEM_MOUNT_POINT(conditioning)
 MV_SYSTEM_MODULE(conditioning_general, conditioning)
 
-MV_SYSTEM_MOUNT_POINT(asset)
-MV_SYSTEM_MODULE(asset_directx_windows, asset)
-MV_SYSTEM_MODULE(asset_vulkan_windows, asset)
-MV_SYSTEM_MODULE(asset_vulkan_linux, asset)
-MV_SYSTEM_MODULE(asset_vulkan_android, asset)
-MV_SYSTEM_MODULE(asset_vulkan_osx, asset)
-
-MV_SYSTEM_MOUNT_POINT(pso)
-MV_SYSTEM_MODULE(pso_directx_windows, pso)
-MV_SYSTEM_MODULE(pso_vulkan_windows, pso)
-MV_SYSTEM_MODULE(pso_vulkan_linux, pso)
-MV_SYSTEM_MODULE(pso_vulkan_android, pso)
-MV_SYSTEM_MODULE(pso_vulkan_osx, pso)
-
 MV_SYSTEM_MOUNT_POINT(render)
-MV_SYSTEM_MODULE(render_directx, render)
-MV_SYSTEM_MODULE(render_vulkan, render)
+MV_SYSTEM_MODULE(rendering, render)

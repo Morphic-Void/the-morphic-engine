@@ -6,7 +6,7 @@ MV_SYSTEM_THREAD(host)
 MV_SYSTEM_THREAD(debug_service)
 MV_SYSTEM_THREAD(executive)
 MV_SYSTEM_THREAD(rendering)
-MV_SYSTEM_THREAD(rhi)
+//  Independent service thread used by module lifecycle fixtures.
 MV_SYSTEM_THREAD(simulation)
 MV_SYSTEM_THREAD(bg_file_io)
 MV_SYSTEM_THREAD(bg_conditioning)

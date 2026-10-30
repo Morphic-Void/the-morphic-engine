@@ -17,6 +17,21 @@ checks and unloading execute on the Host I/O worker. All Host background workers
 use the same handlers. With one configured worker, it shares I/O and conditioning;
 with more than one, the first handles I/O and the rest handle conditioning.
 
+## Current identity catalogue
+
+The module catalogue contains `executable`, `executive`, `conditioning_general`
+and `rendering`, at the `executable`, `executive`, `conditioning` and `render`
+mounts respectively. The conditioning module and `simulation` thread identities
+support independent-service lifecycle fixtures. The production renderer's identity
+is backend-neutral. The batch-runner thread range remains contiguous and covers
+all 32 supported runners.
+
+Pre-release catalogue ordinals are not a compatibility promise. Removing entries
+changes encoded identities and dependency bits, so clean-build all components and
+fixture DLLs together and use fresh validation runtimes. The binding ABI version
+alone does not detect a mismatched catalogue. No reserved type slots are retained
+solely to preserve earlier pre-release numbering.
+
 ## Startup and Executive transitions
 
 The Host starts its configured workers and builds the filesystem image on its file I/O
@@ -37,13 +52,13 @@ Rendering selection belongs to the Executive. The Host bootstraps only the
 Executive; a selector implementation can run without a renderer or choose another
 implementation later. The normal Executive first sends an owning load request
 for `package:/bin/MorphicRendering` with the native extension appended by
-`platform::module::make_module_filename`, and `render_vulkan`. It validates
+`platform::module::make_module_filename`, and `rendering`. It validates
 the correlated acknowledgement before accepting completion, then asks Rendering
 to run its own tests through `RunTestsRequest`. Successful completion permits the
 Executive's 50 sequential and 32 concurrent general asset acceptance operations.
 
 After Executive replacement, `already_loaded` is accepted only for the requested
-Vulkan identity with `available == true`; no extra thread, unload or replacement
+Rendering identity with `available == true`; no extra thread, unload or replacement
 is requested. Missing/unavailable services, failed completion and malformed
 startup replies cause an Executive self-unload request. Initial request-submission
 failure still marks Executive startup failed. The existing per-operation deadline
@@ -119,10 +134,10 @@ Executive policy.
 
 `MorphicRendering.vcxproj` is a separate solution project producing
 `MorphicRendering.dll`; the CMake build produces `MorphicRendering.so` on Linux.
-It uses the `render_vulkan` module
+It uses the `rendering` module
 identity at the `render` mount on both Windows and Linux, with the existing
 `rendering` thread identity.
-Vulkan is the primary API planned for first implementation.
+Vulkan is the chosen backend; the module identity does not encode that choice.
 This stage contains no graphics API calls, graphics resources or actual rendering.
 
 An ordinary owning `ModuleRequest` loads the DLL. Rendering advertises its
@@ -291,7 +306,7 @@ The 33 process cases cover:
   files/functions, replacement and unavailable service after failure.
 - Executive bootstrap, self-shutdown without notifications, replacement and
   startup failures; selector Executives that never load rendering.
-- Rendering load/unload/replacement, failed startup cleanup and Vulkan identity.
+- Rendering load/unload/replacement, failed startup cleanup and Rendering identity.
   A renderer survives Executive replacement and is reused without a second thread.
 - Normal Executive startup and unavailable-renderer shutdown before asset work.
   Successful startup/replacement runs 71 sequential and 32 concurrent asset cases,

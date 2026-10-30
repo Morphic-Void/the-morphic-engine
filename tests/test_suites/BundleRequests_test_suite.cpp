@@ -1061,14 +1061,14 @@ void test_completion_contracts(TTestContext& ctx)
                 TEST_EXPECT(ctx, payload != nullptr);
                 if (payload == nullptr) return;
                 TEST_EXPECT(ctx, payload->buffer.allocate(32u, 128u));
-                reply.owner().add_hazard(mount_point_ids::asset);
+                reply.owner().add_hazard(mount_point_ids::executive);
                 const auto* const context = reply.owner().memory_context();
                 assertions.expect_unconditional_assertion(ctx, [&] { fixture.service.complete(reply, fixture.io); });
                 TEST_EXPECT(ctx, fixture.service.failed() && !fixture.service.is_idle());
                 TEST_EXPECT(ctx, reply.owner().payload<ByteStorage>() == payload);
                 TEST_EXPECT(ctx, reply.query_async_slot() == work.query_async_slot());
                 TEST_EXPECT(ctx, reply.owner().memory_context() == context);
-                TEST_EXPECT(ctx, reply.owner().has_hazard(mount_point_ids::asset));
+                TEST_EXPECT(ctx, reply.owner().has_hazard(mount_point_ids::executive));
                 TEST_EXPECT(ctx, payload->buffer.is_ready() && payload->buffer.align() == 128u);
             }
             else if (scenario == EReply::wrong_payload)

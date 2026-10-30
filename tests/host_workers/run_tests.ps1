@@ -150,9 +150,9 @@ foreach ($requested in @(0, 1, 2, 3, 9, 128)) {
     $textureRoute = if ($batchExpected -eq 0) { 'completed inline' } else { 'queued' }
     $textureThread = if ($batchExpected -eq 0) { 'rendering' } else { 'batch_runner_\d+' }
     if ((($Configuration -eq 'Debug') -and !$events.Contains("Rendering: Texture batch $textureRoute")) -or
-        ($directEvents -notmatch "\[render_vulkan:$textureThread\].*Rendering Basis: encode begin") -or
-        ($directEvents -notmatch "\[render_vulkan:$textureThread\].*Rendering Basis: transcode request") -or
-        ($directEvents -notmatch "\[render_vulkan:$textureThread\].*Rendering Basis: transcode begin")) {
+        ($directEvents -notmatch "\[rendering:$textureThread\].*Rendering Basis: encode begin") -or
+        ($directEvents -notmatch "\[rendering:$textureThread\].*Rendering Basis: transcode request") -or
+        ($directEvents -notmatch "\[rendering:$textureThread\].*Rendering Basis: transcode begin")) {
         throw "Texture work did not use the expected batch route and module context: $directLog"
     }
     if (($batchExpected -lt $batchRequested) -and

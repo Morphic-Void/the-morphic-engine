@@ -51,7 +51,7 @@ memory::CMemoryContext s_executive_context(s_allocator, system_ids::executive);
 }
 
 static memory::CMemoryContext s_rendering_context(s_allocator,
-    system_ids::ops::make_system_id(module_ids::render_vulkan, thread_ids::rendering));
+    system_ids::ops::make_system_id(module_ids::rendering, thread_ids::rendering));
 
 bool install() noexcept
 {

@@ -301,7 +301,7 @@ static bool rendering_module(CBundleClient& client, EModuleAction action) noexce
     auto* request = owner.payload<ModuleRequest>();
     if (!request) return false;
     request->action = action;
-    request->module = module_ids::render_vulkan;
+    request->module = module_ids::rendering;
     if (action == EModuleAction::load)
     {
         if (!request->file.set(test_environment::module_filename("package:/bin/MorphicLifecycleRenderingDisposal").c_str())) return false;

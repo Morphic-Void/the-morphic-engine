@@ -63,7 +63,7 @@ static void test_pair(TTestContext& ctx, SAllocator& allocator)
     CErasedOwnerMsg message = make_owner_message<TMessage>(47);
     auto* const payload = message.owner().template payload<TPayload>();
     TEST_EXPECT(ctx, payload != nullptr);
-    message.owner().add_hazard(mount_point_ids::asset);
+    message.owner().add_hazard(mount_point_ids::executive);
     const auto hazards = message.owner().hazard_mask();
     const auto* const memory = message.owner().memory_context();
     const auto inspected = inspect_owner_message<TMessage>(message);
@@ -188,8 +188,8 @@ static void test_request_fields(TTestContext& ctx)
     TEST_EXPECT(ctx, prepare_save_request(pending, 11, {}, "output:/saved.json", settings));
     TEST_EXPECT(ctx, pending.owner().payload<AssetSaveRequest>()->settings.format == EAssetFileFormat::json);
     pending = {};
-    TEST_EXPECT(ctx, prepare_module_request(pending, 12, module_ids::render_vulkan, EModuleAction::load, test_environment::module_filename("package:/bin/MorphicRendering").c_str()));
-    TEST_EXPECT(ctx, pending.owner().payload<ModuleRequest>()->module == module_ids::render_vulkan);
+    TEST_EXPECT(ctx, prepare_module_request(pending, 12, module_ids::rendering, EModuleAction::load, test_environment::module_filename("package:/bin/MorphicRendering").c_str()));
+    TEST_EXPECT(ctx, pending.owner().payload<ModuleRequest>()->module == module_ids::rendering);
     pending = {};
     TEST_EXPECT(ctx, prepare_module_request(pending, k_uncorrelated_slot, module_ids::executive, EModuleAction::unload));
     TEST_EXPECT(ctx, pending.owner().payload<ModuleRequest>()->file.length() == 0u && pending.query_async_slot() == -1);
@@ -202,10 +202,10 @@ static void test_request_fields(TTestContext& ctx)
     pending = {};
     TEST_EXPECT(ctx, prepare_bundle_bake_request(pending, 15, "source:", "baked:"));
     TEST_EXPECT(ctx, pending.owner().payload<BundleBakeRequest>()->paths.subdirectory.length() == 0u);
-    const auto tests = make_pod_message(16, RunTestsRequest{ module_ids::render_vulkan });
+    const auto tests = make_pod_message(16, RunTestsRequest{ module_ids::rendering });
     RunTestsRequest request;
-    TEST_EXPECT(ctx, tests.copy_payload_to(request) && request.module == module_ids::render_vulkan && tests.query_async_slot() == 16);
-    const auto completion = make_pod_message(16, RunTestsResult{ module_ids::render_vulkan, ETestRunStatus::success, 4u, 0u, 2u });
+    TEST_EXPECT(ctx, tests.copy_payload_to(request) && request.module == module_ids::rendering && tests.query_async_slot() == 16);
+    const auto completion = make_pod_message(16, RunTestsResult{ module_ids::rendering, ETestRunStatus::success, 4u, 0u, 2u });
     RunTestsResult result;
     TEST_EXPECT(ctx, completion.copy_payload_to(result) && result.passed == 4u && result.failed == 0u && result.skipped == 2u);
 }
@@ -224,7 +224,7 @@ static void test_prepared_post(TTestContext& ctx, memory::CMemoryAllocator& allo
     CErasedOwnerMsg pending;
     TEST_EXPECT(ctx, prepare_load_request(pending, 81, EAssetFileFormat::raw, "source:/retained.raw"));
     auto* const payload = pending.owner().payload<AssetLoadRequest>();
-    pending.owner().add_hazard(mount_point_ids::asset);
+    pending.owner().add_hazard(mount_point_ids::executive);
     const auto hazards = pending.owner().hazard_mask();
     const auto count = source.get_live_allocation_count();
     const auto size = source.get_live_allocated_bytes();
@@ -257,7 +257,7 @@ static void test_prepared_post(TTestContext& ctx, memory::CMemoryAllocator& allo
     TEST_EXPECT(ctx, prepare_asset_transfer(pending, 82, storage, EAssetRetention::source, false, nullptr, {}));
     TEST_EXPECT(ctx, !storage.is_ready());
     auto* const transfer = pending.owner().payload<RawAssetTransfer>();
-    pending.owner().add_hazard(mount_point_ids::asset);
+    pending.owner().add_hazard(mount_point_ids::executive);
     const auto transfer_hazards = pending.owner().hazard_mask();
     TEST_EXPECT(ctx, !transport.post(std::move(pending)));
     TEST_EXPECT(ctx, pending.owner().payload<RawAssetTransfer>() == transfer && pending.query_async_slot() == 82);

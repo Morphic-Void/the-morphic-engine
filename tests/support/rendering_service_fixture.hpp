@@ -86,7 +86,7 @@ struct SLocalPackage
     rendering::CShaderRequests shaders;
     std::vector<SLocalReply> replies;
     explicit SLocalPackage(threading::SBatchShared& shared) noexcept :
-        batch{ shared, control, wake, module_ids::render_vulkan, this },
+        batch{ shared, control, wake, module_ids::rendering, this },
         textures{ batch, this, &texture_done }, shaders{ batch, this, &shader_done }
     { control.mark_running(); }
     ~SLocalPackage() noexcept { wake.release_control(); }

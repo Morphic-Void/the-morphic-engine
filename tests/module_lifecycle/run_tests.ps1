@@ -186,7 +186,7 @@ foreach ($case in $Cases) {
         }
         if ($case -eq 'bundle-rendering') {
             $owned = $events.IndexOf('Bundle fixture: Rendering owns loaded bundle')
-            $joined = $events.IndexOf('Host: Module render_vulkan service thread joined')
+            $joined = $events.IndexOf('Host: Module rendering service thread joined')
             $released = $events.IndexOf('Bundle fixture: Rendering ownership and post-join sub-file release passed')
             if (($owned -lt 0) -or ($joined -lt $owned) -or ($released -lt $joined)) {
                 throw 'Rendering bundle ownership and notification retirement incomplete.'
@@ -237,12 +237,12 @@ foreach ($case in $Cases) {
                 throw "$case did not wait for rendering readiness before asset acceptance."
             }
         }
-        $starts = [regex]::Matches($events, 'Host: Module render_vulkan service thread started after asynchronous binding').Count
-        $joins = [regex]::Matches($events, 'Host: Module render_vulkan service thread joined').Count
+        $starts = [regex]::Matches($events, 'Host: Module rendering service thread started after asynchronous binding').Count
+        $joins = [regex]::Matches($events, 'Host: Module rendering service thread joined').Count
         if ($case -in @('tests-routing', 'tests-worker-exit', 'tests-client-unload')) {
             $completion = $events.IndexOf('Lifecycle tests: Executive terminal completion passed')
             $cleanup = $events.IndexOf('Lifecycle tests: caller acquisition and disposal drained')
-            $joined = $events.IndexOf('Host: Module render_vulkan service thread joined')
+            $joined = $events.IndexOf('Host: Module rendering service thread joined')
             if (($starts -ne 1) -or
                 !$events.Contains('Lifecycle tests: Executive destination, correlation and rejection checks passed') -or
                 ($completion -lt 0) -or ($cleanup -lt $completion) -or ($joined -lt $cleanup)) {
@@ -267,7 +267,7 @@ foreach ($case in $Cases) {
         if (($case -eq 'render-executive-replace') -and !$events.Contains('Executive: Rendering ready (already loaded)')) { throw 'Replacement Executive did not reuse the available renderer.' }
         if ($starts -ne $joins) { throw "$case left a rendering thread unjoined." }
         if (($case -eq 'render-executive-replace') -and (($starts -ne 1) -or
-            ($events.IndexOf('Host: Module render_vulkan service thread joined') -lt $events.IndexOf('Asset acceptance: 50 sequential and 32 concurrent operations passed')))) {
+            ($events.IndexOf('Host: Module rendering service thread joined') -lt $events.IndexOf('Asset acceptance: 50 sequential and 32 concurrent operations passed')))) {
             throw 'Rendering did not survive the Executive replacement and acceptance flow.'
         }
         if (($case -in @('ordinary', 'dependency', 'disposal', 'disposal-during-save', 'thread-failures', 'render-shutdown', 'render-shutdown-dependency', 'render-replace-dependency', 'render-executive-replace', 'render-drain', 'render-exit-disposal')) -and ($starts -eq 0)) {
@@ -284,7 +284,7 @@ foreach ($case in $Cases) {
                 $deferred = $events.IndexOf('Host asset disposal deferred for accepted borrowers at client slot 600')
                 $completed = $events.IndexOf('Host asset disposal completed at client slot 600')
                 $finalCompleted = $events.IndexOf('Host asset disposal completed at client slot 601')
-                $joined = $events.IndexOf('Host: Module render_vulkan service thread joined')
+                $joined = $events.IndexOf('Host: Module rendering service thread joined')
                 # Saves can legally finish before the renderer posts disposal.
                 # When deferral occurs, require its completion ordering too.
                 if (($completed -lt 0) -or (($deferred -ge 0) -and ($completed -lt $deferred)) -or ($finalCompleted -lt 0) -or
@@ -315,13 +315,13 @@ foreach ($case in $Cases) {
         $exited = $false
         foreach ($line in ($events -split "`n")) {
             if ($line.Contains('Rendering: Running')) {
-                if ($line -notmatch '\[render_vulkan:rendering\]') { throw "$case used an unexpected rendering identity." }
+                if ($line -notmatch '\[rendering:rendering\]') { throw "$case used an unexpected rendering identity." }
                 if ($running) { throw "$case started overlapping rendering threads." }
                 $running = $true
                 $exited = $false
             }
             if ($line.Contains('Rendering: Exited')) { $exited = $true }
-            if ($line.Contains('Host: Module render_vulkan service thread joined')) {
+            if ($line.Contains('Host: Module rendering service thread joined')) {
                 if (!$running -or !$exited) { throw "$case joined before the rendering exit path completed." }
                 $running = $false
             }

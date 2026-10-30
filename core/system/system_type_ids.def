@@ -1,6 +1,6 @@
 //  Built-in transported type identity catalog.
 //  Defines MV_SYSTEM_TYPES(type_macro).
-//  Reserved entries preserve numeric identities after module-local contracts move out.
+//  Pre-release ordinals may change; rebuild all components together.
 
 #define MV_SYSTEM_TYPES(type_macro) \
     type_macro(byte_buffer) \
@@ -9,12 +9,6 @@
     type_macro(string_buffer) \
     type_macro(stable_strings) \
     type_macro(unrecognised_msg) \
-    type_macro(reserved_0) \
-    type_macro(reserved_1) \
-    type_macro(reserved_2) \
-    type_macro(reserved_3) \
-    type_macro(reserved_4) \
-    type_macro(reserved_5) \
     type_macro(executive_thread_function) \
     type_macro(raw_asset_transfer) \
     type_macro(image_asset_transfer) \
@@ -34,9 +28,6 @@
     type_macro(bundle_load_request) \
     type_macro(bundle_bake_request) \
     type_macro(bundle_reference_request) \
-    type_macro(reserved_6) \
-    type_macro(reserved_7) \
-    type_macro(reserved_8) \
     type_macro(run_tests_request) \
     type_macro(run_tests_result) \
     type_macro(asset_acquire_request) \

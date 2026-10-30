@@ -182,13 +182,13 @@ static void test_owner_attribution(TTestContext& ctx)
     const std::size_t allocation_calls = contexts.state.allocations;
     TEST_EXPECT(ctx, contexts.executive.get_live_allocation_count() == 2u);
     TEST_EXPECT(ctx, total_bytes > payload->storage.value.memory_attribution().allocation_size);
-    owner.add_hazard(mount_point_ids::asset);
+    owner.add_hazard(mount_point_ids::executive);
     TEST_EXPECT(ctx, !owner.can_reattribute_to(&contexts.incompatible) && !owner.reattribute(&contexts.incompatible));
     TEST_EXPECT(ctx, owner.memory_context() == &contexts.executive && owner.payload<BakedAssetTransfer>() == payload);
     TEST_EXPECT(ctx, owner.reattribute(&contexts.host));
     TEST_EXPECT(ctx, contexts.executive.is_attribution_empty());
     TEST_EXPECT(ctx, contexts.host.get_live_allocation_count() == 2u && contexts.host.get_live_allocated_bytes() == total_bytes);
-    TEST_EXPECT(ctx, owner.has_hazard(mount_point_ids::asset));
+    TEST_EXPECT(ctx, owner.has_hazard(mount_point_ids::executive));
     expect_bytes(ctx, payload->storage.value, bytes.data(), snapshot);
     TEST_EXPECT(ctx, owner.reattribute(&contexts.executive));
     TEST_EXPECT(ctx, contexts.host.is_attribution_empty());

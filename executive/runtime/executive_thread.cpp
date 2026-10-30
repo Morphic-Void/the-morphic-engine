@@ -355,7 +355,7 @@ bool CExecutiveThread::initialise() noexcept
     CSimpleString rendering_file;
     if (!platform::module::make_module_filename("package:/bin/MorphicRendering", rendering_file) ||
         !request_preparation::prepare_module_request(pending, m_pending_slot,
-        module_ids::render_vulkan, EModuleAction::load, rendering_file.cstring(), true))
+        module_ids::rendering, EModuleAction::load, rendering_file.cstring(), true))
     {
         fail(EFailure::submission, "rendering load preparation");
         return false;
@@ -375,7 +375,7 @@ bool CExecutiveThread::accept_rendering_notice(const threading::CErasedPodMsg& m
 
     ModuleResult result;
     if (!message.copy_payload_to(result) || (message.query_async_slot() != m_pending_slot) ||
-        (result.module != module_ids::render_vulkan))
+        (result.module != module_ids::rendering))
     {
         return false;
     }
@@ -1130,7 +1130,7 @@ void CExecutiveThread::operate() noexcept
                 }
                 else if (m_phase == EPhase::module_tests)
                 {
-                    const auto request = threading::make_pod_message(m_pending_slot, RunTestsRequest{ module_ids::render_vulkan });
+                    const auto request = threading::make_pod_message(m_pending_slot, RunTestsRequest{ module_ids::rendering });
                     if (!m_context.post(request)) fail(EFailure::submission, "module test request submission");
                 }
                 continue;
@@ -1139,7 +1139,7 @@ void CExecutiveThread::operate() noexcept
             {
                 RunTestsResult result;
                 if ((message.query_async_slot() != m_pending_slot) || !message.copy_payload_to(result) ||
-                    (result.module != module_ids::render_vulkan) || (result.status != ETestRunStatus::success) ||
+                    (result.module != module_ids::rendering) || (result.status != ETestRunStatus::success) ||
                     (result.failed != 0u) || (result.passed == 0u))
                 {
                     fail(EFailure::completion, "module tests");

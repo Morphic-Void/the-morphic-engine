@@ -241,7 +241,7 @@ void allocation_failures(tests::TTestContext& ctx, SFixture& rendering)
     tests::TAllocationFailureFixture allocation;
     memory::CMemoryAllocator allocator{ &allocation, tests::allocate_with_failure, tests::deallocate_test_memory };
     memory::CMemoryContext context{ allocator,
-        system_ids::ops::make_system_id(module_ids::render_vulkan, thread_ids::rendering) };
+        system_ids::ops::make_system_id(module_ids::rendering, thread_ids::rendering) };
     auto attempt = [&]() noexcept {
         tests::TMemoryContextScope memory{ &context };
         rendering::CResourceRequests service{ *rendering.package->batch_client(), {} };

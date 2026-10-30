@@ -81,12 +81,12 @@ def main():
                      "Filesystem acceptance: 12 queued refresh, concurrent access and cache operations passed",
                      "Bundle acceptance: bake, reference, save, close and reload passed",
                      "Acquisition acceptance: shared borrows, deferred disposal, stale release and client exit passed",
-                     "Rendering Basis: shut down", "Host: Module render_vulkan service thread joined"):
+                     "Rendering Basis: shut down", "Host: Module rendering service thread joined"):
         if expected not in events:
             raise RuntimeError(f"Missing {expected!r}; inspect {logs[0]}")
     expected_cases = json.loads((repository / "tests/texture/flow_cases.json").read_text(encoding="utf-8"))
     actual_cases = re.findall(
-        r"\[render_vulkan:rendering\].*\[texture_flow_tests\.cpp:\d+\] Rendering: (\w+) passed", events)
+        r"\[rendering:rendering\].*\[texture_flow_tests\.cpp:\d+\] Rendering: (\w+) passed", events)
     if sorted(actual_cases) != sorted(expected_cases):
         raise RuntimeError(f"Missing, duplicate or unexpected rendering cases: {actual_cases}")
     check_diagnostics(events, repository, runtime)
@@ -105,7 +105,7 @@ def main():
     # Entry breadcrumbs retain info-level visibility in Release. Their producer
     # identity proves the route without requiring filtered per-operation detail.
     for operation in ("encode begin", "transcode request", "transcode begin"):
-        if not re.search(rf"\[render_vulkan:{thread}\].*Rendering Basis: {operation}", direct_events):
+        if not re.search(rf"\[rendering:{thread}\].*Rendering Basis: {operation}", direct_events):
             raise RuntimeError(f"Incorrect {operation} thread or module context; inspect {direct_log}")
     print(f"Host acceptance passed with {expected_workers} worker(s) "
           "(50 asset cases, 23 rendering texture cases, 32 concurrent, 12 filesystem operations and bundle persistence).")
