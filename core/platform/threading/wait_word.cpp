@@ -187,9 +187,8 @@ WaitError CWaitDeadline::set_after_nanoseconds(const std::uint64_t duration) noe
     m_error = internal::query_wait_clock(now, m_nanoseconds_numerator, m_nanoseconds_denominator);
     if (m_error.code != EWaitError::none) return m_error;
     std::uint64_t ticks = 0u;
-    if (!internal::scale_wait_duration(duration, m_nanoseconds_denominator,
-            m_nanoseconds_numerator, ticks) ||
-        (ticks > std::numeric_limits<std::uint64_t>::max() - now))
+    if (!internal::scale_wait_duration(duration, m_nanoseconds_denominator, m_nanoseconds_numerator, ticks) ||
+        (ticks > (std::numeric_limits<std::uint64_t>::max() - now)))
     {
         m_error = { EWaitError::invalid_argument, 0u };
         return m_error;
@@ -210,7 +209,7 @@ WaitError CWaitDeadline::set_after_nanoseconds(const std::uint64_t duration) noe
 
 WaitError CWaitDeadline::set_after_milliseconds(const std::uint64_t duration) noexcept
 {
-    if (duration > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()) / 1000000u)
+    if (duration > (static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()) / 1000000u))
     {
         m_deadline = 0u;
         m_error = { EWaitError::invalid_argument, 0u };
@@ -228,8 +227,7 @@ WaitError CWaitDeadline::remaining_nanoseconds(std::uint64_t& remaining) const n
     const WaitError error = internal::query_wait_clock(now, numerator, denominator);
     if (error.code != EWaitError::none) return error;
     if (now >= m_deadline) return {};
-    if (!internal::scale_wait_duration(m_deadline - now, m_nanoseconds_numerator,
-        m_nanoseconds_denominator, remaining))
+    if (!internal::scale_wait_duration((m_deadline - now), m_nanoseconds_numerator, m_nanoseconds_denominator, remaining))
         return { EWaitError::invalid_argument, 0u };
     return {};
 }
@@ -299,7 +297,7 @@ WaitWordResult wait_while_equal(const std::atomic<std::uint32_t>& word, const st
     //  A finite chunk or an early native timeout is not the overall deadline.
     const WaitError final_error = deadline.remaining_nanoseconds(remaining);
     if (final_error.code != EWaitError::none) return internal::clock_error_result(final_error);
-    return { remaining == 0u ? EWaitWordStatus::timed_out : EWaitWordStatus::awoken_or_changed, 0u };
+    return { ((remaining == 0u) ? EWaitWordStatus::timed_out : EWaitWordStatus::awoken_or_changed), 0u };
 }
 
 //==============================================================================
