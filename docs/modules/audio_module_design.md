@@ -9,9 +9,10 @@ Date:    30 Oct 2026
 
 ## Status and agreed envelope
 
-This is a design and implementation plan, based on the code at `f00b2eb` and
-the bundled miniaudio source. No Audio implementation is introduced by this
-document. Later implementation follows the scope authorised by the user.
+This is a design and implementation plan, originally based on `f00b2eb` and the
+bundled miniaudio source, reassessed against timed-wait commit `0481576`. No Audio
+implementation is introduced by this document. Later implementation follows the
+scope authorised by the user.
 
 The agreed first stage is deliberately small:
 
@@ -27,9 +28,10 @@ The agreed first stage is deliberately small:
   this stage. The fade is internal to the test, not a public gain-control contract.
 
 The initial Audio behaviour and policies below were agreed through 31 October
-2026. The design is ready for the separate timed-wait framework work. File layout
-and adapter mechanics remain implementation guidance; the actual wait API and
-check interval will be reassessed here after that prerequisite is delivered.
+2026. The timed-wait prerequisite is delivered, and the initial check interval,
+suspend treatment and matching Executive watchdog semantics below are agreed.
+File layout and adapter mechanics remain implementation guidance. Audio
+implementation has not started.
 
 ## Existing implementation and reuse
 
@@ -41,7 +43,7 @@ check interval will be reassessed here after that prerequisite is delivered.
 | Host routing | [host.cpp](../../host/runtime/host.cpp), `request_tests`, `complete_tests` | Routes to any registered module service thread. One run is active globally; caller and worker are retained until completion. |
 | Unload | [module_service.cpp](../../host/runtime/module_service.cpp), `CHost::stop_module_thread` | Stop/join the service before dependency disposal and worker-side unbinding. Audio must stop all vendor callbacks before publishing terminal state. |
 | Executive | [executive_thread.cpp](../../executive/runtime/executive_thread.cpp) | Extend the existing test flow to load Audio as it loads Rendering and run both modules' generic tests sequentially. |
-| Waiting | [CThreadPackage.hpp](../../core/threading/CThreadPackage.hpp), [CWaitPredicate.hpp](../../core/threading/CWaitPredicate.hpp) | Idle services can park and are woken by Host messages/exit. There is no existing timed-wait argument in this predicate API. |
+| Waiting | [CThreadPackage.hpp](../../core/threading/CThreadPackage.hpp), [CWaitPredicate.hpp](../../core/threading/CWaitPredicate.hpp), [wait_deadline.hpp](../../core/platform/threading/wait_deadline.hpp) | Commit `0481576` supplies deadline-taking waits with explicit outcomes; existing indefinite waits and message/exit wakeups remain available. |
 | Memory | [memory_context.hpp](../../core/memory/memory_context.hpp) | Explicit-context allocate/deallocate and allocation attribution; no direct realloc operation. |
 | Vendor | [miniaudio.h](../../external/miniaudio/miniaudio.h), [sine example](../../external/miniaudio/examples/simple_playback_sine.c) | Low-level playback/device API and a standalone sine example already exist in the checkout. |
 
@@ -201,41 +203,94 @@ check callback-published progress, completion and stalled output. Park indefinit
 when idle. The callback only publishes atomic state and does not wake the service
 or enter its ordinary message transport.
 
-A nominal 20 ms progress-check interval is a proposal to reassess after the
-framework support exists. This interval controls completion observation and
-housekeeping, not sample generation or fade timing. Scheduling can delay a wake;
-the interval is not a hard maximum response latency. Keep the periodic check,
-overall test deadline and no-progress deadline distinct. Ordinary wakeups must
-not restart the overall deadline or count as evidence of audio progress.
+### Reassessment against the delivered timed-wait API
 
-The separate framework implementation now provides deadline-taking predicate
-and service-context waits; its contract and validation are recorded in the
-[timed-wait handback](../project/timed_predicate_waiting.md). Audio implementation
-remains deferred until that work is reviewed in the original Audio chat. Reassess
-the actual API, result handling, validated platform support and proposed check
-interval there before implementation. This does not depend on Platform's future
-Host event-loop/wait integration.
+The [timed-wait reference](../project/timed_predicate_waiting.md) and corresponding
+headers/implementation at `0481576` provide the required framework capability.
+Use `threading::CWaitDeadline` and
+`CThreadContext::wait_for_new_epoch(epoch, deadline)`. No further framework API
+extension has been identified as necessary for this Audio test. The following
+integration policy is agreed following review of the framework handback.
 
-The framework handoff should include:
+Retain a nominal 20 ms active progress-check interval. It is adequate for service
+housekeeping and observing the end of a five-second envelope; it does not control
+sample generation or fade timing. Scheduling and native timer granularity can
+delay a wake, so this is not a hard response bound. Idle waits remain indefinite,
+and no callback-driven wake or additional timer thread is needed.
 
-- Extend the existing [wait-word layer](../../core/platform/threading/wait_word.hpp)
-  and [predicate abstraction](../../core/threading/CWaitPredicate.hpp), preserving
-  current indefinite-wait behaviour and message/exit wakeups.
-- Define monotonic deadline semantics and remaining-duration calculation so
-  spurious wakes or interruptions cannot extend a wait indefinitely. Review
-  observed-value, timeout, control-release and native-error results explicitly.
-- Account for native clock domains: Linux's current performance counter uses
-  `CLOCK_MONOTONIC_RAW`, whereas the usual absolute futex deadline uses
-  `CLOCK_MONOTONIC`. Their absolute timestamps must not be interchanged.
-- Review Windows millisecond timeout conversion, Linux/Android futex behaviour,
-  macOS timed address-wait availability and any fallback path. Do not silently
-  implement a timed request as an indefinite wait on an unsupported path.
-- Validate notification-before-wait races, timeout/completion races, spurious
-  wakes, control release, deadline preservation and safe wait-word lifetime.
+Use separate `CWaitDeadline` objects for:
 
-After that work, confirm Audio's wait interval and progress checks against the
-delivered contract. A callback-driven wake can remain a later optimisation; it
-is not required for the initial tone test.
+- The next progress check, normally 20 ms away.
+- The overall test budget, 15 seconds from test acceptance, never restarted by
+  progress or ordinary messages.
+- The no-progress budget, 2 seconds from successful device start, renewed only
+  when an acquired observation shows actual new callback progress.
+
+Check every deadline-construction/query error. `remaining_nanoseconds()` sets its
+output to zero on both expiry and failure; zero alone must not be interpreted as
+timeout. Retain/copy existing deadlines across retries rather than constructing
+new full budgets. A near-expiring overall/no-progress deadline can bound the next
+wait using the existing deadline, without exposing native timestamps or granting
+a fresh budget. Inspect progress and deadlines on every service iteration, even
+when ordinary messages keep satisfying the epoch predicate.
+
+Capture the epoch before draining messages and checking exit/callback state, then
+wait only if there is no immediate work. Do not reread the epoch just before
+sleeping and consume an unprocessed notification. A timeout does not advance the
+epoch; a satisfied result supplies the observed epoch and requires work to be
+drained again. Preserve the existing thread-package lifetime protocol.
+
+| Wait outcome | Audio handling |
+| --- | --- |
+| `satisfied` | Recheck messages, exit and acquired callback state; the epoch change is not proof of audio progress. |
+| `timed_out` | Recheck callback state and the independent budgets. A periodic check expiry alone is normal, not a failed test. |
+| `control_released` | Stop using the wait, quiesce the device and treat unexpected release while the service is active as a lifecycle failure. Normal exit requests use the existing exit flag/wakeup path. |
+| `invalid_argument`, `unsupported`, `native_failure` | Preserve diagnostic/native error information, clean up and fail explicitly. Do not spin, substitute an indefinite wait or convert a timing failure into a no-device skip. |
+
+The framework's final acquire observation gives predicate satisfaction/control
+release precedence over timeout. That applies to the epoch word, not automatically
+to Audio's independent progress/completion flags. Acquire those flags again before
+deciding a stalled/completed result and test the application-level race explicitly.
+No callback timestamp is implied: progress renewal is based on the service's
+observation of a changed counter, not reconstruction of the exact time a callback
+ran while the service was descheduled.
+
+### Agreed suspend and outer-watchdog policy
+
+Use the delivered awake-monotonic clock for all three Audio deadlines. Suspend
+pauses their budgets; thread descheduling while the system remains awake consumes
+them. Resume continues the remaining budget without resetting the overall timer.
+The callback still advances the envelope by generated samples. This does not
+promise seamless device playback across suspend: a reported interruption/device
+failure still fails the test under the agreed no-recovery policy. If the backend
+continues normally, sleep alone need not cause timeout.
+
+Do not use `CPerfCounter` timestamps for these deadlines. The deadline object
+already handles the platform clock domain, including Linux's separation from the
+RAW performance counter.
+
+Executive's existing 30-second operation check uses `CPerfCounter`. Its Windows
+implementation uses QPC, whose elapsed time includes system sleep, unlike the new
+wait deadline. See Microsoft's
+[performance-counter clock description](https://learn.microsoft.com/en-us/windows/win32/sysinfo/acquiring-high-resolution-time-stamps).
+Leaving that check unchanged during a module test could therefore abort an Audio
+run immediately after resume even though its own budget remains valid.
+
+Use a 30-second `CWaitDeadline` for Executive's generic module-test
+completion phase, covering both Rendering and Audio without domain-specific
+timing knowledge. Create it once per accepted/submitted test phase and inspect it
+even amid unrelated messages. Preserve the other Executive phases' current timing
+unless separately authorised. Validate this enclosing watchdog alongside Audio's
+budgets. The acceptance harness's outer process timeout remains a separate
+containment mechanism, not evidence of suspend-aware runtime behaviour.
+
+The delivered validation covers Windows 11 x64/Win32 and x86-64 Linux in WSL.
+Android/macOS were not target-built/run; Linux 32-bit/time64 paths, physical
+suspend/resume and actual kernel/clock failures remain unvalidated as documented
+in the framework reference. Do not rerun the completed matrix for this review or
+represent those gaps as covered. Audio integration will add its own focused
+deadline/progress and simulated error tests, followed by the planned build and
+acceptance validation when code changes exist.
 
 Native init/start/stop calls may themselves block. A deadline checked by the same
 service thread cannot interrupt such a call. Bound acceptance tests with an outer
@@ -345,7 +400,7 @@ missing-device skip. Rendering retains its existing success requirements.
 
 | Stage | Changes | Required evidence |
 | --- | --- | --- |
-| 1. Deliver wait prerequisite and reassess | Audio behaviour and policies are settled. Complete framework wait support in a dedicated chat, then review its delivered API and the proposed Audio check interval here. | Required timed waits implemented and validated; integration confirmed before Audio implementation. |
+| 1. Delivered wait integration review (complete) | Framework prerequisite is committed in `0481576`. The 20 ms interval, awake-time Audio budgets and matching generic Executive test watchdog are agreed. | Integration design settled; framework validation limitations retained. Audio code remains unimplemented. |
 | 2. Audio module shell | Add binding, service thread, actual catalogue entries and build/policy wiring. Reuse generic test routing. | Load/readiness/unload/replacement work without opening a device; malformed requests and missing capability cases retain existing semantics. |
 | 3. Signal and private adapter | Implement finite oscillator/envelope, allocation bridge and one private miniaudio implementation unit. | Deterministic signal checks, allocator failure semantics and callback-state lifetime verified without hardware. |
 | 4. End-to-end test | Service prepares the device, runs the envelope, observes progress, stops and replies. Extend the existing Executive flow with sequential Rendering/Audio loads and tests. | Exactly one correlated completion after cleanup, one pass on real success, repeatability and explicit unavailable/failure handling. |
@@ -378,6 +433,12 @@ resources; do not invent catalogue identities for their internal implementation.
   init/start failure, no callback progress, unexpected stopped/interruption
   notification, and notification during teardown. Use a test-only device seam;
   do not add production test switches or a general backend framework.
+- Timing integration checks: periodic expiry without test failure, message storms
+  without budget extension, progress-only renewal of the stall deadline, callback
+  completion racing with an expired wait, explicit clock/wait failure handling,
+  and the enclosing Executive test watchdog. Exercise suspend-budget policy with
+  controlled timing where practical; real suspend/device behaviour needs a
+  separate native check and must not be inferred from simulated tests.
 - Lifecycle checks: repeated test requests, busy/rejected requests, exact
   correlation, completion delivery failure, exit during playback, normal unload
   after completion and no vendor code/state remaining after service join.
@@ -399,33 +460,26 @@ null/fake-device exercise demonstrates scheduling and cleanup only. Real backend
 initialisation and submitted frames demonstrate an output path; manual listening
 establishes that the expected tone/fade was actually audible.
 
-## Readiness for timed-wait work
+## Readiness after the timed-wait handback
 
-No further Audio behaviour or scope decision is required before moving to the
-framework wait work. The tone/envelope, ownership, sequential Executive flow,
-backend selection, no-device continuation, cancellation and deadlines are settled.
+The framework API meets the planned Audio use. Tone/envelope, ownership,
+sequential Executive flow, backend selection, no-device continuation, cancellation
+and budget durations remain settled. The integration decisions are now agreed:
 
-After the separate timed-wait work, return to this design to confirm:
-
-- The actual timed predicate API, result handling, clock semantics and supported
-  platform validation, using the handoff requirements above.
-- The proposed 20 ms active progress-check interval and its integration with the
-  15-second overall and 2-second no-progress deadlines. Idle waiting stays
-  indefinite, and the callback does not perform an OS wake.
+- Use a nominal 20 ms active progress-check interval initially.
+- Measure both the 15-second overall and 2-second no-progress budgets in the
+  delivered awake-monotonic time, excluding system suspend.
+- Align Executive's generic module-test completion watchdog with that clock,
+  retaining its existing 30-second duration and leaving unrelated phases alone.
 
 Native buffering and the adequacy of the agreed 250 ms trailing silence remain
 playback-validation considerations. Sample-boundary conventions, allocator metadata
 and notification mapping remain implementation details to verify within this
 scope. Physical Linux playback validation remains dependent on the Linux machine
-being available. These do not require broader Audio functionality or prevent
-starting the independent framework work.
+being available. No wider Audio functionality or Platform work is required.
 
-The original Audio checkpoint did not authorise implementation. The subsequent
-[framework handback](../project/timed_predicate_waiting.md) is ready for review
-here before starting Audio code changes. Its deadlines exclude system suspend;
-confirm how Audio's overall and no-progress deadlines should treat suspend
-alongside the proposed 20 ms check interval. No Audio integration is implied by
-the framework API's availability.
+This is an integration review, not the start of Audio implementation. No Audio
+integration is implied by the framework API's availability or this document.
 
 ## Documentation review record
 
