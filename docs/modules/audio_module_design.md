@@ -18,7 +18,8 @@ The agreed first stage is deliberately small:
 
 - Audio is an independently loaded module, using miniaudio for output.
 - Executive sends one test request. Audio starts playback, fades a middle-C sine
-  wave up, fades it down, stops playback and returns completion.
+  wave up, holds it for one second, fades it down, stops playback and returns
+  completion.
 - Audio owns that entire sequence. Executive does not send individual playback,
   gain or stop commands and does not interpret audio buffers or device details.
 - No window, Platform module, host-pumped capability or visual fader is required.
@@ -26,9 +27,10 @@ The agreed first stage is deliberately small:
   device-selection UI, streaming assets and a general audio service API are outside
   this stage. The fade is internal to the test, not a public gain-control contract.
 
-The architecture below is proposed. Timing, level, output/backend policy and the
-remaining implementation choices are explicitly identified rather than presented
-as previously agreed values.
+The initial Audio behaviour and policies below were agreed through 31 October
+2026. The design is ready for the separate timed-wait framework work. File layout
+and adapter mechanics remain implementation guidance; the actual wait API and
+check interval will be reassessed here after that prerequisite is delivered.
 
 ## Existing implementation and reuse
 
@@ -39,7 +41,7 @@ as previously agreed values.
 | Generic tests | [service_messages.hpp](../../core/system/service_messages.hpp), `RunTestsRequest` / `RunTestsResult` | Already express a module destination, correlation, status and counts. No new Audio-specific message types are needed. |
 | Host routing | [host.cpp](../../host/runtime/host.cpp), `request_tests`, `complete_tests` | Routes to any registered module service thread. One run is active globally; caller and worker are retained until completion. |
 | Unload | [module_service.cpp](../../host/runtime/module_service.cpp), `CHost::stop_module_thread` | Stop/join the service before dependency disposal and worker-side unbinding. Audio must stop all vendor callbacks before publishing terminal state. |
-| Executive | [executive_thread.cpp](../../executive/runtime/executive_thread.cpp) | Existing flow selects Rendering, requests its tests and checks completion. Add an explicitly selected Audio acceptance path without audio-specific orchestration. |
+| Executive | [executive_thread.cpp](../../executive/runtime/executive_thread.cpp) | Extend the existing test flow to load Audio as it loads Rendering and run both modules' generic tests sequentially. |
 | Waiting | [CThreadPackage.hpp](../../core/threading/CThreadPackage.hpp), [CWaitPredicate.hpp](../../core/threading/CWaitPredicate.hpp) | Idle services can park and are woken by Host messages/exit. There is no existing timed-wait argument in this predicate API. |
 | Memory | [memory_context.hpp](../../core/memory/memory_context.hpp) | Explicit-context allocate/deallocate and allocation attribution; no direct realloc operation. |
 | Vendor | [miniaudio.h](../../external/miniaudio/miniaudio.h), [sine example](../../external/miniaudio/examples/simple_playback_sine.c) | Low-level playback/device API and a standalone sine example already exist in the checkout. |
@@ -51,8 +53,8 @@ into an engine Audio project. No dependency update is proposed.
 
 The sample opens an output device without creating a window. The DirectSound
 context option has an optional window handle; the engine does not need to obtain
-one from Platform. Choose the actual Windows backend policy explicitly rather
-than treating that optional field as an engine-window dependency.
+one from Platform. The agreed real-backend selection policy below does not
+introduce an engine-window dependency.
 
 The wider Platform connection/lifetime proposals are not prerequisites. Executive
 already has the module-load route, and a normal Audio service thread already fits
@@ -99,7 +101,7 @@ Module loading is setup, separate from the single request that runs the test:
 5. Audio sends one `RunTestsResult` with the same correlation and module identity.
    Executive accepts the result through generic status/count checks.
 
-Suggested successful result: `success`, one passed, zero failed and zero skipped.
+The successful result is `success`, one passed, zero failed and zero skipped.
 That count represents the complete runtime tone exercise; internal deterministic
 unit checks do not inflate it. The service remains loaded and idle after the test.
 Stopping playback is distinct from unloading the module or exiting its service
@@ -111,38 +113,44 @@ request without resetting the active run. A malformed request, unavailable devic
 interrupted run and failed completion delivery must not appear as a successful test.
 Return completion only after the device and callback-owned state are quiescent.
 
-Proposed status mapping: no usable real output device gives `unavailable` with
-one skipped test; start/device/runtime failure gives `failed` with one failed test;
-shutdown cancellation gives `cancelled` with no passes. Record specific native
-diagnostics inside Audio. The exact count convention for cancelled runs is a
-review choice. Default Executive success checks currently reject unavailable or
-skipped runs; an intentional headless harness must handle them explicitly.
+Agreed device-result policy: no usable real output device gives `unavailable`
+with one skipped test; start/device/runtime failure gives `failed` with one
+failed test. Agreed shutdown cancellation gives `cancelled` with zero passed,
+zero failed and one skipped test, after cleanup. Record specific native
+diagnostics inside Audio. Current Executive success checks reject unavailable or
+skipped runs. Extend the combined test flow with the agreed continuation rule
+below so a headless run reports non-execution without claiming successful audible
+playback.
 
 ## Tone and fade sequence
 
 Use a finite, sample-count-driven envelope so timing is independent of Host or
-service-thread scheduling. Proposed initial parameters, pending review:
+service-thread scheduling. The following signal parameters, trailing silence and
+deadlines are agreed as of 31 October 2026:
 
-| Parameter | Proposed value |
+| Parameter | Value / status |
 | --- | --- |
 | Frequency | Middle C, approximately 261.625565 Hz with A4 at 440 Hz |
 | Callback format | Interleaved float32, stereo with the same tone in both channels |
 | Requested sample rate | 48 kHz; use the configured callback-side rate consistently |
 | Peak gain | 0.1 linear amplitude; this does not define physical speaker loudness |
 | Fade up | 2 seconds, starting at zero |
-| Fade down | 2 seconds, ending at zero; no sustained plateau |
-| End padding | Provisional 250 ms of silence before requesting device stop |
-| Active progress deadline | Provisional 15 seconds, including a no-progress check; below the current Executive's 30-second operation deadline |
+| Plateau | 1 second at peak gain |
+| Fade down | 2 seconds, ending at zero |
+| End padding | 250 ms of silence before requesting device stop, subject to native playback validation |
+| Overall test deadline | 15 seconds from acceptance of the test; below the current Executive's 30-second operation deadline |
+| No-progress deadline | 2 seconds without callback progress, measured from successful device start and refreshed only by actual progress |
 
 The callback advances oscillator phase continuously across buffers and applies
 the gain envelope per frame. Define the endpoint/sample-count convention explicitly
 so block size does not change duration or omit the final zero. Handle callback
-buffers spanning fade-up, fade-down and silence boundaries; always initialise all
+buffers spanning fade-up, plateau, fade-down and silence boundaries; always initialise all
 output samples. Once complete, continue producing silence until stopped.
 
-An engine-owned small signal generator is proposed, making exact frame/envelope
-behaviour directly testable without an output device. Using `ma_waveform` is also
-possible; select one implementation rather than maintaining two production paths.
+Agreed on 31 October 2026: Audio owns the small oscillator and finite envelope,
+with miniaudio providing device output. This makes exact frame/envelope behaviour
+directly testable without an output device. There is no second production signal
+path using `ma_waveform`.
 There is no runtime parameter editing or gain-sharing protocol in this stage:
 the immutable test plan is prepared before start and the callback owns phase,
 frame cursor and envelope progression.
@@ -187,18 +195,47 @@ An indefinite service wait is insufficient: a callback setting a boolean does no
 wake `CWaitPredicate`, and a stalled device may never invoke another callback.
 Do not add a callback producer to the existing service-to-Host transport.
 
-For this short initial exercise, a proposed minimal solution is to poll atomic
-progress and the existing performance counter while playback is active, process
-Host messages/exit, and issue `processor_relax()` between iterations. Park normally
-when idle. This keeps the callback free of wake/lock operations and permits a
-no-progress deadline, but consumes CPU during the short test. It is a deliberate
-prototype tradeoff to review, not a permanent audio scheduling policy.
+Agreed on 31 October 2026: use timed predicate waiting while playback is active,
+replacing the earlier proposal to spin on progress. Host messages and exit requests
+can wake the service through its existing predicate; timeout expiry allows it to
+check callback-published progress, completion and stalled output. Park indefinitely
+when idle. The callback only publishes atomic state and does not wake the service
+or enter its ordinary message transport.
 
-If that tradeoff is rejected, specify a bounded/timed service wait or an audited
-callback notification plus an independent watchdog. The existing wait API has no
-timeout parameter, so that alternative is additional work rather than a pre-existing
-facility. It must preserve cancellation and avoid lost wakeups. Audio does not
-need the proposed Platform/Host sleep-wake integration for either choice.
+A nominal 20 ms progress-check interval is a proposal to reassess after the
+framework support exists. This interval controls completion observation and
+housekeeping, not sample generation or fade timing. Scheduling can delay a wake;
+the interval is not a hard maximum response latency. Keep the periodic check,
+overall test deadline and no-progress deadline distinct. Ordinary wakeups must
+not restart the overall deadline or count as evidence of audio progress.
+
+The existing wait API has no timeout parameter. Its expansion is separate framework
+work, to be discussed and implemented in a dedicated chat after the Audio design
+is completed. This Audio chat can then resume and reassess the actual API,
+semantics and validated platform support before implementation begins. This
+document does not claim that timed waiting exists or fix its final signatures.
+The work does not depend on Platform's future Host event-loop/wait integration.
+
+The framework handoff should include:
+
+- Extend the existing [wait-word layer](../../core/platform/threading/wait_word.hpp)
+  and [predicate abstraction](../../core/threading/CWaitPredicate.hpp), preserving
+  current indefinite-wait behaviour and message/exit wakeups.
+- Define monotonic deadline semantics and remaining-duration calculation so
+  spurious wakes or interruptions cannot extend a wait indefinitely. Review
+  observed-value, timeout, control-release and native-error results explicitly.
+- Account for native clock domains: Linux's current performance counter uses
+  `CLOCK_MONOTONIC_RAW`, whereas the usual absolute futex deadline uses
+  `CLOCK_MONOTONIC`. Their absolute timestamps must not be interchanged.
+- Review Windows millisecond timeout conversion, Linux/Android futex behaviour,
+  macOS timed address-wait availability and any fallback path. Do not silently
+  implement a timed request as an indefinite wait on an unsupported path.
+- Validate notification-before-wait races, timeout/completion races, spurious
+  wakes, control release, deadline preservation and safe wait-word lifetime.
+
+After that work, confirm Audio's wait interval and progress checks against the
+delivered contract. A callback-driven wake can remain a later optimisation; it
+is not required for the initial tone test.
 
 Native init/start/stop calls may themselves block. A deadline checked by the same
 service thread cannot interrupt such a call. Bound acceptance tests with an outer
@@ -234,10 +271,11 @@ thread, notification, callback, log hook or allocation may retain Audio code/sta
 when the service publishes `Exited` and Host proceeds to unbind.
 
 If exit is requested during a test, stop accepting new work and perform service-side
-cleanup. A short cancellation fade can be added only if callback progress exists;
-do not require future audio callbacks to permit shutdown. The essential contract
-is cancelled completion after quiescence, not guaranteed graceful acoustics after
-device loss. Repeated exit requests and partial start failures must be harmless.
+cleanup promptly, without an additional cancellation fade. Shutdown must not
+require future audio callbacks. Report `cancelled` with zero passed, zero failed
+and one skipped test after quiescence. Repeated exit requests and partial start
+failures must be harmless. Normal completion retains its full fade and trailing
+silence; cancellation does not wait for that sequence to finish.
 
 Host currently protects an active test caller/worker from ordinary unload, and its
 full-shutdown progression waits for the active test to finish before requesting
@@ -259,35 +297,64 @@ pinned source supports it and includes it in backend enumeration; exclude it fro
 the real-device selection or explicitly reject it. A fake/null device used in
 automated validation must be labelled as such and must not stand in for listening.
 
-Propose default-device shared playback, initially WASAPI on Windows and an explicitly
-reviewed real-backend preference list on Linux. Confirm the selected backend/device
-in service-thread diagnostics. Linux audio-session availability is independent of
+Agreed on 31 October 2026: use the default output device in shared mode and let
+miniaudio select an available real backend using its normal preference order,
+excluding the null backend. Do not introduce an engine-specific backend preference
+list or exclusive mode for this stage. Confirm the selected backend/device in
+service-thread diagnostics. Linux audio-session availability is independent of
 window availability; native output still needs suitable runtime services/devices.
-No backend preference, exclusive mode, rerouting policy or automatic device recovery
-is finalised here. For the first test, unexpected interruption can simply fail and
-clean up instead of introducing recovery machinery.
 
-Keep the audible acceptance path explicitly selected. Prefer a small Audio-test
-Executive/selector using the existing bootstrap Executive selection, or a reviewed
-opt-in path in the existing Executive. Resolve that choice before implementation.
-The selector loads the real Audio module and sends the single generic test request;
-it does not generate samples. Do not make existing rendering/asset acceptance or
-ordinary CI require speakers or start producing tones unconditionally.
+No usable output device produces an explicit unavailable/skipped result. An
+audible acceptance run treats that as unsuccessful; headless validation reports
+the intentional non-execution. Unexpected playback interruption or device failure
+ends the run with cleanup and a failed result. Do not automatically reconnect,
+switch devices or recover the run. Audit backend notification/rerouting behaviour
+when implementing the adapter so implicit recovery cannot conceal a failed test.
+
+Agreed on 31 October 2026: use the existing Executive test process that triggers
+Rendering tests. Executive explicitly loads Audio through the same module-load
+mechanism and sends its generic test request. Run Audio and Rendering tests
+sequentially; either order is acceptable. Do not add a dedicated Audio Executive
+or require a separate opt-in application mode for this stage.
+
+Use Rendering first, then load and test Audio, then continue the existing general
+asset/filesystem/bundle acceptance flow as the initial sequencing choice. This
+preserves the existing Rendering startup prefix and fits Host's one-active-test
+contract. Each module load retains its acknowledgement/completion checks; each
+test has a fresh correlation and operation deadline. Executive only selects
+modules and interprets generic results; all tone/fade/device work stays in Audio.
+
+The combined flow can therefore produce the tone whenever a real output device
+is available. The standalone ordinary unit-test executable should still exercise
+the deterministic generator/adapter seam without opening an output device.
+
+Agreed no-device continuation rule: Executive logs Audio's
+`unavailable` result with one skipped test and continues the remaining acceptance
+flow. This is a recognised non-execution, not an Audio pass. All actual Audio
+test failures still fail the flow. The same executable/process can serve headless
+CI and audible validation: the harness reports the skip in headless runs, while
+an audible acceptance check requires an Audio success result and rejects a skip.
+This changes result interpretation in the current Executive; it does not require
+Host audio knowledge, a new production request type or another Executive binary.
+Only a correctly correlated Audio result identifying `unavailable`, zero passed,
+zero failed and one skipped test permits this continuation. Cancellation, malformed
+results, load failures and actual test failures must not be reclassified as a
+missing-device skip. Rendering retains its existing success requirements.
 
 ## Implementation sequence
 
 | Stage | Changes | Required evidence |
 | --- | --- | --- |
-| 1. Confirm small contract | Choose proposed signal values, backend/no-device policy, active wait strategy and explicit Executive test selection. | Single request/completion trace, cleanup ownership and shutdown interactions agreed. |
+| 1. Deliver wait prerequisite and reassess | Audio behaviour and policies are settled. Complete framework wait support in a dedicated chat, then review its delivered API and the proposed Audio check interval here. | Required timed waits implemented and validated; integration confirmed before Audio implementation. |
 | 2. Audio module shell | Add binding, service thread, actual catalogue entries and build/policy wiring. Reuse generic test routing. | Load/readiness/unload/replacement work without opening a device; malformed requests and missing capability cases retain existing semantics. |
 | 3. Signal and private adapter | Implement finite oscillator/envelope, allocation bridge and one private miniaudio implementation unit. | Deterministic signal checks, allocator failure semantics and callback-state lifetime verified without hardware. |
-| 4. End-to-end test | Service prepares the device, runs the envelope, observes progress, stops and replies. Add selected Executive acceptance path. | Exactly one correlated completion after cleanup, one pass on real success, repeatability and explicit unavailable/failure handling. |
+| 4. End-to-end test | Service prepares the device, runs the envelope, observes progress, stops and replies. Extend the existing Executive flow with sequential Rendering/Audio loads and tests. | Exactly one correlated completion after cleanup, one pass on real success, repeatability and explicit unavailable/failure handling. |
 | 5. Qualification | Exercise shutdown, callback/notification races and partial failures; clean-build Windows/Linux matrices and run existing acceptance. | No callback after unbind, no retained allocations, no new Platform/window dependency, native playback distinguished from headless checks. |
 
 Build integration includes `MorphicAudio.vcxproj`, its items/filters and solution
 configurations; Linux shared-library classification in `CMakeLists.txt`; deployment
 and isolated runtime manifests; native symbol exports including Win32 aliases;
-and documentation of the selected acceptance entry point. Miniaudio's bundled
+and documentation of the extended existing acceptance flow. Miniaudio's bundled
 Linux instructions name pthread, dl and m linkage; verify what the adapter target
 needs instead of copying Rendering's dependency list.
 
@@ -298,8 +365,8 @@ source extraction/test tooling. Preserve source opening comments and Visual Stud
 metadata conventions. Clean-build all components/fixtures when identities change.
 
 Host's `k_expected_service_threads` is currently a scheduling estimate of two,
-not a hard capacity. Review it against the chosen composition (Audio-only versus
-Executive plus Rendering plus Audio). Vendor audio threads also consume execution
+not a hard capacity. Review it against the agreed test composition of Executive,
+Rendering and Audio. Vendor audio threads also consume execution
 resources; do not invent catalogue identities for their internal implementation.
 
 ## Validation plan
@@ -314,6 +381,12 @@ resources; do not invent catalogue identities for their internal implementation.
 - Lifecycle checks: repeated test requests, busy/rejected requests, exact
   correlation, completion delivery failure, exit during playback, normal unload
   after completion and no vendor code/state remaining after service join.
+- Combined-flow checks: sequential load/test correlations and per-operation
+  deadlines, continuation after a recognised no-device skip, failure
+  propagation, and preservation of the subsequent general acceptance cases.
+  Update existing harness log/count assumptions and stage the Audio library in
+  every isolated runtime using this Executive; a missing module is a load failure,
+  not a missing-device skip.
 - Windows: Debug/Release x64/Win32 clean builds, ordinary suites and existing
   Host/lifecycle acceptance with one/two workers, plus new Audio cases. Run the
   audible test explicitly on a real output device and check the fade by listening.
@@ -326,17 +399,30 @@ null/fake-device exercise demonstrates scheduling and cleanup only. Real backend
 initialisation and submitted frames demonstrate an output path; manual listening
 establishes that the expected tone/fade was actually audible.
 
-## Remaining decisions
+## Readiness for timed-wait work
 
-| Choice | Proposed starting point |
-| --- | --- |
-| Test parameters | 48 kHz stereo float, middle C, gain 0.1, 2-second rise/fall and short trailing silence; no hold. |
-| Generator | Small engine-owned finite oscillator/envelope; `ma_waveform` remains an alternative. |
-| Active waiting | Short-lived progress polling for this prototype; idle parking. Timed waiting is additional work if preferred. |
-| Backend policy | Default real device, shared mode, no null fallback; Windows/Linux backend lists and interruption handling to confirm. |
-| No-device result | Explicit `unavailable`/skipped; strict audible acceptance fails, headless harness reports intentional non-execution. |
-| Test invocation | Explicit Audio acceptance Executive/selector or an opt-in existing Executive path; no unconditional sound in current suites. |
-| Cancellation | Cleanup before cancelled completion; decide whether a bounded short fade is worthwhile in this first stage. |
+No further Audio behaviour or scope decision is required before moving to the
+framework wait work. The tone/envelope, ownership, sequential Executive flow,
+backend selection, no-device continuation, cancellation and deadlines are settled.
+
+After the separate timed-wait work, return to this design to confirm:
+
+- The actual timed predicate API, result handling, clock semantics and supported
+  platform validation, using the handoff requirements above.
+- The proposed 20 ms active progress-check interval and its integration with the
+  15-second overall and 2-second no-progress deadlines. Idle waiting stays
+  indefinite, and the callback does not perform an OS wake.
+
+Native buffering and the adequacy of the agreed 250 ms trailing silence remain
+playback-validation considerations. Sample-boundary conventions, allocator metadata
+and notification mapping remain implementation details to verify within this
+scope. Physical Linux playback validation remains dependent on the Linux machine
+being available. These do not require broader Audio functionality or prevent
+starting the independent framework work.
+
+This checkpoint does not authorise Audio implementation or claim that timed-wait
+support has been added. Complete that prerequisite, then reassess here before
+starting Audio code changes.
 
 ## Documentation review record
 
