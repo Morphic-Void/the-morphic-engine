@@ -2,9 +2,9 @@
 //  Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited
 //  License: MIT (see LICENSE file in repository root)
 //
-//  File:   CWaitPredicate.cpp
-//  Author: Ritchie Brannan
-//  Date:   10 May 26
+//  File:    CWaitPredicate.cpp
+//  Authors: Ritchie Brannan / OpenAI Codex
+//  Date:    10 May 26
 //
 //  Requirements:
 //  - Requires C++17 or later.
@@ -12,6 +12,7 @@
 
 #include "threading/CWaitPredicate.hpp"
 #include "platform/platform_defines.hpp"
+#include "platform/threading/wait_word_internal.hpp"
 #include "debug/macros.hpp"
 
 #if MV_PLATFORM_HAS_NATIVE_WAIT_WORD
@@ -204,6 +205,52 @@ std::uint32_t CWaitPredicate::wait_until_not_equal(CParkingTicket& ticket, const
 #endif
     }
     return k_control_released_word;
+}
+
+//==============================================================================
+//  Timed predicate waits
+//==============================================================================
+
+WaitResult CWaitPredicate::wait_until_equal(CParkingTicket& ticket, const std::uint32_t value, const CWaitDeadline& deadline) noexcept
+{
+    (void)ticket;
+    return wait_timed(value, deadline, true);
+}
+
+WaitResult CWaitPredicate::wait_until_not_equal(CParkingTicket& ticket, const std::uint32_t value, const CWaitDeadline& deadline) noexcept
+{
+    (void)ticket;
+    return wait_timed(value, deadline, false);
+}
+
+WaitResult CWaitPredicate::wait_timed(const std::uint32_t value,
+    const CWaitDeadline& deadline, const bool equal) noexcept
+{
+    using platform::threading::EWaitError;
+    using platform::threading::EWaitWordStatus;
+    using platform::threading::WaitWordResult;
+    if (!m_valid || (value == k_control_released_word))
+        return { EWaitStatus::invalid_argument, get_word(), 0u };
+    if (!deadline.is_valid())
+    {
+        const auto error = deadline.error();
+        return { platform::threading::internal::wait_error_status(error.code), get_word(), error.native_error };
+    }
+    return platform::threading::internal::wait_predicate_loop(m_word, value, equal, true,
+        [&](const std::uint32_t seen) noexcept -> WaitWordResult {
+#if MV_PLATFORM_HAS_NATIVE_WAIT_WORD
+        return platform::threading::wait_while_equal(m_word, seen, deadline);
+#else
+        (void)seen;
+        //  CParkingGate's exclusive locks cannot honour a deadline.
+        std::uint64_t remaining = 0u;
+        const auto error = deadline.remaining_nanoseconds(remaining);
+        if (error.code == EWaitError::invalid_argument) return { EWaitWordStatus::invalid_argument, error.native_error };
+        if (error.code == EWaitError::unsupported) return { EWaitWordStatus::unsupported, error.native_error };
+        if (error.code == EWaitError::native_failure) return { EWaitWordStatus::native_failure, error.native_error };
+        return { remaining == 0u ? EWaitWordStatus::timed_out : EWaitWordStatus::unsupported, 0u };
+#endif
+    });
 }
 
 //==============================================================================

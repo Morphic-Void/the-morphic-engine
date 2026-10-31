@@ -2,9 +2,9 @@
 //  Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited
 //  License: MIT (see LICENSE file in repository root)
 //
-//  File:   platform_defines.hpp
-//  Author: Ritchie Brannan
-//  Date:   9 May 26
+//  File:    platform_defines.hpp
+//  Authors: Ritchie Brannan / OpenAI Codex
+//  Date:    9 May 26
 //
 //  Requirements:
 //  - Requires C++17 or later.
@@ -53,6 +53,10 @@
 //  MV_PLATFORM_HAS_NATIVE_WAIT_WORD
 //      Target has a native 32-bit wait-by-address / wake-by-address primitive
 //      suitable for platform::threading wait-word support.
+//
+//      Timed calls additionally require their deadline clock/backend at runtime;
+//      Windows timed support requires QueryUnbiasedInterruptTimePrecise (10+).
+//      This capability does not authorise an indefinite fallback for timed calls.
 //
 //  MV_PLATFORM_NATIVE_WAIT_WORD_EXPERIMENTAL
 //      Target is routed through native wait-word support, but the platform

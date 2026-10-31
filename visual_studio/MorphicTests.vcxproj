@@ -106,6 +106,7 @@
     <ClCompile Include="..\tests\test_suites\AssetRepository_test_suite.cpp" />
     <ClCompile Include="..\tests\test_suites\FilesystemImage_test_suite.cpp" />
     <ClCompile Include="..\tests\test_suites\File_test_suite.cpp" />
+    <ClCompile Include="..\tests\test_suites\TimedWait_test_suite.cpp" />
     <ClCompile Include="..\tests\test_suites\AsyncState_test_suite.cpp" />
     <ClCompile Include="..\tests\test_suites\HostWorkers_test_suite.cpp" />
     <ClCompile Include="..\tests\test_suites\BundleRequests_test_suite.cpp" />
@@ -184,6 +185,7 @@
     <ClInclude Include="..\tests\test_suites\AssetRepository_test_suite.hpp" />
     <ClInclude Include="..\tests\test_suites\FilesystemImage_test_suite.hpp" />
     <ClInclude Include="..\tests\test_suites\File_test_suite.hpp" />
+    <ClInclude Include="..\tests\test_suites\TimedWait_test_suite.hpp" />
     <ClInclude Include="..\tests\test_suites\AsyncState_test_suite.hpp" />
     <ClInclude Include="..\tests\test_suites\HostWorkers_test_suite.hpp" />
     <ClInclude Include="..\tests\test_suites\BundleRequests_test_suite.hpp" />

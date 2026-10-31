@@ -251,6 +251,9 @@
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\platform\threading\wait_word_semaphore.cpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\platform\threading\wait_word_semaphore.hpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\platform\threading\wait_word.cpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\platform\threading\wait_deadline.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\platform\threading\wait_deadline_math.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\platform\threading\wait_word_internal.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\platform\threading\wait_word.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\platform\windows_include.hpp" />
   </ItemGroup>

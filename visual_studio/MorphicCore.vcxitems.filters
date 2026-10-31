@@ -406,6 +406,15 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\platform\threading\wait_word_semaphore.hpp">
       <Filter>Core\include\platform\threading</Filter>
     </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\platform\threading\wait_deadline.hpp">
+      <Filter>Core\include\platform\threading</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\platform\threading\wait_deadline_math.hpp">
+      <Filter>Core\include\platform\threading</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\platform\threading\wait_word_internal.hpp">
+      <Filter>Core\include\platform\threading</Filter>
+    </ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\platform\threading\wait_word.hpp">
       <Filter>Core\include\platform\threading</Filter>
     </ClInclude>

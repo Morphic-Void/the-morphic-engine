@@ -84,6 +84,7 @@ public:
 
     [[nodiscard]] bool exit_requested() const noexcept;
     [[nodiscard]] const platform::system::CPerfCountConversion& perf_count_conversion() const noexcept;
+    [[nodiscard]] WaitResult wait_for_new_epoch(const std::uint32_t epoch, const CWaitDeadline& deadline) noexcept;
     std::uint32_t wait_for_new_epoch(const std::uint32_t epoch) noexcept;
 
     bool read(CErasedPodMsg& msg) noexcept;

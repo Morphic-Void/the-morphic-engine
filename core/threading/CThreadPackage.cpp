@@ -39,8 +39,7 @@ std::uint32_t MV_STD_ABI_CALL CThreadPackage::thread_entry_point(void* const use
     }
     (void)platform::threading::set_current_thread_priority(config.priority);
 
-    if ((config.prepare != nullptr) &&
-        !config.prepare(config.prepare_context, config.thread_id, resources))
+    if ((config.prepare != nullptr) && !config.prepare(config.prepare_context, config.thread_id, resources))
     {
         resources->control_state.mark_failed(~0u);
         return ~0u;
@@ -52,6 +51,14 @@ std::uint32_t MV_STD_ABI_CALL CThreadPackage::thread_entry_point(void* const use
 void CThreadContext::startup() noexcept
 {
     m_resources.control_state.mark_startup();
+}
+
+WaitResult CThreadContext::wait_for_new_epoch(const std::uint32_t epoch, const CWaitDeadline& deadline) noexcept
+{
+    mark_waiting();
+    const WaitResult result = m_resources.wait_predicate.wait_until_not_equal(m_resources.parking_ticket, epoch, deadline);
+    mark_running();
+    return result;
 }
 
 std::uint32_t CThreadContext::wait_for_new_epoch(const std::uint32_t epoch) noexcept

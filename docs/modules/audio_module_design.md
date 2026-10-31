@@ -1,10 +1,9 @@
 Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited
 License: MIT (see LICENSE file in repository root)
 
-File:   audio_module_design.md
-Author: Ritchie Brannan
-Drafting and editorial assistance: OpenAI Codex
-Date:   30 Oct 2026
+File:    audio_module_design.md
+Authors: Ritchie Brannan / OpenAI Codex
+Date:    30 Oct 2026
 
 # Audio module: one requested tone test
 
@@ -209,12 +208,13 @@ the interval is not a hard maximum response latency. Keep the periodic check,
 overall test deadline and no-progress deadline distinct. Ordinary wakeups must
 not restart the overall deadline or count as evidence of audio progress.
 
-The existing wait API has no timeout parameter. Its expansion is separate framework
-work, to be discussed and implemented in a dedicated chat after the Audio design
-is completed. This Audio chat can then resume and reassess the actual API,
-semantics and validated platform support before implementation begins. This
-document does not claim that timed waiting exists or fix its final signatures.
-The work does not depend on Platform's future Host event-loop/wait integration.
+The separate framework implementation now provides deadline-taking predicate
+and service-context waits; its contract and validation are recorded in the
+[timed-wait handback](../project/timed_predicate_waiting.md). Audio implementation
+remains deferred until that work is reviewed in the original Audio chat. Reassess
+the actual API, result handling, validated platform support and proposed check
+interval there before implementation. This does not depend on Platform's future
+Host event-loop/wait integration.
 
 The framework handoff should include:
 
@@ -420,9 +420,12 @@ scope. Physical Linux playback validation remains dependent on the Linux machine
 being available. These do not require broader Audio functionality or prevent
 starting the independent framework work.
 
-This checkpoint does not authorise Audio implementation or claim that timed-wait
-support has been added. Complete that prerequisite, then reassess here before
-starting Audio code changes.
+The original Audio checkpoint did not authorise implementation. The subsequent
+[framework handback](../project/timed_predicate_waiting.md) is ready for review
+here before starting Audio code changes. Its deadlines exclude system suspend;
+confirm how Audio's overall and no-progress deadlines should treat suspend
+alongside the proposed 20 ms check interval. No Audio integration is implied by
+the framework API's availability.
 
 ## Documentation review record
 

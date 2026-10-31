@@ -2,9 +2,9 @@
 //  Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited
 //  License: MIT (see LICENSE file in repository root)
 //
-//  File:   CWaitPredicate.hpp
-//  Author: Ritchie Brannan
-//  Date:   10 May 26
+//  File:    CWaitPredicate.hpp
+//  Authors: Ritchie Brannan / OpenAI Codex
+//  Date:    10 May 26
 //
 //  Requirements:
 //  - Requires C++17 or later.
@@ -42,9 +42,14 @@
 #include <cstdint>      //  std::uint32_t
 
 #include "threading/CParkingGate.hpp"
+#include "platform/threading/wait_word.hpp"
 
 namespace threading
 {
+
+using platform::threading::CWaitDeadline;
+using platform::threading::EWaitStatus;
+using platform::threading::WaitResult;
 
 //==============================================================================
 //  CWaitPredicate
@@ -89,6 +94,14 @@ public:
     bool wait_until_equal(CParkingTicket& ticket, const std::uint32_t value) noexcept;
     std::uint32_t wait_until_not_equal(CParkingTicket& ticket, const std::uint32_t value) noexcept;
 
+    //  Explicit timed outcomes. Control release is distinct from inequality.
+    //  A final acquire observation of release or satisfaction wins over timeout.
+    //  Keep the predicate alive until all waiters AND producers have finished;
+    //  release_control() is a notification, not a join. Quiesce users before
+    //  acquiring a new control lifetime. Tickets remain per-waiter resources.
+    [[nodiscard]] WaitResult wait_until_equal(CParkingTicket& ticket, const std::uint32_t value, const CWaitDeadline& deadline) noexcept;
+    [[nodiscard]] WaitResult wait_until_not_equal(CParkingTicket& ticket, const std::uint32_t value, const CWaitDeadline& deadline) noexcept;
+
     //  Producer-side operations.
     bool set_and_wake_one(const std::uint32_t value) noexcept;
     bool set_and_wake_all(const std::uint32_t value) noexcept;
@@ -115,6 +128,8 @@ public:
     bool wake_all_waiters() noexcept;
 
 private:
+
+    WaitResult wait_timed(std::uint32_t value, const CWaitDeadline& deadline, bool equal) noexcept;
 
     static constexpr std::uint32_t k_control_released_word = ~std::uint32_t{ 0u };
     static constexpr std::uint32_t k_max_predicate_word = k_control_released_word - 1u;

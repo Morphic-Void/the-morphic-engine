@@ -2,9 +2,9 @@
 //  Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited
 //  License: MIT (see LICENSE file in repository root)
 //
-//  File:   wait_word.hpp
-//  Author: Ritchie Brannan
-//  Date:   7 May 26
+//  File:    wait_word.hpp
+//  Authors: Ritchie Brannan / OpenAI Codex
+//  Date:    7 May 26
 //
 //  Requirements:
 //  - Requires C++17 or later.
@@ -35,8 +35,42 @@
 #include <atomic>       //  std::atomic
 #include <cstdint>      //  std::uint32_t
 
+#include "platform/threading/wait_deadline.hpp"
+
 namespace platform::threading
 {
+
+enum class EWaitStatus
+{
+    satisfied,
+    timed_out,
+    control_released,
+    invalid_argument,
+    unsupported,
+    native_failure
+};
+
+struct WaitResult
+{
+    EWaitStatus status{ EWaitStatus::invalid_argument };
+    std::uint32_t observed{ 0u };
+    std::uint32_t native_error{ 0u };
+};
+
+enum class EWaitWordStatus
+{
+    awoken_or_changed,
+    timed_out,
+    invalid_argument,
+    unsupported,
+    native_failure
+};
+
+struct WaitWordResult
+{
+    EWaitWordStatus status{ EWaitWordStatus::invalid_argument };
+    std::uint32_t native_error{ 0u };
+};
 
 //==============================================================================
 //  Atomic wait word primitives
@@ -44,6 +78,10 @@ namespace platform::threading
 
 //  Blocks the calling thread while word equals expected.
 void wait_while_equal(const std::atomic<std::uint32_t>& word, const std::uint32_t expected) noexcept;
+
+//  One finite compare-and-park attempt. Success includes interruption and
+//  spurious return: recheck the predicate and reuse the same deadline.
+[[nodiscard]] WaitWordResult wait_while_equal(const std::atomic<std::uint32_t>& word, const std::uint32_t expected, const CWaitDeadline& deadline) noexcept;
 
 //  Wakes one current waiter blocked on word, if one exists.
 void wake_one_waiter(const std::atomic<std::uint32_t>& word) noexcept;
@@ -62,6 +100,11 @@ void wait_until_equal(const std::atomic<std::uint32_t>& word, const std::uint32_
 //  Wait until word is seen to differ from value.
 //  Returns the seen non-equal value.
 std::uint32_t wait_until_not_equal(const std::atomic<std::uint32_t>& word, const std::uint32_t value) noexcept;
+
+//  Timed predicates perform a final acquire load before reporting timeout.
+//  The word must survive all wait AND wake calls; a return does not join peers.
+[[nodiscard]] WaitResult wait_until_equal(const std::atomic<std::uint32_t>& word, const std::uint32_t value, const CWaitDeadline& deadline) noexcept;
+[[nodiscard]] WaitResult wait_until_not_equal(const std::atomic<std::uint32_t>& word, const std::uint32_t value, const CWaitDeadline& deadline) noexcept;
 
 }   //  namespace platform::threading
 
