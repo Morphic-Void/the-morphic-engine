@@ -31,6 +31,7 @@
 #include "system/service_messages.hpp"
 #include "image/image_messages.hpp"
 #include "host/runtime/host_payloads.hpp"
+#include "executive/runtime/module_test_watchdog.hpp"
 #include "tests/test_suites/ErasedOwner_test_suite.hpp"
 #include "tests/support/test_allocator.hpp"
 #include "tests/support/memory_context_test_access.hpp"
@@ -44,6 +45,78 @@
 
 namespace executive_startup_tests
 {
+
+struct SControlledDeadline
+{
+    static inline std::uint64_t now = 0u;
+    static inline std::uint64_t duration = 0u;
+    static inline unsigned starts = 0u;
+    static inline platform::threading::WaitError construction_error{};
+    static inline platform::threading::WaitError query_error{};
+    std::uint64_t end{ 0u };
+    platform::threading::WaitError error{ platform::threading::EWaitError::invalid_argument, 0u };
+
+    platform::threading::WaitError set_after_milliseconds(const std::uint64_t milliseconds) noexcept
+    {
+        ++starts;
+        duration = milliseconds * 1000000u;
+        end = now + duration;
+        error = construction_error;
+        return error;
+    }
+    platform::threading::WaitError remaining_nanoseconds(std::uint64_t& remaining) const noexcept
+    {
+        if (error.code != platform::threading::EWaitError::none) return error;
+        remaining = now < end ? end - now : 0u;
+        return query_error;
+    }
+};
+
+static void check_module_watchdog(tests::TTestContext& ctx)
+{
+    using Clock = SControlledDeadline;
+    using Watchdog = executive::TModuleTestWatchdog<Clock>;
+    using State = Watchdog::EState;
+    using Error = platform::threading::EWaitError;
+    Clock::now = 100u;
+    Clock::starts = 0u;
+    Clock::construction_error = {};
+    Clock::query_error = {};
+    Watchdog watchdog;
+    TEST_EXPECT(ctx, watchdog.check() == State::failed);
+    TEST_EXPECT(ctx, watchdog.start().code == Error::none);
+    TEST_EXPECT(ctx, Clock::duration == 30000000000ull && Clock::starts == 1u);
+    //  The same pre-read operation runs on every Executive loop, including
+    //  loops consuming unrelated traffic. None may renew the original budget.
+    bool pending = true;
+    for (unsigned message = 0u; message < 5000u; ++message)
+    {
+        Clock::now += 1000u;
+        pending = (watchdog.check() == State::pending) && pending;
+    }
+    TEST_EXPECT(ctx, pending && Clock::starts == 1u);
+    Clock::now = 30000000099ull;
+    TEST_EXPECT(ctx, watchdog.check() == State::pending);
+    ++Clock::now;
+    TEST_EXPECT(ctx, watchdog.check() == State::expired);
+    //  A subsequent module submission gets a fresh full budget.
+    TEST_EXPECT(ctx, watchdog.start().code == Error::none && Clock::starts == 2u);
+    TEST_EXPECT(ctx, watchdog.check() == State::pending);
+    Clock::now += 30000000000ull;
+    TEST_EXPECT(ctx, watchdog.check() == State::expired);
+    for (const auto error : { Error::invalid_argument, Error::unsupported, Error::native_failure })
+    {
+        Clock::construction_error = { error, 37u };
+        const auto started = watchdog.start();
+        TEST_EXPECT(ctx, started.code == error && started.native_error == 37u);
+        TEST_EXPECT(ctx, watchdog.check() == State::failed);
+        Clock::construction_error = {};
+        TEST_EXPECT(ctx, watchdog.start().code == Error::none);
+        Clock::query_error = { error, 41u };
+        TEST_EXPECT(ctx, watchdog.check() == State::failed);
+        Clock::query_error = {};
+    }
+}
 
 static bool read_request(threading::CThreadPackage& package, threading::CErasedOwnerMsg& message,
     const platform::system::CPerfCountConversion& conversion) noexcept
@@ -60,11 +133,14 @@ static void check_rendering_notices(tests::TTestContext& ctx, modules::CBoundMod
     enum class ECase : std::uint8_t
     {
         loaded = 0, already_loaded, unavailable, wrong_implementation, load_failure,
-        missing_acknowledgement, wrong_correlation, duplicate_acknowledgement
+        missing_acknowledgement, wrong_correlation, duplicate_acknowledgement,
+        audio_unavailable, audio_failed, audio_cancelled, audio_busy, audio_bad_counts, audio_wrong_correlation, audio_load_failure
     };
     for (const ECase scenario : { ECase::loaded, ECase::already_loaded, ECase::unavailable,
         ECase::wrong_implementation, ECase::load_failure, ECase::missing_acknowledgement,
-        ECase::wrong_correlation, ECase::duplicate_acknowledgement })
+        ECase::wrong_correlation, ECase::duplicate_acknowledgement,
+        ECase::audio_unavailable, ECase::audio_failed, ECase::audio_cancelled, ECase::audio_busy,
+        ECase::audio_bad_counts, ECase::audio_wrong_correlation, ECase::audio_load_failure })
     {
         const threading::ThreadConfig configuration{
             thread_ids::executive, module_ids::executive, platform::threading::EThreadPriority::Normal,
@@ -116,7 +192,7 @@ static void check_rendering_notices(tests::TTestContext& ctx, modules::CBoundMod
         }
         reply.assign_payload(result);
         TEST_EXPECT(ctx, package.post(reply));
-        if ((scenario == ECase::loaded) || (scenario == ECase::already_loaded))
+        if ((scenario == ECase::loaded) || (scenario == ECase::already_loaded) || (scenario >= ECase::audio_unavailable))
         {
             threading::CErasedPodMsg tests_request;
             TEST_EXPECT(ctx, tests::wait_until(conversion, [&]() noexcept { return package.read(tests_request); }));
@@ -134,15 +210,53 @@ static void check_rendering_notices(tests::TTestContext& ctx, modules::CBoundMod
             reply.assign_payload(completed);
             TEST_EXPECT(ctx, package.post(reply));
             TEST_EXPECT(ctx, read_request(package, request, conversion));
-            TEST_EXPECT(ctx, request.is_message_a<RawAssetTransfer>());
+            const ModuleRequest* audio_load = request.owner().payload<ModuleRequest>();
+            TEST_EXPECT(ctx, audio_load && audio_load->module == module_ids::audio && audio_load->action == EModuleAction::load &&
+                std::strcmp(audio_load->file.cstring(), test_environment::module_filename("package:/bin/MorphicAudio").c_str()) == 0);
             TEST_EXPECT(ctx, request.query_async_slot() == slot + 2);
+            request.take_owner().destroy();
+            result.module = module_ids::audio;
+            result.notice = EModuleNotice::acknowledged;
+            result.status = EModuleStatus::success;
+            result.available = false;
+            reply.set_async_slot(slot + 2);
+            reply.assign_payload(result);
+            TEST_EXPECT(ctx, package.post(reply));
+            result.notice = EModuleNotice::completed;
+            result.status = (scenario == ECase::audio_load_failure) ? EModuleStatus::binding_failed : EModuleStatus::success;
+            result.available = scenario != ECase::audio_load_failure;
+            reply.assign_payload(result);
+            TEST_EXPECT(ctx, package.post(reply));
+            if (scenario != ECase::audio_load_failure)
+            {
+                TEST_EXPECT(ctx, tests::wait_until(conversion, [&]() noexcept { return package.read(tests_request); }));
+                TEST_EXPECT(ctx, tests_request.copy_payload_to(tests) && tests.module == module_ids::audio && tests_request.query_async_slot() == slot + 3);
+                TEST_EXPECT(ctx, !package.read(request));
+                completed = { module_ids::audio, ETestRunStatus::success, 1u, 0u, 0u };
+                if (scenario == ECase::audio_unavailable) completed = { module_ids::audio, ETestRunStatus::unavailable, 0u, 0u, 1u };
+                if (scenario == ECase::audio_failed) completed = { module_ids::audio, ETestRunStatus::failed, 0u, 1u, 0u };
+                if (scenario == ECase::audio_cancelled) completed = { module_ids::audio, ETestRunStatus::cancelled, 0u, 0u, 1u };
+                if (scenario == ECase::audio_busy) completed = { module_ids::audio, ETestRunStatus::busy, 0u, 1u, 0u };
+                if (scenario == ECase::audio_bad_counts) completed.passed = 2u;
+                reply.set_async_slot(slot + ((scenario == ECase::audio_wrong_correlation) ? 4 : 3));
+                reply.assign_payload(completed);
+                TEST_EXPECT(ctx, package.post(reply));
+            }
+            if ((scenario == ECase::loaded) || (scenario == ECase::already_loaded) || (scenario == ECase::audio_unavailable))
+            {
+                TEST_EXPECT(ctx, read_request(package, request, conversion));
+                TEST_EXPECT(ctx, request.is_message_a<RawAssetTransfer>() && request.query_async_slot() == slot + 4);
+            }
+            else
+            {
+                TEST_EXPECT(ctx, tests::wait_until(conversion, [&]() noexcept { return package.query_state() == threading::EThreadRunState::Failed; }));
+                TEST_EXPECT(ctx, !package.read(request));
+            }
         }
         else
         {
-            TEST_EXPECT(ctx, read_request(package, request, conversion));
-            const ModuleRequest* const shutdown = request.owner().payload<ModuleRequest>();
-            TEST_EXPECT(ctx, (shutdown != nullptr) && (shutdown->action == EModuleAction::unload) &&
-                (shutdown->module == module_ids::executive));
+            TEST_EXPECT(ctx, tests::wait_until(conversion, [&]() noexcept { return package.query_state() == threading::EThreadRunState::Failed; }));
+            TEST_EXPECT(ctx, !package.read(request));
         }
         request.take_owner().destroy();
         package.request_exit();
@@ -518,7 +632,7 @@ void test_executive_context_and_module_unload_gate(TTestContext& ctx)
             executive_startup_tests::check_rendering_notices(ctx, module, failure.entry, conversion);
             TEST_EXPECT(ctx, executive_context->is_attribution_empty());
             TEST_EXPECT(ctx, debug_service->stop());
-            TEST_EXPECT(ctx, tests::file_contains(submission_log.c_str(), "rendering_startup failed: rendering load submission"));
+            TEST_EXPECT(ctx, tests::file_contains(submission_log.c_str(), "module_startup failed: module load submission"));
         }
     }
     void* const allocation = executive_context->allocate(
@@ -1726,6 +1840,7 @@ void test_transport_with_accounting_discrepancies(TTestContext& ctx)
 int run_erased_owner_tests()
 {
     TTestContext ctx;
+    executive_startup_tests::check_module_watchdog(ctx);
     test_registration_and_empty_state(ctx);
     test_operation_registry(ctx);
     test_operation_registry_failure_boundaries(ctx);

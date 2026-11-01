@@ -50,6 +50,9 @@ jobs:
       - name: Acquire pinned DXC
         run: python3 tools/acquire_dxc.py
 
+      - name: Install isolated headless audio test runtime
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends pulseaudio
+
       - name: Record toolchain versions
         run: |
           mkdir -p build/linux-ci/logs
@@ -59,6 +62,7 @@ jobs:
       - name: Validate Visual Studio source extraction
         id: manifests
         run: |
+          python3 tests/audio/check_vendor.py
           python3 -B -m unittest discover -s tools/tests -p test_cmake_sources.py -v \
             2>&1 | tee build/linux-ci/logs/source-tests.log
 
@@ -77,7 +81,7 @@ jobs:
       - name: Run ordinary suites and Host acceptance with one and two requested workers
         id: tests
         run: |
-          ctest --test-dir build/linux-ci --output-on-failure --no-tests=error \
+          python3 tests/audio/run_headless.py ctest --test-dir build/linux-ci --output-on-failure --no-tests=error \
             2>&1 | tee build/linux-ci/logs/tests.log
 
       - name: Report CI outcome

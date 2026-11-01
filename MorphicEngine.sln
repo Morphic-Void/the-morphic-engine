@@ -6,6 +6,7 @@ MinimumVisualStudioVersion = 10.0.40219.1
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "MorphicHost", "visual_studio\MorphicHost.vcxproj", "{EFB8A2F1-CDEC-4E22-933E-590558D7F314}"
 	ProjectSection(ProjectDependencies) = postProject
 		{730BC2AB-3A54-445D-91AE-7F279F6FBACD} = {730BC2AB-3A54-445D-91AE-7F279F6FBACD}
+		{F31015E2-91F6-4F90-BB5E-14A06C61D1AD} = {F31015E2-91F6-4F90-BB5E-14A06C61D1AD}
 		{6B6E8D7D-21CB-4B92-9088-FAAA562D9F31} = {6B6E8D7D-21CB-4B92-9088-FAAA562D9F31}
 	EndProjectSection
 EndProject
@@ -16,6 +17,7 @@ EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "MorphicTests", "visual_studio\MorphicTests.vcxproj", "{D5B6BE43-4A70-4C3A-BE6D-59D50BC71A24}"
 	ProjectSection(ProjectDependencies) = postProject
 		{730BC2AB-3A54-445D-91AE-7F279F6FBACD} = {730BC2AB-3A54-445D-91AE-7F279F6FBACD}
+		{F31015E2-91F6-4F90-BB5E-14A06C61D1AD} = {F31015E2-91F6-4F90-BB5E-14A06C61D1AD}
 		{6B6E8D7D-21CB-4B92-9088-FAAA562D9F31} = {6B6E8D7D-21CB-4B92-9088-FAAA562D9F31}
 	EndProjectSection
 EndProject
@@ -55,6 +57,8 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Vulkan SDK", "Vulkan SDK", 
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "MorphicRendering", "visual_studio\MorphicRendering.vcxproj", "{730BC2AB-3A54-445D-91AE-7F279F6FBACD}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "MorphicAudio", "visual_studio\MorphicAudio.vcxproj", "{F31015E2-91F6-4F90-BB5E-14A06C61D1AD}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -65,6 +69,18 @@ Global
 		Release|x86 = Release|x86
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{F31015E2-91F6-4F90-BB5E-14A06C61D1AD}.Debug|x64.ActiveCfg = Debug|x64
+		{F31015E2-91F6-4F90-BB5E-14A06C61D1AD}.Debug|x64.Build.0 = Debug|x64
+		{F31015E2-91F6-4F90-BB5E-14A06C61D1AD}.Debug|x86.ActiveCfg = Debug|Win32
+		{F31015E2-91F6-4F90-BB5E-14A06C61D1AD}.Debug|x86.Build.0 = Debug|Win32
+		{F31015E2-91F6-4F90-BB5E-14A06C61D1AD}.Development|x64.ActiveCfg = Development|x64
+		{F31015E2-91F6-4F90-BB5E-14A06C61D1AD}.Development|x64.Build.0 = Development|x64
+		{F31015E2-91F6-4F90-BB5E-14A06C61D1AD}.Development|x86.ActiveCfg = Development|Win32
+		{F31015E2-91F6-4F90-BB5E-14A06C61D1AD}.Development|x86.Build.0 = Development|Win32
+		{F31015E2-91F6-4F90-BB5E-14A06C61D1AD}.Release|x64.ActiveCfg = Release|x64
+		{F31015E2-91F6-4F90-BB5E-14A06C61D1AD}.Release|x64.Build.0 = Release|x64
+		{F31015E2-91F6-4F90-BB5E-14A06C61D1AD}.Release|x86.ActiveCfg = Release|Win32
+		{F31015E2-91F6-4F90-BB5E-14A06C61D1AD}.Release|x86.Build.0 = Release|Win32
 		{730BC2AB-3A54-445D-91AE-7F279F6FBACD}.Debug|x64.ActiveCfg = Debug|x64
 		{730BC2AB-3A54-445D-91AE-7F279F6FBACD}.Debug|x64.Build.0 = Debug|x64
 		{730BC2AB-3A54-445D-91AE-7F279F6FBACD}.Debug|x86.ActiveCfg = Debug|Win32
@@ -152,6 +168,7 @@ Global
 		SolutionGuid = {6412ED91-C516-41EB-ABE6-FCD1B4D2E855}
 	EndGlobalSection
 	GlobalSection(SharedMSBuildProjectFiles) = preSolution
+		visual_studio\MorphicCore.vcxitems*{f31015e2-91f6-4f90-bb5e-14a06c61d1ad}*SharedItemsImports = 4
 		visual_studio\MorphicCore.vcxitems*{730bc2ab-3a54-445d-91ae-7f279f6fbacd}*SharedItemsImports = 4
 		visual_studio\MorphicCore.vcxitems*{6b6e8d7d-21cb-4b92-9088-faaa562d9f31}*SharedItemsImports = 4
 		visual_studio\MorphicCore.vcxitems*{a250136d-15bb-4a6c-a3bb-29c92a92e205}*SharedItemsImports = 9

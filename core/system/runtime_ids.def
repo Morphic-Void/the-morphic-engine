@@ -16,3 +16,6 @@ MV_SYSTEM_MODULE(conditioning_general, conditioning)
 
 MV_SYSTEM_MOUNT_POINT(render)
 MV_SYSTEM_MODULE(rendering, render)
+
+MV_SYSTEM_MOUNT_POINT(audio)
+MV_SYSTEM_MODULE(audio, audio)

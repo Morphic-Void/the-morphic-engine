@@ -1,6 +1,6 @@
 # Third-party licences
 
-Last reviewed: 2026-10-22 (DXC integration).
+Last reviewed: 2026-10-31 (Audio integration).
 
 This is the current dependency and licence record for Morphic Engine. It is
 provisional while rendering and texture conditioning are being designed. Keep
@@ -36,6 +36,28 @@ This compiler package is independent of a system-installed Vulkan SDK. No
 upstream compiler source or binary has been modified. macOS deployment remains
 unselected.
 
+## Audio device runtime
+
+`MorphicAudio` privately compiles miniaudio 0.11.25, git submodule commit
+`9634bedb5b5a2ca38c1ee7108a9358a4e233f14d`. The ordinary test executable also
+compiles the adapter for device-free allocation and cleanup tests. No upstream
+source was modified. Decoding, encoding, waveform generation, resource manager,
+node graph, high-level engine and null backend are disabled. Audio supplies its
+own finite tone generator and explicit allocation callbacks.
+
+The private `audio/runtime/miniaudio_context.inl` derives its context initializer
+from that exact upstream revision under MIT No Attribution. It retains native
+backend selection and platform setup, while tracking partial acquisition for
+failure cleanup. Its provenance and backend dispatch are checked by
+`tests/audio/check_vendor.py`; upstream files and the submodule pin are unchanged.
+
+The [upstream licence](external/miniaudio/LICENSE) offers public domain or MIT
+No Attribution; the selected distribution option remains MIT No Attribution.
+Windows and Linux Audio builds stage the full licence as
+`miniaudio-LICENSE.txt` alongside the module. Keep it with binary distributions.
+Native operating-system/driver libraries and Linux audio-session services are
+system dependencies, not bundled Audio binaries.
+
 ## Pinned sources and tools awaiting build integration
 
 These are selected and pinned, but are not currently linked into Morphic Engine.
@@ -51,7 +73,6 @@ each component is integrated.
 | [Basis Universal](https://github.com/BinomialLLC/basis_universal) | Host KTX2/UASTC LDR encoding and transcoding | Git submodule [tag `v2_50`](https://github.com/BinomialLLC/basis_universal/releases/tag/v2_50), commit `9bebe16726b3a61c8c213eeee3b7cffb462ef34e` | [Apache 2.0](external/basis_universal/LICENSE), [NOTICE](external/basis_universal/NOTICE), and licences for bundled files actually used; the upstream [inventory](external/basis_universal/.reuse/dep5) lists Zstd as BSD 3-Clause. |
 | [Vulkan SDK](https://vulkan.lunarg.com/) | Rendering build toolchain on Windows and Linux, including Vulkan headers and shader tools | Version `1.4.363.0`; Vulkan-Headers tag `vulkan-sdk-1.4.363.0`, commit `6802bb4733b63ed5efd3adb308a6c885ef180ea1` | The SDK has multiple component licences. [Vulkan-Headers](https://github.com/KhronosGroup/Vulkan-Headers/blob/vulkan-sdk-1.4.363.0/LICENSE.md) identifies Apache 2.0 and MIT. Record and supply notices for SDK components only if they are redistributed. |
 | [SPIRV-Reflect](https://github.com/KhronosGroup/SPIRV-Reflect) | SPIR-V reflection; runtime or conditioning placement is undecided | Git submodule SDK tag `vulkan-sdk-1.4.363.0`, commit `f3e261fda74ca81b44d1941931c6b7b5fe236d0e` | [Apache 2.0](external/SPIRV-Reflect/LICENSE), if its source or compiled code is redistributed. |
-| [miniaudio](https://github.com/mackron/miniaudio) | Host playback device abstraction; no capture, decoding, or mixing role selected | Git submodule [tag `0.11.25`](https://github.com/mackron/miniaudio/releases/tag/0.11.25), commit `9634bedb5b5a2ca38c1ee7108a9358a4e233f14d` | [Public domain or MIT No Attribution](external/miniaudio/LICENSE); use the MIT No Attribution option when distributed. |
 
 Rendering will use the operating system's Vulkan loader; the present plan does
 not bundle it. The SDK version pin does not require DXC in a release binary.

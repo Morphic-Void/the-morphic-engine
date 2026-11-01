@@ -732,9 +732,67 @@ static bool service_lifecycle_case(threading::CThreadContext& context, const cha
     return self_terminate(context, nullptr);
 }
 
+static bool audio_lifecycle_case(threading::CThreadContext& context) noexcept
+{
+    const auto file = test_environment::module_filename("package:/bin/MorphicAudio");
+    if (!post(context, EModuleAction::load, module_ids::audio, file.c_str(), 1,
+        system_type_ids::undefined, true)) return false;
+    for (const auto notice : { EModuleNotice::acknowledged, EModuleNotice::completed })
+    {
+        threading::CErasedPodMsg message;
+        ModuleResult result;
+        if (!receive(context, message) || !message.copy_payload_to(result) || message.query_async_slot() != 1 ||
+            result.module != module_ids::audio || result.notice != notice || result.status != EModuleStatus::success ||
+            (notice == EModuleNotice::completed && !result.available)) return false;
+    }
+    auto completed = [](const threading::CErasedPodMsg& message, const std::int32_t slot) noexcept
+    {
+        RunTestsResult result;
+        return message.copy_payload_to(result) && message.query_async_slot() == slot && result.module == module_ids::audio &&
+            ((result.status == ETestRunStatus::success && result.passed == 1u && result.failed == 0u && result.skipped == 0u) ||
+             (result.status == ETestRunStatus::unavailable && result.passed == 0u && result.failed == 0u && result.skipped == 1u));
+    };
+    threading::CErasedPodMsg message;
+    if (!context.post(threading::make_pod_message(2, RunTestsRequest{ module_ids::audio })) ||
+        !receive(context, message) || !completed(message, 2)) return false;
+    //  The same loaded service accepts another run. Request unload while it is
+    //  active; Host must preserve the worker and route until cleanup/completion.
+    if (!context.post(threading::make_pod_message(3, RunTestsRequest{ module_ids::audio })) ||
+        !post(context, EModuleAction::unload, module_ids::audio, nullptr, 4)) return false;
+    bool test_done = false, acknowledged = false, unloaded = false;
+    for (unsigned i = 0u; i < 3u; ++i)
+    {
+        if (!receive(context, message)) return false;
+        if (message.is_payload_a<RunTestsResult>())
+        {
+            if (test_done || !completed(message, 3)) return false;
+            test_done = true;
+            MV_LOG(info, "Audio lifecycle: repeated test completed before unload");
+        }
+        else
+        {
+            ModuleResult result;
+            if (!message.copy_payload_to(result) || message.query_async_slot() != 4 || result.module != module_ids::audio ||
+                result.status != EModuleStatus::success) return false;
+            if (result.notice == EModuleNotice::acknowledged)
+            {
+                if (acknowledged) return false;
+                acknowledged = true;
+            }
+            else
+            {
+                if (!acknowledged || !test_done || unloaded || result.available) return false;
+                unloaded = true;
+            }
+        }
+    }
+    return test_done && unloaded && self_terminate(context, nullptr);
+}
+
 static bool run_case(threading::CThreadContext& context,
     threading::CThreadResources& resources, const char* const selected) noexcept
 {
+    if (std::strcmp(selected, "audio-lifecycle") == 0) return audio_lifecycle_case(context);
     if (std::strncmp(selected, "service-", 8u) == 0) return service_lifecycle_case(context, selected);
     if ((std::strcmp(selected, "tests-routing") == 0) || (std::strcmp(selected, "tests-worker-exit") == 0) ||
         (std::strcmp(selected, "tests-client-unload") == 0))

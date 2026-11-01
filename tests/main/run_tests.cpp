@@ -12,6 +12,7 @@
 #include "tests/test_suites/File_test_suite.hpp"
 #include "tests/test_suites/AsyncState_test_suite.hpp"
 #include "tests/test_suites/TimedWait_test_suite.hpp"
+#include "tests/test_suites/Audio_test_suite.hpp"
 #include "tests/test_suites/HostWorkers_test_suite.hpp"
 #include "tests/test_suites/TextureService_test_suite.hpp"
 #include "tests/test_suites/BundleService_test_suite.hpp"
@@ -254,6 +255,7 @@ int run_tests(ETestRunMode mode)
     cumulative_result += run_isolated_suite("File", &run_file_tests);
     cumulative_result += run_isolated_suite("AsyncState", &run_async_state_tests);
     cumulative_result += run_isolated_suite("TimedWait", &run_timed_wait_tests);
+    cumulative_result += run_isolated_suite("Audio", &run_audio_tests);
     cumulative_result += run_isolated_suite("HostWorkers", &run_host_workers_tests);
     cumulative_result += run_isolated_suite("TextureService", &run_texture_service_tests);
     cumulative_result += run_isolated_suite("BundleService", &run_bundle_service_tests);

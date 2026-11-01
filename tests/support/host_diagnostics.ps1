@@ -8,6 +8,19 @@ function Assert-HostDiagnostics([string] $Events, [string] $Runtime) {
     if (!$Events.Contains('Acquisition acceptance: shared borrows, deferred disposal, stale release and client exit passed')) {
         throw 'Generic asset acquisition acceptance did not complete.'
     }
+    $audioSuccess = $Events.Contains('Executive: Module tests completed: 1 passed, 0 failed, 0 skipped')
+    $audioSkipped = $Events.Contains('Executive: Audio unavailable: no real output device; test skipped')
+    if (($audioSuccess -eq $audioSkipped) -or ($audioSkipped -and !$Events.Contains('Executive: Module tests completed: 0 passed, 0 failed, 1 skipped'))) {
+        throw 'Missing or ambiguous Audio completion.'
+    }
+    foreach ($marker in @('Audio: Running (device closed)', 'Executive: Audio ready', 'Audio: Test complete after cleanup', 'Audio: Exited', 'Host: Module audio service thread joined')) {
+        if (!$Events.Contains($marker)) { throw "Missing Audio lifecycle marker: $marker" }
+    }
+    if (!(($Events.IndexOf('Executive: Module tests completed: 23 passed') -lt $Events.IndexOf('Executive: Audio load requested')) -and
+          ($Events.IndexOf('Executive: Audio load requested') -lt $Events.IndexOf('Audio: Test complete after cleanup')) -and
+          ($Events.IndexOf('Audio: Test complete after cleanup') -lt $Events.IndexOf('Executive: retain_raw passed')))) {
+        throw 'Incorrect Rendering/Audio/asset ordering.'
+    }
     $expectedCases = @(Get-Content -LiteralPath (Join-Path $PSScriptRoot '../texture/flow_cases.json') -Raw | ConvertFrom-Json)
     $actualCases = @([regex]::Matches($Events, '\[rendering:rendering\].*\[texture_flow_tests\.cpp:\d+\] Rendering: (\w+) passed') |
         ForEach-Object { $_.Groups[1].Value })

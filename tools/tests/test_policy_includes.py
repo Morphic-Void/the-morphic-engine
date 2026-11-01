@@ -38,7 +38,7 @@ def main():
         root = Path(directory)
         (root / "MorphicEngine.sln").touch()
         (root / "policy").mkdir()
-        roots = ("core", "host", "executive", "rendering", "tests")
+        roots = ("core", "host", "executive", "rendering", "audio", "tests")
         policy = "version|1\n"
         for component in roots:
             (root / component).mkdir()
@@ -61,6 +61,7 @@ def main():
             "host/module/types/local_type_ids.hpp",
             "executive/module/types/local_type_ids.hpp",
             "rendering/module/types/local_type_ids.hpp",
+            "audio/module/types/local_type_ids.hpp",
             "rendering/runtime/only_rendering.hpp",
             "host/runtime/local.hpp", "host/debug/macros.hpp",
             "tests/helper.hpp", "tools/helper.hpp", "audio/runtime/helper.hpp",
@@ -72,10 +73,12 @@ def main():
             path.touch()
 
         # Identically named catalogues in other modules must not be candidates.
-        for component in ("host", "executive", "rendering"):
+        for component in ("host", "executive", "rendering", "audio"):
             check(binary, root, f"{component}/module/binding/probe.cpp",
                   "module/types/local_type_ids.hpp")
         check(binary, root, "rendering/runtime/probe.cpp", "runtime/only_rendering.hpp")
+        check(binary, root, "audio/runtime/probe.cpp", "runtime/helper.hpp")
+        check(binary, root, "host/runtime/probe.cpp", "runtime/helper.hpp", errors=1, rule="INC004")
         check(binary, root, "host/runtime/probe.cpp", "local.hpp")
         check(binary, root, "rendering/runtime/probe.cpp", "debug/macros.hpp")
         check(binary, root, "host/runtime/probe.cpp", "debug/macros.hpp",

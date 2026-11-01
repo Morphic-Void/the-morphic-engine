@@ -85,6 +85,17 @@ def main():
         if expected not in events:
             raise RuntimeError(f"Missing {expected!r}; inspect {logs[0]}")
     expected_cases = json.loads((repository / "tests/texture/flow_cases.json").read_text(encoding="utf-8"))
+    audio_success = "Executive: Module tests completed: 1 passed, 0 failed, 0 skipped" in events
+    audio_skip = "Executive: Audio unavailable: no real output device; test skipped" in events
+    if audio_success == audio_skip or (audio_skip and "Executive: Module tests completed: 0 passed, 0 failed, 1 skipped" not in events):
+        raise RuntimeError("Missing or ambiguous Audio completion")
+    for marker in ("Executive: Audio load requested", "Executive: Audio ready", "Audio: Running (device closed)",
+                   "Audio: Test complete after cleanup", "Audio: Exited", "Host: Module audio service thread joined"):
+        if marker not in events:
+            raise RuntimeError(f"Missing Audio lifecycle marker: {marker}")
+    if not (events.index("Executive: Module tests completed: 23 passed") < events.index("Executive: Audio load requested") <
+            events.index("Audio: Test complete after cleanup") < events.index("Executive: retain_raw passed")):
+        raise RuntimeError("Incorrect Rendering/Audio/asset ordering")
     actual_cases = re.findall(
         r"\[rendering:rendering\].*\[texture_flow_tests\.cpp:\d+\] Rendering: (\w+) passed", events)
     if sorted(actual_cases) != sorted(expected_cases):

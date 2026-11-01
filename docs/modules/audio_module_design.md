@@ -9,6 +9,11 @@ Date:    30 Oct 2026
 
 ## Status and agreed envelope
 
+Implementation now follows this agreed plan in the shared checkout. See the
+[implementation and validation record](audio_module_validation.md) for current
+coverage, the approved private context initializer and playback limitations.
+The original planning and review statements below are retained as history.
+
 This is a design and implementation plan, originally based on `f00b2eb` and the
 bundled miniaudio source, reassessed against timed-wait commit `0481576`. No Audio
 implementation is introduced by this document. Later implementation follows the

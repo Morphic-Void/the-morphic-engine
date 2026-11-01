@@ -59,9 +59,9 @@ add_custom_target(MorphicPolicyCheck
     VERBATIM
 )
 
-foreach(target IN ITEMS MorphicHost MorphicExecutive MorphicRendering MorphicTests)
+foreach(target IN ITEMS MorphicHost MorphicExecutive MorphicRendering MorphicAudio MorphicTests)
     morphic_sources(target_sources "visual_studio/${target}.vcxproj")
-    if(target STREQUAL "MorphicExecutive" OR target STREQUAL "MorphicRendering")
+    if(target STREQUAL "MorphicExecutive" OR target STREQUAL "MorphicRendering" OR target STREQUAL "MorphicAudio")
         add_library(${target} SHARED ${target_sources})
         # Engine modules retain their basename and use the native library suffix.
         set_target_properties(${target} PROPERTIES PREFIX "")
@@ -83,6 +83,11 @@ target_include_directories(MorphicHost PRIVATE
     "${CMAKE_SOURCE_DIR}/host/module/types" "${CMAKE_SOURCE_DIR}/host")
 target_include_directories(MorphicExecutive PRIVATE "${CMAKE_SOURCE_DIR}/executive")
 target_include_directories(MorphicRendering PRIVATE "${CMAKE_SOURCE_DIR}/rendering")
+target_include_directories(MorphicAudio PRIVATE "${CMAKE_SOURCE_DIR}/audio")
+add_custom_command(TARGET MorphicAudio POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_SOURCE_DIR}/external/miniaudio/LICENSE"
+        "$<TARGET_FILE_DIR:MorphicAudio>/miniaudio-LICENSE.txt"
+    VERBATIM)
 target_include_directories(MorphicTests PRIVATE
     "${CMAKE_SOURCE_DIR}/tests/environment"
     "${CMAKE_SOURCE_DIR}/host" "${CMAKE_SOURCE_DIR}/executive" "${CMAKE_SOURCE_DIR}/rendering")
@@ -109,8 +114,8 @@ target_compile_definitions(MorphicRendering PRIVATE
 target_include_directories(MorphicTests PRIVATE "${CMAKE_SOURCE_DIR}/external/basis_universal")
 target_compile_definitions(MorphicTests PRIVATE BASISU_SUPPORT_SSE=0 BASISU_SUPPORT_OPENCL=0 BASISD_SUPPORT_KTX2_ZSTD=1)
 set_target_properties(MorphicHost PROPERTIES OUTPUT_NAME MorphicEngine)
-add_dependencies(MorphicHost MorphicExecutive MorphicRendering)
-add_dependencies(MorphicTests MorphicExecutive MorphicRendering)
+add_dependencies(MorphicHost MorphicExecutive MorphicRendering MorphicAudio)
+add_dependencies(MorphicTests MorphicExecutive MorphicRendering MorphicAudio)
 
 enable_testing()
 add_test(NAME MorphicPolicyIncludes COMMAND "${Python3_EXECUTABLE}"

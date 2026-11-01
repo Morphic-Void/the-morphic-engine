@@ -299,4 +299,13 @@
     <ClInclude Include="..\tests\support\rendering_service_fixture.hpp" />
     <ClInclude Include="..\tests\support\resource_service_fixture.hpp" />
   </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\audio\runtime\tone_test.cpp" />
+    <ClCompile Include="..\audio\runtime\vendor_allocator.cpp" />
+    <ClCompile Include="..\audio\runtime\audio_run.cpp" />
+    <ClCompile Include="..\audio\runtime\audio_thread.cpp" />
+    <ClCompile Include="..\audio\runtime\miniaudio_adapter.cpp" />
+    <ClCompile Include="..\tests\test_suites\Audio_test_suite.cpp" />
+    <ClInclude Include="..\tests\test_suites\Audio_test_suite.hpp" />
+  </ItemGroup>
 </Project>

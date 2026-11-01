@@ -100,10 +100,37 @@ are reduced and logged rather than rejected; at most two workers are created.
 
 The limit permits two workers when at least eight logical hardware threads are
 reported, and only the single shared worker below eight. The baseline allows for
-five main threads (Host, Executive, debug, rendering and planned audio), accepting
+five main threads (Host, Executive, debug, rendering and audio), accepting
 one thread of OS headroom at eight reported hardware threads and two at nine.
 Ten or more provide the preferred three threads of headroom. This is a sizing
 heuristic without affinity or dedicated processor reservations.
+
+## Audio acceptance and headless Linux
+
+The normal Executive now runs Rendering tests, then loads `MorphicAudio` and
+requests its finite tone test, then continues the existing acceptance cases.
+This can produce a five-second middle-C tone on the default output. Loading the
+Audio module alone does not open a device. Ordinary `MorphicTests -t1` Audio
+checks use generated buffers and fake output; they never open a real device.
+
+Linux needs a usable native audio runtime, such as PulseAudio or ALSA. Missing
+backend libraries or a failing configured default output are failures. A real
+backend reporting no output devices is explicitly unavailable with one skipped
+test and permits the remaining acceptance cases to continue.
+
+For silent headless acceptance, install `pulseaudio` and run:
+
+```sh
+python3 tests/audio/run_headless.py ctest --test-dir build/linux-ci --output-on-failure
+```
+
+The wrapper starts a private PulseAudio server with no sinks or sources, sets
+`PULSE_SERVER` only for its child command, then stops that server. It does not
+modify an existing user audio server or substitute a null playback device.
+Linux CI uses this same path. Native playback uses the regular CTest/Host
+harness commands without the wrapper. See the
+[Audio implementation and validation record](../modules/audio_module_validation.md)
+for the distinction between submitted frames and listening evidence.
 
 ## Sandboxed Windows builds
 
@@ -172,7 +199,7 @@ the codec breadcrumbs' producer identity in every configuration. Lifecycle load
 failures are matched as specific errors, separately from contract assertions.
 The debug-service suite verifies filtering and explicit immediate delivery.
 
-Windows CI runs the ordinary suites, Host-worker harness and all 33 lifecycle
+Windows CI runs the ordinary suites, Host-worker harness and all registered lifecycle
 cases with one and two requested workers in Debug/Release on x64 and x86.
 Its diagnostics include the isolated Host-worker and lifecycle logs and output.
 [Linux CI](linux_ci.md) runs GCC/Clang Debug/Release builds, ordinary suites and

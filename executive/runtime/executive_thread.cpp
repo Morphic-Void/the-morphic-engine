@@ -16,6 +16,7 @@
 
 #include "runtime/executive_thread.hpp"
 #include "runtime/request_preparation.hpp"
+#include "runtime/module_test_watchdog.hpp"
 #include "module/module_binding_context.hpp"
 
 #include "debug/macros.hpp"
@@ -229,7 +230,7 @@ private:
     //  Failure codes start at one because zero is the successful thread exit code.
     enum class EFailure : std::uint32_t { registry = 1u, timing, submission, completion, timeout };
 
-    enum class EPhase : std::uint8_t { rendering_acknowledgement = 0, rendering_completion, module_tests, sequential, concurrent, filesystem, bundle, acquisitions, awaiting_exit, complete };
+    enum class EPhase : std::uint8_t { module_acknowledgement = 0, module_completion, module_tests, sequential, concurrent, filesystem, bundle, acquisitions, awaiting_exit, complete };
 
     CExecutiveThread(const CExecutiveThread&) noexcept = delete;
     CExecutiveThread& operator=(const CExecutiveThread&) noexcept = delete;
@@ -241,7 +242,8 @@ private:
     std::uint32_t main() noexcept;
     [[nodiscard]] bool startup() noexcept;
     [[nodiscard]] bool initialise() noexcept;
-    [[nodiscard]] bool accept_rendering_notice(const threading::CErasedPodMsg& message) noexcept;
+    [[nodiscard]] bool load_test_module() noexcept;
+    [[nodiscard]] bool accept_module_notice(const threading::CErasedPodMsg& message) noexcept;
     void operate() noexcept;
     [[nodiscard]] bool prepare_scenario(threading::CErasedOwnerMsg& pending, const asset_acceptance::SScenario& scenario, const std::int32_t slot) noexcept;
     [[nodiscard]] bool check(const asset_acceptance::SScenario& scenario, const AssetResult& result) noexcept;
@@ -263,10 +265,12 @@ private:
 
     threading::CThreadContext m_context;
     platform::system::CPerfCounter m_perf_counter;
+    TModuleTestWatchdog<> m_test_watchdog;
+    module_ids::id_type m_test_module{ module_ids::rendering };
     std::uint32_t m_scenario_index{ 0u };
     std::int32_t m_pending_slot{ 0 };
     std::int32_t m_concurrent_first_slot{ 0 };
-    EPhase m_phase{ EPhase::rendering_acknowledgement };
+    EPhase m_phase{ EPhase::module_acknowledgement };
     AssetResult m_raw;
     AssetResult m_image;
     image::CImageView m_image_view;
@@ -349,45 +353,46 @@ bool CExecutiveThread::initialise() noexcept
         return false;
     }
 
-    //  Renderer selection belongs to this Executive; selector Executives may
-    //  omit it entirely. Loading an occupied mount is resolved by its reply.
+    return load_test_module();
+}
+
+bool CExecutiveThread::load_test_module() noexcept
+{
     threading::CErasedOwnerMsg pending;
-    CSimpleString rendering_file;
-    if (!platform::module::make_module_filename("package:/bin/MorphicRendering", rendering_file) ||
+    CSimpleString file;
+    const bool audio = m_test_module == module_ids::audio;
+    if (!platform::module::make_module_filename(audio ? "package:/bin/MorphicAudio" : "package:/bin/MorphicRendering", file) ||
         !request_preparation::prepare_module_request(pending, m_pending_slot,
-        module_ids::rendering, EModuleAction::load, rendering_file.cstring(), true))
+            m_test_module, EModuleAction::load, file.cstring(), true) || !m_context.post(std::move(pending)))
     {
-        fail(EFailure::submission, "rendering load preparation");
+        fail(EFailure::submission, "module load submission");
         return false;
     }
-    if (!m_context.post(std::move(pending)))
-    {
-        fail(EFailure::submission, "rendering load submission");
-        return false;
-    }
-    MV_LOG(info, "Executive: Rendering load requested");
+    m_phase = EPhase::module_acknowledgement;
+    (void)m_perf_counter.update();
+    MV_LOG_RICH(info, "Executive: %s load requested", audio ? "Audio" : "Rendering");
     return true;
 }
 
-bool CExecutiveThread::accept_rendering_notice(const threading::CErasedPodMsg& message) noexcept
+bool CExecutiveThread::accept_module_notice(const threading::CErasedPodMsg& message) noexcept
 {
-    MV_DETAIL("Executive rendering module notification");
+    MV_DETAIL("Executive module notification");
 
     ModuleResult result;
     if (!message.copy_payload_to(result) || (message.query_async_slot() != m_pending_slot) ||
-        (result.module != module_ids::rendering))
+        (result.module != m_test_module))
     {
         return false;
     }
 
-    if (m_phase == EPhase::rendering_acknowledgement)
+    if (m_phase == EPhase::module_acknowledgement)
     {
         if ((result.notice != EModuleNotice::acknowledged) || (result.status != EModuleStatus::success))
         {
             return false;
         }
-        m_phase = EPhase::rendering_completion;
-        MV_LOG(info, "Executive: Rendering load acknowledged");
+        m_phase = EPhase::module_completion;
+        MV_LOG_RICH(info, "Executive: %s load acknowledged", (m_test_module == module_ids::audio) ? "Audio" : "Rendering");
     }
     else
     {
@@ -400,9 +405,8 @@ bool CExecutiveThread::accept_rendering_notice(const threading::CErasedPodMsg& m
         }
         m_phase = EPhase::module_tests;
         ++m_pending_slot;
-        MV_LOG(info, "Executive: Rendering ready ({})",
-            ((result.status == EModuleStatus::already_loaded) ?
-                debug_system::CInlineText16{ "already loaded" } : debug_system::CInlineText16{ "loaded" }));
+        MV_LOG_RICH(info, "Executive: %s ready (%s)", (m_test_module == module_ids::audio) ? "Audio" : "Rendering",
+            (result.status == EModuleStatus::already_loaded) ? "already loaded" : "loaded");
     }
     (void)m_perf_counter.update();
     return true;
@@ -1111,6 +1115,21 @@ void CExecutiveThread::operate() noexcept
     const std::uint64_t ticks_per_second = m_context.perf_count_conversion().query_ticks_per_second();
     while (!m_context.exit_requested() && (m_phase != EPhase::complete) && (m_failure_code == 0u))
     {
+        //  Check before reading, including under continuous unrelated traffic.
+        if (m_phase == EPhase::module_tests)
+        {
+            const auto state = m_test_watchdog.check();
+            if (state == TModuleTestWatchdog<>::EState::failed)
+            {
+                fail(EFailure::timing, "module test deadline query");
+                break;
+            }
+            if (state == TModuleTestWatchdog<>::EState::expired)
+            {
+                fail(EFailure::timeout, "module test deadline");
+                break;
+            }
+        }
         threading::CErasedPodMsg message;
         if (m_context.read(message))
         {
@@ -1118,20 +1137,19 @@ void CExecutiveThread::operate() noexcept
             {
                 continue;
             }
-            if ((m_phase == EPhase::rendering_acknowledgement) || (m_phase == EPhase::rendering_completion))
+            if ((m_phase == EPhase::module_acknowledgement) || (m_phase == EPhase::module_completion))
             {
-                if (!accept_rendering_notice(message))
+                if (!accept_module_notice(message))
                 {
-                    MV_LOG(error, "Executive: Rendering unavailable or invalid reply; requesting system shutdown");
-                    if (!request_system_shutdown())
-                    {
-                        fail(EFailure::submission, "system shutdown request");
-                    }
+                    fail(EFailure::completion, "module unavailable or invalid load reply");
                 }
                 else if (m_phase == EPhase::module_tests)
                 {
-                    const auto request = threading::make_pod_message(m_pending_slot, RunTestsRequest{ module_ids::rendering });
-                    if (!m_context.post(request)) fail(EFailure::submission, "module test request submission");
+                    const auto request = threading::make_pod_message(m_pending_slot, RunTestsRequest{ m_test_module });
+                    const auto timing = m_test_watchdog.start();
+                    if (timing.code != platform::threading::EWaitError::none)
+                        fail(EFailure::timing, "module test deadline construction");
+                    else if (!m_context.post(request)) fail(EFailure::submission, "module test request submission");
                 }
                 continue;
             }
@@ -1139,14 +1157,26 @@ void CExecutiveThread::operate() noexcept
             {
                 RunTestsResult result;
                 if ((message.query_async_slot() != m_pending_slot) || !message.copy_payload_to(result) ||
-                    (result.module != module_ids::rendering) || (result.status != ETestRunStatus::success) ||
-                    (result.failed != 0u) || (result.passed == 0u))
+                    (result.module != m_test_module) ||
+                    !(((result.status == ETestRunStatus::success) && (result.failed == 0u) && (result.skipped == 0u) &&
+                        ((m_test_module == module_ids::audio) ? (result.passed == 1u) : (result.passed != 0u))) ||
+                      ((m_test_module == module_ids::audio) && (result.status == ETestRunStatus::unavailable) &&
+                        (result.passed == 0u) && (result.failed == 0u) && (result.skipped == 1u))))
                 {
                     fail(EFailure::completion, "module tests");
                     continue;
                 }
                 MV_LOG(info, "Executive: Module tests completed: {} passed, {} failed, {} skipped",
                     result.passed, result.failed, result.skipped);
+                if (m_test_module == module_ids::rendering)
+                {
+                    m_test_module = module_ids::audio;
+                    ++m_pending_slot;
+                    (void)load_test_module();
+                    continue;
+                }
+                if (result.status == ETestRunStatus::unavailable)
+                    MV_LOG(info, "Executive: Audio unavailable: no real output device; test skipped");
                 m_phase = EPhase::sequential;
                 ++m_pending_slot;
                 (void)m_perf_counter.update();
@@ -1224,7 +1254,7 @@ void CExecutiveThread::operate() noexcept
                     fail(EFailure::submission, "request submission");
             }
         }
-        else if (m_perf_counter.query_delta() > (ticks_per_second * 30u))
+        else if ((m_phase != EPhase::module_tests) && (m_perf_counter.query_delta() > (ticks_per_second * 30u)))
         {
             fail(EFailure::timeout, "operation deadline");
         }
@@ -1251,8 +1281,8 @@ void CExecutiveThread::fail(const EFailure failure, const char* const reason) no
     if (m_failure_code == 0u)
     {
         m_failure_code = static_cast<std::uint32_t>(failure);
-        const char* const scenario = ((m_phase == EPhase::rendering_acknowledgement) || (m_phase == EPhase::rendering_completion)) ?
-            "rendering_startup" : (m_phase == EPhase::module_tests) ? "module_tests" : ((m_phase == EPhase::filesystem) ? "filesystem" :
+        const char* const scenario = ((m_phase == EPhase::module_acknowledgement) || (m_phase == EPhase::module_completion)) ?
+            "module_startup" : (m_phase == EPhase::module_tests) ? "module_tests" : ((m_phase == EPhase::filesystem) ? "filesystem" :
                 ((m_phase == EPhase::bundle) ? "bundle" : ((m_scenario_index < asset_acceptance::scenario_count) ?
                     asset_acceptance::scenarios[m_scenario_index].name : "concurrent_saves")));
         MV_LOG_RICH(error, "Executive: %s failed: %s (scenario slot %d, filesystem step %d, bundle step %d)",

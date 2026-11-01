@@ -40,7 +40,7 @@ if (!$SkipBuild) {
 }
 
 if ($Cases.Count -eq 0) {
-    $Cases = @('bundle', 'bundle-inline', 'bundle-late-reference', 'bundle-replace', 'bundle-shutdown', 'bundle-failures', 'bundle-rendering', 'batch', 'batch-inline', 'batch-exit', 'ordinary', 'dependency', 'disposal', 'disposal-during-save', 'shutdown', 'shutdown-dependency', 'replace', 'replace-dependency', 'replace-missing', 'bootstrap-missing', 'startup-failure', 'replace-startup-failure', 'thread-failures', 'render-shutdown', 'render-shutdown-dependency', 'render-replace-dependency', 'render-executive-replace', 'render-drain', 'render-exit-disposal', 'normal-startup', 'normal-unavailable', 'normal-bad-start', 'normal-missing-thread', 'normal-tests-malformed', 'acquire-render-release', 'acquire-render-abandon', 'acquire-render-replace', 'tests-routing', 'tests-worker-exit', 'tests-client-unload', 'service-lifecycle', 'service-shutdown', 'service-invalid-entry', 'service-invalid-id', 'service-start-failure')
+    $Cases = @('audio-lifecycle', 'bundle', 'bundle-inline', 'bundle-late-reference', 'bundle-replace', 'bundle-shutdown', 'bundle-failures', 'bundle-rendering', 'batch', 'batch-inline', 'batch-exit', 'ordinary', 'dependency', 'disposal', 'disposal-during-save', 'shutdown', 'shutdown-dependency', 'replace', 'replace-dependency', 'replace-missing', 'bootstrap-missing', 'startup-failure', 'replace-startup-failure', 'thread-failures', 'render-shutdown', 'render-shutdown-dependency', 'render-replace-dependency', 'render-executive-replace', 'render-drain', 'render-exit-disposal', 'normal-startup', 'normal-unavailable', 'normal-bad-start', 'normal-missing-thread', 'normal-tests-malformed', 'acquire-render-release', 'acquire-render-abandon', 'acquire-render-replace', 'tests-routing', 'tests-worker-exit', 'tests-client-unload', 'service-lifecycle', 'service-shutdown', 'service-invalid-entry', 'service-invalid-id', 'service-start-failure')
 }
 foreach ($case in $Cases) {
     $tag = "lifecycle-$suffix-$case"
@@ -52,7 +52,7 @@ foreach ($case in $Cases) {
         # Isolate missing/failing required services without modifying the built DLLs.
         $launchDirectory = Join-Path $repository "build/lifecycle-$suffix-$case"
         New-Item -ItemType Directory -Path $launchDirectory | Out-Null
-        foreach ($file in @('MorphicEngine.exe', 'MorphicExecutive.dll')) {
+        foreach ($file in @('MorphicEngine.exe', 'MorphicExecutive.dll', 'MorphicAudio.dll')) {
             Copy-Item -LiteralPath (Join-Path $binaryDirectory $file) -Destination (Join-Path $launchDirectory $file)
         }
         $fixture = if ($case -eq 'normal-bad-start') { 'MorphicLifecycleRenderingFailure.dll' } elseif ($case -eq 'normal-missing-thread') { 'MorphicLifecycleMissingThread.dll' } elseif ($case -eq 'normal-tests-malformed') { 'MorphicLifecycleRenderingDisposal.dll' }
@@ -60,7 +60,7 @@ foreach ($case in $Cases) {
             Copy-Item -LiteralPath (Join-Path $binaryDirectory $fixture) -Destination (Join-Path $launchDirectory 'MorphicRendering.dll')
         }
     }
-    $expectedExit = if ($case.EndsWith('-missing') -or ($case.EndsWith('-failure') -and ($case -ne 'service-start-failure')) -or ($case -eq 'normal-tests-malformed')) { 1 } else { 0 }
+    $expectedExit = if ($serviceFailure -or $case.EndsWith('-missing') -or ($case.EndsWith('-failure') -and ($case -ne 'service-start-failure')) -or ($case -eq 'normal-tests-malformed')) { 1 } else { 0 }
     $process = [Diagnostics.Process]::new()
     $process.StartInfo.FileName = Join-Path $launchDirectory 'MorphicEngine.exe'
     $process.StartInfo.WorkingDirectory = $runtime
@@ -103,7 +103,7 @@ foreach ($case in $Cases) {
             }
         }
         elseif ($serviceFailure) {
-            if (($errors.Count -ne 1) -or ($errors[0] -notmatch '\[error:event\] \[executive_thread\.cpp:\d+\] Executive: Rendering unavailable or invalid reply; requesting system shutdown$')) {
+            if (($errors.Count -ne 1) -or ($errors[0] -notmatch '\[error:event\] \[executive_thread\.cpp:\d+\] Executive: module_startup failed: module unavailable or invalid load reply \(scenario slot 0, filesystem step 0, bundle step 0\)$')) {
                 throw "$case has an unexpected service failure diagnostic: $log"
             }
         }
@@ -113,7 +113,7 @@ foreach ($case in $Cases) {
             }
         }
         elseif ($expectedExit -eq 1) {
-            $status = if ($case.EndsWith('-missing')) { 6 } else { 7 }
+            $status = if ($serviceFailure -or $case.EndsWith('-missing')) { 6 } else { 7 }
             $pattern = '\[error:event\] \[host\.cpp:\d+\] Executive module lifecycle failed, status ' + $status + '$'
             if (($errors.Count -ne 1) -or ($errors[0] -notmatch $pattern)) {
                 throw "$case has an unexpected lifecycle failure diagnostic: $log"
@@ -135,7 +135,7 @@ foreach ($case in $Cases) {
             if ($unload -lt $cleanup) { throw "$case did not dispose dependencies before unload." }
             if (($case -notin @('dependency', 'render-replace-dependency', 'render-drain', 'service-lifecycle')) -and ($events.IndexOf("Lifecycle fixture: $case passed") -gt $cleanup)) { throw "$case disposed assets before the outgoing Executive finished." }
         }
-        if (($expectedExit -eq 1) -and ($case -ne 'normal-tests-malformed') -and !$events.Contains('Executive module lifecycle failed')) { throw "$case has no lifecycle failure diagnostic." }
+        if (($expectedExit -eq 1) -and !$serviceFailure -and ($case -ne 'normal-tests-malformed') -and !$events.Contains('Executive module lifecycle failed')) { throw "$case has no lifecycle failure diagnostic." }
         if (!$normalExecutive -and ($case -ne 'bootstrap-missing') -and ($case -ne 'startup-failure')) {
             if (!$events.Contains("Lifecycle fixture: $case passed") -or
                 !$events.Contains('Host requested Executive exit without notifications')) { throw "$case fixture did not complete." }
@@ -223,8 +223,7 @@ foreach ($case in $Cases) {
             if (($requested -lt 0) -or ($acknowledged -lt $requested)) { throw "$case did not acknowledge the Executive's rendering request." }
             if ($serviceFailure) {
                 if (($ready -ge 0) -or $events.Contains('Asset acceptance:') -or $events.Contains('Executive: retain_raw passed') -or
-                    !$events.Contains('Executive: Rendering unavailable or invalid reply; requesting system shutdown') -or
-                    !$events.Contains('Executive: Exited')) { throw "$case did not stop cleanly before asset acceptance." }
+                    !$events.Contains('module unavailable or invalid load reply')) { throw "$case did not stop cleanly before asset acceptance." }
             }
             elseif ($case -eq 'normal-tests-malformed') {
                 if (($ready -lt $acknowledged) -or !$events.Contains('Lifecycle rendering: malformed test completion posted') -or
@@ -309,6 +308,14 @@ foreach ($case in $Cases) {
                 if ($line.Contains('Host: Module conditioning_general service thread joined')) {
                     if (++$joinedServices -gt $cleanups) { throw 'Service joined before acquisition cleanup.' }
                 }
+            }
+        }
+        if ($case -eq 'audio-lifecycle') {
+            if ([regex]::Matches($events, 'Audio: Test complete after cleanup').Count -ne 2 -or
+                !$events.Contains('Audio lifecycle: repeated test completed before unload') -or
+                [regex]::Matches($events, 'Host: Module audio service thread joined').Count -ne 1 -or
+                $events.IndexOf('Audio lifecycle: repeated test completed before unload') -gt $events.IndexOf('Module unloaded on Host worker, mount audio')) {
+                throw 'Audio repeat/unload lifecycle incomplete.'
             }
         }
         $running = $false

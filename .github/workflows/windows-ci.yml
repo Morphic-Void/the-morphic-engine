@@ -51,6 +51,11 @@ jobs:
       - name: Check repository line endings
         run: ./tools/check_line_endings.ps1
 
+      - name: Check pinned Audio initializer
+        run: |
+          python tests/audio/check_vendor.py
+          exit $LASTEXITCODE
+
       - name: Build solution and run policy checks
         run: |
           New-Item -ItemType Directory -Path build/ci -Force | Out-Null

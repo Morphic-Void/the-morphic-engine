@@ -51,7 +51,8 @@ or that work has been authorised.
   extension callbacks, lifecycle gaps, implementation stages and open decisions.
 - [Audio module: one requested tone test](modules/audio_module_design.md):
   a single Executive test request, miniaudio containment, finite tone/fade,
-  callback and shutdown ownership, implementation stages and remaining choices.
+  callback and shutdown ownership; see also the
+  [implementation and validation record](modules/audio_module_validation.md).
 - [Shader compilation direction](modules/shader_compilation_design.md): DXC
   integration findings, source bundles, renderer-owned reports, publication,
   agreed defaults and configurable limits, remaining design choices, deferred
