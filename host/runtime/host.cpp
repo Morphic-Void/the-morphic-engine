@@ -580,6 +580,9 @@ void CHost::receive_message(const threading::CErasedPodMsg& message, SClientReco
     services::OpenServiceRequest open;
     services::CloseServiceRequest close;
     services::ServiceRequest command;
+    services::ReleaseServiceBorrow borrow_release;
+    services::ServiceBorrowQuiescent borrow_quiescent;
+    services::CancelServiceRequest cancel;
     const auto slot = message.query_async_slot();
     if (message.copy_payload_to(open))
     {
@@ -593,6 +596,9 @@ void CHost::receive_message(const threading::CErasedPodMsg& message, SClientReco
     }
     else if (message.copy_payload_to(close)) m_service_router.close(close, slot, client);
     else if (message.copy_payload_to(command)) m_service_router.request(command, slot, client);
+    else if (message.copy_payload_to(borrow_release)) m_service_router.release_borrow(client, borrow_release);
+    else if (message.copy_payload_to(borrow_quiescent)) m_service_router.quiesce_borrow(client, borrow_quiescent);
+    else if (message.copy_payload_to(cancel)) m_service_router.cancel_request(client, cancel);
     else if (message.copy_payload_to(acquire)) m_asset_service.request_acquire(acquire, slot, client);
     else if (message.copy_payload_to(release)) m_asset_service.request_release(release, slot, client);
     else if (message.copy_payload_to(disposal)) m_asset_service.request_disposal(disposal, slot, client);
@@ -885,8 +891,15 @@ void CHost::advance_lifecycle(const threading::EThreadRunState executive_state) 
 //  Host message pump
 //==============================================================================
 
+static bool zero_reply_control(const threading::CErasedPodMsg& message) noexcept
+{
+    return message.is_payload_a<modules::RunTestsResult>() || message.is_payload_a<services::ReleaseServiceBorrow>() ||
+        message.is_payload_a<services::ServiceBorrowQuiescent>() || message.is_payload_a<services::CancelServiceRequest>();
+}
+
 void CHost::drain_pumped_client(CPumpedClient& pump, SClientRecord& client) noexcept
 {
+    client.terminal_before_drain = client.terminal();
     bool controls_drained = false;
     bool pods_drained = false;
     bool owners_drained = false;
@@ -894,7 +907,7 @@ void CHost::drain_pumped_client(CPumpedClient& pump, SClientRecord& client) noex
     {
         const auto* const message = pump.peek_pod(true);
         if (message == nullptr) { controls_drained = true; break; }
-        const auto replies = message->is_payload_a<modules::RunTestsResult>() ? 0u : 1u;
+        const auto replies = zero_reply_control(*message) ? 0u : 1u;
         if (!client.reserve_control_replies(replies)) break;
         receive_message(*message, client);
         pump.consume_pod(true);
@@ -903,7 +916,7 @@ void CHost::drain_pumped_client(CPumpedClient& pump, SClientRecord& client) noex
     {
         const auto* const message = pump.peek_pod(false);
         if (message == nullptr) { pods_drained = true; break; }
-        const auto replies = message->is_payload_a<modules::RunTestsResult>() ? 0u :
+        const auto replies = zero_reply_control(*message) ? 0u :
             (message->is_payload_a<services::ServiceRequest>() ? 2u : 1u);
         if (!client.reserve_replies(replies)) break;
         receive_message(*message, client);
@@ -1001,7 +1014,12 @@ void CHost::run() noexcept
             //  Acquire terminal publication before observing empty output queues.
             //  A transition after these reads requires another complete drain.
             const auto worker_state_before_drain = (client == nullptr) ? package.query_state() : threading::EThreadRunState::Empty;
-            if (client != nullptr) { client->flush(); client->incoming_drained = false; }
+            if (client != nullptr)
+            {
+                client->terminal_before_drain = client->terminal();
+                client->flush();
+                client->incoming_drained = false;
+            }
             bool pods_drained = false;
             bool owners_drained = false;
             for (std::uint32_t count = 0u; count < 64u; ++count)
@@ -1016,7 +1034,7 @@ void CHost::run() noexcept
                 }
                 if (client != nullptr)
                 {
-                    client->cancel_reservation(message.is_payload_a<modules::RunTestsResult>() ? 2u :
+                    client->cancel_reservation(zero_reply_control(message) ? 2u :
                         (message.is_payload_a<services::ServiceRequest>() ? 0u : 1u));
                     receive_message(message, *client);
                 }

@@ -268,6 +268,7 @@ void provider_availability(TTestContext& ctx)
 }   //  namespace
 
 void run_host_runtime_tests(tests::TTestContext& ctx);
+void run_service_borrow_tests(tests::TTestContext& ctx);
 
 int run_host_pump_tests()
 {
@@ -279,5 +280,6 @@ int run_host_pump_tests()
     contract_identity(ctx);
     provider_availability(ctx);
     run_host_runtime_tests(ctx);
+    run_service_borrow_tests(ctx);
     return ctx.report("HostPump");
 }

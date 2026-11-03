@@ -19,6 +19,7 @@ namespace host
 
 enum class EClientExecution : std::uint8_t { passive = 0u, threaded, pumped };
 enum class EClientPhase : std::uint8_t { starting = 0u, ready, stopping, stopped, retired };
+enum class EReplyPublication : std::uint8_t { queued = 0u, cancelled, busy };
 
 struct SClientRecord
 {
@@ -50,11 +51,12 @@ struct SClientRecord
     [[nodiscard]] bool reply(const threading::CErasedPodMsg& message) noexcept;
     [[nodiscard]] bool reply_control(const threading::CErasedPodMsg& message) noexcept;
     [[nodiscard]] bool retry_reply(const threading::CErasedPodMsg& message) noexcept;
+    [[nodiscard]] EReplyPublication publish_reply(const threading::CErasedPodMsg& message) noexcept;
+    [[nodiscard]] bool execution_quiescent() const noexcept;
 
     //  Inbox delivery and consumed prefixes.
     void flush() noexcept;
-    [[nodiscard]] std::uint32_t copy_messages(threading::CErasedPodMsg* output, const std::uint32_t capacity,
-        std::uint32_t& controls) const noexcept;
+    [[nodiscard]] std::uint32_t copy_messages(threading::CErasedPodMsg* output, const std::uint32_t capacity, std::uint32_t& controls) const noexcept;
     void consume_messages(const std::uint32_t count, const std::uint32_t offered_controls) noexcept;
     void consume(const std::uint32_t count) noexcept;
 
@@ -66,6 +68,7 @@ struct SClientRecord
     EClientPhase phase{ EClientPhase::starting };
     bool stop_requested{ false };
     bool incoming_drained{ false };
+    bool terminal_before_drain{ false };
     std::uint32_t reserved_replies{ 0u };
     std::uint32_t message_count{ 0u };
     std::uint32_t reserved_control_replies{ 0u };

@@ -15,6 +15,7 @@
 
 #include "module/module_binding.hpp"
 #include "services/service_protocol.hpp"
+#include "services/service_borrow.hpp"
 
 namespace threading { class CErasedPodMsg; class CErasedOwnerMsg; }
 
@@ -53,15 +54,18 @@ struct SPumpResult
 
 //  Callbacks are Host-thread-only and authenticate the stable supplied context.
 //  Ownership moves only to Host, and only on success. busy retains caller data.
-//  Additional service-table capabilities require a size/version negotiation;
-//  this foundation does not advertise worker preparation or modal maintenance.
-struct SHostPumpServicesV1
+//  The complete current table requires matching size/version and coordinated
+//  Host/module rebuilds. Worker preparation and modal maintenance are not exposed.
+struct SHostPumpServices
 {
-    std::uint32_t size{ sizeof(SHostPumpServicesV1) };
+    std::uint32_t size{ sizeof(SHostPumpServices) };
     std::uint32_t version{ 1u };
     services::EServiceStatus(MV_STD_ABI_CALL* post_pod)(void*, const threading::CErasedPodMsg*) noexcept{ nullptr };
     services::EServiceStatus(MV_STD_ABI_CALL* post_owner)(void*, threading::CErasedOwnerMsg*) noexcept{ nullptr };
     services::EServiceStatus(MV_STD_ABI_CALL* complete)(void*, const services::ServiceReply*) noexcept{ nullptr };
+    services::EServiceStatus(MV_STD_ABI_CALL* prepare_borrow)(void*, const services::SServiceBorrowOffer*, services::SServiceBorrow*) noexcept{ nullptr };
+    services::EServiceStatus(MV_STD_ABI_CALL* begin_borrow_retirement)(void*, services::SServiceBorrow) noexcept{ nullptr };
+    services::EServiceStatus(MV_STD_ABI_CALL* finish_borrow_retirement)(void*, services::SServiceBorrow) noexcept{ nullptr };
 };
 
 struct SHostPumpContext
@@ -71,7 +75,7 @@ struct SHostPumpContext
     SModuleInstance instance;
     services::SClientToken client;
     thread_ids::id_type host_thread{};
-    const SHostPumpServicesV1* services{ nullptr };
+    const SHostPumpServices* services{ nullptr };
     void* service_context{ nullptr };
 };
 
@@ -102,6 +106,7 @@ inline bool SHostPumpV1::is_valid() const noexcept
 }
 
 static_assert(std::is_standard_layout_v<SHostPumpV1> && std::is_trivially_copyable_v<SHostPumpV1>);
+static_assert(std::is_standard_layout_v<SHostPumpServices> && std::is_trivially_copyable_v<SHostPumpServices>);
 static_assert(std::is_standard_layout_v<SHostPumpContext> && std::is_trivially_copyable_v<SHostPumpContext>);
 static_assert(std::is_standard_layout_v<SPumpInput> && std::is_trivially_copyable_v<SPumpInput>);
 static_assert(std::is_standard_layout_v<SPumpResult> && std::is_trivially_copyable_v<SPumpResult>);

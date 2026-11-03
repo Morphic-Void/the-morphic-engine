@@ -6,7 +6,7 @@
 //  Authors: Ritchie Brannan / OpenAI Codex
 //  Date:    02 Nov 26
 //
-//  Correlated terminal POD results; borrowed-resource prepared notices are not advertised yet.
+//  Correlated operations and independent provider-owned resource borrows.
 
 #include "services/service_protocol.hpp"
 #include "runtime/service_router.hpp"
@@ -35,7 +35,7 @@ CServiceRouter::SOperation* CServiceRouter::find_operation(SRoute& route, const 
 bool CServiceRouter::route_idle(const SRoute& route) const noexcept
 {
     for (const auto& operation : m_operations) if (operation.route == &route) return false;
-    return true;
+    return m_borrows.route_idle(route.token);
 }
 
 void CServiceRouter::open(const services::OpenServiceRequest& request, const std::int32_t slot,
@@ -158,7 +158,60 @@ services::EServiceStatus CServiceRouter::complete(SClientRecord& provider, const
         if (reply.payload[index] != 0u) return EServiceStatus::invalid_request;
     operation->reply = reply;
     operation->completed = true;
+    if (reply.status != EServiceStatus::success) m_borrows.cancel(operation->borrow);
     return EServiceStatus::success;
+}
+
+EServiceStatus CServiceRouter::prepare_borrow(SClientRecord& provider,
+    const services::SServiceBorrowOffer& offer, services::SServiceBorrow& borrow) noexcept
+{
+    borrow = {};
+    auto* const route = find_route(offer.route);
+    if ((route == nullptr) || (route->provider != &provider)) return EServiceStatus::stale;
+    auto* const operation = find_operation(*route, offer.request);
+    if ((operation == nullptr) || (!operation->offered && !operation->delivered)) return EServiceStatus::stale;
+    if (operation->cancelled || route->closing || route->client->terminal()) return EServiceStatus::closing;
+    if (operation->completed || (operation->borrow.value != 0u)) return EServiceStatus::invalid_request;
+    const auto status = m_borrows.prepare(provider, *route->client, offer, operation->slot,
+        operation->request.opcode, operation->delivered, borrow);
+    if (status == EServiceStatus::success) operation->borrow = borrow;
+    return status;
+}
+
+EServiceStatus CServiceRouter::begin_borrow_retirement(SClientRecord& provider, const services::SServiceBorrow borrow) noexcept
+{
+    return m_borrows.begin_retirement(provider, borrow);
+}
+
+EServiceStatus CServiceRouter::finish_borrow_retirement(SClientRecord& provider, const services::SServiceBorrow borrow) noexcept
+{
+    return m_borrows.finish_retirement(provider, borrow);
+}
+
+void CServiceRouter::release_borrow(SClientRecord& client, const services::ReleaseServiceBorrow& request) noexcept
+{
+    m_borrows.release(client, request);
+}
+
+void CServiceRouter::quiesce_borrow(SClientRecord& client, const services::ServiceBorrowQuiescent& request) noexcept
+{
+    m_borrows.quiescent(client, request);
+}
+
+void CServiceRouter::cancel_request(SClientRecord& client, const services::CancelServiceRequest& request) noexcept
+{
+    auto* const route = find_route(request.route);
+    if ((route == nullptr) || (route->client != &client)) return;
+    //  A successful result may already be queued, and its operation gone, while
+    //  the consumer is still cancelling. Preserve that terminal result but retire
+    //  its independent borrow so the consumer's closed state cannot strand it.
+    m_borrows.cancel_request(client, request);
+    if (auto* const operation = find_operation(*route, request.request)) cancel(*operation);
+}
+
+bool CServiceRouter::provider_borrows_retired(const SClientRecord& provider) const noexcept
+{
+    return m_borrows.provider_retired(provider);
 }
 
 std::uint32_t CServiceRouter::prepare_batch(SClientRecord& provider,
@@ -171,7 +224,7 @@ std::uint32_t CServiceRouter::prepare_batch(SClientRecord& provider,
         SOperation* next = nullptr;
         for (auto& operation : m_operations)
             if ((operation.route != nullptr) && (operation.route->provider == &provider) &&
-                !operation.delivered && !operation.completed && (operation.order > after) &&
+                !operation.delivered && !operation.completed && !operation.cancelled && (operation.order > after) &&
                 ((next == nullptr) || (operation.order < next->order))) next = &operation;
         if (next == nullptr) break;
         next->offered = true;
@@ -192,8 +245,12 @@ bool CServiceRouter::finish_batch(SClientRecord& provider, const services::SDisp
         auto* const operation = (route != nullptr) ? find_operation(*route, commands[index].command.request) : nullptr;
         if ((operation == nullptr) || (route->provider != &provider)) return false;
         operation->offered = false;
-        if (index < consumed) operation->delivered = true;
-        else if (operation->completed) valid = false;
+        if (index < consumed)
+        {
+            operation->delivered = true;
+            m_borrows.dispatched(operation->borrow);
+        }
+        else if (operation->completed || (operation->borrow.value != 0u)) valid = false;
     }
     return valid;
 }
@@ -211,17 +268,49 @@ void CServiceRouter::fail(SOperation& operation, const EServiceStatus status) no
 
 void CServiceRouter::progress() noexcept
 {
+    m_borrows.progress();
     for (auto& operation : m_operations)
     {
-        if ((operation.route == nullptr) || !operation.completed || !operation.delivered) continue;
-        if (operation.route->client->retry_reply(threading::make_pod_message(operation.slot, operation.reply))) operation = {};
+        if (operation.route == nullptr) continue;
+        if (operation.cancelled && operation.delivered && !operation.completed && !operation.cancellation_notified)
+        {
+            const services::ServiceRequestCancelled message{ operation.request.route, operation.request.request };
+            operation.cancellation_notified = operation.route->provider->post(threading::make_pod_message(-1, message));
+        }
+        if (!operation.delivered || (!operation.completed && !operation.cancelled) ||
+            !m_borrows.publication_settled(operation.borrow)) continue;
+        if (!operation.terminal_sent)
+        {
+            auto reply = operation.reply;
+            if (operation.cancelled)
+            {
+                reply = {};
+                reply.route = operation.request.route;
+                reply.request = operation.request.request;
+                reply.opcode = operation.request.opcode;
+                reply.status = EServiceStatus::cancelled;
+            }
+            operation.terminal_sent = operation.route->client->retry_reply(threading::make_pod_message(operation.slot, reply));
+        }
+        //  A cancelled wait can finish before its accepted provider work drains.
+        if (operation.terminal_sent && operation.completed) operation = {};
     }
     for (auto& route : m_routes)
         if ((route.client != nullptr) && route.closing && route_idle(route)) route = {};
 }
 
+void CServiceRouter::cancel(SOperation& operation) noexcept
+{
+    if (operation.completed && operation.delivered) return;
+    operation.cancelled = true;
+    m_borrows.cancel(operation.borrow);
+    if (!operation.delivered && !operation.offered) fail(operation, EServiceStatus::cancelled);
+}
+
 void CServiceRouter::stop_provider(SClientRecord& provider, const bool quiescent) noexcept
 {
+    m_borrows.stop_provider(provider);
+    if (quiescent && !m_borrows.provider_retired(provider)) m_failed = true;
     for (auto& route : m_routes)
         if (route.provider == &provider) route.closing = true;
     for (auto& operation : m_operations)
@@ -232,11 +321,12 @@ void CServiceRouter::stop_provider(SClientRecord& provider, const bool quiescent
 
 void CServiceRouter::retire_client(SClientRecord& client) noexcept
 {
+    m_borrows.retire_client(client, client.execution_quiescent());
     for (auto& route : m_routes)
         if (route.client == &client) route.closing = true;
     for (auto& operation : m_operations)
         if ((operation.route != nullptr) && (operation.route->client == &client) &&
-            !operation.delivered && !operation.offered) fail(operation, EServiceStatus::cancelled);
+            !(operation.completed && operation.delivered)) cancel(operation);
 }
 
 bool CServiceRouter::client_idle(const SClientRecord& client) const noexcept

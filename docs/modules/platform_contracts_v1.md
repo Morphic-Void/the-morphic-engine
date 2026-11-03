@@ -8,6 +8,12 @@ Date:   02 Nov 2026
 
 # Platform first-stage contracts
 
+The [implemented service borrow protocol](service_borrow_lifetimes.md) refines
+prepared-view publication and release/quiescence into generic service operations.
+Platform retains domain readiness and native cleanup responsibilities. The
+Platform-specific release opcode descriptions below remain design context, not
+additional Host lifetime mechanisms to implement alongside that protocol.
+
 ## Scope and status
 
 This is the concrete contract pass for the
@@ -131,9 +137,11 @@ cleanup complete. Platform owns test selection and may report native tests skipp
 when no native test environment is available; do not claim headless fixtures prove
 window/controller behaviour. No Platform-specific test request is added to Core.
 
-The Host-thread pump callback table (`modules::SHostPumpServicesV1`) supplies
-queued `post_pod`, `post_owner`, `complete`, with future extensions for
-`emit_event`, `submit_work`, restricted `maintain`, and restriction publication.
+The Host-thread pump callback table (`modules::SHostPumpServices`) supplies
+queued `post_pod`, `post_owner`, terminal `complete`, `prepare_borrow`,
+`begin_borrow_retirement`, and `finish_borrow_retirement`. It requires the exact
+current size/version and coordinated Host/module rebuilds. Planned capabilities
+include `emit_event`, `submit_work`, restricted `maintain`, and restriction publication.
 Callbacks authenticate the context/client supplied by Host, not a sender field in
 the payload. They enqueue or perform whitelisted bookkeeping; they never recursively
 pump another module. `post_owner` is solely module-to-Host: on accepted submission

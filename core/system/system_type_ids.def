@@ -38,4 +38,9 @@
     type_macro(open_service_result) \
     type_macro(close_service_request) \
     type_macro(service_request) \
-    type_macro(service_reply)
+    type_macro(service_reply) \
+    type_macro(release_service_borrow) \
+    type_macro(service_borrow_quiescent) \
+    type_macro(cancel_service_request) \
+    type_macro(service_borrow_control) \
+    type_macro(service_request_cancelled)

@@ -95,6 +95,8 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\module\module_messages.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\module\module_owner_payloads.def" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\services\service_protocol.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\services\service_borrow.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\services\service_borrow_client.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\filesystem\filesystem_messages.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\filesystem\filesystem_owner_payloads.def" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\threading\messages\message_errors.hpp" />
@@ -200,6 +202,7 @@
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\image\image_view.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\memory\memory_context.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\module\bound_module.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\services\service_borrow_client.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\module\module_binding_context.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\system\erased_owner_operations.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\system\erased_owner_transport.cpp" />

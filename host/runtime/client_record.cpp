@@ -174,6 +174,28 @@ bool SClientRecord::retry_reply(const threading::CErasedPodMsg& message) noexcep
     return false;
 }
 
+EReplyPublication SClientRecord::publish_reply(const threading::CErasedPodMsg& message) noexcept
+{
+    MV_ASSERT(reserved_replies != 0u);
+    if (terminal())
+    {
+        cancel_reservation(1u);
+        return EReplyPublication::cancelled;
+    }
+    cancel_reservation(1u);
+    if (post_reply(message)) return EReplyPublication::queued;
+    if (terminal()) return EReplyPublication::cancelled;
+    ++reserved_replies;
+    return EReplyPublication::busy;
+}
+
+bool SClientRecord::execution_quiescent() const noexcept
+{
+    if (!terminal_before_drain || !terminal() || !incoming_drained) return false;
+    const auto* const batch = batch_client();
+    return (batch == nullptr) || ((batch->outstanding() == 0u) && (batch->return_publishers() == 0u));
+}
+
 void SClientRecord::flush() noexcept
 {
     if (terminal())
@@ -193,8 +215,7 @@ void SClientRecord::flush() noexcept
     consume(consumed);
 }
 
-std::uint32_t SClientRecord::copy_messages(threading::CErasedPodMsg* output, const std::uint32_t capacity,
-    std::uint32_t& controls) const noexcept
+std::uint32_t SClientRecord::copy_messages(threading::CErasedPodMsg* output, const std::uint32_t capacity, std::uint32_t& controls) const noexcept
 {
     controls = std::min(control_count, capacity);
     const auto ordinary = std::min(message_count, capacity - controls);

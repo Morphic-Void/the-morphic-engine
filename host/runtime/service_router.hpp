@@ -12,6 +12,7 @@
 
 #include "services/service_protocol.hpp"
 #include "runtime/service_provider.hpp"
+#include "runtime/service_borrows.hpp"
 
 namespace host
 {
@@ -24,6 +25,14 @@ public:
     void close(const services::CloseServiceRequest& request, const std::int32_t slot, SClientRecord& client) noexcept;
     void request(const services::ServiceRequest& request, const std::int32_t slot, SClientRecord& client) noexcept;
     [[nodiscard]] services::EServiceStatus complete(SClientRecord& provider, const services::ServiceReply& reply) noexcept;
+    [[nodiscard]] services::EServiceStatus prepare_borrow(SClientRecord& provider,
+        const services::SServiceBorrowOffer& offer, services::SServiceBorrow& borrow) noexcept;
+    [[nodiscard]] services::EServiceStatus begin_borrow_retirement(SClientRecord& provider, services::SServiceBorrow borrow) noexcept;
+    [[nodiscard]] services::EServiceStatus finish_borrow_retirement(SClientRecord& provider, services::SServiceBorrow borrow) noexcept;
+    void release_borrow(SClientRecord& client, const services::ReleaseServiceBorrow& request) noexcept;
+    void quiesce_borrow(SClientRecord& client, const services::ServiceBorrowQuiescent& request) noexcept;
+    void cancel_request(SClientRecord& client, const services::CancelServiceRequest& request) noexcept;
+    [[nodiscard]] bool provider_borrows_retired(const SClientRecord& provider) const noexcept;
     [[nodiscard]] std::uint32_t prepare_batch(SClientRecord& provider,
         services::SDispatchedCommand* commands, const std::uint32_t capacity) noexcept;
     [[nodiscard]] bool finish_batch(SClientRecord& provider, const services::SDispatchedCommand* commands,
@@ -55,15 +64,21 @@ private:
         bool offered{ false };
         bool delivered{ false };
         bool completed{ false };
+        bool cancelled{ false };
+        bool cancellation_notified{ false };
+        bool terminal_sent{ false };
+        services::SServiceBorrow borrow;
     };
 
     [[nodiscard]] SRoute* find_route(const services::SServiceRoute token) noexcept;
     [[nodiscard]] SOperation* find_operation(SRoute& route, const services::SServiceRequestId request) noexcept;
     [[nodiscard]] bool route_idle(const SRoute& route) const noexcept;
     void fail(SOperation& operation, const services::EServiceStatus status) noexcept;
+    void cancel(SOperation& operation) noexcept;
 
     SRoute m_routes[64];
     SOperation m_operations[256];
+    CServiceBorrows m_borrows;
     std::uint64_t m_next_route{ 1u };
     std::uint64_t m_next_order{ 1u };
     bool m_failed{ false };

@@ -18,6 +18,7 @@
 #include "module/module_binding_context.hpp"
 #include "module/host_pump.hpp"
 #include "module/service_provider.hpp"
+#include "services/service_borrow_client.hpp"
 #include "system/system_context.hpp"
 #include "assets/asset_messages.hpp"
 #include "containers/TInstance.hpp"
@@ -46,6 +47,7 @@ static const char* selected() noexcept
 #endif
 }
 static bool scenario(const char* value) noexcept { return std::strcmp(selected(), value) == 0; }
+static bool borrow_scenario() noexcept { return std::strncmp(selected(), "borrow-", 7u) == 0; }
 
 static threading::CErasedOwnerMsg module_request(const module_ids::id_type module,
     const modules::EModuleAction action, const char* file = nullptr, const bool pump = false, const bool thread = false)
@@ -162,6 +164,89 @@ static bool threaded_credits(threading::CThreadContext& context)
     MV_LOG(info, "Pump fixture: threaded 600 retained disposals, releases and self-exit passed");
     return true;
 }
+static bool borrowed_resource(threading::CThreadContext& context, const SServiceRoute route)
+{
+    CServiceBorrowClient consumer;
+    if (!consumer.begin(route, { 1u }, 5u)) return false;
+    ServiceRequest request;
+    request.route = route;
+    request.request.value = 1u;
+    request.opcode = 5u;
+    if (!context.post(threading::make_pod_message(70, request))) return false;
+    SServiceBorrow borrow;
+    bool terminal = false, releasing = false, quiescent = false;
+    for (;;)
+    {
+        threading::CErasedPodMsg message;
+        if (!receive(context, message)) return false;
+        ServiceReply reply;
+        ServiceBorrowControl control;
+        if (message.copy_payload_to(reply))
+        {
+            if (!consumer.observe(reply)) return false;
+            if (reply.notice == EServiceNotice::prepared)
+            {
+                borrow = consumer.borrow(route, { 1u });
+                const auto view = consumer.view(borrow);
+                if (view.descriptor != nullptr && (view.size != sizeof(unsigned) || view.version != 1u ||
+                    *static_cast<const unsigned*>(view.descriptor) != 4242u)) return false;
+                MV_LOG(info, "Pump fixture: borrowed descriptor observed before terminal result");
+                if (scenario("borrow-cancel"))
+                {
+                    CancelServiceRequest cancel;
+                    if (!consumer.cancel(route, { 1u }, cancel) || !context.post(threading::make_pod_message(-1, cancel))) return false;
+                    releasing = true;
+                }
+            }
+            if (reply.notice == EServiceNotice::completed)
+            {
+                if (reply.status != (scenario("borrow-cancel") ? EServiceStatus::cancelled : EServiceStatus::success)) return false;
+                terminal = true;
+                if (scenario("borrow-abandoned"))
+                {
+                    MV_LOG(info, "Pump fixture: consumer departed with a live borrow");
+                    return self_stop(context, false);
+                }
+                if (!releasing && !scenario("borrow-provider-failed"))
+                {
+                    if (scenario("borrow-shutdown") && !self_stop(context, false)) return false;
+                    ReleaseServiceBorrow release;
+                    if (!consumer.release(borrow, release) || !context.post(threading::make_pod_message(-1, release))) return false;
+                    releasing = true;
+                }
+            }
+        }
+        else if (message.copy_payload_to(control))
+        {
+            if (!consumer.observe(control)) return false;
+            borrow = control.borrow;
+            if (control.control == EServiceBorrowControl::closing) releasing = true;
+        }
+        else return false;
+        if (releasing && !quiescent)
+        {
+            ServiceBorrowQuiescent release;
+            if (consumer.quiesce(borrow, release))
+            {
+                if (!context.post(threading::make_pod_message(-1, release))) return false;
+                quiescent = true;
+            }
+        }
+        if (terminal && consumer.retired(borrow)) break;
+    }
+    if (!consumer.forget(route, { 1u })) return false;
+    MV_LOG(info, "Pump fixture: borrowed resource retired after consumer quiescence");
+    if (scenario("borrow-shutdown")) return true;
+    if (!scenario("borrow-provider-failed"))
+    {
+        threading::CErasedPodMsg message;
+        ServiceReply reply;
+        if (!context.post(threading::make_pod_message(71, CloseServiceRequest{route, {2u}})) || !receive(context, message) ||
+            !message.copy_payload_to(reply) || reply.status != EServiceStatus::success) return false;
+    }
+    return operation(context, modules::EModuleAction::unload, modules::EModuleStatus::success) && self_stop(context, false);
+}
+
 static bool run(threading::CThreadContext& context)
 {
     const bool rejected = scenario("bad-size") || scenario("bad-version") || scenario("bad-flags") ||
@@ -191,6 +276,7 @@ static bool run(threading::CThreadContext& context)
             operation(context, modules::EModuleAction::unload, modules::EModuleStatus::success) && self_stop(context, false);
     }
     if (!message.copy_payload_to(opened) || (opened.status != EServiceStatus::success) || !opened.provider.value) return false;
+    if (borrow_scenario()) return borrowed_resource(context, opened.route);
     if (!operation(context, modules::EModuleAction::unload, modules::EModuleStatus::busy)) return false;
     constexpr unsigned count = 3u;
     for (unsigned index = 0u; index < count; ++index)
@@ -345,6 +431,11 @@ static std::uint32_t MV_STD_ABI_CALL executive_entry(void* data) noexcept
 static constexpr auto k_advertised_module_id = module_ids::rendering;
 struct SRuntime
 {
+    TInstance<unsigned> borrowed;
+    SServiceBorrow borrow;
+    ServiceReply borrow_result;
+    bool borrow_done{ false }, borrower_quiescent{ false }, borrow_fail{ false };
+    unsigned retirement_progress{ 0u };
     const SHostPumpContext* context{nullptr};
     CByteBuffer storage;
     std::uint32_t starting{0u}, stopping{0u}, delayed{0u}, flooded{0u};
@@ -365,17 +456,31 @@ static TInstance<SRuntime>& runtime_state() noexcept
     static TInstance<SRuntime> state;
     return state;
 }
-struct SForeignCall { const SHostPumpContext* context; EServiceStatus result{EServiceStatus::success}; };
+struct SForeignCall
+{
+    const SHostPumpContext* context;
+    EServiceStatus result{EServiceStatus::success};
+    EServiceStatus borrow_result{EServiceStatus::success};
+};
 static std::uint32_t MV_STD_ABI_CALL foreign_call(void* data) noexcept
 {
     auto& call = *static_cast<SForeignCall*>(data);
     const auto message = threading::make_pod_message(90, AssetDisposeRequest{});
     call.result = call.context->services->post_pod(call.context->service_context, &message);
+    const auto& services = *call.context->services;
+    const SServiceBorrowOffer offer{};
+    SServiceBorrow borrow;
+    call.borrow_result = services.prepare_borrow(call.context->service_context, &offer, &borrow);
     return 0u;
 }
 static bool context_valid(const SHostPumpContext* context) noexcept
 {
     return context && modules::is_thread_context_ready(context) &&
+        context->services && context->services->size == sizeof(SHostPumpServices) &&
+        context->services->version == 1u && context->services->post_pod &&
+        context->services->post_owner && context->services->complete &&
+        context->services->prepare_borrow && context->services->begin_borrow_retirement &&
+        context->services->finish_borrow_retirement &&
         system_context::get_ambient_thread_id() == thread_ids::host &&
         system_context::get_ambient_module_id() == module_ids::rendering &&
         memory::get_ambient_memory_context() != nullptr;
@@ -401,7 +506,8 @@ static ECallStatus MV_STD_ABI_CALL activate(const SHostPumpContext* context, voi
     if (!state.storage.resize(32u, 32u)) return ECallStatus::failed;
     SForeignCall foreign{context};
     platform::threading::CThread other;
-    if (!other.create(&foreign_call, &foreign) || !other.join_and_close() || foreign.result != EServiceStatus::invalid_request) return ECallStatus::failed;
+    if (!other.create(&foreign_call, &foreign) || !other.join_and_close() || foreign.result != EServiceStatus::invalid_request ||
+        foreign.borrow_result != EServiceStatus::invalid_request) return ECallStatus::failed;
     if (scenario("activation-null")) { runtime_state().reset(); return ECallStatus::failed; }
     *runtime = &state;
     progress->phase = EPumpPhase::starting;
@@ -410,6 +516,7 @@ static ECallStatus MV_STD_ABI_CALL activate(const SHostPumpContext* context, voi
 }
 static bool test_message(SRuntime& state, const threading::CErasedPodMsg& message)
 {
+    if (message.is_payload_a<ServiceRequestCancelled>()) return true;
     const auto slot = message.query_async_slot();
     if (message.is_payload_a<modules::RunTestsRequest>())
     {
@@ -500,6 +607,69 @@ static ECallStatus MV_STD_ABI_CALL pump(void* runtime, const SPumpInput* input, 
     auto& state = *static_cast<SRuntime*>(runtime);
     if (!context_valid(state.context)) return ECallStatus::failed;
     result->progress.phase = EPumpPhase::ready;
+    if (borrow_scenario())
+    {
+        const auto& services = *state.context->services;
+        for (std::uint32_t index = 0u; index < input->message_count; ++index)
+        {
+            ServiceBorrowControl control;
+            ServiceRequestCancelled cancel;
+            if (input->messages[index].copy_payload_to(control))
+            {
+                if (control.borrow.value != state.borrow.value) return ECallStatus::failed;
+                if (control.control == EServiceBorrowControl::consumer_quiescent)
+                {
+                    if (control.quiescence != (scenario("borrow-abandoned") ? EServiceQuiescence::execution_ended : EServiceQuiescence::relinquished))
+                        return ECallStatus::failed;
+                    state.borrower_quiescent = true;
+                    MV_LOG(info, "Pump provider: consumer quiescence received; draining publisher activity");
+                }
+            }
+            else if (!input->messages[index].copy_payload_to(cancel)) return ECallStatus::failed;
+            ++result->consumed_messages;
+        }
+        if (state.borrowed && state.borrower_quiescent && ++state.retirement_progress >= 3u)
+        {
+            state.borrowed.reset();
+            if (services.finish_borrow_retirement(state.context->service_context, state.borrow) != EServiceStatus::success)
+                return ECallStatus::failed;
+            if (!state.borrow_done)
+            {
+                if (services.complete(state.context->service_context, &state.borrow_result) != EServiceStatus::success) return ECallStatus::failed;
+                state.borrow_done = true;
+            }
+            MV_LOG(info, "Pump provider: provider-owned storage destroyed after publisher drain");
+        }
+        if (state.borrow_fail)
+        {
+            state.borrow_fail = false;
+            return ECallStatus::failed;
+        }
+        if (state.stop && state.borrowed)
+        {
+            result->progress.phase = EPumpPhase::stopping;
+            return ECallStatus::success;
+        }
+        if (input->command_count)
+        {
+            const auto& command = input->commands[0].command;
+            if (command.opcode != 5u || !state.borrowed.emplace(4242u)) return ECallStatus::failed;
+            const SServiceBorrowOffer offer{ command.route, command.request, { state.borrowed.operator->(), sizeof(unsigned), 1u } };
+            if (services.prepare_borrow(state.context->service_context, &offer, &state.borrow) != EServiceStatus::success) return ECallStatus::failed;
+            state.borrow_result.route = command.route;
+            state.borrow_result.request = command.request;
+            state.borrow_result.opcode = command.opcode;
+            state.borrow_result.status = EServiceStatus::success;
+            if (!scenario("borrow-cancel"))
+            {
+                if (services.complete(state.context->service_context, &state.borrow_result) != EServiceStatus::success) return ECallStatus::failed;
+                state.borrow_done = true;
+            }
+            state.borrow_fail = scenario("borrow-provider-failed");
+            result->consumed_commands = 1u;
+        }
+        if (!state.stop) return ECallStatus::success;
+    }
     if (state.stop)
     {
         if (state.credits)

@@ -242,6 +242,7 @@
     <ClCompile Include="..\host\runtime\batch_pool.cpp" />
     <ClCompile Include="..\host\runtime\client_record.cpp" />
     <ClCompile Include="..\host\runtime\service_router.cpp" />
+    <ClCompile Include="..\host\runtime\service_borrows.cpp" />
     <ClCompile Include="..\host\runtime\pumped_client.cpp" />
     <ClCompile Include="..\host\runtime\asset_service.cpp" />
     <ClCompile Include="..\host\runtime\module_service.cpp" />
@@ -259,6 +260,7 @@
     <ClInclude Include="..\host\runtime\worker_policy.hpp" />
     <ClInclude Include="..\host\runtime\client_record.hpp" />
     <ClInclude Include="..\host\runtime\service_router.hpp" />
+    <ClInclude Include="..\host\runtime\service_borrows.hpp" />
     <ClInclude Include="..\host\runtime\service_provider.hpp" />
     <ClInclude Include="..\host\runtime\pumped_client.hpp" />
     <ClInclude Include="..\host\runtime\asset_service.hpp" />

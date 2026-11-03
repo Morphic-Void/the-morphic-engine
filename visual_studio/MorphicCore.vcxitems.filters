@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
+    <Filter Include="Core\src\services"><UniqueIdentifier>{88d3d7ef-3531-4c82-9011-35a1221edb36}</UniqueIdentifier></Filter>
     <Filter Include="Core\include\services">
       <UniqueIdentifier>{85459908-f72c-42f9-a1f0-134e9b8f888b}</UniqueIdentifier>
     </Filter>
@@ -352,6 +353,8 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\module\module_messages.hpp"><Filter>Core\include\module</Filter></ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\module\module_owner_payloads.def"><Filter>Core\include\module</Filter></ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\services\service_protocol.hpp"><Filter>Core\include\services</Filter></ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\services\service_borrow.hpp"><Filter>Core\include\services</Filter></ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\services\service_borrow_client.hpp"><Filter>Core\include\services</Filter></ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\filesystem\filesystem_messages.hpp"><Filter>Core\include\filesystem</Filter></ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\filesystem\filesystem_owner_payloads.def"><Filter>Core\include\filesystem</Filter></ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\threading\messages\message_errors.hpp"><Filter>Core\include\threading\messages</Filter></ClInclude>
@@ -638,6 +641,7 @@
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\memory\memory_context.cpp">
       <Filter>Core\src\memory</Filter>
     </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\services\service_borrow_client.cpp"><Filter>Core\src\services</Filter></ClCompile>
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\module\bound_module.cpp">
       <Filter>Core\src\module</Filter>
     </ClCompile>

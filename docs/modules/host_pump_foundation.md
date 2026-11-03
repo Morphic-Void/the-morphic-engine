@@ -1,5 +1,10 @@
 # Host pump foundation
 
+The subsequent [service borrow increment](service_borrow_lifetimes.md) adds
+prepared views, cancellation and provider-owned resource retirement to this
+foundation. Its interface and lifetime rules supersede the exclusions concerning
+those capabilities below; the remaining native/modal work is still deferred.
+
 This implements the generic Host foundation for the approved
 [Platform design](platform_host_pumped_design.md) and
 [contracts](platform_contracts_v1.md). It does not implement a native Platform
@@ -59,7 +64,7 @@ Service advertisement is separate from this descriptor. Missing
 exports mean unsupported; malformed advertisements fail installation. A module
 cannot advertise both execution capabilities, and Executive remains threaded.
 
-The Host-thread callback table is `modules::SHostPumpServicesV1`. Pump input
+The Host-thread callback table is `modules::SHostPumpServices`. Pump input
 contains bounded service/message batches and a time budget; native event and
 observation limits belong to the provider. These same-process capability
 descriptors require matching headers and coordinated Host/module rebuilds.
@@ -73,8 +78,9 @@ Each message header owns its registrations and owning-payload eligibility.
 Before each lifecycle call, the Host prepares the module-local ambient Host
 thread identity, module memory context and pump-context provisioning. The module
 borrows that stable context through successful deactivation. Its services table
-has size/version fields and exposes queued SYSTEM POD and owning requests plus
-terminal service completion. Callbacks authenticate the currently executing pump
+requires the exact current size/version and exposes queued SYSTEM POD and owning
+requests, terminal service completion, and borrow preparation/retirement.
+Callbacks authenticate the currently executing pump
 on the Host thread; calls from another thread or outside a lifecycle call fail.
 Owning request storage transfers only on success and uses existing SYSTEM
 ownership and memory-attribution checks.

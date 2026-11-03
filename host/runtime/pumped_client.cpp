@@ -29,7 +29,9 @@ CPumpedClient::CPumpedClient(SClientRecord& client, modules::CBoundModule& bindi
     const modules::SHostPumpV1& capability, CServiceRouter& router) noexcept
     : m_client{ client }, m_binding{ binding }, m_capability{ capability }, m_router{ router }
 {
-    static const modules::SHostPumpServicesV1 services{ sizeof(modules::SHostPumpServicesV1), 1u, &post_pod, &post_owner, &complete };
+    static const modules::SHostPumpServices services{
+        sizeof(modules::SHostPumpServices), 1u, &post_pod, &post_owner, &complete,
+        &prepare_borrow, &begin_borrow_retirement, &finish_borrow_retirement };
     m_context.instance = client.instance;
     m_context.client = client.identity;
     m_context.host_thread = thread_ids::host;
@@ -85,6 +87,13 @@ void CPumpedClient::observe(const modules::ECallStatus status, const modules::SP
     if (progress.phase == EPumpPhase::stopped)
     {
         if (!m_stop_begun) m_failed = true;
+        if (!m_router.provider_borrows_retired(m_client))
+        {
+            //  A stopped claim cannot release escaped views. Keep the complete
+            //  graph; Host still needs proof that live consumers have quiesced.
+            m_failed = true;
+            m_retained = true;
+        }
         m_client.phase = EClientPhase::stopped;
         m_router.stop_provider(m_client, true);
     }
@@ -189,7 +198,7 @@ void CPumpedClient::pump() noexcept
 bool CPumpedClient::deactivate() noexcept
 {
     if (m_deactivated) return true;
-    if (!stopped() || m_retained || !enter()) return false;
+    if (!stopped() || m_retained || !m_router.provider_borrows_retired(m_client) || !enter()) return false;
     const auto status = m_capability.deactivate(m_runtime);
     leave();
     if (status != modules::ECallStatus::success)
@@ -209,7 +218,9 @@ services::EServiceStatus MV_STD_ABI_CALL CPumpedClient::post_pod(void* context, 
     if ((self == nullptr) || (t_invocation != self) || (message == nullptr) ||
         !system_message(message->query_message_type_id())) return services::EServiceStatus::invalid_request;
     if (self->m_client.terminal()) return services::EServiceStatus::closing;
-    auto& queue = (message->is_payload_a<AssetReleaseRequest>() || message->is_payload_a<modules::RunTestsResult>()) ?
+    auto& queue = (message->is_payload_a<AssetReleaseRequest>() || message->is_payload_a<modules::RunTestsResult>() ||
+        message->is_payload_a<services::ReleaseServiceBorrow>() || message->is_payload_a<services::ServiceBorrowQuiescent>() ||
+        message->is_payload_a<services::CancelServiceRequest>()) ?
         self->m_controls : self->m_pods;
     return queue.post(*message) ? services::EServiceStatus::success : services::EServiceStatus::busy;
 }
@@ -229,6 +240,30 @@ services::EServiceStatus MV_STD_ABI_CALL CPumpedClient::complete(void* context, 
     auto* const self = static_cast<CPumpedClient*>(context);
     if ((self == nullptr) || (t_invocation != self) || (reply == nullptr)) return services::EServiceStatus::invalid_request;
     return self->m_router.complete(self->m_client, *reply);
+}
+
+services::EServiceStatus MV_STD_ABI_CALL CPumpedClient::prepare_borrow(void* context,
+    const services::SServiceBorrowOffer* offer, services::SServiceBorrow* borrow) noexcept
+{
+    auto* const self = static_cast<CPumpedClient*>(context);
+    if (borrow != nullptr) *borrow = {};
+    if ((self == nullptr) || (t_invocation != self) || (offer == nullptr) || (borrow == nullptr))
+        return services::EServiceStatus::invalid_request;
+    return self->m_router.prepare_borrow(self->m_client, *offer, *borrow);
+}
+
+services::EServiceStatus MV_STD_ABI_CALL CPumpedClient::begin_borrow_retirement(void* context, const services::SServiceBorrow borrow) noexcept
+{
+    auto* const self = static_cast<CPumpedClient*>(context);
+    if ((self == nullptr) || (t_invocation != self)) return services::EServiceStatus::invalid_request;
+    return self->m_router.begin_borrow_retirement(self->m_client, borrow);
+}
+
+services::EServiceStatus MV_STD_ABI_CALL CPumpedClient::finish_borrow_retirement(void* context, const services::SServiceBorrow borrow) noexcept
+{
+    auto* const self = static_cast<CPumpedClient*>(context);
+    if ((self == nullptr) || (t_invocation != self)) return services::EServiceStatus::invalid_request;
+    return self->m_router.finish_borrow_retirement(self->m_client, borrow);
 }
 
 }   //  namespace host

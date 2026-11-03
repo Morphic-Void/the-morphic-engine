@@ -44,6 +44,9 @@ private:
     static services::EServiceStatus MV_STD_ABI_CALL post_pod(void*, const threading::CErasedPodMsg*) noexcept;
     static services::EServiceStatus MV_STD_ABI_CALL post_owner(void*, threading::CErasedOwnerMsg*) noexcept;
     static services::EServiceStatus MV_STD_ABI_CALL complete(void*, const services::ServiceReply*) noexcept;
+    static services::EServiceStatus MV_STD_ABI_CALL prepare_borrow(void*, const services::SServiceBorrowOffer*, services::SServiceBorrow*) noexcept;
+    static services::EServiceStatus MV_STD_ABI_CALL begin_borrow_retirement(void*, services::SServiceBorrow) noexcept;
+    static services::EServiceStatus MV_STD_ABI_CALL finish_borrow_retirement(void*, services::SServiceBorrow) noexcept;
 
     SClientRecord& m_client;
     modules::CBoundModule& m_binding;

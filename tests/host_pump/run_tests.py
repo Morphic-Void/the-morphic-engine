@@ -20,7 +20,8 @@ REJECTED = ("bad-size", "bad-version", "bad-flags", "bad-callback", "mixed",
 CASES = ("normal", "empty-provider") + REJECTED + (
          "activation-failed", "activation-null", "invalid-prefix", "pump-failed",
          "deactivate-failed", "shutdown-pending", "replacement", "inbox-full", "emergency",
-         "cleanup-credits", "threaded-credits", "activation-timeout", "stop-timeout")
+         "cleanup-credits", "threaded-credits", "activation-timeout", "stop-timeout",
+         "borrow-normal", "borrow-cancel", "borrow-abandoned", "borrow-shutdown", "borrow-provider-failed")
 
 
 def main():
@@ -88,6 +89,10 @@ def main():
         for marker in required.get(case, ()):
             if marker not in events:
                 raise RuntimeError(f"{case}: missing {marker}; inspect {runtime}")
+        if case.startswith("borrow-"):
+            for marker in ("borrowed descriptor observed", "consumer quiescence received", "provider-owned storage destroyed after publisher drain"):
+                if marker not in events:
+                    raise RuntimeError(f"{case}: missing {marker}; inspect {runtime}")
         if (case == "activation-timeout" and elapsed < 4.5) or (case == "stop-timeout" and elapsed < 10.0):
             raise RuntimeError(f"{case}: deadline was not exercised ({elapsed}s); inspect {runtime}")
         print(f"PASS {case} ({args.host_workers} requested worker(s)): {runtime}", flush=True)
