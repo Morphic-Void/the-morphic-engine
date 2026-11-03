@@ -152,6 +152,50 @@ bool MV_STD_ABI_CALL CBoundModule::prepare_thread(void* const context, const thr
     return (module != nullptr) && module->prepare_thread(thread_id, thread_resources);
 }
 
+EBindingResult CBoundModule::query_host_pump(SHostPumpV1& pump) const noexcept
+{
+    pump = {};
+    if (!m_installed) return EBindingResult::invalid_argument;
+    const auto query = reinterpret_cast<FQueryHostPump>(m_native_module.find_function(k_host_pump_symbol_name));
+    if (query == nullptr) return EBindingResult::unsupported_function;
+    SHostPumpV1 candidate;
+    const auto result = query(sizeof(candidate), &candidate);
+
+    //  An advertised export must return a valid descriptor; unsupported is only
+    //  the absence of the export, never a way to hide a broken advertisement.
+    if (result != EBindingResult::success) return EBindingResult::invalid_argument;
+    if (!candidate.is_valid())
+    {
+        return EBindingResult::invalid_argument;
+    }
+    pump = candidate;
+    return EBindingResult::success;
+}
+
+bool CBoundModule::prepare_host_call(const thread_ids::id_type thread, void* const provisioning) noexcept
+{
+    return prepare_thread(thread, provisioning);
+}
+
+EBindingResult CBoundModule::query_service_provider(SServiceProviderV1& provider) const noexcept
+{
+    provider = {};
+    if (!m_installed) return EBindingResult::invalid_argument;
+    const auto query = reinterpret_cast<FQueryServiceProvider>(m_native_module.find_function(k_service_provider_symbol_name));
+    if (query == nullptr) return EBindingResult::unsupported_function;
+    SServiceProviderV1 candidate;
+    const auto result = query(sizeof(candidate), &candidate);
+
+    //  An existing export must supply a valid advertisement.
+    if (result != EBindingResult::success) return EBindingResult::invalid_argument;
+    if (!candidate.is_valid())
+    {
+        return EBindingResult::invalid_argument;
+    }
+    provider = candidate;
+    return EBindingResult::success;
+}
+
 bool CBoundModule::prepare_thread(const thread_ids::id_type thread_id, void* const thread_resources) noexcept
 {
     return m_installed &&

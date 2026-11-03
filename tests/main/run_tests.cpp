@@ -14,6 +14,7 @@
 #include "tests/test_suites/TimedWait_test_suite.hpp"
 #include "tests/test_suites/Audio_test_suite.hpp"
 #include "tests/test_suites/HostWorkers_test_suite.hpp"
+#include "tests/test_suites/HostPump_test_suite.hpp"
 #include "tests/test_suites/TextureService_test_suite.hpp"
 #include "tests/test_suites/BundleService_test_suite.hpp"
 #include "tests/test_suites/BundleRequests_test_suite.hpp"
@@ -43,6 +44,7 @@
 #include "tests/test_suites/StringBuffers_test_suite.hpp"
 #include "tests/test_suites/SystemTypeIdentity_test_suite.hpp"
 #include "tests/test_suites/TInstance_test_suite.hpp"
+#include "tests/test_suites/TProcessLifetime_test_suite.hpp"
 #include "tests/test_suites/TOrderedCollection_test_suite.hpp"
 #include "tests/test_suites/TPodFifo_test_suite.hpp"
 #include "tests/test_suites/TPodVector_test_suite.hpp"
@@ -257,6 +259,7 @@ int run_tests(ETestRunMode mode)
     cumulative_result += run_isolated_suite("TimedWait", &run_timed_wait_tests);
     cumulative_result += run_isolated_suite("Audio", &run_audio_tests);
     cumulative_result += run_isolated_suite("HostWorkers", &run_host_workers_tests);
+    cumulative_result += run_isolated_suite("HostPump", &run_host_pump_tests);
     cumulative_result += run_isolated_suite("TextureService", &run_texture_service_tests);
     cumulative_result += run_isolated_suite("BundleService", &run_bundle_service_tests);
     cumulative_result += run_isolated_suite("BundleRequests", &run_bundle_request_tests);
@@ -285,6 +288,7 @@ int run_tests(ETestRunMode mode)
     cumulative_result += run_isolated_suite("ImageView", &run_image_view_tests);
     cumulative_result += run_isolated_suite("TextLinter", &run_text_linter_tests);
     cumulative_result += run_isolated_suite("TInstance", &run_instance_tests);
+    cumulative_result += run_isolated_suite("TProcessLifetime", &run_process_lifetime_tests);
     cumulative_result += run_isolated_suite("DebugService", &run_debug_service_tests);
     cumulative_result += run_isolated_suite("SystemTypeIdentity", &run_system_type_identity_tests);
     cumulative_result += run_isolated_suite("TPodFifo", &run_pod_fifo_tests);

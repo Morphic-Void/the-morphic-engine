@@ -31,6 +31,10 @@
     <ClInclude Include="..\host\runtime\host.hpp"><Filter>Host\include\runtime</Filter></ClInclude>
     <ClInclude Include="..\host\entry\bootstrap_config.hpp"><Filter>Host\include\entry</Filter></ClInclude>
     <ClInclude Include="..\host\runtime\worker_policy.hpp"><Filter>Host\include\runtime</Filter></ClInclude>
+    <ClInclude Include="..\host\runtime\client_record.hpp"><Filter>Host\include\runtime</Filter></ClInclude>
+    <ClInclude Include="..\host\runtime\service_router.hpp"><Filter>Host\include\runtime</Filter></ClInclude>
+    <ClInclude Include="..\host\runtime\service_provider.hpp"><Filter>Host\include\runtime</Filter></ClInclude>
+    <ClInclude Include="..\host\runtime\pumped_client.hpp"><Filter>Host\include\runtime</Filter></ClInclude>
     <ClInclude Include="..\host\runtime\asset_service.hpp"><Filter>Host\include\runtime</Filter></ClInclude>
     <ClInclude Include="..\host\runtime\module_service.hpp"><Filter>Host\include\runtime</Filter></ClInclude>
     <ClInclude Include="..\host\system\host_context.hpp"><Filter>Host\include\system</Filter></ClInclude>
@@ -43,6 +47,9 @@
     <ClCompile Include="..\host\runtime\host_worker_thread.cpp"><Filter>Host\src\runtime</Filter></ClCompile>
     <ClCompile Include="..\host\runtime\batch_pool.cpp"><Filter>Host\src\runtime</Filter></ClCompile>
     <ClCompile Include="..\host\runtime\host.cpp"><Filter>Host\src\runtime</Filter></ClCompile>
+    <ClCompile Include="..\host\runtime\client_record.cpp"><Filter>Host\src\runtime</Filter></ClCompile>
+    <ClCompile Include="..\host\runtime\service_router.cpp"><Filter>Host\src\runtime</Filter></ClCompile>
+    <ClCompile Include="..\host\runtime\pumped_client.cpp"><Filter>Host\src\runtime</Filter></ClCompile>
     <ClCompile Include="..\host\runtime\asset_service.cpp"><Filter>Host\src\runtime</Filter></ClCompile>
     <ClCompile Include="..\host\runtime\module_service.cpp"><Filter>Host\src\runtime</Filter></ClCompile>
     <ClCompile Include="..\host\system\host_context.cpp"><Filter>Host\src\system</Filter></ClCompile>

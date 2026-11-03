@@ -14,6 +14,8 @@
 #define BOUND_MODULE_HPP_INCLUDED
 
 #include "module/module_binding.hpp"
+#include "module/host_pump.hpp"
+#include "module/service_provider.hpp"
 #include "platform/module/binding.hpp"
 
 namespace modules
@@ -47,6 +49,9 @@ public:
     [[nodiscard]] EBindingResult populate_core_functions(const std::uint32_t functional_major, SCoreFunctions& functions) const noexcept;
     [[nodiscard]] bool query_function(const system_type_id function_type, FModuleFunction& function) const noexcept;
     [[nodiscard]] EBindingResult query_service_thread(SServiceThread& service) const noexcept;
+    [[nodiscard]] EBindingResult query_host_pump(SHostPumpV1& pump) const noexcept;
+    [[nodiscard]] EBindingResult query_service_provider(SServiceProviderV1& provider) const noexcept;
+    [[nodiscard]] bool prepare_host_call(const thread_ids::id_type thread, void* const provisioning) noexcept;
     [[nodiscard]] const SAdvertisedIdentity& advertised_peer_identity() const noexcept { return m_advertised_peer_identity; }
     [[nodiscard]] const SAdvertisedIdentity& advertised_module_identity() const noexcept { return m_advertised_module_identity; }
     [[nodiscard]] std::uint32_t negotiated_functional_major() const noexcept { return m_negotiated_functional_major; }

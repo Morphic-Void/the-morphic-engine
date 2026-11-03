@@ -9,6 +9,8 @@
 //
 //  Functional message helpers and the actual Executive preparation boundary.
 
+#include "filesystem/filesystem_messages.hpp"
+#include "module/module_messages.hpp"
 #include "tests/environment/test_paths.hpp"
 #include "tests/test_suites/MessageHelpers_test_suite.hpp"
 
@@ -56,7 +58,7 @@ struct TCanInspect : std::false_type {};
 template<typename T>
 struct TCanInspect<T, std::void_t<decltype(inspect_owner_message<FileLoadResult>(std::declval<T>()))>> : std::true_type {};
 
-template<typename TMessage, typename TPayload, typename TOtherMessage = ModuleResult>
+template<typename TMessage, typename TPayload, typename TOtherMessage = modules::ModuleResult>
 static void test_pair(TTestContext& ctx, SAllocator& allocator)
 {
     static_assert(std::is_same_v<typename TMessagePayload<TMessage>::type, TPayload>);
@@ -188,25 +190,25 @@ static void test_request_fields(TTestContext& ctx)
     TEST_EXPECT(ctx, prepare_save_request(pending, 11, {}, "output:/saved.json", settings));
     TEST_EXPECT(ctx, pending.owner().payload<AssetSaveRequest>()->settings.format == EAssetFileFormat::json);
     pending = {};
-    TEST_EXPECT(ctx, prepare_module_request(pending, 12, module_ids::rendering, EModuleAction::load, test_environment::module_filename("package:/bin/MorphicRendering").c_str()));
-    TEST_EXPECT(ctx, pending.owner().payload<ModuleRequest>()->module == module_ids::rendering);
+    TEST_EXPECT(ctx, prepare_module_request(pending, 12, module_ids::rendering, modules::EModuleAction::load, test_environment::module_filename("package:/bin/MorphicRendering").c_str()));
+    TEST_EXPECT(ctx, pending.owner().payload<modules::ModuleRequest>()->module == module_ids::rendering);
     pending = {};
-    TEST_EXPECT(ctx, prepare_module_request(pending, k_uncorrelated_slot, module_ids::executive, EModuleAction::unload));
-    TEST_EXPECT(ctx, pending.owner().payload<ModuleRequest>()->file.length() == 0u && pending.query_async_slot() == -1);
+    TEST_EXPECT(ctx, prepare_module_request(pending, k_uncorrelated_slot, module_ids::executive, modules::EModuleAction::unload));
+    TEST_EXPECT(ctx, pending.owner().payload<modules::ModuleRequest>()->file.length() == 0u && pending.query_async_slot() == -1);
     pending = {};
     TEST_EXPECT(ctx, prepare_filesystem_request(pending, 13, "source:"));
-    TEST_EXPECT(ctx, std::strcmp(pending.owner().payload<FilesystemRefreshRequest>()->root.cstring(), "source:") == 0);
+    TEST_EXPECT(ctx, std::strcmp(pending.owner().payload<filesystem::FilesystemRefreshRequest>()->root.cstring(), "source:") == 0);
     pending = {};
     TEST_EXPECT(ctx, prepare_bundle_load_request(pending, 14, "source:/bundle.bdl", "bundle:"));
     TEST_EXPECT(ctx, std::strcmp(pending.owner().payload<BundleLoadRequest>()->paths.root.cstring(), "bundle:") == 0);
     pending = {};
     TEST_EXPECT(ctx, prepare_bundle_bake_request(pending, 15, "source:", "baked:"));
     TEST_EXPECT(ctx, pending.owner().payload<BundleBakeRequest>()->paths.subdirectory.length() == 0u);
-    const auto tests = make_pod_message(16, RunTestsRequest{ module_ids::rendering });
-    RunTestsRequest request;
+    const auto tests = make_pod_message(16, modules::RunTestsRequest{ module_ids::rendering });
+    modules::RunTestsRequest request;
     TEST_EXPECT(ctx, tests.copy_payload_to(request) && request.module == module_ids::rendering && tests.query_async_slot() == 16);
-    const auto completion = make_pod_message(16, RunTestsResult{ module_ids::rendering, ETestRunStatus::success, 4u, 0u, 2u });
-    RunTestsResult result;
+    const auto completion = make_pod_message(16, modules::RunTestsResult{ module_ids::rendering, modules::ETestRunStatus::success, 4u, 0u, 2u });
+    modules::RunTestsResult result;
     TEST_EXPECT(ctx, completion.copy_payload_to(result) && result.passed == 4u && result.failed == 0u && result.skipped == 2u);
 }
 

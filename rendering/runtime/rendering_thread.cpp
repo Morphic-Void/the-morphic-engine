@@ -8,6 +8,7 @@
 //
 //  Rendering module thread and asynchronous texture conditioning.
 
+#include "module/module_messages.hpp"
 #include "threading/messages/message_helpers.hpp"
 
 #include "runtime/rendering_thread.hpp"
@@ -86,7 +87,7 @@ static std::uint32_t MV_STD_ABI_CALL thread_entry(void* const user_data) noexcep
             progressed = true;
             if (message.is_payload_a<AssetAcquireResult>() || message.is_payload_a<AssetReleaseResult>())
                 failed = !requests.complete(message) || failed;
-            else if (message.is_payload_a<RunTestsRequest>())
+            else if (message.is_payload_a<modules::RunTestsRequest>())
                 failed = !tests.start(message) || failed;
             else if (message.is_payload_a<AssetResult>() || message.is_payload_a<AssetDisposeResult>())
                 failed = !tests.complete(message) || failed;

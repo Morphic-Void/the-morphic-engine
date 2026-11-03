@@ -3,4 +3,5 @@
 //  The same domain fragments generate eligibility and owner operations.
 
 #include "assets/asset_owner_payloads.def"
-#include "system/service_owner_payloads.def"
+#include "module/module_owner_payloads.def"
+#include "filesystem/filesystem_owner_payloads.def"

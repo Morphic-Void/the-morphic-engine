@@ -9,6 +9,7 @@
 //
 //  Real DLL fixtures for the Host's asynchronous module lifecycle.
 
+#include "module/module_messages.hpp"
 #include "tests/environment/test_paths.hpp"
 #include <atomic>
 #include <cstdlib>
@@ -23,7 +24,6 @@
 #include "memory/memory_context.hpp"
 #include "system/system_context.hpp"
 #include "assets/asset_messages.hpp"
-#include "system/service_messages.hpp"
 #include "threading/CThreadPackage.hpp"
 #include "threading/messages/message_helpers.hpp"
 #include "debug/macros.hpp"
@@ -149,12 +149,12 @@ static bool batch_case(threading::CThreadContext& context,
     return true;
 }
 
-static bool post(threading::CThreadContext& context, const EModuleAction action,
+static bool post(threading::CThreadContext& context, const modules::EModuleAction action,
     const module_ids::id_type module, const char* const file, const std::int32_t slot,
     const system_type_id function = system_type_ids::undefined, const bool require_service = false) noexcept
 {
-    CErasedOwner owner = CErasedOwner::create<ModuleRequest>();
-    ModuleRequest* const request = owner.payload<ModuleRequest>();
+    CErasedOwner owner = CErasedOwner::create<modules::ModuleRequest>();
+    modules::ModuleRequest* const request = owner.payload<modules::ModuleRequest>();
     if ((request == nullptr) || ((file != nullptr) && !request->file.set(file)))
     {
         return false;
@@ -164,7 +164,7 @@ static bool post(threading::CThreadContext& context, const EModuleAction action,
     request->required_function = function;
     request->require_service_thread = require_service || (module == module_ids::rendering);
     threading::CErasedOwnerMsg message;
-    message.set_message_type<ModuleRequest>();
+    message.set_message_type<modules::ModuleRequest>();
     message.set_async_slot(slot);
     message.set_owner(std::move(owner));
     return context.post(std::move(message));
@@ -186,23 +186,23 @@ static bool receive(threading::CThreadContext& context, threading::CErasedPodMsg
     return false;
 }
 
-static bool operation(threading::CThreadContext& context, const EModuleAction action,
-    const char* const file, const std::int32_t slot, const EModuleStatus expected, const bool available,
+static bool operation(threading::CThreadContext& context, const modules::EModuleAction action,
+    const char* const file, const std::int32_t slot, const modules::EModuleStatus expected, const bool available,
     const system_type_id function = system_type_ids::undefined) noexcept
 {
     if (!post(context, action, module_ids::rendering, file, slot, function))
     {
         return false;
     }
-    for (const EModuleNotice notice : { EModuleNotice::acknowledged, EModuleNotice::completed })
+    for (const modules::EModuleNotice notice : { modules::EModuleNotice::acknowledged, modules::EModuleNotice::completed })
     {
         threading::CErasedPodMsg message;
-        ModuleResult result;
+        modules::ModuleResult result;
         if (!receive(context, message) || !message.copy_payload_to(result) || (message.query_async_slot() != slot) ||
             (result.module != module_ids::rendering) ||
-            (result.notice != notice) || (result.status != ((notice == EModuleNotice::acknowledged) ? EModuleStatus::success : expected)) ||
-            ((notice == EModuleNotice::completed) && ((result.available != available) ||
-                ((expected == EModuleStatus::success) && (function != system_type_ids::undefined) && (result.function == nullptr)))))
+            (result.notice != notice) || (result.status != ((notice == modules::EModuleNotice::acknowledged) ? modules::EModuleStatus::success : expected)) ||
+            ((notice == modules::EModuleNotice::completed) && ((result.available != available) ||
+                ((expected == modules::EModuleStatus::success) && (function != system_type_ids::undefined) && (result.function == nullptr)))))
         {
             MV_LOG(error, "Lifecycle fixture: operation {} notification failed", slot);
             return false;
@@ -214,7 +214,7 @@ static bool operation(threading::CThreadContext& context, const EModuleAction ac
 
 static bool self_terminate(threading::CThreadContext& context, const char* const replacement) noexcept
 {
-    if (!post(context, (replacement != nullptr) ? EModuleAction::replace : EModuleAction::unload,
+    if (!post(context, (replacement != nullptr) ? modules::EModuleAction::replace : modules::EModuleAction::unload,
         module_ids::executive, replacement, 100))
     {
         return false;
@@ -403,7 +403,7 @@ static bool disposal_during_saves(threading::CThreadContext& context) noexcept
     }
     //  An owning request behind the saves establishes their admission before
     //  disposal crosses the separate POD queue. The service is already loaded.
-    if (!post(context, EModuleAction::load, module_ids::rendering, test_environment::module_filename("package:/bin/MorphicRendering").c_str(), 40))
+    if (!post(context, modules::EModuleAction::load, module_ids::rendering, test_environment::module_filename("package:/bin/MorphicRendering").c_str(), 40))
     {
         return false;
     }
@@ -421,7 +421,7 @@ static bool disposal_during_saves(threading::CThreadContext& context) noexcept
         {
             return false;
         }
-        ModuleResult module;
+        modules::ModuleResult module;
         AssetDisposeResult disposal;
         AssetResult result;
         const std::int32_t slot = message.query_async_slot();
@@ -431,9 +431,9 @@ static bool disposal_during_saves(threading::CThreadContext& context) noexcept
             {
                 return false;
             }
-            if (module.notice == EModuleNotice::acknowledged)
+            if (module.notice == modules::EModuleNotice::acknowledged)
             {
-                if (acknowledged || (module.status != EModuleStatus::success))
+                if (acknowledged || (module.status != modules::EModuleStatus::success))
                 {
                     return false;
                 }
@@ -453,7 +453,7 @@ static bool disposal_during_saves(threading::CThreadContext& context) noexcept
             }
             else
             {
-                if (!acknowledged || (module.status != EModuleStatus::already_loaded))
+                if (!acknowledged || (module.status != modules::EModuleStatus::already_loaded))
                 {
                     return false;
                 }
@@ -540,7 +540,7 @@ static bool unload_during_saves(threading::CThreadContext& context, const bool r
         const bool written = std::fwrite(identities, sizeof(identities), 1u, file) == 1u;
         const bool closed = std::fclose(file) == 0;
         if (!written || !closed ||
-            !operation(context, EModuleAction::load, test_environment::module_filename("package:/bin/MorphicLifecycleRenderingDisposal").c_str(), 1, EModuleStatus::success, true))
+            !operation(context, modules::EModuleAction::load, test_environment::module_filename("package:/bin/MorphicLifecycleRenderingDisposal").c_str(), 1, modules::EModuleStatus::success, true))
         {
             return false;
         }
@@ -557,7 +557,7 @@ static bool unload_during_saves(threading::CThreadContext& context, const bool r
     //  This owning request follows every save on the same queue. Teardown must
     //  retain the rendering package until accepted saves and disposal replies
     //  finish, before destroying its transports or disposing dependent assets.
-    if (!post(context, EModuleAction::unload, module_ids::rendering, nullptr, 40))
+    if (!post(context, modules::EModuleAction::unload, module_ids::rendering, nullptr, 40))
     {
         return false;
     }
@@ -572,16 +572,16 @@ static bool unload_during_saves(threading::CThreadContext& context, const bool r
         {
             return false;
         }
-        ModuleResult module;
+        modules::ModuleResult module;
         AssetResult result;
         const std::int32_t slot = message.query_async_slot();
         if (message.copy_payload_to(module))
         {
-            if ((slot != 40) || (module.status != EModuleStatus::success))
+            if ((slot != 40) || (module.status != modules::EModuleStatus::success))
             {
                 return false;
             }
-            if (module.notice == EModuleNotice::acknowledged)
+            if (module.notice == modules::EModuleNotice::acknowledged)
             {
                 if (acknowledged)
                 {
@@ -617,36 +617,36 @@ static bool unload_during_saves(threading::CThreadContext& context, const bool r
 static bool executive_test_routing_case(threading::CThreadContext& context,
     const bool exit_without_completion, const bool unload_client) noexcept
 {
-    if (!operation(context, EModuleAction::load,
+    if (!operation(context, modules::EModuleAction::load,
         test_environment::module_filename("package:/bin/MorphicLifecycleRenderingDisposal").c_str(),
-        1, EModuleStatus::success, true)) return false;
+        1, modules::EModuleStatus::success, true)) return false;
 
     threading::CErasedPodMsg message;
-    RunTestsRequest request;
+    modules::RunTestsRequest request;
     if (!receive(context, message) || !message.copy_payload_to(request) ||
         (request.module != module_ids::executive) || (message.query_async_slot() != INT32_MAX)) return false;
 
     //  The Executive is the test worker. Another request, including one from
     //  that worker, must receive busy until the current result is forwarded.
     message.set_async_slot(90);
-    message.assign_payload(RunTestsRequest{ module_ids::rendering });
-    RunTestsResult busy;
+    message.assign_payload(modules::RunTestsRequest{ module_ids::rendering });
+    modules::RunTestsResult busy;
     if (!context.post(message) || !receive(context, message) || !message.copy_payload_to(busy) ||
         (message.query_async_slot() != 90) || (busy.module != module_ids::rendering) ||
-        (busy.status != ETestRunStatus::busy)) return false;
+        (busy.status != modules::ETestRunStatus::busy)) return false;
     message.set_async_slot(INT32_MAX);
-    message.assign_payload(RunTestsResult{ module_ids::executive, ETestRunStatus::success, 7u, 0u, 2u });
+    message.assign_payload(modules::RunTestsResult{ module_ids::executive, modules::ETestRunStatus::success, 7u, 0u, 2u });
     if (!context.post(message)) return false;
 
     if (!receive(context, message) || !message.copy_payload_to(request) ||
         (request.module != module_ids::executive) || (message.query_async_slot() != 111)) return false;
     if (unload_client)
     {
-        if (!post(context, EModuleAction::unload, module_ids::rendering, nullptr, 120)) return false;
-        ModuleResult notice;
+        if (!post(context, modules::EModuleAction::unload, module_ids::rendering, nullptr, 120)) return false;
+        modules::ModuleResult notice;
         if (!receive(context, message) || !message.copy_payload_to(notice) ||
-            (message.query_async_slot() != 120) || (notice.notice != EModuleNotice::acknowledged) ||
-            (notice.status != EModuleStatus::success)) return false;
+            (message.query_async_slot() != 120) || (notice.notice != modules::EModuleNotice::acknowledged) ||
+            (notice.status != modules::EModuleStatus::success)) return false;
         //  A Host round trip after acknowledgement ensures teardown has had
         //  an opportunity to run while the caller is still waiting for us.
         message.set_async_slot(121);
@@ -660,15 +660,15 @@ static bool executive_test_routing_case(threading::CThreadContext& context,
         //  This final reply must be drained before terminal-state handling.
         //  Host forwards module test failures and their counts unchanged.
         message.set_async_slot(111);
-        message.assign_payload(RunTestsResult{ module_ids::executive, ETestRunStatus::failed, 3u, 1u, 2u });
+        message.assign_payload(modules::RunTestsResult{ module_ids::executive, modules::ETestRunStatus::failed, 3u, 1u, 2u });
         if (!context.post(message)) return false;
     }
     if (unload_client)
     {
-        ModuleResult notice;
+        modules::ModuleResult notice;
         if (!receive(context, message) || !message.copy_payload_to(notice) ||
-            (message.query_async_slot() != 120) || (notice.notice != EModuleNotice::completed) ||
-            (notice.status != EModuleStatus::success) || notice.available) return false;
+            (message.query_async_slot() != 120) || (notice.notice != modules::EModuleNotice::completed) ||
+            (notice.status != modules::EModuleStatus::success) || notice.available) return false;
         MV_LOG(info, "Lifecycle tests: caller unload waited for completion and cleanup");
     }
     return self_terminate(context, nullptr);
@@ -676,30 +676,30 @@ static bool executive_test_routing_case(threading::CThreadContext& context,
 
 static bool service_lifecycle_case(threading::CThreadContext& context, const char* const selected) noexcept
 {
-    auto change = [&](const EModuleAction action, const char* const file, const std::int32_t slot,
-        const bool required, const EModuleStatus expected, const bool available) noexcept
+    auto change = [&](const modules::EModuleAction action, const char* const file, const std::int32_t slot,
+        const bool required, const modules::EModuleStatus expected, const bool available) noexcept
     {
         if (!post(context, action, module_ids::conditioning_general, file, slot,
             system_type_ids::undefined, required)) return false;
-        for (const auto notice : { EModuleNotice::acknowledged, EModuleNotice::completed })
+        for (const auto notice : { modules::EModuleNotice::acknowledged, modules::EModuleNotice::completed })
         {
             threading::CErasedPodMsg message;
-            ModuleResult result;
+            modules::ModuleResult result;
             if (!receive(context, message) || !message.copy_payload_to(result) ||
                 (message.query_async_slot() != slot) || (result.module != module_ids::conditioning_general) ||
                 (result.notice != notice) || (result.status !=
-                    ((notice == EModuleNotice::acknowledged) ? EModuleStatus::success : expected)) ||
-                ((notice == EModuleNotice::completed) && (result.available != available))) return false;
+                    ((notice == modules::EModuleNotice::acknowledged) ? modules::EModuleStatus::success : expected)) ||
+                ((notice == modules::EModuleNotice::completed) && (result.available != available))) return false;
         }
         return true;
     };
-    auto test = [&](const std::int32_t slot, const ETestRunStatus expected) noexcept
+    auto test = [&](const std::int32_t slot, const modules::ETestRunStatus expected) noexcept
     {
-        auto message = threading::make_pod_message(slot, RunTestsRequest{ module_ids::conditioning_general });
-        RunTestsResult result;
+        auto message = threading::make_pod_message(slot, modules::RunTestsRequest{ module_ids::conditioning_general });
+        modules::RunTestsResult result;
         return context.post(message) && receive(context, message) && message.copy_payload_to(result) &&
             (message.query_async_slot() == slot) && (result.module == module_ids::conditioning_general) &&
-            (result.status == expected) && (result.passed == ((expected == ETestRunStatus::success) ? 1u : 0u)) &&
+            (result.status == expected) && (result.passed == ((expected == modules::ETestRunStatus::success) ? 1u : 0u)) &&
             (result.failed == 0u) && (result.skipped == 0u);
     };
     const auto service_file = test_environment::module_filename("package:/bin/MorphicLifecycleService");
@@ -707,27 +707,27 @@ static bool service_lifecycle_case(threading::CThreadContext& context, const cha
         (std::strcmp(selected, "service-start-failure") == 0))
     {
         const auto expected = (std::strcmp(selected, "service-start-failure") == 0) ?
-            EModuleStatus::installation_failed : EModuleStatus::function_unavailable;
-        return change(EModuleAction::load, service_file.c_str(), 1, true, expected, false) &&
-            change(EModuleAction::unload, nullptr, 2, false, EModuleStatus::not_loaded, false) && self_terminate(context, nullptr);
+            modules::EModuleStatus::installation_failed : modules::EModuleStatus::function_unavailable;
+        return change(modules::EModuleAction::load, service_file.c_str(), 1, true, expected, false) &&
+            change(modules::EModuleAction::unload, nullptr, 2, false, modules::EModuleStatus::not_loaded, false) && self_terminate(context, nullptr);
     }
-    if (!operation(context, EModuleAction::load, test_environment::module_filename("package:/bin/MorphicRendering").c_str(),
-        1, EModuleStatus::success, true)) return false;
+    if (!operation(context, modules::EModuleAction::load, test_environment::module_filename("package:/bin/MorphicRendering").c_str(),
+        1, modules::EModuleStatus::success, true)) return false;
     const auto passive_file = test_environment::module_filename("package:/bin/MorphicLifecyclePassive");
-    if (!change(EModuleAction::load, passive_file.c_str(), 2, true, EModuleStatus::function_unavailable, false) ||
-        !change(EModuleAction::load, passive_file.c_str(), 3, false, EModuleStatus::success, true) ||
-        !test(4, ETestRunStatus::unavailable) ||
-        !change(EModuleAction::load, passive_file.c_str(), 5, true, EModuleStatus::function_unavailable, true) ||
-        !change(EModuleAction::replace, service_file.c_str(), 6, true, EModuleStatus::success, true) ||
-        !test(7, ETestRunStatus::success)) return false;
+    if (!change(modules::EModuleAction::load, passive_file.c_str(), 2, true, modules::EModuleStatus::function_unavailable, false) ||
+        !change(modules::EModuleAction::load, passive_file.c_str(), 3, false, modules::EModuleStatus::success, true) ||
+        !test(4, modules::ETestRunStatus::unavailable) ||
+        !change(modules::EModuleAction::load, passive_file.c_str(), 5, true, modules::EModuleStatus::function_unavailable, true) ||
+        !change(modules::EModuleAction::replace, service_file.c_str(), 6, true, modules::EModuleStatus::success, true) ||
+        !test(7, modules::ETestRunStatus::success)) return false;
     if (std::strcmp(selected, "service-lifecycle") == 0)
     {
         CAssetId dependent;
         if (!retain_raw_asset(context, true, &dependent, mount_point_ids::conditioning) ||
-            !change(EModuleAction::replace, service_file.c_str(), 8, true, EModuleStatus::success, true) ||
-            !dispose_asset(context, dependent, EAssetStatus::invalid_asset) || !test(9, ETestRunStatus::success) ||
-            !change(EModuleAction::unload, nullptr, 10, false, EModuleStatus::success, false) ||
-            !test(11, ETestRunStatus::unavailable)) return false;
+            !change(modules::EModuleAction::replace, service_file.c_str(), 8, true, modules::EModuleStatus::success, true) ||
+            !dispose_asset(context, dependent, EAssetStatus::invalid_asset) || !test(9, modules::ETestRunStatus::success) ||
+            !change(modules::EModuleAction::unload, nullptr, 10, false, modules::EModuleStatus::success, false) ||
+            !test(11, modules::ETestRunStatus::unavailable)) return false;
     }
     return self_terminate(context, nullptr);
 }
@@ -735,35 +735,35 @@ static bool service_lifecycle_case(threading::CThreadContext& context, const cha
 static bool audio_lifecycle_case(threading::CThreadContext& context) noexcept
 {
     const auto file = test_environment::module_filename("package:/bin/MorphicAudio");
-    if (!post(context, EModuleAction::load, module_ids::audio, file.c_str(), 1,
+    if (!post(context, modules::EModuleAction::load, module_ids::audio, file.c_str(), 1,
         system_type_ids::undefined, true)) return false;
-    for (const auto notice : { EModuleNotice::acknowledged, EModuleNotice::completed })
+    for (const auto notice : { modules::EModuleNotice::acknowledged, modules::EModuleNotice::completed })
     {
         threading::CErasedPodMsg message;
-        ModuleResult result;
+        modules::ModuleResult result;
         if (!receive(context, message) || !message.copy_payload_to(result) || message.query_async_slot() != 1 ||
-            result.module != module_ids::audio || result.notice != notice || result.status != EModuleStatus::success ||
-            (notice == EModuleNotice::completed && !result.available)) return false;
+            result.module != module_ids::audio || result.notice != notice || result.status != modules::EModuleStatus::success ||
+            (notice == modules::EModuleNotice::completed && !result.available)) return false;
     }
     auto completed = [](const threading::CErasedPodMsg& message, const std::int32_t slot) noexcept
     {
-        RunTestsResult result;
+        modules::RunTestsResult result;
         return message.copy_payload_to(result) && message.query_async_slot() == slot && result.module == module_ids::audio &&
-            ((result.status == ETestRunStatus::success && result.passed == 1u && result.failed == 0u && result.skipped == 0u) ||
-             (result.status == ETestRunStatus::unavailable && result.passed == 0u && result.failed == 0u && result.skipped == 1u));
+            ((result.status == modules::ETestRunStatus::success && result.passed == 1u && result.failed == 0u && result.skipped == 0u) ||
+             (result.status == modules::ETestRunStatus::unavailable && result.passed == 0u && result.failed == 0u && result.skipped == 1u));
     };
     threading::CErasedPodMsg message;
-    if (!context.post(threading::make_pod_message(2, RunTestsRequest{ module_ids::audio })) ||
+    if (!context.post(threading::make_pod_message(2, modules::RunTestsRequest{ module_ids::audio })) ||
         !receive(context, message) || !completed(message, 2)) return false;
     //  The same loaded service accepts another run. Request unload while it is
     //  active; Host must preserve the worker and route until cleanup/completion.
-    if (!context.post(threading::make_pod_message(3, RunTestsRequest{ module_ids::audio })) ||
-        !post(context, EModuleAction::unload, module_ids::audio, nullptr, 4)) return false;
+    if (!context.post(threading::make_pod_message(3, modules::RunTestsRequest{ module_ids::audio })) ||
+        !post(context, modules::EModuleAction::unload, module_ids::audio, nullptr, 4)) return false;
     bool test_done = false, acknowledged = false, unloaded = false;
     for (unsigned i = 0u; i < 3u; ++i)
     {
         if (!receive(context, message)) return false;
-        if (message.is_payload_a<RunTestsResult>())
+        if (message.is_payload_a<modules::RunTestsResult>())
         {
             if (test_done || !completed(message, 3)) return false;
             test_done = true;
@@ -771,10 +771,10 @@ static bool audio_lifecycle_case(threading::CThreadContext& context) noexcept
         }
         else
         {
-            ModuleResult result;
+            modules::ModuleResult result;
             if (!message.copy_payload_to(result) || message.query_async_slot() != 4 || result.module != module_ids::audio ||
-                result.status != EModuleStatus::success) return false;
-            if (result.notice == EModuleNotice::acknowledged)
+                result.status != modules::EModuleStatus::success) return false;
+            if (result.notice == modules::EModuleNotice::acknowledged)
             {
                 if (acknowledged) return false;
                 acknowledged = true;
@@ -803,20 +803,20 @@ static bool run_case(threading::CThreadContext& context,
     if ((std::strcmp(selected, "acquire-render-release") == 0) || (std::strcmp(selected, "acquire-render-abandon") == 0) ||
         (std::strcmp(selected, "acquire-render-replace") == 0))
     {
-        if (!operation(context, EModuleAction::load,
-            test_environment::module_filename("package:/bin/MorphicLifecycleRenderingDisposal").c_str(), 1, EModuleStatus::success, true)) return false;
+        if (!operation(context, modules::EModuleAction::load,
+            test_environment::module_filename("package:/bin/MorphicLifecycleRenderingDisposal").c_str(), 1, modules::EModuleStatus::success, true)) return false;
         threading::CErasedPodMsg request, completion;
         request.set_async_slot(50);
-        request.assign_payload(RunTestsRequest{ module_ids::rendering });
-        RunTestsResult result;
+        request.assign_payload(modules::RunTestsRequest{ module_ids::rendering });
+        modules::RunTestsResult result;
         if (!context.post(request) || !receive(context, completion) || !completion.copy_payload_to(result) ||
-            (completion.query_async_slot() != 50) || (result.status != ETestRunStatus::success) || (result.passed != 1u)) return false;
+            (completion.query_async_slot() != 50) || (result.status != modules::ETestRunStatus::success) || (result.passed != 1u)) return false;
         if (std::strcmp(selected, "acquire-render-replace") == 0)
         {
             return (_putenv_s("MORPHIC_LIFECYCLE_CASE", "shutdown") == 0) &&
                 self_terminate(context, test_environment::module_filename("package:/bin/MorphicLifecycleExecutive").c_str());
         }
-        return operation(context, EModuleAction::unload, nullptr, 2, EModuleStatus::success, false) && self_terminate(context, nullptr);
+        return operation(context, modules::EModuleAction::unload, nullptr, 2, modules::EModuleStatus::success, false) && self_terminate(context, nullptr);
     }
     if (std::strncmp(selected, "bundle", 6u) == 0)
     {
@@ -847,42 +847,42 @@ static bool run_case(threading::CThreadContext& context,
     }
     if (std::strcmp(selected, "render-drain") == 0)
     {
-        return operation(context, EModuleAction::load, test_environment::module_filename("package:/bin/MorphicRendering").c_str(), 1, EModuleStatus::success, true) &&
+        return operation(context, modules::EModuleAction::load, test_environment::module_filename("package:/bin/MorphicRendering").c_str(), 1, modules::EModuleStatus::success, true) &&
             unload_during_saves(context) && self_terminate(context, nullptr);
     }
     if (std::strcmp(selected, "thread-failures") == 0)
     {
-        return operation(context, EModuleAction::load, test_environment::module_filename("package:/bin/MorphicRendering").c_str(), 1, EModuleStatus::success, true) &&
-            operation(context, EModuleAction::replace, test_environment::module_filename("package:/bin/MorphicLifecycleRenderingFailure").c_str(), 2, EModuleStatus::installation_failed, false) &&
-            operation(context, EModuleAction::load, test_environment::module_filename("package:/bin/MorphicRendering").c_str(), 3, EModuleStatus::success, true) &&
-            operation(context, EModuleAction::unload, nullptr, 4, EModuleStatus::success, false) &&
-            operation(context, EModuleAction::load, test_environment::module_filename("package:/bin/MorphicLifecycleRenderingFailure").c_str(), 5, EModuleStatus::installation_failed, false) &&
-            operation(context, EModuleAction::load, test_environment::module_filename("package:/bin/MorphicLifecycleMissingThread").c_str(), 6, EModuleStatus::function_unavailable, false) &&
+        return operation(context, modules::EModuleAction::load, test_environment::module_filename("package:/bin/MorphicRendering").c_str(), 1, modules::EModuleStatus::success, true) &&
+            operation(context, modules::EModuleAction::replace, test_environment::module_filename("package:/bin/MorphicLifecycleRenderingFailure").c_str(), 2, modules::EModuleStatus::installation_failed, false) &&
+            operation(context, modules::EModuleAction::load, test_environment::module_filename("package:/bin/MorphicRendering").c_str(), 3, modules::EModuleStatus::success, true) &&
+            operation(context, modules::EModuleAction::unload, nullptr, 4, modules::EModuleStatus::success, false) &&
+            operation(context, modules::EModuleAction::load, test_environment::module_filename("package:/bin/MorphicLifecycleRenderingFailure").c_str(), 5, modules::EModuleStatus::installation_failed, false) &&
+            operation(context, modules::EModuleAction::load, test_environment::module_filename("package:/bin/MorphicLifecycleMissingThread").c_str(), 6, modules::EModuleStatus::function_unavailable, false) &&
             self_terminate(context, nullptr);
     }
     if (std::strcmp(selected, "render-shutdown") == 0)
     {
-        return operation(context, EModuleAction::load, test_environment::module_filename("package:/bin/MorphicRendering").c_str(), 1, EModuleStatus::success, true) &&
+        return operation(context, modules::EModuleAction::load, test_environment::module_filename("package:/bin/MorphicRendering").c_str(), 1, modules::EModuleStatus::success, true) &&
             self_terminate(context, nullptr);
     }
     if (std::strcmp(selected, "render-shutdown-dependency") == 0)
     {
-        return operation(context, EModuleAction::load, test_environment::module_filename("package:/bin/MorphicRendering").c_str(), 1, EModuleStatus::success, true) &&
+        return operation(context, modules::EModuleAction::load, test_environment::module_filename("package:/bin/MorphicRendering").c_str(), 1, modules::EModuleStatus::success, true) &&
             retain_raw_asset(context, true) && self_terminate(context, nullptr);
     }
     if (std::strcmp(selected, "render-replace-dependency") == 0)
     {
         CAssetId dependent;
         CAssetId independent;
-        return operation(context, EModuleAction::load, test_environment::module_filename("package:/bin/MorphicRendering").c_str(), 1, EModuleStatus::success, true) &&
+        return operation(context, modules::EModuleAction::load, test_environment::module_filename("package:/bin/MorphicRendering").c_str(), 1, modules::EModuleStatus::success, true) &&
             retain_raw_asset(context, true, &dependent) && retain_raw_asset(context, false, &independent) &&
-            operation(context, EModuleAction::replace, test_environment::module_filename("package:/bin/MorphicRendering").c_str(), 2, EModuleStatus::success, true) &&
+            operation(context, modules::EModuleAction::replace, test_environment::module_filename("package:/bin/MorphicRendering").c_str(), 2, modules::EModuleStatus::success, true) &&
             dispose_asset(context, dependent, EAssetStatus::invalid_asset) &&
             dispose_asset(context, independent, EAssetStatus::success) && self_terminate(context, nullptr);
     }
     if (std::strcmp(selected, "render-executive-replace") == 0)
     {
-        return operation(context, EModuleAction::load, test_environment::module_filename("package:/bin/MorphicRendering").c_str(), 1, EModuleStatus::success, true) &&
+        return operation(context, modules::EModuleAction::load, test_environment::module_filename("package:/bin/MorphicRendering").c_str(), 1, modules::EModuleStatus::success, true) &&
             self_terminate(context, test_environment::module_filename("package:/bin/MorphicExecutive").c_str());
     }
     if (std::strcmp(selected, "replace") == 0)
@@ -914,25 +914,25 @@ static bool run_case(threading::CThreadContext& context,
     if (std::strcmp(selected, "disposal") == 0)
     {
         CAssetId asset;
-        return operation(context, EModuleAction::load, test_environment::module_filename("package:/bin/MorphicRendering").c_str(), 1, EModuleStatus::success, true) &&
+        return operation(context, modules::EModuleAction::load, test_environment::module_filename("package:/bin/MorphicRendering").c_str(), 1, modules::EModuleStatus::success, true) &&
             retain_raw_asset(context, true, &asset) && dispose_asset(context, asset, EAssetStatus::success) &&
             dispose_asset(context, asset, EAssetStatus::invalid_asset) &&
             dispose_asset(context, CAssetId{}, EAssetStatus::invalid_asset) &&
-            operation(context, EModuleAction::unload, nullptr, 2, EModuleStatus::success, false) && self_terminate(context, nullptr);
+            operation(context, modules::EModuleAction::unload, nullptr, 2, modules::EModuleStatus::success, false) && self_terminate(context, nullptr);
     }
     if (std::strcmp(selected, "disposal-during-save") == 0)
     {
-        return operation(context, EModuleAction::load, test_environment::module_filename("package:/bin/MorphicRendering").c_str(), 1, EModuleStatus::success, true) &&
+        return operation(context, modules::EModuleAction::load, test_environment::module_filename("package:/bin/MorphicRendering").c_str(), 1, modules::EModuleStatus::success, true) &&
             disposal_during_saves(context) &&
-            operation(context, EModuleAction::unload, nullptr, 2, EModuleStatus::success, false) && self_terminate(context, nullptr);
+            operation(context, modules::EModuleAction::unload, nullptr, 2, modules::EModuleStatus::success, false) && self_terminate(context, nullptr);
     }
     if (std::strcmp(selected, "dependency") == 0)
     {
         CAssetId dependent;
         CAssetId independent;
-        return operation(context, EModuleAction::load, test_environment::module_filename("package:/bin/MorphicRendering").c_str(), 1, EModuleStatus::success, true) &&
+        return operation(context, modules::EModuleAction::load, test_environment::module_filename("package:/bin/MorphicRendering").c_str(), 1, modules::EModuleStatus::success, true) &&
             retain_raw_asset(context, true, &dependent) && retain_raw_asset(context, false, &independent) &&
-            operation(context, EModuleAction::unload, nullptr, 2, EModuleStatus::success, false) &&
+            operation(context, modules::EModuleAction::unload, nullptr, 2, modules::EModuleStatus::success, false) &&
             dispose_asset(context, dependent, EAssetStatus::invalid_asset) &&
             dispose_asset(context, independent, EAssetStatus::success) && self_terminate(context, nullptr);
     }
@@ -940,17 +940,17 @@ static bool run_case(threading::CThreadContext& context,
     {
         return false;
     }
-    return operation(context, EModuleAction::load, test_environment::module_filename("package:/bin/MorphicRendering").c_str(), 1, EModuleStatus::success, true,
+    return operation(context, modules::EModuleAction::load, test_environment::module_filename("package:/bin/MorphicRendering").c_str(), 1, modules::EModuleStatus::success, true,
             system_type_ids::rendering_thread_function) &&
-        operation(context, EModuleAction::load, test_environment::module_filename("package:/bin/MorphicRendering").c_str(), 2, EModuleStatus::already_loaded, true) &&
-        operation(context, EModuleAction::replace, test_environment::module_filename("package:/bin/MorphicRendering").c_str(), 3, EModuleStatus::success, true) &&
-        operation(context, EModuleAction::unload, nullptr, 4, EModuleStatus::success, false) &&
-        operation(context, EModuleAction::unload, nullptr, 5, EModuleStatus::not_loaded, false) &&
-        operation(context, EModuleAction::load, test_environment::module_filename("package:/bin/MorphicMissingRendering").c_str(), 6, EModuleStatus::binding_failed, false) &&
-        operation(context, EModuleAction::load, test_environment::module_filename("package:/bin/MorphicRendering").c_str(), 7, EModuleStatus::function_unavailable, false,
+        operation(context, modules::EModuleAction::load, test_environment::module_filename("package:/bin/MorphicRendering").c_str(), 2, modules::EModuleStatus::already_loaded, true) &&
+        operation(context, modules::EModuleAction::replace, test_environment::module_filename("package:/bin/MorphicRendering").c_str(), 3, modules::EModuleStatus::success, true) &&
+        operation(context, modules::EModuleAction::unload, nullptr, 4, modules::EModuleStatus::success, false) &&
+        operation(context, modules::EModuleAction::unload, nullptr, 5, modules::EModuleStatus::not_loaded, false) &&
+        operation(context, modules::EModuleAction::load, test_environment::module_filename("package:/bin/MorphicMissingRendering").c_str(), 6, modules::EModuleStatus::binding_failed, false) &&
+        operation(context, modules::EModuleAction::load, test_environment::module_filename("package:/bin/MorphicRendering").c_str(), 7, modules::EModuleStatus::function_unavailable, false,
             system_type_ids::executive_thread_function) &&
-        operation(context, EModuleAction::load, test_environment::module_filename("package:/bin/MorphicRendering").c_str(), 8, EModuleStatus::success, true) &&
-        operation(context, EModuleAction::replace, test_environment::module_filename("package:/bin/MorphicMissingRendering").c_str(), 9, EModuleStatus::binding_failed, false) &&
+        operation(context, modules::EModuleAction::load, test_environment::module_filename("package:/bin/MorphicRendering").c_str(), 8, modules::EModuleStatus::success, true) &&
+        operation(context, modules::EModuleAction::replace, test_environment::module_filename("package:/bin/MorphicMissingRendering").c_str(), 9, modules::EModuleStatus::binding_failed, false) &&
         self_terminate(context, nullptr);
 }
 
@@ -1011,7 +1011,7 @@ static std::uint32_t MV_STD_ABI_CALL service_entry(void* const data) noexcept
         return false;
     };
     threading::CErasedPodMsg message;
-    RunTestsRequest tests;
+    modules::RunTestsRequest tests;
     if (!read(message) || !message.copy_payload_to(tests) || (tests.module != module_ids::conditioning_general)) return fail();
     const auto correlation = message.query_async_slot();
     //  Hold a separate lifecycle borrow beyond the test completion, then prove
@@ -1029,7 +1029,7 @@ static std::uint32_t MV_STD_ABI_CALL service_entry(void* const data) noexcept
         (message.query_async_slot() != 201) || (acquired.status != EAssetStatus::success) || !acquired.acquisition) return fail();
     message = threading::make_pod_message(202, AssetDisposeRequest{ asset.asset });
     if (!context.post(message)) return fail();
-    message = threading::make_pod_message(correlation, RunTestsResult{ module_ids::conditioning_general, ETestRunStatus::success, 1u, 0u, 0u });
+    message = threading::make_pod_message(correlation, modules::RunTestsResult{ module_ids::conditioning_general, modules::ETestRunStatus::success, 1u, 0u, 0u });
     if (!context.post(message)) return fail();
     std::uint32_t epoch{ 0u };
     while (!context.exit_requested()) epoch = context.wait_for_new_epoch(epoch);
@@ -1090,7 +1090,7 @@ static bool rendering_acquisition_case(threading::CThreadContext& context, const
         return false;
     };
     threading::CErasedPodMsg request, message;
-    RunTestsRequest tests;
+    modules::RunTestsRequest tests;
     if (!read(request) || !request.copy_payload_to(tests)) return false;
     auto owner = CErasedOwner::create<RawAssetTransfer>();
     auto* const transfer = owner.payload<RawAssetTransfer>();
@@ -1109,7 +1109,7 @@ static bool rendering_acquisition_case(threading::CThreadContext& context, const
     if (!context.post(message) || !read(message) || !message.copy_payload_to(acquired) ||
         (acquired.status != EAssetStatus::success) || !acquired.acquisition) return false;
     message.set_async_slot(request.query_async_slot());
-    message.assign_payload(RunTestsResult{ tests.module, ETestRunStatus::success, 1u, 0u, 0u });
+    message.assign_payload(modules::RunTestsResult{ tests.module, modules::ETestRunStatus::success, 1u, 0u, 0u });
     if (!context.post(message)) return false;
     std::uint32_t epoch{ 0u };
     while (!context.exit_requested()) epoch = context.wait_for_new_epoch(epoch);
@@ -1158,11 +1158,11 @@ static bool rendering_test_routing_case(threading::CThreadContext& context, cons
     };
     threading::CErasedPodMsg message;
     auto rejected = [&](const module_ids::id_type module, const std::int32_t slot,
-        const ETestRunStatus status) noexcept
+        const modules::ETestRunStatus status) noexcept
     {
         message.set_async_slot(slot);
-        message.assign_payload(RunTestsRequest{ module });
-        RunTestsResult result;
+        message.assign_payload(modules::RunTestsRequest{ module });
+        modules::RunTestsResult result;
         return context.post(message) && read(message) && message.copy_payload_to(result) &&
             (message.query_async_slot() == slot) && (result.module == module) && (result.status == status) &&
             (result.passed == 0u) && (result.failed == 0u) && (result.skipped == 0u);
@@ -1172,26 +1172,26 @@ static bool rendering_test_routing_case(threading::CThreadContext& context, cons
     //  an executable identity must not select a Host background worker.
     platform::system::CPerfCounter timer;
     (void)timer.update();
-    RunTestsResult result;
+    modules::RunTestsResult result;
     do
     {
         message.set_async_slot(100);
-        message.assign_payload(RunTestsRequest{ module_ids::executable });
+        message.assign_payload(modules::RunTestsRequest{ module_ids::executable });
         if (!context.post(message) || !read(message) || !message.copy_payload_to(result) ||
             (message.query_async_slot() != 100) || (result.module != module_ids::executable)) return false;
-    } while ((result.status == ETestRunStatus::busy) &&
+    } while ((result.status == modules::ETestRunStatus::busy) &&
         (timer.query_delta() < context.perf_count_conversion().query_ticks_per_second() * 10u));
-    if ((result.status != ETestRunStatus::unavailable) ||
-        !rejected({}, 101, ETestRunStatus::invalid_request) ||
-        !rejected(module_ids::executive, -1, ETestRunStatus::invalid_request) ||
-        !rejected(module_ids::conditioning_general, 102, ETestRunStatus::unavailable) ||
-        !rejected(module_ids::rendering, 103, ETestRunStatus::unavailable)) return false;
+    if ((result.status != modules::ETestRunStatus::unavailable) ||
+        !rejected({}, 101, modules::ETestRunStatus::invalid_request) ||
+        !rejected(module_ids::executive, -1, modules::ETestRunStatus::invalid_request) ||
+        !rejected(module_ids::conditioning_general, 102, modules::ETestRunStatus::unavailable) ||
+        !rejected(module_ids::rendering, 103, modules::ETestRunStatus::unavailable)) return false;
 
     message.set_async_slot(INT32_MAX);
-    message.assign_payload(RunTestsRequest{ module_ids::executive });
+    message.assign_payload(modules::RunTestsRequest{ module_ids::executive });
     if (!context.post(message) || !read(message) || !message.copy_payload_to(result) ||
         (message.query_async_slot() != INT32_MAX) || (result.module != module_ids::executive) ||
-        (result.status != ETestRunStatus::success) || (result.passed != 7u) ||
+        (result.status != modules::ETestRunStatus::success) || (result.passed != 7u) ||
         (result.failed != 0u) || (result.skipped != 2u)) return false;
     MV_LOG(info, "Lifecycle tests: Executive destination, correlation and rejection checks passed");
 
@@ -1217,10 +1217,10 @@ static bool rendering_test_routing_case(threading::CThreadContext& context, cons
     if (!context.post(message)) return false;
 
     message.set_async_slot(111);
-    message.assign_payload(RunTestsRequest{ module_ids::executive });
+    message.assign_payload(modules::RunTestsRequest{ module_ids::executive });
     if (!context.post(message) || !read(message, true) || !message.copy_payload_to(result) ||
         (message.query_async_slot() != 111) || (result.module != module_ids::executive) ||
-        (result.status != ETestRunStatus::failed) || (result.passed != (worker_exits ? 0u : 3u)) ||
+        (result.status != modules::ETestRunStatus::failed) || (result.passed != (worker_exits ? 0u : 3u)) ||
         (result.failed != (worker_exits ? 0u : 1u)) || (result.skipped != (worker_exits ? 0u : 2u))) return false;
     MV_LOG(info, "Lifecycle tests: Executive terminal completion passed");
     if ((acquired.byte_view().size() != 16u) || (acquired.byte_view().data()[15] != 0x5a)) return false;
@@ -1258,13 +1258,13 @@ static bool malformed_test_completion(threading::CThreadContext& context) noexce
     while (!context.exit_requested())
     {
         threading::CErasedPodMsg message;
-        RunTestsRequest request;
+        modules::RunTestsRequest request;
         if (context.read(message))
         {
             if (!message.copy_payload_to(request)) return false;
-            RunTestsResult result;
+            modules::RunTestsResult result;
             result.module = request.module;
-            result.status = ETestRunStatus::success;
+            result.status = modules::ETestRunStatus::success;
             result.passed = 1u;
             message.set_async_slot(message.query_async_slot() + 1);
             message.assign_payload(result);

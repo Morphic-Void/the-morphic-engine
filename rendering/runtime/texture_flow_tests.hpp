@@ -13,8 +13,8 @@
 #ifndef RENDERING_TEXTURE_FLOW_TESTS_HPP_INCLUDED
 #define RENDERING_TEXTURE_FLOW_TESTS_HPP_INCLUDED
 
+#include "module/module_messages.hpp"
 #include "runtime/resource_requests.hpp"
-#include "system/service_messages.hpp"
 #include "threading/CThreadPackage.hpp"
 
 namespace rendering
@@ -54,7 +54,7 @@ private:
 
     threading::CThreadContext& m_context;
     const module_ids::id_type m_module;
-    RunTestsResult m_result;
+    modules::RunTestsResult m_result;
     AssetResult m_raw;
     CAssetId m_ldr_texture;
     CAssetId m_hdr_texture;

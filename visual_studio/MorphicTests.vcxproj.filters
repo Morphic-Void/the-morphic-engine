@@ -41,6 +41,8 @@
     <ClCompile Include="..\tests\test_suites\File_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
     <ClCompile Include="..\tests\test_suites\TimedWait_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
     <ClCompile Include="..\tests\test_suites\AsyncState_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
+    <ClCompile Include="..\tests\test_suites\HostRuntime_test_cases.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
+    <ClCompile Include="..\tests\test_suites\HostPump_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
     <ClCompile Include="..\tests\test_suites\HostWorkers_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
     <ClCompile Include="..\tests\test_suites\BundleRequests_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
     <ClCompile Include="..\tests\test_suites\BundleService_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
@@ -52,6 +54,14 @@
     <ClCompile Include="..\rendering\runtime\spirv_reflect_adapter.cpp"><Filter>Rendering services</Filter></ClCompile>
     <ClCompile Include="..\tests\test_suites\TextureBatch_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
     <ClCompile Include="..\host\runtime\host_worker_thread.cpp" />
+    <ClCompile Include="..\host\runtime\client_record.cpp" />
+    <ClCompile Include="..\host\runtime\service_router.cpp" />
+    <ClCompile Include="..\host\runtime\pumped_client.cpp" />
+    <ClCompile Include="..\host\runtime\host.cpp" />
+    <ClCompile Include="..\host\runtime\module_service.cpp" />
+    <ClCompile Include="..\host\system\host_context.cpp" />
+    <ClCompile Include="..\host\runtime\batch_pool.cpp" />
+    <ClCompile Include="..\host\system\system_id_definitions.cpp" />
     <ClCompile Include="..\host\runtime\asset_service.cpp" />
     <ClCompile Include="..\tests\test_suites\BakedDocument_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
     <ClCompile Include="..\tests\test_suites\BakedDocumentTransfer_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
@@ -79,6 +89,7 @@
     <ClCompile Include="..\tests\test_suites\StringBuffers_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
     <ClCompile Include="..\tests\test_suites\SystemTypeIdentity_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
     <ClCompile Include="..\tests\test_suites\TInstance_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
+    <ClCompile Include="..\tests\test_suites\TProcessLifetime_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
     <ClCompile Include="..\tests\test_suites\TMpmcTransport_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
     <ClCompile Include="..\tests\test_suites\TOrderedCollection_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
     <ClCompile Include="..\tests\test_suites\TOrderedSlots_test_harness.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
@@ -106,6 +117,7 @@
     <ClInclude Include="..\tests\support\test_allocator.hpp"><Filter>Tests\support</Filter></ClInclude>
     <ClInclude Include="..\tests\support\test_context.hpp"><Filter>Tests\support</Filter></ClInclude>
     <ClInclude Include="..\tests\support\test_scopes.hpp"><Filter>Tests\support</Filter></ClInclude>
+    <ClInclude Include="..\tests\support\host_client_fixture.hpp"><Filter>Tests\support</Filter></ClInclude>
     <ClInclude Include="..\tests\support\thread_helpers.hpp"><Filter>Tests\support</Filter></ClInclude>
     <ClInclude Include="..\tests\support\slot_harness_helpers.hpp"><Filter>Tests\support</Filter></ClInclude>
     <ClInclude Include="..\tests\support\collection_growth_helpers.hpp"><Filter>Tests\support</Filter></ClInclude>
@@ -116,6 +128,7 @@
     <ClInclude Include="..\tests\test_suites\File_test_suite.hpp"><Filter>Tests\test_suites</Filter></ClInclude>
     <ClInclude Include="..\tests\test_suites\TimedWait_test_suite.hpp"><Filter>Tests\test_suites</Filter></ClInclude>
     <ClInclude Include="..\tests\test_suites\AsyncState_test_suite.hpp"><Filter>Tests\test_suites</Filter></ClInclude>
+    <ClInclude Include="..\tests\test_suites\HostPump_test_suite.hpp"><Filter>Tests\test_suites</Filter></ClInclude>
     <ClInclude Include="..\tests\test_suites\HostWorkers_test_suite.hpp"><Filter>Tests\test_suites</Filter></ClInclude>
     <ClInclude Include="..\tests\test_suites\BundleRequests_test_suite.hpp"><Filter>Tests\test_suites</Filter></ClInclude>
     <ClInclude Include="..\tests\test_suites\BundleService_test_suite.hpp"><Filter>Tests\test_suites</Filter></ClInclude>
@@ -149,6 +162,7 @@
     <ClInclude Include="..\tests\test_suites\StringBuffers_test_suite.hpp"><Filter>Tests\test_suites</Filter></ClInclude>
     <ClInclude Include="..\tests\test_suites\SystemTypeIdentity_test_suite.hpp"><Filter>Tests\test_suites</Filter></ClInclude>
     <ClInclude Include="..\tests\test_suites\TInstance_test_suite.hpp"><Filter>Tests\test_suites</Filter></ClInclude>
+    <ClInclude Include="..\tests\test_suites\TProcessLifetime_test_suite.hpp"><Filter>Tests\test_suites</Filter></ClInclude>
     <ClInclude Include="..\tests\test_suites\TMpmcTransport_test_suite.hpp"><Filter>Tests\test_suites</Filter></ClInclude>
     <ClInclude Include="..\tests\test_suites\TOrderedCollection_test_suite.hpp"><Filter>Tests\test_suites</Filter></ClInclude>
     <ClInclude Include="..\tests\test_suites\TOrderedSlots_test_harness.hpp"><Filter>Tests\test_suites</Filter></ClInclude>

@@ -17,12 +17,15 @@
 #ifndef HOST_HPP_INCLUDED
 #define HOST_HPP_INCLUDED
 
+#include "filesystem/filesystem_messages.hpp"
+#include "module/module_messages.hpp"
 #include <cstddef>      //  std::size_t
 #include <cstdint>      //  std::int32_t, std::uint8_t
 
 #include "runtime/asset_service.hpp"
 #include "runtime/batch_pool.hpp"
 #include "runtime/module_service.hpp"
+#include "runtime/pumped_client.hpp"
 #include "runtime/worker_policy.hpp"
 #include "containers/TInstance.hpp"
 #include "containers/TUnorderedCollection.hpp"
@@ -38,7 +41,7 @@ namespace host
 class CHost final
 {
 public:
-    CHost() noexcept = default;
+    explicit CHost(memory::CMemoryAllocator& allocator) noexcept;
     CHost(const CHost&) = delete;
     CHost& operator=(const CHost&) = delete;
     CHost(CHost&&) = delete;
@@ -48,6 +51,7 @@ public:
     [[nodiscard]] int execute(const char* const log_tag, const char* const executive_file,
         const char* const log_directory, const std::uint32_t worker_count,
         const std::uint32_t batch_runner_count) noexcept;
+    [[nodiscard]] bool retains_state() const noexcept { return m_retain_runtime; }
 
 private:
     enum class EPhase : std::uint8_t
@@ -69,19 +73,28 @@ private:
     [[nodiscard]] bool workers_failed() noexcept;
     [[nodiscard]] bool start_executive() noexcept;
     [[nodiscard]] bool start_module_thread() noexcept;
+    [[nodiscard]] bool register_module_client() noexcept;
+    void start_pending_module() noexcept;
+    void pump_clients() noexcept;
+    void drain_pumped_client(CPumpedClient& pump, SClientRecord& client) noexcept;
+    [[nodiscard]] SClientRecord* client_for(const threading::CThreadPackage& package) noexcept;
+    [[nodiscard]] SClientRecord* module_client(const module_ids::id_type module) noexcept;
     [[nodiscard]] bool stop_module_thread(const mount_point_ids::id_type mount) noexcept;
-    void receive_request(threading::CErasedOwnerMsg& message, threading::CThreadPackage& executive) noexcept;
-    void request_tests(const RunTestsRequest& request, const std::int32_t slot, threading::CThreadPackage& client) noexcept;
-    void complete_tests(const threading::CErasedPodMsg& message, threading::CThreadPackage& worker) noexcept;
-    void finish_tests(const RunTestsResult& result) noexcept;
-    void request_refresh(threading::CErasedOwnerMsg& message, threading::CThreadPackage& executive) noexcept;
+    void receive_request(threading::CErasedOwnerMsg& message, SClientRecord& executive) noexcept;
+    void receive_message(const threading::CErasedPodMsg& message, SClientRecord& client) noexcept;
+    void request_tests(const modules::RunTestsRequest& request, const std::int32_t slot, SClientRecord& client) noexcept;
+    void complete_tests(const threading::CErasedPodMsg& message, SClientRecord& worker) noexcept;
+    void finish_tests(const modules::RunTestsResult& result) noexcept;
+    void request_refresh(threading::CErasedOwnerMsg& message, SClientRecord& executive) noexcept;
     void dispatch_refresh() noexcept;
     void complete_scan(threading::CErasedOwnerMsg& message) noexcept;
-    void reply_refresh(threading::CThreadPackage& client, const std::int32_t slot, const EFilesystemStatus status) noexcept;
+    void reply_refresh(SClientRecord& client, const std::int32_t slot, const filesystem::EFilesystemStatus status) noexcept;
     [[nodiscard]] bool filesystem_idle() const noexcept { return !m_initial_scan && (m_refresh_count == 0u); }
     void advance_lifecycle(const threading::EThreadRunState executive_state) noexcept;
-    void executive_failure(const EModuleStatus status) noexcept;
+    void executive_failure(const modules::EModuleStatus status) noexcept;
     void run() noexcept;
+    void begin_emergency_shutdown() noexcept;
+    void check_shutdown_deadline() noexcept;
     [[nodiscard]] bool shutdown() noexcept;
     void shutdown_threads() noexcept;
     void shutdown_debug_service() noexcept;
@@ -97,15 +110,15 @@ private:
     TUnorderedCollection<threading::CThreadPackage> m_thread_packages;
     CAssetService m_asset_service;
     //  One module test run at a time; both packages remain live until completion.
-    threading::CThreadPackage* m_test_client{ nullptr };
-    threading::CThreadPackage* m_test_worker{ nullptr };
+    SClientRecord* m_test_client{ nullptr };
+    SClientRecord* m_test_worker{ nullptr };
     std::int32_t m_test_slot{ -1 };
     CBatchPool m_batch_pool;
     filesystem_image::CImage m_filesystem;
     struct SRefresh
     {
         CErasedOwner owner;
-        threading::CThreadPackage* client{ nullptr };
+        SClientRecord* client{ nullptr };
         std::int32_t slot{ -1 };
     };
     static constexpr std::size_t k_refresh_capacity = 16u;
@@ -131,6 +144,26 @@ private:
         threading::EThreadRunState observed_state{ threading::EThreadRunState::Empty };
     };
     SModuleThread m_module_threads[module_ids::k_count];
+    TInstance<SClientRecord> m_clients[module_ids::k_count];
+    SServiceProvider m_providers[module_ids::k_count];
+    TInstance<CPumpedClient> m_pumps[module_ids::k_count];
+    CServiceRouter m_service_router;
+    std::uint64_t m_next_client{ 1u };
+    bool m_retain_runtime{ false };
+    bool m_emergency_shutdown{ false };
+    bool m_workers_unavailable{ false };
+    bool m_worker_failure_drained{ false };
+    threading::CWaitDeadline m_shutdown_deadline;
+    bool m_shutdown_timed{ false };
+    bool m_shutdown_reported{ false };
+#if defined(MV_HOST_RUNTIME_TESTS)
+    friend struct SHostRuntimeTestAccess;
+    bool m_test_reject_initial_scan{ false };
+    std::uint32_t m_test_clock_failure{ 0u };
+    void* m_test_state{ nullptr };
+    void (*m_test_after_worker_drain)(CHost&, threading::CThreadPackage&){ nullptr };
+    void (*m_test_after_worker_failure)(CHost&){ nullptr };
+#endif
     std::int32_t m_worker_slots[k_max_worker_count]{ -1, -1 };
     std::uint32_t m_worker_count{ 0u };
     std::uint32_t m_batch_runner_count{ 0u };

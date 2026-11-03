@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
+    <Filter Include="Core\include\services">
+      <UniqueIdentifier>{85459908-f72c-42f9-a1f0-134e9b8f888b}</UniqueIdentifier>
+    </Filter>
     <Filter Include="Core">
       <UniqueIdentifier>{70ea1983-c983-deac-c1b6-1805aea3d436}</UniqueIdentifier>
     </Filter>
@@ -256,6 +259,9 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\containers\TInstance.hpp">
       <Filter>Core\include\containers</Filter>
     </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\containers\TProcessLifetime.hpp">
+      <Filter>Core\include\containers</Filter>
+    </ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\containers\TOrderedCollection.hpp">
       <Filter>Core\include\containers</Filter>
     </ClInclude>
@@ -340,6 +346,16 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\module\module_binding_context.hpp">
       <Filter>Core\include\module</Filter>
     </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\module\host_pump.hpp"><Filter>Core\include\module</Filter></ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\module\module_identity.hpp"><Filter>Core\include\module</Filter></ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\module\service_provider.hpp"><Filter>Core\include\module</Filter></ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\module\module_messages.hpp"><Filter>Core\include\module</Filter></ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\module\module_owner_payloads.def"><Filter>Core\include\module</Filter></ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\services\service_protocol.hpp"><Filter>Core\include\services</Filter></ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\filesystem\filesystem_messages.hpp"><Filter>Core\include\filesystem</Filter></ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\filesystem\filesystem_owner_payloads.def"><Filter>Core\include\filesystem</Filter></ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\threading\messages\message_errors.hpp"><Filter>Core\include\threading\messages</Filter></ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\system\storage_type_bindings.hpp"><Filter>Core\include\system</Filter></ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\module\module_binding.hpp">
       <Filter>Core\include\module</Filter>
     </ClInclude>
@@ -484,8 +500,6 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\assets\asset_messages.hpp"><Filter>Core\include\assets</Filter></ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\assets\asset_storage.hpp"><Filter>Core\include\assets</Filter></ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\assets\asset_owner_payloads.def"><Filter>Core\include\assets</Filter></ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\system\service_messages.hpp"><Filter>Core\include\system</Filter></ClInclude>
-    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\system\service_owner_payloads.def"><Filter>Core\include\system</Filter></ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\image\image_messages.hpp"><Filter>Core\include\image</Filter></ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\image\image_owner_payloads.def"><Filter>Core\include\image</Filter></ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\system\transported_types.hpp">

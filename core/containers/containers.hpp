@@ -25,6 +25,7 @@
 #include "containers/ByteBuffers.hpp"
 #include "containers/StringBuffers.hpp"
 #include "containers/TInstance.hpp"
+#include "containers/TProcessLifetime.hpp"
 #include "containers/TPodFifo.hpp"
 #include "containers/TPodVector.hpp"
 #include "containers/TPodOrderedSlots.hpp"

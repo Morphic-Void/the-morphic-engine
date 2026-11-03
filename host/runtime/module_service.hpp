@@ -13,11 +13,12 @@
 #ifndef HOST_MODULE_SERVICE_HPP_INCLUDED
 #define HOST_MODULE_SERVICE_HPP_INCLUDED
 
+#include "system/storage_type_bindings.hpp"
+#include "module/module_messages.hpp"
 #include "containers/TInstance.hpp"
 #include "filesystem/filesystem_image.hpp"
 #include "module/bound_module.hpp"
-#include "system/service_messages.hpp"
-#include "threading/CThreadPackage.hpp"
+#include "runtime/client_record.hpp"
 
 namespace host
 {
@@ -35,10 +36,12 @@ struct SModuleWork
     memory::CMemoryContext* memory_context{ nullptr };
     const system_id_registry::SSystemRegistryView* registry{ nullptr };
     debug_system::CDebugServiceState* debug_service{ nullptr };
-    const ModuleRequest* request{ nullptr };
+    const modules::ModuleRequest* request{ nullptr };
     const char* physical_file{ nullptr };
     modules::FModuleFunction function{ nullptr };
     modules::SServiceThread service_thread;
+    modules::SHostPumpV1 host_pump;
+    modules::SServiceProviderV1 service_provider;
     bool cleanup_only{ false };
 };
 
@@ -50,20 +53,28 @@ struct SModuleWork
 class CModuleService
 {
 public:
+    explicit CModuleService(memory::CMemoryAllocator& allocator) noexcept;
     enum class EPurpose : std::uint8_t { client = 0, bootstrap, executive_change, shutdown };
     void set_filesystem(filesystem_image::CImage& image) noexcept { m_filesystem = &image; }
 
     void request(
         CErasedOwner&& owner, const std::int32_t slot,
-        threading::CThreadPackage* const client, const EPurpose purpose) noexcept;
+        SClientRecord* const client, const EPurpose purpose) noexcept;
     void dispatch(
         threading::CThreadPackage& worker,
         debug_system::CDebugServiceState* const debug_service) noexcept;
     void complete(const threading::CErasedPodMsg& message) noexcept;
     void complete_thread_start(const bool started) noexcept;
+    void fail_retained(const modules::EModuleStatus status) noexcept { finish(status); }
+    [[nodiscard]] EPurpose pending_purpose() const noexcept { return m_purpose; }
+    [[nodiscard]] modules::EModuleAction pending_action() const noexcept
+    {
+        return (m_work.request != nullptr) ? m_work.request->action : modules::EModuleAction::unload;
+    }
     void thread_stopped(const mount_point_ids::id_type mount) noexcept;
-    [[nodiscard]] bool take_internal_result(ModuleResult& result, EPurpose& purpose) noexcept;
+    [[nodiscard]] bool take_internal_result(modules::ModuleResult& result, EPurpose& purpose) noexcept;
     [[nodiscard]] bool request_shutdown() noexcept;
+    [[nodiscard]] bool shutdown_enumerated() const noexcept { return m_shutdown_index == module_ids::k_count; }
     void cancel_pending() noexcept;
     [[nodiscard]] bool release_records() noexcept;
 
@@ -72,6 +83,8 @@ public:
     [[nodiscard]] bool needs_thread_start() const noexcept { return m_start_pending; }
     [[nodiscard]] modules::CBoundModule* pending_binding() noexcept { return m_work.next; }
     [[nodiscard]] const modules::SServiceThread& pending_service_thread() const noexcept { return m_work.service_thread; }
+    [[nodiscard]] const modules::SHostPumpV1& pending_host_pump() const noexcept { return m_work.host_pump; }
+    [[nodiscard]] const modules::SServiceProviderV1& pending_service_provider() const noexcept { return m_work.service_provider; }
     [[nodiscard]] bool releases_binding() const noexcept { return m_work.previous != nullptr; }
     [[nodiscard]] bool failed() const noexcept { return m_failed; }
     [[nodiscard]] mount_point_ids::id_type pending_mount_point() const noexcept;
@@ -81,7 +94,7 @@ public:
 private:
     struct SModuleRecord
     {
-        explicit SModuleRecord(const module_ids::id_type identity) noexcept;
+        SModuleRecord(memory::CMemoryAllocator& allocator, const module_ids::id_type identity) noexcept;
 
         memory::CMemoryContext memory_context;
         modules::CBoundModule binding;
@@ -89,13 +102,15 @@ private:
         module_ids::id_type identity{};
         bool thread_started{ false };
         bool has_service_thread{ false };
+        bool has_host_pump{ false };
     };
 
     [[nodiscard]] SModuleRecord* find(const mount_point_ids::id_type mount) noexcept;
-    void finish(const EModuleStatus status) noexcept;
-    void reply(threading::CThreadPackage& client, const std::int32_t slot, const ModuleResult& result) noexcept;
+    void finish(const modules::EModuleStatus status) noexcept;
+    void reply(SClientRecord& client, const std::int32_t slot, const modules::ModuleResult& result) noexcept;
 
     //  Records survive replacement; their contexts stay at fixed addresses.
+    memory::CMemoryAllocator& m_allocator;
     TInstance<SModuleRecord> m_records[module_ids::k_count];
 
     //  A single request owns the filename and backs the worker's borrowed job.
@@ -103,13 +118,13 @@ private:
     filesystem_image::CImage* m_filesystem{ nullptr };
     CSimpleString m_physical_file;
     SModuleWork m_work;
-    threading::CThreadPackage* m_client{ nullptr };
+    SClientRecord* m_client{ nullptr };
     std::int32_t m_client_slot{ -1 };
     std::int32_t m_worker_slot{ 0 };
     EPurpose m_purpose{ EPurpose::client };
 
     //  Internal completions are consumed by the Host lifecycle state machine.
-    ModuleResult m_internal_result;
+    modules::ModuleResult m_internal_result;
     bool m_internal_result_ready{ false };
     bool m_pending{ false };
     bool m_in_flight{ false };

@@ -8,6 +8,8 @@
 //
 //  Transactional request preparation, independent of posting and retry policy.
 
+#include "filesystem/filesystem_messages.hpp"
+#include "module/module_messages.hpp"
 #include "runtime/request_preparation.hpp"
 #include "debug/macros.hpp"
 
@@ -65,12 +67,12 @@ bool prepare_save_request(threading::CErasedOwnerMsg& pending, const std::int32_
 }
 
 bool prepare_module_request(threading::CErasedOwnerMsg& pending, const std::int32_t slot,
-    const module_ids::id_type module, const EModuleAction action, const char* const file,
+    const module_ids::id_type module, const modules::EModuleAction action, const char* const file,
     const bool require_service_thread) noexcept
 {
     if (!can_prepare_request(pending, slot)) return false;
-    auto candidate = threading::make_owner_message<ModuleRequest>(slot);
-    auto* const request = candidate.owner().payload<ModuleRequest>();
+    auto candidate = threading::make_owner_message<modules::ModuleRequest>(slot);
+    auto* const request = candidate.owner().payload<modules::ModuleRequest>();
     if ((request == nullptr) || ((file != nullptr) && !request->file.set(file)))
     {
         MV_LOG_RICH(error, "Executive: module request preparation failed at slot %d for %s",
@@ -88,8 +90,8 @@ bool prepare_filesystem_request(threading::CErasedOwnerMsg& pending, const std::
     const char* const root) noexcept
 {
     if (!can_prepare_request(pending, slot)) return false;
-    auto candidate = threading::make_owner_message<FilesystemRefreshRequest>(slot);
-    auto* const request = candidate.owner().payload<FilesystemRefreshRequest>();
+    auto candidate = threading::make_owner_message<filesystem::FilesystemRefreshRequest>(slot);
+    auto* const request = candidate.owner().payload<filesystem::FilesystemRefreshRequest>();
     if ((request == nullptr) || !request->root.set(root))
     {
         MV_LOG_RICH(error, "Executive: filesystem request preparation failed at slot %d for %s",

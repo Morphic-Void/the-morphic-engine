@@ -8,6 +8,7 @@
 //
 //  Hardware-free signal, allocation, budget and real service-thread exercises.
 
+#include "module/module_messages.hpp"
 #include <array>
 #include <chrono>
 #include <cmath>
@@ -28,7 +29,7 @@ namespace audio
 struct SMiniaudioTestAccess
 {
     //  Exercise native API and mutex ownership with a device-free test backend.
-    static ETestRunStatus cleanup_guard(CMiniaudioOutput& output) noexcept { return output.open(true); }
+    static modules::ETestRunStatus cleanup_guard(CMiniaudioOutput& output) noexcept { return output.open(true); }
     static bool mutex_failure(CMiniaudioOutput& output, const unsigned failure) noexcept
     {
         SContextProbe probe;
@@ -36,7 +37,7 @@ struct SMiniaudioTestAccess
         const auto result = output.open(true, &probe);
         const bool closed = output.close() && output.close();
         const unsigned acquired = failure == 1u ? 0u : (failure == 2u ? 1u : 2u);
-        return result == ETestRunStatus::failed && closed &&
+        return result == modules::ETestRunStatus::failed && closed &&
             probe.mutex_attempts == (failure == 1u ? 1u : 2u) &&
             probe.mutex_acquisitions == acquired && probe.mutex_releases == acquired &&
             probe.api_attempts == 1u && probe.api_releases == 1u &&
@@ -144,7 +145,7 @@ void allocator_tests(TTestContext& ctx)
     audio::CMiniaudioOutput output{ memory };
     for (unsigned i = 0u; i < 3u; ++i)
     {
-        TEST_EXPECT(ctx, audio::SMiniaudioTestAccess::cleanup_guard(output) == ETestRunStatus::failed);
+        TEST_EXPECT(ctx, audio::SMiniaudioTestAccess::cleanup_guard(output) == modules::ETestRunStatus::failed);
         TEST_EXPECT(ctx, output.close());
         TEST_EXPECT(ctx, memory.is_attribution_empty());
     }
@@ -154,18 +155,18 @@ void allocator_tests(TTestContext& ctx)
         TEST_EXPECT(ctx, memory.is_attribution_empty());
     }
     fixture.reject_allocation = true;
-    TEST_EXPECT(ctx, audio::SMiniaudioTestAccess::cleanup_guard(output) == ETestRunStatus::failed);
+    TEST_EXPECT(ctx, audio::SMiniaudioTestAccess::cleanup_guard(output) == modules::ETestRunStatus::failed);
     TEST_EXPECT(ctx, output.close() && memory.is_attribution_empty());
 }
 
 struct FakeOutput : audio::IAudioOutput
 {
-    ETestRunStatus opening{ ETestRunStatus::success };
+    modules::ETestRunStatus opening{ modules::ETestRunStatus::success };
     bool start_ok{ true }, close_ok{ true };
     std::atomic<unsigned> opens{ 0u }, starts{ 0u }, closes{ 0u };
     std::atomic<std::uint32_t> frames{ 0u }, complete{ 0u }, interrupted{ 0u };
     bool reject_delivery{ false };
-    ETestRunStatus open() noexcept override { ++opens; frames = 0u; complete = 0u; interrupted = 0u; return opening; }
+    modules::ETestRunStatus open() noexcept override { ++opens; frames = 0u; complete = 0u; interrupted = 0u; return opening; }
     bool start() noexcept override { ++starts; return start_ok; }
     bool close() noexcept override { ++closes; return close_ok; }
     audio::SProgress observe() const noexcept override { return { frames.load(), complete.load() != 0u, interrupted.load() != 0u }; }
@@ -202,7 +203,7 @@ struct FakeClock
 
 void run_tests(TTestContext& ctx)
 {
-    for (const auto failure : { ETestRunStatus::unavailable, ETestRunStatus::failed })
+    for (const auto failure : { modules::ETestRunStatus::unavailable, modules::ETestRunStatus::failed })
     {
         FakeOutput output; output.opening = failure;
         FakeClock clock;
@@ -226,7 +227,7 @@ void run_tests(TTestContext& ctx)
         if (scenario == 7u) run.wait_failed({ EWaitStatus::control_released, ~0u, 0u });
         if (scenario == 8u) run.wait_failed({ EWaitStatus::unsupported, 0u, 0u });
         if (scenario == 9u) run.wait_failed({ EWaitStatus::invalid_argument, 0u, 0u });
-        TEST_EXPECT(ctx, !run.active() && run.result() == ETestRunStatus::failed && output.closes == 1u);
+        TEST_EXPECT(ctx, !run.active() && run.result() == modules::ETestRunStatus::failed && output.closes == 1u);
     }
     {
         FakeOutput output; FakeClock clock;
@@ -240,23 +241,23 @@ void run_tests(TTestContext& ctx)
         clock.awake_ms = 3998u; run.check();
         TEST_EXPECT(ctx, run.active());
         clock.awake_ms = 3999u; run.check();
-        TEST_EXPECT(ctx, !run.active() && run.result() == ETestRunStatus::failed);
+        TEST_EXPECT(ctx, !run.active() && run.result() == modules::ETestRunStatus::failed);
     }
     {
         FakeOutput output; FakeClock clock;
         audio::CAudioRun run{ output, clock.clock() };
         run.begin();
         for (unsigned i = 1u; i <= 15u; ++i) { clock.awake_ms = i * 1000u; output.frames = i; run.check(); }
-        TEST_EXPECT(ctx, !run.active() && run.result() == ETestRunStatus::failed && clock.entries[0].sets == 1u);
+        TEST_EXPECT(ctx, !run.active() && run.result() == modules::ETestRunStatus::failed && clock.entries[0].sets == 1u);
     }
     {
         FakeOutput output; FakeClock clock;
         audio::CAudioRun run{ output, clock.clock() };
         run.begin(); clock.awake_ms = 2000u; clock.complete_on_query = &output; run.check();
-        TEST_EXPECT(ctx, !run.active() && run.result() == ETestRunStatus::success);
+        TEST_EXPECT(ctx, !run.active() && run.result() == modules::ETestRunStatus::success);
         clock.complete_on_query = nullptr;
         run.begin(); run.cancel(); run.cancel();
-        TEST_EXPECT(ctx, run.result() == ETestRunStatus::cancelled && output.closes == 2u && output.opens == 2u);
+        TEST_EXPECT(ctx, run.result() == modules::ETestRunStatus::cancelled && output.closes == 2u && output.opens == 2u);
     }
 }
 
@@ -290,29 +291,29 @@ void service_tests(TTestContext& ctx)
     TEST_EXPECT(ctx, await([&] { return package.query_state() == threading::EThreadRunState::Waiting; }));
     TEST_EXPECT(ctx, output.opens == 0u);
     auto post = [&](int slot, module_ids::id_type module = module_ids::audio) {
-        TEST_EXPECT(ctx, package.post(threading::make_pod_message(slot, RunTestsRequest{ module })));
+        TEST_EXPECT(ctx, package.post(threading::make_pod_message(slot, modules::RunTestsRequest{ module })));
     };
-    auto receive = [&](int slot, ETestRunStatus status, unsigned passed, unsigned failed, unsigned skipped) {
+    auto receive = [&](int slot, modules::ETestRunStatus status, unsigned passed, unsigned failed, unsigned skipped) {
         threading::CErasedPodMsg message;
         const bool got = await([&] { return package.read(message); });
         TEST_EXPECT(ctx, got);
-        RunTestsResult result;
+        modules::RunTestsResult result;
         TEST_EXPECT(ctx, got && message.copy_payload_to(result) && message.query_async_slot() == slot && result.module == module_ids::audio &&
             result.status == status && result.passed == passed && result.failed == failed && result.skipped == skipped);
     };
-    post(7, module_ids::rendering); receive(7, ETestRunStatus::invalid_request, 0, 0, 0);
-    post(threading::k_uncorrelated_slot); receive(threading::k_uncorrelated_slot, ETestRunStatus::invalid_request, 0, 0, 0);
-    post(-2); receive(-2, ETestRunStatus::invalid_request, 0, 0, 0);
+    post(7, module_ids::rendering); receive(7, modules::ETestRunStatus::invalid_request, 0, 0, 0);
+    post(threading::k_uncorrelated_slot); receive(threading::k_uncorrelated_slot, modules::ETestRunStatus::invalid_request, 0, 0, 0);
+    post(-2); receive(-2, modules::ETestRunStatus::invalid_request, 0, 0, 0);
     post(8);
     TEST_EXPECT(ctx, await([&] { return output.starts == 1u; }));
-    post(9); receive(9, ETestRunStatus::busy, 0, 0, 0);
+    post(9); receive(9, modules::ETestRunStatus::busy, 0, 0, 0);
     output.complete = 1u;
-    receive(8, ETestRunStatus::success, 1, 0, 0);
+    receive(8, modules::ETestRunStatus::success, 1, 0, 0);
     TEST_EXPECT(ctx, output.closes == 1u);
     post(10);
     TEST_EXPECT(ctx, await([&] { return output.starts == 2u; }));
     package.request_exit();
-    receive(10, ETestRunStatus::cancelled, 0, 0, 1);
+    receive(10, modules::ETestRunStatus::cancelled, 0, 0, 1);
     TEST_EXPECT(ctx, await([&] { return package.query_state() == threading::EThreadRunState::Exited; }));
     TEST_EXPECT(ctx, package.shutdown() && output.closes == 2u);
 
@@ -321,7 +322,7 @@ void service_tests(TTestContext& ctx)
     config.prepare_context = &rejected;
     threading::CThreadPackage broken{ config, conversion };
     TEST_EXPECT(ctx, broken.startup());
-    TEST_EXPECT(ctx, broken.post(threading::make_pod_message(11, RunTestsRequest{ module_ids::audio })));
+    TEST_EXPECT(ctx, broken.post(threading::make_pod_message(11, modules::RunTestsRequest{ module_ids::audio })));
     TEST_EXPECT(ctx, await([&] { return rejected.starts == 1u; }));
     rejected.complete = 1u;
     TEST_EXPECT(ctx, await([&] { return broken.query_state() == threading::EThreadRunState::Failed; }));

@@ -13,9 +13,9 @@
 #ifndef EXECUTIVE_REQUEST_PREPARATION_HPP_INCLUDED
 #define EXECUTIVE_REQUEST_PREPARATION_HPP_INCLUDED
 
+#include "module/module_messages.hpp"
 #include "assets/asset_messages.hpp"
 #include "debug/macros.hpp"
-#include "system/service_messages.hpp"
 #include "threading/messages/message_helpers.hpp"
 
 namespace executive::request_preparation
@@ -32,7 +32,7 @@ namespace executive::request_preparation
     const CAssetId asset, const char* file, const AssetSaveSettings& settings) noexcept;
 
 [[nodiscard]] bool prepare_module_request(threading::CErasedOwnerMsg& pending, const std::int32_t slot,
-    const module_ids::id_type module, const EModuleAction action, const char* file = nullptr,
+    const module_ids::id_type module, const modules::EModuleAction action, const char* file = nullptr,
     const bool require_service_thread = false) noexcept;
 
 [[nodiscard]] bool prepare_filesystem_request(threading::CErasedOwnerMsg& pending, const std::int32_t slot,

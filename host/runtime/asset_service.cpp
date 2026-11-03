@@ -40,7 +40,7 @@ static bool absolute_native_file(const CStringView path) noexcept
 #endif
 }
 
-static bool bundle_recipient_available(const threading::CThreadPackage& recipient) noexcept
+static bool bundle_recipient_available(const SClientRecord& recipient) noexcept
 {
     const auto state = recipient.query_state();
     return (state != threading::EThreadRunState::Exited) && (state != threading::EThreadRunState::Failed) &&
@@ -78,7 +78,7 @@ EAssetStatus CAssetService::reserve_bundle(const CStringView root, std::uint64_t
     return m_filesystem->reserve_bundle(root.cstring(), binding) ? EAssetStatus::success : EAssetStatus::allocation_failed;
 }
 
-void CAssetService::request_reference(const BundleReferenceRequest& request, const std::int32_t slot, threading::CThreadPackage& client) noexcept
+void CAssetService::request_reference(const BundleReferenceRequest& request, const std::int32_t slot, SClientRecord& client) noexcept
 {
     reply(client, slot, acquire_bundle(request.source));
 }
@@ -101,7 +101,7 @@ bool CAssetService::work_idle() const noexcept
     return true;
 }
 
-void CAssetService::request_acquire(const AssetAcquireRequest& request, const std::int32_t slot, threading::CThreadPackage& client) noexcept
+void CAssetService::request_acquire(const AssetAcquireRequest& request, const std::int32_t slot, SClientRecord& client) noexcept
 {
     AssetAcquireResult result;
     if ((slot < 0) || ((request.view != EAssetAcquireView::bytes) && (request.view != EAssetAcquireView::bundle)))
@@ -142,7 +142,12 @@ void CAssetService::request_acquire(const AssetAcquireRequest& request, const st
     result.view = request.view;
     result.views = bytes ? AssetAcquiredViews{ described.byte_view() } : AssetAcquiredViews{ described.bundle_view() };
     result.status = EAssetStatus::success;
-    if (!client.post(threading::make_pod_message(slot, result)))
+    if (client.terminal())
+    {
+        (void)m_acquisitions.erase(record_slot);
+        (void)client.reply(threading::make_pod_message(slot, AssetAcquireResult{}));
+    }
+    else if (!client.reply(threading::make_pod_message(slot, result)))
     {
         //  The client never received the token, so it cannot release it.
         (void)m_acquisitions.erase(record_slot);
@@ -151,8 +156,7 @@ void CAssetService::request_acquire(const AssetAcquireRequest& request, const st
     }
 }
 
-void CAssetService::request_release(const AssetReleaseRequest& request, const std::int32_t slot,
-    threading::CThreadPackage& client) noexcept
+void CAssetService::request_release(const AssetReleaseRequest& request, const std::int32_t slot, SClientRecord& client) noexcept
 {
     AssetReleaseResult result{ request.acquisition, EAssetStatus::invalid_request };
     if (request.acquisition)
@@ -168,10 +172,14 @@ void CAssetService::request_release(const AssetReleaseRequest& request, const st
             }
         }
     }
-    reply(client, slot, result);
+    if (!client.reply_control(threading::make_pod_message(slot, result)))
+    {
+        m_failed = true;
+        MV_CRITICAL_EVENT("Host: Asset release reply delivery failed");
+    }
 }
 
-void CAssetService::release_client_acquisitions(threading::CThreadPackage& client) noexcept
+void CAssetService::release_client_acquisitions(SClientRecord& client) noexcept
 {
     const auto state = client.query_state();
     if ((state != threading::EThreadRunState::Exited) && (state != threading::EThreadRunState::Failed) &&
@@ -187,9 +195,18 @@ void CAssetService::release_client_acquisitions(threading::CThreadPackage& clien
         if (m_acquisitions.get_object(slot)->client == &client) (void)m_acquisitions.erase(slot);
         slot = next;
     }
+    for (std::int32_t slot = m_bundles.first_live(); slot >= 0; slot = m_bundles.next_live(slot))
+    {
+        auto& bundle = *m_bundles.get_object(slot);
+        if ((bundle.owner == &client) && bundle.disposal_reply_reserved)
+        {
+            client.cancel_reservation(1u);
+            bundle.disposal_reply_reserved = false;
+        }
+    }
 }
 
-bool CAssetService::client_idle(const threading::CThreadPackage& client) const noexcept
+bool CAssetService::client_idle(const SClientRecord& client) const noexcept
 {
     for (std::int32_t slot = m_operations.first_live(); slot >= 0; slot = m_operations.next_live(slot))
     {
@@ -232,7 +249,7 @@ AssetResult CAssetService::retain_bundle_view(SBundleControl& control, const EAs
     return result;
 }
 
-AssetResult CAssetService::publish_bundle(BundlePreparation& prepared, const std::uint64_t binding, threading::CThreadPackage& owner) noexcept
+AssetResult CAssetService::publish_bundle(BundlePreparation& prepared, const std::uint64_t binding, SClientRecord& owner) noexcept
 {
     AssetResult result;
     if ((m_filesystem == nullptr) || (binding == 0u)) return result;
@@ -359,7 +376,7 @@ bool CAssetService::protect_asset(const CAssetRecord& record, CAssetBackingLease
     return lease.acquire(*state, EAssetBackingRole::operation);
 }
 
-void CAssetService::detach_client(threading::CThreadPackage& client) noexcept
+void CAssetService::detach_client(SClientRecord& client) noexcept
 {
     release_client_acquisitions(client);
     for (std::int32_t slot = m_bundles.first_live(); slot >= 0; slot = m_bundles.next_live(slot))
@@ -395,14 +412,15 @@ void CAssetService::finalise_bundles() noexcept
                 return;
             }
             const BundleDisposedNotification result{ control.original };
-            threading::CThreadPackage* const recipient = control.owner;
+            SClientRecord* const recipient = control.owner;
+            const bool reserved = control.disposal_reply_reserved;
             (void)m_bundles.erase(slot); //  Storage and the root are gone before delivery.
-            if ((recipient != nullptr) && bundle_recipient_available(*recipient))
+            if ((recipient != nullptr) && (reserved || bundle_recipient_available(*recipient)))
             {
                 const auto message = threading::make_pod_message(threading::k_uncorrelated_slot, result);
 
                 //  The recipient may exit between the state check and posting.
-                if (!recipient->post(message) && bundle_recipient_available(*recipient))
+                if (!(reserved ? recipient->reply(message) : recipient->post(message)) && bundle_recipient_available(*recipient))
                 {
                     m_failed = true;
                     MV_CRITICAL_EVENT("Host: Bundle final disposal notification delivery failed");
@@ -489,10 +507,10 @@ void CAssetService::describe_views(TOwner& source, AssetResult& result) noexcept
 }
 
 template<typename TResult>
-void CAssetService::reply(threading::CThreadPackage& client, const std::int32_t slot, const TResult& result) noexcept
+void CAssetService::reply(SClientRecord& client, const std::int32_t slot, const TResult& result) noexcept
 {
     const auto message = threading::make_pod_message(slot, result);
-    if (!client.post(message))
+    if (!client.reply(message))
     {   //  A broken completion transport is terminal, never a silent success.
         m_failed = true;
         MV_CRITICAL_EVENT("Host: Asset completion delivery failed for slot {}", slot);
@@ -598,7 +616,7 @@ bool CAssetService::asset_in_use(const CAssetId asset) const noexcept
     return false;
 }
 
-void CAssetService::request_disposal(const AssetDisposeRequest& request, const std::int32_t slot, threading::CThreadPackage& client) noexcept
+void CAssetService::request_disposal(const AssetDisposeRequest& request, const std::int32_t slot, SClientRecord& client) noexcept
 {
     MV_DETAIL("Host asset disposal request at client slot {}", slot);
     if ((m_assets.resolve(request.asset) == nullptr) || disposal_pending(request.asset))
@@ -616,6 +634,7 @@ void CAssetService::request_disposal(const AssetDisposeRequest& request, const s
             reply(client, slot, AssetDisposeResult{ request.asset, EAssetStatus::invalid_request });
             return;
         }
+        control->disposal_reply_reserved = client.reserved_replies != 0u;
         close_bundle(*control);
         return; //  Only final disposal is notified; no correlated success.
     }
@@ -764,7 +783,7 @@ bool CAssetService::handle_transfer_if_type_matches(SOperation& operation) noexc
     return true;
 }
 
-void CAssetService::request(threading::CErasedOwnerMsg& message, threading::CThreadPackage& client) noexcept
+void CAssetService::request(threading::CErasedOwnerMsg& message, SClientRecord& client) noexcept
 {
     const std::int32_t slot = m_operations.emplace();
     if (slot < 0)

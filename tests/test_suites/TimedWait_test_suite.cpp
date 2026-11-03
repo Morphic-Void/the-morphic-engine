@@ -6,6 +6,7 @@
 //  Authors: Ritchie Brannan / OpenAI Codex
 //  Date:    31 Oct 26
 
+#include "threading/messages/message_errors.hpp"
 #include <atomic>
 #include <chrono>
 #include <limits>
@@ -15,7 +16,6 @@
 #include "platform/threading/wait_deadline_math.hpp"
 #include "platform/threading/wait_word.hpp"
 #include "platform/threading/wait_word_internal.hpp"
-#include "system/service_messages.hpp"
 #include "threading/CThreadPackage.hpp"
 #include "tests/support/test_context.hpp"
 #include "tests/test_suites/TimedWait_test_suite.hpp"
@@ -304,7 +304,7 @@ std::uint32_t MV_STD_ABI_CALL timed_service(void* data) noexcept
     probe.stage.store(1u, std::memory_order_release);
     probe.message = context.wait_for_new_epoch(0u, limit);
     threading::CErasedPodMsg message;
-    probe.received = context.read(message) && message.is_payload_a<UnrecognisedMsg>();
+    probe.received = context.read(message) && message.is_payload_a<threading::UnrecognisedMsg>();
     const auto epoch = probe.message.observed;
     probe.stage.store(2u, std::memory_order_release);
     probe.exit = context.wait_for_new_epoch(epoch, limit);
@@ -327,7 +327,7 @@ void test_service_message_and_exit(TTestContext& ctx)
     TEST_EXPECT(ctx, await([&] { return probe.stage.load(std::memory_order_acquire) >= 1u &&
         package.query_state() == threading::EThreadRunState::Waiting; }));
     threading::CErasedPodMsg message;
-    message.assign_payload(UnrecognisedMsg{});
+    message.assign_payload(threading::UnrecognisedMsg{});
     TEST_EXPECT(ctx, package.post(message));
     TEST_EXPECT(ctx, await([&] { return probe.stage.load(std::memory_order_acquire) >= 2u &&
         package.query_state() == threading::EThreadRunState::Waiting; }));

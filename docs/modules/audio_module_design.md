@@ -44,7 +44,7 @@ implementation has not started.
 | --- | --- | --- |
 | Module binding | [module_binding.hpp](../../core/module/module_binding.hpp), [module_binding_context.cpp](../../core/module/module_binding_context.cpp) | Reuse bootstrap v3 and the optional `morphic_module_service_thread_v1` export. |
 | Working service | [rendering_binding.cpp](../../rendering/module/binding/rendering_binding.cpp), [rendering_thread.cpp](../../rendering/runtime/rendering_thread.cpp) | Follow binding, thread preparation, readiness, message handling and terminal-state conventions; do not copy texture/shader machinery. |
-| Generic tests | [service_messages.hpp](../../core/system/service_messages.hpp), `RunTestsRequest` / `RunTestsResult` | Already express a module destination, correlation, status and counts. No new Audio-specific message types are needed. |
+| Generic tests | [module_messages.hpp](../../core/module/module_messages.hpp), `modules::RunTestsRequest` / `modules::RunTestsResult` | Already express a module destination, correlation, status and counts. No new Audio-specific message types are needed. |
 | Host routing | [host.cpp](../../host/runtime/host.cpp), `request_tests`, `complete_tests` | Routes to any registered module service thread. One run is active globally; caller and worker are retained until completion. |
 | Unload | [module_service.cpp](../../host/runtime/module_service.cpp), `CHost::stop_module_thread` | Stop/join the service before dependency disposal and worker-side unbinding. Audio must stop all vendor callbacks before publishing terminal state. |
 | Executive | [executive_thread.cpp](../../executive/runtime/executive_thread.cpp) | Extend the existing test flow to load Audio as it loads Rendering and run both modules' generic tests sequentially. |

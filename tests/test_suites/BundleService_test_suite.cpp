@@ -15,6 +15,7 @@
 #include "assets/internal/bundle_builder_io.hpp"
 #include "data_model/document_translation.hpp"
 #include "host/runtime/asset_service.hpp"
+#include "tests/support/host_client_fixture.hpp"
 #include "tests/support/test_allocator.hpp"
 #include "tests/support/test_context.hpp"
 #include "tests/support/thread_helpers.hpp"
@@ -60,7 +61,7 @@ bool make_bundle(CBakedDocumentBlock& block)
 struct SFixture
 {
     platform::system::CPerfCountConversion conversion;
-    threading::CThreadPackage package{ threading::ThreadConfig{ thread_ids::rendering, module_ids::executable,
+    tests::CHostClientFixture package{ threading::ThreadConfig{ thread_ids::rendering, module_ids::executable,
         platform::threading::EThreadPriority::Normal, &tests::echo_pod_messages }, conversion };
     filesystem_image::CImage image;
     CAssetService service;
@@ -80,7 +81,7 @@ struct SFixture
             image.adopt(std::move(document)) && conversion.init() && service.initialise() &&
             service.configure_workers(package, nullptr) && package.startup();
     }
-    AssetResult publish(TTestContext& ctx, threading::CThreadPackage* owner = nullptr)
+    AssetResult publish(TTestContext& ctx, tests::CHostClientFixture* owner = nullptr)
     {
         BundlePreparation prepared;
         TEST_EXPECT(ctx, make_bundle(prepared.block));
@@ -99,7 +100,7 @@ struct SFixture
         TEST_EXPECT(ctx, image.resolve(path, false, result));
         return result;
     }
-    template<typename T> bool receive(T& result, std::int32_t expected_slot, threading::CThreadPackage* recipient = nullptr)
+    template<typename T> bool receive(T& result, std::int32_t expected_slot, tests::CHostClientFixture* recipient = nullptr)
     {
         threading::CErasedPodMsg message;
         const bool received = tests::wait_until(conversion, [this, recipient, &message]() noexcept
@@ -179,7 +180,7 @@ AssetAcquireResult acquire(TTestContext& ctx, SFixture& fixture, CAssetId source
 }
 
 void release(TTestContext& ctx, SFixture& fixture, CAssetAcquisitionId id,
-    EAssetStatus status = EAssetStatus::success, threading::CThreadPackage* client = nullptr)
+    EAssetStatus status = EAssetStatus::success, tests::CHostClientFixture* client = nullptr)
 {
     fixture.service.request_release({ id }, 12, client ? *client : fixture.package);
     AssetReleaseResult result;
@@ -300,7 +301,7 @@ void test_acquisition_save_and_client_exit(TTestContext& ctx)
     const auto retained = retain_acquisition_fixture(ctx, fixture);
     const threading::ThreadConfig config{ thread_ids::rendering, module_ids::executable,
         platform::threading::EThreadPriority::Normal, &tests::echo_pod_messages };
-    auto client = TInstance<threading::CThreadPackage>::create(config, fixture.conversion);
+    auto client = TInstance<tests::CHostClientFixture>::create(config, fixture.conversion);
     TEST_EXPECT(ctx, client && client->startup());
     fixture.service.request_acquire({ retained.asset }, 40, *client);
     AssetAcquireResult abandoned;
@@ -574,7 +575,7 @@ void test_package_reuse(TTestContext& ctx)
         TEST_EXPECT(ctx, fixture.initialise());
         const threading::ThreadConfig config{ thread_ids::rendering, module_ids::executable,
             platform::threading::EThreadPriority::Normal, &tests::echo_pod_messages };
-        auto package = TInstance<threading::CThreadPackage>::create(config, fixture.conversion);
+        auto package = TInstance<tests::CHostClientFixture>::create(config, fixture.conversion);
         TEST_EXPECT(ctx, package && package->startup());
         const auto original = fixture.publish(ctx, &*package);
         CAssetService::CBundleOperation operation;
@@ -644,7 +645,7 @@ void test_live_notification_failure(TTestContext& ctx)
 {
     SFixture fixture;
     TEST_EXPECT(ctx, fixture.initialise());
-    threading::CThreadPackage recipient{ threading::ThreadConfig{ thread_ids::executive, module_ids::executable,
+    tests::CHostClientFixture recipient{ threading::ThreadConfig{ thread_ids::executive, module_ids::executable,
         platform::threading::EThreadPriority::Normal, &blocked_recipient }, fixture.conversion };
     TEST_EXPECT(ctx, recipient.startup());
     const auto original = fixture.publish(ctx, &recipient);
@@ -705,7 +706,7 @@ void test_acquisition_failure(TTestContext& ctx)
     SFixture fixture;
     TEST_EXPECT(ctx, fixture.initialise());
     const auto original = fixture.publish(ctx);
-    threading::CThreadPackage recipient{ threading::ThreadConfig{ thread_ids::rendering, module_ids::executable,
+    tests::CHostClientFixture recipient{ threading::ThreadConfig{ thread_ids::rendering, module_ids::executable,
         platform::threading::EThreadPriority::Normal, &blocked_recipient }, fixture.conversion };
     TEST_EXPECT(ctx, recipient.startup());
     threading::CErasedPodMsg filler;
@@ -753,7 +754,7 @@ void test_publication_failure_and_shutdown(TTestContext& ctx)
             std::uint64_t binding = 0u;
             TEST_EXPECT(ctx, image.reserve_bundle("pack:", binding));
             platform::system::CPerfCountConversion conversion;
-            threading::CThreadPackage client{ {}, conversion };
+            tests::CHostClientFixture client{ {}, conversion };
             allocator_state.fail_on = allocator_state.attempts + attempt - 1u;
             const auto result = service.publish_bundle(prepared, binding, client);
             allocator_state.fail_on = SIZE_MAX;

@@ -10,6 +10,7 @@
 //  Drive the real rendering DLL with a controlled batch queue. Holding a
 //  dequeued item makes discard and exit ordering deterministic.
 
+#include "module/module_messages.hpp"
 #include <atomic>
 #include <cstring>
 #include <type_traits>
@@ -22,7 +23,6 @@
 #include "rendering/runtime/texture_jobs.hpp"
 #include "assets/asset_messages.hpp"
 #include "rendering/texture/texture_requests.hpp"
-#include "system/service_messages.hpp"
 #include "threading/messages/message_helpers.hpp"
 #include "tests/environment/test_environment.hpp"
 #include "tests/environment/test_paths.hpp"
@@ -148,17 +148,17 @@ static void test_module_test_protocol(tests::TTestContext& ctx, SRealFixture& fi
     if (!started) return;
     auto send = [&fixture](const std::int32_t slot, const module_ids::id_type module) noexcept
     {
-        return fixture.package->post(threading::make_pod_message(slot, RunTestsRequest{ module }));
+        return fixture.package->post(threading::make_pod_message(slot, modules::RunTestsRequest{ module }));
     };
     auto receive = [&fixture](threading::CErasedPodMsg& message) noexcept
     {
         return tests::wait_until(fixture.conversion, [&]() noexcept { return fixture.package->read(message); });
     };
     threading::CErasedPodMsg reply;
-    RunTestsResult result;
+    modules::RunTestsResult result;
     TEST_EXPECT(ctx, send(80, module_ids::executive));
     TEST_EXPECT(ctx, receive(reply) && reply.copy_payload_to(result));
-    TEST_EXPECT(ctx, reply.query_async_slot() == 80 && result.status == ETestRunStatus::invalid_request);
+    TEST_EXPECT(ctx, reply.query_async_slot() == 80 && result.status == modules::ETestRunStatus::invalid_request);
 
     // Test callers may use the full positive correlation range; resource
     // acquisition replies are distinguished by type, not the caller's slot.
@@ -170,7 +170,7 @@ static void test_module_test_protocol(tests::TTestContext& ctx, SRealFixture& fi
     TEST_EXPECT(ctx, input.is_message_a<RawAssetTransfer>());
     TEST_EXPECT(ctx, send(busy_slot, module_ids::rendering));
     TEST_EXPECT(ctx, receive(reply) && reply.copy_payload_to(result));
-    TEST_EXPECT(ctx, reply.query_async_slot() == busy_slot && result.status == ETestRunStatus::busy);
+    TEST_EXPECT(ctx, reply.query_async_slot() == busy_slot && result.status == modules::ETestRunStatus::busy);
 
     //  Failed setup reports a terminal result and permits another run.
     AssetResult failed;
@@ -178,7 +178,7 @@ static void test_module_test_protocol(tests::TTestContext& ctx, SRealFixture& fi
     TEST_EXPECT(ctx, fixture.package->post(threading::make_pod_message(input.query_async_slot(), failed)));
     input = {};
     TEST_EXPECT(ctx, receive(reply) && reply.copy_payload_to(result));
-    TEST_EXPECT(ctx, reply.query_async_slot() == run_slot && result.status == ETestRunStatus::failed &&
+    TEST_EXPECT(ctx, reply.query_async_slot() == run_slot && result.status == modules::ETestRunStatus::failed &&
         result.passed == 0u && result.failed == 0u && result.skipped == 23u);
 
     TEST_EXPECT(ctx, send(83, module_ids::rendering));
@@ -189,21 +189,22 @@ static void test_module_test_protocol(tests::TTestContext& ctx, SRealFixture& fi
         return fixture.package->query_state() == threading::EThreadRunState::Exiting;
     }));
     host::CAssetService service;
+    host::SClientRecord client{ module_ids::rendering, 1u, &*fixture.package };
     TEST_EXPECT(ctx, service.initialise());
     //  The fixture reply arrives after exit. Rendering must release the new
     //  retained asset and wait for disposal before completing and terminating.
-    service.request(input, *fixture.package);
+    service.request(input, client);
     TEST_EXPECT(ctx, receive(reply));
     AssetDisposeRequest disposal;
     TEST_EXPECT(ctx, reply.copy_payload_to(disposal) && disposal.asset);
     threading::CErasedPodMsg premature;
     TEST_EXPECT(ctx, !fixture.package->read(premature));
     TEST_EXPECT(ctx, fixture.package->query_state() == threading::EThreadRunState::Exiting);
-    service.request_disposal(disposal, reply.query_async_slot(), *fixture.package);
+    service.request_disposal(disposal, reply.query_async_slot(), client);
     service.complete_disposals();
     TEST_EXPECT(ctx, receive(reply) && reply.copy_payload_to(result));
     TEST_EXPECT(ctx, reply.query_async_slot() == 83 && result.module == module_ids::rendering &&
-        result.status == ETestRunStatus::cancelled && result.passed == 0u && result.failed == 0u && result.skipped == 23u);
+        result.status == modules::ETestRunStatus::cancelled && result.passed == 0u && result.failed == 0u && result.skipped == 23u);
     TEST_EXPECT(ctx, service.is_idle() && !service.failed());
     service.deallocate();
     TEST_EXPECT(ctx, tests::wait_until(fixture.conversion, [&]() noexcept

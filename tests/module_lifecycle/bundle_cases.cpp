@@ -9,6 +9,9 @@
 //
 //  Public bundle persistence, closure, batch borrowing and replacement cases.
 
+#include "system/storage_type_bindings.hpp"
+#include "filesystem/filesystem_messages.hpp"
+#include "module/module_messages.hpp"
 #include "tests/environment/test_paths.hpp"
 #include <atomic>
 #include <cstdlib>
@@ -22,7 +25,6 @@
 #include "platform/filesystem/file.hpp"
 #include "platform/threading/processor_relax.hpp"
 #include "assets/asset_messages.hpp"
-#include "system/service_messages.hpp"
 #include "tests/support/host_test_paths.hpp"
 
 namespace module_lifecycle_tests
@@ -129,12 +131,12 @@ public:
         BundleDisposedNotification value;
         return receive(value, -1) && (value.asset == original);
     }
-    bool refresh(EFilesystemStatus expected) noexcept
+    bool refresh(filesystem::EFilesystemStatus expected) noexcept
     {
-        auto owner = CErasedOwner::create<FilesystemRefreshRequest>();
-        auto* request = owner.payload<FilesystemRefreshRequest>();
-        FilesystemRefreshResult value;
-        return request && request->root.set(k_root) && post<FilesystemRefreshRequest>(std::move(owner)) &&
+        auto owner = CErasedOwner::create<filesystem::FilesystemRefreshRequest>();
+        auto* request = owner.payload<filesystem::FilesystemRefreshRequest>();
+        filesystem::FilesystemRefreshResult value;
+        return request && request->root.set(k_root) && post<filesystem::FilesystemRefreshRequest>(std::move(owner)) &&
             receive(value, slot) && (value.status == expected);
     }
     //  A following POD rejection establishes closure across the owning queue.
@@ -211,7 +213,7 @@ static bool workflow(CBundleClient& client, threading::CThreadResources& resourc
         !client.load(shader, "dev-source:/BundleInput/Shader.hlsl") ||
         !same_bytes(shader.byte_view(), CByteConstView{ static_cast<const std::uint8_t*>(view.lookup(CStringView{ "shader.hlsl" }).bytes.data()),
             view.lookup(CStringView{ "shader.hlsl" }).bytes.bytes() }) || !client.dispose(shader.asset) ||
-        !client.load(raw, "bundle-test:/Aligned") || !client.refresh(EFilesystemStatus::success) ||
+        !client.load(raw, "bundle-test:/Aligned") || !client.refresh(filesystem::EFilesystemStatus::success) ||
         !client.load(cached, "BUNDLE-TEST:/ALIGNED") || (cached.asset != raw.asset) ||
         !client.load(scratch, "bundle-test:/Aligned", EAssetFileFormat::raw, EAssetStatus::invalid_request, 256u) ||
         !client.load(baked, "bundle-test:/Document.baked", EAssetFileFormat::baked) || !baked.document_view().is_ready() ||
@@ -237,7 +239,7 @@ static bool workflow(CBundleClient& client, threading::CThreadResources& resourc
     const bool queued = submitted.status == threading::EBatchSubmission::queued;
     if (!queued && submitted.status != threading::EBatchSubmission::completed_inline) return false;
     //  Always release/drain the callback, including failed assertions, before its stack state dies.
-    bool success = client.close(original.asset) && client.refresh(EFilesystemStatus::invalid_root) &&
+    bool success = client.close(original.asset) && client.refresh(filesystem::EFilesystemStatus::invalid_root) &&
         client.bake(scratch, EAssetStatus::busy) && client.save(original.asset, k_saved, EAssetStatus::invalid_asset) &&
         client.load(scratch, "bundle-test:/Aligned", EAssetFileFormat::raw, EAssetStatus::read_failed);
     item.release.store(true, std::memory_order_release);
@@ -295,31 +297,31 @@ bool rendering_bundle_case(threading::CThreadContext& context, threading::CThrea
     return client.post(AssetDisposeRequest{ loaded.asset });
 }
 
-static bool rendering_module(CBundleClient& client, EModuleAction action) noexcept
+static bool rendering_module(CBundleClient& client, modules::EModuleAction action) noexcept
 {
-    auto owner = CErasedOwner::create<ModuleRequest>();
-    auto* request = owner.payload<ModuleRequest>();
+    auto owner = CErasedOwner::create<modules::ModuleRequest>();
+    auto* request = owner.payload<modules::ModuleRequest>();
     if (!request) return false;
     request->action = action;
     request->module = module_ids::rendering;
-    if (action == EModuleAction::load)
+    if (action == modules::EModuleAction::load)
     {
         if (!request->file.set(test_environment::module_filename("package:/bin/MorphicLifecycleRenderingDisposal").c_str())) return false;
         request->required_function = system_type_ids::rendering_thread_function;
     }
-    if (!client.post<ModuleRequest>(std::move(owner))) return false;
-    for (const auto notice : { EModuleNotice::acknowledged, EModuleNotice::completed })
+    if (!client.post<modules::ModuleRequest>(std::move(owner))) return false;
+    for (const auto notice : { modules::EModuleNotice::acknowledged, modules::EModuleNotice::completed })
     {
-        ModuleResult result;
+        modules::ModuleResult result;
         if (!client.receive(result, client.slot) || (result.notice != notice) ||
-            (result.status != EModuleStatus::success)) return false;
+            (result.status != modules::EModuleStatus::success)) return false;
     }
     return true;
 }
 
 static bool rendering_owner(CBundleClient& client) noexcept
 {
-    if (!rendering_module(client, EModuleAction::load)) return false;
+    if (!rendering_module(client, modules::EModuleAction::load)) return false;
     SHandoff handoff;
     platform::system::CPerfCounter timer;
     (void)timer.update();
@@ -338,7 +340,7 @@ static bool rendering_owner(CBundleClient& client) noexcept
         !client.post(BundleReferenceRequest{ handoff.original }) || !client.result(reference) ||
         !reference.bundle_view().is_ready() || !client.dispose(reference.asset) ||
         !client.load(file, "bundle-test:/Aligned") || (file.asset != handoff.file) ||
-        !rendering_module(client, EModuleAction::unload) ||
+        !rendering_module(client, modules::EModuleAction::unload) ||
         !client.post(BundleReferenceRequest{ handoff.original }) || !client.result(result, EAssetStatus::invalid_asset) ||
         !client.bake(result, EAssetStatus::busy) || !client.save(file.asset, "test-output:/bundle-rendering-survivor.bin") ||
         !client.dispose(file.asset) || !client.bake(result) ||
@@ -361,7 +363,7 @@ bool bundle_case(threading::CThreadContext& context, threading::CThreadResources
         if (!host_test_paths::native_output("bundle-handoff.bin", native) ||
             !client.load(result, native.cstring()) || (result.byte_view().size() != sizeof(handoff))) return false;
         std::memcpy(&handoff, result.byte_view().data(), sizeof(handoff));
-        if (!client.dispose(result.asset) || !client.refresh(EFilesystemStatus::invalid_root) ||
+        if (!client.dispose(result.asset) || !client.refresh(filesystem::EFilesystemStatus::invalid_root) ||
             !client.post(BundleReferenceRequest{ handoff.original }) || !client.result(result, EAssetStatus::invalid_asset) ||
             !client.bake(result, EAssetStatus::busy) || !client.save(handoff.file, "test-output:/bundle-replacement.bin") ||
             !client.dispose(handoff.file) || !client.bake(result) ||

@@ -19,6 +19,7 @@
 #include "data_model/document_parser.hpp"
 #include "data_model/document_translation.hpp"
 #include "host/runtime/asset_service.hpp"
+#include "tests/support/host_client_fixture.hpp"
 #include "host/runtime/host_worker_thread.hpp"
 #include "platform/filesystem/file.hpp"
 #include "platform/filesystem/internal/file_utils.hpp"
@@ -43,7 +44,7 @@ using filesystem_image::ERootState;
 struct SFixture
 {
     platform::system::CPerfCountConversion conversion;
-    threading::CThreadPackage client{ { thread_ids::executive, module_ids::executable,
+    tests::CHostClientFixture client{ { thread_ids::executive, module_ids::executable,
         platform::threading::EThreadPriority::Normal, &tests::echo_pod_messages }, conversion };
     threading::CThreadPackage io{ { thread_ids::bg_file_io, module_ids::executable,
         platform::threading::EThreadPriority::Normal, host::host_worker_thread_entry_point() }, conversion };

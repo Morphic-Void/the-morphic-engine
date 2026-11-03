@@ -7,6 +7,9 @@
 //  Reviewed and accepted by: Ritchie Brannan
 //  Date:    12 Aug 26
 
+#include "system/storage_type_bindings.hpp"
+#include "threading/messages/message_errors.hpp"
+#include "module/module_messages.hpp"
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -21,7 +24,6 @@
 #include "system/erased_pod.hpp"
 #include "system/system_context.hpp"
 #include "assets/asset_messages.hpp"
-#include "system/service_messages.hpp"
 #include "image/image_messages.hpp"
 #include "host/runtime/host_payloads.hpp"
 #include "tests/test_suites/ErasedPod_test_suite.hpp"
@@ -81,13 +83,13 @@ struct SOversizedPod
 
 void test_erased_pod_redefinition_and_access(TTestContext& ctx)
 {
-    using storage_type = TErasedPod<sizeof(UnrecognisedMsg), alignof(UnrecognisedMsg)>;
+    using storage_type = TErasedPod<sizeof(threading::UnrecognisedMsg), alignof(threading::UnrecognisedMsg)>;
 
     static_assert(std::is_trivially_copyable_v<storage_type>);
     static_assert(std::is_standard_layout_v<storage_type>);
     static_assert(storage_type::k_payload_align == 16u);
     static_assert(alignof(storage_type) == 16u);
-    static_assert(storage_type::is_compatible_with<UnrecognisedMsg>());
+    static_assert(storage_type::is_compatible_with<threading::UnrecognisedMsg>());
     static_assert(storage_type::is_compatible_with<FileSaveResult>());
     static_assert(!std::is_trivial_v<CCanonicalValue>);
     static_assert(std::is_trivially_copyable_v<CCanonicalValue>);
@@ -97,20 +99,20 @@ void test_erased_pod_redefinition_and_access(TTestContext& ctx)
     storage_type storage;
     TEST_EXPECT(ctx, storage.query_type_id() == type_ids::undefined);
     TEST_EXPECT(ctx, storage.query_tag() == 0u);
-    TEST_EXPECT(ctx, storage.payload<UnrecognisedMsg>() == nullptr);
+    TEST_EXPECT(ctx, storage.payload<threading::UnrecognisedMsg>() == nullptr);
 
     storage.set_tag(41u);
-    UnrecognisedMsg& unrecognised = storage.redefine<UnrecognisedMsg>();
+    threading::UnrecognisedMsg& unrecognised = storage.redefine<threading::UnrecognisedMsg>();
     unrecognised.msg_id = system_type_ids::asset_load_request;
 
-    TEST_EXPECT(ctx, storage.query_type_id() == k_type_id_v<UnrecognisedMsg>);
+    TEST_EXPECT(ctx, storage.query_type_id() == k_type_id_v<threading::UnrecognisedMsg>);
     TEST_EXPECT(ctx, storage.query_tag() == 41u);
-    TEST_EXPECT(ctx, storage.is_a<UnrecognisedMsg>());
-    TEST_EXPECT(ctx, storage.payload<UnrecognisedMsg>() == &unrecognised);
-    TEST_EXPECT(ctx, storage.payload<UnrecognisedMsg>()->msg_id == system_type_ids::asset_load_request);
+    TEST_EXPECT(ctx, storage.is_a<threading::UnrecognisedMsg>());
+    TEST_EXPECT(ctx, storage.payload<threading::UnrecognisedMsg>() == &unrecognised);
+    TEST_EXPECT(ctx, storage.payload<threading::UnrecognisedMsg>()->msg_id == system_type_ids::asset_load_request);
 
     const storage_type& const_storage = storage;
-    TEST_EXPECT(ctx, const_storage.payload<UnrecognisedMsg>() == &unrecognised);
+    TEST_EXPECT(ctx, const_storage.payload<threading::UnrecognisedMsg>() == &unrecognised);
 
     FileSaveResult& result = storage.redefine<FileSaveResult>();
     TEST_EXPECT(ctx, !result.success);
@@ -118,7 +120,7 @@ void test_erased_pod_redefinition_and_access(TTestContext& ctx)
     result.success = true;
 
     TEST_EXPECT(ctx, storage.query_type_id() == k_type_id_v<FileSaveResult>);
-    TEST_EXPECT(ctx, storage.payload<UnrecognisedMsg>() == nullptr);
+    TEST_EXPECT(ctx, storage.payload<threading::UnrecognisedMsg>() == nullptr);
     TEST_EXPECT(ctx, storage.payload<FileSaveResult>() == &result);
     TEST_EXPECT(ctx, storage.payload<FileSaveResult>()->success);
 }
@@ -218,10 +220,10 @@ void test_thread_message_copy_boundary(TTestContext& ctx)
     static_assert(!CErasedPodMsg::is_payload_compatible_with<SOverAlignedPod>());
     static_assert(!CErasedPodMsg::is_payload_compatible_with<SOversizedPod>());
     static_assert(sizeof(CErasedPodMsg) == 64u);
-    static_assert(CErasedPodMsg::is_payload_compatible_with<ModuleResult>());
+    static_assert(CErasedPodMsg::is_payload_compatible_with<modules::ModuleResult>());
     static_assert(CErasedPodMsg::is_payload_compatible_with<ModuleWorkRequest>());
     static_assert(CErasedPodMsg::is_payload_compatible_with<ModuleWorkResult>());
-    static_assert(!CErasedPodMsg::is_payload_compatible_with<ModuleRequest>());
+    static_assert(!CErasedPodMsg::is_payload_compatible_with<modules::ModuleRequest>());
     static_assert(CErasedPodMsg::is_payload_compatible_with<AssetResult>());
     static_assert(CErasedPodMsg::is_payload_compatible_with<AssetDisposeRequest>());
     static_assert(CErasedPodMsg::is_payload_compatible_with<AssetDisposeResult>());
@@ -255,7 +257,7 @@ void test_thread_message_copy_boundary(TTestContext& ctx)
     TEST_EXPECT(ctx, message.copy_payload_to(copied));
     TEST_EXPECT(ctx, copied.success);
 
-    UnrecognisedMsg mismatch{ system_type_ids::asset_save_request };
+    threading::UnrecognisedMsg mismatch{ system_type_ids::asset_save_request };
     TEST_EXPECT(ctx, !message.copy_payload_to(mismatch));
     TEST_EXPECT(ctx, mismatch.msg_id == system_type_ids::asset_save_request);
 
@@ -365,7 +367,7 @@ void test_thread_message_clears_previous_representation(TTestContext& ctx)
     const TgaEncodeRequest larger{};
     reused.assign_payload(larger);
 
-    const UnrecognisedMsg small{ system_type_ids::asset_dispose_result };
+    const threading::UnrecognisedMsg small{ system_type_ids::asset_dispose_result };
     reused.assign_payload(small);
 
     threading::CErasedPodMsg fresh;
@@ -404,7 +406,7 @@ void test_concrete_erased_pod_transport_admission(TTestContext& ctx)
     TEST_EXPECT(ctx, !cross_component.post(source));
     TEST_EXPECT(ctx, std::memcmp(&source, &private_snapshot, sizeof(source)) == 0);
     TEST_EXPECT(ctx, !cross_component.read(received));
-    source.assign_payload(UnrecognisedMsg{ system_type_ids::asset_result });
+    source.assign_payload(threading::UnrecognisedMsg{ system_type_ids::asset_result });
     TEST_EXPECT(ctx, cross_component.post(source));
     TEST_EXPECT(ctx, cross_component.read(received));
     cross_component.deallocate();
@@ -534,7 +536,7 @@ void test_concrete_erased_pod_transport_diagnostics(TTestContext& ctx)
     local_cross_component.deallocate();
 
     threading::CErasedPodMsg system_message;
-    system_message.assign_payload(UnrecognisedMsg{ system_type_ids::asset_result });
+    system_message.assign_payload(threading::UnrecognisedMsg{ system_type_ids::asset_result });
     threading::transports::CErasedPodMsgTransport capacity_transport(
         module_ids::executable);
     TEST_EXPECT(ctx, capacity_transport.initialise_fixed(1u));

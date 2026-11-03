@@ -12,6 +12,7 @@
 #pragma once
 #include "tests/support/rendering_service_fixture.hpp"
 #include "host/runtime/asset_service.hpp"
+#include "tests/support/host_client_fixture.hpp"
 #include "threading/messages/message_helpers.hpp"
 
 namespace texture_batch_tests
@@ -20,7 +21,7 @@ struct SResourceFixture
 {
     SFixture& rendering;
     host::CAssetService assets;
-    TInstance<threading::CThreadPackage> client;
+    TInstance<tests::CHostClientFixture> client;
     TInstance<rendering::CResourceRequests> requests;
     std::vector<threading::CErasedPodMsg> messages;
     bool valid{ true };

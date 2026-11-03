@@ -8,6 +8,7 @@
 //
 //  Pinned miniaudio implementation, compiled once into Audio only.
 
+#include "module/module_messages.hpp"
 #include "miniaudio_adapter.hpp"
 #include "vendor_allocator.hpp"
 #include <new>
@@ -98,23 +99,23 @@ struct CMiniaudioOutput::SState
 
 CMiniaudioOutput::~CMiniaudioOutput() noexcept { (void)close(); }
 
-ETestRunStatus CMiniaudioOutput::open() noexcept
+modules::ETestRunStatus CMiniaudioOutput::open() noexcept
 {
     return open(false);
 }
 
-ETestRunStatus CMiniaudioOutput::open(const bool cleanup_guard_only, SContextProbe* const probe) noexcept
+modules::ETestRunStatus CMiniaudioOutput::open(const bool cleanup_guard_only, SContextProbe* const probe) noexcept
 {
-    if (m_state != nullptr) return ETestRunStatus::failed;
+    if (m_state != nullptr) return modules::ETestRunStatus::failed;
     void* storage = m_memory.allocate(alignof(SState), sizeof(SState));
-    if (storage == nullptr) return ETestRunStatus::failed;
+    if (storage == nullptr) return modules::ETestRunStatus::failed;
     m_state = ::new (storage) SState{};
     m_state->memory = &m_memory;
     m_state->context_lifetime.probe = probe;
     auto config = ma_context_config_init();
     config.pUserData = m_state;
     config.allocationCallbacks = { m_state, &SState::allocate, &SState::reallocate, &SState::free };
-    if (ma_log_init(&config.allocationCallbacks, &m_state->log) != MA_SUCCESS) return ETestRunStatus::failed;
+    if (ma_log_init(&config.allocationCallbacks, &m_state->log) != MA_SUCCESS) return modules::ETestRunStatus::failed;
     m_state->log_ready = true;
     config.pLog = &m_state->log;
     config.custom.onContextInit = cleanup_guard_only ? &SState::cleanup_guard : nullptr;
@@ -127,24 +128,24 @@ ETestRunStatus CMiniaudioOutput::open(const bool cleanup_guard_only, SContextPro
     if (result != MA_SUCCESS)
     {
         MV_LOG(info, "Audio: Context initialisation returned {}", static_cast<int>(result));
-        return ETestRunStatus::failed;
+        return modules::ETestRunStatus::failed;
     }
     if (m_state->context.backend == ma_backend_custom)
     {
         MV_LOG(info, "Audio: Device-free context probe completed; no playback backend selected");
-        return ETestRunStatus::failed;
+        return modules::ETestRunStatus::failed;
     }
     ma_uint32 playback_count = 0u;
     result = ma_context_get_devices(&m_state->context, nullptr, &playback_count, nullptr, nullptr);
     if ((result != MA_SUCCESS) || (m_state->allocation_failed.load(std::memory_order_acquire) != 0u))
     {
         MV_LOG(info, "Audio: Device enumeration failed ({})", static_cast<int>(result));
-        return ETestRunStatus::failed;
+        return modules::ETestRunStatus::failed;
     }
     if (playback_count == 0u)
     {
         MV_LOG(info, "Audio: No real playback device enumerated");
-        return ETestRunStatus::unavailable;
+        return modules::ETestRunStatus::unavailable;
     }
     auto device_config = ma_device_config_init(ma_device_type_playback);
     device_config.playback.format = ma_format_f32;
@@ -158,13 +159,13 @@ ETestRunStatus CMiniaudioOutput::open(const bool cleanup_guard_only, SContextPro
     {
         MV_LOG(info, "Audio: Device initialisation returned {}", static_cast<int>(result));
         return ((result == MA_NO_DEVICE) && (m_state->allocation_failed.load(std::memory_order_acquire) == 0u)) ?
-            ETestRunStatus::unavailable : ETestRunStatus::failed;
+            modules::ETestRunStatus::unavailable : modules::ETestRunStatus::failed;
     }
     m_state->device_ready = true;
-    if (!m_state->tone.reset(m_state->device.sampleRate)) return ETestRunStatus::failed;
+    if (!m_state->tone.reset(m_state->device.sampleRate)) return modules::ETestRunStatus::failed;
     MV_LOG_RICH(info, "Audio: Real backend %s, output %s, callback rate %u", ma_get_backend_name(m_state->context.backend),
         m_state->device.playback.name, m_state->device.sampleRate);
-    return ETestRunStatus::success;
+    return modules::ETestRunStatus::success;
 }
 
 bool CMiniaudioOutput::start() noexcept

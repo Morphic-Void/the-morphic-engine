@@ -32,6 +32,7 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\containers\slots\TUnorderedSlots.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\containers\StringBuffers.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\containers\TInstance.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\containers\TProcessLifetime.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\containers\TOrderedCollection.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\containers\TPodFifo.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\containers\TPodOrderedSlots.hpp" />
@@ -88,6 +89,16 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\memory\memory_view.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\module\bound_module.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\module\module_binding_context.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\module\host_pump.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\module\module_identity.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\module\service_provider.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\module\module_messages.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\module\module_owner_payloads.def" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\services\service_protocol.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\filesystem\filesystem_messages.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\filesystem\filesystem_owner_payloads.def" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\threading\messages\message_errors.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\system\storage_type_bindings.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\module\module_binding.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\system\async_state.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\system\erased_owner_operations.hpp" />
@@ -113,8 +124,6 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\assets\asset_messages.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\assets\asset_storage.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\assets\asset_owner_payloads.def" />
-    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\system\service_messages.hpp" />
-    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\system\service_owner_payloads.def" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\image\image_messages.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\image\image_owner_payloads.def" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\system\TStaticLookup.hpp" />

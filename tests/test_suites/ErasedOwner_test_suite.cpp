@@ -7,6 +7,8 @@
 //  Reviewed and accepted by: Ritchie Brannan
 //  Date:    12 Aug 26
 
+#include "system/storage_type_bindings.hpp"
+#include "module/module_messages.hpp"
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -28,7 +30,6 @@
 #include "system/erased_owner.hpp"
 #include "system/erased_owner_transport.hpp"
 #include "assets/asset_messages.hpp"
-#include "system/service_messages.hpp"
 #include "image/image_messages.hpp"
 #include "host/runtime/host_payloads.hpp"
 #include "executive/runtime/module_test_watchdog.hpp"
@@ -156,17 +157,17 @@ static void check_rendering_notices(tests::TTestContext& ctx, modules::CBoundMod
         threading::CErasedOwnerMsg request;
         const bool received = read_request(package, request, conversion);
         TEST_EXPECT(ctx, received);
-        const ModuleRequest* const load = request.owner().payload<ModuleRequest>();
-        TEST_EXPECT(ctx, (load != nullptr) && (load->action == EModuleAction::load) &&
+        const modules::ModuleRequest* const load = request.owner().payload<modules::ModuleRequest>();
+        TEST_EXPECT(ctx, (load != nullptr) && (load->action == modules::EModuleAction::load) &&
             (load->module == module_ids::rendering) && (load->file.length() != 0u) &&
             (std::strcmp(load->file.cstring(), test_environment::module_filename("package:/bin/MorphicRendering").c_str()) == 0));
         const std::int32_t slot = request.query_async_slot();
         request.take_owner().destroy();
 
-        ModuleResult result;
+        modules::ModuleResult result;
         result.module = module_ids::rendering;
-        result.notice = EModuleNotice::acknowledged;
-        result.status = EModuleStatus::success;
+        result.notice = modules::EModuleNotice::acknowledged;
+        result.status = modules::EModuleStatus::success;
         threading::CErasedPodMsg reply;
         reply.set_async_slot(slot);
         if (scenario != ECase::missing_acknowledgement)
@@ -175,10 +176,10 @@ static void check_rendering_notices(tests::TTestContext& ctx, modules::CBoundMod
             TEST_EXPECT(ctx, package.post(reply));
         }
         result.notice = (scenario == ECase::duplicate_acknowledgement) ?
-            EModuleNotice::acknowledged : EModuleNotice::completed;
-        result.status = (scenario == ECase::load_failure) ? EModuleStatus::binding_failed :
+            modules::EModuleNotice::acknowledged : modules::EModuleNotice::completed;
+        result.status = (scenario == ECase::load_failure) ? modules::EModuleStatus::binding_failed :
             (((scenario == ECase::loaded) || (scenario == ECase::duplicate_acknowledgement)) ?
-                EModuleStatus::success : EModuleStatus::already_loaded);
+                modules::EModuleStatus::success : modules::EModuleStatus::already_loaded);
         result.available = (scenario != ECase::unavailable) && (scenario != ECase::load_failure);
         if (scenario == ECase::wrong_implementation)
         {
@@ -196,34 +197,34 @@ static void check_rendering_notices(tests::TTestContext& ctx, modules::CBoundMod
         {
             threading::CErasedPodMsg tests_request;
             TEST_EXPECT(ctx, tests::wait_until(conversion, [&]() noexcept { return package.read(tests_request); }));
-            RunTestsRequest tests;
+            modules::RunTestsRequest tests;
             TEST_EXPECT(ctx, tests_request.copy_payload_to(tests) && tests.module == module_ids::rendering);
             TEST_EXPECT(ctx, tests_request.query_async_slot() == slot + 1);
             TEST_EXPECT(ctx, !package.read(request));
             //  Executive only observes generic completion; it does not know
             //  the destination's test cases or require a particular case count.
-            RunTestsResult completed;
+            modules::RunTestsResult completed;
             completed.module = module_ids::rendering;
-            completed.status = ETestRunStatus::success;
+            completed.status = modules::ETestRunStatus::success;
             completed.passed = 7u;
             reply.set_async_slot(slot + 1);
             reply.assign_payload(completed);
             TEST_EXPECT(ctx, package.post(reply));
             TEST_EXPECT(ctx, read_request(package, request, conversion));
-            const ModuleRequest* audio_load = request.owner().payload<ModuleRequest>();
-            TEST_EXPECT(ctx, audio_load && audio_load->module == module_ids::audio && audio_load->action == EModuleAction::load &&
+            const modules::ModuleRequest* audio_load = request.owner().payload<modules::ModuleRequest>();
+            TEST_EXPECT(ctx, audio_load && audio_load->module == module_ids::audio && audio_load->action == modules::EModuleAction::load &&
                 std::strcmp(audio_load->file.cstring(), test_environment::module_filename("package:/bin/MorphicAudio").c_str()) == 0);
             TEST_EXPECT(ctx, request.query_async_slot() == slot + 2);
             request.take_owner().destroy();
             result.module = module_ids::audio;
-            result.notice = EModuleNotice::acknowledged;
-            result.status = EModuleStatus::success;
+            result.notice = modules::EModuleNotice::acknowledged;
+            result.status = modules::EModuleStatus::success;
             result.available = false;
             reply.set_async_slot(slot + 2);
             reply.assign_payload(result);
             TEST_EXPECT(ctx, package.post(reply));
-            result.notice = EModuleNotice::completed;
-            result.status = (scenario == ECase::audio_load_failure) ? EModuleStatus::binding_failed : EModuleStatus::success;
+            result.notice = modules::EModuleNotice::completed;
+            result.status = (scenario == ECase::audio_load_failure) ? modules::EModuleStatus::binding_failed : modules::EModuleStatus::success;
             result.available = scenario != ECase::audio_load_failure;
             reply.assign_payload(result);
             TEST_EXPECT(ctx, package.post(reply));
@@ -232,11 +233,11 @@ static void check_rendering_notices(tests::TTestContext& ctx, modules::CBoundMod
                 TEST_EXPECT(ctx, tests::wait_until(conversion, [&]() noexcept { return package.read(tests_request); }));
                 TEST_EXPECT(ctx, tests_request.copy_payload_to(tests) && tests.module == module_ids::audio && tests_request.query_async_slot() == slot + 3);
                 TEST_EXPECT(ctx, !package.read(request));
-                completed = { module_ids::audio, ETestRunStatus::success, 1u, 0u, 0u };
-                if (scenario == ECase::audio_unavailable) completed = { module_ids::audio, ETestRunStatus::unavailable, 0u, 0u, 1u };
-                if (scenario == ECase::audio_failed) completed = { module_ids::audio, ETestRunStatus::failed, 0u, 1u, 0u };
-                if (scenario == ECase::audio_cancelled) completed = { module_ids::audio, ETestRunStatus::cancelled, 0u, 0u, 1u };
-                if (scenario == ECase::audio_busy) completed = { module_ids::audio, ETestRunStatus::busy, 0u, 1u, 0u };
+                completed = { module_ids::audio, modules::ETestRunStatus::success, 1u, 0u, 0u };
+                if (scenario == ECase::audio_unavailable) completed = { module_ids::audio, modules::ETestRunStatus::unavailable, 0u, 0u, 1u };
+                if (scenario == ECase::audio_failed) completed = { module_ids::audio, modules::ETestRunStatus::failed, 0u, 1u, 0u };
+                if (scenario == ECase::audio_cancelled) completed = { module_ids::audio, modules::ETestRunStatus::cancelled, 0u, 0u, 1u };
+                if (scenario == ECase::audio_busy) completed = { module_ids::audio, modules::ETestRunStatus::busy, 0u, 1u, 0u };
                 if (scenario == ECase::audio_bad_counts) completed.passed = 2u;
                 reply.set_async_slot(slot + ((scenario == ECase::audio_wrong_correlation) ? 4 : 3));
                 reply.assign_payload(completed);

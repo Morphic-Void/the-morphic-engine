@@ -8,6 +8,8 @@
 //
 //  Shared Host worker for file I/O, asset conditioning and module binding.
 
+#include "threading/messages/message_errors.hpp"
+#include "module/module_messages.hpp"
 #include "threading/messages/message_helpers.hpp"
 
 #include <local_type_ids.hpp>
@@ -27,7 +29,6 @@
 #include "platform/filesystem/file.hpp"
 #include "system/erased_owner.hpp"
 #include "assets/asset_messages.hpp"
-#include "system/service_messages.hpp"
 #include "image/image_messages.hpp"
 #include "runtime/host_payloads.hpp"
 #include "threading/CThreadPackage.hpp"
@@ -310,75 +311,90 @@ static EAssetStatus condition_document(const DocumentConditionRequest& request, 
     return EAssetStatus::success;
 }
 
-static EModuleStatus perform_module_work(SModuleWork& work) noexcept
+static modules::EModuleStatus perform_module_work(SModuleWork& work) noexcept
 {
-    const ModuleRequest& request = *work.request;
+    const modules::ModuleRequest& request = *work.request;
     work.function = nullptr;
     work.service_thread = {};
+    work.host_pump = {};
+    work.service_provider = {};
     if (work.previous != nullptr)
     {
         if (!work.previous->unbind())
         {
-            return EModuleStatus::unload_failed;
+            return modules::EModuleStatus::unload_failed;
         }
         MV_LOG_RICH(info, "Module unloaded on Host worker, mount %s",
             system_id_registry::lookup_mount_point_name(module_ids::ops::get_mount_point_id(request.module)));
     }
-    if ((request.action == EModuleAction::unload) || work.cleanup_only)
+    if ((request.action == modules::EModuleAction::unload) || work.cleanup_only)
     {
-        return EModuleStatus::success;
+        return modules::EModuleStatus::success;
     }
     if (work.physical_file == nullptr)
     {
-        return EModuleStatus::binding_failed;
+        return modules::EModuleStatus::binding_failed;
     }
 
     constexpr modules::SAdvertisedIdentity host_identity{
         module_ids::executable, { modules::k_binding_abi_major, 0u },
         modules::k_binding_abi_major, modules::k_binding_abi_major };
     const platform::path::NativePath path = platform::path::makeNativePath(work.physical_file);
-    EModuleStatus status = EModuleStatus::binding_failed;
+    modules::EModuleStatus status = modules::EModuleStatus::binding_failed;
     if (path.is_ready() && work.next->bind(path, request.module, host_identity) &&
         (work.next->advertised_module_identity().version.major == modules::k_binding_abi_major))
     {
-        status = EModuleStatus::installation_failed;
+        status = modules::EModuleStatus::installation_failed;
         if (work.next->install(*work.registry, request.module, work.memory_context, work.debug_service))
         {
-            status = EModuleStatus::success;
+            status = modules::EModuleStatus::success;
             modules::SCoreFunctions unsupported;
             modules::FModuleFunction unknown = nullptr;
             if ((work.next->populate_core_functions(modules::k_binding_abi_major + 1u, unsupported) !=
                     modules::EBindingResult::unsupported_version) || !unsupported.is_empty() ||
                 work.next->query_function(system_type_ids::undefined, unknown) || (unknown != nullptr))
             {
-                status = EModuleStatus::binding_failed;
+                status = modules::EModuleStatus::binding_failed;
             }
             if ((request.required_function != system_type_ids::undefined) &&
                 !work.next->query_function(request.required_function, work.function))
             {
-                status = EModuleStatus::function_unavailable;
+                status = modules::EModuleStatus::function_unavailable;
             }
             const modules::EBindingResult service = work.next->query_service_thread(work.service_thread);
+            const modules::EBindingResult pump = work.next->query_host_pump(work.host_pump);
+            const modules::EBindingResult provider = work.next->query_service_provider(work.service_provider);
+            if ((provider != modules::EBindingResult::success) && (provider != modules::EBindingResult::unsupported_function))
+            {
+                status = modules::EModuleStatus::function_unavailable;
+            }
             if (((service != modules::EBindingResult::success) &&
                     ((service != modules::EBindingResult::unsupported_function) || request.require_service_thread)) ||
                 ((work.service_thread.entry != nullptr) && (request.module == module_ids::executive)))
             {
-                status = EModuleStatus::function_unavailable;
+                status = modules::EModuleStatus::function_unavailable;
+            }
+            if (((pump != modules::EBindingResult::success) &&
+                    ((pump != modules::EBindingResult::unsupported_function) || request.require_host_pump)) ||
+                ((work.host_pump.activate != nullptr) &&
+                    ((work.service_thread.entry != nullptr) || (request.module == module_ids::executive))))
+            {
+                status = modules::EModuleStatus::function_unavailable;
             }
         }
     }
-    if (status != EModuleStatus::success)
+    if (status != modules::EModuleStatus::success)
     {
         //  Failed installation must also release its native handle on this worker.
         //  Failure to unload keeps the record bound; the Host must not overwrite it.
         if (!work.next->unbind())
         {
-            return EModuleStatus::unload_failed;
+            return modules::EModuleStatus::unload_failed;
         }
         return status;
     }
     MV_LOG(info, "Module loaded and bound on Host worker");
-    return EModuleStatus::success;
+    return modules::EModuleStatus::success;
 }
 
 //==============================================================================
@@ -666,7 +682,7 @@ void CHostWorkerThread::operate() noexcept
                     }
                     MV_DETAIL("Worker unrecognised message type {}", unrecognised_id);
 
-                    UnrecognisedMsg unrecognised;
+                    threading::UnrecognisedMsg unrecognised;
                     unrecognised.msg_id = unrecognised_id;
                     const auto outbound_msg = threading::make_pod_message(inbound_msg.query_async_slot(), unrecognised);
                     if (!m_context.post(outbound_msg))

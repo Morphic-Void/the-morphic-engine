@@ -271,7 +271,8 @@ thread. The process exits unsuccessfully and logs the failure.
 
 ## Implementation map
 
-- `core/system/service_messages.hpp`: public requests and notices.
+- `core/module/module_messages.hpp`: public module requests and notices in `modules`.
+- `core/filesystem/filesystem_messages.hpp`: logical filesystem refresh messages in `filesystem`.
 - `host/runtime/host_payloads.hpp`: private worker exchange, registered in the
   Host's LOCAL catalogue (and separately in the service-test binary).
 - `host/runtime/module_service.*`: admission, stable records, worker-job lifetime

@@ -8,6 +8,7 @@
 //
 //  The service owns all device operations; idle loading never opens a device.
 
+#include "module/module_messages.hpp"
 #include "threading/messages/message_helpers.hpp"
 #include "audio_thread.hpp"
 #include "miniaudio_adapter.hpp"
@@ -16,12 +17,12 @@
 namespace audio
 {
 
-static bool report(threading::CThreadContext& context, const std::int32_t correlation, const ETestRunStatus status) noexcept
+static bool report(threading::CThreadContext& context, const std::int32_t correlation, const modules::ETestRunStatus status) noexcept
 {
-    RunTestsResult result{ module_ids::audio, status };
-    if (status == ETestRunStatus::success) result.passed = 1u;
-    else if ((status == ETestRunStatus::unavailable) || (status == ETestRunStatus::cancelled)) result.skipped = 1u;
-    else if (status == ETestRunStatus::failed) result.failed = 1u;
+    modules::RunTestsResult result{ module_ids::audio, status };
+    if (status == modules::ETestRunStatus::success) result.passed = 1u;
+    else if ((status == modules::ETestRunStatus::unavailable) || (status == modules::ETestRunStatus::cancelled)) result.skipped = 1u;
+    else if (status == modules::ETestRunStatus::failed) result.failed = 1u;
     return context.post(threading::make_pod_message(correlation, result));
 }
 
@@ -57,14 +58,14 @@ std::uint32_t serve_audio(threading::CThreadResources& resources, IAudioOutput& 
         for (unsigned count = 0u; count < 32u && context.read(message); ++count)
         {
             read_any = true;
-            RunTestsRequest request;
+            modules::RunTestsRequest request;
             const auto slot = message.query_async_slot();
             if (!message.copy_payload_to(request)) { failed = true; break; }
-            ETestRunStatus rejection = ETestRunStatus::invalid_request;
+            modules::ETestRunStatus rejection = modules::ETestRunStatus::invalid_request;
             if ((request.module == module_ids::audio) && (slot >= 0))
             {
-                if (context.exit_requested() || failed) rejection = ETestRunStatus::cancelled;
-                else if (pending) rejection = ETestRunStatus::busy;
+                if (context.exit_requested() || failed) rejection = modules::ETestRunStatus::cancelled;
+                else if (pending) rejection = modules::ETestRunStatus::busy;
                 else
                 {
                     correlation = slot;

@@ -69,25 +69,25 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)'=='Debug'">
     <ClCompile>
-      <PreprocessorDefinitions>_DEBUG;_CONSOLE;MV_DEVELOPMENT_BUILD=1;MV_DEBUG_DEVELOPMENT_BUILD=1;MV_COMPILED_INFORMATION_LEVEL=3;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>MV_HOST_RUNTIME_TESTS=1;_DEBUG;_CONSOLE;MV_DEVELOPMENT_BUILD=1;MV_DEBUG_DEVELOPMENT_BUILD=1;MV_COMPILED_INFORMATION_LEVEL=3;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)'=='Development'">
     <ClCompile>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
-      <PreprocessorDefinitions>NDEBUG;_CONSOLE;MV_DEBUG_BUILD=1;MV_DEVELOPMENT_BUILD=1;MV_DEBUG_DEVELOPMENT_BUILD=0;MV_COMPILED_INFORMATION_LEVEL=2;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>MV_HOST_RUNTIME_TESTS=1;NDEBUG;_CONSOLE;MV_DEBUG_BUILD=1;MV_DEVELOPMENT_BUILD=1;MV_DEBUG_DEVELOPMENT_BUILD=0;MV_COMPILED_INFORMATION_LEVEL=2;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)'=='Release'">
     <ClCompile>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
-      <PreprocessorDefinitions>NDEBUG;_CONSOLE;MV_DEVELOPMENT_BUILD=0;MV_DEBUG_DEVELOPMENT_BUILD=0;MV_COMPILED_INFORMATION_LEVEL=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>MV_HOST_RUNTIME_TESTS=1;NDEBUG;_CONSOLE;MV_DEVELOPMENT_BUILD=0;MV_DEBUG_DEVELOPMENT_BUILD=0;MV_COMPILED_INFORMATION_LEVEL=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Platform)'=='Win32'">
-    <ClCompile><PreprocessorDefinitions>WIN32;%(PreprocessorDefinitions)</PreprocessorDefinitions></ClCompile>
+    <ClCompile><PreprocessorDefinitions>MV_HOST_RUNTIME_TESTS=1;WIN32;%(PreprocessorDefinitions)</PreprocessorDefinitions></ClCompile>
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="..\tests\test_suites\BundleBuilder_test_suite.cpp" />
@@ -108,6 +108,8 @@
     <ClCompile Include="..\tests\test_suites\File_test_suite.cpp" />
     <ClCompile Include="..\tests\test_suites\TimedWait_test_suite.cpp" />
     <ClCompile Include="..\tests\test_suites\AsyncState_test_suite.cpp" />
+    <ClCompile Include="..\tests\test_suites\HostRuntime_test_cases.cpp" />
+    <ClCompile Include="..\tests\test_suites\HostPump_test_suite.cpp" />
     <ClCompile Include="..\tests\test_suites\HostWorkers_test_suite.cpp" />
     <ClCompile Include="..\tests\test_suites\BundleRequests_test_suite.cpp" />
     <ClCompile Include="..\tests\test_suites\BundleService_test_suite.cpp" />
@@ -123,6 +125,14 @@
     </ClCompile>
     <ClInclude Include="..\tests\test_suites\ShaderBatch_cases.hpp" />
     <ClCompile Include="..\host\runtime\host_worker_thread.cpp" />
+    <ClCompile Include="..\host\runtime\client_record.cpp" />
+    <ClCompile Include="..\host\runtime\service_router.cpp" />
+    <ClCompile Include="..\host\runtime\pumped_client.cpp" />
+    <ClCompile Include="..\host\runtime\host.cpp" />
+    <ClCompile Include="..\host\runtime\module_service.cpp" />
+    <ClCompile Include="..\host\system\host_context.cpp" />
+    <ClCompile Include="..\host\runtime\batch_pool.cpp" />
+    <ClCompile Include="..\host\system\system_id_definitions.cpp" />
     <ClCompile Include="..\host\runtime\asset_service.cpp" />
     <ClCompile Include="..\tests\test_suites\BakedDocument_test_suite.cpp" />
     <ClCompile Include="..\tests\test_suites\BakedDocumentTransfer_test_suite.cpp" />
@@ -150,6 +160,7 @@
     <ClCompile Include="..\tests\test_suites\StringBuffers_test_suite.cpp" />
     <ClCompile Include="..\tests\test_suites\SystemTypeIdentity_test_suite.cpp" />
     <ClCompile Include="..\tests\test_suites\TInstance_test_suite.cpp" />
+    <ClCompile Include="..\tests\test_suites\TProcessLifetime_test_suite.cpp" />
     <ClCompile Include="..\tests\test_suites\TMpmcTransport_test_suite.cpp" />
     <ClCompile Include="..\tests\test_suites\TOrderedCollection_test_suite.cpp" />
     <ClCompile Include="..\tests\test_suites\TOrderedSlots_test_harness.cpp" />
@@ -177,6 +188,7 @@
     <ClInclude Include="..\tests\support\test_allocator.hpp" />
     <ClInclude Include="..\tests\support\test_context.hpp" />
     <ClInclude Include="..\tests\support\test_scopes.hpp" />
+    <ClInclude Include="..\tests\support\host_client_fixture.hpp" />
     <ClInclude Include="..\tests\support\thread_helpers.hpp" />
     <ClInclude Include="..\tests\support\slot_harness_helpers.hpp" />
     <ClInclude Include="..\tests\support\collection_growth_helpers.hpp" />
@@ -187,6 +199,7 @@
     <ClInclude Include="..\tests\test_suites\File_test_suite.hpp" />
     <ClInclude Include="..\tests\test_suites\TimedWait_test_suite.hpp" />
     <ClInclude Include="..\tests\test_suites\AsyncState_test_suite.hpp" />
+    <ClInclude Include="..\tests\test_suites\HostPump_test_suite.hpp" />
     <ClInclude Include="..\tests\test_suites\HostWorkers_test_suite.hpp" />
     <ClInclude Include="..\tests\test_suites\BundleRequests_test_suite.hpp" />
     <ClInclude Include="..\tests\test_suites\BundleService_test_suite.hpp" />
@@ -220,6 +233,7 @@
     <ClInclude Include="..\tests\test_suites\StringBuffers_test_suite.hpp" />
     <ClInclude Include="..\tests\test_suites\SystemTypeIdentity_test_suite.hpp" />
     <ClInclude Include="..\tests\test_suites\TInstance_test_suite.hpp" />
+    <ClInclude Include="..\tests\test_suites\TProcessLifetime_test_suite.hpp" />
     <ClInclude Include="..\tests\test_suites\TMpmcTransport_test_suite.hpp" />
     <ClInclude Include="..\tests\test_suites\TOrderedCollection_test_suite.hpp" />
     <ClInclude Include="..\tests\test_suites\TOrderedSlots_test_harness.hpp" />
@@ -292,7 +306,7 @@
   <ItemDefinitionGroup>
     <ClCompile>
       <AdditionalIncludeDirectories>$(SolutionDir)external\basis_universal;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <PreprocessorDefinitions>BASISU_SUPPORT_SSE=0;BASISU_SUPPORT_OPENCL=0;BASISD_SUPPORT_KTX2_ZSTD=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>MV_HOST_RUNTIME_TESTS=1;BASISU_SUPPORT_SSE=0;BASISU_SUPPORT_OPENCL=0;BASISD_SUPPORT_KTX2_ZSTD=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
   </ItemDefinitionGroup>
   <ItemGroup>

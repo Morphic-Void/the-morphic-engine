@@ -14,7 +14,6 @@
 
 #include "entry/bootstrap_config.hpp"
 #include "runtime/host.hpp"
-#include "system/host_context.hpp"
 #include "platform/system/process_priority.hpp"
 
 int main(const int argc, char** const argv)
@@ -37,10 +36,6 @@ int main(const int argc, char** const argv)
             std::fprintf(stderr, "Invalid bootstrap configuration '%s' at line %u: %s.\n", argv[1], error.line, error.message);
         }
         return 2;
-    }
-    if (!host::host_context_install())
-    {
-        return 1;
     }
     const char* const log_tag = (*config.log_tag != '\0') ? config.log_tag : nullptr;
     const int host_result = host::host(log_tag, config.executive, config.log_directory, config.worker_count, config.batch_runner_count);

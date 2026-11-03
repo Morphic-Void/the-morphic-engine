@@ -240,6 +240,9 @@
   <ItemGroup>
     <ClCompile Include="..\host\runtime\host.cpp" />
     <ClCompile Include="..\host\runtime\batch_pool.cpp" />
+    <ClCompile Include="..\host\runtime\client_record.cpp" />
+    <ClCompile Include="..\host\runtime\service_router.cpp" />
+    <ClCompile Include="..\host\runtime\pumped_client.cpp" />
     <ClCompile Include="..\host\runtime\asset_service.cpp" />
     <ClCompile Include="..\host\runtime\module_service.cpp" />
     <ClCompile Include="..\host\system\host_context.cpp" />
@@ -254,6 +257,10 @@
     <ClInclude Include="..\host\entry\bootstrap_config.hpp" />
     <ClInclude Include="..\host\runtime\batch_pool.hpp" />
     <ClInclude Include="..\host\runtime\worker_policy.hpp" />
+    <ClInclude Include="..\host\runtime\client_record.hpp" />
+    <ClInclude Include="..\host\runtime\service_router.hpp" />
+    <ClInclude Include="..\host\runtime\service_provider.hpp" />
+    <ClInclude Include="..\host\runtime\pumped_client.hpp" />
     <ClInclude Include="..\host\runtime\asset_service.hpp" />
     <ClInclude Include="..\host\runtime\host_payloads.hpp" />
     <ClInclude Include="..\host\runtime\host_owner_payloads.def" />

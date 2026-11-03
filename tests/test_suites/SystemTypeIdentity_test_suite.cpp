@@ -7,6 +7,9 @@
 //  Reviewed and accepted by: Ritchie Brannan
 //  Date:    12 Aug 26
 
+#include "system/storage_type_bindings.hpp"
+#include "filesystem/filesystem_messages.hpp"
+#include "module/module_messages.hpp"
 #include <type_traits>
 
 #include "debug/event_arguments.hpp"
@@ -17,7 +20,6 @@
 #include "system/erased_transport_admission.hpp"
 #include "system/system_context.hpp"
 #include "system/system_id_registry.hpp"
-#include "system/service_messages.hpp"
 #include "system/type_registration.hpp"
 #include "tests/test_suites/SystemTypeIdentity_test_suite.hpp"
 #include "tests/support/test_context.hpp"
@@ -206,8 +208,8 @@ void test_host_protocol_categories(TTestContext& ctx)
 
     static_assert(k_type_id_v<AssetLoadRequest>.is_system());
     static_assert(k_type_id_v<AssetSaveRequest>.is_system());
-    static_assert(k_type_id_v<ModuleRequest>.is_system());
-    static_assert(k_type_id_v<FilesystemRefreshRequest>.is_system());
+    static_assert(k_type_id_v<modules::ModuleRequest>.is_system());
+    static_assert(k_type_id_v<filesystem::FilesystemRefreshRequest>.is_system());
     static_assert(k_type_id_v<BundleLoadRequest>.is_system());
     static_assert(k_type_id_v<BundleBakeRequest>.is_system());
 }

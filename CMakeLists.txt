@@ -59,9 +59,15 @@ add_custom_target(MorphicPolicyCheck
     VERBATIM
 )
 
-foreach(target IN ITEMS MorphicHost MorphicExecutive MorphicRendering MorphicAudio MorphicTests)
-    morphic_sources(target_sources "visual_studio/${target}.vcxproj")
-    if(target STREQUAL "MorphicExecutive" OR target STREQUAL "MorphicRendering" OR target STREQUAL "MorphicAudio")
+morphic_sources(pump_fixture_sources visual_studio/MorphicPumpFixture.vcxproj)
+foreach(target IN ITEMS MorphicHost MorphicExecutive MorphicRendering MorphicAudio MorphicTests
+        MorphicPumpProvider MorphicPumpExecutive MorphicPumpReplacement)
+    if(target MATCHES "^MorphicPump")
+        set(target_sources ${pump_fixture_sources})
+    else()
+        morphic_sources(target_sources "visual_studio/${target}.vcxproj")
+    endif()
+    if(target STREQUAL "MorphicExecutive" OR target STREQUAL "MorphicRendering" OR target STREQUAL "MorphicAudio" OR target MATCHES "^MorphicPump")
         add_library(${target} SHARED ${target_sources})
         # Engine modules retain their basename and use the native library suffix.
         set_target_properties(${target} PROPERTIES PREFIX "")
@@ -79,6 +85,9 @@ foreach(target IN ITEMS MorphicHost MorphicExecutive MorphicRendering MorphicAud
     set_target_properties(${target} PROPERTIES C_VISIBILITY_PRESET hidden CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN YES)
     add_dependencies(${target} MorphicPolicyCheck)
 endforeach()
+target_compile_definitions(MorphicPumpProvider PRIVATE MV_PUMP_EXECUTIVE=0 MV_PUMP_REPLACEMENT=0)
+target_compile_definitions(MorphicPumpExecutive PRIVATE MV_PUMP_EXECUTIVE=1 MV_PUMP_REPLACEMENT=0)
+target_compile_definitions(MorphicPumpReplacement PRIVATE MV_PUMP_EXECUTIVE=1 MV_PUMP_REPLACEMENT=1)
 target_include_directories(MorphicHost PRIVATE
     "${CMAKE_SOURCE_DIR}/host/module/types" "${CMAKE_SOURCE_DIR}/host")
 target_include_directories(MorphicExecutive PRIVATE "${CMAKE_SOURCE_DIR}/executive")
@@ -112,7 +121,7 @@ endforeach()
 target_compile_definitions(MorphicRendering PRIVATE
     BASISU_SUPPORT_SSE=0 BASISU_SUPPORT_OPENCL=0 BASISD_SUPPORT_KTX2_ZSTD=1)
 target_include_directories(MorphicTests PRIVATE "${CMAKE_SOURCE_DIR}/external/basis_universal")
-target_compile_definitions(MorphicTests PRIVATE BASISU_SUPPORT_SSE=0 BASISU_SUPPORT_OPENCL=0 BASISD_SUPPORT_KTX2_ZSTD=1)
+target_compile_definitions(MorphicTests PRIVATE MV_HOST_RUNTIME_TESTS=1 BASISU_SUPPORT_SSE=0 BASISU_SUPPORT_OPENCL=0 BASISD_SUPPORT_KTX2_ZSTD=1)
 set_target_properties(MorphicHost PROPERTIES OUTPUT_NAME MorphicEngine)
 add_dependencies(MorphicHost MorphicExecutive MorphicRendering MorphicAudio)
 add_dependencies(MorphicTests MorphicExecutive MorphicRendering MorphicAudio)
@@ -129,6 +138,10 @@ add_test(NAME MorphicReflectionArenaFatal COMMAND "${Python3_EXECUTABLE}"
     "--output-directory=${CMAKE_BINARY_DIR}/reflection-arena-fatal")
 set_tests_properties(MorphicReflectionArenaFatal PROPERTIES TIMEOUT 120)
 foreach(workers IN ITEMS 1 2)
+    add_test(NAME MorphicHostPump${workers}Worker COMMAND "${Python3_EXECUTABLE}"
+        "${CMAKE_SOURCE_DIR}/tests/host_pump/run_tests.py" --engine "$<TARGET_FILE:MorphicHost>"
+        "--output-directory=${CMAKE_BINARY_DIR}/host-pump" --host-workers ${workers})
+    set_tests_properties(MorphicHostPump${workers}Worker PROPERTIES TIMEOUT 480)
     add_test(NAME MorphicHostAcceptance${workers}Worker COMMAND "${Python3_EXECUTABLE}"
         "${CMAKE_SOURCE_DIR}/tests/texture/run_tests.py" --engine "$<TARGET_FILE:MorphicHost>"
         "--output-directory=${CMAKE_BINARY_DIR}/host-acceptance" --host-workers ${workers})

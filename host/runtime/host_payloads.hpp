@@ -13,6 +13,8 @@
 #ifndef HOST_PAYLOADS_HPP_INCLUDED
 #define HOST_PAYLOADS_HPP_INCLUDED
 
+#include "system/storage_type_bindings.hpp"
+#include "module/module_messages.hpp"
 #include "threading/messages/message_helpers.hpp"
 #include <cstddef>
 #include <cstdint>
@@ -20,7 +22,6 @@
 #include "assets/asset_messages.hpp"
 #include "assets/asset_storage.hpp"
 #include "filesystem/filesystem_image.hpp"
-#include "system/service_messages.hpp"
 
 //==============================================================================
 //  File I/O: borrowed Host inputs and worker completions
@@ -146,7 +147,7 @@ namespace host { struct SModuleWork; }
 //  The Host keeps the record and inputs stable until completion. Only the worker
 //  mutates the job while it is borrowed; no client supplies this pointer.
 struct ModuleWorkRequest { host::SModuleWork* work{ nullptr }; };
-struct ModuleWorkResult { EModuleStatus status{ EModuleStatus::invalid_request }; };
+struct ModuleWorkResult { modules::EModuleStatus status{ modules::EModuleStatus::invalid_request }; };
 
 struct FilesystemScanRequest { const filesystem_image::SRootScan* root{ nullptr }; };
 struct FilesystemScanResult

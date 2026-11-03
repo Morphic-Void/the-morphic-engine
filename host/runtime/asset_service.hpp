@@ -19,7 +19,7 @@
 #include "containers/TUnorderedCollection.hpp"
 #include "assets/asset_messages.hpp"
 #include "runtime/host_payloads.hpp"
-#include "threading/CThreadPackage.hpp"
+#include "runtime/client_record.hpp"
 
 namespace host
 {
@@ -50,7 +50,7 @@ public:
     //  The input has completed conditioning; publication never revalidates bytes.
     //  The requester owns management of the original asset and receives final
     //  disposal notification. Other clients may retain views and sub-files.
-    [[nodiscard]] AssetResult publish_bundle(BundlePreparation& prepared, const std::uint64_t binding, threading::CThreadPackage& owner) noexcept;
+    [[nodiscard]] AssetResult publish_bundle(BundlePreparation& prepared, const std::uint64_t binding, SClientRecord& owner) noexcept;
     [[nodiscard]] AssetResult acquire_bundle(const CAssetId source) noexcept;
 
     //  Consumes a trusted live-image resolution, checking binding identity and
@@ -62,11 +62,11 @@ public:
 
     //  Retire management ownership and final notifications before a package is
     //  destroyed or reused. Its accepted operations must have completed first.
-    void detach_client(threading::CThreadPackage& client) noexcept;
+    void detach_client(SClientRecord& client) noexcept;
 
     //  Only after terminal state, queue drain and batch quiescence. Idempotent;
     //  retires abandoned borrows before a package address can be reused.
-    void release_client_acquisitions(threading::CThreadPackage& client) noexcept;
+    void release_client_acquisitions(SClientRecord& client) noexcept;
 
     void set_filesystem(filesystem_image::CImage& image) noexcept { m_filesystem = &image; }
     [[nodiscard]] bool initialise() noexcept;
@@ -82,7 +82,7 @@ public:
     //  Accepted worker operations have drained. Client acquisitions and pending
     //  disposal may remain; clients must be allowed to exit and release them.
     [[nodiscard]] bool work_idle() const noexcept;
-    [[nodiscard]] bool client_idle(const threading::CThreadPackage& client) const noexcept;
+    [[nodiscard]] bool client_idle(const SClientRecord& client) const noexcept;
     [[nodiscard]] bool dependencies_idle(const mount_point_ids::id_type mount) const noexcept;
     [[nodiscard]] bool failed() const noexcept { return m_failed; }
 
@@ -90,11 +90,11 @@ public:
     void dispose_dependencies(const mount_point_ids::id_type mount) noexcept;
     void complete_disposals() noexcept;
 
-    void request(threading::CErasedOwnerMsg& message, threading::CThreadPackage& client) noexcept;
-    void request_disposal(const AssetDisposeRequest& request, const std::int32_t slot, threading::CThreadPackage& client) noexcept;
-    void request_reference(const BundleReferenceRequest& request, const std::int32_t slot, threading::CThreadPackage& client) noexcept;
-    void request_acquire(const AssetAcquireRequest& request, const std::int32_t slot, threading::CThreadPackage& client) noexcept;
-    void request_release(const AssetReleaseRequest& request, const std::int32_t slot, threading::CThreadPackage& client) noexcept;
+    void request(threading::CErasedOwnerMsg& message, SClientRecord& client) noexcept;
+    void request_disposal(const AssetDisposeRequest& request, const std::int32_t slot, SClientRecord& client) noexcept;
+    void request_reference(const BundleReferenceRequest& request, const std::int32_t slot, SClientRecord& client) noexcept;
+    void request_acquire(const AssetAcquireRequest& request, const std::int32_t slot, SClientRecord& client) noexcept;
+    void request_release(const AssetReleaseRequest& request, const std::int32_t slot, SClientRecord& client) noexcept;
     void complete(threading::CErasedOwnerMsg& message, threading::CThreadPackage& worker) noexcept;
     void complete(const threading::CErasedPodMsg& message, threading::CThreadPackage& worker) noexcept;
 
@@ -120,7 +120,7 @@ private:
         BundlePreparation bundle_preparation;
         std::uint64_t reserved_binding{ 0u };    //  Roll back on any unpublished completion.
         std::uint64_t source_binding{ 0u };      //  Admission identity for late cache updates.
-        threading::CThreadPackage* client{ nullptr };
+        SClientRecord* client{ nullptr };
         std::int32_t client_slot{ -1 };
         EPhase phase{ EPhase::loading };
         EAssetFileFormat load_format{ EAssetFileFormat::raw };
@@ -155,7 +155,7 @@ private:
     [[nodiscard]] bool asset_in_use(const CAssetId asset) const noexcept;
 
     template<typename TResult>
-    void reply(threading::CThreadPackage& client, const std::int32_t slot, const TResult& result) noexcept;
+    void reply(SClientRecord& client, const std::int32_t slot, const TResult& result) noexcept;
 
     template<typename TOwner>
     static void describe_views(TOwner& source, AssetResult& result) noexcept;
@@ -179,13 +179,14 @@ private:
         bundle::CBundleView view;
         CAssetId original;
         std::uint64_t binding{ 0u };
-        threading::CThreadPackage* owner{ nullptr }; //  Instance identity; retired by detach_client.
+        SClientRecord* owner{ nullptr }; //  Instance identity; retired by detach_client.
+        bool disposal_reply_reserved{ false };
     };
 
     struct SAcquisition
     {
         CAssetBackingLease backing;
-        threading::CThreadPackage* client{ nullptr };
+        SClientRecord* client{ nullptr };
         CAssetId source{};
         CAssetAcquisitionId identity{};
     };

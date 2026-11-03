@@ -33,4 +33,9 @@
     type_macro(asset_acquire_request) \
     type_macro(asset_acquire_result) \
     type_macro(asset_release_request) \
-    type_macro(asset_release_result)
+    type_macro(asset_release_result) \
+    type_macro(open_service_request) \
+    type_macro(open_service_result) \
+    type_macro(close_service_request) \
+    type_macro(service_request) \
+    type_macro(service_reply)

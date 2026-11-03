@@ -8,6 +8,7 @@
 //
 //  Awake-time budgets persist through message wakeups and periodic checks.
 
+#include "module/module_messages.hpp"
 #include "audio_run.hpp"
 #include "debug/macros.hpp"
 
@@ -30,7 +31,7 @@ bool CAudioRun::set(threading::CWaitDeadline& deadline, const std::uint64_t mill
     const auto error = m_clock.set(m_clock.context, deadline, milliseconds);
     if (error.code == platform::threading::EWaitError::none) return true;
     MV_LOG(error, "Audio: Deadline construction failed ({}, native {})", static_cast<unsigned>(error.code), error.native_error);
-    finish(ETestRunStatus::failed);
+    finish(modules::ETestRunStatus::failed);
     return false;
 }
 
@@ -39,13 +40,13 @@ bool CAudioRun::remaining(const threading::CWaitDeadline& deadline, std::uint64_
     const auto error = m_clock.remaining(m_clock.context, deadline, value);
     if (error.code == platform::threading::EWaitError::none) return true;
     MV_LOG(error, "Audio: Deadline query failed ({}, native {})", static_cast<unsigned>(error.code), error.native_error);
-    finish(ETestRunStatus::failed);
+    finish(modules::ETestRunStatus::failed);
     return false;
 }
 
-void CAudioRun::finish(ETestRunStatus status) noexcept
+void CAudioRun::finish(modules::ETestRunStatus status) noexcept
 {
-    if (!m_output.close()) status = ETestRunStatus::failed;
+    if (!m_output.close()) status = modules::ETestRunStatus::failed;
     m_result = status;
     m_active = false;
 }
@@ -62,11 +63,11 @@ void CAudioRun::begin() noexcept
     if (overall == 0u)
     {
         MV_LOG(error, "Audio: Overall deadline expired during device preparation");
-        finish(ETestRunStatus::failed);
+        finish(modules::ETestRunStatus::failed);
         return;
     }
-    if (opened != ETestRunStatus::success) { finish(opened); return; }
-    if (!m_output.start()) { finish(ETestRunStatus::failed); return; }
+    if (opened != modules::ETestRunStatus::success) { finish(opened); return; }
+    if (!m_output.start()) { finish(modules::ETestRunStatus::failed); return; }
     if (!set(m_progress, 2000u) || !set(m_check, 20u)) return;
     check();
 }
@@ -83,14 +84,14 @@ void CAudioRun::check() noexcept
     if (observed.interrupted)
     {
         MV_LOG(error, "Audio: Output interrupted");
-        finish(ETestRunStatus::failed);
+        finish(modules::ETestRunStatus::failed);
         return;
     }
-    if (observed.complete) { finish(ETestRunStatus::success); return; }
+    if (observed.complete) { finish(modules::ETestRunStatus::success); return; }
     if (overall == 0u)
     {
         MV_LOG(error, "Audio: Overall deadline expired");
-        finish(ETestRunStatus::failed);
+        finish(modules::ETestRunStatus::failed);
         return;
     }
     if (observed.frames > m_frames)
@@ -101,7 +102,7 @@ void CAudioRun::check() noexcept
     if (progress == 0u)
     {
         MV_LOG(error, "Audio: Callback progress deadline expired");
-        finish(ETestRunStatus::failed);
+        finish(modules::ETestRunStatus::failed);
         return;
     }
     if (check_time == 0u)
@@ -115,12 +116,12 @@ void CAudioRun::check() noexcept
 
 void CAudioRun::cancel() noexcept
 {
-    if (m_active) finish(ETestRunStatus::cancelled);
+    if (m_active) finish(modules::ETestRunStatus::cancelled);
 }
 
 void CAudioRun::wait_failed(const threading::WaitResult& result) noexcept
 {
     MV_LOG(error, "Audio: Epoch wait failed ({}, native {})", static_cast<unsigned>(result.status), result.native_error);
-    if (m_active) finish(ETestRunStatus::failed);
+    if (m_active) finish(modules::ETestRunStatus::failed);
 }
 }   //  namespace audio

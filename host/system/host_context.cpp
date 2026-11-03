@@ -6,7 +6,7 @@
 //  Authors: Ritchie Brannan / OpenAI Codex
 //  Date:    13 July 26
 //
-//  Installs the host context and owns component memory contexts.
+//  Owns and installs the Host allocator and memory context.
 // 
 //  This file should not be included in modules/DLLs.
 //
@@ -62,19 +62,20 @@ static bool MV_STD_ABI_CALL host_deallocate(void* const context, const std::size
 }
 
 //==============================================================================
-//  The host memory allocator and component memory contexts
+//  Host context lifetime and installation
 //==============================================================================
 
-static memory::CMemoryAllocator s_host_memory_allocator(nullptr, &host_allocate, &host_deallocate, system_ids::host);
-
-static memory::CMemoryContext s_host_memory_context(s_host_memory_allocator, system_ids::host);
-
-//==============================================================================
-//  Host context installation
-//==============================================================================
-
-bool host_context_install() noexcept
+CHostContext::CHostContext() noexcept
+    : m_allocator{ nullptr, &host_allocate, &host_deallocate, system_ids::host }
+    , m_memory{ m_allocator, system_ids::host }
 {
+    //  Even failed registry installation leaves dependent empty containers with
+    //  a valid memory context through construction and orderly destruction.
+    m_previous_module_memory = memory::set_module_memory_context(&m_memory);
+    m_previous_thread_memory = memory::set_thread_memory_context(nullptr);
+    m_previous_module = system_context::set_ambient_module_id(module_ids::executable);
+    m_previous_thread = system_context::set_ambient_thread_id(thread_ids::host);
+
     const erased_owner_operations::SRegistryView owner_operations{
         erased_owner_operations::system_operations_view(),
         erased_owner_operations::local_operations_view() };
@@ -82,28 +83,33 @@ bool host_context_install() noexcept
         !local_type_registry::install_view(local_type_registry::component_view()) ||
         !erased_owner_operations::install_view(owner_operations))
     {
-        return false;
+        return;
     }
 
-    (void)system_context::set_ambient_module_id(module_ids::executable);
-    (void)system_context::set_ambient_thread_id(thread_ids::host);
     const char* const thread_name = system_id_registry::lookup_thread_name(thread_ids::host);
     if (thread_name != nullptr)
     {
         (void)platform::threading::set_current_thread_name(thread_name);
     }
-    (void)memory::set_module_memory_context(&s_host_memory_context);
-    return memory::get_ambient_memory_context() == &s_host_memory_context;
+    m_installed = memory::get_ambient_memory_context() == &m_memory;
 }
 
-memory::CMemoryContext* host_memory_context() noexcept
+CHostContext::~CHostContext() noexcept
 {
-    return &s_host_memory_context;
+    (void)memory::set_thread_memory_context(m_previous_thread_memory);
+    (void)memory::set_module_memory_context(m_previous_module_memory);
+    (void)system_context::set_ambient_thread_id(m_previous_thread);
+    (void)system_context::set_ambient_module_id(m_previous_module);
 }
 
-memory::CMemoryAllocator& host_memory_allocator() noexcept
+bool CHostContext::is_installed() const noexcept
 {
-    return s_host_memory_allocator;
+    return m_installed;
+}
+
+memory::CMemoryAllocator& CHostContext::allocator() noexcept
+{
+    return m_allocator;
 }
 
 }   //  namespace host

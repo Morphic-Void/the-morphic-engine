@@ -8,6 +8,7 @@
 //
 //  Rendering exercises its local services; Host only retains opaque source bytes.
 
+#include "module/module_messages.hpp"
 #include "threading/messages/message_helpers.hpp"
 #include "runtime/texture_flow_tests.hpp"
 
@@ -365,13 +366,13 @@ bool CTextureFlowTests::check(const texture_acceptance::SScenario& scenario, con
 
 bool CTextureFlowTests::start(const threading::CErasedPodMsg& message) noexcept
 {
-    RunTestsRequest request;
-    RunTestsResult rejected;
+    modules::RunTestsRequest request;
+    modules::RunTestsResult rejected;
     rejected.module = m_module;
     if (!message.copy_payload_to(request) || (request.module != m_module) || (message.query_async_slot() < 0))
-        rejected.status = ETestRunStatus::invalid_request;
-    else if (m_active) rejected.status = ETestRunStatus::busy;
-    else if (m_context.exit_requested()) rejected.status = ETestRunStatus::cancelled;
+        rejected.status = modules::ETestRunStatus::invalid_request;
+    else if (m_active) rejected.status = modules::ETestRunStatus::busy;
+    else if (m_context.exit_requested()) rejected.status = modules::ETestRunStatus::cancelled;
     else
     {
         m_active = true;
@@ -384,7 +385,7 @@ bool CTextureFlowTests::start(const threading::CErasedPodMsg& message) noexcept
         m_hdr_texture = {};
         m_result = {};
         m_result.module = m_module;
-        m_result.status = ETestRunStatus::success;
+        m_result.status = modules::ETestRunStatus::success;
         m_phase = EPhase::fixture;
         auto fixture = threading::make_owner_message<RawAssetTransfer>(m_pending_slot);
         auto* const transfer = fixture.owner().payload<RawAssetTransfer>();
@@ -393,7 +394,7 @@ bool CTextureFlowTests::start(const threading::CErasedPodMsg& message) noexcept
             std::memcpy(transfer->storage.value.data(), texture_acceptance::fixture, sizeof(texture_acceptance::fixture) - 1u);
             if (m_context.post(std::move(fixture))) return true;
         }
-        m_result.status = ETestRunStatus::failed;
+        m_result.status = modules::ETestRunStatus::failed;
         return finish();
     }
     return m_context.post(threading::make_pod_message(message.query_async_slot(), rejected));
@@ -422,7 +423,7 @@ bool CTextureFlowTests::complete(const threading::CErasedPodMsg& message) noexce
     {
         if ((result.status != EAssetStatus::success) || (result.kind != EAssetKind::raw) || !result.asset)
         {
-            m_result.status = ETestRunStatus::failed;
+            m_result.status = modules::ETestRunStatus::failed;
             return dispose_next();
         }
         m_raw = result;
@@ -446,7 +447,7 @@ bool CTextureFlowTests::complete(SResourceResult&& result, const std::int32_t co
     if (!check(scenario, result))
     {
         ++m_result.failed;
-        m_result.status = ETestRunStatus::failed;
+        m_result.status = modules::ETestRunStatus::failed;
         return dispose_next();
     }
     ++m_result.passed;
@@ -468,7 +469,7 @@ bool CTextureFlowTests::next() noexcept
 {
     if (m_context.exit_requested())
     {
-        m_result.status = ETestRunStatus::cancelled;
+        m_result.status = modules::ETestRunStatus::cancelled;
         return dispose_next();
     }
     if (m_scenario_index == texture_acceptance::scenario_count) return dispose_next();
@@ -476,7 +477,7 @@ bool CTextureFlowTests::next() noexcept
     if (prepare_scenario(pending, texture_acceptance::scenarios[m_scenario_index], ++m_pending_slot) &&
         (pending.encoding ? m_requests.submit(std::move(pending.encode), m_pending_slot) : m_requests.submit(pending.decode, m_pending_slot))) return true;
     ++m_result.failed;
-    m_result.status = ETestRunStatus::failed;
+    m_result.status = modules::ETestRunStatus::failed;
     return dispose_next();
 }
 
@@ -497,7 +498,7 @@ bool CTextureFlowTests::finish() noexcept
 {
     m_result.skipped = texture_acceptance::scenario_count - m_result.passed - m_result.failed;
     m_active = false;
-    if (m_result.status == ETestRunStatus::success)
+    if (m_result.status == modules::ETestRunStatus::success)
         MV_LOG(info, "Rendering acceptance: {} texture flow tests passed", m_result.passed);
     return m_context.post(threading::make_pod_message(m_request_slot, m_result));
 }

@@ -8,6 +8,9 @@
 //
 //  Executive thread and asynchronous asset-service acceptance exercise.
 
+#include "system/storage_type_bindings.hpp"
+#include "filesystem/filesystem_messages.hpp"
+#include "module/module_messages.hpp"
 #include "threading/messages/message_helpers.hpp"
 
 #include <cstdint>      //  std::int32_t, std::uint32_t, std::uint64_t
@@ -29,7 +32,6 @@
 #include "platform/threading/processor_relax.hpp"
 #include "system/system_id_registry.hpp"
 #include "assets/asset_messages.hpp"
-#include "system/service_messages.hpp"
 #include "threading/CThreadPackage.hpp"
 #include "tests/support/host_test_paths.hpp"
 
@@ -363,7 +365,7 @@ bool CExecutiveThread::load_test_module() noexcept
     const bool audio = m_test_module == module_ids::audio;
     if (!platform::module::make_module_filename(audio ? "package:/bin/MorphicAudio" : "package:/bin/MorphicRendering", file) ||
         !request_preparation::prepare_module_request(pending, m_pending_slot,
-            m_test_module, EModuleAction::load, file.cstring(), true) || !m_context.post(std::move(pending)))
+            m_test_module, modules::EModuleAction::load, file.cstring(), true) || !m_context.post(std::move(pending)))
     {
         fail(EFailure::submission, "module load submission");
         return false;
@@ -378,7 +380,7 @@ bool CExecutiveThread::accept_module_notice(const threading::CErasedPodMsg& mess
 {
     MV_DETAIL("Executive module notification");
 
-    ModuleResult result;
+    modules::ModuleResult result;
     if (!message.copy_payload_to(result) || (message.query_async_slot() != m_pending_slot) ||
         (result.module != m_test_module))
     {
@@ -387,7 +389,7 @@ bool CExecutiveThread::accept_module_notice(const threading::CErasedPodMsg& mess
 
     if (m_phase == EPhase::module_acknowledgement)
     {
-        if ((result.notice != EModuleNotice::acknowledged) || (result.status != EModuleStatus::success))
+        if ((result.notice != modules::EModuleNotice::acknowledged) || (result.status != modules::EModuleStatus::success))
         {
             return false;
         }
@@ -398,15 +400,15 @@ bool CExecutiveThread::accept_module_notice(const threading::CErasedPodMsg& mess
     {
         //  An Executive replacement may inherit an already running renderer.
         //  Accept only the chosen implementation, with a live service thread.
-        if ((result.notice != EModuleNotice::completed) || !result.available ||
-            ((result.status != EModuleStatus::success) && (result.status != EModuleStatus::already_loaded)))
+        if ((result.notice != modules::EModuleNotice::completed) || !result.available ||
+            ((result.status != modules::EModuleStatus::success) && (result.status != modules::EModuleStatus::already_loaded)))
         {
             return false;
         }
         m_phase = EPhase::module_tests;
         ++m_pending_slot;
         MV_LOG_RICH(info, "Executive: %s ready (%s)", (m_test_module == module_ids::audio) ? "Audio" : "Rendering",
-            (result.status == EModuleStatus::already_loaded) ? "already loaded" : "loaded");
+            (result.status == modules::EModuleStatus::already_loaded) ? "already loaded" : "loaded");
     }
     (void)m_perf_counter.update();
     return true;
@@ -861,9 +863,9 @@ bool CExecutiveThread::complete_filesystem_exercise(const threading::CErasedPodM
         }
         if (step < 3)
         {
-            FilesystemRefreshResult result;
+            filesystem::FilesystemRefreshResult result;
             if ((step != m_refresh_step) || !message.copy_payload_to(result) ||
-                (result.status != ((step == 2) ? EFilesystemStatus::invalid_root : EFilesystemStatus::success)))
+                (result.status != ((step == 2) ? filesystem::EFilesystemStatus::invalid_root : filesystem::EFilesystemStatus::success)))
             {
                 return false;
             }
@@ -1100,7 +1102,7 @@ bool CExecutiveThread::request_system_shutdown() noexcept
 {
     threading::CErasedOwnerMsg pending;
     if (!request_preparation::prepare_module_request(pending, threading::k_uncorrelated_slot,
-        module_ids::executive, EModuleAction::unload) || !m_context.post(std::move(pending)))
+        module_ids::executive, modules::EModuleAction::unload) || !m_context.post(std::move(pending)))
     {
         return false;
     }
@@ -1145,7 +1147,7 @@ void CExecutiveThread::operate() noexcept
                 }
                 else if (m_phase == EPhase::module_tests)
                 {
-                    const auto request = threading::make_pod_message(m_pending_slot, RunTestsRequest{ m_test_module });
+                    const auto request = threading::make_pod_message(m_pending_slot, modules::RunTestsRequest{ m_test_module });
                     const auto timing = m_test_watchdog.start();
                     if (timing.code != platform::threading::EWaitError::none)
                         fail(EFailure::timing, "module test deadline construction");
@@ -1155,12 +1157,12 @@ void CExecutiveThread::operate() noexcept
             }
             if (m_phase == EPhase::module_tests)
             {
-                RunTestsResult result;
+                modules::RunTestsResult result;
                 if ((message.query_async_slot() != m_pending_slot) || !message.copy_payload_to(result) ||
                     (result.module != m_test_module) ||
-                    !(((result.status == ETestRunStatus::success) && (result.failed == 0u) && (result.skipped == 0u) &&
+                    !(((result.status == modules::ETestRunStatus::success) && (result.failed == 0u) && (result.skipped == 0u) &&
                         ((m_test_module == module_ids::audio) ? (result.passed == 1u) : (result.passed != 0u))) ||
-                      ((m_test_module == module_ids::audio) && (result.status == ETestRunStatus::unavailable) &&
+                      ((m_test_module == module_ids::audio) && (result.status == modules::ETestRunStatus::unavailable) &&
                         (result.passed == 0u) && (result.failed == 0u) && (result.skipped == 1u))))
                 {
                     fail(EFailure::completion, "module tests");
@@ -1175,7 +1177,7 @@ void CExecutiveThread::operate() noexcept
                     (void)load_test_module();
                     continue;
                 }
-                if (result.status == ETestRunStatus::unavailable)
+                if (result.status == modules::ETestRunStatus::unavailable)
                     MV_LOG(info, "Executive: Audio unavailable: no real output device; test skipped");
                 m_phase = EPhase::sequential;
                 ++m_pending_slot;
@@ -1187,13 +1189,13 @@ void CExecutiveThread::operate() noexcept
                     fail(EFailure::submission, "initial asset request submission");
                 continue;
             }
-            ModuleResult module_result;
+            modules::ModuleResult module_result;
             if (message.copy_payload_to(module_result))
             {
                 MV_DETAIL("Executive module notification");
                 //  No retry policy yet: failure of another DLL's operation requests
                 //  our own termination, which the Host interprets as system shutdown.
-                if ((module_result.notice == EModuleNotice::completed) && (module_result.status != EModuleStatus::success) &&
+                if ((module_result.notice == modules::EModuleNotice::completed) && (module_result.status != modules::EModuleStatus::success) &&
                     !request_system_shutdown())
                 {
                     fail(EFailure::submission, "system shutdown request");
