@@ -374,7 +374,7 @@ bool CHost::stop_module_thread(const mount_point_ids::id_type mount) noexcept
     //  package or its transports when shutdown joins and destroys them.
     m_runtime_failed = m_runtime_failed || (state == threading::EThreadRunState::Failed);
     const auto module = service->module_id();
-    (void)service->shutdown();
+    if (!service->shutdown()) return false;
     m_asset_service.detach_client(*client_for(*service));
     m_providers[module_ids::ops::decode_id(module).raw_value()] = {};
     m_clients[module_ids::ops::decode_id(module).raw_value()].reset();
@@ -583,6 +583,7 @@ void CHost::receive_message(const threading::CErasedPodMsg& message, SClientReco
     services::ReleaseServiceBorrow borrow_release;
     services::ServiceBorrowQuiescent borrow_quiescent;
     services::CancelServiceRequest cancel;
+    services::RegisterServiceNotification notification;
     const auto slot = message.query_async_slot();
     if (message.copy_payload_to(open))
     {
@@ -599,6 +600,7 @@ void CHost::receive_message(const threading::CErasedPodMsg& message, SClientReco
     else if (message.copy_payload_to(borrow_release)) m_service_router.release_borrow(client, borrow_release);
     else if (message.copy_payload_to(borrow_quiescent)) m_service_router.quiesce_borrow(client, borrow_quiescent);
     else if (message.copy_payload_to(cancel)) m_service_router.cancel_request(client, cancel);
+    else if (message.copy_payload_to(notification)) m_service_router.register_notification(client, notification, slot);
     else if (message.copy_payload_to(acquire)) m_asset_service.request_acquire(acquire, slot, client);
     else if (message.copy_payload_to(release)) m_asset_service.request_release(release, slot, client);
     else if (message.copy_payload_to(disposal)) m_asset_service.request_disposal(disposal, slot, client);
@@ -850,7 +852,7 @@ void CHost::advance_lifecycle(const threading::EThreadRunState executive_state) 
             //  Join before dropping queued messages or allowing the worker to
             //  unbind the outgoing Executive. No asset operation still borrows it.
             m_runtime_failed = m_runtime_failed || (state == threading::EThreadRunState::Failed);
-            (void)executive->shutdown();
+            if (!executive->shutdown()) return;
             m_asset_service.detach_client(*client_for(*executive));
             m_providers[module_ids::executive_index.raw_value()] = {};
             m_clients[module_ids::executive_index.raw_value()].reset();
@@ -1225,14 +1227,17 @@ void CHost::begin_emergency_shutdown() noexcept
         EPhase::stopping_executive : EPhase::shutting_down;
 }
 
-void CHost::shutdown_threads() noexcept
+bool CHost::shutdown_threads() noexcept
 {
     //  Every package is unique, including the single combined I/O/conditioning
     //  worker. Join all borrowers before any service releases input storage.
+    bool stopped = true;
     for (std::int32_t slot = m_thread_packages.last_live(); slot >= 0; slot = m_thread_packages.prev_live(slot))
     {
-        (void)m_thread_packages.get_object(slot)->shutdown();
+        auto& package = *m_thread_packages.get_object(slot);
+        if ((package.query_state() != threading::EThreadRunState::Empty) && !package.shutdown()) stopped = false;
     }
+    if (!stopped) return false;
     for (auto& service : m_module_threads)
     {
         service = {};
@@ -1242,6 +1247,7 @@ void CHost::shutdown_threads() noexcept
         slot = -1;
     }
     m_worker_count = 0u;
+    return true;
 }
 
 void CHost::shutdown_debug_service() noexcept
@@ -1273,7 +1279,7 @@ bool CHost::shutdown() noexcept
         begin_emergency_shutdown();
         run();
     }
-    shutdown_threads();
+    if (!shutdown_threads()) m_retain_runtime = true;
     const bool batch_stopped = m_batch_pool.stop();
     if (m_retain_runtime)
     {

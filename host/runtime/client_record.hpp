@@ -10,6 +10,7 @@
 
 #pragma once
 
+#include <atomic>
 #include "services/service_protocol.hpp"
 #include "module/module_identity.hpp"
 #include "threading/CThreadPackage.hpp"
@@ -69,6 +70,7 @@ struct SClientRecord
     bool stop_requested{ false };
     bool incoming_drained{ false };
     bool terminal_before_drain{ false };
+    std::atomic<std::uint32_t> notifications_pending{ 0u };
     std::uint32_t reserved_replies{ 0u };
     std::uint32_t message_count{ 0u };
     std::uint32_t reserved_control_replies{ 0u };

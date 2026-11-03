@@ -111,6 +111,7 @@
     <ClCompile Include="..\tests\test_suites\HostRuntime_test_cases.cpp" />
     <ClCompile Include="..\tests\test_suites\HostPump_test_suite.cpp" />
     <ClCompile Include="..\tests\test_suites\ServiceBorrow_test_cases.cpp" />
+    <ClCompile Include="..\tests\test_suites\Notification_test_cases.cpp" />
     <ClCompile Include="..\tests\test_suites\HostWorkers_test_suite.cpp" />
     <ClCompile Include="..\tests\test_suites\BundleRequests_test_suite.cpp" />
     <ClCompile Include="..\tests\test_suites\BundleService_test_suite.cpp" />

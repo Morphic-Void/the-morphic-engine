@@ -96,7 +96,7 @@ private:
     void begin_emergency_shutdown() noexcept;
     void check_shutdown_deadline() noexcept;
     [[nodiscard]] bool shutdown() noexcept;
-    void shutdown_threads() noexcept;
+    [[nodiscard]] bool shutdown_threads() noexcept;
     void shutdown_debug_service() noexcept;
 
     [[nodiscard]] threading::CThreadPackage* module_thread_package(const module_ids::id_type module) noexcept;

@@ -125,8 +125,8 @@ cannot affect another record. The sender retries a failed transport submission.
 ## Pump adapter and protocol boundary
 
 `modules::SHostPumpServices` is one current table containing queued POD and owner
-submission, terminal completion, borrow preparation, and begin/finish retirement
-callbacks. Providers require the exact current size and version before using the
+submission, terminal completion, borrow preparation, begin/finish retirement, and
+notification binding callbacks. Providers require the exact current size and version before using the
 table. These fields reject mismatched binaries; older layouts are not supported.
 Host and modules use matching headers and coordinated rebuilds, including changes
 to the SYSTEM catalogue. No native types or Platform opcodes are added to Host.
@@ -138,9 +138,10 @@ also supports threaded consumers. Service providers still use the pumped adapter
 This refines the planned Platform release messages: window-use and input-release
 helpers should use generic borrow retirement and quiescence, with their domain
 cleanup preceding the appropriate acknowledgment. Platform still owns close policy,
-input readiness, stream barriers and native resource destruction. Worker preparation,
-notification registration, modal restriction and native Platform code remain separate
-increments.
+input readiness, stream barriers and native resource destruction. Notifications
+use [borrow-bound registrations](service_notifications.md), retaining their wait
+targets through final publisher cleanup. Worker preparation, modal restriction
+and native Platform code remain separate increments.
 
 ## Verification
 

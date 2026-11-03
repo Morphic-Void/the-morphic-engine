@@ -80,6 +80,9 @@ thread identity, module memory context and pump-context provisioning. The module
 borrows that stable context through successful deactivation. Its services table
 requires the exact current size/version and exposes queued SYSTEM POD and owning
 requests, terminal service completion, and borrow preparation/retirement.
+Borrow-bound notification endpoints and their wait targets survive until both
+consumer quiescence and final provider cleanup; pumped work indications do not
+add Host sleep scheduling. See [service notifications](service_notifications.md).
 Callbacks authenticate the currently executing pump
 on the Host thread; calls from another thread or outside a lifecycle call fail.
 Owning request storage transfers only on success and uses existing SYSTEM

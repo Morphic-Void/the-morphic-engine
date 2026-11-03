@@ -44,6 +44,7 @@
     <ClCompile Include="..\tests\test_suites\HostRuntime_test_cases.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
     <ClCompile Include="..\tests\test_suites\HostPump_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
     <ClCompile Include="..\tests\test_suites\ServiceBorrow_test_cases.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
+    <ClCompile Include="..\tests\test_suites\Notification_test_cases.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
     <ClCompile Include="..\tests\test_suites\HostWorkers_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
     <ClCompile Include="..\tests\test_suites\BundleRequests_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
     <ClCompile Include="..\tests\test_suites\BundleService_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>

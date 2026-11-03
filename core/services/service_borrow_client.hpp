@@ -12,6 +12,7 @@
 
 #include "containers/TUnorderedCollection.hpp"
 #include "services/service_borrow.hpp"
+#include "services/service_notifications.hpp"
 
 namespace services
 {
@@ -34,6 +35,12 @@ public:
     [[nodiscard]] bool abandon_unsubmitted(SServiceRoute route, SServiceRequestId request) noexcept;
     [[nodiscard]] bool observe(const ServiceReply& reply) noexcept;
     [[nodiscard]] bool observe(const ServiceBorrowControl& control) noexcept;
+    [[nodiscard]] bool request_notification(SServiceBorrow borrow, RegisterServiceNotification& message) noexcept;
+    //  Caller must prove the registration request never entered the transport.
+    [[nodiscard]] bool abandon_unsubmitted_notification(SServiceBorrow borrow) noexcept;
+    [[nodiscard]] bool observe(const ServiceNotificationRegistered& reply) noexcept;
+    [[nodiscard]] SNotificationRegistration registration(SServiceBorrow borrow) const noexcept;
+    [[nodiscard]] threading::SNotificationReader notification(SServiceBorrow borrow) const noexcept;
     [[nodiscard]] SServiceBorrow borrow(SServiceRoute route, SServiceRequestId request) const noexcept;
     [[nodiscard]] SServiceView view(SServiceBorrow borrow) const noexcept;
     [[nodiscard]] bool release(SServiceBorrow borrow, ReleaseServiceBorrow& message) noexcept;
@@ -57,6 +64,9 @@ private:
         bool closing{ false };
         bool quiescent{ false };
         bool retired{ false };
+        bool notification_waiting{ false };
+        SNotificationRegistration registration;
+        threading::SNotificationReader notification;
     };
 
     [[nodiscard]] SRecord* find(SServiceRoute route, SServiceRequestId request) noexcept;

@@ -193,6 +193,19 @@ void CServiceRouter::release_borrow(SClientRecord& client, const services::Relea
     m_borrows.release(client, request);
 }
 
+void CServiceRouter::register_notification(SClientRecord& client,
+    const services::RegisterServiceNotification& request, const std::int32_t slot) noexcept
+{
+    const auto result = m_borrows.register_notification(client, request);
+    if (!client.reply(threading::make_pod_message(slot, result))) m_failed = true;
+}
+
+EServiceStatus CServiceRouter::bind_borrow_notification(SClientRecord& provider, const services::SServiceBorrow borrow,
+    const services::SNotificationRegistration registration, threading::SNotificationEndpoint& endpoint) noexcept
+{
+    return m_borrows.bind_notification(provider, borrow, registration, endpoint);
+}
+
 void CServiceRouter::quiesce_borrow(SClientRecord& client, const services::ServiceBorrowQuiescent& request) noexcept
 {
     m_borrows.quiescent(client, request);

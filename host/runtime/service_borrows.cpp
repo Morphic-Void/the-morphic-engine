@@ -119,6 +119,55 @@ void CServiceBorrows::release(SClientRecord& client, const services::ReleaseServ
     if ((record != nullptr) && (record->client == &client) && (record->offer.route.value == request.route.value)) close(*record);
 }
 
+services::ServiceNotificationRegistered CServiceBorrows::register_notification(SClientRecord& client,
+    const services::RegisterServiceNotification& request) noexcept
+{
+    services::ServiceNotificationRegistered result{ request.route, request.borrow };
+    auto* const record = find(request.borrow);
+    if (!record || (record->client != &client) || (record->offer.route.value != request.route.value))
+    {
+        result.status = EServiceStatus::stale;
+        return result;
+    }
+    if (record->closing || client.terminal() || client.stop_requested)
+    {
+        result.status = EServiceStatus::closing;
+        return result;
+    }
+    if (!record->published) return result;
+    if (record->registration.value == 0u)
+    {
+        if (m_next_registration == 0u) { result.status = EServiceStatus::busy; return result; }
+        if ((client.execution == EClientExecution::threaded) && client.thread)
+        {
+            if (!client.thread->pin_notification(record->notification)) return result;
+            record->pinned_thread = client.thread;
+        }
+        else if (client.execution == EClientExecution::pumped)
+        {
+            if (!record->notification.initialise(client.notifications_pending)) return result;
+        }
+        else { result.status = EServiceStatus::unsupported; return result; }
+        record->registration.value = m_next_registration++;
+    }
+    result.registration = record->registration;
+    result.reader = record->notification.reader();
+    result.status = EServiceStatus::success;
+    return result;
+}
+
+EServiceStatus CServiceBorrows::bind_notification(SClientRecord& provider, const services::SServiceBorrow borrow,
+    const services::SNotificationRegistration registration, threading::SNotificationEndpoint& endpoint) noexcept
+{
+    endpoint = {};
+    auto* const record = find(borrow);
+    if (!record || (record->provider != &provider) || !registration.value ||
+        (record->registration.value != registration.value)) return EServiceStatus::stale;
+    if (record->closing || record->client->terminal() || record->client->stop_requested) return EServiceStatus::closing;
+    endpoint = record->notification.endpoint();
+    return EServiceStatus::success;
+}
+
 void CServiceBorrows::quiescent(SClientRecord& client, const services::ServiceBorrowQuiescent& request) noexcept
 {
     auto* const record = find(request.borrow);
@@ -217,6 +266,9 @@ void CServiceBorrows::progress() noexcept
             if (record.finished && record.client_notified &&
                 (record.client->terminal() || notify(record, *record.client, EServiceBorrowControl::retired)))
             {
+                //  Consumer quiescence and provider-finished proof cover every
+                //  reader and publisher, including final signals after thread exit.
+                if (record.pinned_thread) record.pinned_thread->unpin_notification();
                 (void)m_records.erase(slot);
                 --m_count;
             }

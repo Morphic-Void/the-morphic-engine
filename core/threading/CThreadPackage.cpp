@@ -132,6 +132,8 @@ bool CThreadPackage::install_batch_client(SBatchShared& shared, const module_ids
 
 bool CThreadPackage::shutdown() noexcept
 {
+    //  The owner must continue provider retirement before attempting teardown.
+    if (m_notification_pins != 0u) return false;
     if (m_resources.created && m_resources.wait_predicate.has_control())
     {
         m_resources.control_state.request_exit();
@@ -154,6 +156,7 @@ bool CThreadPackage::shutdown() noexcept
 
 void CThreadPackage::release_wait_control() noexcept
 {
+    MV_ASSERT(m_notification_pins == 0u);
     //  A joined requester can have consumed its final response before the
     //  runner finishes waking it. Keep the predicate controlled until then.
     while ((m_resources.batch_client != nullptr) &&
@@ -162,6 +165,25 @@ void CThreadPackage::release_wait_control() noexcept
         std::this_thread::yield();
     }
     m_resources.wait_predicate.release_control();
+}
+
+CThreadPackage::~CThreadPackage() noexcept
+{
+    MV_ASSERT(m_notification_pins == 0u);
+}
+
+bool CThreadPackage::pin_notification(CNotification& notification) noexcept
+{
+    if (!m_resources.created || (m_notification_pins == ~0u) ||
+        !notification.initialise(m_resources.wait_predicate)) return false;
+    ++m_notification_pins;
+    return true;
+}
+
+void CThreadPackage::unpin_notification() noexcept
+{
+    MV_ASSERT(m_notification_pins != 0u);
+    if (m_notification_pins != 0u) --m_notification_pins;
 }
 
 }   //  namespace threading

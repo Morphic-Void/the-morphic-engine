@@ -29,6 +29,7 @@
 #include "threading/CParkingGate.hpp"
 #include "threading/CThreadControlState.hpp"
 #include "threading/CWaitPredicate.hpp"
+#include "threading/CNotification.hpp"
 #include "threading/messages/CErasedMessageTransports.hpp"
 
 namespace threading
@@ -84,6 +85,7 @@ public:
 
     [[nodiscard]] bool exit_requested() const noexcept;
     [[nodiscard]] const platform::system::CPerfCountConversion& perf_count_conversion() const noexcept;
+    [[nodiscard]] std::uint32_t observe_epoch() const noexcept;
     [[nodiscard]] WaitResult wait_for_new_epoch(const std::uint32_t epoch, const CWaitDeadline& deadline) noexcept;
     std::uint32_t wait_for_new_epoch(const std::uint32_t epoch) noexcept;
 
@@ -99,10 +101,13 @@ class CThreadPackage
 {
 public:
     CThreadPackage(const ThreadConfig& thread_config, const platform::system::CPerfCountConversion& perf_count_conversion) noexcept;
-    ~CThreadPackage() noexcept = default;
+    ~CThreadPackage() noexcept;
 
     bool startup() noexcept;
     bool shutdown() noexcept;
+    //  Owner-thread only. Release after all readers AND signal calls are quiescent.
+    [[nodiscard]] bool pin_notification(CNotification& notification) noexcept;
+    void unpin_notification() noexcept;
     bool install_batch_client(SBatchShared& shared, const module_ids::id_type module_id, void* const binding) noexcept;
     void request_exit() noexcept;
     bool read(CErasedPodMsg& msg) noexcept;
@@ -119,6 +124,7 @@ private:
 
     CThreadResources m_resources;
     TInstance<CBatchClient> m_batch_client;
+    std::uint32_t m_notification_pins{ 0u };
 };
 
 //==============================================================================
@@ -181,6 +187,11 @@ inline const platform::system::CPerfCountConversion& CThreadContext::perf_count_
 inline bool CThreadContext::read(CErasedPodMsg& msg) noexcept
 {
     return m_resources.host_to_worker_msgs.read(msg);
+}
+
+inline std::uint32_t CThreadContext::observe_epoch() const noexcept
+{
+    return m_resources.wait_predicate.get_word();
 }
 
 inline bool CThreadContext::post(const CErasedPodMsg& msg) noexcept

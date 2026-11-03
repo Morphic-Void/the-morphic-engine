@@ -47,6 +47,8 @@ private:
     static services::EServiceStatus MV_STD_ABI_CALL prepare_borrow(void*, const services::SServiceBorrowOffer*, services::SServiceBorrow*) noexcept;
     static services::EServiceStatus MV_STD_ABI_CALL begin_borrow_retirement(void*, services::SServiceBorrow) noexcept;
     static services::EServiceStatus MV_STD_ABI_CALL finish_borrow_retirement(void*, services::SServiceBorrow) noexcept;
+    static services::EServiceStatus MV_STD_ABI_CALL bind_borrow_notification(void*, services::SServiceBorrow,
+        services::SNotificationRegistration, threading::SNotificationEndpoint*) noexcept;
 
     SClientRecord& m_client;
     modules::CBoundModule& m_binding;

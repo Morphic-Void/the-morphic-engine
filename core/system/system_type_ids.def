@@ -43,4 +43,6 @@
     type_macro(service_borrow_quiescent) \
     type_macro(cancel_service_request) \
     type_macro(service_borrow_control) \
-    type_macro(service_request_cancelled)
+    type_macro(service_request_cancelled) \
+    type_macro(register_service_notification) \
+    type_macro(service_notification_registered)

@@ -29,6 +29,9 @@ public:
         const services::SServiceBorrowOffer& offer, services::SServiceBorrow& borrow) noexcept;
     [[nodiscard]] services::EServiceStatus begin_borrow_retirement(SClientRecord& provider, services::SServiceBorrow borrow) noexcept;
     [[nodiscard]] services::EServiceStatus finish_borrow_retirement(SClientRecord& provider, services::SServiceBorrow borrow) noexcept;
+    void register_notification(SClientRecord& client, const services::RegisterServiceNotification& request, std::int32_t slot) noexcept;
+    [[nodiscard]] services::EServiceStatus bind_borrow_notification(SClientRecord& provider, services::SServiceBorrow borrow,
+        services::SNotificationRegistration registration, threading::SNotificationEndpoint& endpoint) noexcept;
     void release_borrow(SClientRecord& client, const services::ReleaseServiceBorrow& request) noexcept;
     void quiesce_borrow(SClientRecord& client, const services::ServiceBorrowQuiescent& request) noexcept;
     void cancel_request(SClientRecord& client, const services::CancelServiceRequest& request) noexcept;

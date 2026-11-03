@@ -48,6 +48,10 @@ static const char* selected() noexcept
 }
 static bool scenario(const char* value) noexcept { return std::strcmp(selected(), value) == 0; }
 static bool borrow_scenario() noexcept { return std::strncmp(selected(), "borrow-", 7u) == 0; }
+static bool notification_scenario() noexcept { return std::strncmp(selected(), "notify-", 7u) == 0; }
+
+struct SNotificationData { std::atomic<unsigned> value{ 0u }; };
+struct SNotificationReady { SServiceBorrow borrow; SNotificationRegistration registration; };
 
 static threading::CErasedOwnerMsg module_request(const module_ids::id_type module,
     const modules::EModuleAction action, const char* file = nullptr, const bool pump = false, const bool thread = false)
@@ -247,6 +251,138 @@ static bool borrowed_resource(threading::CThreadContext& context, const SService
     return operation(context, modules::EModuleAction::unload, modules::EModuleStatus::success) && self_stop(context, false);
 }
 
+static bool notified_resource(threading::CThreadContext& context, const SServiceRoute route)
+{
+    CServiceBorrowClient consumer;
+    if (!consumer.begin(route, { 1u }, 6u)) return false;
+    ServiceRequest acquisition;
+    acquisition.route = route;
+    acquisition.request.value = 1u;
+    acquisition.opcode = 6u;
+    if (!context.post(threading::make_pod_message(70, acquisition))) return false;
+    SServiceBorrow borrow;
+    const SNotificationData* data = nullptr;
+    threading::SNotificationReader reader;
+    bool terminal = false, ready = false, observed = false, releasing = false, quiescent = false;
+    threading::CWaitDeadline deadline;
+    if (deadline.set_after_milliseconds(10000u).code != platform::threading::EWaitError::none) return false;
+    for (;;)
+    {
+        const auto epoch = context.observe_epoch();
+        threading::CErasedPodMsg message;
+        while (context.read(message))
+        {
+            ServiceReply reply;
+            ServiceBorrowControl control;
+            ServiceNotificationRegistered registration;
+            if (message.copy_payload_to(reply))
+            {
+                if (reply.opcode == 7u)
+                {
+                    if (reply.status != EServiceStatus::success) return false;
+                    if (reply.notice == EServiceNotice::completed) ready = true;
+                }
+                else
+                {
+                    if (!consumer.observe(reply)) return false;
+                    if (reply.notice == EServiceNotice::prepared)
+                    {
+                        borrow = consumer.borrow(route, { 1u });
+                        const auto view = consumer.view(borrow);
+                        if (view.size != sizeof(SNotificationData) || view.version != 1u || !view.descriptor) return false;
+                        data = static_cast<const SNotificationData*>(view.descriptor);
+                        RegisterServiceNotification request;
+                        if (!consumer.request_notification(borrow, request) ||
+                            !context.post(threading::make_pod_message(72, request))) return false;
+                    }
+                    if (reply.notice == EServiceNotice::completed)
+                    {
+                        if (reply.status != (scenario("notify-cancel") ? EServiceStatus::cancelled : EServiceStatus::success)) return false;
+                        terminal = true;
+                    }
+                }
+            }
+            else if (message.copy_payload_to(registration))
+            {
+                if (!consumer.observe(registration) || registration.status != EServiceStatus::success) return false;
+                reader = consumer.notification(borrow);
+                if (!reader.is_valid()) return false;
+                ServiceRequest request;
+                request.route = route;
+                request.request.value = 2u;
+                request.opcode = 7u;
+                const SNotificationReady payload{ borrow, consumer.registration(borrow) };
+                request.payload_size = sizeof(payload);
+                std::memcpy(request.payload, &payload, sizeof(payload));
+                if (!context.post(threading::make_pod_message(73, request))) return false;
+            }
+            else if (message.copy_payload_to(control))
+            {
+                if (!consumer.observe(control)) return false;
+                if (control.control == EServiceBorrowControl::closing) releasing = true;
+            }
+            else return false;
+        }
+        if (!releasing && reader.is_valid() && ready && !observed)
+        {
+            if (reader.failed()) return false;
+            if (data->value.load(std::memory_order_acquire) != 0u)
+            {
+                observed = true;
+                MV_LOG(info, "Pump fixture: registered notification published durable data before wake");
+            }
+        }
+        if (observed && !releasing && (terminal || scenario("notify-cancel")))
+        {
+            //  Leave cancellation pending deliberately. Other cases require a
+            //  fresh final signal, including after the old consumer has exited.
+            if (!scenario("notify-cancel")) reader.clear_pending();
+            if (scenario("notify-abandoned")) return self_stop(context, false);
+#if !MV_PUMP_REPLACEMENT
+            if (scenario("notify-replacement")) return self_stop(context, true);
+#endif
+            if (scenario("notify-shutdown") && !self_stop(context, false)) return false;
+            if (scenario("notify-cancel"))
+            {
+                CancelServiceRequest cancel;
+                if (!consumer.cancel(route, { 1u }, cancel) || !context.post(threading::make_pod_message(-1, cancel))) return false;
+            }
+            else
+            {
+                ReleaseServiceBorrow release;
+                if (!consumer.release(borrow, release) || !context.post(threading::make_pod_message(-1, release))) return false;
+            }
+            releasing = true;
+        }
+        if (releasing && !quiescent)
+        {
+            reader = {};
+            data = nullptr;
+            ServiceBorrowQuiescent proof;
+            if (!consumer.quiesce(borrow, proof) || !context.post(threading::make_pod_message(-1, proof))) return false;
+            quiescent = true;
+        }
+        if (terminal && consumer.retired(borrow)) break;
+        if (reader.is_valid())
+        {
+            reader.clear_pending();
+            if (reader.failed()) return false;
+            if (!observed && ready && data->value.load(std::memory_order_acquire) != 0u) continue;
+        }
+        //  Messages and exit share this sampled epoch with external notifications.
+        //  An exit request does not end cleanup; its messages continue to wake us.
+        if (context.wait_for_new_epoch(epoch, deadline).status != threading::EWaitStatus::satisfied) return false;
+    }
+    if (!consumer.forget(route, { 1u })) return false;
+    MV_LOG(info, "Pump fixture: notification retired after final publisher signal");
+    if (scenario("notify-shutdown")) return true;
+    threading::CErasedPodMsg message;
+    ServiceReply closed;
+    if (!context.post(threading::make_pod_message(74, CloseServiceRequest{ route, { 3u } })) ||
+        !receive(context, message) || !message.copy_payload_to(closed) || closed.status != EServiceStatus::success) return false;
+    return operation(context, modules::EModuleAction::unload, modules::EModuleStatus::success) && self_stop(context, false);
+}
+
 static bool run(threading::CThreadContext& context)
 {
     const bool rejected = scenario("bad-size") || scenario("bad-version") || scenario("bad-flags") ||
@@ -277,6 +413,7 @@ static bool run(threading::CThreadContext& context)
     }
     if (!message.copy_payload_to(opened) || (opened.status != EServiceStatus::success) || !opened.provider.value) return false;
     if (borrow_scenario()) return borrowed_resource(context, opened.route);
+    if (notification_scenario()) return notified_resource(context, opened.route);
     if (!operation(context, modules::EModuleAction::unload, modules::EModuleStatus::busy)) return false;
     constexpr unsigned count = 3u;
     for (unsigned index = 0u; index < count; ++index)
@@ -429,8 +566,30 @@ static std::uint32_t MV_STD_ABI_CALL executive_entry(void* data) noexcept
 }
 #else
 static constexpr auto k_advertised_module_id = module_ids::rendering;
+struct SNotifier
+{
+    SNotificationData data;
+    threading::SNotificationEndpoint endpoint;
+    platform::threading::CThread publisher;
+    std::atomic<bool> finish{ false }, done{ false }, failed{ false };
+};
+
+static std::uint32_t MV_STD_ABI_CALL publish_notifications(void* data) noexcept
+{
+    auto& notifier = *static_cast<SNotifier*>(data);
+    notifier.data.value.store(1u, std::memory_order_release);
+    if (!notifier.endpoint.signal()) notifier.failed.store(true, std::memory_order_release);
+    while (!notifier.finish.load(std::memory_order_acquire)) platform::threading::processor_relax();
+    notifier.data.value.store(2u, std::memory_order_release);
+    if (!notifier.endpoint.signal()) notifier.failed.store(true, std::memory_order_release);
+    notifier.done.store(true, std::memory_order_release);
+    return 0u;
+}
+
 struct SRuntime
 {
+    TInstance<SNotifier> notifier;
+    SClientToken notification_client;
     TInstance<unsigned> borrowed;
     SServiceBorrow borrow;
     ServiceReply borrow_result;
@@ -480,7 +639,7 @@ static bool context_valid(const SHostPumpContext* context) noexcept
         context->services->version == 1u && context->services->post_pod &&
         context->services->post_owner && context->services->complete &&
         context->services->prepare_borrow && context->services->begin_borrow_retirement &&
-        context->services->finish_borrow_retirement &&
+        context->services->finish_borrow_retirement && context->services->bind_borrow_notification &&
         system_context::get_ambient_thread_id() == thread_ids::host &&
         system_context::get_ambient_module_id() == module_ids::rendering &&
         memory::get_ambient_memory_context() != nullptr;
@@ -607,6 +766,78 @@ static ECallStatus MV_STD_ABI_CALL pump(void* runtime, const SPumpInput* input, 
     auto& state = *static_cast<SRuntime*>(runtime);
     if (!context_valid(state.context)) return ECallStatus::failed;
     result->progress.phase = EPumpPhase::ready;
+    if (notification_scenario())
+    {
+        const auto& services = *state.context->services;
+        for (std::uint32_t index = 0u; index < input->message_count; ++index)
+        {
+            ServiceBorrowControl control;
+            ServiceRequestCancelled cancel;
+            if (input->messages[index].copy_payload_to(control))
+            {
+                if (control.borrow.value != state.borrow.value) return ECallStatus::failed;
+                if (control.control == EServiceBorrowControl::consumer_quiescent) state.borrower_quiescent = true;
+            }
+            else if (!input->messages[index].copy_payload_to(cancel)) return ECallStatus::failed;
+            ++result->consumed_messages;
+        }
+        if (state.notifier && state.borrower_quiescent)
+        {
+            state.notifier->finish.store(true, std::memory_order_release);
+            if (state.notifier->done.load(std::memory_order_acquire))
+            {
+                if (!state.notifier->publisher.join_and_close() || state.notifier->failed.load(std::memory_order_acquire)) return ECallStatus::failed;
+                MV_LOG(info, "Pump provider: final notification signal drained after consumer quiescence");
+                state.notifier.reset();
+                if (services.finish_borrow_retirement(state.context->service_context, state.borrow) != EServiceStatus::success) return ECallStatus::failed;
+                if (!state.borrow_done && services.complete(state.context->service_context, &state.borrow_result) != EServiceStatus::success) return ECallStatus::failed;
+                state.borrow_done = true;
+            }
+        }
+        if (input->command_count)
+        {
+            const auto& dispatched = input->commands[0];
+            const auto& command = dispatched.command;
+            if (command.opcode == 6u)
+            {
+                if (state.notifier || !state.notifier.emplace()) return ECallStatus::failed;
+                state.borrower_quiescent = state.borrow_done = false;
+                state.notification_client = dispatched.client;
+                const SServiceBorrowOffer offer{ command.route, command.request, { &state.notifier->data, sizeof(SNotificationData), 1u } };
+                if (services.prepare_borrow(state.context->service_context, &offer, &state.borrow) != EServiceStatus::success) return ECallStatus::failed;
+                state.borrow_result = {};
+                state.borrow_result.route = command.route;
+                state.borrow_result.request = command.request;
+                state.borrow_result.opcode = command.opcode;
+                state.borrow_result.status = EServiceStatus::success;
+            }
+            else if (command.opcode == 7u)
+            {
+                SNotificationReady ready;
+                if (!state.notifier || command.payload_size != sizeof(ready) || dispatched.client.value != state.notification_client.value ||
+                    command.route.value != state.borrow_result.route.value) return ECallStatus::failed;
+                std::memcpy(&ready, command.payload, sizeof(ready));
+                if (ready.borrow.value != state.borrow.value ||
+                    services.bind_borrow_notification(state.context->service_context, ready.borrow, ready.registration, &state.notifier->endpoint) != EServiceStatus::success ||
+                    !state.notifier->publisher.create(&publish_notifications, &*state.notifier)) return ECallStatus::failed;
+                ServiceReply reply;
+                reply.route = command.route;
+                reply.request = command.request;
+                reply.opcode = command.opcode;
+                reply.status = EServiceStatus::success;
+                if (services.complete(state.context->service_context, &reply) != EServiceStatus::success) return ECallStatus::failed;
+                if (!scenario("notify-cancel"))
+                {
+                    if (services.complete(state.context->service_context, &state.borrow_result) != EServiceStatus::success) return ECallStatus::failed;
+                    state.borrow_done = true;
+                }
+            }
+            else return ECallStatus::failed;
+            result->consumed_commands = 1u;
+        }
+        if (!state.stop) return ECallStatus::success;
+        if (state.notifier) { result->progress.phase = EPumpPhase::stopping; return ECallStatus::success; }
+    }
     if (borrow_scenario())
     {
         const auto& services = *state.context->services;

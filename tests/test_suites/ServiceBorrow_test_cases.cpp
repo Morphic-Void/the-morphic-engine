@@ -446,6 +446,86 @@ void bounded_long_lived_borrows(TTestContext& ctx)
     TEST_EXPECT(ctx, finished == host::CServiceBorrows::k_capacity && f.router.provider_borrows_retired(f.provider) && f.client.replies_idle());
 }
 
+void notification_retirement(TTestContext& ctx, const bool cancel, const bool delayed)
+{
+    SFixture f{ ctx };
+    f.client.execution = f.replacement.execution = host::EClientExecution::pumped;
+    f.submit(ctx);
+    f.prepare(ctx);
+    f.publish(ctx);
+    RegisterServiceNotification request;
+    TEST_EXPECT(ctx, f.consumer.request_notification(f.token, request));
+    TEST_EXPECT(ctx, f.consumer.abandon_unsubmitted_notification(f.token));
+    TEST_EXPECT(ctx, f.consumer.request_notification(f.token, request));
+    TEST_EXPECT(ctx, !f.consumer.request_notification(f.token, request));
+    request = { f.route, f.token };
+    TEST_EXPECT(ctx, f.client.reserve_replies(1u));
+    f.router.register_notification(f.client, request, 12);
+    ServiceNotificationRegistered registered;
+    TEST_EXPECT(ctx, f.client.messages[0].copy_payload_to(registered) && registered.status == EServiceStatus::success);
+    f.client.consume(1u);
+    if (!delayed) TEST_EXPECT(ctx, f.consumer.observe(registered));
+    TEST_EXPECT(ctx, f.client.reserve_replies(1u));
+    f.router.register_notification(f.client, request, 12);
+    ServiceNotificationRegistered repeated;
+    TEST_EXPECT(ctx, f.client.messages[0].copy_payload_to(repeated) && repeated.registration.value == registered.registration.value);
+    f.client.consume(1u);
+    TEST_EXPECT(ctx, f.replacement.reserve_replies(1u));
+    f.router.register_notification(f.replacement, request, 12);
+    TEST_EXPECT(ctx, f.replacement.messages[0].copy_payload_to(repeated) && repeated.status == EServiceStatus::stale);
+    f.replacement.consume(1u);
+    threading::SNotificationEndpoint endpoint;
+    TEST_EXPECT(ctx, f.router.bind_borrow_notification(f.replacement, f.token, registered.registration, endpoint) == EServiceStatus::stale);
+    TEST_EXPECT(ctx, f.router.bind_borrow_notification(f.provider, f.token, { registered.registration.value + 1u }, endpoint) == EServiceStatus::stale);
+    TEST_EXPECT(ctx, f.router.bind_borrow_notification(f.provider, f.token, registered.registration, endpoint) == EServiceStatus::success);
+    TEST_EXPECT(ctx, endpoint.signal());
+    TEST_EXPECT(ctx, f.client.notifications_pending.exchange(0u, std::memory_order_acq_rel) == 1u);
+    TEST_EXPECT(ctx, registered.reader.pending() && f.replacement.notifications_pending.load() == 0u);
+    TEST_EXPECT(ctx, endpoint.signal() && f.client.notifications_pending.load() == 0u); //  Coalesced.
+    registered.reader.clear_pending();
+    TEST_EXPECT(ctx, endpoint.signal() && f.client.notifications_pending.load() == 1u);
+    if (cancel)
+    {
+        CancelServiceRequest cancellation;
+        TEST_EXPECT(ctx, f.consumer.cancel(f.route, { 1u }, cancellation));
+        f.router.cancel_request(f.client, cancellation);
+    }
+    else
+    {
+        ReleaseServiceBorrow release;
+        TEST_EXPECT(ctx, f.consumer.release(f.token, release));
+        f.router.release_borrow(f.client, release);
+    }
+    TEST_EXPECT(ctx, !f.consumer.notification(f.token).is_valid());
+    TEST_EXPECT(ctx, !f.consumer.request_notification(f.token, request));
+    TEST_EXPECT(ctx, f.client.reserve_replies(1u));
+    f.router.register_notification(f.client, { f.route, f.token }, 12);
+    TEST_EXPECT(ctx, f.client.messages[0].copy_payload_to(repeated) && repeated.status == EServiceStatus::closing);
+    f.client.consume(1u);
+    threading::SNotificationEndpoint rejected;
+    TEST_EXPECT(ctx, f.router.bind_borrow_notification(f.provider, f.token, registered.registration, rejected) == EServiceStatus::closing);
+    TEST_EXPECT(ctx, !rejected.is_valid());
+    ServiceBorrowQuiescent quiescent;
+    TEST_EXPECT(ctx, f.consumer.quiesce(f.token, quiescent));
+    f.router.quiesce_borrow(f.client, quiescent);
+    f.router.progress();
+    TEST_EXPECT(ctx, endpoint.signal()); //  Consumer quiescence does not revoke a live publisher.
+    TEST_EXPECT(ctx, f.router.complete(f.provider, f.result()) == EServiceStatus::success);
+    TEST_EXPECT(ctx, f.router.finish_borrow_retirement(f.provider, f.token) == EServiceStatus::success);
+    f.router.progress();
+    f.observe(ctx);
+    TEST_EXPECT(ctx, f.consumer.retired(f.token));
+    if (delayed)
+    {
+        TEST_EXPECT(ctx, !f.consumer.forget(f.route, { 1u }));
+        //  The record has been erased; observing this expired handle must not read it.
+        TEST_EXPECT(ctx, f.consumer.observe(registered));
+        TEST_EXPECT(ctx, !f.consumer.notification(f.token).is_valid() && !f.consumer.registration(f.token).value);
+    }
+    TEST_EXPECT(ctx, f.consumer.forget(f.route, { 1u }));
+    TEST_EXPECT(ctx, f.replacement.notifications_pending.load() == 0u);
+}
+
 }   //  namespace
 
 void run_service_borrow_tests(tests::TTestContext& ctx)
@@ -460,4 +540,8 @@ void run_service_borrow_tests(tests::TTestContext& ctx)
     cancelled_completed_borrow(ctx, false);
     cancelled_completed_borrow(ctx, true);
     bounded_long_lived_borrows(ctx);
+    notification_retirement(ctx, false, false);
+    notification_retirement(ctx, true, false);
+    notification_retirement(ctx, false, true);
+    notification_retirement(ctx, true, true);
 }

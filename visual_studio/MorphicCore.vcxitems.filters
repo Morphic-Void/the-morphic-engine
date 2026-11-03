@@ -354,6 +354,8 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\module\module_owner_payloads.def"><Filter>Core\include\module</Filter></ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\services\service_protocol.hpp"><Filter>Core\include\services</Filter></ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\services\service_borrow.hpp"><Filter>Core\include\services</Filter></ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\services\service_notifications.hpp"><Filter>Core\include\services</Filter></ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\threading\CNotification.hpp"><Filter>Core\include\threading</Filter></ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\services\service_borrow_client.hpp"><Filter>Core\include\services</Filter></ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\filesystem\filesystem_messages.hpp"><Filter>Core\include\filesystem</Filter></ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\filesystem\filesystem_owner_payloads.def"><Filter>Core\include\filesystem</Filter></ClInclude>

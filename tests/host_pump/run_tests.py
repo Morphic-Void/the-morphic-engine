@@ -21,7 +21,8 @@ CASES = ("normal", "empty-provider") + REJECTED + (
          "activation-failed", "activation-null", "invalid-prefix", "pump-failed",
          "deactivate-failed", "shutdown-pending", "replacement", "inbox-full", "emergency",
          "cleanup-credits", "threaded-credits", "activation-timeout", "stop-timeout",
-         "borrow-normal", "borrow-cancel", "borrow-abandoned", "borrow-shutdown", "borrow-provider-failed")
+         "borrow-normal", "borrow-cancel", "borrow-abandoned", "borrow-shutdown", "borrow-provider-failed",
+         "notify-normal", "notify-cancel", "notify-abandoned", "notify-replacement", "notify-shutdown")
 
 
 def main():
@@ -93,6 +94,13 @@ def main():
             for marker in ("borrowed descriptor observed", "consumer quiescence received", "provider-owned storage destroyed after publisher drain"):
                 if marker not in events:
                     raise RuntimeError(f"{case}: missing {marker}; inspect {runtime}")
+        if case.startswith("notify-"):
+            for marker in ("registered notification published durable data before wake",
+                           "final notification signal drained after consumer quiescence"):
+                if marker not in events:
+                    raise RuntimeError(f"{case}: missing {marker}; inspect {runtime}")
+            if case == "notify-replacement" and events.count("registered notification published durable data before wake") != 2:
+                raise RuntimeError(f"{case}: replacement did not acquire a fresh registration; inspect {runtime}")
         if (case == "activation-timeout" and elapsed < 4.5) or (case == "stop-timeout" and elapsed < 10.0):
             raise RuntimeError(f"{case}: deadline was not exercised ({elapsed}s); inspect {runtime}")
         print(f"PASS {case} ({args.host_workers} requested worker(s)): {runtime}", flush=True)

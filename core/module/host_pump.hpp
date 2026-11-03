@@ -16,6 +16,7 @@
 #include "module/module_binding.hpp"
 #include "services/service_protocol.hpp"
 #include "services/service_borrow.hpp"
+#include "services/service_notifications.hpp"
 
 namespace threading { class CErasedPodMsg; class CErasedOwnerMsg; }
 
@@ -42,6 +43,7 @@ struct SPumpInput
     const threading::CErasedPodMsg* messages{ nullptr };
     std::uint32_t command_count{ 0u };
     std::uint32_t message_count{ 0u };
+    std::uint32_t notifications_pending{ 0u }; //  Hint only; drain and recheck registration state.
     std::uint64_t time_budget_ns{ 2000000u };
 };
 
@@ -66,6 +68,8 @@ struct SHostPumpServices
     services::EServiceStatus(MV_STD_ABI_CALL* prepare_borrow)(void*, const services::SServiceBorrowOffer*, services::SServiceBorrow*) noexcept{ nullptr };
     services::EServiceStatus(MV_STD_ABI_CALL* begin_borrow_retirement)(void*, services::SServiceBorrow) noexcept{ nullptr };
     services::EServiceStatus(MV_STD_ABI_CALL* finish_borrow_retirement)(void*, services::SServiceBorrow) noexcept{ nullptr };
+    services::EServiceStatus(MV_STD_ABI_CALL* bind_borrow_notification)(void*, services::SServiceBorrow,
+        services::SNotificationRegistration, threading::SNotificationEndpoint*) noexcept{ nullptr };
 };
 
 struct SHostPumpContext

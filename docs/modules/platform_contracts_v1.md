@@ -39,7 +39,7 @@ asset acquisitions and request lifetimes remain distinct.
 | [POD messages](../../core/threading/messages/CErasedPodMsg.hpp) | Inline payload capacity is 48 bytes, aligned to at most 16 bytes. New generic transport messages must fit; large descriptors are lifetime-protected borrowed views. |
 | [Identity admission](../../core/system/erased_transport_admission.cpp) | Cross-component LOCAL identities are rejected. Platform commands need a registered generic SYSTEM envelope with provider-scoped opcodes, not relaxed LOCAL admission. |
 | [Typed ring](../../core/threading/transports/TRingTransport.hpp) | `TRing<T>` provides fixed SPSC storage and role endpoints. Its occupied-count ledger uses every slot; requests of 256/64 already produce those usable capacities. |
-| [Thread wakeup](../../core/threading/CThreadPackage.hpp) | `post()` wakes the package predicate, but there is no general external signal endpoint or public epoch observation. Add those narrowly, without posting a dummy message for every input event. |
+| [Thread wakeup](../../core/threading/CThreadPackage.hpp) | `post()` and registered external notification endpoints wake the same package predicate. `observe_epoch()` supports the clear/recheck/wait protocol without posting a dummy message for every input event. |
 | [Deadline clock](../../core/platform/threading/wait_word.cpp) | The awake clock query is private; the performance counter is not its substitute. Expose a checked awake-clock observation for pause accounting while preserving existing wait semantics. |
 | [Schema aggregate](../../core/schema/schema.hpp), [layout generation](../schema/runtime-api.md) | Existing validation/materialisation and generated declarations suffice. Foreign-key and binding checks belong to Platform. Physical layouts must be checked, not inferred from C++ casts. |
 
@@ -139,7 +139,7 @@ window/controller behaviour. No Platform-specific test request is added to Core.
 
 The Host-thread pump callback table (`modules::SHostPumpServices`) supplies
 queued `post_pod`, `post_owner`, terminal `complete`, `prepare_borrow`,
-`begin_borrow_retirement`, and `finish_borrow_retirement`. It requires the exact
+`begin_borrow_retirement`, `finish_borrow_retirement`, and `bind_borrow_notification`. It requires the exact
 current size/version and coordinated Host/module rebuilds. Planned capabilities
 include `emit_event`, `submit_work`, restricted `maintain`, and restriction publication.
 Callbacks authenticate the context/client supplied by Host, not a sender field in
@@ -387,13 +387,13 @@ mutate the consumer index, overwrite unread slots or clear the ring concurrently
 
 ## Notification and race-free waiting
 
-Add a Core non-owning external-notification endpoint backed by the consumer package's
+The Core non-owning external-notification endpoint is backed by the consumer package's
 existing `CWaitPredicate`. Host creates and pins its registration; consumers provide
 a registration token, not an arbitrary function pointer. Platform can publish input
 then signal the endpoint directly on Host without routing an input message through
 Host's dispatcher. The endpoint carries no Platform callback and no owning state.
 
-Expose epoch observation on `CThreadContext`. Waiting follows: sample epoch, drain
+`CThreadContext::observe_epoch()` supplies epoch observation. Waiting follows: sample epoch, drain
 messages and input/control state, acknowledge boundaries as needed, recheck durable
 conditions, then `wait_for_new_epoch(sampled_epoch)`. If publication happens between
 the checks and wait, its epoch change prevents sleep on the old value. Producers
@@ -415,6 +415,11 @@ The consumer's explicit quiescent acknowledgement, or proven terminal reader sta
 precedes destruction. Add package teardown checks so wait-control release is not
 mistaken for publisher quiescence. Forced module cleanup on Host cannot leave an
 input endpoint holding a pointer into an erased thread package.
+
+The concrete [registration interfaces and retirement ordering](service_notifications.md)
+bind one optional registration to each published borrow. The consumer helper tracks
+ordinary registration replies so controls that overtake them cannot reopen access
+to a retired reader. Pumped pending-work flags are hints; signal failure is explicit.
 
 ## Configuration schema v1
 

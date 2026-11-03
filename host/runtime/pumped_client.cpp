@@ -31,7 +31,7 @@ CPumpedClient::CPumpedClient(SClientRecord& client, modules::CBoundModule& bindi
 {
     static const modules::SHostPumpServices services{
         sizeof(modules::SHostPumpServices), 1u, &post_pod, &post_owner, &complete,
-        &prepare_borrow, &begin_borrow_retirement, &finish_borrow_retirement };
+        &prepare_borrow, &begin_borrow_retirement, &finish_borrow_retirement, &bind_borrow_notification };
     m_context.instance = client.instance;
     m_context.client = client.identity;
     m_context.host_thread = thread_ids::host;
@@ -179,6 +179,7 @@ void CPumpedClient::pump() noexcept
     input.message_count = m_protocol_failed ? 0u : m_client.copy_messages(messages, 64u, controls);
     if (!enter()) return;
     modules::SPumpResult result;
+    input.notifications_pending = m_client.notifications_pending.exchange(0u, std::memory_order_acq_rel);
     const auto status = m_capability.pump(m_runtime, &input, &result);
     leave();
     const bool valid = (result.consumed_messages <= input.message_count) &&
@@ -264,6 +265,16 @@ services::EServiceStatus MV_STD_ABI_CALL CPumpedClient::finish_borrow_retirement
     auto* const self = static_cast<CPumpedClient*>(context);
     if ((self == nullptr) || (t_invocation != self)) return services::EServiceStatus::invalid_request;
     return self->m_router.finish_borrow_retirement(self->m_client, borrow);
+}
+
+services::EServiceStatus MV_STD_ABI_CALL CPumpedClient::bind_borrow_notification(void* context,
+    const services::SServiceBorrow borrow, const services::SNotificationRegistration registration,
+    threading::SNotificationEndpoint* endpoint) noexcept
+{
+    auto* const self = static_cast<CPumpedClient*>(context);
+    if (endpoint) *endpoint = {};
+    if (!self || (t_invocation != self) || !endpoint) return services::EServiceStatus::invalid_request;
+    return self->m_router.bind_borrow_notification(self->m_client, borrow, registration, *endpoint);
 }
 
 }   //  namespace host

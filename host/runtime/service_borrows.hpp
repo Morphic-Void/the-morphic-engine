@@ -12,6 +12,7 @@
 
 #include "containers/TUnorderedCollection.hpp"
 #include "services/service_borrow.hpp"
+#include "services/service_notifications.hpp"
 #include "runtime/client_record.hpp"
 
 namespace host
@@ -34,6 +35,10 @@ public:
     [[nodiscard]] bool publication_settled(services::SServiceBorrow borrow) const noexcept;
     [[nodiscard]] services::EServiceStatus begin_retirement(SClientRecord& provider, services::SServiceBorrow borrow) noexcept;
     [[nodiscard]] services::EServiceStatus finish_retirement(SClientRecord& provider, services::SServiceBorrow borrow) noexcept;
+    [[nodiscard]] services::ServiceNotificationRegistered register_notification(SClientRecord& client,
+        const services::RegisterServiceNotification& request) noexcept;
+    [[nodiscard]] services::EServiceStatus bind_notification(SClientRecord& provider, services::SServiceBorrow borrow,
+        services::SNotificationRegistration registration, threading::SNotificationEndpoint& endpoint) noexcept;
     void release(SClientRecord& client, const services::ReleaseServiceBorrow& request) noexcept;
     void quiescent(SClientRecord& client, const services::ServiceBorrowQuiescent& request) noexcept;
     void cancel(services::SServiceBorrow borrow) noexcept;
@@ -62,6 +67,9 @@ private:
         bool provider_notified{ false };
         bool quiescence_notified{ false };
         bool finished{ false };
+        services::SNotificationRegistration registration;
+        threading::CNotification notification;
+        threading::CThreadPackage* pinned_thread{ nullptr };
     };
 
     [[nodiscard]] SRecord* find(services::SServiceBorrow borrow) noexcept;
@@ -71,6 +79,7 @@ private:
 
     TUnorderedCollection<SRecord> m_records;
     std::uint64_t m_next{ 1u };
+    std::uint64_t m_next_registration{ 1u };
     std::uint32_t m_count{ 0u };
 };
 

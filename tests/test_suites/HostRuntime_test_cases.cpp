@@ -9,6 +9,7 @@
 //  Faults at actual Host admission, native worker publication and clock boundaries.
 
 #include "filesystem/filesystem_messages.hpp"
+#include "module/module_messages.hpp"
 #include <atomic>
 #include "host/runtime/host.hpp"
 #include "host/runtime/host_payloads.hpp"
@@ -163,6 +164,108 @@ struct SHostRuntimeTestAccess
         TEST_EXPECT(ctx, tests::file_contains(path.c_str(), "continuing progress with live resources retained"));
     }
 
+    static std::uint32_t MV_STD_ABI_CALL pinned_worker(void* data) noexcept
+    {
+        auto& resources = *static_cast<threading::CThreadResources*>(data);
+        threading::CThreadContext context{ resources };
+        context.startup();
+        context.mark_running();
+        (void)wait([&] { return context.exit_requested(); });
+        context.mark_exited();
+        return 0u;
+    }
+
+    static void notification_shutdown_retention(tests::TTestContext& ctx)
+    {
+        using namespace services;
+        memory::CMemoryAllocator allocator{ nullptr, &tests::allocate_scalar_test_memory, &tests::deallocate_scalar_test_memory, system_ids::host };
+        CHost runtime{ allocator };
+        runtime.m_phase = CHost::EPhase::complete; //  Force final teardown to encounter a still-pinned package.
+        TEST_EXPECT(ctx, runtime.m_perf_count_conversion.init() && runtime.m_thread_packages.initialise());
+        const threading::ThreadConfig config{ thread_ids::bg_file_io, module_ids::executable,
+            platform::threading::EThreadPriority::Normal, &pinned_worker, nullptr, nullptr };
+        runtime.m_worker_count = 1u;
+        runtime.m_worker_slots[0] = runtime.m_thread_packages.emplace(config, runtime.m_perf_count_conversion);
+        auto* const package = runtime.worker_package(0u);
+        TEST_EXPECT(ctx, package && package->startup());
+        if (!package) return;
+        threading::CNotification pinned;
+        TEST_EXPECT(ctx, package->pin_notification(pinned));
+
+        const auto client_index = module_ids::executive_index.raw_value();
+        const auto provider_index = module_ids::ops::decode_id(module_ids::rendering).raw_value();
+        TEST_EXPECT(ctx, runtime.m_clients[client_index].emplace(module_ids::executive, 101u));
+        TEST_EXPECT(ctx, runtime.m_clients[provider_index].emplace(module_ids::rendering, 102u));
+        auto& client = *runtime.m_clients[client_index];
+        auto& provider = *runtime.m_clients[provider_index];
+        client.phase = provider.phase = EClientPhase::ready;
+        client.execution = provider.execution = EClientExecution::pumped;
+        const SServiceContract contract{ 1u, 1u };
+        runtime.m_providers[provider_index] = { &provider, &contract, 1u };
+        auto& router = runtime.m_service_router;
+        TEST_EXPECT(ctx, client.reserve_replies(1u));
+        router.open({ module_ids::rendering, 1u, 1u, { 1u } }, 1, client, &runtime.m_providers[provider_index]);
+        OpenServiceResult opened;
+        TEST_EXPECT(ctx, client.messages[0].copy_payload_to(opened) && opened.status == EServiceStatus::success);
+        client.consume(1u);
+        ServiceRequest request;
+        request.route = opened.route;
+        request.request.value = 1u;
+        request.opcode = 1u;
+        TEST_EXPECT(ctx, client.reserve_replies(2u));
+        router.request(request, 2, client);
+        client.consume(1u);
+        SDispatchedCommand command;
+        TEST_EXPECT(ctx, router.prepare_batch(provider, &command, 1u) == 1u);
+        runtime.m_executive_request = CErasedOwner::create<modules::ModuleRequest>();
+        auto* const dependency = runtime.m_executive_request.payload<modules::ModuleRequest>();
+        TEST_EXPECT(ctx, dependency != nullptr);
+        SServiceBorrow borrow;
+        TEST_EXPECT(ctx, router.prepare_borrow(provider, { opened.route, { 1u }, { dependency, sizeof(*dependency), 1u } }, borrow) == EServiceStatus::success);
+        TEST_EXPECT(ctx, router.finish_batch(provider, &command, 1u, 1u));
+        router.progress();
+        client.consume(client.message_count);
+        TEST_EXPECT(ctx, client.reserve_replies(1u));
+        router.register_notification(client, { opened.route, borrow }, 3);
+        ServiceNotificationRegistered registered;
+        TEST_EXPECT(ctx, client.messages[0].copy_payload_to(registered) && registered.status == EServiceStatus::success);
+        client.consume(1u);
+        threading::SNotificationEndpoint endpoint;
+        TEST_EXPECT(ctx, router.bind_borrow_notification(provider, borrow, registered.registration, endpoint) == EServiceStatus::success);
+        package->request_exit();
+        TEST_EXPECT(ctx, wait([&] { return package->query_state() == threading::EThreadRunState::Exited; }));
+
+        TEST_EXPECT(ctx, !runtime.shutdown() && runtime.retains_state());
+        TEST_EXPECT(ctx, runtime.worker_package(0u) == package && runtime.m_worker_count == 1u);
+        TEST_EXPECT(ctx, &*runtime.m_clients[client_index] == &client && &*runtime.m_clients[provider_index] == &provider);
+        TEST_EXPECT(ctx, runtime.m_executive_request.payload<modules::ModuleRequest>() == dependency);
+        TEST_EXPECT(ctx, runtime.m_providers[provider_index].client == &provider);
+        TEST_EXPECT(ctx, !router.client_idle(client) && router.provider_in_use(provider));
+        TEST_EXPECT(ctx, endpoint.signal() && registered.reader.pending() && client.notifications_pending.load() == 1u);
+        TEST_EXPECT(ctx, pinned.endpoint().signal()); //  Neither wait target was destroyed by refused teardown.
+
+        router.release_borrow(client, { opened.route, borrow });
+        router.quiesce_borrow(client, { opened.route, borrow });
+        router.progress();
+        TEST_EXPECT(ctx, router.finish_borrow_retirement(provider, borrow) == EServiceStatus::success);
+        ServiceReply completed;
+        completed.route = opened.route;
+        completed.request.value = 1u;
+        completed.opcode = 1u;
+        completed.status = EServiceStatus::success;
+        TEST_EXPECT(ctx, router.complete(provider, completed) == EServiceStatus::success);
+        router.progress();
+        TEST_EXPECT(ctx, client.reserve_replies(1u));
+        router.close({ opened.route, { 2u } }, 4, client);
+        router.progress();
+        TEST_EXPECT(ctx, router.client_idle(client) && !router.provider_in_use(provider));
+        package->unpin_notification();
+        //  Only test cleanup revokes retention, after all synthetic lifetime proofs.
+        runtime.m_retain_runtime = false;
+        TEST_EXPECT(ctx, runtime.shutdown() && runtime.worker_package(0u) == nullptr);
+        TEST_EXPECT(ctx, runtime.m_executive_request.is_empty());
+    }
+
     static void context_installation_failure(tests::TTestContext& ctx)
     {
         auto* const previous_memory = memory::get_ambient_memory_context();
@@ -200,5 +303,6 @@ void run_host_runtime_tests(tests::TTestContext& ctx)
     host::SHostRuntimeTestAccess::rejected_scan(ctx);
     host::SHostRuntimeTestAccess::final_worker_publication(ctx);
     host::SHostRuntimeTestAccess::clock_failures(ctx);
+    host::SHostRuntimeTestAccess::notification_shutdown_retention(ctx);
     host::SHostRuntimeTestAccess::context_installation_failure(ctx);
 }

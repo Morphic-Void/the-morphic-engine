@@ -187,7 +187,8 @@ bool CServiceBorrowClient::forget(const SServiceRoute route, const SServiceReque
     {
         const auto& record = *m_records.get_object(slot);
         if ((record.route.value != route.value) || (record.request.value != request.value)) continue;
-        if (!record.seen_terminal || ((record.prepared.borrow.value != 0u) && !record.retired)) return false;
+        if (!record.seen_terminal || record.notification_waiting ||
+            ((record.prepared.borrow.value != 0u) && !record.retired)) return false;
         (void)m_records.erase(slot);
         --m_count;
         return true;
@@ -207,6 +208,53 @@ bool CServiceBorrowClient::abandon_unsubmitted(const SServiceRoute route, const 
         return true;
     }
     return false;
+}
+
+bool CServiceBorrowClient::request_notification(const SServiceBorrow borrow, RegisterServiceNotification& message) noexcept
+{
+    message = {};
+    auto* const record = find(borrow);
+    if (!record || record->closing || !record->seen_prepared || record->notification_waiting || record->registration.value) return false;
+    record->notification_waiting = true;
+    message = { record->route, borrow };
+    return true;
+}
+
+bool CServiceBorrowClient::abandon_unsubmitted_notification(const SServiceBorrow borrow) noexcept
+{
+    auto* const record = find(borrow);
+    if (!record || !record->notification_waiting) return false;
+    record->notification_waiting = false;
+    return true;
+}
+
+bool CServiceBorrowClient::observe(const ServiceNotificationRegistered& reply) noexcept
+{
+    auto* const record = find(reply.borrow);
+    if (!record || (record->route.value != reply.route.value) || !record->notification_waiting ||
+        (reply.status > EServiceStatus::delivery_failed)) return false;
+    if ((reply.status == EServiceStatus::success) && (!reply.registration.value || !reply.reader.is_valid())) return false;
+    record->notification_waiting = false;
+    //  The reader may already be expired: copying/testing its address is safe,
+    //  but no state may be dereferenced after local close or quiescence.
+    if ((reply.status == EServiceStatus::success) && !record->closing)
+    {
+        record->registration = reply.registration;
+        record->notification = reply.reader;
+    }
+    return true;
+}
+
+SNotificationRegistration CServiceBorrowClient::registration(const SServiceBorrow borrow) const noexcept
+{
+    const auto* const record = find(borrow);
+    return (!record || record->closing) ? SNotificationRegistration{} : record->registration;
+}
+
+threading::SNotificationReader CServiceBorrowClient::notification(const SServiceBorrow borrow) const noexcept
+{
+    const auto* const record = find(borrow);
+    return (!record || record->closing) ? threading::SNotificationReader{} : record->notification;
 }
 
 }   //  namespace services
