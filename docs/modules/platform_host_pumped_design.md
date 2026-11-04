@@ -40,6 +40,11 @@ Host authorises activation. Ordinary POD traffic and wake signals then pass dire
 This supersedes the earlier conversational recommendation of producer-owned general
 direct pipes; neither proposal has been implemented.
 
+Shared contracts will use the transitional [Framework project](#shared-framework-contracts)
+(`MorphicFramework`). General direct connections reuse existing role identities to
+identify their contract and carry the existing `CErasedPodMsg` record. Project
+creation, registration changes and contract migration have not been implemented.
+
 The next scope review must define the concrete connection controls and interfaces.
 Common publication, notification and quiescence principles need not impose one
 allocation owner. A minimal Host-mediated connection lifecycle versus a broader
@@ -221,7 +226,8 @@ it is not a claim that those consumers are integrated with the first window.
 
 | Component | Responsibility |
 | --- | --- |
-| Core | Generic pumped capability, endpoint/lifetime contracts and any genuinely shared transport primitives. No native window or HID implementation. |
+| Core | Existing generic pumped capability, endpoint/lifetime contracts and shared transport primitives retained during the transition. No native window or HID implementation. New public communication contracts follow the Framework placement below. |
+| Framework (`MorphicFramework`, agreed but not yet created) | Shared public communication contracts and their supporting types, available to Host and all modules. Uses existing Core primitives without adding a Core dependency on Framework. |
 | Host | Capability discovery/activation, scheduling, authenticated client identity, completion routing, dependency tracking and orderly teardown. It need not interpret input or window messages. |
 | Platform | Window records, native adapters, input translation, local action mapping, native interaction state and borrowed native descriptor publication. Extension dispatch is deferred. |
 | Executive | Application window policy, input consumption, action catalogue/context policy and aggregation of application pause reasons. Window extensions are deferred. |
@@ -235,11 +241,56 @@ top-level module is distinct from existing `core/platform/` support. Check inclu
 resolution explicitly: the shared `platform/platform_defines.hpp` and other Core
 paths must continue to resolve correctly. Avoid duplicate relative header names.
 
-Window/input contracts belong to Platform and may be included by its clients.
+Platform defines the meaning of its window/input contracts; their shared public
+declarations may reside in Framework and be included by Platform's clients.
 Host should use generic connection and lifecycle contracts. Native view adapters
 can expose the information Rendering needs without placing `HWND`, Linux display
 types, graphics handles or Platform payload structures in Core. Rendering creates
 and destroys its own graphics presentation objects; Platform supplies windows.
+
+### Shared Framework contracts
+
+The agreed transitional project is Framework, with project name `MorphicFramework`.
+It initially holds public messages that cross component boundaries, including
+communication with Host, and the enums, tokens, descriptors and other types needed
+to interpret them. Group headers by responsibility; consumers include the specific
+contracts they need. Messages used only within one component stay with that component.
+This is primarily a shared header/compile-time project, with no new dynamically
+loaded module or runtime service implied.
+
+Host and all modules may depend on Framework. Framework may depend on existing
+Core primitives, including identities, views, carriers and transport support.
+Core does not depend on Framework: its Core-plus-SuiteUTF include boundary remains
+unchanged, and this work does not expand Core's remit. A later, separately scoped
+refactor may move suitable framework-specific infrastructure out of Core into
+Framework or Host; that wider decomposition is not part of this work.
+
+New direct-connection contracts are the first intended contents. Existing public
+contracts can move only where their consumers and registration dependencies permit.
+Definitions still consumed by Core remain there until safely separable. This
+temporary split is intentional; sharing a project does not require moving every
+cross-component definition immediately. Public owning-message definitions may be
+shared only where their owner-operation dependencies allow it. Ownership transfers
+remain Host-directed, and direct intermodule messages remain POD-only.
+
+Registration review distinguishes identity plumbing from operations that need
+concrete payload definitions. The existing opaque
+[SYSTEM identity catalogue](../../core/system/system_type_ids.def) and Core registry
+API can remain, with [Host generating the canonical name registrations](../../host/system/system_id_definitions.cpp).
+`MV_REGISTER_SYSTEM_TYPE` C++ bindings can accompany public payload definitions in
+Framework without making Core include them. No second global catalogue or new
+registration API is selected.
+
+Core's [erased-owner operation generation](../../core/system/erased_owner_operations.cpp)
+does require concrete asset/module/filesystem payloads through
+[transported_types.hpp](../../core/system/transported_types.hpp) and the owner
+catalogue fragments. Those headers stay in Core initially. The existing service
+protocol also stays because Core's pumped/provider and borrow interfaces consume
+it. Platform's [window contract](../../platform/services/window.hpp) and
+[published window state](../../platform/services/window_state.hpp) are initial
+migration candidates for review; native/runtime implementation stays in Platform.
+These are dependency findings, not completed moves or authority to migrate files
+before the registration and migration review is complete.
 
 ## Host-pumped capability
 
@@ -465,16 +516,20 @@ initiating operation:
 
 | Identity | Agreed purpose and rule |
 | --- | --- |
-| Logical connection key | The unordered pair of exact module instances plus the shared messaging-contract identity. Initially there is one connection per pair and contract, with no additional channel identifier. |
+| Logical connection key | The unordered pair of exact module instances plus the shared messaging-contract identity, formed from the canonical unordered pair of participating roles. Initially there is one connection per pair and contract, with no additional channel identifier. |
 | Connection token | Host-issued identity for one establishment/lifetime, unique and never reused within the process. Reconnection after retirement gets a fresh token even for the same logical key. |
 | Request correlation | Identifies each initiating operation so Host can complete every request independently, including reciprocal requests that converge on one connection. |
 
-The shared contract identity must be unambiguous to both participants; its concrete
-representation and numeric namespace remain open. Contract version is a checked
-establishment parameter, not another component of the logical key. A version
-mismatch produces an explicit failure rather than a parallel connection or a silent
-change to agreed terms. Different contracts can have separate connections between
-the same instances.
+The shared contract identity reuses the existing role identities. For example,
+Executive/Rendering identifies the same contract whichever side initiates it.
+There is no separate, independently named protocol catalogue. Future module splits
+can add the actual roles and their contracts when needed. The concrete role-pair encoding
+and version representation still require review; role identity is distinct from
+an exact loaded module instance and from its connection lifetime token.
+
+Contract version is a checked establishment parameter, not another component of
+the logical key. A version mismatch produces an explicit failure rather than a
+parallel connection or a silent change to agreed terms.
 
 Simultaneous reciprocal requests for the same key converge on one pending
 establishment and its two pipes. Host retains each initiator's request correlation;
@@ -551,20 +606,42 @@ Replacement modules have new instance identities and therefore new logical keys.
 They establish fresh connections and inherit neither endpoints nor queued records
 from their predecessors.
 
+#### Direct POD records and admission
+
+General direct pipes carry the existing
+[`threading::CErasedPodMsg`](../../core/threading/messages/CErasedPodMsg.hpp), as used
+for POD communication with Host: a 64-byte carrier with a 16-byte header and 48-byte
+inline payload. Its header supplies the message type identity and `async_slot`.
+Payloads retain the carrier's standard-layout, trivially-copyable, size and alignment
+requirements. There is no new per-record envelope or opcode wrapper, and direct
+records do not need to be wrapped in the routed `services::ServiceRequest` payload.
+That existing routed-service protocol is unchanged. Platform's typed input streams
+retain their separate record design.
+
+Connection identity belongs to endpoint/lifetime state; deferred work retains its
+expected connection token separately. Request/reply correlation using `async_slot`
+must be scoped to the connection and requesting participant so opposite directions
+cannot confuse equal slot values. Slot reuse must respect outstanding replies;
+the concrete correlation and posting APIs remain to be defined.
+
 Messages are POD and convey no ownership, even when their bits contain a pointer,
 handle or token. A borrowed view requires its own protected lifetime; copying the
-address does not establish that protection. Shared contract/version admission must
-not admit arbitrary module-local LOCAL identities. Ownership-bearing transfers
+address does not establish that protection. Cross-component admission requires
+shared SYSTEM identities and rejects LOCAL identities; moving a declaration into
+Framework does not make a LOCAL identity portable. Admission must also enforce the
+agreed role contract, version and message direction. A raw ring carrying
+`CErasedPodMsg` does not itself provide these checks. Ownership-bearing transfers
 continue through Host's existing services. Host understands connection and transport
 mechanics, not the application meaning of each direct message.
 
 Explicit receiver acceptance, the three identity roles and targeted cancellation
-with deferred token validation are settled.
-The remaining choices are queue capacity in each direction, the common POD envelope
-and concrete contract validation/identity representation. Control byte layouts,
-concrete APIs and publication acknowledgements also need design. Compare a minimal
-authenticated Host-mediated connection lifecycle with a full threaded
-service-provider adapter; general routed-service support is not automatically
+with deferred token validation are settled, along with role-pair contract identity
+and reuse of the existing POD carrier. The remaining choices are queue capacity in
+each direction, concrete role/version representation and contract admission APIs.
+Framework registration/migration details require review before implementation.
+Control byte layouts, concrete APIs and publication acknowledgements also need
+design. Compare a minimal authenticated Host-mediated connection lifecycle with a
+full threaded service-provider adapter; general routed-service support is not automatically
 required just to establish these pipes. Neither approach nor a new ABI is selected
 by this documentation update.
 
@@ -2025,7 +2102,8 @@ decisions are preserved; new substantive interface choices still require review.
 | Technical work / deferred area | Selected policy and remaining definition |
 | --- | --- |
 | Pump ABI and context | Implemented; preserve the current complete descriptors, matching-header rebuilds, bounded batches and exact client/context checks when extending provider support. |
-| Input and direct service-thread connection ABI | General direct messaging uses [Host-owned duplex connections](#host-owned-duplex-connections-for-general-pod-messaging); input retains Platform-owned producer streams. Explicit receiver acceptance, both-participant readiness, the unordered exact-instance-pair/contract key, unique lifetime token, independent request correlations and targeted cancellation with deferred token checks are agreed. Concrete control/contract representations, capacities and envelope/admission remain open; a full threaded provider adapter is not a selected prerequisite. |
+| Shared Framework contracts | `MorphicFramework` is the agreed transitional shared project for public cross-component definitions. Core's dependency boundary is unchanged. Review registration and movable contracts before project creation or migration; broader Core decomposition is separate work. |
+| Input and direct service-thread connection ABI | General direct messaging uses [Host-owned duplex connections](#host-owned-duplex-connections-for-general-pod-messaging); input retains Platform-owned producer streams. Explicit receiver acceptance, both-participant readiness, the unordered exact-instance-pair/role-contract key, unique lifetime token, independent request correlations and targeted cancellation with deferred token checks are agreed. Direct records reuse `CErasedPodMsg`. Concrete control/role/version representations, capacities and admission APIs remain open; a full threaded provider adapter is not a selected prerequisite. |
 | Acquisition failure and removal mechanics | Apply the selected five-second eligible-time limits and define cancellation/removal sequencing that proves endpoint/notification quiescence. Host logs omitted release and completes cleanup after quiescence without requiring a departed client's acknowledgement. No successor reservation or transfer. |
 | Generic module-request routing | Implemented for live module clients with exact-instance protection and protected Executive self-transitions; no persistent loader ownership. |
 | Restricted maintenance | Implemented and tested portably and through native move/size/menu paths. Preserve the whitelist, reentry limits and sticky stop; timer period is not a latency promise. |

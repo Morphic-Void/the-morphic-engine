@@ -37,7 +37,9 @@ wakes flow directly. Input/HID retains Platform-owned producer streams, with gro
 desktop text/control and an independent controller connection.
 
 The logical key is the unordered pair of exact module instances plus the shared
-contract identity, with one connection per pair/contract and no channel ID initially.
+contract identity, formed from the canonical unordered pair of participating roles.
+Reuse existing role identities rather than introduce an independently named protocol
+catalogue, with one connection per pair/contract and no channel ID initially.
 Version is a checked establishment parameter, not a separate key. Each lifetime
 has a fresh, nonreused Host token, distinct from each initiator's request correlation.
 The canonical design specifies reciprocal convergence, active/closing outcomes,
@@ -54,8 +56,22 @@ nor its DLL alive. Graceful completion occurs
 while active; unread POD records may be reclaimed after quiescence, with separately
 protected resource obligations still requiring cleanup.
 
-Queue capacities, the common POD envelope/admission and concrete contract identity
-representation remain open, as do control byte layouts and APIs.
+The agreed [shared Framework project](platform_host_pumped_design.md#shared-framework-contracts),
+`MorphicFramework`, will hold public cross-component contracts and their supporting
+types for Host and all modules. Framework may use Core; Core does not depend on
+Framework and retains its current include boundary. Core-consumed definitions stay
+there until safely separable. Registration and migration review precedes any moves;
+broader Core decomposition is separate work, and module-private messages stay local.
+
+General direct pipes reuse the existing 64-byte `CErasedPodMsg`, with its 16-byte
+header, 48-byte payload, type identity and `async_slot`; no new per-record wrapper
+is selected. This does not change the routed-service command payload described
+below or Platform's typed input records. The [direct admission rules](platform_host_pumped_design.md#direct-pod-records-and-admission)
+require SYSTEM identities and agreed contract/version/direction checks; the carrier
+alone does not supply them.
+
+Queue capacities, concrete role/version representation and admission APIs remain
+open, as do control byte layouts and APIs.
 Minimal Host-mediated connection control versus a
 broader threaded provider adapter also remains an implementation-design choice,
 not a selected prerequisite.
