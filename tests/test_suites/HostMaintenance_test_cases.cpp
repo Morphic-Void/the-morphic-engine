@@ -392,6 +392,7 @@ struct SHostMaintenanceTestAccess
     {
         std::atomic<unsigned> ready{ 0u }, restricted{ 0u }, resumed{ 0u }, failed{ 0u };
         std::atomic<unsigned> restricted_observations{ 0u };
+        std::atomic<unsigned> fanout_complete{ 0u }, quiet_wait{ 0u };
     };
 
     static void prefix_staging(tests::TTestContext& ctx)
@@ -469,6 +470,8 @@ struct SHostMaintenanceTestAccess
         state.ready.store(1u, std::memory_order_release);
         while (!context.exit_requested())
         {
+            //  A quiet iteration must capture its epoch after completed fanout.
+            const bool fanout_complete = state.fanout_complete.load(std::memory_order_acquire) != 0u;
             const auto epoch = context.observe_epoch();
             execution->notification.clear_pending();
             modules::SHostRestrictionSnapshot snapshot;
@@ -484,6 +487,21 @@ struct SHostMaintenanceTestAccess
             if (context.exit_requested()) break;
             if (snapshot.depth)
             {
+                if (fanout_complete)
+                {
+                    state.quiet_wait.store(1u, std::memory_order_release);
+                }
+                else
+                {
+                    //  Force publication before signalling: this wait uses the
+                    //  old epoch and must return before the quiet iteration.
+                    if (!tests::wait_until(context.perf_count_conversion(), [&]
+                        { return state.fanout_complete.load(std::memory_order_acquire) != 0u; }))
+                    {
+                        state.failed.store(1u);
+                        break;
+                    }
+                }
                 (void)context.wait_for_new_epoch(epoch);
                 continue;
             }
@@ -518,10 +536,17 @@ struct SHostMaintenanceTestAccess
         auto& restriction = runtime.m_maintenance.restrictions();
         TEST_EXPECT(ctx, restriction.begin_invocation({ 30u }, true));
         const auto scope = restriction.enter({ 5u });
-        runtime.m_maintenance.fanout();
+        TEST_EXPECT(ctx, scope.status == modules::ERestrictionStatus::success);
         TEST_EXPECT(ctx, tests::wait_until(runtime.m_perf_count_conversion, [&] { return state.restricted.load(std::memory_order_acquire) != 0u; }));
-        TEST_EXPECT(ctx, tests::wait_until(runtime.m_perf_count_conversion, [&] { return package->query_state() == threading::EThreadRunState::Waiting; }));
+        runtime.m_maintenance.fanout();
+        state.fanout_complete.store(1u, std::memory_order_release);
+        TEST_EXPECT(ctx, tests::wait_until(runtime.m_perf_count_conversion, [&]
+        {
+            return (state.quiet_wait.load(std::memory_order_acquire) != 0u) &&
+                (package->query_state() == threading::EThreadRunState::Waiting);
+        }));
         const auto observations = state.restricted_observations.load();
+        TEST_EXPECT(ctx, observations == 2u);
         std::atomic<std::uint32_t> unchanged{ 0u };
         threading::CWaitDeadline pause;
         TEST_EXPECT(ctx, pause.set_after_milliseconds(20u).code == platform::threading::EWaitError::none);
