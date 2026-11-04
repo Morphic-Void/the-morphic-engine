@@ -169,6 +169,23 @@ building.
 
 ## Acceptance and lifecycle harnesses
 
+The portable Host-pump harness is `tests/host_pump/run_tests.ps1` on Windows and
+`tests/host_pump/run_tests.py` through CTest on Linux, with one and two requested
+workers. It loads real DLL/SO fixtures and the Platform shell without opening a
+window. Ordinary tests cover deterministic borrow, notification, restriction,
+maintenance and window-runtime behaviour. See the
+[Host foundation](../modules/host_pump_foundation.md) and
+[first-window evidence](../modules/platform_first_window.md#implementation-evidence-4-november-2026)
+for the delivered coverage and checkpoint-specific limits.
+
+Windows native acceptance is explicit: `tests/platform/run_native.py` exercises
+the real adapter in process, while `tests/host_pump/run_tests.py --native` runs
+move/size/menu scenarios through the real Host and loaded Platform DLL. These
+tests require a desktop session, may move the pointer, and are excluded from
+ordinary/headless runs. A harness timeout terminates an isolated process; it is
+not proof of safe runtime unwind. Linux's portable shell returns `unsupported`
+for native window creation.
+
 The Executive runs 73 sequential and 32 concurrent acceptance operations
 across raw, baked-document, JSON, TGA and LDR/HDR texture asset services, followed
 by filesystem checks and a bundle bake/reference/save/close/reload flow. The standalone DLL

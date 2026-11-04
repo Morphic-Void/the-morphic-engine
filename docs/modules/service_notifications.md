@@ -1,8 +1,10 @@
 # Borrowed-service notifications
 
-Implementation contract for the notification increment following
-`9db7a3d`. Native Platform resources, modal maintenance and Host sleep scheduling
-are separate increments.
+Implemented in `aca926f`, following the borrow protocol in `9db7a3d`.
+The subsequent [Host maintenance](host_restriction_maintenance.md) and
+[first Windows window](platform_first_window.md) increments are also committed.
+Window state uses these borrow-bound registrations; input connections and Host
+sleep scheduling remain future work.
 
 ## Ownership and interfaces
 

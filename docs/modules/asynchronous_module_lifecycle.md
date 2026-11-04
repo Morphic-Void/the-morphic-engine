@@ -8,9 +8,12 @@ Date:   21 Sep 2026
 
 # Asynchronous module lifecycle
 
-This reference describes the implemented Host DLL service, Executive startup
-policy and Rendering service thread. Completion history and validation evidence
-are recorded in [completed milestones](../project/completed_milestones.md).
+This reference describes the implemented Host module service, Executive startup
+policy and passive, threaded and Host-pumped module lifecycles. The
+[Host foundation](host_pump_foundation.md), [borrow protocol](service_borrow_lifetimes.md)
+and [restriction/maintenance contract](host_restriction_maintenance.md) specify
+the generic execution and lifetime boundaries in detail. Completion history and
+validation evidence are recorded in [completed milestones](../project/completed_milestones.md).
 
 Module loading, binding, context installation, compatibility
 checks and unloading execute on the Host I/O worker. All Host background workers
@@ -19,12 +22,13 @@ with more than one, the first handles I/O and the rest handle conditioning.
 
 ## Current identity catalogue
 
-The module catalogue contains `executable`, `executive`, `conditioning_general`
-and `rendering`, at the `executable`, `executive`, `conditioning` and `render`
-mounts respectively. The conditioning module and `simulation` thread identities
-support independent-service lifecycle fixtures. The production renderer's identity
+The module catalogue contains `executable`, `executive`, `conditioning_general`,
+`rendering`, `audio` and `platform`, at the `executable`, `executive`, `conditioning`,
+`render`, `audio` and `platform` mounts respectively. The conditioning module and
+`simulation` thread identities support independent-service lifecycle fixtures. The production renderer's identity
 is backend-neutral. The batch-runner thread range remains contiguous and covers
-all 32 supported runners.
+all 32 supported runners. Audio advertises its service thread; Platform advertises
+Host pumping and has no native service thread or fabricated thread package.
 
 Pre-release catalogue ordinals are not a compatibility promise. Removing entries
 changes encoded identities and dependency bits, so clean-build all components and
@@ -54,11 +58,15 @@ implementation later. The normal Executive first sends an owning load request
 for `package:/bin/MorphicRendering` with the native extension appended by
 `platform::module::make_module_filename`, and `rendering`. It validates
 the correlated acknowledgement before accepting completion, then asks Rendering
-to run its own tests through `RunTestsRequest`. Successful completion permits the
-Executive's 50 sequential and 32 concurrent general asset acceptance operations.
+to run its own tests through `RunTestsRequest`. It then loads `MorphicAudio` and
+requests its finite tone acceptance test. Audio success or explicit no-output-device
+`unavailable`/skipped completion permits the general asset acceptance flow (currently
+73 sequential and 32 concurrent operations). Other Audio failures fail startup.
+See the [Audio validation record](audio_module_validation.md). The normal flow
+does not load Platform or create a window.
 
 After Executive replacement, `already_loaded` is accepted only for the requested
-Rendering identity with `available == true`; no extra thread, unload or replacement
+Rendering/Audio identity with `available == true`; no extra thread, unload or replacement
 is requested. Missing/unavailable services, failed completion and malformed
 startup replies cause an Executive self-unload request. Initial request-submission
 failure still marks Executive startup failed. The existing per-operation deadline
@@ -116,16 +124,23 @@ acknowledgement followed by a `busy` completion. This is intentionally bounded;
 there is no additional module-operation queue or automatic retry policy.
 
 Successful completion means loading, binding, installation and any required
-function lookup have all succeeded. At the rendering mount it also means the
-Host has successfully started the rendering thread. The original binding ABI, version and
-unsupported-function checks are retained. Failed installation is cleaned up by the
+function lookup have all succeeded. A threaded service must publish readiness;
+a pumped service must reach ready through activation/pumping. The original binding
+ABI, version and unsupported-function checks are retained. Failed installation is cleaned up by the
 same worker. Replacement unloads the old implementation before loading the new
 one. If the new load fails, the service remains unavailable. If unloading itself
 is refused, the old binding remains present and the result reports that state.
 A rendering binding whose thread was stopped is reported unavailable even if
 unbinding fails; no automatic restart or rollback is attempted.
 
-The requesting Executive must quiesce its use of the affected DLL until completion.
+Every live module client can issue ordinary module requests; Executive is not the
+exclusive requester. Each installation has an exact instance/client identity, and
+a replacement cannot inherit replies, acquisitions or borrows. Loading establishes
+no persistent loader ownership. Open provider routes make ordinary unload or
+replacement busy; only Executive itself or Host lifecycle handling can use its
+special self-transition path. Ordinary non-Executive self-transitions are rejected.
+
+The requesting client must quiesce its use of the affected DLL until completion.
 The default Executive response to a failed module operation is a self-unload
 request, causing system shutdown. More selective recovery is left to future
 Executive policy.
@@ -174,9 +189,10 @@ contains no test switches.
 A module may export `morphic_module_service_thread_v1(SServiceThread*)`, returning
 `EBindingResult::success` and a descriptor containing its thread identity and
 entry point. This optional, versioned export leaves the version-3 bootstrap ABI
-and the identity catalogue unchanged. Modules without the capability remain
-passive. A caller can set `ModuleRequest::require_service_thread` to reject a
-passive destination with `function_unavailable`, including an already loaded
+and the identity catalogue unchanged by that export itself. Modules with neither
+service-thread nor Host-pump capability remain passive. A caller can set
+`ModuleRequest::require_service_thread` to reject a passive destination with
+`function_unavailable`, including an already loaded
 passive module. An existing passive binding remains available after that rejection.
 
 The I/O worker queries the capability after installation. A successful descriptor
@@ -202,16 +218,34 @@ thread identity alongside Rendering. They cover passive capability rejection,
 malformed descriptors, failed startup, replacement and shutdown with retained
 acquisitions, deferred disposal and dependent-asset cleanup.
 
+## Host-pumped services
+
+The independent `morphic_module_host_pump_v1` export advertises a complete
+`modules::SHostPumpV1` lifecycle. The binding worker discovers/validates it, then
+Host prepares module-local context and invokes activate, pump, stop and deactivate
+on the Host thread. A module cannot advertise both threaded and pumped execution;
+`require_host_pump` is separate from `require_service_thread`. The generic service
+advertisement is independent of execution, although the current provider adapter
+supports pumped execution only. Threaded consumers already use the same service
+and borrow protocols.
+
+Platform is an on-demand pumped provider. Binding/activation creates no window;
+explicit service commands create or acquire the first Windows window. Its native
+callbacks perform only authenticated bounded maintenance while restricted, with
+ordinary dispatch and owner destruction deferred until safe outer progress. See
+the [first-window reference](platform_first_window.md).
+
 ## Module test routing
 
 `RunTestsRequest` selects a module identity. Host resolves it among registered
-module service threads, excluding its background I/O and conditioning workers.
-Missing destinations, non-running threads and requests to the caller's own
-thread return `unavailable`; malformed identities or negative correlations return
+module client records, excluding its background I/O and conditioning workers.
+Ready threaded and pumped clients receive the same SYSTEM request through their
+execution adapters. Missing/non-ready destinations and requests to the caller's own
+client return `unavailable`; malformed identities or negative correlations return
 `invalid_request`. An active run or module lifecycle transition returns `busy`.
 
 One run is active at a time. Host preserves the correlation and forwards the
-destination's status and counts without interpreting its tests. Both packages
+destination's status and counts without interpreting its tests. Both client records
 remain alive until completion. Terminal-state handling samples the actual test
 worker before draining its final messages: a valid final completion takes
 precedence; otherwise Host returns a failed result. Caller acquisition release
@@ -220,6 +254,9 @@ and deferred disposal continue during shutdown before joining and unloading.
 Lifecycle fixtures exercise Rendering as caller and Executive as worker,
 including rejection checks, nested requests, final replies, worker exit without
 a reply, and an explicit caller-unload request during the run.
+Platform currently returns an explicit correlated `unavailable` completion, retained
+through output pressure and stopping; it does not open a window for a generic test
+request. Actual DLL/SO shell fixtures cover repeated requests and orderly unload.
 
 ## Ownership, dependencies and shutdown
 
@@ -237,11 +274,15 @@ have drained, the Host expects no retained assets to depend on that module. If
 any remain, it emits an assertion-level diagnostic and disposes of them before
 dispatching unbind/unload to the I/O worker. This diagnostic does not trigger a
 debugger breakpoint or cancel unloading. Independent assets remain retained.
-The Executive and advertising service modules have Host-managed threads. Callers must still
-quiesce their own use of affected DLL functions and borrowed views before
+The Executive and threaded services have Host-managed threads; pumped services
+retain their execution context and provider storage without a thread package.
+Callers must still quiesce their own use of affected DLL functions and borrowed views before
 requesting unload or replacement.
-Existing module memory-attribution checks also remain enforced. These checks complement the
-Executive's quiescence convention; they do not track arbitrary cached function
+Existing module memory-attribution checks also remain enforced. Generic
+[borrow records](service_borrow_lifetimes.md) protect provider and consumer instances
+through explicit quiescence and final provider cleanup, including notification
+publishers. Terminal execution proves CPU inactivity only, not external graphics
+cleanup. These checks do not track arbitrary cached function
 pointers or introduce a general module reference-counting system.
 
 Clients release individual retained assets with `AssetDisposeRequest`, a POD
@@ -265,9 +306,11 @@ Full shutdown stops and joins the Executive, drains operations, performs the sam
 assertion and dependent-asset cleanup before each module unload, then releases
 remaining independent assets while the I/O worker is still running. Only
 after those completions does it stop the workers and debug service. If a terminal
-worker/transport failure prevents safe unloading, cleanup retains native DLL
-references until process exit instead of attempting DLL unloading on the Host
-thread. The process exits unsuccessfully and logs the failure.
+worker/transport failure prevents safe unloading, cleanup retains the required
+Host graph, bindings, contexts and callback storage through process exit rather
+than invoking unsafe destruction. Pumped stop/retirement continues while required
+cleanup can progress. Expired grace periods report failure without authorising
+destruction or unbinding; see the Host foundation's process-ownership contract.
 
 ## Implementation map
 
@@ -278,10 +321,13 @@ thread. The process exits unsuccessfully and logs the failure.
 - `host/runtime/module_service.*`: admission, stable records, worker-job lifetime
   and completion routing, including thread-start completion.
 - `host/runtime/host.cpp`: bootstrap, queue draining and thread/package lifetime.
+- `host/runtime/client_record.*`, `pumped_client.*`, `service_router.*` and
+  `service_borrows.*`: exact clients, pumped execution, routes and borrow retirement.
 - `host/runtime/host_worker_thread.cpp`: shared binding/unbinding handlers.
 - `rendering/module/binding/*` and `rendering/runtime/*`: module binding and the
-  passive wait-for-exit thread.
-- `executive/runtime/executive_thread.cpp`: renderer selection and readiness gate.
+  Rendering service, module-local tests and conditioning work.
+- `executive/runtime/executive_thread.cpp`: Rendering/Audio selection and acceptance gates.
+- `platform/runtime/*` and `platform/native/*`: portable pumped window service and native adapters.
 
 ## Validation
 
@@ -301,7 +347,7 @@ and disposal-at-exit DLLs. Successful rendering service cases use the real stub.
 The production renderer contains no test switches. Adding the fixture project
 to the solution for IDE visibility is not required by the harness.
 
-The 33 process cases cover:
+The lifecycle harness covers:
 
 - Correlated acknowledgement/completion, normal and duplicate loads, missing
   files/functions, replacement and unavailable service after failure.
@@ -310,8 +356,8 @@ The 33 process cases cover:
 - Rendering load/unload/replacement, failed startup cleanup and Rendering identity.
   A renderer survives Executive replacement and is reused without a second thread.
 - Normal Executive startup and unavailable-renderer shutdown before asset work.
-  Successful startup/replacement runs 71 sequential and 32 concurrent asset cases,
-  followed by 12 filesystem refresh/cache operations and bundle persistence.
+  Successful startup/replacement runs the current asset acceptance flow,
+  followed by filesystem refresh/cache operations and bundle persistence.
 - Explicit disposal, invalid/stale IDs, saves admitted before disposal, dependent
   cleanup and preservation of unrelated retained assets.
 - Disposal requests posted by rendering immediately before terminal publication:

@@ -26,7 +26,19 @@ or that work has been authorised.
 - [Host bootstrap configuration](project/bootstrap_configuration.md): the
   bounded startup file and checked-in flow-test presets.
 - [Asynchronous module lifecycle](modules/asynchronous_module_lifecycle.md):
-  Executive bootstrap, rendering startup, replacement, shutdown and lifecycle tests.
+  Executive bootstrap, service startup, replacement, shutdown and lifecycle tests.
+- [Host pump foundation](modules/host_pump_foundation.md): passive, threaded and
+  pumped client identities, service routing and process ownership.
+- [Borrowed services](modules/service_borrow_lifetimes.md) and
+  [notifications](modules/service_notifications.md): publication, cancellation,
+  exact-instance lifetime protection and two-sided retirement.
+- [Host restriction and bounded maintenance](modules/host_restriction_maintenance.md):
+  eligible budgets, modal bookkeeping and independent shutdown signalling.
+- [Platform shell and first Windows window](modules/platform_first_window.md):
+  on-demand module, explicit window uses, durable state, close policy and native
+  acceptance evidence. Native Linux and input are not yet implemented.
+- [Audio implementation and validation](modules/audio_module_validation.md):
+  on-demand tone acceptance and callback/shutdown ownership.
 - [Module batch runners](modules/batch_runners.md): Host-owned execution of
   coarse module work, return channels and requester lifetime rules.
 - [Module binding ABI](system/module_bootstrap.md), [type identity](system/type_identity.md)
@@ -47,8 +59,9 @@ or that work has been authorised.
   and [filesystem limitations and future considerations](backlog/filesystem_asset_mapping.md).
 - [Schema source-ingestion survey](schema/header-survey.md).
 - [Platform module and host-pumped lifecycle](modules/platform_host_pumped_design.md):
-  agreed window/input ownership, optional Host pumping, explicit window uses,
-  extension callbacks, lifecycle gaps, implementation stages and open decisions.
+  agreed direction and historical decisions, with completed foundation/window
+  stages distinguished from remaining input connections, direct POD transports,
+  configuration, mapping, modes and later backends/extensions.
 - [Audio module: one requested tone test](modules/audio_module_design.md):
   a single Executive test request, miniaudio containment, finite tone/fade,
   callback and shutdown ownership; see also the

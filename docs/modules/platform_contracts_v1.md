@@ -8,32 +8,39 @@ Date:   02 Nov 2026
 
 # Platform first-stage contracts
 
-The [implemented service borrow protocol](service_borrow_lifetimes.md) refines
-prepared-view publication and release/quiescence into generic service operations.
-Platform retains domain readiness and native cleanup responsibilities. The
-Platform-specific release opcode descriptions below remain design context, not
-additional Host lifetime mechanisms to implement alongside that protocol.
-
-The [Host restriction and maintenance proposal](host_restriction_maintenance.md)
-refines the next portable execution increment against `aca926f`. Its ownership,
-maintenance whitelist and timing policies are approved for portable implementation;
-implementation and simulated-modal validation are in progress.
-
 ## Scope and status
 
-This is the concrete contract pass for the
-[Platform design](platform_host_pumped_design.md), reviewed against `07064fc`.
-The behavioural decisions and delegated defaults in that design apply. The names,
-fields and sequencing below are the selected implementation starting point, not
-implemented APIs or a claim of binary compatibility. No code, build configuration
-or dependencies are changed by this pass. Compile/layout checks and concurrency
-tests remain implementation requirements. All components will need a clean build.
+The original contract pass for the [Platform design](platform_host_pumped_design.md)
+was reviewed against `07064fc`. As of `f55d514` (4 November 2026), the
+[Host foundation](host_pump_foundation.md), [borrow protocol](service_borrow_lifetimes.md),
+[notifications](service_notifications.md), [restriction/maintenance](host_restriction_maintenance.md)
+and [first Windows window](platform_first_window.md) are implemented and committed.
+Those references and current headers define the implemented APIs and validation
+limits. This document retains the broader design starting point, with current
+window commands separated from prospective input/configuration/mode contracts.
+
+Generic borrow release/quiescence replaces the original domain release messages;
+Platform retains readiness, stream-barrier and native cleanup responsibilities.
+There is no backward-compatibility promise for these unfinished interfaces: Host,
+modules and fixtures require matching headers and coordinated rebuilds.
+
+The next scope review joins input lifetimes/transports with direct POD connections
+between module service threads. It must consider threaded providers as well as
+pumped Platform, shared endpoint publication/notification/retirement, absent or
+closing destinations, and protection of both instances. Owning transfers stay via
+Host. This reconciliation selects no new endpoint ABI or implementation scope.
 
 Keep the existing Rendering load/unload semantics. Host owns module records;
 there is no persistent original-loader ownership. Window control, input connections,
 asset acquisitions and request lifetimes remain distinct.
 
-## Evidence and required framework changes
+## Original framework assessment, before implementation
+
+The following table records the `07064fc` baseline and the changes it motivated;
+its absence statements are historical. Client records, generic request/test
+routing, pump preparation, checked clocks and borrow notifications are now
+implemented. Worker configuration preparation and direct input connections remain
+future work, as detailed in the current references above.
 
 | Existing code | Consequence |
 | --- | --- |
@@ -125,9 +132,10 @@ If deactivation returns failure, provider runtime state must remain valid for th
 declared failure-cleanup path; it must not return a dangling runtime pointer.
 
 `SHostPumpContext` is a stable Host-owned record: size/version, module-instance and
-client tokens, Host thread ID, service-table pointer/context and restriction snapshot
-view. `SPumpInput` contains borrowed arrays of dispatched service commands and Host
-SYSTEM messages plus a generic time budget. Native event and observation limits
+client tokens, Host thread ID, service-table pointer/context and an execution-context
+pointer providing restriction/stop access. `SPumpInput` contains borrowed arrays
+of dispatched service commands and Host SYSTEM messages plus a generic time budget.
+Native event and observation limits
 are provider policy. `SPumpResult` reports consumed
 prefix counts, lifecycle progress and remaining work. Reject counts beyond supplied
 lengths. Host retains unconsumed entries; Platform copies information needed for
@@ -138,15 +146,18 @@ SYSTEM messages include asset completions and the existing generic `RunTestsRequ
 Host test routing resolves the destination client record: thread clients receive
 their ordinary POD message and pumped clients receive the same payload in the
 SYSTEM lane. Keep caller/worker instance protection until `RunTestsResult` and test
-cleanup complete. Platform owns test selection and may report native tests skipped
-when no native test environment is available; do not claim headless fixtures prove
-window/controller behaviour. No Platform-specific test request is added to Core.
+cleanup complete. The first-window Platform module returns a retained, correlated
+`unavailable` result; native acceptance uses explicit external harnesses. Do not
+claim headless fixtures prove window/controller behaviour. No Platform-specific
+test request is added to Core.
 
 The Host-thread pump callback table (`modules::SHostPumpServices`) supplies
 queued `post_pod`, `post_owner`, terminal `complete`, `prepare_borrow`,
-`begin_borrow_retirement`, `finish_borrow_retirement`, and `bind_borrow_notification`. It requires the exact
-current size/version and coordinated Host/module rebuilds. Planned capabilities
-include `emit_event`, `submit_work`, restricted `maintain`, and restriction publication.
+`begin_borrow_retirement`, `finish_borrow_retirement`, `bind_borrow_notification`,
+`enter_restriction`, `leave_restriction` and `maintain_host`. It requires the exact
+current size/version and coordinated Host/module rebuilds. Worker preparation via
+`submit_work` remains a proposal. There is no `emit_event` callback: window changes
+use durable publication and borrow-bound notifications.
 Callbacks authenticate the context/client supplied by Host, not a sender field in
 the payload. They enqueue or perform whitelisted bookkeeping; they never recursively
 pump another module. `post_owner` is solely module-to-Host: on accepted submission
@@ -154,14 +165,14 @@ Host moves the owning SYSTEM message, otherwise the caller retains it. Apply the
 existing erased-type/attribution checks. No owning Host-to-module or module-to-module
 transfer is introduced.
 
-`submit_work` is a narrow Host-worker job: provider binding lease, borrowed state,
-provider entry and completion correlation. Pin code, state and memory context through
+The proposed `submit_work` would provide a narrow Host-worker job: provider binding
+lease, borrowed state, provider entry and completion correlation. Pin code, state and memory context through
 completion; run only thread-independent work. Reuse the existing worker dispatcher
 and module batch-context preparation, with no new Platform service thread. Return
 completion through the pumped client's inbox. This is needed for configuration
 materialisation, which must not block the native pump for an arbitrarily large parse.
 
-Add `CBoundModule::prepare_host_call(host_thread, provisioning)` using existing
+`CBoundModule::prepare_host_call(host_thread, provisioning)` uses existing
 installers with a stable `SHostPumpContext` as provisioning and a null thread memory
 override, giving allocations the module memory context. Native callbacks on that
 same Host thread validate the retained context. Module-local TLS is separate in
@@ -193,8 +204,9 @@ The ordinary request envelope is exactly 48 bytes:
 | Inline payload | 24 |
 
 The reply substitutes opcode/notice/status/payload-size (`u16` each) in the middle
-eight bytes. Notices are acknowledged, prepared, completed and event; request ID
-zero is reserved for unsolicited events. Host maps to the existing async slot as
+eight bytes. Acknowledged, prepared and completed notices are implemented. The
+enum also contains `event`, but unsolicited-event routing is not implemented and
+request ID zero is not a valid ordinary request. Host maps to the existing async slot as
 well as checking route/client/request ID, preventing slot reuse from accepting an
 old reply. Unused bytes are zero. Copy with `memcpy` into checked POD types rather
 than treating an unaligned byte array as a live object. Assert envelope size/alignment
@@ -209,8 +221,8 @@ their own contracts; do not replace them with this new service enum.
 
 Host authenticates origin from the receiving client record, stamps the dispatched
 command with that instance, checks route phase and reserves operation/completion
-storage before accepting it. Provider completions/events are accepted only for
-registered recipients/resources. Generic Host code never interprets window/HID
+storage before accepting it. Provider completions are accepted only for
+registered operations. Generic Host code never interprets window/HID
 opcodes. No arbitrary LOCAL identity becomes cross-module admissible.
 
 An accepted request has one terminal result; prepared/progress notices do not end
@@ -222,31 +234,51 @@ queue or dropped completion. Rejection uses reserved control/result capacity.
 
 ## Platform commands, views and authority
 
-The implemented first-window subset is specified by
-[Platform shell and first Windows window](platform_first_window.md). That subset
-uses fixed defaults, generic borrow retirement, and borrowed-view notification
-registrations with durable state. Its `window_ready` is opcode 22. Configuration,
-input and mode interfaces below remain later work; the planned unsolicited event
-codes do not add event routing to Host in this increment.
+### Implemented window contract
 
-These are provider-scoped opcodes, with zero invalid. Use install=1, retire=2;
-create-window=16, acquire-window=17, release-window-use=18, request-close=19,
-answer-close=20, set-mode=21; acquire-desktop=32, acquire-controller=33, input-ready=34,
-boundary-ready=35, release-input=36, input-quiescent=37, select-context=38,
-enable-text=39, disable-text=40, set-capture=41, release-capture=42;
-enumerate-device=48 and assign-device=49. Unknown codes are rejected, not ignored.
-Each payload below fits 24 bytes;
-larger observations return a pointer/count/version to a retained immutable descriptor.
+Contract 1/version 1 is defined in
+[`platform/services/window.hpp`](../../platform/services/window.hpp), namespace
+`platform::windows`. The [first-window reference](platform_first_window.md) defines
+its fixed defaults and lifecycle. These are the implemented provider-scoped opcodes:
+
+| Command | Opcode | Payload |
+| --- | ---: | --- |
+| `create_window` | 16 | Empty; no configuration, dimensions or policy payload. |
+| `acquire_window` | 17 | `SWindowRequest`: window token. |
+| `request_close` | 19 | `SWindowRequest`: window token; any holder may request close intent. |
+| `answer_close` | 20 | `SAnswerClose`: window, close-request ID, accept value and zero reserved field; requires controller authority. |
+| `window_ready` | 22 | `SWindowReady`: window, generic borrow and notification registration. |
+
+Create/acquire publish a provider-owned `SWindowViewV1` through the generic prepared
+borrow reply. After notification binding, readiness completes the acquisition.
+Release and quiescence use `ReleaseServiceBorrow` and `ServiceBorrowQuiescent`.
+There is no opcode 18 release-window-use, nor duplicate input release/quiescence
+opcodes 36/37 to implement. These gaps do not preserve an older supported ABI.
+
+Window changes, close intent, closing and failure are durable `SWindowSnapshot`
+state, signalled through borrow-bound registrations. The original proposed window
+event codes are superseded by this publication; Host has no unsolicited-event
+dispatcher. Consumers stop all reads and destroy dependent graphics/native objects
+before acknowledging generic quiescence. `execution_ended` proves CPU inactivity,
+not external resource cleanup; published native uses can remain unresolved.
+
+### Prospective configuration, input and mode contracts
+
+The following opcodes/layouts are design starting points, not implemented API:
+install=1, retire=2, set-mode=21; acquire-desktop=32, acquire-controller=33,
+input-ready=34, boundary-ready=35, select-context=38, enable-text=39, disable-text=40,
+set-capture=41, release-capture=42, enumerate-device=48 and assign-device=49.
+Their domain controls must build on generic borrow lifetime operations. Unknown
+commands are rejected. Each proposed payload must fit 24 bytes; larger results use
+a lifetime-protected immutable descriptor.
 
 | Commands | Essential payload / result |
 | --- | --- |
 | `InstallConfiguration`, `RetireConfiguration` | Source asset ID and format version; or installation token. Result token or structured error. Source must remain retained until Platform has acquired it or installation terminates. |
-| `CreateWindow`, `AcquireWindow`, `ReleaseWindowUse` | Installation/window-policy ID and requested dimensions; window token; use token. Create/acquire returns window/use tokens and borrowed view. |
-| `RequestClose`, `AnswerClose` | Window token; window plus close-request ID and accept/reject. Only controller can decide ordinary closure. |
 | `SetMode` | Window token and requested mode. Completion/event carries confirmed state and native error. |
 | `AcquireDesktop` | Window token, installation token, profile ID, initial context ID. |
 | `AcquireController` | Installation token, requested device token (zero means default), profile ID, context ID. |
-| `InputReady`, `BoundaryReady`, `ReleaseInput`, `InputQuiescent` | Connection token plus the correlated acquisition/transition or observed generations. Control admission remains possible while ordinary admission closes. |
+| `InputReady`, `BoundaryReady` | Connection token plus the correlated acquisition/transition or observed generations. Generic borrow cleanup remains possible while ordinary admission closes. |
 | `SelectContext`, `EnableText`, `DisableText` | Connection token, context/text-target identity and transition correlation, split into separately correlated controls where necessary to fit 24 bytes. No caller memory pointers. |
 | `SetCapture`, `ReleaseCapture` | Desktop connection token and gesture correlation; completion and capture-lost event. |
 | `EnumerateDevice`, `AssignDevice` | Opaque revision/cursor for enumeration; connection/device tokens for assignment. Return one bounded device record per query, with stale-cursor retry rather than borrowed mutable lists. |
@@ -259,19 +291,17 @@ Text-only target transitions are serialised separately from a pending desktop
 transition. Capture/closure/device events include their resource token and source
 sequence; consumers do not infer identity from notification order alone.
 
-Unsolicited window-changed, close-requested, window-closing, capture-lost and
-device-changed events use codes 0x8001 through 0x8005. A window-changed event carries
-window token, state revision and change mask; the borrowed snapshot supplies extent
-details. Coalesce repeated extent notifications to the latest durable state, but
-retain close decisions and resource withdrawal until handled. One outstanding native
-close intent per window is sufficient. Failed event delivery must not silently
-discard an obligation to release a native resource.
+The original design proposed event codes 0x8001 through 0x8005 for window changes,
+close intent, closing, capture loss and device changes. None is implemented. Window
+state now uses the durable publication above; capture/device notification details
+remain for input review. No future notification may silently discard a resource
+withdrawal obligation under delivery pressure.
 
 Native views are tagged, versioned borrowed descriptors containing window ID,
 Windows window/instance handles, drawable/logical extent state and its revision.
 Keep Windows types out of Core. Stable identity/handle fields are immutable while
 the use exists; changing extent/state uses a coherent snapshot. Renderers release
-all graphics objects before `ReleaseWindowUse`. A descriptor is not an ownership
+all graphics objects before asserting `ServiceBorrowQuiescent`. A descriptor is not an ownership
 transfer and cannot outlive its use. Future Linux fields require a new supported
 descriptor variant, not reinterpretation of a Windows pointer.
 
@@ -292,6 +322,9 @@ success without servicing them would deadlock. Framework client helpers should
 make that prepared/ready/boundary sequence explicit.
 
 ## Input records and publication
+
+This section describes proposed input layouts and barriers. The generic lifetime
+and notification foundations are implemented; these input endpoints are not.
 
 Use Platform-owned typed rings, independent of the 48-byte erased-message admission.
 Initial records are explicitly aligned to 8 bytes and trivially copyable:
@@ -529,6 +562,10 @@ configuration structures. These operational limits are revisable defaults.
 
 ## Window/input and shutdown sequences
 
+The combined sequence below includes prospective configuration and input steps.
+The implemented window-only readiness/close sequence is in the first-window
+reference and has no configuration prerequisite.
+
 ### Successful startup
 
 Host worker binds/discovers -> Host registers generic client/prepares TLS ->
@@ -548,7 +585,7 @@ through cancellation/quiescence. Unconfirmed delivery is not proof of non-escape
 
 Consumer locally cancels/stops applying input -> requests release -> Platform stops
 ordinary publication and signals durable closing -> consumer stops every read and
-notification use, then sends `InputQuiescent` -> Host/Platform detach notification
+notification use, then sends `ServiceBorrowQuiescent` -> Host/Platform detach notification
 and prove no publisher/callback remains -> provider frees ring/descriptor, releases
 configuration/window references and completes release. Terminal consumer removal
 substitutes proven reader termination for its acknowledgement, logs omitted release
@@ -569,8 +606,9 @@ safe routing/pumping until clients release their dependencies. Join a thread onl
 after it is terminal and no accepted completion needs its route. Stop/deactivate
 Platform on Host only after worker jobs, endpoints, windows, notifications and native
 callbacks are quiescent; then dispose module-dependent assets and worker-unbind.
-Same ordering applies after activation/pump failure. The emergency Host path must
-also drive this progression; its current blocking join-all path is not suitable.
+Same ordering applies after activation/pump failure. The implemented Host emergency
+path preserves pumped progress and retains unproven obligations; prospective
+input/configuration work must preserve that ordering.
 
 On shutdown grace expiry diagnose and retain unsafe resources/code. Never kill a
 thread or free a Host client record while execution can still reach it. Continue
@@ -582,6 +620,11 @@ until process exit. Audit this path together with package destructors; retaining
 a DLL alone cannot protect freed Host callback or wait-predicate storage.
 
 ## Pause publication and deadline accounting
+
+This design summary is implemented by the
+[restriction and maintenance contract](host_restriction_maintenance.md), including
+its precise coherent-sampling, failure, retirement and budget rules. The native
+first-window integration also permits authenticated cleanup scopes after stop.
 
 Expose checked `query_awake_nanoseconds(u64&) -> WaitError` by factoring the same
 native clock selection/conversion used by `CWaitDeadline`; no performance-counter
@@ -608,6 +651,12 @@ deadline for a paused budget; unrelated deadlines may still bound that wait.
 
 ## Review checkpoints and validation
 
+These are the original broader acceptance criteria. Completed foundation,
+notification, maintenance and first-window evidence is recorded in their linked
+references and the [completion record](../project/completed_milestones.md#host-pumped-services-and-first-windows-window).
+Configuration, input, controller and mode criteria remain future work. No runtime
+matrix was repeated for this documentation reconciliation.
+
 1. Add generic client/routing fixtures before Platform native code: threaded/passive
    behaviour, requester replacement, per-client asset acquisition ownership, in-flight
    cleanup, already-loaded capabilities and protected Executive self-transitions.
@@ -630,6 +679,6 @@ deadline for a paused budget; unrelated deadlines may still bound that wait.
    native window/device tests are separate evidence. Linux runs portable mapper,
    protocol and pumped-fixture coverage; its native window adapter remains deferred.
 
-This pass defines the contracts and required work. Remaining work is implementation,
-compile/layout proof and behavioural/native validation, not another round of routine
-policy approval. Beginning code changes still requires the user's instruction.
+Remaining input/configuration/mode work requires its own bounded implementation
+scope and compile/layout, behavioural and native evidence. Completed stages do not
+authorise the later features or establish their validation.

@@ -1,6 +1,6 @@
 # Current scope
 
-Updated 21 October 2026. The selected consolidation is complete, including
+Updated 4 November 2026. The selected consolidation is complete, including
 the rendering DLL stub and Executive-controlled startup in `f91ded3`.
 The subsequent development filesystem-image stage is complete and accepted,
 including the first-pass review corrections. See the
@@ -11,6 +11,31 @@ This stage supplies hierarchical logical-root inventory, write permissions,
 executable-directory DLL discovery, queued per-root refresh and retained-asset
 cache associations. Both log roots and `test-output:` are excluded from inventory.
 The old deferred filesystem design is superseded in full.
+
+## Platform foundation complete; input and direct connections next
+
+Host-pumped services, generic borrows/notifications, restriction accounting and
+bounded maintenance are committed through `078b595`. The on-demand Platform shell
+and first Windows window are committed in `f55d514`, including user review and
+formatting follow-ups. See the [completion record](../project/completed_milestones.md#host-pumped-services-and-first-windows-window)
+and [implemented window contract](../modules/platform_first_window.md) for scope
+and checkpoint-specific validation limits. Audio tone acceptance is also delivered;
+its [validation record](../modules/audio_module_validation.md) is separate.
+
+The next design review covers input connection lifetimes/transports and direct
+module-service-thread-to-module-service-thread POD transports together. Assess
+reusable publication, notification, closing and quiescence support for threaded
+providers as well as pumped Platform, including absent/closing destinations and
+protection of both module instances during unload/replacement. The current service
+provider execution adapter is pumped; threaded consumer support does not imply a
+threaded provider adapter already exists. Keep owning transfers through Host and
+input-specific readiness/generation barriers in the input domain. No new endpoint
+ABI or input/direct-transport implementation is selected by this documentation pass.
+
+Configuration/mapping, native keyboard/mouse input, GameInput/controller input and
+window modes remain subsequent Platform work. Rendering presentation, native
+Linux/SteamOS, extensions, multiple windows/output selection and Host sleep/wake
+remain deferred. See the [design status](../modules/platform_host_pumped_design.md).
 
 ## Bundle review and closeout
 

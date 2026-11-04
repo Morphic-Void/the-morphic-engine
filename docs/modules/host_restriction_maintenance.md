@@ -1,17 +1,22 @@
 # Host restriction and bounded maintenance
 
-This is the approved portable implementation contract against `aca926f`, following the
+This is the implemented portable contract committed in `078b595`, following the
 [notification increment](service_notifications.md). It refines the agreed
 [Platform design](platform_host_pumped_design.md) and
 [first-stage contracts](platform_contracts_v1.md). On 03 Nov 2026 the user approved
 all five choices below and authorised portable implementation and simulated modal
-tests. The portable implementation is present; its validation evidence is recorded
-below. Native acceptance remains separate.
+tests. Its validation evidence is recorded below. The later
+[first Windows window](platform_first_window.md) (`f55d514`) integrates the native
+move/size, menu and cancellation paths, with separately recorded native evidence.
 
-The authorised increment is portable Host support and a simulated modal
-provider on Windows and Linux. Real windows, move/resize loops, menus, native
-cancellation and native Platform acceptance remain later work. Host continues
-its existing outer polling loop.
+The `078b595` increment covers portable Host support and a simulated modal
+provider on Windows and Linux. Its results do not by themselves establish native
+behaviour. Host continues its existing outer polling loop.
+
+The subsequent native integration permits authenticated restriction entry during
+stopping so required cleanup can be accounted after sticky shutdown. It retains
+thread/invocation checks, bounded accounting and clock-failure handling; deactivation
+cannot enter a scope, and ordinary work admission stays closed.
 
 ## Ownership and header structure
 
@@ -64,8 +69,8 @@ quiescence.
 
 ## Reporting authority and scope lifetime
 
-Proposed callback shapes, with ABI annotations and exact layout assertions to be
-supplied in the implementation review:
+Implemented callback shapes (the ABI-annotated function pointers are in
+`modules::SHostPumpServices`):
 
 ```cpp
 SRestrictionEnterResult enter_restriction(void* const context, const SRestrictionReason reason) noexcept;
@@ -86,8 +91,9 @@ callback pointer or retained context may publish restriction state.
 
 Entry is permitted from `activate`, `pump` and `begin_stop`, including native
 callbacks reached synchronously from them. It is refused during `deactivate`,
-another provider's invocation, maintenance itself or after shutdown has closed
-new native-work admission. The provider must successfully enter before starting
+another provider's invocation or maintenance itself. Sticky shutdown alone does
+not reject an authenticated cleanup scope; Platform separately closes admission
+to new native work. The provider must successfully enter before starting
 the operation that may restrict Host. Failed entry is not permission to continue.
 Existing scopes can always attempt leave during cancellation/shutdown.
 
@@ -532,10 +538,9 @@ occurs, the Host cannot promise timely observation inside the native call.
 
 ## Watchdog migration scope
 
-The implementation should enumerate each logical operation explicitly, rather
-than replacing every clock in the tree. Proposed scope against the current code:
+The implementation applies eligible budgets to these explicit logical operations:
 
-| Path | Proposed timing policy |
+| Path | Implemented timing policy |
 | --- | --- |
 | Host pumped activation in `pumped_client.cpp` | Existing 5-second budget becomes eligible awake time, started once before activation. Progress does not renew it. |
 | Executive `TModuleTestWatchdog` | Existing 30-second outer module-test budget becomes eligible awake time because results traverse Host. Check before draining unrelated messages; retain its deterministic clock seam. |
@@ -561,13 +566,15 @@ unrestricted timing fallback is installed. Failure while waiting requests the
 existing failure/cancellation path while preserving resources and correlations.
 After a timeout, continue required late-result/owner cleanup.
 
-The planned 5-second eligible connection/window/mode/configuration budgets and
-5-second cooperative-release diagnostic remain defaults for later Platform work.
-There are no corresponding native operations to migrate in this increment.
+The later first-window increment implements a five-second eligible acquisition
+budget from command reservation through readiness, without renewing it at native
+creation or notification registration. Completed replies retained under output
+pressure do not expire. Input/mode/configuration budgets and cooperative-release
+diagnostics remain future domain work.
 Do not add timers to all worker jobs or convert independent rendering/audio
 progress policy merely because Host restriction state is available.
 
-## Validation required before implementation acceptance
+## Acceptance criteria
 
 Documentation review is not evidence that code compiles or that a
 native modal loop is safe. The implementation handoff should provide:
@@ -677,7 +684,7 @@ Validation artifacts are under `build/host-maintenance-2026-11-03/`:
 
 The Win32 build emitted an existing vendor source-encoding warning in Basis
 Universal. Release and Clang matrices were not repeated for this increment.
-Native Windows modal loops, cancellation and Platform integration remain outside
-this portable acceptance. Coordinator source review accepted the portable increment
-on 03 Nov 2026 with no outstanding findings. It is ready for user review; no commit
-or push is part of this handoff.
+Native Windows modal loops, cancellation and Platform integration were outside
+this portable acceptance; their later evidence is in the first-window reference.
+Coordinator source review accepted the portable increment on 03 Nov 2026 with no
+outstanding findings, and it was committed as `078b595` after user review.

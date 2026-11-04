@@ -71,8 +71,18 @@ The sections below are deferred scope, not an implementation schedule.
 
 ## Platform integration
 
-Build Windows and Linux modules around system/event pumps, HID/input, windows,
-dialogs and rendering surfaces. Native thread primitives and thread creation
+The [Platform shell and first Windows window](../modules/platform_first_window.md)
+are implemented through `f55d514`, using generic Host pumping, borrows,
+notifications and bounded modal maintenance. Linux currently has the portable
+shell with unsupported native creation, not a native window backend.
+
+Next review input connection lifetimes/transports together with direct POD
+connections between module service threads. Shared endpoint publication,
+notification and retirement must protect both instances; ownership transfers
+remain through Host. Concrete interfaces and threaded provider support require
+review before implementation. Configuration/mapping, native input, GameInput and
+window modes follow; native Linux, dialogs and rendering surfaces remain later work.
+Native thread primitives and thread creation
 remain below these modules; Host thread provisioning and TLS remain separate.
 Host ownership and worker authority are documented in the
 [asset](../assets/asynchronous_asset_services.md) and

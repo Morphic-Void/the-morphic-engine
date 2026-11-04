@@ -8,9 +8,9 @@
 
 # Platform shell and first Windows window
 
-Implementation contract following `078b595`, 4 November 2026. The user approved
-this increment in the coordinating chat. This document fixes the first-window
-interfaces and records the reviewed implementation and validation below.
+Implemented and committed as `f55d514` following `078b595`, 4 November 2026, after
+coordinator and user review. This document records the first-window interfaces,
+ownership and validation limits.
 It refines [Platform contracts](platform_contracts_v1.md), using the implemented
 [borrow lifetimes](service_borrow_lifetimes.md),
 [notifications](service_notifications.md) and
@@ -239,7 +239,7 @@ unbalanced callback sequence, exhausted scope capacity or invalid context fails
 closed, cancels native interaction and retains all lifetime obligations.
 
 Restriction scopes measure Host unavailability; they do not authorise ordinary
-service/native work. The minimal generic Host correction is to stop rejecting
+service/native work. Host no longer rejects
 authenticated `enter_restriction` solely because sticky shutdown is set. Existing
 invocation/thread authentication, bounded accounting and clock failure checks
 remain mandatory, and deactivation still cannot enter a scope. Both `begin_stop`
@@ -255,8 +255,8 @@ native operation; existing frames may execute the minimal cancellation/unwind
 path under their live guards. Failed clock/publication/accounting retains the
 graph and reports failure if safe guarded destruction cannot proceed. A successful
 shutdown with explicit use cleanup must enter its cleanup scope, destroy the
-window, balance all scopes and finish. Add an actual Host test with sticky stop
-already set to prove that route, plus a failure test proving retained state.
+window, balance all scopes and finish. Actual Host tests cover sticky stop already
+set on this route and failure retention.
 
 During native move/size and system menus, invoke bounded `maintain_host` on entry,
 exit, ordinary callback opportunities and a window timer. Continuous motion and
@@ -270,8 +270,8 @@ On cancellation/shutdown/maintenance failure, request native cancellation with a
 reentrancy guard (`WM_CANCELMODE`/menu termination as appropriate), and let native
 frames unwind. Do not make unwind success or elapsed grace a lifetime proof.
 Destroying the window is deferred to a later outer pump even if it has no uses.
-Audit existing emergency Host shutdown and busy/in-use module paths for retention
-of this graph; make only necessary generic corrections, with targeted tests.
+The Host shutdown and busy/in-use paths retain this graph until the existing
+retirement proofs hold; targeted tests cover these paths.
 
 Windows reference contracts:
 [DPI awareness](https://learn.microsoft.com/en-us/windows/win32/hidpi/high-dpi-desktop-application-development-on-windows),
@@ -302,7 +302,9 @@ shutdown, with evidence separated into automated native, manual and untested.
 
 Input/GameInput, schema preparation, shortcuts/modes, Vulkan presentation,
 extensions, multiple windows/output selection, native Linux/SteamOS and Host
-sleep/wake remain deferred. No commit or push is authorised for this increment.
+sleep/wake remain deferred. The next scope review covers input connection lifetimes
+and direct service-thread-to-service-thread POD transports, using the existing
+borrow/notification foundation. These connections are not implemented by this commit.
 
 ## Implementation evidence, 4 November 2026
 
@@ -324,6 +326,7 @@ read-only record reference is const in both places. Manual formatting was retain
 | Linux focused rerun after the reply fix | Rebuilt, all 643 checks passed, and actual Platform shell/test-slot/unload acceptance passed with one and two workers. The already passing broad matrix was not repeated. |
 | In-process real Windows adapter acceptance | Five scenarios, 213 checks passed on x64 and Win32: geometry/PMv2, async close accept/reject, stationary move, continuous sizing, system menu cancellation, and unexpected native loss/retained use. |
 | Actual Host plus loaded Platform DLL native acceptance | Move, size and menu cases passed on x64 with one worker and Win32 with two. Verified exact modal authority, deferred ordinary work, sticky stop, native window live before consumer quiescence, then borrow retirement/destruction and balanced restriction scopes. |
+| User-requested file descriptions and expression grouping, after the evidence above | Purpose comments added to all 21 new files. Parentheses clarify arithmetic/comparison/logical precedence in seven files; standalone arithmetic is left unwrapped. A character/token audit excluding parentheses confirmed the grouping-only source delta. Windows Debug x64 Platform, Tests and Executive fixture rebuilt; all 643 focused checks passed. No broad matrix was repeated for this follow-up. |
 
 The native runner is `tests/platform/run_native.py`. Real Host/DLL cases use
 `tests/host_pump/run_tests.py --native`; they are excluded from the default case
@@ -339,6 +342,9 @@ executable; the sequenced rebuild and tests passed after that process ended.
 Build/test logs are beneath `build/platform-first-window-2026-11-04/`. Repository
 line-ending/whitespace checks and source-manifest tests passed; policy reports zero
 errors/warnings, retaining the existing intentional negative-test suppression.
+The later style-pass evidence is in `build/platform-parentheses-build.log` and
+`build/platform-parentheses-focused.log`; existing source openings, manual
+formatting and Visual Studio file encoding/line endings were preserved.
 Native evidence above is scripted automation. No manual dragging review,
 cross-monitor/hardware DPI transition, graphics-dependent cleanup, Linux native
 backend, Release or Clang validation is claimed for this increment.

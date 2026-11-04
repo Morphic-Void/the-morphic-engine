@@ -1,7 +1,9 @@
 # Service borrow lifetimes
 
-This increment extends the [Host foundation](host_pump_foundation.md) with
-provider-owned borrowed views. It adds no native Platform resource or window API.
+Committed in `9db7a3d`, this extends the [Host foundation](host_pump_foundation.md)
+with provider-owned borrowed views. The later
+[first Windows window](platform_first_window.md) uses this protocol for native
+window uses; resource-specific types and cleanup policy remain in Platform.
 
 ## Ownership
 
@@ -126,7 +128,8 @@ cannot affect another record. The sender retries a failed transport submission.
 
 `modules::SHostPumpServices` is one current table containing queued POD and owner
 submission, terminal completion, borrow preparation, begin/finish retirement, and
-notification binding callbacks. Providers require the exact current size and version before using the
+notification binding and restriction/maintenance callbacks. Providers require
+the exact current size and version before using the
 table. These fields reject mismatched binaries; older layouts are not supported.
 Host and modules use matching headers and coordinated rebuilds, including changes
 to the SYSTEM catalogue. No native types or Platform opcodes are added to Host.
@@ -135,13 +138,17 @@ Generic SYSTEM cleanup messages travel through the existing pump message batch;
 there is no recursive provider dispatch or new execution capability. The protocol
 also supports threaded consumers. Service providers still use the pumped adapter.
 
-This refines the planned Platform release messages: window-use and input-release
-helpers should use generic borrow retirement and quiescence, with their domain
-cleanup preceding the appropriate acknowledgment. Platform still owns close policy,
-input readiness, stream barriers and native resource destruction. Notifications
+Window uses implement generic borrow retirement and quiescence, with domain
+cleanup preceding the appropriate acknowledgment; separate window-release opcodes
+are not implemented. The same lifetime boundary is the starting point for input
+connections, whose readiness and stream barriers remain unimplemented. Platform
+owns close policy and native resource destruction. Notifications
 use [borrow-bound registrations](service_notifications.md), retaining their wait
-targets through final publisher cleanup. Worker preparation, modal restriction
-and native Platform code remain separate increments.
+targets through final publisher cleanup. [Modal restriction and maintenance](host_restriction_maintenance.md)
+and [native Windows windows](platform_first_window.md) are implemented separately.
+Worker preparation and service-thread provider support remain future work. The
+next input/direct-POD-connection review must assess common lifetime support and
+domain-specific barriers without treating proposed endpoint layouts as implemented.
 
 ## Verification
 

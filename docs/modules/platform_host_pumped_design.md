@@ -11,24 +11,34 @@ Review: 02 Nov 2026
 
 ## Status and scope
 
-This document records the agreed Platform direction, a review of the current
-implementation originally at `f00b2eb`, reassessed against `07064fc`, and a
-proposed implementation sequence. It does not describe implemented Platform
-functionality or authorise implementation. The
-current behaviour remains documented in the
-[module lifecycle reference](asynchronous_module_lifecycle.md).
+This document records the agreed Platform direction and historical design reviews
+against `f00b2eb` and `07064fc`. As of 4 November 2026, implementation is committed
+through `f55d514`; the original absence statements in the dated assessment/review
+sections describe those earlier baselines, not the current checkout.
 
-The [first-stage contract pass](platform_contracts_v1.md) defines the selected
-pump/service API, 48-byte command envelope, input record layouts, configuration
-structures, atomic publication and lifecycle sequences against `07064fc`. Read it
-with this document: behavioural decisions remain here, while concrete definitions
-and framework-change checkpoints are collected there. Neither document authorises
-implementation or claims that the proposed APIs have passed compilation/testing.
+| Delivered increment | Current reference |
+| --- | --- |
+| Generic Host clients, pumping, routing and process ownership (`2c6d4b1`) | [Host foundation](host_pump_foundation.md) and [module lifecycle](asynchronous_module_lifecycle.md). |
+| Prepared service borrows and two-sided retirement (`9db7a3d`) | [Borrow lifetimes](service_borrow_lifetimes.md). |
+| Borrow-bound notification registrations (`aca926f`) | [Notifications](service_notifications.md). |
+| Restriction accounting, eligible budgets and bounded modal maintenance (`078b595`) | [Restriction/maintenance contract and portable evidence](host_restriction_maintenance.md). |
+| On-demand Platform shell and first Windows window (`f55d514`) | [Window interfaces, native acceptance and limits](platform_first_window.md). |
 
-The [Host restriction and maintenance proposal](host_restriction_maintenance.md)
-records the portable framework contract against `aca926f`. The user has approved
-its five choices and authorised portable implementation and simulated modal tests;
-native modal work remains deferred.
+The [first-stage contracts](platform_contracts_v1.md) distinguish the implemented
+subset from prospective input/configuration/mode definitions. Current headers and
+the subsystem references above govern the implemented APIs: generic borrow
+retirement replaces duplicate domain release opcodes, and durable window state
+with notifications replaces the proposed window event messages. All components
+use matching headers; the pre-release layouts are not a compatibility promise.
+
+Input connection lifetimes/transports and direct POD connections between module
+service threads are the next scope review. Assess common endpoint publication,
+notification, closing and quiescence support for threaded providers as well as
+pumped Platform, including absent/closing destinations and protection of both
+instances during unload/replacement. The current service provider adapter is
+pumped; threaded consumer support is already present. Owning transfers stay via
+Host, and input readiness/generation barriers remain domain concerns. This status
+update does not select a new endpoint ABI or begin those implementations.
 
 The decisions in the next section and later sections explicitly marked as agreed
 are settled. Concrete API names/layouts and explicitly proposed policies still
@@ -36,7 +46,7 @@ require review. Outstanding
 choices are collected at the end. Audio, external AI communication and the shared
 command interface are separate work; they are not added to this implementation.
 
-The first implementation targets Windows. Linux compatibility informs the shared
+The native implementation targets Windows. Linux compatibility informs the shared
 contracts, but the native Linux backend remains undecided and is later work.
 Window-function extensions remain deferred. Controller input is part of the
 initial HID scope, with semantic actions as the application-facing baseline.
@@ -46,9 +56,9 @@ configuration-local IDs. GameInput is selected for Windows controller acquisitio
 configuration packaging and concrete ABI details remain open.
 A complete remapping UI and
 native Steam Input integration are not prerequisites for the first stage.
-Direct module-to-module POD messaging is an agreed future direction;
-this plan identifies the minimum connection/lifetime foundation needed by Platform
-without authorising a general messaging framework implementation.
+Direct module-to-module POD messaging is an agreed future direction. Its first
+service-thread connection increment is to be scoped with input lifetimes, building
+on the implemented generic borrow and notification foundation.
 
 ## Agreed decisions
 
@@ -159,7 +169,12 @@ without authorising a general messaging framework implementation.
   threads and support the runtime. Platform does not absorb those foundations.
   Core's project include boundary remains Core plus SuiteUTF only.
 
-## Current code and consequences
+## Original code assessment and consequences
+
+This table records the pre-implementation baseline at `07064fc`. The generic Host
+gaps identified here were addressed by the committed stages listed above; input
+transports and later features remain prospective. Linked files now contain the
+newer implementation, so use Git history for the exact assessed baseline.
 
 | Area | Existing implementation | Consequence for this work |
 | --- | --- | --- |
@@ -177,17 +192,20 @@ without authorising a general messaging framework implementation.
 | Unload protection | [asset_service.cpp](../../host/runtime/asset_service.cpp), `CBoundModule::unbind` | Asset acquisitions, dependency bits and allocation attribution do not account for arbitrary window uses or callbacks into another DLL. |
 | Shutdown | `CModuleService::request_shutdown` and `CHost::shutdown` | Record-order unload and emergency thread joining need additional dependency-aware quiescence. Platform must remain callable while clients release presentation resources. |
 
-There is no production Platform module or native window/input implementation in
-Core, Host, Executive or Rendering to relocate. The current identity catalogue
-has no Platform entry. The earlier speculative platform identities were removed;
-add only identities required by the actual implementation.
+At that baseline there was no production Platform module or native window/input
+implementation to relocate, and no Platform catalogue entry. The implementation
+has since added the required Platform mount/module identity without restoring
+speculative backend identities or inventing a Platform service thread.
 
 The [architecture model](../architecture/codebase-model.md#platform-and-renderer-coordination)
 already assigns windowing and native events to Platform modules and places
 coordination in Host. Explicit window uses implement that direction without
 making Rendering responsible for loading/unloading another DLL itself.
 
-## Boundaries and proposed files
+## Boundaries and file structure
+
+The responsibility table includes prospective input/application/presentation work;
+it is not a claim that those consumers are integrated with the first window.
 
 | Component | Responsibility |
 | --- | --- |
@@ -197,9 +215,10 @@ making Rendering responsible for loading/unloading another DLL itself.
 | Executive | Application window policy, input consumption, action catalogue/context policy and aggregation of application pause reasons. Window extensions are deferred. |
 | Rendering | Window acquisition for presentation, native surface integration, resize/redraw response and release after presentation resources are quiescent. |
 
-Proposed layout: `platform/module/binding/`, `platform/module/types/`,
-`platform/contracts/`, `platform/runtime/`, and private native adapters under
-`platform/native/windows/` and the selected Linux backend directory. The new
+Implemented layout: `platform/module/binding/`, `platform/module/types/`,
+`platform/services/`, `platform/runtime/`, and private native adapters under
+`platform/native/windows/` and `platform/native/unsupported/`. The latter keeps the
+portable shell buildable without implying a Linux native backend. The new
 top-level module is distinct from existing `core/platform/` support. Check include
 resolution explicitly: the shared `platform/platform_defines.hpp` and other Core
 paths must continue to resolve correctly. Avoid duplicate relative header names.
@@ -210,15 +229,14 @@ can expose the information Rendering needs without placing `HWND`, Linux display
 types, graphics handles or Platform payload structures in Core. Rendering creates
 and destroys its own graphics presentation objects; Platform supplies windows.
 
-## Proposed host-pumped capability
+## Host-pumped capability
 
-Use a new optional export, provisionally `morphic_module_host_pump_v1`, returning
-a validated, standard-layout function table. Keep bootstrap version 3 unchanged
-if the existing core table can support the required context installation; verify
-that before freezing the ABI. Absence means this capability is not provided,
+The implemented optional export `morphic_module_host_pump_v1` returns
+a validated, standard-layout function table, with bootstrap version 3 unchanged.
+Absence means this capability is not provided,
 while a malformed advertised descriptor fails admission.
 
-The proposed logical operations are:
+Its lifecycle operations are:
 
 | Operation | Purpose |
 | --- | --- |
@@ -227,8 +245,8 @@ The proposed logical operations are:
 | Begin stop | Close admission to new work and begin cooperative teardown; repeated calls must have defined semantics. |
 | Deactivate | Release remaining module runtime resources on the Host thread after clients, callbacks and transports have quiesced. |
 
-These summarise the design roles; the initial signatures and fields are selected
-in the contract pass. Use the established calling
+These summarise the roles implemented in `core/module/host_pump.hpp` and described
+by the [Host foundation](host_pump_foundation.md). Use the established calling
 convention, `noexcept`, explicit status returns and engine-owned storage. Supply
 a stable Host-owned service context; do not expose `CHost*` or fabricate a
 `CThreadResources` containing a nonexistent native thread.
@@ -245,15 +263,15 @@ enters failure cleanup. Stopped means the provider reports native resources and
 callbacks quiescent, with Host also verifying external uses and notification
 retirement before deactivation/unbinding. A timeout provides no proof of quiescence.
 
-Proposed first-stage capability combinations are passive, service-thread, or
+Implemented capability combinations are passive, service-thread, or
 host-pumped. Reject simultaneous service-thread and host-pumped advertisements
 until their combined startup/teardown semantics are designed. Executive retains
 its special bootstrap role. Platform uses the existing Host thread identity;
 it does not need a speculative Platform service-thread identity.
 
-Add an explicit way for a load requester to require host pumping, preserving
-`require_service_thread` behaviour and already-loaded capability checks. Whether
-this is a second requirement field or a small capability mask is an API checkpoint.
+`ModuleRequest::require_host_pump` explicitly requires host pumping, preserving
+`require_service_thread` behaviour and already-loaded capability checks. Requiring
+both execution capabilities is rejected.
 `ModuleResult::available` must mean that every advertised execution capability
 has successfully activated. A bound but deactivated module is unavailable even
 when worker-side unloading fails.
@@ -280,8 +298,8 @@ while its job is in flight; Host must never call an unbinding module.
 ### Thread-local state and reentrancy
 
 `CBoundModule::prepare_thread` installs ambient thread identity, provisioning and
-memory routing for an actual service thread. Review/factor a Host-call preparation
-path instead of passing a bogus resource pointer to satisfy its readiness test.
+memory routing for an actual service thread. `prepare_host_call` provides the
+implemented Host-call path without fabricating thread resources.
 Each module has its own Core/TLS instance. Platform calls on the Host thread need
 correct context and allocation attribution, including reentrant native callbacks.
 Future extensions would need their provider's context too; do not implement an
@@ -304,13 +322,11 @@ not recorded as a persistent load owner. There is no original-requester-only unl
 check and no requirement for a departing requester to unload every module it loaded.
 The prior exclusive load-ownership proposal is withdrawn.
 
-Current Host routing admits ordinary module requests through the Executive path.
-Extend that generic admission to other live module clients, independently of their
-execution capability, so Rendering can request Platform. This routing extension
-does not introduce different load/unload ownership semantics for Platform. Preserve
-explicit handling of Executive self-unload/replacement: another module targeting
-Executive must not accidentally trigger the self-transition branch. Concrete
-requester validation and that special-case admission remain API review items.
+Host now admits ordinary module requests from live module clients independently
+of execution capability, so Rendering can request Platform. This generic routing
+does not change load/unload ownership semantics. Exact requester identity protects
+replies, and another module cannot invoke Executive's special self-transition path.
+Ordinary non-Executive self-unload/replacement is rejected.
 
 After load, other clients can request their own connections/window uses. Neither
 loading nor an `already_loaded` result acquires those uses implicitly. A requester
@@ -347,7 +363,11 @@ before freeing its package. A replacement with the same module identity must not
 receive its predecessor's reply. Prevent self-targeting transitions and dependency
 cycles from leaving a request waiting for its own requester to disappear.
 
-### Proposed connection mechanism
+### Service connections and prospective direct transports
+
+Generic service routes, 48-byte commands, prepared borrows and notifications are
+implemented. The following input/direct-endpoint design builds on those contracts;
+it does not imply that input transports or threaded provider execution exist yet.
 
 Use a generic, Host-mediated service connection to acquire a Platform endpoint
 after module readiness. The load completion may eventually carry such a generic
@@ -374,14 +394,13 @@ delivery boundary execute on Host, so it needs no additional atomic FIFO. Incomi
 requests from other threads and outgoing input still use appropriate transports.
 
 Host tracks identities, admission and connection lifetime while Platform interprets
-its command vocabulary. The generic envelope/result representation must be designed
-explicitly: do not route arbitrary Platform LOCAL payloads through Host's current
-erased transports or add every Platform command to Core's SYSTEM vocabulary.
-Concrete batch/envelope layouts and result routing remain ABI work. Input uses the
+its command vocabulary. The implemented generic envelope/result representation
+keeps Platform opcodes outside Core's SYSTEM vocabulary and does not relax LOCAL
+admission. Its layouts/routing are defined by the Host foundation. Input will use the
 separate Platform-owned pipes below, each with exactly one producer and consumer;
 Executive and Rendering cannot share an SPSC producer role.
 
-Endpoint buffers have stable addresses and explicit ownership. A failed connection
+Proposed direct endpoint buffers have stable addresses and explicit ownership. A failed connection
 or reply publication unwinds its reservation/use after any escaped endpoint views
 have quiesced; failure alone does not prove that storage is safe to reclaim. A closed connection
 rejects new commands, resolves accepted requests and waits for both endpoint roles
@@ -393,7 +412,8 @@ when a payload contains a pointer, handle or token. A borrowed view requires an
 independently protected lifetime; copying its bits creates no new ownership or
 permission to dispose of it. Owning payloads continue through Host only. Endpoint
 allocation, connection publication and retirement need a concrete owner/borrower
-protocol before implementation. For input pipes, Platform owns the storage and
+protocol before implementation, reusing generic borrows/notifications where appropriate.
+For input pipes, Platform owns the storage and
 the consumer holds an exclusive connection with a borrowed endpoint; publishing
 that endpoint does not transfer ownership of the storage to another module.
 
@@ -1299,6 +1319,12 @@ must be defined without pretending that every Win32 message has an equivalent.
 
 ## Host pumping, teardown and failures
 
+Generic restriction publication, eligible budgets and bounded maintenance are
+implemented by the [maintenance reference](host_restriction_maintenance.md), with
+native integration/evidence in the [first-window reference](platform_first_window.md).
+The simulation, presentation and input policies below describe later consumers;
+they do not claim application pause or renderer integration already exists.
+
 ### Normal scheduling
 
 Pump registered capabilities in a stable, fair order during `CHost::run`, including
@@ -1353,11 +1379,11 @@ correlation and required module instances until completion/cancellation; return
 busy when capacity is exhausted. A release may be recorded during maintenance,
 but destruction resulting from it waits for the safe point.
 
-The agreed whitelist permits bounded request admission, safe completion bookkeeping,
-reply publication requiring neither new module invocation nor resource destruction,
-availability/pause publication, watchdog accounting and recording shutdown,
-cancellation and release. Existing workers may be signalled through lifetime-
-protected notification paths. Defer module load/activation/deactivation/unload,
+The implemented whitelist captures/stages bounded traffic, observes sticky stop
+and performs safe accounting; it does not dispatch ordinary service requests or
+invoke handlers that can allocate or destroy owners. The maintenance reference
+specifies the exact handler boundary, deferred stores and replay rules. Existing
+workers may be signalled through lifetime-protected notification paths. Defer module load/activation/deactivation/unload,
 ordinary module pump calls, window creation/destruction/mode changes and any
 completion handler or reclamation requiring those unsafe operations.
 
@@ -1365,8 +1391,9 @@ Nested maintenance skips processing while a pass is already active. Shutdown
 signalling is independent of ordinary queue capacity. After native dispatch
 unwinds, revalidate deferred requests against requester lifetime, cancellation and
 shutdown state. Preserve order within each request stream; lifecycle cancellation
-may supersede work only with explicit completion results. Exact queue layouts,
-numeric budgets and cancellation/result representations remain to be reviewed.
+may supersede work only with explicit completion results. The implemented allowance
+is at most 32 operations and one millisecond per maintenance pass, with captured
+prefix obligations retained until the outer invocation has been validated.
 
 Native timers provide opportunities, not a service-latency guarantee. Windows
 `WM_TIMER` is low priority; verify behaviour during continuous dragging, stationary
@@ -1393,9 +1420,9 @@ independently, whereas a Platform recipient still needs Host pumping.
 
 Audio's callback-progress and overall test watchdogs continue while the device and
 test continue running. Executive's wait for a completion delayed by Host is a
-different budget and excludes the modal restriction. Generalise the existing
-Executive test watchdog accordingly without weakening Audio's independent failure
-detection. The initial application-pause policy leaves Audio running.
+different budget and now excludes the modal restriction through the implemented
+eligible-budget helper, without weakening Audio's independent failure detection.
+The initial application-pause policy leaves Audio running.
 
 Implement accounting above the existing
 [timed predicate wait API](../project/timed_predicate_waiting.md). `CWaitDeadline`
@@ -1408,8 +1435,9 @@ intervals. Notifications prompt inspection; the snapshot is authoritative even i
 a consumer misses both entry and exit notifications. Count only restricted time
 overlapping an operation's lifetime. Ordinary wakeups retain their deadline;
 explicitly excluded intervals adjust the remaining budget through higher-level
-accounting. An already-expired budget is never revived. Exact atomic representation,
-publication ordering and deadline-boundary races remain implementation-review items.
+accounting. An already-expired budget is never revived. The maintenance reference
+defines the implemented atomic publication, coherent sampling and expiry rules;
+its deterministic and simulated-modal evidence is separate from native acceptance.
 
 ### Shutdown and dependency quiescence
 
@@ -1521,36 +1549,42 @@ or evidence of Vulkan/Linux compatibility.
 
 ## Implementation sequence and review checkpoints
 
-This sequence is planning only; later implementation follows the scope authorised
-by the user. Exit criteria are future validation requirements, not claims of
-completed tests.
+The original sequence has progressed through the first-window increment. Completed
+stages and remaining scope are separated below; each reference records its actual
+validation limits rather than implying the whole design has been qualified.
 
 | Stage | Changes | Exit criteria |
 | --- | --- | --- |
-| 1. First-stage contract pass | Defined in [Platform contracts v1](platform_contracts_v1.md): generic client records, pump/context ABI, 48-byte service envelopes, input records/barriers, schema fields, notification and pause-clock support, and dependency cleanup. | Implement compile/layout and concurrency checks against those definitions; trace successful load, failed activation, caller exit, two users, modal shutdown and Executive replacement. Linux adapter choice and extensions are not prerequisites. |
-| 2. Generic pumped lifecycle | Extend Core binding helpers and Host state machine; add context preparation, bounded pumping, restricted maintenance, activation cleanup and worker-only unbind. Use a fixture without OS windows. | Preserve passive/threaded behaviour; cover invalid descriptors, mixed capabilities, partial activation, reentry refusal, deferred transitions, pump failure and stop ordering. |
-| 3. Client routes and dependencies | Admit service load requests, protect requester instances, add minimal POD connections and dependency-aware closure. Route generic tests to pumped endpoints and integrate Host-dependent budget accounting. | Cover busy load, requester death, stale replies, full/closing queues, closure, overlapping pauses and expiry boundaries. No direct ownership transfers. |
-| 4. Platform shell and Windows windows | Add project/catalogue/policy integration, standard window, explicit uses, tagged native views and modal notifications. | No automatic load; load without a window; create/acquire/release; stale IDs; two-user close; safe modal maintenance/cancellation and explicit native failures. |
+| 1. First-stage contract pass | Completed design starting point, with implemented/prospective sections reconciled in [Platform contracts v1](platform_contracts_v1.md). | Input/configuration layouts remain unimplemented; completed generic/window layouts have the evidence linked above. |
+| 2. Generic pumped lifecycle | Committed: context preparation, passive/threaded/pumped clients, activation cleanup, worker-only unbind and direct inline process ownership. | Portable fixtures cover malformed capabilities, activation/pump failures, prefix retention, stop and lifetime ordering. |
+| 3. Client routes and dependencies | Committed: exact-instance routing, borrows, notifications, generic test routing, restriction accounting and bounded maintenance. Direct service-thread/input transports remain next-scope work. | Portable/simulated-modal evidence is in the foundation and maintenance references; no direct ownership transfers. |
+| 4. Platform shell and Windows windows | Committed in `f55d514`: portable shell, one standard Windows window, explicit uses, durable state and native modal maintenance/cancellation. | Automated portable and native checks passed with stated manual/hardware/compiler limits; see the first-window reference. |
 | 5. Input and modes | Add exclusive desktop and controller connections backed by Platform-owned transports, with separate text and mouse/keyboard-control streams inside desktop input; implement schema configuration, agreed input/local bindings, one assigned controller and mode requests at the default location/monitor. | Cover distinct desktop/controller consumers, grouped desktop retirement, configuration validation, device assignment/disconnection, modifiers with text paused, gesture cancellation, text flush, chords/pulses, context barriers, neutral reactivation, discontinuity and mode transitions. No extension dispatch or explicit output selection. Real exclusive success requires Rendering integration. |
 | 6. Windows-stage qualification | Validate both request origins using fixtures where actual presentation is absent; run Windows/Linux build and portable regression matrices, plus Windows native acceptance. | Preserve existing coverage and conditioning-only behaviour; verify release/deactivate/unbind order and report headless versus native evidence explicitly. Update implemented references. |
 | Later, separately authorised | Integrate Vulkan presentation/exclusivity with Rendering; select and implement Linux/SteamOS adapters and native Steam Input; design extensions, richer mapping/UI and wider direct messaging as needed. | Each has its own design/validation checkpoint. The initial module does not claim these capabilities before they exist. |
 
 ### Build, policy and test integration
 
+The build/catalogue/policy integration and portable pump fixtures are implemented,
+including the Linux shell and separately invoked Windows native harnesses. The
+list below retains the broader design checklist; input, configuration and mode
+items remain requirements for later work, not completed tests. The first-window
+evidence records exactly which configurations and native interactions were run.
+
 - Add `MorphicPlatform` project/shared items/filters and solution configurations,
   matching the current Debug/Development/Release project conventions. Preserve
   Visual Studio-managed CRLF/BOM/final-newline conventions. Include the optional
   export's Win32 calling-convention alias as well as x64/Linux visibility.
-- Update `CMakeLists.txt`: its module/executable classification currently names
-  Executive, Rendering and Audio explicitly. Add Platform as a shared module with the
+- `CMakeLists.txt` now classifies Platform alongside Executive, Rendering and Audio
+  as a shared module. Preserve the
   same basename/native extension and appropriate private native dependencies.
   Keep deployment build dependencies distinct from unconditional runtime loading.
 - Add only a required Platform mount/module identity and actual shared service
   contract identities. Clean-build all binaries and fixtures after catalogue/ABI
   changes. Do not restore speculative platform variants or a nonexistent thread.
 - Update `policy/morphic_policy.cfg` scan roots and narrowly scoped native-header
-  rules. Extend module-relative include resolution in the validator, which
-  currently enumerates Host, Executive, Rendering and Audio. Add resolver regression
+  rules. The validator's module-relative resolution now includes Platform alongside
+  Host, Executive, Rendering and Audio. Preserve the resolver regression
   cases while preserving Core/SuiteUTF enforcement. Audit other explicit component
   lists in build/source extraction and tests.
 - Add Platform to test source manifests and isolated runtime/deployment setup as
@@ -1559,9 +1593,9 @@ completed tests.
 - Existing Windows CI builds Debug/Release x64/Win32 and runs ordinary, Host worker
   and lifecycle suites with one/two workers. Extend those fixtures for pumping,
   requester lifetimes, window uses and native callback safety.
-- Linux CI builds GCC/Clang Debug/Release and runs CTest. It does not currently run
-  the Windows lifecycle fixture harness. Add portable pumped-lifecycle coverage
-  and explicit native-display jobs/harness support; do not claim Windows fixture
+- Linux CI builds GCC/Clang Debug/Release and runs CTest, including portable
+  pumped-lifecycle coverage. It does not run the Windows lifecycle fixture harness.
+  Native-display support remains later work; do not claim Windows fixture
   coverage automatically applies on Linux.
 - Exercise generic `RunTestsRequest` on a pumped fixture/Platform endpoint without
   introducing a service thread. Preserve busy/rejection, correlation, final-reply
@@ -1651,11 +1685,12 @@ completed tests.
 
 ## Initial defaults selected under delegated authority
 
-The user delegates the remaining first-stage choices to implementation judgment,
+The user delegated these first-stage defaults to implementation judgment,
 expecting iteration after actual use. The following are selected initial defaults,
 not measured performance claims or permanent compatibility commitments. Changing
 them based on evidence does not require reopening the agreed architecture. This
-delegation does not authorise code changes, commits or deferred feature expansion.
+delegation does not remove the separate scope review for later increments or
+authorise deferred feature expansion.
 
 ### Malformed text, repeat and key identity
 
@@ -1844,41 +1879,43 @@ and modal shutdown. Record hardware-specific tests separately from headless CI.
 
 ## Remaining implementation definitions and deferred work
 
-Concrete starting definitions are now in [Platform contracts v1](platform_contracts_v1.md).
-The items below are implementation/verification obligations, not requests to reopen
-the selected policies. The largest framework change is replacing thread-package-only
-client references with stable generic client records, while retaining existing
-threaded service and asset acquisition behaviour.
+Concrete starting definitions are in [Platform contracts v1](platform_contracts_v1.md).
+Generic client records, routed service requests, borrows, notifications, restricted
+maintenance and the first window are complete. The table distinguishes those
+foundations from the remaining implementation/verification obligations. Earlier
+decisions are preserved; new substantive interface choices still require review.
 
 | Technical work / deferred area | Selected policy and remaining definition |
 | --- | --- |
-| Pump ABI and context | Define signatures/status fields, capability requirements, context preparation and envelope/result routing against existing Core/Host code. Apply pending lifecycle, borrowed batches and the selected work limits; no fake thread package or arbitrary LOCAL payload erasure. |
-| Minimum POD connection ABI | Ownership, exclusivity, readiness, occupied results and release/reacquisition are agreed. Define views/tokens, correlation/version fields, notification registration and retirement, and acquisition failure mechanics. No inter-module ownership transfer. |
+| Pump ABI and context | Implemented; preserve the current complete descriptors, matching-header rebuilds, bounded batches and exact client/context checks when extending provider support. |
+| Input and direct service-thread connection ABI | Next scope review: reusable lifetime/notification support, threaded provider execution, endpoint publication, absent/closing destinations and protection of both instances. Keep input-specific barriers separate and owning transfers through Host; no new ABI selected here. |
 | Acquisition failure and removal mechanics | Apply the selected five-second eligible-time limits and define cancellation/removal sequencing that proves endpoint/notification quiescence. Host logs omitted release and completes cleanup after quiescence without requiring a departed client's acknowledgement. No successor reservation or transfer. |
-| Generic module-request routing | Preserve Rendering's existing load/unload model, already-loaded handling and survival across requester replacement; no persistent loader ownership. Extend admission to other live module clients and protect their response lifetimes. Review Executive self-transition checks so another requester cannot enter the special path accidentally. |
-| Restricted maintenance | Implement the whitelist/reentry guard and independent shutdown signal with the selected limits. Validate native callback opportunities during move/resize and system menus; timer period is not a latency promise. |
-| Pause and watchdog publication | Define atomic publication, race handling and budget helpers above `CWaitDeadline`. Audio continues; Rendering maintains control/resources/repaint without simulation advancement. Validate independent versus Host-dependent budgets. |
+| Generic module-request routing | Implemented for live module clients with exact-instance protection and protected Executive self-transitions; no persistent loader ownership. |
+| Restricted maintenance | Implemented and tested portably and through native move/size/menu paths. Preserve the whitelist, reentry limits and sticky stop; timer period is not a latency promise. |
+| Pause and watchdog publication | Generic atomic publication and eligible budgets are implemented. Future simulation/presentation consumers must apply their own pause policy; no renderer repaint/simulation integration is claimed. |
 | Text and desktop input mechanics | Implement logged/discarded malformed input, native editing repeat, physical action keys, AltGr handling, wheel steps and DPI-scaled logical coordinates. Define record/native adapter details and test the selected policies. Composition and relative mouse mode remain deferred. |
 | Configuration schema and installation ABI | Complete version-1 structures/enums, modifier association rows, parameter profiles, metadata and separate shortcut policy records. Implement retained names, layout checks, any-client installation/idle retirement and bounded admission. Define asset publication/results without ownership transfer. |
 | Context protocol mechanics | Define transition/generation representation and native cutover for serialised context changes, busy rejection and explicit re-selection after failure. Preserve joint desktop barriers, local cancellation and neutral inhibition. |
 | Controller integration and parameters | Validate the GameInput 4.0.306 candidate and redist on x64/Win32, retaining existing Linux builds. Implement device tokens, explicit clock domains and the selected thresholds/clamping; validate USB gamepad acceptance and record actual hardware coverage. |
-| Window and mode protocol mechanics | Creator control, close-on-controller-exit, asynchronous OS-close veto, shutdown override, shortcuts, busy results, restoration and exclusive-loss recovery are agreed. Define event/request layouts and native failure handling; actual exclusive presentation needs Rendering integration. Control transfer is deferred. |
-| Monitors and sizing | Implement Per-Monitor V2, coherent logical/pixel extents, visible windowed output-loss recovery and current-desktop-mode exclusive requests. Explicit output selection and multiple windows/monitors remain deferred. |
+| Window and mode protocol mechanics | Creator control, close-on-controller-exit, asynchronous OS-close veto and shutdown override are implemented with durable state. Shortcuts, mode transitions/restoration and exclusive-loss recovery remain work; exclusive presentation needs Rendering integration. Control transfer is deferred. |
+| Monitors and sizing | PMv2, initial work-area fitting and coherent logical/pixel extents are implemented. Cross-monitor/hardware DPI acceptance remains unvalidated; output-loss recovery and exclusive mode requests remain work. Explicit output selection and multiple windows/monitors remain deferred. |
 | Input transport mechanics | Bounded SPSC streams, coalescing boundaries, durable recovery, joint desktop markers and notifications are agreed. Initial usable capacities are 256 desktop-control/action, 256 controller-action and 64 text records, using the documented rate/frame heuristic. Define record byte sizes, atomic control/marker handshakes, sequence/loss accounting and race-safe wakeups; validate occupancy. Cross-connection aggregation remains explicit consumer policy. |
-| Stop/failure mechanics | Apply busy/in-use ordinary unload and ten-second awake shutdown grace. Verify native cancellation and late-result handling; expiry never frees reachable resources or forces thread termination. |
+| Stop/failure mechanics | Generic busy/unload, shutdown-grace retention and native cancellation paths are implemented. Preserve them for input/configuration dependencies; CPU termination never substitutes for proof of graphics cleanup. |
 | Native Linux/SteamOS backend | Not selected. Evaluate Wayland and XCB/XWayland against actual target sessions, decorations/input, output control and native test environments before Linux implementation. Native Steam adaptation must define action-neutral versus physical-neutral guarantees. Does not block Windows work. |
 | Extensions | Deferred entirely from first implementation; preserve the future extension concept without adding its ABI now. |
 | Host waiting | Deferred. Preserve a future wake-source integration point without declaring a wait ABI or adding arbitrary sleeps in this stage. |
 
-The behavioural model and initial policy defaults are now selected. No further
-routine policy approval is needed: refine implementation details and tunable values
-using evidence under the user's delegation. The concrete contract pass is complete;
-implementation must now verify layouts, concurrency/lifetime claims and dependency
-fit, especially Win32. Atomic publication, failure cleanup and validation remain
-required technical work. Deferred features and this consolidation are not authority
-to start implementation.
+The behavioural model and initial policy defaults are selected. Later increments
+must establish their own layout, concurrency/lifetime and native evidence,
+especially on Win32. Completed foundation/window validation does not qualify
+unimplemented input/configuration/mode features or authorise deferred expansion.
 
 ## Review record
+
+The following is the historical pre-implementation review record through
+2 November 2026. Statements about absent code, outstanding validation or authority
+apply to those design-only passes. They are superseded for completed increments
+by the current status and references at the top of this document.
 
 The documentation pass reviewed binding/context installation, Host worker and
 module state machines, request/test routing, shutdown, transport admission, the

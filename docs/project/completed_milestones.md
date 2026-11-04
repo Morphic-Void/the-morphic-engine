@@ -18,6 +18,54 @@ Permanent behavior and architectural contracts belong in the subsystem
 documents linked from each milestone. Current and future work belongs in
 `future_work_notes.md` and the backlog.
 
+## Host-pumped services and first Windows window
+
+Completed, coordinator-reviewed, user-reviewed and committed through `f55d514`
+on 4 November 2026. The delivered stages are:
+
+| Commit | Delivered scope |
+| --- | --- |
+| `2c6d4b1` | Generic passive/threaded/pumped Host clients, service protocol/execution separation, instance-protected routing and direct inline process ownership without placement new. |
+| `9db7a3d` | Provider-owned service borrows, prepared publication, cancellation, explicit consumer quiescence and provider retirement; no compatibility layer for earlier unfinished interfaces. |
+| `aca926f` | Borrow-bound notification registrations, durable pending/failure latches and exact consumer-package lifetime protection. |
+| `078b595` | Checked awake-time restriction accounting, eligible operation budgets, bounded modal maintenance and an independent sticky stop path. |
+| `f55d514` | On-demand portable Platform shell and first Windows window: explicit uses, coherent state, close authority, modal cancellation and quiescence-before-destruction. Includes the user's const, file-purpose and expression-grouping follow-up. |
+
+The permanent contracts are the [Host foundation](../modules/host_pump_foundation.md),
+[service borrows](../modules/service_borrow_lifetimes.md),
+[notifications](../modules/service_notifications.md),
+[restriction/maintenance](../modules/host_restriction_maintenance.md) and
+[first-window reference](../modules/platform_first_window.md).
+Host retains generic lifecycle and accounting knowledge; Platform owns native
+window policy and resources. Loading Platform creates no window or service thread.
+Linux builds the portable shell but reports native window creation as unsupported.
+
+Validation belongs to the recorded checkpoints, not to every later edit. The
+portable maintenance increment passed Windows Debug x64/Win32 ordinary suites
+(3,767 HostPump checks each), 42 Windows pump cases per worker count, and Linux
+GCC Debug checks including a focused ordinary rerun after the fixture correction.
+Its reference records the initial failure and exact evidence.
+
+The first-window increment passed Windows Debug x64/Win32 builds and ordinary
+suites (4,410 HostPump checks each), 643 focused checks on both Windows targets and
+Linux GCC Debug, and 43 Windows x64 pump cases with one and two workers. Linux's
+seven CTest entries passed before the final small reply fix; after that fix the
+build, 643 focused checks and actual Platform shell cases with both worker counts
+passed without repeating the broad matrix. Explicit native automation passed 213
+in-process adapter checks on x64 and Win32, plus real Host/loaded-DLL move, size
+and menu cases on x64/one worker and Win32/two workers. The later file-description
+and grouping pass rebuilt the affected Windows Debug x64 targets and passed 643
+focused checks; it did not repeat the other matrices. Source-manifest tests (7),
+policy, line-ending and whitespace checks passed.
+
+These results do not claim manual dragging review, cross-monitor/hardware DPI
+transitions, graphics-dependent cleanup, Release/Clang qualification or native
+Linux support for the first-window increment. Input lifetimes/transports, mapping,
+configuration, GameInput and window modes remain future work. Direct POD
+connections between module service threads join input lifetimes in the next scope
+review; ownership transfers continue through Host and no endpoint ABI is selected
+by this completion record.
+
 ## Message and ownership consolidation
 
 Completed, user-reviewed and committed on 20 October 2026 through `3db76d6`.

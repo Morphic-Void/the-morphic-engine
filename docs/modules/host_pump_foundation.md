@@ -1,14 +1,12 @@
 # Host pump foundation
 
-The subsequent [service borrow increment](service_borrow_lifetimes.md) adds
-prepared views, cancellation and provider-owned resource retirement to this
-foundation. Its interface and lifetime rules supersede the exclusions concerning
-those capabilities below; the remaining native/modal work is still deferred.
-
-This implements the generic Host foundation for the approved
-[Platform design](platform_host_pumped_design.md) and
-[contracts](platform_contracts_v1.md). It does not implement a native Platform
-module or a Platform service contract.
+The generic foundation was committed in `2c6d4b1`. Subsequent committed increments
+add [service borrows](service_borrow_lifetimes.md) (`9db7a3d`),
+[notifications](service_notifications.md) (`aca926f`),
+[Host restriction and maintenance](host_restriction_maintenance.md) (`078b595`),
+and the [Platform shell and first Windows window](platform_first_window.md)
+(`f55d514`). This reference describes the foundation and its current integration;
+the linked references define those later capabilities and their validation limits.
 
 ## Execution and identity
 
@@ -128,8 +126,9 @@ prefix lengths; the Host retains the suffix. A completion made during a call
 cannot be delivered until that command's consumption is confirmed. Invalid
 prefixes stop ordinary admission and preserve affected storage through
 quiescence. An already produced, consumed terminal result takes precedence over
-stop cancellation. Prepared notices, unsolicited service events and borrowed
-resource retirement are not advertised by this foundation.
+stop cancellation. Prepared notices and resource retirement use the subsequent
+borrow protocol. Unsolicited service-event routing is not implemented; window
+changes use durable borrowed state and generic notification registrations.
 
 ## Retirement
 
@@ -193,7 +192,9 @@ expiry, and live provider progress beyond shutdown grace expiry.
 The Windows wrapper builds its dedicated fixture project; CMake registers the
 same scenarios with one and two requested Host workers.
 
-Native windows and events, input notifications, GameInput, HID, mapper, Vulkan,
-native resource handles, prepared configuration/results, modal restriction and
-clock accounting, and sleep/wake integration remain deferred. No native
-Platform dependency or extension is installed by this milestone.
+The Windows window provider now uses the generic borrow, notification, restriction
+and maintenance boundaries without introducing native Platform knowledge into
+Host. Input connections/transports, GameInput/HID, mapping, prepared configuration,
+window modes, Vulkan integration, native Linux and Host sleep/wake remain deferred.
+Direct service-thread-to-service-thread POD connections are part of the next scope
+review alongside input lifetimes; the current service provider adapter is pumped.
