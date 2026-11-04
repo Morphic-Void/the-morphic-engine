@@ -438,15 +438,20 @@ Either participant may initiate establishment through Host:
    pending establishment. An absent, closing or incompatible destination must be
    reported explicitly. The request does not implicitly load a module or wait for
    a replacement; a replacement is not substituted into the old request.
-2. Host coordinates the receiving participant's acceptance. Whether every offer
-   requires an explicit response or may use an advertised acceptance policy remains
-   open. Acceptance alone does not authorise ordinary traffic.
+2. Host sends an offer identifying the exact initiating instance, shared messaging
+   contract/version and proposed connection parameters. Every new offer requires an
+   explicit accept/reject response from the receiving service thread. Its handler
+   may decide automatically under module policy; no human intervention is required.
+   Advertised contract support may reject an incompatible request early, but never
+   replaces this response. Acceptance agrees to the peer, version and parameters;
+   it does not mean endpoints are installed or authorise ordinary traffic.
 3. Host supplies complementary endpoint descriptors and notification arrangements
    for the two pipes to both participants, retaining the connection storage and
    all instance/wake-target dependencies while installation is pending.
 4. Both service threads install their endpoint/notification state and report
-   readiness for that exact connection. A late or stale response cannot activate
-   another connection or a replacement instance.
+   readiness for that exact connection. Readiness is distinct from acceptance.
+   A late or stale response cannot activate another connection or a replacement
+   instance.
 5. Only after both are ready does Host authorise activation. Ordinary POD records
    and wake signals then flow directly between the service threads, without Host
    dispatch of each message. Host remains responsible for lifecycle coordination.
@@ -455,27 +460,96 @@ A successful ordinary post means queued, not processed. A full pipe reports the
 inability to enqueue rather than silently overwriting records. Exact status names
 and posting APIs remain open.
 
-Simultaneous reciprocal requests for the same logical connection converge on one
-pending connection and its two pipes rather than allocating duplicates. The exact
-connection key is not settled ABI. An unordered pair of exact module instances plus
-contract/version is a candidate; whether an explicit channel identity is needed
-for multiple connections under the same contract remains to be decided.
+Connection identity distinguishes the relationship, its current lifetime and each
+initiating operation:
+
+| Identity | Agreed purpose and rule |
+| --- | --- |
+| Logical connection key | The unordered pair of exact module instances plus the shared messaging-contract identity. Initially there is one connection per pair and contract, with no additional channel identifier. |
+| Connection token | Host-issued identity for one establishment/lifetime, unique and never reused within the process. Reconnection after retirement gets a fresh token even for the same logical key. |
+| Request correlation | Identifies each initiating operation so Host can complete every request independently, including reciprocal requests that converge on one connection. |
+
+The shared contract identity must be unambiguous to both participants; its concrete
+representation and numeric namespace remain open. Contract version is a checked
+establishment parameter, not another component of the logical key. A version
+mismatch produces an explicit failure rather than a parallel connection or a silent
+change to agreed terms. Different contracts can have separate connections between
+the same instances.
+
+Simultaneous reciprocal requests for the same key converge on one pending
+establishment and its two pipes. Host retains each initiator's request correlation;
+convergence does not bypass acceptance or readiness for the same agreed terms.
+A compatible request while the connection is active returns `already_connected`
+and the existing token, without another endpoint installation, reader/writer role
+or lifetime reference. A request while closing returns `closing`, with no implicit
+successor queue. These are semantic outcomes; byte layouts and concrete APIs remain
+to be defined.
+
+Acceptance, readiness and retirement controls identify the connection token, with
+Host authenticating the sender's exact instance through its registered request path.
+A token or claimed identity in the payload does not establish sender authority.
+Late controls cannot affect a later lifetime even when its logical key is the same.
+
+#### Closing, cancellation and deferred completion
 
 Closing is durable lifecycle state, observable independently of data-queue space.
 Either participant can request closure; Host also closes the connection when a
-participant exits or is removed. Host retains the connection storage and both
-participant/notification lifetimes until all reading, writing and signalling access,
-including in-flight operations, has quiesced. Failed establishment after endpoint
+participant exits or is removed. On observing closing, each participant stops new
+posts and stops starting work from queued or locally buffered records. A post or
+read already underway may finish its bounded endpoint access; this does not promise
+that a record posted during the race will be processed.
+
+Modules track connection-dependent operations by connection token so closure can
+target the relevant work. Apply the following cancellation policy:
+
+| Work at closure | Required handling |
+| --- | --- |
+| Queued work or operations awaiting a reply | Cancel the affected operations and resolve their local completion state. Release dependencies only when their normal lifetime/retirement rules permit; local cancellation does not revoke access by remote or running work. Do not leave operations awaiting a reply that may never arrive. |
+| Running work that supports cooperative cancellation | Request cancellation through its normal operation/ownership protocol. Culling does not permit destroying objects still in use. |
+| Running work that can finish without the pipe | Allow it to finish; any subsequent step needing the connection must validate the expected token and current connection state. |
+| Endpoint or notification access already underway | Let access unwind and relinquish all references before acknowledging connection quiescence. |
+
+Targeted cancellation is the primary closure action. Deferred validation remains
+mandatory for races and work that could not be cancelled promptly. Background work
+allowed to outlive the pipe retains its expected connection token rather than a
+raw endpoint or notification reference. Its completion returns to the owning
+service thread, which resolves that token against its current live connection
+state before each continuation requiring the pipe. A missing, closing or mismatched
+connection ends that multi-step process through its local cancellation/completion
+path; it must not send through a new connection with the same logical key.
+
+The nonreused lifetime token already distinguishes successive connections; no
+additional generation mechanism is selected. Resolve the token before accessing
+an endpoint, rather than reading a generation through possibly reclaimed storage.
+Token-only work may outlive transport retirement, with its own job, module, context
+and resource lifetimes independently protected. The connection token itself keeps
+neither the completion destination nor its DLL alive. If the owning service
+execution has ended, completion follows the existing job cancellation/retirement
+path rather than invoking the dead service or a successor instance. Work retaining
+an endpoint or notification reference must relinquish it before quiescence is acknowledged.
+Token validation does not replace that lifetime proof.
+
+Graceful completion of a conversation happens while the connection is active:
+participants stop initiating work, finish or explicitly cancel their outstanding
+operations, and exchange any required results before requesting closure. Closing
+does not require processing the remaining queue. Once endpoint access is quiescent,
+Host may reclaim the unread POD records with the pipes without interpreting them.
+Separately protected resources referenced by records still need their own cleanup;
+discarding a record does not discharge those obligations. Local cancellation does
+not assert rollback of work already executed remotely: a missing result can leave
+an unknown outcome, so the framework does not automatically retry the operation.
+
+Host retains the connection storage and both participant/notification lifetimes
+until all reading, writing and signalling access, including in-flight operations,
+has quiesced. Failed establishment after endpoint
 publication requires the same proof: cancellation, failed delivery or a timeout is
 not permission to reclaim possibly accessible storage. Proven terminal execution
 can establish CPU endpoint inactivity, but notification users and the surviving
 participant must still quiesce before reclamation.
 
-Replacement modules establish fresh connections. They inherit neither endpoints
-nor queued records from their predecessors. How closing treats queued messages
-between the old participants remains open: this design selects neither mandatory
-draining nor discard-on-retirement. That delivery decision is distinct from the
-requirement to prove quiescence before destroying storage.
+Replacement modules have new instance identities and therefore new logical keys.
+They establish fresh connections and inherit neither endpoints nor queued records
+from their predecessors.
 
 Messages are POD and convey no ownership, even when their bits contain a pointer,
 handle or token. A borrowed view requires its own protected lifetime; copying the
@@ -484,11 +558,12 @@ not admit arbitrary module-local LOCAL identities. Ownership-bearing transfers
 continue through Host's existing services. Host understands connection and transport
 mechanics, not the application meaning of each direct message.
 
+Explicit receiver acceptance, the three identity roles and targeted cancellation
+with deferred token validation are settled.
 The remaining choices are queue capacity in each direction, the common POD envelope
-and contract validation, the exact connection key, per-offer versus advertised
-acceptance, and queued-message drain/discard semantics. Control layouts, admission
-results and publication acknowledgements also need concrete design. Compare a
-minimal authenticated Host-mediated connection lifecycle with a full threaded
+and concrete contract validation/identity representation. Control byte layouts,
+concrete APIs and publication acknowledgements also need design. Compare a minimal
+authenticated Host-mediated connection lifecycle with a full threaded
 service-provider adapter; general routed-service support is not automatically
 required just to establish these pipes. Neither approach nor a new ABI is selected
 by this documentation update.
@@ -629,8 +704,9 @@ access is safely quiescent. Desktop release covers both streams, while controlle
 release is independent. Releasing input does not release window uses or destroy
 windows implicitly. Persistent closing/control state must not require space in
 the very data queue being abandoned.
-This is input-specific retirement policy; queued-message drain/discard semantics
-for general direct duplex connections remain undecided.
+Input-specific action cancellation and stream barriers remain domain policy;
+general direct duplex connections use the targeted cancellation and deferred-token
+checks described above.
 
 Consumer replacement is ordinary release followed by a new acquisition request.
 There is no nomination, transfer operation, protected replacement slot or implicit
@@ -1949,7 +2025,7 @@ decisions are preserved; new substantive interface choices still require review.
 | Technical work / deferred area | Selected policy and remaining definition |
 | --- | --- |
 | Pump ABI and context | Implemented; preserve the current complete descriptors, matching-header rebuilds, bounded batches and exact client/context checks when extending provider support. |
-| Input and direct service-thread connection ABI | General direct messaging uses [Host-owned duplex connections](#host-owned-duplex-connections-for-general-pod-messaging); input retains Platform-owned producer streams. Define concrete publication, acceptance, both-participant readiness and retirement controls. Queue capacities, envelope/admission, connection key and queued-message closure policy remain open; a full threaded provider adapter is not a selected prerequisite. |
+| Input and direct service-thread connection ABI | General direct messaging uses [Host-owned duplex connections](#host-owned-duplex-connections-for-general-pod-messaging); input retains Platform-owned producer streams. Explicit receiver acceptance, both-participant readiness, the unordered exact-instance-pair/contract key, unique lifetime token, independent request correlations and targeted cancellation with deferred token checks are agreed. Concrete control/contract representations, capacities and envelope/admission remain open; a full threaded provider adapter is not a selected prerequisite. |
 | Acquisition failure and removal mechanics | Apply the selected five-second eligible-time limits and define cancellation/removal sequencing that proves endpoint/notification quiescence. Host logs omitted release and completes cleanup after quiescence without requiring a departed client's acknowledgement. No successor reservation or transfer. |
 | Generic module-request routing | Implemented for live module clients with exact-instance protection and protected Executive self-transitions; no persistent loader ownership. |
 | Restricted maintenance | Implemented and tested portably and through native move/size/menu paths. Preserve the whitelist, reentry limits and sticky stop; timer period is not a latency promise. |

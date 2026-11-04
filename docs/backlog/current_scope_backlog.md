@@ -26,13 +26,26 @@ The next design review covers input connection lifetimes/transports and direct
 module-service-thread-to-module-service-thread POD transports together. General
 direct messaging now has an agreed [Host-owned duplex architecture](../modules/platform_host_pumped_design.md#host-owned-duplex-connections-for-general-pod-messaging):
 two bounded SPSC pipes, one identity/lifetime, initiation by either participant,
-Host-coordinated acceptance and readiness from both sides before activation.
+explicit receiving service-thread acceptance and readiness from both sides before
+activation.
 Ordinary traffic/wakes are direct; reciprocal requests for the same logical
 connection converge. Input keeps Platform-owned producer streams, with grouped
 desktop text/control and an independent controller connection.
 
-Concrete interfaces remain to design, including the connection key, capacities,
-POD envelope/admission, acceptance policy and queued-message drain/discard semantics.
+The logical key is the unordered exact-instance pair plus shared contract identity,
+with one connection per pair/contract and no extra channel ID initially. Version
+is a checked parameter; each establishment/lifetime gets a fresh nonreused Host
+token, separate from per-request correlations. The canonical design now fixes
+acceptance, reciprocal convergence and active/closing request outcomes.
+
+The agreed [closing policy](../modules/platform_host_pumped_design.md#closing-cancellation-and-deferred-completion)
+targets known connection-dependent work for cancellation, with token checks when
+deferred completions return to the owning service thread. Token-only work can
+outlive the connection; endpoint/notification users must quiesce before Host reclaims
+the pipes and unread records. Graceful completion of operations happens while active.
+
+Concrete interfaces remain to design, including contract identity representation,
+control layouts/APIs, capacities and POD envelope/admission.
 Compare minimal Host-mediated connection control with a broader threaded provider
 adapter; the latter is not a prerequisite. Preserve both participant/notification
 lifetimes through quiescence and keep owning transfers through Host. No input or

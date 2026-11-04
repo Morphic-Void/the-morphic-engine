@@ -28,17 +28,37 @@ The next scope review joins input lifetimes/transports with direct POD connectio
 between module service threads. The agreed
 [general direct-message architecture](platform_host_pumped_design.md#host-owned-duplex-connections-for-general-pod-messaging)
 uses Host-owned duplex connections: two bounded SPSC pipes under one identity and
-coordinated lifetime, initiated by either participant through Host. Host coordinates
-acceptance and complementary endpoint/notification installation, then authorises
-activation only after both participants report readiness. Ordinary POD traffic and
+coordinated lifetime, initiated by either participant through Host. Every new offer
+requires an explicit receiving service-thread accept/reject response; advertised
+contract support does not replace it. Host coordinates complementary endpoint and
+notification installation, then authorises activation only after both participants
+report readiness. Ordinary POD traffic and
 wakes flow directly. Input/HID retains Platform-owned producer streams, with grouped
 desktop text/control and an independent controller connection.
 
-The canonical design records reciprocal-request convergence, exact-instance
-retention and retirement. Queue capacities, the common POD envelope/admission,
-connection key, acceptance policy and queued-message drain/discard semantics remain
-open. Minimal Host-mediated connection control versus a broader threaded provider
-adapter also remains an implementation-design choice, not a selected prerequisite.
+The logical key is the unordered pair of exact module instances plus the shared
+contract identity, with one connection per pair/contract and no channel ID initially.
+Version is a checked establishment parameter, not a separate key. Each lifetime
+has a fresh, nonreused Host token, distinct from each initiator's request correlation.
+The canonical design specifies reciprocal convergence, active/closing outcomes,
+authenticated controls and retirement; acceptance and identity rules are settled.
+
+The agreed [closing policy](platform_host_pumped_design.md#closing-cancellation-and-deferred-completion)
+cancels known queued/reply-waiting connection work and requests cooperative
+cancellation of running work. Work that safely finishes without the pipe returns
+its expected lifetime token to the owning service thread for validation before a
+pipe-dependent continuation. Token-only work may outlive the pipe; endpoint and
+notification references must quiesce before reclamation. Existing job/module/context
+lifetimes still govern completion delivery; the token keeps neither the destination
+nor its DLL alive. Graceful completion occurs
+while active; unread POD records may be reclaimed after quiescence, with separately
+protected resource obligations still requiring cleanup.
+
+Queue capacities, the common POD envelope/admission and concrete contract identity
+representation remain open, as do control byte layouts and APIs.
+Minimal Host-mediated connection control versus a
+broader threaded provider adapter also remains an implementation-design choice,
+not a selected prerequisite.
 Owning transfers stay via Host. No new endpoint ABI or implementation is defined here.
 
 Keep the existing Rendering load/unload semantics. Host owns module records;
