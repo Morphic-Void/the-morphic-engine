@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  File:    MorphicFramework.vcxitems.filters
+  Date:    04 Nov 26
+
+  Groups shared Framework contract headers by responsibility in Visual Studio.
+-->
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="Framework"><UniqueIdentifier>{0b714662-b391-405f-bfbf-0da8bd53320a}</UniqueIdentifier></Filter>
+    <Filter Include="Framework\platform"><UniqueIdentifier>{b1dfd0ec-f54f-4ecd-9ae4-a067594d5521}</UniqueIdentifier></Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\platform\window.hpp"><Filter>Framework\platform</Filter></ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\platform\window_state.hpp"><Filter>Framework\platform</Filter></ClInclude>
+  </ItemGroup>
+</Project>

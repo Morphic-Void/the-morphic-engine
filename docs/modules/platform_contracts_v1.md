@@ -56,11 +56,11 @@ nor its DLL alive. Graceful completion occurs
 while active; unread POD records may be reclaimed after quiescence, with separately
 protected resource obligations still requiring cleanup.
 
-The agreed [shared Framework project](platform_host_pumped_design.md#shared-framework-contracts),
-`MorphicFramework`, will hold public cross-component contracts and their supporting
-types for Host and all modules. Framework may use Core; Core does not depend on
+The [shared Framework project](platform_host_pumped_design.md#shared-framework-contracts),
+`MorphicFramework`, now contains Platform's public window contract and published
+state for Host and module consumers. Framework may use Core; Core does not depend on
 Framework and retains its current include boundary. Core-consumed definitions stay
-there until safely separable. Registration and migration review precedes any moves;
+there until safely separable. Registration and dependency review precedes further moves;
 broader Core decomposition is separate work, and module-private messages stay local.
 
 General direct pipes reuse the existing 64-byte `CErasedPodMsg`, with its 16-byte
@@ -229,8 +229,10 @@ while a Host/provider record or publication is only partly updated.
 
 ## Generic command transport within 48 bytes
 
-Register only generic service-open/request/reply/control SYSTEM message types in
-Core. Platform owns its contract header and opcode enums. Contract numbers are
+The existing generic service-open/request/reply/control SYSTEM message types remain
+registered in Core because current Core execution and borrow interfaces consume
+them. Platform defines its contract and opcode enums, with public window declarations
+in Framework. Contract numbers are
 scoped by provider module and major version; Platform contract 1/version 1 names
 the first window/input service. Service-provider discovery advertises supported
 contracts independently of execution discovery. The execution-independent envelope
@@ -284,7 +286,7 @@ queue or dropped completion. Rejection uses reserved control/result capacity.
 ### Implemented window contract
 
 Contract 1/version 1 is defined in
-[`platform/services/window.hpp`](../../platform/services/window.hpp), namespace
+[`framework/platform/window.hpp`](../../framework/platform/window.hpp), namespace
 `platform::windows`. The [first-window reference](platform_first_window.md) defines
 its fixed defaults and lifecycle. These are the implemented provider-scoped opcodes:
 

@@ -47,6 +47,7 @@
   <ImportGroup Label="ExtensionSettings" />
   <ImportGroup Label="Shared">
     <Import Project="MorphicCore.vcxitems" Label="Shared" />
+    <Import Project="MorphicFramework.vcxitems" Label="Shared" />
   </ImportGroup>
   <ImportGroup Label="PropertySheets">
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
@@ -121,8 +122,6 @@
     <ClInclude Include="..\platform\runtime\platform_runtime.hpp" />
     <ClCompile Include="..\platform\runtime\window_record.cpp" />
     <ClInclude Include="..\platform\runtime\window_record.hpp" />
-    <ClInclude Include="..\platform\services\window.hpp" />
-    <ClInclude Include="..\platform\services\window_state.hpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <Import Project="MorphicPolicy.targets" />

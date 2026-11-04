@@ -54,10 +54,14 @@ Minimised pixel extent is zero. Paint is acknowledged without graphics ownership
 
 ## Header and ownership structure
 
+The public window headers now belong to the shared `MorphicFramework` project.
+Their contents and `platform::windows` namespace are unchanged; native and runtime
+implementation remains in Platform. See the [Framework boundary](platform_host_pumped_design.md#shared-framework-contracts).
+
 | Location | Responsibility |
 | --- | --- |
-| `platform/services/window.hpp` | `platform::windows` service opcodes, tokens, requests and tagged immutable descriptor. No Windows SDK types. |
-| `platform/services/window_state.hpp` | Coherent atomic snapshot publication and bounded reader, callable inline by clients without a Platform DLL import. |
+| `framework/platform/window.hpp` | `platform::windows` service opcodes, tokens, requests and tagged immutable descriptor. No Windows SDK types. |
+| `framework/platform/window_state.hpp` | Coherent atomic snapshot publication and bounded reader, callable inline by clients without a Platform DLL import. |
 | `platform/runtime/platform_runtime.hpp/.cpp` | `platform::runtime` pumped lifecycle, authenticated commands, bounded uses and retained completions. |
 | `platform/runtime/window_record.hpp/.cpp` | Window/use state, close authority, durable close intent, publication and retirement. |
 | `platform/native/window.hpp` | Private native adapter interface, included only by Platform. |

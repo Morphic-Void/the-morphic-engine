@@ -35,6 +35,11 @@ and follows shared `.vcxitems` imports. It writes source manifests into the
 build directory. CMake watches the input project files and extractor so edits
 cause reconfiguration on the next build. No generated manifests are committed.
 
+`MorphicFramework` is a header-only interface target available to Host, modules,
+tests and pump fixtures. Its Visual Studio shared import contributes public header
+items and a configure dependency, with no additional compiled sources. Consumers
+use explicit `framework/...` includes; Core retains its separate dependency boundary.
+
 The extractor handles unconditional source entries, relative paths, and the
 `MSBuildThisFileDirectory` and `ProjectDir` path prefixes used by this repository.
 It rejects conditional source selection, per-file compile metadata, wildcards,

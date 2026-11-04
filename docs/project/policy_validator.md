@@ -50,6 +50,11 @@ It contains:
 Routine permissions belong in this file. Existing usage is reviewed input to
 the allowlist, not automatic grandfathering.
 
+Framework's public contracts are scanned under engine policy. Their explicit
+`framework/...` includes resolve through the repository root. Framework may include
+Core definitions; Core remains restricted to Core and SuiteUTF. Creating Framework
+does not widen the exact-file permissions for SYSTEM registration macros.
+
 Rendering source and project configuration use the same engine checks as Host
 and Executive. The two Basis Universal headers are permitted only in
 `rendering/runtime/basis_codec.cpp`; upstream Basis sources remain outside the

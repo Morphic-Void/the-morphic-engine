@@ -40,10 +40,11 @@ Host authorises activation. Ordinary POD traffic and wake signals then pass dire
 This supersedes the earlier conversational recommendation of producer-owned general
 direct pipes; neither proposal has been implemented.
 
-Shared contracts will use the transitional [Framework project](#shared-framework-contracts)
-(`MorphicFramework`). General direct connections reuse existing role identities to
-identify their contract and carry the existing `CErasedPodMsg` record. Project
-creation, registration changes and contract migration have not been implemented.
+The transitional [Framework project](#shared-framework-contracts) (`MorphicFramework`)
+now contains Platform's public window contracts. General direct connections remain
+design work: they will reuse existing role identities to identify their contract
+and carry the existing `CErasedPodMsg` record. No direct-connection implementation
+or type-registration changes are included in the Framework extraction.
 
 The next scope review must define the concrete connection controls and interfaces.
 Common publication, notification and quiescence principles need not impose one
@@ -227,14 +228,14 @@ it is not a claim that those consumers are integrated with the first window.
 | Component | Responsibility |
 | --- | --- |
 | Core | Existing generic pumped capability, endpoint/lifetime contracts and shared transport primitives retained during the transition. No native window or HID implementation. New public communication contracts follow the Framework placement below. |
-| Framework (`MorphicFramework`, agreed but not yet created) | Shared public communication contracts and their supporting types, available to Host and all modules. Uses existing Core primitives without adding a Core dependency on Framework. |
+| Framework (`MorphicFramework`) | Shared public communication contracts and their supporting types, initially Platform's window contract and published state. Available to Host and all modules; uses existing Core primitives without adding a Core dependency on Framework. |
 | Host | Capability discovery/activation, scheduling, authenticated client identity, completion routing, dependency tracking and orderly teardown. It need not interpret input or window messages. |
 | Platform | Window records, native adapters, input translation, local action mapping, native interaction state and borrowed native descriptor publication. Extension dispatch is deferred. |
 | Executive | Application window policy, input consumption, action catalogue/context policy and aggregation of application pause reasons. Window extensions are deferred. |
 | Rendering | Window acquisition for presentation, native surface integration, resize/redraw response and release after presentation resources are quiescent. |
 
 Implemented layout: `platform/module/binding/`, `platform/module/types/`,
-`platform/services/`, `platform/runtime/`, and private native adapters under
+`platform/runtime/`, public contracts under `framework/platform/`, and private native adapters under
 `platform/native/windows/` and `platform/native/unsupported/`. The latter keeps the
 portable shell buildable without implying a Linux native backend. The new
 top-level module is distinct from existing `core/platform/` support. Check include
@@ -250,13 +251,16 @@ and destroys its own graphics presentation objects; Platform supplies windows.
 
 ### Shared Framework contracts
 
-The agreed transitional project is Framework, with project name `MorphicFramework`.
-It initially holds public messages that cross component boundaries, including
+The transitional project is Framework, with project name `MorphicFramework`.
+Its scope is public messages that cross component boundaries, including
 communication with Host, and the enums, tokens, descriptors and other types needed
 to interpret them. Group headers by responsibility; consumers include the specific
 contracts they need. Messages used only within one component stay with that component.
-This is primarily a shared header/compile-time project, with no new dynamically
-loaded module or runtime service implied.
+It is implemented as a header-only Visual Studio shared-items project and a CMake
+interface target. Host, all modules and test/fixture consumers import it without
+adding compiled Core sources. Public includes use the explicit `framework/` prefix
+from the repository root, avoiding a new ambiguous `platform/` include root.
+There is no dynamically loaded Framework module or runtime service.
 
 Host and all modules may depend on Framework. Framework may depend on existing
 Core primitives, including identities, views, carriers and transport support.
@@ -265,7 +269,8 @@ unchanged, and this work does not expand Core's remit. A later, separately scope
 refactor may move suitable framework-specific infrastructure out of Core into
 Framework or Host; that wider decomposition is not part of this work.
 
-New direct-connection contracts are the first intended contents. Existing public
+Platform's window contract and published state are the first contents; new
+direct-connection contracts will follow after interface review. Other existing public
 contracts can move only where their consumers and registration dependencies permit.
 Definitions still consumed by Core remain there until safely separable. This
 temporary split is intentional; sharing a project does not require moving every
@@ -286,11 +291,34 @@ does require concrete asset/module/filesystem payloads through
 [transported_types.hpp](../../core/system/transported_types.hpp) and the owner
 catalogue fragments. Those headers stay in Core initially. The existing service
 protocol also stays because Core's pumped/provider and borrow interfaces consume
-it. Platform's [window contract](../../platform/services/window.hpp) and
-[published window state](../../platform/services/window_state.hpp) are initial
-migration candidates for review; native/runtime implementation stays in Platform.
-These are dependency findings, not completed moves or authority to migrate files
-before the registration and migration review is complete.
+it. Platform's [window contract](../../framework/platform/window.hpp) and
+[published window state](../../framework/platform/window_state.hpp) have moved
+together, preserving their `platform::windows` namespace, layouts and behaviour.
+Their command subpayloads still use the registered routed-service envelope and
+existing opcodes; the move adds no SYSTEM identities. Native/runtime implementation
+stays in Platform. Framework is scanned under engine policy, while registration
+macro permissions retain their existing exact-file scope. Further contract moves
+still require dependency and registration review.
+
+The extraction was validated locally on 4 November 2026 against `ded714a` plus
+the scoped Framework changes:
+
+- Both moved headers are byte-identical to their originals. All eight Visual Studio
+  consumers retain the same compiled-source inventories; existing filter encoding
+  and newline conventions are preserved.
+- Windows Debug x64 and Release Win32 solution builds, policy scans and ordinary
+  suites passed. Debug x64 native-window acceptance passed 213 assertions. Rebuilt
+  pump fixtures passed all 43 scenarios with one and two workers on Debug x64,
+  and with one worker on Release Win32.
+- Linux GCC Debug and Clang Release full builds and all seven CTest entries passed,
+  including policy, ordinary suites and Host/pump acceptance with one and two workers.
+- Source-extraction tests passed all eight cases on Windows and Linux. Include-policy
+  tests preserve the Core boundary; Linux also exercised the symlink cases unavailable
+  under the Windows account. Documentation links, line endings and whitespace passed.
+
+Local diagnostics are under `build/framework-2026-11-04/`. This checkpoint does not
+cover the separate Windows module-lifecycle runner or every hosted CI configuration.
+It introduces no native Linux backend or direct-connection implementation.
 
 ## Host-pumped capability
 
@@ -638,7 +666,7 @@ Explicit receiver acceptance, the three identity roles and targeted cancellation
 with deferred token validation are settled, along with role-pair contract identity
 and reuse of the existing POD carrier. The remaining choices are queue capacity in
 each direction, concrete role/version representation and contract admission APIs.
-Framework registration/migration details require review before implementation.
+Further Framework registration/migration details require review before implementation.
 Control byte layouts, concrete APIs and publication acknowledgements also need
 design. Compare a minimal authenticated Host-mediated connection lifecycle with a
 full threaded service-provider adapter; general routed-service support is not automatically
@@ -2102,7 +2130,7 @@ decisions are preserved; new substantive interface choices still require review.
 | Technical work / deferred area | Selected policy and remaining definition |
 | --- | --- |
 | Pump ABI and context | Implemented; preserve the current complete descriptors, matching-header rebuilds, bounded batches and exact client/context checks when extending provider support. |
-| Shared Framework contracts | `MorphicFramework` is the agreed transitional shared project for public cross-component definitions. Core's dependency boundary is unchanged. Review registration and movable contracts before project creation or migration; broader Core decomposition is separate work. |
+| Shared Framework contracts | `MorphicFramework` is implemented as a shared header project/interface target, initially containing Platform's public window contract and state publication. Core's dependency boundary and type registrations are unchanged. Review further contracts before migration; direct connections and broader Core decomposition remain separate work. |
 | Input and direct service-thread connection ABI | General direct messaging uses [Host-owned duplex connections](#host-owned-duplex-connections-for-general-pod-messaging); input retains Platform-owned producer streams. Explicit receiver acceptance, both-participant readiness, the unordered exact-instance-pair/role-contract key, unique lifetime token, independent request correlations and targeted cancellation with deferred token checks are agreed. Direct records reuse `CErasedPodMsg`. Concrete control/role/version representations, capacities and admission APIs remain open; a full threaded provider adapter is not a selected prerequisite. |
 | Acquisition failure and removal mechanics | Apply the selected five-second eligible-time limits and define cancellation/removal sequencing that proves endpoint/notification quiescence. Host logs omitted release and completes cleanup after quiescence without requiring a departed client's acknowledgement. No successor reservation or transfer. |
 | Generic module-request routing | Implemented for live module clients with exact-instance protection and protected Executive self-transitions; no persistent loader ownership. |

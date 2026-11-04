@@ -45,12 +45,13 @@ deferred completions return to the owning service thread. Token-only work can
 outlive the connection; endpoint/notification users must quiesce before Host reclaims
 the pipes and unread records. Graceful completion of operations happens while active.
 
-The agreed transitional [Framework project](../modules/platform_host_pumped_design.md#shared-framework-contracts),
-`MorphicFramework`, will share public cross-component contracts with Host and all
-modules. Framework may use Core primitives; Core's dependency boundary remains
+The transitional [Framework project](../modules/platform_host_pumped_design.md#shared-framework-contracts),
+`MorphicFramework`, is implemented for Visual Studio and Linux CMake. Its first
+contents are Platform's public window contract and state publication, moved together
+with their namespace, layouts and behaviour preserved. Framework may use Core
+primitives; Core's dependency boundary and existing type registrations remain
 unchanged. Definitions still consumed by Core stay there until safely separable.
-Review registration and migration candidates before creating the project or moving
-files; wider Core decomposition is separate work.
+Further moves require review; wider Core decomposition is separate work.
 
 General direct records reuse the existing `CErasedPodMsg` carrier: 64 bytes, with
 a 16-byte header, 48-byte payload, type identity and `async_slot`. Direct admission
@@ -60,7 +61,7 @@ capacities and admission APIs remain to design.
 Compare minimal Host-mediated connection control with a broader threaded provider
 adapter; the latter is not a prerequisite. Preserve both participant/notification
 lifetimes through quiescence and keep owning transfers through Host. No input or
-direct-transport code is implemented by this documentation update.
+direct-transport code is implemented by the Framework extraction.
 
 Configuration/mapping, native keyboard/mouse input, GameInput/controller input and
 window modes remain subsequent Platform work. Rendering presentation, native

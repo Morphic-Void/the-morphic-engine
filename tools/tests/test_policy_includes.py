@@ -38,7 +38,7 @@ def main():
         root = Path(directory)
         (root / "MorphicEngine.sln").touch()
         (root / "policy").mkdir()
-        roots = ("core", "host", "executive", "rendering", "audio", "platform", "tests")
+        roots = ("core", "framework", "host", "executive", "rendering", "audio", "platform", "tests")
         policy = "version|1\n"
         for component in roots:
             (root / component).mkdir()
@@ -68,6 +68,7 @@ def main():
             "tests/helper.hpp", "tools/helper.hpp", "audio/runtime/helper.hpp",
             "external/other/header.hpp", "external/SuiteUTF_extra/header.hpp",
             "core/shared.hpp", "shared.hpp",
+            "framework/platform/window.hpp", "framework/platform/window_state.hpp",
         ):
             path = root / header
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -87,6 +88,12 @@ def main():
         check(binary, root, "host/runtime/probe.cpp", "runtime/only_rendering.hpp",
               errors=1, rule="INC004")
         check(binary, root, "host/runtime/probe.cpp", "rendering/runtime/only_rendering.hpp")
+        for component in ("host", "executive", "rendering", "audio", "platform", "tests"):
+            check(binary, root, f"{component}/probe.cpp", "framework/platform/window.hpp")
+        check(binary, root, "framework/platform/probe.hpp", "window_state.hpp")
+        check(binary, root, "framework/platform/probe.hpp", "debug/macros.hpp")
+        check(binary, root, "framework/platform/probe.hpp", "cstdint", opening='<')
+        check(binary, root, "framework/platform/probe.hpp", "vector", errors=1, rule="INC001", opening='<')
         check(binary, root, "core/probe.cpp", "external/SuiteUTF/include/utf_toolkit.h")
         for component in ("core", "tests"):
             check(binary, root, f"{component}/probe.cpp", "module/types/local_type_ids.hpp",
@@ -98,6 +105,7 @@ def main():
             "host/runtime/local.hpp", "executive/module/types/local_type_ids.hpp",
             "rendering/runtime/only_rendering.hpp", "tests/helper.hpp", "tools/helper.hpp",
             "audio/runtime/helper.hpp", "external/other/header.hpp",
+            "framework/platform/window.hpp", "../framework/platform/window.hpp",
             "external/SuiteUTF_extra/header.hpp", "../host/runtime/local.hpp",
             "../core/../host/runtime/local.hpp", "external/SuiteUTF/../other/header.hpp",
             r"host\runtime\local.hpp", str(root / "host/runtime/local.hpp"),

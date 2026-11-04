@@ -32,7 +32,7 @@
 #include "debug/service.hpp"
 #if MV_PLATFORM_WINDOWS && MV_PUMP_EXECUTIVE
 #include "platform/windows_include.hpp"
-#include "platform/services/window.hpp"
+#include "framework/platform/window.hpp"
 #endif
 
 namespace pump_tests

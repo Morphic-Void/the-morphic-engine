@@ -25,6 +25,8 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "MorphicTests", "visual_stud
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "MorphicCore", "visual_studio\MorphicCore.vcxitems", "{A250136D-15BB-4A6C-A3BB-29C92A92E205}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "MorphicFramework", "visual_studio\MorphicFramework.vcxitems", "{093DF26D-776A-4556-91E0-16DC0EC4AE94}"
+EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "MorphicPolicyValidator", "visual_studio\MorphicPolicyValidator.vcxproj", "{9F240D42-75CB-4F16-A5B4-2B8D6A7E2C41}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "External", "External", "{02EA681E-C7D8-13C7-8484-4AC65E1B71E8}"
@@ -184,6 +186,13 @@ Global
 		SolutionGuid = {6412ED91-C516-41EB-ABE6-FCD1B4D2E855}
 	EndGlobalSection
 	GlobalSection(SharedMSBuildProjectFiles) = preSolution
+		visual_studio\MorphicFramework.vcxitems*{093df26d-776a-4556-91e0-16dc0ec4ae94}*SharedItemsImports = 9
+		visual_studio\MorphicFramework.vcxitems*{efb8a2f1-cdec-4e22-933e-590558d7f314}*SharedItemsImports = 4
+		visual_studio\MorphicFramework.vcxitems*{6b6e8d7d-21cb-4b92-9088-faaa562d9f31}*SharedItemsImports = 4
+		visual_studio\MorphicFramework.vcxitems*{730bc2ab-3a54-445d-91ae-7f279f6fbacd}*SharedItemsImports = 4
+		visual_studio\MorphicFramework.vcxitems*{f31015e2-91f6-4f90-bb5e-14a06c61d1ad}*SharedItemsImports = 4
+		visual_studio\MorphicFramework.vcxitems*{e22d10ed-6477-491e-9c46-bac294341461}*SharedItemsImports = 4
+		visual_studio\MorphicFramework.vcxitems*{d5b6be43-4a70-4c3a-be6d-59d50bc71a24}*SharedItemsImports = 4
 		visual_studio\MorphicCore.vcxitems*{f31015e2-91f6-4f90-bb5e-14a06c61d1ad}*SharedItemsImports = 4
 		visual_studio\MorphicCore.vcxitems*{730bc2ab-3a54-445d-91ae-7f279f6fbacd}*SharedItemsImports = 4
 		visual_studio\MorphicCore.vcxitems*{6b6e8d7d-21cb-4b92-9088-faaa562d9f31}*SharedItemsImports = 4
