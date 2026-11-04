@@ -165,6 +165,7 @@ private:
 #if defined(MV_HOST_RUNTIME_TESTS)
     friend struct SHostRuntimeTestAccess;
     friend struct SHostMaintenanceTestAccess;
+    friend struct SPlatformHostTestAccess;
     bool m_test_reject_initial_scan{ false };
     std::uint32_t m_test_clock_failure{ 0u };
     void* m_test_state{ nullptr };

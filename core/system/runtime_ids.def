@@ -19,3 +19,6 @@ MV_SYSTEM_MODULE(rendering, render)
 
 MV_SYSTEM_MOUNT_POINT(audio)
 MV_SYSTEM_MODULE(audio, audio)
+
+MV_SYSTEM_MOUNT_POINT(platform)
+MV_SYSTEM_MODULE(platform, platform)

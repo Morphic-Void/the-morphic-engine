@@ -60,14 +60,14 @@ add_custom_target(MorphicPolicyCheck
 )
 
 morphic_sources(pump_fixture_sources visual_studio/MorphicPumpFixture.vcxproj)
-foreach(target IN ITEMS MorphicHost MorphicExecutive MorphicRendering MorphicAudio MorphicTests
+foreach(target IN ITEMS MorphicHost MorphicExecutive MorphicRendering MorphicAudio MorphicPlatform MorphicTests
         MorphicPumpProvider MorphicPumpExecutive MorphicPumpReplacement)
     if(target MATCHES "^MorphicPump")
         set(target_sources ${pump_fixture_sources})
     else()
         morphic_sources(target_sources "visual_studio/${target}.vcxproj")
     endif()
-    if(target STREQUAL "MorphicExecutive" OR target STREQUAL "MorphicRendering" OR target STREQUAL "MorphicAudio" OR target MATCHES "^MorphicPump")
+    if(target STREQUAL "MorphicExecutive" OR target STREQUAL "MorphicRendering" OR target STREQUAL "MorphicAudio" OR target STREQUAL "MorphicPlatform" OR target MATCHES "^MorphicPump")
         add_library(${target} SHARED ${target_sources})
         # Engine modules retain their basename and use the native library suffix.
         set_target_properties(${target} PROPERTIES PREFIX "")
@@ -92,6 +92,7 @@ target_include_directories(MorphicHost PRIVATE
     "${CMAKE_SOURCE_DIR}/host/module/types" "${CMAKE_SOURCE_DIR}/host")
 target_include_directories(MorphicExecutive PRIVATE "${CMAKE_SOURCE_DIR}/executive")
 target_include_directories(MorphicRendering PRIVATE "${CMAKE_SOURCE_DIR}/rendering")
+target_include_directories(MorphicPlatform PRIVATE "${CMAKE_SOURCE_DIR}/platform")
 target_include_directories(MorphicAudio PRIVATE "${CMAKE_SOURCE_DIR}/audio")
 add_custom_command(TARGET MorphicAudio POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_SOURCE_DIR}/external/miniaudio/LICENSE"
@@ -99,7 +100,7 @@ add_custom_command(TARGET MorphicAudio POST_BUILD
     VERBATIM)
 target_include_directories(MorphicTests PRIVATE
     "${CMAKE_SOURCE_DIR}/tests/environment"
-    "${CMAKE_SOURCE_DIR}/host" "${CMAKE_SOURCE_DIR}/executive" "${CMAKE_SOURCE_DIR}/rendering")
+    "${CMAKE_SOURCE_DIR}/host" "${CMAKE_SOURCE_DIR}/executive" "${CMAKE_SOURCE_DIR}/rendering" "${CMAKE_SOURCE_DIR}/platform")
 
 target_include_directories(MorphicRendering PRIVATE "${CMAKE_SOURCE_DIR}/external/basis_universal")
 set(dxc_root "${CMAKE_SOURCE_DIR}/build/dependencies/dxc")
@@ -123,8 +124,8 @@ target_compile_definitions(MorphicRendering PRIVATE
 target_include_directories(MorphicTests PRIVATE "${CMAKE_SOURCE_DIR}/external/basis_universal")
 target_compile_definitions(MorphicTests PRIVATE MV_HOST_RUNTIME_TESTS=1 BASISU_SUPPORT_SSE=0 BASISU_SUPPORT_OPENCL=0 BASISD_SUPPORT_KTX2_ZSTD=1)
 set_target_properties(MorphicHost PROPERTIES OUTPUT_NAME MorphicEngine)
-add_dependencies(MorphicHost MorphicExecutive MorphicRendering MorphicAudio)
-add_dependencies(MorphicTests MorphicExecutive MorphicRendering MorphicAudio)
+add_dependencies(MorphicHost MorphicExecutive MorphicRendering MorphicAudio MorphicPlatform)
+add_dependencies(MorphicTests MorphicExecutive MorphicRendering MorphicAudio MorphicPlatform)
 
 enable_testing()
 add_test(NAME MorphicPolicyIncludes COMMAND "${Python3_EXECUTABLE}"

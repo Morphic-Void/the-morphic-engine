@@ -738,7 +738,8 @@ static void check_include(
     // Module-relative includes belong to the including file's module, even
     // when that source is compiled into the test executable.
     const fs::path component = *relative_path.begin();
-    if ((component == "host") || (component == "executive") || (component == "rendering") || (component == "audio"))
+    if ((component == "host") || (component == "executive") || (component == "rendering") ||
+        (component == "audio") || (component == "platform"))
     {
         candidates.push_back(root / component / fs::path(project_operand));
     }

@@ -1,0 +1,13 @@
+//  Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited
+//  License: MIT (see LICENSE file in repository root)
+//
+//  File:    erased_owner_payloads.def
+//  Authors: Ritchie Brannan / OpenAI Codex
+//  Date:    04 Nov 26
+//
+//  Lists Platform-local owning message payloads for erased-owner registration.
+//  Defines MV_LOCAL_ERASED_OWNER_PAYLOADS(payload_macro,
+//  payload_with_storage_macro).
+
+//  The Platform currently has no local erased-owner payload operations.
+#define MV_LOCAL_ERASED_OWNER_PAYLOADS(payload_macro, payload_with_storage_macro)

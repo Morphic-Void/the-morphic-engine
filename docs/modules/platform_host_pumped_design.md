@@ -1180,6 +1180,11 @@ while preserving direction; parameter record layouts remain technical work.
 
 ## Windows, uses and presentation modes
 
+The first implementation checkpoint is concretised in
+[Platform shell and first Windows window](platform_first_window.md), including
+the fixed initial policy and borrow-bound durable notifications. Later input,
+configuration and presentation-mode work remains separate.
+
 Proposed operations are create, acquire an existing window, release a use, request
 close, request a presentation-mode change, and subscribe/unsubscribe input.
 Creation returns a window identity and an initial use; acquisition returns a separate use for the

@@ -260,7 +260,8 @@ modules::SRestrictionEnterResult MV_STD_ABI_CALL CPumpedClient::enter_restrictio
     auto* const self = static_cast<CPumpedClient*>(context);
     if (!self || (t_invocation != self) || self->m_maintenance.running()) return {};
     self->m_maintenance.poll_stop();
-    if (self->m_maintenance.stop_requested()) return { modules::ERestrictionStatus::closing, {} };
+    //  Accounting remains available to authenticated stopping invocations for
+    //  native cleanup. Scope entry does not reopen ordinary work admission.
     return self->m_maintenance.restrictions().enter(reason);
 }
 

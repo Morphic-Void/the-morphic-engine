@@ -222,6 +222,13 @@ queue or dropped completion. Rejection uses reserved control/result capacity.
 
 ## Platform commands, views and authority
 
+The implemented first-window subset is specified by
+[Platform shell and first Windows window](platform_first_window.md). That subset
+uses fixed defaults, generic borrow retirement, and borrowed-view notification
+registrations with durable state. Its `window_ready` is opcode 22. Configuration,
+input and mode interfaces below remain later work; the planned unsolicited event
+codes do not add event routing to Host in this increment.
+
 These are provider-scoped opcodes, with zero invalid. Use install=1, retire=2;
 create-window=16, acquire-window=17, release-window-use=18, request-close=19,
 answer-close=20, set-mode=21; acquire-desktop=32, acquire-controller=33, input-ready=34,

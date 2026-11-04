@@ -30,25 +30,25 @@ public:
     CServiceBorrowClient& operator=(const CServiceBorrowClient&) = delete;
     CServiceBorrowClient(CServiceBorrowClient&&) = delete;
     CServiceBorrowClient& operator=(CServiceBorrowClient&&) = delete;
-    [[nodiscard]] bool begin(SServiceRoute route, SServiceRequestId request, std::uint16_t opcode) noexcept;
+    [[nodiscard]] bool begin(const SServiceRoute route, const SServiceRequestId request, const std::uint16_t opcode) noexcept;
     //  Caller must prove transport submission never succeeded.
-    [[nodiscard]] bool abandon_unsubmitted(SServiceRoute route, SServiceRequestId request) noexcept;
+    [[nodiscard]] bool abandon_unsubmitted(const SServiceRoute route, const SServiceRequestId request) noexcept;
     [[nodiscard]] bool observe(const ServiceReply& reply) noexcept;
     [[nodiscard]] bool observe(const ServiceBorrowControl& control) noexcept;
-    [[nodiscard]] bool request_notification(SServiceBorrow borrow, RegisterServiceNotification& message) noexcept;
+    [[nodiscard]] bool request_notification(const SServiceBorrow borrow, RegisterServiceNotification& message) noexcept;
     //  Caller must prove the registration request never entered the transport.
-    [[nodiscard]] bool abandon_unsubmitted_notification(SServiceBorrow borrow) noexcept;
+    [[nodiscard]] bool abandon_unsubmitted_notification(const SServiceBorrow borrow) noexcept;
     [[nodiscard]] bool observe(const ServiceNotificationRegistered& reply) noexcept;
-    [[nodiscard]] SNotificationRegistration registration(SServiceBorrow borrow) const noexcept;
-    [[nodiscard]] threading::SNotificationReader notification(SServiceBorrow borrow) const noexcept;
-    [[nodiscard]] SServiceBorrow borrow(SServiceRoute route, SServiceRequestId request) const noexcept;
-    [[nodiscard]] SServiceView view(SServiceBorrow borrow) const noexcept;
-    [[nodiscard]] bool release(SServiceBorrow borrow, ReleaseServiceBorrow& message) noexcept;
+    [[nodiscard]] SNotificationRegistration registration(const SServiceBorrow borrow) const noexcept;
+    [[nodiscard]] threading::SNotificationReader notification(const SServiceBorrow borrow) const noexcept;
+    [[nodiscard]] SServiceBorrow borrow(const SServiceRoute route, const SServiceRequestId request) const noexcept;
+    [[nodiscard]] SServiceView view(const SServiceBorrow borrow) const noexcept;
+    [[nodiscard]] bool release(const SServiceBorrow borrow, ReleaseServiceBorrow& message) noexcept;
     //  Wait for receipt acknowledgment so the cleanup lane cannot overtake admission.
-    [[nodiscard]] bool cancel(SServiceRoute route, SServiceRequestId request, CancelServiceRequest& message) noexcept;
-    [[nodiscard]] bool quiesce(SServiceBorrow borrow, ServiceBorrowQuiescent& message) noexcept;
-    [[nodiscard]] bool retired(SServiceBorrow borrow) const noexcept;
-    [[nodiscard]] bool forget(SServiceRoute route, SServiceRequestId request) noexcept;
+    [[nodiscard]] bool cancel(const SServiceRoute route, const SServiceRequestId request, CancelServiceRequest& message) noexcept;
+    [[nodiscard]] bool quiesce(const SServiceBorrow borrow, ServiceBorrowQuiescent& message) noexcept;
+    [[nodiscard]] bool retired(const SServiceBorrow borrow) const noexcept;
+    [[nodiscard]] bool forget(const SServiceRoute route, const SServiceRequestId request) noexcept;
 
 private:
     struct SRecord
@@ -69,10 +69,10 @@ private:
         threading::SNotificationReader notification;
     };
 
-    [[nodiscard]] SRecord* find(SServiceRoute route, SServiceRequestId request) noexcept;
-    [[nodiscard]] const SRecord* find(SServiceRoute route, SServiceRequestId request) const noexcept;
-    [[nodiscard]] SRecord* find(SServiceBorrow borrow) noexcept;
-    [[nodiscard]] const SRecord* find(SServiceBorrow borrow) const noexcept;
+    [[nodiscard]] SRecord* find(const SServiceRoute route, const SServiceRequestId request) noexcept;
+    [[nodiscard]] const SRecord* find(const SServiceRoute route, const SServiceRequestId request) const noexcept;
+    [[nodiscard]] SRecord* find(const SServiceBorrow borrow) noexcept;
+    [[nodiscard]] const SRecord* find(const SServiceBorrow borrow) const noexcept;
 
     TUnorderedCollection<SRecord> m_records;
     std::uint32_t m_count{ 0u };

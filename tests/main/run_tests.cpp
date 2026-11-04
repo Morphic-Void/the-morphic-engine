@@ -153,6 +153,8 @@ void print_usage()
         "  -t3          Run full expensive tests\n"
         "  --tests=<0-3>\n"
         "               Long-form equivalent of -t0..-t3\n"
+        "  --platform-window  Run focused portable window/Host tests\n"
+        "  --platform-native  Explicit Windows visible-window/modal acceptance\n"
         "  --log-tag=<value>\n"
         "               Add a 1-48 character disambiguation tag to test logs\n"
         "  --output-directory=<path>\n"

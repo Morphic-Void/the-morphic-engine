@@ -31,22 +31,22 @@ public:
     [[nodiscard]] services::EServiceStatus prepare(SClientRecord& provider, SClientRecord& client,
         const services::SServiceBorrowOffer& offer, const std::int32_t slot,
         const std::uint16_t opcode, const bool dispatched, services::SServiceBorrow& borrow) noexcept;
-    void dispatched(services::SServiceBorrow borrow) noexcept;
-    [[nodiscard]] bool publication_settled(services::SServiceBorrow borrow) const noexcept;
-    [[nodiscard]] services::EServiceStatus begin_retirement(SClientRecord& provider, services::SServiceBorrow borrow) noexcept;
-    [[nodiscard]] services::EServiceStatus finish_retirement(SClientRecord& provider, services::SServiceBorrow borrow) noexcept;
+    void dispatched(const services::SServiceBorrow borrow) noexcept;
+    [[nodiscard]] bool publication_settled(const services::SServiceBorrow borrow) const noexcept;
+    [[nodiscard]] services::EServiceStatus begin_retirement(SClientRecord& provider, const services::SServiceBorrow borrow) noexcept;
+    [[nodiscard]] services::EServiceStatus finish_retirement(SClientRecord& provider, const services::SServiceBorrow borrow) noexcept;
     [[nodiscard]] services::ServiceNotificationRegistered register_notification(SClientRecord& client,
         const services::RegisterServiceNotification& request) noexcept;
-    [[nodiscard]] services::EServiceStatus bind_notification(SClientRecord& provider, services::SServiceBorrow borrow,
-        services::SNotificationRegistration registration, threading::SNotificationEndpoint& endpoint) noexcept;
+    [[nodiscard]] services::EServiceStatus bind_notification(SClientRecord& provider, const services::SServiceBorrow borrow,
+        const services::SNotificationRegistration registration, threading::SNotificationEndpoint& endpoint) noexcept;
     void release(SClientRecord& client, const services::ReleaseServiceBorrow& request) noexcept;
     void quiescent(SClientRecord& client, const services::ServiceBorrowQuiescent& request) noexcept;
-    void cancel(services::SServiceBorrow borrow) noexcept;
+    void cancel(const services::SServiceBorrow borrow) noexcept;
     void cancel_request(SClientRecord& client, const services::CancelServiceRequest& request) noexcept;
     void retire_client(SClientRecord& client, const bool execution_quiescent) noexcept;
     void stop_provider(SClientRecord& provider) noexcept;
     void progress() noexcept;
-    [[nodiscard]] bool route_idle(services::SServiceRoute route) const noexcept;
+    [[nodiscard]] bool route_idle(const services::SServiceRoute route) const noexcept;
     [[nodiscard]] bool provider_retired(const SClientRecord& provider) const noexcept;
 
 private:
@@ -72,10 +72,10 @@ private:
         threading::CThreadPackage* pinned_thread{ nullptr };
     };
 
-    [[nodiscard]] SRecord* find(services::SServiceBorrow borrow) noexcept;
-    [[nodiscard]] const SRecord* find(services::SServiceBorrow borrow) const noexcept;
+    [[nodiscard]] SRecord* find(const services::SServiceBorrow borrow) noexcept;
+    [[nodiscard]] const SRecord* find(const services::SServiceBorrow borrow) const noexcept;
     static void close(SRecord& record) noexcept;
-    static bool notify(SRecord& record, SClientRecord& recipient, services::EServiceBorrowControl control) noexcept;
+    static bool notify(const SRecord& record, SClientRecord& recipient, const services::EServiceBorrowControl control) noexcept;
 
     TUnorderedCollection<SRecord> m_records;
     std::uint64_t m_next{ 1u };

@@ -555,3 +555,8 @@ void run_host_maintenance_tests(tests::TTestContext& ctx)
     host::SHostMaintenanceTestAccess::failed_start_join(ctx);
     host::SHostMaintenanceTestAccess::invalid_outer_prefix(ctx);
 }
+
+void prepare_platform_test_binding(modules::CBoundModule& binding) noexcept
+{
+    modules::SBoundModuleTestAccess::prepare(binding);
+}

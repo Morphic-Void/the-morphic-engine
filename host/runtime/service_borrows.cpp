@@ -214,7 +214,7 @@ void CServiceBorrows::stop_provider(SClientRecord& provider) noexcept
     }
 }
 
-bool CServiceBorrows::notify(SRecord& record, SClientRecord& recipient, const EServiceBorrowControl control) noexcept
+bool CServiceBorrows::notify(const SRecord& record, SClientRecord& recipient, const EServiceBorrowControl control) noexcept
 {
     const services::ServiceBorrowControl message{ record.offer.route, record.offer.request, record.token, control, record.quiescence };
     return recipient.post(threading::make_pod_message(-1, message));

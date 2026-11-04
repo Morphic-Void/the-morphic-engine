@@ -52,7 +52,7 @@
   </PropertyGroup>
   <ItemDefinitionGroup>
     <ClCompile>
-      <AdditionalIncludeDirectories>$(MSBuildThisFileDirectory)..\tests\environment;$(MSBuildThisFileDirectory)..\host;$(MSBuildThisFileDirectory)..\executive;$(MSBuildThisFileDirectory)..\rendering;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(MSBuildThisFileDirectory)..\tests\environment;$(MSBuildThisFileDirectory)..\host;$(MSBuildThisFileDirectory)..\executive;$(MSBuildThisFileDirectory)..\platform;$(MSBuildThisFileDirectory)..\rendering;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <WarningLevel>Level3</WarningLevel>
       <SDLCheck>true</SDLCheck>
       <ConformanceMode>true</ConformanceMode>
@@ -64,7 +64,7 @@
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>Synchronization.lib;Ole32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>User32.lib;Gdi32.lib;Synchronization.lib;Ole32.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)'=='Debug'">
@@ -267,6 +267,22 @@
       <Project>{9F240D42-75CB-4F16-A5B4-2B8D6A7E2C41}</Project>
       <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
     </ProjectReference>
+  </ItemGroup>
+  <ItemDefinitionGroup>
+    <Manifest><AdditionalManifestFiles>$(ProjectDir)..\host\entry\windows.manifest;%(AdditionalManifestFiles)</AdditionalManifestFiles></Manifest>
+  </ItemDefinitionGroup>
+  <ItemGroup><Manifest Include="..\host\entry\windows.manifest" /></ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\platform\native\unsupported\window_unsupported.cpp" />
+    <ClInclude Include="..\platform\native\window.hpp" />
+    <ClCompile Include="..\platform\native\windows\window_windows.cpp" />
+    <ClCompile Include="..\platform\runtime\platform_runtime.cpp" />
+    <ClCompile Include="..\tests\test_suites\PlatformWindow_test_cases.cpp" />
+    <ClInclude Include="..\platform\runtime\platform_runtime.hpp" />
+    <ClCompile Include="..\platform\runtime\window_record.cpp" />
+    <ClInclude Include="..\platform\runtime\window_record.hpp" />
+    <ClInclude Include="..\platform\services\window.hpp" />
+    <ClInclude Include="..\platform\services\window_state.hpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <Import Project="MorphicPolicy.targets" />

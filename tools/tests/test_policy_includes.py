@@ -38,7 +38,7 @@ def main():
         root = Path(directory)
         (root / "MorphicEngine.sln").touch()
         (root / "policy").mkdir()
-        roots = ("core", "host", "executive", "rendering", "audio", "tests")
+        roots = ("core", "host", "executive", "rendering", "audio", "platform", "tests")
         policy = "version|1\n"
         for component in roots:
             (root / component).mkdir()
@@ -62,6 +62,7 @@ def main():
             "executive/module/types/local_type_ids.hpp",
             "rendering/module/types/local_type_ids.hpp",
             "audio/module/types/local_type_ids.hpp",
+            "platform/module/types/local_type_ids.hpp",
             "rendering/runtime/only_rendering.hpp",
             "host/runtime/local.hpp", "host/debug/macros.hpp",
             "tests/helper.hpp", "tools/helper.hpp", "audio/runtime/helper.hpp",
@@ -73,7 +74,7 @@ def main():
             path.touch()
 
         # Identically named catalogues in other modules must not be candidates.
-        for component in ("host", "executive", "rendering", "audio"):
+        for component in ("host", "executive", "rendering", "audio", "platform"):
             check(binary, root, f"{component}/module/binding/probe.cpp",
                   "module/types/local_type_ids.hpp")
         check(binary, root, "rendering/runtime/probe.cpp", "runtime/only_rendering.hpp")

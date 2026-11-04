@@ -30,6 +30,10 @@
 #include "platform/threading/processor_relax.hpp"
 #include "debug/macros.hpp"
 #include "debug/service.hpp"
+#if MV_PLATFORM_WINDOWS && MV_PUMP_EXECUTIVE
+#include "platform/windows_include.hpp"
+#include "platform/services/window.hpp"
+#endif
 
 namespace pump_tests
 {
@@ -99,10 +103,12 @@ static bool receive(threading::CThreadContext& context, threading::CErasedPodMsg
     }
 }
 static bool operation(threading::CThreadContext& context, const modules::EModuleAction action,
-    const modules::EModuleStatus expected, const bool pump = true, const bool thread = false)
+    const modules::EModuleStatus expected, const bool pump = true, const bool thread = false,
+    const module_ids::id_type module = module_ids::rendering)
 {
-    const auto file = test_environment::module_filename("package:/bin/MorphicPumpProvider");
-    if (!context.post(module_request(module_ids::rendering, action, file.c_str(), pump, thread))) return false;
+    const auto file = test_environment::module_filename((module == module_ids::platform) ?
+        "package:/bin/MorphicPlatform" : "package:/bin/MorphicPumpProvider");
+    if (!context.post(module_request(module, action, file.c_str(), pump, thread))) return false;
     for (const auto notice : { modules::EModuleNotice::acknowledged, modules::EModuleNotice::completed })
     {
         threading::CErasedPodMsg message;
@@ -508,8 +514,201 @@ static bool modal_resource(threading::CThreadContext& context, const SServiceRou
     return operation(context, EModuleAction::unload, EModuleStatus::success) && self_stop(context, false);
 }
 
+static bool platform_shell(threading::CThreadContext& context)
+{
+    const auto operation = [&](const modules::EModuleAction action, const modules::EModuleStatus expected,
+        const bool pump = true, const bool thread = false)
+    { return pump_tests::operation(context, action, expected, pump, thread, module_ids::platform); };
+    if (!operation(EModuleAction::load, EModuleStatus::success) ||
+        !operation(EModuleAction::load, EModuleStatus::already_loaded) ||
+        !operation(EModuleAction::load, EModuleStatus::function_unavailable, false, true)) return false;
+    threading::CErasedPodMsg message;
+    for (const std::int32_t slot : { 18, 19 })
+    {
+        modules::RunTestsResult result;
+        if (!context.post(threading::make_pod_message(slot, modules::RunTestsRequest{ module_ids::platform })) ||
+            !receive(context, message) || !message.copy_payload_to(result) || (message.query_async_slot() != slot) ||
+            (result.module != module_ids::platform) || (result.status != modules::ETestRunStatus::unavailable) || result.passed || result.failed) return false;
+    }
+    MV_LOG(info, "Pump fixture: Platform test requests explicitly unavailable and Host test slot released");
+    OpenServiceResult opened;
+    if (!context.post(threading::make_pod_message(20, OpenServiceRequest{ module_ids::platform, 1u, 1u, { 1u } })) ||
+        !receive(context, message) || !message.copy_payload_to(opened) || (opened.status != EServiceStatus::success)) return false;
+    if (!operation(EModuleAction::unload, EModuleStatus::busy)) return false;
+    ServiceRequest request;
+    request.route = opened.route;
+    request.request.value = 1u;
+#if MV_PLATFORM_WINDOWS
+    request.opcode = 65535u; // Ordinary/headless acceptance never requests a visible window.
+#else
+    request.opcode = 16u; // The portable shell explicitly rejects unsupported native creation.
+#endif
+    if (!context.post(threading::make_pod_message(30, request))) return false;
+    for (const auto notice : { EServiceNotice::acknowledged, EServiceNotice::completed })
+    {
+        ServiceReply reply;
+        if (!receive(context, message) || !message.copy_payload_to(reply) || (reply.notice != notice) ||
+            (reply.status != ((notice == EServiceNotice::acknowledged) ? EServiceStatus::success : EServiceStatus::unsupported))) return false;
+    }
+    ServiceReply closed;
+    if (!context.post(threading::make_pod_message(31, CloseServiceRequest{ opened.route, { 2u } })) ||
+        !receive(context, message) || !message.copy_payload_to(closed) || (closed.status != EServiceStatus::success)) return false;
+    if (!operation(EModuleAction::unload, EModuleStatus::success)) return false;
+    MV_LOG(info, "Pump fixture: Platform shell loaded on demand, routed and retired without a service thread");
+    return self_stop(context, false);
+}
+
+#if MV_PLATFORM_WINDOWS
+static bool platform_native(threading::CThreadContext& context)
+{
+    using namespace platform::windows;
+    if (!operation(context, EModuleAction::load, EModuleStatus::success, true, false, module_ids::platform)) return false;
+    threading::CErasedPodMsg message;
+    OpenServiceResult opened;
+    if (!context.post(threading::make_pod_message(20, OpenServiceRequest{ module_ids::platform, 1u, 1u, { 1u } })) ||
+        !receive(context, message) || !message.copy_payload_to(opened) || (opened.status != EServiceStatus::success)) return false;
+    CServiceBorrowClient consumer;
+    ServiceRequest acquisition;
+    acquisition.route = opened.route;
+    acquisition.request.value = 1u;
+    acquisition.opcode = static_cast<std::uint16_t>(EWindowCommand::create_window);
+    if (!consumer.begin(opened.route, acquisition.request, acquisition.opcode) ||
+        !context.post(threading::make_pod_message(30, acquisition))) return false;
+    SServiceBorrow borrow;
+    const SWindowViewV1* view = nullptr;
+    bool acquired = false, ready = false;
+    while (!acquired || !ready)
+    {
+        if (!receive(context, message)) return false;
+        ServiceReply reply;
+        ServiceNotificationRegistered registration;
+        if (message.copy_payload_to(reply))
+        {
+            if (reply.status != EServiceStatus::success) return false;
+            if (reply.request.value == 2u)
+            {
+                if (reply.notice == EServiceNotice::completed) ready = true;
+            }
+            else
+            {
+                if (!consumer.observe(reply)) return false;
+                if (reply.notice == EServiceNotice::prepared)
+                {
+                    borrow = consumer.borrow(opened.route, acquisition.request);
+                    const auto prepared = consumer.view(borrow);
+                    if ((prepared.size != sizeof(SWindowViewV1)) || (prepared.version != 1u) || !prepared.descriptor) return false;
+                    view = static_cast<const SWindowViewV1*>(prepared.descriptor);
+                    if (!view->is_valid() || (view->provider.value != opened.provider.value)) return false;
+                    RegisterServiceNotification request;
+                    if (!consumer.request_notification(borrow, request) ||
+                        !context.post(threading::make_pod_message(31, request))) return false;
+                }
+                if (reply.notice == EServiceNotice::completed) acquired = true;
+            }
+        }
+        else if (message.copy_payload_to(registration))
+        {
+            if (!consumer.observe(registration) || (registration.status != EServiceStatus::success) || !view) return false;
+            ServiceRequest request;
+            request.route = opened.route;
+            request.request.value = 2u;
+            request.opcode = static_cast<std::uint16_t>(EWindowCommand::window_ready);
+            const SWindowReady payload{ view->window, borrow, consumer.registration(borrow) };
+            request.payload_size = sizeof(payload);
+            std::memcpy(request.payload, &payload, sizeof(payload));
+            if (!context.post(threading::make_pod_message(32, request))) return false;
+        }
+        else return false;
+    }
+    if (!view || !consumer.notification(borrow).pending()) return false;
+    const auto handle = reinterpret_cast<HWND>(view->native_window);
+    const auto* const execution = context.host_execution();
+    if (!execution || !IsWindow(handle)) return false;
+    const bool menu = scenario("platform-native-menu"), sizing = scenario("platform-native-size");
+    const WPARAM command = menu ? SC_KEYMENU : (sizing ? (SC_SIZE + WMSZ_BOTTOMRIGHT) : SC_MOVE);
+    if (!PostMessageW(handle, WM_SYSCOMMAND, command, menu ? VK_SPACE : 0)) return false;
+    const auto start = GetTickCount64();
+    modules::SHostRestrictionSnapshot restriction;
+    for (;;)
+    {
+        const auto read = execution->restriction.read(restriction);
+        if (read == modules::ERestrictionRead::failed) return false;
+        //  Provider-local reasons are asserted only by this Platform acceptance test.
+        if ((read == modules::ERestrictionRead::success) && (restriction.authority.value == opened.provider.value) &&
+            (restriction.reasons & (1u << (menu ? 4u : 3u)))) break;
+        if ((GetTickCount64() - start) >= 3000u) return false;
+        Sleep(1u);
+    }
+    MV_LOG(info, "Pump fixture: Platform native modal scope authenticated by Host");
+    ServiceRequest deferred;
+    deferred.route = opened.route;
+    deferred.request.value = 3u;
+    deferred.opcode = 65535u;
+    if (!context.post(threading::make_pod_message(33, deferred))) return false;
+    Sleep(150u); // Stationary native loop must still offer Host maintenance.
+    if (sizing)
+    {
+        for (unsigned index = 0u; index < 20u; ++index)
+        {
+            INPUT input{};
+            input.type = INPUT_MOUSE;
+            input.mi.dx = input.mi.dy = (index & 1u) ? -2 : 2;
+            input.mi.dwFlags = MOUSEEVENTF_MOVE;
+            if (SendInput(1u, &input, sizeof(input)) != 1u) return false;
+            Sleep(10u);
+        }
+    }
+    //  Ordinary commands stay deferred while the original native frame is live.
+    if (context.read(message) || (execution->restriction.read(restriction) != modules::ERestrictionRead::success) ||
+        (restriction.authority.value != opened.provider.value) || !(restriction.reasons & (1u << (menu ? 4u : 3u)))) return false;
+    if (!execution->stop.request()) return false;
+    bool quiescent = false, deferred_terminal = false;
+    const auto stopping = GetTickCount64();
+    for (;;)
+    {
+        while (context.read(message))
+        {
+            ServiceReply reply;
+            ServiceBorrowControl control;
+            if (message.copy_payload_to(reply))
+            {
+                if ((reply.request.value != 3u) || (reply.status !=
+                    ((reply.notice == EServiceNotice::acknowledged) ? EServiceStatus::success : EServiceStatus::closing))) return false;
+                if (reply.notice == EServiceNotice::completed) deferred_terminal = true;
+            }
+            else if (message.copy_payload_to(control))
+            {
+                if (!consumer.observe(control)) return false;
+                if ((control.control == EServiceBorrowControl::closing) && !quiescent)
+                {
+                    if (!IsWindow(handle)) return false;
+                    view = nullptr;
+                    //  This consumer creates no external graphics resources and
+                    //  has stopped all descriptor/notification reads before proof.
+                    ServiceBorrowQuiescent proof;
+                    if (!consumer.quiesce(borrow, proof) || !context.post(threading::make_pod_message(-1, proof))) return false;
+                    quiescent = true;
+                }
+            }
+            else return false;
+        }
+        if (quiescent && deferred_terminal && consumer.retired(borrow) && context.exit_requested() && !IsWindow(handle)) break;
+        if ((GetTickCount64() - stopping) >= 5000u) return false;
+        Sleep(1u);
+    }
+    if (!consumer.forget(opened.route, acquisition.request) ||
+        (execution->restriction.read(restriction) != modules::ERestrictionRead::success) || restriction.depth) return false;
+    MV_LOG(info, "Pump fixture: Platform native shutdown retired borrow and destroyed window");
+    return true;
+}
+#endif
+
 static bool run(threading::CThreadContext& context)
 {
+    if (scenario("platform-shell")) return platform_shell(context);
+#if MV_PLATFORM_WINDOWS
+    if (scenario("platform-native-move") || scenario("platform-native-size") || scenario("platform-native-menu")) return platform_native(context);
+#endif
     const bool rejected = scenario("bad-size") || scenario("bad-version") || scenario("bad-flags") ||
         scenario("bad-callback") || scenario("mixed") || scenario("bad-provider-size") ||
         scenario("bad-provider-version") || scenario("bad-provider-flags") || scenario("bad-provider-count") ||

@@ -10,6 +10,7 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 
@@ -17,13 +18,14 @@ import time
 REJECTED = ("bad-size", "bad-version", "bad-flags", "bad-callback", "mixed",
             "bad-provider-size", "bad-provider-version", "bad-provider-flags", "bad-provider-count",
             "bad-provider-null", "bad-provider-contract", "bad-provider-duplicate", "bad-provider-query")
-CASES = ("normal", "empty-provider") + REJECTED + (
+CASES = ("normal", "empty-provider", "platform-shell") + REJECTED + (
          "activation-failed", "activation-null", "invalid-prefix", "pump-failed",
          "deactivate-failed", "shutdown-pending", "replacement", "inbox-full", "emergency",
          "cleanup-credits", "threaded-credits", "activation-timeout", "stop-timeout",
          "borrow-normal", "borrow-cancel", "borrow-abandoned", "borrow-shutdown", "borrow-provider-failed",
          "notify-normal", "notify-cancel", "notify-abandoned", "notify-replacement", "notify-shutdown",
          "modal-normal", "modal-full", "modal-shutdown", "modal-activation")
+NATIVE_CASES = ("platform-native-move", "platform-native-size", "platform-native-menu")
 
 
 def main():
@@ -31,8 +33,15 @@ def main():
     parser.add_argument("--engine", type=Path, required=True)
     parser.add_argument("--output-directory", type=Path, required=True)
     parser.add_argument("--host-workers", type=int, choices=(1, 2), default=2)
-    parser.add_argument("--cases", nargs="+", choices=CASES, default=CASES)
+    parser.add_argument("--native", action="store_true", help="Explicit Windows visible-window/modal acceptance")
+    parser.add_argument("--cases", nargs="+", choices=CASES + NATIVE_CASES)
     args = parser.parse_args()
+    if args.native and sys.platform != "win32":
+        parser.error("Native acceptance requires a Windows interactive desktop.")
+    if args.cases is None:
+        args.cases = NATIVE_CASES if args.native else CASES
+    if not args.native and any(case in NATIVE_CASES for case in args.cases):
+        parser.error("Visible native cases require --native.")
     repository = Path(__file__).resolve().parents[2]
     args.output_directory.mkdir(parents=True, exist_ok=True)
     manifest = repository / "development/root-manifest.json"
@@ -67,7 +76,7 @@ def main():
             if case == "stop-timeout" and "Host: shutdown grace expired; continuing progress with live resources retained" in line:
                 continue
             raise RuntimeError(f"{case}: unexpected diagnostic {line}; inspect {runtime}")
-        if case not in REJECTED + ("activation-null",):
+        if case not in REJECTED + ("activation-null", "platform-shell") + NATIVE_CASES:
             for marker in ("activation context and foreign-thread rejection passed", "begin stop", "stopped after continued progress"):
                 if marker not in events:
                     raise RuntimeError(f"{case}: missing {marker}; inspect {runtime}")
@@ -81,6 +90,7 @@ def main():
         if case in ("inbox-full", "emergency") and "full inbox and outbound backpressure established" not in events:
             raise RuntimeError(f"Backpressure not reached; inspect {runtime}")
         required = {
+            "platform-shell": ("Platform test requests explicitly unavailable and Host test slot released",),
             "cleanup-credits": ("512 disposal credits retained by live acquisitions",
                                 "zero-reply completion admitted with 512 reserved replies",
                                 "512 retained disposals completed through independent cleanup credits"),
@@ -91,6 +101,11 @@ def main():
         for marker in required.get(case, ()):
             if marker not in events:
                 raise RuntimeError(f"{case}: missing {marker}; inspect {runtime}")
+        if case in NATIVE_CASES:
+            for marker in ("Platform native modal scope authenticated by Host",
+                           "Platform native shutdown retired borrow and destroyed window"):
+                if marker not in events:
+                    raise RuntimeError(f"{case}: missing {marker}; inspect {runtime}")
         if case.startswith("borrow-"):
             for marker in ("borrowed descriptor observed", "consumer quiescence received", "provider-owned storage destroyed after publisher drain"):
                 if marker not in events:

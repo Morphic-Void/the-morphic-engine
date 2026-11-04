@@ -295,6 +295,10 @@
       <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
     </ProjectReference>
   </ItemGroup>
+  <ItemDefinitionGroup>
+    <Manifest><AdditionalManifestFiles>$(ProjectDir)..\host\entry\windows.manifest;%(AdditionalManifestFiles)</AdditionalManifestFiles></Manifest>
+  </ItemDefinitionGroup>
+  <ItemGroup><Manifest Include="..\host\entry\windows.manifest" /></ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <Import Project="MorphicPolicy.targets" />
   <ImportGroup Label="ExtensionTargets">

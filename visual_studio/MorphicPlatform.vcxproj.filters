@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  File:    MorphicPlatform.vcxproj.filters
+  Date:    04 Nov 26
+
+  Lists Platform source and header items for the Visual Studio project view.
+-->
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClCompile Include="..\platform\module\binding\platform_binding.cpp" />
+    <ClInclude Include="..\platform\module\types\erased_owner_payloads.def" />
+    <ClCompile Include="..\platform\module\types\local_type_ids.cpp" />
+    <ClInclude Include="..\platform\module\types\local_type_ids.def" />
+    <ClInclude Include="..\platform\module\types\local_type_ids.hpp" />
+    <ClInclude Include="..\platform\module\types\local_types.hpp" />
+    <ClCompile Include="..\platform\native\unsupported\window_unsupported.cpp" />
+    <ClInclude Include="..\platform\native\window.hpp" />
+    <ClCompile Include="..\platform\native\windows\window_windows.cpp" />
+    <ClCompile Include="..\platform\runtime\platform_runtime.cpp" />
+    <ClInclude Include="..\platform\runtime\platform_runtime.hpp" />
+    <ClCompile Include="..\platform\runtime\window_record.cpp" />
+    <ClInclude Include="..\platform\runtime\window_record.hpp" />
+    <ClInclude Include="..\platform\services\window.hpp" />
+    <ClInclude Include="..\platform\services\window_state.hpp" />
+  </ItemGroup>
+</Project>
