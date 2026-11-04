@@ -900,7 +900,8 @@ void CHost::advance_lifecycle(const threading::EThreadRunState executive_state) 
             //  unbind the outgoing Executive. No asset operation still borrows it.
             m_runtime_failed = m_runtime_failed || (state == threading::EThreadRunState::Failed);
             if (!client_for(*executive)->retire_host_execution(false)) return;
-            if (!executive->shutdown()) return;
+            //  Failed startup can already have joined and rolled back to Empty.
+            if ((executive->query_state() != threading::EThreadRunState::Empty) && !executive->shutdown()) return;
             m_asset_service.detach_client(*client_for(*executive));
             m_providers[module_ids::executive_index.raw_value()] = {};
             m_clients[module_ids::executive_index.raw_value()].reset();

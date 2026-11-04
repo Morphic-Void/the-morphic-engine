@@ -227,6 +227,46 @@ struct SHostMaintenanceTestAccess
         }
     }
 
+    static bool MV_STD_ABI_CALL reject_prepare(void* const, const thread_ids::id_type, void* const) noexcept
+    { return false; }
+
+    static void executive_startup_cleanup(tests::TTestContext& ctx)
+    {
+        for (const bool reject_create : { false, true })
+        {
+            memory::CMemoryAllocator allocator{ nullptr, &tests::allocate_scalar_test_memory, &tests::deallocate_scalar_test_memory, system_ids::host };
+            CHost runtime{ allocator };
+            runtime.m_phase = CHost::EPhase::stopping_executive;
+            runtime.m_runtime_failed = true;
+            TEST_EXPECT(ctx, runtime.m_perf_count_conversion.init() && runtime.m_thread_packages.initialise());
+            const auto index = module_ids::executive_index.raw_value();
+            const threading::ThreadConfig config{ thread_ids::executive, module_ids::executive,
+                platform::threading::EThreadPriority::Normal, &unexpected_entry, &reject_prepare };
+            const auto slot = runtime.m_thread_packages.emplace(config, runtime.m_perf_count_conversion);
+            runtime.m_module_threads[index].slot = slot;
+            auto* const package = runtime.module_thread_package(module_ids::executive);
+            TEST_EXPECT(ctx, package && runtime.m_clients[index].emplace(module_ids::executive, 76u, package));
+            if (!package || !runtime.m_clients[index]) continue;
+            auto& client = *runtime.m_clients[index];
+            TEST_EXPECT(ctx, client.install_host_execution(runtime.m_maintenance.restrictions().reader()));
+            if (reject_create) threading::SThreadPackageTestAccess::reject_create(*package);
+            TEST_EXPECT(ctx, !package->startup() && threading::SThreadPackageTestAccess::rolled_back(*package));
+            TEST_EXPECT(ctx, package->query_state() == threading::EThreadRunState::Empty);
+            //  Match start_executive after rollback; Host must still prove its
+            //  final drain before retiring the client and package together.
+            client.subscription_live = false;
+            runtime.advance_lifecycle(package->query_state());
+            TEST_EXPECT(ctx, (runtime.m_phase == CHost::EPhase::stopping_executive) &&
+                (runtime.module_thread_package(module_ids::executive) == package));
+            client.terminal_before_drain = client.incoming_drained = true;
+            runtime.advance_lifecycle(package->query_state());
+            TEST_EXPECT(ctx, !runtime.m_clients[index] && (runtime.m_module_threads[index].slot == -1));
+            TEST_EXPECT(ctx, runtime.m_thread_packages.get_object(slot) == nullptr);
+            TEST_EXPECT(ctx, (runtime.m_phase == CHost::EPhase::complete) && !runtime.retains_state());
+            TEST_EXPECT(ctx, runtime.shutdown());
+        }
+    }
+
     static void failed_start_join(tests::TTestContext& ctx)
     {
         for (const bool executive : { false, true })
@@ -274,6 +314,14 @@ struct SHostMaintenanceTestAccess
             auto& client = *runtime.m_clients[index];
             client.terminal_before_drain = client.incoming_drained = true;
             TEST_EXPECT(ctx, threading::SThreadPackageTestAccess::retained(*package));
+            if (executive)
+            {
+                runtime.m_phase = CHost::EPhase::stopping_executive;
+                runtime.advance_lifecycle(package->query_state());
+                TEST_EXPECT(ctx, (runtime.m_phase == CHost::EPhase::stopping_executive) &&
+                    (runtime.module_thread_package(module) == package) && client.subscription_live && record.binding.is_bound() &&
+                    threading::SThreadPackageTestAccess::retained(*package));
+            }
             TEST_EXPECT(ctx, !client.retire_host_execution(false) && !runtime.shutdown());
             TEST_EXPECT(ctx, client.subscription_live && threading::SThreadPackageTestAccess::retained(*package) &&
                 service.m_records[index] && record.binding.is_bound() && runtime.module_thread_package(module) == package);
@@ -577,6 +625,7 @@ void run_host_maintenance_tests(tests::TTestContext& ctx)
     host::SHostMaintenanceTestAccess::prefix_staging(ctx);
     host::SHostMaintenanceTestAccess::installed_subscription(ctx);
     host::SHostMaintenanceTestAccess::startup_rollback(ctx);
+    host::SHostMaintenanceTestAccess::executive_startup_cleanup(ctx);
     host::SHostMaintenanceTestAccess::failed_start_join(ctx);
     host::SHostMaintenanceTestAccess::invalid_outer_prefix(ctx);
 }
