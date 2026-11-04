@@ -22,7 +22,8 @@ CASES = ("normal", "empty-provider") + REJECTED + (
          "deactivate-failed", "shutdown-pending", "replacement", "inbox-full", "emergency",
          "cleanup-credits", "threaded-credits", "activation-timeout", "stop-timeout",
          "borrow-normal", "borrow-cancel", "borrow-abandoned", "borrow-shutdown", "borrow-provider-failed",
-         "notify-normal", "notify-cancel", "notify-abandoned", "notify-replacement", "notify-shutdown")
+         "notify-normal", "notify-cancel", "notify-abandoned", "notify-replacement", "notify-shutdown",
+         "modal-normal", "modal-full", "modal-shutdown", "modal-activation")
 
 
 def main():
@@ -94,6 +95,14 @@ def main():
             for marker in ("borrowed descriptor observed", "consumer quiescence received", "provider-owned storage destroyed after publisher drain"):
                 if marker not in events:
                     raise RuntimeError(f"{case}: missing {marker}; inspect {runtime}")
+        if case.startswith("modal-"):
+            for marker in ("nested modal maintenance preserved offered prefixes",
+                           "modal budgets, deferred replies and borrowed retirement passed",
+                           "modal borrow retired after outer prefix and quiescence"):
+                if marker not in events:
+                    raise RuntimeError(f"{case}: missing {marker}; inspect {runtime}")
+            if case == "modal-activation" and "activation excluded simulated restriction beyond five seconds" not in events:
+                raise RuntimeError(f"{case}: missing eligible activation evidence; inspect {runtime}")
         if case.startswith("notify-"):
             for marker in ("registered notification published durable data before wake",
                            "final notification signal drained after consumer quiescence"):

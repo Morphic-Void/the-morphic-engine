@@ -18,6 +18,7 @@
 #include <limits>
 
 #include "platform/threading/wait_word.hpp"
+#include "platform/threading/awake_clock.hpp"
 #include "platform/threading/wait_deadline_math.hpp"
 #include "platform/threading/wait_word_internal.hpp"
 #include "platform/platform_defines.hpp"
@@ -172,6 +173,17 @@ long futex_wake_private(const std::uint32_t* const address, const int waiter_cou
 #endif
 
 }   //  namespace internal
+
+WaitError query_awake_nanoseconds(std::uint64_t& value) noexcept
+{
+    std::uint64_t ticks = 0u;
+    std::uint32_t numerator = 0u, denominator = 0u;
+    const auto error = internal::query_wait_clock(ticks, numerator, denominator);
+    if (error.code != EWaitError::none) return error;
+    if ((numerator == 0u) || (denominator == 0u)) return { EWaitError::native_failure, 0u };
+    if (!internal::scale_awake_observation(ticks, numerator, denominator, value)) return { EWaitError::overflow, 0u };
+    return {};
+}
 
 //==============================================================================
 //  Awake monotonic deadlines

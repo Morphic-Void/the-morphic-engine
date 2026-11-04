@@ -17,6 +17,7 @@
 #include "tests/environment/test_paths.hpp"
 #include "module/module_binding_context.hpp"
 #include "module/host_pump.hpp"
+#include "module/host_eligible_budget.hpp"
 #include "module/service_provider.hpp"
 #include "services/service_borrow_client.hpp"
 #include "system/system_context.hpp"
@@ -46,15 +47,22 @@ static const char* selected() noexcept
     return value != nullptr ? value : "normal";
 #endif
 }
-static bool scenario(const char* value) noexcept { return std::strcmp(selected(), value) == 0; }
+static bool scenario(const char* const value) noexcept { return std::strcmp(selected(), value) == 0; }
 static bool borrow_scenario() noexcept { return std::strncmp(selected(), "borrow-", 7u) == 0; }
 static bool notification_scenario() noexcept { return std::strncmp(selected(), "notify-", 7u) == 0; }
+static bool modal_scenario() noexcept { return std::strncmp(selected(), "modal-", 6u) == 0; }
+
+struct SModalData
+{
+    std::atomic<unsigned> ready{ 0u }, entered{ 0u }, leave{ 0u }, passes{ 0u }, pressure{ 0u };
+};
+struct SModalDescriptor { SModalData* state{ nullptr }; };
 
 struct SNotificationData { std::atomic<unsigned> value{ 0u }; };
 struct SNotificationReady { SServiceBorrow borrow; SNotificationRegistration registration; };
 
 static threading::CErasedOwnerMsg module_request(const module_ids::id_type module,
-    const modules::EModuleAction action, const char* file = nullptr, const bool pump = false, const bool thread = false)
+    const modules::EModuleAction action, const char* const file = nullptr, const bool pump = false, const bool thread = false)
 {
     auto owner = CErasedOwner::create<modules::ModuleRequest>();
     auto* request = owner.payload<modules::ModuleRequest>();
@@ -383,6 +391,123 @@ static bool notified_resource(threading::CThreadContext& context, const SService
     return operation(context, modules::EModuleAction::unload, modules::EModuleStatus::success) && self_stop(context, false);
 }
 
+static bool modal_resource(threading::CThreadContext& context, const SServiceRoute route)
+{
+    const auto* const execution = context.host_execution();
+    if (!execution || !execution->notification.is_valid()) return false;
+    CServiceBorrowClient consumer;
+    ServiceRequest request;
+    request.route = route;
+    request.request = { 1u };
+    request.opcode = 8u;
+    if (!consumer.begin(route, request.request, request.opcode) || !context.post(threading::make_pod_message(80, request))) return false;
+    SServiceBorrow borrow;
+    SModalData* data = nullptr;
+    bool terminal = false;
+    while (!terminal || !data)
+    {
+        threading::CErasedPodMsg message;
+        ServiceReply reply;
+        if (!receive(context, message) || !message.copy_payload_to(reply) || !consumer.observe(reply)) return false;
+        if (reply.notice == EServiceNotice::prepared)
+        {
+            borrow = consumer.borrow(route, { 1u });
+            const auto view = consumer.view(borrow);
+            if (!view.descriptor || view.size != sizeof(SModalDescriptor)) return false;
+            data = static_cast<const SModalDescriptor*>(view.descriptor)->state;
+        }
+        if (reply.notice == EServiceNotice::completed) terminal = reply.status == EServiceStatus::success;
+    }
+    platform::threading::CWaitDeadline limit;
+    if (limit.set_after_milliseconds(10000u).code != platform::threading::EWaitError::none) return false;
+    while (!data->ready.load(std::memory_order_acquire))
+    {
+        std::uint64_t remaining = 0u;
+        if (limit.remaining_nanoseconds(remaining).code != platform::threading::EWaitError::none || !remaining) return false;
+        platform::threading::processor_relax();
+    }
+    request.request = { 2u };
+    request.opcode = 9u;
+    if (!context.post(threading::make_pod_message(81, request))) return false;
+    threading::CErasedPodMsg message;
+    ServiceReply acknowledgement;
+    if (!receive(context, message) || !message.copy_payload_to(acknowledgement) ||
+        acknowledgement.request.value != 2u || acknowledgement.notice != EServiceNotice::acknowledged) return false;
+    while (!data->entered.load(std::memory_order_acquire))
+    {
+        std::uint64_t remaining = 0u;
+        if (limit.remaining_nanoseconds(remaining).code != platform::threading::EWaitError::none || !remaining) return false;
+        platform::threading::processor_relax();
+    }
+    SHostRestrictionSnapshot snapshot;
+    if (execution->restriction.read(snapshot) != ERestrictionRead::success || snapshot.depth != 3u ||
+        snapshot.counts[0] != 2u || snapshot.counts[1] != 1u) return false;
+    CHostEligibleBudget budget;
+    if (budget.start(execution->restriction, 50000000u) != EBudgetStatus::restricted) return false;
+    unsigned pods = 0u, owners = 0u;
+    if (scenario("modal-full"))
+    {
+        for (; pods < 512u; ++pods)
+            if (!context.post(threading::make_pod_message(9000 + pods, AssetReleaseRequest{}))) return false;
+        for (unsigned attempt = 0u; attempt < 4096u && owners < 64u; ++attempt)
+        {
+            auto value = CErasedOwner::create<filesystem::FilesystemRefreshRequest>();
+            auto* refresh = value.payload<filesystem::FilesystemRefreshRequest>();
+            if (!refresh || !refresh->root.set("unknown:")) return false;
+            threading::CErasedOwnerMsg owned;
+            owned.set_message_type<filesystem::FilesystemRefreshRequest>();
+            owned.set_async_slot(10000 + owners);
+            owned.set_owner(std::move(value));
+            if (context.post(std::move(owned))) ++owners;
+            else if (owners >= 32u && data->pressure.load(std::memory_order_acquire)) break;
+            else platform::threading::processor_relax();
+        }
+    }
+    std::uint64_t start = 0u, now = 0u;
+    if (platform::threading::query_awake_nanoseconds(start).code != platform::threading::EWaitError::none) return false;
+    do
+    {
+        if (platform::threading::query_awake_nanoseconds(now).code != platform::threading::EWaitError::none) return false;
+        if (context.read(message)) return false; //  No terminal/release/owning reply may pass the held prefix.
+        platform::threading::processor_relax();
+    } while ((now - start < 100000000u) || data->passes.load(std::memory_order_acquire) < 8u);
+    if (budget.observe().status != EBudgetStatus::restricted || budget.observe().remaining_ns != 50000000u) return false;
+    if (scenario("modal-full") && !data->pressure.load(std::memory_order_acquire)) return false;
+    if (scenario("modal-shutdown") && !execution->stop.request()) return false;
+    data->leave.store(1u, std::memory_order_release);
+    data = nullptr; //  No reads after the following consumer-quiescent publication.
+    ReleaseServiceBorrow release;
+    ServiceBorrowQuiescent quiescent;
+    if (!consumer.release(borrow, release) || !context.post(threading::make_pod_message(-1, release)) ||
+        !consumer.quiesce(borrow, quiescent) || !context.post(threading::make_pod_message(-1, quiescent))) return false;
+    bool completed = false;
+    unsigned replies = 0u;
+    while (!completed || !consumer.retired(borrow) || replies != pods + owners)
+    {
+        if (!receive(context, message)) return false;
+        ServiceReply reply;
+        ServiceBorrowControl control;
+        if (message.copy_payload_to(reply))
+        {
+            if (reply.request.value != 2u || reply.notice != EServiceNotice::completed || reply.status != EServiceStatus::success) return false;
+            completed = true;
+        }
+        else if (message.copy_payload_to(control))
+        {
+            if (!consumer.observe(control)) return false;
+        }
+        else if (message.query_async_slot() >= 9000) ++replies;
+        else return false;
+    }
+    if (!consumer.forget(route, { 1u })) return false;
+    MV_LOG(info, "Pump fixture: modal budgets, deferred replies and borrowed retirement passed");
+    if (scenario("modal-shutdown")) return true;
+    ServiceReply closed;
+    if (!context.post(threading::make_pod_message(82, CloseServiceRequest{ route, { 3u } })) ||
+        !receive(context, message) || !message.copy_payload_to(closed) || closed.status != EServiceStatus::success) return false;
+    return operation(context, EModuleAction::unload, EModuleStatus::success) && self_stop(context, false);
+}
+
 static bool run(threading::CThreadContext& context)
 {
     const bool rejected = scenario("bad-size") || scenario("bad-version") || scenario("bad-flags") ||
@@ -414,6 +539,7 @@ static bool run(threading::CThreadContext& context)
     if (!message.copy_payload_to(opened) || (opened.status != EServiceStatus::success) || !opened.provider.value) return false;
     if (borrow_scenario()) return borrowed_resource(context, opened.route);
     if (notification_scenario()) return notified_resource(context, opened.route);
+    if (modal_scenario()) return modal_resource(context, opened.route);
     if (!operation(context, modules::EModuleAction::unload, modules::EModuleStatus::busy)) return false;
     constexpr unsigned count = 3u;
     for (unsigned index = 0u; index < count; ++index)
@@ -549,7 +675,7 @@ static bool run(threading::CThreadContext& context)
     }
     return self_stop(context, false);
 }
-static std::uint32_t MV_STD_ABI_CALL executive_entry(void* data) noexcept
+static std::uint32_t MV_STD_ABI_CALL executive_entry(void* const data) noexcept
 {
     threading::CThreadContext context{*static_cast<threading::CThreadResources*>(data)};
     context.startup();
@@ -574,7 +700,7 @@ struct SNotifier
     std::atomic<bool> finish{ false }, done{ false }, failed{ false };
 };
 
-static std::uint32_t MV_STD_ABI_CALL publish_notifications(void* data) noexcept
+static std::uint32_t MV_STD_ABI_CALL publish_notifications(void* const data) noexcept
 {
     auto& notifier = *static_cast<SNotifier*>(data);
     notifier.data.value.store(1u, std::memory_order_release);
@@ -588,6 +714,8 @@ static std::uint32_t MV_STD_ABI_CALL publish_notifications(void* data) noexcept
 
 struct SRuntime
 {
+    TInstance<SModalData> modal;
+    SModalDescriptor modal_view;
     TInstance<SNotifier> notifier;
     SClientToken notification_client;
     TInstance<unsigned> borrowed;
@@ -620,8 +748,10 @@ struct SForeignCall
     const SHostPumpContext* context;
     EServiceStatus result{EServiceStatus::success};
     EServiceStatus borrow_result{EServiceStatus::success};
+    ERestrictionStatus restriction_result{ ERestrictionStatus::success };
+    EMaintenanceStatus maintenance_result{ EMaintenanceStatus::success };
 };
-static std::uint32_t MV_STD_ABI_CALL foreign_call(void* data) noexcept
+static std::uint32_t MV_STD_ABI_CALL foreign_call(void* const data) noexcept
 {
     auto& call = *static_cast<SForeignCall*>(data);
     const auto message = threading::make_pod_message(90, AssetDisposeRequest{});
@@ -630,9 +760,11 @@ static std::uint32_t MV_STD_ABI_CALL foreign_call(void* data) noexcept
     const SServiceBorrowOffer offer{};
     SServiceBorrow borrow;
     call.borrow_result = services.prepare_borrow(call.context->service_context, &offer, &borrow);
+    call.restriction_result = services.enter_restriction(call.context->service_context, { 0u }).status;
+    call.maintenance_result = services.maintain_host(call.context->service_context).status;
     return 0u;
 }
-static bool context_valid(const SHostPumpContext* context) noexcept
+static bool context_valid(const SHostPumpContext* const context) noexcept
 {
     return context && modules::is_thread_context_ready(context) &&
         context->services && context->services->size == sizeof(SHostPumpServices) &&
@@ -640,16 +772,19 @@ static bool context_valid(const SHostPumpContext* context) noexcept
         context->services->post_owner && context->services->complete &&
         context->services->prepare_borrow && context->services->begin_borrow_retirement &&
         context->services->finish_borrow_retirement && context->services->bind_borrow_notification &&
+        context->services->enter_restriction && context->services->leave_restriction && context->services->maintain_host &&
+        context->execution && context->execution->restriction.is_valid() && context->execution->notification.is_valid() &&
+        context->execution->instance.value == context->instance.value &&
         system_context::get_ambient_thread_id() == thread_ids::host &&
         system_context::get_ambient_module_id() == module_ids::rendering &&
         memory::get_ambient_memory_context() != nullptr;
 }
-template<typename T> static bool post(SRuntime& state, const int slot, const T& payload)
+template<typename T> static bool post(const SRuntime& state, const int slot, const T& payload)
 {
     const auto message = threading::make_pod_message(slot, payload);
     return state.context->services->post_pod(state.context->service_context, &message) == EServiceStatus::success;
 }
-template<typename T> static bool owner(SRuntime& state, CErasedOwner&& value, const int slot)
+template<typename T> static bool owner(const SRuntime& state, CErasedOwner&& value, const int slot)
 {
     threading::CErasedOwnerMsg message;
     message.set_message_type<T>();
@@ -657,7 +792,7 @@ template<typename T> static bool owner(SRuntime& state, CErasedOwner&& value, co
     message.set_owner(std::move(value));
     return state.context->services->post_owner(state.context->service_context, &message) == EServiceStatus::success && !message.has_owner();
 }
-static ECallStatus MV_STD_ABI_CALL activate(const SHostPumpContext* context, void** runtime, SProgress* progress) noexcept
+static ECallStatus MV_STD_ABI_CALL activate(const SHostPumpContext* const context, void** const runtime, SProgress* const progress) noexcept
 {
     if (!context_valid(context) || !runtime_state().emplace()) return ECallStatus::failed;
     auto& state = *runtime_state();
@@ -666,9 +801,28 @@ static ECallStatus MV_STD_ABI_CALL activate(const SHostPumpContext* context, voi
     SForeignCall foreign{context};
     platform::threading::CThread other;
     if (!other.create(&foreign_call, &foreign) || !other.join_and_close() || foreign.result != EServiceStatus::invalid_request ||
-        foreign.borrow_result != EServiceStatus::invalid_request) return ECallStatus::failed;
+        foreign.borrow_result != EServiceStatus::invalid_request || foreign.restriction_result != ERestrictionStatus::invalid_context ||
+        foreign.maintenance_result != EMaintenanceStatus::invalid_context) return ECallStatus::failed;
     if (scenario("activation-null")) { runtime_state().reset(); return ECallStatus::failed; }
     *runtime = &state;
+    if (scenario("modal-activation"))
+    {
+        const auto scope = context->services->enter_restriction(context->service_context, { 3u });
+        platform::threading::CWaitDeadline hold;
+        if (scope.status != ERestrictionStatus::success || hold.set_after_milliseconds(5500u).code != platform::threading::EWaitError::none)
+            return ECallStatus::failed;
+        for (;;)
+        {
+            std::uint64_t remaining = 0u;
+            if (hold.remaining_nanoseconds(remaining).code != platform::threading::EWaitError::none) return ECallStatus::failed;
+            if (!remaining) break;
+            const auto pass = context->services->maintain_host(context->service_context);
+            if (pass.status != EMaintenanceStatus::success || pass.operations > 32u || pass.cancel_native) return ECallStatus::failed;
+            platform::threading::processor_relax();
+        }
+        if (context->services->leave_restriction(context->service_context, scope.scope) != ERestrictionStatus::success) return ECallStatus::failed;
+        MV_LOG(info, "Pump provider: activation excluded simulated restriction beyond five seconds");
+    }
     progress->phase = EPumpPhase::starting;
     MV_LOG(info, "Pump provider: activation context and foreign-thread rejection passed");
     return scenario("activation-failed") ? ECallStatus::failed : ECallStatus::success;
@@ -761,10 +915,102 @@ static bool credit_message(SRuntime& state, const threading::CErasedPodMsg& mess
     if (message.is_payload_a<modules::RunTestsRequest>()) return post(state, slot, modules::RunTestsResult{module_ids::rendering, modules::ETestRunStatus::success, 0u});
     return false;
 }
-static ECallStatus MV_STD_ABI_CALL pump(void* runtime, const SPumpInput* input, SPumpResult* result) noexcept
+static ECallStatus modal_pump(SRuntime& state, const SPumpInput& input, SPumpResult& result) noexcept
+{
+    const auto& services = *state.context->services;
+    void* const context = state.context->service_context;
+    result.progress.phase = state.stop ? EPumpPhase::stopping : EPumpPhase::ready;
+    if (!state.stop && ++state.starting < 3u) { result.progress.phase = EPumpPhase::starting; return ECallStatus::success; }
+    for (std::uint32_t index = 0u; index < input.message_count; ++index)
+    {
+        const auto& message = input.messages[index];
+        if (message.query_async_slot() == 8801 && state.modal && !state.modal->entered.load(std::memory_order_acquire))
+        {
+            state.modal->ready.store(1u, std::memory_order_release);
+            if (!input.command_count) return ECallStatus::success; //  Preserve this offered prefix across the modal call.
+        }
+        else
+        {
+            ServiceBorrowControl control;
+            if (!message.copy_payload_to(control)) return ECallStatus::failed;
+            if (control.borrow.value != state.borrow.value) return ECallStatus::failed;
+            if (control.control == EServiceBorrowControl::consumer_quiescent) state.borrower_quiescent = true;
+        }
+    }
+    if (state.modal && state.borrower_quiescent)
+    {
+        state.modal_view = {};
+        state.modal.reset();
+        if (services.finish_borrow_retirement(context, state.borrow) != EServiceStatus::success) return ECallStatus::failed;
+        MV_LOG(info, "Pump provider: modal borrow retired after outer prefix and quiescence");
+    }
+    if (input.command_count)
+    {
+        const auto command = input.commands[0].command;
+        ServiceReply reply;
+        reply.route = command.route;
+        reply.request = command.request;
+        reply.opcode = command.opcode;
+        reply.status = EServiceStatus::success;
+        if (command.opcode == 8u)
+        {
+            if (!state.modal.emplace()) return ECallStatus::failed;
+            state.modal_view.state = &*state.modal;
+            const SServiceBorrowOffer offer{ command.route, command.request, { &state.modal_view, sizeof(SModalDescriptor), 1u } };
+            if (services.prepare_borrow(context, &offer, &state.borrow) != EServiceStatus::success ||
+                !post(state, 8801, AssetDisposeRequest{})) return ECallStatus::failed;
+        }
+        else if (command.opcode == 9u)
+        {
+            if (!state.modal || !input.message_count || input.messages[0].query_async_slot() != 8801) return ECallStatus::failed;
+            const auto a = services.enter_restriction(context, { 0u });
+            const auto b = services.enter_restriction(context, { 0u });
+            const auto c = services.enter_restriction(context, { 1u });
+            if (a.status != ERestrictionStatus::success || b.status != ERestrictionStatus::success || c.status != ERestrictionStatus::success)
+                return ECallStatus::failed;
+            if (services.complete(context, &reply) != EServiceStatus::success) return ECallStatus::failed;
+            state.modal->entered.store(1u, std::memory_order_release);
+            platform::threading::CWaitDeadline hold;
+            if (hold.set_after_milliseconds(10000u).code != platform::threading::EWaitError::none) return ECallStatus::failed;
+            for (;;)
+            {
+                const auto pass = services.maintain_host(context);
+                if (pass.status != EMaintenanceStatus::success || pass.operations > 32u || !context_valid(state.context)) return ECallStatus::failed;
+                state.modal->passes.fetch_add(1u, std::memory_order_release);
+                if (pass.capacity_pressure) state.modal->pressure.store(1u, std::memory_order_release);
+                if (input.messages[0].query_async_slot() != 8801 || input.commands[0].command.request.value != command.request.value)
+                    return ECallStatus::failed;
+                if (state.modal->leave.load(std::memory_order_acquire) || pass.cancel_native) break;
+                std::uint64_t remaining = 0u;
+                if (hold.remaining_nanoseconds(remaining).code != platform::threading::EWaitError::none || !remaining) return ECallStatus::failed;
+                platform::threading::processor_relax();
+            }
+            //  Capture cleanup/control publications while the original prefix is still protected.
+            for (unsigned count = 0u; count < 64u; ++count) (void)services.maintain_host(context);
+            if (services.leave_restriction(context, a.scope) != ERestrictionStatus::success ||
+                services.leave_restriction(context, a.scope) != ERestrictionStatus::invalid_scope ||
+                services.leave_restriction(context, c.scope) != ERestrictionStatus::success ||
+                services.leave_restriction(context, b.scope) != ERestrictionStatus::success) return ECallStatus::failed;
+            MV_LOG(info, "Pump provider: nested modal maintenance preserved offered prefixes");
+        }
+        else return ECallStatus::failed;
+        if (command.opcode != 9u && services.complete(context, &reply) != EServiceStatus::success) return ECallStatus::failed;
+        result.consumed_commands = 1u;
+    }
+    result.consumed_messages = input.message_count;
+    if (state.stop && !state.modal)
+    {
+        result.progress.phase = ++state.stopping >= 3u ? EPumpPhase::stopped : EPumpPhase::stopping;
+        if (result.progress.phase == EPumpPhase::stopped) MV_LOG(info, "Pump provider: stopped after continued progress");
+    }
+    return ECallStatus::success;
+}
+
+static ECallStatus MV_STD_ABI_CALL pump(void* const runtime, const SPumpInput* const input, SPumpResult* const result) noexcept
 {
     auto& state = *static_cast<SRuntime*>(runtime);
     if (!context_valid(state.context)) return ECallStatus::failed;
+    if (modal_scenario()) return modal_pump(state, *input, *result);
     result->progress.phase = EPumpPhase::ready;
     if (notification_scenario())
     {
@@ -992,7 +1238,7 @@ static ECallStatus MV_STD_ABI_CALL pump(void* runtime, const SPumpInput* input, 
     }
     return ECallStatus::success;
 }
-static ECallStatus MV_STD_ABI_CALL begin_stop(void* runtime, EStopReason reason, SProgress* progress) noexcept
+static ECallStatus MV_STD_ABI_CALL begin_stop(void* const runtime, const EStopReason reason, SProgress* const progress) noexcept
 {
     auto& state = *static_cast<SRuntime*>(runtime);
     if (!context_valid(state.context)) return ECallStatus::failed;
@@ -1008,10 +1254,12 @@ static ECallStatus MV_STD_ABI_CALL begin_stop(void* runtime, EStopReason reason,
     MV_LOG(info, "Pump provider: begin stop");
     return ECallStatus::success;
 }
-static ECallStatus MV_STD_ABI_CALL deactivate(void* runtime) noexcept
+static ECallStatus MV_STD_ABI_CALL deactivate(void* const runtime) noexcept
 {
     auto& state = *static_cast<SRuntime*>(runtime);
     if (!context_valid(state.context) || state.stopping < 3u) return ECallStatus::failed;
+    if (state.context->services->enter_restriction(state.context->service_context, { 0u }).status == ERestrictionStatus::success ||
+        state.context->services->maintain_host(state.context->service_context).status != EMaintenanceStatus::invalid_context) return ECallStatus::failed;
     const auto forbidden = threading::make_pod_message(90, AssetDisposeRequest{});
     if (state.context->services->post_pod(state.context->service_context, &forbidden) != EServiceStatus::closing) return ECallStatus::failed;
     if (scenario("deactivate-failed")) { MV_LOG(info, "Pump provider: quiescent state retained"); return ECallStatus::failed; }
@@ -1019,11 +1267,11 @@ static ECallStatus MV_STD_ABI_CALL deactivate(void* runtime) noexcept
     MV_LOG(info, "Pump provider: deactivated");
     return ECallStatus::success;
 }
-static std::uint32_t MV_STD_ABI_CALL forbidden_thread(void*) noexcept { return 1u; }
+static std::uint32_t MV_STD_ABI_CALL forbidden_thread(void* const) noexcept { return 1u; }
 #endif
 
 static constexpr std::uint32_t k_advertised_version_minor{0u};
-static EBindingResult MV_STD_ABI_CALL query_function(system_type_id type, std::uint32_t, FModuleFunction* function) noexcept
+static EBindingResult MV_STD_ABI_CALL query_function(const system_type_id type, const std::uint32_t, FModuleFunction* const function) noexcept
 {
     if (!function) return EBindingResult::invalid_argument;
     *function = nullptr;
@@ -1041,12 +1289,12 @@ static CModuleBindingContext s_binding{k_binding_config};
 
 }   //  namespace pump_tests
 
-MV_MODULE_EXPORT modules::EBindingResult MV_STD_ABI_CALL morphic_module_bootstrap_v3(modules::SBootstrapFunctions* functions) noexcept
+MV_MODULE_EXPORT modules::EBindingResult MV_STD_ABI_CALL morphic_module_bootstrap_v3(modules::SBootstrapFunctions* const functions) noexcept
 {
     return pump_tests::s_binding.bootstrap(functions);
 }
 #if !MV_PUMP_EXECUTIVE
-MV_MODULE_EXPORT modules::EBindingResult MV_STD_ABI_CALL morphic_module_host_pump_v1(std::uint32_t capacity, modules::SHostPumpV1* value) noexcept
+MV_MODULE_EXPORT modules::EBindingResult MV_STD_ABI_CALL morphic_module_host_pump_v1(const std::uint32_t capacity, modules::SHostPumpV1* const value) noexcept
 {
     using namespace pump_tests;
     if (capacity < sizeof(*value) || !value) return EBindingResult::invalid_argument;
@@ -1057,7 +1305,7 @@ MV_MODULE_EXPORT modules::EBindingResult MV_STD_ABI_CALL morphic_module_host_pum
     if (scenario("bad-callback")) value->pump = nullptr;
     return EBindingResult::success;
 }
-MV_MODULE_EXPORT modules::EBindingResult MV_STD_ABI_CALL morphic_module_service_thread_v1(modules::SServiceThread* value) noexcept
+MV_MODULE_EXPORT modules::EBindingResult MV_STD_ABI_CALL morphic_module_service_thread_v1(modules::SServiceThread* const value) noexcept
 {
     *value = {};
     if (!pump_tests::scenario("mixed")) return modules::EBindingResult::unsupported_function;
@@ -1066,7 +1314,7 @@ MV_MODULE_EXPORT modules::EBindingResult MV_STD_ABI_CALL morphic_module_service_
 }
 
 MV_MODULE_EXPORT modules::EBindingResult MV_STD_ABI_CALL morphic_module_service_provider_v1(
-    std::uint32_t capacity, modules::SServiceProviderV1* value) noexcept
+    const std::uint32_t capacity, modules::SServiceProviderV1* const value) noexcept
 {
     using namespace pump_tests;
     if (value == nullptr || capacity != sizeof(*value)) return EBindingResult::invalid_argument;

@@ -82,6 +82,8 @@ public:
 
     [[nodiscard]] bool reading_is_valid() const noexcept;
     [[nodiscard]] bool read(threading::CErasedOwnerMsg& msg) noexcept;
+    //  Restricted Host capture: empty destination, no ownership reattribution.
+    [[nodiscard]] bool capture(threading::CErasedOwnerMsg& msg) noexcept;
     [[nodiscard]] std::uint32_t readable_count() const noexcept { return m_transport.readable_count(); }
 
     [[nodiscard]] bool initialise(const std::uint32_t capacity) noexcept;

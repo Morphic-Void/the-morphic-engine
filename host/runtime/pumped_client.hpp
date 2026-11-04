@@ -13,6 +13,8 @@
 #include "services/service_protocol.hpp"
 #include "module/bound_module.hpp"
 #include "runtime/service_router.hpp"
+#include "runtime/host_maintenance.hpp"
+#include "module/host_eligible_budget.hpp"
 #include "threading/transports/TRingTransport.hpp"
 
 namespace host
@@ -22,7 +24,7 @@ class CPumpedClient
 {
 public:
     CPumpedClient(SClientRecord& client, modules::CBoundModule& binding,
-        const modules::SHostPumpV1& capability, CServiceRouter& router) noexcept;
+        const modules::SHostPumpV1& capability, CServiceRouter& router, CHostMaintenance& maintenance) noexcept;
     [[nodiscard]] bool initialise() noexcept;
     void activate() noexcept;
     void pump() noexcept;
@@ -31,6 +33,7 @@ public:
     [[nodiscard]] const threading::CErasedPodMsg* peek_pod(const bool control) noexcept;
     void consume_pod(const bool control) noexcept;
     [[nodiscard]] bool read(threading::CErasedOwnerMsg& message) noexcept { return m_owners.read(message); }
+    [[nodiscard]] bool capture(threading::CErasedOwnerMsg& message) noexcept { return m_owners.capture(message); }
     [[nodiscard]] bool ready() const noexcept { return m_client.phase == EClientPhase::ready; }
     [[nodiscard]] bool stopped() const noexcept { return m_client.phase == EClientPhase::stopped; }
     [[nodiscard]] bool deactivated() const noexcept { return m_deactivated; }
@@ -38,22 +41,27 @@ public:
     [[nodiscard]] bool failed() const noexcept { return m_failed; }
 
 private:
-    [[nodiscard]] bool enter() noexcept;
+    [[nodiscard]] bool enter(const bool allow_restriction = true) noexcept;
     void leave() noexcept;
+    void finish_frame() noexcept;
     void observe(const modules::ECallStatus status, const modules::SProgress& progress) noexcept;
-    static services::EServiceStatus MV_STD_ABI_CALL post_pod(void*, const threading::CErasedPodMsg*) noexcept;
-    static services::EServiceStatus MV_STD_ABI_CALL post_owner(void*, threading::CErasedOwnerMsg*) noexcept;
-    static services::EServiceStatus MV_STD_ABI_CALL complete(void*, const services::ServiceReply*) noexcept;
-    static services::EServiceStatus MV_STD_ABI_CALL prepare_borrow(void*, const services::SServiceBorrowOffer*, services::SServiceBorrow*) noexcept;
-    static services::EServiceStatus MV_STD_ABI_CALL begin_borrow_retirement(void*, services::SServiceBorrow) noexcept;
-    static services::EServiceStatus MV_STD_ABI_CALL finish_borrow_retirement(void*, services::SServiceBorrow) noexcept;
-    static services::EServiceStatus MV_STD_ABI_CALL bind_borrow_notification(void*, services::SServiceBorrow,
-        services::SNotificationRegistration, threading::SNotificationEndpoint*) noexcept;
+    static services::EServiceStatus MV_STD_ABI_CALL post_pod(void* const, const threading::CErasedPodMsg* const) noexcept;
+    static services::EServiceStatus MV_STD_ABI_CALL post_owner(void* const, threading::CErasedOwnerMsg* const) noexcept;
+    static services::EServiceStatus MV_STD_ABI_CALL complete(void* const, const services::ServiceReply* const) noexcept;
+    static services::EServiceStatus MV_STD_ABI_CALL prepare_borrow(void* const, const services::SServiceBorrowOffer* const, services::SServiceBorrow* const) noexcept;
+    static services::EServiceStatus MV_STD_ABI_CALL begin_borrow_retirement(void* const, const services::SServiceBorrow) noexcept;
+    static services::EServiceStatus MV_STD_ABI_CALL finish_borrow_retirement(void* const, const services::SServiceBorrow) noexcept;
+    static services::EServiceStatus MV_STD_ABI_CALL bind_borrow_notification(void* const, const services::SServiceBorrow,
+        const services::SNotificationRegistration, threading::SNotificationEndpoint* const) noexcept;
+    static modules::SRestrictionEnterResult MV_STD_ABI_CALL enter_restriction(void* const, const modules::SRestrictionReason) noexcept;
+    static modules::ERestrictionStatus MV_STD_ABI_CALL leave_restriction(void* const, const modules::SRestrictionScope) noexcept;
+    static modules::SHostMaintenanceResult MV_STD_ABI_CALL maintain_host(void* const) noexcept;
 
     SClientRecord& m_client;
     modules::CBoundModule& m_binding;
     const modules::SHostPumpV1 m_capability;
     CServiceRouter& m_router;
+    CHostMaintenance& m_maintenance;
     modules::SHostPumpContext m_context;
     void* m_runtime{ nullptr };
     threading::transports::TRing<threading::CErasedPodMsg> m_pods;
@@ -68,7 +76,8 @@ private:
     bool m_retained{ false };
     bool m_failed{ false };
     bool m_protocol_failed{ false };
-    threading::CWaitDeadline m_activation_deadline;
+    bool m_call_failed{ false };
+    modules::CHostEligibleBudget m_activation_budget;
 };
 
 }   //  namespace host

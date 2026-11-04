@@ -26,22 +26,26 @@ static bool system_message(const type_id identity) noexcept
 }
 
 CPumpedClient::CPumpedClient(SClientRecord& client, modules::CBoundModule& binding,
-    const modules::SHostPumpV1& capability, CServiceRouter& router) noexcept
-    : m_client{ client }, m_binding{ binding }, m_capability{ capability }, m_router{ router }
+    const modules::SHostPumpV1& capability, CServiceRouter& router, CHostMaintenance& maintenance) noexcept
+    : m_client{ client }, m_binding{ binding }, m_capability{ capability }, m_router{ router }, m_maintenance{ maintenance }
 {
     static const modules::SHostPumpServices services{
         sizeof(modules::SHostPumpServices), 1u, &post_pod, &post_owner, &complete,
-        &prepare_borrow, &begin_borrow_retirement, &finish_borrow_retirement, &bind_borrow_notification };
+        &prepare_borrow, &begin_borrow_retirement, &finish_borrow_retirement, &bind_borrow_notification,
+        &enter_restriction, &leave_restriction, &maintain_host };
     m_context.instance = client.instance;
     m_context.client = client.identity;
     m_context.host_thread = thread_ids::host;
     m_context.services = &services;
     m_context.service_context = this;
+    m_context.execution = &client.host_execution;
+    client.delivery_owner = &maintenance;
 }
 
 bool CPumpedClient::initialise() noexcept
 {
-    return m_pods.initialise(256u) && m_controls.initialise(32u) && m_owners.initialise(64u);
+    return m_pods.initialise(256u) && m_controls.initialise(32u) && m_owners.initialise(64u) &&
+        m_client.install_host_execution(m_maintenance.restrictions().reader());
 }
 
 const threading::CErasedPodMsg* CPumpedClient::peek_pod(const bool control) noexcept
@@ -57,24 +61,44 @@ void CPumpedClient::consume_pod(const bool control) noexcept
     (control ? m_has_pending_control : m_has_pending_pod) = false;
 }
 
-bool CPumpedClient::enter() noexcept
+bool CPumpedClient::enter(const bool allow_restriction) noexcept
 {
-    if ((t_invocation != nullptr) || !m_binding.prepare_host_call(thread_ids::host, &m_context))
+    if ((t_invocation != nullptr) || !m_binding.prepare_host_call(thread_ids::host, &m_context) ||
+        !m_maintenance.restrictions().begin_invocation(m_client.instance, allow_restriction))
     {
         m_failed = true;
         m_retained = m_activated;
         return false;
     }
     t_invocation = this;
+    m_call_failed = false;
+    m_client.invocation_offered = true;
     return true;
 }
 
-void CPumpedClient::leave() noexcept { t_invocation = nullptr; }
+void CPumpedClient::leave() noexcept
+{
+    t_invocation = nullptr;
+    if (!m_maintenance.restrictions().end_invocation())
+    {
+        m_call_failed = true;
+        m_failed = true;
+        m_client.stop_requested = true;
+        m_stop_reason = modules::EStopReason::pump_failure;
+    }
+}
+
+void CPumpedClient::finish_frame() noexcept
+{
+    m_client.invocation_offered = false;
+    m_maintenance.replay();
+    m_maintenance.fanout();
+}
 
 void CPumpedClient::observe(const modules::ECallStatus status, const modules::SProgress& progress) noexcept
 {
     using modules::EPumpPhase;
-    if ((status != modules::ECallStatus::success) || (progress.phase == EPumpPhase::failed) ||
+    if (m_call_failed || (status != modules::ECallStatus::success) || (progress.phase == EPumpPhase::failed) ||
         (progress.phase > EPumpPhase::failed) || (progress.work_pending > 1u) ||
         (m_stop_begun && ((progress.phase == EPumpPhase::starting) || (progress.phase == EPumpPhase::ready))))
     {
@@ -107,7 +131,8 @@ void CPumpedClient::observe(const modules::ECallStatus status, const modules::SP
 
 void CPumpedClient::activate() noexcept
 {
-    if (m_activation_deadline.set_after_milliseconds(5000u).code != platform::threading::EWaitError::none)
+    const auto budget = m_activation_budget.start(m_client.host_execution.restriction, 5000000000u);
+    if ((budget == modules::EBudgetStatus::failed) || (budget == modules::EBudgetStatus::retry))
     {
         m_failed = true;
         m_client.phase = EClientPhase::stopped;
@@ -126,6 +151,7 @@ void CPumpedClient::activate() noexcept
     const auto status = m_capability.activate(&m_context, &m_runtime, &progress);
     leave();
     observe(status, progress);
+    finish_frame();
     if (m_failed)
     {
         m_stop_reason = modules::EStopReason::activation_failure;
@@ -150,9 +176,8 @@ void CPumpedClient::pump() noexcept
     if (!m_activated || stopped() || m_retained || m_deactivated) return;
     if (m_client.phase == EClientPhase::starting)
     {
-        std::uint64_t remaining = 0u;
-        if ((m_activation_deadline.remaining_nanoseconds(remaining).code != platform::threading::EWaitError::none) ||
-            (remaining == 0u))
+        const auto budget = m_activation_budget.observe();
+        if ((budget.status == modules::EBudgetStatus::failed) || (budget.status == modules::EBudgetStatus::expired))
         {
             m_failed = true;
             request_stop(modules::EStopReason::activation_failure);
@@ -167,6 +192,7 @@ void CPumpedClient::pump() noexcept
         const auto status = m_capability.begin_stop(m_runtime, m_stop_reason, &progress);
         leave();
         observe(status, progress);
+        finish_frame();
         if (stopped()) return;
     }
     services::SDispatchedCommand commands[64];
@@ -190,18 +216,21 @@ void CPumpedClient::pump() noexcept
         //  An invalid prefix cannot authorise dropping or replaying messages.
         //  Keep their storage until the provider establishes stopped/quiescent.
         m_protocol_failed = true;
+        m_client.prefix_failed = true;
         m_failed = true;
         request_stop(modules::EStopReason::pump_failure);
     }
     observe(valid ? status : modules::ECallStatus::failed, result.progress);
+    finish_frame();
 }
 
 bool CPumpedClient::deactivate() noexcept
 {
     if (m_deactivated) return true;
-    if (!stopped() || m_retained || !m_router.provider_borrows_retired(m_client) || !enter()) return false;
+    if (!stopped() || m_retained || !m_router.provider_borrows_retired(m_client) || !enter(false)) return false;
     const auto status = m_capability.deactivate(m_runtime);
     leave();
+    finish_frame();
     if (status != modules::ECallStatus::success)
     {
         m_failed = true;
@@ -213,7 +242,7 @@ bool CPumpedClient::deactivate() noexcept
     return true;
 }
 
-services::EServiceStatus MV_STD_ABI_CALL CPumpedClient::post_pod(void* context, const threading::CErasedPodMsg* message) noexcept
+services::EServiceStatus MV_STD_ABI_CALL CPumpedClient::post_pod(void* const context, const threading::CErasedPodMsg* const message) noexcept
 {
     auto* const self = static_cast<CPumpedClient*>(context);
     if ((self == nullptr) || (t_invocation != self) || (message == nullptr) ||
@@ -226,7 +255,30 @@ services::EServiceStatus MV_STD_ABI_CALL CPumpedClient::post_pod(void* context, 
     return queue.post(*message) ? services::EServiceStatus::success : services::EServiceStatus::busy;
 }
 
-services::EServiceStatus MV_STD_ABI_CALL CPumpedClient::post_owner(void* context, threading::CErasedOwnerMsg* message) noexcept
+modules::SRestrictionEnterResult MV_STD_ABI_CALL CPumpedClient::enter_restriction(void* const context, const modules::SRestrictionReason reason) noexcept
+{
+    auto* const self = static_cast<CPumpedClient*>(context);
+    if (!self || (t_invocation != self) || self->m_maintenance.running()) return {};
+    self->m_maintenance.poll_stop();
+    if (self->m_maintenance.stop_requested()) return { modules::ERestrictionStatus::closing, {} };
+    return self->m_maintenance.restrictions().enter(reason);
+}
+
+modules::ERestrictionStatus MV_STD_ABI_CALL CPumpedClient::leave_restriction(void* const context, const modules::SRestrictionScope scope) noexcept
+{
+    auto* const self = static_cast<CPumpedClient*>(context);
+    if (!self || (t_invocation != self) || self->m_maintenance.running()) return modules::ERestrictionStatus::invalid_context;
+    return self->m_maintenance.restrictions().leave(scope);
+}
+
+modules::SHostMaintenanceResult MV_STD_ABI_CALL CPumpedClient::maintain_host(void* const context) noexcept
+{
+    auto* const self = static_cast<CPumpedClient*>(context);
+    if (!self || (t_invocation != self)) return {};
+    return self->m_maintenance.run();
+}
+
+services::EServiceStatus MV_STD_ABI_CALL CPumpedClient::post_owner(void* const context, threading::CErasedOwnerMsg* const message) noexcept
 {
     auto* const self = static_cast<CPumpedClient*>(context);
     if ((self == nullptr) || (t_invocation != self) || (message == nullptr) ||
@@ -236,15 +288,15 @@ services::EServiceStatus MV_STD_ABI_CALL CPumpedClient::post_owner(void* context
     return self->m_owners.post(std::move(*message)) ? services::EServiceStatus::success : services::EServiceStatus::busy;
 }
 
-services::EServiceStatus MV_STD_ABI_CALL CPumpedClient::complete(void* context, const services::ServiceReply* reply) noexcept
+services::EServiceStatus MV_STD_ABI_CALL CPumpedClient::complete(void* const context, const services::ServiceReply* const reply) noexcept
 {
     auto* const self = static_cast<CPumpedClient*>(context);
     if ((self == nullptr) || (t_invocation != self) || (reply == nullptr)) return services::EServiceStatus::invalid_request;
     return self->m_router.complete(self->m_client, *reply);
 }
 
-services::EServiceStatus MV_STD_ABI_CALL CPumpedClient::prepare_borrow(void* context,
-    const services::SServiceBorrowOffer* offer, services::SServiceBorrow* borrow) noexcept
+services::EServiceStatus MV_STD_ABI_CALL CPumpedClient::prepare_borrow(void* const context,
+    const services::SServiceBorrowOffer* const offer, services::SServiceBorrow* const borrow) noexcept
 {
     auto* const self = static_cast<CPumpedClient*>(context);
     if (borrow != nullptr) *borrow = {};
@@ -253,23 +305,23 @@ services::EServiceStatus MV_STD_ABI_CALL CPumpedClient::prepare_borrow(void* con
     return self->m_router.prepare_borrow(self->m_client, *offer, *borrow);
 }
 
-services::EServiceStatus MV_STD_ABI_CALL CPumpedClient::begin_borrow_retirement(void* context, const services::SServiceBorrow borrow) noexcept
+services::EServiceStatus MV_STD_ABI_CALL CPumpedClient::begin_borrow_retirement(void* const context, const services::SServiceBorrow borrow) noexcept
 {
     auto* const self = static_cast<CPumpedClient*>(context);
     if ((self == nullptr) || (t_invocation != self)) return services::EServiceStatus::invalid_request;
     return self->m_router.begin_borrow_retirement(self->m_client, borrow);
 }
 
-services::EServiceStatus MV_STD_ABI_CALL CPumpedClient::finish_borrow_retirement(void* context, const services::SServiceBorrow borrow) noexcept
+services::EServiceStatus MV_STD_ABI_CALL CPumpedClient::finish_borrow_retirement(void* const context, const services::SServiceBorrow borrow) noexcept
 {
     auto* const self = static_cast<CPumpedClient*>(context);
     if ((self == nullptr) || (t_invocation != self)) return services::EServiceStatus::invalid_request;
     return self->m_router.finish_borrow_retirement(self->m_client, borrow);
 }
 
-services::EServiceStatus MV_STD_ABI_CALL CPumpedClient::bind_borrow_notification(void* context,
+services::EServiceStatus MV_STD_ABI_CALL CPumpedClient::bind_borrow_notification(void* const context,
     const services::SServiceBorrow borrow, const services::SNotificationRegistration registration,
-    threading::SNotificationEndpoint* endpoint) noexcept
+    threading::SNotificationEndpoint* const endpoint) noexcept
 {
     auto* const self = static_cast<CPumpedClient*>(context);
     if (endpoint) *endpoint = {};

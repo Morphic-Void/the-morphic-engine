@@ -12,6 +12,7 @@
 #include <cstring>
 
 #include "runtime/client_record.hpp"
+#include "runtime/host_maintenance.hpp"
 
 namespace host
 {
@@ -90,7 +91,7 @@ bool SClientRecord::reserve_control_replies(const std::uint32_t count) noexcept
 
 bool SClientRecord::replies_idle() const noexcept
 {
-    return (reserved_replies == 0u) && (reserved_control_replies == 0u);
+    return (reserved_replies == 0u) && (reserved_control_replies == 0u) && !deferred_records;
 }
 
 void SClientRecord::cancel_reservation(const std::uint32_t count) noexcept
@@ -107,6 +108,7 @@ void SClientRecord::cancel_control_reservation(const std::uint32_t count) noexce
 
 bool SClientRecord::post(const threading::CErasedPodMsg& message) noexcept
 {
+    if (delivery_protected()) return delivery_owner && delivery_owner->stage_delivery(*this, message, true, false);
     if (terminal() || (phase == EClientPhase::retired))
     {
         return false;
@@ -125,6 +127,7 @@ bool SClientRecord::post(const threading::CErasedPodMsg& message) noexcept
 
 bool SClientRecord::post_reply(const threading::CErasedPodMsg& message) noexcept
 {
+    if (delivery_protected()) return delivery_owner && delivery_owner->stage_delivery(*this, message, false, false);
     if (terminal() || (phase == EClientPhase::retired))
     {
         return false;
@@ -143,6 +146,7 @@ bool SClientRecord::post_reply(const threading::CErasedPodMsg& message) noexcept
 
 bool SClientRecord::reply(const threading::CErasedPodMsg& message) noexcept
 {
+    if (delivery_protected()) return delivery_owner && delivery_owner->stage_delivery(*this, message, false, true);
     if (reserved_replies != 0u)
     {
         --reserved_replies;
@@ -152,6 +156,8 @@ bool SClientRecord::reply(const threading::CErasedPodMsg& message) noexcept
 
 bool SClientRecord::reply_control(const threading::CErasedPodMsg& message) noexcept
 {
+    if (delivery_protected() && reserved_control_replies)
+        return delivery_owner && delivery_owner->stage_delivery(*this, message, true, true);
     if (reserved_control_replies == 0u)
     {   //  Existing threaded/test callers.
         return reply(message);
@@ -162,6 +168,7 @@ bool SClientRecord::reply_control(const threading::CErasedPodMsg& message) noexc
 
 bool SClientRecord::retry_reply(const threading::CErasedPodMsg& message) noexcept
 {
+    if (delivery_protected()) return delivery_owner && delivery_owner->stage_delivery(*this, message, false, true);
     const bool reserved = reserved_replies != 0u;
     if (reply(message))
     {
@@ -177,6 +184,8 @@ bool SClientRecord::retry_reply(const threading::CErasedPodMsg& message) noexcep
 EReplyPublication SClientRecord::publish_reply(const threading::CErasedPodMsg& message) noexcept
 {
     MV_ASSERT(reserved_replies != 0u);
+    if (delivery_protected())
+        return delivery_owner && delivery_owner->stage_delivery(*this, message, false, true) ? EReplyPublication::queued : EReplyPublication::busy;
     if (terminal())
     {
         cancel_reservation(1u);
@@ -191,9 +200,49 @@ EReplyPublication SClientRecord::publish_reply(const threading::CErasedPodMsg& m
 
 bool SClientRecord::execution_quiescent() const noexcept
 {
-    if (!terminal_before_drain || !terminal() || !incoming_drained) return false;
+    if (!terminal_before_drain || !terminal() || !incoming_drained || deferred_records || invocation_offered) return false;
     const auto* const batch = batch_client();
     return (batch == nullptr) || ((batch->outstanding() == 0u) && (batch->return_publishers() == 0u));
+}
+
+bool SClientRecord::install_host_execution(const modules::SHostRestrictionReader reader) noexcept
+{
+    if (subscription_live || !reader.is_valid()) return false;
+    host_execution.instance = instance;
+    host_execution.client = identity;
+    host_execution.subscription = { identity.value };
+    host_execution.restriction = reader;
+    if (module == module_ids::executive) host_execution.stop = { &host_stop_requested };
+    if (thread)
+    {
+        if (!thread->install_host_execution(host_execution, restriction_notification)) return false;
+    }
+    else
+    {
+        if (!restriction_notification.initialise(notifications_pending)) return false;
+        host_execution.notification = restriction_notification.reader();
+        if (!restriction_notification.endpoint().signal()) return false;
+    }
+    subscription_live = true;
+    return true;
+}
+
+bool SClientRecord::signal_restriction(const std::uint32_t revision) noexcept
+{
+    if (!subscription_live || (restriction_revision == revision)) return true;
+    if (!restriction_notification.endpoint().signal()) return false;
+    restriction_revision = revision;
+    return true;
+}
+
+bool SClientRecord::retire_host_execution(const bool deactivated) noexcept
+{
+    if (!subscription_live) return true;
+    if (!execution_quiescent() || !replies_idle() || (!thread && !deactivated)) return false;
+    if (thread && !thread->retire_host_execution()) return false;
+    subscription_live = false;
+    host_execution = {};
+    return true;
 }
 
 void SClientRecord::flush() noexcept
@@ -215,7 +264,7 @@ void SClientRecord::flush() noexcept
     consume(consumed);
 }
 
-std::uint32_t SClientRecord::copy_messages(threading::CErasedPodMsg* output, const std::uint32_t capacity, std::uint32_t& controls) const noexcept
+std::uint32_t SClientRecord::copy_messages(threading::CErasedPodMsg* const output, const std::uint32_t capacity, std::uint32_t& controls) const noexcept
 {
     controls = std::min(control_count, capacity);
     const auto ordinary = std::min(message_count, capacity - controls);

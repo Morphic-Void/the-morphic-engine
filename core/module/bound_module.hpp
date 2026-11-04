@@ -62,6 +62,7 @@ public:
     [[nodiscard]] bool prepare_batch_thread(const thread_ids::id_type thread_id, memory::CMemoryContext* const memory_context) noexcept;
 
 private:
+    friend struct SBoundModuleTestAccess;
     [[nodiscard]] bool prepare_thread(const thread_ids::id_type thread_id, void* const thread_resources) noexcept;
 
     platform::module::CPlatformModule m_native_module;

@@ -6,38 +6,40 @@
 //  Authors: Ritchie Brannan / OpenAI Codex
 //  Date:    31 Oct 26
 //
-//  One awake-time budget per generic module test; checks never renew it.
+//  One Host-eligible budget per generic module test; checks never renew it.
 
 #pragma once
 
-#include "platform/threading/wait_deadline.hpp"
+#include "module/host_eligible_budget.hpp"
 
 namespace executive
 {
 
-//  The deadline type is a private test seam. Production uses the native
-//  awake-time deadline; tests can control its clock and explicit failures.
-template<typename TDeadline = platform::threading::CWaitDeadline>
+//  The budget type is a private test seam. Production requires the exact
+//  client's Host restriction view; there is no ordinary-clock fallback.
+template<typename TBudget = modules::CHostEligibleBudget>
 class TModuleTestWatchdog
 {
 public:
-    enum class EState { pending, expired, failed };
+    enum class EState { pending, expired, retry, failed };
 
-    [[nodiscard]] platform::threading::WaitError start() noexcept
+    [[nodiscard]] modules::EBudgetStatus start(const modules::SHostRestrictionReader reader) noexcept
     {
-        return m_deadline.set_after_milliseconds(30000u);
+        return m_budget.start(reader, 30000000000u);
     }
 
-    [[nodiscard]] EState check() const noexcept
+    [[nodiscard]] EState check(modules::SEligibleBudgetObservation* const result = nullptr) noexcept
     {
-        std::uint64_t remaining;
-        const auto error = m_deadline.remaining_nanoseconds(remaining);
-        if (error.code != platform::threading::EWaitError::none) return EState::failed;
-        return remaining == 0u ? EState::expired : EState::pending;
+        const auto observation = m_budget.observe();
+        if (result) *result = observation;
+        if (observation.status == modules::EBudgetStatus::failed) return EState::failed;
+        if (observation.status == modules::EBudgetStatus::expired) return EState::expired;
+        if (observation.status == modules::EBudgetStatus::retry) return EState::retry;
+        return EState::pending;
     }
 
 private:
-    TDeadline m_deadline;
+    TBudget m_budget;
 };
 
 }   //  namespace executive

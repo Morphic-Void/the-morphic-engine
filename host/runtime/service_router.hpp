@@ -20,25 +20,26 @@ namespace host
 class CServiceRouter
 {
 public:
+    void close_admission() noexcept { m_accepting = false; }
     void open(const services::OpenServiceRequest& request, const std::int32_t slot,
-        SClientRecord& client, const SServiceProvider* provider) noexcept;
+        SClientRecord& client, const SServiceProvider* const provider) noexcept;
     void close(const services::CloseServiceRequest& request, const std::int32_t slot, SClientRecord& client) noexcept;
     void request(const services::ServiceRequest& request, const std::int32_t slot, SClientRecord& client) noexcept;
-    [[nodiscard]] services::EServiceStatus complete(SClientRecord& provider, const services::ServiceReply& reply) noexcept;
+    [[nodiscard]] services::EServiceStatus complete(const SClientRecord& provider, const services::ServiceReply& reply) noexcept;
     [[nodiscard]] services::EServiceStatus prepare_borrow(SClientRecord& provider,
         const services::SServiceBorrowOffer& offer, services::SServiceBorrow& borrow) noexcept;
-    [[nodiscard]] services::EServiceStatus begin_borrow_retirement(SClientRecord& provider, services::SServiceBorrow borrow) noexcept;
-    [[nodiscard]] services::EServiceStatus finish_borrow_retirement(SClientRecord& provider, services::SServiceBorrow borrow) noexcept;
-    void register_notification(SClientRecord& client, const services::RegisterServiceNotification& request, std::int32_t slot) noexcept;
-    [[nodiscard]] services::EServiceStatus bind_borrow_notification(SClientRecord& provider, services::SServiceBorrow borrow,
-        services::SNotificationRegistration registration, threading::SNotificationEndpoint& endpoint) noexcept;
+    [[nodiscard]] services::EServiceStatus begin_borrow_retirement(SClientRecord& provider, const services::SServiceBorrow borrow) noexcept;
+    [[nodiscard]] services::EServiceStatus finish_borrow_retirement(SClientRecord& provider, const services::SServiceBorrow borrow) noexcept;
+    void register_notification(SClientRecord& client, const services::RegisterServiceNotification& request, const std::int32_t slot) noexcept;
+    [[nodiscard]] services::EServiceStatus bind_borrow_notification(SClientRecord& provider, const services::SServiceBorrow borrow,
+        const services::SNotificationRegistration registration, threading::SNotificationEndpoint& endpoint) noexcept;
     void release_borrow(SClientRecord& client, const services::ReleaseServiceBorrow& request) noexcept;
     void quiesce_borrow(SClientRecord& client, const services::ServiceBorrowQuiescent& request) noexcept;
     void cancel_request(SClientRecord& client, const services::CancelServiceRequest& request) noexcept;
     [[nodiscard]] bool provider_borrows_retired(const SClientRecord& provider) const noexcept;
-    [[nodiscard]] std::uint32_t prepare_batch(SClientRecord& provider,
-        services::SDispatchedCommand* commands, const std::uint32_t capacity) noexcept;
-    [[nodiscard]] bool finish_batch(SClientRecord& provider, const services::SDispatchedCommand* commands,
+    [[nodiscard]] std::uint32_t prepare_batch(const SClientRecord& provider,
+        services::SDispatchedCommand* const commands, const std::uint32_t capacity) noexcept;
+    [[nodiscard]] bool finish_batch(const SClientRecord& provider, const services::SDispatchedCommand* const commands,
         const std::uint32_t offered, const std::uint32_t consumed) noexcept;
     void progress() noexcept;
     void stop_provider(SClientRecord& provider, const bool quiescent) noexcept;
@@ -74,7 +75,7 @@ private:
     };
 
     [[nodiscard]] SRoute* find_route(const services::SServiceRoute token) noexcept;
-    [[nodiscard]] SOperation* find_operation(SRoute& route, const services::SServiceRequestId request) noexcept;
+    [[nodiscard]] SOperation* find_operation(const SRoute& route, const services::SServiceRequestId request) noexcept;
     [[nodiscard]] bool route_idle(const SRoute& route) const noexcept;
     void fail(SOperation& operation, const services::EServiceStatus status) noexcept;
     void cancel(SOperation& operation) noexcept;
@@ -85,6 +86,7 @@ private:
     std::uint64_t m_next_route{ 1u };
     std::uint64_t m_next_order{ 1u };
     bool m_failed{ false };
+    bool m_accepting{ true };
 };
 
 }   //  namespace host

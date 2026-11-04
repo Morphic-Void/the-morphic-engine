@@ -47,7 +47,28 @@
 namespace executive_startup_tests
 {
 
-struct SControlledDeadline
+struct SHostView
+{
+    modules::CHostRestrictionPublication publication;
+    threading::CNotification notification;
+    std::atomic<std::uint32_t> stop{ 0u };
+    modules::SHostExecutionContext view;
+
+    bool install(threading::CThreadPackage& package) noexcept
+    {
+        modules::SHostRestrictionSnapshot snapshot;
+        snapshot.generation = 1u;
+        if (!publication.publish(snapshot)) return false;
+        view.instance = { 1u };
+        view.client = { 1u };
+        view.subscription = { 1u };
+        view.restriction = publication.reader();
+        view.stop = { &stop };
+        return package.install_host_execution(view, notification);
+    }
+};
+
+struct SControlledBudget
 {
     static inline std::uint64_t now = 0u;
     static inline std::uint64_t duration = 0u;
@@ -57,25 +78,25 @@ struct SControlledDeadline
     std::uint64_t end{ 0u };
     platform::threading::WaitError error{ platform::threading::EWaitError::invalid_argument, 0u };
 
-    platform::threading::WaitError set_after_milliseconds(const std::uint64_t milliseconds) noexcept
+    modules::EBudgetStatus start(const modules::SHostRestrictionReader, const std::uint64_t nanoseconds) noexcept
     {
         ++starts;
-        duration = milliseconds * 1000000u;
+        duration = nanoseconds;
         end = now + duration;
         error = construction_error;
-        return error;
+        return error.code == platform::threading::EWaitError::none ? modules::EBudgetStatus::running : modules::EBudgetStatus::failed;
     }
-    platform::threading::WaitError remaining_nanoseconds(std::uint64_t& remaining) const noexcept
+    modules::SEligibleBudgetObservation observe() noexcept
     {
-        if (error.code != platform::threading::EWaitError::none) return error;
-        remaining = now < end ? end - now : 0u;
-        return query_error;
+        if (error.code != platform::threading::EWaitError::none) return { modules::EBudgetStatus::failed, 0u, error };
+        if (query_error.code != platform::threading::EWaitError::none) return { modules::EBudgetStatus::failed, 0u, query_error };
+        return { now < end ? modules::EBudgetStatus::running : modules::EBudgetStatus::expired, now < end ? end - now : 0u, {} };
     }
 };
 
 static void check_module_watchdog(tests::TTestContext& ctx)
 {
-    using Clock = SControlledDeadline;
+    using Clock = SControlledBudget;
     using Watchdog = executive::TModuleTestWatchdog<Clock>;
     using State = Watchdog::EState;
     using Error = platform::threading::EWaitError;
@@ -85,7 +106,7 @@ static void check_module_watchdog(tests::TTestContext& ctx)
     Clock::query_error = {};
     Watchdog watchdog;
     TEST_EXPECT(ctx, watchdog.check() == State::failed);
-    TEST_EXPECT(ctx, watchdog.start().code == Error::none);
+    TEST_EXPECT(ctx, watchdog.start({}) == modules::EBudgetStatus::running);
     TEST_EXPECT(ctx, Clock::duration == 30000000000ull && Clock::starts == 1u);
     //  The same pre-read operation runs on every Executive loop, including
     //  loops consuming unrelated traffic. None may renew the original budget.
@@ -101,18 +122,17 @@ static void check_module_watchdog(tests::TTestContext& ctx)
     ++Clock::now;
     TEST_EXPECT(ctx, watchdog.check() == State::expired);
     //  A subsequent module submission gets a fresh full budget.
-    TEST_EXPECT(ctx, watchdog.start().code == Error::none && Clock::starts == 2u);
+    TEST_EXPECT(ctx, watchdog.start({}) == modules::EBudgetStatus::running && Clock::starts == 2u);
     TEST_EXPECT(ctx, watchdog.check() == State::pending);
     Clock::now += 30000000000ull;
     TEST_EXPECT(ctx, watchdog.check() == State::expired);
     for (const auto error : { Error::invalid_argument, Error::unsupported, Error::native_failure })
     {
         Clock::construction_error = { error, 37u };
-        const auto started = watchdog.start();
-        TEST_EXPECT(ctx, started.code == error && started.native_error == 37u);
+        TEST_EXPECT(ctx, watchdog.start({}) == modules::EBudgetStatus::failed);
         TEST_EXPECT(ctx, watchdog.check() == State::failed);
         Clock::construction_error = {};
-        TEST_EXPECT(ctx, watchdog.start().code == Error::none);
+        TEST_EXPECT(ctx, watchdog.start({}) == modules::EBudgetStatus::running);
         Clock::query_error = { error, 41u };
         TEST_EXPECT(ctx, watchdog.check() == State::failed);
         Clock::query_error = {};
@@ -146,7 +166,9 @@ static void check_rendering_notices(tests::TTestContext& ctx, modules::CBoundMod
         const threading::ThreadConfig configuration{
             thread_ids::executive, module_ids::executive, platform::threading::EThreadPriority::Normal,
             entry, &modules::CBoundModule::prepare_thread, &module };
+        SHostView execution;
         threading::CThreadPackage package(configuration, conversion);
+        TEST_EXPECT(ctx, execution.install(package));
         const bool started = package.startup();
         TEST_EXPECT(ctx, started);
         if (!started)
@@ -261,6 +283,11 @@ static void check_rendering_notices(tests::TTestContext& ctx, modules::CBoundMod
         }
         request.take_owner().destroy();
         package.request_exit();
+        TEST_EXPECT(ctx, tests::wait_until(conversion, [&]() noexcept {
+            const auto state = package.query_state();
+            return state == threading::EThreadRunState::Exited || state == threading::EThreadRunState::Failed;
+        }));
+        package.retire_host_execution();
         TEST_EXPECT(ctx, package.shutdown());
     }
 }
@@ -623,7 +650,9 @@ void test_executive_context_and_module_unload_gate(TTestContext& ctx)
             config.entry_point = &capture_executive_submission_failure;
             config.prepare = &prepare_executive_without_outbound_queue;
             config.prepare_context = &failure;
+            executive_startup_tests::SHostView execution;
             threading::CThreadPackage package(config, conversion);
+            TEST_EXPECT(ctx, execution.install(package));
             //  The real Host-side package must reject the failed Executive startup.
             TEST_EXPECT(ctx, !package.startup());
             TEST_EXPECT(ctx, failure.final_state == threading::EThreadRunState::Failed);

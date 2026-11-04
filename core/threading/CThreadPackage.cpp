@@ -89,8 +89,23 @@ bool CThreadPackage::startup() noexcept
             {
                 if (m_resources.wait_predicate.acquire_control())
                 {
-                    m_resources.control_state.mark_pending();
-                    m_resources.created = m_resources.thread.create(&CThreadPackage::thread_entry_point, &m_resources);
+                    bool prepared = !m_host_notification || m_host_notification->initialise(m_resources.wait_predicate);
+                    if (prepared && m_host_notification)
+                    {
+                        ++m_notification_pins;
+                        m_host_pinned = true;
+                        m_host_execution->notification = m_host_notification->reader();
+                        m_resources.host_execution = m_host_execution;
+                        prepared = m_host_notification->endpoint().signal();
+                    }
+                    if (prepared)
+                    {
+                        m_resources.control_state.mark_pending();
+#if defined(MV_HOST_RUNTIME_TESTS)
+                        if (!m_test_reject_create)
+#endif
+                            m_resources.created = m_resources.thread.create(&CThreadPackage::thread_entry_point, &m_resources);
+                    }
                     if (m_resources.created)
                     {
                         while (m_resources.control_state.is_starting())
@@ -101,10 +116,11 @@ bool CThreadPackage::startup() noexcept
                         {
                             return true;
                         }
-                        (void)m_resources.thread.join_and_close();
+                        if (!join_execution()) return false;
                         m_resources.created = false;
                     }
                     m_resources.control_state.mark_empty();
+                    retire_host_execution();
                     release_wait_control();
                 }
                 m_resources.worker_to_host_owned_msgs.deallocate();
@@ -130,6 +146,36 @@ bool CThreadPackage::install_batch_client(SBatchShared& shared, const module_ids
     return true;
 }
 
+bool CThreadPackage::install_host_execution(modules::SHostExecutionContext& view, CNotification& notification) noexcept
+{
+    if (m_resources.created || m_host_execution || !view.restriction.is_valid() || !view.subscription.value) return false;
+    m_host_execution = &view;
+    m_host_notification = &notification;
+    return true;
+}
+
+bool CThreadPackage::join_execution() noexcept
+{
+    if (!m_resources.thread.is_valid()) return true;
+#if defined(MV_HOST_RUNTIME_TESTS)
+    if (m_test_fail_join) return false;
+#endif
+    return m_resources.thread.join_and_close();
+}
+
+bool CThreadPackage::retire_host_execution() noexcept
+{
+    if (!m_host_pinned) return true;
+    MV_ASSERT(!m_resources.created || m_resources.control_state.is_done());
+    //  A terminal publication precedes the native return. Keep the context and
+    //  predicate pin until join proves even that final execution has finished.
+    if (m_resources.created && (!m_resources.control_state.is_done() || !join_execution())) return false;
+    unpin_notification();
+    m_host_pinned = false;
+    m_resources.host_execution = nullptr;
+    return true;
+}
+
 bool CThreadPackage::shutdown() noexcept
 {
     //  The owner must continue provider retirement before attempting teardown.
@@ -142,7 +188,7 @@ bool CThreadPackage::shutdown() noexcept
         {
             std::this_thread::yield();
         }
-        m_resources.created = m_resources.thread.join_and_close();
+        if (!join_execution()) return false;
         release_wait_control();
         if (!m_resources.created)
         {

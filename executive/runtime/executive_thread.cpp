@@ -262,12 +262,19 @@ private:
     [[nodiscard]] bool complete_bundle_exercise(const threading::CErasedPodMsg& message) noexcept;
     [[nodiscard]] bool complete_acquisition_exercise(const threading::CErasedPodMsg& message) noexcept;
     [[nodiscard]] bool request_system_shutdown() noexcept;
+    [[nodiscard]] bool start_budget(TModuleTestWatchdog<>& budget) noexcept;
+    [[nodiscard]] bool check_budgets() noexcept;
+    template<typename T> [[nodiscard]] bool post_acquisition(const std::int32_t slot, const T& payload) noexcept;
     void shutdown() noexcept;
     void fail(const EFailure failure, const char* const reason) noexcept;
 
     threading::CThreadContext m_context;
-    platform::system::CPerfCounter m_perf_counter;
     TModuleTestWatchdog<> m_test_watchdog;
+    TModuleTestWatchdog<> m_operation_watchdog;
+    TModuleTestWatchdog<> m_acquisition_watchdogs[8];
+    bool m_acquisition_pending[8]{};
+    threading::CWaitDeadline m_exit_deadline;
+    std::uint64_t m_wait_remaining{ UINT64_MAX };
     module_ids::id_type m_test_module{ module_ids::rendering };
     std::uint32_t m_scenario_index{ 0u };
     std::int32_t m_pending_slot{ 0 };
@@ -348,10 +355,10 @@ bool CExecutiveThread::initialise() noexcept
 
     MV_LOG_RICH(info, "Executive system registry authority: %s", registry_name);
 
-    if (!m_perf_counter.update() ||
-        !m_context.perf_count_conversion().is_valid())
+    const auto* const execution = m_context.host_execution();
+    if (!execution || !execution->restriction.is_valid() || !execution->notification.is_valid())
     {
-        fail(EFailure::timing, "performance counter initialisation");
+        fail(EFailure::timing, "Host execution context installation");
         return false;
     }
 
@@ -360,6 +367,7 @@ bool CExecutiveThread::initialise() noexcept
 
 bool CExecutiveThread::load_test_module() noexcept
 {
+    if (!start_budget(m_operation_watchdog)) return false;
     threading::CErasedOwnerMsg pending;
     CSimpleString file;
     const bool audio = m_test_module == module_ids::audio;
@@ -371,7 +379,6 @@ bool CExecutiveThread::load_test_module() noexcept
         return false;
     }
     m_phase = EPhase::module_acknowledgement;
-    (void)m_perf_counter.update();
     MV_LOG_RICH(info, "Executive: %s load requested", audio ? "Audio" : "Rendering");
     return true;
 }
@@ -410,7 +417,6 @@ bool CExecutiveThread::accept_module_notice(const threading::CErasedPodMsg& mess
         MV_LOG_RICH(info, "Executive: %s ready (%s)", (m_test_module == module_ids::audio) ? "Audio" : "Rendering",
             (result.status == modules::EModuleStatus::already_loaded) ? "already loaded" : "loaded");
     }
-    (void)m_perf_counter.update();
     return true;
 }
 
@@ -771,6 +777,7 @@ bool CExecutiveThread::check(const asset_acceptance::SScenario& scenario, const 
 
 bool CExecutiveThread::submit_concurrent_saves() noexcept
 {
+    if (!start_budget(m_operation_watchdog)) return false;
     using namespace asset_acceptance;
     m_phase = EPhase::concurrent;
     m_concurrent_first_slot = m_pending_slot + 1;
@@ -827,6 +834,7 @@ bool CExecutiveThread::complete_concurrent_save(const threading::CErasedPodMsg& 
 
 bool CExecutiveThread::start_filesystem_exercise() noexcept
 {
+    if (!start_budget(m_operation_watchdog)) return false;
     threading::CErasedOwnerMsg pending;
     m_phase = EPhase::filesystem;
     const char* roots[]{ "dev-source:", "dev-workspace:", "unknown:" };
@@ -955,6 +963,7 @@ bool CExecutiveThread::complete_filesystem_exercise(const threading::CErasedPodM
 
 bool CExecutiveThread::start_bundle_exercise() noexcept
 {
+    if (!start_budget(m_operation_watchdog)) return false;
     threading::CErasedOwnerMsg pending;
     m_phase = EPhase::bundle;
     return request_preparation::prepare_bundle_bake_request(pending, 2000, "dev-source:", "bundle-acceptance:") &&
@@ -975,7 +984,7 @@ bool CExecutiveThread::complete_bundle_exercise(const threading::CErasedPodMsg& 
             m_bundle_snapshot.deallocate();
             m_phase = EPhase::acquisitions;
             MV_LOG(info, "Bundle acceptance: bake, reference, save, close and reload passed");
-            return m_context.post(threading::make_pod_message(3000, AssetAcquireRequest{ m_raw.asset }));
+            return post_acquisition(3000, AssetAcquireRequest{ m_raw.asset });
         }
         ++m_bundle_step;
         return request_preparation::prepare_bundle_load_request(pending, 2005,
@@ -1033,7 +1042,9 @@ bool CExecutiveThread::complete_bundle_exercise(const threading::CErasedPodMsg& 
 
 bool CExecutiveThread::complete_acquisition_exercise(const threading::CErasedPodMsg& message) noexcept
 {
-    (void)m_perf_counter.update();
+    const auto slot = message.query_async_slot() - 3000;
+    if ((slot < 0) || (slot >= 8) || !m_acquisition_pending[slot]) return false;
+    m_acquisition_pending[slot] = false;
     const auto step = m_acquisition_step++;
     AssetAcquireResult acquired;
     AssetReleaseResult released;
@@ -1046,17 +1057,17 @@ bool CExecutiveThread::complete_acquisition_exercise(const threading::CErasedPod
                 (acquired.status != EAssetStatus::success) || !acquired.acquisition ||
                 (acquired.byte_view().data() != m_raw.byte_view().data())) return false;
             m_acquired[step] = acquired;
-            if (step == 0) return m_context.post(threading::make_pod_message(3001, AssetAcquireRequest{ m_raw.asset }));
+            if (step == 0) return post_acquisition(3001, AssetAcquireRequest{ m_raw.asset });
             return (m_acquired[0].acquisition != m_acquired[1].acquisition) &&
-                m_context.post(threading::make_pod_message(3002, AssetDisposeRequest{ m_raw.asset })) &&
-                m_context.post(threading::make_pod_message(3003, AssetAcquireRequest{ m_raw.asset }));
+                post_acquisition(3002, AssetDisposeRequest{ m_raw.asset }) &&
+                post_acquisition(3003, AssetAcquireRequest{ m_raw.asset });
         }
         case 2:
         {
             if ((message.query_async_slot() != 3003) || !message.copy_payload_to(acquired) ||
                 (acquired.status != EAssetStatus::invalid_asset) || acquired.acquisition ||
                 !asset_acceptance::equal_bytes(m_acquired[0].byte_view(), m_acquired[1].byte_view())) return false;
-            return m_context.post(threading::make_pod_message(3004, AssetReleaseRequest{ m_acquired[0].acquisition }));
+            return post_acquisition(3004, AssetReleaseRequest{ m_acquired[0].acquisition });
         }
         case 3:
         case 4:
@@ -1067,8 +1078,8 @@ bool CExecutiveThread::complete_acquisition_exercise(const threading::CErasedPod
             if ((message.query_async_slot() != 3001 + step) || !message.copy_payload_to(released) ||
                 (released.status != expected) || (released.acquisition != token)) return false;
             if (step == 5) return true; // Disposal must now follow the release acknowledgement.
-            return m_context.post(threading::make_pod_message(3002 + step,
-                AssetReleaseRequest{ m_acquired[(step == 4) ? 1 : 0].acquisition }));
+            return post_acquisition(3002 + step,
+                AssetReleaseRequest{ m_acquired[(step == 4) ? 1 : 0].acquisition });
         }
         case 6:
         {
@@ -1078,7 +1089,7 @@ bool CExecutiveThread::complete_acquisition_exercise(const threading::CErasedPod
             m_acquired[0] = {};
             m_acquired[1] = {};
             m_raw = {};
-            return m_context.post(threading::make_pod_message(3007, AssetAcquireRequest{ m_baked.asset }));
+            return post_acquisition(3007, AssetAcquireRequest{ m_baked.asset });
         }
         case 7:
         {
@@ -1100,37 +1111,91 @@ bool CExecutiveThread::complete_acquisition_exercise(const threading::CErasedPod
 
 bool CExecutiveThread::request_system_shutdown() noexcept
 {
-    threading::CErasedOwnerMsg pending;
-    if (!request_preparation::prepare_module_request(pending, threading::k_uncorrelated_slot,
-        module_ids::executive, modules::EModuleAction::unload) || !m_context.post(std::move(pending)))
+    const auto* const execution = m_context.host_execution();
+    if (!execution || (m_exit_deadline.set_after_milliseconds(30000u).code != platform::threading::EWaitError::none) ||
+        !execution->stop.request())
     {
         return false;
     }
     m_phase = EPhase::awaiting_exit;
-    (void)m_perf_counter.update();
     return true;
+}
+
+bool CExecutiveThread::start_budget(TModuleTestWatchdog<>& budget) noexcept
+{
+    const auto* const execution = m_context.host_execution();
+    if (!execution) { fail(EFailure::timing, "Host restriction reader"); return false; }
+    while (!m_context.exit_requested())
+    {
+        const auto started = budget.start(execution->restriction);
+        if ((started == modules::EBudgetStatus::running) || (started == modules::EBudgetStatus::restricted)) return true;
+        if (started != modules::EBudgetStatus::retry)
+        { fail(EFailure::timing, "Host eligible budget construction"); return false; }
+        platform::threading::processor_relax();
+    }
+    return false;
+}
+
+template<typename T>
+bool CExecutiveThread::post_acquisition(const std::int32_t slot, const T& payload) noexcept
+{
+    const auto index = slot - 3000;
+    if ((index < 0) || (index >= 8) || m_acquisition_pending[index] ||
+        !start_budget(m_acquisition_watchdogs[index])) return false;
+    if (!m_context.post(threading::make_pod_message(slot, payload))) return false;
+    m_acquisition_pending[index] = true;
+    return true;
+}
+
+bool CExecutiveThread::check_budgets() noexcept
+{
+    m_wait_remaining = UINT64_MAX;
+    const auto* const execution = m_context.host_execution();
+    if (!execution || execution->notification.failed())
+    { fail(EFailure::timing, "Host restriction notification"); return false; }
+    execution->notification.clear_pending();
+    if (m_phase == EPhase::awaiting_exit)
+    {
+        std::uint64_t remaining = 0u;
+        if (m_exit_deadline.remaining_nanoseconds(remaining).code != platform::threading::EWaitError::none)
+            fail(EFailure::timing, "exit deadline query");
+        else if (!remaining) fail(EFailure::timeout, "exit deadline");
+        m_wait_remaining = remaining;
+        return m_failure_code == 0u;
+    }
+    using State = TModuleTestWatchdog<>::EState;
+    bool ready = true;
+    const auto check = [&](TModuleTestWatchdog<>& budget)
+    {
+        modules::SEligibleBudgetObservation observation;
+        const auto state = budget.check(&observation);
+        if (state == State::failed) fail(EFailure::timing, "Host eligible budget query");
+        else if (state == State::expired) fail(EFailure::timeout, "Host eligible operation deadline");
+        if (state != State::pending) ready = false;
+        if (observation.status == modules::EBudgetStatus::running && observation.remaining_ns < m_wait_remaining)
+            m_wait_remaining = observation.remaining_ns;
+    };
+    if (m_phase == EPhase::acquisitions)
+    {
+        for (unsigned index = 0u; index < 8u; ++index)
+            if (m_acquisition_pending[index]) check(m_acquisition_watchdogs[index]);
+    }
+    else check(m_phase == EPhase::module_tests ? m_test_watchdog : m_operation_watchdog);
+    return ready;
 }
 
 void CExecutiveThread::operate() noexcept
 {
     using namespace asset_acceptance;
-    const std::uint64_t ticks_per_second = m_context.perf_count_conversion().query_ticks_per_second();
     while (!m_context.exit_requested() && (m_phase != EPhase::complete) && (m_failure_code == 0u))
     {
+        const auto epoch = m_context.observe_epoch();
         //  Check before reading, including under continuous unrelated traffic.
-        if (m_phase == EPhase::module_tests)
+        if (!check_budgets())
         {
-            const auto state = m_test_watchdog.check();
-            if (state == TModuleTestWatchdog<>::EState::failed)
-            {
-                fail(EFailure::timing, "module test deadline query");
-                break;
-            }
-            if (state == TModuleTestWatchdog<>::EState::expired)
-            {
-                fail(EFailure::timeout, "module test deadline");
-                break;
-            }
+            if (m_failure_code) break;
+            platform::threading::processor_relax();
+            continue;
         }
         threading::CErasedPodMsg message;
         if (m_context.read(message))
@@ -1148,9 +1213,8 @@ void CExecutiveThread::operate() noexcept
                 else if (m_phase == EPhase::module_tests)
                 {
                     const auto request = threading::make_pod_message(m_pending_slot, modules::RunTestsRequest{ m_test_module });
-                    const auto timing = m_test_watchdog.start();
-                    if (timing.code != platform::threading::EWaitError::none)
-                        fail(EFailure::timing, "module test deadline construction");
+                    if (!start_budget(m_test_watchdog))
+                        fail(EFailure::timing, "module test budget construction");
                     else if (!m_context.post(request)) fail(EFailure::submission, "module test request submission");
                 }
                 continue;
@@ -1181,7 +1245,7 @@ void CExecutiveThread::operate() noexcept
                     MV_LOG(info, "Executive: Audio unavailable: no real output device; test skipped");
                 m_phase = EPhase::sequential;
                 ++m_pending_slot;
-                (void)m_perf_counter.update();
+                if (!start_budget(m_operation_watchdog)) continue;
                 threading::CErasedOwnerMsg pending;
                 if (!prepare_scenario(pending, scenarios[m_scenario_index], m_pending_slot))
                     fail(EFailure::submission, "initial asset request preparation");
@@ -1238,7 +1302,6 @@ void CExecutiveThread::operate() noexcept
             }
             MV_LOG_RICH(info, "Executive: %s passed", scenario.name);
             ++m_scenario_index;
-            (void)m_perf_counter.update();
             if (m_scenario_index == scenario_count)
             {
                 if (!submit_concurrent_saves())
@@ -1248,6 +1311,7 @@ void CExecutiveThread::operate() noexcept
             }
             else
             {
+                if (!start_budget(m_operation_watchdog)) continue;
                 ++m_pending_slot;
                 threading::CErasedOwnerMsg pending;
                 if (!prepare_scenario(pending, scenarios[m_scenario_index], m_pending_slot))
@@ -1256,14 +1320,26 @@ void CExecutiveThread::operate() noexcept
                     fail(EFailure::submission, "request submission");
             }
         }
-        else if ((m_phase != EPhase::module_tests) && (m_perf_counter.query_delta() > (ticks_per_second * 30u)))
-        {
-            fail(EFailure::timeout, "operation deadline");
-        }
         else
         {
             m_context.advance_heartbeat();
-            platform::threading::processor_relax();
+            if (m_context.exit_requested()) break;
+            if (m_wait_remaining == UINT64_MAX)
+            {
+                //  A positive restricted budget has no native expiry. Publication,
+                //  messages and exit all wake this same pre-inspection epoch.
+                (void)m_context.wait_for_new_epoch(epoch);
+            }
+            else
+            {
+                threading::CWaitDeadline wait;
+                if (m_phase == EPhase::awaiting_exit) wait = m_exit_deadline;
+                else if (wait.set_after_nanoseconds(m_wait_remaining).code != platform::threading::EWaitError::none)
+                { fail(EFailure::timing, "eligible observation wait"); continue; }
+                const auto result = m_context.wait_for_new_epoch(epoch, wait);
+                if (result.status != threading::EWaitStatus::satisfied && result.status != threading::EWaitStatus::timed_out)
+                    fail(EFailure::timing, "eligible observation wait");
+            }
         }
     }
 }

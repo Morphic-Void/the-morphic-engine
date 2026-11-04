@@ -26,6 +26,7 @@
 #include "runtime/batch_pool.hpp"
 #include "runtime/module_service.hpp"
 #include "runtime/pumped_client.hpp"
+#include "runtime/host_maintenance.hpp"
 #include "runtime/worker_policy.hpp"
 #include "containers/TInstance.hpp"
 #include "containers/TUnorderedCollection.hpp"
@@ -54,6 +55,7 @@ public:
     [[nodiscard]] bool retains_state() const noexcept { return m_retain_runtime; }
 
 private:
+    friend class CHostMaintenance;
     enum class EPhase : std::uint8_t
     {
         starting = 0,
@@ -94,6 +96,7 @@ private:
     void executive_failure(const modules::EModuleStatus status) noexcept;
     void run() noexcept;
     void begin_emergency_shutdown() noexcept;
+    void apply_host_stop() noexcept;
     void check_shutdown_deadline() noexcept;
     [[nodiscard]] bool shutdown() noexcept;
     [[nodiscard]] bool shutdown_threads() noexcept;
@@ -148,9 +151,12 @@ private:
     SServiceProvider m_providers[module_ids::k_count];
     TInstance<CPumpedClient> m_pumps[module_ids::k_count];
     CServiceRouter m_service_router;
+    CHostMaintenance m_maintenance;
     std::uint64_t m_next_client{ 1u };
     bool m_retain_runtime{ false };
     bool m_emergency_shutdown{ false };
+    bool m_host_stop_applied{ false };
+    bool m_work_admission_closed{ false };
     bool m_workers_unavailable{ false };
     bool m_worker_failure_drained{ false };
     threading::CWaitDeadline m_shutdown_deadline;
@@ -158,11 +164,13 @@ private:
     bool m_shutdown_reported{ false };
 #if defined(MV_HOST_RUNTIME_TESTS)
     friend struct SHostRuntimeTestAccess;
+    friend struct SHostMaintenanceTestAccess;
     bool m_test_reject_initial_scan{ false };
     std::uint32_t m_test_clock_failure{ 0u };
     void* m_test_state{ nullptr };
     void (*m_test_after_worker_drain)(CHost&, threading::CThreadPackage&){ nullptr };
     void (*m_test_after_worker_failure)(CHost&){ nullptr };
+    void (*m_test_before_client_start)(threading::CThreadPackage&){ nullptr };
 #endif
     std::int32_t m_worker_slots[k_max_worker_count]{ -1, -1 };
     std::uint32_t m_worker_count{ 0u };

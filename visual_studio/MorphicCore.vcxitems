@@ -90,6 +90,10 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\module\bound_module.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\module\module_binding_context.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\module\host_pump.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\module\host_restriction.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\module\host_eligible_budget.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\module\host_execution_context.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\platform\threading\awake_clock.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\module\module_identity.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\module\service_provider.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\module\module_messages.hpp" />
@@ -205,6 +209,8 @@
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\memory\memory_context.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\module\bound_module.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\services\service_borrow_client.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\module\host_restriction.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\module\host_eligible_budget.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\module\module_binding_context.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\system\erased_owner_operations.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\system\erased_owner_transport.cpp" />

@@ -270,6 +270,8 @@ void provider_availability(TTestContext& ctx)
 void run_host_runtime_tests(tests::TTestContext& ctx);
 void run_service_borrow_tests(tests::TTestContext& ctx);
 void run_notification_tests(tests::TTestContext& ctx);
+void run_host_restriction_tests(tests::TTestContext& ctx);
+void run_host_maintenance_tests(tests::TTestContext& ctx);
 
 int run_host_pump_tests()
 {
@@ -283,5 +285,7 @@ int run_host_pump_tests()
     run_host_runtime_tests(ctx);
     run_service_borrow_tests(ctx);
     run_notification_tests(ctx);
+    run_host_restriction_tests(ctx);
+    run_host_maintenance_tests(ctx);
     return ctx.report("HostPump");
 }

@@ -348,6 +348,10 @@
       <Filter>Core\include\module</Filter>
     </ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\module\host_pump.hpp"><Filter>Core\include\module</Filter></ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\module\host_restriction.hpp"><Filter>Core\include\module</Filter></ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\module\host_eligible_budget.hpp"><Filter>Core\include\module</Filter></ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\module\host_execution_context.hpp"><Filter>Core\include\module</Filter></ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\core\platform\threading\awake_clock.hpp"><Filter>Core\include\platform\threading</Filter></ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\module\module_identity.hpp"><Filter>Core\include\module</Filter></ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\module\service_provider.hpp"><Filter>Core\include\module</Filter></ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\core\module\module_messages.hpp"><Filter>Core\include\module</Filter></ClInclude>
@@ -644,6 +648,8 @@
       <Filter>Core\src\memory</Filter>
     </ClCompile>
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\services\service_borrow_client.cpp"><Filter>Core\src\services</Filter></ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\module\host_restriction.cpp"><Filter>Core\src\module</Filter></ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\core\module\host_eligible_budget.cpp"><Filter>Core\src\module</Filter></ClCompile>
     <ClCompile Include="$(MSBuildThisFileDirectory)..\core\module\bound_module.cpp">
       <Filter>Core\src\module</Filter>
     </ClCompile>

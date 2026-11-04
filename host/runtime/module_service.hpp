@@ -92,6 +92,9 @@ public:
     [[nodiscard]] modules::FModuleFunction executive_function() const noexcept;
 
 private:
+#if defined(MV_HOST_RUNTIME_TESTS)
+    friend struct SHostMaintenanceTestAccess;
+#endif
     struct SModuleRecord
     {
         SModuleRecord(memory::CMemoryAllocator& allocator, const module_ids::id_type identity) noexcept;

@@ -14,6 +14,11 @@ Platform retains domain readiness and native cleanup responsibilities. The
 Platform-specific release opcode descriptions below remain design context, not
 additional Host lifetime mechanisms to implement alongside that protocol.
 
+The [Host restriction and maintenance proposal](host_restriction_maintenance.md)
+refines the next portable execution increment against `aca926f`. Its ownership,
+maintenance whitelist and timing policies are approved for portable implementation;
+implementation and simulated-modal validation are in progress.
+
 ## Scope and status
 
 This is the concrete contract pass for the

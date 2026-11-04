@@ -23,6 +23,18 @@
 namespace platform::threading::internal
 {
 
+//  floor(value * numerator / denominator), preserving output on failure.
+static inline bool scale_awake_observation(const std::uint64_t value, const std::uint32_t numerator, const std::uint32_t denominator, std::uint64_t& result) noexcept
+{
+    if (!numerator || !denominator) return false;
+    constexpr auto maximum = std::numeric_limits<std::uint64_t>::max();
+    const auto whole = value / denominator;
+    const auto tail = ((value % denominator) * numerator) / denominator;
+    if (whole > ((maximum - tail) / numerator)) return false;
+    result = (whole * numerator) + tail;
+    return true;
+}
+
 //  ceil(value * numerator / denominator), without an overflowing intermediate.
 //  The remainder product fits because both ratio terms are 32-bit.
 static inline bool scale_wait_duration(const std::uint64_t value, const std::uint32_t numerator, const std::uint32_t denominator, std::uint64_t& result) noexcept

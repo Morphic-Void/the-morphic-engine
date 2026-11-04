@@ -14,6 +14,7 @@
 #include <type_traits>
 
 #include "module/module_binding.hpp"
+#include "module/host_execution_context.hpp"
 #include "services/service_protocol.hpp"
 #include "services/service_borrow.hpp"
 #include "services/service_notifications.hpp"
@@ -57,19 +58,22 @@ struct SPumpResult
 //  Callbacks are Host-thread-only and authenticate the stable supplied context.
 //  Ownership moves only to Host, and only on success. busy retains caller data.
 //  The complete current table requires matching size/version and coordinated
-//  Host/module rebuilds. Worker preparation and modal maintenance are not exposed.
+//  Host/module rebuilds. Worker preparation is not exposed.
 struct SHostPumpServices
 {
     std::uint32_t size{ sizeof(SHostPumpServices) };
     std::uint32_t version{ 1u };
-    services::EServiceStatus(MV_STD_ABI_CALL* post_pod)(void*, const threading::CErasedPodMsg*) noexcept{ nullptr };
-    services::EServiceStatus(MV_STD_ABI_CALL* post_owner)(void*, threading::CErasedOwnerMsg*) noexcept{ nullptr };
-    services::EServiceStatus(MV_STD_ABI_CALL* complete)(void*, const services::ServiceReply*) noexcept{ nullptr };
-    services::EServiceStatus(MV_STD_ABI_CALL* prepare_borrow)(void*, const services::SServiceBorrowOffer*, services::SServiceBorrow*) noexcept{ nullptr };
-    services::EServiceStatus(MV_STD_ABI_CALL* begin_borrow_retirement)(void*, services::SServiceBorrow) noexcept{ nullptr };
-    services::EServiceStatus(MV_STD_ABI_CALL* finish_borrow_retirement)(void*, services::SServiceBorrow) noexcept{ nullptr };
-    services::EServiceStatus(MV_STD_ABI_CALL* bind_borrow_notification)(void*, services::SServiceBorrow,
-        services::SNotificationRegistration, threading::SNotificationEndpoint*) noexcept{ nullptr };
+    services::EServiceStatus(MV_STD_ABI_CALL* post_pod)(void* const, const threading::CErasedPodMsg* const) noexcept{ nullptr };
+    services::EServiceStatus(MV_STD_ABI_CALL* post_owner)(void* const, threading::CErasedOwnerMsg* const) noexcept{ nullptr };
+    services::EServiceStatus(MV_STD_ABI_CALL* complete)(void* const, const services::ServiceReply* const) noexcept{ nullptr };
+    services::EServiceStatus(MV_STD_ABI_CALL* prepare_borrow)(void* const, const services::SServiceBorrowOffer* const, services::SServiceBorrow* const) noexcept{ nullptr };
+    services::EServiceStatus(MV_STD_ABI_CALL* begin_borrow_retirement)(void* const, const services::SServiceBorrow) noexcept{ nullptr };
+    services::EServiceStatus(MV_STD_ABI_CALL* finish_borrow_retirement)(void* const, const services::SServiceBorrow) noexcept{ nullptr };
+    services::EServiceStatus(MV_STD_ABI_CALL* bind_borrow_notification)(void* const, const services::SServiceBorrow,
+        const services::SNotificationRegistration, threading::SNotificationEndpoint* const) noexcept{ nullptr };
+    SRestrictionEnterResult(MV_STD_ABI_CALL* enter_restriction)(void* const, const SRestrictionReason) noexcept{ nullptr };
+    ERestrictionStatus(MV_STD_ABI_CALL* leave_restriction)(void* const, const SRestrictionScope) noexcept{ nullptr };
+    SHostMaintenanceResult(MV_STD_ABI_CALL* maintain_host)(void* const) noexcept{ nullptr };
 };
 
 struct SHostPumpContext
@@ -81,6 +85,7 @@ struct SHostPumpContext
     thread_ids::id_type host_thread{};
     const SHostPumpServices* services{ nullptr };
     void* service_context{ nullptr };
+    const SHostExecutionContext* execution{ nullptr };
 };
 
 inline constexpr char k_host_pump_symbol_name[]{ "morphic_module_host_pump_v1" };
@@ -91,12 +96,12 @@ struct SHostPumpV1
     std::uint32_t size{ sizeof(SHostPumpV1) };
     std::uint32_t version{ 1u };
     std::uint32_t flags{ 0u };
-    ECallStatus(MV_STD_ABI_CALL* activate)(const SHostPumpContext*, void**, SProgress*) noexcept{ nullptr };
-    ECallStatus(MV_STD_ABI_CALL* pump)(void*, const SPumpInput*, SPumpResult*) noexcept{ nullptr };
-    ECallStatus(MV_STD_ABI_CALL* begin_stop)(void*, EStopReason, SProgress*) noexcept{ nullptr };
-    ECallStatus(MV_STD_ABI_CALL* deactivate)(void*) noexcept{ nullptr };
+    ECallStatus(MV_STD_ABI_CALL* activate)(const SHostPumpContext* const, void** const, SProgress* const) noexcept{ nullptr };
+    ECallStatus(MV_STD_ABI_CALL* pump)(void* const, const SPumpInput* const, SPumpResult* const) noexcept{ nullptr };
+    ECallStatus(MV_STD_ABI_CALL* begin_stop)(void* const, const EStopReason, SProgress* const) noexcept{ nullptr };
+    ECallStatus(MV_STD_ABI_CALL* deactivate)(void* const) noexcept{ nullptr };
 };
-using FQueryHostPump = EBindingResult(MV_STD_ABI_CALL*)(std::uint32_t, SHostPumpV1*) noexcept;
+using FQueryHostPump = EBindingResult(MV_STD_ABI_CALL*)(const std::uint32_t, SHostPumpV1* const) noexcept;
 
 inline bool SHostPumpV1::is_valid() const noexcept
 {

@@ -45,6 +45,8 @@
     <ClCompile Include="..\tests\test_suites\HostPump_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
     <ClCompile Include="..\tests\test_suites\ServiceBorrow_test_cases.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
     <ClCompile Include="..\tests\test_suites\Notification_test_cases.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
+    <ClCompile Include="..\tests\test_suites\HostRestriction_test_cases.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
+    <ClCompile Include="..\tests\test_suites\HostMaintenance_test_cases.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
     <ClCompile Include="..\tests\test_suites\HostWorkers_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
     <ClCompile Include="..\tests\test_suites\BundleRequests_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
     <ClCompile Include="..\tests\test_suites\BundleService_test_suite.cpp"><Filter>Tests\test_suites</Filter></ClCompile>
@@ -60,6 +62,8 @@
     <ClCompile Include="..\host\runtime\service_router.cpp" />
     <ClCompile Include="..\host\runtime\service_borrows.cpp" />
     <ClCompile Include="..\host\runtime\pumped_client.cpp" />
+    <ClCompile Include="..\host\runtime\host_restrictions.cpp" />
+    <ClCompile Include="..\host\runtime\host_maintenance.cpp" />
     <ClCompile Include="..\host\runtime\host.cpp" />
     <ClCompile Include="..\host\runtime\module_service.cpp" />
     <ClCompile Include="..\host\system\host_context.cpp" />

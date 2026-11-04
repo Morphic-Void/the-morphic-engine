@@ -25,6 +25,11 @@ with this document: behavioural decisions remain here, while concrete definition
 and framework-change checkpoints are collected there. Neither document authorises
 implementation or claims that the proposed APIs have passed compilation/testing.
 
+The [Host restriction and maintenance proposal](host_restriction_maintenance.md)
+records the portable framework contract against `aca926f`. The user has approved
+its five choices and authorised portable implementation and simulated modal tests;
+native modal work remains deferred.
+
 The decisions in the next section and later sections explicitly marked as agreed
 are settled. Concrete API names/layouts and explicitly proposed policies still
 require review. Outstanding

@@ -29,7 +29,8 @@ enum class EWaitError
     none,
     invalid_argument,
     unsupported,
-    native_failure
+    native_failure,
+    overflow
 };
 
 struct WaitError
@@ -49,8 +50,8 @@ public:
     //  Zero means an immediate check, never infinity. Failed construction
     //  invalidates the previous deadline and retains the specific error.
     //  Durations must fit in INT64_MAX nanoseconds and in the native clock.
-    [[nodiscard]] WaitError set_after_nanoseconds(std::uint64_t duration) noexcept;
-    [[nodiscard]] WaitError set_after_milliseconds(std::uint64_t duration) noexcept;
+    [[nodiscard]] WaitError set_after_nanoseconds(const std::uint64_t duration) noexcept;
+    [[nodiscard]] WaitError set_after_milliseconds(const std::uint64_t duration) noexcept;
     [[nodiscard]] WaitError remaining_nanoseconds(std::uint64_t& remaining) const noexcept;
     [[nodiscard]] bool is_valid() const noexcept { return m_error.code == EWaitError::none; }
     [[nodiscard]] WaitError error() const noexcept { return m_error; }

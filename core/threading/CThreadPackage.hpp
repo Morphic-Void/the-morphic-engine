@@ -30,6 +30,7 @@
 #include "threading/CThreadControlState.hpp"
 #include "threading/CWaitPredicate.hpp"
 #include "threading/CNotification.hpp"
+#include "module/host_execution_context.hpp"
 #include "threading/messages/CErasedMessageTransports.hpp"
 
 namespace threading
@@ -67,6 +68,7 @@ public:
     transports::CErasedOwnerMsgTransport worker_to_host_owned_msgs;
     CThreadControlState control_state;
     CBatchClient* batch_client{ nullptr };
+    const modules::SHostExecutionContext* host_execution{ nullptr };
 };
 
 class CThreadContext
@@ -86,6 +88,7 @@ public:
     [[nodiscard]] bool exit_requested() const noexcept;
     [[nodiscard]] const platform::system::CPerfCountConversion& perf_count_conversion() const noexcept;
     [[nodiscard]] std::uint32_t observe_epoch() const noexcept;
+    [[nodiscard]] const modules::SHostExecutionContext* host_execution() const noexcept { return m_resources.host_execution; }
     [[nodiscard]] WaitResult wait_for_new_epoch(const std::uint32_t epoch, const CWaitDeadline& deadline) noexcept;
     std::uint32_t wait_for_new_epoch(const std::uint32_t epoch) noexcept;
 
@@ -105,6 +108,10 @@ public:
 
     bool startup() noexcept;
     bool shutdown() noexcept;
+    [[nodiscard]] bool retains_execution() const noexcept { return m_resources.created && m_resources.wait_predicate.has_control(); }
+    [[nodiscard]] bool install_host_execution(modules::SHostExecutionContext& view, CNotification& notification) noexcept;
+    //  Host proves final drain, including deferred work, before retiring its pin.
+    bool retire_host_execution() noexcept;
     //  Owner-thread only. Release after all readers AND signal calls are quiescent.
     [[nodiscard]] bool pin_notification(CNotification& notification) noexcept;
     void unpin_notification() noexcept;
@@ -113,6 +120,11 @@ public:
     bool read(CErasedPodMsg& msg) noexcept;
     bool post(const CErasedPodMsg& msg) noexcept;
     bool read(CErasedOwnerMsg& msg) noexcept;
+    [[nodiscard]] bool capture(CErasedOwnerMsg& msg) noexcept { return m_resources.worker_to_host_owned_msgs.capture(msg); }
+    [[nodiscard]] bool post_without_growth(const CErasedPodMsg& msg) noexcept
+    {
+        return !m_resources.host_to_worker_msgs.post_would_reallocate(1u) && post(msg);
+    }
 
     [[nodiscard]] EThreadRunState query_state() const noexcept;
     [[nodiscard]] module_ids::id_type module_id() const noexcept { return m_resources.config.worker_module_id; }
@@ -120,11 +132,20 @@ public:
 
 private:
     static std::uint32_t MV_STD_ABI_CALL thread_entry_point(void* const user_data) noexcept;
+    [[nodiscard]] bool join_execution() noexcept;
     void release_wait_control() noexcept;
 
     CThreadResources m_resources;
     TInstance<CBatchClient> m_batch_client;
     std::uint32_t m_notification_pins{ 0u };
+    modules::SHostExecutionContext* m_host_execution{ nullptr };
+    CNotification* m_host_notification{ nullptr };
+    bool m_host_pinned{ false };
+#if defined(MV_HOST_RUNTIME_TESTS)
+    friend struct SThreadPackageTestAccess;
+    bool m_test_fail_join{ false };
+    bool m_test_reject_create{ false };
+#endif
 };
 
 //==============================================================================

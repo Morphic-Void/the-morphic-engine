@@ -89,6 +89,11 @@ bool CErasedOwnerMsgTransport::read(threading::CErasedOwnerMsg& msg) noexcept
     return true;
 }
 
+bool CErasedOwnerMsgTransport::capture(threading::CErasedOwnerMsg& msg) noexcept
+{
+    return !msg.has_owner() && reading_is_valid() && m_transport.read(msg);
+}
+
 bool CErasedOwnerMsgTransport::initialise(const std::uint32_t capacity) noexcept
 {
     return attribution_is_valid() && m_transport.initialise(capacity);

@@ -25,7 +25,7 @@ CServiceRouter::SRoute* CServiceRouter::find_route(const services::SServiceRoute
     return nullptr;
 }
 
-CServiceRouter::SOperation* CServiceRouter::find_operation(SRoute& route, const services::SServiceRequestId request) noexcept
+CServiceRouter::SOperation* CServiceRouter::find_operation(const SRoute& route, const services::SServiceRequestId request) noexcept
 {
     for (auto& operation : m_operations)
         if ((operation.route == &route) && (operation.request.request.value == request.value)) return &operation;
@@ -39,7 +39,7 @@ bool CServiceRouter::route_idle(const SRoute& route) const noexcept
 }
 
 void CServiceRouter::open(const services::OpenServiceRequest& request, const std::int32_t slot,
-    SClientRecord& client, const SServiceProvider* provider) noexcept
+    SClientRecord& client, const SServiceProvider* const provider) noexcept
 {
     services::OpenServiceResult result;
     result.request = request.request;
@@ -47,7 +47,7 @@ void CServiceRouter::open(const services::OpenServiceRequest& request, const std
     if ((slot < 0) || (request.request.value == 0u) || (request.contract == 0u) || (request.version == 0u))
         result.status = EServiceStatus::invalid_request;
     else if ((provider != nullptr) && provider->available() && (provider->client != &client) &&
-        (provider->client->module_id() == request.module) && !client.terminal())
+        (provider->client->module_id() == request.module) && !client.terminal() && m_accepting)
     {
         result.status = EServiceStatus::unsupported;
         for (std::uint32_t index = 0u; index < provider->contract_count; ++index)
@@ -124,7 +124,7 @@ void CServiceRouter::request(const services::ServiceRequest& request, const std:
         if ((route != nullptr) && (route->client == &client) && (request.request.value > route->last_request))
         {
             result.status = EServiceStatus::closing;
-            if (!route->closing && (route->provider->phase == EClientPhase::ready) && !client.terminal())
+            if (m_accepting && !route->closing && (route->provider->phase == EClientPhase::ready) && !client.terminal())
             {
                 result.status = EServiceStatus::busy;
                 if (m_next_order != 0u)
@@ -146,7 +146,7 @@ void CServiceRouter::request(const services::ServiceRequest& request, const std:
     if (!client.reply(threading::make_pod_message(slot, result))) m_failed = true;
 }
 
-services::EServiceStatus CServiceRouter::complete(SClientRecord& provider, const services::ServiceReply& reply) noexcept
+services::EServiceStatus CServiceRouter::complete(const SClientRecord& provider, const services::ServiceReply& reply) noexcept
 {
     auto* const route = find_route(reply.route);
     if ((route == nullptr) || (route->provider != &provider)) return EServiceStatus::stale;
@@ -227,8 +227,8 @@ bool CServiceRouter::provider_borrows_retired(const SClientRecord& provider) con
     return m_borrows.provider_retired(provider);
 }
 
-std::uint32_t CServiceRouter::prepare_batch(SClientRecord& provider,
-    services::SDispatchedCommand* commands, const std::uint32_t capacity) noexcept
+std::uint32_t CServiceRouter::prepare_batch(const SClientRecord& provider,
+    services::SDispatchedCommand* const commands, const std::uint32_t capacity) noexcept
 {
     std::uint32_t count = 0u;
     std::uint64_t after = 0u;
@@ -247,7 +247,7 @@ std::uint32_t CServiceRouter::prepare_batch(SClientRecord& provider,
     return count;
 }
 
-bool CServiceRouter::finish_batch(SClientRecord& provider, const services::SDispatchedCommand* commands,
+bool CServiceRouter::finish_batch(const SClientRecord& provider, const services::SDispatchedCommand* const commands,
     const std::uint32_t offered, const std::uint32_t consumed) noexcept
 {
     if (consumed > offered) return false;

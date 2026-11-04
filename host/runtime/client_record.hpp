@@ -18,6 +18,8 @@
 namespace host
 {
 
+class CHostMaintenance;
+
 enum class EClientExecution : std::uint8_t { passive = 0u, threaded, pumped };
 enum class EClientPhase : std::uint8_t { starting = 0u, ready, stopping, stopped, retired };
 enum class EReplyPublication : std::uint8_t { queued = 0u, cancelled, busy };
@@ -36,6 +38,7 @@ struct SClientRecord
     [[nodiscard]] threading::CBatchClient* batch_client() const noexcept;
     [[nodiscard]] threading::EThreadRunState query_state() const noexcept;
     [[nodiscard]] bool terminal() const noexcept;
+    [[nodiscard]] bool delivery_protected() const noexcept { return invocation_offered || (prefix_failed && !terminal()); }
 
     //  Reply admission and retirement.
     [[nodiscard]] bool reserve_replies(const std::uint32_t count) noexcept;
@@ -54,10 +57,13 @@ struct SClientRecord
     [[nodiscard]] bool retry_reply(const threading::CErasedPodMsg& message) noexcept;
     [[nodiscard]] EReplyPublication publish_reply(const threading::CErasedPodMsg& message) noexcept;
     [[nodiscard]] bool execution_quiescent() const noexcept;
+    [[nodiscard]] bool install_host_execution(const modules::SHostRestrictionReader reader) noexcept;
+    [[nodiscard]] bool signal_restriction(const std::uint32_t revision) noexcept;
+    [[nodiscard]] bool retire_host_execution(const bool deactivated) noexcept;
 
     //  Inbox delivery and consumed prefixes.
     void flush() noexcept;
-    [[nodiscard]] std::uint32_t copy_messages(threading::CErasedPodMsg* output, const std::uint32_t capacity, std::uint32_t& controls) const noexcept;
+    [[nodiscard]] std::uint32_t copy_messages(threading::CErasedPodMsg* const output, const std::uint32_t capacity, std::uint32_t& controls) const noexcept;
     void consume_messages(const std::uint32_t count, const std::uint32_t offered_controls) noexcept;
     void consume(const std::uint32_t count) noexcept;
 
@@ -71,6 +77,16 @@ struct SClientRecord
     bool incoming_drained{ false };
     bool terminal_before_drain{ false };
     std::atomic<std::uint32_t> notifications_pending{ 0u };
+    std::atomic<std::uint32_t> host_stop_requested{ 0u };
+    modules::SHostExecutionContext host_execution;
+    threading::CNotification restriction_notification;
+    std::uint32_t restriction_revision{ 0u };
+    std::uint32_t deferred_records{ 0u };
+    std::uint32_t staged_replies{ 0u }, staged_controls{ 0u };
+    CHostMaintenance* delivery_owner{ nullptr };
+    bool subscription_live{ false };
+    bool invocation_offered{ false };
+    bool prefix_failed{ false };
     std::uint32_t reserved_replies{ 0u };
     std::uint32_t message_count{ 0u };
     std::uint32_t reserved_control_replies{ 0u };

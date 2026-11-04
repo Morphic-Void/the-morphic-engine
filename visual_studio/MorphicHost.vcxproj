@@ -244,6 +244,8 @@
     <ClCompile Include="..\host\runtime\service_router.cpp" />
     <ClCompile Include="..\host\runtime\service_borrows.cpp" />
     <ClCompile Include="..\host\runtime\pumped_client.cpp" />
+    <ClCompile Include="..\host\runtime\host_restrictions.cpp" />
+    <ClCompile Include="..\host\runtime\host_maintenance.cpp" />
     <ClCompile Include="..\host\runtime\asset_service.cpp" />
     <ClCompile Include="..\host\runtime\module_service.cpp" />
     <ClCompile Include="..\host\system\host_context.cpp" />
@@ -263,6 +265,8 @@
     <ClInclude Include="..\host\runtime\service_borrows.hpp" />
     <ClInclude Include="..\host\runtime\service_provider.hpp" />
     <ClInclude Include="..\host\runtime\pumped_client.hpp" />
+    <ClInclude Include="..\host\runtime\host_restrictions.hpp" />
+    <ClInclude Include="..\host\runtime\host_maintenance.hpp" />
     <ClInclude Include="..\host\runtime\asset_service.hpp" />
     <ClInclude Include="..\host\runtime\host_payloads.hpp" />
     <ClInclude Include="..\host\runtime\host_owner_payloads.def" />
