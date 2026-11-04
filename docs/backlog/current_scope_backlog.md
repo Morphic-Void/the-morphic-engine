@@ -23,14 +23,20 @@ and checkpoint-specific validation limits. Audio tone acceptance is also deliver
 its [validation record](../modules/audio_module_validation.md) is separate.
 
 The next design review covers input connection lifetimes/transports and direct
-module-service-thread-to-module-service-thread POD transports together. Assess
-reusable publication, notification, closing and quiescence support for threaded
-providers as well as pumped Platform, including absent/closing destinations and
-protection of both module instances during unload/replacement. The current service
-provider execution adapter is pumped; threaded consumer support does not imply a
-threaded provider adapter already exists. Keep owning transfers through Host and
-input-specific readiness/generation barriers in the input domain. No new endpoint
-ABI or input/direct-transport implementation is selected by this documentation pass.
+module-service-thread-to-module-service-thread POD transports together. General
+direct messaging now has an agreed [Host-owned duplex architecture](../modules/platform_host_pumped_design.md#host-owned-duplex-connections-for-general-pod-messaging):
+two bounded SPSC pipes, one identity/lifetime, initiation by either participant,
+Host-coordinated acceptance and readiness from both sides before activation.
+Ordinary traffic/wakes are direct; reciprocal requests for the same logical
+connection converge. Input keeps Platform-owned producer streams, with grouped
+desktop text/control and an independent controller connection.
+
+Concrete interfaces remain to design, including the connection key, capacities,
+POD envelope/admission, acceptance policy and queued-message drain/discard semantics.
+Compare minimal Host-mediated connection control with a broader threaded provider
+adapter; the latter is not a prerequisite. Preserve both participant/notification
+lifetimes through quiescence and keep owning transfers through Host. No input or
+direct-transport code is implemented by this documentation update.
 
 Configuration/mapping, native keyboard/mouse input, GameInput/controller input and
 window modes remain subsequent Platform work. Rendering presentation, native

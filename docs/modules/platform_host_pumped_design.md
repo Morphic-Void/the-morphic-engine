@@ -5,7 +5,7 @@ File:   platform_host_pumped_design.md
 Author: Ritchie Brannan
 Drafting and editorial assistance: OpenAI Codex
 Date:   30 Oct 2026
-Review: 02 Nov 2026
+Review: 04 Nov 2026
 
 # Platform module and host-pumped lifecycle
 
@@ -31,14 +31,21 @@ retirement replaces duplicate domain release opcodes, and durable window state
 with notifications replaces the proposed window event messages. All components
 use matching headers; the pre-release layouts are not a compatibility promise.
 
-Input connection lifetimes/transports and direct POD connections between module
-service threads are the next scope review. Assess common endpoint publication,
-notification, closing and quiescence support for threaded providers as well as
-pumped Platform, including absent/closing destinations and protection of both
-instances during unload/replacement. The current service provider adapter is
-pumped; threaded consumer support is already present. Owning transfers stay via
-Host, and input readiness/generation barriers remain domain concerns. This status
-update does not select a new endpoint ABI or begin those implementations.
+The 4 November connection decision separates allocation ownership: general direct
+service-thread messaging uses [Host-owned duplex connections](#host-owned-duplex-connections-for-general-pod-messaging),
+while input/HID keeps [Platform-owned producer streams](#platform-owned-desktop-and-controller-connections).
+Each direct connection groups two bounded SPSC pipes under one identity and
+coordinated lifetime. Either participant can request it; both must be ready before
+Host authorises activation. Ordinary POD traffic and wake signals then pass directly.
+This supersedes the earlier conversational recommendation of producer-owned general
+direct pipes; neither proposal has been implemented.
+
+The next scope review must define the concrete connection controls and interfaces.
+Common publication, notification and quiescence principles need not impose one
+allocation owner. A minimal Host-mediated connection lifecycle versus a broader
+threaded service-provider adapter remains an open implementation-design choice;
+the latter is not a prerequisite selected by this decision. Owning transfers stay
+via Host, and input readiness/generation barriers remain domain concerns.
 
 The decisions in the next section and later sections explicitly marked as agreed
 are settled. Concrete API names/layouts and explicitly proposed policies still
@@ -159,8 +166,13 @@ on the implemented generic borrow and notification foundation.
   operation budgets exclude the declared modal interval. Independent progress
   watchdogs continue unless their work is explicitly suspended; shutdown grace
   continues throughout the interaction.
-- Future direct inter-module channels carry POD messages only and expose
-  destination availability. Ownership transfer remains exclusively through Host.
+- General direct service-thread messaging uses Host-owned duplex connections:
+  two bounded SPSC pipes, one each direction, with one identity and coordinated
+  lifetime. Either participant can initiate through Host, which coordinates
+  acceptance, endpoint installation and readiness from both sides before activation.
+  Ordinary POD messages and notifications flow directly between the participants.
+  Platform input remains Platform-owned producer streams. These allocation choices
+  do not transfer payload ownership, which remains exclusively through Host.
   Host remains the repository for long-lived assets, file I/O mediator and
   module load/unload coordinator.
 - Host currently has no blocking wait/wakeup cycle. Host pumping can initially
@@ -366,8 +378,10 @@ cycles from leaving a request waiting for its own requester to disappear.
 ### Service connections and prospective direct transports
 
 Generic service routes, 48-byte commands, prepared borrows and notifications are
-implemented. The following input/direct-endpoint design builds on those contracts;
-it does not imply that input transports or threaded provider execution exist yet.
+implemented. They provide lifetime/notification foundations for the planned input
+streams and general direct connections below, whose allocation owners differ.
+Neither connection implementation nor threaded service-provider execution exists
+yet; the general direct lifecycle need not require the full provider adapter.
 
 Use a generic, Host-mediated service connection to acquire a Platform endpoint
 after module readiness. The load completion may eventually carry such a generic
@@ -400,41 +414,84 @@ admission. Its layouts/routing are defined by the Host foundation. Input will us
 separate Platform-owned pipes below, each with exactly one producer and consumer;
 Executive and Rendering cannot share an SPSC producer role.
 
-Proposed direct endpoint buffers have stable addresses and explicit ownership. A failed connection
-or reply publication unwinds its reservation/use after any escaped endpoint views
-have quiesced; failure alone does not prove that storage is safe to reclaim. A closed connection
-rejects new commands, resolves accepted requests and waits for both endpoint roles
-to quiesce before freeing storage. Async slots are interpreted with the connection
-instance, not globally across clients.
-
-Direct module-to-module messages must be POD and transfer no ownership, including
-when a payload contains a pointer, handle or token. A borrowed view requires an
-independently protected lifetime; copying its bits creates no new ownership or
-permission to dispose of it. Owning payloads continue through Host only. Endpoint
-allocation, connection publication and retirement need a concrete owner/borrower
-protocol before implementation, reusing generic borrows/notifications where appropriate.
-For input pipes, Platform owns the storage and
-the consumer holds an exclusive connection with a borrowed endpoint; publishing
-that endpoint does not transfer ownership of the storage to another module.
-
-Bind each route to a loaded module instance/generation. An old endpoint must never
-reach a replacement with the same catalogue identity. Proposed send outcomes are
-accepted, destination absent, closing and queue full; acceptance means queued,
-not processed. Final names and acknowledgements remain open. A direct route to a
-host-pumped destination still depends on Host pumping; bypassing Host's routing
-does not give Platform a service thread or remove its scheduling dependency.
-
-Keep the connection abstraction independent of `CThreadPackage`. Each producer
-role belongs to one thread: a native callback and a service thread cannot share
-an SPSC producer. Shared POD contract versioning/admission is explicit and does
-not make arbitrary LOCAL identities portable. These are constraints on the
-Platform foundation, not a requirement to implement every future direct channel.
-
 Check the connection result against existing POD message capacity and layout
 rules. Host-to-service communication currently provides a POD route, while the
 owning route in `CThreadResources` runs service-to-Host. Do not assume a symmetric
 owning reply channel already exists; keep the generic result compact or explicitly
 design the necessary transport change.
+
+### Host-owned duplex connections for general POD messaging
+
+Host owns each connection record and its transport storage through the codebase's
+curated containers. A connection groups two bounded SPSC pipes, A-to-B and B-to-A,
+under one connection identity and coordinated lifetime. A's service thread holds
+the A-to-B producer and B-to-A consumer roles; B holds the complementary roles.
+Participants receive non-owning endpoint descriptors and notification arrangements;
+neither participant can free the connection or either pipe. Each role belongs to
+one designated thread; duplex communication does not permit multiple writers or
+readers on either SPSC pipe.
+
+Either participant may initiate establishment through Host:
+
+1. A participant requests a connection to the other module under a shared messaging
+   contract/version. Host resolves the exact live module instances and records the
+   pending establishment. An absent, closing or incompatible destination must be
+   reported explicitly. The request does not implicitly load a module or wait for
+   a replacement; a replacement is not substituted into the old request.
+2. Host coordinates the receiving participant's acceptance. Whether every offer
+   requires an explicit response or may use an advertised acceptance policy remains
+   open. Acceptance alone does not authorise ordinary traffic.
+3. Host supplies complementary endpoint descriptors and notification arrangements
+   for the two pipes to both participants, retaining the connection storage and
+   all instance/wake-target dependencies while installation is pending.
+4. Both service threads install their endpoint/notification state and report
+   readiness for that exact connection. A late or stale response cannot activate
+   another connection or a replacement instance.
+5. Only after both are ready does Host authorise activation. Ordinary POD records
+   and wake signals then flow directly between the service threads, without Host
+   dispatch of each message. Host remains responsible for lifecycle coordination.
+
+A successful ordinary post means queued, not processed. A full pipe reports the
+inability to enqueue rather than silently overwriting records. Exact status names
+and posting APIs remain open.
+
+Simultaneous reciprocal requests for the same logical connection converge on one
+pending connection and its two pipes rather than allocating duplicates. The exact
+connection key is not settled ABI. An unordered pair of exact module instances plus
+contract/version is a candidate; whether an explicit channel identity is needed
+for multiple connections under the same contract remains to be decided.
+
+Closing is durable lifecycle state, observable independently of data-queue space.
+Either participant can request closure; Host also closes the connection when a
+participant exits or is removed. Host retains the connection storage and both
+participant/notification lifetimes until all reading, writing and signalling access,
+including in-flight operations, has quiesced. Failed establishment after endpoint
+publication requires the same proof: cancellation, failed delivery or a timeout is
+not permission to reclaim possibly accessible storage. Proven terminal execution
+can establish CPU endpoint inactivity, but notification users and the surviving
+participant must still quiesce before reclamation.
+
+Replacement modules establish fresh connections. They inherit neither endpoints
+nor queued records from their predecessors. How closing treats queued messages
+between the old participants remains open: this design selects neither mandatory
+draining nor discard-on-retirement. That delivery decision is distinct from the
+requirement to prove quiescence before destroying storage.
+
+Messages are POD and convey no ownership, even when their bits contain a pointer,
+handle or token. A borrowed view requires its own protected lifetime; copying the
+address does not establish that protection. Shared contract/version admission must
+not admit arbitrary module-local LOCAL identities. Ownership-bearing transfers
+continue through Host's existing services. Host understands connection and transport
+mechanics, not the application meaning of each direct message.
+
+The remaining choices are queue capacity in each direction, the common POD envelope
+and contract validation, the exact connection key, per-offer versus advertised
+acceptance, and queued-message drain/discard semantics. Control layouts, admission
+results and publication acknowledgements also need concrete design. Compare a
+minimal authenticated Host-mediated connection lifecycle with a full threaded
+service-provider adapter; general routed-service support is not automatically
+required just to establish these pipes. Neither approach nor a new ABI is selected
+by this documentation update.
 
 ### Platform-owned desktop and controller connections
 
@@ -442,6 +499,8 @@ Platform creates, owns and eventually destroys its input transports. This replac
 the earlier discussion's proposal that Host own the input transport buffers.
 Host coordinates generic connection admission and module-instance lifetimes;
 it neither owns those buffers nor forwards individual input records.
+This input allocation model is separate from the Host-owned duplex connections
+above. Common lifetime and notification principles do not require the same owner.
 
 | Logical connection | Streams and consumer-facing purpose |
 | --- | --- |
@@ -570,6 +629,8 @@ access is safely quiescent. Desktop release covers both streams, while controlle
 release is independent. Releasing input does not release window uses or destroy
 windows implicitly. Persistent closing/control state must not require space in
 the very data queue being abandoned.
+This is input-specific retirement policy; queued-message drain/discard semantics
+for general direct duplex connections remain undecided.
 
 Consumer replacement is ordinary release followed by a new acquisition request.
 There is no nomination, transfer operation, protected replacement slot or implicit
@@ -1888,7 +1949,7 @@ decisions are preserved; new substantive interface choices still require review.
 | Technical work / deferred area | Selected policy and remaining definition |
 | --- | --- |
 | Pump ABI and context | Implemented; preserve the current complete descriptors, matching-header rebuilds, bounded batches and exact client/context checks when extending provider support. |
-| Input and direct service-thread connection ABI | Next scope review: reusable lifetime/notification support, threaded provider execution, endpoint publication, absent/closing destinations and protection of both instances. Keep input-specific barriers separate and owning transfers through Host; no new ABI selected here. |
+| Input and direct service-thread connection ABI | General direct messaging uses [Host-owned duplex connections](#host-owned-duplex-connections-for-general-pod-messaging); input retains Platform-owned producer streams. Define concrete publication, acceptance, both-participant readiness and retirement controls. Queue capacities, envelope/admission, connection key and queued-message closure policy remain open; a full threaded provider adapter is not a selected prerequisite. |
 | Acquisition failure and removal mechanics | Apply the selected five-second eligible-time limits and define cancellation/removal sequencing that proves endpoint/notification quiescence. Host logs omitted release and completes cleanup after quiescence without requiring a departed client's acknowledgement. No successor reservation or transfer. |
 | Generic module-request routing | Implemented for live module clients with exact-instance protection and protected Executive self-transitions; no persistent loader ownership. |
 | Restricted maintenance | Implemented and tested portably and through native move/size/menu paths. Preserve the whitelist, reentry limits and sticky stop; timer period is not a latency promise. |

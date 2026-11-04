@@ -25,10 +25,21 @@ There is no backward-compatibility promise for these unfinished interfaces: Host
 modules and fixtures require matching headers and coordinated rebuilds.
 
 The next scope review joins input lifetimes/transports with direct POD connections
-between module service threads. It must consider threaded providers as well as
-pumped Platform, shared endpoint publication/notification/retirement, absent or
-closing destinations, and protection of both instances. Owning transfers stay via
-Host. This reconciliation selects no new endpoint ABI or implementation scope.
+between module service threads. The agreed
+[general direct-message architecture](platform_host_pumped_design.md#host-owned-duplex-connections-for-general-pod-messaging)
+uses Host-owned duplex connections: two bounded SPSC pipes under one identity and
+coordinated lifetime, initiated by either participant through Host. Host coordinates
+acceptance and complementary endpoint/notification installation, then authorises
+activation only after both participants report readiness. Ordinary POD traffic and
+wakes flow directly. Input/HID retains Platform-owned producer streams, with grouped
+desktop text/control and an independent controller connection.
+
+The canonical design records reciprocal-request convergence, exact-instance
+retention and retirement. Queue capacities, the common POD envelope/admission,
+connection key, acceptance policy and queued-message drain/discard semantics remain
+open. Minimal Host-mediated connection control versus a broader threaded provider
+adapter also remains an implementation-design choice, not a selected prerequisite.
+Owning transfers stay via Host. No new endpoint ABI or implementation is defined here.
 
 Keep the existing Rendering load/unload semantics. Host owns module records;
 there is no persistent original-loader ownership. Window control, input connections,
