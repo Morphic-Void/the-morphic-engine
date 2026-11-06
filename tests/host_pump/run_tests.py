@@ -90,9 +90,9 @@ def main():
         if case in ("inbox-full", "emergency") and "full inbox and outbound backpressure established" not in events:
             raise RuntimeError(f"Backpressure not reached; inspect {runtime}")
         required = {
-            "platform-shell": ("Platform test requests explicitly unavailable and Host test slot released",),
+            "platform-shell": ("Platform unsupported service commands completed and route remained usable",),
             "cleanup-credits": ("512 disposal credits retained by live acquisitions",
-                                "zero-reply completion admitted with 512 reserved replies",
+                                "zero-reply cancellation admitted with 512 reserved replies",
                                 "512 retained disposals completed through independent cleanup credits"),
             "threaded-credits": ("threaded 600 retained disposals, releases and self-exit passed",),
             "activation-timeout": ("activation deadline initiated cooperative stop",),

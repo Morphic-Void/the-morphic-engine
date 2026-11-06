@@ -58,7 +58,8 @@ implementation later. The normal Executive first sends an owning load request
 for `package:/bin/MorphicRendering` with the native extension appended by
 `platform::module::make_module_filename`, and `rendering`. It validates
 the correlated acknowledgement before accepting completion, then asks Rendering
-to run its own tests through `RunTestsRequest`. It then loads `MorphicAudio` and
+to run its own tests through `RunTestsRequest` on a negotiated direct connection.
+After completion and connection retirement, it loads `MorphicAudio` and
 requests its finite tone acceptance test. Audio success or explicit no-output-device
 `unavailable`/skipped completion permits the general asset acceptance flow (currently
 73 sequential and 32 concurrent operations). Other Audio failures fail startup.
@@ -235,28 +236,27 @@ callbacks perform only authenticated bounded maintenance while restricted, with
 ordinary dispatch and owner destruction deferred until safe outer progress. See
 the [first-window reference](platform_first_window.md).
 
-## Module test routing
+## Module test conversations
 
-`RunTestsRequest` selects a module identity. Host resolves it among registered
-module client records, excluding its background I/O and conditioning workers.
-Ready threaded and pumped clients receive the same SYSTEM request through their
-execution adapters. Missing/non-ready destinations and requests to the caller's own
-client return `unavailable`; malformed identities or negative correlations return
-`invalid_request`. An active run or module lifecycle transition returns `busy`.
+Executive runs Rendering and Audio tests through negotiated
+[direct POD connections](direct_pod_connections.md). The Framework contract in
+`framework/communications/module_tests.hpp` defines `RunTestsRequest` and
+`RunTestsResult`; each module validates its own destination, correlation, status
+and counts. Host establishes and retires the connection but does not forward or
+interpret test payloads. Each service admits one local run at a time.
 
-One run is active at a time. Host preserves the correlation and forwards the
-destination's status and counts without interpreting its tests. Both client records
-remain alive until completion. Terminal-state handling samples the actual test
-worker before draining its final messages: a valid final completion takes
-precedence; otherwise Host returns a failed result. Caller acquisition release
-and deferred disposal continue during shutdown before joining and unloading.
+Normal conversations consume their final result before closing. Explicit unload,
+replacement and shutdown close the connection and cancel unfinished work. No
+synthetic test completion is required for retirement. Rendering drains dependent
+asset releases, disposals and batch work; Audio stops its device. Endpoint storage
+and notification pins remain alive until both participants relinquish them, or
+Host proves an abandoned participant's final queue drain and native join.
 
-Lifecycle fixtures exercise Rendering as caller and Executive as worker,
-including rejection checks, nested requests, final replies, worker exit without
-a reply, and an explicit caller-unload request during the run.
-Platform currently returns an explicit correlated `unavailable` completion, retained
-through output pressure and stopping; it does not open a window for a generic test
-request. Actual DLL/SO shell fixtures cover repeated requests and orderly unload.
+Lifecycle fixtures exercise Rendering as caller and Executive as worker, final
+replies, worker exit without a reply, and caller unload during a conversation.
+Platform remains a pumped service and uses service commands rather than this
+service-thread test contract. Its shell fixtures check repeated unsupported
+commands and orderly unload; native acceptance uses explicit external harnesses.
 
 ## Ownership, dependencies and shutdown
 

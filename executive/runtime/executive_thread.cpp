@@ -8,6 +8,8 @@
 //
 //  Executive thread and asynchronous asset-service acceptance exercise.
 
+#include "framework/communications/module_tests.hpp"
+#include "framework/communications/direct_client.hpp"
 #include "system/storage_type_bindings.hpp"
 #include "filesystem/filesystem_messages.hpp"
 #include "module/module_messages.hpp"
@@ -173,12 +175,12 @@ static constexpr char failure_file[] = "test-output:/asset-acceptance-missing-di
 static constexpr char cached_image_file[] = "dev-workspace:/acceptance/cached-image.tga";
 
 static bool prepare_output_load(threading::CErasedOwnerMsg& pending, const std::int32_t slot,
-    const EAssetFileFormat format, const char* file, const CDocumentParseOptions policy = {}) noexcept
+    const EAssetFileFormat format, const char* const file, const CDocumentParseOptions policy = {}) noexcept
 {
     static constexpr char prefix[] = "test-output:/";
     CSimpleString native;
-    return (std::strncmp(file, prefix, sizeof(prefix) - 1u) == 0) &&
-        host_test_paths::native_output(file + sizeof(prefix) - 1u, native) &&
+    return (std::strncmp(file, prefix, (sizeof(prefix) - 1u)) == 0) &&
+        host_test_paths::native_output((file + sizeof(prefix) - 1u), native) &&
         request_preparation::prepare_load_request(pending, slot, format, native.cstring(), policy);
 }
 
@@ -232,13 +234,15 @@ private:
     //  Failure codes start at one because zero is the successful thread exit code.
     enum class EFailure : std::uint32_t { registry = 1u, timing, submission, completion, timeout };
 
-    enum class EPhase : std::uint8_t { module_acknowledgement = 0, module_completion, module_tests, sequential, concurrent, filesystem, bundle, acquisitions, awaiting_exit, complete };
+    enum class EPhase : std::uint8_t { module_acknowledgement = 0, module_completion, module_connect, module_submit,
+        module_tests, module_retire, sequential, concurrent, filesystem, bundle, acquisitions, awaiting_exit, complete };
 
     CExecutiveThread(const CExecutiveThread&) noexcept = delete;
     CExecutiveThread& operator=(const CExecutiveThread&) noexcept = delete;
     CExecutiveThread(CExecutiveThread&&) noexcept = delete;
     CExecutiveThread& operator=(CExecutiveThread&&) noexcept = delete;
-    explicit CExecutiveThread(threading::CThreadResources& resources) noexcept : m_context{ resources } {}
+    explicit CExecutiveThread(threading::CThreadResources& resources) noexcept : m_context{ resources },
+        m_connections{ m_context, module_ids::executive, modules::test_connections::policies, modules::test_connections::policy_count } {}
     ~CExecutiveThread() noexcept = default;
 
     std::uint32_t main() noexcept;
@@ -246,6 +250,8 @@ private:
     [[nodiscard]] bool initialise() noexcept;
     [[nodiscard]] bool load_test_module() noexcept;
     [[nodiscard]] bool accept_module_notice(const threading::CErasedPodMsg& message) noexcept;
+    [[nodiscard]] bool progress_connections() noexcept;
+    void complete_module_tests(const threading::CErasedPodMsg& message) noexcept;
     void operate() noexcept;
     [[nodiscard]] bool prepare_scenario(threading::CErasedOwnerMsg& pending, const asset_acceptance::SScenario& scenario, const std::int32_t slot) noexcept;
     [[nodiscard]] bool check(const asset_acceptance::SScenario& scenario, const AssetResult& result) noexcept;
@@ -269,6 +275,8 @@ private:
     void fail(const EFailure failure, const char* const reason) noexcept;
 
     threading::CThreadContext m_context;
+    connections::CClient m_connections;
+    connections::SToken m_test_connection;
     TModuleTestWatchdog<> m_test_watchdog;
     TModuleTestWatchdog<> m_operation_watchdog;
     TModuleTestWatchdog<> m_acquisition_watchdogs[8];
@@ -335,6 +343,12 @@ bool CExecutiveThread::startup() noexcept
     m_context.startup();
     MV_INFO("Executive: Starting");
 
+    if (!m_connections.register_service())
+    {
+        fail(EFailure::submission, "direct service registration");
+        return false;
+    }
+
     if (!initialise())
     {
         return false;
@@ -371,7 +385,7 @@ bool CExecutiveThread::load_test_module() noexcept
     threading::CErasedOwnerMsg pending;
     CSimpleString file;
     const bool audio = m_test_module == module_ids::audio;
-    if (!platform::module::make_module_filename(audio ? "package:/bin/MorphicAudio" : "package:/bin/MorphicRendering", file) ||
+    if (!platform::module::make_module_filename((audio ? "package:/bin/MorphicAudio" : "package:/bin/MorphicRendering"), file) ||
         !request_preparation::prepare_module_request(pending, m_pending_slot,
             m_test_module, modules::EModuleAction::load, file.cstring(), true) || !m_context.post(std::move(pending)))
     {
@@ -379,7 +393,7 @@ bool CExecutiveThread::load_test_module() noexcept
         return false;
     }
     m_phase = EPhase::module_acknowledgement;
-    MV_LOG_RICH(info, "Executive: %s load requested", audio ? "Audio" : "Rendering");
+    MV_LOG_RICH(info, "Executive: %s load requested", (audio ? "Audio" : "Rendering"));
     return true;
 }
 
@@ -401,7 +415,7 @@ bool CExecutiveThread::accept_module_notice(const threading::CErasedPodMsg& mess
             return false;
         }
         m_phase = EPhase::module_completion;
-        MV_LOG_RICH(info, "Executive: %s load acknowledged", (m_test_module == module_ids::audio) ? "Audio" : "Rendering");
+        MV_LOG_RICH(info, "Executive: %s load acknowledged", ((m_test_module == module_ids::audio) ? "Audio" : "Rendering"));
     }
     else
     {
@@ -412,18 +426,140 @@ bool CExecutiveThread::accept_module_notice(const threading::CErasedPodMsg& mess
         {
             return false;
         }
-        m_phase = EPhase::module_tests;
+        m_phase = EPhase::module_connect;
         ++m_pending_slot;
-        MV_LOG_RICH(info, "Executive: %s ready (%s)", (m_test_module == module_ids::audio) ? "Audio" : "Rendering",
-            (result.status == modules::EModuleStatus::already_loaded) ? "already loaded" : "loaded");
+        MV_LOG_RICH(info, "Executive: %s ready (%s)", ((m_test_module == module_ids::audio) ? "Audio" : "Rendering"),
+            ((result.status == modules::EModuleStatus::already_loaded) ? "already loaded" : "loaded"));
     }
     return true;
+}
+
+bool CExecutiveThread::progress_connections() noexcept
+{
+    bool progressed = false;
+    m_connections.progress();
+    if (m_connections.failed())
+    {
+        fail(EFailure::submission, "connection control submission");
+        return false;
+    }
+    connections::Result connected;
+    std::int32_t slot = -1;
+    while (m_connections.take_result(connected, slot))
+    {
+        progressed = true;
+        if ((m_phase != EPhase::module_connect) || (slot != m_pending_slot) || (connected.peer_role != m_test_module) ||
+            ((connected.status != connections::EStatus::success) && (connected.status != connections::EStatus::already_connected)) ||
+            !m_connections.active(connected.token))
+        {
+            fail(EFailure::completion, "module test connection");
+            return true;
+        }
+        m_test_connection = connected.token;
+        m_phase = EPhase::module_submit;
+    }
+    for (auto closing = m_connections.next_closing(); closing.value; closing = m_connections.next_closing())
+    {
+        if ((closing.value == m_test_connection.value) && (m_phase != EPhase::module_retire))
+        {
+            fail(EFailure::completion, "module test connection cancelled");
+        }
+        if (!m_connections.quiesce(closing)) break;
+        progressed = true;
+    }
+    if (m_failure_code) return progressed;
+    if (m_phase == EPhase::module_submit)
+    {
+        const auto posted = m_connections.post(m_test_connection,
+            threading::make_pod_message(m_pending_slot, modules::RunTestsRequest{ m_test_module }));
+        if (posted == connections::EPost::queued)
+        {
+            if (start_budget(m_test_watchdog))
+            {
+                m_phase = EPhase::module_tests;
+            }
+            progressed = true;
+        }
+        else if (posted != connections::EPost::full)
+        {
+            fail(EFailure::submission, "module test request submission");
+        }
+    }
+    if (m_phase == EPhase::module_tests)
+    {
+        threading::CErasedPodMsg message;
+        const auto read = m_connections.read(m_test_connection, message);
+        if (connections::was_read(read))
+        {
+            complete_module_tests(message);
+            progressed = true;
+        }
+        else if (read != connections::ERead::empty)
+        {
+            fail(EFailure::completion, "module test connection cancelled");
+        }
+    }
+    if ((m_phase == EPhase::module_retire) && m_connections.idle())
+    {
+        progressed = true;
+        m_test_connection = {};
+        ++m_pending_slot;
+        if (m_test_module == module_ids::rendering)
+        {
+            m_test_module = module_ids::audio;
+            (void)load_test_module();
+        }
+        else
+        {
+            m_phase = EPhase::sequential;
+            if (!start_budget(m_operation_watchdog))
+            {
+                return progressed;
+            }
+            threading::CErasedOwnerMsg pending;
+            if (!prepare_scenario(pending, asset_acceptance::scenarios[m_scenario_index], m_pending_slot))
+            {
+                fail(EFailure::submission, "initial asset request preparation");
+            }
+            else if (!m_context.post(std::move(pending)))
+            {
+                fail(EFailure::submission, "initial asset request submission");
+            }
+        }
+    }
+    return progressed;
+}
+
+void CExecutiveThread::complete_module_tests(const threading::CErasedPodMsg& message) noexcept
+{
+    modules::RunTestsResult result;
+    if ((message.query_async_slot() != m_pending_slot) || !message.copy_payload_to(result) ||
+        (result.module != m_test_module) ||
+        !(((result.status == modules::ETestRunStatus::success) && (result.failed == 0u) && (result.skipped == 0u) &&
+            ((m_test_module == module_ids::audio) ? (result.passed == 1u) : (result.passed != 0u))) ||
+          ((m_test_module == module_ids::audio) && (result.status == modules::ETestRunStatus::unavailable) &&
+            (result.passed == 0u) && (result.failed == 0u) && (result.skipped == 1u))))
+    {
+        fail(EFailure::completion, "module tests");
+        return;
+    }
+    MV_LOG(info, "Executive: Module tests completed: {} passed, {} failed, {} skipped", result.passed, result.failed, result.skipped);
+    if (result.status == modules::ETestRunStatus::unavailable)
+    {
+        MV_LOG(info, "Executive: Audio unavailable: no real output device; test skipped");
+    }
+    m_connections.close(m_test_connection);
+    m_phase = EPhase::module_retire;
+    (void)start_budget(m_operation_watchdog);
 }
 
 bool CExecutiveThread::prepare_raw_fixture(threading::CErasedOwnerMsg& pending, const std::int32_t slot, const char* const text,
     const EAssetRetention retention, const bool save, const char* const file) noexcept
 {
-    if (!request_preparation::can_prepare_request(pending, slot)) return false;
+    if (!request_preparation::can_prepare_request(pending, slot))
+    {
+        return false;
+    }
     CByteBuffer bytes;
     const std::size_t size = std::strlen(text);
     if (!bytes.resize(size)) return false;
@@ -435,16 +571,25 @@ bool CExecutiveThread::prepare_raw_fixture(threading::CErasedOwnerMsg& pending, 
 bool CExecutiveThread::prepare_image_fixture(threading::CErasedOwnerMsg& pending, const std::int32_t slot, const bool greyscale, const bool storage_bottom_up,
     const EAssetRetention retention, const char* const file) noexcept
 {
-    if (!request_preparation::can_prepare_request(pending, slot)) return false;
+    if (!request_preparation::can_prepare_request(pending, slot))
+    {
+        return false;
+    }
     CByteRectBuffer pixels;
-    if (!pixels.allocate((greyscale ? 7u : 28u), 5u, 16u)) return false;
+    if (!pixels.allocate((greyscale ? 7u : 28u), 5u, 16u))
+    {
+        return false;
+    }
     const auto description = greyscale ? image::codec::tga::decoded_image_desc::Gray : image::codec::tga::decoded_image_desc::RGBA;
     const image::CImageView view{ pixels.view(), description, storage_bottom_up };
     view.fill(0x7f345678u);
     view.plot(2, 3, 0xffaabbccu);
     auto settings = asset_acceptance::save_settings(EAssetFileFormat::tga);
     settings.image = view.encode_options();
-    if (!request_preparation::prepare_asset_transfer(pending, slot, pixels, retention, true, file, settings)) return false;
+    if (!request_preparation::prepare_asset_transfer(pending, slot, pixels, retention, true, file, settings))
+    {
+        return false;
+    }
     auto* const request = pending.owner().payload<ImageAssetTransfer>();
     request->description = description;
     request->storage_bottom_up = storage_bottom_up;
@@ -454,7 +599,10 @@ bool CExecutiveThread::prepare_image_fixture(threading::CErasedOwnerMsg& pending
 bool CExecutiveThread::prepare_live_fixture(threading::CErasedOwnerMsg& pending, const std::int32_t slot, const EAssetRetention retention, const bool save,
     const char* const file, const AssetSaveSettings& settings) noexcept
 {
-    if (!request_preparation::can_prepare_request(pending, slot)) return false;
+    if (!request_preparation::can_prepare_request(pending, slot))
+    {
+        return false;
+    }
     CLiveDocument document;
     return asset_acceptance::fixture_document(document) &&
         request_preparation::prepare_asset_transfer(pending, slot, document, retention, save, file, settings);
@@ -463,7 +611,10 @@ bool CExecutiveThread::prepare_live_fixture(threading::CErasedOwnerMsg& pending,
 bool CExecutiveThread::prepare_baked_fixture(threading::CErasedOwnerMsg& pending, const std::int32_t slot, const EAssetRetention retention, const bool save,
     const char* const file, const AssetSaveSettings& settings) noexcept
 {
-    if (!request_preparation::can_prepare_request(pending, slot)) return false;
+    if (!request_preparation::can_prepare_request(pending, slot))
+    {
+        return false;
+    }
     CLiveDocument document;
     CBakedDocumentBlock block;
     return asset_acceptance::fixture_document(document) && document_translation::bake(document, block) &&
@@ -478,7 +629,10 @@ bool CExecutiveThread::prepare_expected_document() noexcept
 
 bool CExecutiveThread::prepare_scenario(threading::CErasedOwnerMsg& pending, const asset_acceptance::SScenario& scenario, const std::int32_t slot) noexcept
 {
-    if (!request_preparation::can_prepare_request(pending, slot)) return false;
+    if (!request_preparation::can_prepare_request(pending, slot))
+    {
+        return false;
+    }
     using namespace asset_acceptance;
     switch (scenario.identity)
     {
@@ -515,7 +669,7 @@ bool CExecutiveThread::prepare_scenario(threading::CErasedOwnerMsg& pending, con
             AssetSaveSettings settings = save_settings(EAssetFileFormat::tga);
             settings.image = m_image_view.encode_options();
             return request_preparation::prepare_save_request(pending, slot, m_image.asset,
-                (scenario.identity == EScenario::save_cached_image) ? cached_image_file : image_file, settings);
+                ((scenario.identity == EScenario::save_cached_image) ? cached_image_file : image_file), settings);
         }
         case EScenario::reload_tga:
         {
@@ -616,7 +770,10 @@ bool CExecutiveThread::prepare_scenario(threading::CErasedOwnerMsg& pending, con
         {
             return asset_acceptance::prepare_output_load(pending, slot, EAssetFileFormat::json, raw_file);
         }
-        case EScenario::reject_missing_file: return asset_acceptance::prepare_output_load(pending, slot, EAssetFileFormat::raw, failure_file);
+        case EScenario::reject_missing_file:
+        {
+            return asset_acceptance::prepare_output_load(pending, slot, EAssetFileFormat::raw, failure_file);
+        }
         case EScenario::write_policy_rejected_json:
         {
             return prepare_raw_fixture(pending, slot, "{unquoted:1}", EAssetRetention::discard, true, raw_file);
@@ -717,8 +874,8 @@ bool CExecutiveThread::check(const asset_acceptance::SScenario& scenario, const 
             if (!expect(scenario, ((image.width() == m_image_view.width()) &&
                 (image.height() == m_image_view.height())), "image dimensions") ||
                 !expect(scenario, (image.vertical_flip() == m_image_view.vertical_flip()), "image row addressing") ||
-                !expect(scenario, (scenario.identity == EScenario::reload_tga) ?
-                    (result.asset != m_image.asset) : (result.asset == m_image.asset),
+                !expect(scenario, ((scenario.identity == EScenario::reload_tga) ?
+                    (result.asset != m_image.asset) : (result.asset == m_image.asset)),
                     "native readback has fresh identity; indexed reads retain cached identity"))
             {
                 return false;
@@ -855,7 +1012,9 @@ bool CExecutiveThread::start_filesystem_exercise() noexcept
         (asset_acceptance::prepare_output_load(pending, 1005, EAssetFileFormat::json, asset_acceptance::json_file) &&
             m_context.post(std::move(pending)));
     if (!submitted && pending.has_message_type())
+    {
         MV_LOG(error, "Executive: filesystem concurrent submission failed at slot {}", pending.query_async_slot());
+    }
     return submitted;
 }
 
@@ -957,7 +1116,10 @@ bool CExecutiveThread::complete_filesystem_exercise(const threading::CErasedPodM
             MV_LOG(info, "Filesystem acceptance: 12 queued refresh, concurrent access and cache operations passed");
             return start_bundle_exercise();
         }
-        default: return false;
+        default:
+        {
+            return false;
+        }
     }
 }
 
@@ -977,7 +1139,10 @@ bool CExecutiveThread::complete_bundle_exercise(const threading::CErasedPodMsg& 
     {
         BundleDisposedNotification notification;
         if ((message.query_async_slot() != threading::k_uncorrelated_slot) || !message.copy_payload_to(notification) ||
-            (notification.asset != m_bundle.asset)) return false;
+            (notification.asset != m_bundle.asset))
+        {
+            return false;
+        }
         m_bundle = {};
         if (m_bundle_step == 6)
         {
@@ -991,18 +1156,27 @@ bool CExecutiveThread::complete_bundle_exercise(const threading::CErasedPodMsg& 
             "dev-workspace:/acceptance/bundle-acceptance.bdl", "bundle-acceptance:") &&
             m_context.post(std::move(pending));
     }
-    if (message.query_async_slot() != 2000 + m_bundle_step) return false;
+    if (message.query_async_slot() != (2000 + m_bundle_step))
+    {
+        return false;
+    }
     if (m_bundle_step == 2)
     {
         AssetDisposeResult result;
-        if (!message.copy_payload_to(result) || (result.status != EAssetStatus::success)) return false;
+        if (!message.copy_payload_to(result) || (result.status != EAssetStatus::success))
+        {
+            return false;
+        }
         ++m_bundle_step;
         return request_preparation::prepare_save_request(pending, 2003, m_bundle.asset, "dev-workspace:/acceptance/bundle-acceptance.bdl", asset_acceptance::save_settings(EAssetFileFormat::raw)) &&
             m_context.post(std::move(pending));
     }
     AssetResult result;
     if (!message.copy_payload_to(result) || (result.status != EAssetStatus::success) ||
-        (result.kind != EAssetKind::bundle) || !result.bundle_view().is_ready()) return false;
+        (result.kind != EAssetKind::bundle) || !result.bundle_view().is_ready())
+    {
+        return false;
+    }
     threading::CErasedPodMsg outbound;
     switch (m_bundle_step++)
     {
@@ -1011,31 +1185,46 @@ bool CExecutiveThread::complete_bundle_exercise(const threading::CErasedPodMsg& 
             m_bundle = result;
             const auto bytes = result.byte_view();
             if (!m_bundle_snapshot.allocate(bytes.size()) || !m_bundle_snapshot.set_size(bytes.size()) ||
-                (result.bundle_view().lookup(CStringView{ "test_input.tga" }).status != bundle::ELookupStatus::success)) return false;
+                (result.bundle_view().lookup(CStringView{ "test_input.tga" }).status != bundle::ELookupStatus::success))
+            {
+                return false;
+            }
             std::memcpy(m_bundle_snapshot.data(), bytes.data(), bytes.size());
             outbound = threading::make_pod_message(2001, BundleReferenceRequest{ m_bundle.asset });
             break;
         }
         case 1:
         {
-            if ((result.asset == m_bundle.asset) || (result.byte_view().data() != m_bundle.byte_view().data())) return false;
+            if ((result.asset == m_bundle.asset) || (result.byte_view().data() != m_bundle.byte_view().data()))
+            {
+                return false;
+            }
             outbound = threading::make_pod_message(2002, AssetDisposeRequest{ result.asset });
             break;
         }
         case 3:
         {
-            if (result.asset != m_bundle.asset) return false;
+            if (result.asset != m_bundle.asset)
+            {
+                return false;
+            }
             outbound = threading::make_pod_message(2004, AssetDisposeRequest{ m_bundle.asset });
             break;
         }
         case 5:
         {
-            if (!asset_acceptance::equal_bytes(result.byte_view(), m_bundle_snapshot.const_view())) return false;
+            if (!asset_acceptance::equal_bytes(result.byte_view(), m_bundle_snapshot.const_view()))
+            {
+                return false;
+            }
             m_bundle = result;
             outbound = threading::make_pod_message(2006, AssetDisposeRequest{ m_bundle.asset });
             break;
         }
-        default: return false;
+        default:
+        {
+            return false;
+        }
     }
     return m_context.post(outbound);
 }
@@ -1043,7 +1232,10 @@ bool CExecutiveThread::complete_bundle_exercise(const threading::CErasedPodMsg& 
 bool CExecutiveThread::complete_acquisition_exercise(const threading::CErasedPodMsg& message) noexcept
 {
     const auto slot = message.query_async_slot() - 3000;
-    if ((slot < 0) || (slot >= 8) || !m_acquisition_pending[slot]) return false;
+    if ((slot < 0) || (slot >= 8) || !m_acquisition_pending[slot])
+    {
+        return false;
+    }
     m_acquisition_pending[slot] = false;
     const auto step = m_acquisition_step++;
     AssetAcquireResult acquired;
@@ -1053,11 +1245,17 @@ bool CExecutiveThread::complete_acquisition_exercise(const threading::CErasedPod
         case 0:
         case 1:
         {
-            if ((message.query_async_slot() != 3000 + step) || !message.copy_payload_to(acquired) ||
+            if ((message.query_async_slot() != (3000 + step)) || !message.copy_payload_to(acquired) ||
                 (acquired.status != EAssetStatus::success) || !acquired.acquisition ||
-                (acquired.byte_view().data() != m_raw.byte_view().data())) return false;
+                (acquired.byte_view().data() != m_raw.byte_view().data()))
+            {
+                return false;
+            }
             m_acquired[step] = acquired;
-            if (step == 0) return post_acquisition(3001, AssetAcquireRequest{ m_raw.asset });
+            if (step == 0)
+            {
+                return post_acquisition(3001, AssetAcquireRequest{ m_raw.asset });
+            }
             return (m_acquired[0].acquisition != m_acquired[1].acquisition) &&
                 post_acquisition(3002, AssetDisposeRequest{ m_raw.asset }) &&
                 post_acquisition(3003, AssetAcquireRequest{ m_raw.asset });
@@ -1066,7 +1264,10 @@ bool CExecutiveThread::complete_acquisition_exercise(const threading::CErasedPod
         {
             if ((message.query_async_slot() != 3003) || !message.copy_payload_to(acquired) ||
                 (acquired.status != EAssetStatus::invalid_asset) || acquired.acquisition ||
-                !asset_acceptance::equal_bytes(m_acquired[0].byte_view(), m_acquired[1].byte_view())) return false;
+                !asset_acceptance::equal_bytes(m_acquired[0].byte_view(), m_acquired[1].byte_view()))
+            {
+                return false;
+            }
             return post_acquisition(3004, AssetReleaseRequest{ m_acquired[0].acquisition });
         }
         case 3:
@@ -1075,17 +1276,26 @@ bool CExecutiveThread::complete_acquisition_exercise(const threading::CErasedPod
         {
             const auto expected = (step == 4) ? EAssetStatus::invalid_request : EAssetStatus::success;
             const auto token = m_acquired[(step == 5) ? 1 : 0].acquisition;
-            if ((message.query_async_slot() != 3001 + step) || !message.copy_payload_to(released) ||
-                (released.status != expected) || (released.acquisition != token)) return false;
-            if (step == 5) return true; // Disposal must now follow the release acknowledgement.
-            return post_acquisition(3002 + step,
+            if ((message.query_async_slot() != (3001 + step)) || !message.copy_payload_to(released) ||
+                (released.status != expected) || (released.acquisition != token))
+            {
+                return false;
+            }
+            if (step == 5)
+            {
+                return true;
+            } // Disposal must now follow the release acknowledgement.
+            return post_acquisition((3002 + step),
                 AssetReleaseRequest{ m_acquired[(step == 4) ? 1 : 0].acquisition });
         }
         case 6:
         {
             AssetDisposeResult result;
             if ((message.query_async_slot() != 3002) || !message.copy_payload_to(result) ||
-                (result.asset != m_raw.asset) || (result.status != EAssetStatus::success)) return false;
+                (result.asset != m_raw.asset) || (result.status != EAssetStatus::success))
+            {
+                return false;
+            }
             m_acquired[0] = {};
             m_acquired[1] = {};
             m_raw = {};
@@ -1105,7 +1315,10 @@ bool CExecutiveThread::complete_acquisition_exercise(const threading::CErasedPod
             MV_LOG(info, "Acquisition acceptance: shared borrows, deferred disposal, stale release and client exit passed");
             return true;
         }
-        default: return false;
+        default:
+        {
+            return false;
+        }
     }
 }
 
@@ -1124,13 +1337,23 @@ bool CExecutiveThread::request_system_shutdown() noexcept
 bool CExecutiveThread::start_budget(TModuleTestWatchdog<>& budget) noexcept
 {
     const auto* const execution = m_context.host_execution();
-    if (!execution) { fail(EFailure::timing, "Host restriction reader"); return false; }
+    if (!execution)
+    {
+        fail(EFailure::timing, "Host restriction reader");
+        return false;
+    }
     while (!m_context.exit_requested())
     {
         const auto started = budget.start(execution->restriction);
-        if ((started == modules::EBudgetStatus::running) || (started == modules::EBudgetStatus::restricted)) return true;
+        if ((started == modules::EBudgetStatus::running) || (started == modules::EBudgetStatus::restricted))
+        {
+            return true;
+        }
         if (started != modules::EBudgetStatus::retry)
-        { fail(EFailure::timing, "Host eligible budget construction"); return false; }
+        {
+            fail(EFailure::timing, "Host eligible budget construction");
+            return false;
+        }
         platform::threading::processor_relax();
     }
     return false;
@@ -1141,8 +1364,14 @@ bool CExecutiveThread::post_acquisition(const std::int32_t slot, const T& payloa
 {
     const auto index = slot - 3000;
     if ((index < 0) || (index >= 8) || m_acquisition_pending[index] ||
-        !start_budget(m_acquisition_watchdogs[index])) return false;
-    if (!m_context.post(threading::make_pod_message(slot, payload))) return false;
+        !start_budget(m_acquisition_watchdogs[index]))
+    {
+        return false;
+    }
+    if (!m_context.post(threading::make_pod_message(slot, payload)))
+    {
+        return false;
+    }
     m_acquisition_pending[index] = true;
     return true;
 }
@@ -1152,14 +1381,22 @@ bool CExecutiveThread::check_budgets() noexcept
     m_wait_remaining = UINT64_MAX;
     const auto* const execution = m_context.host_execution();
     if (!execution || execution->notification.failed())
-    { fail(EFailure::timing, "Host restriction notification"); return false; }
+    {
+        fail(EFailure::timing, "Host restriction notification");
+        return false;
+    }
     execution->notification.clear_pending();
     if (m_phase == EPhase::awaiting_exit)
     {
         std::uint64_t remaining = 0u;
         if (m_exit_deadline.remaining_nanoseconds(remaining).code != platform::threading::EWaitError::none)
+        {
             fail(EFailure::timing, "exit deadline query");
-        else if (!remaining) fail(EFailure::timeout, "exit deadline");
+        }
+        else if (!remaining)
+        {
+            fail(EFailure::timeout, "exit deadline");
+        }
         m_wait_remaining = remaining;
         return m_failure_code == 0u;
     }
@@ -1169,18 +1406,34 @@ bool CExecutiveThread::check_budgets() noexcept
     {
         modules::SEligibleBudgetObservation observation;
         const auto state = budget.check(&observation);
-        if (state == State::failed) fail(EFailure::timing, "Host eligible budget query");
-        else if (state == State::expired) fail(EFailure::timeout, "Host eligible operation deadline");
+        if (state == State::failed)
+        {
+            fail(EFailure::timing, "Host eligible budget query");
+        }
+        else if (state == State::expired)
+        {
+            fail(EFailure::timeout, "Host eligible operation deadline");
+        }
         if (state != State::pending) ready = false;
-        if (observation.status == modules::EBudgetStatus::running && observation.remaining_ns < m_wait_remaining)
+        if ((observation.status == modules::EBudgetStatus::running) && (observation.remaining_ns < m_wait_remaining))
+        {
             m_wait_remaining = observation.remaining_ns;
+        }
     };
     if (m_phase == EPhase::acquisitions)
     {
         for (unsigned index = 0u; index < 8u; ++index)
-            if (m_acquisition_pending[index]) check(m_acquisition_watchdogs[index]);
+        {
+            if (m_acquisition_pending[index])
+            {
+                check(m_acquisition_watchdogs[index]);
+            }
+        }
     }
-    else check(m_phase == EPhase::module_tests ? m_test_watchdog : m_operation_watchdog);
+    else
+    {
+        check((m_phase == EPhase::module_tests) ? m_test_watchdog : m_operation_watchdog);
+    }
     return ready;
 }
 
@@ -1190,6 +1443,7 @@ void CExecutiveThread::operate() noexcept
     while (!m_context.exit_requested() && (m_phase != EPhase::complete) && (m_failure_code == 0u))
     {
         const auto epoch = m_context.observe_epoch();
+        m_connections.clear_notifications();
         //  Check before reading, including under continuous unrelated traffic.
         if (!check_budgets())
         {
@@ -1197,9 +1451,12 @@ void CExecutiveThread::operate() noexcept
             platform::threading::processor_relax();
             continue;
         }
+        const bool direct_progress = progress_connections();
+        if (m_failure_code) break;
         threading::CErasedPodMsg message;
         if (m_context.read(message))
         {
+            if (m_connections.handle(message)) continue;
             if (m_phase == EPhase::awaiting_exit)
             {
                 continue;
@@ -1210,47 +1467,19 @@ void CExecutiveThread::operate() noexcept
                 {
                     fail(EFailure::completion, "module unavailable or invalid load reply");
                 }
-                else if (m_phase == EPhase::module_tests)
+                else if (m_phase == EPhase::module_connect)
                 {
-                    const auto request = threading::make_pod_message(m_pending_slot, modules::RunTestsRequest{ m_test_module });
-                    if (!start_budget(m_test_watchdog))
-                        fail(EFailure::timing, "module test budget construction");
-                    else if (!m_context.post(request)) fail(EFailure::submission, "module test request submission");
+                    if (start_budget(m_operation_watchdog) &&
+                        !m_connections.open(m_test_module, modules::test_connections::version, m_pending_slot))
+                    {
+                        fail(EFailure::submission, "module test connection request");
+                    }
                 }
                 continue;
             }
-            if (m_phase == EPhase::module_tests)
+            if ((m_phase >= EPhase::module_connect) && (m_phase <= EPhase::module_retire))
             {
-                modules::RunTestsResult result;
-                if ((message.query_async_slot() != m_pending_slot) || !message.copy_payload_to(result) ||
-                    (result.module != m_test_module) ||
-                    !(((result.status == modules::ETestRunStatus::success) && (result.failed == 0u) && (result.skipped == 0u) &&
-                        ((m_test_module == module_ids::audio) ? (result.passed == 1u) : (result.passed != 0u))) ||
-                      ((m_test_module == module_ids::audio) && (result.status == modules::ETestRunStatus::unavailable) &&
-                        (result.passed == 0u) && (result.failed == 0u) && (result.skipped == 1u))))
-                {
-                    fail(EFailure::completion, "module tests");
-                    continue;
-                }
-                MV_LOG(info, "Executive: Module tests completed: {} passed, {} failed, {} skipped",
-                    result.passed, result.failed, result.skipped);
-                if (m_test_module == module_ids::rendering)
-                {
-                    m_test_module = module_ids::audio;
-                    ++m_pending_slot;
-                    (void)load_test_module();
-                    continue;
-                }
-                if (result.status == modules::ETestRunStatus::unavailable)
-                    MV_LOG(info, "Executive: Audio unavailable: no real output device; test skipped");
-                m_phase = EPhase::sequential;
-                ++m_pending_slot;
-                if (!start_budget(m_operation_watchdog)) continue;
-                threading::CErasedOwnerMsg pending;
-                if (!prepare_scenario(pending, scenarios[m_scenario_index], m_pending_slot))
-                    fail(EFailure::submission, "initial asset request preparation");
-                else if (!m_context.post(std::move(pending)))
-                    fail(EFailure::submission, "initial asset request submission");
+                fail(EFailure::completion, "unexpected Host message during module tests");
                 continue;
             }
             modules::ModuleResult module_result;
@@ -1268,12 +1497,18 @@ void CExecutiveThread::operate() noexcept
             }
             if (m_phase == EPhase::bundle)
             {
-                if (!complete_bundle_exercise(message)) fail(EFailure::completion, "bundle exercise");
+                if (!complete_bundle_exercise(message))
+                {
+                    fail(EFailure::completion, "bundle exercise");
+                }
                 continue;
             }
             if (m_phase == EPhase::acquisitions)
             {
-                if (!complete_acquisition_exercise(message)) fail(EFailure::completion, "asset acquisition exercise");
+                if (!complete_acquisition_exercise(message))
+                {
+                    fail(EFailure::completion, "asset acquisition exercise");
+                }
                 continue;
             }
             if (m_phase == EPhase::filesystem)
@@ -1311,17 +1546,29 @@ void CExecutiveThread::operate() noexcept
             }
             else
             {
-                if (!start_budget(m_operation_watchdog)) continue;
+                if (!start_budget(m_operation_watchdog))
+                {
+                    continue;
+                }
                 ++m_pending_slot;
                 threading::CErasedOwnerMsg pending;
                 if (!prepare_scenario(pending, scenarios[m_scenario_index], m_pending_slot))
+                {
                     fail(EFailure::submission, "request preparation");
+                }
                 else if (!m_context.post(std::move(pending)))
+                {
                     fail(EFailure::submission, "request submission");
+                }
             }
         }
         else
         {
+            if (direct_progress || m_connections.needs_progress())
+            {
+                continue;
+            }
+            if (m_connections.has_data()) continue;
             m_context.advance_heartbeat();
             if (m_context.exit_requested()) break;
             if (m_wait_remaining == UINT64_MAX)
@@ -1333,12 +1580,20 @@ void CExecutiveThread::operate() noexcept
             else
             {
                 threading::CWaitDeadline wait;
-                if (m_phase == EPhase::awaiting_exit) wait = m_exit_deadline;
+                if (m_phase == EPhase::awaiting_exit)
+                {
+                    wait = m_exit_deadline;
+                }
                 else if (wait.set_after_nanoseconds(m_wait_remaining).code != platform::threading::EWaitError::none)
-                { fail(EFailure::timing, "eligible observation wait"); continue; }
-                const auto result = m_context.wait_for_new_epoch(epoch, wait);
-                if (result.status != threading::EWaitStatus::satisfied && result.status != threading::EWaitStatus::timed_out)
+                {
                     fail(EFailure::timing, "eligible observation wait");
+                    continue;
+                }
+                const auto result = m_context.wait_for_new_epoch(epoch, wait);
+                if ((result.status != threading::EWaitStatus::satisfied) && (result.status != threading::EWaitStatus::timed_out))
+                {
+                    fail(EFailure::timing, "eligible observation wait");
+                }
             }
         }
     }
@@ -1346,12 +1601,19 @@ void CExecutiveThread::operate() noexcept
 
 void CExecutiveThread::shutdown() noexcept
 {
+    m_connections.close_all();
+    for (auto closing = m_connections.next_closing(); closing.value; closing = m_connections.next_closing())
+    {
+        if (!m_connections.quiesce(closing)) break;
+    }
+    m_connections.progress();
     if (m_failure_code == 0u)
     {
         m_context.mark_exiting();
         m_context.mark_exited();
         MV_INFO("Executive: Exited");
     }
+    else m_context.mark_failed(m_failure_code);
 }
 
 void CExecutiveThread::fail(const EFailure failure, const char* const reason) noexcept
@@ -1360,12 +1622,11 @@ void CExecutiveThread::fail(const EFailure failure, const char* const reason) no
     {
         m_failure_code = static_cast<std::uint32_t>(failure);
         const char* const scenario = ((m_phase == EPhase::module_acknowledgement) || (m_phase == EPhase::module_completion)) ?
-            "module_startup" : (m_phase == EPhase::module_tests) ? "module_tests" : ((m_phase == EPhase::filesystem) ? "filesystem" :
+            "module_startup" : ((m_phase >= EPhase::module_connect) && (m_phase <= EPhase::module_retire)) ? "module_tests" : ((m_phase == EPhase::filesystem) ? "filesystem" :
                 ((m_phase == EPhase::bundle) ? "bundle" : ((m_scenario_index < asset_acceptance::scenario_count) ?
                     asset_acceptance::scenarios[m_scenario_index].name : "concurrent_saves")));
         MV_LOG_RICH(error, "Executive: %s failed: %s (scenario slot %d, filesystem step %d, bundle step %d)",
             scenario, reason, m_pending_slot, m_filesystem_step, m_bundle_step);
-        m_context.mark_failed(m_failure_code);
     }
 }
 

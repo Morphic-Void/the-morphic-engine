@@ -189,14 +189,13 @@ lengths. Host retains unconsumed entries; Platform copies information needed for
 pending operations and never retains pointers into a batch. Stop controls and release
 acknowledgements have reserved admission separate from ordinary capacity.
 
-SYSTEM messages include asset completions and the existing generic `RunTestsRequest`.
-Host test routing resolves the destination client record: thread clients receive
-their ordinary POD message and pumped clients receive the same payload in the
-SYSTEM lane. Keep caller/worker instance protection until `RunTestsResult` and test
-cleanup complete. The first-window Platform module returns a retained, correlated
-`unavailable` result; native acceptance uses explicit external harnesses. Do not
-claim headless fixtures prove window/controller behaviour. No Platform-specific
-test request is added to Core.
+SYSTEM messages include asset completions and service lifecycle controls.
+Module tests between Executive, Rendering and Audio use the separate Framework
+[direct service-thread contract](direct_pod_connections.md); they do not pass
+through the pumped SYSTEM lane. Platform shell fixtures use unsupported service
+commands, retaining their completions through pressure and stopping. Native
+acceptance uses explicit external harnesses. Headless fixtures do not prove
+window/controller behaviour. No Platform-specific test request is added to Core.
 
 The Host-thread pump callback table (`modules::SHostPumpServices`) supplies
 queued `post_pod`, `post_owner`, terminal `complete`, `prepare_borrow`,

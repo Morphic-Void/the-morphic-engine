@@ -397,7 +397,7 @@ Relevant current code makes the exclusions concrete:
   terminal replies and erase operations/routes; borrow progress can erase
   registrations and unpin packages. Capture intent instead of calling them.
 - [CHost::receive_request / receive_message](../../host/runtime/host.cpp) include
-  module requests, asset requests/releases, test routing and shutdown handling.
+  module requests, asset requests/releases, direct connection controls and shutdown handling.
   They are not safe wholesale. Even the POD asset-release path erases an
   acquisition. Existing emergency/debug shutdown helpers also mutate lifecycle
   state or destroy the retained Executive request.

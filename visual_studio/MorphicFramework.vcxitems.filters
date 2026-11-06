@@ -8,10 +8,14 @@
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
     <Filter Include="Framework"><UniqueIdentifier>{0b714662-b391-405f-bfbf-0da8bd53320a}</UniqueIdentifier></Filter>
+    <Filter Include="Framework\communications"><UniqueIdentifier>{d45813be-570c-4820-ae8f-8dd070d7af4c}</UniqueIdentifier></Filter>
     <Filter Include="Framework\platform"><UniqueIdentifier>{b1dfd0ec-f54f-4ecd-9ae4-a067594d5521}</UniqueIdentifier></Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\platform\window.hpp"><Filter>Framework\platform</Filter></ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\communications\direct_connection.hpp"><Filter>Framework\communications</Filter></ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\communications\direct_client.hpp"><Filter>Framework\communications</Filter></ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\communications\module_tests.hpp"><Filter>Framework\communications</Filter></ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\platform\window_state.hpp"><Filter>Framework\platform</Filter></ClInclude>
   </ItemGroup>
 </Project>

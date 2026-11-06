@@ -24,11 +24,11 @@ create no native window. The portable shell builds on Windows and Linux; Linux
 returns `unsupported` for native creation. No Linux backend is selected here.
 Core/Host retain only generic module, routing, borrow and execution contracts.
 
-Generic `RunTestsRequest` receives a correlated `unavailable` result. Platform
-retains that reply through output pressure and stopping, and does not consume
-another test request until it can retain its reply. Native acceptance remains an
-explicit external harness; loading the module or requesting generic tests never
-opens a window or silently reports an empty successful test run.
+Platform shell validation uses unsupported service commands and checks that
+their completions survive output pressure and stopping. Module tests use a
+separate [direct service-thread contract](direct_pod_connections.md). Native
+acceptance remains an explicit external harness; loading Platform or sending an
+unsupported command never opens a window.
 
 Support one live application window at a time, including a closing window. A
 second create returns `occupied`; acquiring another use of the existing window

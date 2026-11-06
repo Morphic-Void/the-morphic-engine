@@ -9,6 +9,7 @@
 //  Private output owner. Vendor declarations never cross this boundary.
 
 #pragma once
+#include "framework/communications/module_tests.hpp"
 #include "module/module_messages.hpp"
 #include "audio_run.hpp"
 #include "memory/memory_context.hpp"
@@ -42,7 +43,7 @@ public:
     CMiniaudioOutput& operator=(const CMiniaudioOutput&) = delete;
 private:
     friend struct SMiniaudioTestAccess;
-    modules::ETestRunStatus open(bool cleanup_guard_only, SContextProbe* probe = nullptr) noexcept;
+    modules::ETestRunStatus open(const bool cleanup_guard_only, SContextProbe* const probe = nullptr) noexcept;
     struct SState;
     memory::CMemoryContext& m_memory;
     SState* m_state{ nullptr };

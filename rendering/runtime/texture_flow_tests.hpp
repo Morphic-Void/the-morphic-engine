@@ -13,6 +13,8 @@
 #ifndef RENDERING_TEXTURE_FLOW_TESTS_HPP_INCLUDED
 #define RENDERING_TEXTURE_FLOW_TESTS_HPP_INCLUDED
 
+#include "framework/communications/module_tests.hpp"
+#include "framework/communications/direct_client.hpp"
 #include "module/module_messages.hpp"
 #include "runtime/resource_requests.hpp"
 #include "threading/CThreadPackage.hpp"
@@ -32,14 +34,17 @@ struct STextureInput
 class CTextureFlowTests final
 {
 public:
-    CTextureFlowTests(threading::CThreadContext& context, const module_ids::id_type module, CResourceRequests& requests) noexcept :
-        m_context{ context }, m_module{ module }, m_requests{ requests } {}
+    CTextureFlowTests(threading::CThreadContext& context, const module_ids::id_type module,
+        CResourceRequests& requests, connections::CClient& connection) noexcept :
+        m_context{ context }, m_module{ module }, m_requests{ requests }, m_connection{ connection } {}
 
-    [[nodiscard]] bool pending() const noexcept { return m_active; }
-    [[nodiscard]] bool start(const threading::CErasedPodMsg& message) noexcept;
+    [[nodiscard]] bool pending() const noexcept { return m_active || m_completion_pending || m_rejection_pending; }
+    [[nodiscard]] bool can_read() const noexcept { return !m_completion_pending && !m_rejection_pending; }
+    [[nodiscard]] bool progress() noexcept;
+    [[nodiscard]] bool start(const connections::SToken token, const threading::CErasedPodMsg& message) noexcept;
     [[nodiscard]] bool complete(const threading::CErasedPodMsg& message) noexcept;
 
-    [[nodiscard]] bool complete(SResourceResult&& result, std::int32_t correlation) noexcept;
+    [[nodiscard]] bool complete(SResourceResult&& result, const std::int32_t correlation) noexcept;
 
 private:
     enum class EPhase : std::uint8_t { fixture = 0, scenarios, publication, disposal };
@@ -51,6 +56,7 @@ private:
     [[nodiscard]] bool next() noexcept;
     [[nodiscard]] bool dispose_next() noexcept;
     [[nodiscard]] bool finish() noexcept;
+    [[nodiscard]] bool cancelled() const noexcept { return m_context.exit_requested() || !m_connection.active(m_token); }
 
     threading::CThreadContext& m_context;
     const module_ids::id_type m_module;
@@ -59,6 +65,10 @@ private:
     CAssetId m_ldr_texture;
     CAssetId m_hdr_texture;
     CResourceRequests& m_requests;
+    connections::CClient& m_connection;
+    connections::SToken m_token, m_rejection_token;
+    threading::CErasedPodMsg m_rejection;
+    bool m_completion_pending{ false }, m_rejection_pending{ false };
     bool m_publishing_hdr{ false };
     CAssetId m_assets[24]{};
     std::uint32_t m_asset_count{ 0u };

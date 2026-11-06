@@ -113,6 +113,7 @@
     <ClCompile Include="..\tests\test_suites\HostPump_test_suite.cpp" />
     <ClCompile Include="..\tests\test_suites\ServiceBorrow_test_cases.cpp" />
     <ClCompile Include="..\tests\test_suites\Notification_test_cases.cpp" />
+    <ClCompile Include="..\tests\test_suites\DirectConnections_test_cases.cpp" />
     <ClCompile Include="..\tests\test_suites\HostRestriction_test_cases.cpp" />
     <ClCompile Include="..\tests\test_suites\HostMaintenance_test_cases.cpp" />
     <ClCompile Include="..\tests\test_suites\HostWorkers_test_suite.cpp" />
@@ -133,6 +134,7 @@
     <ClCompile Include="..\host\runtime\client_record.cpp" />
     <ClCompile Include="..\host\runtime\service_router.cpp" />
     <ClCompile Include="..\host\runtime\service_borrows.cpp" />
+    <ClCompile Include="..\host\runtime\direct_connections.cpp" />
     <ClCompile Include="..\host\runtime\pumped_client.cpp" />
     <ClCompile Include="..\host\runtime\host_restrictions.cpp" />
     <ClCompile Include="..\host\runtime\host_maintenance.cpp" />
@@ -196,6 +198,7 @@
     <ClInclude Include="..\tests\support\test_allocator.hpp" />
     <ClInclude Include="..\tests\support\test_context.hpp" />
     <ClInclude Include="..\tests\support\test_scopes.hpp" />
+    <ClInclude Include="..\tests\support\direct_connection_fixture.hpp" />
     <ClInclude Include="..\tests\support\host_client_fixture.hpp" />
     <ClInclude Include="..\tests\support\thread_helpers.hpp" />
     <ClInclude Include="..\tests\support\slot_harness_helpers.hpp" />

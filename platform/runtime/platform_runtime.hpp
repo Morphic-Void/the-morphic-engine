@@ -77,8 +77,6 @@ private:
     SWindowRecord m_window;
     TUnorderedCollection<SWindowUse> m_uses;
     SCompletion m_completions[96]{};
-    ::threading::CErasedPodMsg m_test_reply;
-    bool m_test_pending{ false };
     std::uint32_t m_use_count{ 0u }, m_native_depth{ 0u }, m_callback_depth{ 0u };
     modules::SRestrictionScope m_modal[2][8]{};
     std::uint32_t m_modal_depth[2]{};

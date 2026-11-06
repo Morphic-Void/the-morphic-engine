@@ -8,6 +8,8 @@
 //
 //  Rendering module thread and asynchronous texture conditioning.
 
+#include "framework/communications/module_tests.hpp"
+#include "framework/communications/direct_client.hpp"
 #include "module/module_messages.hpp"
 #include "threading/messages/message_helpers.hpp"
 
@@ -44,14 +46,16 @@ static std::uint32_t MV_STD_ABI_CALL thread_entry(void* const user_data) noexcep
 
     threading::CThreadContext context{ resources };
     context.startup();
-    if ((resources.batch_client == nullptr) || !basis_codec::initialise())
+    connections::CClient connection{ context, module_ids::rendering,
+        modules::test_connections::policies, modules::test_connections::policy_count };
+    if (!connection.register_service() || (resources.batch_client == nullptr) || !basis_codec::initialise())
     {
         context.mark_failed(1u);
         return 1u;
     }
-    CResourceRequests requests{ *resources.batch_client, { &context, [](void* value, const threading::CErasedPodMsg& message) noexcept {
+    CResourceRequests requests{ *resources.batch_client, { &context, [](void* const value, const threading::CErasedPodMsg& message) noexcept {
         return static_cast<threading::CThreadContext*>(value)->post(message); } } };
-    CTextureFlowTests tests{ context, resources.config.worker_module_id, requests };
+    CTextureFlowTests tests{ context, resources.config.worker_module_id, requests, connection };
     if (!requests.initialise())
     {
         basis_codec::shutdown();
@@ -68,49 +72,96 @@ static std::uint32_t MV_STD_ABI_CALL thread_entry(void* const user_data) noexcep
     for (;;)
     {
         const std::uint32_t epoch = resources.wait_predicate.get_word();
+        connection.clear_notifications();
         context.advance_heartbeat();
-        if (context.exit_requested()) context.mark_exiting();
+        if (context.exit_requested())
+        {
+            context.mark_exiting();
+            connection.close_all();
+        }
         bool progressed = false;
         threading::SBatchResponse response;
-        while (resources.batch_client->receive(response))
+        for (unsigned count = 0u; (count < 32u) && resources.batch_client->receive(response); ++count)
         {
             progressed = true;
             const bool completed = requests.complete(response);
             failed = !completed || failed;
+            if (failed) connection.close_all();
         }
 
-        //  Drain accepted messages even after exit was requested. Submission
-        //  then rejects them and returns a terminal failure to the Host.
+        //  Host asset and release completions still drive cleanup after closing.
         threading::CErasedPodMsg message;
-        while (context.read(message))
+        for (unsigned count = 0u; (count < 32u) && context.read(message); ++count)
         {
             progressed = true;
+            if (connection.handle(message))
+            {
+                if (connection.failed())
+                {
+                    failed = true;
+                    connection.close_all();
+                }
+                continue;
+            }
             if (message.is_payload_a<AssetAcquireResult>() || message.is_payload_a<AssetReleaseResult>())
+            {
                 failed = !requests.complete(message) || failed;
-            else if (message.is_payload_a<modules::RunTestsRequest>())
-                failed = !tests.start(message) || failed;
+            }
             else if (message.is_payload_a<AssetResult>() || message.is_payload_a<AssetDisposeResult>())
+            {
                 failed = !tests.complete(message) || failed;
+            }
             else
+            {
                 failed = true;
+            }
+            if (failed) connection.close_all();
+        }
+        connection.progress();
+        failed = !tests.progress() || connection.failed() || failed;
+        if (failed) connection.close_all();
+        const auto token = connection.active(module_ids::executive);
+        for (unsigned count = 0u; (count < 32u) && token.value && tests.can_read() && !context.exit_requested() && !failed; ++count)
+        {
+            const auto read = connection.read(token, message);
+            if (!connections::was_read(read)) break;
+            progressed = true;
+            if (!connection.active(token)) break;
+            failed = !tests.start(token, message) || failed;
         }
         SResourceResult result;
         std::int32_t correlation;
         while (requests.receive(result, correlation))
         {
             progressed = true;
-            if (!failed) failed = !tests.complete(std::move(result), correlation);
+            if (!failed)
+            {
+                failed = !tests.complete(std::move(result), correlation);
+            }
             result = {};
         }
         failed = requests.failed() || failed;
+        if (failed) connection.close_all();
+        if (!tests.pending() && !requests.pending())
+        {
+            for (auto closing = connection.next_closing(); closing.value; closing = connection.next_closing())
+            {
+                if (!connection.quiesce(closing)) break;
+            }
+        }
         if ((context.exit_requested() || failed) && !requests.jobs_pending() && (failed || (!requests.pending() && !tests.pending())))
         {
             break;
         }
-        if (!progressed)
+        if (!progressed && !connection.needs_progress())
         {
+            if (tests.can_read() && connection.has_data())
+            {
+                continue;
+            }
             if (context.exit_requested())
-            {   //  Remain visibly Exiting while queued/running jobs drain.
+            {
+                //  Remain visibly Exiting while queued/running jobs drain.
                 (void)resources.wait_predicate.wait_until_not_equal(resources.parking_ticket, epoch);
             }
             else
@@ -121,6 +172,8 @@ static std::uint32_t MV_STD_ABI_CALL thread_entry(void* const user_data) noexcep
     }
 
     context.mark_exiting();
+    connection.close_all();
+    connection.progress();
     basis_codec::shutdown();
     if (failed)
     {

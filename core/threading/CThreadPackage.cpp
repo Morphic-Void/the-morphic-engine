@@ -148,7 +148,10 @@ bool CThreadPackage::install_batch_client(SBatchShared& shared, const module_ids
 
 bool CThreadPackage::install_host_execution(modules::SHostExecutionContext& view, CNotification& notification) noexcept
 {
-    if (m_resources.created || m_host_execution || !view.restriction.is_valid() || !view.subscription.value) return false;
+    if (m_resources.created || m_host_execution || !view.restriction.is_valid() || !view.subscription.value)
+    {
+        return false;
+    }
     m_host_execution = &view;
     m_host_notification = &notification;
     return true;
@@ -169,11 +172,20 @@ bool CThreadPackage::retire_host_execution() noexcept
     MV_ASSERT(!m_resources.created || m_resources.control_state.is_done());
     //  A terminal publication precedes the native return. Keep the context and
     //  predicate pin until join proves even that final execution has finished.
-    if (m_resources.created && (!m_resources.control_state.is_done() || !join_execution())) return false;
+    if (m_resources.created && (!m_resources.control_state.is_done() || !join_execution()))
+    {
+        return false;
+    }
     unpin_notification();
     m_host_pinned = false;
     m_resources.host_execution = nullptr;
     return true;
+}
+
+bool CThreadPackage::join_terminated_execution() noexcept
+{
+    if (!m_resources.thread.is_valid()) return true;
+    return m_resources.control_state.is_done() && join_execution();
 }
 
 bool CThreadPackage::shutdown() noexcept
@@ -221,7 +233,10 @@ CThreadPackage::~CThreadPackage() noexcept
 bool CThreadPackage::pin_notification(CNotification& notification) noexcept
 {
     if (!m_resources.created || (m_notification_pins == ~0u) ||
-        !notification.initialise(m_resources.wait_predicate)) return false;
+        !notification.initialise(m_resources.wait_predicate))
+    {
+        return false;
+    }
     ++m_notification_pins;
     return true;
 }

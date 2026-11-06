@@ -27,6 +27,7 @@
 #include "runtime/module_service.hpp"
 #include "runtime/pumped_client.hpp"
 #include "runtime/host_maintenance.hpp"
+#include "runtime/direct_connections.hpp"
 #include "runtime/worker_policy.hpp"
 #include "containers/TInstance.hpp"
 #include "containers/TUnorderedCollection.hpp"
@@ -76,6 +77,7 @@ private:
     [[nodiscard]] bool start_executive() noexcept;
     [[nodiscard]] bool start_module_thread() noexcept;
     [[nodiscard]] bool register_module_client() noexcept;
+    void receive_startup_message(SClientRecord& client) noexcept;
     void start_pending_module() noexcept;
     void pump_clients() noexcept;
     void drain_pumped_client(CPumpedClient& pump, SClientRecord& client) noexcept;
@@ -84,9 +86,6 @@ private:
     [[nodiscard]] bool stop_module_thread(const mount_point_ids::id_type mount) noexcept;
     void receive_request(threading::CErasedOwnerMsg& message, SClientRecord& executive) noexcept;
     void receive_message(const threading::CErasedPodMsg& message, SClientRecord& client) noexcept;
-    void request_tests(const modules::RunTestsRequest& request, const std::int32_t slot, SClientRecord& client) noexcept;
-    void complete_tests(const threading::CErasedPodMsg& message, SClientRecord& worker) noexcept;
-    void finish_tests(const modules::RunTestsResult& result) noexcept;
     void request_refresh(threading::CErasedOwnerMsg& message, SClientRecord& executive) noexcept;
     void dispatch_refresh() noexcept;
     void complete_scan(threading::CErasedOwnerMsg& message) noexcept;
@@ -112,10 +111,6 @@ private:
 
     TUnorderedCollection<threading::CThreadPackage> m_thread_packages;
     CAssetService m_asset_service;
-    //  One module test run at a time; both packages remain live until completion.
-    SClientRecord* m_test_client{ nullptr };
-    SClientRecord* m_test_worker{ nullptr };
-    std::int32_t m_test_slot{ -1 };
     CBatchPool m_batch_pool;
     filesystem_image::CImage m_filesystem;
     struct SRefresh
@@ -152,6 +147,7 @@ private:
     TInstance<CPumpedClient> m_pumps[module_ids::k_count];
     CServiceRouter m_service_router;
     CHostMaintenance m_maintenance;
+    CDirectConnections m_direct_connections;
     std::uint64_t m_next_client{ 1u };
     bool m_retain_runtime{ false };
     bool m_emergency_shutdown{ false };

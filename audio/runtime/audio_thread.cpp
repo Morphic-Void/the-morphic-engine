@@ -8,6 +8,8 @@
 //
 //  The service owns all device operations; idle loading never opens a device.
 
+#include "framework/communications/module_tests.hpp"
+#include "framework/communications/direct_client.hpp"
 #include "module/module_messages.hpp"
 #include "threading/messages/message_helpers.hpp"
 #include "audio_thread.hpp"
@@ -17,74 +19,169 @@
 namespace audio
 {
 
-static bool report(threading::CThreadContext& context, const std::int32_t correlation, const modules::ETestRunStatus status) noexcept
+static modules::RunTestsResult report(const modules::ETestRunStatus status) noexcept
 {
     modules::RunTestsResult result{ module_ids::audio, status };
-    if (status == modules::ETestRunStatus::success) result.passed = 1u;
-    else if ((status == modules::ETestRunStatus::unavailable) || (status == modules::ETestRunStatus::cancelled)) result.skipped = 1u;
-    else if (status == modules::ETestRunStatus::failed) result.failed = 1u;
-    return context.post(threading::make_pod_message(correlation, result));
+    if (status == modules::ETestRunStatus::success)
+    {
+        result.passed = 1u;
+    }
+    else if ((status == modules::ETestRunStatus::unavailable) || (status == modules::ETestRunStatus::cancelled))
+    {
+        result.skipped = 1u;
+    }
+    else if (status == modules::ETestRunStatus::failed)
+    {
+        result.failed = 1u;
+    }
+    return result;
 }
 
 std::uint32_t serve_audio(threading::CThreadResources& resources, IAudioOutput& output) noexcept
 {
     threading::CThreadContext context{ resources };
     context.startup();
+    connections::CClient connection{ context, module_ids::audio,
+        modules::test_connections::policies, modules::test_connections::policy_count };
     CAudioRun run{ output };
     std::int32_t correlation = threading::k_uncorrelated_slot;
+    connections::SToken conversation, rejected_connection;
+    threading::CErasedPodMsg rejected_reply;
     bool pending = false;
+    bool rejected = false;
     bool failed = false;
+    bool reported = false;
+    if (!connection.register_service())
+    {
+        context.mark_failed(1u);
+        return 1u;
+    }
     context.mark_running();
     MV_LOG(info, "Audio: Running (device closed)");
     for (;;)
     {
         const auto epoch = resources.wait_predicate.get_word();
+        connection.clear_notifications();
         context.advance_heartbeat();
+        bool progressed = false;
+        threading::CErasedPodMsg message;
+        for (unsigned count = 0u; (count < 32u) && context.read(message); ++count)
+        {
+            progressed = true;
+            if (!connection.handle(message)) failed = true;
+        }
+        connection.progress();
         const bool exiting = context.exit_requested();
-        if (exiting) run.cancel();
+        if (exiting || failed || connection.failed() || (pending && !connection.active(conversation)))
+        {
+            if (exiting || failed || connection.failed())
+            {
+                connection.close_all();
+            }
+            run.cancel();
+            pending = false;
+        }
         else run.check();
 
         if (pending && !run.active())
         {
             const auto status = run.result();
-            MV_LOG(info, "Audio: Test complete after cleanup (status {})", static_cast<unsigned>(status));
-            failed = !report(context, correlation, status) || failed;
-            pending = false;
+            if (!reported)
+            {
+                MV_LOG(info, "Audio: Test complete after cleanup (status {})", static_cast<unsigned>(status));
+            }
+            reported = true;
+            const auto posted = connection.post(conversation, threading::make_pod_message(correlation, report(status)));
+            if (posted != connections::EPost::full)
+            {
+                pending = false;
+                progressed = true;
+            }
+            if (posted == connections::EPost::invalid_message)
+            {
+                failed = true;
+            }
         }
-
-        //  Bound each drain so message storms cannot starve progress/deadlines.
-        threading::CErasedPodMsg message;
-        bool read_any = false;
-        for (unsigned count = 0u; count < 32u && context.read(message); ++count)
+        if (rejected)
         {
-            read_any = true;
+            const auto posted = connection.post(rejected_connection, rejected_reply);
+            if (posted != connections::EPost::full)
+            {
+                rejected = false;
+                progressed = true;
+            }
+            if (posted == connections::EPost::invalid_message)
+            {
+                failed = true;
+            }
+        }
+        const auto token = connection.active(module_ids::executive);
+        //  One retained rejection bounds local work when the result queue is full.
+        for (unsigned count = 0u; (count < 32u) && !rejected && token.value && !exiting && !failed; ++count)
+        {
+            const auto read = connection.read(token, message);
+            if (!connections::was_read(read)) break;
+            progressed = true;
+            if (!connection.active(token)) break;
             modules::RunTestsRequest request;
             const auto slot = message.query_async_slot();
-            if (!message.copy_payload_to(request)) { failed = true; break; }
+            if (!message.copy_payload_to(request))
+            {
+                failed = true;
+                break;
+            }
             modules::ETestRunStatus rejection = modules::ETestRunStatus::invalid_request;
             if ((request.module == module_ids::audio) && (slot >= 0))
             {
-                if (context.exit_requested() || failed) rejection = modules::ETestRunStatus::cancelled;
-                else if (pending) rejection = modules::ETestRunStatus::busy;
+                if (context.exit_requested() || failed)
+                {
+                    rejection = modules::ETestRunStatus::cancelled;
+                }
+                else if (pending)
+                {
+                    rejection = modules::ETestRunStatus::busy;
+                }
                 else
                 {
                     correlation = slot;
+                    conversation = token;
                     pending = true;
+                    reported = false;
                     run.begin();
                     continue;
                 }
             }
-            failed = !report(context, slot, rejection) || failed;
+            rejected_connection = token;
+            rejected_reply = threading::make_pod_message(slot, report(rejection));
+            rejected = true;
         }
-        if (failed || exiting) break;
-        if (read_any) continue;
+        for (auto closing = connection.next_closing(); closing.value; closing = connection.next_closing())
+        {
+            if ((pending && (conversation.value == closing.value)) || (rejected && (rejected_connection.value == closing.value)))
+            {
+                break;
+            }
+            if (!connection.quiesce(closing)) break;
+        }
+        failed = failed || connection.failed();
+        if (failed || exiting)
+        {
+            break;
+        }
+        if (progressed || connection.needs_progress())
+        {
+            continue;
+        }
+        if (!rejected && connection.has_data())
+        {
+            continue;
+        }
         if (run.active())
         {
             const auto result = context.wait_for_new_epoch(epoch, run.next_wait());
             if ((result.status != threading::EWaitStatus::satisfied) && (result.status != threading::EWaitStatus::timed_out))
             {
                 run.wait_failed(result);
-                failed = !report(context, correlation, run.result());
                 pending = false;
 
                 //  Control release/unsupported timing cannot safely serve more work.
@@ -92,7 +189,7 @@ std::uint32_t serve_audio(threading::CThreadResources& resources, IAudioOutput& 
                 break;
             }
         }
-        else if (!pending)
+        else
         {
             if (context.wait_for_new_epoch(epoch) == ~std::uint32_t{ 0u })
             {
@@ -102,8 +199,9 @@ std::uint32_t serve_audio(threading::CThreadResources& resources, IAudioOutput& 
         }
     }
     context.mark_exiting();
+    connection.close_all();
     run.cancel();
-    if (pending) failed = !report(context, correlation, run.result()) || failed;
+    connection.progress();
     if (failed)
     {
         context.mark_failed(1u);

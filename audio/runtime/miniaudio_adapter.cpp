@@ -8,6 +8,7 @@
 //
 //  Pinned miniaudio implementation, compiled once into Audio only.
 
+#include "framework/communications/module_tests.hpp"
 #include "module/module_messages.hpp"
 #include "miniaudio_adapter.hpp"
 #include "vendor_allocator.hpp"
@@ -43,55 +44,64 @@ struct CMiniaudioOutput::SState
     std::atomic<std::uint32_t> terminal_notification{ 0u };
     void* probe_allocation{ nullptr };
 
-    static void* allocate(std::size_t bytes, void* context) noexcept
+    static void* allocate(const std::size_t bytes, void* const context) noexcept
     {
         auto& state = *static_cast<SState*>(context);
         void* result = vendor_allocate(bytes, state.memory);
-        if (!result && bytes != 0u) state.allocation_failed.store(1u, std::memory_order_release);
+        if (!result && (bytes != 0u))
+        {
+            state.allocation_failed.store(1u, std::memory_order_release);
+        }
         return result;
     }
-    static void* reallocate(void* block, std::size_t bytes, void* context) noexcept
+    static void* reallocate(void* const block, const std::size_t bytes, void* const context) noexcept
     {
         auto& state = *static_cast<SState*>(context);
         void* result = vendor_reallocate(block, bytes, state.memory);
-        if (!result && bytes != 0u) state.allocation_failed.store(1u, std::memory_order_release);
+        if (!result && (bytes != 0u))
+        {
+            state.allocation_failed.store(1u, std::memory_order_release);
+        }
         return result;
     }
-    static void free(void* block, void* context) noexcept
+    static void free(void* const block, void* const context) noexcept
     {
         vendor_free(block, static_cast<SState*>(context)->memory);
     }
 
     //  Device-free backend used only by the private acquisition-failure tests.
     //  Production leaves this callback unset and uses the native backend order.
-    static ma_result cleanup_guard_uninit(ma_context* context) noexcept
+    static ma_result cleanup_guard_uninit(ma_context* const context) noexcept
     {
         auto& state = *static_cast<SState*>(context->pUserData);
         ma_free(state.probe_allocation, &context->allocationCallbacks);
         state.probe_allocation = nullptr;
         return MA_SUCCESS;
     }
-    static ma_result cleanup_guard(ma_context* context, const ma_context_config*, ma_backend_callbacks* callbacks) noexcept
+    static ma_result cleanup_guard(ma_context* const context, const ma_context_config* const, ma_backend_callbacks* const callbacks) noexcept
     {
         auto& state = *static_cast<SState*>(context->pUserData);
         state.probe_allocation = ma_malloc(32u, &context->allocationCallbacks);
-        if (!state.probe_allocation) return MA_OUT_OF_MEMORY;
+        if (!state.probe_allocation)
+        {
+            return MA_OUT_OF_MEMORY;
+        }
         callbacks->onContextUninit = &cleanup_guard_uninit;
         return MA_SUCCESS;
     }
 
-    static void data(ma_device* device, void* output, const void*, ma_uint32 frames) noexcept
+    static void data(ma_device* const device, void* const output, const void* const, const ma_uint32 frames) noexcept
     {
         static_cast<SState*>(device->pUserData)->tone.fill(static_cast<float*>(output), frames);
     }
-    static void notification(const ma_device_notification* notice) noexcept
+    static void notification(const ma_device_notification* const notice) noexcept
     {
         auto& state = *static_cast<SState*>(notice->pDevice->pUserData);
         if ((notice->type == ma_device_notification_type_interruption_began) ||
             (notice->type == ma_device_notification_type_rerouted) ||
             ((notice->type == ma_device_notification_type_stopped) && (state.stopping.load(std::memory_order_acquire) == 0u)))
         {
-            state.terminal_notification.store(static_cast<std::uint32_t>(notice->type) + 1u, std::memory_order_release);
+            state.terminal_notification.store((static_cast<std::uint32_t>(notice->type) + 1u), std::memory_order_release);
             state.tone.interrupt();
         }
     }
@@ -106,16 +116,25 @@ modules::ETestRunStatus CMiniaudioOutput::open() noexcept
 
 modules::ETestRunStatus CMiniaudioOutput::open(const bool cleanup_guard_only, SContextProbe* const probe) noexcept
 {
-    if (m_state != nullptr) return modules::ETestRunStatus::failed;
+    if (m_state != nullptr)
+    {
+        return modules::ETestRunStatus::failed;
+    }
     void* storage = m_memory.allocate(alignof(SState), sizeof(SState));
-    if (storage == nullptr) return modules::ETestRunStatus::failed;
+    if (storage == nullptr)
+    {
+        return modules::ETestRunStatus::failed;
+    }
     m_state = ::new (storage) SState{};
     m_state->memory = &m_memory;
     m_state->context_lifetime.probe = probe;
     auto config = ma_context_config_init();
     config.pUserData = m_state;
     config.allocationCallbacks = { m_state, &SState::allocate, &SState::reallocate, &SState::free };
-    if (ma_log_init(&config.allocationCallbacks, &m_state->log) != MA_SUCCESS) return modules::ETestRunStatus::failed;
+    if (ma_log_init(&config.allocationCallbacks, &m_state->log) != MA_SUCCESS)
+    {
+        return modules::ETestRunStatus::failed;
+    }
     m_state->log_ready = true;
     config.pLog = &m_state->log;
     config.custom.onContextInit = cleanup_guard_only ? &SState::cleanup_guard : nullptr;
@@ -123,7 +142,7 @@ modules::ETestRunStatus CMiniaudioOutput::open(const bool cleanup_guard_only, SC
     //  log uses these allocation callbacks; no engine log hook runs
     //  on a vendor thread. Native OS/driver allocations retain native ownership.
     const ma_backend guard = ma_backend_custom;
-    ma_result result = initialise_context(cleanup_guard_only ? &guard : nullptr, cleanup_guard_only ? 1u : 0u,
+    ma_result result = initialise_context((cleanup_guard_only ? &guard : nullptr), (cleanup_guard_only ? 1u : 0u),
         &config, &m_state->context, m_state->context_lifetime);
     if (result != MA_SUCCESS)
     {
@@ -162,7 +181,10 @@ modules::ETestRunStatus CMiniaudioOutput::open(const bool cleanup_guard_only, SC
             modules::ETestRunStatus::unavailable : modules::ETestRunStatus::failed;
     }
     m_state->device_ready = true;
-    if (!m_state->tone.reset(m_state->device.sampleRate)) return modules::ETestRunStatus::failed;
+    if (!m_state->tone.reset(m_state->device.sampleRate))
+    {
+        return modules::ETestRunStatus::failed;
+    }
     MV_LOG_RICH(info, "Audio: Real backend %s, output %s, callback rate %u", ma_get_backend_name(m_state->context.backend),
         m_state->device.playback.name, m_state->device.sampleRate);
     return modules::ETestRunStatus::success;
@@ -172,7 +194,10 @@ bool CMiniaudioOutput::start() noexcept
 {
     const ma_result result = ma_device_start(&m_state->device);
     m_state->started = (result == MA_SUCCESS);
-    if (!m_state->started) MV_LOG(error, "Audio: Device start failed ({})", static_cast<int>(result));
+    if (!m_state->started)
+    {
+        MV_LOG(error, "Audio: Device start failed ({})", static_cast<int>(result));
+    }
     return m_state->started;
 }
 
@@ -188,7 +213,10 @@ bool CMiniaudioOutput::close() noexcept
         {
             const ma_result result = ma_device_stop(&m_state->device);
             success = result == MA_SUCCESS;
-            if (!success) MV_LOG(error, "Audio: Device stop failed ({})", static_cast<int>(result));
+            if (!success)
+            {
+                MV_LOG(error, "Audio: Device stop failed ({})", static_cast<int>(result));
+            }
         }
         //  uninit joins vendor execution even when start/stop failed.
         ma_device_uninit(&m_state->device);
@@ -208,7 +236,7 @@ bool CMiniaudioOutput::close() noexcept
     const auto terminal = m_state->terminal_notification.load(std::memory_order_acquire);
     if (terminal != 0u)
     {
-        MV_LOG(error, "Audio: Unexpected device notification ({})", terminal - 1u);
+        MV_LOG(error, "Audio: Unexpected device notification ({})", (terminal - 1u));
         success = false;
     }
     m_state->~SState();

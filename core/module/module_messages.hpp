@@ -6,7 +6,7 @@
 //  Authors: Ritchie Brannan / OpenAI Codex
 //  Date:    03 Nov 26
 //
-//  Module lifecycle and test service messages.
+//  Module lifecycle messages.
 
 #pragma once
 
@@ -17,19 +17,6 @@
 
 namespace modules
 {
-
-//  The destination owns test selection, execution and diagnostics. Completion
-//  follows all accepted work and fixture cleanup.
-enum class ETestRunStatus : std::uint8_t { success = 0, failed, busy, unavailable, invalid_request, cancelled, delivery_failed };
-struct RunTestsRequest { module_ids::id_type module{}; };
-struct RunTestsResult
-{
-    module_ids::id_type module{};
-    ETestRunStatus status{ ETestRunStatus::invalid_request };
-    std::uint32_t passed{ 0u };
-    std::uint32_t failed{ 0u };
-    std::uint32_t skipped{ 0u };
-};
 
 //==============================================================================
 //  Module lifecycle: owning client requests and correlated notifications
@@ -76,8 +63,6 @@ struct ModuleResult
 
 }   //  namespace modules
 
-MV_REGISTER_SYSTEM_TYPE(modules::RunTestsRequest, system_type_ids::run_tests_request);
-MV_REGISTER_SYSTEM_TYPE(modules::RunTestsResult, system_type_ids::run_tests_result);
 MV_REGISTER_SYSTEM_TYPE(modules::ModuleRequest, system_type_ids::module_request);
 MV_REGISTER_SYSTEM_TYPE(modules::ModuleResult, system_type_ids::module_result);
 

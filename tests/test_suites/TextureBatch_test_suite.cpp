@@ -10,8 +10,10 @@
 //  Drive the real rendering DLL with a controlled batch queue. Holding a
 //  dequeued item makes discard and exit ordering deterministic.
 
+#include "framework/communications/module_tests.hpp"
 #include "module/module_messages.hpp"
 #include <atomic>
+#include <cstdlib>
 #include <cstring>
 #include <type_traits>
 
@@ -28,6 +30,7 @@
 #include "tests/environment/test_paths.hpp"
 #include "tests/support/test_context.hpp"
 #include "tests/support/thread_helpers.hpp"
+#include "tests/support/direct_connection_fixture.hpp"
 #include "tests/test_suites/TextureBatch_test_suite.hpp"
 #include "threading/CThreadPackage.hpp"
 #include "types/fp16data_t.hpp"
@@ -46,13 +49,22 @@ struct SRealFixture
     TInstance<debug_system::CDebugServiceState> debug_service;
     modules::CBoundModule module;
     threading::SBatchShared shared;
+    tests::SDirectHostFixture direct;
     TInstance<threading::CThreadPackage> package;
+    TInstance<host::SClientRecord> client;
+    TInstance<tests::SDirectPeerFixture> executive;
+    connections::SToken connection;
+    threading::CErasedPodMsg host_message;
+    bool host_pending{ false };
     threading::SBatchWork held;
     platform::threading::FThreadEntry entry{ nullptr };
 
     ~SRealFixture() noexcept
     {
-        stop();
+        if (!stop())
+        {
+            std::abort();
+        } // Preserve native borrowers until process exit on failed teardown.
         if (debug_service) (void)debug_service->stop();
         (void)module.unbind();
         shared.wake.release_control();
@@ -64,7 +76,10 @@ struct SRealFixture
             module_ids::executable, { modules::k_binding_abi_major, 0u },
             modules::k_binding_abi_major, modules::k_binding_abi_major };
         debug_service = TInstance<debug_system::CDebugServiceState>::create();
-        if (!debug_service || !conversion.init() || !shared.wake.acquire_control()) return false;
+        if (!debug_service || !conversion.init() || !shared.wake.acquire_control())
+        {
+            return false;
+        }
         const std::string log = test_environment::test_log_path("texture_batch");
         const std::string direct_log = test_environment::test_log_path("texture_batch_direct");
         const std::string filename = test_environment::binary_path(test_environment::module_filename("MorphicRendering").c_str());
@@ -88,8 +103,57 @@ struct SRealFixture
         shared.runner_count = queued ? 1u : 0u;
         const threading::ThreadConfig config{ thread_ids::rendering, module_ids::rendering,
             platform::threading::EThreadPriority::Normal, entry, (&modules::CBoundModule::prepare_thread), (&module) };
-        return package.emplace(config, conversion) &&
-            package->install_batch_client(shared, module_ids::rendering, (&module)) && package->startup();
+        if (!package.emplace(config, conversion) || !client.emplace(module_ids::rendering, 101u, &*package) ||
+            !direct.attach(*client) || !client->install_host_execution(direct.restrictions.reader()) ||
+            !executive.emplace(direct, conversion, module_ids::executive, 102u,
+                modules::test_connections::policies, modules::test_connections::policy_count) || !executive->ready ||
+            !package->install_batch_client(shared, module_ids::rendering, (&module)) || !package->startup())
+        {
+            return false;
+        }
+        if (!tests::wait_until(conversion, [&]
+        {
+            pump();
+            return client->direct_connections == host::EDirectConnectionState::available;
+        }))
+        {
+            return false;
+        }
+        if (!executive->client.open(module_ids::rendering, modules::test_connections::version, 100))
+        {
+            return false;
+        }
+        connections::Result result;
+        std::int32_t slot = -1;
+        if (!tests::wait_until(conversion, [&]
+        {
+            pump();
+            return executive->client.take_result(result, slot);
+        }) ||
+            (result.status != connections::EStatus::success) || (slot != 100))
+        {
+            return false;
+        }
+        connection = result.token;
+        return true;
+    }
+
+    void pump() noexcept
+    {
+        if (client && !host_pending)
+        {
+            host_pending = direct.read_other(*client, host_message);
+        }
+        direct.progress();
+        if (executive) executive->pump();
+        direct.progress();
+    }
+    bool read_host(threading::CErasedPodMsg& message) noexcept
+    {
+        pump();
+        if (!host_pending) return false;
+        message = host_message; host_pending = false;
+        return true;
     }
 
     bool acquire() noexcept
@@ -109,26 +173,72 @@ struct SRealFixture
         return delivered;
     }
 
-    void stop() noexcept
+    bool stop() noexcept
     {
-        if (!package) return;
+        if (!package) return true;
+        if (client)
+        {
+            direct.connections.close_client(*client);
+        }
         package->request_exit();
         //  Also release work held when a preceding assertion could not proceed.
         if (held.requester != nullptr)
         {
             (void)complete(threading::EBatchCompletion::discarded_requester_exiting);
         }
-        (void)tests::wait_until(conversion, [this]() noexcept
+        const bool stopped = tests::wait_until(conversion, [this]() noexcept
         {
-            while (acquire()) (void)complete(threading::EBatchCompletion::discarded_requester_exiting);
+            while (acquire())
+            {
+                (void)complete(threading::EBatchCompletion::discarded_requester_exiting);
+            }
+            if (client)
+            {
+                client->terminal_before_drain = client->terminal();
+            }
+            pump();
             const threading::EThreadRunState state = package->query_state();
-            return (state == threading::EThreadRunState::Exited) || (state == threading::EThreadRunState::Failed);
+            if ((state != threading::EThreadRunState::Exited) && (state != threading::EThreadRunState::Failed) &&
+                (state != threading::EThreadRunState::Empty))
+            {
+                return false;
+            }
+            threading::CErasedOwnerMsg response;
+            while (package->read(response)) response = {};
+            if (client)
+            {
+                client->incoming_drained = client->terminal_before_drain && !host_pending;
+            }
+            direct.progress();
+            return direct.connections.empty() && !host_pending && (!client || client->execution_quiescent());
         });
+        if (!stopped || direct.failed)
+        {
+            return false;
+        }
         //  Transport owners must be destroyed before unbinding the real DLL.
         threading::CErasedOwnerMsg response;
         while (package->read(response)) response = {};
-        (void)package->shutdown();
+        pump();
+        if (client && !client->retire_host_execution(false))
+        {
+            return false;
+        }
+        if (!package->shutdown() && package->retains_execution())
+        {
+            return false;
+        }
+        if (client && !direct.detach(*client))
+        {
+            return false;
+        }
+        if (executive && !executive->shutdown())
+        {
+            return false;
+        }
+        executive.reset(); client.reset();
         package.reset();
+        return true;
     }
 
 
@@ -137,7 +247,13 @@ struct SRealFixture
 struct SStopRealRendering
 {
     SRealFixture& fixture;
-    ~SStopRealRendering() noexcept { fixture.stop(); }
+    ~SStopRealRendering() noexcept
+    {
+        if (!fixture.stop())
+        {
+            std::abort();
+        }
+    }
 };
 
 static void test_module_test_protocol(tests::TTestContext& ctx, SRealFixture& fixture)
@@ -148,17 +264,21 @@ static void test_module_test_protocol(tests::TTestContext& ctx, SRealFixture& fi
     if (!started) return;
     auto send = [&fixture](const std::int32_t slot, const module_ids::id_type module) noexcept
     {
-        return fixture.package->post(threading::make_pod_message(slot, modules::RunTestsRequest{ module }));
+        return fixture.executive->client.post(fixture.connection,
+            threading::make_pod_message(slot, modules::RunTestsRequest{ module })) == connections::EPost::queued;
     };
     auto receive = [&fixture](threading::CErasedPodMsg& message) noexcept
     {
-        return tests::wait_until(fixture.conversion, [&]() noexcept { return fixture.package->read(message); });
+        return tests::wait_until(fixture.conversion, [&]() noexcept {
+            fixture.pump();
+            return connections::was_read(fixture.executive->client.read(fixture.connection, message));
+        });
     };
     threading::CErasedPodMsg reply;
     modules::RunTestsResult result;
     TEST_EXPECT(ctx, send(80, module_ids::executive));
-    TEST_EXPECT(ctx, receive(reply) && reply.copy_payload_to(result));
-    TEST_EXPECT(ctx, reply.query_async_slot() == 80 && result.status == modules::ETestRunStatus::invalid_request);
+    TEST_EXPECT(ctx, (receive(reply) && reply.copy_payload_to(result)));
+    TEST_EXPECT(ctx, ((reply.query_async_slot() == 80) && (result.status == modules::ETestRunStatus::invalid_request)));
 
     // Test callers may use the full positive correlation range; resource
     // acquisition replies are distinguished by type, not the caller's slot.
@@ -166,52 +286,61 @@ static void test_module_test_protocol(tests::TTestContext& ctx, SRealFixture& fi
     constexpr std::int32_t busy_slot = INT32_MAX - 1;
     TEST_EXPECT(ctx, send(run_slot, module_ids::rendering));
     threading::CErasedOwnerMsg input;
-    TEST_EXPECT(ctx, tests::wait_until(fixture.conversion, [&]() noexcept { return fixture.package->read(input); }));
+    TEST_EXPECT(ctx, tests::wait_until(fixture.conversion, [&]() noexcept
+    {
+        fixture.pump();
+        return fixture.package->read(input);
+    }));
     TEST_EXPECT(ctx, input.is_message_a<RawAssetTransfer>());
     TEST_EXPECT(ctx, send(busy_slot, module_ids::rendering));
-    TEST_EXPECT(ctx, receive(reply) && reply.copy_payload_to(result));
-    TEST_EXPECT(ctx, reply.query_async_slot() == busy_slot && result.status == modules::ETestRunStatus::busy);
+    TEST_EXPECT(ctx, (receive(reply) && reply.copy_payload_to(result)));
+    TEST_EXPECT(ctx, ((reply.query_async_slot() == busy_slot) && (result.status == modules::ETestRunStatus::busy)));
 
     //  Failed setup reports a terminal result and permits another run.
     AssetResult failed;
     failed.status = EAssetStatus::allocation_failed;
     TEST_EXPECT(ctx, fixture.package->post(threading::make_pod_message(input.query_async_slot(), failed)));
     input = {};
-    TEST_EXPECT(ctx, receive(reply) && reply.copy_payload_to(result));
-    TEST_EXPECT(ctx, reply.query_async_slot() == run_slot && result.status == modules::ETestRunStatus::failed &&
-        result.passed == 0u && result.failed == 0u && result.skipped == 23u);
+    TEST_EXPECT(ctx, (receive(reply) && reply.copy_payload_to(result)));
+    TEST_EXPECT(ctx, ((reply.query_async_slot() == run_slot) && (result.status == modules::ETestRunStatus::failed) &&
+        (result.passed == 0u) && (result.failed == 0u) && (result.skipped == 23u)));
 
     TEST_EXPECT(ctx, send(83, module_ids::rendering));
-    TEST_EXPECT(ctx, tests::wait_until(fixture.conversion, [&]() noexcept { return fixture.package->read(input); }));
+    TEST_EXPECT(ctx, tests::wait_until(fixture.conversion, [&]() noexcept
+    {
+        fixture.pump();
+        return fixture.package->read(input);
+    }));
+    fixture.direct.connections.close_client(*fixture.client);
     fixture.package->request_exit();
     TEST_EXPECT(ctx, tests::wait_until(fixture.conversion, [&]() noexcept
     {
+        fixture.pump();
         return fixture.package->query_state() == threading::EThreadRunState::Exiting;
     }));
     host::CAssetService service;
-    host::SClientRecord client{ module_ids::rendering, 1u, &*fixture.package };
+    auto& client = *fixture.client;
     TEST_EXPECT(ctx, service.initialise());
     //  The fixture reply arrives after exit. Rendering must release the new
-    //  retained asset and wait for disposal before completing and terminating.
+    //  retained asset and wait for disposal before quiescence and termination.
     service.request(input, client);
-    TEST_EXPECT(ctx, receive(reply));
+    TEST_EXPECT(ctx, tests::wait_until(fixture.conversion, [&] { return fixture.read_host(reply); }));
     AssetDisposeRequest disposal;
-    TEST_EXPECT(ctx, reply.copy_payload_to(disposal) && disposal.asset);
+    TEST_EXPECT(ctx, (reply.copy_payload_to(disposal) && disposal.asset));
     threading::CErasedPodMsg premature;
-    TEST_EXPECT(ctx, !fixture.package->read(premature));
-    TEST_EXPECT(ctx, fixture.package->query_state() == threading::EThreadRunState::Exiting);
+    TEST_EXPECT(ctx, (!fixture.read_host(premature) && !fixture.direct.connections.empty()));
+    TEST_EXPECT(ctx, (fixture.package->query_state() == threading::EThreadRunState::Exiting));
     service.request_disposal(disposal, reply.query_async_slot(), client);
     service.complete_disposals();
-    TEST_EXPECT(ctx, receive(reply) && reply.copy_payload_to(result));
-    TEST_EXPECT(ctx, reply.query_async_slot() == 83 && result.module == module_ids::rendering &&
-        result.status == modules::ETestRunStatus::cancelled && result.passed == 0u && result.failed == 0u && result.skipped == 23u);
-    TEST_EXPECT(ctx, service.is_idle() && !service.failed());
+    TEST_EXPECT(ctx, (service.is_idle() && !service.failed()));
     service.deallocate();
     TEST_EXPECT(ctx, tests::wait_until(fixture.conversion, [&]() noexcept
     {
-        return fixture.package->query_state() == threading::EThreadRunState::Exited;
+        fixture.pump();
+        return (fixture.package->query_state() == threading::EThreadRunState::Exited) && fixture.direct.connections.empty();
     }));
-    fixture.stop();
+    TEST_EXPECT(ctx, !connections::was_read(fixture.executive->client.read(fixture.connection, premature)));
+    TEST_EXPECT(ctx, fixture.stop());
     TEST_EXPECT(ctx, test_environment::rendering_memory_context()->is_attribution_empty());
 }
 
@@ -228,7 +357,10 @@ static void test_jobs(tests::TTestContext& ctx, SFixture& fixture)
     const bool allocated = input.input.allocate(16u, 4u, 16u);
     TEST_EXPECT(ctx, allocated);
     if (!allocated) return;
-    for (std::uint32_t y = 0u; y < 4u; ++y) std::memset(input.input.row_data(y), 255, 16u);
+    for (std::uint32_t y = 0u; y < 4u; ++y)
+    {
+        std::memset(input.input.row_data(y), 255, 16u);
+    }
     const TextureEncodeWork encode{ &input };
     using threading::EBatchCompletion;
     for (const bool queued : { false, true })
@@ -250,7 +382,10 @@ static void test_jobs(tests::TTestContext& ctx, SFixture& fixture)
             const TextureEncodeResult* const source = encoded.payload<TextureEncodeResult>();
             TEST_EXPECT(ctx, ((source != nullptr) && (source->status == ETextureStatus::success) &&
                 source->texture.view().is_ready()));
-            if ((source == nullptr) || (source->status != ETextureStatus::success)) return;
+            if ((source == nullptr) || (source->status != ETextureStatus::success))
+            {
+                return;
+            }
             const CByteConstView bytes = source->texture.buffer.const_view();
             TextureDecodeRequest request;
             const TextureDecodeWork decode{ (&request), (&bytes) };
@@ -327,7 +462,9 @@ struct SConcurrentJobs
         for (SWorker& worker : workers)
         {
             if (worker.work.requester != nullptr)
+            {
                 (void)complete(worker, threading::EBatchCompletion::discarded_requester_exiting);
+            }
         }
     }
 
@@ -338,8 +475,14 @@ struct SConcurrentJobs
         worker.prepared = worker.group->fixture.module.prepare_batch_thread(
             worker.identity, worker.work.memory_context);
         worker.group->entered.fetch_add(1u, std::memory_order_release);
-        while (!worker.group->release.load(std::memory_order_acquire)) platform::threading::processor_relax();
-        if (worker.prepared) worker.work.function(worker.work.object);
+        while (!worker.group->release.load(std::memory_order_acquire))
+        {
+            platform::threading::processor_relax();
+        }
+        if (worker.prepared)
+        {
+            worker.work.function(worker.work.object);
+        }
         return worker.prepared ? 0u : 1u;
     }
 
@@ -347,7 +490,10 @@ struct SConcurrentJobs
     {
         for (SWorker& worker : workers)
         {
-            if (!tests::wait_until(fixture.conversion, [this]() noexcept { return fixture.acquire(); })) return false;
+            if (!tests::wait_until(fixture.conversion, [this]() noexcept { return fixture.acquire(); }))
+            {
+                return false;
+            }
             worker.work = fixture.held;
             fixture.held = {};
             worker.group = this;
@@ -361,7 +507,10 @@ struct SConcurrentJobs
         {
             workers[index].identity = thread_ids::ops::make_id(thread_ids::ops::make_index(
                 thread_ids::batch_runner_00_index.raw_value() + index));
-            if (!workers[index].thread.create((&run), (&workers[index]))) return false;
+            if (!workers[index].thread.create((&run), (&workers[index])))
+            {
+                return false;
+            }
         }
         return tests::wait_until(fixture.conversion, [this, count]() noexcept
         {
@@ -374,7 +523,10 @@ struct SConcurrentJobs
         release.store(true, std::memory_order_release);
         for (SWorker& worker : workers)
         {
-            if (worker.thread.is_valid()) (void)worker.thread.join_and_close();
+            if (worker.thread.is_valid())
+            {
+                (void)worker.thread.join_and_close();
+            }
         }
     }
 

@@ -22,6 +22,9 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\platform\window.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\communications\direct_connection.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\communications\direct_client.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\communications\module_tests.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\framework\platform\window_state.hpp" />
   </ItemGroup>
 </Project>

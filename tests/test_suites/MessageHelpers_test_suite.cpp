@@ -9,6 +9,7 @@
 //
 //  Functional message helpers and the actual Executive preparation boundary.
 
+#include "framework/communications/module_tests.hpp"
 #include "filesystem/filesystem_messages.hpp"
 #include "module/module_messages.hpp"
 #include "tests/environment/test_paths.hpp"
@@ -37,7 +38,7 @@ struct SAllocator
     std::uint32_t allocations{}, releases{};
 };
 
-static void* MV_STD_ABI_CALL allocate(void* state, const std::size_t alignment, const std::size_t bytes) noexcept
+static void* MV_STD_ABI_CALL allocate(void* const state, const std::size_t alignment, const std::size_t bytes) noexcept
 {
     auto& allocator = *static_cast<SAllocator*>(state);
     if (allocator.remaining == 0) return nullptr;
@@ -47,7 +48,7 @@ static void* MV_STD_ABI_CALL allocate(void* state, const std::size_t alignment, 
     return result;
 }
 
-static bool MV_STD_ABI_CALL release(void* state, const std::size_t alignment, void* pointer) noexcept
+static bool MV_STD_ABI_CALL release(void* const state, const std::size_t alignment, void* const pointer) noexcept
 {
     ++static_cast<SAllocator*>(state)->releases;
     return tests::deallocate_test_memory(nullptr, alignment, pointer);
@@ -64,7 +65,7 @@ static void test_pair(TTestContext& ctx, SAllocator& allocator)
     static_assert(std::is_same_v<typename TMessagePayload<TMessage>::type, TPayload>);
     CErasedOwnerMsg message = make_owner_message<TMessage>(47);
     auto* const payload = message.owner().template payload<TPayload>();
-    TEST_EXPECT(ctx, payload != nullptr);
+    TEST_EXPECT(ctx, (payload != nullptr));
     message.owner().add_hazard(mount_point_ids::executive);
     const auto hazards = message.owner().hazard_mask();
     const auto* const memory = message.owner().memory_context();
@@ -72,29 +73,29 @@ static void test_pair(TTestContext& ctx, SAllocator& allocator)
     const CErasedOwnerMsg& immutable = message;
     const auto read_only = inspect_owner_message<TMessage>(immutable);
     static_assert(std::is_same_v<decltype(read_only.payload), const TPayload*>);
-    TEST_EXPECT(ctx, inspected.state == EOwnerMessageState::present && inspected.payload == payload);
-    TEST_EXPECT(ctx, read_only.state == EOwnerMessageState::present && read_only.payload == payload);
-    TEST_EXPECT(ctx, message.query_async_slot() == 47 && message.owner().memory_context() == memory);
-    TEST_EXPECT(ctx, message.owner().hazard_mask() == hazards);
+    TEST_EXPECT(ctx, ((inspected.state == EOwnerMessageState::present) && (inspected.payload == payload)));
+    TEST_EXPECT(ctx, ((read_only.state == EOwnerMessageState::present) && (read_only.payload == payload)));
+    TEST_EXPECT(ctx, ((message.query_async_slot() == 47) && (message.owner().memory_context() == memory)));
+    TEST_EXPECT(ctx, (message.owner().hazard_mask() == hazards));
 
     message.set_message_type<TOtherMessage>();
-    TEST_EXPECT(ctx, inspect_owner_message<TMessage>(message).state == EOwnerMessageState::invalid);
+    TEST_EXPECT(ctx, (inspect_owner_message<TMessage>(message).state == EOwnerMessageState::invalid));
     message.set_message_type<TMessage>();
     message.set_owner(CErasedOwner::create<BundleLoadRequest>());
     const auto wrong = inspect_owner_message<TMessage>(message);
-    TEST_EXPECT(ctx, wrong.state == EOwnerMessageState::invalid && wrong.payload == nullptr);
-    TEST_EXPECT(ctx, message.owner().payload<BundleLoadRequest>() != nullptr);
+    TEST_EXPECT(ctx, ((wrong.state == EOwnerMessageState::invalid) && (wrong.payload == nullptr)));
+    TEST_EXPECT(ctx, (message.owner().payload<BundleLoadRequest>() != nullptr));
     message = {};
 
     allocator.remaining = 0;
     message = make_owner_message<TMessage>(-17);
     allocator.remaining = -1;
-    TEST_EXPECT(ctx, message.is_message_a<TMessage>() && message.query_async_slot() == -17);
+    TEST_EXPECT(ctx, (message.is_message_a<TMessage>() && (message.query_async_slot() == -17)));
     TEST_EXPECT(ctx, !message.has_owner());
     const auto empty = inspect_owner_message<TMessage>(message);
-    TEST_EXPECT(ctx, empty.state == EOwnerMessageState::empty && empty.payload == nullptr);
+    TEST_EXPECT(ctx, ((empty.state == EOwnerMessageState::empty) && (empty.payload == nullptr)));
     message.set_message_type<TOtherMessage>();
-    TEST_EXPECT(ctx, inspect_owner_message<TMessage>(message).state == EOwnerMessageState::invalid);
+    TEST_EXPECT(ctx, (inspect_owner_message<TMessage>(message).state == EOwnerMessageState::invalid));
 }
 
 static void test_helpers(TTestContext& ctx, SAllocator& allocator)
@@ -103,9 +104,9 @@ static void test_helpers(TTestContext& ctx, SAllocator& allocator)
     static_assert(!TCanInspect<CErasedOwnerMsg&&>::value && !TCanInspect<const CErasedOwnerMsg&&>::value);
     const auto pod = make_pod_message(31, FileSaveResult{ true });
     FileSaveResult result{};
-    TEST_EXPECT(ctx, pod.copy_payload_to(result) && result.success && pod.query_async_slot() == 31);
+    TEST_EXPECT(ctx, (pod.copy_payload_to(result) && result.success && (pod.query_async_slot() == 31)));
     const auto notice = make_pod_message(k_uncorrelated_slot, BundleDisposedNotification{});
-    TEST_EXPECT(ctx, notice.is_payload_a<BundleDisposedNotification>() && notice.query_async_slot() == -1);
+    TEST_EXPECT(ctx, (notice.is_payload_a<BundleDisposedNotification>() && (notice.query_async_slot() == -1)));
     test_pair<AssetLoadRequest, AssetLoadRequest>(ctx, allocator);
     //  Shared storage must not make the two completion protocols interchangeable.
     test_pair<FileLoadResult, ByteStorage, TgaEncodeResult>(ctx, allocator);
@@ -113,7 +114,7 @@ static void test_helpers(TTestContext& ctx, SAllocator& allocator)
     test_pair<TgaDecodeResult, DecodedTga>(ctx, allocator);
 }
 
-static void test_preparation_failure(TTestContext& ctx, SAllocator& allocator, memory::CMemoryContext& memory)
+static void test_preparation_failure(TTestContext& ctx, SAllocator& allocator, const memory::CMemoryContext& memory)
 {
     tests::TAssertionTestScope assertions{ ctx };
     CErasedOwnerMsg pending;
@@ -122,14 +123,14 @@ static void test_preparation_failure(TTestContext& ctx, SAllocator& allocator, m
     assertions.expect_unconditional_assertion(ctx, [&] {
         TEST_EXPECT(ctx, !prepare_load_request(pending, 99, EAssetFileFormat::raw, "test-output:/file"));
     });
-    TEST_EXPECT(ctx, pending.is_message_a<AssetLoadRequest>() && pending.query_async_slot() == 75 && !pending.has_owner());
+    TEST_EXPECT(ctx, (pending.is_message_a<AssetLoadRequest>() && (pending.query_async_slot() == 75) && !pending.has_owner()));
     pending = {};
     pending.set_owner(CErasedOwner::create<RawAssetTransfer>());
     auto* const occupied = pending.owner().payload<RawAssetTransfer>();
     assertions.expect_unconditional_assertion(ctx, [&] {
         TEST_EXPECT(ctx, !prepare_save_request(pending, 99, {}, "test-output:/file", {}));
     });
-    TEST_EXPECT(ctx, !pending.has_message_type() && pending.owner().payload<RawAssetTransfer>() == occupied);
+    TEST_EXPECT(ctx, (!pending.has_message_type() && (pending.owner().payload<RawAssetTransfer>() == occupied)));
     pending = {};
 
     // Owner allocation, then filename allocation: fail each real preparation step.
@@ -140,8 +141,8 @@ static void test_preparation_failure(TTestContext& ctx, SAllocator& allocator, m
         allocator.remaining = allowed;
         TEST_EXPECT(ctx, !prepare_load_request(pending, 23, EAssetFileFormat::json, "test-output:/preparation-failure.json"));
         allocator.remaining = -1;
-        TEST_EXPECT(ctx, !pending.has_message_type() && !pending.has_owner() && pending.query_async_slot() == 91);
-        TEST_EXPECT(ctx, memory.get_live_allocation_count() == before);
+        TEST_EXPECT(ctx, (!pending.has_message_type() && !pending.has_owner() && (pending.query_async_slot() == 91)));
+        TEST_EXPECT(ctx, (memory.get_live_allocation_count() == before));
     }
 
     // The second path must also fail atomically after the first path was prepared.
@@ -151,8 +152,8 @@ static void test_preparation_failure(TTestContext& ctx, SAllocator& allocator, m
         allocator.remaining = allowed;
         TEST_EXPECT(ctx, !prepare_bundle_load_request(pending, 23, "source:/preparation-failure.bdl", "bundle:"));
         allocator.remaining = -1;
-        TEST_EXPECT(ctx, !pending.has_message_type() && !pending.has_owner() && pending.query_async_slot() == 91);
-        TEST_EXPECT(ctx, memory.get_live_allocation_count() == before);
+        TEST_EXPECT(ctx, (!pending.has_message_type() && !pending.has_owner() && (pending.query_async_slot() == 91)));
+        TEST_EXPECT(ctx, (memory.get_live_allocation_count() == before));
     }
 
     CByteBuffer source;
@@ -165,17 +166,17 @@ static void test_preparation_failure(TTestContext& ctx, SAllocator& allocator, m
         TEST_EXPECT(ctx, !prepare_asset_transfer(pending, 24, source, EAssetRetention::source, true,
             "test-output:/transfer-failure.raw", {}));
         allocator.remaining = -1;
-        TEST_EXPECT(ctx, source.data() == bytes && bytes[0] == 0x5a);
-        TEST_EXPECT(ctx, !pending.has_message_type() && !pending.has_owner() && pending.query_async_slot() == 91);
+        TEST_EXPECT(ctx, ((source.data() == bytes) && (bytes[0] == 0x5a)));
+        TEST_EXPECT(ctx, (!pending.has_message_type() && !pending.has_owner() && (pending.query_async_slot() == 91)));
     }
     TEST_EXPECT(ctx, prepare_asset_transfer(pending, 24, source, EAssetRetention::source, true, "test-output:/transfer.raw", {}));
     TEST_EXPECT(ctx, !source.is_ready());
-    TEST_EXPECT(ctx, pending.owner().payload<RawAssetTransfer>()->storage.value.data() == bytes);
+    TEST_EXPECT(ctx, (pending.owner().payload<RawAssetTransfer>()->storage.value.data() == bytes));
     const auto before = allocator.releases;
     pending = {};
-    TEST_EXPECT(ctx, allocator.releases == before + 3u); // Carrier, filename, source buffer; one release each.
+    TEST_EXPECT(ctx, (allocator.releases == (before + 3u))); // Carrier, filename, source buffer; one release each.
     pending = {};
-    TEST_EXPECT(ctx, allocator.releases == before + 3u);
+    TEST_EXPECT(ctx, (allocator.releases == (before + 3u)));
 }
 
 static void test_request_fields(TTestContext& ctx)
@@ -183,36 +184,36 @@ static void test_request_fields(TTestContext& ctx)
     CErasedOwnerMsg pending;
     TEST_EXPECT(ctx, prepare_load_request(pending, 10, EAssetFileFormat::tga, "source:/image.tga", {}, false));
     const auto* load = pending.owner().payload<AssetLoadRequest>();
-    TEST_EXPECT(ctx, load && load->alignment == 32u && !load->decode_top_down && load->format == EAssetFileFormat::tga);
+    TEST_EXPECT(ctx, (load && (load->alignment == 32u) && !load->decode_top_down && (load->format == EAssetFileFormat::tga)));
     pending = {};
     AssetSaveSettings settings;
     settings.format = EAssetFileFormat::json;
     TEST_EXPECT(ctx, prepare_save_request(pending, 11, {}, "output:/saved.json", settings));
-    TEST_EXPECT(ctx, pending.owner().payload<AssetSaveRequest>()->settings.format == EAssetFileFormat::json);
+    TEST_EXPECT(ctx, (pending.owner().payload<AssetSaveRequest>()->settings.format == EAssetFileFormat::json));
     pending = {};
     TEST_EXPECT(ctx, prepare_module_request(pending, 12, module_ids::rendering, modules::EModuleAction::load, test_environment::module_filename("package:/bin/MorphicRendering").c_str()));
-    TEST_EXPECT(ctx, pending.owner().payload<modules::ModuleRequest>()->module == module_ids::rendering);
+    TEST_EXPECT(ctx, (pending.owner().payload<modules::ModuleRequest>()->module == module_ids::rendering));
     pending = {};
     TEST_EXPECT(ctx, prepare_module_request(pending, k_uncorrelated_slot, module_ids::executive, modules::EModuleAction::unload));
-    TEST_EXPECT(ctx, pending.owner().payload<modules::ModuleRequest>()->file.length() == 0u && pending.query_async_slot() == -1);
+    TEST_EXPECT(ctx, ((pending.owner().payload<modules::ModuleRequest>()->file.length() == 0u) && (pending.query_async_slot() == -1)));
     pending = {};
     TEST_EXPECT(ctx, prepare_filesystem_request(pending, 13, "source:"));
-    TEST_EXPECT(ctx, std::strcmp(pending.owner().payload<filesystem::FilesystemRefreshRequest>()->root.cstring(), "source:") == 0);
+    TEST_EXPECT(ctx, (std::strcmp(pending.owner().payload<filesystem::FilesystemRefreshRequest>()->root.cstring(), "source:") == 0));
     pending = {};
     TEST_EXPECT(ctx, prepare_bundle_load_request(pending, 14, "source:/bundle.bdl", "bundle:"));
-    TEST_EXPECT(ctx, std::strcmp(pending.owner().payload<BundleLoadRequest>()->paths.root.cstring(), "bundle:") == 0);
+    TEST_EXPECT(ctx, (std::strcmp(pending.owner().payload<BundleLoadRequest>()->paths.root.cstring(), "bundle:") == 0));
     pending = {};
     TEST_EXPECT(ctx, prepare_bundle_bake_request(pending, 15, "source:", "baked:"));
-    TEST_EXPECT(ctx, pending.owner().payload<BundleBakeRequest>()->paths.subdirectory.length() == 0u);
+    TEST_EXPECT(ctx, (pending.owner().payload<BundleBakeRequest>()->paths.subdirectory.length() == 0u));
     const auto tests = make_pod_message(16, modules::RunTestsRequest{ module_ids::rendering });
     modules::RunTestsRequest request;
-    TEST_EXPECT(ctx, tests.copy_payload_to(request) && request.module == module_ids::rendering && tests.query_async_slot() == 16);
+    TEST_EXPECT(ctx, (tests.copy_payload_to(request) && (request.module == module_ids::rendering) && (tests.query_async_slot() == 16)));
     const auto completion = make_pod_message(16, modules::RunTestsResult{ module_ids::rendering, modules::ETestRunStatus::success, 4u, 0u, 2u });
     modules::RunTestsResult result;
-    TEST_EXPECT(ctx, completion.copy_payload_to(result) && result.passed == 4u && result.failed == 0u && result.skipped == 2u);
+    TEST_EXPECT(ctx, (completion.copy_payload_to(result) && (result.passed == 4u) && (result.failed == 0u) && (result.skipped == 2u)));
 }
 
-static void test_prepared_post(TTestContext& ctx, memory::CMemoryAllocator& allocator, memory::CMemoryContext& source)
+static void test_prepared_post(TTestContext& ctx, memory::CMemoryAllocator& allocator, const memory::CMemoryContext& source)
 {
     memory::CMemoryContext channel(allocator, system_ids::host);
     transports::CErasedOwnerMsgTransport transport(module_ids::executable, &channel);
@@ -231,18 +232,18 @@ static void test_prepared_post(TTestContext& ctx, memory::CMemoryAllocator& allo
     const auto count = source.get_live_allocation_count();
     const auto size = source.get_live_allocated_bytes();
     TEST_EXPECT(ctx, !transport.post(std::move(pending)));
-    TEST_EXPECT(ctx, pending.is_message_a<AssetLoadRequest>() && pending.query_async_slot() == 81);
-    TEST_EXPECT(ctx, pending.owner().payload<AssetLoadRequest>() == payload && pending.owner().memory_context() == &source);
-    TEST_EXPECT(ctx, pending.owner().hazard_mask() == hazards);
-    TEST_EXPECT(ctx, std::strcmp(payload->file.cstring(), "source:/retained.raw") == 0);
-    TEST_EXPECT(ctx, source.get_live_allocation_count() == count && source.get_live_allocated_bytes() == size);
+    TEST_EXPECT(ctx, (pending.is_message_a<AssetLoadRequest>() && (pending.query_async_slot() == 81)));
+    TEST_EXPECT(ctx, ((pending.owner().payload<AssetLoadRequest>() == payload) && (pending.owner().memory_context() == &source)));
+    TEST_EXPECT(ctx, (pending.owner().hazard_mask() == hazards));
+    TEST_EXPECT(ctx, (std::strcmp(payload->file.cstring(), "source:/retained.raw") == 0));
+    TEST_EXPECT(ctx, ((source.get_live_allocation_count() == count) && (source.get_live_allocated_bytes() == size)));
     CErasedOwnerMsg received;
     while (transport.read(received)) {}
     TEST_EXPECT(ctx, transport.post(std::move(pending)));
-    TEST_EXPECT(ctx, !pending.has_message_type() && !pending.has_owner() && pending.query_async_slot() == 0);
+    TEST_EXPECT(ctx, (!pending.has_message_type() && !pending.has_owner() && (pending.query_async_slot() == 0)));
     TEST_EXPECT(ctx, transport.read(received));
-    TEST_EXPECT(ctx, received.owner().payload<AssetLoadRequest>() == payload && received.query_async_slot() == 81);
-    TEST_EXPECT(ctx, received.owner().memory_context() == &channel && received.owner().hazard_mask() == hazards);
+    TEST_EXPECT(ctx, ((received.owner().payload<AssetLoadRequest>() == payload) && (received.query_async_slot() == 81)));
+    TEST_EXPECT(ctx, ((received.owner().memory_context() == &channel) && (received.owner().hazard_mask() == hazards)));
     received = {};
     TEST_EXPECT(ctx, !transport.read(received)); // Exactly one submitted request.
 
@@ -262,15 +263,15 @@ static void test_prepared_post(TTestContext& ctx, memory::CMemoryAllocator& allo
     pending.owner().add_hazard(mount_point_ids::executive);
     const auto transfer_hazards = pending.owner().hazard_mask();
     TEST_EXPECT(ctx, !transport.post(std::move(pending)));
-    TEST_EXPECT(ctx, pending.owner().payload<RawAssetTransfer>() == transfer && pending.query_async_slot() == 82);
-    TEST_EXPECT(ctx, transfer->storage.value.data() == bytes && bytes[0] == 0x5a);
-    TEST_EXPECT(ctx, pending.owner().memory_context() == &source && pending.owner().hazard_mask() == transfer_hazards);
+    TEST_EXPECT(ctx, ((pending.owner().payload<RawAssetTransfer>() == transfer) && (pending.query_async_slot() == 82)));
+    TEST_EXPECT(ctx, ((transfer->storage.value.data() == bytes) && (bytes[0] == 0x5a)));
+    TEST_EXPECT(ctx, ((pending.owner().memory_context() == &source) && (pending.owner().hazard_mask() == transfer_hazards)));
     while (transport.read(received)) {}
     TEST_EXPECT(ctx, transport.post(std::move(pending)));
-    TEST_EXPECT(ctx, !pending.has_message_type() && !pending.has_owner());
+    TEST_EXPECT(ctx, (!pending.has_message_type() && !pending.has_owner()));
     TEST_EXPECT(ctx, transport.read(received));
-    TEST_EXPECT(ctx, received.owner().payload<RawAssetTransfer>() == transfer && transfer->storage.value.data() == bytes);
-    TEST_EXPECT(ctx, received.owner().memory_context() == &channel && received.owner().hazard_mask() == transfer_hazards);
+    TEST_EXPECT(ctx, ((received.owner().payload<RawAssetTransfer>() == transfer) && (transfer->storage.value.data() == bytes)));
+    TEST_EXPECT(ctx, ((received.owner().memory_context() == &channel) && (received.owner().hazard_mask() == transfer_hazards)));
     received = {};
     TEST_EXPECT(ctx, !transport.read(received));
     transport.deallocate();
@@ -292,6 +293,6 @@ int run_message_helpers_tests()
     test_preparation_failure(ctx, state, context);
     test_request_fields(ctx);
     test_prepared_post(ctx, allocator, context);
-    TEST_EXPECT(ctx, context.is_attribution_empty() && state.allocations == state.releases);
+    TEST_EXPECT(ctx, (context.is_attribution_empty() && (state.allocations == state.releases)));
     return ctx.report("MessageHelpers");
 }

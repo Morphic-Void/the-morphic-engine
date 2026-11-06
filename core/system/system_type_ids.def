@@ -45,4 +45,16 @@
     type_macro(service_borrow_control) \
     type_macro(service_request_cancelled) \
     type_macro(register_service_notification) \
-    type_macro(service_notification_registered)
+    type_macro(service_notification_registered) \
+    type_macro(direct_register) \
+    type_macro(direct_request) \
+    type_macro(direct_offer) \
+    type_macro(direct_decision) \
+    type_macro(direct_install) \
+    type_macro(direct_ready) \
+    type_macro(direct_activate) \
+    type_macro(direct_close) \
+    type_macro(direct_closing) \
+    type_macro(direct_quiescent) \
+    type_macro(direct_retired) \
+    type_macro(direct_result)

@@ -52,7 +52,10 @@ const threading::CErasedPodMsg* CPumpedClient::peek_pod(const bool control) noex
 {
     auto& pending = control ? m_pending_control : m_pending_pod;
     auto& ready = control ? m_has_pending_control : m_has_pending_pod;
-    if (!ready) ready = (control ? m_controls : m_pods).read(pending);
+    if (!ready)
+    {
+        ready = (control ? m_controls : m_pods).read(pending);
+    }
     return ready ? &pending : nullptr;
 }
 
@@ -104,7 +107,10 @@ void CPumpedClient::observe(const modules::ECallStatus status, const modules::SP
     {
         m_failed = true;
         m_client.stop_requested = true;
-        if (!m_stop_begun) m_stop_reason = modules::EStopReason::pump_failure;
+        if (!m_stop_begun)
+        {
+            m_stop_reason = modules::EStopReason::pump_failure;
+        }
         m_client.phase = EClientPhase::stopping;
         return;
     }
@@ -121,7 +127,10 @@ void CPumpedClient::observe(const modules::ECallStatus status, const modules::SP
         m_client.phase = EClientPhase::stopped;
         m_router.stop_provider(m_client, true);
     }
-    else if (progress.phase == EPumpPhase::ready) m_client.phase = EClientPhase::ready;
+    else if (progress.phase == EPumpPhase::ready)
+    {
+        m_client.phase = EClientPhase::ready;
+    }
     else if (progress.phase == EPumpPhase::stopping)
     {
         m_client.phase = EClientPhase::stopping;
@@ -173,7 +182,10 @@ void CPumpedClient::request_stop(const modules::EStopReason reason) noexcept
 
 void CPumpedClient::pump() noexcept
 {
-    if (!m_activated || stopped() || m_retained || m_deactivated) return;
+    if (!m_activated || stopped() || m_retained || m_deactivated)
+    {
+        return;
+    }
     if (m_client.phase == EClientPhase::starting)
     {
         const auto budget = m_activation_budget.observe();
@@ -210,7 +222,10 @@ void CPumpedClient::pump() noexcept
     leave();
     const bool valid = (result.consumed_messages <= input.message_count) &&
         m_router.finish_batch(m_client, commands, input.command_count, result.consumed_commands);
-    if (valid) m_client.consume_messages(result.consumed_messages, controls);
+    if (valid)
+    {
+        m_client.consume_messages(result.consumed_messages, controls);
+    }
     else
     {
         //  An invalid prefix cannot authorise dropping or replaying messages.
@@ -220,14 +235,17 @@ void CPumpedClient::pump() noexcept
         m_failed = true;
         request_stop(modules::EStopReason::pump_failure);
     }
-    observe(valid ? status : modules::ECallStatus::failed, result.progress);
+    observe((valid ? status : modules::ECallStatus::failed), result.progress);
     finish_frame();
 }
 
 bool CPumpedClient::deactivate() noexcept
 {
     if (m_deactivated) return true;
-    if (!stopped() || m_retained || !m_router.provider_borrows_retired(m_client) || !enter(false)) return false;
+    if (!stopped() || m_retained || !m_router.provider_borrows_retired(m_client) || !enter(false))
+    {
+        return false;
+    }
     const auto status = m_capability.deactivate(m_runtime);
     leave();
     finish_frame();
@@ -246,9 +264,15 @@ services::EServiceStatus MV_STD_ABI_CALL CPumpedClient::post_pod(void* const con
 {
     auto* const self = static_cast<CPumpedClient*>(context);
     if ((self == nullptr) || (t_invocation != self) || (message == nullptr) ||
-        !system_message(message->query_message_type_id())) return services::EServiceStatus::invalid_request;
-    if (self->m_client.terminal()) return services::EServiceStatus::closing;
-    auto& queue = (message->is_payload_a<AssetReleaseRequest>() || message->is_payload_a<modules::RunTestsResult>() ||
+        !system_message(message->query_message_type_id()))
+    {
+        return services::EServiceStatus::invalid_request;
+    }
+    if (self->m_client.terminal())
+    {
+        return services::EServiceStatus::closing;
+    }
+    auto& queue = (message->is_payload_a<AssetReleaseRequest>() ||
         message->is_payload_a<services::ReleaseServiceBorrow>() || message->is_payload_a<services::ServiceBorrowQuiescent>() ||
         message->is_payload_a<services::CancelServiceRequest>()) ?
         self->m_controls : self->m_pods;
@@ -258,7 +282,10 @@ services::EServiceStatus MV_STD_ABI_CALL CPumpedClient::post_pod(void* const con
 modules::SRestrictionEnterResult MV_STD_ABI_CALL CPumpedClient::enter_restriction(void* const context, const modules::SRestrictionReason reason) noexcept
 {
     auto* const self = static_cast<CPumpedClient*>(context);
-    if (!self || (t_invocation != self) || self->m_maintenance.running()) return {};
+    if (!self || (t_invocation != self) || self->m_maintenance.running())
+    {
+        return {};
+    }
     self->m_maintenance.poll_stop();
     //  Accounting remains available to authenticated stopping invocations for
     //  native cleanup. Scope entry does not reopen ordinary work admission.
@@ -268,14 +295,20 @@ modules::SRestrictionEnterResult MV_STD_ABI_CALL CPumpedClient::enter_restrictio
 modules::ERestrictionStatus MV_STD_ABI_CALL CPumpedClient::leave_restriction(void* const context, const modules::SRestrictionScope scope) noexcept
 {
     auto* const self = static_cast<CPumpedClient*>(context);
-    if (!self || (t_invocation != self) || self->m_maintenance.running()) return modules::ERestrictionStatus::invalid_context;
+    if (!self || (t_invocation != self) || self->m_maintenance.running())
+    {
+        return modules::ERestrictionStatus::invalid_context;
+    }
     return self->m_maintenance.restrictions().leave(scope);
 }
 
 modules::SHostMaintenanceResult MV_STD_ABI_CALL CPumpedClient::maintain_host(void* const context) noexcept
 {
     auto* const self = static_cast<CPumpedClient*>(context);
-    if (!self || (t_invocation != self)) return {};
+    if (!self || (t_invocation != self))
+    {
+        return {};
+    }
     return self->m_maintenance.run();
 }
 
@@ -284,15 +317,24 @@ services::EServiceStatus MV_STD_ABI_CALL CPumpedClient::post_owner(void* const c
     auto* const self = static_cast<CPumpedClient*>(context);
     if ((self == nullptr) || (t_invocation != self) || (message == nullptr) ||
         !system_message(message->query_message_type_id()) ||
-        (message->has_owner() && !system_message(message->query_owner_type_id()))) return services::EServiceStatus::invalid_request;
-    if (self->m_client.terminal()) return services::EServiceStatus::closing;
+        (message->has_owner() && !system_message(message->query_owner_type_id())))
+    {
+        return services::EServiceStatus::invalid_request;
+    }
+    if (self->m_client.terminal())
+    {
+        return services::EServiceStatus::closing;
+    }
     return self->m_owners.post(std::move(*message)) ? services::EServiceStatus::success : services::EServiceStatus::busy;
 }
 
 services::EServiceStatus MV_STD_ABI_CALL CPumpedClient::complete(void* const context, const services::ServiceReply* const reply) noexcept
 {
     auto* const self = static_cast<CPumpedClient*>(context);
-    if ((self == nullptr) || (t_invocation != self) || (reply == nullptr)) return services::EServiceStatus::invalid_request;
+    if ((self == nullptr) || (t_invocation != self) || (reply == nullptr))
+    {
+        return services::EServiceStatus::invalid_request;
+    }
     return self->m_router.complete(self->m_client, *reply);
 }
 
@@ -302,21 +344,29 @@ services::EServiceStatus MV_STD_ABI_CALL CPumpedClient::prepare_borrow(void* con
     auto* const self = static_cast<CPumpedClient*>(context);
     if (borrow != nullptr) *borrow = {};
     if ((self == nullptr) || (t_invocation != self) || (offer == nullptr) || (borrow == nullptr))
+    {
         return services::EServiceStatus::invalid_request;
+    }
     return self->m_router.prepare_borrow(self->m_client, *offer, *borrow);
 }
 
 services::EServiceStatus MV_STD_ABI_CALL CPumpedClient::begin_borrow_retirement(void* const context, const services::SServiceBorrow borrow) noexcept
 {
     auto* const self = static_cast<CPumpedClient*>(context);
-    if ((self == nullptr) || (t_invocation != self)) return services::EServiceStatus::invalid_request;
+    if ((self == nullptr) || (t_invocation != self))
+    {
+        return services::EServiceStatus::invalid_request;
+    }
     return self->m_router.begin_borrow_retirement(self->m_client, borrow);
 }
 
 services::EServiceStatus MV_STD_ABI_CALL CPumpedClient::finish_borrow_retirement(void* const context, const services::SServiceBorrow borrow) noexcept
 {
     auto* const self = static_cast<CPumpedClient*>(context);
-    if ((self == nullptr) || (t_invocation != self)) return services::EServiceStatus::invalid_request;
+    if ((self == nullptr) || (t_invocation != self))
+    {
+        return services::EServiceStatus::invalid_request;
+    }
     return self->m_router.finish_borrow_retirement(self->m_client, borrow);
 }
 
@@ -326,7 +376,10 @@ services::EServiceStatus MV_STD_ABI_CALL CPumpedClient::bind_borrow_notification
 {
     auto* const self = static_cast<CPumpedClient*>(context);
     if (endpoint) *endpoint = {};
-    if (!self || (t_invocation != self) || !endpoint) return services::EServiceStatus::invalid_request;
+    if (!self || (t_invocation != self) || !endpoint)
+    {
+        return services::EServiceStatus::invalid_request;
+    }
     return self->m_router.bind_borrow_notification(self->m_client, borrow, registration, *endpoint);
 }
 

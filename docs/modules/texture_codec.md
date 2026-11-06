@@ -78,15 +78,15 @@ have drained. Module unload observes the same batch-return lifetime boundary.
 
 ## Acceptance coverage
 
-Executive sends a generic `RunTestsRequest` naming the selected Rendering module.
-Host routes that request and its correlated `RunTestsResult`, which reports overall
+Executive sends `RunTestsRequest` over its negotiated direct connection to Rendering.
+The correlated `RunTestsResult` reports overall
 status and passed/failed/skipped counts. Rendering owns test selection, fixture
 preparation, sequencing, assertions and cleanup in `texture_flow_tests.cpp`.
-Host finds the destination among registered module service threads by module
-identity; background I/O/conditioning workers are not test destinations. One
-run is active at a time, with both caller and worker protected from teardown.
-Terminal failure follows the actual worker's state after draining its final
-messages, including when Executive is the worker and Rendering is the caller.
+Host manages connection lifetime without forwarding test payloads. Rendering
+admits one run at a time. Normal runs complete before the connection closes;
+unload, replacement and shutdown cancel unfinished conversations and wait for
+dependent asset and batch cleanup before endpoint quiescence. Host retains
+abandoned endpoints until final queue drain and native join are proven.
 The runner disposes every retained fixture and result before reporting completion.
 The runner calls Rendering-local services. Host retains only generic fixture and
 encoded-container bytes; decoded textures remain owned within Rendering.
@@ -114,7 +114,7 @@ discard, exit draining, output ownership, empty Rendering memory attribution and
 128 queued requests plus inline saturation. Shader cases retain compiler/report
 coverage and concurrent group lifetime checks against the generic Host boundary.
 Typed services run inside the test binary because their contracts are local to
-Rendering. A separate real-DLL test drives generic `RunTestsRequest`, including
+Rendering. A real Rendering-thread fixture drives direct `RunTestsRequest`, including
 busy rejection, cancellation, setup failure and cleanup. Host process harnesses
 verify real module transport and inline/batch execution attribution.
 

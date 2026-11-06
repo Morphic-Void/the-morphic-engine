@@ -33,12 +33,15 @@ namespace tests
 struct TAllocationGate
 {
     bool allow_allocations = true;
+    std::uint32_t calls = 0u;
+    std::uint32_t fail_call = 0u;
 };
 
 static void* MV_STD_ABI_CALL allocate_test_memory(void* const context, const std::size_t alignment, const std::size_t bytes) noexcept
 {
-    const TAllocationGate* const gate = static_cast<const TAllocationGate*>(context);
-    if ((gate != nullptr) && !gate->allow_allocations)
+    auto* const gate = static_cast<TAllocationGate*>(context);
+    if (gate != nullptr) ++gate->calls;
+    if ((gate != nullptr) && (!gate->allow_allocations || (gate->calls == gate->fail_call)))
     {
         return nullptr;
     }
@@ -46,7 +49,7 @@ static void* MV_STD_ABI_CALL allocate_test_memory(void* const context, const std
     return ::operator new(bytes, std::align_val_t{ effective_alignment }, std::nothrow);
 }
 
-static bool MV_STD_ABI_CALL deallocate_test_memory(void*, const std::size_t alignment, void* const ptr) noexcept
+static bool MV_STD_ABI_CALL deallocate_test_memory(void* const, const std::size_t alignment, void* const ptr) noexcept
 {
     const std::size_t effective_alignment = (alignment < alignof(void*)) ? alignof(void*) : alignment;
     ::operator delete(ptr, std::align_val_t{ effective_alignment });
@@ -69,7 +72,7 @@ std::string drain_queue(TQueue& queue)
         const std::size_t old_size = result.size();
         result.resize(old_size + static_cast<std::size_t>(available));
 
-        if (!queue.read(result.data() + old_size, available))
+        if (!queue.read((result.data() + old_size), available))
         {
             return {};
         }
@@ -196,7 +199,7 @@ void test_queue_respects_byte_ceiling(TTestContext& ctx)
 
     if (max_elements < std::numeric_limits<std::uint32_t>::max())
     {
-        TEST_EXPECT_FALSE(ctx, queue.initialise_fixed(max_elements + 1u, false));
+        TEST_EXPECT_FALSE(ctx, queue.initialise_fixed((max_elements + 1u), false));
         TEST_EXPECT_FALSE(ctx, queue.posting_is_ready());
         TEST_EXPECT_FALSE(ctx, queue.reading_is_ready());
         TEST_EXPECT_TRUE(ctx, queue.validate());
@@ -291,6 +294,69 @@ void test_queue_fixed_no_discard_rejects_overflow(TTestContext& ctx)
     TEST_EXPECT_TRUE(ctx, queue.validate());
 
     TEST_EXPECT_EQ(ctx, drain_queue(queue), make_repeated_string('A', 24u));
+}
+
+void test_queue_capacity_recovery(TTestContext& ctx)
+{
+    for (const bool growable : { false, true })
+    {
+        TQueue<char> queue;
+        TEST_EXPECT_TRUE(ctx, (growable ? queue.initialise_growable(32u, 64u) : queue.initialise_fixed(64u)));
+        for (unsigned cycle = 0u; cycle < 4u; ++cycle)
+        {
+            TEST_EXPECT_TRUE(ctx, post_string(queue, make_repeated_string('A', 64u)));
+            TEST_EXPECT_FALSE(ctx, queue.post('X'));
+            char first = '\0';
+            TEST_EXPECT_TRUE(ctx, queue.read(first));
+            TEST_EXPECT_EQ(ctx, first, 'A');
+            //  The consumer still owns the first batch while the next is posted.
+            TEST_EXPECT_TRUE(ctx, post_string(queue, make_repeated_string('B', 64u)));
+            TEST_EXPECT_FALSE(ctx, queue.post('X'));
+            TEST_EXPECT_EQ(ctx, drain_queue(queue), (make_repeated_string('A', 63u) + make_repeated_string('B', 64u)));
+            TEST_EXPECT_TRUE(ctx, queue.validate());
+        }
+    }
+}
+
+void test_queue_failure_after_publication(TTestContext& ctx)
+{
+    TAllocationGate gate;
+    memory::CMemoryAllocator allocator(&gate, allocate_test_memory, deallocate_test_memory, system_ids::host);
+    memory::CMemoryContext context(allocator, system_ids::host);
+    TQueue<char> queue(&context);
+    TEST_EXPECT_TRUE(ctx, queue.initialise_growable(32u, 128u));
+    TEST_EXPECT_TRUE(ctx, post_string(queue, make_repeated_string('A', 24u)));
+    //  Output growth succeeds; the staged-buffer allocation after publication fails.
+    gate.fail_call = gate.calls + 2u;
+    TEST_EXPECT_FALSE(ctx, post_string(queue, make_repeated_string('B', 16u)));
+    TEST_EXPECT_TRUE(ctx, queue.posting_poisoned());
+    TEST_EXPECT_FALSE(ctx, queue.post('C'));
+    TEST_EXPECT_EQ(ctx, drain_queue(queue), (make_repeated_string('A', 24u) + make_repeated_string('B', 16u)));
+}
+
+void test_queue_locked_buffer_failure(TTestContext& ctx)
+{
+    for (const bool advisory_false : { false, true })
+    {
+        TAllocationGate gate;
+        memory::CMemoryAllocator allocator(&gate, allocate_test_memory, deallocate_test_memory, system_ids::host);
+        memory::CMemoryContext context(allocator, system_ids::host);
+        TQueue<char> queue(&context);
+        TEST_EXPECT_TRUE(ctx, queue.initialise_growable(32u, 128u));
+        const auto initial = advisory_false ? 33u : 32u;
+        TEST_EXPECT_TRUE(ctx, post_string(queue, make_repeated_string('A', initial)));
+        char first = '\0';
+        TEST_EXPECT_TRUE(ctx, (queue.read(first) && (first == 'A')));
+        const auto count = advisory_false ? 1u : 33u;
+        if (advisory_false)
+        {
+            TEST_EXPECT_FALSE(ctx, queue.post_would_reallocate(count));
+        }
+        gate.fail_call = gate.calls + (advisory_false ? 1u : 2u);
+        TEST_EXPECT_FALSE(ctx, post_string(queue, make_repeated_string('B', count)));
+        TEST_EXPECT_TRUE(ctx, queue.posting_poisoned());
+        TEST_EXPECT_EQ(ctx, drain_queue(queue), make_repeated_string('A', (initial - 1u)));
+    }
 }
 
 void test_queue_fixed_discard_replaces_buffered_data(TTestContext& ctx)
@@ -398,7 +464,7 @@ void run_queue_resize_success_script(tests::TTestContext& ctx,
     TEST_CASE_EXPECT_TRUE(ctx, case_name, queue.validate());
 
     //  Optional sanity check: cases named with R* should have exercised at least one positive reallocation point.
-    TEST_CASE_EXPECT_TRUE(ctx, case_name, positive_reallocation_count > 0u);
+    TEST_CASE_EXPECT_TRUE(ctx, case_name, (positive_reallocation_count > 0u));
 }
 
 void run_queue_resize_failure_script(tests::TTestContext& ctx,
@@ -584,6 +650,9 @@ int test_queue_transport()
     test_queue_basic_publication_and_read(ctx);
     test_queue_multiple_posts_before_read(ctx);
     test_queue_fixed_no_discard_rejects_overflow(ctx);
+    test_queue_capacity_recovery(ctx);
+    test_queue_failure_after_publication(ctx);
+    test_queue_locked_buffer_failure(ctx);
     test_queue_fixed_discard_replaces_buffered_data(ctx);
     test_queue_growable_resize_matrix(ctx);
     test_queue_zero_hint_remains_growable(ctx);

@@ -22,6 +22,7 @@ class CHostMaintenance;
 
 enum class EClientExecution : std::uint8_t { passive = 0u, threaded, pumped };
 enum class EClientPhase : std::uint8_t { starting = 0u, ready, stopping, stopped, retired };
+enum class EDirectConnectionState : std::uint8_t { unregistered = 0u, available, closing };
 enum class EReplyPublication : std::uint8_t { queued = 0u, cancelled, busy };
 
 struct SClientRecord
@@ -74,6 +75,7 @@ struct SClientRecord
     EClientExecution execution{ EClientExecution::passive };
     EClientPhase phase{ EClientPhase::starting };
     bool stop_requested{ false };
+    EDirectConnectionState direct_connections{ EDirectConnectionState::unregistered };
     bool incoming_drained{ false };
     bool terminal_before_drain{ false };
     std::atomic<std::uint32_t> notifications_pending{ 0u };

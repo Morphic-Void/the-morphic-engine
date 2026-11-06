@@ -34,6 +34,7 @@
     <ClInclude Include="..\host\runtime\client_record.hpp"><Filter>Host\include\runtime</Filter></ClInclude>
     <ClInclude Include="..\host\runtime\service_router.hpp"><Filter>Host\include\runtime</Filter></ClInclude>
     <ClInclude Include="..\host\runtime\service_borrows.hpp"><Filter>Host\include\runtime</Filter></ClInclude>
+    <ClInclude Include="..\host\runtime\direct_connections.hpp"><Filter>Host\include\runtime</Filter></ClInclude>
     <ClInclude Include="..\host\runtime\service_provider.hpp"><Filter>Host\include\runtime</Filter></ClInclude>
     <ClInclude Include="..\host\runtime\pumped_client.hpp"><Filter>Host\include\runtime</Filter></ClInclude>
     <ClInclude Include="..\host\runtime\host_restrictions.hpp"><Filter>Host\include\runtime</Filter></ClInclude>
@@ -53,6 +54,7 @@
     <ClCompile Include="..\host\runtime\client_record.cpp"><Filter>Host\src\runtime</Filter></ClCompile>
     <ClCompile Include="..\host\runtime\service_router.cpp"><Filter>Host\src\runtime</Filter></ClCompile>
     <ClCompile Include="..\host\runtime\service_borrows.cpp"><Filter>Host\src\runtime</Filter></ClCompile>
+    <ClCompile Include="..\host\runtime\direct_connections.cpp"><Filter>Host\src\runtime</Filter></ClCompile>
     <ClCompile Include="..\host\runtime\pumped_client.cpp"><Filter>Host\src\runtime</Filter></ClCompile>
     <ClCompile Include="..\host\runtime\host_restrictions.cpp"><Filter>Host\src\runtime</Filter></ClCompile>
     <ClCompile Include="..\host\runtime\host_maintenance.cpp"><Filter>Host\src\runtime</Filter></ClCompile>

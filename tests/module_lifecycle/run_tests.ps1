@@ -138,7 +138,9 @@ foreach ($case in $Cases) {
         if (($expectedExit -eq 1) -and !$serviceFailure -and ($case -ne 'normal-tests-malformed') -and !$events.Contains('Executive module lifecycle failed')) { throw "$case has no lifecycle failure diagnostic." }
         if (!$normalExecutive -and ($case -ne 'bootstrap-missing') -and ($case -ne 'startup-failure')) {
             if (!$events.Contains("Lifecycle fixture: $case passed") -or
-                !$events.Contains('Host requested Executive exit without notifications')) { throw "$case fixture did not complete." }
+                (($case -ne 'tests-worker-exit') -and !$events.Contains('Host requested Executive exit without notifications'))) {
+                throw "$case fixture did not complete."
+            }
         }
         if (($case -eq 'ordinary') -and ([regex]::Matches($events, 'Lifecycle fixture: operation \d+ passed').Count -ne 9)) { throw 'Ordinary notification checks incomplete.' }
         if ($case -eq 'batch-inline' -and !$events.Contains('Lifecycle fixture: batch queued 0 inline 16')) {
@@ -228,7 +230,7 @@ foreach ($case in $Cases) {
             elseif ($case -eq 'normal-tests-malformed') {
                 if (($ready -lt $acknowledged) -or !$events.Contains('Lifecycle rendering: malformed test completion posted') -or
                     $events.Contains('Asset acceptance:') -or $events.Contains('Executive: Module tests completed:')) {
-                    throw 'Malformed test completion was accepted or did not reach the Host.'
+                    throw 'Malformed test completion was accepted or did not reach the Executive.'
                 }
             }
             elseif (($ready -lt $acknowledged) -or ($events.IndexOf('Executive: retain_raw passed') -lt $ready) -or
@@ -239,17 +241,18 @@ foreach ($case in $Cases) {
         $starts = [regex]::Matches($events, 'Host: Module rendering service thread started after asynchronous binding').Count
         $joins = [regex]::Matches($events, 'Host: Module rendering service thread joined').Count
         if ($case -in @('tests-routing', 'tests-worker-exit', 'tests-client-unload')) {
-            $completion = $events.IndexOf('Lifecycle tests: Executive terminal completion passed')
+            $completionMarker = if ($case -eq 'tests-routing') { 'Lifecycle tests: Executive terminal completion passed' } else { 'Lifecycle tests: pending conversation cancelled on closing' }
+            $completion = $events.IndexOf($completionMarker)
             $cleanup = $events.IndexOf('Lifecycle tests: caller acquisition and disposal drained')
             $joined = $events.IndexOf('Host: Module rendering service thread joined')
             if (($starts -ne 1) -or
-                !$events.Contains('Lifecycle tests: Executive destination, correlation and rejection checks passed') -or
+                !$events.Contains('Lifecycle tests: Executive destination and correlation checks passed') -or
                 ($completion -lt 0) -or ($cleanup -lt $completion) -or ($joined -lt $cleanup)) {
-                throw 'Generic module test routing or shutdown disposal checks incomplete.'
+                throw 'Direct module conversation or shutdown disposal checks incomplete.'
             }
             if (($case -eq 'tests-client-unload') -and
-                !$events.Contains('Lifecycle tests: caller unload waited for completion and cleanup')) {
-                throw 'The caller unload did not wait for the active test route.'
+                !$events.Contains('Lifecycle tests: caller unload waited for cancellation and cleanup')) {
+                throw 'The caller unload did not wait for cancellation and dependent cleanup.'
             }
         }
         if ($case.StartsWith('acquire-render-') -and (($starts -ne 1) -or
@@ -311,10 +314,13 @@ foreach ($case in $Cases) {
             }
         }
         if ($case -eq 'audio-lifecycle') {
-            if ([regex]::Matches($events, 'Audio: Test complete after cleanup').Count -ne 2 -or
+            $audioCompletions = [regex]::Matches($events, 'Audio: Test complete after cleanup').Count
+            $audioUnload = $events.IndexOf('Module unloaded on Host worker, mount audio')
+            if ($audioCompletions -lt 2 -or $audioCompletions -gt 3 -or
                 !$events.Contains('Audio lifecycle: repeated test completed before unload') -or
+                $events.IndexOf('Audio lifecycle: cancellation and unload completed') -lt $audioUnload -or
                 [regex]::Matches($events, 'Host: Module audio service thread joined').Count -ne 1 -or
-                $events.IndexOf('Audio lifecycle: repeated test completed before unload') -gt $events.IndexOf('Module unloaded on Host worker, mount audio')) {
+                $audioUnload -lt 0 -or $events.IndexOf('Audio lifecycle: repeated test completed before unload') -gt $audioUnload) {
                 throw 'Audio repeat/unload lifecycle incomplete.'
             }
         }

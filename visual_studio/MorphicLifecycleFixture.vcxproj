@@ -108,6 +108,7 @@
     <ClInclude Include="..\tests\module_lifecycle\bundle_cases.hpp" />
     <ClInclude Include="..\tests\support\host_test_paths.hpp" />
     <ClInclude Include="..\tests\module_lifecycle\local_type_ids.hpp" />
+    <ClInclude Include="..\tests\module_lifecycle\direct_service.hpp" />
     <ClInclude Include="..\tests\module_lifecycle\local_type_ids.def" />
     <ClInclude Include="..\tests\module_lifecycle\local_types.hpp" />
     <ClInclude Include="..\tests\module_lifecycle\erased_owner_payloads.def" />

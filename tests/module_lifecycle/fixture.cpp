@@ -9,6 +9,8 @@
 //
 //  Real DLL fixtures for the Host's asynchronous module lifecycle.
 
+#include "framework/communications/module_tests.hpp"
+#include "tests/module_lifecycle/direct_service.hpp"
 #include "module/module_messages.hpp"
 #include "tests/environment/test_paths.hpp"
 #include <atomic>
@@ -63,7 +65,7 @@ static void MV_STD_ABI_CALL execute_batch_item(void* const object) noexcept
 }
 
 static bool batch_case(threading::CThreadContext& context,
-    threading::CThreadResources& resources, const bool require_inline) noexcept
+    const threading::CThreadResources& resources, const bool require_inline) noexcept
 {
     threading::CBatchClient* const client = resources.batch_client;
     if (client == nullptr)
@@ -79,7 +81,7 @@ static bool batch_case(threading::CThreadContext& context,
     for (std::uint32_t index = 0u; index < k_items; ++index)
     {
         const threading::SBatchSubmission submitted = client->submit(
-            &execute_batch_item, &items[index], 100u + index);
+            &execute_batch_item, &items[index], (100u + index));
         if (submitted.status == threading::EBatchSubmission::queued)
         {
             ++queued_count;
@@ -106,7 +108,7 @@ static bool batch_case(threading::CThreadContext& context,
         while (client->receive(response))
         {
             if ((response.completion != threading::EBatchCompletion::executed) ||
-                (response.correlation < 100u) || (response.correlation >= 100u + k_items))
+                (response.correlation < 100u) || (response.correlation >= (100u + k_items)))
             {
                 return false;
             }
@@ -177,7 +179,7 @@ static bool receive(threading::CThreadContext& context, threading::CErasedPodMsg
     const auto deadline = context.perf_count_conversion().query_ticks_per_second() * 10u;
     while (!context.exit_requested() && (timer.query_delta() < deadline))
     {
-        if (context.read(message))
+        if (read_service_host(context, message))
         {
             return true;
         }
@@ -214,7 +216,11 @@ static bool operation(threading::CThreadContext& context, const modules::EModule
 
 static bool self_terminate(threading::CThreadContext& context, const char* const replacement) noexcept
 {
-    if (!post(context, (replacement != nullptr) ? modules::EModuleAction::replace : modules::EModuleAction::unload,
+    if (s_direct && !s_direct->retire())
+    {
+        return false;
+    }
+    if (!post(context, ((replacement != nullptr) ? modules::EModuleAction::replace : modules::EModuleAction::unload),
         module_ids::executive, replacement, 100))
     {
         return false;
@@ -225,14 +231,14 @@ static bool self_terminate(threading::CThreadContext& context, const char* const
     while (!context.exit_requested() && (timer.query_delta() < deadline))
     {
         threading::CErasedPodMsg unexpected;
-        if (context.read(unexpected))
+        if (read_service_host(context, unexpected))
         {
             return false;
         }
         platform::threading::processor_relax();
     }
     threading::CErasedPodMsg unexpected;
-    const bool success = context.exit_requested() && !context.read(unexpected);
+    const bool success = context.exit_requested() && !read_service_host(context, unexpected);
     if (success)
     {
         MV_LOG(info, "Lifecycle fixture: Host requested Executive exit without notifications");
@@ -276,7 +282,7 @@ static bool batch_exit_case(threading::CThreadContext& context,
     }
     for (std::uint32_t index = 1u; index < k_items; ++index)
     {
-        if (client->submit(&execute_batch_item, &items[index], 200u + index).status !=
+        if (client->submit(&execute_batch_item, &items[index], (200u + index)).status !=
             threading::EBatchSubmission::queued)
         {
             return false;
@@ -294,7 +300,7 @@ static bool batch_exit_case(threading::CThreadContext& context,
         threading::SBatchResponse response;
         while (client->receive(response))
         {
-            if ((response.correlation < 200u) || (response.correlation >= 200u + k_items))
+            if ((response.correlation < 200u) || (response.correlation >= (200u + k_items)))
             {
                 return false;
             }
@@ -396,7 +402,7 @@ static bool disposal_during_saves(threading::CThreadContext& context) noexcept
     constexpr std::int32_t k_save_count{ 32 };
     for (std::int32_t index = 0; index < k_save_count; ++index)
     {
-        if (!post_save(context, asset, 200 + index))
+        if (!post_save(context, asset, (200 + index)))
         {
             return false;
         }
@@ -517,7 +523,7 @@ static bool disposal_during_saves(threading::CThreadContext& context) noexcept
 static bool unload_during_saves(threading::CThreadContext& context, const bool rendering_disposes = false) noexcept
 {
     CAssetId asset;
-    if (!retain_raw_asset(context, true, &asset, mount_point_ids::render, rendering_disposes ? (1024u * 1024u) : 16u))
+    if (!retain_raw_asset(context, true, &asset, mount_point_ids::render, (rendering_disposes ? (1024u * 1024u) : 16u)))
     {
         return false;
     }
@@ -549,7 +555,7 @@ static bool unload_during_saves(threading::CThreadContext& context, const bool r
     constexpr std::int32_t k_save_count{ 32 };
     for (std::int32_t index = 0; index < k_save_count; ++index)
     {
-        if (!post_save(context, asset, 200 + index))
+        if (!post_save(context, asset, (200 + index)))
         {
             return false;
         }
@@ -617,61 +623,64 @@ static bool unload_during_saves(threading::CThreadContext& context, const bool r
 static bool executive_test_routing_case(threading::CThreadContext& context,
     const bool exit_without_completion, const bool unload_client) noexcept
 {
-    if (!operation(context, modules::EModuleAction::load,
+    if (!s_direct || !operation(context, modules::EModuleAction::load,
         test_environment::module_filename("package:/bin/MorphicLifecycleRenderingDisposal").c_str(),
-        1, modules::EModuleStatus::success, true)) return false;
-
+        1, modules::EModuleStatus::success, true))
+    {
+        return false;
+    }
     threading::CErasedPodMsg message;
+    connections::SToken token;
     modules::RunTestsRequest request;
-    if (!receive(context, message) || !message.copy_payload_to(request) ||
-        (request.module != module_ids::executive) || (message.query_async_slot() != INT32_MAX)) return false;
-
-    //  The Executive is the test worker. Another request, including one from
-    //  that worker, must receive busy until the current result is forwarded.
-    message.set_async_slot(90);
-    message.assign_payload(modules::RunTestsRequest{ module_ids::rendering });
-    modules::RunTestsResult busy;
-    if (!context.post(message) || !receive(context, message) || !message.copy_payload_to(busy) ||
-        (message.query_async_slot() != 90) || (busy.module != module_ids::rendering) ||
-        (busy.status != modules::ETestRunStatus::busy)) return false;
-    message.set_async_slot(INT32_MAX);
-    message.assign_payload(modules::RunTestsResult{ module_ids::executive, modules::ETestRunStatus::success, 7u, 0u, 2u });
-    if (!context.post(message)) return false;
-
-    if (!receive(context, message) || !message.copy_payload_to(request) ||
-        (request.module != module_ids::executive) || (message.query_async_slot() != 111)) return false;
+    if (!s_direct->receive(module_ids::rendering, token, message) || !message.copy_payload_to(request) ||
+        (request.module != module_ids::executive) || (message.query_async_slot() != INT32_MAX) ||
+        !s_direct->post(token, threading::make_pod_message(INT32_MAX,
+            modules::RunTestsResult{ module_ids::executive, modules::ETestRunStatus::success, 7u, 0u, 2u })))
+    {
+        return false;
+    }
+    if (!s_direct->receive(module_ids::rendering, token, message) || !message.copy_payload_to(request) ||
+        (request.module != module_ids::executive) || (message.query_async_slot() != 111))
+    {
+        return false;
+    }
+    if (exit_without_completion)
+    {
+        return true;
+    } // Deliberate abandonment requires Host's native-join proof.
     if (unload_client)
     {
-        if (!post(context, modules::EModuleAction::unload, module_ids::rendering, nullptr, 120)) return false;
+        if (!post(context, modules::EModuleAction::unload, module_ids::rendering, nullptr, 120))
+        {
+            return false;
+        }
         modules::ModuleResult notice;
-        if (!receive(context, message) || !message.copy_payload_to(notice) ||
-            (message.query_async_slot() != 120) || (notice.notice != modules::EModuleNotice::acknowledged) ||
-            (notice.status != modules::EModuleStatus::success)) return false;
-        //  A Host round trip after acknowledgement ensures teardown has had
-        //  an opportunity to run while the caller is still waiting for us.
-        message.set_async_slot(121);
-        message.assign_payload(AssetAcquireRequest{});
-        AssetAcquireResult barrier;
-        if (!context.post(message) || !receive(context, message) || !message.copy_payload_to(barrier) ||
-            (message.query_async_slot() != 121) || (barrier.status != EAssetStatus::invalid_asset)) return false;
+        if (!receive(context, message) || !message.copy_payload_to(notice) || (message.query_async_slot() != 120) ||
+            (notice.notice != modules::EModuleNotice::acknowledged) || (notice.status != modules::EModuleStatus::success))
+        {
+            return false;
+        }
+        if (!s_direct->wait([&] { return s_direct->client.closing(token); }) || !s_direct->quiesce())
+        {
+            return false;
+        }
+        if (!receive(context, message) || !message.copy_payload_to(notice) || (message.query_async_slot() != 120) ||
+            (notice.notice != modules::EModuleNotice::completed) || (notice.status != modules::EModuleStatus::success) || notice.available)
+        {
+            return false;
+        }
+        MV_LOG(info, "Lifecycle tests: caller unload waited for cancellation and cleanup");
     }
-    if (!exit_without_completion)
+    else
     {
-        //  This final reply must be drained before terminal-state handling.
-        //  Host forwards module test failures and their counts unchanged.
-        message.set_async_slot(111);
-        message.assign_payload(modules::RunTestsResult{ module_ids::executive, modules::ETestRunStatus::failed, 3u, 1u, 2u });
-        if (!context.post(message)) return false;
+        if (!s_direct->post(token, threading::make_pod_message(111,
+            modules::RunTestsResult{ module_ids::executive, modules::ETestRunStatus::failed, 3u, 1u, 2u })) ||
+            !s_direct->wait([&] { return s_direct->client.closing(token); }))
+        {
+            return false;
+        }
     }
-    if (unload_client)
-    {
-        modules::ModuleResult notice;
-        if (!receive(context, message) || !message.copy_payload_to(notice) ||
-            (message.query_async_slot() != 120) || (notice.notice != modules::EModuleNotice::completed) ||
-            (notice.status != modules::EModuleStatus::success) || notice.available) return false;
-        MV_LOG(info, "Lifecycle tests: caller unload waited for completion and cleanup");
-    }
-    return self_terminate(context, nullptr);
+    return s_direct->retire() && self_terminate(context, nullptr);
 }
 
 static bool service_lifecycle_case(threading::CThreadContext& context, const char* const selected) noexcept
@@ -680,7 +689,10 @@ static bool service_lifecycle_case(threading::CThreadContext& context, const cha
         const bool required, const modules::EModuleStatus expected, const bool available) noexcept
     {
         if (!post(context, action, module_ids::conditioning_general, file, slot,
-            system_type_ids::undefined, required)) return false;
+            system_type_ids::undefined, required))
+        {
+            return false;
+        }
         for (const auto notice : { modules::EModuleNotice::acknowledged, modules::EModuleNotice::completed })
         {
             threading::CErasedPodMsg message;
@@ -689,18 +701,36 @@ static bool service_lifecycle_case(threading::CThreadContext& context, const cha
                 (message.query_async_slot() != slot) || (result.module != module_ids::conditioning_general) ||
                 (result.notice != notice) || (result.status !=
                     ((notice == modules::EModuleNotice::acknowledged) ? modules::EModuleStatus::success : expected)) ||
-                ((notice == modules::EModuleNotice::completed) && (result.available != available))) return false;
+                ((notice == modules::EModuleNotice::completed) && (result.available != available)))
+            {
+                return false;
+            }
         }
         return true;
     };
-    auto test = [&](const std::int32_t slot, const modules::ETestRunStatus expected) noexcept
+    connections::SToken previous;
+    auto test = [&](const std::int32_t slot, const connections::EStatus expected) noexcept
     {
+        connections::SToken token;
+        if (!s_direct || !s_direct->open(module_ids::conditioning_general, slot, expected, token))
+        {
+            return false;
+        }
+        if (expected != connections::EStatus::success)
+        {
+            return !token.value;
+        }
+        if (!token.value || (token.value == previous.value))
+        {
+            return false;
+        }
+        previous = token;
         auto message = threading::make_pod_message(slot, modules::RunTestsRequest{ module_ids::conditioning_general });
         modules::RunTestsResult result;
-        return context.post(message) && receive(context, message) && message.copy_payload_to(result) &&
+        return s_direct->post(token, message) && s_direct->receive(module_ids::conditioning_general, token, message) && message.copy_payload_to(result) &&
             (message.query_async_slot() == slot) && (result.module == module_ids::conditioning_general) &&
-            (result.status == expected) && (result.passed == ((expected == modules::ETestRunStatus::success) ? 1u : 0u)) &&
-            (result.failed == 0u) && (result.skipped == 0u);
+            (result.status == modules::ETestRunStatus::success) && (result.passed == 1u) &&
+            (result.failed == 0u) && (result.skipped == 0u) && s_direct->retire();
     };
     const auto service_file = test_environment::module_filename("package:/bin/MorphicLifecycleService");
     if ((std::strcmp(selected, "service-invalid-entry") == 0) || (std::strcmp(selected, "service-invalid-id") == 0) ||
@@ -712,22 +742,31 @@ static bool service_lifecycle_case(threading::CThreadContext& context, const cha
             change(modules::EModuleAction::unload, nullptr, 2, false, modules::EModuleStatus::not_loaded, false) && self_terminate(context, nullptr);
     }
     if (!operation(context, modules::EModuleAction::load, test_environment::module_filename("package:/bin/MorphicRendering").c_str(),
-        1, modules::EModuleStatus::success, true)) return false;
+        1, modules::EModuleStatus::success, true))
+    {
+        return false;
+    }
     const auto passive_file = test_environment::module_filename("package:/bin/MorphicLifecyclePassive");
     if (!change(modules::EModuleAction::load, passive_file.c_str(), 2, true, modules::EModuleStatus::function_unavailable, false) ||
         !change(modules::EModuleAction::load, passive_file.c_str(), 3, false, modules::EModuleStatus::success, true) ||
-        !test(4, modules::ETestRunStatus::unavailable) ||
+        !test(4, connections::EStatus::unsupported) ||
         !change(modules::EModuleAction::load, passive_file.c_str(), 5, true, modules::EModuleStatus::function_unavailable, true) ||
         !change(modules::EModuleAction::replace, service_file.c_str(), 6, true, modules::EModuleStatus::success, true) ||
-        !test(7, modules::ETestRunStatus::success)) return false;
+        !test(7, connections::EStatus::success))
+    {
+        return false;
+    }
     if (std::strcmp(selected, "service-lifecycle") == 0)
     {
         CAssetId dependent;
         if (!retain_raw_asset(context, true, &dependent, mount_point_ids::conditioning) ||
             !change(modules::EModuleAction::replace, service_file.c_str(), 8, true, modules::EModuleStatus::success, true) ||
-            !dispose_asset(context, dependent, EAssetStatus::invalid_asset) || !test(9, modules::ETestRunStatus::success) ||
+            !dispose_asset(context, dependent, EAssetStatus::invalid_asset) || !test(9, connections::EStatus::success) ||
             !change(modules::EModuleAction::unload, nullptr, 10, false, modules::EModuleStatus::success, false) ||
-            !test(11, modules::ETestRunStatus::unavailable)) return false;
+            !test(11, connections::EStatus::unavailable))
+        {
+            return false;
+        }
     }
     return self_terminate(context, nullptr);
 }
@@ -736,81 +775,110 @@ static bool audio_lifecycle_case(threading::CThreadContext& context) noexcept
 {
     const auto file = test_environment::module_filename("package:/bin/MorphicAudio");
     if (!post(context, modules::EModuleAction::load, module_ids::audio, file.c_str(), 1,
-        system_type_ids::undefined, true)) return false;
+        system_type_ids::undefined, true))
+    {
+        return false;
+    }
     for (const auto notice : { modules::EModuleNotice::acknowledged, modules::EModuleNotice::completed })
     {
         threading::CErasedPodMsg message;
         modules::ModuleResult result;
-        if (!receive(context, message) || !message.copy_payload_to(result) || message.query_async_slot() != 1 ||
-            result.module != module_ids::audio || result.notice != notice || result.status != modules::EModuleStatus::success ||
-            (notice == modules::EModuleNotice::completed && !result.available)) return false;
+        if (!receive(context, message) || !message.copy_payload_to(result) || (message.query_async_slot() != 1) ||
+            (result.module != module_ids::audio) || (result.notice != notice) || (result.status != modules::EModuleStatus::success) ||
+            ((notice == modules::EModuleNotice::completed) && !result.available))
+        {
+            return false;
+        }
     }
     auto completed = [](const threading::CErasedPodMsg& message, const std::int32_t slot) noexcept
     {
         modules::RunTestsResult result;
-        return message.copy_payload_to(result) && message.query_async_slot() == slot && result.module == module_ids::audio &&
-            ((result.status == modules::ETestRunStatus::success && result.passed == 1u && result.failed == 0u && result.skipped == 0u) ||
-             (result.status == modules::ETestRunStatus::unavailable && result.passed == 0u && result.failed == 0u && result.skipped == 1u));
+        return message.copy_payload_to(result) && (message.query_async_slot() == slot) && (result.module == module_ids::audio) &&
+            (((result.status == modules::ETestRunStatus::success) && (result.passed == 1u) && (result.failed == 0u) && (result.skipped == 0u)) ||
+             ((result.status == modules::ETestRunStatus::unavailable) && (result.passed == 0u) && (result.failed == 0u) && (result.skipped == 1u)));
     };
     threading::CErasedPodMsg message;
-    if (!context.post(threading::make_pod_message(2, modules::RunTestsRequest{ module_ids::audio })) ||
-        !receive(context, message) || !completed(message, 2)) return false;
-    //  The same loaded service accepts another run. Request unload while it is
-    //  active; Host must preserve the worker and route until cleanup/completion.
-    if (!context.post(threading::make_pod_message(3, modules::RunTestsRequest{ module_ids::audio })) ||
-        !post(context, modules::EModuleAction::unload, module_ids::audio, nullptr, 4)) return false;
-    bool test_done = false, acknowledged = false, unloaded = false;
-    for (unsigned i = 0u; i < 3u; ++i)
+    connections::SToken token;
+    if (!s_direct || !s_direct->open(module_ids::audio, 50, connections::EStatus::success, token))
     {
-        if (!receive(context, message)) return false;
-        if (message.is_payload_a<modules::RunTestsResult>())
+        return false;
+    }
+    for (const std::int32_t slot : { 2, 3 })
+    {
+        if (!s_direct->post(token, threading::make_pod_message(slot, modules::RunTestsRequest{ module_ids::audio })) ||
+            !s_direct->receive(module_ids::audio, token, message) || !completed(message, slot))
         {
-            if (test_done || !completed(message, 3)) return false;
-            test_done = true;
-            MV_LOG(info, "Audio lifecycle: repeated test completed before unload");
-        }
-        else
-        {
-            modules::ModuleResult result;
-            if (!message.copy_payload_to(result) || message.query_async_slot() != 4 || result.module != module_ids::audio ||
-                result.status != modules::EModuleStatus::success) return false;
-            if (result.notice == modules::EModuleNotice::acknowledged)
-            {
-                if (acknowledged) return false;
-                acknowledged = true;
-            }
-            else
-            {
-                if (!acknowledged || !test_done || unloaded || result.available) return false;
-                unloaded = true;
-            }
+            return false;
         }
     }
-    return test_done && unloaded && self_terminate(context, nullptr);
+    MV_LOG(info, "Audio lifecycle: repeated test completed before unload");
+    //  Unload cancels this final conversation even if a fast unavailable result
+    //  has already queued. Cleanup does not depend on consuming that result.
+    if (!s_direct->post(token, threading::make_pod_message(5, modules::RunTestsRequest{ module_ids::audio })) ||
+        !post(context, modules::EModuleAction::unload, module_ids::audio, nullptr, 4))
+    {
+        return false;
+    }
+    s_direct->client.close_all();
+    for (const auto notice : { modules::EModuleNotice::acknowledged, modules::EModuleNotice::completed })
+    {
+        if (!s_direct->wait([&]
+        {
+            (void)s_direct->quiesce();
+            return read_service_host(context, message);
+        }))
+        {
+            return false;
+        }
+        modules::ModuleResult result;
+        if (!message.copy_payload_to(result) || (message.query_async_slot() != 4) || (result.module != module_ids::audio) ||
+            (result.notice != notice) || (result.status != modules::EModuleStatus::success) ||
+            ((notice == modules::EModuleNotice::completed) && result.available))
+        {
+            return false;
+        }
+    }
+    MV_LOG(info, "Audio lifecycle: cancellation and unload completed");
+    return s_direct->retire() && self_terminate(context, nullptr);
 }
 
 static bool run_case(threading::CThreadContext& context,
     threading::CThreadResources& resources, const char* const selected) noexcept
 {
-    if (std::strcmp(selected, "audio-lifecycle") == 0) return audio_lifecycle_case(context);
-    if (std::strncmp(selected, "service-", 8u) == 0) return service_lifecycle_case(context, selected);
+    if (std::strcmp(selected, "audio-lifecycle") == 0)
+    {
+        return audio_lifecycle_case(context);
+    }
+    if (std::strncmp(selected, "service-", 8u) == 0)
+    {
+        return service_lifecycle_case(context, selected);
+    }
     if ((std::strcmp(selected, "tests-routing") == 0) || (std::strcmp(selected, "tests-worker-exit") == 0) ||
         (std::strcmp(selected, "tests-client-unload") == 0))
     {
-        return executive_test_routing_case(context, std::strcmp(selected, "tests-worker-exit") == 0,
-            std::strcmp(selected, "tests-client-unload") == 0);
+        return executive_test_routing_case(context, (std::strcmp(selected, "tests-worker-exit") == 0),
+            (std::strcmp(selected, "tests-client-unload") == 0));
     }
     if ((std::strcmp(selected, "acquire-render-release") == 0) || (std::strcmp(selected, "acquire-render-abandon") == 0) ||
         (std::strcmp(selected, "acquire-render-replace") == 0))
     {
         if (!operation(context, modules::EModuleAction::load,
-            test_environment::module_filename("package:/bin/MorphicLifecycleRenderingDisposal").c_str(), 1, modules::EModuleStatus::success, true)) return false;
+            test_environment::module_filename("package:/bin/MorphicLifecycleRenderingDisposal").c_str(), 1, modules::EModuleStatus::success, true))
+        {
+            return false;
+        }
         threading::CErasedPodMsg request, completion;
+        connections::SToken token;
         request.set_async_slot(50);
         request.assign_payload(modules::RunTestsRequest{ module_ids::rendering });
         modules::RunTestsResult result;
-        if (!context.post(request) || !receive(context, completion) || !completion.copy_payload_to(result) ||
-            (completion.query_async_slot() != 50) || (result.status != modules::ETestRunStatus::success) || (result.passed != 1u)) return false;
+        if (!s_direct || !s_direct->open(module_ids::rendering, 49, connections::EStatus::success, token) ||
+            !s_direct->post(token, request) || !s_direct->receive(module_ids::rendering, token, completion) ||
+            !completion.copy_payload_to(result) || (completion.query_async_slot() != 50) ||
+            (result.status != modules::ETestRunStatus::success) || (result.passed != 1u) || !s_direct->retire())
+        {
+            return false;
+        }
         if (std::strcmp(selected, "acquire-render-replace") == 0)
         {
             return (_putenv_s("MORPHIC_LIFECYCLE_CASE", "shutdown") == 0) &&
@@ -824,10 +892,13 @@ static bool run_case(threading::CThreadContext& context,
         const auto allocations = memory->get_live_allocation_count();
         const auto bytes = memory->get_live_allocated_bytes();
         if (!bundle_case(context, resources, selected) || (memory->get_live_allocation_count() != allocations) ||
-            (memory->get_live_allocated_bytes() != bytes)) return false;
+            (memory->get_live_allocated_bytes() != bytes))
+        {
+            return false;
+        }
         MV_LOG(info, "Bundle fixture: Executive allocation baseline restored");
         return self_terminate(context,
-            (std::strcmp(selected, "bundle-replace") == 0) ? test_environment::module_filename("package:/bin/MorphicLifecycleExecutive").c_str() : nullptr);
+            ((std::strcmp(selected, "bundle-replace") == 0) ? test_environment::module_filename("package:/bin/MorphicLifecycleExecutive").c_str() : nullptr));
     }
     if (std::strcmp(selected, "batch") == 0)
     {
@@ -967,6 +1038,15 @@ static std::uint32_t MV_STD_ABI_CALL executive_entry(void* const data) noexcept
         context.mark_failed(1u);
         return 1u;
     }
+    const bool direct_case = configured && ((std::strncmp(selected, "tests-", 6u) == 0) ||
+        (std::strncmp(selected, "service-", 8u) == 0) || (std::strncmp(selected, "acquire-render-", 15u) == 0) ||
+        (std::strcmp(selected, "audio-lifecycle") == 0));
+    SDirectService direct{ context, module_ids::executive, direct_case };
+    if (!direct.ready)
+    {
+        context.mark_failed(1u);
+        return 1u;
+    }
     context.mark_running();
     const bool success = configured && run_case(context, resources, selected);
     if (success)
@@ -990,21 +1070,36 @@ static std::uint32_t MV_STD_ABI_CALL service_entry(void* const data) noexcept
 {
     threading::CThreadContext context{ *static_cast<threading::CThreadResources*>(data) };
     context.startup();
-    auto fail = [&]() noexcept { context.mark_failed(1u); return 1u; };
+    auto fail = [&]() noexcept {
+        if (s_direct)
+        {
+            s_direct->client.close_all();
+            s_direct->client.progress();
+        }
+        context.mark_failed(1u); return 1u;
+    };
     char selected[40]{};
     std::size_t required{ 0u };
     (void)getenv_s(&required, selected, sizeof(selected), "MORPHIC_LIFECYCLE_CASE");
     if ((std::strcmp(selected, "service-start-failure") == 0) ||
         (system_context::get_ambient_module_id() != module_ids::conditioning_general) ||
-        (system_context::get_ambient_thread_id() != thread_ids::simulation)) return fail();
+        (system_context::get_ambient_thread_id() != thread_ids::simulation))
+    {
+        return fail();
+    }
+    SDirectService direct{ context, module_ids::conditioning_general };
+    if (!direct.ready) return fail();
     context.mark_running();
     auto read = [&](threading::CErasedPodMsg& message) noexcept
     {
         platform::system::CPerfCounter timer;
         (void)timer.update();
-        while (timer.query_delta() < context.perf_count_conversion().query_ticks_per_second() * 10u)
+        while (timer.query_delta() < (context.perf_count_conversion().query_ticks_per_second() * 10u))
         {
-            if (context.read(message)) return true;
+            if (read_service_host(context, message))
+            {
+                return true;
+            }
             context.advance_heartbeat();
             platform::threading::processor_relax();
         }
@@ -1012,29 +1107,54 @@ static std::uint32_t MV_STD_ABI_CALL service_entry(void* const data) noexcept
     };
     threading::CErasedPodMsg message;
     modules::RunTestsRequest tests;
-    if (!read(message) || !message.copy_payload_to(tests) || (tests.module != module_ids::conditioning_general)) return fail();
+    connections::SToken token;
+    if (!direct.receive(module_ids::executive, token, message) || !message.copy_payload_to(tests) ||
+        (tests.module != module_ids::conditioning_general))
+    {
+        return fail();
+    }
     const auto correlation = message.query_async_slot();
     //  Hold a separate lifecycle borrow beyond the test completion, then prove
     //  that replacement and system shutdown allow its release and disposal.
     auto input = threading::make_owner_message<RawAssetTransfer>(200);
     auto* const transfer = input.owner().payload<RawAssetTransfer>();
-    if (!transfer || !transfer->storage.value.resize(16u)) return fail();
+    if (!transfer || !transfer->storage.value.resize(16u))
+    {
+        return fail();
+    }
     std::memset(transfer->storage.value.data(), 0x6b, 16u);
     AssetResult asset;
     if (!context.post(std::move(input)) || !read(message) || !message.copy_payload_to(asset) ||
-        (message.query_async_slot() != 200) || (asset.status != EAssetStatus::success)) return fail();
+        (message.query_async_slot() != 200) || (asset.status != EAssetStatus::success))
+    {
+        return fail();
+    }
     message = threading::make_pod_message(201, AssetAcquireRequest{ asset.asset });
     AssetAcquireResult acquired;
     if (!context.post(message) || !read(message) || !message.copy_payload_to(acquired) ||
-        (message.query_async_slot() != 201) || (acquired.status != EAssetStatus::success) || !acquired.acquisition) return fail();
+        (message.query_async_slot() != 201) || (acquired.status != EAssetStatus::success) || !acquired.acquisition)
+    {
+        return fail();
+    }
     message = threading::make_pod_message(202, AssetDisposeRequest{ asset.asset });
     if (!context.post(message)) return fail();
     message = threading::make_pod_message(correlation, modules::RunTestsResult{ module_ids::conditioning_general, modules::ETestRunStatus::success, 1u, 0u, 0u });
-    if (!context.post(message)) return fail();
-    std::uint32_t epoch{ 0u };
-    while (!context.exit_requested()) epoch = context.wait_for_new_epoch(epoch);
+    if (!direct.post(token, message)) return fail();
+    while (!context.exit_requested())
+    {
+        const auto epoch = context.observe_epoch();
+        if (!direct.pump()) return fail();
+        (void)direct.quiesce(); // The completed conversation no longer uses the independent lifecycle asset.
+        if (!context.exit_requested() && !direct.client.needs_progress())
+        {
+            (void)context.wait_for_new_epoch(epoch);
+        }
+    }
     context.mark_exiting();
-    if ((acquired.byte_view().size() != 16u) || (acquired.byte_view().data()[15] != 0x6b)) return fail();
+    if ((acquired.byte_view().size() != 16u) || (acquired.byte_view().data()[15] != 0x6b))
+    {
+        return fail();
+    }
     message = threading::make_pod_message(203, AssetReleaseRequest{ acquired.acquisition });
     if (!context.post(message)) return fail();
     bool released{ false }, disposed{ false };
@@ -1046,19 +1166,29 @@ static std::uint32_t MV_STD_ABI_CALL service_entry(void* const data) noexcept
         if (message.copy_payload_to(release))
         {
             if (released || (message.query_async_slot() != 203) || (release.status != EAssetStatus::success) ||
-                (release.acquisition != acquired.acquisition)) return fail();
+                (release.acquisition != acquired.acquisition))
+            {
+                return fail();
+            }
             released = true;
         }
         else if (message.copy_payload_to(disposal))
         {
             if (disposed || (message.query_async_slot() != 202) || (disposal.status != EAssetStatus::success) ||
-                (disposal.asset != asset.asset)) return fail();
+                (disposal.asset != asset.asset))
+            {
+                return fail();
+            }
             disposed = true;
         }
         else return fail();
     }
-    if (!released || !disposed) return fail();
+    if (!released || !disposed)
+    {
+        return fail();
+    }
     MV_LOG(info, "Lifecycle service: acquisition and disposal drained");
+    if (!direct.retire()) return fail();
     context.mark_exited();
     return 0u;
 }
@@ -1077,24 +1207,35 @@ static std::uint32_t MV_STD_ABI_CALL rendering_entry(void* const data) noexcept
 #elif MV_LIFECYCLE_RENDERING_DISPOSAL
 static bool rendering_acquisition_case(threading::CThreadContext& context, const bool release) noexcept
 {
+    if (!s_direct) return false;
     auto read = [&context](threading::CErasedPodMsg& message) noexcept
     {
         platform::system::CPerfCounter timer;
         (void)timer.update();
-        while (timer.query_delta() < context.perf_count_conversion().query_ticks_per_second() * 10u)
+        while (timer.query_delta() < (context.perf_count_conversion().query_ticks_per_second() * 10u))
         {
-            if (context.read(message)) return true;
+            if (read_service_host(context, message))
+            {
+                return true;
+            }
             context.advance_heartbeat();
             platform::threading::processor_relax();
         }
         return false;
     };
     threading::CErasedPodMsg request, message;
+    connections::SToken token;
     modules::RunTestsRequest tests;
-    if (!read(request) || !request.copy_payload_to(tests)) return false;
+    if (!s_direct->receive(module_ids::executive, token, request) || !request.copy_payload_to(tests))
+    {
+        return false;
+    }
     auto owner = CErasedOwner::create<RawAssetTransfer>();
     auto* const transfer = owner.payload<RawAssetTransfer>();
-    if (!transfer || !transfer->storage.value.resize(16u)) return false;
+    if (!transfer || !transfer->storage.value.resize(16u))
+    {
+        return false;
+    }
     std::memset(transfer->storage.value.data(), 0x5a, 16u);
     threading::CErasedOwnerMsg input;
     input.set_message_type<RawAssetTransfer>();
@@ -1102,19 +1243,38 @@ static bool rendering_acquisition_case(threading::CThreadContext& context, const
     input.set_owner(std::move(owner));
     AssetResult retained;
     if (!context.post(std::move(input)) || !read(message) || !message.copy_payload_to(retained) ||
-        (retained.status != EAssetStatus::success)) return false;
+        (retained.status != EAssetStatus::success))
+    {
+        return false;
+    }
     message.set_async_slot(61);
     message.assign_payload(AssetAcquireRequest{ retained.asset });
     AssetAcquireResult acquired;
     if (!context.post(message) || !read(message) || !message.copy_payload_to(acquired) ||
-        (acquired.status != EAssetStatus::success) || !acquired.acquisition) return false;
+        (acquired.status != EAssetStatus::success) || !acquired.acquisition)
+    {
+        return false;
+    }
     message.set_async_slot(request.query_async_slot());
     message.assign_payload(modules::RunTestsResult{ tests.module, modules::ETestRunStatus::success, 1u, 0u, 0u });
-    if (!context.post(message)) return false;
-    std::uint32_t epoch{ 0u };
-    while (!context.exit_requested()) epoch = context.wait_for_new_epoch(epoch);
+    if (!s_direct->post(token, message)) return false;
+    while (!context.exit_requested())
+    {
+        const auto epoch = context.observe_epoch();
+        if (!s_direct->pump() || !s_direct->quiesce())
+        {
+            return false;
+        }
+        if (!context.exit_requested() && !s_direct->client.needs_progress())
+        {
+            (void)context.wait_for_new_epoch(epoch);
+        }
+    }
     context.mark_exiting();
-    if ((acquired.byte_view().size() != 16u) || (acquired.byte_view().data()[15] != 0x5a)) return false;
+    if ((acquired.byte_view().size() != 16u) || (acquired.byte_view().data()[15] != 0x5a))
+    {
+        return false;
+    }
     MV_LOG(info, "Lifecycle rendering: acquired bytes survive exit request");
     if (release)
     {
@@ -1122,7 +1282,10 @@ static bool rendering_acquisition_case(threading::CThreadContext& context, const
         message.assign_payload(AssetReleaseRequest{ acquired.acquisition });
         AssetReleaseResult result;
         if (!context.post(message) || !read(message) || !message.copy_payload_to(result) ||
-            (result.status != EAssetStatus::success)) return false;
+            (result.status != EAssetStatus::success))
+        {
+            return false;
+        }
     }
     message.set_async_slot(63);
     message.assign_payload(AssetDisposeRequest{ retained.asset });
@@ -1130,74 +1293,46 @@ static bool rendering_acquisition_case(threading::CThreadContext& context, const
     if (release)
     {
         AssetDisposeResult result;
-        if (!read(message) || !message.copy_payload_to(result) || result.status != EAssetStatus::success) return false;
+        if (!read(message) || !message.copy_payload_to(result) || (result.status != EAssetStatus::success))
+        {
+            return false;
+        }
+        if (!s_direct->retire()) return false;
     }
     //  In the abandon case Host must drain the final disposal, observe terminal
     //  state and reclaim the acquisition before it can join and unload us.
     return true;
 }
 
-static bool rendering_test_routing_case(threading::CThreadContext& context, const bool worker_exits) noexcept
+static bool rendering_test_routing_case(threading::CThreadContext& context,
+    const bool worker_exits, const bool caller_unloads) noexcept
 {
-    //  Shutdown may be requested after Executive's terminal publication. Keep
-    //  receiving the test result and asset cleanup replies during that drain.
-    auto read = [&context](threading::CErasedPodMsg& message, const bool test_pending = false) noexcept
+    if (!s_direct) return false;
+    auto read = [&](threading::CErasedPodMsg& message) noexcept {
+        return s_direct->wait([&] { return read_service_host(context, message); });
+    };
+    connections::SToken token;
+    if (!s_direct->open(module_ids::executive, 90, connections::EStatus::success, token))
     {
-        platform::system::CPerfCounter timer;
-        (void)timer.update();
-        while (timer.query_delta() < context.perf_count_conversion().query_ticks_per_second() * 10u)
-        {
-            if (context.read(message)) return true;
-            //  Completion must be published before Host requests caller exit.
-            //  Re-read after observing exit to include that final publication.
-            if (test_pending && context.exit_requested()) return context.read(message);
-            context.advance_heartbeat();
-            platform::threading::processor_relax();
-        }
         return false;
-    };
+    }
     threading::CErasedPodMsg message;
-    auto rejected = [&](const module_ids::id_type module, const std::int32_t slot,
-        const modules::ETestRunStatus status) noexcept
-    {
-        message.set_async_slot(slot);
-        message.assign_payload(modules::RunTestsRequest{ module });
-        modules::RunTestsResult result;
-        return context.post(message) && read(message) && message.copy_payload_to(result) &&
-            (message.query_async_slot() == slot) && (result.module == module) && (result.status == status) &&
-            (result.passed == 0u) && (result.failed == 0u) && (result.skipped == 0u);
-    };
-
-    //  Startup can still be completing the Rendering load. Once it is idle,
-    //  an executable identity must not select a Host background worker.
-    platform::system::CPerfCounter timer;
-    (void)timer.update();
     modules::RunTestsResult result;
-    do
-    {
-        message.set_async_slot(100);
-        message.assign_payload(modules::RunTestsRequest{ module_ids::executable });
-        if (!context.post(message) || !read(message) || !message.copy_payload_to(result) ||
-            (message.query_async_slot() != 100) || (result.module != module_ids::executable)) return false;
-    } while ((result.status == modules::ETestRunStatus::busy) &&
-        (timer.query_delta() < context.perf_count_conversion().query_ticks_per_second() * 10u));
-    if ((result.status != modules::ETestRunStatus::unavailable) ||
-        !rejected({}, 101, modules::ETestRunStatus::invalid_request) ||
-        !rejected(module_ids::executive, -1, modules::ETestRunStatus::invalid_request) ||
-        !rejected(module_ids::conditioning_general, 102, modules::ETestRunStatus::unavailable) ||
-        !rejected(module_ids::rendering, 103, modules::ETestRunStatus::unavailable)) return false;
-
-    message.set_async_slot(INT32_MAX);
-    message.assign_payload(modules::RunTestsRequest{ module_ids::executive });
-    if (!context.post(message) || !read(message) || !message.copy_payload_to(result) ||
+    if (!s_direct->post(token, threading::make_pod_message(INT32_MAX, modules::RunTestsRequest{ module_ids::executive })) ||
+        !s_direct->receive(module_ids::executive, token, message) || !message.copy_payload_to(result) ||
         (message.query_async_slot() != INT32_MAX) || (result.module != module_ids::executive) ||
-        (result.status != modules::ETestRunStatus::success) || (result.passed != 7u) ||
-        (result.failed != 0u) || (result.skipped != 2u)) return false;
-    MV_LOG(info, "Lifecycle tests: Executive destination, correlation and rejection checks passed");
+        (result.status != modules::ETestRunStatus::success) || (result.passed != 7u) || result.failed || (result.skipped != 2u))
+    {
+        return false;
+    }
+    MV_LOG(info, "Lifecycle tests: Executive destination and correlation checks passed");
 
     auto owner = CErasedOwner::create<RawAssetTransfer>();
     auto* const transfer = owner.payload<RawAssetTransfer>();
-    if (!transfer || !transfer->storage.value.resize(16u)) return false;
+    if (!transfer || !transfer->storage.value.resize(16u))
+    {
+        return false;
+    }
     std::memset(transfer->storage.value.data(), 0x5a, 16u);
     threading::CErasedOwnerMsg input;
     input.set_message_type<RawAssetTransfer>();
@@ -1205,78 +1340,97 @@ static bool rendering_test_routing_case(threading::CThreadContext& context, cons
     input.set_owner(std::move(owner));
     AssetResult retained;
     if (!context.post(std::move(input)) || !read(message) || !message.copy_payload_to(retained) ||
-        (message.query_async_slot() != 108) || (retained.status != EAssetStatus::success)) return false;
-    message.set_async_slot(109);
-    message.assign_payload(AssetAcquireRequest{ retained.asset });
+        (message.query_async_slot() != 108) || (retained.status != EAssetStatus::success))
+    {
+        return false;
+    }
     AssetAcquireResult acquired;
-    if (!context.post(message) || !read(message) || !message.copy_payload_to(acquired) ||
-        (message.query_async_slot() != 109) || (acquired.status != EAssetStatus::success) ||
-        !acquired.acquisition) return false;
-    message.set_async_slot(110);
-    message.assign_payload(AssetDisposeRequest{ retained.asset });
-    if (!context.post(message)) return false;
-
-    message.set_async_slot(111);
-    message.assign_payload(modules::RunTestsRequest{ module_ids::executive });
-    if (!context.post(message) || !read(message, true) || !message.copy_payload_to(result) ||
-        (message.query_async_slot() != 111) || (result.module != module_ids::executive) ||
-        (result.status != modules::ETestRunStatus::failed) || (result.passed != (worker_exits ? 0u : 3u)) ||
-        (result.failed != (worker_exits ? 0u : 1u)) || (result.skipped != (worker_exits ? 0u : 2u))) return false;
-    MV_LOG(info, "Lifecycle tests: Executive terminal completion passed");
-    if ((acquired.byte_view().size() != 16u) || (acquired.byte_view().data()[15] != 0x5a)) return false;
-    message.set_async_slot(112);
-    message.assign_payload(AssetReleaseRequest{ acquired.acquisition });
-    if (!context.post(message)) return false;
-    bool released{ false }, disposed{ false };
-    for (unsigned i = 0u; i < 2u; ++i)
+    if (!context.post(threading::make_pod_message(109, AssetAcquireRequest{ retained.asset })) ||
+        !read(message) || !message.copy_payload_to(acquired) || (message.query_async_slot() != 109) ||
+        (acquired.status != EAssetStatus::success) || !acquired.acquisition ||
+        !context.post(threading::make_pod_message(110, AssetDisposeRequest{ retained.asset })) ||
+        !s_direct->post(token, threading::make_pod_message(111, modules::RunTestsRequest{ module_ids::executive })))
+    {
+        return false;
+    }
+    if (worker_exits || caller_unloads)
+    {
+        if (!s_direct->wait([&] { return s_direct->client.closing(token); }))
+        {
+            return false;
+        }
+        MV_LOG(info, "Lifecycle tests: pending conversation cancelled on closing");
+    }
+    else
+    {
+        if (!s_direct->receive(module_ids::executive, token, message) || !message.copy_payload_to(result) ||
+            (message.query_async_slot() != 111) || (result.module != module_ids::executive) ||
+            (result.status != modules::ETestRunStatus::failed) || (result.passed != 3u) || (result.failed != 1u) || (result.skipped != 2u))
+        {
+            return false;
+        }
+        MV_LOG(info, "Lifecycle tests: Executive terminal completion passed");
+        s_direct->client.close(token);
+    }
+    //  No endpoint use continues, but this dependent acquisition still has to
+    //  drain before acknowledging the closing boundary.
+    if ((acquired.byte_view().size() != 16u) || (acquired.byte_view().data()[15] != 0x5a) ||
+        !context.post(threading::make_pod_message(112, AssetReleaseRequest{ acquired.acquisition })))
+    {
+        return false;
+    }
+    bool released = false, disposed = false;
+    for (unsigned index = 0u; index < 2u; ++index)
     {
         if (!read(message)) return false;
         AssetReleaseResult release;
         AssetDisposeResult disposal;
         if ((message.query_async_slot() == 112) && message.copy_payload_to(release))
         {
-            if (released || (release.status != EAssetStatus::success) || (release.acquisition != acquired.acquisition)) return false;
+            if (released || (release.status != EAssetStatus::success) || (release.acquisition != acquired.acquisition))
+            {
+                return false;
+            }
             released = true;
         }
         else if ((message.query_async_slot() == 110) && message.copy_payload_to(disposal))
         {
-            if (disposed || (disposal.status != EAssetStatus::success) || (disposal.asset != retained.asset)) return false;
+            if (disposed || (disposal.status != EAssetStatus::success) || (disposal.asset != retained.asset))
+            {
+                return false;
+            }
             disposed = true;
         }
         else return false;
     }
-    if (!released || !disposed) return false;
+    if (!released || !disposed)
+    {
+        return false;
+    }
     MV_LOG(info, "Lifecycle tests: caller acquisition and disposal drained");
-    std::uint32_t epoch{ 0u };
-    while (!context.exit_requested()) epoch = context.wait_for_new_epoch(epoch);
-    return true;
+    if (!s_direct->retire()) return false;
+    return s_direct->wait([&] { return context.exit_requested(); });
 }
 
 static bool malformed_test_completion(threading::CThreadContext& context) noexcept
 {
-    std::uint32_t epoch{ 0u };
-    while (!context.exit_requested())
+    if (!s_direct) return false;
+    threading::CErasedPodMsg message;
+    connections::SToken token;
+    modules::RunTestsRequest request;
+    if (!s_direct->receive(module_ids::executive, token, message) || !message.copy_payload_to(request))
     {
-        threading::CErasedPodMsg message;
-        modules::RunTestsRequest request;
-        if (context.read(message))
-        {
-            if (!message.copy_payload_to(request)) return false;
-            modules::RunTestsResult result;
-            result.module = request.module;
-            result.status = modules::ETestRunStatus::success;
-            result.passed = 1u;
-            message.set_async_slot(message.query_async_slot() + 1);
-            message.assign_payload(result);
-            if (!context.post(message)) return false;
-            MV_LOG(info, "Lifecycle rendering: malformed test completion posted");
-            break;
-        }
-        epoch = context.wait_for_new_epoch(epoch);
+        return false;
     }
-    //  Host must terminate the worker and release the pending test route.
-    while (!context.exit_requested()) epoch = context.wait_for_new_epoch(epoch);
-    return true;
+    const auto reply = threading::make_pod_message((message.query_async_slot() + 1),
+        modules::RunTestsResult{ request.module, modules::ETestRunStatus::success, 1u, 0u, 0u });
+    if (!s_direct->post(token, reply)) return false;
+    MV_LOG(info, "Lifecycle rendering: malformed test completion posted");
+    if (!s_direct->wait([&] { return s_direct->client.closing(token); }) || !s_direct->retire())
+    {
+        return false;
+    }
+    return s_direct->wait([&] { return context.exit_requested(); });
 }
 
 static std::uint32_t MV_STD_ABI_CALL rendering_entry(void* const data) noexcept
@@ -1290,9 +1444,15 @@ static std::uint32_t MV_STD_ABI_CALL rendering_entry(void* const data) noexcept
         ((std::strcmp(selected, "tests-routing") == 0) || (std::strcmp(selected, "tests-worker-exit") == 0) ||
             (std::strcmp(selected, "tests-client-unload") == 0)))
     {
+        SDirectService direct{ context, module_ids::rendering };
+        if (!direct.ready)
+        {
+            context.mark_failed(1u);
+            return 1u;
+        }
         MV_LOG(info, "Rendering: Running");
         context.mark_running();
-        const bool success = rendering_test_routing_case(context, std::strcmp(selected, "tests-worker-exit") == 0);
+        const bool success = rendering_test_routing_case(context, (std::strcmp(selected, "tests-worker-exit") == 0), (std::strcmp(selected, "tests-client-unload") == 0));
         MV_LOG(info, "Rendering: Exited");
         if (success) context.mark_exited();
         else context.mark_failed(1u);
@@ -1302,9 +1462,15 @@ static std::uint32_t MV_STD_ABI_CALL rendering_entry(void* const data) noexcept
         ((std::strcmp(selected, "acquire-render-release") == 0) || (std::strcmp(selected, "acquire-render-abandon") == 0) ||
             (std::strcmp(selected, "acquire-render-replace") == 0)))
     {
+        SDirectService direct{ context, module_ids::rendering };
+        if (!direct.ready)
+        {
+            context.mark_failed(1u);
+            return 1u;
+        }
         MV_LOG(info, "Rendering: Running");
         context.mark_running();
-        const bool success = rendering_acquisition_case(context, std::strcmp(selected, "acquire-render-release") == 0);
+        const bool success = rendering_acquisition_case(context, (std::strcmp(selected, "acquire-render-release") == 0));
         MV_LOG(info, "Rendering: Exited");
         if (success) context.mark_exited();
         else context.mark_failed(1u);
@@ -1313,6 +1479,12 @@ static std::uint32_t MV_STD_ABI_CALL rendering_entry(void* const data) noexcept
     if ((getenv_s(&required, selected, sizeof(selected), "MORPHIC_LIFECYCLE_CASE") == 0) &&
         (std::strcmp(selected, "normal-tests-malformed") == 0))
     {
+        SDirectService direct{ context, module_ids::rendering };
+        if (!direct.ready)
+        {
+            context.mark_failed(1u);
+            return 1u;
+        }
         MV_LOG(info, "Rendering: Running");
         context.mark_running();
         const bool success = malformed_test_completion(context);
@@ -1420,14 +1592,23 @@ MV_MODULE_EXPORT modules::EBindingResult MV_STD_ABI_CALL morphic_module_bootstra
 MV_MODULE_EXPORT modules::EBindingResult MV_STD_ABI_CALL morphic_module_service_thread_v1(
     modules::SServiceThread* const service) noexcept
 {
-    if (service == nullptr) return modules::EBindingResult::invalid_argument;
+    if (service == nullptr)
+    {
+        return modules::EBindingResult::invalid_argument;
+    }
 #if MV_LIFECYCLE_SERVICE
     *service = { thread_ids::simulation, &module_lifecycle_tests::service_entry };
     char selected[40]{};
     std::size_t required{ 0u };
     (void)getenv_s(&required, selected, sizeof(selected), "MORPHIC_LIFECYCLE_CASE");
-    if (std::strcmp(selected, "service-invalid-entry") == 0) service->entry = nullptr;
-    if (std::strcmp(selected, "service-invalid-id") == 0) service->thread = {};
+    if (std::strcmp(selected, "service-invalid-entry") == 0)
+    {
+        service->entry = nullptr;
+    }
+    if (std::strcmp(selected, "service-invalid-id") == 0)
+    {
+        service->thread = {};
+    }
 #else
     *service = { thread_ids::rendering, &module_lifecycle_tests::rendering_entry };
 #endif

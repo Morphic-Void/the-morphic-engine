@@ -14,6 +14,13 @@ Implementation now follows this agreed plan in the shared checkout. See the
 coverage, the approved private context initializer and playback limitations.
 The original planning and review statements below are retained as history.
 
+The 5 November 2026 [direct POD connection contract](direct_pod_connections.md)
+supersedes this plan's Host test forwarding, global busy gate and synthetic
+worker-exit completion. Test payloads now live in Framework and travel directly
+between Executive and Audio through growable queues. Normal conversations finish
+before closing; explicit unload/shutdown cancels and waits for device cleanup
+without requiring a cancelled result to cross the closing boundary.
+
 This is a design and implementation plan, originally based on `f00b2eb` and the
 bundled miniaudio source, reassessed against timed-wait commit `0481576`. No Audio
 implementation is introduced by this document. Later implementation follows the

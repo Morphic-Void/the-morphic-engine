@@ -6,7 +6,11 @@
 //  Primary implementation: OpenAI Codex
 //  Reviewed and accepted by: Ritchie Brannan
 //  Date:    12 Aug 26
+//
 
+
+#include "framework/communications/module_tests.hpp"
+#include "tests/support/direct_connection_fixture.hpp"
 #include "system/storage_type_bindings.hpp"
 #include "module/module_messages.hpp"
 #include <array>
@@ -84,13 +88,19 @@ struct SControlledBudget
         duration = nanoseconds;
         end = now + duration;
         error = construction_error;
-        return error.code == platform::threading::EWaitError::none ? modules::EBudgetStatus::running : modules::EBudgetStatus::failed;
+        return (error.code == platform::threading::EWaitError::none) ? modules::EBudgetStatus::running : modules::EBudgetStatus::failed;
     }
     modules::SEligibleBudgetObservation observe() noexcept
     {
-        if (error.code != platform::threading::EWaitError::none) return { modules::EBudgetStatus::failed, 0u, error };
-        if (query_error.code != platform::threading::EWaitError::none) return { modules::EBudgetStatus::failed, 0u, query_error };
-        return { now < end ? modules::EBudgetStatus::running : modules::EBudgetStatus::expired, now < end ? end - now : 0u, {} };
+        if (error.code != platform::threading::EWaitError::none)
+        {
+            return { modules::EBudgetStatus::failed, 0u, error };
+        }
+        if (query_error.code != platform::threading::EWaitError::none)
+        {
+            return { modules::EBudgetStatus::failed, 0u, query_error };
+        }
+        return { ((now < end) ? modules::EBudgetStatus::running : modules::EBudgetStatus::expired), ((now < end) ? end - now : 0u), {} };
     }
 };
 
@@ -105,9 +115,9 @@ static void check_module_watchdog(tests::TTestContext& ctx)
     Clock::construction_error = {};
     Clock::query_error = {};
     Watchdog watchdog;
-    TEST_EXPECT(ctx, watchdog.check() == State::failed);
-    TEST_EXPECT(ctx, watchdog.start({}) == modules::EBudgetStatus::running);
-    TEST_EXPECT(ctx, Clock::duration == 30000000000ull && Clock::starts == 1u);
+    TEST_EXPECT(ctx, (watchdog.check() == State::failed));
+    TEST_EXPECT(ctx, (watchdog.start({}) == modules::EBudgetStatus::running));
+    TEST_EXPECT(ctx, ((Clock::duration == 30000000000ull) && (Clock::starts == 1u)));
     //  The same pre-read operation runs on every Executive loop, including
     //  loops consuming unrelated traffic. None may renew the original budget.
     bool pending = true;
@@ -116,25 +126,25 @@ static void check_module_watchdog(tests::TTestContext& ctx)
         Clock::now += 1000u;
         pending = (watchdog.check() == State::pending) && pending;
     }
-    TEST_EXPECT(ctx, pending && Clock::starts == 1u);
+    TEST_EXPECT(ctx, (pending && (Clock::starts == 1u)));
     Clock::now = 30000000099ull;
-    TEST_EXPECT(ctx, watchdog.check() == State::pending);
+    TEST_EXPECT(ctx, (watchdog.check() == State::pending));
     ++Clock::now;
-    TEST_EXPECT(ctx, watchdog.check() == State::expired);
+    TEST_EXPECT(ctx, (watchdog.check() == State::expired));
     //  A subsequent module submission gets a fresh full budget.
-    TEST_EXPECT(ctx, watchdog.start({}) == modules::EBudgetStatus::running && Clock::starts == 2u);
-    TEST_EXPECT(ctx, watchdog.check() == State::pending);
+    TEST_EXPECT(ctx, ((watchdog.start({}) == modules::EBudgetStatus::running) && (Clock::starts == 2u)));
+    TEST_EXPECT(ctx, (watchdog.check() == State::pending));
     Clock::now += 30000000000ull;
-    TEST_EXPECT(ctx, watchdog.check() == State::expired);
+    TEST_EXPECT(ctx, (watchdog.check() == State::expired));
     for (const auto error : { Error::invalid_argument, Error::unsupported, Error::native_failure })
     {
         Clock::construction_error = { error, 37u };
-        TEST_EXPECT(ctx, watchdog.start({}) == modules::EBudgetStatus::failed);
-        TEST_EXPECT(ctx, watchdog.check() == State::failed);
+        TEST_EXPECT(ctx, (watchdog.start({}) == modules::EBudgetStatus::failed));
+        TEST_EXPECT(ctx, (watchdog.check() == State::failed));
         Clock::construction_error = {};
-        TEST_EXPECT(ctx, watchdog.start({}) == modules::EBudgetStatus::running);
+        TEST_EXPECT(ctx, (watchdog.start({}) == modules::EBudgetStatus::running));
         Clock::query_error = { error, 41u };
-        TEST_EXPECT(ctx, watchdog.check() == State::failed);
+        TEST_EXPECT(ctx, (watchdog.check() == State::failed));
         Clock::query_error = {};
     }
 }
@@ -166,23 +176,50 @@ static void check_rendering_notices(tests::TTestContext& ctx, modules::CBoundMod
         const threading::ThreadConfig configuration{
             thread_ids::executive, module_ids::executive, platform::threading::EThreadPriority::Normal,
             entry, &modules::CBoundModule::prepare_thread, &module };
-        SHostView execution;
+        tests::SDirectHostFixture host;
         threading::CThreadPackage package(configuration, conversion);
-        TEST_EXPECT(ctx, execution.install(package));
+        host::SClientRecord worker{ module_ids::executive, 101u, &package };
+        tests::SDirectPeerFixture rendering{ host, conversion, module_ids::rendering, 102u,
+            modules::test_connections::policies, modules::test_connections::policy_count };
+        tests::SDirectPeerFixture audio{ host, conversion, module_ids::audio, 103u,
+            modules::test_connections::policies, modules::test_connections::policy_count };
+        TEST_EXPECT(ctx, (rendering.ready && audio.ready && host.attach(worker) && worker.install_host_execution(host.restrictions.reader())));
+        auto pump = [&]
+        {
+            host.drain_controls(worker);
+            host.progress();
+            rendering.pump();
+            audio.pump();
+            host.progress();
+        };
+        auto read_owned = [&](threading::CErasedOwnerMsg& message) {
+            return tests::wait_until(conversion, [&]
+            {
+                pump();
+                return package.read(message);
+            });
+        };
+        auto read_test = [&](tests::SDirectPeerFixture& peer, threading::CErasedPodMsg& message) {
+            return tests::wait_until(conversion, [&] {
+                pump();
+                return connections::was_read(peer.client.read(peer.client.active(module_ids::executive), message));
+            });
+        };
         const bool started = package.startup();
         TEST_EXPECT(ctx, started);
         if (!started)
         {
+            TEST_EXPECT(ctx, (rendering.shutdown() && audio.shutdown()));
             continue;
         }
 
         threading::CErasedOwnerMsg request;
-        const bool received = read_request(package, request, conversion);
+        const bool received = read_owned(request);
         TEST_EXPECT(ctx, received);
         const modules::ModuleRequest* const load = request.owner().payload<modules::ModuleRequest>();
-        TEST_EXPECT(ctx, (load != nullptr) && (load->action == modules::EModuleAction::load) &&
+        TEST_EXPECT(ctx, ((load != nullptr) && (load->action == modules::EModuleAction::load) &&
             (load->module == module_ids::rendering) && (load->file.length() != 0u) &&
-            (std::strcmp(load->file.cstring(), test_environment::module_filename("package:/bin/MorphicRendering").c_str()) == 0));
+            (std::strcmp(load->file.cstring(), test_environment::module_filename("package:/bin/MorphicRendering").c_str()) == 0)));
         const std::int32_t slot = request.query_async_slot();
         request.take_owner().destroy();
 
@@ -218,10 +255,10 @@ static void check_rendering_notices(tests::TTestContext& ctx, modules::CBoundMod
         if ((scenario == ECase::loaded) || (scenario == ECase::already_loaded) || (scenario >= ECase::audio_unavailable))
         {
             threading::CErasedPodMsg tests_request;
-            TEST_EXPECT(ctx, tests::wait_until(conversion, [&]() noexcept { return package.read(tests_request); }));
+            TEST_EXPECT(ctx, read_test(rendering, tests_request));
             modules::RunTestsRequest tests;
-            TEST_EXPECT(ctx, tests_request.copy_payload_to(tests) && tests.module == module_ids::rendering);
-            TEST_EXPECT(ctx, tests_request.query_async_slot() == slot + 1);
+            TEST_EXPECT(ctx, (tests_request.copy_payload_to(tests) && (tests.module == module_ids::rendering)));
+            TEST_EXPECT(ctx, (tests_request.query_async_slot() == (slot + 1)));
             TEST_EXPECT(ctx, !package.read(request));
             //  Executive only observes generic completion; it does not know
             //  the destination's test cases or require a particular case count.
@@ -231,12 +268,12 @@ static void check_rendering_notices(tests::TTestContext& ctx, modules::CBoundMod
             completed.passed = 7u;
             reply.set_async_slot(slot + 1);
             reply.assign_payload(completed);
-            TEST_EXPECT(ctx, package.post(reply));
-            TEST_EXPECT(ctx, read_request(package, request, conversion));
+            TEST_EXPECT(ctx, (rendering.client.post(rendering.client.active(module_ids::executive), reply) == connections::EPost::queued));
+            TEST_EXPECT(ctx, read_owned(request));
             const modules::ModuleRequest* audio_load = request.owner().payload<modules::ModuleRequest>();
-            TEST_EXPECT(ctx, audio_load && audio_load->module == module_ids::audio && audio_load->action == modules::EModuleAction::load &&
-                std::strcmp(audio_load->file.cstring(), test_environment::module_filename("package:/bin/MorphicAudio").c_str()) == 0);
-            TEST_EXPECT(ctx, request.query_async_slot() == slot + 2);
+            TEST_EXPECT(ctx, (audio_load && (audio_load->module == module_ids::audio) && (audio_load->action == modules::EModuleAction::load) &&
+                (std::strcmp(audio_load->file.cstring(), test_environment::module_filename("package:/bin/MorphicAudio").c_str()) == 0)));
+            TEST_EXPECT(ctx, (request.query_async_slot() == (slot + 2)));
             request.take_owner().destroy();
             result.module = module_ids::audio;
             result.notice = modules::EModuleNotice::acknowledged;
@@ -252,23 +289,38 @@ static void check_rendering_notices(tests::TTestContext& ctx, modules::CBoundMod
             TEST_EXPECT(ctx, package.post(reply));
             if (scenario != ECase::audio_load_failure)
             {
-                TEST_EXPECT(ctx, tests::wait_until(conversion, [&]() noexcept { return package.read(tests_request); }));
-                TEST_EXPECT(ctx, tests_request.copy_payload_to(tests) && tests.module == module_ids::audio && tests_request.query_async_slot() == slot + 3);
+                TEST_EXPECT(ctx, read_test(audio, tests_request));
+                TEST_EXPECT(ctx, (tests_request.copy_payload_to(tests) && (tests.module == module_ids::audio) && (tests_request.query_async_slot() == (slot + 3))));
                 TEST_EXPECT(ctx, !package.read(request));
                 completed = { module_ids::audio, modules::ETestRunStatus::success, 1u, 0u, 0u };
-                if (scenario == ECase::audio_unavailable) completed = { module_ids::audio, modules::ETestRunStatus::unavailable, 0u, 0u, 1u };
-                if (scenario == ECase::audio_failed) completed = { module_ids::audio, modules::ETestRunStatus::failed, 0u, 1u, 0u };
-                if (scenario == ECase::audio_cancelled) completed = { module_ids::audio, modules::ETestRunStatus::cancelled, 0u, 0u, 1u };
-                if (scenario == ECase::audio_busy) completed = { module_ids::audio, modules::ETestRunStatus::busy, 0u, 1u, 0u };
-                if (scenario == ECase::audio_bad_counts) completed.passed = 2u;
+                if (scenario == ECase::audio_unavailable)
+                {
+                    completed = { module_ids::audio, modules::ETestRunStatus::unavailable, 0u, 0u, 1u };
+                }
+                if (scenario == ECase::audio_failed)
+                {
+                    completed = { module_ids::audio, modules::ETestRunStatus::failed, 0u, 1u, 0u };
+                }
+                if (scenario == ECase::audio_cancelled)
+                {
+                    completed = { module_ids::audio, modules::ETestRunStatus::cancelled, 0u, 0u, 1u };
+                }
+                if (scenario == ECase::audio_busy)
+                {
+                    completed = { module_ids::audio, modules::ETestRunStatus::busy, 0u, 1u, 0u };
+                }
+                if (scenario == ECase::audio_bad_counts)
+                {
+                    completed.passed = 2u;
+                }
                 reply.set_async_slot(slot + ((scenario == ECase::audio_wrong_correlation) ? 4 : 3));
                 reply.assign_payload(completed);
-                TEST_EXPECT(ctx, package.post(reply));
+                TEST_EXPECT(ctx, (audio.client.post(audio.client.active(module_ids::executive), reply) == connections::EPost::queued));
             }
             if ((scenario == ECase::loaded) || (scenario == ECase::already_loaded) || (scenario == ECase::audio_unavailable))
             {
-                TEST_EXPECT(ctx, read_request(package, request, conversion));
-                TEST_EXPECT(ctx, request.is_message_a<RawAssetTransfer>() && request.query_async_slot() == slot + 4);
+                TEST_EXPECT(ctx, read_owned(request));
+                TEST_EXPECT(ctx, (request.is_message_a<RawAssetTransfer>() && (request.query_async_slot() == (slot + 4))));
             }
             else
             {
@@ -282,13 +334,22 @@ static void check_rendering_notices(tests::TTestContext& ctx, modules::CBoundMod
             TEST_EXPECT(ctx, !package.read(request));
         }
         request.take_owner().destroy();
+        host.connections.close_client(worker);
         package.request_exit();
         TEST_EXPECT(ctx, tests::wait_until(conversion, [&]() noexcept {
+            worker.terminal_before_drain = worker.terminal();
+            pump();
+            while (package.read(request)) request = {};
+            worker.incoming_drained = worker.terminal_before_drain;
+            host.progress();
             const auto state = package.query_state();
-            return state == threading::EThreadRunState::Exited || state == threading::EThreadRunState::Failed;
+            return ((state == threading::EThreadRunState::Exited) || (state == threading::EThreadRunState::Failed)) &&
+                worker.execution_quiescent() && host.connections.empty();
         }));
-        package.retire_host_execution();
-        TEST_EXPECT(ctx, package.shutdown());
+        pump();
+        TEST_EXPECT(ctx, !host.failed);
+        TEST_EXPECT(ctx, (worker.retire_host_execution(false) && package.shutdown()));
+        TEST_EXPECT(ctx, (host.detach(worker) && rendering.shutdown() && audio.shutdown()));
     }
 }
 
@@ -360,11 +421,11 @@ void test_registration_and_empty_state(TTestContext& ctx)
     TEST_EXPECT(ctx, owner.is_empty());
     TEST_EXPECT(ctx, !owner.is_ready());
     TEST_EXPECT(ctx, !owner);
-    TEST_EXPECT(ctx, owner.query_type_id() == type_ids::undefined);
-    TEST_EXPECT(ctx, owner.payload<ByteStorage>() == nullptr);
-    TEST_EXPECT(ctx, const_owner.payload<ByteStorage>() == nullptr);
+    TEST_EXPECT(ctx, (owner.query_type_id() == type_ids::undefined));
+    TEST_EXPECT(ctx, (owner.payload<ByteStorage>() == nullptr));
+    TEST_EXPECT(ctx, (const_owner.payload<ByteStorage>() == nullptr));
     TEST_EXPECT(ctx, !owner.has_any_hazard());
-    TEST_EXPECT(ctx, owner.hazard_mask() == 0u);
+    TEST_EXPECT(ctx, (owner.hazard_mask() == 0u));
 
     owner.destroy();
     TEST_EXPECT(ctx, owner.is_empty());
@@ -378,7 +439,7 @@ void test_operation_registry(TTestContext& ctx)
     };
     TEST_EXPECT(ctx, erased_owner_operations::validate_view(expected_view));
     TEST_EXPECT(ctx, erased_owner_operations::view_is_installed());
-    TEST_EXPECT(ctx, erased_owner_operations::installed_view() != nullptr);
+    TEST_EXPECT(ctx, (erased_owner_operations::installed_view() != nullptr));
     TEST_EXPECT(ctx, !erased_owner_operations::install_view(expected_view));
 
     const erased_owner_operations::SRegistration* const byte_storage =
@@ -391,22 +452,22 @@ void test_operation_registry(TTestContext& ctx)
         erased_owner_operations::find(k_type_id_v<AssetSaveRequest>);
     const erased_owner_operations::SRegistration* const host_file_load =
         erased_owner_operations::find(k_type_id_v<test_environment::STestAssetLoadState>);
-    TEST_EXPECT(ctx, (byte_storage != nullptr) &&
-        byte_storage->operations.is_complete());
-    TEST_EXPECT(ctx, (decoded_tga != nullptr) &&
-        decoded_tga->operations.is_complete());
-    TEST_EXPECT(ctx, (asset_load_request != nullptr) &&
-        asset_load_request->operations.is_complete());
-    TEST_EXPECT(ctx, (asset_save_request != nullptr) &&
-        asset_save_request->operations.is_complete());
-    TEST_EXPECT(ctx, (host_file_load != nullptr) &&
-        host_file_load->operations.is_complete());
+    TEST_EXPECT(ctx, ((byte_storage != nullptr) &&
+        byte_storage->operations.is_complete()));
+    TEST_EXPECT(ctx, ((decoded_tga != nullptr) &&
+        decoded_tga->operations.is_complete()));
+    TEST_EXPECT(ctx, ((asset_load_request != nullptr) &&
+        asset_load_request->operations.is_complete()));
+    TEST_EXPECT(ctx, ((asset_save_request != nullptr) &&
+        asset_save_request->operations.is_complete()));
+    TEST_EXPECT(ctx, ((host_file_load != nullptr) &&
+        host_file_load->operations.is_complete()));
     TEST_EXPECT(ctx,
-        erased_owner_operations::find(k_type_id_v<FileLoadRequest>) == nullptr);
+        (erased_owner_operations::find(k_type_id_v<FileLoadRequest>) == nullptr));
     TEST_EXPECT(ctx,
-        erased_owner_operations::find(k_type_id_v<test_environment::CTestRuntime>) == nullptr);
+        (erased_owner_operations::find(k_type_id_v<test_environment::CTestRuntime>) == nullptr));
     TEST_EXPECT(ctx,
-        erased_owner_operations::find(type_ids::undefined) == nullptr);
+        (erased_owner_operations::find(type_ids::undefined) == nullptr));
 }
 
 template<typename T>
@@ -425,7 +486,7 @@ void test_private_owner_boundary(TTestContext& ctx)
     {
         CErasedOwner owner = CErasedOwner::create<T>();
         T* const payload = owner.template payload<T>();
-        TEST_EXPECT(ctx, payload != nullptr);
+        TEST_EXPECT(ctx, (payload != nullptr));
         if (payload == nullptr) return;
         if constexpr (std::is_same_v<T, ByteStorage>)
         {
@@ -457,8 +518,8 @@ void test_private_owner_boundary(TTestContext& ctx)
         const auto bytes = source.get_live_allocated_bytes();
         const auto hazards = owner.hazard_mask();
         TEST_EXPECT(ctx, !owner.reattribute(&external));
-        TEST_EXPECT(ctx, owner.template payload<T>() == payload);
-        TEST_EXPECT(ctx, owner.memory_context() == &source);
+        TEST_EXPECT(ctx, (owner.template payload<T>() == payload));
+        TEST_EXPECT(ctx, (owner.memory_context() == &source));
 
         threading::transports::CErasedOwnerMsgTransport cross(module_ids::rendering, &external);
         threading::transports::CErasedOwnerMsgTransport local(module_ids::executable, &worker);
@@ -470,24 +531,24 @@ void test_private_owner_boundary(TTestContext& ctx)
         pending.set_owner(std::move(owner));
         TEST_EXPECT(ctx, !cross.post(std::move(pending)));
         TEST_EXPECT(ctx, pending.is_message_a<AssetResult>());
-        TEST_EXPECT(ctx, pending.query_async_slot() == 71);
-        TEST_EXPECT(ctx, pending.owner().template payload<T>() == payload);
-        TEST_EXPECT(ctx, pending.owner().memory_context() == &source);
-        TEST_EXPECT(ctx, pending.owner().hazard_mask() == hazards);
-        TEST_EXPECT(ctx, source.get_live_allocation_count() == count);
-        TEST_EXPECT(ctx, source.get_live_allocated_bytes() == bytes);
+        TEST_EXPECT(ctx, (pending.query_async_slot() == 71));
+        TEST_EXPECT(ctx, (pending.owner().template payload<T>() == payload));
+        TEST_EXPECT(ctx, (pending.owner().memory_context() == &source));
+        TEST_EXPECT(ctx, (pending.owner().hazard_mask() == hazards));
+        TEST_EXPECT(ctx, (source.get_live_allocation_count() == count));
+        TEST_EXPECT(ctx, (source.get_live_allocated_bytes() == bytes));
         threading::CErasedOwnerMsg received;
         TEST_EXPECT(ctx, !cross.read(received));
 
         pending.set_message_type<FileLoadResult>();
         TEST_EXPECT(ctx, local.post(std::move(pending)));
-        TEST_EXPECT(ctx, !pending.has_message_type() && !pending.has_owner());
+        TEST_EXPECT(ctx, (!pending.has_message_type() && !pending.has_owner()));
         TEST_EXPECT(ctx, local.read(received));
         TEST_EXPECT(ctx, received.is_message_a<FileLoadResult>());
-        TEST_EXPECT(ctx, received.query_async_slot() == 71);
-        TEST_EXPECT(ctx, received.owner().template payload<T>() == payload);
-        TEST_EXPECT(ctx, received.owner().memory_context() == &worker);
-        TEST_EXPECT(ctx, received.owner().hazard_mask() == hazards);
+        TEST_EXPECT(ctx, (received.query_async_slot() == 71));
+        TEST_EXPECT(ctx, (received.owner().template payload<T>() == payload));
+        TEST_EXPECT(ctx, (received.owner().memory_context() == &worker));
+        TEST_EXPECT(ctx, (received.owner().hazard_mask() == hazards));
         TEST_EXPECT(ctx, source.is_attribution_empty());
         received.owner().destroy();
         local.deallocate();
@@ -514,7 +575,7 @@ void test_private_message_tag_boundary(TTestContext& ctx)
     pending.set_async_slot(72);
     CErasedOwner owner = CErasedOwner::create<RawAssetTransfer>();
     auto* const payload = owner.payload<RawAssetTransfer>();
-    TEST_EXPECT(ctx, payload != nullptr);
+    TEST_EXPECT(ctx, (payload != nullptr));
     if (payload == nullptr) return;
     TEST_EXPECT(ctx, payload->storage.value.allocate(32u));
     owner.add_hazard(mount_point_ids::conditioning);
@@ -524,12 +585,12 @@ void test_private_message_tag_boundary(TTestContext& ctx)
     pending.set_owner(std::move(owner));
     TEST_EXPECT(ctx, !cross.post(std::move(pending)));
     TEST_EXPECT(ctx, pending.is_message_a<TgaEncodeResult>());
-    TEST_EXPECT(ctx, pending.query_async_slot() == 72);
-    TEST_EXPECT(ctx, pending.owner().payload<RawAssetTransfer>() == payload);
-    TEST_EXPECT(ctx, pending.owner().memory_context() == &source);
-    TEST_EXPECT(ctx, pending.owner().hazard_mask() == hazards);
-    TEST_EXPECT(ctx, source.get_live_allocation_count() == count);
-    TEST_EXPECT(ctx, source.get_live_allocated_bytes() == bytes);
+    TEST_EXPECT(ctx, (pending.query_async_slot() == 72));
+    TEST_EXPECT(ctx, (pending.owner().payload<RawAssetTransfer>() == payload));
+    TEST_EXPECT(ctx, (pending.owner().memory_context() == &source));
+    TEST_EXPECT(ctx, (pending.owner().hazard_mask() == hazards));
+    TEST_EXPECT(ctx, (source.get_live_allocation_count() == count));
+    TEST_EXPECT(ctx, (source.get_live_allocated_bytes() == bytes));
     threading::CErasedOwnerMsg received;
     TEST_EXPECT(ctx, !cross.read(received));
     pending.owner().destroy();
@@ -548,10 +609,10 @@ void test_operation_registry_failure_boundaries(TTestContext& ctx)
             static_cast<std::uint32_t>(missing_local_operations.size()) }
     };
     TEST_EXPECT(ctx, erased_owner_operations::validate_view(missing_view));
-    TEST_EXPECT(ctx, erased_owner_operations::find(
-        &missing_view, k_type_id_v<test_environment::STestAssetLoadState>) == nullptr);
-    TEST_EXPECT(ctx, erased_owner_operations::find(
-        &missing_view, k_type_id_v<RawAssetTransfer>) != nullptr);
+    TEST_EXPECT(ctx, (erased_owner_operations::find(
+        &missing_view, k_type_id_v<test_environment::STestAssetLoadState>) == nullptr));
+    TEST_EXPECT(ctx, (erased_owner_operations::find(
+        &missing_view, k_type_id_v<RawAssetTransfer>) != nullptr));
 
     auto incomplete_local_operations = missing_local_operations;
     const std::uint32_t local_index = local_type_ids::ops::decode_index(
@@ -565,12 +626,12 @@ void test_operation_registry_failure_boundaries(TTestContext& ctx)
             static_cast<std::uint32_t>(incomplete_local_operations.size()) }
     };
     TEST_EXPECT(ctx, !erased_owner_operations::validate_view(incomplete_view));
-    TEST_EXPECT(ctx, erased_owner_operations::find(
-        &incomplete_view, k_type_id_v<test_environment::STestAssetLoadState>) == nullptr);
+    TEST_EXPECT(ctx, (erased_owner_operations::find(
+        &incomplete_view, k_type_id_v<test_environment::STestAssetLoadState>) == nullptr));
 
     TEST_EXPECT(ctx, erased_owner_operations::view_is_installed());
-    TEST_EXPECT(ctx, erased_owner_operations::find(
-        k_type_id_v<test_environment::STestAssetLoadState>) != nullptr);
+    TEST_EXPECT(ctx, (erased_owner_operations::find(
+        k_type_id_v<test_environment::STestAssetLoadState>) != nullptr));
 }
 
 void test_executive_context_and_module_unload_gate(TTestContext& ctx)
@@ -578,12 +639,12 @@ void test_executive_context_and_module_unload_gate(TTestContext& ctx)
     memory::CMemoryContext* const host_context = test_environment::executable_memory_context();
     memory::CMemoryContext* const executive_context =
         test_environment::executive_memory_context();
-    TEST_EXPECT(ctx, host_context != nullptr);
-    TEST_EXPECT(ctx, executive_context != nullptr);
-    TEST_EXPECT(ctx, executive_context != host_context);
-    TEST_EXPECT(ctx, host_context->get_system_id() == system_ids::host);
+    TEST_EXPECT(ctx, (host_context != nullptr));
+    TEST_EXPECT(ctx, (executive_context != nullptr));
+    TEST_EXPECT(ctx, (executive_context != host_context));
+    TEST_EXPECT(ctx, (host_context->get_system_id() == system_ids::host));
     TEST_EXPECT(ctx,
-        executive_context->get_system_id() == system_ids::executive);
+        (executive_context->get_system_id() == system_ids::executive));
     TEST_EXPECT(ctx, host_context->is_compatible_with(*executive_context));
     TEST_EXPECT(ctx, host_context->belongs_to_module(module_ids::executable));
     TEST_EXPECT(ctx, !host_context->belongs_to_module(module_ids::executive));
@@ -655,9 +716,9 @@ void test_executive_context_and_module_unload_gate(TTestContext& ctx)
             TEST_EXPECT(ctx, execution.install(package));
             //  The real Host-side package must reject the failed Executive startup.
             TEST_EXPECT(ctx, !package.startup());
-            TEST_EXPECT(ctx, failure.final_state == threading::EThreadRunState::Failed);
-            TEST_EXPECT(ctx, failure.failure_code != 0u);
-            TEST_EXPECT(ctx, failure.exit_code == failure.failure_code);
+            TEST_EXPECT(ctx, (failure.final_state == threading::EThreadRunState::Failed));
+            TEST_EXPECT(ctx, (failure.failure_code != 0u));
+            TEST_EXPECT(ctx, (failure.exit_code == failure.failure_code));
             TEST_EXPECT(ctx, executive_context->is_attribution_empty());
             executive_startup_tests::check_rendering_notices(ctx, module, failure.entry, conversion);
             TEST_EXPECT(ctx, executive_context->is_attribution_empty());
@@ -667,9 +728,9 @@ void test_executive_context_and_module_unload_gate(TTestContext& ctx)
     }
     void* const allocation = executive_context->allocate(
         allocation_alignment, allocation_size);
-    TEST_EXPECT(ctx, allocation != nullptr);
-    TEST_EXPECT(ctx, executive_context->get_live_allocation_count() == 1u);
-    TEST_EXPECT(ctx, executive_context->get_live_allocated_bytes() != 0u);
+    TEST_EXPECT(ctx, (allocation != nullptr));
+    TEST_EXPECT(ctx, (executive_context->get_live_allocation_count() == 1u));
+    TEST_EXPECT(ctx, (executive_context->get_live_allocated_bytes() != 0u));
     TEST_EXPECT(ctx, !executive_context->is_attribution_empty());
     TEST_EXPECT(ctx, !module.unbind());
     TEST_EXPECT(ctx, module.is_ready());
@@ -696,37 +757,37 @@ void test_local_creation_moves_and_destruction(TTestContext& ctx)
         test_environment::STestAssetLoadState* const payload =
             source.payload<test_environment::STestAssetLoadState>();
         TEST_EXPECT(ctx, source.is_ready());
-        TEST_EXPECT(ctx, source.query_type_id() ==
-            k_type_id_v<test_environment::STestAssetLoadState>);
-        TEST_EXPECT(ctx, payload != nullptr);
-        TEST_EXPECT(ctx, source.payload<RawAssetTransfer>() == nullptr);
-        TEST_EXPECT(ctx, context.get_live_allocation_count() == 1u);
+        TEST_EXPECT(ctx, (source.query_type_id() ==
+            k_type_id_v<test_environment::STestAssetLoadState>));
+        TEST_EXPECT(ctx, (payload != nullptr));
+        TEST_EXPECT(ctx, (source.payload<RawAssetTransfer>() == nullptr));
+        TEST_EXPECT(ctx, (context.get_live_allocation_count() == 1u));
 
         payload->executive_slot = 41;
         source.add_hazard(mount_point_ids::executive);
 
         CErasedOwner moved{ std::move(source) };
         TEST_EXPECT(ctx, source.is_empty());
-        TEST_EXPECT(ctx, moved.payload<test_environment::STestAssetLoadState>() == payload);
+        TEST_EXPECT(ctx, (moved.payload<test_environment::STestAssetLoadState>() == payload));
         TEST_EXPECT(ctx, moved.has_hazard(mount_point_ids::executive));
 
         CErasedOwner destination =
             CErasedOwner::create<test_environment::STestAssetLoadState>();
-        TEST_EXPECT(ctx, context.get_live_allocation_count() == 2u);
+        TEST_EXPECT(ctx, (context.get_live_allocation_count() == 2u));
         destination = std::move(moved);
         TEST_EXPECT(ctx, moved.is_empty());
-        TEST_EXPECT(ctx, destination.payload<test_environment::STestAssetLoadState>() == payload);
+        TEST_EXPECT(ctx, (destination.payload<test_environment::STestAssetLoadState>() == payload));
         const CErasedOwner& const_destination = destination;
         const test_environment::STestAssetLoadState* const const_payload =
             const_destination.payload<test_environment::STestAssetLoadState>();
-        TEST_EXPECT(ctx, const_payload != nullptr);
-        TEST_EXPECT(ctx, const_payload->executive_slot == 41);
+        TEST_EXPECT(ctx, (const_payload != nullptr));
+        TEST_EXPECT(ctx, (const_payload->executive_slot == 41));
         TEST_EXPECT(ctx, !const_payload->request);
-        TEST_EXPECT(ctx, context.get_live_allocation_count() == 1u);
+        TEST_EXPECT(ctx, (context.get_live_allocation_count() == 1u));
     }
 
-    TEST_EXPECT(ctx, context.get_live_allocation_count() == 0u);
-    TEST_EXPECT(ctx, context.get_live_allocated_bytes() == 0u);
+    TEST_EXPECT(ctx, (context.get_live_allocation_count() == 0u));
+    TEST_EXPECT(ctx, (context.get_live_allocated_bytes() == 0u));
 }
 
 void test_local_context_boundaries(TTestContext& ctx)
@@ -750,35 +811,35 @@ void test_local_context_boundaries(TTestContext& ctx)
     const std::uint64_t source_bytes = source_context.get_live_allocated_bytes();
     TEST_EXPECT(ctx, owner.can_reattribute_to(&target_context));
     TEST_EXPECT(ctx, owner.reattribute(&target_context));
-    TEST_EXPECT(ctx, owner.memory_context() == &target_context);
-    TEST_EXPECT(ctx, owner.payload<test_environment::STestAssetLoadState>() == payload);
-    TEST_EXPECT(ctx, source_context.get_live_allocation_count() == 0u);
-    TEST_EXPECT(ctx, target_context.get_live_allocation_count() == source_count);
-    TEST_EXPECT(ctx, target_context.get_live_allocated_bytes() == source_bytes);
+    TEST_EXPECT(ctx, (owner.memory_context() == &target_context));
+    TEST_EXPECT(ctx, (owner.payload<test_environment::STestAssetLoadState>() == payload));
+    TEST_EXPECT(ctx, (source_context.get_live_allocation_count() == 0u));
+    TEST_EXPECT(ctx, (target_context.get_live_allocation_count() == source_count));
+    TEST_EXPECT(ctx, (target_context.get_live_allocated_bytes() == source_bytes));
 
     const std::uint32_t target_count = target_context.get_live_allocation_count();
     const std::uint64_t target_bytes = target_context.get_live_allocated_bytes();
     TEST_EXPECT(ctx, !owner.can_reattribute_to(&executive_context));
     TEST_EXPECT(ctx, !owner.reattribute(&executive_context));
     TEST_EXPECT(ctx, owner.is_ready());
-    TEST_EXPECT(ctx, owner.memory_context() == &target_context);
-    TEST_EXPECT(ctx, owner.payload<test_environment::STestAssetLoadState>() == payload);
-    TEST_EXPECT(ctx, payload->executive_slot == 72);
+    TEST_EXPECT(ctx, (owner.memory_context() == &target_context));
+    TEST_EXPECT(ctx, (owner.payload<test_environment::STestAssetLoadState>() == payload));
+    TEST_EXPECT(ctx, (payload->executive_slot == 72));
     TEST_EXPECT(ctx, !payload->request);
     TEST_EXPECT(ctx, owner.has_hazard(mount_point_ids::conditioning));
-    TEST_EXPECT(ctx, target_context.get_live_allocation_count() == target_count);
-    TEST_EXPECT(ctx, target_context.get_live_allocated_bytes() == target_bytes);
-    TEST_EXPECT(ctx, executive_context.get_live_allocation_count() == 0u);
+    TEST_EXPECT(ctx, (target_context.get_live_allocation_count() == target_count));
+    TEST_EXPECT(ctx, (target_context.get_live_allocated_bytes() == target_bytes));
+    TEST_EXPECT(ctx, (executive_context.get_live_allocation_count() == 0u));
 
     CErasedOwner wrong_component =
         CErasedOwner::create<test_environment::STestAssetLoadState>(&executive_context);
     TEST_EXPECT(ctx, wrong_component.is_empty());
-    TEST_EXPECT(ctx, wrong_component.query_type_id() == type_ids::undefined);
-    TEST_EXPECT(ctx, executive_context.get_live_allocation_count() == 0u);
+    TEST_EXPECT(ctx, (wrong_component.query_type_id() == type_ids::undefined));
+    TEST_EXPECT(ctx, (executive_context.get_live_allocation_count() == 0u));
 
     owner.destroy();
-    TEST_EXPECT(ctx, target_context.get_live_allocation_count() == 0u);
-    TEST_EXPECT(ctx, target_context.get_live_allocated_bytes() == 0u);
+    TEST_EXPECT(ctx, (target_context.get_live_allocation_count() == 0u));
+    TEST_EXPECT(ctx, (target_context.get_live_allocated_bytes() == 0u));
 }
 
 void test_creation_accounting_and_destruction(TTestContext& ctx)
@@ -794,17 +855,17 @@ void test_creation_accounting_and_destruction(TTestContext& ctx)
         RawAssetTransfer* const payload = owner.payload<RawAssetTransfer>();
 
         TEST_EXPECT(ctx, owner.is_ready());
-        TEST_EXPECT(ctx, owner.query_type_id() == k_type_id_v<RawAssetTransfer>);
-        TEST_EXPECT(ctx, payload != nullptr);
-        TEST_EXPECT(ctx, owner.payload<ByteStorage>() == nullptr);
-        TEST_EXPECT(ctx, context.get_live_allocation_count() == 1u);
+        TEST_EXPECT(ctx, (owner.query_type_id() == k_type_id_v<RawAssetTransfer>));
+        TEST_EXPECT(ctx, (payload != nullptr));
+        TEST_EXPECT(ctx, (owner.payload<ByteStorage>() == nullptr));
+        TEST_EXPECT(ctx, (context.get_live_allocation_count() == 1u));
 
         TEST_EXPECT(ctx, payload->storage.value.allocate(64u, 16u));
-        TEST_EXPECT(ctx, context.get_live_allocation_count() == 2u);
+        TEST_EXPECT(ctx, (context.get_live_allocation_count() == 2u));
     }
 
-    TEST_EXPECT(ctx, context.get_live_allocation_count() == 0u);
-    TEST_EXPECT(ctx, context.get_live_allocated_bytes() == 0u);
+    TEST_EXPECT(ctx, (context.get_live_allocation_count() == 0u));
+    TEST_EXPECT(ctx, (context.get_live_allocated_bytes() == 0u));
 }
 
 void test_moves_and_hazards(TTestContext& ctx)
@@ -818,7 +879,7 @@ void test_moves_and_hazards(TTestContext& ctx)
     CErasedOwner moved{ std::move(source) };
     TEST_EXPECT(ctx, source.is_empty());
     TEST_EXPECT(ctx, !source.has_any_hazard());
-    TEST_EXPECT(ctx, moved.payload<RawAssetTransfer>() == original_payload);
+    TEST_EXPECT(ctx, (moved.payload<RawAssetTransfer>() == original_payload));
     TEST_EXPECT(ctx, moved.has_hazard(mount_point_ids::executable));
     TEST_EXPECT(ctx, moved.has_hazard(mount_point_ids::render));
     TEST_EXPECT(ctx, moved.payload<RawAssetTransfer>()->storage.value.is_ready());
@@ -826,7 +887,7 @@ void test_moves_and_hazards(TTestContext& ctx)
     CErasedOwner destination = CErasedOwner::create<ByteStorage>();
     destination = std::move(moved);
     TEST_EXPECT(ctx, moved.is_empty());
-    TEST_EXPECT(ctx, destination.payload<RawAssetTransfer>() == original_payload);
+    TEST_EXPECT(ctx, (destination.payload<RawAssetTransfer>() == original_payload));
 
     destination.remove_hazard(mount_point_ids::render);
     TEST_EXPECT(ctx, destination.has_hazard(mount_point_ids::executable));
@@ -847,17 +908,17 @@ void test_allocation_failure_is_canonical(TTestContext& ctx)
 
     TEST_EXPECT(ctx, owner.is_empty());
     TEST_EXPECT(ctx, !owner.is_ready());
-    TEST_EXPECT(ctx, owner.query_type_id() == type_ids::undefined);
-    TEST_EXPECT(ctx, owner.hazard_mask() == 0u);
-    TEST_EXPECT(ctx, context.get_live_allocation_count() == 0u);
+    TEST_EXPECT(ctx, (owner.query_type_id() == type_ids::undefined));
+    TEST_EXPECT(ctx, (owner.hazard_mask() == 0u));
+    TEST_EXPECT(ctx, (context.get_live_allocation_count() == 0u));
 
     CErasedOwner local_owner =
         CErasedOwner::create<test_environment::STestAssetLoadState>(&context);
     TEST_EXPECT(ctx, local_owner.is_empty());
     TEST_EXPECT(ctx, !local_owner.is_ready());
-    TEST_EXPECT(ctx, local_owner.query_type_id() == type_ids::undefined);
-    TEST_EXPECT(ctx, local_owner.hazard_mask() == 0u);
-    TEST_EXPECT(ctx, context.get_live_allocation_count() == 0u);
+    TEST_EXPECT(ctx, (local_owner.query_type_id() == type_ids::undefined));
+    TEST_EXPECT(ctx, (local_owner.hazard_mask() == 0u));
+    TEST_EXPECT(ctx, (context.get_live_allocation_count() == 0u));
 }
 
 void test_owner_reattribution(TTestContext& ctx)
@@ -879,32 +940,32 @@ void test_owner_reattribution(TTestContext& ctx)
 
     const std::uint32_t allocation_count = source_context.get_live_allocation_count();
     const std::uint64_t allocation_size = source_context.get_live_allocated_bytes();
-    TEST_EXPECT(ctx, allocation_count == 2u);
-    TEST_EXPECT(ctx, allocation_size != 0u);
-    TEST_EXPECT(ctx, owner.memory_context() == &source_context);
+    TEST_EXPECT(ctx, (allocation_count == 2u));
+    TEST_EXPECT(ctx, (allocation_size != 0u));
+    TEST_EXPECT(ctx, (owner.memory_context() == &source_context));
     TEST_EXPECT(ctx, owner.can_reattribute_to(&target_context));
     TEST_EXPECT(ctx, !owner.can_reattribute_to(&incompatible_context));
     TEST_EXPECT(ctx, !owner.reattribute(&incompatible_context));
-    TEST_EXPECT(ctx, source_context.get_live_allocation_count() == allocation_count);
-    TEST_EXPECT(ctx, target_context.get_live_allocation_count() == 0u);
+    TEST_EXPECT(ctx, (source_context.get_live_allocation_count() == allocation_count));
+    TEST_EXPECT(ctx, (target_context.get_live_allocation_count() == 0u));
 
     TEST_EXPECT(ctx, owner.reattribute(&target_context));
-    TEST_EXPECT(ctx, owner.memory_context() == &target_context);
-    TEST_EXPECT(ctx, owner.payload<RawAssetTransfer>() == payload);
+    TEST_EXPECT(ctx, (owner.memory_context() == &target_context));
+    TEST_EXPECT(ctx, (owner.payload<RawAssetTransfer>() == payload));
     TEST_EXPECT(ctx, owner.has_hazard(mount_point_ids::executive));
-    TEST_EXPECT(ctx, source_context.get_live_allocation_count() == 0u);
-    TEST_EXPECT(ctx, source_context.get_live_allocated_bytes() == 0u);
-    TEST_EXPECT(ctx, target_context.get_live_allocation_count() == allocation_count);
-    TEST_EXPECT(ctx, target_context.get_live_allocated_bytes() == allocation_size);
+    TEST_EXPECT(ctx, (source_context.get_live_allocation_count() == 0u));
+    TEST_EXPECT(ctx, (source_context.get_live_allocated_bytes() == 0u));
+    TEST_EXPECT(ctx, (target_context.get_live_allocation_count() == allocation_count));
+    TEST_EXPECT(ctx, (target_context.get_live_allocated_bytes() == allocation_size));
 
     owner.destroy();
-    TEST_EXPECT(ctx, target_context.get_live_allocation_count() == 0u);
-    TEST_EXPECT(ctx, target_context.get_live_allocated_bytes() == 0u);
+    TEST_EXPECT(ctx, (target_context.get_live_allocation_count() == 0u));
+    TEST_EXPECT(ctx, (target_context.get_live_allocated_bytes() == 0u));
 
     CErasedOwner empty;
     TEST_EXPECT(ctx, empty.reattribute(&target_context));
     TEST_EXPECT(ctx, empty.is_empty());
-    TEST_EXPECT(ctx, empty.memory_context() == nullptr);
+    TEST_EXPECT(ctx, (empty.memory_context() == nullptr));
 }
 
 void test_all_registered_payload_reattribution(TTestContext& ctx)
@@ -919,27 +980,27 @@ void test_all_registered_payload_reattribution(TTestContext& ctx)
     CErasedOwner encoded = CErasedOwner::create<ByteStorage>();
     TEST_EXPECT(ctx, encoded.payload<ByteStorage>()->buffer.allocate(32u));
     TEST_EXPECT(ctx, encoded.reattribute(&target_context));
-    TEST_EXPECT(ctx, encoded.memory_context() == &target_context);
+    TEST_EXPECT(ctx, (encoded.memory_context() == &target_context));
     encoded.destroy();
 
     CErasedOwner decoded = CErasedOwner::create<DecodedTga>();
     TEST_EXPECT(ctx, decoded.payload<DecodedTga>()->buffer.allocate(8u, 4u));
     TEST_EXPECT(ctx, decoded.reattribute(&target_context));
-    TEST_EXPECT(ctx, decoded.memory_context() == &target_context);
+    TEST_EXPECT(ctx, (decoded.memory_context() == &target_context));
     decoded.destroy();
 
     CErasedOwner load_request = CErasedOwner::create<AssetLoadRequest>();
     TEST_EXPECT(ctx, load_request.payload<AssetLoadRequest>()->file.set(
         "reattributed-load-request.tga"));
     TEST_EXPECT(ctx, load_request.reattribute(&target_context));
-    TEST_EXPECT(ctx, load_request.memory_context() == &target_context);
+    TEST_EXPECT(ctx, (load_request.memory_context() == &target_context));
     load_request.destroy();
 
     CErasedOwner save_request = CErasedOwner::create<AssetSaveRequest>();
     TEST_EXPECT(ctx, save_request.payload<AssetSaveRequest>()->file.set(
         "reattributed-save-request.tga"));
     TEST_EXPECT(ctx, save_request.reattribute(&target_context));
-    TEST_EXPECT(ctx, save_request.memory_context() == &target_context);
+    TEST_EXPECT(ctx, (save_request.memory_context() == &target_context));
     save_request.destroy();
 
     CErasedOwner bundle_load = CErasedOwner::create<BundleLoadRequest>();
@@ -955,8 +1016,8 @@ void test_all_registered_payload_reattribution(TTestContext& ctx)
     TEST_EXPECT(ctx, bundle_bake.reattribute(&target_context));
     bundle_bake.destroy();
 
-    TEST_EXPECT(ctx, source_context.get_live_allocation_count() == 0u);
-    TEST_EXPECT(ctx, target_context.get_live_allocation_count() == 0u);
+    TEST_EXPECT(ctx, (source_context.get_live_allocation_count() == 0u));
+    TEST_EXPECT(ctx, (target_context.get_live_allocation_count() == 0u));
 }
 
 void test_existing_owning_transport(TTestContext& ctx)
@@ -974,7 +1035,7 @@ void test_existing_owning_transport(TTestContext& ctx)
 
     CErasedOwner received;
     TEST_EXPECT(ctx, transport.read(received));
-    TEST_EXPECT(ctx, received.payload<RawAssetTransfer>() == original_payload);
+    TEST_EXPECT(ctx, (received.payload<RawAssetTransfer>() == original_payload));
     TEST_EXPECT(ctx, received.payload<RawAssetTransfer>()->storage.value.is_ready());
     TEST_EXPECT(ctx, received.has_hazard(mount_point_ids::conditioning));
 
@@ -996,11 +1057,11 @@ void test_erased_owner_transport_attribution(TTestContext& ctx)
     threading::transports::CErasedOwnerConsumerEndpoint consumer(transport);
 
     TEST_EXPECT(ctx, transport.initialise(32u));
-    TEST_EXPECT(ctx, transport.memory_context() == &transport_context);
-    TEST_EXPECT(ctx, transport.recipient_memory_context() == &recipient_context);
+    TEST_EXPECT(ctx, (transport.memory_context() == &transport_context));
+    TEST_EXPECT(ctx, (transport.recipient_memory_context() == &recipient_context));
     TEST_EXPECT(ctx, producer.is_valid());
     TEST_EXPECT(ctx, consumer.is_valid());
-    TEST_EXPECT(ctx, transport_context.get_live_allocation_count() == 1u);
+    TEST_EXPECT(ctx, (transport_context.get_live_allocation_count() == 1u));
 
     const TMemoryContextScope context_scope(&producer_context);
     CErasedOwner posted = CErasedOwner::create<RawAssetTransfer>();
@@ -1008,24 +1069,24 @@ void test_erased_owner_transport_attribution(TTestContext& ctx)
     TEST_EXPECT(ctx, payload->storage.value.allocate(48u));
     posted.add_hazard(mount_point_ids::conditioning);
 
-    TEST_EXPECT(ctx, producer_context.get_live_allocation_count() == 2u);
+    TEST_EXPECT(ctx, (producer_context.get_live_allocation_count() == 2u));
     TEST_EXPECT(ctx, producer.post(std::move(posted)));
     TEST_EXPECT(ctx, posted.is_empty());
-    TEST_EXPECT(ctx, producer_context.get_live_allocation_count() == 0u);
-    TEST_EXPECT(ctx, transport_context.get_live_allocation_count() == 3u);
+    TEST_EXPECT(ctx, (producer_context.get_live_allocation_count() == 0u));
+    TEST_EXPECT(ctx, (transport_context.get_live_allocation_count() == 3u));
 
     CErasedOwner received;
     TEST_EXPECT(ctx, consumer.read(received));
-    TEST_EXPECT(ctx, received.payload<RawAssetTransfer>() == payload);
+    TEST_EXPECT(ctx, (received.payload<RawAssetTransfer>() == payload));
     TEST_EXPECT(ctx, received.has_hazard(mount_point_ids::conditioning));
-    TEST_EXPECT(ctx, received.memory_context() == &recipient_context);
-    TEST_EXPECT(ctx, transport_context.get_live_allocation_count() == 1u);
-    TEST_EXPECT(ctx, recipient_context.get_live_allocation_count() == 2u);
+    TEST_EXPECT(ctx, (received.memory_context() == &recipient_context));
+    TEST_EXPECT(ctx, (transport_context.get_live_allocation_count() == 1u));
+    TEST_EXPECT(ctx, (recipient_context.get_live_allocation_count() == 2u));
 
     received.destroy();
     transport.deallocate();
-    TEST_EXPECT(ctx, transport_context.get_live_allocation_count() == 0u);
-    TEST_EXPECT(ctx, recipient_context.get_live_allocation_count() == 0u);
+    TEST_EXPECT(ctx, (transport_context.get_live_allocation_count() == 0u));
+    TEST_EXPECT(ctx, (recipient_context.get_live_allocation_count() == 0u));
 }
 
 void test_erased_owner_transport_rejection(TTestContext& ctx)
@@ -1047,16 +1108,16 @@ void test_erased_owner_transport_rejection(TTestContext& ctx)
     CErasedOwner unready_owner = CErasedOwner::create<RawAssetTransfer>(&incompatible_context);
     RawAssetTransfer* const unready_payload = unready_owner.payload<RawAssetTransfer>();
     TEST_EXPECT(ctx, !transport.post(std::move(unready_owner)));
-    TEST_EXPECT(ctx, unready_owner.payload<RawAssetTransfer>() == unready_payload);
-    TEST_EXPECT(ctx, unready_owner.memory_context() == &incompatible_context);
+    TEST_EXPECT(ctx, (unready_owner.payload<RawAssetTransfer>() == unready_payload));
+    TEST_EXPECT(ctx, (unready_owner.memory_context() == &incompatible_context));
 
     TEST_EXPECT(ctx, transport.initialise(32u));
     CErasedOwner incompatible_owner =
         CErasedOwner::create<RawAssetTransfer>(&incompatible_context);
     RawAssetTransfer* const incompatible_payload = incompatible_owner.payload<RawAssetTransfer>();
     TEST_EXPECT(ctx, !transport.post(std::move(incompatible_owner)));
-    TEST_EXPECT(ctx, incompatible_owner.payload<RawAssetTransfer>() == incompatible_payload);
-    TEST_EXPECT(ctx, incompatible_owner.memory_context() == &incompatible_context);
+    TEST_EXPECT(ctx, (incompatible_owner.payload<RawAssetTransfer>() == incompatible_payload));
+    TEST_EXPECT(ctx, (incompatible_owner.memory_context() == &incompatible_context));
 
     const TMemoryContextScope context_scope(&transport_context);
     CErasedOwner retained = CErasedOwner::create<RawAssetTransfer>(&transport_context);
@@ -1065,15 +1126,15 @@ void test_erased_owner_transport_rejection(TTestContext& ctx)
 
     CErasedOwner received;
     TEST_EXPECT(ctx, transport.read(received));
-    TEST_EXPECT(ctx, received.payload<RawAssetTransfer>() == retained_payload);
-    TEST_EXPECT(ctx, received.memory_context() == &transport_context);
+    TEST_EXPECT(ctx, (received.payload<RawAssetTransfer>() == retained_payload));
+    TEST_EXPECT(ctx, (received.memory_context() == &transport_context));
     received.destroy();
 
     CErasedOwner unread = CErasedOwner::create<RawAssetTransfer>(&transport_context);
     TEST_EXPECT(ctx, unread.payload<RawAssetTransfer>()->storage.value.allocate(24u));
     TEST_EXPECT(ctx, transport.post(std::move(unread)));
     transport.deallocate();
-    TEST_EXPECT(ctx, transport_context.get_live_allocation_count() == 0u);
+    TEST_EXPECT(ctx, (transport_context.get_live_allocation_count() == 0u));
 }
 
 void test_local_erased_owner_transport_boundaries(TTestContext& ctx)
@@ -1102,9 +1163,9 @@ void test_local_erased_owner_transport_boundaries(TTestContext& ctx)
     TEST_EXPECT(ctx, posted.is_empty());
     CErasedOwner received;
     TEST_EXPECT(ctx, same_component.read(received));
-    TEST_EXPECT(ctx, received.payload<test_environment::STestAssetLoadState>() == payload);
-    TEST_EXPECT(ctx, received.memory_context() == &recipient_context);
-    TEST_EXPECT(ctx, payload->executive_slot == 91);
+    TEST_EXPECT(ctx, (received.payload<test_environment::STestAssetLoadState>() == payload));
+    TEST_EXPECT(ctx, (received.memory_context() == &recipient_context));
+    TEST_EXPECT(ctx, (payload->executive_slot == 91));
     TEST_EXPECT(ctx, !payload->request);
     TEST_EXPECT(ctx, received.has_hazard(mount_point_ids::render));
     received.destroy();
@@ -1124,19 +1185,19 @@ void test_local_erased_owner_transport_boundaries(TTestContext& ctx)
 
     TEST_EXPECT(ctx, !cross_component.post(std::move(rejected)));
     TEST_EXPECT(ctx, rejected.is_ready());
-    TEST_EXPECT(ctx, rejected.payload<test_environment::STestAssetLoadState>() == rejected_payload);
-    TEST_EXPECT(ctx, rejected.memory_context() == rejected_context);
-    TEST_EXPECT(ctx, rejected_payload->executive_slot == 92);
+    TEST_EXPECT(ctx, (rejected.payload<test_environment::STestAssetLoadState>() == rejected_payload));
+    TEST_EXPECT(ctx, (rejected.memory_context() == rejected_context));
+    TEST_EXPECT(ctx, (rejected_payload->executive_slot == 92));
     TEST_EXPECT(ctx, !rejected_payload->request);
     TEST_EXPECT(ctx, rejected.has_hazard(mount_point_ids::executive));
-    TEST_EXPECT(ctx, producer_context.get_live_allocation_count() == producer_count);
-    TEST_EXPECT(ctx, producer_context.get_live_allocated_bytes() == producer_bytes);
-    TEST_EXPECT(ctx, executive_context.get_live_allocation_count() == 1u);
+    TEST_EXPECT(ctx, (producer_context.get_live_allocation_count() == producer_count));
+    TEST_EXPECT(ctx, (producer_context.get_live_allocated_bytes() == producer_bytes));
+    TEST_EXPECT(ctx, (executive_context.get_live_allocation_count() == 1u));
 
     rejected.destroy();
     cross_component.deallocate();
-    TEST_EXPECT(ctx, producer_context.get_live_allocation_count() == 0u);
-    TEST_EXPECT(ctx, executive_context.get_live_allocation_count() == 0u);
+    TEST_EXPECT(ctx, (producer_context.get_live_allocation_count() == 0u));
+    TEST_EXPECT(ctx, (executive_context.get_live_allocation_count() == 0u));
 }
 
 void test_erased_owner_transport_diagnostics(TTestContext& ctx)
@@ -1183,17 +1244,17 @@ void test_erased_owner_transport_diagnostics(TTestContext& ctx)
         executive_context.get_live_allocation_count();
     const std::uint32_t local_before = service->allocate_incident_id();
     TEST_EXPECT(ctx, !cross_component.post(std::move(local)));
-    TEST_EXPECT(ctx, service->allocate_incident_id() == local_before + 2u);
-    TEST_EXPECT(ctx, local.payload<test_environment::STestAssetLoadState>() == local_payload);
-    TEST_EXPECT(ctx, local.memory_context() == local_context);
-    TEST_EXPECT(ctx, local_payload->executive_slot == 101);
+    TEST_EXPECT(ctx, (service->allocate_incident_id() == (local_before + 2u)));
+    TEST_EXPECT(ctx, (local.payload<test_environment::STestAssetLoadState>() == local_payload));
+    TEST_EXPECT(ctx, (local.memory_context() == local_context));
+    TEST_EXPECT(ctx, (local_payload->executive_slot == 101));
     TEST_EXPECT(ctx, !local_payload->request);
     TEST_EXPECT(ctx, local.has_hazard(mount_point_ids::executive));
-    TEST_EXPECT(ctx, producer_context.get_live_allocation_count() == producer_count);
-    TEST_EXPECT(ctx, producer_context.get_live_allocated_bytes() == producer_bytes);
-    TEST_EXPECT(ctx, executive_context.get_live_allocation_count() == executive_count);
-    TEST_EXPECT(ctx, cross_component.readable_count() == 0u);
-    TEST_EXPECT(ctx, cross_component.writable_count() == cross_component_writable_count);
+    TEST_EXPECT(ctx, (producer_context.get_live_allocation_count() == producer_count));
+    TEST_EXPECT(ctx, (producer_context.get_live_allocated_bytes() == producer_bytes));
+    TEST_EXPECT(ctx, (executive_context.get_live_allocation_count() == executive_count));
+    TEST_EXPECT(ctx, (cross_component.readable_count() == 0u));
+    TEST_EXPECT(ctx, (cross_component.writable_count() == cross_component_writable_count));
     local.destroy();
 
     CErasedOwner system = CErasedOwner::create<RawAssetTransfer>();
@@ -1201,11 +1262,11 @@ void test_erased_owner_transport_diagnostics(TTestContext& ctx)
     TEST_EXPECT(ctx, system_payload->storage.value.allocate(24u));
     const std::uint32_t system_before = service->allocate_incident_id();
     TEST_EXPECT(ctx, cross_component.post(std::move(system)));
-    TEST_EXPECT(ctx, service->allocate_incident_id() == system_before + 1u);
+    TEST_EXPECT(ctx, (service->allocate_incident_id() == (system_before + 1u)));
     CErasedOwner received;
     TEST_EXPECT(ctx, cross_component.read(received));
-    TEST_EXPECT(ctx, received.payload<RawAssetTransfer>() == system_payload);
-    TEST_EXPECT(ctx, received.memory_context() == &executive_context);
+    TEST_EXPECT(ctx, (received.payload<RawAssetTransfer>() == system_payload));
+    TEST_EXPECT(ctx, (received.memory_context() == &executive_context));
     received.destroy();
     cross_component.deallocate();
 
@@ -1219,7 +1280,7 @@ void test_erased_owner_transport_diagnostics(TTestContext& ctx)
         CErasedOwner queued = CErasedOwner::create<RawAssetTransfer>();
         TEST_EXPECT(ctx, capacity_transport.post(std::move(queued)));
     }
-    TEST_EXPECT(ctx, service->allocate_incident_id() == success_before + 1u);
+    TEST_EXPECT(ctx, (service->allocate_incident_id() == (success_before + 1u)));
 
     //  Admission still reports the LOCAL boundary violation when the queue is full.
     CErasedOwner rejected_full =
@@ -1228,10 +1289,10 @@ void test_erased_owner_transport_diagnostics(TTestContext& ctx)
         rejected_full.payload<test_environment::STestAssetLoadState>();
     const std::uint32_t rejected_full_before = service->allocate_incident_id();
     TEST_EXPECT(ctx, !capacity_transport.post(std::move(rejected_full)));
-    TEST_EXPECT(ctx, service->allocate_incident_id() == rejected_full_before + 2u);
-    TEST_EXPECT(ctx, rejected_full.payload<test_environment::STestAssetLoadState>() == rejected_full_payload);
-    TEST_EXPECT(ctx, rejected_full.memory_context() == &producer_context);
-    TEST_EXPECT(ctx, capacity_transport.readable_count() == capacity);
+    TEST_EXPECT(ctx, (service->allocate_incident_id() == (rejected_full_before + 2u)));
+    TEST_EXPECT(ctx, (rejected_full.payload<test_environment::STestAssetLoadState>() == rejected_full_payload));
+    TEST_EXPECT(ctx, (rejected_full.memory_context() == &producer_context));
+    TEST_EXPECT(ctx, (capacity_transport.readable_count() == capacity));
     rejected_full.destroy();
 
     CErasedOwner retained = CErasedOwner::create<RawAssetTransfer>();
@@ -1245,14 +1306,14 @@ void test_erased_owner_transport_diagnostics(TTestContext& ctx)
         producer_context.get_live_allocated_bytes();
     const std::uint32_t capacity_before = service->allocate_incident_id();
     TEST_EXPECT(ctx, !capacity_transport.post(std::move(retained)));
-    TEST_EXPECT(ctx, service->allocate_incident_id() == capacity_before + 1u);
-    TEST_EXPECT(ctx, retained.payload<RawAssetTransfer>() == retained_payload);
-    TEST_EXPECT(ctx, retained.memory_context() == retained_context);
+    TEST_EXPECT(ctx, (service->allocate_incident_id() == (capacity_before + 1u)));
+    TEST_EXPECT(ctx, (retained.payload<RawAssetTransfer>() == retained_payload));
+    TEST_EXPECT(ctx, (retained.memory_context() == retained_context));
     TEST_EXPECT(ctx, retained.has_hazard(mount_point_ids::executive));
-    TEST_EXPECT(ctx, retained_payload->storage.value.memory_attribution().source == retained_context);
-    TEST_EXPECT(ctx, producer_context.get_live_allocation_count() == retained_count);
-    TEST_EXPECT(ctx, producer_context.get_live_allocated_bytes() == retained_bytes);
-    TEST_EXPECT(ctx, capacity_transport.readable_count() == capacity);
+    TEST_EXPECT(ctx, (retained_payload->storage.value.memory_attribution().source == retained_context));
+    TEST_EXPECT(ctx, (producer_context.get_live_allocation_count() == retained_count));
+    TEST_EXPECT(ctx, (producer_context.get_live_allocated_bytes() == retained_bytes));
+    TEST_EXPECT(ctx, (capacity_transport.readable_count() == capacity));
     retained.destroy();
     capacity_transport.deallocate();
 
@@ -1264,10 +1325,10 @@ void test_erased_owner_transport_diagnostics(TTestContext& ctx)
     RawAssetTransfer* const incompatible_payload = incompatible.payload<RawAssetTransfer>();
     const std::uint32_t compatibility_before = service->allocate_incident_id();
     TEST_EXPECT(ctx, !compatibility_transport.post(std::move(incompatible)));
-    TEST_EXPECT(ctx, service->allocate_incident_id() == compatibility_before + 1u);
-    TEST_EXPECT(ctx, incompatible.payload<RawAssetTransfer>() == incompatible_payload);
-    TEST_EXPECT(ctx, incompatible.memory_context() == &incompatible_context);
-    TEST_EXPECT(ctx, compatibility_transport.readable_count() == 0u);
+    TEST_EXPECT(ctx, (service->allocate_incident_id() == (compatibility_before + 1u)));
+    TEST_EXPECT(ctx, (incompatible.payload<RawAssetTransfer>() == incompatible_payload));
+    TEST_EXPECT(ctx, (incompatible.memory_context() == &incompatible_context));
+    TEST_EXPECT(ctx, (compatibility_transport.readable_count() == 0u));
     incompatible.destroy();
 
     state.reject_allocation = true;
@@ -1275,7 +1336,7 @@ void test_erased_owner_transport_diagnostics(TTestContext& ctx)
     state.reject_allocation = false;
     const std::uint32_t empty_before = service->allocate_incident_id();
     TEST_EXPECT(ctx, !compatibility_transport.post(std::move(empty)));
-    TEST_EXPECT(ctx, service->allocate_incident_id() == empty_before + 1u);
+    TEST_EXPECT(ctx, (service->allocate_incident_id() == (empty_before + 1u)));
     TEST_EXPECT(ctx, empty.is_empty());
     compatibility_transport.deallocate();
 
@@ -1295,12 +1356,12 @@ void test_erased_owner_message(TTestContext& ctx)
     threading::CErasedOwnerMsg source;
     TEST_EXPECT(ctx, !source.has_message_type());
     TEST_EXPECT(ctx, !source.has_owner());
-    TEST_EXPECT(ctx, source.query_message_type_id() == type_ids::undefined);
-    TEST_EXPECT(ctx, source.query_async_slot() == 0);
+    TEST_EXPECT(ctx, (source.query_message_type_id() == type_ids::undefined));
+    TEST_EXPECT(ctx, (source.query_async_slot() == 0));
 
     CErasedOwner content = CErasedOwner::create<DecodedTga>();
     DecodedTga* const payload = content.payload<DecodedTga>();
-    TEST_EXPECT(ctx, payload != nullptr);
+    TEST_EXPECT(ctx, (payload != nullptr));
     TEST_EXPECT(ctx, payload->buffer.allocate(8u, 4u));
 
     source.set_message_type<TgaDecodeResult>();
@@ -1308,21 +1369,21 @@ void test_erased_owner_message(TTestContext& ctx)
     source.set_owner(std::move(content));
 
     TEST_EXPECT(ctx, source.is_message_a<TgaDecodeResult>());
-    TEST_EXPECT(ctx, source.query_owner_type_id() == k_type_id_v<DecodedTga>);
-    TEST_EXPECT(ctx, source.owner().payload<DecodedTga>() == payload);
+    TEST_EXPECT(ctx, (source.query_owner_type_id() == k_type_id_v<DecodedTga>));
+    TEST_EXPECT(ctx, (source.owner().payload<DecodedTga>() == payload));
 
     threading::CErasedOwnerMsg moved{ std::move(source) };
     TEST_EXPECT(ctx, !source.has_message_type());
     TEST_EXPECT(ctx, !source.has_owner());
-    TEST_EXPECT(ctx, source.query_async_slot() == 0);
-    TEST_EXPECT(ctx, moved.query_async_slot() == -7);
+    TEST_EXPECT(ctx, (source.query_async_slot() == 0));
+    TEST_EXPECT(ctx, (moved.query_async_slot() == -7));
     TEST_EXPECT(ctx, moved.is_message_a<TgaDecodeResult>());
-    TEST_EXPECT(ctx, moved.owner().payload<DecodedTga>() == payload);
+    TEST_EXPECT(ctx, (moved.owner().payload<DecodedTga>() == payload));
 
     CErasedOwner detached = moved.take_owner();
     TEST_EXPECT(ctx, !moved.has_owner());
     TEST_EXPECT(ctx, moved.has_message_type());
-    TEST_EXPECT(ctx, detached.payload<DecodedTga>() == payload);
+    TEST_EXPECT(ctx, (detached.payload<DecodedTga>() == payload));
 }
 
 void test_owned_asset_request_transport_and_asset_lifetime(TTestContext& ctx)
@@ -1341,11 +1402,11 @@ void test_owned_asset_request_transport_and_asset_lifetime(TTestContext& ctx)
 
     CErasedOwner owner = CErasedOwner::create<AssetLoadRequest>();
     AssetLoadRequest* const request = owner.payload<AssetLoadRequest>();
-    TEST_EXPECT(ctx, request != nullptr);
+    TEST_EXPECT(ctx, (request != nullptr));
     TEST_EXPECT(ctx, request->file.set("temporary-owned-request.tga"));
     request->format = EAssetFileFormat::tga;
     request->decode_top_down = false;
-    TEST_EXPECT(ctx, executive_context.get_live_allocation_count() == 2u);
+    TEST_EXPECT(ctx, (executive_context.get_live_allocation_count() == 2u));
 
     threading::CErasedOwnerMsg posted;
     posted.set_message_type<AssetLoadRequest>();
@@ -1357,14 +1418,14 @@ void test_owned_asset_request_transport_and_asset_lifetime(TTestContext& ctx)
     threading::CErasedOwnerMsg received;
     TEST_EXPECT(ctx, transport.read(received));
     TEST_EXPECT(ctx, received.is_message_a<AssetLoadRequest>());
-    TEST_EXPECT(ctx, received.query_async_slot() == 47);
-    TEST_EXPECT(ctx, received.owner().memory_context() == &host_context);
+    TEST_EXPECT(ctx, (received.query_async_slot() == 47));
+    TEST_EXPECT(ctx, (received.owner().memory_context() == &host_context));
     AssetLoadRequest* const received_request =
         received.owner().payload<AssetLoadRequest>();
-    TEST_EXPECT(ctx, received_request == request);
-    TEST_EXPECT(ctx, received_request->file.view() ==
-        CStringView{ "temporary-owned-request.tga" });
-    TEST_EXPECT(ctx, received_request->format == EAssetFileFormat::tga);
+    TEST_EXPECT(ctx, (received_request == request));
+    TEST_EXPECT(ctx, (received_request->file.view() ==
+        CStringView{ "temporary-owned-request.tga" }));
+    TEST_EXPECT(ctx, (received_request->format == EAssetFileFormat::tga));
     TEST_EXPECT(ctx, !received_request->decode_top_down);
 
     CAssetRepository assets;
@@ -1374,8 +1435,8 @@ void test_owned_asset_request_transport_and_asset_lifetime(TTestContext& ctx)
         const CAssetId request_asset = assets.insert(received.take_owner());
         TEST_EXPECT(ctx, request_asset);
         const CAssetRecord* const record = assets.resolve(request_asset);
-        TEST_EXPECT(ctx, record != nullptr);
-        TEST_EXPECT(ctx, record->payload<AssetLoadRequest>() == received_request);
+        TEST_EXPECT(ctx, (record != nullptr));
+        TEST_EXPECT(ctx, (record->payload<AssetLoadRequest>() == received_request));
         TEST_EXPECT(ctx, assets.erase(request_asset));
         assets.deallocate();
     }
@@ -1420,9 +1481,9 @@ void test_erased_owner_message_transport(TTestContext& ctx)
     threading::CErasedOwnerMsg received;
     TEST_EXPECT(ctx, consumer.read(received));
     TEST_EXPECT(ctx, received.is_message_a<AssetResult>());
-    TEST_EXPECT(ctx, received.query_async_slot() == 31);
-    TEST_EXPECT(ctx, received.owner().payload<RawAssetTransfer>() == payload);
-    TEST_EXPECT(ctx, received.owner().memory_context() == &recipient_context);
+    TEST_EXPECT(ctx, (received.query_async_slot() == 31));
+    TEST_EXPECT(ctx, (received.owner().payload<RawAssetTransfer>() == payload));
+    TEST_EXPECT(ctx, (received.owner().memory_context() == &recipient_context));
 
     threading::CErasedOwnerMsg empty_completion;
     empty_completion.set_message_type<TgaEncodeResult>();
@@ -1430,7 +1491,7 @@ void test_erased_owner_message_transport(TTestContext& ctx)
     TEST_EXPECT(ctx, producer.post(std::move(empty_completion)));
     TEST_EXPECT(ctx, consumer.read(received));
     TEST_EXPECT(ctx, received.is_message_a<TgaEncodeResult>());
-    TEST_EXPECT(ctx, received.query_async_slot() == 32);
+    TEST_EXPECT(ctx, (received.query_async_slot() == 32));
     TEST_EXPECT(ctx, !received.has_owner());
 
     threading::CErasedOwnerMsg untyped;
@@ -1443,7 +1504,7 @@ void test_erased_owner_message_transport(TTestContext& ctx)
     TEST_EXPECT(ctx, consumer.read(received));
     TEST_EXPECT(ctx, received.is_message_a<test_environment::CTestRuntime>());
     TEST_EXPECT(ctx, received.query_message_type_id().is_local());
-    TEST_EXPECT(ctx, received.query_async_slot() == 33);
+    TEST_EXPECT(ctx, (received.query_async_slot() == 33));
 
     threading::CErasedOwnerMsg local_owned_message;
     local_owned_message.set_message_type<test_environment::CTestRuntime>();
@@ -1458,9 +1519,9 @@ void test_erased_owner_message_transport(TTestContext& ctx)
     TEST_EXPECT(ctx, producer.post(std::move(local_owned_message)));
     TEST_EXPECT(ctx, consumer.read(received));
     TEST_EXPECT(ctx, received.is_message_a<test_environment::CTestRuntime>());
-    TEST_EXPECT(ctx, received.query_async_slot() == 36);
-    TEST_EXPECT(ctx, received.owner().payload<test_environment::STestAssetLoadState>() == local_payload);
-    TEST_EXPECT(ctx, received.owner().memory_context() == &recipient_context);
+    TEST_EXPECT(ctx, (received.query_async_slot() == 36));
+    TEST_EXPECT(ctx, (received.owner().payload<test_environment::STestAssetLoadState>() == local_payload));
+    TEST_EXPECT(ctx, (received.owner().memory_context() == &recipient_context));
     TEST_EXPECT(ctx, received.owner().has_hazard(mount_point_ids::conditioning));
 
     memory::CMemoryContext executive_transport_context(
@@ -1474,7 +1535,7 @@ void test_erased_owner_message_transport(TTestContext& ctx)
     rejected_local.set_async_slot(34);
     TEST_EXPECT(ctx, !cross_component.post(std::move(rejected_local)));
     TEST_EXPECT(ctx, rejected_local.is_message_a<test_environment::CTestRuntime>());
-    TEST_EXPECT(ctx, rejected_local.query_async_slot() == 34);
+    TEST_EXPECT(ctx, (rejected_local.query_async_slot() == 34));
 
     threading::CErasedOwnerMsg rejected_local_owner;
     rejected_local_owner.set_message_type<AssetResult>();
@@ -1491,14 +1552,14 @@ void test_erased_owner_message_transport(TTestContext& ctx)
     const std::uint64_t producer_bytes = producer_context.get_live_allocated_bytes();
     TEST_EXPECT(ctx, !cross_component.post(std::move(rejected_local_owner)));
     TEST_EXPECT(ctx, rejected_local_owner.is_message_a<AssetResult>());
-    TEST_EXPECT(ctx, rejected_local_owner.query_async_slot() == 37);
-    TEST_EXPECT(ctx, rejected_local_owner.owner().payload<test_environment::STestAssetLoadState>() == rejected_payload);
-    TEST_EXPECT(ctx, rejected_local_owner.owner().memory_context() == rejected_context);
-    TEST_EXPECT(ctx, rejected_payload->executive_slot == 37);
+    TEST_EXPECT(ctx, (rejected_local_owner.query_async_slot() == 37));
+    TEST_EXPECT(ctx, (rejected_local_owner.owner().payload<test_environment::STestAssetLoadState>() == rejected_payload));
+    TEST_EXPECT(ctx, (rejected_local_owner.owner().memory_context() == rejected_context));
+    TEST_EXPECT(ctx, (rejected_payload->executive_slot == 37));
     TEST_EXPECT(ctx, !rejected_payload->request);
     TEST_EXPECT(ctx, rejected_local_owner.owner().has_hazard(mount_point_ids::executive));
-    TEST_EXPECT(ctx, producer_context.get_live_allocation_count() == producer_count);
-    TEST_EXPECT(ctx, producer_context.get_live_allocated_bytes() == producer_bytes);
+    TEST_EXPECT(ctx, (producer_context.get_live_allocation_count() == producer_count));
+    TEST_EXPECT(ctx, (producer_context.get_live_allocated_bytes() == producer_bytes));
 
     threading::CErasedOwnerMsg admitted_system;
     admitted_system.set_message_type<AssetResult>();
@@ -1506,17 +1567,17 @@ void test_erased_owner_message_transport(TTestContext& ctx)
     TEST_EXPECT(ctx, cross_component.post(std::move(admitted_system)));
     TEST_EXPECT(ctx, cross_component.read(received));
     TEST_EXPECT(ctx, received.is_message_a<AssetResult>());
-    TEST_EXPECT(ctx, received.query_async_slot() == 35);
+    TEST_EXPECT(ctx, (received.query_async_slot() == 35));
     cross_component.deallocate();
 
     rejected_local_owner.owner().destroy();
-    TEST_EXPECT(ctx, producer_context.get_live_allocation_count() == 0u);
-    TEST_EXPECT(ctx, producer_context.get_live_allocated_bytes() == 0u);
-    TEST_EXPECT(ctx, executive_transport_context.get_live_allocation_count() == 0u);
+    TEST_EXPECT(ctx, (producer_context.get_live_allocation_count() == 0u));
+    TEST_EXPECT(ctx, (producer_context.get_live_allocated_bytes() == 0u));
+    TEST_EXPECT(ctx, (executive_transport_context.get_live_allocation_count() == 0u));
 
     transport.deallocate();
-    TEST_EXPECT(ctx, transport_context.get_live_allocation_count() == 0u);
-    TEST_EXPECT(ctx, recipient_context.get_live_allocation_count() == 0u);
+    TEST_EXPECT(ctx, (transport_context.get_live_allocation_count() == 0u));
+    TEST_EXPECT(ctx, (recipient_context.get_live_allocation_count() == 0u));
 }
 
 void test_erased_owner_message_transport_diagnostics(TTestContext& ctx)
@@ -1549,11 +1610,11 @@ void test_erased_owner_message_transport_diagnostics(TTestContext& ctx)
     rejected_message.set_async_slot(111);
     const std::uint32_t message_before = service->allocate_incident_id();
     TEST_EXPECT(ctx, !cross_component.post(std::move(rejected_message)));
-    TEST_EXPECT(ctx, service->allocate_incident_id() == message_before + 2u);
+    TEST_EXPECT(ctx, (service->allocate_incident_id() == (message_before + 2u)));
     TEST_EXPECT(ctx, rejected_message.is_message_a<test_environment::CTestRuntime>());
-    TEST_EXPECT(ctx, rejected_message.query_async_slot() == 111);
+    TEST_EXPECT(ctx, (rejected_message.query_async_slot() == 111));
     TEST_EXPECT(ctx, !rejected_message.has_owner());
-    TEST_EXPECT(ctx, cross_component.readable_count() == 0u);
+    TEST_EXPECT(ctx, (cross_component.readable_count() == 0u));
 
     threading::CErasedOwnerMsg rejected_payload_message;
     rejected_payload_message.set_message_type<AssetResult>();
@@ -1573,20 +1634,20 @@ void test_erased_owner_message_transport_diagnostics(TTestContext& ctx)
         producer_context.get_live_allocated_bytes();
     const std::uint32_t payload_before = service->allocate_incident_id();
     TEST_EXPECT(ctx, !cross_component.post(std::move(rejected_payload_message)));
-    TEST_EXPECT(ctx, service->allocate_incident_id() == payload_before + 2u);
+    TEST_EXPECT(ctx, (service->allocate_incident_id() == (payload_before + 2u)));
     TEST_EXPECT(ctx, rejected_payload_message.is_message_a<AssetResult>());
-    TEST_EXPECT(ctx, rejected_payload_message.query_async_slot() == 112);
-    TEST_EXPECT(ctx, rejected_payload_message.owner().payload<
-        test_environment::STestAssetLoadState>() == rejected_payload);
-    TEST_EXPECT(ctx, rejected_payload_message.owner().memory_context() ==
-        rejected_context);
-    TEST_EXPECT(ctx, rejected_payload->executive_slot == 112);
+    TEST_EXPECT(ctx, (rejected_payload_message.query_async_slot() == 112));
+    TEST_EXPECT(ctx, (rejected_payload_message.owner().payload<
+        test_environment::STestAssetLoadState>() == rejected_payload));
+    TEST_EXPECT(ctx, (rejected_payload_message.owner().memory_context() ==
+        rejected_context));
+    TEST_EXPECT(ctx, (rejected_payload->executive_slot == 112));
     TEST_EXPECT(ctx, !rejected_payload->request);
     TEST_EXPECT(ctx, rejected_payload_message.owner().has_hazard(
         mount_point_ids::executive));
-    TEST_EXPECT(ctx, producer_context.get_live_allocation_count() == producer_count);
-    TEST_EXPECT(ctx, producer_context.get_live_allocated_bytes() == producer_bytes);
-    TEST_EXPECT(ctx, cross_component.readable_count() == 0u);
+    TEST_EXPECT(ctx, (producer_context.get_live_allocation_count() == producer_count));
+    TEST_EXPECT(ctx, (producer_context.get_live_allocated_bytes() == producer_bytes));
+    TEST_EXPECT(ctx, (cross_component.readable_count() == 0u));
 
     threading::CErasedOwnerMsg first_failure_message;
     first_failure_message.set_message_type<test_environment::CTestRuntime>();
@@ -1600,14 +1661,14 @@ void test_erased_owner_message_transport_diagnostics(TTestContext& ctx)
     const std::uint32_t first_failure_before = service->allocate_incident_id();
     TEST_EXPECT(ctx, !cross_component.post(std::move(first_failure_message)));
     TEST_EXPECT(ctx,
-        service->allocate_incident_id() == first_failure_before + 2u);
+        (service->allocate_incident_id() == (first_failure_before + 2u)));
     TEST_EXPECT(ctx, first_failure_message.is_message_a<test_environment::CTestRuntime>());
-    TEST_EXPECT(ctx, first_failure_message.query_async_slot() == 113);
-    TEST_EXPECT(ctx, first_failure_message.owner().payload<
-        test_environment::STestAssetLoadState>() == first_failure_payload);
-    TEST_EXPECT(ctx, first_failure_payload->executive_slot == 113);
+    TEST_EXPECT(ctx, (first_failure_message.query_async_slot() == 113));
+    TEST_EXPECT(ctx, (first_failure_message.owner().payload<
+        test_environment::STestAssetLoadState>() == first_failure_payload));
+    TEST_EXPECT(ctx, (first_failure_payload->executive_slot == 113));
     TEST_EXPECT(ctx, !first_failure_payload->request);
-    TEST_EXPECT(ctx, cross_component.readable_count() == 0u);
+    TEST_EXPECT(ctx, (cross_component.readable_count() == 0u));
 
     threading::CErasedOwnerMsg admitted_system;
     admitted_system.set_message_type<AssetResult>();
@@ -1618,13 +1679,13 @@ void test_erased_owner_message_transport_diagnostics(TTestContext& ctx)
     admitted_system.set_owner(std::move(admitted_owner));
     const std::uint32_t admitted_before = service->allocate_incident_id();
     TEST_EXPECT(ctx, cross_component.post(std::move(admitted_system)));
-    TEST_EXPECT(ctx, service->allocate_incident_id() == admitted_before + 1u);
+    TEST_EXPECT(ctx, (service->allocate_incident_id() == (admitted_before + 1u)));
     threading::CErasedOwnerMsg received;
     TEST_EXPECT(ctx, cross_component.read(received));
     TEST_EXPECT(ctx, received.is_message_a<AssetResult>());
-    TEST_EXPECT(ctx, received.query_async_slot() == 114);
-    TEST_EXPECT(ctx, received.owner().payload<RawAssetTransfer>() == admitted_payload);
-    TEST_EXPECT(ctx, received.owner().memory_context() == &executive_context);
+    TEST_EXPECT(ctx, (received.query_async_slot() == 114));
+    TEST_EXPECT(ctx, (received.owner().payload<RawAssetTransfer>() == admitted_payload));
+    TEST_EXPECT(ctx, (received.owner().memory_context() == &executive_context));
     received.owner().destroy();
     cross_component.deallocate();
 
@@ -1642,17 +1703,17 @@ void test_erased_owner_message_transport_diagnostics(TTestContext& ctx)
     //  Fullness must not mask either message or payload admission diagnostics.
     const std::uint32_t full_message_before = service->allocate_incident_id();
     TEST_EXPECT(ctx, !capacity_transport.post(std::move(first_failure_message)));
-    TEST_EXPECT(ctx, service->allocate_incident_id() == full_message_before + 2u);
+    TEST_EXPECT(ctx, (service->allocate_incident_id() == (full_message_before + 2u)));
     TEST_EXPECT(ctx, first_failure_message.is_message_a<test_environment::CTestRuntime>());
-    TEST_EXPECT(ctx, first_failure_message.query_async_slot() == 113);
-    TEST_EXPECT(ctx, first_failure_message.owner().payload<
-        test_environment::STestAssetLoadState>() == first_failure_payload);
+    TEST_EXPECT(ctx, (first_failure_message.query_async_slot() == 113));
+    TEST_EXPECT(ctx, (first_failure_message.owner().payload<
+        test_environment::STestAssetLoadState>() == first_failure_payload));
     const std::uint32_t full_payload_before = service->allocate_incident_id();
     TEST_EXPECT(ctx, !capacity_transport.post(std::move(rejected_payload_message)));
-    TEST_EXPECT(ctx, service->allocate_incident_id() == full_payload_before + 2u);
-    TEST_EXPECT(ctx, rejected_payload_message.owner().payload<
-        test_environment::STestAssetLoadState>() == rejected_payload);
-    TEST_EXPECT(ctx, rejected_payload_message.owner().memory_context() == rejected_context);
+    TEST_EXPECT(ctx, (service->allocate_incident_id() == (full_payload_before + 2u)));
+    TEST_EXPECT(ctx, (rejected_payload_message.owner().payload<
+        test_environment::STestAssetLoadState>() == rejected_payload));
+    TEST_EXPECT(ctx, (rejected_payload_message.owner().memory_context() == rejected_context));
     TEST_EXPECT(ctx, rejected_payload_message.owner().has_hazard(mount_point_ids::executive));
 
     threading::CErasedOwnerMsg empty_completion;
@@ -1660,9 +1721,9 @@ void test_erased_owner_message_transport_diagnostics(TTestContext& ctx)
     empty_completion.set_async_slot(116);
     const std::uint32_t full_empty_before = service->allocate_incident_id();
     TEST_EXPECT(ctx, !capacity_transport.post(std::move(empty_completion)));
-    TEST_EXPECT(ctx, service->allocate_incident_id() == full_empty_before + 1u);
+    TEST_EXPECT(ctx, (service->allocate_incident_id() == (full_empty_before + 1u)));
     TEST_EXPECT(ctx, empty_completion.is_message_a<AssetResult>());
-    TEST_EXPECT(ctx, empty_completion.query_async_slot() == 116);
+    TEST_EXPECT(ctx, (empty_completion.query_async_slot() == 116));
     TEST_EXPECT(ctx, !empty_completion.has_owner());
 
     threading::CErasedOwnerMsg retained;
@@ -1680,16 +1741,16 @@ void test_erased_owner_message_transport_diagnostics(TTestContext& ctx)
         producer_context.get_live_allocated_bytes();
     const std::uint32_t capacity_before = service->allocate_incident_id();
     TEST_EXPECT(ctx, !capacity_transport.post(std::move(retained)));
-    TEST_EXPECT(ctx, service->allocate_incident_id() == capacity_before + 1u);
+    TEST_EXPECT(ctx, (service->allocate_incident_id() == (capacity_before + 1u)));
     TEST_EXPECT(ctx, retained.is_message_a<AssetResult>());
-    TEST_EXPECT(ctx, retained.query_async_slot() == 115);
-    TEST_EXPECT(ctx, retained.owner().payload<RawAssetTransfer>() == retained_payload);
-    TEST_EXPECT(ctx, retained.owner().memory_context() == retained_context);
+    TEST_EXPECT(ctx, (retained.query_async_slot() == 115));
+    TEST_EXPECT(ctx, (retained.owner().payload<RawAssetTransfer>() == retained_payload));
+    TEST_EXPECT(ctx, (retained.owner().memory_context() == retained_context));
     TEST_EXPECT(ctx, retained.owner().has_hazard(mount_point_ids::executive));
-    TEST_EXPECT(ctx, retained_payload->storage.value.memory_attribution().source == retained_context);
-    TEST_EXPECT(ctx, producer_context.get_live_allocation_count() == retained_count);
-    TEST_EXPECT(ctx, producer_context.get_live_allocated_bytes() == retained_bytes);
-    TEST_EXPECT(ctx, capacity_transport.readable_count() == capacity);
+    TEST_EXPECT(ctx, (retained_payload->storage.value.memory_attribution().source == retained_context));
+    TEST_EXPECT(ctx, (producer_context.get_live_allocation_count() == retained_count));
+    TEST_EXPECT(ctx, (producer_context.get_live_allocated_bytes() == retained_bytes));
+    TEST_EXPECT(ctx, (capacity_transport.readable_count() == capacity));
     retained.owner().destroy();
     capacity_transport.deallocate();
 
@@ -1708,16 +1769,16 @@ void test_erased_owner_message_transport_diagnostics(TTestContext& ctx)
     const std::uint64_t incompatible_bytes = incompatible_context.get_live_allocated_bytes();
     const std::uint32_t compatibility_before = service->allocate_incident_id();
     TEST_EXPECT(ctx, !capacity_transport.post(std::move(incompatible)));
-    TEST_EXPECT(ctx, service->allocate_incident_id() == compatibility_before + 1u);
+    TEST_EXPECT(ctx, (service->allocate_incident_id() == (compatibility_before + 1u)));
     TEST_EXPECT(ctx, incompatible.is_message_a<AssetResult>());
-    TEST_EXPECT(ctx, incompatible.query_async_slot() == 117);
-    TEST_EXPECT(ctx, incompatible.owner().payload<RawAssetTransfer>() == incompatible_payload);
-    TEST_EXPECT(ctx, incompatible.owner().memory_context() == &incompatible_context);
-    TEST_EXPECT(ctx, incompatible_payload->storage.value.memory_attribution().source == &incompatible_context);
+    TEST_EXPECT(ctx, (incompatible.query_async_slot() == 117));
+    TEST_EXPECT(ctx, (incompatible.owner().payload<RawAssetTransfer>() == incompatible_payload));
+    TEST_EXPECT(ctx, (incompatible.owner().memory_context() == &incompatible_context));
+    TEST_EXPECT(ctx, (incompatible_payload->storage.value.memory_attribution().source == &incompatible_context));
     TEST_EXPECT(ctx, incompatible.owner().has_hazard(mount_point_ids::executive));
-    TEST_EXPECT(ctx, incompatible_context.get_live_allocation_count() == incompatible_count);
-    TEST_EXPECT(ctx, incompatible_context.get_live_allocated_bytes() == incompatible_bytes);
-    TEST_EXPECT(ctx, capacity_transport.readable_count() == 0u);
+    TEST_EXPECT(ctx, (incompatible_context.get_live_allocation_count() == incompatible_count));
+    TEST_EXPECT(ctx, (incompatible_context.get_live_allocated_bytes() == incompatible_bytes));
+    TEST_EXPECT(ctx, (capacity_transport.readable_count() == 0u));
     incompatible.owner().destroy();
     capacity_transport.deallocate();
 
@@ -1742,22 +1803,22 @@ static void test_asset_request_aggregate_attribution(TTestContext& ctx)
 
     CErasedOwner owner = CErasedOwner::create<LiveAssetTransfer>();
     LiveAssetTransfer* const request = owner.payload<LiveAssetTransfer>();
-    TEST_EXPECT(ctx, request != nullptr);
+    TEST_EXPECT(ctx, (request != nullptr));
     if (request == nullptr) return;
     TEST_EXPECT(ctx, request->storage.value.initialise());
     TEST_EXPECT(ctx, request->storage.file.set("asset.json"));
     const std::uint32_t count = source.get_live_allocation_count();
     const std::uint64_t bytes = source.get_live_allocated_bytes();
     TEST_EXPECT(ctx, !owner.reattribute(&incompatible));
-    TEST_EXPECT(ctx, source.get_live_allocation_count() == count);
-    TEST_EXPECT(ctx, source.get_live_allocated_bytes() == bytes);
+    TEST_EXPECT(ctx, (source.get_live_allocation_count() == count));
+    TEST_EXPECT(ctx, (source.get_live_allocated_bytes() == bytes));
     TEST_EXPECT(ctx, request->storage.value.is_ready());
-    TEST_EXPECT(ctx, request->storage.file.length() == 10u);
+    TEST_EXPECT(ctx, (request->storage.file.length() == 10u));
     TEST_EXPECT(ctx, owner.reattribute(&target));
     TEST_EXPECT(ctx, source.is_attribution_empty());
-    TEST_EXPECT(ctx, target.get_live_allocation_count() == count);
-    TEST_EXPECT(ctx, target.get_live_allocated_bytes() == bytes);
-    TEST_EXPECT(ctx, request->storage.memory_attribution().source == &target);
+    TEST_EXPECT(ctx, (target.get_live_allocation_count() == count));
+    TEST_EXPECT(ctx, (target.get_live_allocated_bytes() == bytes));
+    TEST_EXPECT(ctx, (request->storage.memory_attribution().source == &target));
     owner.destroy();
     TEST_EXPECT(ctx, target.is_attribution_empty());
 
@@ -1766,7 +1827,7 @@ static void test_asset_request_aggregate_attribution(TTestContext& ctx)
     TEST_EXPECT(ctx, live.initialise());
     owner = CErasedOwner::create<DocumentConditionResult>();
     DocumentConditionResult* const result = owner.payload<DocumentConditionResult>();
-    TEST_EXPECT(ctx, result != nullptr);
+    TEST_EXPECT(ctx, (result != nullptr));
     if (result == nullptr) return;
     TEST_EXPECT(ctx, document_translation::bake(live, result->storage.baked));
     TEST_EXPECT(ctx, result->storage.text.resize(32u));
@@ -1775,10 +1836,10 @@ static void test_asset_request_aggregate_attribution(TTestContext& ctx)
     const std::uint64_t result_bytes = source.get_live_allocated_bytes();
     TEST_EXPECT(ctx, owner.reattribute(&target));
     TEST_EXPECT(ctx, source.is_attribution_empty());
-    TEST_EXPECT(ctx, target.get_live_allocation_count() == result_count);
-    TEST_EXPECT(ctx, target.get_live_allocated_bytes() == result_bytes);
+    TEST_EXPECT(ctx, (target.get_live_allocation_count() == result_count));
+    TEST_EXPECT(ctx, (target.get_live_allocated_bytes() == result_bytes));
     TEST_EXPECT(ctx, result->storage.baked.document().check_integrity());
-    TEST_EXPECT(ctx, result->storage.text.size() == 32u);
+    TEST_EXPECT(ctx, (result->storage.text.size() == 32u));
     owner.destroy();
     TEST_EXPECT(ctx, target.is_attribution_empty());
 }
@@ -1809,7 +1870,7 @@ void test_transport_with_accounting_discrepancies(TTestContext& ctx)
     TEnvelope received;
     CErasedOwner content = CErasedOwner::create<RawAssetTransfer>();
     auto* const payload = content.payload<RawAssetTransfer>();
-    TEST_EXPECT(ctx, payload != nullptr);
+    TEST_EXPECT(ctx, (payload != nullptr));
     TEST_EXPECT(ctx, payload->storage.value.allocate(48u));
     void* const buffer_address = payload->storage.value.data();
     content.add_hazard(mount_point_ids::conditioning);
@@ -1830,34 +1891,34 @@ void test_transport_with_accounting_discrepancies(TTestContext& ctx)
     const std::uint32_t incident = service.allocate_incident_id();
     TEST_EXPECT(ctx, transport.post(std::move(posted)));
     TEST_EXPECT(ctx, accounting_owner(posted).is_empty());
-    TEST_EXPECT(ctx, source.get_live_allocation_count() == std::uint32_t{0u} - count);
-    TEST_EXPECT(ctx, source.get_live_allocated_bytes() == std::uint64_t{0u} - bytes);
-    TEST_EXPECT(ctx, channel.get_live_allocation_count() == count - 1u);
-    TEST_EXPECT(ctx, channel.get_live_allocated_bytes() == bytes - 1u);
-    TEST_EXPECT(ctx, service.allocate_incident_id() == incident + 5u);
+    TEST_EXPECT(ctx, (source.get_live_allocation_count() == (std::uint32_t{0u} - count)));
+    TEST_EXPECT(ctx, (source.get_live_allocated_bytes() == (std::uint64_t{0u} - bytes)));
+    TEST_EXPECT(ctx, (channel.get_live_allocation_count() == (count - 1u)));
+    TEST_EXPECT(ctx, (channel.get_live_allocated_bytes() == (bytes - 1u)));
+    TEST_EXPECT(ctx, (service.allocate_incident_id() == (incident + 5u)));
 
     Access::seed(channel, 0u, 0u);
     Access::seed(recipient, 0x7fffffffu, 0x7fffffffffffffffull);
     const std::uint32_t read_incident = service.allocate_incident_id();
     TEST_EXPECT(ctx, transport.read(received));
     CErasedOwner& received_owner = accounting_owner(received);
-    TEST_EXPECT(ctx, received_owner.memory_context() == &recipient);
-    TEST_EXPECT(ctx, received_owner.payload<RawAssetTransfer>() == payload);
-    TEST_EXPECT(ctx, payload->storage.value.data() == buffer_address);
+    TEST_EXPECT(ctx, (received_owner.memory_context() == &recipient));
+    TEST_EXPECT(ctx, (received_owner.payload<RawAssetTransfer>() == payload));
+    TEST_EXPECT(ctx, (payload->storage.value.data() == buffer_address));
     TEST_EXPECT(ctx, received_owner.has_hazard(mount_point_ids::conditioning));
-    TEST_EXPECT(ctx, service.allocate_incident_id() == read_incident + 5u);
-    TEST_EXPECT(ctx, channel.get_live_allocation_count() == std::uint32_t{0u} - count);
-    TEST_EXPECT(ctx, channel.get_live_allocated_bytes() == std::uint64_t{0u} - bytes);
+    TEST_EXPECT(ctx, (service.allocate_incident_id() == (read_incident + 5u)));
+    TEST_EXPECT(ctx, (channel.get_live_allocation_count() == (std::uint32_t{0u} - count)));
+    TEST_EXPECT(ctx, (channel.get_live_allocated_bytes() == (std::uint64_t{0u} - bytes)));
     if constexpr (std::is_same_v<TEnvelope, threading::CErasedOwnerMsg>)
     {
         TEST_EXPECT(ctx, received.template is_message_a<AssetResult>());
-        TEST_EXPECT(ctx, received.query_async_slot() == 77);
+        TEST_EXPECT(ctx, (received.query_async_slot() == 77));
     }
     received_owner.destroy();
-    TEST_EXPECT(ctx, recipient.get_live_allocation_count() == 0x7fffffffu);
-    TEST_EXPECT(ctx, recipient.get_live_allocated_bytes() == 0x7fffffffffffffffull);
+    TEST_EXPECT(ctx, (recipient.get_live_allocation_count() == 0x7fffffffu));
+    TEST_EXPECT(ctx, (recipient.get_live_allocated_bytes() == 0x7fffffffffffffffull));
     transport.deallocate();
-    TEST_EXPECT(ctx, service.read_shutdown_request() == debug_system::EShutdownReason::none);
+    TEST_EXPECT(ctx, (service.read_shutdown_request() == debug_system::EShutdownReason::none));
     TEST_EXPECT(ctx, debug_system::uninstall_service(&service));
     //  All actual owners are destroyed; discard only the deliberately injected offsets.
     Access::seed(source, 0u, 0u);

@@ -3,7 +3,8 @@
 //  License: MIT (see LICENSE file in repository root)
 //
 //  File:    PlatformWindow_test_cases.cpp
-//  Authors: Ritchie Brannan / OpenAI Codex
+//  Primary implementation: OpenAI Codex
+//  Reviewed and accepted by: Ritchie Brannan
 //  Date:    04 Nov 26
 //
 //  Tests window protocols and lifetimes through real Host routing with a simulated
@@ -49,7 +50,9 @@ struct SPlatformTestAccess
         {
             auto& use = *runtime.m_uses.get_object(slot);
             if (use.quiescence == services::EServiceQuiescence::execution_ended)
+            {
                 use.quiescence = services::EServiceQuiescence::relinquished;
+            }
         }
     }
 };
@@ -69,7 +72,10 @@ struct SClock
     static platform::threading::WaitError read(void* const context, std::uint64_t& value) noexcept
     {
         auto& clock = *static_cast<SClock*>(context);
-        if (clock.realtime) return platform::threading::query_awake_nanoseconds(value);
+        if (clock.realtime)
+        {
+            return platform::threading::query_awake_nanoseconds(value);
+        }
         value = clock.time;
         return clock.failed ? platform::threading::WaitError{ platform::threading::EWaitError::native_failure, 1u } : platform::threading::WaitError{};
     }
@@ -91,14 +97,20 @@ struct SNative
         window.runtime->enter_callback();
         ++current->callbacks;
         window.runtime->native_extent(1920u, 1080u, 144u, false);
-        if (current->pending_close) window.runtime->native_close();
+        if (current->pending_close)
+        {
+            window.runtime->native_close();
+        }
         window.runtime->leave_callback();
         return current->fail_create ? EServiceStatus::native_failure : EServiceStatus::success;
     }
     static bool dispatch(platform::native::SWindow&, const std::uint64_t) noexcept
     {
         ++current->dispatches;
-        if (current->clock) current->clock->time += current->dispatch_cost;
+        if (current->clock)
+        {
+            current->clock->time += current->dispatch_cost;
+        }
         return true;
     }
     static bool destroy(platform::native::SWindow& window) noexcept
@@ -144,7 +156,10 @@ struct SFixture
     static EServiceStatus MV_STD_ABI_CALL post(void* const context, const threading::CErasedPodMsg* const message) noexcept
     {
         auto& self = *static_cast<SFixture*>(context);
-        if (self.post_busy || (self.posted_count == 2u)) return EServiceStatus::busy;
+        if (self.post_busy || (self.posted_count == 2u))
+        {
+            return EServiceStatus::busy;
+        }
         self.posted[self.posted_count++] = *message;
         return EServiceStatus::success;
     }
@@ -180,7 +195,10 @@ struct SFixture
     static modules::SRestrictionEnterResult MV_STD_ABI_CALL enter(void* const context, const modules::SRestrictionReason reason) noexcept
     {
         auto& self = *static_cast<SFixture*>(context);
-        if ((reason.value == 3u) || (reason.value == 4u)) self.native_modes.fetch_add(1u);
+        if ((reason.value == 3u) || (reason.value == 4u))
+        {
+            self.native_modes.fetch_add(1u);
+        }
         return self.restrictions.enter(reason);
     }
     static modules::ERestrictionStatus MV_STD_ABI_CALL leave(void* const context, const modules::SRestrictionScope scope) noexcept
@@ -216,14 +234,14 @@ struct SFixture
         context.services = &services;
         context.service_context = this;
         context.execution = &execution;
-        TEST_EXPECT(tests, runtime.emplace(context, adapter, clock.source()) && runtime->initialise());
+        TEST_EXPECT(tests, (runtime.emplace(context, adapter, clock.source()) && runtime->initialise()));
         host::SServiceProvider advertisement{ &provider, &k_window_contract, 1u };
         for (auto* recipient : { &client, &other })
         {
             TEST_EXPECT(tests, recipient->reserve_replies(1u));
             router.open({ module_ids::platform, 1u, 1u, { 1u } }, 1, *recipient, &advertisement);
             OpenServiceResult result;
-            TEST_EXPECT(tests, recipient->messages[0].copy_payload_to(result) && (result.status == EServiceStatus::success));
+            TEST_EXPECT(tests, (recipient->messages[0].copy_payload_to(result) && (result.status == EServiceStatus::success)));
             ((recipient == &client) ? route : other_route) = result.route;
             recipient->consume(1u);
         }
@@ -238,7 +256,10 @@ struct SFixture
         request.request.value = ++(second ? other_sequence : sequence);
         request.opcode = static_cast<std::uint16_t>(opcode);
         request.payload_size = size;
-        if (size) std::memcpy(request.payload, payload, size);
+        if (size)
+        {
+            std::memcpy(request.payload, payload, size);
+        }
         TEST_EXPECT(tests, recipient.reserve_replies(2u));
         router.request(request, static_cast<std::int32_t>(request.request.value), recipient);
         return request.request.value;
@@ -289,7 +310,9 @@ struct SFixture
         {
             ServiceReply reply;
             if (recipient.messages[index].copy_payload_to(reply) && (reply.request.value == request) && (reply.notice == EServiceNotice::completed))
+            {
                 return reply.status;
+            }
         }
         return EServiceStatus::unavailable;
     }
@@ -297,7 +320,7 @@ struct SFixture
     {
         auto& recipient = second ? other : client;
         TEST_EXPECT(tests, recipient.reserve_replies(1u));
-        router.register_notification(recipient, { second ? other_route : route, borrow.borrow }, 400);
+        router.register_notification(recipient, { (second ? other_route : route), borrow.borrow }, 400);
         ServiceNotificationRegistered result;
         TEST_EXPECT(tests, recipient.messages[recipient.message_count - 1u].copy_payload_to(result));
         return result;
@@ -305,11 +328,11 @@ struct SFixture
     void ready(const std::uint64_t acquisition, const bool second = false) noexcept
     {
         const auto borrow = prepared(acquisition, second);
-        TEST_EXPECT(tests, borrow.view.descriptor != nullptr);
+        TEST_EXPECT(tests, (borrow.view.descriptor != nullptr));
         if (!borrow.view.descriptor) return;
         const auto& view = *static_cast<const SWindowViewV1*>(borrow.view.descriptor);
         const auto registered = registration(borrow, second);
-        TEST_EXPECT(tests, registered.status == EServiceStatus::success);
+        TEST_EXPECT(tests, (registered.status == EServiceStatus::success));
         (void)submit(EWindowCommand::window_ready, SWindowReady{ view.window, borrow.borrow, registered.registration }, second);
     }
     void release(const SPreparedServiceBorrow& borrow, const bool second = false) noexcept
@@ -331,7 +354,7 @@ struct SFixture
                 {
                     SPreparedServiceBorrow borrow;
                     std::memcpy(&borrow, reply.payload, sizeof(borrow));
-                    release(borrow, recipient == &other);
+                    release(borrow, (recipient == &other));
                 }
             }
         }
@@ -346,7 +369,7 @@ struct SFixture
             other.consume_messages(other.control_count, other.control_count);
             step();
         }
-        TEST_EXPECT(tests, runtime->stopped() && router.provider_borrows_retired(provider));
+        TEST_EXPECT(tests, (runtime->stopped() && router.provider_borrows_retired(provider)));
     }
 };
 
@@ -357,18 +380,18 @@ void coherent_state_and_close(TTestContext& ctx)
     const auto created = f.submit(EWindowCommand::create_window);
     f.step();
     const auto first = f.prepared(created);
-    TEST_EXPECT(ctx, first.view.descriptor && (f.native.created == 1u));
+    TEST_EXPECT(ctx, (first.view.descriptor && (f.native.created == 1u)));
     if (!first.view.descriptor) return;
     const auto& view = *static_cast<const SWindowViewV1*>(first.view.descriptor);
-    TEST_EXPECT(ctx, view.is_valid() && view.controller);
+    TEST_EXPECT(ctx, (view.is_valid() && view.controller));
     SWindowSnapshot snapshot;
-    TEST_EXPECT(ctx, (view.state->read(snapshot) == EWindowRead::success) && (snapshot.phase == EWindowPhase::close_pending));
-    TEST_EXPECT(ctx, (snapshot.logical_width == 1280u) && (snapshot.logical_height == 720u) && (snapshot.pixel_width == 1920u) && (snapshot.dpi == 144u));
+    TEST_EXPECT(ctx, ((view.state->read(snapshot) == EWindowRead::success) && (snapshot.phase == EWindowPhase::close_pending)));
+    TEST_EXPECT(ctx, ((snapshot.logical_width == 1280u) && (snapshot.logical_height == 720u) && (snapshot.pixel_width == 1920u) && (snapshot.dpi == 144u)));
     const auto initial = f.registration(first);
     TEST_EXPECT(ctx, !initial.reader.pending());
     const auto ready = f.submit(EWindowCommand::window_ready, SWindowReady{ view.window, first.borrow, initial.registration });
     f.step();
-    TEST_EXPECT(ctx, initial.reader.pending() && (f.terminal(created) == EServiceStatus::success) && (f.terminal(ready) == EServiceStatus::success));
+    TEST_EXPECT(ctx, (initial.reader.pending() && (f.terminal(created) == EServiceStatus::success) && (f.terminal(ready) == EServiceStatus::success)));
     const auto acquired = f.submit(EWindowCommand::acquire_window, SWindowRequest{ view.window }, true);
     f.step();
     const auto second = f.prepared(acquired, true);
@@ -377,23 +400,23 @@ void coherent_state_and_close(TTestContext& ctx)
     const auto foreign = f.submit(EWindowCommand::answer_close, SAnswerClose{ view.window, snapshot.close_request, 1u, 0u }, true);
     const auto rejected = f.submit(EWindowCommand::answer_close, SAnswerClose{ view.window, snapshot.close_request, 0u, 0u });
     f.step();
-    TEST_EXPECT(ctx, (f.terminal(foreign, true) == EServiceStatus::invalid_request) && (f.terminal(rejected) == EServiceStatus::success));
+    TEST_EXPECT(ctx, ((f.terminal(foreign, true) == EServiceStatus::invalid_request) && (f.terminal(rejected) == EServiceStatus::success)));
     initial.reader.clear_pending();
     f.runtime->native_extent(800u, 600u, 96u, false);
     f.runtime->native_close();
     f.runtime->native_close();
-    TEST_EXPECT(ctx, initial.reader.pending() && (view.state->read(snapshot) == EWindowRead::success) && (snapshot.close_request == 2u));
+    TEST_EXPECT(ctx, (initial.reader.pending() && (view.state->read(snapshot) == EWindowRead::success) && (snapshot.close_request == 2u)));
     const auto stale = f.submit(EWindowCommand::answer_close, SAnswerClose{ view.window, 1u, 1u, 0u });
     const auto accepted = f.submit(EWindowCommand::answer_close, SAnswerClose{ view.window, 2u, 1u, 0u });
     f.step();
-    TEST_EXPECT(ctx, (f.terminal(stale) == EServiceStatus::stale) && (f.terminal(accepted) == EServiceStatus::success));
-    TEST_EXPECT(ctx, (view.state->read(snapshot) == EWindowRead::success) && (snapshot.phase == EWindowPhase::closing));
+    TEST_EXPECT(ctx, ((f.terminal(stale) == EServiceStatus::stale) && (f.terminal(accepted) == EServiceStatus::success)));
+    TEST_EXPECT(ctx, ((view.state->read(snapshot) == EWindowRead::success) && (snapshot.phase == EWindowPhase::closing)));
     f.release(first);
     f.step(); f.step();
-    TEST_EXPECT(ctx, (f.native.destroyed == 0u) && (platform::runtime::SPlatformTestAccess::uses(*f.runtime) == 1u));
+    TEST_EXPECT(ctx, ((f.native.destroyed == 0u) && (platform::runtime::SPlatformTestAccess::uses(*f.runtime) == 1u)));
     f.release(second, true);
     f.step(); f.step();
-    TEST_EXPECT(ctx, (f.native.destroyed == 1u) && !f.runtime->stopped());
+    TEST_EXPECT(ctx, ((f.native.destroyed == 1u) && !f.runtime->stopped()));
 }
 
 void fifo_capacity_and_late_ready(TTestContext& ctx)
@@ -402,18 +425,31 @@ void fifo_capacity_and_late_ready(TTestContext& ctx)
     const auto created = f.submit(EWindowCommand::create_window);
     f.step();
     const auto prepared = f.prepared(created);
-    if (!prepared.view.descriptor) { TEST_EXPECT(ctx, false); return; }
+    if (!prepared.view.descriptor)
+    {
+        TEST_EXPECT(ctx, false);
+        return;
+    }
     const auto window = static_cast<const SWindowViewV1*>(prepared.view.descriptor)->window;
     std::uint64_t acquisitions[32]{ created };
-    for (unsigned index = 1u; index < 32u; ++index) acquisitions[index] = f.submit(EWindowCommand::acquire_window, SWindowRequest{ window });
+    for (unsigned index = 1u; index < 32u; ++index)
+    {
+        acquisitions[index] = f.submit(EWindowCommand::acquire_window, SWindowRequest{ window });
+    }
     f.step();
-    TEST_EXPECT(ctx, platform::runtime::SPlatformTestAccess::uses(*f.runtime) == 32u);
+    TEST_EXPECT(ctx, (platform::runtime::SPlatformTestAccess::uses(*f.runtime) == 32u));
     const auto excess = f.submit(EWindowCommand::acquire_window, SWindowRequest{ window });
-    for (const auto acquisition : acquisitions) f.ready(acquisition);
+    for (const auto acquisition : acquisitions)
+    {
+        f.ready(acquisition);
+    }
     f.step();
-    TEST_EXPECT(ctx, (f.last_commands == 33u) && (f.terminal(excess) == EServiceStatus::busy));
-    for (const auto acquisition : acquisitions) TEST_EXPECT(ctx, f.terminal(acquisition) == EServiceStatus::success);
-    TEST_EXPECT(ctx, (f.clock.time == 100u) && (f.native.created == 1u) && !f.runtime->failed());
+    TEST_EXPECT(ctx, ((f.last_commands == 33u) && (f.terminal(excess) == EServiceStatus::busy)));
+    for (const auto acquisition : acquisitions)
+    {
+        TEST_EXPECT(ctx, (f.terminal(acquisition) == EServiceStatus::success));
+    }
+    TEST_EXPECT(ctx, ((f.clock.time == 100u) && (f.native.created == 1u) && !f.runtime->failed()));
 }
 
 void deadlines_and_partial_failure(TTestContext& ctx)
@@ -423,22 +459,26 @@ void deadlines_and_partial_failure(TTestContext& ctx)
         f.native.fail_create = true;
         const auto failed = f.submit(EWindowCommand::create_window);
         f.step(); f.step();
-        TEST_EXPECT(ctx, (f.terminal(failed) == EServiceStatus::native_failure) && !f.prepared(failed).borrow.value);
-        TEST_EXPECT(ctx, (f.native.created == 1u) && (f.native.destroyed == 1u));
+        TEST_EXPECT(ctx, ((f.terminal(failed) == EServiceStatus::native_failure) && !f.prepared(failed).borrow.value));
+        TEST_EXPECT(ctx, ((f.native.created == 1u) && (f.native.destroyed == 1u)));
     }
     {
         SFixture f{ ctx };
         const auto acquisition = f.submit(EWindowCommand::create_window);
         f.step();
         const auto prepared = f.prepared(acquisition);
-        if (!prepared.view.descriptor) { TEST_EXPECT(ctx, false); return; }
+        if (!prepared.view.descriptor)
+        {
+            TEST_EXPECT(ctx, false);
+            return;
+        }
         const auto window = static_cast<const SWindowViewV1*>(prepared.view.descriptor)->window;
         const auto registration = f.registration(prepared);
         f.clock.time += 5000000000u;
         const auto late = f.submit(EWindowCommand::window_ready, SWindowReady{ window, prepared.borrow, registration.registration });
         f.step();
-        TEST_EXPECT(ctx, (f.terminal(acquisition) == EServiceStatus::timed_out) && (f.terminal(late) == EServiceStatus::closing));
-        TEST_EXPECT(ctx, !f.native.destroyed && (platform::runtime::SPlatformTestAccess::uses(*f.runtime) == 1u));
+        TEST_EXPECT(ctx, ((f.terminal(acquisition) == EServiceStatus::timed_out) && (f.terminal(late) == EServiceStatus::closing)));
+        TEST_EXPECT(ctx, (!f.native.destroyed && (platform::runtime::SPlatformTestAccess::uses(*f.runtime) == 1u)));
     }
     {
         SFixture f{ ctx };
@@ -452,7 +492,7 @@ void deadlines_and_partial_failure(TTestContext& ctx)
         f.step();
         f.completion_busy = false;
         f.step();
-        TEST_EXPECT(ctx, (f.terminal(acquisition) == EServiceStatus::success) && (f.native.created == 1u));
+        TEST_EXPECT(ctx, ((f.terminal(acquisition) == EServiceStatus::success) && (f.native.created == 1u)));
     }
 }
 
@@ -467,11 +507,11 @@ void controller_departure_and_cancel(TTestContext& ctx)
         f.client.incoming_drained = f.client.terminal_before_drain = true;
         f.router.retire_client(f.client);
         f.step(); f.step();
-        TEST_EXPECT(ctx, !f.native.destroyed && (platform::runtime::SPlatformTestAccess::uses(*f.runtime) == 1u));
+        TEST_EXPECT(ctx, (!f.native.destroyed && (platform::runtime::SPlatformTestAccess::uses(*f.runtime) == 1u)));
         const auto prepared = f.prepared(acquisition);
         SWindowSnapshot snapshot;
-        TEST_EXPECT(ctx, prepared.view.descriptor && (static_cast<const SWindowViewV1*>(prepared.view.descriptor)->state->read(snapshot) == EWindowRead::success));
-        TEST_EXPECT(ctx, snapshot.phase == EWindowPhase::closing);
+        TEST_EXPECT(ctx, (prepared.view.descriptor && (static_cast<const SWindowViewV1*>(prepared.view.descriptor)->state->read(snapshot) == EWindowRead::success)));
+        TEST_EXPECT(ctx, (snapshot.phase == EWindowPhase::closing));
     }
     {
         SFixture f{ ctx };
@@ -480,9 +520,9 @@ void controller_departure_and_cancel(TTestContext& ctx)
         const auto prepared = f.prepared(acquisition);
         f.router.cancel_request(f.client, { f.route, { acquisition } });
         f.step();
-        TEST_EXPECT(ctx, (f.terminal(acquisition) == EServiceStatus::cancelled) && !f.native.destroyed);
+        TEST_EXPECT(ctx, ((f.terminal(acquisition) == EServiceStatus::cancelled) && !f.native.destroyed));
         f.release(prepared); f.step(); f.step();
-        TEST_EXPECT(ctx, f.native.destroyed == 1u);
+        TEST_EXPECT(ctx, (f.native.destroyed == 1u));
     }
 }
 
@@ -493,20 +533,24 @@ void shared_slice_and_loss(TTestContext& ctx)
     f.step();
     f.ready(acquisition); f.step();
     const auto prepared = f.prepared(acquisition);
-    if (!prepared.view.descriptor) { TEST_EXPECT(ctx, false); return; }
+    if (!prepared.view.descriptor)
+    {
+        TEST_EXPECT(ctx, false);
+        return;
+    }
     const auto window = static_cast<const SWindowViewV1*>(prepared.view.descriptor)->window;
     f.native.dispatch_cost = 2000000u;
     const auto close = f.submit(EWindowCommand::request_close, SWindowRequest{ window });
     f.step(); // Native-first slice consumes the available time.
-    TEST_EXPECT(ctx, (f.last_commands == 0u) && (f.terminal(close) == EServiceStatus::unavailable));
+    TEST_EXPECT(ctx, ((f.last_commands == 0u) && (f.terminal(close) == EServiceStatus::unavailable)));
     f.step(); // Alternation lets the FIFO command run before the next native batch.
-    TEST_EXPECT(ctx, (f.last_commands == 1u) && (f.terminal(close) == EServiceStatus::success));
+    TEST_EXPECT(ctx, ((f.last_commands == 1u) && (f.terminal(close) == EServiceStatus::success)));
     f.runtime->native_failure(1400u); // Unexpected established HWND loss.
     SWindowSnapshot snapshot;
-    TEST_EXPECT(ctx, static_cast<const SWindowViewV1*>(prepared.view.descriptor)->state->read(snapshot) == EWindowRead::failed);
-    TEST_EXPECT(ctx, (snapshot.phase == EWindowPhase::closing) && (snapshot.failure == 1400u));
+    TEST_EXPECT(ctx, (static_cast<const SWindowViewV1*>(prepared.view.descriptor)->state->read(snapshot) == EWindowRead::failed));
+    TEST_EXPECT(ctx, ((snapshot.phase == EWindowPhase::closing) && (snapshot.failure == 1400u)));
     f.step();
-    TEST_EXPECT(ctx, !f.native.destroyed && (platform::runtime::SPlatformTestAccess::uses(*f.runtime) == 1u));
+    TEST_EXPECT(ctx, (!f.native.destroyed && (platform::runtime::SPlatformTestAccess::uses(*f.runtime) == 1u)));
 }
 
 void command_slice_and_failure_retention(TTestContext& ctx)
@@ -516,17 +560,21 @@ void command_slice_and_failure_retention(TTestContext& ctx)
         const auto first = f.submit(EWindowCommand::create_window);
         f.step();
         const auto prepared = f.prepared(first);
-        if (!prepared.view.descriptor) { TEST_EXPECT(ctx, false); return; }
+        if (!prepared.view.descriptor)
+        {
+            TEST_EXPECT(ctx, false);
+            return;
+        }
         const auto window = static_cast<const SWindowViewV1*>(prepared.view.descriptor)->window;
         const auto second = f.submit(EWindowCommand::acquire_window, SWindowRequest{ window });
         f.step();
         f.ready(first); f.ready(second);
         f.binding_cost = 2000000u;
         f.step();
-        TEST_EXPECT(ctx, (f.last_commands == 1u) && (f.terminal(first) == EServiceStatus::success) && (f.terminal(second) == EServiceStatus::unavailable));
+        TEST_EXPECT(ctx, ((f.last_commands == 1u) && (f.terminal(first) == EServiceStatus::success) && (f.terminal(second) == EServiceStatus::unavailable)));
         const auto dispatches = f.native.dispatches;
         f.step();
-        TEST_EXPECT(ctx, (f.last_commands == 1u) && (f.terminal(second) == EServiceStatus::success) && (f.native.dispatches == dispatches));
+        TEST_EXPECT(ctx, ((f.last_commands == 1u) && (f.terminal(second) == EServiceStatus::success) && (f.native.dispatches == dispatches)));
     }
     {
         SFixture f{ ctx };
@@ -535,8 +583,8 @@ void command_slice_and_failure_retention(TTestContext& ctx)
         const auto prepared = f.prepared(acquisition);
         f.clock.failed = true;
         f.step();
-        TEST_EXPECT(ctx, f.runtime->failed() && !f.runtime->stopped() && !f.native.destroyed);
-        TEST_EXPECT(ctx, platform::runtime::SPlatformTestAccess::uses(*f.runtime) == 1u);
+        TEST_EXPECT(ctx, (f.runtime->failed() && !f.runtime->stopped() && !f.native.destroyed));
+        TEST_EXPECT(ctx, (platform::runtime::SPlatformTestAccess::uses(*f.runtime) == 1u));
         f.clock.failed = false; // Restore the deterministic clock for explicit test cleanup.
         f.release(prepared);
     }
@@ -547,8 +595,8 @@ void command_slice_and_failure_retention(TTestContext& ctx)
         const auto prepared = f.prepared(acquisition);
         f.native.fail_destroy = true;
         f.release(prepared); f.step(); f.step();
-        TEST_EXPECT(ctx, f.runtime->failed() && !f.runtime->stopped() && !f.native.destroyed &&
-            (platform::runtime::SPlatformTestAccess::uses(*f.runtime) == 0u));
+        TEST_EXPECT(ctx, (f.runtime->failed() && !f.runtime->stopped() && !f.native.destroyed &&
+            (platform::runtime::SPlatformTestAccess::uses(*f.runtime) == 0u)));
         f.native.fail_destroy = false;
         platform::runtime::SPlatformTestAccess::permit_test_cleanup_retry(*f.runtime);
     }
@@ -560,7 +608,11 @@ void notification_pressure(TTestContext& ctx)
     const auto acquisition = f.submit(EWindowCommand::create_window);
     f.step(); f.ready(acquisition); f.step();
     const auto prepared = f.prepared(acquisition);
-    if (!prepared.view.descriptor) { TEST_EXPECT(ctx, false); return; }
+    if (!prepared.view.descriptor)
+    {
+        TEST_EXPECT(ctx, false);
+        return;
+    }
     const auto& view = *static_cast<const SWindowViewV1*>(prepared.view.descriptor);
     const auto registration = f.registration(prepared);
     registration.reader.clear_pending();
@@ -569,41 +621,37 @@ void notification_pressure(TTestContext& ctx)
     while (f.client.post(filler)) {}
     f.runtime->native_close();
     SWindowSnapshot snapshot;
-    TEST_EXPECT(ctx, registration.reader.pending() && (view.state->read(snapshot) == EWindowRead::success) &&
-        (snapshot.phase == EWindowPhase::close_pending));
+    TEST_EXPECT(ctx, (registration.reader.pending() && (view.state->read(snapshot) == EWindowRead::success) &&
+        (snapshot.phase == EWindowPhase::close_pending)));
     registration.reader.clear_pending();
-    TEST_EXPECT(ctx, (view.state->read(snapshot) == EWindowRead::success) && (snapshot.close_request == 1u));
+    TEST_EXPECT(ctx, ((view.state->read(snapshot) == EWindowRead::success) && (snapshot.close_request == 1u)));
     f.router.release_borrow(f.client, { f.route, prepared.borrow });
     f.step();
-    TEST_EXPECT(ctx, !f.native.destroyed && !f.router.provider_borrows_retired(f.provider));
-    f.client.consume_messages(f.client.message_count + f.client.control_count, f.client.control_count);
+    TEST_EXPECT(ctx, (!f.native.destroyed && !f.router.provider_borrows_retired(f.provider)));
+    f.client.consume_messages((f.client.message_count + f.client.control_count), f.client.control_count);
     f.router.quiesce_borrow(f.client, { f.route, prepared.borrow });
     f.step(); f.step();
-    TEST_EXPECT(ctx, (f.native.destroyed == 1u) && f.router.provider_borrows_retired(f.provider));
+    TEST_EXPECT(ctx, ((f.native.destroyed == 1u) && f.router.provider_borrows_retired(f.provider)));
 }
 
-void unavailable_tests_under_pressure(TTestContext& ctx)
+void unsupported_completions_under_pressure(TTestContext& ctx)
 {
     SFixture f{ ctx };
-    f.post_busy = true;
-    for (const std::int32_t slot : { 18, 19 })
-        TEST_EXPECT(ctx, f.provider.post(threading::make_pod_message(slot, modules::RunTestsRequest{ module_ids::platform })));
+    f.completion_busy = true;
+    const auto first = f.submit(static_cast<EWindowCommand>(65535u));
+    const auto second = f.submit(static_cast<EWindowCommand>(65535u));
     f.step();
-    TEST_EXPECT(ctx, (f.posted_count == 0u) && (f.provider.control_count == 1u));
+    TEST_EXPECT(ctx, ((f.client.message_count == 2u) && (f.client.reserved_replies == 2u)));
     modules::SProgress progress;
     f.runtime->begin_stop(progress);
-    TEST_EXPECT(ctx, !f.runtime->stopped() && (progress.phase == modules::EPumpPhase::stopping));
+    TEST_EXPECT(ctx, (!f.runtime->stopped() && (progress.phase == modules::EPumpPhase::stopping)));
     f.step();
-    TEST_EXPECT(ctx, (f.posted_count == 0u) && (f.provider.control_count == 1u) && !f.runtime->stopped());
-    f.post_busy = false;
+    TEST_EXPECT(ctx, ((f.client.message_count == 2u) && (f.client.reserved_replies == 2u) && !f.runtime->stopped()));
+    f.completion_busy = false;
     f.step();
-    TEST_EXPECT(ctx, (f.posted_count == 2u) && !f.provider.control_count && f.runtime->stopped());
-    for (unsigned index = 0u; index < f.posted_count; ++index)
-    {
-        modules::RunTestsResult result;
-        TEST_EXPECT(ctx, f.posted[index].copy_payload_to(result) && (f.posted[index].query_async_slot() == (18 + static_cast<std::int32_t>(index))) &&
-            (result.module == module_ids::platform) && (result.status == modules::ETestRunStatus::unavailable) && !result.passed && !result.failed);
-    }
+    TEST_EXPECT(ctx, ((f.client.message_count == 4u) && !f.client.reserved_replies && f.runtime->stopped()));
+    TEST_EXPECT(ctx, ((f.terminal(first) == EServiceStatus::unsupported) && (f.terminal(second) == EServiceStatus::unsupported)));
+    TEST_EXPECT(ctx, !f.native.created);
 }
 
 #if MV_PLATFORM_WINDOWS
@@ -617,7 +665,10 @@ struct SNativeDriver
     {
         auto& driver = *static_cast<SNativeDriver*>(context);
         const auto start = GetTickCount64();
-        while (!driver.fixture->native_modes.load() && ((GetTickCount64() - start) < 3000u)) Sleep(1u);
+        while (!driver.fixture->native_modes.load() && ((GetTickCount64() - start) < 3000u))
+        {
+            Sleep(1u);
+        }
         if (!driver.fixture->native_modes.load())
         {
             driver.fallback.store(1u);
@@ -637,13 +688,19 @@ struct SNativeDriver
                 input.mi.dx = (index < 10u) ? 2 : -2;
                 input.mi.dy = (index < 10u) ? 1 : -1;
                 input.mi.dwFlags = MOUSEEVENTF_MOVE;
-                if (SendInput(1u, &input, sizeof(input)) == 1u) driver.moved.fetch_add(1u);
+                if (SendInput(1u, &input, sizeof(input)) == 1u)
+                {
+                    driver.moved.fetch_add(1u);
+                }
                 Sleep(10u);
             }
         }
         driver.fixture->cancel_requested.store(1u);
         const auto stopping = GetTickCount64();
-        while (!driver.finished.load() && ((GetTickCount64() - stopping) < 2000u)) Sleep(1u);
+        while (!driver.finished.load() && ((GetTickCount64() - stopping) < 2000u))
+        {
+            Sleep(1u);
+        }
         if (!driver.finished.load())
         {
             driver.fallback.store(1u);
@@ -662,50 +719,53 @@ static bool native_loss_dispatch(platform::native::SWindow& window, const std::u
 void actual_native_window(TTestContext& ctx, const unsigned scenario)
 {
     auto adapter = platform::native::window_adapter();
-    if (scenario == 4u) adapter.dispatch = &native_loss_dispatch;
+    if (scenario == 4u)
+    {
+        adapter.dispatch = &native_loss_dispatch;
+    }
     SFixture f{ ctx, adapter };
     f.clock.realtime = true;
     const auto acquisition = f.submit(EWindowCommand::create_window);
     f.step();
     const auto prepared = f.prepared(acquisition);
-    TEST_EXPECT(ctx, prepared.view.descriptor != nullptr);
+    TEST_EXPECT(ctx, (prepared.view.descriptor != nullptr));
     if (!prepared.view.descriptor) return;
     const auto& view = *static_cast<const SWindowViewV1*>(prepared.view.descriptor);
     const auto handle = reinterpret_cast<HWND>(view.native_window);
-    TEST_EXPECT(ctx, view.is_valid() && IsWindow(handle) &&
-        AreDpiAwarenessContextsEqual(GetWindowDpiAwarenessContext(handle), DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2));
+    TEST_EXPECT(ctx, (view.is_valid() && IsWindow(handle) &&
+        AreDpiAwarenessContextsEqual(GetWindowDpiAwarenessContext(handle), DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)));
     RECT client{}, outer{};
     MONITORINFO monitor{};
     monitor.cbSize = sizeof(monitor);
-    TEST_EXPECT(ctx, GetClientRect(handle, &client) && GetWindowRect(handle, &outer) &&
-        GetMonitorInfoW(MonitorFromWindow(handle, MONITOR_DEFAULTTONEAREST), &monitor));
+    TEST_EXPECT(ctx, (GetClientRect(handle, &client) && GetWindowRect(handle, &outer) &&
+        GetMonitorInfoW(MonitorFromWindow(handle, MONITOR_DEFAULTTONEAREST), &monitor)));
     SWindowSnapshot snapshot;
-    TEST_EXPECT(ctx, view.state->read(snapshot) == EWindowRead::success);
-    TEST_EXPECT(ctx, (snapshot.pixel_width == static_cast<unsigned>(client.right)) && (snapshot.pixel_height == static_cast<unsigned>(client.bottom)));
-    TEST_EXPECT(ctx, (snapshot.logical_width <= 1280u) && (snapshot.logical_height <= 720u) &&
-        (outer.left >= monitor.rcWork.left) && (outer.top >= monitor.rcWork.top) && (outer.right <= monitor.rcWork.right) && (outer.bottom <= monitor.rcWork.bottom));
+    TEST_EXPECT(ctx, (view.state->read(snapshot) == EWindowRead::success));
+    TEST_EXPECT(ctx, ((snapshot.pixel_width == static_cast<unsigned>(client.right)) && (snapshot.pixel_height == static_cast<unsigned>(client.bottom))));
+    TEST_EXPECT(ctx, ((snapshot.logical_width <= 1280u) && (snapshot.logical_height <= 720u) &&
+        (outer.left >= monitor.rcWork.left) && (outer.top >= monitor.rcWork.top) && (outer.right <= monitor.rcWork.right) && (outer.bottom <= monitor.rcWork.bottom)));
     f.ready(acquisition);
     if (scenario == 4u)
     {
         f.step();
-        TEST_EXPECT(ctx, !IsWindow(handle) && (view.state->read(snapshot) == EWindowRead::failed) && (snapshot.phase == EWindowPhase::closing));
-        TEST_EXPECT(ctx, platform::runtime::SPlatformTestAccess::uses(*f.runtime) == 1u);
+        TEST_EXPECT(ctx, (!IsWindow(handle) && (view.state->read(snapshot) == EWindowRead::failed) && (snapshot.phase == EWindowPhase::closing)));
+        TEST_EXPECT(ctx, (platform::runtime::SPlatformTestAccess::uses(*f.runtime) == 1u));
         f.release(prepared);
         return;
     }
     f.step();
-    TEST_EXPECT(ctx, f.terminal(acquisition) == EServiceStatus::success);
+    TEST_EXPECT(ctx, (f.terminal(acquisition) == EServiceStatus::success));
     if (scenario == 0u)
     {
         (void)PostMessageW(handle, WM_CLOSE, 0u, 0);
         f.step();
-        TEST_EXPECT(ctx, (view.state->read(snapshot) == EWindowRead::success) && (snapshot.phase == EWindowPhase::close_pending));
+        TEST_EXPECT(ctx, ((view.state->read(snapshot) == EWindowRead::success) && (snapshot.phase == EWindowPhase::close_pending)));
         (void)f.submit(EWindowCommand::answer_close, SAnswerClose{ view.window, snapshot.close_request, 0u, 0u });
         f.step();
-        TEST_EXPECT(ctx, IsWindow(handle) && (view.state->read(snapshot) == EWindowRead::success) && (snapshot.phase == EWindowPhase::open));
+        TEST_EXPECT(ctx, (IsWindow(handle) && (view.state->read(snapshot) == EWindowRead::success) && (snapshot.phase == EWindowPhase::open)));
         (void)PostMessageW(handle, WM_CLOSE, 0u, 0);
         f.step();
-        TEST_EXPECT(ctx, (view.state->read(snapshot) == EWindowRead::success) && (snapshot.close_request == 2u));
+        TEST_EXPECT(ctx, ((view.state->read(snapshot) == EWindowRead::success) && (snapshot.close_request == 2u)));
         (void)f.submit(EWindowCommand::answer_close, SAnswerClose{ view.window, snapshot.close_request, 1u, 0u });
         f.step();
     }
@@ -720,7 +780,7 @@ void actual_native_window(TTestContext& ctx, const unsigned scenario)
         //  Use the system-menu Move command. The HTCAPTION variant assumes a
         //  physically held left button and can return without entering a loop.
         const WPARAM command = (scenario == 3u) ? SC_KEYMENU : ((scenario == 2u) ? (SC_SIZE + WMSZ_BOTTOMRIGHT) : SC_MOVE);
-        TEST_EXPECT(ctx, PostMessageW(handle, WM_SYSCOMMAND, command, (scenario == 3u) ? VK_SPACE : 0));
+        TEST_EXPECT(ctx, PostMessageW(handle, WM_SYSCOMMAND, command, ((scenario == 3u) ? VK_SPACE : 0)));
         const auto start = GetTickCount64();
         while (!f.cancel_requested.load() && ((GetTickCount64() - start) < 4000u))
         {
@@ -731,8 +791,11 @@ void actual_native_window(TTestContext& ctx, const unsigned scenario)
         TEST_EXPECT(ctx, thread.join_and_close());
         std::printf("Platform native scenario %u: modes=%u fallback=%u maintenance=%u moved=%u\n", scenario,
             f.native_modes.load(), driver.fallback.load(), f.maintenance_calls.load(), driver.moved.load());
-        TEST_EXPECT(ctx, f.native_modes.load() && !driver.fallback.load() && (f.maintenance_calls.load() >= 5u));
-        if (driver.continuous) TEST_EXPECT(ctx, driver.moved.load() == 20u);
+        TEST_EXPECT(ctx, (f.native_modes.load() && !driver.fallback.load() && (f.maintenance_calls.load() >= 5u)));
+        if (driver.continuous)
+        {
+            TEST_EXPECT(ctx, (driver.moved.load() == 20u));
+        }
         TEST_EXPECT(ctx, !f.restrictions.active());
     }
     TEST_EXPECT(ctx, IsWindow(handle)); // Live use still owns native dependencies.
@@ -760,7 +823,10 @@ struct SPlatformHostTestAccess
         void** const value, modules::SProgress* const progress) noexcept
     {
         if (!current->value.emplace(*context, SNative::adapter()) || !current->value->initialise() ||
-            !platform::runtime::SPlatformTestAccess::seed_released_native_window(*current->value)) return modules::ECallStatus::failed;
+            !platform::runtime::SPlatformTestAccess::seed_released_native_window(*current->value))
+        {
+            return modules::ECallStatus::failed;
+        }
         *value = current;
         progress->phase = modules::EPumpPhase::ready;
         return modules::ECallStatus::success;
@@ -780,7 +846,10 @@ struct SPlatformHostTestAccess
     static modules::ECallStatus MV_STD_ABI_CALL deactivate(void* const value) noexcept
     {
         auto& frame = *static_cast<SFrame*>(value);
-        if (!frame.value->stopped()) return modules::ECallStatus::failed;
+        if (!frame.value->stopped())
+        {
+            return modules::ECallStatus::failed;
+        }
         frame.value.reset();
         frame.deactivated = true;
         return modules::ECallStatus::success;
@@ -805,15 +874,15 @@ struct SPlatformHostTestAccess
         auto& adapter = *host.m_pumps[index];
         TEST_EXPECT(ctx, adapter.initialise());
         adapter.activate();
-        TEST_EXPECT(ctx, adapter.ready() && (native.created == 1u) && !native.destroyed);
+        TEST_EXPECT(ctx, (adapter.ready() && (native.created == 1u) && !native.destroyed));
         host.m_emergency_shutdown = true;
         host.m_maintenance.poll_stop();
         TEST_EXPECT(ctx, host.m_maintenance.stop_requested());
         adapter.request_stop(modules::EStopReason::shutdown);
         adapter.pump();
-        TEST_EXPECT(ctx, adapter.stopped() && !adapter.failed() && (native.destroyed == 1u) && (native.callbacks == 2u));
+        TEST_EXPECT(ctx, (adapter.stopped() && !adapter.failed() && (native.destroyed == 1u) && (native.callbacks == 2u)));
         TEST_EXPECT(ctx, !host.m_maintenance.restrictions().active());
-        TEST_EXPECT(ctx, adapter.deactivate() && frame.deactivated);
+        TEST_EXPECT(ctx, (adapter.deactivate() && frame.deactivated));
         client.terminal_before_drain = client.incoming_drained = true;
         TEST_EXPECT(ctx, client.retire_host_execution(true));
         host.m_pumps[index].reset();
@@ -833,7 +902,7 @@ void run_platform_window_tests(tests::TTestContext& ctx)
     shared_slice_and_loss(ctx);
     command_slice_and_failure_retention(ctx);
     notification_pressure(ctx);
-    unavailable_tests_under_pressure(ctx);
+    unsupported_completions_under_pressure(ctx);
     host::SPlatformHostTestAccess::shutdown_scope(ctx);
 }
 
@@ -848,7 +917,10 @@ int run_platform_native_tests()
 {
 #if MV_PLATFORM_WINDOWS
     tests::TTestContext ctx;
-    for (unsigned scenario = 0u; scenario < 5u; ++scenario) actual_native_window(ctx, scenario);
+    for (unsigned scenario = 0u; scenario < 5u; ++scenario)
+    {
+        actual_native_window(ctx, scenario);
+    }
     return ctx.report("PlatformNative");
 #else
     return 2;

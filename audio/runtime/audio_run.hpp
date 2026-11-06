@@ -9,6 +9,7 @@
 //  Service-owned finite run, with device and clock seams for hardware-free tests.
 
 #pragma once
+#include "framework/communications/module_tests.hpp"
 #include "module/module_messages.hpp"
 #include "tone_test.hpp"
 #include "platform/threading/wait_deadline.hpp"
@@ -30,8 +31,8 @@ public:
 struct SRunClock
 {
     void* context{ nullptr };
-    platform::threading::WaitError (*set)(void*, threading::CWaitDeadline&, std::uint64_t) noexcept;
-    platform::threading::WaitError (*remaining)(void*, const threading::CWaitDeadline&, std::uint64_t&) noexcept;
+    platform::threading::WaitError (*set)(void* const, threading::CWaitDeadline&, std::uint64_t) noexcept;
+    platform::threading::WaitError (*remaining)(void* const, const threading::CWaitDeadline&, std::uint64_t&) noexcept;
 };
 
 SRunClock native_run_clock() noexcept;
@@ -39,7 +40,7 @@ SRunClock native_run_clock() noexcept;
 class CAudioRun
 {
 public:
-    explicit CAudioRun(IAudioOutput& output, SRunClock clock = native_run_clock()) noexcept : m_output{ output }, m_clock{ clock } {}
+    explicit CAudioRun(IAudioOutput& output, const SRunClock clock = native_run_clock()) noexcept : m_output{ output }, m_clock{ clock } {}
     ~CAudioRun() noexcept;
     CAudioRun(const CAudioRun&) = delete;
     CAudioRun& operator=(const CAudioRun&) = delete;
@@ -52,7 +53,7 @@ public:
     [[nodiscard]] const threading::CWaitDeadline& next_wait() const noexcept { return m_wait; }
 
 private:
-    bool set(threading::CWaitDeadline& deadline, std::uint64_t milliseconds) noexcept;
+    bool set(threading::CWaitDeadline& deadline, const std::uint64_t milliseconds) noexcept;
     bool remaining(const threading::CWaitDeadline& deadline, std::uint64_t& value) noexcept;
     void finish(modules::ETestRunStatus status) noexcept;
     IAudioOutput& m_output;

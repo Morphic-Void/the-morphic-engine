@@ -95,6 +95,7 @@ public:
     bool read(CErasedPodMsg& msg) noexcept;
     bool post(const CErasedPodMsg& msg) noexcept;
     bool post(CErasedOwnerMsg&& msg) noexcept;
+    [[nodiscard]] bool pod_submission_poisoned() const noexcept { return m_resources.worker_to_host_msgs.posting_poisoned(); }
 
 private:
     CThreadResources& m_resources;
@@ -112,6 +113,8 @@ public:
     [[nodiscard]] bool install_host_execution(modules::SHostExecutionContext& view, CNotification& notification) noexcept;
     //  Host proves final drain, including deferred work, before retiring its pin.
     bool retire_host_execution() noexcept;
+    //  Owner-thread proof only; retains transports, wait control and all pins.
+    [[nodiscard]] bool join_terminated_execution() noexcept;
     //  Owner-thread only. Release after all readers AND signal calls are quiescent.
     [[nodiscard]] bool pin_notification(CNotification& notification) noexcept;
     void unpin_notification() noexcept;
@@ -120,6 +123,7 @@ public:
     bool read(CErasedPodMsg& msg) noexcept;
     bool post(const CErasedPodMsg& msg) noexcept;
     bool read(CErasedOwnerMsg& msg) noexcept;
+    [[nodiscard]] bool pod_delivery_poisoned() const noexcept { return m_resources.host_to_worker_msgs.posting_poisoned(); }
     [[nodiscard]] bool capture(CErasedOwnerMsg& msg) noexcept { return m_resources.worker_to_host_owned_msgs.capture(msg); }
     [[nodiscard]] bool post_without_growth(const CErasedPodMsg& msg) noexcept
     {
@@ -143,6 +147,7 @@ private:
     bool m_host_pinned{ false };
 #if defined(MV_HOST_RUNTIME_TESTS)
     friend struct SThreadPackageTestAccess;
+    friend struct SDirectConnectionTestAccess;
     bool m_test_fail_join{ false };
     bool m_test_reject_create{ false };
 #endif
@@ -265,7 +270,8 @@ inline void CThreadPackage::request_exit() noexcept
 {
     m_resources.control_state.request_exit();
     if (m_resources.wait_predicate.has_control())
-    {   //  Failed startup has already released the wait predicate and joined the thread.
+    {
+        //  Failed startup has already released the wait predicate and joined the thread.
         (void)m_resources.wait_predicate.poke_epoch_and_wake_one();
     }
 }

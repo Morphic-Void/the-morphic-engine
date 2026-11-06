@@ -15,7 +15,8 @@ validated this implementation.
 ## Implemented boundary
 
 `MorphicAudio` is a bootstrap-v3 module with one service thread. Loading it leaves
-the device closed. A generic `RunTestsRequest` opens the default real output and
+the device closed. A `RunTestsRequest` on the Executive/Audio direct connection
+opens the default real output and
 plays middle C as float stereo: two seconds fading up, one second at peak 0.1,
 two seconds fading down, then 250 ms of silence before stopping. The callback
 fills every requested frame and publishes bounded atomic progress. Device
@@ -28,6 +29,12 @@ message wakeups do not renew either budget. Message drains are bounded. Clock
 construction, query and wait errors fail the run. Cancellation does not depend
 on another callback. All vendor execution is stopped before completion or a
 terminal service state is published.
+
+As of 5 November 2026, [direct POD connections](direct_pod_connections.md) carry
+test requests/results through Host-owned growable queues. Host handles connection
+controls, not test payloads. Normal runs consume their result before closing;
+unload and shutdown cancel unfinished work and wait for device cleanup before
+endpoint quiescence. The initial validation record below predates this migration.
 
 Executive runs Rendering, then Audio, then the existing acceptance flow. Its
 generic module-test watchdog uses a 30-second awake-time deadline. Audio success
