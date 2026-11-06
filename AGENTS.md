@@ -23,12 +23,233 @@ newline.
 `tools/check_line_endings.ps1` enforces the CRLF working-tree form while
 allowing the missing final newline for these Visual Studio-managed files.
 
-## Source file opening
+## Source file opening and header comments
 
 Begin repository-owned `.cpp` and `.hpp` files, including test sources and
 headers, with a blank line before the top-of-file comment. This is an intentional
 manual-editing convention; preserve it when creating or updating these files.
 This leading-blank-line rule applies only to `.cpp` and `.hpp` files.
+
+Use a header made from `//` comments, arranged as follows:
+
+1. Copyright and licence notice.
+2. Blank comment line.
+3. File name, authorship or implementation/review credits, and date.
+4. Blank comment line.
+5. Brief explanation of the file's purpose.
+
+For the main codebase, normally use
+`Authors: Ritchie Brannan / OpenAI Codex`. Sole authorship is appropriate where
+it reflects the actual input; when uncertain, default to crediting both.
+
+For test code, normally use these credits:
+
+```cpp
+//  Primary implementation: OpenAI Codex
+//  Reviewed and accepted by: Ritchie Brannan
+```
+
+Joint authorship remains appropriate for test code where it reflects the actual
+input.
+
+`Date:` normally records the file's creation date. Preserve it during routine
+edits. Update it only for a particularly significant revision to the file's
+content; it is not a last-modified timestamp. Use `DD Mon YY` for new dates,
+without requiring existing dates to be reformatted.
+
+Example main-code header, including the leading blank line:
+
+```cpp
+
+//  Copyright (c) 2026 Ritchie Brannan / Morphic Void Limited
+//  License: MIT (see LICENSE file in repository root)
+//
+//  File:    example.cpp
+//  Authors: Ritchie Brannan / OpenAI Codex
+//  Date:    06 Nov 26
+//
+//  Brief explanation of the file's purpose.
+```
+
+## Function parameter const qualification
+
+Use `const` aggressively for function parameters that the function does not
+mutate. Apply it at the appropriate level: to a value parameter, to the pointer
+itself, and/or to the referenced or pointed-to object.
+
+Keep parameter `const` qualification consistent between declarations and
+definitions, including top-level `const` that C++ does not require to match.
+
+For example:
+
+```cpp
+void process(const int count, const SInput& input, SOutput* const output);
+```
+
+Here, `count` and `input` cannot be modified, and `output` cannot be reassigned,
+though the output object remains mutable. Repeat the same qualifiers in the
+definition.
+
+For pointer parameters:
+
+- `const T*` prevents modification of the pointed-to object through the pointer.
+- `T* const` prevents reassignment of the pointer.
+- `const T* const` applies both restrictions.
+
+## Expression parenthesising
+
+Use parentheses to make operator precedence explicit and to separate
+expressions visually.
+
+In comma-separated lists and conditions joined by `&&` or `||`, parenthesise
+individual items that contain operations. Parenthesise a ternary's condition
+when it contains operations, and parenthesise the entire ternary when it
+appears as an item in either context.
+
+Avoid redundant parentheses. A single function argument needs no additional
+outer parentheses, and neither does the complete right-hand side of a simple
+assignment. Parentheses within those expressions should still make precedence
+explicit. Do not add a second pair when an existing pair already serves both
+precedence and visual separation.
+
+Examples:
+
+```cpp
+result = a + (b * c);
+
+process((a + b), (c * d));
+process(a + b);
+
+if ((a == b) && (c < d))
+{
+}
+
+result = (a == b) ? x : y;
+process(((a == b) ? x : y), other);
+process((a == b) ? x : y);
+
+if (((a == b) ? x : y) && ready)
+{
+}
+```
+
+## Visibility of control flow
+
+Make conditional `break`, `continue`, and `return` statements easy to see.
+A short, simple condition may place the flow-control statement on the same
+line without braces.
+
+When that line extends beyond roughly column 60, or the condition is compound
+or spans multiple lines, expand the statement into a braced block. Put the
+opening brace, flow-control statement, and closing brace on separate lines.
+
+Column 60 is a readability guideline, not a strict line-length limit.
+
+Examples:
+
+```cpp
+if (done) return;
+if (skip) continue;
+
+if ((state == EState::ready) && (remaining == 0))
+{
+    break;
+}
+
+if (request_requires_additional_processing(request))
+{
+    return;
+}
+
+if ((state == EState::ready) &&
+    (remaining == 0))
+{
+    return;
+}
+```
+
+## Switch statements
+
+Normally give each `case` and `default` body its own braced scope, with the
+opening brace, statements, and closing brace on separate lines. Keep the
+terminating `break`, `continue`, or `return` inside that scope. Consecutive
+labels sharing one body share one scope.
+
+Compact, unbraced cases are acceptable for very simple conversions or direct
+mappings, such as an enum-to-string or format-to-size lookup. Prefer the
+expanded form when a case performs processing, changes state, or contains
+further control flow.
+
+Keep the style consistent throughout each `switch`. If any case requires the
+expanded, braced form, use that form for every case body, including `default`.
+Use compact cases only when the entire switch suits that style.
+
+Typical expanded form:
+
+```cpp
+switch (state)
+{
+    case EState::ready:
+    {
+        process();
+        break;
+    }
+    case EState::finished:
+    case EState::cancelled:
+    {
+        release();
+        return;
+    }
+    default:
+    {
+        break;
+    }
+}
+```
+
+Acceptable compact conversion:
+
+```cpp
+switch (format)
+{
+    case EFormat::gray8: return 1u;
+    case EFormat::rgba8: return 4u;
+    default: return 0u;
+}
+```
+
+## Comma-separated operations
+
+Avoid the comma operator for sequencing operations. Put separate operations
+in separate statements so each is easy to see. This applies throughout the
+code, including the iteration expression of a `for` loop.
+
+Ordinary commas separating function arguments, parameters, or initializer-list
+elements are unaffected.
+
+Instead of:
+
+```cpp
+for (int a = 1; a < 4; ++a, b = (a + 2))
+{
+    // Loop body.
+}
+```
+
+Make the operations explicit:
+
+```cpp
+for (int a = 1; a < 4;)
+{
+    // Loop body.
+
+    ++a;
+    b = a + 2;
+}
+```
+
+When restructuring a loop, preserve its execution order and account for any
+`continue` paths so its behaviour remains unchanged.
 
 ## Internal linkage and namespaces
 
